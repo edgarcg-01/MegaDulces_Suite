@@ -112,6 +112,8 @@ interface SalesIndicators {
   by_channel: IndicatorRow[]; by_entity: IndicatorRow[];
   data_as_of: string | null; real_available: boolean;
 }
+interface ReconAnnualRow { channel: string; channel_label: string; year: string; sell_out: number; facturacion: number; delta: number; ratio_pct: number | null; status: string }
+interface SalesReconciliation { annual: ReconAnnualRow[]; monthly: unknown[]; notes: string[]; data_as_of: string | null }
 
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
@@ -386,6 +388,35 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <p class="pres-hint"><span class="pi pi-info-circle"></span> Bloques de consolidación del reporte (CREC = crecimiento año vs año · PART = participación en el total), directo del sell-out del ODS. Reemplaza el seguimiento manual del Excel.</p>
               } @else if (loadingIndicators()) {
                 <p class="pres-muted">Cargando indicadores…</p>
+              }
+            }
+
+            <!-- ── CONCILIACIÓN (documentada) sell-out ↔ facturación contable 401 ── -->
+            @if (salesTab() === 'conciliacion') {
+              @if (reconciliation(); as rec) {
+                @if (rec.data_as_of) { <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="rec.data_as_of" [staleAfterSec]="86400" /><span class="pres-muted">Conciliación documental — el real del presupuesto sigue siendo el sell-out</span></div> }
+                <p-table [value]="rec.annual" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+                  <ng-template #header>
+                    <tr><th>Año</th><th>Canal</th><th class="ta-r">Sell-out</th><th class="ta-r">Facturación (401)</th><th class="ta-r">Δ</th><th class="ta-r">401/sell-out</th><th>Estado</th></tr>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr>
+                      <td class="pres-mono">{{ r.year }}</td>
+                      <td class="pres-muted">{{ r.channel_label }}</td>
+                      <td class="ta-r pres-mono">{{ money(r.sell_out) }}</td>
+                      <td class="ta-r pres-mono">{{ money(r.facturacion) }}</td>
+                      <td class="ta-r pres-mono" [class.pres-neg]="r.delta < 0">{{ money(r.delta) }}</td>
+                      <td class="ta-r pres-mono">{{ r.ratio_pct == null ? '—' : r.ratio_pct + '%' }}</td>
+                      <td><span class="ec-src ec-src-recon-{{ r.status }}">{{ statusLabel(r.status) }}</span></td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #emptymessage><tr><td colspan="7" class="pres-empty">Sin datos de conciliación.</td></tr></ng-template>
+                </p-table>
+                <div class="pres-recon-notes">
+                  @for (n of rec.notes; track n) { <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ n }}</p> }
+                </div>
+              } @else if (loadingReconciliation()) {
+                <p class="pres-muted">Cargando conciliación…</p>
               }
             }
           } @else {
@@ -816,6 +847,11 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-propose-tbl { width:100%; border-collapse:collapse; font-size:.82rem; margin:.4rem 0 .2rem; }
     .pres-propose-tbl th, .pres-propose-tbl td { padding:.3rem .4rem; border-bottom:1px solid var(--border); text-align:left; }
     .pres-growth-in { width:5rem; text-align:right; }
+    /* PVR — badges de estado de conciliación */
+    .ec-src-recon-concilia { color:var(--good-fg,#067647); border-color:color-mix(in srgb, var(--good-fg,#067647) 40%, transparent); }
+    .ec-src-recon-revisar { color:var(--bad-fg,#b42318); border-color:color-mix(in srgb, var(--bad-fg,#b42318) 40%, transparent); }
+    .ec-src-recon-sin_facturacion, .ec-src-recon-sin_sellout { color:var(--text-faint); border-style:dashed; }
+    .pres-recon-notes { margin-top:.6rem; }
   `],
 })
 export class FinanzasPresupuestoComponent implements OnInit {
@@ -899,12 +935,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
   genPlanVisible = false; savingGen = signal(false); genGrowthPct: number | null = 10; genOverwriteManual = false;
   metaEditVisible = false; savingMeta = signal(false); metaEditRow = signal<SalesRow | null>(null); metaEditAmount: number | null = null;
   // PVA — automatización
-  salesTab = signal<'plan' | 'indicadores'>('plan');
-  salesTabOpts = [{ label: 'Plan', value: 'plan' }, { label: 'Indicadores', value: 'indicadores' }];
+  salesTab = signal<'plan' | 'indicadores' | 'conciliacion'>('plan');
+  salesTabOpts = [{ label: 'Plan', value: 'plan' }, { label: 'Indicadores', value: 'indicadores' }, { label: 'Conciliación', value: 'conciliacion' }];
   proposeVisible = false; savingPropose = signal(false); loadingProposal = signal(false);
   growthRows = signal<GrowthEditRow[]>([]); proposeDefaultGrowth: number | null = 8; proposeOverwriteManual = false;
   proposal = signal<GrowthProposal | null>(null); lastCoverage = signal<ProposeCoverage | null>(null);
   indicators = signal<SalesIndicators | null>(null); loadingIndicators = signal(false);
+  reconciliation = signal<SalesReconciliation | null>(null); loadingReconciliation = signal(false);
 
   // ── Flujo de efectivo (PU.3) ──
   cashflow = signal<Cashflow | null>(null);
@@ -1215,7 +1252,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   // ── PVA — automatización (el sistema propone, el humano ajusta) ──
-  setSalesTab(t: 'plan' | 'indicadores'): void { this.salesTab.set(t); if (t === 'indicadores' && !this.indicators()) this.loadIndicators(); }
+  setSalesTab(t: 'plan' | 'indicadores' | 'conciliacion'): void {
+    this.salesTab.set(t);
+    if (t === 'indicadores' && !this.indicators()) this.loadIndicators();
+    if (t === 'conciliacion' && !this.reconciliation()) this.loadReconciliation();
+  }
+  statusLabel(s: string): string { return s === 'concilia' ? 'Concilia' : s === 'revisar' ? 'Revisar' : s === 'sin_facturacion' ? 'Sin facturación' : s === 'sin_sellout' ? 'Sin sell-out' : s; }
+  loadReconciliation(): void {
+    this.loadingReconciliation.set(true);
+    this.http.get<SalesReconciliation>(`${this.base}/sales-reconciliation`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.reconciliation.set(r); this.loadingReconciliation.set(false); },
+      error: (e) => { this.loadingReconciliation.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar la conciliación.' }); },
+    });
+  }
 
   methodLabel(m: string | null): string {
     return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';

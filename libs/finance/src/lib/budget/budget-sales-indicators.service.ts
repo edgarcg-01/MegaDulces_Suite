@@ -117,4 +117,57 @@ export class BudgetSalesIndicatorsService {
       };
     });
   }
+
+  /**
+   * Conciliación DOCUMENTADA sell-out ↔ facturación contable (cta 401). Transparencia, sin ajuste:
+   * el real del presupuesto sigue siendo el sell-out. Lidera con el grano ANUAL (donde reconcilia);
+   * el mensual es lumpy por los asientos contables y se muestra como detalle declarado.
+   */
+  async getReconciliation() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.v_sellout_vs_facturacion')
+        .where({ tenant_id: tenantId })
+        .orderBy([{ column: 'year_month', order: 'asc' }, { column: 'channel', order: 'asc' }]);
+
+      const CH = ['mostrador', 'credito', 'ruta', 'preventa'];
+      const label: Record<string, string> = { mostrador: 'Mostrador', credito: 'Mayoreo / Crédito', ruta: 'Ruta directa (RD)', preventa: 'Vecinal / Preventa' };
+      // agregado ANUAL por canal (Σ/Σ, no promedio de ratios)
+      const byCY = new Map<string, { channel: string; channel_label: string; year: string; sell_out: number; facturacion: number; months: number }>();
+      for (const r of rows) {
+        const year = String(r.year_month).slice(0, 4);
+        const k = `${r.channel}|${year}`;
+        const e = byCY.get(k) || { channel: r.channel, channel_label: label[r.channel] || r.channel, year, sell_out: 0, facturacion: 0, months: 0 };
+        e.sell_out += Number(r.sell_out); e.facturacion += Number(r.facturacion); e.months++;
+        byCY.set(k, e);
+      }
+      const annual = [...byCY.values()].map((e) => {
+        const ratio = e.sell_out > 0 ? e.facturacion / e.sell_out : null;
+        return {
+          channel: e.channel, channel_label: e.channel_label, year: e.year,
+          sell_out: round2(e.sell_out), facturacion: round2(e.facturacion),
+          delta: round2(e.facturacion - e.sell_out),
+          ratio_pct: ratio == null ? null : round2(ratio * 100),
+          status: e.sell_out <= 0 ? 'sin_sellout' : e.facturacion <= 0 ? 'sin_facturacion' : ratio! >= 0.8 && ratio! <= 1.7 ? 'concilia' : 'revisar',
+        };
+      }).sort((a, b) => a.year.localeCompare(b.year) || CH.indexOf(a.channel) - CH.indexOf(b.channel));
+
+      const monthly = rows.map((r) => ({
+        channel: r.channel, channel_label: label[r.channel] || r.channel, year_month: r.year_month,
+        sell_out: Number(r.sell_out), facturacion: Number(r.facturacion), ratio_pct: r.ratio_pct == null ? null : Number(r.ratio_pct), status: r.status,
+      }));
+
+      const fresh = await trx('analytics.v_sellout_daily').where({ tenant_id: tenantId }).max({ mx: 'business_date' }).first();
+      return {
+        annual, monthly,
+        notes: [
+          'El real del presupuesto es el SELL-OUT; esta conciliación es sólo documentación — no ajusta ni reescala cifras.',
+          'Facturación = cuenta contable 401 producto (PISO/MAYOREO/VECINAL/RD), excluye fletes (401-002).',
+          'Reconcilia a grano ANUAL: mostrador/credito/ruta caen en banda ~118-138% (el sell-out es el neto/parcial del bruto facturado). El grano mensual es lumpy por la irregularidad de los asientos contables.',
+          'Preventa NO reconcilia: el vecinal en 401-003 aparece como un asiento de jul-ago 2026 (~$17M en 2 meses), no como flujo parejo — anomalía contable declarada.',
+        ],
+        data_as_of: fresh?.mx ? new Date(fresh.mx).toISOString().slice(0, 10) : null,
+      };
+    });
+  }
 }

@@ -308,3 +308,25 @@ de la propuesta **rampa con la historia**; se declara la cobertura, «sin datos�
 
 **Pendiente global PVA:** verificación HTTP; migraciones `sales_plan_settings` + CHECK `estacional` a prod;
 push + redeploy. Declarado no construido: variables externas (por decisión del usuario), proyección plan→sales_targets.
+
+---
+
+## Fase PVR — Conciliación sell-out ↔ facturación (documentada · ADR-071)
+
+Se investigó usar el workbook 2018-2026 como base histórica y/o mover el real a facturación. **Medido:** el
+workbook no reconcilia (TLMKT infla PH/Canindo 3-22×) y ninguna fuente Kepler llega a 2018 → **workbook
+descartado**. La familia-4 contable es 70% **fletes** ($368M en 401-002); el producto real en cta 401 ≈ $150M
+y el **sell-out ≈ 72% del bruto facturado** para mostrador/credito/ruta (~118-138%), con **preventa anómala**
+(asiento lumpy jul-ago 2026 en 401-003).
+
+**Decisión (ADR-071):** el real del presupuesto **sigue siendo el sell-out**; la conciliación con la cta 401
+se deja **documentada, no aplicada**.
+
+- **PVR.1 🔨** `analytics.v_sellout_vs_facturacion` (mig `20260918190000`) — canal×mes: sell-out vs facturación
+  (401 producto, sin fletes), Δ, ratio, status. Cero importer. Aplicada+verificada en dev.
+- **PVR.2 🔨** `getReconciliation()` + `GET finance/budget/sales-reconciliation` — agrega a grano ANUAL (donde
+  reconcilia) + detalle mensual (lumpy, declarado) + notas.
+- **PVR.3 🔨** UI pestaña «Conciliación» en `/presupuesto`. Builds+check:templates verdes.
+
+**Pendiente:** verificación HTTP; mig `v_sellout_vs_facturacion` a prod; push + redeploy. Declarado: reconcilia
+anual (mensual lumpy); preventa anomalía; fletes fuera; sin ajuste/reescala (el sell-out sigue siendo el real).

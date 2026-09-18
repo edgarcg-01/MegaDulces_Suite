@@ -369,6 +369,24 @@ calidad de la propuesta **rampa con la historia**; se declara la cobertura, «si
   historia** y se declara la cobertura. Docs `FASE_PU` sección PVA. **Verificación HTTP (ADR-044) pendiente**
   (mismo bloqueo de infra que PV). Smokes DB-direct verdes.
 
+### Fase PVR — Conciliación sell-out ↔ facturación (documentada) · 2026-09-18 · ADR-071
+
+Se evaluó usar el workbook 2018-2026 como base histórica y/o cambiar el real a facturación. **Medido y
+descartado el workbook** (no reconcilia: su TLMKT infla PH/Canindo 3-22×; ninguna fuente Kepler llega a
+2018). El **real sigue siendo el sell-out**; la conciliación con la contabilidad se deja **documentada, no
+aplicada** (ADR-071).
+
+- [~] **[PVR.1]** 🔨 Vista `analytics.v_sellout_vs_facturacion` (mig `20260918190000`): canal×mes con sell-out,
+  facturación (cta 401 producto, sin fletes), Δ, ratio y `status`. Deriva del ODS/balanza, cero importer.
+  Aplicada+verificada en dev.
+- [~] **[PVR.2]** 🔨 `BudgetSalesIndicatorsService.getReconciliation()` + endpoint `GET finance/budget/sales-reconciliation`
+  (PRESUPUESTOS_VER): agrega a grano **ANUAL** (Σ/Σ, donde reconcilia: mostrador 138%/credito 132%/ruta 118%) +
+  detalle mensual + notas declaradas. Preventa marcada anomalía (asiento lumpy jul-ago en 401-003). `nx build api` verde.
+- [~] **[PVR.3]** 🔨 UI: pestaña «Conciliación» en `/presupuesto` (tabla canal×año sell-out/facturación/Δ/ratio +
+  badges de estado + notas declaradas). `nx build view`+`check:templates` verdes.
+- **Hallazgo medido:** la familia-4 contable es **70% FLETES** ($368M en 401-002, no venta de producto);
+  producto real en 401 ≈ $150M; el sell-out es ~72% del bruto facturado (neto/cobertura). Verificación HTTP pendiente (infra).
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
