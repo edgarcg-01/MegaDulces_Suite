@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -62,6 +62,26 @@ export interface CarteraQuery {
   incluir_saldados?: string; search?: string; sort?: 'saldo' | 'vencido'; limit?: number;
 }
 
+/** `[CXC.SKU.1]` Un renglón de documento que tocó el producto buscado. */
+export interface RenglonProducto {
+  folio_digital: string; sucursal: string; folio: string; doc_prefix: string;
+  linea: number; sku: string; descripcion: string | null; unidad: string | null;
+  cantidad: number; importe: number;
+  /** `cargo` = factura · `abono` = nota de crédito o devolución. */
+  naturaleza: 'cargo' | 'abono';
+  fecha: string | null;
+}
+
+export interface BusquedaProducto {
+  texto: string;
+  skus: string[];
+  renglones: RenglonProducto[];
+  /** Se cortó en el límite: hay más, no es que no haya. */
+  truncado: boolean;
+  /** Lo que la búsqueda NO cubre. La pantalla DEBE decirlo. */
+  excluye: { doctypes: string[]; motivo: string };
+}
+
 @Injectable({ providedIn: 'root' })
 export class CarteraService {
   private readonly http = inject(HttpClient);
@@ -95,6 +115,16 @@ export class CarteraService {
   createPromise(sucursal: string, cliente: string, body: { monto: number; fecha: string; nota?: string }): Observable<{ id: string; estado: string }> {
     return this.http.post<{ id: string; estado: string }>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/promise`, body);
   }
+  /**
+   * `[CXC.SKU.1]` Documentos que tocaron un producto: facturas Y notas de crédito o
+   * devoluciones. `excluye` viaja a propósito — la pantalla tiene que DECIR que los
+   * tickets de mostrador quedan fuera, o un resultado vacío se lee como "no se vendió".
+   */
+  buscarProducto(q: string, limit = 200): Observable<BusquedaProducto> {
+    const params = new HttpParams().set('q', q).set('limit', String(limit));
+    return this.http.get<BusquedaProducto>(`${this.base}/producto`, { params });
+  }
+
   resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada'): Observable<{ id: string; estado: string }> {
     return this.http.post<{ id: string; estado: string }>(`${this.base}/promise/${encodeURIComponent(id)}/resolve`, { estado });
   }

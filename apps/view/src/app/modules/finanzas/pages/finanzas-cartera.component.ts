@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -9,12 +9,15 @@ import { DialogModule } from 'primeng/dialog';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';import { FINANZAS_TABS } from '../finanzas-tabs';import { CarteraSegmentsComponent } from '../cartera-segments.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FINANZAS_TABS } from '../finanzas-tabs';
+import { CarteraSegmentsComponent } from '../cartera-segments.component';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -39,6 +42,10 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
           <p class="surf-page-sub">Partidas vivas de Cuentas por Cobrar: quién debe, cuánto y desde cuándo. Estado de cuenta read-only de Kepler; el saldo es factura menos cobros y notas.</p>
         </div>
         <div class="ct-head-actions">
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="abrirBuscador()">
+            <span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span>
+            <span class="p-button-label">Buscar por producto</span>
+          </button>
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showResumen()" (click)="toggleResumen()"><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span><span class="p-button-label">Resumen</span></button>
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!data()?.clientes?.length" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -303,9 +310,92 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
         <p class="ct-det-note muted">El saldo del cliente sale de <b>kdue</b> (cargos − abonos), que es la cifra que cuadra con Kepler. El reparto por documento usa las aplicaciones de <b>kdm5</b>; lo que no logran ubicar se aplica a las partidas más viejas primero. Espejo read-only del ERP.</p>
       }
     </p-dialog>
+
+    <!-- [CXC.SKU.1] Buscador por producto. Diálogo y no una vista aparte: es una
+         herramienta DENTRO de cartera ("quién compró o devolvió esto"), no otra
+         pantalla. El selector de arriba sigue eligiendo entre Cartera y Cobranza. -->
+    <p-dialog [visible]="buscadorAbierto()" (visibleChange)="buscadorAbierto.set($event)"
+              [modal]="true" [style]="{ width: '62rem', maxWidth: '96vw' }"
+              header="Buscar por producto">
+      <div class="ct-bp-bar">
+        <input pInputText type="text" [(ngModel)]="bpTexto" (keyup.enter)="buscarProducto()"
+               placeholder="SKU o parte de la descripción…" aria-label="SKU o descripción" />
+        <button pButton type="button" class="p-button-sm" [loading]="bpCargando()"
+                [disabled]="bpTexto.trim().length < 2" (click)="buscarProducto()">
+          <span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span>
+          <span class="p-button-label">Buscar</span>
+        </button>
+      </div>
+
+      @if (bpError()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ bpError() }}</div> }
+
+      @if (bpRes(); as res) {
+        <p class="ct-bp-resumen">
+          <b>{{ res.renglones.length }}</b> renglones en <b>{{ bpDocs(res) }}</b> documentos ·
+          {{ bpCargos(res) }} en facturas ·
+          <b class="ct-bp-abono">{{ bpAbonos(res) }} en notas de crédito o devoluciones</b>
+          @if (res.skus.length > 1) { <span class="muted"> · {{ res.skus.length }} SKU coincidieron</span> }
+        </p>
+        @if (res.truncado) {
+          <p class="ct-bp-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Se muestran los primeros {{ res.renglones.length }}: <b>hay más</b>. Afiná el texto.</p>
+        }
+        <!-- La cobertura se DECLARA. Un vacío sin esta línea se lee como "no se vendió". -->
+        <p class="ct-bp-nota ct-bp-excluye">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          No incluye {{ res.excluye.doctypes.join(', ') }} — {{ res.excluye.motivo }}
+        </p>
+
+        @if (res.renglones.length) {
+          <div class="ct-bp-scroll">
+            <table class="surf-table surf-table--plain surf-table--sticky">
+              <thead>
+                <tr>
+                  <th scope="col">Documento</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Suc.</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">SKU</th>
+                  <th scope="col">Descripción</th>
+                  <th scope="col" class="comm-num">Cantidad</th>
+                  <th scope="col" class="comm-num">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (r of res.renglones; track r.folio_digital + '-' + r.linea) {
+                  <tr [class.ct-bp-r-abono]="r.naturaleza === 'abono'">
+                    <td class="mono">{{ r.folio_digital }}</td>
+                    <td>{{ r.fecha || '—' }}</td>
+                    <td>{{ r.sucursal }}</td>
+                    <td>
+                      @if (r.naturaleza === 'abono') { <span class="ct-bp-tag">Nota / devolución</span> }
+                      @else { <span class="muted">Factura</span> }
+                    </td>
+                    <td class="mono">{{ r.sku }}</td>
+                    <td>{{ r.descripcion || '—' }}</td>
+                    <td class="comm-num">{{ r.cantidad }} <span class="muted">{{ r.unidad }}</span></td>
+                    <td class="comm-num">{{ money(r.importe) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else if (!bpCargando()) {
+          <p class="ct-bp-nota">Sin documentos con ese producto en el universo de arriba.</p>
+        }
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
+    .ct-bp-bar { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+    .ct-bp-bar input { flex: 1 1 auto; }
+    .ct-bp-resumen { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
+    .ct-bp-abono { color: var(--bad-fg); }
+    .ct-bp-nota { margin: 0 0 var(--sp-2); font-size: var(--fs-xs); color: var(--text-faint); }
+    .ct-bp-excluye { color: var(--warn-fg); }
+    .ct-bp-scroll { max-height: 26rem; overflow: auto; }
+    .ct-bp-tag { font-size: var(--fs-micro); font-weight: 600; color: var(--bad-fg); }
+    tr.ct-bp-r-abono td { background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
     .ct-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: .75rem 0 1rem; }
     .ct-search input { min-width: 240px; }
     .ct-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
@@ -404,7 +494,36 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 })
 export class FinanzasCarteraComponent implements OnInit {
   readonly tabs = FINANZAS_TABS;
+
+  // ── `[CXC.SKU.1]` Buscador por producto ─────────────────────────────────────
+  readonly buscadorAbierto = signal(false);
+  readonly bpCargando = signal(false);
+  readonly bpError = signal<string | null>(null);
+  readonly bpRes = signal<BusquedaProducto | null>(null);
+  bpTexto = '';
+
+  abrirBuscador(): void { this.buscadorAbierto.set(true); }
+
+  buscarProducto(): void {
+    const q = this.bpTexto.trim();
+    if (q.length < 2) return;
+    this.bpCargando.set(true);
+    this.bpError.set(null);
+    this.svc.buscarProducto(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.bpRes.set(r); this.bpCargando.set(false); },
+      error: (e) => {
+        this.bpCargando.set(false);
+        this.bpError.set(e?.error?.message || 'No se pudo buscar el producto.');
+      },
+    });
+  }
+
+  /** Documentos DISTINTOS: un producto puede repetirse en varios renglones del mismo. */
+  bpDocs(r: BusquedaProducto): number { return new Set(r.renglones.map((x) => x.folio_digital)).size; }
+  bpCargos(r: BusquedaProducto): number { return r.renglones.filter((x) => x.naturaleza === 'cargo').length; }
+  bpAbonos(r: BusquedaProducto): number { return r.renglones.filter((x) => x.naturaleza === 'abono').length; }
   private readonly svc = inject(CarteraService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);

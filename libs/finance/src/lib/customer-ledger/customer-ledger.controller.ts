@@ -98,6 +98,21 @@ export class CustomerLedgerController {
     return this.svc.createPromise(sucursal, cliente, body, req.user?.username);
   }
 
+  /**
+   * `[CXC.SKU.1]` Buscar por SKU o descripción: qué facturas Y qué notas de crédito o
+   * devoluciones tocaron ese producto.
+   *
+   * ⚠️ Va ANTES de `:sucursal/:cliente` — es de UN segmento y si quedara después,
+   * Express lo casaría como sucursal='producto'. Es la misma nota que encabeza
+   * `filtros` acá arriba; se repite porque es el error que esta ruta invita a cometer.
+   */
+  @Get('producto')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Documentos que tocaron un producto: facturas + notas de crédito/devoluciones.' })
+  buscarPorProducto(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.svc.buscarPorProducto({ texto: q, limit: limit ? Number(limit) : undefined });
+  }
+
   @Get(':sucursal/:cliente')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @ApiOperation({ summary: 'Auxiliar de un cliente: partidas vivas con saldo por documento + aging + abonos + compromisos.' })
