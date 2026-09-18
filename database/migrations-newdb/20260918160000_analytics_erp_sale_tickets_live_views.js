@@ -190,8 +190,13 @@ exports.up = async function up(knex) {
       ON btrim(h.sucursal)=btrim(l.sucursal) AND btrim(h.c1)=btrim(l.c1)
      AND h.c2=l.c2 AND h.c3=l.c3 AND (h.c4)::int=(l.c4)::int AND (h.c5)::int=(l.c5)::int
      AND btrim(h.c6::text)=btrim(l.c6::text)
+    -- ⚠️ p.sku SIN btrim: envolverlo anula el indice products_tenant_sku_unique
+    -- (parcial sobre sku IS NOT NULL AND deleted_at IS NULL) y obliga a un Seq Scan de la
+    -- tabla entera. Medido: 11,197 filas leidas de 24 MB para resolver 5 renglones, ~1,009
+    -- bloques del total de la consulta. Y el btrim no protegia de nada: **0 de 14,794 SKUs
+    -- tienen espacios**. El btrim del lado de Kepler SI se queda -- ahi los padding son reales.
     LEFT JOIN catalog.products p
-      ON p.tenant_id='${M}'::uuid AND btrim(p.sku)=btrim(l.c8::text) AND p.deleted_at IS NULL
+      ON p.tenant_id='${M}'::uuid AND p.sku=btrim(l.c8::text) AND p.deleted_at IS NULL
     WHERE ${HEAD}`);
   await knex.raw('GRANT SELECT ON analytics.erp_sale_ticket_lines TO app_runtime');
 };
