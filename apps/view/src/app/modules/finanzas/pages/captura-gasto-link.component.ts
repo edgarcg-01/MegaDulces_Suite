@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
-import { CapturaGastoService, CapturaContext, CapturaMia } from '../captura-gasto.service';
+import { CapturaGastoService, CapturaContext, CapturaMia, LecturaTicket } from '../captura-gasto.service';
 import { CameraShotComponent } from '../components/camera-shot.component';
 import { ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { money } from '../../../shared/util';
@@ -45,7 +45,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
         <div class="cg-dead" role="alert">
           <i class="pi pi-lock" aria-hidden="true"></i>
           <h1>{{ muerto() }}</h1>
-          <p>Pedile a tu jefe o a Finanzas que te mande un link nuevo.</p>
+          <p>Pídele a tu jefe o a Finanzas que te mande un link nuevo.</p>
         </div>
       } @else if (ctx(); as c) {
         <header class="cg-head">
@@ -79,7 +79,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
                   <p class="cg-back-why">{{ d.motivo_rechazo || 'Hay que corregirlo.' }}</p>
                 </div>
               }
-              <p class="cg-back-how">Subilo de nuevo con la corrección, abajo.</p>
+              <p class="cg-back-how">Súbelo de nuevo con la corrección, aquí abajo.</p>
             </section>
           }
 
@@ -126,8 +126,21 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
               <div class="cg-money">
                 <span aria-hidden="true">$</span>
                 <input id="cg-imp" type="number" inputmode="decimal" step="0.01" min="0"
-                       [(ngModel)]="importe" placeholder="0.00" />
+                       [(ngModel)]="importe" placeholder="0.00" (input)="importeTocado = true" />
               </div>
+              <!-- De dónde salió el número. Se dice SIEMPRE que lo puso la foto: un campo que
+                   se llena solo y no avisa parece un error del sistema, y nadie lo revisa. -->
+              @if (leyendo()) {
+                <em class="cg-hint"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo el ticket…</em>
+              } @else if (lectura(); as l) {
+                @if (l.legible && !importeTocado) {
+                  <em class="cg-hint is-ok"><i class="pi pi-check-circle" aria-hidden="true"></i>
+                    Lo tomamos de la foto del ticket. Si no es correcto, corrígelo.</em>
+                } @else if (!l.legible && l.motivo === 'ilegible') {
+                  <em class="cg-hint"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                    No alcanzamos a leer el ticket — escribe el monto tú.</em>
+                }
+              }
             </div>
 
             <div class="cg-f">
@@ -145,9 +158,17 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
             <div class="cg-row">
               <div class="cg-f">
                 <label class="cg-lbl" for="cg-suc">Sucursal</label>
-                <select id="cg-suc" [(ngModel)]="sucursal">
+                <select id="cg-suc" [(ngModel)]="sucursal" (ngModelChange)="onSucursal($event)">
                   @for (s of c.sucursales; track s.code) { <option [value]="s.code">{{ s.label }}</option> }
+                  <!-- Una plaza nueva existe en la calle antes que en el catálogo. Sin esta
+                       salida, el gasto se captura con la sucursal equivocada o no se captura. -->
+                  <option value="__otra__">Otra — no está en la lista</option>
                 </select>
+                @if (sucursal === '__otra__') {
+                  <input class="cg-suc-otra" type="text" [(ngModel)]="sucursalOtra"
+                         placeholder="¿Cuál? Escribe el nombre" aria-label="Nombre de la sucursal" />
+                  <em class="cg-hint">La va a revisar Finanzas: si es nueva, la dan de alta.</em>
+                }
               </div>
               <div class="cg-f">
                 <label class="cg-lbl" for="cg-fec">¿Qué día?</label>
@@ -163,7 +184,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
                 <label class="cg-lbl" for="cg-mot">¿Por qué no hay ticket?</label>
                 <textarea id="cg-mot" rows="3" [(ngModel)]="motivo"
                           placeholder="Ej. propina, no me dieron recibo…"></textarea>
-                <em class="cg-hint">Esto lo lee quien lo autoriza, así que contá qué pasó.</em>
+                <em class="cg-hint">Esto lo lee quien lo autoriza, así que cuéntanos qué pasó.</em>
               </div>
             }
           </section>
@@ -291,6 +312,10 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
     .cg-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
     .cg-lbl { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); }
     .cg-hint { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.4; }
+    .cg-hint.is-ok { color: var(--ok-fg); }
+    .cg-hint i { margin-right: 3px; }
+    /* La sucursal escrita a mano: se separa de su select para que se lea como su respuesta. */
+    .cg-suc-otra { margin-top: var(--sp-1); }
     .cg-hint-sep { display: block; margin-top: var(--sp-2); }
     /* 16px reales en los inputs: por debajo, iOS hace zoom al enfocar y descuadra la página. */
     .cg-f input, .cg-f select, .cg-f textarea, .cg-money input {
@@ -405,7 +430,7 @@ export class CapturaGastoLinkComponent {
         // 403 = revocado o vencido, y el backend ya lo dice en llano. Otra cosa es red.
         this.muerto.set(e?.status === 403
           ? (e?.error?.message || 'Este link ya no sirve')
-          : 'No se pudo abrir. Revisá tu señal y volvé a intentar.');
+          : 'No se pudo abrir. Revisa tu señal y vuelve a intentar.');
       },
     });
   }
@@ -421,7 +446,7 @@ export class CapturaGastoLinkComponent {
       case 'fiscal': return 'Te dieron factura. Sacale foto junto con la solicitud firmada.';
       case 'no_fiscal_comprobable': return 'Te dieron ticket o nota, pero no factura.';
       case 'no_comprobable': return 'No hay ticket ni factura. Vas a tener que contar por qué.';
-      default: return 'Elegí una para seguir.';
+      default: return 'Elige una para continuar.';
     }
   }
 
@@ -445,6 +470,46 @@ export class CapturaGastoLinkComponent {
     const role = this.rolPendiente();
     this.tomas.update((m) => ({ ...m, [role]: { role, dataUri: ev.dataUri, camera: ev.camera } }));
     this.error.set('');
+    // El ticket trae el importe impreso: lo leemos apenas se toma la foto.
+    if (role.startsWith('comprobante')) this.leerTicket(ev.dataUri);
+  }
+
+  // ── Lo que Claude Vision lee del ticket ──────────────────────────────────
+  readonly leyendo = signal(false);
+  readonly lectura = signal<LecturaTicket | null>(null);
+  /** ¿El trabajador ya tocó el importe a mano? Entonces la foto NO lo pisa. */
+  importeTocado = false;
+
+  /**
+   * Lee el ticket y PROPONE los datos. Tres reglas:
+   *   · Nunca pisa lo que la persona ya escribió — el humano manda sobre la máquina.
+   *   · Lo llenado por la foto se DICE en pantalla; un campo que se llena solo y no avisa
+   *     parece un error del sistema, y entonces nadie lo revisa.
+   *   · Si falla, no pasa nada: se teclea como antes. Leer el ticket es una ayuda, no un paso.
+   */
+  private leerTicket(dataUri: string): void {
+    this.leyendo.set(true);
+    this.lectura.set(null);
+    this.svc.leerTicket(this.token, dataUri).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (l) => {
+        this.leyendo.set(false);
+        this.lectura.set(l);
+        if (!l.legible) return;
+        if (l.total != null && !this.importeTocado && !this.importe) this.importe = l.total;
+        if (l.comercio && !this.beneficiario.trim()) this.beneficiario = l.comercio;
+        // La fecha del ticket sólo si es de hoy o antes: una futura es lectura mala.
+        if (l.fecha && /^\d{4}-\d{2}-\d{2}$/.test(l.fecha) && l.fecha <= this.hoy) this.fecha = l.fecha;
+      },
+      error: () => { this.leyendo.set(false); this.lectura.set(null); },
+    });
+  }
+
+  /** La sucursal escrita a mano cuando no está en el catálogo. */
+  sucursalOtra = '';
+  onSucursal(v: string): void { if (v !== '__otra__') this.sucursalOtra = ''; }
+  /** Lo que se manda: el código del catálogo, o lo tecleado si eligió «Otra». */
+  private sucursalFinal(): string {
+    return this.sucursal === '__otra__' ? this.sucursalOtra.trim() : this.sucursal;
   }
 
   /** ¿Se puede mandar? Mismas reglas que valida el servidor, dichas antes de tocar el botón. */
@@ -456,7 +521,7 @@ export class CapturaGastoLinkComponent {
   });
   /** Qué falta, en el orden en que se llena. */
   falta(): string {
-    if (!this.clasificacion()) return 'Elegí qué tipo de gasto es';
+    if (!this.clasificacion()) return 'Elige qué tipo de gasto es';
     if (!this.tomas()['solicitud_kepler']) return 'Falta la foto de la solicitud firmada';
     return 'Falta la foto del ticket';
   }
@@ -465,10 +530,11 @@ export class CapturaGastoLinkComponent {
     if (!this.listo() || this.enviando()) return;
 
     const imp = Number(this.importe) || 0;
-    if (!(imp > 0)) { this.error.set('Escribí de cuánto fue el gasto.'); return; }
-    if (!this.beneficiario.trim()) { this.error.set('Escribí a quién le pagaste.'); return; }
-    if (!this.concepto.trim()) { this.error.set('Contá en una línea de qué fue.'); return; }
-    if (!this.llevaTicket() && !this.motivo.trim()) { this.error.set('Contá por qué no hay ticket.'); return; }
+    if (!(imp > 0)) { this.error.set('Escribe de cuánto fue el gasto.'); return; }
+    if (!this.beneficiario.trim()) { this.error.set('Escribe a quién le pagaste.'); return; }
+    if (!this.concepto.trim()) { this.error.set('Escribe en una línea de qué fue.'); return; }
+    if (!this.sucursalFinal()) { this.error.set('Dinos de qué sucursal es el gasto.'); return; }
+    if (!this.llevaTicket() && !this.motivo.trim()) { this.error.set('Escribe por qué no hay ticket.'); return; }
 
     this.error.set('');
     this.enviando.set(true);
@@ -485,7 +551,7 @@ export class CapturaGastoLinkComponent {
       const fallaron = res.filter((r) => !r.file);
       if (fallaron.length) {
         this.enviando.set(false);
-        this.error.set(`No se pudieron subir ${fallaron.length} foto(s). Revisá tu señal y volvé a darle.`);
+        this.error.set(`No se pudieron subir ${fallaron.length} foto(s). Revisa tu señal y vuelve a intentar.`);
         return;
       }
       const files = res.map((r) => r.file!) as ProofFile[];
@@ -495,7 +561,7 @@ export class CapturaGastoLinkComponent {
         importe: imp,
         concepto: this.concepto.trim(),
         beneficiario: this.beneficiario.trim(),
-        sucursal: this.sucursal,
+        sucursal: this.sucursalFinal(),
         fecha_gasto: this.fecha || undefined,
         clasificacion: this.clasificacion()!,
         comentarios: this.motivo.trim() || undefined,
@@ -507,7 +573,7 @@ export class CapturaGastoLinkComponent {
         next: () => { this.enviando.set(false); this.enviado.set(true); },
         error: (e) => {
           this.enviando.set(false);
-          this.error.set(e?.error?.message || 'No se pudo mandar. Revisá tu señal y volvé a darle.');
+          this.error.set(e?.error?.message || 'No se pudo mandar. Revisa tu señal y vuelve a intentar.');
         },
       });
     });
@@ -518,6 +584,7 @@ export class CapturaGastoLinkComponent {
     this.tomas.set({});
     this.clasificacion.set(null);
     this.importe = null; this.concepto = ''; this.beneficiario = ''; this.motivo = '';
+    this.importeTocado = false; this.lectura.set(null); this.leyendo.set(false); this.sucursalOtra = '';
     this.fecha = this.hoy;
     this.enviado.set(false);
     this.error.set('');
