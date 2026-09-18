@@ -7,11 +7,9 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 
 /**
@@ -22,13 +20,12 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 @Component({
   selector: 'app-contabilidad-impuestos',
   standalone: true,
-  imports: [FormsModule, ButtonModule, ToastModule, InputTextModule, DatePickerModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, ToastModule, InputTextModule, DatePickerModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head im-head">
         <div class="surf-page-head-text">
@@ -112,7 +109,6 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
   `],
 })
 export class ContabilidadImpuestosComponent {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(ImpuestosService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

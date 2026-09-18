@@ -13,11 +13,9 @@ import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
 
 /**
@@ -29,13 +27,12 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
 @Component({
   selector: 'app-contabilidad-cfdi',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, SelectModule, TagModule, DatePickerModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, SelectModule, TagModule, DatePickerModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head cf-head">
         <div class="surf-page-head-text">
@@ -133,7 +130,6 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
   `],
 })
 export class ContabilidadCfdiComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(CfdiService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

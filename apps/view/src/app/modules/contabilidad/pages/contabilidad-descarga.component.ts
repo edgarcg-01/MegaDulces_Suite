@@ -12,10 +12,8 @@ import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { DescargaService, DownloadRequest, DownloadPackage } from '../descarga.service';
@@ -29,13 +27,12 @@ import { CredencialesService } from '../credenciales.service';
 @Component({
   selector: 'app-contabilidad-descarga',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, SelectButtonModule, SelectModule, TagModule, DatePickerModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, SelectButtonModule, SelectModule, TagModule, DatePickerModule, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head dz-head">
         <div class="surf-page-head-text">
@@ -163,7 +160,6 @@ import { CredencialesService } from '../credenciales.service';
   `],
 })
 export class ContabilidadDescargaComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(DescargaService);
   private readonly creds = inject(CredencialesService);
   private readonly toast = inject(MessageService);

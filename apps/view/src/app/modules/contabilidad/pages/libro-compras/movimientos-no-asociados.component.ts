@@ -12,8 +12,6 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
-import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
-import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid } from '../../libro-compras.service';
@@ -52,7 +50,6 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule,
-    PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,7 +57,6 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
   styles: [LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES],
   template: `
     <p-toast />
-    <app-page-tabs [tabs]="tabs" />
 
     <header class="lc-head">
       <div>
@@ -521,7 +517,6 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
-  readonly tabs = CONTABILIDAD_TABS;
   readonly opcImpuestos = [
     { label: 'Un renglón al mes', value: 'global' as ImpuestosModo },
     { label: 'Por proveedor', value: 'por-cuenta' as ImpuestosModo },

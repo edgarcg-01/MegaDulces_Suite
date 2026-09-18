@@ -11,11 +11,9 @@ import { SelectButtonModule } from 'primeng/selectbutton';
 import { DialogModule } from 'primeng/dialog';
 import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { MaterialidadService, MaterialidadDossier, MaterialidadChain, MatReconcileRow, MatProvider } from '../materialidad.service';
 import { CfdiService } from '../cfdi.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -29,13 +27,12 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head mt-head">
         <div class="surf-page-head-text">
@@ -435,7 +432,6 @@ import { Permission } from '../../../core/constants/permissions';
   `],
 })
 export class ContabilidadMaterialidadComponent {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(MaterialidadService);
   private readonly cfdiSvc = inject(CfdiService);
   private readonly auth = inject(AuthService);

@@ -12,11 +12,9 @@ import { SelectModule } from 'primeng/select';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, ExpenseDoc, FiscalEstado } from '../listas-sat.service';
 
 /**
@@ -28,13 +26,12 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 @Component({
   selector: 'app-contabilidad-listas-sat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, SelectButtonModule, TagModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, SelectButtonModule, TagModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in ls-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head ls-head">
         <div class="surf-page-head-text">
@@ -216,7 +213,6 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
   `],
 })
 export class ContabilidadListasSatComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(ListasSatService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

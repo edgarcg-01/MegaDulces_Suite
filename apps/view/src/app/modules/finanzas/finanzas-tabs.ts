@@ -56,7 +56,7 @@ export const FINANZAS_TABS: PageTab[] = [
      * mitad, no rebotarlo. Un tab visible que al abrirse manda a /sin-acceso es peor
      * que no tener tab.
      */
-    label: 'Cartera',
+    label: 'Crédito',
     route: '/finanzas/cartera',
     icon: 'pi pi-address-book',
     anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER],

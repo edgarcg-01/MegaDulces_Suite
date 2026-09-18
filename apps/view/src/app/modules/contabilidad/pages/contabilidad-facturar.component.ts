@@ -17,10 +17,8 @@ import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { FacturasService, EmittedInvoice, IssuerConfig, InvoiceReconciliation } from '../facturas.service';
@@ -34,14 +32,13 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 @Component({
   selector: 'app-contabilidad-facturar',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, IconFieldModule, InputIconModule, DatePickerModule, SelectModule, SelectButtonModule, CheckboxModule, TagModule, ConfirmDialogModule, TooltipModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, IconFieldModule, InputIconModule, DatePickerModule, SelectModule, SelectButtonModule, CheckboxModule, TagModule, ConfirmDialogModule, TooltipModule, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head fa-head">
         <div class="surf-page-head-text">
@@ -377,7 +374,6 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
   `],
 })
 export class ContabilidadFacturarComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   readonly tipoOpts = [{ label: 'Global (mostrador)', value: 'global' }, { label: 'Nominativa', value: 'nominativa' }];
   readonly formaPagoOpts = [
     { label: '01 Efectivo', value: '01' }, { label: '03 Transferencia', value: '03' },
