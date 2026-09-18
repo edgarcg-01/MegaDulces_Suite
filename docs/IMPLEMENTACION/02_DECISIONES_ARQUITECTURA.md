@@ -2134,3 +2134,31 @@ Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fa
 **Hereda:** ADR-058 (migrar, verificar en vivo, cortar — Fase CV) · ADR-016 (el motor propone, el humano aprueba, el LLM fuera del dinero) · ADR-056 (lo no medido se declara, nunca cero; un gate sin prueba negativa es una intención) · ADR-053 (el latido mide entrega) · ADR-033 (reglas en DB, no hardcodeadas) · la regla del ODS (derivar, no copiar).
 
 Plan, medición y las 6 decisiones abiertas en [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
+
+---
+
+## ADR-071
+
+**El presupuesto de ventas mantiene el SELL-OUT como real; la conciliación con la facturación contable (cta 401) queda DOCUMENTADA, no aplicada. El workbook histórico se descarta.** (Fase PVR — propuesto 2026-09-18)
+
+**Contexto.** Se evaluó mejorar la base histórica del motor (Fase PVA) con el workbook `INDICADORES 21-...-26 - HISTORIAL DE VENTAS` (2018-2026) y/o cambiar el «real» del presupuesto a la facturación contable. Se **midió** antes de decidir:
+- El workbook **no reconcilia**: su TLMKT (telemarketing/mayoreo) infla PH(01) y Canindo(06) **3-22×** vs Kepler; y **ninguna fuente Kepler/ODS llega a 2018** (v_sellout_daily, mv_kepler, sales_daily y la balanza `ledger_monthly` arrancan en 2025-01) → no hay contra qué reconciliar los años previos.
+- La familia-4 contable ($525M/2026) es **70% FLETES** (`401-002` $368M, no es venta de producto). La venta de producto real en cta 401 (PISO/MAYOREO/VECINAL/RD) ≈ **$150M**.
+- El **sell-out ≈ facturación de producto** dentro de banda estable para **mostrador/credito/ruta (~118-138%)** — el sell-out es el neto/parcial del bruto facturado. **Preventa NO reconcilia**: el vecinal en `401-003` es un asiento **lumpy de jul-ago 2026** (~$17M en 2 meses, ~$0 antes), no un flujo parejo.
+
+**Decisión:**
+1. **El real del presupuesto de ventas sigue siendo el SELL-OUT** (`analytics.v_sellout_daily`) — diario, por canal×sucursal, listo para el calendario 13×4. No se cambia la medida.
+2. **La conciliación sell-out ↔ facturación (cta 401 producto, sin fletes) se DOCUMENTA, no se aplica:** vista `analytics.v_sellout_vs_facturacion` (canal×mes, con Δ, ratio y `status`) + reporte en `/presupuesto` (pestaña «Conciliación»). Es transparencia; **no reescala ni ajusta** ninguna cifra.
+3. Reconcilia a grano **ANUAL** (mostrador/credito/ruta ~1.3×); el mensual es **lumpy** por la irregularidad de los asientos contables y se declara; **preventa se declara como anomalía**.
+4. **El workbook histórico se descarta** (no reconcilia; ninguna fuente Kepler pre-2025). La rampa de la propuesta se acepta: mejora conforme el ODS acumula años.
+
+**Se rechaza:** (a) cambiar el real a cta 401 — es mensual (choca con el 13×4 diario), `401-003` mezcla MAYOREO/VECINAL, y sin canal×fecha; (b) cargar el workbook como snapshot histórico — no reconcilia y su atribución de mayoreo es propia; (c) aplicar un factor de reescala sell-out→facturación — varía por canal y por mes, y preventa está roto; (d) mezclar niveles absolutos workbook/ODS (acantilado falso 2024→2025).
+
+**Consecuencias:**
+- ✅ El puente ~1.3× y las anomalías (preventa, fletes) quedan **visibles y declarados**, no ocultos — responde a «los números no cuadran» sin cambiar la medida.
+- ✅ Cero importer; todo deriva del ODS/balanza. El **flete** ($368M en 401-002) queda **fuera** (no es venta de producto).
+- ⚠️ Declarado: la conciliación es anual (mensual lumpy); preventa anómalo; el sell-out es ~72% del bruto facturado para 3 canales (diferencia neto/cobertura, no corregida).
+
+**Hereda:** ADR-068/069 (Presupuesto de Ventas / automatización) · ADR-059 (el real se arbitra; lo no arbitrable se declara) · ADR-056 (lo no medido se declara, nunca cero) · la regla del ODS (derivar, no copiar; snapshot sólo si reconcilia y verifica — acá NO reconcilió).
+
+Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVR).

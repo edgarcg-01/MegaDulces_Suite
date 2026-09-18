@@ -89,4 +89,9 @@ export class BudgetSalesController {
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Tablero de indicadores: CREC/PART por canal/entidad × año (histórico) + meta-vs-real.' })
   getIndicators(@Param('id') id: string) { return this.indicators.getIndicators(id); }
+
+  @Get('sales-reconciliation')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Conciliación DOCUMENTADA sell-out ↔ facturación contable (cta 401) por canal × año (transparencia, sin ajuste).' })
+  getReconciliation() { return this.indicators.getReconciliation(); }
 }
