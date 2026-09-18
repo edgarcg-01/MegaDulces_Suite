@@ -744,3 +744,119 @@ registrar `07` en `kepler-branches.js`, sumarla al carril `replicate-ods-live`, 
 `wincaja.branches`, sacar `32` del carril vivo de Wincaja, y el corte del sell-out con el candado de
 paridad. Ver §9.4.
 
+
+---
+
+## 10. Morelia Abastos (Wincaja `30`) — alta pendiente, medida el 2026-09-18
+
+Abastos **cambió su punto de venta a Kepler**. Esto es el estado exacto, medido desde `.249` y
+desde `md`, no supuesto. Calca la forma de §9 (Madero) porque es el mismo movimiento.
+
+| | |
+|---|---|
+| Último día que vendió en Wincaja (`w30`) | **2026-09-17**, 651 movimientos |
+| El 18-sep en Wincaja | **0 movimientos**, con el carril sincronizando a las 12:25 local |
+| El precedente `w32` (Madero) | último día 2026-09-07 — **misma firma** |
+| `192.168.30.30` | **no responde**: ni ICMP ni 1977/5432/445/3389/80 |
+| La subred `192.168.30.x` | **SÍ es alcanzable** desde `.249` (`192.168.30.1` responde) |
+| Hosts vivos en esa subred | **31**, de los cuales **9** tienen SMB (Windows) |
+| Postgres en toda la subred | **ninguno** escuchando en 1977 ni en 5432 |
+| Nombre de esos 9 hosts | no resuelve ninguno (ni DNS inverso ni NetBIOS) |
+| Réplica local | **no existe** `kepler_md_08` (hay `00`–`07`) |
+| Suscripción | **no existe** (hay 8: `sub_md_00,01,02,04,05,06,07` + `sub_pilot`→`md_03`) |
+| `kepler-branches.js` | llega hasta `07` (Madero); `08` no está |
+| `wincaja-replica-config.js` | `30` = "Morelia Abastos" **sigue en el carril vivo** |
+| Servidores foráneos de `kepler_consolidado` | ninguno conoce un host `.30.x` |
+
+### 10.1 Bloqueo 1 — la IP del POS no existe (igual que pasó con Madero)
+
+`192.168.30.30` sale del patrón `192.168.<código Wincaja>.<código Wincaja>`, que se cumple en 7 de
+7 ramas. **Pero el patrón no es un hecho.** Acá no responde a nada, y la subred sí funciona, así que
+no es la red: o la máquina está apagada, o está en otra IP, o el firewall de Windows la tapa.
+
+Se barrió la subred entera antes de pedir ayuda: 31 hosts vivos, 9 Windows, **cero Postgres**. Si
+fuera sólo el firewall, el host igual respondería a ICMP en su IP — y `.30.30` no responde. O sea
+que **la IP es otra**.
+
+⛔ **Lo único que lo destraba: un `ipconfig` en el POS de Abastos** (y confirmar el puerto, que no es
+uniforme: `01`, `06` y `07` escuchan en **1977**, el resto en 5432). No hay forma de derivarlo desde
+acá; ya se intentó por patrón, por barrido, por nombre y por los servidores foráneos.
+
+### 10.2 Bloqueo 2 — el suscriptor está SIN CUPO, y ya está fallando hoy
+
+⛔ Esto es independiente de Abastos y **hay que arreglarlo antes**, no durante. El propio runbook lo
+dejó escrito al cerrar §9.7 ("Regla para la próxima rama"). Se corrió esa regla y **falla**:
+
+```
+suscripciones en uso ............... 8
+max_active_replication_origins ..... 20
+orígenes registrados ............... 21    ← ya está POR ENCIMA del techo
+```
+
+Y no es teórico. En los logs de `pgvector-md`, hoy mismo, en bucle:
+
+```
+ERROR:  could not find free replication state slot for replication origin with ID 21
+HINT:  Increase "max_active_replication_origins" and try again.
+```
+
+**Consecuencia medida: 13 tablas llevan sin poder terminar su copia inicial** (`srsubstate='d'`), en
+7 de las 8 ramas:
+
+| rama | tablas trabadas |
+|---|---|
+| `kepler_md_00` | `kdfe33nomem`, `kdrhdfes`, `kdrhfeba`, `kdrhfpag`, `kdrhhor`, `kdrhrut`, `kdrhtpcn` (7, de RH) |
+| `kepler_md_01`–`05` | `kdc22609` (la póliza de septiembre, 1 por rama) |
+| `kepler_md_07` | `kdc22611` |
+| `kepler_md_06` | ninguna ✅ |
+
+Las 13 pesan 8 KB cada una —son tablas nuevas y casi vacías, no un hueco de datos grande— pero el
+mecanismo sí importa: **cada `kdc2YYMM` nueva que Kepler cree cada mes va a quedar trabada igual**,
+y son las tablas de pólizas. El deadlock se retroalimenta: las trabadas retienen un origen cada una,
+y sin origen libre ninguna puede terminar para soltarlo.
+
+⚠️ **Y por eso Abastos no se puede cablear todavía aunque apareciera la IP:** una suscripción nueva
+necesita workers de tablesync para 336 tablas, y hoy no hay ni un origen libre. La copia inicial
+fallaría entera.
+
+**El arreglo** (es el que ya se aplicó una vez, §9.7): subir `max_active_replication_origins` —20 es
+apenas el doble de las ramas, sin margen para tablesync— y **reiniciar el contenedor** (~30 s; las
+ramas se recuperan solas). Recomendado **40**: 9 ramas + margen real de tablesync, y cada entrada
+cuesta muy poca memoria compartida.
+
+⚠️ Al hacerlo, la trampa de PG18 que ya dejó anotada §9.7: **`pg_settings.pending_restart` miente**
+en este contenedor. La verdad es `postgresql.auto.conf` y el valor activo después del restart.
+
+### 10.3 El orden, una vez destrabado
+
+1. **Subir el techo de orígenes y reiniciar** (§10.2). Verificar después: 0 tablas fuera de `r` en
+   las 8 ramas y los 13 orígenes huérfanos absorbidos.
+2. **Conseguir IP y puerto** del POS (§10.1) y correr el verificador, que es el paso 1 del protocolo:
+   `node database/scripts/verificar-pos-kepler.js --host=<IP> --port=<1977|5432> --db=md_08`
+   Corre **desde el servidor de la réplica**, a propósito: un `psql` en el propio POS da
+   `listen_addresses`, firewall y `pg_hba` por buenos y no prueba nada.
+3. **En el POS**, lo que el verificador marque: `kepler-pos-alta-ods.sql` (idempotente, calca `02`/`03`).
+   La contraseña de `ods_repl` **es la misma que las otras** y no está en ningún archivo: se
+   reconstruye desde `pg_subscription.subconninfo` sin que pase por un chat (§9.6).
+4. ⭐ **Confirmar el código de sucursal ANTES de registrar la rama**: `SELECT DISTINCT sucursal FROM md.kdm1`.
+   Lo natural sería `08`, **y eso es una suposición**. De ese código cuelga el sell-out; si sale mal,
+   la venta se suma a la sucursal equivocada.
+5. Réplica + suscripción (`kepler_md_08` / `sub_md_08`), registrar en `kepler-branches.js`, sumar al
+   carril de `replicate-ods-live.js`, y confirmar que aparece en `kepler_ods._sync_status`.
+6. **`wincaja.branches`** para `30`: `kepler_code`, `status`, y `last_movement_date = 2026-09-17`
+   (medido, no estimado). Sin eso los sensores de `db-health` siguen alarmando por un `.mdb` que ya
+   no se mueve, y una alerta que no se puede apagar entrena al equipo a ignorar el tablero.
+7. **Sacar `30` del carril vivo de Wincaja** (`wincaja-replica-config.js`). El histórico se queda: es
+   la única copia de lo que Abastos vendió en Wincaja.
+8. ⭐ **El corte del sell-out.** Primer día Kepler = **2026-09-18**. Un corte mal puesto **duplica** el
+   día (los dos lados lo traen) o le abre un **hueco** (ninguno). Correr
+   `test-newdb-sellout-parity.js` **antes y después**, y comparar el mes contra su total conocido.
+
+### 10.4 Dos cosas que aparecieron de paso
+
+- **Madero (`32`) tampoco salió del carril vivo de Wincaja.** Sigue en `wincaja-replica-config.js`
+  desde que cortó el 07-sep: es el paso 6 de §9.4, pendiente. Su `.mdb` no se mueve desde el 08-sep.
+- **El primer día Kepler de Abastos está medido pero no confirmado del otro lado.** Que Wincaja no
+  registre nada hoy es consistente con el cambio, pero la confirmación es ver la venta **saliendo de
+  Kepler**, y eso no se puede mirar hasta que el POS sea alcanzable. Hasta entonces, la fecha de
+  corte se declara con esa salvedad — no se da por firme.
