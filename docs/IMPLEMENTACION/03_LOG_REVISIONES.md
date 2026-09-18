@@ -83,6 +83,68 @@ la suite. Builds api + view OK. Commit `696bf629`.
 **Pendiente:** verificación HTTP (ADR-044) + validación visual + redeploy api/view (sin re-login,
 no hay permisos nuevos). El bloque del cruce sigue ciego hasta que corran los importers de PV.3.
 
+## 2026-09-18 — Fase TK: Tickets de venta, y el descuento que no estaba donde el patrón decía
+
+**Pedido:** un apartado **Tickets** en Ventas que encuentre *cualquier* folio (*"no hay que
+limitarnos en que sólo sea de sucursal, tlmk, ruta"*) y lo reimprima en ticket térmico y en carta,
+mostrando **el precio antes del descuento y el descuento aplicado**.
+
+### Lo que casi se construye mal
+
+El módulo hermano (anexo de venta, Fase AX) lee el descuento de la **cabecera** del documento
+(`kdm1.c13` + `c19`). Copiar ese patrón era lo natural. **Medido antes de escribir la vista:**
+`c13` vale **0.00 en el 100%** de los 30,549 tickets de mostrador (`U-D-10`), y `c13 = c9 × c12`
+es exacto en el 100% de los renglones. O sea que el módulo habría publicado **"Descuento $0.00"**
+en todos los tickets, para siempre, sin fallar ni una vez — el peor modo de fallo posible.
+
+El descuento vive en el **renglón**: `kdm2.c66` es el precio de lista de la unidad base y `c12` el
+cobrado. Con eso, **15.1% de renglones traen descuento** y sólo **0.106% "cobra de más"**. El
+testigo obvio (el precio del **catálogo**, `kdii.c90/91/92`) se **refutó con medición**: da 1.9% de
+renglones por encima de lista — 18× peor, y por razón estructural: el catálogo es el precio de HOY
+y el renglón trae el de la venta.
+
+### Y son DOS descuentos, no uno
+
+De 609 facturas `U-D-8`, sólo **172** cuadran entre el descuento de cabecera y la suma del de
+renglón; **435 difieren en más de $1**, error medio **$183**. Conviven, así que la cascada los
+muestra separados y **las dos restas cierran al centavo** — lo único que un cliente comprueba de un
+papel es que los números sumen.
+
+### El límite, declarado y no disimulado
+
+⚠️⚠️ **`c66` no existe antes del 2026-08-13** (100% vacía de enero a julio; arranca el 13 en la
+sucursal `02`, el 14 en la `03`). El descuento sólo se puede afirmar desde esa fecha. `precio_lista`
+viaja en **`NULL`, nunca `0`** —un cero se lee como *"no costaba nada"* en un documento que cobró
+dinero—, la columna desaparece entera cuando ningún renglón la tiene, y el aviso dice literalmente
+*"un $0.00 acá significa 'no se sabe', no 'no hubo'"*. Lo descubrió el propio smoke: una muestra
+mal acotada reportó **64.6% de renglones "cobrando de más"** contra el 0.1% medido, y perseguir esa
+contradicción destapó el hueco.
+
+### Otras dos cosas que el ERP no tiene y el papel no inventa
+
+- **La hora.** Las 10 columnas `timestamp` de `kdm1` y `kdm2.c32` están en `00:00:00` en los 10,716
+  documentos de la ventana. El papel imprime la fecha de **reimpresión**, rotulada como tal.
+- **Un folio único.** `kdmm` dice que `U-D-10` tipo N es *"Ticket Contado Caja N"*: **`c5` es la
+  caja** y el contador es por sucursal × caja. El folio `0018665` existe **7 veces**. La búsqueda
+  devuelve candidatos y sólo abre sola cuando hay exactamente uno.
+
+### Lecciones
+
+1. **Copiar el patrón del módulo hermano es una hipótesis, no un atajo.** Acá el hermano leía una
+   columna que en este doctype está vacía al 100%, y el resultado no habría sido un error sino un
+   cero plausible.
+2. **Un candado sirve cuando atrapa algo.** El de 32 columnas del ticket atrapó dos defectos reales
+   antes del papel: el sello de reimpresión medía 33 caracteres (`toLocaleString` sin opciones da
+   `18/9/2026, 8:45:55 a.m.`) y la leyenda legal se partía por donde cayera.
+3. **Una muestra mal acotada miente igual que un bug.** El `IN (folios)` sin la sucursal reprodujo,
+   dentro del propio test, exactamente el error que el módulo existe para evitar.
+4. ⚠️ **Quinta vez que un acento grave en un comentario SQL rompe el build** de este repo.
+
+**Verificación:** `nx build api` + `nx build view` ✅ · spec del ticket **11/11** · smoke
+`test-newdb-sale-tickets` **31/31** contra `platform_test`, con cobertura del precio de lista
+declarada en **99.98%** y el tope de descuento negativo **ejercido en 42 renglones**.
+Pendiente: validación visual, aplicar migraciones a prod, redeploy y re-login.
+Detalle en [`FASE_TK_TICKETS_VENTA.md`](FASES/FASE_TK_TICKETS_VENTA.md).
 ---
 ## 2026-09-17 — `[DB-MEM.17]` Deuda declarada: 50 crons sin candado entre procesos, y el helper NO los cubre a todos
 

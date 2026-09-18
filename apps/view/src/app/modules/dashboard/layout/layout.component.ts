@@ -315,6 +315,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
+        // [TK.2] Va en Ventas y no en Reportes: no es un reporte, es la consulta de UN documento
+        // para reimprimírselo al cliente que lo está pidiendo. Al lado de "Documentos"
+        // (Reportes) hay solape aparente, pero aquél lista facturas de telemarketing con su
+        // cartera y éste busca cualquier folio de cualquier canal — por eso tienen permisos
+        // distintos.
+        { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
         { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
       ],
     },

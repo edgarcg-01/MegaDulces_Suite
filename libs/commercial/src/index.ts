@@ -30,6 +30,8 @@ export * from './lib/commercial-movements/commercial-movements.module';
 export * from './lib/commercial-bi-almacen/commercial-bi-almacen.module';
 export * from './lib/commercial-sales-documents/commercial-sales-documents.module';
 export * from './lib/commercial-sales-documents/commercial-sales-documents.service';
+export * from './lib/commercial-tickets/commercial-tickets.module';
+export * from './lib/commercial-tickets/commercial-tickets.service';
 export * from './lib/commercial-labels/commercial-labels.module';
 export * from './lib/commercial-alerts/commercial-alerts.module';
 export * from './lib/commercial-recommendations/commercial-recommendations.module';

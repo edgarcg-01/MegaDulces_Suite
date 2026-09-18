@@ -213,6 +213,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
       },
       {
+        // TK.2 — Tickets de venta: buscar CUALQUIER folio (mostrador U/D/10, telemarketing y
+        // crédito U/D/8-12, y pedidos propios PD-) y reimprimirlo en ticket térmico o carta.
+        // Permiso PROPIO: alcanza más canales que COMMERCIAL_SALES_DOCS_VER, que es sólo TM.
+        path: 'tickets',
+        loadComponent: () => import('./modules/comercial/pages/comercial-tickets.component').then(m => m.ComercialTicketsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
+      },
+      {
         // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
         path: 'documentos',
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
