@@ -33,6 +33,17 @@ export interface CapturaContext {
   capturas: CapturaMia[];
 }
 
+/** Lo que Claude Vision alcanza a leer del ticket. Es una propuesta, no un veredicto. */
+export interface LecturaTicket {
+  legible: boolean;
+  total: number | null;
+  subtotal: number | null;
+  comercio: string | null;
+  fecha: string | null;
+  /** `ok` · `ilegible` · `sin_lectura` · `sin_configurar` (no hay API key en el servidor). */
+  motivo: string;
+}
+
 export interface CapturaSubmit {
   importe: number;
   concepto: string;
@@ -59,6 +70,14 @@ export class CapturaGastoService {
   /** De a un archivo: en un celular con datos móviles, una falla no debe tirar las demás. */
   uploadFile(token: string, fileBase64: string, role: ProofFileRole): Observable<ProofFile> {
     return this.http.post<ProofFile>(`${this.base}/${token}/upload`, { file_base64: fileBase64, role });
+  }
+
+  /**
+   * Lee el ticket ANTES de subirlo, para llenar los campos solos. El ticket trae el importe
+   * impreso: pedírselo tecleado es hacerle copiar a mano un número que la foto ya tiene.
+   */
+  leerTicket(token: string, fileBase64: string): Observable<LecturaTicket> {
+    return this.http.post<LecturaTicket>(`${this.base}/${token}/leer-ticket`, { file_base64: fileBase64 });
   }
 
   submit(token: string, dto: CapturaSubmit): Observable<{ id: string; status: string; estado: string }> {

@@ -44,7 +44,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
                   aria-label="Tomar la foto">
             <span class="cs-shoot-in"></span>
           </button>
-          <p class="cs-hint">Encuadrá el papel completo y que se lea el total.</p>
+          <p class="cs-hint">Encuadra el papel completo y que se alcance a leer el total.</p>
         </div>
       </div>
     }

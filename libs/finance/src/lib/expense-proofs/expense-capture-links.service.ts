@@ -177,9 +177,9 @@ export class ExpenseCaptureLinksService {
           .first('id', 'persona', 'sucursal', 'revoked_at', 'expires_at')));
 
     if (!row) throw new ForbiddenException('este link ya no sirve');
-    if (row.revoked_at) throw new ForbiddenException('este link fue dado de baja — pedí uno nuevo');
+    if (row.revoked_at) throw new ForbiddenException('este link fue dado de baja: pide uno nuevo');
     if (row.expires_at && new Date(row.expires_at) <= new Date()) {
-      throw new ForbiddenException('este link ya venció — pedí uno nuevo');
+      throw new ForbiddenException('este link ya venció: pide uno nuevo');
     }
     return { id: row.id, tenantId: payload.tenant_id, persona: row.persona, sucursal: row.sucursal };
   }
@@ -265,7 +265,7 @@ export class ExpenseCaptureLinksService {
     const importe = Number(dto.importe) || 0;
     if (!(importe > 0)) throw new BadRequestException('¿de cuánto fue el gasto?');
     const concepto = (dto.concepto || '').trim();
-    if (!concepto) throw new BadRequestException('contá en una línea de qué fue el gasto');
+    if (!concepto) throw new BadRequestException('escribe en una línea de qué fue el gasto');
     const beneficiario = (dto.beneficiario || '').trim();
     if (!beneficiario) throw new BadRequestException('¿a quién le pagaste?');
     const sucursal = (dto.sucursal || link.sucursal || '').trim();
@@ -277,7 +277,7 @@ export class ExpenseCaptureLinksService {
     }
     const lleva = requiereEvidencia(clasificacion);
     const motivo = (dto.comentarios || '').trim();
-    if (!lleva && !motivo) throw new BadRequestException('contá por qué no hay comprobante');
+    if (!lleva && !motivo) throw new BadRequestException('escribe por qué no hay comprobante');
 
     const files = (Array.isArray(dto.files) ? dto.files : []).filter((f) => f && f.url && f.role);
     const roles = new Set(files.map((f) => f.role));
@@ -339,6 +339,43 @@ export class ExpenseCaptureLinksService {
 
       return { id: row.id, status: row.status, estado: this.estadoEnLlano(row.status, null) };
     }));
+  }
+
+  /**
+   * GX.13 — lee el ticket ANTES de subirlo, para llenarle los datos al trabajador.
+   *
+   * Es la misma visión que ya corría al enviar, movida al momento en que sirve: el ticket
+   * tiene el importe impreso, así que pedírselo tecleado es hacerle copiar a mano un número
+   * que la foto ya trae — y en un celular, en la calle, ahí es donde se equivoca.
+   *
+   * ⚠️ Lo que devuelve es una PROPUESTA, no un veredicto: la pantalla la pone en los campos
+   * y el trabajador puede corregirla. El cuadre autoritativo sigue corriendo en el servidor
+   * al enviar (`leerTicket`), contra lo que haya quedado declarado.
+   *
+   * Degrada en silencio: sin `ANTHROPIC_API_KEY` o con una foto ilegible devuelve
+   * `legible: false` y la pantalla simplemente pide los datos a mano, como antes.
+   */
+  async leerTicketPreview(token: string, dataUri: string) {
+    const link = await this.resolveLink(token);
+    if (!dataUri) throw new BadRequestException('archivo requerido');
+    const vacio = { legible: false, total: null as number | null, subtotal: null as number | null,
+      comercio: null as string | null, fecha: null as string | null, motivo: 'sin_lectura' as string };
+    if (!process.env.ANTHROPIC_API_KEY) return { ...vacio, motivo: 'sin_configurar' };
+
+    const m = /^data:([^;,]+)[;,]/.exec(dataUri);
+    const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
+    try {
+      const f = await this.ocr.extractExpenseReceipt(dataUri.replace(/^data:[^,]*,/, ''), mediaType as any);
+      const total = f.total ?? f.subtotal ?? null;
+      const legible = !!f.legible && total != null;
+      this.logger.log(`lectura de ticket para ${link.persona}: ${legible ? `$${total} · ${f.comercio ?? 's/comercio'}` : 'ilegible'}`);
+      return { legible, total, subtotal: f.subtotal ?? null, comercio: f.comercio ?? null,
+        fecha: f.fecha ?? null, motivo: legible ? 'ok' : 'ilegible' };
+    } catch (e: any) {
+      // Que falle la lectura NO puede frenar la captura: el trabajador teclea y sigue.
+      this.logger.warn(`lectura de ticket falló para ${link.persona}: ${e?.message || e}`);
+      return vacio;
+    }
   }
 
   /** Lee el ticket con Claude Vision y lo cuadra contra el importe esperado. */
