@@ -636,15 +636,124 @@ el `UNIQUE` clásico los nulos son distintos entre sí y esa fila se reinsertar�
 pasada siguiente escribió **1** y dejó **116,503** — actualizó en su lugar, no duplicó.
 `test-caja-general-replica-fidelidad.js` pasa **10 OK / 0 FALLA** y ya está en la regresión.
 
+#### `CG.9b` · ✅ La capa cruda se completó — y el alcance era más grande de lo dicho
+
+**El hallazgo que corrige este documento:** `import-caja-general.js` no lee UN `.mdb`, lee **cuatro**,
+y escribe **siete** tablas de `analytics`. Medido 2026-09-18:
+
+| `.mdb` | tamaño | últ. cambio | alimenta | espejo |
+|---|---:|---|---|---|
+| `20 Comisionistas/Dulceria/BDatos.mdb` | 41.7 MB | hoy | `caja_general_movimientos`, `caja_general_cuentas` | ✅ `cg20` |
+| `20 Comisionistas/MegaDulces/BMovimientosCajas.mdb` | 70.5 MB | hoy | `caja_arqueos` ← **la del sensor** | ✅ `cgarq20` |
+| `Movimientos MegaDulces/SI/Base Movimientos SI.mdb` | 587.6 MB | 14/09 | `caja_ventas_diarias`, `caja_depositos`, 2 catálogos | ⬜ |
+| `Movimientos MegaDulces/NO/Base Movimientos NO.mdb` | 482.8 MB | hoy | las mismas, instancia `NO` | ⬜ |
+
+⛔ **Por eso el importer NO se retira entero.** Hacerlo hoy mataría los arqueos y la espina.
+El retiro es **por partes**, y lo que falta va con ⬜, no dibujado como hecho.
+
+⚠️ **Contradicción abierta:** la migración `20260814120000` afirma que el sistema
+`Base Movimientos SI/NO` *"se ABANDONÓ en Q1-2026"*, pero `Base Movimientos NO.mdb` cambió **hoy a
+las 15:01 y tenía `.ldb`** (alguien con el archivo abierto). Una de las dos cosas es falsa. Antes de
+replicar 1.07 GB o de retirar esas cuatro tablas, hay que resolverlo — no asumirlo.
+
+**Identidad de los arqueos, medida sobre las 30,004 filas reales (misma lección que `Doctos`):**
+
+| candidata | resultado |
+|---|---|
+| `(ID)` | ✔ **30,004 de 30,004 — ÚNICA**, cero nulos |
+| `(Folio)` | ✖ 23,145 de 30,004 — el folio se **reusa** |
+| `(ID, Almacen, Caja)` | ✔ también única, pero sobra-llave |
+
+Y **muta**: `Cancelado` está en `true` en **6,541** filas. Sin identidad declarada el espejo caería
+en el surrogate `_row_hash` + `DO NOTHING` y un arqueo cancelado entraría de nuevo en vez de
+actualizarse. Acá el importer viejo **sí estaba bien** (usaba `ID`); el que estaba mal era el de
+`Doctos`.
+
+Fidelidad verificada contra el origen leído en el mismo momento: **30,004 filas ·
+$2,396,646,969.048 · 6,541 cancelados**, idéntico en las dos puntas.
+
+#### `CG.9c` · ✅ El aterrizaje crudo y el shipper — **el hueco de arquitectura, cerrado**
+
+`caja_general_ods.*` (mig `20260918230000`): el patrón de `kepler_ods` calcado — columnas
+verbatim del origen en minúsculas, sin `tenant_id`, sin RLS, sin saneamiento (el filtro de tenant
+se inyecta **dentro** de la vista). Tres tablas: `doctos` (40 col), `cuenta` (12), `arqueo_movimientos`
+(53), cada una con su identidad medida como `UNIQUE NULLS NOT DISTINCT`.
+
+`ship-caja-general.js`: espejo `:5433` → landing de la plataforma.
+
+**Por qué hay dos saltos y no uno.** La tentación era apuntar el replicador directo a la
+plataforma. **Se midió y no conviene:** el motor de réplica manda la tabla ENTERA al destino y deja
+que Postgres decida con `IS DISTINCT` — 117,018 filas por pasada, cambie algo o no. Local cuesta
+144 s; contra la plataforma serían ~40 MB de subida **en cada pasada**. Acá el delta es real, porque
+el UPSERT del espejo sólo mueve `_synced_at` cuando el hash cambió.
+
+**Medido:** carga inicial **146,629 filas en 46 s**; segunda pasada **127 leídas, 0 escritas**.
+Paridad espejo↔landing **exacta** (116,503 / $654,707,494.7941 ingreso / $647,735,661.0812 gasto /
+30,004 arqueos / $2,396,646,969.0476).
+
+Tres decisiones que vale la pena que sobrevivan:
+- **La marca vive en el DESTINO**, no en el espejo. Es la única que falla del lado seguro: si
+  viviera en el espejo y alguien recreara el destino, la marca sobreviviría y el destino quedaría
+  **vacío para siempre**.
+- **Se lee `>=`, no `>`.** Un UPSERT toca muchas filas con el MISMO `now()`; un `>` estricto puede
+  cortar a la mitad de un lote. Re-shipear el borde es gratis; un hueco no.
+- **Candado de columnas:** si el `.mdb` gana una columna, el espejo la gana solo (DDL auto-generado)
+  y el landing no — el shipper **aborta** antes de mover un byte en vez de dejar de shipearla en
+  silencio.
+
+⛔ **Gotcha que costó una corrida:** el techo de **65,535 parámetros de bind** de Postgres **da la
+vuelta en silencio** (el contador es int16). 2,000 filas × 39 columnas = 78,000 llegó como
+78,000 − 65,536 = **12,464**, y el error dice *"tiene 12464 formatos de parámetro pero 0 parámetros"*
+— sin mencionar ni el lote ni el límite. El lote se calcula por parámetros, no por filas.
+
+#### `CG.9d` · ✅ `analytics.caja_general_*` y `caja_arqueos` son VISTAS
+
+Mig `20260918240000`. La tabla se **RENOMBRA** a `*_snapshot_bak`, no se borra (patrón de
+`20260903120000_kepler_bank_movements_live_view.js`): respeta "no borrar tablas en prod" y el
+rollback queda a un `ALTER` de distancia.
+
+**Qué arregla, medido:**
+1. **El congelamiento.** Las tres tablas llevaban paradas desde el **2026-09-11**, porque el importer
+   se quedó sin agenda el 2026-09-15 y nadie corrió el modo `finance`. Una vista no se congela.
+2. **Filas que se perdían en silencio.** La PK `(tenant_id, source_caja, tipo_dto, mov_id)` colapsa:
+   el importer real extrajo **12,276** filas y escribió **12,269**. Son **7 movimientos / $49,699.00**
+   (149 en todo el corpus). La vista no tiene llave que colapse.
+
+**Qué NO se cambia, a propósito:** la ventana `fecha >= 2026-01-01` (decisión de Edgar, 2026-08-14)
+**se conserva**. El landing tiene el histórico completo (2008-07-10 → hoy, 116,503 filas), así que
+abrirla es una línea — pero es una decisión de negocio, no un efecto colateral de un refactor.
+
+**El gate fue un A/B contra el importer REAL**, no una intención: se corrió
+`import-caja-general.js --apply --only doctos` contra la tabla, se congeló el resultado, se hizo el
+swap y se comparó **columna por columna**. Encontró **dos diferencias reales**:
+
+> `btrim(x)` de Postgres quita **sólo espacios**; `String(x).trim()` de JS quita todo el espacio en
+> blanco. **7 valores del origen traen `\r\n` adelante** (`"\r\nVentas RD 22  21/07"`). Sin el A/B
+> eso se publicaba con un salto de línea y nadie lo ataba a esta migración.
+
+Corregido con `btrim(x, E' \t\n\r\f\v')` → **25 OK / 0 FALLA**, 16 columnas + el `jsonb` de
+denominación idénticos.
+
+**Prueba negativa del freno:** se corrió el importer viejo **con las vistas puestas**. Salta fuerte
+(`⏭ ... ya es VISTA derive-no-copy`) y escribe 0, en vez de reventar con `cannot insert into view`.
+La detección es en caliente (`relkind`), así que sirve igual para las cuatro tablas que aún no
+migran.
+
+`test-newdb-caja-general-derive.js` — **18 ✓ / 0 ✗**, ya en la regresión (215 suites).
+
 **Pendiente, y por qué:**
-- ⬜ **El shipper a prod.** Acá está el hueco de arquitectura que faltaba nombrar: la réplica vive
-  en `:5433/caja_general` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
-  bases sin FDW**, y meter un FDW de prod hacia un contenedor local haría que prod dependa de que
-  esa caja esté arriba. El patrón probado es el del ODS: un **shipper local → prod**
-  (`replicate-ods-live.js` hace justo eso, y su fuente ya es Postgres con schema por sucursal —
-  la misma forma que `cg20.*`). Falta decidir el schema destino y correrlo.
-- ⬜ Recién entonces: `analytics.caja_general_*` → **vistas derive-no-copy** y **retirar
-  `import-caja-general.js`**.
+- ⬜ **Correrlo contra prod.** Todo lo de arriba está verificado contra `platform_test`; desde esta
+  máquina **no hay URL de prod configurada**, y son las 15:40 de un viernes (la regla del proyecto
+  prohíbe escrituras pesadas a prod en horario hábil). Falta: aplicar las 2 migraciones, correr el
+  shipper una vez (~46 s) y agendar el carril.
+- ⬜ **Agendar los dos carriles en `.249`.** `replicate-caja-general-live.js` (Jet, ~145 s/pasada) y
+  `ship-caja-general.js` (Postgres→Postgres, barato) — el molde es el PM2 de Wincaja
+  (`ecosystem.wincaja.config.js`, dos carriles con latido por carril). Hoy el shipper ya está en el
+  modo `finance` de `run-prod-feeds.js`, pero **ese modo no está en ninguna agenda** — que es
+  exactamente la causa del congelamiento que esta fase vino a arreglar. Sin esto, el latido
+  `caja_general_ship` no existe y el carril es invisible.
+- ⬜ Las otras cuatro tablas (`caja_ventas_diarias`, `caja_depositos`, 2 catálogos) — primero hay
+  que resolver la contradicción "¿abandonado o vivo?" de `Base Movimientos SI/NO`.
 - ⚠️ Sigue necesitando Jet 32-bit → **vive en `.249` junto a los 3 carriles de Wincaja hasta
   VL.5**. Es la misma restricción que ya existe, no una nueva.
 - ⚠️ **Alcance**: hoy sólo la sucursal 20. Las otras tres (`7 MKT`, `99 CC`, `70 LFLG` — ésta la

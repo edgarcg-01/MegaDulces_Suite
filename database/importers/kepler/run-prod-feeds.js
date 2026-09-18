@@ -308,7 +308,19 @@ const STEPS = {
     path.join(K, 'import-sales-by-channel.js'),
     path.join(K, 'import-cash-cuts.js'),
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
-    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 vivo + Base Movimientos. Requiere Z: (.245) montado.
+
+    // [CG.9c] El carril NUEVO de la caja general, y va ANTES del importer viejo a propósito.
+    // Shipea el delta del espejo crudo (:5433/caja_general, que llena replicate-caja-general-live.js
+    // con Jet) → caja_general_ods.* → y de ahí `analytics.caja_general_movimientos` /
+    // `caja_general_cuentas` / `caja_arqueos` son VISTAS derive-no-copy (mig 20260918240000).
+    // No lee ningún .mdb: sólo Postgres → Postgres, así que es barato y no depende de ACE.OLEDB.
+    path.join(DIR, 'movimientos-caja', 'ship-caja-general.js'),
+
+    // [CG.9d] Sigue acá, pero YA NO por la caja general: sus tres destinos son vistas y el importer
+    // los SALTA solo (lo detecta en caliente y lo dice). Queda porque es la ÚNICA fuente de
+    // `caja_ventas_diarias` / `caja_depositos` + sus 2 catálogos, que viven en otros dos .mdb
+    // (`Base Movimientos SI/NO`, 1.07 GB entre ambos) todavía sin espejo. Requiere Z: (.245).
+    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'),
   ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
