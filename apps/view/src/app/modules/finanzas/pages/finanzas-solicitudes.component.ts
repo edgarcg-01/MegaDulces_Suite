@@ -11,10 +11,8 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -61,13 +59,12 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent, FinanzasCapturasSinFolioComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent, FinanzasCapturasSinFolioComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast />
-      <app-page-tabs [tabs]="tabs" />
 
       <!-- El rango vive en el head del apartado (patrón Operations #6), no en una banda
            mid-page: es el control que gobierna TODA la pantalla, no un filtro más. -->
@@ -442,7 +439,6 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
   `],
 })
 export class FinanzasSolicitudesComponent {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly comprobaciones = inject(ComprobacionesService);
   private readonly compGastos = inject(ComprobacionGastosService);

@@ -8,9 +8,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Coverage, DataQuality, Hypothesis, ModelStatus, Backtest, UncertainRow } from '../findings.service';
@@ -27,13 +25,12 @@ import { ActionsService, ProposedAction } from '../actions.service';
 @Component({
   selector: 'app-finanzas-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in fh-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head fh-head">
         <div class="surf-page-head-text">
@@ -367,7 +364,6 @@ import { ActionsService, ProposedAction } from '../actions.service';
   `],
 })
 export class FinanzasHallazgosComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(FindingsService);
   /** COMM-P0 — el namespace `/bancos` es el canal WS de Finanzas (no sólo del tablero). */
   private readonly sock = inject(BancosSocketService);

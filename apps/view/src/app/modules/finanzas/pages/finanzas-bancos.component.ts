@@ -14,12 +14,10 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
@@ -48,13 +46,12 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in fb-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head fb-head">
         <div class="surf-page-head-text">
@@ -257,7 +254,6 @@ export class FinanzasBancosComponent implements OnInit {
   readonly wsConnected = computed(() => this.sock.connected());
   private wsTimer: any = null;
 
-  readonly tabs = FINANZAS_TABS;
   readonly GROUP_ORDER = GROUP_ORDER;
   readonly WORK_VIEWS = WORK_VIEWS;
 

@@ -11,12 +11,10 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate } from '../cobranza.service';
@@ -32,13 +30,12 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
 @Component({
   selector: 'app-finanzas-cobranza',
   standalone: true,
-  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast />
-      <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cobranza — comprobantes</h1>
@@ -562,7 +559,6 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
   `],
 })
 export class FinanzasCobranzaComponent {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(CobranzaService);
   private readonly socket = inject(CobranzaSocketService);
   private readonly auth = inject(AuthService);

@@ -530,7 +530,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Cobranza', icon: 'pi pi-money-bill', route: '/finanzas/cobranza', permission: Permission.FINANCE_COLLECTIONS_VER },
+        { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
+        { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
+         * que te deben / lo que te pagaron) y adentro se cambia con el selector. `anyOf`
+         * porque exigen permisos distintos; la ruta la protege `carteraEntryGuard`, que
+         * lleva a su mitad a quien sólo tiene una — no lo rebota.
+         */
+        { label: 'Cartera', icon: 'pi pi-address-book', route: '/finanzas/cartera',
+          permission: Permission.FINANCE_RECEIVABLES_VER,
+          anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER] },
+        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
       ],
     },
     {

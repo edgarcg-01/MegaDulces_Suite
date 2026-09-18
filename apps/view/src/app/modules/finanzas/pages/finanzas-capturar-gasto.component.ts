@@ -11,8 +11,6 @@ import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia } from '../comprobaciones.service';
 
@@ -31,13 +29,12 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in cap">
       <p-toast />
-      <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Capturar gasto</h1>
@@ -333,7 +330,6 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
   `],
 })
 export class FinanzasCapturarGastoComponent {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(ComprobacionesService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);

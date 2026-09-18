@@ -32,12 +32,10 @@ import {
 import {
   EXPENSE_FAMILIA_LABEL, EXPENSE_FAMILIA_ORDER, EXPENSE_FAMILIA_SHORT, type ExpenseFamilia,
 } from '@megadulces/contracts';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 import { ThemeService } from '../../../core/services/theme.service';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
@@ -53,14 +51,13 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule, ToastModule,
-    PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent,
+    SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="reportTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -336,7 +333,6 @@ export class ComercialEgresosComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly theme = inject(ThemeService);
 
-  readonly reportTabs = FINANZAS_TABS;
   // [GX.9] Derivado del contrato: una familia nueva aparece acá sola.
   readonly familiaOpts = [{ label: 'Todo', value: '' },
     ...EXPENSE_FAMILIA_ORDER.map((f) => ({ label: EXPENSE_FAMILIA_LABEL[f], value: f as string }))];

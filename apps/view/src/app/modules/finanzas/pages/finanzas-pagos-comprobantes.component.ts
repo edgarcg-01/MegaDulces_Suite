@@ -11,11 +11,9 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -39,13 +37,12 @@ interface GastoFile {
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast />
-      <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pagos a proveedor — comprobantes</h1>
@@ -597,7 +594,6 @@ interface GastoFile {
   `],
 })
 export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(PagosComprobantesService);
   private readonly socket = inject(PagosComprobantesSocketService);
   private readonly auth = inject(AuthService);
