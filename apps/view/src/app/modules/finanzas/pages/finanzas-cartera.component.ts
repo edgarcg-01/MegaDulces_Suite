@@ -14,6 +14,7 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';import { FINANZAS_TABS } from '../finanzas-tabs';import { CarteraSegmentsComponent } from '../cartera-segments.component';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -26,9 +27,12 @@ import { Permission } from '../../../core/constants/permissions';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [CarteraSegmentsComponent, PageTabsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
+      <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
+           ella, así que desde Cartera no había cómo volver al resto sin el sidebar. -->
+      <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cartera de clientes</h1>
@@ -40,6 +44,11 @@ import { Permission } from '../../../core/constants/permissions';
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <!-- Selector del submódulo: Cartera (lo que te deben) ↔ Cobranza (lo que te pagaron).
+           Va acá, pegado a la cabecera, y NO junto a los filtros: navega entre dos vistas,
+           no recorta la que estás viendo (D.1). -->
+      <app-cartera-segments />
 
       <div class="ct-filters">
         <p-select [options]="sucursales" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
@@ -394,6 +403,7 @@ import { Permission } from '../../../core/constants/permissions';
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
+  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(CarteraService);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);

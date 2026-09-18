@@ -12,6 +12,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -31,7 +32,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
 @Component({
   selector: 'app-finanzas-cobranza',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -45,6 +46,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
         </div>
         @if (live()) { <span class="cb-live" title="Los cambios de otros usuarios se reflejan al momento"><span class="cb-live-dot"></span> En vivo</span> }
       </header>
+<!-- Selector del submódulo (navega: Cartera ↔ Cobranza). Va pegado a la cabecera y           ARRIBA del selector de modo de más abajo, que es otra cosa: aquél recorta ESTA           vista (Cobros / Abonos sin cobro) y éste cambia de vista. Dos controles iguales           que significan distinto es justo lo que D.1 prohíbe: se separan por posición. -->      <app-cartera-segments />
 
       <div class="cb-mode">
         <app-segmented [options]="modeOpts" [value]="mode()" (valueChange)="setMode($event)" ariaLabel="Vista" />
