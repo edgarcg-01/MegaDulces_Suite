@@ -62,6 +62,21 @@ module.exports = [
             { sourceTag: 'scope:view', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
             { sourceTag: 'scope:portal', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
             { sourceTag: 'scope:vendor', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
+            // ── servicios de ingesta (imágenes autocontenidas) ──
+            //
+            // `[NX.3]` `feeds-ingest` (Railway, Fase SYNC) y `trade-ingest-lanes` (ops/ingest,
+            // Fase VL) eran los DOS proyectos que seguían sin tags después de que el 2026-09-15
+            // se taparan `portal` y `vendor`. Mismo agujero: sin tags no matchean ningún
+            // `sourceTag` y ninguna de estas reglas les aplicaba.
+            //
+            // El arreglo no es "darles permisos": es declarar que no pueden depender de NADA, y
+            // eso es literal. Cada uno se empaqueta con su PROPIO `package.json` y su propio
+            // Dockerfile; un import a una lib del monorepo compilaría en el editor y reventaría
+            // en runtime dentro del contenedor, donde esa lib no está.
+            //
+            // Medido antes de cerrarlo: cero violaciones — sólo usan builtins de Node y `pg`.
+            { sourceTag: 'scope:ops', onlyDependOnLibsWithTags: [] },
+            { sourceTag: 'type:service', onlyDependOnLibsWithTags: [] },
           ],
         },
       ],
