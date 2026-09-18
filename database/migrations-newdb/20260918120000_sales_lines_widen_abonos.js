@@ -54,14 +54,6 @@
  */
 const M = '00000000-0000-0000-0000-00000000d01c';
 
-/** El filtro de documentos, ahora por los DOS lados. Una sola fuente para el WHERE. */
-const DOCFILTER = `h.c2='U'
-      AND (
-            (h.c3='D' AND (h.c4)::int IN (8,12))
-         OR (h.c3='A' AND (h.c4)::int IN (21,25,35))
-          )
-      AND btrim(h.c1)=btrim(h.sucursal)`;
-
 exports.config = { transaction: false };
 
 exports.up = async function up(knex) {
@@ -96,51 +88,18 @@ exports.up = async function up(knex) {
   await knex.raw('ANALYZE kepler_ods.kdm2');
   await knex.raw('ANALYZE kepler_ods.kdm1');
 
-  // ── 2. La vista, con las 22 columnas EN SU ORDEN + `naturaleza` al final ─────
-  await knex.raw(`
-    CREATE OR REPLACE VIEW analytics.erp_sales_invoice_lines AS
-    SELECT
-      '${M}'::uuid AS tenant_id,
-      btrim(l.sucursal) AS sucursal,
-      ('U' || btrim(l.c3) || lpad((l.c4)::int::text,2,'0')) || lpad((l.c5)::int::text,2,'0') AS doc_prefix,
-      btrim(l.c6) AS folio,
-      btrim(l.sucursal) || 'U' || btrim(l.c3) || lpad((l.c4)::int::text,2,'0')
-        || lpad((l.c5)::int::text,2,'0') || '-' || btrim(l.c6) AS folio_digital,
-      (l.c7)::int AS linea,
-      btrim(l.c8) AS sku,
-      NULLIF(btrim(l.c10),'') AS descripcion,
-      NULLIF(btrim(l.c11),'') AS unidad,
-      abs(COALESCE((l.c9)::numeric,0)) AS cantidad,
-      round(COALESCE(NULLIF(regexp_replace(l.c12::text,'[^0-9.-]','','g'),'')::numeric,0),2) AS precio_unitario,
-      round(COALESCE(NULLIF(regexp_replace(l.c13::text,'[^0-9.-]','','g'),'')::numeric,0),2) AS importe,
-      NULLIF(COALESCE(NULLIF(regexp_replace(k.c84::text,'[^0-9.]','','g'),'')::numeric,0),0) AS factor_caja,
-      NULLIF(btrim(k.c11),'') AS unidad_venta,
-      NULLIF(btrim(k.c83),'') AS unidad_bulto,
-      NULLIF(btrim(k.c80),'') AS unidad_paq,
-      NULLIF(COALESCE(NULLIF(regexp_replace(k.c81::text,'[^0-9.]','','g'),'')::numeric,0),0) AS factor_paq,
-      bf.box_factor,
-      bf.source AS box_factor_source,
-      COALESCE(bf.is_master_suspect,false) AS box_factor_dudoso,
-      p.id AS product_id,
-      now() AS computed_at,
-      CASE btrim(l.c3) WHEN 'A' THEN 'abono' ELSE 'cargo' END AS naturaleza
-    FROM kepler_ods.kdm2 l
-      JOIN kepler_ods.kdm1 h
-        ON btrim(h.sucursal)=btrim(l.sucursal) AND btrim(h.c1)=btrim(l.c1)
-       AND h.c2=l.c2 AND h.c3=l.c3 AND (h.c4)::int=(l.c4)::int AND h.c6=l.c6
-      LEFT JOIN kepler_ods.kdii k
-        ON btrim(k.sucursal)=btrim(l.sucursal) AND btrim(k.c1)=btrim(l.c8)
-      LEFT JOIN catalog.products p
-        ON p.tenant_id='${M}'::uuid AND btrim(p.sku::text)=btrim(l.c8) AND p.deleted_at IS NULL
-      LEFT JOIN analytics.v_product_box_factor bf
-        ON bf.tenant_id='${M}'::uuid AND bf.product_id=p.id
-    WHERE ${DOCFILTER}
-      AND COALESCE(btrim(l.c11),'') <> 'SER'
-  `);
-
-  // `CREATE OR REPLACE` conserva los GRANT, pero re-aplicarlo es idempotente y cubre
-  // el caso de que alguien la haya recreado a mano con DROP.
-  await knex.raw('GRANT SELECT ON analytics.erp_sales_invoice_lines TO app_runtime');
+  /**
+   * ⚠️ El widening de `analytics.erp_sales_invoice_lines` (lado abono + `naturaleza`) VIVÍA acá,
+   * pero chocaba con `20260918160100_erp_sales_invoice_lines_precio_lista.js` (#117), que ya
+   * había agregado a esa vista `precio_lista`/`descuento_unitario`/`descuento_linea`. Las dos
+   * redefinían la MISMA vista sin las columnas de la otra → `CREATE OR REPLACE ... cannot drop
+   * columns from view`, en el orden que fuera (medido en prod 2026-09-18).
+   *
+   * Se movió la redefinición a `20260918200000_erp_sales_invoice_lines_abono_naturaleza.js`, que
+   * corre AL FINAL y es la ÚNICA dueña de la definición combinada (26 columnas). Así converge en
+   * cualquier orden de aplicación. Acá quedan sólo objetos nuevos, sin conflicto: los índices de
+   * arriba y la vista FLACA del buscador de abajo.
+   */
 
   /**
    * ── 3. La vista FLACA del buscador ─────────────────────────────────────────
@@ -194,54 +153,10 @@ exports.up = async function up(knex) {
 };
 
 exports.down = async function down(knex) {
-  /**
-   * ⚠️ Quitar `naturaleza` exige DROP: `CREATE OR REPLACE VIEW` agrega columnas al
-   * final pero NO las saca. Y el DROP se lleva los GRANT, así que se re-aplican.
-   * Se reconstruye la definición ANTERIOR verbatim (22 columnas, sólo lado cargo).
-   */
+  // Sólo se revierte lo que ahora crea esta migración: la vista flaca del buscador y los dos
+  // índices de abono. `analytics.erp_sales_invoice_lines` ya NO se toca acá — su definición
+  // vive en 20260918200000, cuyo propio `down` decide qué hacer con ella.
   await knex.raw('DROP VIEW IF EXISTS analytics.erp_sales_line_search');
-  await knex.raw('DROP VIEW IF EXISTS analytics.erp_sales_invoice_lines');
-  await knex.raw(`
-    CREATE VIEW analytics.erp_sales_invoice_lines AS
-    SELECT
-      '${M}'::uuid AS tenant_id,
-      btrim(l.sucursal) AS sucursal,
-      ('UD' || lpad((l.c4)::int::text,2,'0')) || lpad((l.c5)::int::text,2,'0') AS doc_prefix,
-      btrim(l.c6) AS folio,
-      btrim(l.sucursal) || 'UD' || lpad((l.c4)::int::text,2,'0')
-        || lpad((l.c5)::int::text,2,'0') || '-' || btrim(l.c6) AS folio_digital,
-      (l.c7)::int AS linea,
-      btrim(l.c8) AS sku,
-      NULLIF(btrim(l.c10),'') AS descripcion,
-      NULLIF(btrim(l.c11),'') AS unidad,
-      abs(COALESCE((l.c9)::numeric,0)) AS cantidad,
-      round(COALESCE(NULLIF(regexp_replace(l.c12::text,'[^0-9.-]','','g'),'')::numeric,0),2) AS precio_unitario,
-      round(COALESCE(NULLIF(regexp_replace(l.c13::text,'[^0-9.-]','','g'),'')::numeric,0),2) AS importe,
-      NULLIF(COALESCE(NULLIF(regexp_replace(k.c84::text,'[^0-9.]','','g'),'')::numeric,0),0) AS factor_caja,
-      NULLIF(btrim(k.c11),'') AS unidad_venta,
-      NULLIF(btrim(k.c83),'') AS unidad_bulto,
-      NULLIF(btrim(k.c80),'') AS unidad_paq,
-      NULLIF(COALESCE(NULLIF(regexp_replace(k.c81::text,'[^0-9.]','','g'),'')::numeric,0),0) AS factor_paq,
-      bf.box_factor,
-      bf.source AS box_factor_source,
-      COALESCE(bf.is_master_suspect,false) AS box_factor_dudoso,
-      p.id AS product_id,
-      now() AS computed_at
-    FROM kepler_ods.kdm2 l
-      JOIN kepler_ods.kdm1 h
-        ON btrim(h.sucursal)=btrim(l.sucursal) AND btrim(h.c1)=btrim(l.c1)
-       AND h.c2=l.c2 AND h.c3=l.c3 AND (h.c4)::int=(l.c4)::int AND h.c6=l.c6
-      LEFT JOIN kepler_ods.kdii k
-        ON btrim(k.sucursal)=btrim(l.sucursal) AND btrim(k.c1)=btrim(l.c8)
-      LEFT JOIN catalog.products p
-        ON p.tenant_id='${M}'::uuid AND btrim(p.sku::text)=btrim(l.c8) AND p.deleted_at IS NULL
-      LEFT JOIN analytics.v_product_box_factor bf
-        ON bf.tenant_id='${M}'::uuid AND bf.product_id=p.id
-    WHERE h.c2='U' AND h.c3='D' AND (h.c4)::int IN (8,12) AND btrim(h.c1)=btrim(h.sucursal)
-      AND COALESCE(btrim(l.c11),'') <> 'SER'
-  `);
-  await knex.raw('GRANT SELECT ON analytics.erp_sales_invoice_lines TO app_runtime');
-
   await knex.raw('DROP INDEX CONCURRENTLY IF EXISTS kepler_ods.ix_kdm2_sku_abono');
   await knex.raw('DROP INDEX CONCURRENTLY IF EXISTS kepler_ods.ix_kdm1_abono_doc');
 };
