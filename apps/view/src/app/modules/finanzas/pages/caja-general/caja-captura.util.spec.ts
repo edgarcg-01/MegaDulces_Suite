@@ -9,7 +9,8 @@
 import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, DENOMINACIONES, GLOSA_MIN,
-  type FormularioCaja,
+  veredictoCorte, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  type FormularioCaja, type CorteVista,
 } from './caja-captura.util';
 
 const formOk = (o: Partial<FormularioCaja> = {}): FormularioCaja => ({
@@ -180,5 +181,91 @@ describe('textoCobertura — "0 conceptos" no puede leerse igual que "sin medir"
     ]);
     expect(t).toContain('300');
     expect(t).toContain('20 sin subcuenta');
+  });
+});
+
+// ── CG.15 · el corte ───────────────────────────────────────────────────────────────────
+
+const corteCerrado: CorteVista = {
+  id: 'c1', folio: 'CC-2026-00001', estado: 'cerrado',
+  closed_by: 'u-capturista', closed_by_username: 'karmen',
+};
+
+describe('veredictoCorte — sin contar NO es cuadrar', () => {
+  it('[negativa] sin conteo devuelve sin_contar, no cuadra', () => {
+    const r = veredictoCorte(1000, [], 0);
+    expect(r.veredicto).toBe('sin_contar');
+    expect(r.veredicto).not.toBe('cuadra');
+    expect(r.contado).toBe(0);
+  });
+  it('[negativa] todas las piezas en 0 tampoco es un conteo', () => {
+    expect(veredictoCorte(100, [{ denominacion: 500, piezas: 0 }]).veredicto).toBe('sin_contar');
+  });
+  it('cuadra cuando el conteo iguala lo esperado', () => {
+    const r = veredictoCorte(1300, [
+      { denominacion: 1000, piezas: 1 }, { denominacion: 200, piezas: 1 }, { denominacion: 100, piezas: 1 },
+    ]);
+    expect(r.veredicto).toBe('cuadra');
+    expect(r.diferencia).toBe(0);
+  });
+  it('distingue sobra de falta', () => {
+    expect(veredictoCorte(100, [{ denominacion: 200, piezas: 1 }]).veredicto).toBe('sobra');
+    expect(veredictoCorte(500, [{ denominacion: 100, piezas: 1 }]).veredicto).toBe('falta');
+  });
+});
+
+describe('puedeAutorizarUI — la doble llave en el botón', () => {
+  it('otra persona puede, y el texto dice quién cerró', () => {
+    const r = puedeAutorizarUI(corteCerrado, 'u-gerente');
+    expect(r.ok).toBe(true);
+    expect(r.texto).toContain('karmen');
+  });
+  it('[negativa] quien cerró NO puede, y el texto se lo explica', () => {
+    const r = puedeAutorizarUI(corteCerrado, 'u-capturista');
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain('otra persona');
+  });
+  it('[negativa] un borrador no se autoriza', () => {
+    expect(puedeAutorizarUI({ ...corteCerrado, estado: 'borrador' }, 'u-gerente').ok).toBe(false);
+  });
+  it('[negativa] uno ya autorizado dice quién lo hizo', () => {
+    const r = puedeAutorizarUI({ ...corteCerrado, estado: 'autorizado', authorized_by_username: 'gerente' }, 'u-x');
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain('gerente');
+  });
+  it('[negativa] sin corte o sin usuario, no', () => {
+    expect(puedeAutorizarUI(null, 'u1').ok).toBe(false);
+    expect(puedeAutorizarUI(corteCerrado, null).ok).toBe(false);
+  });
+});
+
+describe('puedeCerrarUI', () => {
+  const borrador: CorteVista = { id: 'c', folio: 'CC-2026-00002', estado: 'borrador' };
+  it('[negativa] sin contar no se cierra', () => {
+    expect(puedeCerrarUI(borrador, 'sin_contar').ok).toBe(false);
+  });
+  it('se cierra aunque NO cuadre — el faltante se registra, no se esconde', () => {
+    const r = puedeCerrarUI(borrador, 'falta');
+    expect(r.ok).toBe(true);
+    expect(r.texto).toContain('queda registrada');
+  });
+  it('[negativa] uno ya cerrado no se re-cierra', () => {
+    expect(puedeCerrarUI(corteCerrado, 'cuadra').ok).toBe(false);
+  });
+});
+
+describe('textoSaldo — null NO es cero', () => {
+  it('[negativa] sin corte abierto lo DECLARA, no dibuja $0.00', () => {
+    const t = textoSaldo({ saldo: null, sin_corte_abierto: true });
+    expect(t).toContain('sin corte abierto');
+    expect(t).not.toContain('0.00');
+  });
+  it('con corte abierto muestra el monto y el folio', () => {
+    const t = textoSaldo({ saldo: 1300, sin_corte_abierto: false, corte_abierto: { folio: 'CC-2026-00001' } });
+    expect(t).toContain('1,300');
+    expect(t).toContain('CC-2026-00001');
+  });
+  it('[negativa] sin respuesta dice "sin medir", que no es lo mismo que cero', () => {
+    expect(textoSaldo(null)).toContain('sin medir');
   });
 });

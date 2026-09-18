@@ -109,4 +109,74 @@ export class CashLedgerService {
   detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number }>; arqueo: { desglosado: number; diferencia: number } | null }> {
     return this.http.get<any>(`${this.base}/${id}`);
   }
+
+  // ── CG.15 · corte, saldo y cancelación ───────────────────────────────────────────────
+
+  /** `saldo: null` + `sin_corte_abierto` NO es cero: la caja no tiene punto de partida. */
+  saldo(sucursal: string): Observable<SaldoResponse> {
+    return this.http.get<SaldoResponse>(`${this.base}/saldo/${encodeURIComponent(sucursal)}`);
+  }
+
+  cortes(f: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number } = {}): Observable<{ rows: CorteCaja[]; limit: number }> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<{ rows: CorteCaja[]; limit: number }>(`${this.base}/cortes`, { params: p });
+  }
+
+  abrirCorte(body: { fecha: string; sucursal: string; fondo_inicial?: number; nota?: string }): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes`, body);
+  }
+
+  /** La MISMA cuenta que se congela al cerrar: el capturista ve la diferencia mientras cuenta. */
+  previaCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0): Observable<{ corte: CorteCaja; totales: TotalesCorte }> {
+    return this.http.post<{ corte: CorteCaja; totales: TotalesCorte }>(`${this.base}/cortes/${id}/previa`, { conteo, morralla });
+  }
+
+  cerrarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string): Observable<CorteCaja & { totales: TotalesCorte }> {
+    return this.http.post<CorteCaja & { totales: TotalesCorte }>(`${this.base}/cortes/${id}/cerrar`, { conteo, morralla, nota });
+  }
+
+  /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */
+  autorizarCorte(id: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, {});
+  }
+
+  cancelar(id: string, motivo: string): Observable<MovimientoCaja> {
+    return this.http.post<MovimientoCaja>(`${this.base}/${id}/cancelar`, { motivo });
+  }
+}
+
+export interface CorteCaja {
+  id: string;
+  folio: string;
+  fecha: string;
+  sucursal: string;
+  estado: 'borrador' | 'cerrado' | 'autorizado';
+  fondo_inicial: number;
+  total_ingresos: number | null;
+  total_gastos: number | null;
+  total_depositos: number | null;
+  esperado: number | null;
+  contado: number | null;
+  diferencia: number | null;
+  closed_by: string | null;
+  closed_by_username: string | null;
+  authorized_by_username: string | null;
+  nota: string | null;
+}
+
+export interface TotalesCorte {
+  ingresos: number; gastos: number; depositos: number;
+  esperado: number; contado: number; diferencia: number;
+  veredicto: 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+  movimientos: number; cancelados: number;
+}
+
+export interface SaldoResponse {
+  sucursal: string;
+  corte_abierto: { id: string; folio: string; fondo_inicial: number } | null;
+  saldo: number | null;
+  sin_corte_abierto: boolean;
+  movimientos_sueltos: number;
+  totales: TotalesCorte;
 }

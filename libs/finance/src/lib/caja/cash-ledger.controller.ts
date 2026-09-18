@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
+import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 
 interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
 
@@ -24,6 +25,7 @@ export class CashLedgerController {
   constructor(
     private readonly svc: CashLedgerService,
     private readonly autofill: CajaAutofillService,
+    private readonly cortes: CashCutService,
   ) {}
 
   /** El JWT trae el id con nombres distintos según el emisor; se toma el primero que exista. */
@@ -72,6 +74,61 @@ export class CashLedgerController {
   @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo y arqueo que cuadra o no se guarda.' })
   create(@Body() body: CreateMovementInput, @Req() req: AuthedRequest) {
     return this.svc.create(body, this.user(req));
+  }
+
+  // ⚠️ Estas rutas van ANTES de @Get(':id'): Nest resuelve por orden de declaracion y
+  // 'cortes'/'saldo' se comerian como si fueran un id. Misma trampa que en LC.2.
+
+  @Get('saldo/:sucursal')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Saldo de la caja: fondo del corte abierto + efecto de sus movimientos. DERIVADO, no guardado. Sin corte abierto devuelve null y lo declara, no 0.' })
+  saldo(@Param('sucursal') sucursal: string) {
+    return this.cortes.saldo(sucursal);
+  }
+
+  @Get('cortes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Cortes de caja. Filtros: from, to, sucursal, estado.' })
+  listarCortes(
+    @Query('from') from?: string, @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string, @Query('estado') estado?: string, @Query('limit') limit?: string,
+  ) {
+    return this.cortes.listar({ from, to, sucursal, estado, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Post('cortes')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'Abre el corte de la sucursal con su fondo inicial. Uno solo abierto por sucursal.' })
+  abrirCorte(@Body() body: AbrirCorteInput, @Req() req: AuthedRequest) {
+    return this.cortes.abrir(body, this.user(req));
+  }
+
+  @Post('cortes/:id/previa')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'Vista previa del cuadre SIN cerrar: la misma cuenta que se va a congelar, para que el capturista vea la diferencia mientras cuenta.' })
+  previaCorte(@Param('id') id: string, @Body() body: CerrarCorteInput) {
+    return this.cortes.previa(id, body?.conteo, body?.morralla ?? 0);
+  }
+
+  @Post('cortes/:id/cerrar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'Cierra el corte con el conteo fisico. Congela los totales y ata los movimientos. NO se puede cerrar sin contar.' })
+  cerrarCorte(@Param('id') id: string, @Body() body: CerrarCorteInput, @Req() req: AuthedRequest) {
+    return this.cortes.cerrar(id, body ?? {}, this.user(req));
+  }
+
+  @Post('cortes/:id/autorizar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio).' })
+  autorizarCorte(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.cortes.autorizar(id, this.user(req));
+  }
+
+  @Post(':id/cancelar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'Cancela un movimiento con motivo. No se borra: se marca y sigue en la lista. No se puede cancelar lo que ya entro a un corte cerrado.' })
+  cancelar(@Param('id') id: string, @Body() body: { motivo: string }, @Req() req: AuthedRequest) {
+    return this.cortes.cancelarMovimiento(id, body?.motivo, this.user(req));
   }
 
   @Get(':id')
