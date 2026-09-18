@@ -491,6 +491,45 @@ export class CommercialProductsService {
   }
 
   /**
+   * `[CAT.7]` **El latido del catálogo**: ¿cambió algo desde la última vez que miraste?
+   *
+   * Nace de un reporte real: *"cuando en Kepler arreglan los errores de códigos y de precios, no se
+   * actualiza aquí"*. Se midió la ingesta antes de tocar nada y **estaba sana** — cero códigos
+   * fantasma (todo lo que publicamos sigue existiendo en Kepler), 4 de 8,761 precios divergentes
+   * (0.0 %) y la fuente viva a 18 minutos. Lo que no se actualizaba era **la pantalla**: cargaba al
+   * abrirse y se quedaba ahí, así que quien corregía en Kepler y se quedaba mirando la pestaña no
+   * veía cambiar nada nunca.
+   *
+   * Devuelve el instante más reciente de las DOS fuentes que alimentan las tres pestañas. Es una
+   * consulta escalar: la pantalla la pide cada pocos segundos y sólo recarga de verdad cuando el
+   * valor se movió.
+   *
+   * Medido contra producción: **24.8 ms** (tres `max()` por seq scan sobre 12.5k + 69.8k + 11.2k
+   * filas). A un pulso cada 10 s no justifica un índice —que además sería una migración— pero si
+   * `product_label_prices` crece un orden de magnitud, ahí sí conviene uno sobre `updated_at`.
+   *
+   * ⚠️ Los dos UPSERT de origen son **churn-free** (sólo tocan la fila si el dato cambió), así que
+   * este instante se mueve cuando de verdad cambió un precio o un código — no cada vez que el
+   * replicador vuelve a pasar. Eso es lo que lo hace un latido honesto y no un reloj.
+   */
+  async catalogHeartbeat() {
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(`
+        SELECT greatest(
+                 coalesce((SELECT max(updated_at) FROM catalog.product_barcodes), 'epoch'::timestamptz),
+                 coalesce((SELECT max(updated_at) FROM commercial.product_label_prices), 'epoch'::timestamptz),
+                 coalesce((SELECT max(updated_at) FROM catalog.products WHERE deleted_at IS NULL), 'epoch'::timestamptz)
+               ) AS latido`);
+      const t = r.rows[0]?.latido;
+      return {
+        // `null` = ninguna fuente tiene fecha. La pantalla lo declara en vez de fingir que está al día.
+        latido: t ? new Date(t).toISOString() : null,
+        servidor_at: new Date().toISOString(),
+      };
+    });
+  }
+
+  /**
    * Agregados catálogo-wide para el KPI strip (independiente del paginado y de los
    * segmentos activo/costo de la tabla). Honra `search` para que los KPIs describan
    * el universo filtrado por texto. Incluye top marcas por # de SKU para data-viz.
