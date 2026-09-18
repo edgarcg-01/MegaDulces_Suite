@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { repartirOla, resumenPorPedido } from './allocation';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -509,10 +510,185 @@ export class PickingService {
           updated_by: userId,
         })
         .returning('*');
+
+      // SU.6 — repartir lo levantado entre los pedidos, en la MISMA transacción: si el reparto
+      // fallara después, la ola quedaría cerrada y nadie sabría a quién le toca qué.
+      const reparto = await this.repartirYGuardar(trx, waveId);
+
       await trx('commercial.wave_orders').where({ wave_id: waveId }).update({
-        stage: 'surtido',
+        stage: 'desconsolidado',
         updated_at: trx.fn.now(),
       });
+      return { ...upd, reparto };
+    });
+  }
+
+  /**
+   * SU.6 — calcula el reparto con la función PURA (`allocation.ts`, probada por unidad) y lo
+   * guarda. Acá sólo se leen filas y se escriben: la decisión de a quién se le queda corto el
+   * pedido vive en la función, fuera de la base, para que se pueda probar sin ella.
+   */
+  private async repartirYGuardar(trx: any, waveId: string) {
+    const lineas = await trx('commercial.wave_lines').where({ wave_id: waveId });
+    if (!lineas.length) return [];
+
+    // Lo que pidió cada pedido de cada producto, con lo que hace falta para ordenarlos.
+    const pedidos = await trx('commercial.wave_orders as wo')
+      .join('commercial.order_lines as ol', function (this: any) {
+        this.on('ol.order_id', '=', 'wo.order_id').andOn('ol.tenant_id', '=', 'wo.tenant_id');
+      })
+      .join('commercial.orders as o', function (this: any) {
+        this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
+      })
+      .where('wo.wave_id', waveId)
+      .select(
+        'ol.product_id',
+        'wo.order_id',
+        'o.code as order_code',
+        'ol.quantity as qty_requested',
+        'o.requested_delivery_date as delivery_date',
+        'o.confirmed_at',
+      );
+
+    const porProducto = new Map<string, any[]>();
+    for (const r of pedidos as any[]) {
+      const arr = porProducto.get(r.product_id) ?? [];
+      arr.push({
+        order_id: r.order_id,
+        order_code: r.order_code,
+        qty_requested: Number(r.qty_requested),
+        delivery_date: r.delivery_date ? String(r.delivery_date).slice(0, 10) : null,
+        confirmed_at: r.confirmed_at ? new Date(r.confirmed_at).toISOString() : null,
+      });
+      porProducto.set(r.product_id, arr);
+    }
+
+    const ola = repartirOla(
+      (lineas as any[]).map((l) => ({
+        product_id: l.product_id,
+        qty_picked: l.qty_picked == null ? null : Number(l.qty_picked),
+        pedidos: porProducto.get(l.product_id) ?? [],
+      })),
+    );
+
+    const filas: any[] = [];
+    for (const r of ola) {
+      for (const a of r.reparto) {
+        filas.push({
+          wave_id: waveId,
+          order_id: a.order_id,
+          product_id: r.product_id,
+          qty_requested: a.qty_requested,
+          qty_allocated: a.qty_allocated,
+          rule_applied: a.regla,
+        });
+      }
+    }
+    if (filas.length) {
+      // Idempotente: cerrar dos veces no duplica ni pisa con otro criterio.
+      await trx('commercial.wave_allocations')
+        .insert(filas)
+        .onConflict(['tenant_id', 'wave_id', 'order_id', 'product_id'])
+        .merge(['qty_requested', 'qty_allocated', 'rule_applied']);
+    }
+    return resumenPorPedido(ola);
+  }
+
+  /** Lo que le toca a cada pedido de la ola (la hoja con la que se separa la mercancía). */
+  async allocations(waveId: string) {
+    if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
+    return this.tk.run(async (trx) => {
+      const filas = await trx('commercial.wave_allocations as wa')
+        .join('commercial.orders as o', function (this: any) {
+          this.on('o.id', '=', 'wa.order_id').andOn('o.tenant_id', '=', 'wa.tenant_id');
+        })
+        .leftJoin('commercial.customers as c', function (this: any) {
+          this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
+        })
+        .leftJoin('catalog.products as p', function (this: any) {
+          this.on('p.id', '=', 'wa.product_id').andOn('p.tenant_id', '=', 'wa.tenant_id');
+        })
+        .leftJoin('commercial.wave_orders as wo', function (this: any) {
+          this.on('wo.wave_id', '=', 'wa.wave_id')
+            .andOn('wo.order_id', '=', 'wa.order_id')
+            .andOn('wo.tenant_id', '=', 'wa.tenant_id');
+        })
+        .where('wa.wave_id', waveId)
+        .select(
+          'wa.*',
+          'o.code as order_code',
+          'c.name as customer_name',
+          'p.nombre as product_name',
+          'p.sku',
+          'wo.stage',
+        )
+        .orderBy(['o.code', 'p.nombre']);
+
+      // Agrupado por pedido: así es como se separa físicamente (una caja por cliente).
+      const porPedido = new Map<string, any>();
+      for (const f of filas as any[]) {
+        let g = porPedido.get(f.order_id);
+        if (!g) {
+          g = {
+            order_id: f.order_id,
+            order_code: f.order_code,
+            customer_name: f.customer_name,
+            stage: f.stage,
+            completo: true,
+            items: [] as any[],
+          };
+          porPedido.set(f.order_id, g);
+        }
+        if (Number(f.qty_allocated) < Number(f.qty_requested)) g.completo = false;
+        g.items.push({
+          product_id: f.product_id,
+          product_name: f.product_name,
+          sku: f.sku,
+          qty_requested: Number(f.qty_requested),
+          qty_allocated: Number(f.qty_allocated),
+          rule_applied: f.rule_applied,
+        });
+      }
+      return Array.from(porPedido.values());
+    });
+  }
+
+  /**
+   * SU.7 — re-verificación de UN pedido: lo separado contra lo físico.
+   *
+   * ⚠️ Se llama **re-verificación** y no "chequeo": con una sola persona (decisión de Edgar) no es
+   * un control cruzado, y decirle control a algo que no lo es sería peor que no tenerlo. Se guarda
+   * `verified_by` aparte de `picked_by` para poder MEDIR en qué proporción coinciden — el día que
+   * sean dos personas, el gate se enciende sin migrar nada.
+   */
+  async verifyOrder(waveId: string, orderId: string) {
+    if (!UUID_RE.test(waveId) || !UUID_RE.test(orderId))
+      throw new BadRequestException('id inválido');
+    const userId = this.tenantCtx.get()?.userId || null;
+
+    return this.tk.run(async (trx) => {
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).first();
+      if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
+      if (wave.status !== 'surtida')
+        throw new ConflictException(
+          `Sólo se verifica una ola ya surtida (está en '${wave.status}'). Terminá el recorrido primero.`,
+        );
+
+      const wo = await trx('commercial.wave_orders')
+        .where({ wave_id: waveId, order_id: orderId })
+        .first();
+      if (!wo) throw new NotFoundException('Ese pedido no está en esta ola');
+      if (wo.stage === 'listo_embarque') return wo; // idempotente
+
+      const [upd] = await trx('commercial.wave_orders')
+        .where({ id: wo.id })
+        .update({
+          stage: 'listo_embarque',
+          verified_by: userId,
+          verified_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+        })
+        .returning('*');
       return upd;
     });
   }

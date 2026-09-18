@@ -110,6 +110,26 @@ export class PickingController {
     return this.service.pickLine(id, lineId, body);
   }
 
+  @Get('waves/:id/allocations')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'SU.6 — a qué pedido le toca cada cosa (la hoja con la que se separa), agrupado por cliente.',
+  })
+  allocations(@Param('id') id: string) {
+    return this.service.allocations(id);
+  }
+
+  @Post('waves/:id/orders/:orderId/verify')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'SU.7 — re-verifica UN pedido ya separado y lo deja listo para embarque. Registra quién lo verificó.',
+  })
+  verify(@Param('id') id: string, @Param('orderId') orderId: string) {
+    return this.service.verifyOrder(id, orderId);
+  }
+
   @Post('waves/:id/finish')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({ summary: 'Cierra el surtido. Exige que ningún renglón quede sin tocar.' })

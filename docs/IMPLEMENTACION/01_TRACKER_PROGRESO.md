@@ -378,9 +378,30 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
   columna existe y se captura a mano. **Bloqueado por SU.0** (no hay ubicaciones cargadas).
 - [ ] **[SU.5]** ⬜ Excepciones sin detener el surtido. La recuperación y las sustituciones son
   **Thot + RA**, no un motor nuevo.
-- [ ] **[SU.6]** ⬜ Desconsolidación + contenedores con QR.
-- [ ] **[SU.7]** ⬜ Chequeo de salida. ⚠️ `commercial-receiving` NO sirve (es entrada de
-  proveedor). El gate de segregación se rompe a propósito una vez (ADR-056).
+- [x] **[SU.6]** 🧪 **EN CÓDIGO Y PROBADO 2026-09-18** — el reparto de lo levantado. ⭐ **La
+  decisión vive en una función PURA** (`allocation.ts`) y por eso se prueba **por unidad**: es la
+  que decide a quién se le queda corto el pedido cuando el anaquel no alcanzó, y un error ahí no
+  rompe nada — simplemente alguien recibe de menos y nadie se entera hasta que reclama.
+  Sirve **completo y en orden**, no a prorrata (repartir 10 entre tres que piden 10 daría tres
+  pedidos inservibles en vez de uno servido). Orden explicable: fecha de entrega → antigüedad →
+  folio; ⛔ **NO por importe ni por "cliente importante"** — eso es una decisión comercial que
+  nadie tomó. `rule_applied` se guarda por renglón: sin ese rastro, un pedido corto es
+  inexplicable (§15 del documento). Mig `20260918120000` (`commercial.wave_allocations`, RLS
+  forzado + CHECK `qty_allocated <= qty_requested`). Corre en la MISMA transacción del cierre.
+  **17 pruebas unitarias** propias. *Cerrado 2026-09-18.*
+- [ ] **[SU.6.1]** ⬜ Contenedores con QR (la caja física por cliente). El reparto ya dice qué va
+  en cada una; falta identificar el recipiente.
+- [x] **[SU.7]** 🧪 **EN CÓDIGO Y PROBADO 2026-09-18** — re-verificación por pedido →
+  `listo_embarque`, que es lo que **engancha con la carga del camión** y cierra el tramo. Se llama
+  re-verificación y no "chequeo" a propósito: con una sola persona no es control cruzado, y
+  decirle control a algo que no lo es sería peor que no tenerlo. `verified_by`/`verified_at` se
+  guardan **aparte** de `picked_by` para poder MEDIR en qué proporción coinciden — el día que sean
+  dos personas el gate se enciende sin migrar nada. *Cerrado 2026-09-18.*
+- [x] **[SU.T]** 🧪 **Pruebas unitarias habilitadas en `libs/commercial` 2026-09-18** — la
+  librería tenía **4 specs y ningún target `test`**: estaban escritos y no los corría nadie (el
+  patrón de "pruebas huérfanas" que la Fase VP ya había medido). Agregado `vitest.config.ts` +
+  `tsconfig.spec.json` → `nx test commercial` **77/77 en 5 archivos**, o sea que los 60 casos
+  huérfanos volvieron al runner junto con los 17 nuevos.
 - [ ] **[SU.8]** ⬜ Reparto de lo **efectivamente surtido** (ya NO bloqueado — ver decisión abajo). Va pegado a SU.6.
 - [ ] **[SU.9]** ⬜ Indicadores contra la línea base de SU.0.4.
 

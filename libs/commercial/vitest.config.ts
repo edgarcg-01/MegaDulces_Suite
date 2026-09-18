@@ -4,15 +4,14 @@ import { aliasDeTsconfig, raizCanonica } from '../../vitest.shared';
 /**
  * Pruebas de `commercial` con Vitest.
  *
- * La resolucion de los alias @megadulces/* vive en `vitest.shared.ts`, con las tres trampas
- * medidas que la hacen no-trivial. No copiar esa configuracion aca.
+ * ⚠️ Esta librería tenía **4 specs y ningún target `test`** desde antes (expiry-voice-match,
+ * receiving-claim, receiving-origin, anexo-venta): estaban escritos y no los corría nadie — el
+ * patrón de "pruebas huérfanas" que la Fase VP ya había medido en el repo. La existencia de ESTE
+ * archivo es lo que crea el target (plugin `@nx/vitest`), así que con él los 4 vuelven al runner.
  *
- * La existencia de ESTE archivo es lo que crea el target `test` del proyecto (plugin
- * `@nx/vitest`, ver el comentario de `nx.json`). Borrarlo no deja un target roto: deja al
- * proyecto sin target, que es honesto.
+ * La resolución de los alias `@megadulces/*` vive en `vitest.shared.ts`: no copiarla acá.
  */
 export default defineConfig({
-  // La caja de la letra de unidad importa en Windows: ver raizCanonica() en vitest.shared.ts.
   root: raizCanonica(__dirname),
   plugins: [aliasDeTsconfig(__dirname)],
   test: {
