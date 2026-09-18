@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { BudgetSalesPlanService, GenerateFromHistoryDto, UpsertSalesPlanLineDto } from './budget-sales-plan.service';
+import { BudgetSalesPlanService, GenerateFromHistoryDto, UpsertSalesPlanLineDto, ProposePlanDto, UpsertSalesPlanSettingsDto } from './budget-sales-plan.service';
 import { BudgetSalesComparisonService } from './budget-sales-comparison.service';
+import { BudgetSalesIndicatorsService } from './budget-sales-indicators.service';
 
 interface AuthedRequest { user?: { username?: string } }
 
@@ -19,6 +20,7 @@ export class BudgetSalesController {
   constructor(
     private readonly plan: BudgetSalesPlanService,
     private readonly comparison: BudgetSalesComparisonService,
+    private readonly indicators: BudgetSalesIndicatorsService,
   ) {}
 
   private who(req: AuthedRequest) { return req.user?.username || 'sistema'; }
@@ -56,4 +58,35 @@ export class BudgetSalesController {
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Pivote meta vs real + CREC (YoY) + PART (participación) por entidad × periodo 13×4.' })
   getComparison(@Param('id') id: string) { return this.comparison.getComparison(id); }
+
+  // ── PVA — Automatización (el sistema propone, el humano ajusta) ──
+
+  @Get('budgets/:id/sales-plan/settings')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Supuestos anuales del plan de ventas (crecimiento por canal, método).' })
+  getSettings(@Param('id') id: string) { return this.plan.getSettings(id); }
+
+  @Put('budgets/:id/sales-plan/settings')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija/ajusta los supuestos anuales (la única perilla del humano).' })
+  upsertSettings(@Param('id') id: string, @Body() dto: UpsertSalesPlanSettingsDto, @Req() req: AuthedRequest) {
+    return this.plan.upsertSettings(id, dto, this.who(req));
+  }
+
+  @Get('budgets/:id/sales-plan/propose-growth')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Propone el crecimiento por canal desde la tendencia histórica (con cobertura declarada).' })
+  proposeGrowth(@Param('id') id: string) { return this.plan.proposeGrowth(id); }
+
+  @Post('budgets/:id/sales-plan/propose')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Propone el plan COMPLETO (relleno híbrido: base×crec + PART/estacionalidad). Devuelve cobertura.' })
+  propose(@Param('id') id: string, @Body() dto: ProposePlanDto, @Req() req: AuthedRequest) {
+    return this.plan.proposePlan(id, dto, this.who(req));
+  }
+
+  @Get('budgets/:id/sales-indicators')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Tablero de indicadores: CREC/PART por canal/entidad × año (histórico) + meta-vs-real.' })
+  getIndicators(@Param('id') id: string) { return this.indicators.getIndicators(id); }
 }

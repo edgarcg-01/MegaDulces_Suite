@@ -332,6 +332,36 @@ de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout
   choque de grano); `commercial.sales_targets` no se duplica (queda para el vs-objetivo mensual del Análisis);
   "partida ingreso" = presentación desde `sales_plan_lines`, no copia en `budget_lines`. *Cerrado 2026-09-17.*
 
+### Fase PVA — Automatización del Presupuesto de Ventas · 2026-09-18 · plan aprobado · (extiende PV)
+
+Automatizar el armado "bajo los dos parámetros" (CREC=crecimiento, PART=participación): el **sistema propone**
+el presupuesto completo desde la historia (crecimiento del histórico + relleno híbrido) y el humano **solo
+ajusta**; variables externas "ninguna en teoría" (override manual por celda = válvula de escape). Alcance:
+armado + tablero de indicadores (reemplaza el Excel completo). ⚠️ La data viva arranca ~fin 2025 → la
+calidad de la propuesta **rampa con la historia**; se declara la cobertura, «sin datos»≠cero.
+
+- [~] **[PVA.1]** 🔨 Motor de propuesta de crecimiento + supuestos por año (backend verificado DB-direct).
+  `budget.sales_plan_settings` (mig `20260918140000`, RLS, keyed `(tenant_id,budget_id)`): `proposal_method`
+  (hibrido|historico), `default_growth_pct`, `growth_by_channel` JSONB — la única perilla del humano.
+  `proposeGrowth(budgetId)`: crecimiento por canal = YoY del par de años más reciente sobre periodos apareados;
+  **guard de rampa** (≥4 periodos apareados o cae a default — mató un +2951% absurdo por 2025 parcial); escalera
+  canal→global→default; cobertura declarada. `getSettings`/`upsertSettings`. Smoke DB-direct verde.
+- [~] **[PVA.2]** 🔨 Relleno híbrido de las 299 celdas (backend verificado DB-direct). `proposePlan(budgetId,dto)`:
+  celda con base real → `base×(1+crec[canal])` (`historico_ajustado`); sin base → `anual_proyectado ×
+  estacionalidad` (`estacional`, índice estacional jerárquico entidad→canal→global con shrinkage, suma 1);
+  sin señal → no crea fila y lo declara (cobertura). Nunca pisa `manual`. Mig `20260918150000` amplía el CHECK
+  de `method` a incluir `estacional`. Smoke DB-direct **10/10** (settings CRUD, guard de rampa, estacionalidad
+  suma 1, cobertura=299, base×crec exacto, manual preservado, «sin datos»≠cero). `nx build api` verde.
+- [~] **[PVA.3]** 🔨 Tablero de indicadores CREC/PART (backend verificado DB-direct). `BudgetSalesIndicatorsService.
+  getIndicators`: CREC/PART por compañía/canal/entidad × año (histórico multi-año) + meta-vs-real del ejercicio —
+  los bloques de consolidación del workbook (PV por plaza, Mayoreo, RD). Todo del `v_sellout_daily` por el
+  calendario, frescura declarada. DB-direct: PART suma 100%/año, mix 2026 mostrador 76%/credito 14%/ruta 5.5%/
+  preventa 5%. `nx build api` verde.
+- [ ] **[PVA.4]** ⬜ UI del flujo automático en `/presupuesto`: botón «Proponer plan del año» (crecimiento
+  propuesto por canal editable + cobertura), badges de origen por celda (Histórico/Estacional/Manual), panel de
+  indicadores, tira de cobertura de la propuesta.
+- [ ] **[PVA.5]** ⬜ Verificación HTTP (ADR-044) + ADR nuevo + docs (`FASE_PU` sección PVA).
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
