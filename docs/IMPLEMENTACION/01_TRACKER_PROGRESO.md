@@ -387,6 +387,23 @@ aplicada** (ADR-071).
 - **Hallazgo medido:** la familia-4 contable es **70% FLETES** ($368M en 401-002, no venta de producto);
   producto real en 401 ≈ $150M; el sell-out es ~72% del bruto facturado (neto/cobertura). Verificación HTTP pendiente (infra).
 
+### Fase PVT — Proyección del plan → metas de Análisis (unificación) · 2026-09-18 · ADR-072
+
+Puentea el plan de ventas (entidad × periodo 13×4) con el «vs objetivo» mensual del sub-módulo Análisis
+(`commercial.sales_targets`): el objetivo de Análisis pasa a salir del presupuesto, sin recaptura. El plan es la
+única verdad; los targets mensuales son un **derivado idempotente** (ADR-072).
+
+- [~] **[PVT.1]** 🔨 `BudgetSalesPlanService.projectToSalesTargets(budgetId)`: reparte cada meta de periodo a
+  meses **proporcional a los días** (vía `v_retail_calendar`); agrega a las 4 escalas del contrato (total `''` /
+  channel / branch 01-06 / route NN); upsert por natural key. Cero importer, cero tabla nueva.
+- [~] **[PVT.2]** 🔨 endpoint `POST finance/budget/budgets/:id/sales-plan/project-targets` (PRESUPUESTOS_GESTIONAR)
+  + botón «Proyectar a Análisis» en `/presupuesto`. `nx build api`+`view`+`check:templates` verdes.
+- [~] **[PVT.3]** 🧪 smoke DB-direct `test-newdb-sales-plan-project-targets.js` **10/10**: calendario cubre el año
+  (365 d), reparto por días sin pérdida, **invariante Σ meses total == Σ plan (±$0.10)**, escalas branch/route,
+  y el **upsert real** cross-schema a `commercial.sales_targets`.
+- **Pendiente:** verificación HTTP (ADR-044) + push/redeploy (sin migración). Declarado: entidad retirada por
+  completo puede dejar target obsoleto (upsert-only); Análisis pinta total+branch (channel/route para UI futura).
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`

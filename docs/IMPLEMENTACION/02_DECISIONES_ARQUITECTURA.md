@@ -2162,3 +2162,26 @@ Plan, medición y las 6 decisiones abiertas en [`FASE_CG_CAJA_GENERAL.md`](FASES
 **Hereda:** ADR-068/069 (Presupuesto de Ventas / automatización) · ADR-059 (el real se arbitra; lo no arbitrable se declara) · ADR-056 (lo no medido se declara, nunca cero) · la regla del ODS (derivar, no copiar; snapshot sólo si reconcilia y verifica — acá NO reconcilió).
 
 Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVR).
+
+## ADR-072
+
+**La meta del plan de ventas (entidad × periodo 13×4) se PROYECTA a metas mensuales en `commercial.sales_targets` para unificar el «vs objetivo» del sub-módulo Análisis. El plan es la única verdad; los targets mensuales son un artefacto DERIVADO idempotente.** (Fase PVT — propuesto 2026-09-18)
+
+**Contexto.** El sub-módulo Análisis (Command Center comercial) ya renderiza un «vs objetivo» mensual leyendo `commercial.sales_targets` (scope total/branch, capturados HITL vía `upsertSelloutTarget`). El Presupuesto de Ventas produce la meta al grano ENTIDAD × PERIODO 13×4 (`budget.sales_plan_lines`). Sin puente, la meta del presupuesto y el objetivo de Análisis viven separados y divergen — el humano tendría que recapturar. El pedido del ejercicio es lo contrario: «casi nada se llena desde acá».
+
+**Decisión:**
+1. `projectToSalesTargets(budgetId)` reparte cada `meta_amount` de periodo a **meses calendario proporcional a los DÍAS** de ese periodo en cada mes, vía `analytics.v_retail_calendar` (cuyo `fiscal_year` = año calendario → cada periodo cae íntegro en el año, sin sangrado entre años).
+2. Escribe las **4 escalas** del contrato de `sales_targets` con su `scope_key`: `total`→`''`, `channel`→canal canónico, `branch`→`warehouse_code` 01-06 (entidades de plaza), `route`→`route_code` NN (entidades `RUTA-NN`). Análisis hoy pinta total+branch; channel/route quedan escritos para su UI futura.
+3. **Upsert idempotente** en la natural key `(tenant_id, scope, scope_key, year_month)`. Endpoint `POST finance/budget/budgets/:id/sales-plan/project-targets` (`PRESUPUESTOS_GESTIONAR`) + botón «Proyectar a Análisis» en `/presupuesto`.
+4. Una vez proyectado, `sales_targets` del ejercicio es un **derivado del plan**: el humano ajusta en el PLAN (sales_plan_lines), no en los targets — coherente con «sistema propone, humano ajusta» (ADR-069).
+
+**Se rechaza:** (a) borrar en bloque los targets del año antes de reinsertar (barrería una meta capturada a mano en un (scope,mes) que el plan no toca) → **upsert-only**; (b) duplicar la meta en `commercial.*` como tabla nueva (regla del ODS: derivar, no copiar; acá el destino ya existe y es el que Análisis lee); (c) proyectar sólo total (branch/channel/route también se derivan del mismo reparto, gratis).
+
+**Consecuencias:**
+- ✅ El «vs objetivo» de Análisis sale del plan de Presupuestos sin recaptura. Idempotente (re-proyectar pisa lo proyectado).
+- ✅ Conservación verificada DB-direct: Σ meses del scope `total` == Σ metas del plan (±centavos por redondeo por bucket).
+- ⚠️ Declarado: si una entidad se retira **por completo** del plan, su target de ruta/branch de meses previos puede quedar **obsoleto** (upsert-only no lo borra) — caso raro; el resto se recomputa a la baja y se pisa.
+
+**Hereda:** ADR-068/069 (Presupuesto de Ventas / automatización) · el contrato de `commercial.sales_targets` (upsert por natural key) · la regla del ODS (derivar, no materializar un segundo).
+
+Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVT).

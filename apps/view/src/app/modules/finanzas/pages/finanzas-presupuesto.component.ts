@@ -293,6 +293,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <button pButton type="button" class="p-button-sm" (click)="openProposePlan()"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="openGenPlan()" title="Crecimiento plano único">Generar plano</button>
                 }
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="projectTargets()" [loading]="projecting()" title="Reparte la meta del plan (13×4) a metas mensuales del «vs objetivo» del sub-módulo Análisis (reparto por días)."><span class="pi pi-share-alt"></span>&nbsp;Proyectar a Análisis</button>
               </div>
             </div>
 
@@ -1310,6 +1311,24 @@ export class FinanzasPresupuestoComponent implements OnInit {
           this.toast.add({ severity: 'success', summary: 'Plan propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.no_signal} sin señal · ${c.manual_kept} manual.` });
         },
         error: (e) => { this.savingPropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el plan.' }); },
+      });
+  }
+
+  projecting = signal(false);
+  projectTargets(): void {
+    const b = this.selected(); if (!b) return;
+    this.projecting.set(true);
+    this.http.post<{ projected: number; months: number; lines: number; note?: string }>(`${this.base}/budgets/${b.id}/sales-plan/project-targets`, {})
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.projecting.set(false);
+          if (r.note === 'plan vacío' || !r.lines) {
+            this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Armá el plan primero.' });
+          } else {
+            this.toast.add({ severity: 'success', summary: 'Proyectado a Análisis', detail: `${r.projected} metas mensuales (scope×mes) desde ${r.lines} celdas del plan · ${r.months} meses. Ya se ve en el «vs objetivo» de Análisis.` });
+          }
+        },
+        error: (e) => { this.projecting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proyectar el plan a las metas de Análisis.' }); },
       });
   }
 
