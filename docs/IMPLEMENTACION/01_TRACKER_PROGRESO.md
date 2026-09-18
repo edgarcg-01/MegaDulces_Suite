@@ -261,8 +261,16 @@ de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout
   channel:warehouse_code`, `channel_label` canónico, `entity_type` (sucursal_canal/ruta). Los rollups (TOTAL
   VEC/RD/sucursal/Total) se agregan en PV.4. Declarado: sucursales de hoy ≠ Excel 2018 (forward); vecinal a
   grano sucursal×preventa (no ruta vecinal individual). Smoke DB-direct **7/7**. Aplicada a dev. *Cerrado 2026-09-17.*
-- [ ] **[PV.3]** ⬜ Modelo del presupuesto de ventas (meta = partida ingreso dimensionada por entidad×periodo;
-  captura histórico ajustado = real año anterior × (1+crecimiento) + override). Reconciliar con `commercial.sales_targets`.
+- [~] **[PV.3]** 🔨 Modelo del presupuesto de ventas (backend verificado DB-direct). Tabla
+  `budget.sales_plan_lines` (mig `20260917230000`, RLS forzado, FK compuesta a `budget.budgets`): meta por
+  ENTIDAD (`v_sales_entity`) × PERIODO 13×4 (1..13), method historico_ajustado/manual + growth_pct +
+  base_amount + audit. `BudgetSalesPlanService` (registrado en `finance-budget.module`): getEntities/getPlan,
+  **generateFromHistory** (meta = real año anterior del ODS × (1+growth); sin base → NO se crea fila, «sin
+  datos»≠cero), upsertLine (override manual, no se pisa al regenerar), deleteLine. **Única verdad de la meta =
+  esta tabla** (no se duplica en `budget_lines`; la UI la presenta como sección de ingresos — decisión "partidas
+  ingreso"). Smoke DB-direct **12/12** (FY2027←2026: 105 celdas con base, meta=base×1.10 exacto y == roll
+  independiente, override respetado, CHECKs). `nx build api` verde (fix inferencia TS de `.sum()`). Aplicada a dev.
+  **Pendiente: controller + UI + verificación HTTP (PV.5).** *Cerrado backend 2026-09-17.*
 - [ ] **[PV.4]** ⬜ Comparación meta vs real + CREC + PART (puente al sell-out diario por calendario; reusar
   `explainChange` YoY / `salesQuery` share, no reimplementar). «Sin datos»≠cero, frescura declarada.
 - [ ] **[PV.5]** ⬜ UI "Presupuesto de ventas" en `/presupuesto` (pivote entidad×periodo 13×4, meta vs real,
