@@ -572,14 +572,42 @@ Ruta crítica: **CG.8 → CG.9 → CG.10b → CG.17 → CG.13 → CG.14**. Lo de
   resuelve en **CG.9** (el `.mdb` al carril de réplica) o, mientras tanto, agendándolo en `.249`.
   Ponerle un latido a un proceso que nadie dispara sólo agrega un rojo más.
 
-#### `CG.9` · `BDatos.mdb` al carril de réplica (retirar el importer)
-- Reusar `access-adapter.js` + `access-mirror.js` de Fase WR. Carril incremental por watermark para
-  `Doctos` (append-only por `TipoDto+IdDocto`), hash-delta para `Cuenta` (catálogo).
-- `analytics.caja_general_*` pasa de tabla poblada por script a **vista `derive-no-copy`** sobre la
-  réplica cruda.
-- Alcance completo **2008 → hoy**, no sólo 2026 (hoy perdemos 104,227 movimientos de historia).
-- ⚠️ Sigue necesitando Jet 32-bit → **vive en `.249` junto a Wincaja hasta VL.5**, declarado con
-  dueño y fecha. No se disfraza de resuelto.
+#### `CG.9` · `BDatos.mdb` al carril de réplica — 🟡 **primera mitad hecha (2026-09-18)**
+
+**Hecho y verificado:**
+- [x] **El motor se subió a `lib/`** — `lib/access-replicate.js` + `lib/access-mirror-ddl.js`.
+  Duplicar las 295 líneas del replicador de WR era exactamente lo que ADR-056 prohíbe.
+  `wincaja/replicate-wincaja-live.js` quedó como wrapper de 12 líneas con su config.
+  **Gate del refactor:** `--dry --branch=32` contra la `.mdb` real ANTES y DESPUÉS → salida
+  idéntica (`4 inc / 66 hash · read 173615`); lo único distinto fue el tiempo transcurrido.
+  Más `test-wincaja-replica-fidelidad.js` **17 OK / 0 FALLA**.
+- [x] **Config de Dulcería** + destino `:5433/dulceria` con **35 tablas espejo** creadas (vacías).
+- [x] **Plan verificado en seco**: 35 tablas, **117,018 filas**, 135 s, **0 incremental**.
+
+⛔ **NADA VA POR CARRIL INCREMENTAL, Y ESO ESTÁ MEDIDO.** La tentación evidente —`Doctos` por
+`IdDocto`, que parece un consecutivo— sería **el mismo bug que WR.7 ya pagó** con `Cortes`/
+`Retiros`: la PK de `Doctos` es `(TipoDto, IdDocto)`, de dos ejes, y el `IdDocto` **reinicia por
+tipo** (ingresos 0→23,147 · gastos 0→93,041). Un watermark escalar se pararía en 93,041 y **los
+23,174 ingresos —$654.7M— quedarían invisibles para siempre**, no atrasados. Y hay un segundo
+motivo suficiente por sí solo: **`Doctos` MUTA** (la bandera `Corte` se prende después —
+116,470 en 1 contra 10 en 0). Todo hash-delta.
+
+**Pendiente, y por qué:**
+- ⬜ **La pasada real de datos** (`--once`): 117k filas. Es escritura pesada → ventana.
+- ⬜ **El shipper a prod.** Acá está el hueco de arquitectura que faltaba nombrar: la réplica vive
+  en `:5433/dulceria` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
+  bases sin FDW**, y meter un FDW de prod hacia un contenedor local haría que prod dependa de que
+  esa caja esté arriba. El patrón probado es el del ODS: un **shipper local → prod**
+  (`replicate-ods-live.js` hace justo eso, y su fuente ya es Postgres con schema por sucursal —
+  la misma forma que `d20.*`). Falta decidir el schema destino y correrlo.
+- ⬜ Recién entonces: `analytics.caja_general_*` → **vistas derive-no-copy** y **retirar
+  `import-caja-general.js`**.
+- ⚠️ Sigue necesitando Jet 32-bit → **vive en `.249` junto a los 3 carriles de Wincaja hasta
+  VL.5**. Es la misma restricción que ya existe, no una nueva.
+- ⚠️ **Alcance**: hoy sólo la sucursal 20. Las otras tres (`7 MKT`, `99 CC`, `70 LFLG` — ésta la
+  instancia matriz, 121 MB) están declaradas en la config listas para sumarse, pero **cada una
+  trae su propio catálogo de 122 cuentas**, así que el mapa HITL de CG.10b se multiplica. Es la
+  decisión §11.2.
 
 #### `CG.10b` · ⭐ El concepto de Kepler, derivado del ODS — **ruta crítica**
 - **Vista `analytics.v_kepler_conceptos`** `derive-no-copy` sobre `kepler_ods.kdco`:
