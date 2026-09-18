@@ -1,0 +1,17 @@
+{
+  "//": [
+    "⛔ El `exclude` va REDECLARADO. El `tsconfig.json` del que esto extiende trae",
+    "`exclude: [node_modules, dist, **/*.spec.ts]` — correcto para el build de la libreria, veneno",
+    "aca: TypeScript lo HEREDA y terminaria excluyendo exactamente los archivos que este `include`",
+    "agrega (TS18003 \"No inputs were found\"). `extends` NO fusiona arrays: el hijo REEMPLAZA al",
+    "padre. Misma trampa documentada en libs/contracts/tsconfig.spec.json."
+  ],
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist"],
+  "compilerOptions": {
+    "outDir": "../../dist/out-tsc",
+    "rootDir": "./src",
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["src/**/*.spec.ts", "src/**/*.d.ts"]
+}

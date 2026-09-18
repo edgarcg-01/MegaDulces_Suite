@@ -293,6 +293,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // TP.6 — dos permisos de manage a propósito: GESTIONAR prepara (asigna/reprograma/
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
+          { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
           { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
           // Presupuestos se movió a su PROPIO proyecto top-level (`presupuestos`, /presupuesto):
           // es responsable distinto de Tesorería/Finanzas (decisión usuario 2026-09-17). Ver el nodo abajo.
