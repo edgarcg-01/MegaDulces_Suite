@@ -10,6 +10,7 @@ import { BudgetCampaignsService } from './budget-campaigns.service';
 import { BudgetCampaignsController } from './budget-campaigns.controller';
 import { BudgetSalesPlanService } from './budget-sales-plan.service';
 import { BudgetSalesComparisonService } from './budget-sales-comparison.service';
+import { BudgetSalesIndicatorsService } from './budget-sales-indicators.service';
 import { BudgetSalesController } from './budget-sales.controller';
 
 /**
@@ -23,7 +24,7 @@ import { BudgetSalesController } from './budget-sales.controller';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController],
-  providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
-  exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
+  providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService],
+  exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService],
 })
 export class FinanceBudgetModule {}
