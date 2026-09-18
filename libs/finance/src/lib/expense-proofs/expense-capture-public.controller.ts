@@ -48,6 +48,22 @@ export class ExpenseCapturePublicController {
     return this.svc.uploadFile(token, body?.file_base64 || '', body?.role || '');
   }
 
+  /**
+   * GX.13 — lee el ticket con Claude Vision y devuelve lo que ve, para llenarle los campos
+   * al trabajador. Es una PROPUESTA editable, no un veredicto: el cuadre autoritativo sigue
+   * corriendo en el servidor al enviar.
+   *
+   * Límite más apretado que el de subir: cada llamada es una consulta a visión, y acá el
+   * disparador es tomar una foto — algo que se repite al reencuadrar.
+   */
+  @Public()
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
+  @Post(':token/leer-ticket')
+  @ApiExcludeEndpoint()
+  leerTicket(@Param('token') token: string, @Body() body: { file_base64?: string }) {
+    return this.svc.leerTicketPreview(token, body?.file_base64 || '');
+  }
+
   /** Envía el gasto. Queda SIN folio hasta que en oficina lo casen con su solicitud. */
   @Public()
   @Throttle({ medium: { limit: 6, ttl: 60_000 } })

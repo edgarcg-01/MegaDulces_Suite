@@ -260,7 +260,12 @@ export class AnexoVentaService {
     return pre + (n % 1e6 ? ` ${this.letras(n % 1e6)}` : '');
   }
 
-  private logo(): string {
+  /**
+   * `public` a propósito, igual que `renderPdf`: el ticket en carta (Fase TK) imprime
+   * el mismo membrete y duplicar el sondeo de rutas duplicaría también su caché y el
+   * bug de ruta que ya se corrigió una vez acá.
+   */
+  logo(): string {
     if (this.logoCache !== undefined) return this.logoCache;
     const cands = [
       // el optimizado (400px) pesa 36 KB contra 477 KB del original: el PDF baja ~70%
