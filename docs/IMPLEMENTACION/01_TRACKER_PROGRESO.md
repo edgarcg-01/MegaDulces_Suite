@@ -3809,13 +3809,32 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
   movimientos / $49,699.00** que la PK `(tipo_dto, mov_id)` pisaba. Ventana de negocio
   `fecha >= 2026-01-01` **conservada** a propósito. Gate = **A/B contra el importer REAL**, que
   encontró 2 diferencias reales (`btrim` de pg quita sólo espacios; 7 valores traen `
+
 `) →
   25 OK / 0 FALLA. Prueba negativa: el importer viejo **salta** las vistas, no revienta.
   `test-newdb-caja-general-derive.js` **18 ✓ / 0 ✗**.
-  ⬜ **Falta prod**: verificado todo contra `platform_test`; desde esta máquina no hay URL de prod.
-  ⬜ **Falta agendar** los dos carriles en `.249` (molde: el PM2 de Wincaja). Hoy el shipper está en
-  el modo `finance` de `run-prod-feeds.js`, **que no está en ninguna agenda** — que es exactamente
-  la causa del congelamiento que esta fase vino a arreglar.
+- [x] **[CG.9e]** ✅ 2026-09-18 · Los dos carriles AGENDADOS bajo PM2 en `.249`
+  (`ecosystem.caja-general.config.js`, molde del de Wincaja): `caja-general-replica` @30 min +
+  `caja-general-ship` @5 min, con **umbral registrado en `CRON_JOBS` ANTES de arrancar** (sin umbral
+  el latido se pinta verde incondicional). Prueba negativa: sin `DATABASE_URL_NEW` el ecosystem
+  **aborta** en vez de arrancar mudo. `pm2 save` hecho.
+- [x] **[CG.9f]** ✅ 2026-09-18 · **CUTOVER A PROD hecho y verificado.** Landing (lote 477) → ship
+  **146,629 filas en 62 s** → compuerta de paridad (✖ 1 arqueo de diferencia: el espejo ganó $24,084
+  mientras verificaba — **la compuerta probó que el carril está vivo**) → re-ship del delta 1 fila /
+  2.1 s, paridad exacta → swap (lote 478). En prod: `test-newdb-caja-general-derive.js` **18 ✓ /
+  0 ✗**, latido OK, `GRANT SELECT` a `app_runtime`, rendimiento 302/219/263 ms, las 3 tablas viejas
+  como `*_snapshot_bak` (rollback a un `ALTER`), **frescura publicada 2026-09-18** (era 09-17).
+  ⚠️ Corrección: prod NO estaba congelada en 09-11 — ese dato era un comentario del runner escrito
+  el 15-sep. El rezago real era de **1 día**; el problema no era que estuviera rota, sino que
+  dependía de que alguien corriera el modo `finance` a mano.
+  ⛔ `migrate.latest()` NO se usó: prod tiene DOS `knex_migrations` y el `search_path` lleva a la
+  vacía. Se aplicó `up()` con `lock_timeout` y se registró la fila a mano.
+  ⬜ **Falta el redeploy de la API** para que los 2 umbrales nuevos de `CRON_JOBS` entren en vigor.
+- [x] **[CG.9g]** ✅ 2026-09-18 · `Base Movimientos SI/NO` **medido, no supuesto**: capturas por año
+  ~3,000 hasta 2025 y **247 / 198 en 2026**; última captura `SI` 2026-07-02, `NO` 2026-02-03. El
+  `.ldb` y la fecha de hoy sólo dicen que alguien ABRE el Access. → **NO se replican los 1.07 GB**;
+  `caja_ventas_diarias`/`caja_depositos` quedan como histórico y **Finanzas decide si ese sistema se
+  retira formalmente**.
   ⚠️ Jet 32-bit → sigue en `.249` hasta VL.5.
 - [ ] **[CG.10b]** ⬜ ⭐ **Ruta crítica.** Vista `analytics.v_kepler_conceptos` sobre `kepler_ods.kdco`
   (molde FKJ: `security_invoker` + filtro de tenant **dentro** + gate de costo).
