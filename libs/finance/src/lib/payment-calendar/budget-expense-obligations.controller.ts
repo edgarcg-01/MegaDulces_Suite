@@ -32,6 +32,20 @@ export class BudgetExpenseObligationsController {
     return this.svc.create(dto, req.user?.username || 'sistema');
   }
 
+  @Post('from-plan')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Auto-genera obligaciones recurrentes (estado propuesta) del plan de gastos del ejercicio.' })
+  generateFromPlan(@Body() body: { budget_id: string }, @Req() req: AuthedRequest) {
+    return this.svc.generateFromPlan(body.budget_id, req.user?.username || 'sistema');
+  }
+
+  @Post('authorize')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Autoriza en lote: propuesta → pending (acto humano, HITL). Recién ahí entran al Calendario.' })
+  authorize(@Body() body: { ids: string[] }, @Req() req: AuthedRequest) {
+    return this.svc.authorize(body.ids, req.user?.username || 'sistema');
+  }
+
   @Post(':id/cancelar')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
   cancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest) {
