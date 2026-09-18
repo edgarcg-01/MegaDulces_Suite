@@ -389,6 +389,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // CG.14 (ADR-070) — Caja General: donde la plataforma REGISTRA el efectivo. Reemplaza
+        // las 6 formas de captura del Access `Control`. Distinta de 'caja', que es la LECTURA
+        // del espejo y sigue viva durante el traslape.
+        path: 'caja-general',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-general.component').then(m => m.FinanzasCajaGeneralComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
+      },
+      {
         // CG.4 — Caja General (Tesorería): venta diaria → depósito + arqueo + conciliación CB.
         path: 'caja',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-caja.component').then(m => m.FinanzasCajaComponent),
