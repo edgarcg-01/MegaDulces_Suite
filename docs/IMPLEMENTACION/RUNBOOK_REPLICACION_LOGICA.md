@@ -827,6 +827,47 @@ cuesta muy poca memoria compartida.
 ⚠️ Al hacerlo, la trampa de PG18 que ya dejó anotada §9.7: **`pg_settings.pending_restart` miente**
 en este contenedor. La verdad es `postgresql.auto.conf` y el valor activo después del restart.
 
+### 10.2-bis Se aplicó — y la explicación de arriba era DEMASIADO REDONDA
+
+Aplicado el 2026-09-18 18:54 UTC: `max_active_replication_origins` 20 → 40 y `docker restart
+pgvector-md`. Resultado medido:
+
+| | antes | después |
+|---|---|---|
+| techo de orígenes | 20 | **40** (valor activo, no `pending_restart`) |
+| orígenes registrados | 21 | 20 |
+| suscripciones sanas | 8/8 | **8/8**, lag 0–6 s |
+| errores `could not find free replication state slot` | en bucle | **0** desde el restart |
+| tablas trabadas | 13 | **12** |
+
+⛔ **Trece menos uno.** El párrafo de §10.2 daba a entender que el cupo era *la* causa de las 13, y
+no lo era: era la capa de AFUERA, que **enmascaraba** a la de adentro. En cuanto hubo cupo, el
+tablesync pudo por fin intentar el `COPY` de verdad, y el error cambió:
+
+```
+ERROR:  could not start initial contents copy for table "md.kdrhdfes":
+        ERROR:  permiso denegado a la tabla kdrhdfes
+```
+
+O sea que **de las 13, sólo `kdc22611` (Madero) estaba trabada por el cupo**. Las otras 12 nunca
+pudieron leerse, y su causa ya estaba escrita desde el **2026-09-12** en
+[`ERP_KEPLER.md` §4.2b](../ERP_KEPLER.md): el `ALTER DEFAULT PRIVILEGES` quedó **cruzado** en los
+POS — las tablas las crea `sa` y bajo `sa` sólo se declaró `platform_ro`; a `ods_repl`, que es quien
+corre el tablesync, se le declaró el default bajo `postgres`, que no crea nada. **Toda tabla nueva
+de Kepler nace ilegible para la replicación.**
+
+Quedan trabadas hoy: `kdc22609` (la póliza de septiembre) en `01`–`05`, y las 7 de RH del CEDIS.
+`06` y `07` están limpias.
+
+⚠️ **No se pudo arreglar desde acá:** exige `sa` o superusuario **en cada POS**, y `platform_ro` no
+alcanza. El remedio exacto —con el aviso de **no** usar `GRANT … ON ALL TABLES` en horario hábil,
+porque toma lock sobre ~330 tablas de una caja que está cobrando— está en `ERP_KEPLER.md` §4.2b.
+
+**La lección, que es la misma de GOTCHAS §53:** el cupo explicaba perfectamente los 13 síntomas y
+era una explicación consistente, verificable y **parcial**. Lo que la destapó no fue razonar mejor:
+fue arreglarla y volver a medir. Una causa que explica todo lo que ves puede ser sólo la primera de
+dos.
+
 ### 10.3 El orden, una vez destrabado
 
 1. **Subir el techo de orígenes y reiniciar** (§10.2). Verificar después: 0 tablas fuera de `r` en
