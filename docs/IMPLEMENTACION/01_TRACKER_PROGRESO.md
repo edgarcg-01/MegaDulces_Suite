@@ -255,8 +255,12 @@ de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout
   fiscal_year=año calendario, bordes clampados a S01/S52. Smoke DB-direct **13/13** (cobertura 9,496 días,
   cuadre 52→13→Q por año, mapeo semana→periodo→trim exacto, QF⇔P13, cero NULLs, spot-checks). Aplicada a dev.
   *Cerrado 2026-09-17.*
-- [ ] **[PV.2]** ⬜ Dimensión "entidad de venta" — resolvedor `analytics.v_sales_entity` (sucursal/canal/ruta
-  del Excel ↔ identidad BD; reusa `warehouses` + `commission_route_config` + taxonomía de canal).
+- [x] **[PV.2]** ✅ Dimensión "entidad de venta" — `analytics.v_sales_entity` (mig `20260917220000`), vista
+  derive-no-copy sobre `mv_sellout_monthly` + `warehouses` + `commission_route_config`. **23 entidades hoja
+  medidas**: mostrador×6, credito×6, preventa×5, ruta×6 (RUTA-21..28 con route_code+zona). `entity_key =
+  channel:warehouse_code`, `channel_label` canónico, `entity_type` (sucursal_canal/ruta). Los rollups (TOTAL
+  VEC/RD/sucursal/Total) se agregan en PV.4. Declarado: sucursales de hoy ≠ Excel 2018 (forward); vecinal a
+  grano sucursal×preventa (no ruta vecinal individual). Smoke DB-direct **7/7**. Aplicada a dev. *Cerrado 2026-09-17.*
 - [ ] **[PV.3]** ⬜ Modelo del presupuesto de ventas (meta = partida ingreso dimensionada por entidad×periodo;
   captura histórico ajustado = real año anterior × (1+crecimiento) + override). Reconciliar con `commercial.sales_targets`.
 - [ ] **[PV.4]** ⬜ Comparación meta vs real + CREC + PART (puente al sell-out diario por calendario; reusar
