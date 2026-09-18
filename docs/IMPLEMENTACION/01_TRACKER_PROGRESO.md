@@ -992,6 +992,40 @@ re-medir**.
 
 ---
 
+## GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en código)
+
+Tres cosas que salieron de ver la pantalla del trabajador en uso.
+
+- [x] **[GX.13.1] Claude Vision llena «¿De cuánto fue?».** El ticket trae el importe impreso:
+      pedírselo tecleado era hacerle copiar a mano un número que la foto ya tiene — y en un
+      celular, en la calle, ahí es donde se equivoca. Endpoint público `POST
+      /finance/captura/:token/leer-ticket` + `leerTicketPreview()`. Llena importe, beneficiario
+      (`comercio`) y fecha.
+      ⚠️ **Es una PROPUESTA, no un veredicto:** no pisa lo que la persona ya escribió, **se
+      declara en pantalla** de dónde salió el número (un campo que se llena solo y no avisa
+      parece un error del sistema, y entonces nadie lo revisa) y una fecha futura se descarta.
+      El cuadre autoritativo sigue corriendo en el servidor al enviar. Degrada sin
+      `ANTHROPIC_API_KEY`: se teclea como antes.
+- [x] **[GX.13.2] La sucursal se puede escribir.** El `select` sólo ofrecía el catálogo, y una
+      plaza nueva existe en la calle antes que en `commercial.warehouses`. Opción «Otra — no
+      está en la lista» que revela un campo libre. **Y en oficina se marca:** la bandeja pinta
+      «sucursal nueva» cuando el join con warehouses no resuelve — sin eso entraba como una
+      más y nadie la daba de alta. Sin migración: `sucursal` ya era texto.
+- [x] **[GX.13.3] El texto pasa a español de México.** 17 textos en 4 archivos estaban en
+      voseo rioplatense (*«contá qué pasó»*, *«Elegí»*, *«Revisá tu señal»*, *«Pedile a tu
+      jefe»*, *«Encuadrá el papel»*). Lo lee personal en México.
+
+**Verificado:** `nx build view` verde · `tsc` del API limpio.
+
+⚠️ **Sin smoke:** el entorno local sigue caído. Lo nuevo —la lectura del ticket— **no se pudo
+ejercer ni una vez**; además necesita `ANTHROPIC_API_KEY` y el bucket, que en local tampoco
+están. Es lo primero que hay que probar cuando el entorno vuelva.
+
+⚠️ **Quinta vez** que un acento grave dentro de un comentario del template literal rompe el
+build en este repo (CLAUDE.md ya lo marcaba a la cuarta). Pasó al documentar una columna.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
@@ -3644,6 +3678,55 @@ semanal los sigue manejando fuera del sistema.
 Detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md) sección "Extensión
 TP.6-TP.8+TP.10".
 
+## 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo)
+
+**Estado: 🧪 TK.0–TK.3 EN CÓDIGO y probado — 2026-09-18.** Plan y mediciones en
+[`FASE_TK_TICKETS_VENTA.md`](FASES/FASE_TK_TICKETS_VENTA.md).
+
+- [x] **[TK.0]** 🧪 Vistas en vivo `analytics.erp_sale_tickets` / `_lines` (`U-D-10`), derive-no-copy
+      sobre `kepler_ods` — mig `20260918160000`. Vistas NUEVAS y no extender `erp_sales_invoices`:
+      medido, esa vista la leen 6 consumidores y el mostrador la multiplicaría por ~60, moviendo
+      cifras ya publicadas (ADR-056). · *2026-09-18*
+- [x] **[TK.0b]** 🧪 `precio_lista` / `descuento_unitario` / `descuento_linea` aditivas en
+      `analytics.erp_sales_invoice_lines` (`U-D-8/12`) — mig `20260918160100`. ⚠️ En staging el
+      rol de dev no es dueño de la vista: el SQL se validó con una vista de prueba (22 columnas
+      idénticas + 3 al final) pero **falta aplicarla**. · *2026-09-18*
+- [x] **[TK.0c]** 🧪 `COMMERCIAL_TICKETS_VER` repartido a **12 roles** calcando
+      `COMMERCIAL_SALES_DOCS_VER` — mig `20260918160200`. *Un módulo nuevo no está entregado hasta
+      que su permiso está REPARTIDO* (lección LC.6.2). · *2026-09-18*
+- [x] **[TK.1]** 🧪 Backend `libs/commercial/.../commercial-tickets/`: búsqueda en los 3 universos
+      (mostrador · telemarketing/crédito · pedidos `PD-`) + detalle con la cascada de descuento.
+      Alcance de sucursal por `ScopeService`. · *2026-09-18*
+- [x] **[TK.2]** 🧪 Ticket térmico 80 mm (`ticket-venta.ts`, calca `ticket-arqueo.ts`) + pantalla
+      `/comercial/tickets` + ítem **Tickets** en el grupo **Ventas**. Spec 11/11 — atrapó 2
+      defectos reales (sello de 33 caracteres, leyenda legal partida). · *2026-09-18*
+- [x] **[TK.3]** 🧪 Carta en PDF reusando la maqueta Y el Chromium compartido del anexo de venta
+      (`AnexoVentaService.renderPdf`). · *2026-09-18*
+- [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos.
+- [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
+- [ ] **[TK.6]** ⬜ **Wincaja (sucursales 30 y 32)** — decidido con Edgar 2026-09-18: va como
+      SIGUIENTE PASO. Es otra fuente (`wincaja.v_sales_lines`, base aparte) y su descuento es
+      **mejor dato** que el de Kepler: un porcentaje REAL por renglón (`descuento1`: 4%, 2%, 5%,
+      3%, 20%, 2.5% — medido, 8.5% de los renglones lo traen). Su folio es `doc_ref` (`T…` ticket /
+      `F…` factura) + `consecutivo`. ⚠️ Mientras no esté, un folio de esas dos plazas **no aparece**
+      en la búsqueda.
+
+**Hallazgos que valen más que el módulo** (detalle en `docs/ERP_KEPLER.md` §3.1):
+
+- ⛔ En `U-D-10` el descuento de cabecera (`kdm1.c13`) es **0.00 en el 100%** de 30,549 documentos:
+  el patrón del anexo de telemarketing habría publicado "$0.00" en todos los tickets sin que nadie
+  lo notara. El descuento vive en **`kdm2.c66`** (precio de lista) vs `c12` (cobrado).
+- ⛔ Las **DOS capas** de descuento no se explican entre sí: de 609 facturas `U-D-8`, 435 difieren
+  en más de $1 entre la cabecera y la suma de renglones (error medio **$183**).
+- ⛔ Derivar la lista del **catálogo** (`kdii.c90/91/92`) está **refutado**: 1.9% de renglones
+  cobrando por encima de lista contra 0.10% con `c66` — 18× peor, y por razón estructural.
+- ⚠️⚠️ **`c66` no existe antes del 2026-08-13** (100% vacía ene–jul). El descuento sólo se puede
+  afirmar desde esa fecha; antes la vista devuelve **`NULL`, nunca `0`**, y la pantalla lo DECLARA.
+- ⚠️⚠️ **El folio no identifica un documento**: `c5` es LA CAJA y el contador es por sucursal ×
+  caja. El folio `0018665` existe **7 veces**. La búsqueda devuelve candidatos, nunca adivina.
+- ⚠️ Kepler **no guarda la hora** (10 columnas `timestamp` en `00:00:00`).
+
+---
 ---
 ## 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma)
 
