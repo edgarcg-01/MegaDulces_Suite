@@ -237,6 +237,35 @@ importers.
   nullable, solo aplican a gasto (mig `20260917200000`, aditiva e idempotente). `nx build api`+`view` verdes.
   **Pendiente: mig a prod + push/redeploy + verificación HTTP (ADR-044).**
 
+### Fase PV — Presupuesto de Ventas estructurado · 2026-09-17 · plan aprobado · (hijo de Fase PU)
+
+El workbook manual `indicadores 2018 - VENTAS.csv` como **molde de estructura** (no de datos) para armar
+los presupuestos de venta **forward** dentro de Presupuestos. Ejes: entidad (sucursal/canal/ruta) ×
+calendario **13×4** (S01-52 → P1-13 → Q1-4/QF) × meta, con crecimiento (CREC=YoY) y participación (PART=mezcla).
+Meta = partida tipo ingreso (decisión usuario); vista en `/presupuesto`. El "real" se **puentea** al
+sell-out diario (`analytics.v_sellout_daily`), nunca se recalcula, cero importers.
+
+⚠️ **Corrección al plan (medida):** el real NO se rola desde `mv_sellout_monthly` (mensual) — un periodo
+de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout_daily`) por el calendario 13×4.
+
+- [x] **[PV.1]** ✅ Calendario comercial 13×4 — `analytics.v_retail_calendar` (mig `20260917210000`), vista
+  PURA sobre `generate_series` (2010-2035), sin tenant/RLS. Estructura **medida del CSV**: 52 sem → 13 per
+  (4 sem c/u) → Q1=P1-3, Q2=P4-6, Q3=P7-9, Q4=P10-12, **QF=P13 standalone** (verificado: QF==P13 al peso,
+  Q4 no incluye P13). Ancla declarada/confirmable: semana lun-dom, S01=primer lunes on/after 1-ene,
+  fiscal_year=año calendario, bordes clampados a S01/S52. Smoke DB-direct **13/13** (cobertura 9,496 días,
+  cuadre 52→13→Q por año, mapeo semana→periodo→trim exacto, QF⇔P13, cero NULLs, spot-checks). Aplicada a dev.
+  *Cerrado 2026-09-17.*
+- [ ] **[PV.2]** ⬜ Dimensión "entidad de venta" — resolvedor `analytics.v_sales_entity` (sucursal/canal/ruta
+  del Excel ↔ identidad BD; reusa `warehouses` + `commission_route_config` + taxonomía de canal).
+- [ ] **[PV.3]** ⬜ Modelo del presupuesto de ventas (meta = partida ingreso dimensionada por entidad×periodo;
+  captura histórico ajustado = real año anterior × (1+crecimiento) + override). Reconciliar con `commercial.sales_targets`.
+- [ ] **[PV.4]** ⬜ Comparación meta vs real + CREC + PART (puente al sell-out diario por calendario; reusar
+  `explainChange` YoY / `salesQuery` share, no reimplementar). «Sin datos»≠cero, frescura declarada.
+- [ ] **[PV.5]** ⬜ UI "Presupuesto de ventas" en `/presupuesto` (pivote entidad×periodo 13×4, meta vs real,
+  CREC/PART, totales; patrón `/ventas-generales` + metric-strip/freshness-pill; answer-first DESIGN §15).
+- [ ] **[PV.ADR]** ⬜ ADR nuevo: la meta de ventas vive en Presupuestos (partida ingreso dimensionada) y
+  **absorbe/consume** `commercial.sales_targets` (una sola verdad de la meta); real siempre por vista sobre sell-out.
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
