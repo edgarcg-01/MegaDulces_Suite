@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PolizasController } from './polizas.controller';
 import { PolizasService } from './polizas.service';
+import { PolizaTypeAuditService } from './poliza-type-audit.service';
+import { PolizaTypeFindingsBridgeService } from './poliza-type-findings-bridge.service';
 import { FinanceMaatModule } from '../maat/finance-maat.module';
 import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 
@@ -14,7 +16,7 @@ import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 @Module({
   imports: [FinanceMaatModule, FinanceJobsModule],
   controllers: [PolizasController],
-  providers: [PolizasService],
-  exports: [PolizasService],
+  providers: [PolizasService, PolizaTypeAuditService, PolizaTypeFindingsBridgeService],
+  exports: [PolizasService, PolizaTypeAuditService],
 })
 export class FinancePolizasModule {}

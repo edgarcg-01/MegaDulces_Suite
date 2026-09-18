@@ -170,6 +170,18 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   // Padre Hidalgo le llega a los 25. Una alerta que le llega a todos no la
   // atiende nadie — que es, textualmente, el estado del que sale esta fase
   // (26 pueden validar, 3 lo hicieron alguna vez).
+  /**
+   * `[PV.4]` Quién ve los avisos de TIPO de póliza: quien tiene Contabilidad, que es
+   * quien arma y sube las pólizas. Tipo propio a propósito: NO entra por
+   * `finance_finding`, que la campana descarta entero mientras FINANCE_NOTIF_ENABLED
+   * esté en false — un aviso que entra por ahí hoy no le llega a nadie.
+   *
+   * Y el `if` explícito hace falta: sin él el tipo cae en el default, que deja pasar,
+   * o sea le llegaría a TODOS. Un aviso mal ruteado se ignora igual que uno que falta.
+   */
+  private readonly canSeeTipoPoliza = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FISCAL_CONTAB_VER] === true);
+
   private readonly canValidarEntradas = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
   private readonly canCapturarEntradas = computed(() =>
@@ -222,6 +234,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (a.type === ('finance_feed' as any) && !this.canSeeFinanceFeed()) return;
     // `[RE.27.C]` Cola de órdenes de entrada: permiso del oficio + alcance de la sucursal.
     if (a.type === ('entradas_sla' as any) && !this.aplicaEntradas(a)) return;
+    // `[PV.4]` Tipo de póliza incongruente: es trabajo de Contabilidad.
+    if (a.type === ('polizas_tipo' as any) && !this.canSeeTipoPoliza()) return;
     const at = Date.parse(a.emitted_at) || Date.now();
     this.feed.update((f) => [{ type: a.type, severity: a.severity, title: a.title, message: a.message, at, route: a.data?.route }, ...f].slice(0, 20));
     this.newSince.set(true);
@@ -288,6 +302,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'finance_feed': return 'pi-sync';
       // `[RE.27.C]` La cola de entradas: es trabajo esperando, no un dato nuevo.
       case 'entradas_sla': return 'pi-clock';
+      // `[PV.4]` Tipo de póliza: es una clasificación mal puesta, no un dato nuevo.
+      case 'polizas_tipo': return 'pi-tags';
       default: return 'pi-bell';
     }
   }

@@ -12,7 +12,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
-import { PolizasService, PolizaRow, PolizaDetail } from '../polizas.service';
+import { PolizasService, PolizaRow, PolizaDetail, TiposSummary, DoctypeVerdict } from '../polizas.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
@@ -49,6 +49,78 @@ import { Permission } from '../../../core/constants/permissions';
         <div class="pz-kpi"><span class="pz-kpi-n">{{ money(sum().monto_descuadre) }}</span><span class="pz-kpi-l">Monto descuadre</span></div>
         <div class="pz-kpi"><span class="pz-kpi-n">{{ sum().contpaqi | number }}<span class="pz-kpi-sub"> / {{ sum().kepler | number }}</span></span><span class="pz-kpi-l">ContPAQi / Kepler</span></div>
       </div>
+
+      <!-- PV.4 — Tipo de poliza. Va ARRIBA de los filtros a proposito: lo primero
+           que tiene que verse es si el control pudo correr, no el resultado. -->
+      <section class="card-premium card-flat pz-tipos">
+        <header class="pz-t-head">
+          <button type="button" class="pz-t-toggle" (click)="tiposOpen.set(!tiposOpen())" [attr.aria-expanded]="tiposOpen()">
+            <i class="pi" [class.pi-chevron-down]="tiposOpen()" [class.pi-chevron-right]="!tiposOpen()" aria-hidden="true"></i>
+            <span>Tipo de póliza</span>
+            <small>D&nbsp;Diario · E&nbsp;Egresos · I&nbsp;Ingresos</small>
+          </button>
+          @if (tiposCiego()) {
+            <p-tag severity="warn" value="Control a ciegas"></p-tag>
+          } @else if (tiposVivos() > 0) {
+            <p-tag severity="danger" [value]="tiposVivos() + ' por corregir'"></p-tag>
+          } @else {
+            <p-tag severity="success" value="Sin incongruencias vivas"></p-tag>
+          }
+          @if (canManage()) {
+            <button pButton type="button" class="p-button-sm p-button-text pz-t-sync" [loading]="syncing()" (click)="syncTipos()"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Mandar a hallazgos y avisar</span></button>
+          }
+        </header>
+
+        @if (tiposOpen()) {
+          <!-- Lo que NO se pudo medir, primero y con motivo. Una lista vacía y una
+               pantalla ciega se leen igual, y significan lo contrario. -->
+          @if (tipos()?.catalogo?.state === 'not_measured') {
+            <div class="pz-t-nm"><i class="pi pi-eye-slash" aria-hidden="true"></i><span><strong>Catálogo de Kepler: NO MEDIDO.</strong> {{ tipos()?.catalogo?.reason }}</span></div>
+          }
+          @if (tipos()?.cruce?.state === 'not_measured') {
+            <div class="pz-t-nm"><i class="pi pi-eye-slash" aria-hidden="true"></i><span><strong>Cruce con ContPAQi: NO MEDIDO.</strong> {{ tipos()?.cruce?.reason }}</span></div>
+          }
+
+          @if (tipos()?.catalogo?.state === 'measured') {
+            <div class="pz-t-kpis">
+              <div class="pz-t-kpi" [class.is-bad]="tiposVivos() > 0"><span class="pz-kpi-n">{{ tiposVivos() }}</span><span class="pz-kpi-l">Incongruentes en uso</span></div>
+              <div class="pz-t-kpi"><span class="pz-kpi-n">{{ money(tipos()!.catalogo.importe_en_riesgo) }}</span><span class="pz-kpi-l">Capturado este año</span></div>
+              <div class="pz-t-kpi"><span class="pz-kpi-n">{{ tipos()!.catalogo.incongruentes - tiposVivos() }}</span><span class="pz-kpi-l">Dormidas (sin uso)</span></div>
+              <div class="pz-t-kpi"><span class="pz-kpi-n">{{ tipos()!.catalogo.no_juzgables.doctypes }}</span><span class="pz-kpi-l">Sin cuentas: no juzgables</span></div>
+            </div>
+          }
+
+          @if (incong().length) {
+            <table class="pz-t-tabla">
+              <thead>
+                <tr>
+                  <th scope="col">Documento</th>
+                  <th scope="col">Declarado</th>
+                  <th scope="col">Debería ser</th>
+                  <th scope="col">Cuentas</th>
+                  <th scope="col" class="pz-num">Docs</th>
+                  <th scope="col" class="pz-num">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (t of incong(); track t.doc) {
+                  <tr [class.pz-t-dormido]="t.docs === 0">
+                    <td><code class="comm-code">{{ t.doc }}</code> <span class="pz-l-name">{{ t.descripcion }}</span></td>
+                    <td><p-tag [severity]="t.docs > 0 ? 'danger' : 'secondary'" [value]="t.tipo_declarado"></p-tag></td>
+                    <td><strong>{{ t.tipo_esperado }}</strong></td>
+                    <td class="pz-t-ctas">{{ t.cargo || '—' }} <i class="pi pi-arrow-right" aria-hidden="true"></i> {{ t.abono || '—' }}</td>
+                    <td class="pz-num">{{ t.docs ? (t.docs | number) : '—' }}</td>
+                    <td class="pz-num">{{ t.docs ? money(t.importe) : '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <p class="pz-t-nota">Criterio: si el documento mueve efectivo o equivalentes (102 y 111 bancos, 110 caja) el tipo debe ser E o I; si no los toca, D. Las filas grises son doctypes sin uso este año: catálogo dormido, no trabajo pendiente.</p>
+          } @else if (tipos()?.catalogo?.state === 'measured') {
+            <p class="pz-t-nota">Ningún doctype contradice sus cuentas. Se revisaron {{ tipos()!.catalogo.total }} y {{ tipos()!.catalogo.no_juzgables.doctypes }} no declaran cuentas, así que sobre ésos no se opina.</p>
+          }
+        }
+      </section>
 
       <!-- Filtros -->
       <div class="pz-filters">
@@ -148,6 +220,24 @@ import { Permission } from '../../../core/constants/permissions';
     .pz-kpi.is-bad .pz-kpi-n { color: var(--danger-fg, #dc2626); }
     .pz-kpi-sub { font-size: .9rem; color: var(--text-muted); font-weight: 500; }
     .pz-kpi-l { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .pz-tipos { padding: .6rem .85rem .85rem; margin-bottom: 1rem; }
+    .pz-t-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .pz-t-toggle { background: none; border: 0; padding: .15rem 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: .45rem; color: var(--text-main); font: inherit; font-weight: 700; }
+    .pz-t-toggle small { font-weight: 500; font-size: .7rem; color: var(--text-muted); letter-spacing: .02em; }
+    .pz-t-sync { margin-left: auto; }
+    .pz-t-nm { display: flex; gap: .5rem; align-items: baseline; font-size: .78rem; margin-top: .7rem; padding: .5rem .7rem; border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 38%, transparent); }
+    .pz-t-nm .pi { color: var(--warn-fg); }
+    .pz-t-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; margin: .8rem 0 .2rem; }
+    .pz-t-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .pz-t-kpi.is-bad { border-color: color-mix(in srgb, var(--danger-fg, #dc2626) 45%, transparent); }
+    .pz-t-kpi.is-bad .pz-kpi-n { color: var(--danger-fg, #dc2626); }
+    table.pz-t-tabla { width: 100%; border-collapse: collapse; font-size: .78rem; margin-top: .8rem; }
+    table.pz-t-tabla th, table.pz-t-tabla td { padding: .35rem .5rem; border-bottom: 1px solid var(--border-color); text-align: left; vertical-align: baseline; }
+    table.pz-t-tabla th { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
+    tr.pz-t-dormido { opacity: .55; }
+    .pz-t-ctas { font-family: var(--font-mono, monospace); font-size: .74rem; white-space: nowrap; }
+    .pz-t-ctas .pi { font-size: .6rem; color: var(--text-muted); margin: 0 .2rem; }
+    .pz-t-nota { font-size: .72rem; color: var(--text-muted); margin: .6rem 0 0; line-height: 1.45; }
     .pz-filters { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
     .pz-mes { width: 8rem; font-family: var(--font-mono, monospace); }
     .pz-q { width: 16rem; }
@@ -201,9 +291,25 @@ export class ContabilidadPolizasComponent {
   readonly detail = signal<PolizaDetail | null>(null);
   selected: PolizaRow | null = null;
 
+  /* ---- PV.4: tipo de poliza ---- */
+  readonly tipos = signal<TiposSummary | null>(null);
+  readonly incong = signal<DoctypeVerdict[]>([]);
+  readonly tiposOpen = signal(true);
+  readonly syncing = signal(false);
+  /** Vivos = con uso este ano. Un doctype dormido no es trabajo pendiente. */
+  readonly tiposVivos = computed(() => this.tipos()?.catalogo?.incongruentes_vivos ?? 0);
+  /**
+   * Alguno de los dos bloques no pudo medirse. Se muestra ANTES que el resultado
+   * porque "no encontre nada" y "no busque" se leen igual en una pantalla.
+   */
+  readonly tiposCiego = computed(() => {
+    const t = this.tipos();
+    return !!t && (t.catalogo.state === 'not_measured' || t.cruce.state === 'not_measured');
+  });
+
   readonly canManage = computed(() => (this.auth.user()?.permissions || {})[Permission.FISCAL_CONTAB_GESTIONAR] === true);
 
-  constructor() { this.reloadSummary(); this.reload(); }
+  constructor() { this.reloadSummary(); this.reload(); this.reloadTipos(); }
 
   setSource(s: 'contpaqi' | 'kepler') { this.source.set(s); this.reloadSummary(); this.reload(); }
 
@@ -234,6 +340,41 @@ export class ContabilidadPolizasComponent {
     this.svc.detail(r).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => this.detail.set(d),
       error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle.' }),
+    });
+  }
+
+  /* ---- PV.4 ---- */
+
+  reloadTipos() {
+    this.svc.tiposSummary().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => {
+        this.tipos.set(t);
+        // Abierto solo cuando hay algo que hacer o algo que no se pudo medir: si
+        // todo esta bien, el bloque no se queda ocupando la primera pantalla.
+        this.tiposOpen.set(t.catalogo.incongruentes_vivos > 0 || this.tiposCiego());
+      },
+      error: () => {},
+    });
+    this.svc.tiposCatalogo().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (b) => this.incong.set(b.data?.incongruentes || []),
+      error: () => {},
+    });
+  }
+
+  syncTipos() {
+    this.syncing.set(true);
+    this.svc.tiposSync().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.syncing.set(false);
+        this.toast.add({
+          severity: r.inserted > 0 ? 'success' : 'info',
+          summary: 'Hallazgos de tipo de póliza',
+          detail: r.inserted > 0
+            ? `${r.inserted} hallazgo(s) nuevo(s) en la bandeja. Se avisó por la campana.`
+            : `Sin novedades: ${r.pushed} evaluado(s), ${r.skipped} ya estaban.`,
+        });
+      },
+      error: () => { this.syncing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo mandar a la bandeja.' }); },
     });
   }
 
