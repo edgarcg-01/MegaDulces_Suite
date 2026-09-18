@@ -139,7 +139,7 @@ async function pruebaDeReplicacion(host, port, db) {
       + 'cableados usan listen_addresses=* y puerto 5432 (la 01 y la 06 usan 1977).');
     console.log(`\n=== ${ok} OK · ${fail} FALTA · ${warn} OJO ===`);
     console.log('\nSin puerto no se puede comprobar nada más. El resto del alta está en');
-    console.log('docs/RUNBOOK_ALTA_SUCURSAL_KEPLER.md y database/scripts/kepler-pos-alta-ods.sql');
+    console.log('docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md y database/scripts/kepler-pos-alta-ods.sql');
     process.exit(1);
   }
   bien(`el puerto ${port} responde`);
@@ -248,10 +248,10 @@ async function pruebaDeReplicacion(host, port, db) {
   console.log(`\n=== ${ok} OK · ${fail} FALTA · ${warn} OJO ===`);
   if (fail) {
     console.log('\nEl POS todavía NO está listo. Qué correr allá: database/scripts/kepler-pos-alta-ods.sql');
-    console.log('Renglones exactos de postgresql.conf / pg_hba.conf: docs/RUNBOOK_ALTA_SUCURSAL_KEPLER.md');
+    console.log('Renglones exactos de postgresql.conf / pg_hba.conf: docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md');
     process.exit(1);
   }
   console.log('\nEl POS está listo del lado del servidor. Sigue el cableado de este lado');
-  console.log('(réplica + suscripción + registro de la rama): docs/RUNBOOK_ALTA_SUCURSAL_KEPLER.md §3');
+  console.log('(réplica + suscripción + registro de la rama): docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md §9.4');
   return undefined;
 })().catch((e) => { console.error('FALLO:', e.message); process.exit(1); });
