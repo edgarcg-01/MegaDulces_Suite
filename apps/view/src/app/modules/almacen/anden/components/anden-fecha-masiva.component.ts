@@ -53,8 +53,11 @@ export interface AvanceMasivo {
       <header class="fm-hd">
         <div>
           <h3 class="fm-t">Todos caducan el mismo día</h3>
+          <!-- El total sale del avance en cuanto arrancó: la lista de pendientes se
+               vacía al recargar el detalle al final, y sin esto el encabezado
+               terminaba diciendo "se aplica a los 0 renglones" justo al terminar. -->
           <p class="fm-s">
-            Se aplica a los <b>{{ lineas().length }}</b> renglones sin fechar ·
+            Se aplica a los <b>{{ avance()?.total ?? lineas().length }}</b> renglones sin fechar ·
             <b>{{ piezas() | number }} pz</b>
           </p>
         </div>
