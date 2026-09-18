@@ -74,6 +74,18 @@ const PNG_1X1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfF
     });
     check(em.status === 201 || em.status === 200, 'se emite el link', `status ${em.status}`);
     check(!!em.body?.url && !!em.body?.token, 'devuelve URL y token para compartir');
+    // El origen de la URL tiene que salir de la PETICIÓN, no de un valor fijo. Antes caía a
+    // `http://localhost:4200` cuando APP_PUBLIC_URL no estaba definida — y NO lo está en
+    // Railway, así que todo link emitido en prod nacía roto y en silencio.
+    {
+      const apiOrigin = new URL(API).origin;
+      const linkOrigin = em.body?.url ? new URL(em.body.url).origin : '';
+      check(linkOrigin === apiOrigin,
+        'la URL del link usa el origen de quien la pidió, no uno hardcodeado',
+        `link=${linkOrigin} vs api=${apiOrigin}`);
+      check(!/localhost:4200/.test(em.body?.url || '') || apiOrigin.includes('localhost:4200'),
+        'la URL no cae a localhost:4200 por defecto');
+    }
     linkId = em.body?.id;
     const capToken = em.body?.token;
     check(em.body?.persona === 'SMOKE GX9 TRABAJADOR', 'la persona se guarda normalizada', em.body?.persona);
