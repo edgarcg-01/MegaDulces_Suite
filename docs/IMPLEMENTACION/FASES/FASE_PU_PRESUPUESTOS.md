@@ -385,3 +385,30 @@ operativo) por default (configurable). Cero importer (deriva del fact), cero tab
 **Declarado, no construido:** materialización rejilla→`budget_lines` (puente al ledger de 5 estados y al
 presupuesto-vs-real §16.3); overrides de crecimiento por cuenta en UI (hoy vía settings); familias 5/7/1 off
 por default (5=compras es dominio de RA, 1=capex, 7=financieros).
+
+## Fase PR — Reestructura a interfaz AUTOMÁTICA (ADR-074)
+
+Reformulación completa de las interfaces bajo el objetivo «casi 100% automatizado»: la página arranca en el
+resultado automático; lo manual queda para los supuestos anuales (un panel) y la autorización. La captura
+manual se **retira** (segura porque en la misma fase se construye la materialización plan→ledger).
+
+- **PR.1 🧪** Materialización plan→ledger. `BudgetMaterializeService.materialize` (sales_plan_lines→ingreso,
+  expense_plan_lines→gasto; `source='plan'`/`source_ref` idempotente; partida con consumo se ajusta por
+  movimiento ampliar/reducir con clamp, nunca UPDATE ciego). Auto al aprobar + `POST budgets/:id/materialize`.
+  Mig `20260918220000` (source/source_ref + índice único parcial). Smoke `test-newdb-budget-materialize` **14/14**.
+- **PR.2 🧪** Capacidad auto-propuesta desde el flujo (cobranza CXC esperada ÷ días hábiles); `GET capacity/propose`
+  + `POST capacity/confirm`. «Sin CXC» se declara. Sin migración.
+- **PR.3 🧪** Obligaciones recurrentes auto-generadas del plan (estado `propuesta`, `authorized_by` NULL) +
+  autorización en lote (`POST expenses/from-plan`, `POST expenses/authorize`). Mig `20260918230000` (status
+  `propuesta` + authorized_by nullable + source/source_ref). El flujo y el Calendario **excluyen** `propuesta`.
+- **PR.4 🧪** Resumen «Resultado» = plan ventas − plan gastos, mes y anual (`GET budgets/:id/resultado`, derivado).
+- **PR.5 🧪** UI reestructurada: nav en grupos «armar» (Ejercicio·Ventas·Gastos·Flujo/Resultado·Campañas) +
+  «programación de pagos» (Capacidad·Obligaciones); panel «Supuestos del año»; proponer de un clic; partidas
+  read-only materializadas; Resultado en Flujo; capacidad propose/confirm; obligaciones generar/autorizar;
+  **captura manual retirada** (6 diálogos + botones eliminados); proyección a Análisis automática al aprobar.
+- **PR.2/3/4 smoke** `test-newdb-budget-automations` **14/14** (capacidad conservación · obligaciones
+  propuesta→autorizar→exclusión · resultado ingresos−egresos). Builds api+view+check:templates verdes.
+
+**Pendiente:** verificación HTTP (ADR-044); migs `20260918220000`/`230000` a prod; push + redeploy.
+**Declarado (trade-off):** retirar el «Meta» por celda quita la válvula de escape de ADR-069 (corregir una celda
+obliga a re-proponer). Reversible si estorba.

@@ -2211,3 +2211,27 @@ Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVT)
 **Hereda:** ADR-066 (Presupuestos) · ADR-069 (motor propone / humano ajusta / relleno híbrido) · ADR-056 (lo no medido se declara, nunca cero) · la regla del ODS (derivar, no copiar).
 
 Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVG).
+
+## ADR-074
+
+**La interfaz de Presupuestos arranca en el RESULTADO AUTOMÁTICO: el humano sólo ajusta los supuestos del año y autoriza; la captura manual se retira. El presupuesto operativo (`budget_lines`) es un DERIVADO materializado de los planes; capacidad y obligaciones se PROPONEN de lo ya computado.** (Fase PR — propuesto 2026-09-18)
+
+**Contexto.** El objetivo del módulo (palabras del dueño): «casi 100% automatizado — el humano sólo valora las variables que cambian año por año». Al revisar a detalle, las interfaces hacían lo contrario: presentaban el **llenado manual como camino principal** (botones «Partida», «Gasto operativo», «Meta» por celda, «Nuevo gasto autorizado», «Generar plano») y lo automático como un botón secundario, aunque los motores automáticos ya existían (ventas PVA desde sell-out ODS, gastos PVG desde egresos Kepler, flujo derivado). Dos inventarios exhaustivos confirmaron: Ventas/Gastos/Flujo ya eran automáticos; las únicas decisiones anuales reales son las perillas de crecimiento/familias; y quedaban tres huecos de automatización sin construir.
+
+**Decisión:**
+1. **La página ES el resultado automático.** Lo manual queda como (a) los pocos supuestos anuales, consolidados en UN panel «Supuestos del año» (crecimiento ventas×canal + gastos: crecimiento/familias/por-sucursal), y (b) la autorización (acto humano, HITL). «Proponer plan»/«Proponer gastos» corren de un clic con los supuestos guardados.
+2. **La captura manual se RETIRA** (partida, gasto operativo, meta por celda, nuevo gasto autorizado, «Generar plano», importar en bloque). Seguro porque se construye la materialización.
+3. **`budget_lines` es un derivado materializado de los planes.** `BudgetMaterializeService.materialize` agrega `sales_plan_lines`→partidas ingreso y `expense_plan_lines`→partidas gasto, con procedencia `source='plan'`/`source_ref` (idempotente). Sólo toca `source='plan'`; nunca pisa una partida `manual`; una partida con consumo (reserva/compromiso/ejercido) se **ajusta por movimiento** `ampliacion`/`reduccion` (rastreado, respeta lo consumido), nunca un UPDATE ciego. Se dispara al **aprobar**.
+4. **Capacidad de pago se PROPONE** desde el flujo (cobranza CXC esperada repartida en días hábiles); el humano confirma. **Obligaciones recurrentes se AUTO-GENERAN** del plan de gastos aprobado en estado `propuesta` (excluido del Calendario y del flujo hasta autorizar); el humano autoriza en lote (`authorized_by`, HITL).
+5. **Resumen «Resultado»** = plan de ventas (ingresos) − plan de gastos (egresos), por mes y anual (derivado). **Proyección a Análisis** (PVT) automática al aprobar.
+
+**Se rechaza:** (a) proponer directo dentro de `budget_lines` (bloquea re-ejecución y corrompe el ledger); (b) mover Capacidad/Obligaciones a Calendario de Pagos (rompe ADR-064: Presupuestos FIJA la capacidad y es ORIGEN de obligaciones; Calendario sólo consume); (c) que `propuesta` cuente como egreso previsto o asignable antes de autorizar.
+
+**Consecuencias:**
+- ✅ El presupuesto se arma solo; el humano ajusta supuestos y autoriza. Cero captura desde cero.
+- ✅ Verificado DB-direct: materialización (Σ plan == Σ partidas; ajuste por movimiento con clamp) · capacidad (conservación desde el flujo) · obligaciones (propuesta→autorizar + exclusión) · resultado (ingresos−egresos).
+- ⚠️ Declarado (trade-off): retirar el «Meta» por celda elimina la válvula de escape de ADR-069 — corregir una celda mal propuesta obliga a ajustar supuestos y re-proponer (más grueso). Reversible fácil si estorba en operación.
+
+**Hereda:** ADR-066 (Presupuestos) · ADR-069 (motor propone / humano ajusta) · ADR-073 (gastos auto) · ADR-064 (capacidad la fija Presupuestos; obligaciones tienen origen; autorización HITL) · ADR-056 (lo no medido se declara).
+
+Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PR).

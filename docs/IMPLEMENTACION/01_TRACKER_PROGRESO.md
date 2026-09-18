@@ -430,6 +430,29 @@ libro mayor de 5 estados (ADR-073).
   grants `app_runtime`). Prod quedó en 780 aplicadas / 0 pendientes. Nota: PU.7/PV/PVA/PVR ya estaban en prod.
   **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044).
 
+### Fase PR — Reestructura de Presupuestos a interfaz AUTOMÁTICA · 2026-09-18 · ADR-074
+
+Reformulación completa de las interfaces bajo «casi 100% automatizado»: la página arranca en el resultado
+automático; el humano sólo ajusta los **supuestos del año** y autoriza; la **captura manual se retira**. El
+presupuesto operativo (`budget_lines`) es un derivado materializado de los planes; capacidad y obligaciones se
+proponen de lo ya computado (ADR-074).
+
+- [~] **[PR.1]** 🧪 Materialización plan→ledger: `BudgetMaterializeService` (sales/expense plan → partidas
+  ingreso/gasto; `source`/`source_ref` idempotente; partida con consumo se ajusta por movimiento con clamp).
+  Auto al aprobar + `POST budgets/:id/materialize`. Mig `20260918220000`. Smoke `test-newdb-budget-materialize` **14/14**.
+- [~] **[PR.2]** 🧪 Capacidad auto-propuesta desde el flujo (cobranza CXC ÷ días hábiles); `capacity/propose` +
+  `capacity/confirm`. «Sin CXC» se declara.
+- [~] **[PR.3]** 🧪 Obligaciones recurrentes auto-generadas (estado `propuesta`) + autorización en lote
+  (`expenses/from-plan`, `expenses/authorize`). Mig `20260918230000`. Flujo y Calendario **excluyen** `propuesta`.
+- [~] **[PR.4]** 🧪 Resumen «Resultado» = plan ventas − plan gastos (`budgets/:id/resultado`, derivado).
+- [~] **[PR.5]** 🧪 UI reestructurada: nav en grupos armar/pagos, panel «Supuestos del año», proponer de un clic,
+  partidas read-only materializadas, Resultado en Flujo, capacidad/obligaciones auto, **captura manual retirada**
+  (6 diálogos), proyección a Análisis automática al aprobar. Builds api+view+check:templates verdes.
+- [~] **[PR.2/3/4]** 🧪 smoke `test-newdb-budget-automations` **14/14**.
+- **Declarado (trade-off):** retirar el «Meta» por celda quita la válvula de escape de ADR-069 (corregir una
+  celda obliga a re-proponer). Reversible. **Pendiente prod:** migs `20260918220000`/`230000` + push + redeploy
+  + verificación HTTP (ADR-044). **Migs a prod NO aplicadas aún** (esperan tu OK, como el resto del deploy).
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
