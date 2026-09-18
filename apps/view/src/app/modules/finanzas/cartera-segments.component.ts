@@ -37,7 +37,7 @@ import { Permission } from '../../core/constants/permissions';
         <app-segmented
           [options]="opciones()"
           [value]="actual()"
-          ariaLabel="Vista de cartera"
+          ariaLabel="Vista de crédito"
           (valueChange)="ir($event)" />
       </div>
     }
@@ -60,7 +60,7 @@ export class CarteraSegmentsComponent {
 
   readonly opciones = computed(() => {
     const o: { label: string; value: string }[] = [];
-    if (this.tiene(Permission.FINANCE_RECEIVABLES_VER)) o.push({ label: 'Cartera', value: '/finanzas/cartera' });
+    if (this.tiene(Permission.FINANCE_RECEIVABLES_VER)) o.push({ label: 'Crédito', value: '/finanzas/cartera' });
     if (this.tiene(Permission.FINANCE_COLLECTIONS_VER)) o.push({ label: 'Cobranza', value: '/finanzas/cobranza' });
     return o;
   });

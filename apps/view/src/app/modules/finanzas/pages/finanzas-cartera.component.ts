@@ -35,7 +35,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
            ella, así que desde Cartera no había cómo volver al resto sin el sidebar. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Cartera de clientes</h1>
+          <h1>Crédito de clientes</h1>
           <p class="surf-page-sub">Partidas vivas de Cuentas por Cobrar: quién debe, cuánto y desde cuándo. Estado de cuenta read-only de Kepler; el saldo es factura menos cobros y notas.</p>
         </div>
         <div class="ct-head-actions">

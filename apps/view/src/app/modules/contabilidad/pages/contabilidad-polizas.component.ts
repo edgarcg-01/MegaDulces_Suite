@@ -9,9 +9,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { PolizasService, PolizaRow, PolizaDetail, TiposSummary, DoctypeVerdict } from '../polizas.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -24,13 +22,12 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-polizas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectButtonModule, PageTabsComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectButtonModule, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head pz-head">
         <div class="surf-page-head-text">
@@ -271,7 +268,6 @@ import { Permission } from '../../../core/constants/permissions';
   `],
 })
 export class ContabilidadPolizasComponent {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(PolizasService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);

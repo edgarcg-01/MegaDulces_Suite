@@ -538,7 +538,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
          * porque exigen permisos distintos; la ruta la protege `carteraEntryGuard`, que
          * lleva a su mitad a quien sólo tiene una — no lo rebota.
          */
-        { label: 'Cartera', icon: 'pi pi-address-book', route: '/finanzas/cartera',
+        { label: 'Crédito', icon: 'pi pi-address-book', route: '/finanzas/cartera',
           permission: Permission.FINANCE_RECEIVABLES_VER,
           anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER] },
         { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
@@ -600,6 +600,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Conciliación',    icon: 'pi pi-check-square', route: '/contabilidad/conciliacion', permission: Permission.FISCAL_CONCILIACION_VER },
         { label: 'Contabilidad e.', icon: 'pi pi-book',         route: '/contabilidad/contabilidad', permission: Permission.FISCAL_CONTAB_VER },
         { label: 'ContPAQi',        icon: 'pi pi-database',     route: '/contabilidad/contpaqi',     permission: Permission.FISCAL_CONTAB_VER },
+        /**
+         * Las dos del Libro de Compras vivían SÓLO en la barra de arriba del proyecto
+         * (`contabilidad-tabs`). Al retirar esa barra —que repetía lo que ya está acá—
+         * se habrían quedado sin ninguna puerta. Se agregan ANTES de quitarla.
+         */
+        { label: 'Libro de Compras', icon: 'pi pi-book', route: '/contabilidad/libro-de-compras', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
+        { label: 'No asociados',     icon: 'pi pi-link', route: '/contabilidad/movimientos-no-asociados', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
         { label: 'Pólizas',         icon: 'pi pi-check-circle', route: '/contabilidad/polizas',      permission: Permission.FISCAL_CONTAB_VER },
       ],
     },

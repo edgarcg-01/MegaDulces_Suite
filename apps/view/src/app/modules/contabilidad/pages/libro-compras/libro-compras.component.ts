@@ -11,8 +11,6 @@ import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
-import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
-import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesResumen, MesDetalle, CuadreContpaqi } from '../../libro-compras.service';
@@ -34,14 +32,13 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     CheckboxModule, InputTextModule, ToastModule,
-    MetricStripComponent, PageTabsComponent,
+    MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [LIBRO_COMPRAS_STYLES],
   template: `
     <p-toast />
-    <app-page-tabs [tabs]="tabs" />
 
     <header class="lc-head">
       <div>
@@ -227,7 +224,6 @@ export class LibroComprasComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
-  readonly tabs = CONTABILIDAD_TABS;
 
   meses = signal<MesResumen[]>([]);
   detalle = signal<MesDetalle | null>(null);

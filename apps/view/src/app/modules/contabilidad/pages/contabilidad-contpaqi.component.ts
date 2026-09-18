@@ -4,8 +4,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import {
   ContabilidadContpaqiService, BalanzaResp, BankResp, EfosResp, LibrosVsOpResp, BalanzaGroupBy, BankGroupBy, CfdiVsContabResp,
 } from '../contabilidad-contpaqi.service';
@@ -21,11 +19,10 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
 @Component({
   selector: 'app-contabilidad-contpaqi',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in cp-page">
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -283,7 +280,6 @@ export class ContabilidadContpaqiComponent implements OnInit {
   private readonly api = inject(ContabilidadContpaqiService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly tabs = CONTABILIDAD_TABS;
   readonly VIEWS: { key: View; label: string; icon: string }[] = [
     { key: 'balanza', label: 'Balanza', icon: 'pi pi-book' },
     { key: 'bancos', label: 'Bancos', icon: 'pi pi-wallet' },

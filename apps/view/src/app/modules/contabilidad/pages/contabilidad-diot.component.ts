@@ -12,11 +12,9 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 
 /**
@@ -27,13 +25,12 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 @Component({
   selector: 'app-contabilidad-diot',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, DatePickerModule, TagModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, DatePickerModule, TagModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head di-head">
         <div class="surf-page-head-text">
@@ -120,7 +117,6 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
   `],
 })
 export class ContabilidadDiotComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(DiotService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

@@ -23,12 +23,10 @@ import type { PuestoFila, PuestoQueResponde, ResponsabilidadFila } from '@megadu
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AdminService } from '../admin.service';
-import { ADMIN_TABS } from '../admin-tabs';
 
 /**
  * `[AU.4]` — **De qué responde cada puesto.**
@@ -52,7 +50,7 @@ import { ADMIN_TABS } from '../admin-tabs';
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, ToastModule,
     ConfirmDialogModule, SelectModule,
-    MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
+    MetricStripComponent, SidePeekComponent, LoadStateComponent,
     ContextHelpComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,7 +59,6 @@ import { ADMIN_TABS } from '../admin-tabs';
     <div class="surf-page in ar-page">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="tabs"></app-page-tabs>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -236,7 +233,6 @@ export class AdminResponsabilidadesComponent implements OnInit {
   private confirm = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
 
-  readonly tabs = ADMIN_TABS;
   readonly puedeEscribir = this.perms.has$(Permission.USUARIOS_GESTIONAR);
 
   readonly filas = signal<ResponsabilidadFila[]>([]);

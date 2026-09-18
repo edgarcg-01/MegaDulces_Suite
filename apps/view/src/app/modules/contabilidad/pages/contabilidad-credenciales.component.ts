@@ -10,10 +10,8 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CredencialesService, CredStatus } from '../credenciales.service';
@@ -26,14 +24,13 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
 @Component({
   selector: 'app-contabilidad-credenciales',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, TagModule, ConfirmDialogModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, TagModule, ConfirmDialogModule, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head cr-head">
         <div class="surf-page-head-text">
@@ -111,7 +108,6 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
   `],
 })
 export class ContabilidadCredencialesComponent implements OnInit {
-  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(CredencialesService);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
