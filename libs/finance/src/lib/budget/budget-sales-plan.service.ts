@@ -437,4 +437,106 @@ export class BudgetSalesPlanService {
       return { ...row, growth_by_channel: row.growth_by_channel || {} };
     });
   }
+
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  // Fase PVT — Proyección del plan → `commercial.sales_targets`: UNIFICA el «vs objetivo» mensual
+  // del sub-módulo Análisis con la meta del ejercicio. El plan (entidad × periodo 13×4) es la única
+  // verdad; los targets mensuales son un artefacto DERIVADO idempotente.
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Proyecta la meta del plan (entidad × periodo 13×4) a metas mensuales en `commercial.sales_targets`,
+   * para que el «vs objetivo» del sub-módulo Análisis salga del plan de Presupuestos.
+   *
+   * Reparto periodo → mes PROPORCIONAL A LOS DÍAS (vía `v_retail_calendar`; el fiscal_year del
+   * calendario = año calendario → cada periodo cae íntegro dentro del año, sin sangrado entre años).
+   * Escalas del contrato de `sales_targets` (scope → scope_key):
+   *   · total  → ''                        (siempre)
+   *   · channel→ canal canónico            (siempre)
+   *   · branch → warehouse_code 01-06      (entidades de plaza: mostrador/credito/preventa)
+   *   · route  → route_code NN             (entidades ruta: warehouse_code RUTA-NN)
+   * Upsert idempotente en la natural key. NO borra: una meta capturada a mano en un (scope,mes) que
+   * el plan no toca sobrevive; el único obsoleto posible es el de una entidad retirada por completo
+   * del plan (declarado). Análisis hoy renderiza total + branch; channel/route quedan escritos para
+   * su UI futura.
+   */
+  async projectToSalesTargets(budgetId: string, username: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const b = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
+      if (!b) throw new NotFoundException('Presupuesto no encontrado');
+      const fy = Number(b.fiscal_year);
+
+      const lines = await trx('budget.sales_plan_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId })
+        .select('entity_key', 'period_no', 'meta_amount');
+      if (!lines.length) return { projected: 0, months: 0, lines: 0, fiscal_year: fy, note: 'plan vacío' };
+
+      // reparto periodo → mes por conteo de días del calendario del fiscal_year
+      const calRes = await trx.raw(
+        `SELECT period_no, to_char(date, 'YYYY-MM') AS ym, count(*)::int AS days
+           FROM analytics.v_retail_calendar
+          WHERE fiscal_year = ?
+          GROUP BY period_no, to_char(date, 'YYYY-MM')`,
+        [fy],
+      );
+      const calRows = (calRes.rows || calRes) as Array<{ period_no: number | string; ym: string; days: number | string }>;
+      const periodMonths = new Map<number, Array<{ ym: string; days: number }>>();
+      const periodTotalDays = new Map<number, number>();
+      for (const r of calRows) {
+        const p = Number(r.period_no); const days = Number(r.days);
+        if (!periodMonths.has(p)) periodMonths.set(p, []);
+        periodMonths.get(p)!.push({ ym: r.ym, days });
+        periodTotalDays.set(p, (periodTotalDays.get(p) || 0) + days);
+      }
+
+      // acumular la meta mensual por (scope|scope_key|ym)
+      const acc = new Map<string, number>();
+      const add = (scope: string, key: string, ym: string, amount: number) => {
+        if (!(amount > 0)) return;
+        const k = `${scope}|${key}|${ym}`;
+        acc.set(k, (acc.get(k) || 0) + amount);
+      };
+      for (const ln of lines) {
+        const meta = Number(ln.meta_amount) || 0;
+        if (!(meta > 0)) continue;
+        const p = Number(ln.period_no);
+        const months = periodMonths.get(p);
+        const totalDays = periodTotalDays.get(p) || 0;
+        if (!months || !(totalDays > 0)) continue;
+        const ek = String(ln.entity_key);
+        const sep = ek.indexOf(':');
+        const channel = sep >= 0 ? ek.slice(0, sep) : ek;
+        const warehouse = sep >= 0 ? ek.slice(sep + 1) : '';
+        const isRoute = warehouse.startsWith('RUTA-');
+        for (const m of months) {
+          const monthly = meta * (m.days / totalDays);
+          add('total', '', m.ym, monthly);
+          add('channel', channel, m.ym, monthly);
+          if (isRoute) add('route', warehouse.slice(5), m.ym, monthly);
+          else if (warehouse) add('branch', warehouse, m.ym, monthly);
+        }
+      }
+
+      let projected = 0;
+      const monthsSet = new Set<string>();
+      for (const [k, amount] of acc) {
+        const sepA = k.indexOf('|');
+        const sepB = k.indexOf('|', sepA + 1);
+        const scope = k.slice(0, sepA);
+        const scope_key = k.slice(sepA + 1, sepB);
+        const ym = k.slice(sepB + 1);
+        monthsSet.add(ym);
+        await trx.raw(
+          `INSERT INTO commercial.sales_targets (tenant_id, scope, scope_key, year_month, target_monto)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (tenant_id, scope, scope_key, year_month)
+           DO UPDATE SET target_monto = EXCLUDED.target_monto, updated_at = now()`,
+          [tenantId, scope, scope_key, ym, round2(amount)],
+        );
+        projected++;
+      }
+      return { projected, months: monthsSet.size, lines: lines.length, fiscal_year: fy };
+    });
+  }
 }

@@ -90,6 +90,13 @@ export class BudgetSalesController {
   @ApiOperation({ summary: 'Tablero de indicadores: CREC/PART por canal/entidad × año (histórico) + meta-vs-real.' })
   getIndicators(@Param('id') id: string) { return this.indicators.getIndicators(id); }
 
+  @Post('budgets/:id/sales-plan/project-targets')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Proyecta la meta del plan (13×4) a metas mensuales en commercial.sales_targets — unifica el «vs objetivo» del sub-módulo Análisis. Reparto periodo→mes por días.' })
+  projectTargets(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.plan.projectToSalesTargets(id, this.who(req));
+  }
+
   @Get('sales-reconciliation')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Conciliación DOCUMENTADA sell-out ↔ facturación contable (cta 401) por canal × año (transparencia, sin ajuste).' })

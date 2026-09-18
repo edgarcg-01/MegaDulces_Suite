@@ -330,3 +330,26 @@ se deja **documentada, no aplicada**.
 
 **Pendiente:** verificación HTTP; mig `v_sellout_vs_facturacion` a prod; push + redeploy. Declarado: reconcilia
 anual (mensual lumpy); preventa anomalía; fletes fuera; sin ajuste/reescala (el sell-out sigue siendo el real).
+
+## Fase PVT — Proyección del plan → metas de Análisis (unificación · ADR-072)
+
+El sub-módulo Análisis ya renderiza un «vs objetivo» mensual desde `commercial.sales_targets`. El plan de ventas
+vive al grano ENTIDAD × PERIODO 13×4. Esta fase **puentea** los dos: proyecta la meta del plan a metas mensuales
+en `sales_targets` para que el objetivo de Análisis salga del presupuesto, sin recaptura.
+
+**Decisión (ADR-072):** el plan es la única verdad; los targets mensuales son un **artefacto derivado idempotente**
+(upsert-only, sin borrar). Reparto periodo→mes **proporcional a los días** (vía `v_retail_calendar`).
+
+- **PVT.1 ✅** `BudgetSalesPlanService.projectToSalesTargets(budgetId)` — reparte cada `meta_amount` a meses por
+  conteo de días; agrega a las 4 escalas del contrato (total `''` / channel canal / branch 01-06 / route NN);
+  upsert por natural key `(tenant_id, scope, scope_key, year_month)`. Cero importer, cero tabla nueva.
+- **PVT.2 ✅** endpoint `POST finance/budget/budgets/:id/sales-plan/project-targets` (`PRESUPUESTOS_GESTIONAR`) +
+  botón «Proyectar a Análisis» en `/presupuesto` (pestaña Plan). Builds api+view + check:templates verdes.
+- **PVT.3 ✅** smoke DB-direct `test-newdb-sales-plan-project-targets.js` (10/10): calendario 13×4 cubre el año
+  (365 días), reparto por días **sin pérdida** (Σ meses de un periodo == meta), **invariante de conservación**
+  (Σ meses del scope total == Σ plan, ±$0.10), escalas branch/route correctas, y el **upsert real** a
+  `commercial.sales_targets` corre (cross-schema, ON CONFLICT).
+
+**Pendiente:** verificación HTTP (ADR-044); push + redeploy (sin migración: usa vistas/tabla ya existentes).
+**Declarado:** una entidad retirada por completo del plan puede dejar su target obsoleto (upsert-only); Análisis
+hoy pinta total+branch (channel/route escritos para UI futura).
