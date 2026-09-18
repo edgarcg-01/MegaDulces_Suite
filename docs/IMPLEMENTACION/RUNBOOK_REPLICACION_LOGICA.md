@@ -305,7 +305,11 @@ es el estado exacto, medido, no supuesto:
 
 Dos datos, y de los dos cuelga el sell-out:
 
-1. **El código de sucursal con el que Kepler va a emitir su venta** (el valor de `md.kdm1.sucursal`).
+1. ⛔ **CORREGIDO el 2026-09-18 — este punto era FALSO.** Decía que había que confirmar «el
+   código de sucursal con el que Kepler va a emitir su venta (el valor de `md.kdm1.sucursal`)».
+   **`md.kdm1` no tiene columna `sucursal`** — ni en el POS ni en las réplicas. Ese campo lo
+   agrega NUESTRO shipper al escribir al ODS (`replicate-ods-live.js:360`), tomándolo de
+   `BRANCHES[].code`. El código lo elegimos nosotros; ver §10.3 punto 4.
    Canindo tomó `06`; lo natural sería `07`, pero **eso es una suposición** y si sale mal el sell-out
    suma la venta a la sucursal equivocada. El verificador lo imprime en cuanto haya acceso:
    `SELECT DISTINCT sucursal FROM md.kdm1`.
@@ -900,9 +904,31 @@ dos.
 3. **En el POS**, lo que el verificador marque: `kepler-pos-alta-ods.sql` (idempotente, calca `02`/`03`).
    La contraseña de `ods_repl` **es la misma que las otras** y no está en ningún archivo: se
    reconstruye desde `pg_subscription.subconninfo` sin que pase por un chat (§9.6).
-4. ⭐ **Confirmar el código de sucursal ANTES de registrar la rama**: `SELECT DISTINCT sucursal FROM md.kdm1`.
-   Lo natural sería `08`, **y eso es una suposición**. De ese código cuelga el sell-out; si sale mal,
-   la venta se suma a la sucursal equivocada.
+4. ⛔ **El código de sucursal NO se "confirma" contra Kepler — lo elegimos nosotros.**
+
+   §9.1 manda correr `SELECT DISTINCT sucursal FROM md.kdm1` y **esa consulta no puede funcionar**:
+   esa columna no existe. Medido el 2026-09-18 en el POS de Abastos (`ERROR: no existe la columna
+   «sucursal»`) y también en las réplicas (`kepler_md_02.md.kdm1`: 0 columnas con ese nombre).
+
+   La prueba de dónde sale de verdad está en el shipper, `replicate-ods-live.js:360`:
+
+   ```js
+   const o = { sucursal: code };
+   ```
+
+   O sea: `sucursal` es una columna **que agregamos al shipear**, tomada de `BRANCHES[].code` en
+   `kepler-branches.js`. Canindo es `06` porque nosotros escribimos `06` ahí, no porque Kepler lo
+   diga. El POS no sabe su propio código y no tiene por qué saberlo.
+
+   ⚠️ **El riesgo real es otro, y sigue siendo serio:** no es adivinar mal lo que Kepler reporta,
+   es **elegir un código que colisione o que no case con el resto de la plataforma**. El valor
+   tiene que ser único entre ramas y coherente con `wincaja.branches.kepler_code`, con el corte
+   del sell-out y con `commercial.warehouses`. Para Abastos, `08` está libre (00–07 tomados) y
+   coincide con el nombre de la base `md_08`.
+
+   ⚠️ Lo que sí hay que decidir aparte es el **almacén**: hoy Abastos es `MD-30` en
+   `commercial.warehouses` (era Wincaja). Canindo pasó de `MD-50` a `06`, y renombrar el `code` de
+   un almacén CON historia (stock, ventas, políticas de reorden) no es gratis — ver el punto 5.
 5. Réplica + suscripción (`kepler_md_08` / `sub_md_08`), registrar en `kepler-branches.js`, sumar al
    carril de `replicate-ods-live.js`, y confirmar que aparece en `kepler_ods._sync_status`.
 6. **`wincaja.branches`** para `30`: `kepler_code`, `status`, y `last_movement_date = 2026-09-17`
