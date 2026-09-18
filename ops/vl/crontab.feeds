@@ -20,10 +20,6 @@
 
 # ── cada minuto ──────────────────────────────────────────────────────────────
 * * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
-# [VL.4b] GPS de la flota. FLEET_RUN_ONCE=1 = una pasada y sale, igual que el .vbs que reemplaza
-# (el loop lo hace el cron, no el script). Ya no es mudo: late en `fleet_gps`, y reporta ERROR si el
-# proveedor devuelve 0 objetos — que es su falla real (sesión caída), no que el proceso se muera.
-* * * * *   /app/ops/vl/run-feed.sh fleet-gps "FLEET_RUN_ONCE=1 node /app/database/scripts/fleet-poll-onprem.js"
 
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
@@ -47,7 +43,7 @@
 # usuario y revivido por la tarea `PM2 Resurrect ODS`. Resultó barato de mudar porque el
 # trabajo difícil ya estaba hecho: `md` YA alcanza el SQL Server de contabilidad (el carril
 # `contpaqi` de arriba corre acá cada minuto), y el importer ya viaja en la imagen.
-# Sin `--watch`: el loop lo hace el cron, igual que `fleet-gps`.
+# Sin `--watch`: el loop lo hace el cron, no el proceso.
 #
 # ⚠️ FASE, no `*/5`: el vigilante ya ocupa los bordes de 5 min. Se corre +3 para no apilar
 # dos carriles en el mismo minuto — la lección de más abajo, aplicada por adelantado.
@@ -127,11 +123,49 @@
 
 # ── NO están acá, a propósito ────────────────────────────────────────────────
 #
+# ⛔ [LT.9.2] `fleet-gps` SE RETIRÓ de esta agenda el 2026-09-17. No se murió: nunca
+#   fue el que entregaba. El mismo trabajo lo hace `FleetPollerService` dentro del API
+#   (@Cron cada minuto) desde antes de que este carril existiera, y medido con
+#   `pg_stat_statements` sobre 56.5 h el reparto real era:
+#
+#       escritor              intentos   filas reales   útiles
+#       knex  (API Railway)    167,584       25,498      15.2 %
+#       raw   (on-prem, acá)   166,373        2,385       1.4 %
+#
+#   Los dos disparaban en el borde del minuto, pero éste tardaba 22.7 s en llegar (49
+#   viajes secuenciales a Railway, uno por unidad) y para entonces casi todo le daba
+#   conflicto: 166 mil intentos para aportar una fila útil cada 70. Costo medido: 1.35 %
+#   del tiempo de ejecución de TODA la base de prod, más 98 UPDATEs por minuto sobre una
+#   tabla de 50 filas (autovacuum corriendo ahí casi sin parar).
+#
+#   ⚠️ Lo que SÍ se pierde: ese 8.6 % de breadcrumbs eran fixes que llegaban en la
+#   ventana de 20 s entre un poll y el otro. No se pierde COBERTURA (el minuto siguiente
+#   trae la última posición igual), se pierde densidad de la traza. Si alguna vez hace
+#   falta esa resolución, la respuesta NO es revivir este carril: es que el poller del
+#   API corra dos veces por minuto, o encender `history.php` de la API oficial, que
+#   devuelve TODOS los fixes en vez de sólo el último.
+#
+#   ⚠️ La premisa que lo justificaba ("GPS-Server ata la sesión a la IP: 0 objetos desde
+#   el datacenter de Railway, 49 desde la oficina") YA NO SE SOSTIENE — medido: el
+#   poller del API trae los 49 (167,584 inserts / 56.5 h = exactamente 49/min). Si
+#   volviera a atarse, el síntoma sería `fleet_gps` en error con "0 objetos", y ahí sí
+#   esta línea vuelve.
+#
+#   El orden importó: PRIMERO se le puso latido al poller del API (commit LT.9.1) y se
+#   verificó `host='api'` en `analytics.cron_runs`, y sólo DESPUÉS se sacó esta línea.
+#   Al revés habría dejado la llave `fleet_gps` sin nadie que la escriba, o sea el
+#   tablero envejeciendo hasta crítico con el dato fluyendo perfecto.
+#
+#   El script `database/scripts/fleet-poll-onprem.js` NO se borra: si el proveedor
+#   vuelve a atar la sesión a la IP, es el plan B y ya soporta las dos cuentas.
+#
 # ✅ LOS TRES CARRILES MUDOS YA NO LO SON (VL.4b, 2026-09-11). Se les cableó el latido
 #   ANTES de mudarlos, en ese orden — que es el punto: mudar un carril mudo es
 #   renunciar a saber si funciona del otro lado.
 #     · prices     → modo del runner (arriba) ⇒ latido `feed_prices`
-#     · fleet-gps  → latido propio `fleet_gps` (arriba), ERROR con 0 objetos
+#     · fleet-gps  → latido propio `fleet_gps`, ERROR con 0 objetos. ⚠️ El carril se
+#       RETIRÓ después (LT.9.2, ver arriba): lo escribe el poller del API, que resultó
+#       ser el que entregaba el 91.4% de las posiciones.
 #     · store-poller → latido propio `store_poller` + detector de réplica congelada;
 #       es sub-minuto (@25 s), así que va como SERVICIO del compose, no acá.
 #   Los tres con umbral registrado en `CRON_JOBS`: sin umbral, `db-health` da verde
