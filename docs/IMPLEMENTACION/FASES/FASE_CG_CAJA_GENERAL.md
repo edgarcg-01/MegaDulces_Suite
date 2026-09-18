@@ -741,19 +741,89 @@ migran.
 
 `test-newdb-caja-general-derive.js` — **18 ✓ / 0 ✗**, ya en la regresión (215 suites).
 
+#### `CG.9e` · ✅ Los carriles, AGENDADOS — que era la mitad que faltaba
+
+`ecosystem.caja-general.config.js` bajo PM2 en `.249`, hermano del de Wincaja:
+
+| carril | qué hace | cadencia | latido |
+|---|---|---|---|
+| `caja-general-replica` | los `.mdb` → espejo `:5433` (Jet 32-bit) | @30 min (~192 s/pasada) | `caja_general_replica_all` |
+| `caja-general-ship` | espejo → `caja_general_ods` de prod | @5 min (barato) | `caja_general_ship` |
+
+Umbrales **registrados en `CRON_JOBS` ANTES de arrancar** (réplica warn 1.5 h / crit 4 h; ship warn
+0.5 h / crit 2 h). Sin umbral registrado el latido cae en el `cfg ? classify : 'ok'` de
+`checkCronRuns()` y se pinta **verde incondicional** — un latido sin umbral no es una alarma, es
+decoración.
+
+**Prueba negativa del arranque:** sin `DATABASE_URL_NEW` el ecosystem **aborta**, en vez de arrancar
+mudo con `pm2 ls` en verde. Es el modo de falla que le costó a Wincaja 4 días de réplica en cero.
+`pm2 save` hecho — sobreviven al reinicio, que en `.249` no es hipotético (el 2026-09-11 se reinició
+dos veces de noche y Docker no volvió hasta las 08:35: 9.5 h sin ingesta).
+
+#### `CG.9f` · ✅ CUTOVER A PROD — hecho y verificado (2026-09-18 16:1x)
+
+⚠️ **Corrección a este documento:** prod **no** estaba congelada en el 2026-09-11. Ese dato sale de
+un comentario de `run-prod-feeds.js` escrito el 15-sep y se repitió como si fuera el estado actual.
+Medido al empezar el cutover: `max(fecha)` = **2026-09-17**, último import 20:21 — **1 día de
+rezago**. Alguien corrió el modo `finance` a mano. O sea que el problema no era que estuviera roto,
+sino que dependía de que alguien se acordara.
+
+Cutover por pasos, con compuerta en cada uno:
+
+| paso | resultado |
+|---|---|
+| 1. mig landing (aditiva) | `caja_general_ods` con 3 tablas · **lote 477** |
+| 2. ship inicial | **146,629 filas en 62 s** por WAN a Railway |
+| 3. compuerta de paridad | ✖ **1 arqueo de diferencia** — el espejo ganó $24,084 mientras verificaba |
+| 3b. re-ship del delta | **1 fila en 2.1 s**, paridad **exacta** |
+| 4. swap a vistas | 12,276 movs · 122 cuentas · 30,005 arqueos · **lote 478** |
+
+⭐ **La diferencia del paso 3 no fue un defecto, fue la prueba de que el carril está vivo:** el
+`.mdb` recibió un arqueo nuevo entre el ship y la verificación, y la compuerta lo vio. Un cutover
+sin esa compuerta lo habría publicado con una fila de menos y nadie se enteraría.
+
+**Verificado en prod después del swap:**
+- `test-newdb-caja-general-derive.js` — **18 ✓ / 0 ✗**
+- latido: `caja_general_ship` en `ok`, `caja_general_replica_all` corriendo
+- `GRANT SELECT` a `app_runtime` en las 3 vistas
+- rendimiento (≈154 ms de eso es latencia a Railway): **302 ms** los últimos 200 movimientos ·
+  **219 ms** el saldo por cuenta del mes · **263 ms** los arqueos del mes — ninguna lenta
+- las 3 tablas viejas siguen como `*_snapshot_bak` (17 MB + 7 MB + 64 kB): rollback a un `ALTER`
+- **frescura publicada: 2026-09-18** (era 09-17)
+
+⛔ **`migrate.latest()` NO se usó, y no debe usarse:** prod tiene DOS `knex_migrations` y el
+`search_path` lleva a la **vacía** (`identity`, 0 filas); la real es `public.knex_migrations` con 780
+filas. Correr `latest()` reaplicaría las 780. Se aplicó `up()` a mano con `lock_timeout = 10s` y se
+registró la fila.
+
 **Pendiente, y por qué:**
-- ⬜ **Correrlo contra prod.** Todo lo de arriba está verificado contra `platform_test`; desde esta
-  máquina **no hay URL de prod configurada**, y son las 15:40 de un viernes (la regla del proyecto
-  prohíbe escrituras pesadas a prod en horario hábil). Falta: aplicar las 2 migraciones, correr el
-  shipper una vez (~46 s) y agendar el carril.
-- ⬜ **Agendar los dos carriles en `.249`.** `replicate-caja-general-live.js` (Jet, ~145 s/pasada) y
-  `ship-caja-general.js` (Postgres→Postgres, barato) — el molde es el PM2 de Wincaja
-  (`ecosystem.wincaja.config.js`, dos carriles con latido por carril). Hoy el shipper ya está en el
-  modo `finance` de `run-prod-feeds.js`, pero **ese modo no está en ninguna agenda** — que es
-  exactamente la causa del congelamiento que esta fase vino a arreglar. Sin esto, el latido
-  `caja_general_ship` no existe y el carril es invisible.
-- ⬜ Las otras cuatro tablas (`caja_ventas_diarias`, `caja_depositos`, 2 catálogos) — primero hay
-  que resolver la contradicción "¿abandonado o vivo?" de `Base Movimientos SI/NO`.
+- ⬜ **Redeploy de la API** para que los dos umbrales nuevos de `CRON_JOBS` entren en vigor. Hasta
+  entonces los carriles **laten pero el tablero no los clasifica** (caen en el verde incondicional).
+  Es lo único que queda entre esto y estar cerrado de punta a punta.
+- ✅ ~~Correrlo contra prod~~ — hecho, ver `CG.9f`.
+- ✅ ~~Agendar los dos carriles~~ — hecho bajo PM2, ver `CG.9e`.
+- ✅ **Resuelta la contradicción de `Base Movimientos SI/NO`** — se midió en vez de suponerse, y el
+  archivo mintió: la fecha de modificación de hoy y el `.ldb` sólo dicen que **alguien abre el
+  Access** (abrirlo ya escribe al `.mdb`). Lo que importa es la última CAPTURA:
+
+  | año | `SI` | `NO` |
+  |---|---:|---:|
+  | 2022 | 3,129 | 1,951 |
+  | 2023 | 2,932 | 3,002 |
+  | 2024 | 3,040 | 3,034 |
+  | 2025 | 3,468 | 2,822 |
+  | **2026** | **247** | **198** |
+
+  Última captura: `SI` **2026-07-02**, `NO` **2026-02-03**. O sea **~8 % del ritmo normal** y
+  parado desde julio/febrero. La migración `20260814120000` tenía razón (*"se abandonó en
+  Q1-2026"*), con el matiz de que `SI` renqueó hasta julio.
+  ⚠️ De paso quedó confirmado por qué el importer filtra fechas basura: `max(VentaDiariaFecha)` da
+  **2033-08-29** en `SI` y **2055-04-14** en `NO`.
+  → **Decisión: NO se replican los 1.07 GB de `SI`/`NO`.** Replicar una fuente que dejó de recibir
+  datos es trabajo sin rendimiento. `caja_ventas_diarias` / `caja_depositos` + sus 2 catálogos
+  quedan como **histórico**, los sigue tocando `import-caja-general.js` para el goteo, y
+  **Finanzas tiene que confirmar si ese sistema se retira formalmente** — eso es de ellos, no
+  nuestro.
 - ⚠️ Sigue necesitando Jet 32-bit → **vive en `.249` junto a los 3 carriles de Wincaja hasta
   VL.5**. Es la misma restricción que ya existe, no una nueva.
 - ⚠️ **Alcance**: hoy sólo la sucursal 20. Las otras tres (`7 MKT`, `99 CC`, `70 LFLG` — ésta la

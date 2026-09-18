@@ -716,6 +716,19 @@ const CRON_JOBS: CronCfg[] = [
   // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
   { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
   { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
+  // [CG.9e] Los dos carriles de la CAJA GENERAL, hermanos de los de Wincaja: mismo Jet 32-bit,
+  // misma máquina (`.249`), mismo motivo para existir. Se registran ACÁ, antes de arrancarlos,
+  // porque un latido sin umbral cae en el `cfg ? classify : 'ok'` y se pinta verde incondicional —
+  // y esta fase nace justo de eso: `analytics.caja_*` estuvo congelada del 11 al 15 de septiembre
+  // con el tablero en `ok`, porque el importer se quedó sin agenda y nadie lo vigilaba.
+  //
+  // `caja_general_replica_all`: TODO va por hash-delta (nada incremental, y está medido: la PK de
+  // `Doctos` tiene dos ejes), así que hay un solo carril y el sufijo es `all`. Una pasada completa
+  // de las dos ramas mide ~192 s; a @30 min, warn al saltarse tres corridas.
+  { key: 'caja_general_replica_all', label: 'Caja general réplica cruda (.mdb → :5433)', cadence: 'continuo ~30 min', warnH: 1.5, critH: 4 },
+  // `caja_general_ship`: Postgres→Postgres, barato (2ª pasada medida: 127 filas leídas, 0 escritas).
+  // Es el que de verdad decide si la pantalla está fresca, así que va con umbral corto.
+  { key: 'caja_general_ship',   label: 'Caja general ship (:5433 → caja_general_ods)', cadence: 'continuo ~5 min', warnH: 0.5, critH: 2 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
   // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
