@@ -14,6 +14,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja } from '../../cash-ledger.service';
+import { AuthService } from '../../../../core/services/auth.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
   textoCobertura, sumaDesglose, veredictoCorte, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
@@ -118,6 +119,45 @@ import {
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr><td colspan="8" class="fin-empty">Sin movimientos en el periodo.</td></tr>
+        </ng-template>
+      </p-table>
+
+      <h2 class="fin-h2">Cortes</h2>
+      <p-table [value]="cortes()" size="small" styleClass="fin-table">
+        <ng-template pTemplate="header">
+          <tr>
+            <th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Estado</th>
+            <th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th>
+            <th>Cerró / Autorizó</th><th></th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-c>
+          <tr>
+            <td class="mono">{{ c.folio }}</td>
+            <td>{{ dmy(c.fecha) }}</td>
+            <td>{{ c.sucursal }}</td>
+            <td><p-tag [value]="c.estado" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
+            <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
+            <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
+            <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
+              {{ c.diferencia === null ? '—' : money(c.diferencia) }}
+            </td>
+            <td>
+              <small class="fin-dim">{{ c.closed_by_username || '—' }} / {{ c.authorized_by_username || '—' }}</small>
+            </td>
+            <td>
+              @if (c.estado === 'cerrado') {
+                <p-button label="Autorizar" size="small" severity="secondary"
+                          [disabled]="!gateAutorizar(c).ok" [title]="gateAutorizar(c).texto"
+                          (onClick)="autorizar(c)"></p-button>
+              } @else {
+                <small class="fin-dim">{{ gateAutorizar(c).texto }}</small>
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr><td colspan="9" class="fin-empty">Sin cortes en el periodo.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -237,6 +277,7 @@ import {
 })
 export class FinanzasCajaGeneralComponent implements OnInit {
   private svc = inject(CashLedgerService);
+  private auth = inject(AuthService);
 
   readonly money = money;
   readonly dmy = dmy;
@@ -257,6 +298,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   morrallaCorte = 0;
   conteoCorte: DenominacionCapturada[] = [];
   saldoResp = signal<SaldoResponse | null>(null);
+  cortes = signal<CorteCaja[]>([]);
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
   from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   to = new Date().toISOString().slice(0, 10);
@@ -311,6 +353,30 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     });
     this.cargar();
     this.cargarSaldo();
+    this.cargarCortes();
+  }
+
+  cargarCortes(): void {
+    this.svc.cortes({ from: this.from, to: this.to, limit: 50 })
+      .subscribe({ next: (r) => this.cortes.set(r.rows ?? []), error: () => this.cortes.set([]) });
+  }
+
+  sevEstadoCorte(e: string): 'secondary' | 'warn' | 'success' {
+    return e === 'borrador' ? 'secondary' : e === 'cerrado' ? 'warn' : 'success';
+  }
+
+  /**
+   * La doble llave, en el boton. El `sub` del JWT es el MISMO id que el backend guarda en
+   * `closed_by` (el controller resuelve `id ?? sub ?? userId`), asi que la comparacion es
+   * valida. El candado real esta en la DB: esto solo evita el 403 sorpresa.
+   */
+  gateAutorizar(c: CorteCaja) {
+    return puedeAutorizarUI(c as unknown as CorteVista, this.auth.user()?.sub ?? null);
+  }
+
+  autorizar(c: CorteCaja): void {
+    if (!this.gateAutorizar(c).ok) return;
+    this.svc.autorizarCorte(c.id).subscribe({ next: () => this.cargarCortes() });
   }
 
   /** Sucursal del corte. Por ahora fija; cuando haya selector, sale de ahí. */
@@ -331,7 +397,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       fecha: new Date().toISOString().slice(0, 10),
       sucursal: this.sucursalActiva,
       fondo_inicial: this.fondoInicial,
-    }).subscribe({ next: () => { this.aperturaAbierta = false; this.cargarSaldo(); } });
+    }).subscribe({ next: () => { this.aperturaAbierta = false; this.cargarSaldo(); this.cargarCortes(); } });
   }
 
   abrirCierre(): void { this.conteoCorte = []; this.morrallaCorte = 0; this.cierreAbierto = true; }
@@ -354,7 +420,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const c = this.corteAbierto();
     if (!c || !this.gateCierre().ok) return;
     this.svc.cerrarCorte(c.id, this.conteoCorte, this.morrallaCorte).subscribe({
-      next: () => { this.cierreAbierto = false; this.cargarSaldo(); this.cargar(); },
+      next: () => { this.cierreAbierto = false; this.cargarSaldo(); this.cargar(); this.cargarCortes(); },
     });
   }
 
@@ -371,7 +437,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargando.set(true);
     this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined })
       .subscribe({
-        next: (r) => { this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi); this.cargando.set(false); },
+        next: (r) => { this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi); this.cargando.set(false); this.cargarCortes(); },
         error: () => { this.rows.set([]); this.kpiRaw.set(null); this.cargando.set(false); },
       });
   }

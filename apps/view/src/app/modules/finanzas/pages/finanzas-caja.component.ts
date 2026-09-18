@@ -13,6 +13,7 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { BancosSocketService } from '../bancos-socket.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../shared/util';
@@ -59,6 +60,8 @@ interface ConcDia {
   rows: DiaRow[]; totals: DiaTotals;
 }
 interface CajaGeneral {
+  /** [CG.8] Frescura del espejo medida por el servidor. Puede faltar si la medición falló. */
+  freshness?: { data_as_of: string | null; status: 'fresh'|'stale'|'unknown'; stale: boolean; age_human: string | null } | null;
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
   por_mes: { mes: string; ingreso: number; gasto: number; n: number }[];
@@ -97,7 +100,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
   selector: 'app-finanzas-caja',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, DialogModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, DialogModule, MetricStripComponent, FreshnessPillComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -106,6 +109,16 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <p class="surf-page-sub">Control de <b>venta diaria → depósito bancario</b> por sucursal (la capa entre el punto de venta y el banco), arqueo de caja por denominación, y conciliación de depósitos contra el estado de cuenta. Espejo read-only del sistema de Finanzas.</p>
         </div>
         <div class="cg-head-actions">
+          <!-- [CG.8] De cuándo son estos datos. measures="data" porque el since sale del
+               servidor (freshness.data_as_of, el eslabón MAS VIEJO de la cadena), no del reloj
+               del navegador. Sin freshness medido no se pinta nada: un hueco es honesto, una
+               píldora verde sobre una medición que falló no lo es. -->
+          @if (cg()?.freshness?.data_as_of) {
+            <app-freshness-pill measures="data" [since]="cg()!.freshness!.data_as_of!"
+                                label="Espejo del .mdb" [staleAfterSec]="30 * 3600" />
+          } @else if (cg()) {
+            <span class="cg-fresh-unknown" title="No se pudo medir de cuándo son los datos del espejo. No es lo mismo que estar al día.">frescura sin medir</span>
+          }
           <p-select [options]="f().meses" [ngModel]="month()" (onChange)="onMonth($event.value)" placeholder="Mes" styleClass="cg-sel" ariaLabel="Mes" />
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
@@ -678,6 +691,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-denom-t { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); }
     .cg-denom-c { font-family:var(--font-mono); font-size:.76rem; padding:1px .4rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .cg-detail-obs { font-style:italic; color:var(--text-muted); }
+    .cg-fresh-unknown { font-size:.72rem; color:var(--text-muted); border:1px dashed var(--border-color); border-radius:999px; padding:.15rem .55rem; }
     .cg-origen { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.6rem .8rem; margin:.4rem 0 .9rem; }
     .cg-origen-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(11rem,1fr)); gap:.6rem; margin-top:.5rem; }
     .cg-ocell { display:flex; flex-direction:column; gap:1px; padding:.5rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); }
