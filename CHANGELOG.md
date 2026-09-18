@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Added — Tickets de venta: buscar cualquier folio y reimprimirlo con el descuento (TK, 2026-09-18)
+
+Nuevo apartado **Tickets** en Ventas (`/comercial/tickets`, permiso propio `COMMERCIAL_TICKETS_VER`
+repartido a 12 roles). Busca un folio en los **tres universos a la vez** —mostrador `U-D-10`,
+telemarketing y crédito `U-D-8/12`, y pedidos propios `PD-`— y lo reimprime en **ticket térmico de
+80 mm** (desde el navegador, calcando el del arqueo que ya está en las cajas) o en **carta PDF**,
+que hereda la maqueta y el Chromium compartido del anexo de venta.
+
+El papel muestra la **cascada**: precio de lista → descuento en precio → descuento del documento →
+total, y las dos restas cierran al centavo.
+
+**Hallazgo de fondo:** en el ticket de mostrador el descuento **no está en la cabecera**
+(`kdm1.c13` = 0.00 en el 100% de 30,549 documentos) sino en el renglón (`kdm2.c66` = precio de
+lista). Copiar el patrón del módulo hermano habría publicado "$0.00" en todos los tickets sin
+fallar nunca. ⚠️ **`c66` no existe antes del 2026-08-13**: para los tickets anteriores el descuento
+se **declara como desconocido**, no se dibuja como cero. Decode completo en
+[`docs/ERP_KEPLER.md` §3.1](docs/ERP_KEPLER.md).
 ### Fixed — la flota vivía en DOS cuentas de MagniTracking y la app veía una (LT.9, 2026-09-17)
 
 Pedido: *«son dos sesiones de magnitracking las cuales tienen los vehiculos … hay que adjuntarlas para lograr ver toda la flotilla»*.

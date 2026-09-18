@@ -351,6 +351,51 @@ Los más importantes:
 **Ventas** (género `U`, naturaleza `D`):
 - `U-D-10` = venta POS/mostrador (el grueso). En `kdm1`: `c2='U' c3='D' c4=10`.
 
+⭐⭐ **`c5` del ticket es LA CAJA, no una serie fiscal.** `kdmm` lo dice con todas sus letras:
+`U-D-10` tipo N = **"Ticket Contado Caja N"** (1 a 5, en las 7 sucursales). O sea que el contador
+de folios no es por sucursal sino **por sucursal × caja**: medido, el folio `0018665` existe **7
+veces** — sucursales 02, 03 y 04, y dentro de la 03 en sus cuatro cajas, con fechas de marzo a
+agosto y totales de $27.50 a $244.20. La llave completa del ticket es `(sucursal, c4, c5, folio)`,
+que es lo que `analytics.erp_sale_tickets` publica como `folio_digital` (`03UD1001-0018665`).
+
+### 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí
+
+Decodificado en la Fase TK (2026-09-18) y medido sobre 30,549 tickets y 29,353 renglones:
+
+| capa | dónde vive | qué es | dónde aplica |
+|---|---|---|---|
+| **de precio** | **`kdm2.c66`** (lista) vs `c12` (cobrado), unidad BASE | el precio se bajó al cobrar | mostrador, telemarketing y crédito |
+| **del documento** | `kdm1.c13` (importe) + `c19` (%) | descuento comercial sobre el total | **sólo** telemarketing y crédito |
+
+⛔ **No son el mismo número y uno no explica al otro.** De 609 facturas `U-D-8`, sólo **172**
+cuadran entre el descuento de cabecera y la suma del descuento de renglón; **435 difieren en más
+de $1**, con error medio de **$183**. Conviven.
+
+⛔ **En el ticket de mostrador (`U-D-10`) la cabecera NO sirve: `c13` = 0.00 en el 100%** de los
+30,549 documentos, y `c13 = c9 × c12` exacto en el 100% de los renglones. Por el camino obvio —el
+mismo que usa el anexo de telemarketing— el descuento del mostrador *no existe*. Está en `c66`.
+
+⛔ **No derivar el precio de lista del CATÁLOGO.** Comparar `c12` contra `kdii.c90/c91/c92` (el PV
+del peldaño vendido) da **1.9% de renglones cobrando POR ENCIMA de lista**, contra **0.10%** con
+`c66`: 18× peor. La razón es estructural, no de calidad — `kdii` es el precio de HOY y el renglón
+trae el de la venta. Ya está refutado; no reintroducirlo.
+
+⚠️⚠️ **`c66` NO EXISTE ANTES DEL 2026-08-13.** Medido mes a mes sobre `U-D-10`: de enero a julio
+de 2026 está vacía en el **100%** de ~1,046,000 renglones; en agosto arranca (39% vacía; la
+sucursal `02` el día 13, la `03` el 14, pleno desde el 14) y en septiembre queda en 0.02%. **El
+descuento de una venta sólo se puede afirmar a partir de esa fecha.** Para todo lo anterior el ERP
+no guarda con qué precio se comparaba, así que la vista devuelve **`NULL`, nunca `0`** — un cero
+ahí se lee como *"no costaba nada"* en un documento que cobró dinero (ADR-056).
+
+⚠️ **`kdm2` no guarda la HORA.** Ni `c32` ni ninguna de las 10 columnas `timestamp` de `kdm1`
+(`c9,c18,c41,c68,c91,c101,c188,c191,c195,c197`): todas en `00:00:00` en los 10,716 documentos de
+la ventana medida. Una reimpresión no puede poner la hora del navegador en su lugar.
+
+Otras columnas del renglón, verificadas de paso: **`c17` = tasa de IVA** (0 o −16) y **`c18` = tasa
+de IEPS** (0 o −8); `c24` repite la cantidad y `c26` es el costo del renglón. En la cabecera,
+**`c14` = IVA** y **`c15` = IEPS** del documento, y el precio del renglón **YA TRAE los impuestos**
+(Σ`kdm2.c13` = `kdm1.c16` en 6,745 de 6,756 tickets = 99.84%).
+
 **Compras** (género `X`, naturaleza `A`) — la cadena que hay que entender para finanzas/compras:
 ```
 X-A-30 Requisición      (c8=N, no mueve nada)
