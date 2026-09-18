@@ -10,6 +10,37 @@
 
 ## [Unreleased]
 
+### Fixed — la flota vivía en DOS cuentas de MagniTracking y la app veía una (LT.9, 2026-09-17)
+
+Pedido: *«son dos sesiones de magnitracking las cuales tienen los vehiculos … hay que adjuntarlas para lograr ver toda la flotilla»*.
+
+Medido contra el proveedor antes de tocar código: cuenta 1 = **49** camionetas de ruta y reparto, cuenta 2 = **7** unidades pesadas (HINO 500, FREIGHTLINER, 3× INTERNATIONAL), 2 IMEIs en ambas → **54 únicos**. Se ganan **5 unidades que no existían para el sistema**. Se leen `MAGNI_USER..9`/`MAGNI_PASS..9` y se publica la unión deduplicada por IMEI.
+
+- ⭐ **Cookie jar por cuenta.** GPS-Server identifica la sesión por cookie: con el jar único que había, el login de la 2ª cuenta **pisaba** el de la 1ª y las dos consultas devolvían la misma flota. El smoke lleva la prueba negativa.
+- **Dedupe con el fix más fresco**, no "gana la primera" — el resultado no depende del orden de lectura (verificado: los 2 compartidos devuelven el mismo `dt_tracker` al segundo).
+- ⛔ **El umbral de alarma es POR CUENTA, no sobre el total**: si se cae la que trae las 7 pesadas, el total sigue siendo 49 — un número sano que esconde media flota callada.
+- Dos ceros que se publicaban como éxito: el camino legacy devolvía `[]` con la sesión rota ("flota vacía"), y la API oficial no miraba `res.ok` (un 401 salía como flota vacía).
+- `st='i'` no estaba mapeado y caía en `unknown`, que significa "no sabemos" — y sí sabíamos: lo dice el proveedor en `ststr` (*"Ralenti 2 H 8 Min 57 S"*, `speed=0`, `acc=1`). Es **ralentí**. En prod había 1 tracker publicado como estado desconocido por esto; ahora hay 0.
+
+### Removed — se retira el poller GPS duplicado de `md`; el latido estaba colgado del carril que no entregaba (LT.9.1/LT.9.2, 2026-09-17)
+
+**Dos pollers hacían el mismo trabajo cada minuto.** Medido con `pg_stat_statements` (56.5 h):
+
+| escritor | intentos de insert | filas reales | útiles |
+|---|---|---|---|
+| knex (API Railway) | 167,584 | **25,498** | 15.2 % |
+| raw (on-prem `md`) | 166,373 | **2,385** | 1.4 % |
+
+El API pone el **91.4 %**; el on-prem tardaba **22.7 s** por pasada (49 viajes secuenciales a Railway) y llegaba cuando casi todo ya daba conflicto: 166 mil intentos para aportar una fila útil cada 70. Costo: **1.35 % del tiempo de ejecución de toda la base** + 98 UPDATEs/min sobre una tabla de 50 filas (15,385 autovacuums).
+
+- ⛔ **La alarma estaba anti-correlacionada con la realidad**: `fleet_gps` lo escribía el carril que entregaba ~0. Si moría el API el tablero seguía verde; si moría el on-prem se pintaba rojo con el dato fluyendo igual. Se le puso latido al poller del API **primero** (misma llave, mismo umbral en `CRON_JOBS`; mide `positions`, o sea entrega), se verificó `host='api'` en prod, y **recién después** se sacó la línea de `ops/vl/crontab.feeds` (ADR-060).
+- ⚠️ **Lo que se pierde, dicho:** ese 8.6 % de breadcrumbs eran fixes de la ventana de 20 s entre un poll y el otro. No se pierde cobertura, se pierde densidad de traza. La respuesta, si hace falta, no es revivir el carril: es que el poller del API corra 2×/min, o encender `history.php`.
+- ⚠️ La premisa que lo justificaba ("GPS-Server ata la sesión a la IP: 0 objetos desde Railway") **ya no se sostiene**: 49/min exactos desde Railway. El script no se borra — es el plan B y ya soporta las dos cuentas.
+- ⭐ **Trampa de despliegue:** las credenciales se habían puesto en el servicio `MegaDulces` de Railway, **que no corre los crons**. El poller vive en el servicio **`worker`**. *Para cualquier variable que consuma un `@Cron`, el servicio a tocar es `worker`.*
+- **Y dos canarios rotos** en el healthcheck de `feeds-cron`, uno roto por este mismo cambio — el comentario del archivo lo anticipaba: `fleet_gps` (ya no la escribe ese contenedor → diría "sano" mirando una llave de otra máquina) y `feed_receipts` (muerto desde DB-MEM.2: pasó a `30 4 * * *`, vencido 23 de cada 24 h contra `MAX_MIN=10`). Ahora: `feed_contpaqi` · `contpaqi_add_cfdis` · `health_watchdog`.
+
+**Verificado en prod:** `sync: 54 objetos [MAGNI_USER=49 MAGNI_USER2=7] → 5 nuevos, 49 act, 3 vinculados, 13 posiciones (1085ms)` — contra los 22,695 ms del carril retirado; **0 inserts del on-prem** en 90 s de medición posterior; trackers 50 → **55**; `feeds-cron` `healthy`. Smoke `test-newdb-logistics-tracking` **25/25**. Detalle en [`FASE_LT`](docs/IMPLEMENTACION/FASES/FASE_LT_RASTREO_FLOTA.md).
+
 ### Changed — jest sale, Vitest entra, y el target `test` deja de poder mentir (NX.3, 2026-09-17)
 
 Pedido: *«hay que arreglar todo para que nx funcione adecuadamente y no hay que usar jest, hay que usar vitest»*.

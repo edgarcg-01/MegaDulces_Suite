@@ -49,7 +49,7 @@ La agenda vive **versionada en el repo**: [`ops/vl/crontab.feeds`](vl/crontab.fe
 revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 
 ```
-* * * * *          receipts · contpaqi · fleet-gps
+* * * * *          contpaqi
 */2 * * * *        refresh-consolidado
 */5 * * * *        watchdog
 3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)
@@ -59,9 +59,15 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 15 * * * *         intraday
 25 */2 * * *       contpaqi-slow
 0 3 * * *          nightly
+30 4 * * *         receipts              (barrido histórico; era @1 min hasta DB-MEM.2)
 45 5 * * *         contpaqi-cfdis-full   (reconciliador, ~167k CFDIs)
 0 2 * * 6          catalog               (sábado 02:00)
 ```
+
+> **[LT.9.2, 2026-09-17]** `fleet-gps` salió de esta agenda: hacía el mismo trabajo que el
+> `FleetPollerService` del API, que medido con `pg_stat_statements` ponía el **91.4 %** de las
+> posiciones (25,498 filas contra 2,385 en 56.5 h). El latido `fleet_gps` lo escribe ahora el
+> API. Detalle y el orden en que se hizo, en [`FASE_LT`](../docs/IMPLEMENTACION/FASES/FASE_LT_RASTREO_FLOTA.md).
 
 ⛔ **Esas fases no son decorativas y este README las tuvo MAL hasta el 2026-09-12** — decía
 `*/15 stock`, `*/30 live · prices`, `0 * * * * intraday`, `0 */2 contpaqi-slow`, que es la versión
