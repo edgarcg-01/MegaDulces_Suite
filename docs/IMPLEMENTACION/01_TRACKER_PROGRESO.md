@@ -425,7 +425,10 @@ libro mayor de 5 estados (ADR-073).
   cargo−abono, YoY +9.17%/12 meses, guard de esporádico, cobertura 27/0/9, esporádico deja 9 meses SIN fila, manual respetado.
 - **Declarado, no construido:** materialización rejilla→`budget_lines` (puente al ledger de 5 estados y al
   presupuesto-vs-real §16.3); overrides de crecimiento por cuenta en UI; familias 5/7/1 off por default.
-  **Pendiente prod:** migs `20260918200000`/`210000` + push + redeploy + verificación HTTP (ADR-044).
+- **✅ PROD 2026-09-18:** migs `20260918200000` (batch 475) + `20260918210000` (batch 476) aplicadas a Railway
+  una por una (`apply-one-migration-prod.js`, NO `migrate:latest`); verificadas (12/17 cols, RLS forzado,
+  grants `app_runtime`). Prod quedó en 780 aplicadas / 0 pendientes. Nota: PU.7/PV/PVA/PVR ya estaban en prod.
+  **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044).
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
