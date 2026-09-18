@@ -2185,3 +2185,29 @@ Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVR)
 **Hereda:** ADR-068/069 (Presupuesto de Ventas / automatización) · el contrato de `commercial.sales_targets` (upsert por natural key) · la regla del ODS (derivar, no materializar un segundo).
 
 Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVT).
+
+## ADR-073
+
+**El presupuesto de GASTOS se AUTO-PROPONE desde los egresos de Kepler (`analytics.expense_entries`), al grano de CUENTA MAYOR × mes. El sistema propone (base histórica × crecimiento + relleno por recurrencia); el humano ajusta. «Sin datos» ≠ cero.** (Fase PVG — propuesto 2026-09-18)
+
+**Contexto.** El pedido del ejercicio: «también se menciona el área de gastos… nosotros ya obtenemos esa información de Kepler (/finanzas/egresos)… casi nada se debe llenar desde acá, es un proceso casi 100% automatizado». Hasta hoy el gasto sólo se capturaba a mano (`BudgetLinesService.createLine`, una partida a la vez). El fact de egresos ya existe: `analytics.expense_entries` (por línea de póliza; dims sucursal/cuenta/cuenta_mayor/concepto/dpto/area/beneficiario/fecha; familias 1/5/6/7).
+
+**Decisión — el grano y la fuente (medidos):**
+1. **Grano = `cuenta_mayor`** (siempre poblada). Se **descartan** `dpto` (centro de costo — ~67% en CEDIS, ralo en sucursales) y `concepto` (más fino, ralo) como eje primario: no cubren. La cuenta mayor es además cómo se presupuesta un plan de cuentas, y habilita el cruce presupuesto-vs-real declarado-no-construido (`partida.account_code ↔ egresos.cuenta_mayor`, §16.3/PU.0.5).
+2. **Familia 6 (gasto operativo) por default**, configurable. 5=compras es dominio de RA (reabastecimiento), 1=inversión es capex, 7=financieros — disponibles vía settings, off por default.
+3. **Base neta = cargo − abono** (una nota de crédito reduce el gasto presupuestado).
+4. **Motor análogo a PVA** (ADR-069): `proposeExpenseGrowth` (YoY por cuenta sobre meses APAREADOS, guard `MIN_PAIRED_MONTHS=4`, escalera cuenta→global→default) + `proposeExpensePlan` (relleno híbrido: mes con base → `base×(1+crec)` `historico_ajustado`; cuenta RECURRENTE ≥6 meses, mes faltante → `promedio×(1+crec)` `estacional`; cuenta esporádica → sólo sus meses, el resto **sin fila**).
+
+**Decisión — la capa (evita corromper el libro mayor):**
+5. La propuesta vive en **`budget.expense_plan_lines`** (cuenta × sucursal × mes) — capa de PROPUESTA re-ejecutable/idempotente/overwrite-safe, **SEPARADA** del libro mayor de 5 estados `budget.budget_lines` (que lleva reserva/compromiso/ejercido y NO se pisa a ciegas — hacerlo rompería el invariante del ledger y sus movimientos). Nunca pisa `method='manual'` salvo `overwrite_manual`. Perillas en `budget.expense_plan_settings` (familias, `default_growth_pct`, `growth_by_account`, `by_sucursal`, `control_level`).
+
+**Se rechaza:** (a) proponer directo dentro de `budget_lines` (bloquea la re-ejecución y corrompe partidas ya en uso con reserva/ejercido); (b) grano `dpto`/`concepto` (ralos → cobertura falsa); (c) rellenar TODOS los meses de una cuenta esporádica con su promedio (sobre-presupuesta un gasto trimestral a 12 meses) → sólo se rellenan cuentas recurrentes; (d) tomar `importe` bruto sin netear el abono.
+
+**Consecuencias:**
+- ✅ El presupuesto de gastos se arma solo desde los egresos; el humano ajusta perillas (crecimiento, familias, por-sucursal). Cero importer (deriva de `expense_entries`), cero tabla nueva de datos (la propuesta es una rejilla propia).
+- ✅ Verificado DB-direct (smoke 10/10): neto cargo−abono, YoY con guard de meses, relleno híbrido, esporádicos no sobre-presupuestan, manual respetado.
+- ⚠️ Declarado, NO construido en este sprint: **materialización** de la rejilla aprobada a partidas de `budget_lines` (el puente al ledger de 5 estados y al presupuesto-vs-real); overrides de crecimiento por cuenta en UI (hoy vía settings); familias 5/7/1 off por default.
+
+**Hereda:** ADR-066 (Presupuestos) · ADR-069 (motor propone / humano ajusta / relleno híbrido) · ADR-056 (lo no medido se declara, nunca cero) · la regla del ODS (derivar, no copiar).
+
+Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVG).

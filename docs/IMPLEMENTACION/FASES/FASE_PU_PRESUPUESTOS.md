@@ -353,3 +353,35 @@ en `sales_targets` para que el objetivo de Análisis salga del presupuesto, sin 
 **Pendiente:** verificación HTTP (ADR-044); push + redeploy (sin migración: usa vistas/tabla ya existentes).
 **Declarado:** una entidad retirada por completo del plan puede dejar su target obsoleto (upsert-only); Análisis
 hoy pinta total+branch (channel/route escritos para UI futura).
+
+## Fase PVG — Presupuesto de GASTOS auto-propuesto desde egresos (ADR-073)
+
+Cierra el pedido del ejercicio del lado de gastos: «casi nada se llena desde acá». El presupuesto de gastos se
+**auto-propone** desde los egresos de Kepler (`analytics.expense_entries`), análogo a PVA para ventas. Grano
+medido: **cuenta mayor** (siempre poblada; `dpto`/`concepto` ralos → descartados como eje). Familia 6 (gasto
+operativo) por default (configurable). Cero importer (deriva del fact), cero tabla de datos nueva.
+
+**Decisión (ADR-073):** la propuesta vive en una **rejilla propia** re-ejecutable, separada del libro mayor de
+5 estados (que no se pisa a ciegas). La materialización a partidas `budget_lines` queda declarada, no construida.
+
+- **PVG.1 ✅** `budget.expense_plan_settings` (mig `20260918200000`) — perillas: `proposal_families` (default
+  `["6"]`), `default_growth_pct`, `growth_by_account`, `by_sucursal`, `control_level`. RLS forzado, FK a budgets.
+- **PVG.2 ✅** `budget.expense_plan_lines` (mig `20260918210000`) — rejilla cuenta × sucursal × mes; `method`
+  historico_ajustado|estacional|manual; natural key `(tenant,budget,account_code,sucursal,year_month)`. RLS forzado.
+- **PVG.3 ✅** `BudgetExpensePlanService`: `proposeExpenseGrowth` (YoY por cuenta sobre meses apareados, guard
+  `MIN_PAIRED_MONTHS=4`, escalera cuenta→global→default; base neta cargo−abono), `proposeExpensePlan` (relleno
+  híbrido: base×crec `historico_ajustado`; cuenta recurrente ≥6 meses `estacional`; esporádica → sólo sus meses),
+  `getSettings/upsertSettings`, `upsertLine/deleteLine`. + `BudgetExpenseController` (endpoints `expense-plan`,
+  `expense-plan/settings`, `expense-plan/propose-growth`, `expense-plan/propose`, `expense-plan/line`;
+  PRESUPUESTOS_VER/GESTIONAR). Registrado en `finance-budget.module`. `nx build api` verde.
+- **PVG.4 ✅** UI en `/presupuesto` vista «Gasto operativo»: sección «Presupuesto propuesto» (tabla cuenta mayor ×
+  Σ anual + origen + total) + botón «Proponer gastos del año» + diálogo (crecimiento sugerido, familias,
+  por-sucursal, overwrite) + tira de cobertura. `nx build view`+`check:templates` verdes.
+- **PVG.5 🧪** smoke DB-direct `test-newdb-expense-plan.js` **10/10** (egresos sintéticos en rollback): neto
+  cargo−abono, YoY +9.17% sobre 12 meses apareados, guard de esporádico → default, cobertura
+  27 histórico / 0 estacional / 9 sin señal, esporádico deja 9 meses SIN fila, manual respetado.
+
+**Pendiente:** verificación HTTP (ADR-044); migs `20260918200000`/`210000` a prod; push + redeploy.
+**Declarado, no construido:** materialización rejilla→`budget_lines` (puente al ledger de 5 estados y al
+presupuesto-vs-real §16.3); overrides de crecimiento por cuenta en UI (hoy vía settings); familias 5/7/1 off
+por default (5=compras es dominio de RA, 1=capex, 7=financieros).
