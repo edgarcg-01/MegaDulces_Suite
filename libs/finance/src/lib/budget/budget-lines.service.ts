@@ -36,6 +36,9 @@ export interface CreateBudgetLineDto {
   period_month?: string | null;
   original_amount: number;
   control_level?: 'informativo' | 'advertencia' | 'bloqueo';
+  /** Gasto operativo (spec §9): clasificación fijo/variable y recurrente/no. Solo aplica a line_type='gasto'. */
+  expense_class?: 'fijo' | 'variable' | null;
+  recurrence?: 'recurrente' | 'no_recurrente' | null;
 }
 
 export interface MovementOpts {
@@ -149,6 +152,8 @@ export class BudgetLinesService {
         original_amount: original,
         vigente_amount: original,
         control_level: dto.control_level ?? 'bloqueo',
+        expense_class: dto.expense_class ?? null,
+        recurrence: dto.recurrence ?? null,
         created_by: username,
       }).returning('*');
       if (original > 0) {
