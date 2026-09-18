@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CG.9 — la réplica cruda de Dulcería (`BDatos.mdb`) es un ESPEJO, y el carril no puede volverse
+ * CG.9 — la réplica cruda de la CAJA GENERAL (`BDatos.mdb`) es un ESPEJO, y el carril no puede volverse
  * ciego (ADR-070).
  *
  * ── LO QUE ESTA SUITE EXISTE PARA IMPEDIR ────────────────────────────────────────────────
@@ -15,19 +15,19 @@
  *
  * ── CONTRATO ─────────────────────────────────────────────────────────────────────────────
  * exit 0 pasó · 1 FALLÓ (regresión) · 2 NO MEDIDO (sin réplica con qué comprobar).
- * Sin la réplica (`:5433/dulceria`) esto NO puede ponerse verde: sería el "skip-graceful" que
+ * Sin la réplica (`:5433/caja_general`) esto NO puede ponerse verde: sería el "skip-graceful" que
  * pasa justo en el entorno donde alguien lo correría.
  *
- *   node database/tests/test-dulceria-replica-fidelidad.js
- *   DULCERIA_REPLICA_URL=… node database/tests/test-dulceria-replica-fidelidad.js
+ *   node database/tests/test-caja-general-replica-fidelidad.js
+ *   CAJA_GENERAL_REPLICA_URL=… node database/tests/test-caja-general-replica-fidelidad.js
  */
 const path = require('path');
 const { Client } = require('pg');
 const { noMedido, esFaltaDeAcceso } = require('./_lib/no-medido');
 
-const CFG = path.resolve(__dirname, '..', 'importers', 'movimientos-caja', 'dulceria-replica-config.js');
+const CFG = path.resolve(__dirname, '..', 'importers', 'movimientos-caja', 'caja-general-replica-config.js');
 const { INCREMENTAL, WM_SIN_PK, BRANCHES, REPLICA_URL } = require(CFG);
-const URL = process.env.DULCERIA_REPLICA_URL || REPLICA_URL;
+const URL = process.env.CAJA_GENERAL_REPLICA_URL || REPLICA_URL;
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++; console.log('  ✖', m); } };
@@ -54,7 +54,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++
     await c.connect();
   } catch (e) {
     if (esFaltaDeAcceso(e)) {
-      return noMedido('la réplica :5433/dulceria no es alcanzable desde acá — el espejo NO se comprobó', e.message);
+      return noMedido('la réplica :5433/caja_general no es alcanzable desde acá — el espejo NO se comprobó', e.message);
     }
     throw e;
   }

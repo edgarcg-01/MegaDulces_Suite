@@ -1,6 +1,6 @@
 'use strict';
 /**
- * CG.9 — configuración de la RÉPLICA CRUDA de las bases **Dulcería** (`BDatos.mdb`), el back-end
+ * CG.9 — configuración de la RÉPLICA CRUDA de la **CAJA GENERAL** (`BDatos.mdb`), el back-end
  * del Access `Control` donde hoy se captura el efectivo (ADR-070).
  *
  * Reemplaza a `import-caja-general.js`, que era un importer (`script → tabla`) contra la regla
@@ -8,14 +8,18 @@
  * `lib/access-replicate.js`) y `analytics.caja_general_*` pasa a ser **vista derive-no-copy** sobre
  * la réplica.
  *
- * Destino: DB `dulceria` @ :5433, un schema por sucursal — mismo criterio que WR.
+ * Destino: DB `caja_general` @ :5433, schema `cg<sucursal>` — mismo criterio que WR (`w30`, `w32`).
+ *
+ * ⚠️ El archivo vive en una carpeta llamada `Dulceria` (así lo dejó el Access en 2014) y esa RUTA
+ * no se toca — pero lo que replicamos es la caja general, y así se llama en todos lados: DB, schema,
+ * watermark, latido y variables de entorno.
  *
  * ⚠️ Jet 32-bit + acceso al share ⇒ **on-prem, en `.249`**, igual que los 3 carriles de Wincaja.
  * No puede correr en `md` (Linux) hasta VL.5. Es la misma restricción, no una nueva.
  */
-const MDB_BASE = process.env.DULCERIA_MDB_BASE || 'Z:/Datos';
-const REPLICA_URL = process.env.DULCERIA_REPLICA_URL || 'postgresql://postgres:superoot@localhost:5433/dulceria';
-const ADMIN_URL = process.env.DULCERIA_REPLICA_ADMIN_URL || 'postgresql://postgres:superoot@localhost:5433/postgres';
+const MDB_BASE = process.env.CAJA_GENERAL_MDB_BASE || 'Z:/Datos';
+const REPLICA_URL = process.env.CAJA_GENERAL_REPLICA_URL || 'postgresql://postgres:superoot@localhost:5433/caja_general';
+const ADMIN_URL = process.env.CAJA_GENERAL_REPLICA_ADMIN_URL || 'postgresql://postgres:superoot@localhost:5433/postgres';
 
 /**
  * Sucursales. Hoy sólo la **20 (Comisionistas)** porque es la única que
@@ -30,7 +34,7 @@ const ADMIN_URL = process.env.DULCERIA_REPLICA_ADMIN_URL || 'postgresql://postgr
  * que el mapa HITL de conceptos (CG.10b) se multiplica.
  */
 const BRANCHES = [
-  { code: '20', schema: 'd20', name: 'Comisionistas (caja general)', mdb: `${MDB_BASE}/20 Comisionistas/Dulceria/BDatos.mdb` },
+  { code: '20', schema: 'cg20', name: 'Comisionistas (caja general)', mdb: `${MDB_BASE}/20 Comisionistas/Dulceria/BDatos.mdb` },
 ];
 
 /**
