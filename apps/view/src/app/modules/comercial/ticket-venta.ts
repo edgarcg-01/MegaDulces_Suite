@@ -1,41 +1,49 @@
 /**
- * Fase TK.2 — Reimpresión de un ticket de venta en formato TICKET (impresora térmica).
+ * Fase TK.2 — Reimpresión de un ticket de venta, formato **departamental**.
  *
- * Calca deliberadamente `apps/view/src/app/modules/tienda/ticket-arqueo.ts`, que ya está en
- * producción en las cajas: **32 caracteres por renglón**, monoespaciada, iframe oculto y
- * `@page 80mm auto`. No se re-deduce nada de eso acá; lo que sigue es por qué esos números
- * son los que son, copiado de allá porque vuelve a aplicar tal cual:
+ * ── LA MEDIDA, Y DE DÓNDE SALE ──────────────────────────────────────────────────────────
  *
- *   El papel es de 80 mm pero el área imprimible ronda los **72 mm**, y el ticket no se maqueta
- *   con CSS: se maqueta CONTANDO CARACTERES. Medido en el navegador que imprime, lo que ocupa
- *   una línea de 32 caracteres sobre esos 72 mm: 11px → 78% · 13px → 92% · **14px → 99%** ·
- *   15px → 106% (SE PARTE). Estamos en 14px. **No subirlo sin volver a medir**, y si se sube,
- *   bajar `ANCHO` en el mismo cambio. Courier New es la más ancha del stack: es el peor caso.
+ * **139.7 × 50.8 mm** (5.5 × 2 pulgadas), especificada por diseño. NO es un rollo térmico de
+ * 80 mm: es un formato **ancho y bajo**, y eso cambia la maqueta entera. El ancho se fija y el
+ * alto crece con los productos (`@page { size: 139.7mm auto }`), igual que cualquier rollo:
+ * los 50.8 mm son lo que mide un ticket típico, no un techo.
  *
- *   Se imprime desde un **iframe oculto** con su propio `@page`, no con `window.print()` sobre
- *   la página ni con `window.open` — la ventana emergente la bloquea el navegador por default.
+ * **Medido en el navegador que imprime** (Courier New, 131.7 mm útiles tras 4 mm de margen por
+ * lado), que es como se midió el ticket de arqueo y por eso los números son comparables:
  *
- *   ⚠️ El diálogo de impresión NO se puede saltar desde la web: es una restricción de
- *   seguridad, no algo que falte programar. Para que salga solo, la máquina de la caja abre el
- *   navegador en modo kiosco (`--kiosk-printing`).
+ *      8px → 103 caracteres · 2.98 mm por renglón → 15 renglones en 50.8 mm
+ *      9px →  92            · 3.31                → 13
+ *   ⭐ 10px →  82            · 3.64                → 12
+ *     11px →  75            · 3.97                → 11
+ *     12px →  69            · 4.63                →  9
+ *     14px →  59            · 5.29                →  8
  *
- * ── LO PROPIO DE ESTE TICKET ────────────────────────────────────────────────────────────
+ * **Se eligió 10px / `ANCHO = 82`.** A ese ancho **cada producto entra en UN renglón** —que es
+ * lo que hace que un ticket departamental se vea así— y la cuenta cierra con la medida dada:
+ * encabezado + columnas + 2 reglas + totales + leyenda ≈ 7 renglones fijos, así que **5
+ * productos dan ~50 mm**, exactamente los 50.8 del diseño.
  *
- * Es una REIMPRESIÓN con el descuento desglosado, y eso impone tres cosas:
+ * ⚠️ **El tamaño de letra tiene techo aritmético, no estético.** El ticket no se maqueta con
+ * CSS: se maqueta CONTANDO CARACTERES, y cada renglón se rellena hasta `ANCHO` exacto. Si la
+ * letra crece, los 82 caracteres dejan de entrar en los 131.7 mm, el renglón se parte en dos y
+ * se rompe la alineación de las columnas. **No subirla sin volver a medir**, y si se sube, bajar
+ * `ANCHO` en el mismo cambio. Courier New es la más ancha del stack: es el peor caso.
  *
- * 1. **Cada producto ocupa DOS o TRES renglones, no uno.** En 32 columnas no caben nombre +
- *    cantidad + precio de lista + precio pagado + importe en una sola línea sin cortar el
- *    nombre a la mitad, y un nombre cortado en un papel que se le entrega al cliente se lee
- *    como un error del sistema. Así que: nombre completo arriba, y debajo la aritmética.
+ * ── LO QUE SE CONSERVA DEL DISEÑO ANTERIOR ──────────────────────────────────────────────
  *
- * 2. **El descuento se imprime SÓLO donde existe.** Medido sobre 30 días de tickets de
- *    mostrador: el 70% no trae ninguno. Imprimir "Descuento: $0.00" en esos invita a buscar
- *    un descuento que no hubo, y alarga el papel sin decir nada.
+ * Se imprime desde un **iframe oculto** con su propio `@page`, no con `window.print()` sobre la
+ * página ni con `window.open` — la ventana emergente la bloquea el navegador por default.
+ * ⚠️ El diálogo de impresión NO se puede saltar desde la web: es una restricción de seguridad.
+ * Para que salga solo, la máquina abre el navegador en modo kiosco (`--kiosk-printing`).
  *
- * 3. ⚠️ **NO SE IMPRIME HORA.** Kepler no la guarda (medido: sus 10 columnas de fecha están en
- *    00:00:00). Poner el reloj del navegador ahí sería presentar la hora de la REIMPRESIÓN
- *    como la hora de la venta — exactamente la falla que la Fase VP midió en 21 de 24 píldoras
- *    de frescura. La fecha de reimpresión va al pie, rotulada como tal.
+ * ⚠️ **NO SE IMPRIME HORA DE VENTA.** Kepler no la guarda (medido: sus 10 columnas `timestamp`
+ * están en 00:00:00). Poner el reloj del navegador ahí sería presentar la hora de la
+ * REIMPRESIÓN como la de la venta — la falla que la Fase VP midió en 21 de 24 píldoras.
+ *
+ * ⚠️ **El descuento se imprime sólo donde existe.** Medido sobre 30 días: el 70% de los tickets
+ * de mostrador no trae ninguno, y los anteriores al 2026-08-13 no tienen precio de lista en el
+ * ERP. En esos casos la columna LISTA **desaparece entera** y su ancho se lo queda el nombre
+ * del producto — no se imprime en blanco ni en cero.
  */
 
 export interface TicketVentaLinea {
@@ -100,41 +108,60 @@ export interface TicketVenta {
   aviso: string | null;
 }
 
-const ANCHO = 32; // caracteres por línea a 80 mm / fuente 14px monoespaciada
+/** Caracteres por renglón a 139.7 mm / 10px monoespaciada. Ver la cabecera: está MEDIDO. */
+const ANCHO = 82;
 
 const esc = (s: unknown) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** Dinero SIN símbolo: la columna ya dice que es dinero y el `$` cuesta un carácter por celda. */
 const money = (v: number | null | undefined) =>
-  (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
+  (Number(v ?? 0) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Cantidades: enteras se ven enteras; a granel conservan decimales (0.6 KG es una venta real). */
+/** Con símbolo, para los totales y el ahorro — ahí sí se lee como dinero suelto. */
+const pesos = (v: number | null | undefined) => '$' + money(v);
+
+/** Enteras se ven enteras; a granel conservan decimales (0.605 KG es una venta real). */
 const cant = (n: number) => Number.isInteger(n) ? String(n) : String(Number(Number(n).toFixed(3)));
-
-/** `izq .......... der` ocupando el ancho exacto del ticket. */
-function fila(izq: string, der: string): string {
-  const espacio = Math.max(1, ANCHO - izq.length - der.length);
-  return esc(izq + ' '.repeat(espacio) + der);
-}
 
 const linea = (ch = '-') => ch.repeat(ANCHO);
 
-/** Centra en las 32 columnas. Si no cabe, se deja pegado a la izquierda en vez de recortarlo. */
+/** Recorta con puntos suspensivos. Sólo para el nombre, y sólo cuando no hay de otra. */
+const corta = (t: string, n: number) => t.length <= n ? t : t.slice(0, n - 1) + '…';
+
+/**
+ * `izq .......... der` ocupando el ancho EXACTO del ticket.
+ *
+ * ⚠️ Recorta si no cabe, y termina con un `slice` duro. La versión anterior no lo hacía y
+ * devolvía renglones de 92 caracteres en cuanto el nombre del cliente y el del cajero eran
+ * largos — que es el caso normal, no el raro. Un helper de maquetación que puede devolver algo
+ * más ancho que el papel no es un helper: es el bug esperando. Se recorta primero el lado
+ * IZQUIERDO (texto libre: nombres) y sólo si aún no cabe el derecho (identidad del documento).
+ */
+function fila(izq: string, der: string): string {
+  let a = String(izq ?? '');
+  let b = String(der ?? '');
+  const sep = a && b ? 1 : 0;
+  if (b.length + sep > ANCHO) b = corta(b, ANCHO - sep);
+  if (a.length + b.length + sep > ANCHO) a = corta(a, Math.max(0, ANCHO - b.length - sep));
+  const espacio = Math.max(sep, ANCHO - a.length - b.length);
+  return esc((a + ' '.repeat(espacio) + b).slice(0, ANCHO));
+}
+
+/** Centra en el ancho del ticket. Si no cabe, se deja a la izquierda en vez de recortarlo. */
 function centro(t: string): string {
   const s = String(t ?? '');
   if (s.length >= ANCHO) return esc(s);
   return esc(' '.repeat(Math.floor((ANCHO - s.length) / 2)) + s);
 }
 
-/** Texto libre en varias líneas: en 32 columnas un nombre se corta solo si no. */
+/** Texto libre en varias líneas (avisos). Una palabra más larga que el renglón se parte. */
 function envolver(texto: string, ancho = ANCHO): string[] {
   const out: string[] = [];
   let ln = '';
   for (const palabra of String(texto ?? '').split(/\s+/).filter(Boolean)) {
     if ((ln + ' ' + palabra).trim().length > ancho) {
       if (ln) out.push(ln);
-      // Una palabra sola más larga que el renglón (códigos, "SUPERDESCUENTO...") se parte a la
-      // fuerza: sin esto la línea desborda y arrastra la alineación de todo lo que sigue.
       let p = palabra;
       while (p.length > ancho) { out.push(p.slice(0, ancho)); p = p.slice(ancho); }
       ln = p;
@@ -144,15 +171,23 @@ function envolver(texto: string, ancho = ANCHO): string[] {
   return out.length ? out : [''];
 }
 
-/** `Etiqueta   valor`, y si el valor no cabe en la misma línea baja completo a la siguiente. */
-function etiquetado(etiqueta: string, valor: string | null | undefined): string[] {
-  const v = String(valor ?? '').trim();
-  if (!v) return [];
-  if (etiqueta.length + 1 + v.length <= ANCHO) return [fila(etiqueta, v)];
-  return [esc(etiqueta + ':'), ...envolver(v, ANCHO - 2).map((l) => '  ' + esc(l))];
+/**
+ * Compone un renglón de la tabla en columnas de ancho fijo que suman **exactamente** `ANCHO`.
+ *
+ * Con precio de lista:   nombre 38 · cant 11 · lista 10 · pagado 11 · importe 12  = 82
+ * Sin precio de lista:   nombre 49 · cant 11 · precio 10 ·            importe 12  = 82
+ *
+ * El nombre se queda con todo el sobrante porque es lo único de ancho variable — medido en el
+ * anexo, su p95 es 41 caracteres y el máximo 70, así que a 38 se recorta uno de cada cinco y a
+ * 49 casi ninguno.
+ */
+function renglon(cols: string[], conLista: boolean): string {
+  const w = conLista ? [38, 11, 10, 11, 12] : [49, 11, 10, 12];
+  const partes = cols.map((c, i) => i === 0 ? corta(c, w[0]).padEnd(w[0]) : corta(c, w[i]).padStart(w[i]));
+  return esc(partes.join('').slice(0, ANCHO));
 }
 
-const fechaLarga = (iso: string | null): string => {
+const fechaCorta = (iso: string | null): string => {
   if (!iso) return 'sin fecha';
   // Se parte el string, NO `new Date(iso)`: un `date` de Postgres leído como UTC y renderizado
   // en hora de México sale con el día ANTERIOR. Ya costó una entrega en la Fase LC.
@@ -162,111 +197,101 @@ const fechaLarga = (iso: string | null): string => {
 
 /**
  * Arma el cuerpo del ticket. Separado del render para poder probarlo sin un navegador
- * (igual que `cuerpoTicket` del arqueo, que tiene su spec).
+ * (igual que `cuerpoTicket` del arqueo, que tiene su propia spec).
  */
 export function cuerpoTicketVenta(t: TicketVenta): string {
   const L: string[] = [];
   const c = t.cascada;
+  // La columna LISTA sólo existe si algún renglón tiene con qué compararse. Sin ella, su ancho
+  // se lo queda el nombre del producto — ver la cabecera del archivo.
+  const conLista = c.lineas_con_lista > 0;
 
-  L.push(centro('MEGA DULCES'));
-  L.push(centro('COPIA DE TICKET'));
-  L.push(linea('='));
-  L.push(...etiquetado('Sucursal', t.sucursal_nombre || t.sucursal));
-  if (t.caja != null) L.push(fila('Caja', String(t.caja)));
-  L.push(fila('Folio', t.folio));
-  L.push(fila('Fecha', fechaLarga(t.fecha)));
-  L.push(...etiquetado('Tipo', t.doc_label || t.origen_label));
-  if (t.atendio) L.push(...etiquetado(t.atendio_rol || 'Atendio', t.atendio));
-  if (t.cliente_nombre) L.push(...etiquetado('Cliente', t.cliente_nombre));
-  if (t.cliente_rfc) L.push(fila('RFC', t.cliente_rfc));
+  // ── Encabezado: DOS renglones. El formato ancho permite poner de un lado quién vende y del
+  //    otro la identidad del documento, en vez de una etiqueta por línea como en 80 mm.
+  const plaza = t.sucursal_nombre || t.sucursal;
+  // La identidad COMPLETA va acá arriba (`05UD1005-0006440`), no al pie: es lo que se vuelve a
+  // teclear en la pantalla para encontrar este mismo documento, y así el pie se ahorra un
+  // renglón — que a 50.8 mm de alto es la diferencia entre caber y no caber.
+  L.push(fila(
+    'MEGA DULCES' + (plaza ? ' · ' + plaza : ''),
+    (t.caja != null ? 'Caja ' + t.caja + ' · ' : '') + fechaCorta(t.fecha) + ' · ' + t.id,
+  ));
+  const izq = t.cliente_nombre
+    ? 'Cliente: ' + t.cliente_nombre + (t.cliente_rfc ? ' · ' + t.cliente_rfc : '') : '';
+  // El tipo de documento sólo se imprime cuando NO hay caja: con caja, `doc_label` es
+  // "Ticket Contado Caja 5" y repite palabra por palabra lo que ya dice el renglón de arriba.
+  // Sin caja (telemarketing, crédito) sí informa: "Factura Telemarketing".
+  const tipo = t.caja != null ? '' : (t.doc_label || t.origen_label);
+  const der = (t.atendio ? (t.atendio_rol || 'Atendió') + ': ' + t.atendio : '')
+    + (t.atendio && tipo ? ' · ' : '') + tipo;
+  if (izq || der) L.push(fila(izq, der));
+
   L.push(linea());
 
   if (!t.lineas.length) {
     L.push(centro('SIN RENGLONES'));
-    L.push('');
     L.push(...envolver('Este documento no tiene detalle de productos en el sistema.'));
-    // Sin regla de cierre acá: la del TOTAL viene enseguida y quedaban dos seguidas.
-  }
-
-  for (const l of t.lineas) {
-    // Renglón 1: el nombre completo, envuelto. Nunca cortado.
-    for (const ln of envolver(l.descripcion || l.sku || 'PRODUCTO')) L.push(esc(ln));
-    // Renglón 2: la aritmética que el cliente comprueba — cantidad x precio = importe.
-    const uni = l.unidad ? ' ' + l.unidad : '';
-    L.push(fila(`  ${cant(l.cantidad)}${uni} x ${money(l.precio_pagado)}`, money(l.importe)));
-    // Renglón 3, SÓLO si hubo descuento: antes costaba, ahorraste.
-    if (l.descuento_linea > 0) {
-      L.push(fila(`  antes ${money(l.precio_lista)}`, `-${money(l.descuento_linea)}`));
+  } else {
+    L.push(conLista
+      ? renglon(['PRODUCTO', 'CANTIDAD', 'LISTA', 'PAGADO', 'IMPORTE'], true)
+      : renglon(['PRODUCTO', 'CANTIDAD', 'PRECIO', 'IMPORTE'], false));
+    const anchoNombre = conLista ? 38 : 49;
+    for (const l of t.lineas) {
+      const base = l.descripcion || l.sku || 'PRODUCTO';
+      // La equivalencia de peldaño ("35 CJA") va PEGADA AL NOMBRE, no en un renglón propio: a
+      // 50.8 mm de alto, un renglón por producto es la diferencia entre caber y no caber. Si no
+      // cabe en la columna se omite — es DESCRIPTIVA, no entra en la aritmética, y sigue estando
+      // en la carta y en la pantalla, que no tienen esa restricción de espacio.
+      const conEq = l.equivalencia ? `${base} (${l.equivalencia})` : base;
+      const nombre = conEq.length <= anchoNombre ? conEq : base;
+      const cantidad = cant(l.cantidad) + (l.unidad ? ' ' + l.unidad : '');
+      L.push(conLista
+        ? renglon([nombre, cantidad, l.lista_conocida ? money(l.precio_lista) : '-',
+            money(l.precio_pagado), money(l.importe)], true)
+        : renglon([nombre, cantidad, money(l.precio_pagado), money(l.importe)], false));
     }
-    // El peldaño cobrado, cuando dice algo distinto de lo que ya está impreso ("5 CJA").
-    if (l.equivalencia) L.push(esc(`  (equivale a ${l.equivalencia})`));
   }
 
-  // La cascada: cada resta cierra exacto contra la siguiente línea, que es lo único que un
-  // cliente puede comprobar con una calculadora.
-  //
-  // El renglón "Precio de lista" se imprime SÓLO si hay algo que restarle. Sin descuento es el
-  // total repetido dos veces con dos nombres distintos, que en un papel de 32 columnas se lee
-  // como si el segundo corrigiera al primero.
-  const hayQueRestar = c.descuento_precio > 0 || c.descuento_documento !== 0
-    || (!t.impuestos_incluidos && !!c.iva);
-  // La regla de cierre de los productos sólo va si abajo viene un bloque de restas. Sin ella,
-  // la separación de productos y la de TOTAL quedaban pegadas: `-----` y `=====` seguidas, sin
-  // nada en medio, que en el papel se lee como un renglón que falta. Lo vio la muestra impresa
-  // de un ticket de marzo (sin precio de lista), no el código.
-  if (hayQueRestar) L.push(linea());
-  if (hayQueRestar) L.push(fila('Precio de lista', money(c.importe_lista)));
-  if (c.descuento_precio > 0) L.push(fila('Descuento en precio', `-${money(c.descuento_precio)}`));
-  if (c.descuento_documento > 0) {
-    L.push(fila('Descuento documento', `-${money(c.descuento_documento)}`));
-  } else if (c.descuento_documento < 0) {
-    // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor).
-    // Llamarlo "descuento negativo" confundiria; se nombra por lo que es.
-    L.push(fila('Ajuste de redondeo', money(-c.descuento_documento)));
+  L.push(linea());
+
+  // ── Totales en UN renglón cuando caben: es lo que distingue un ticket ancho de uno de rollo.
+  const piezas: string[] = [];
+  if (c.descuento_precio > 0 || c.descuento_documento !== 0) {
+    piezas.push('Lista ' + pesos(c.importe_lista));
   }
-  if (!t.impuestos_incluidos && c.iva) L.push(fila('IVA', money(c.iva)));
-  L.push(linea('='));
-  L.push(fila('TOTAL PAGADO', money(c.total)));
-  L.push(linea('='));
+  if (c.descuento_precio > 0) piezas.push('Descuento -' + pesos(c.descuento_precio));
+  if (c.descuento_documento > 0) piezas.push('Desc. documento -' + pesos(c.descuento_documento));
+  // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor del
+  // cliente). Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
+  else if (c.descuento_documento < 0) piezas.push('Ajuste ' + pesos(-c.descuento_documento));
+  if (!t.impuestos_incluidos && c.iva) piezas.push('IVA ' + pesos(c.iva));
 
-  if (c.descuento_total > 0) {
-    L.push('');
-    L.push(centro('*** AHORRASTE ***'));
-    L.push(centro(`${money(c.descuento_total)}  (${c.descuento_total_pct}%)`));
-    L.push('');
-  }
+  const total = 'TOTAL ' + pesos(c.total);
+  const izqTot = piezas.join('   ');
+  // Si no cabe todo en un renglón, los conceptos bajan y el TOTAL se queda solo — nunca se
+  // recorta una cifra para que entre.
+  if (izqTot && izqTot.length + total.length + 3 <= ANCHO) L.push(fila(izqTot, total));
+  else { if (izqTot) L.push(fila('', izqTot)); L.push(fila('', total)); }
 
-  if (t.impuestos_incluidos) {
-    const imp: string[] = [];
-    if (c.iva) imp.push(`IVA ${money(c.iva)}`);
-    if (c.ieps) imp.push(`IEPS ${money(c.ieps)}`);
-    L.push(...envolver(`Precios con impuestos incluidos${imp.length ? '. ' + imp.join(' - ') : '.'}`));
-  }
-
-  // ⚠️ El aviso viaja del backend y es lo que separa un papel honesto de uno que miente por
-  // omision. La peor de las tres ausencias que trae se ve IGUAL que "todo bien": un ticket
-  // anterior al 13-ago-2026, con su total correcto y sin descuento, que parece decir "no hubo
-  // descuento" cuando en realidad el ERP no guarda con que precio comparar. Por eso se imprime
-  // en el papel y no solo en la pantalla: el papel es lo que se lleva el cliente.
-  if (t.aviso) { L.push(''); L.push(...envolver('* ' + t.aviso)); }
-
-  L.push('');
-  // Dos renglones y no una frase envuelta: 'COPIA INFORMATIVA. No es comprobante fiscal.' son
-  // 43 caracteres y `envolver` la partia por donde cayera. En un papel que se le entrega al
-  // cliente la leyenda legal se lee de corrido o no se lee.
-  L.push(centro('COPIA INFORMATIVA'));
-  L.push(centro('No es comprobante fiscal'));
-  L.push('');
-  // La fecha de REIMPRESION, rotulada como tal: no es la hora de la venta, que Kepler no
-  // guarda. Ver la cabecera de este archivo.
-  // Formato COMPACTO a proposito: `toLocaleString` sin opciones da '18/9/2026, 8:45:55 a.m.',
-  // que con el prefijo son 33 caracteres — uno mas de los que entran, y el renglon se parte.
-  // Lo atrapo el candado de 32 columnas; sin el, se descubria en el papel de la caja.
-  L.push(esc('Reimpreso ' + new Date().toLocaleString('es-MX', {
+  // ── Cierre en UN solo renglón: ahorro a la izquierda, leyenda + sello de reimpresión a la
+  //    derecha. La fecha va rotulada como "Reimpreso" porque NO es la hora de la venta, que
+  //    Kepler no guarda (ver la cabecera). Antes esto eran dos renglones y a 50.8 mm de alto
+  //    eso es justo lo que hacía que un ticket de 5 productos no cupiera.
+  const sello = 'No es comprobante fiscal · Reimpreso ' + new Date().toLocaleString('es-MX', {
     timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
-  })));
-  L.push(esc(t.id));
+  });
+  L.push(fila(
+    c.descuento_total > 0 ? `AHORRASTE ${pesos(c.descuento_total)} (${c.descuento_total_pct}%)` : '',
+    sello,
+  ));
+
+  // ⚠️ El aviso viaja del backend y es lo que separa un papel honesto de uno que miente por
+  // omisión. La peor de las ausencias que trae se ve IGUAL que "todo bien": un ticket anterior
+  // al 13-ago-2026, con su total correcto y sin descuento, que parece decir "no hubo descuento"
+  // cuando en realidad el ERP no guarda con qué precio comparar.
+  if (t.aviso) L.push(...envolver('* ' + t.aviso));
+
   return L.join('\n');
 }
 
@@ -287,20 +312,20 @@ export function imprimirTicketVenta(t: TicketVenta): boolean {
   doc.open();
   doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${esc(t.id)}</title>
 <style>
-  /* 80 mm de papel; el alto lo pone el contenido (rollo continuo). */
-  @page { size: 80mm auto; margin: 0; }
+  /* 139.7 mm de ancho (5.5") con alto continuo: los 50.8 mm del diseño son lo que mide un
+     ticket típico de 5 productos, no un techo. Ver la cabecera de ticket-venta.ts. */
+  @page { size: 139.7mm auto; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
-  body { width: 72mm; padding: 3mm; color: #000;
-         font-family: "Courier New", ui-monospace, monospace; font-size: 14px; line-height: 1.35; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  body { width: 131.7mm; padding: 3mm 4mm; color: #000;
+         font-family: "Courier New", ui-monospace, monospace; font-size: 10px; line-height: 1.25; }
+  pre { margin: 0; white-space: pre; }
 </style></head><body><pre>${cuerpoTicketVenta(t)}</pre></body></html>`);
   doc.close();
 
   const lanzar = () => {
     try { win.focus(); win.print(); } catch { /* si el navegador lo niega, queda el boton manual */ }
     // El iframe se retira DESPUES de imprimir: quitarlo antes cancela el trabajo en algunos
-    // navegadores. 1.5 s alcanza incluso con el dialogo abierto, porque para entonces el
-    // documento ya se mando a la cola.
+    // navegadores. 1.5 s alcanza incluso con el dialogo abierto.
     setTimeout(() => marco.remove(), 1500);
   };
   // Deja pintar antes de disparar; si no, algunas termicas sacan la hoja en blanco.
