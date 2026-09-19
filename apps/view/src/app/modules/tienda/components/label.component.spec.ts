@@ -456,9 +456,10 @@ describe('LabelComponent · lo que sale impreso', () => {
         await render(FERRERO);
         expect(precio()).toContain('199.67');                 // 221.86 × 0.9
         expect(antes()).toBe('$236.51');
-        // La CAJA no lleva la promo (está declarada en PAQ) → por unidad sale más cara que el
-        // hero y se oculta. Es el renglón que el diseño anterior ocultaba por el motivo equivocado.
-        expect(tierTxts().some((t) => t.includes('1,331.14'))).toBe(false);
+        // `[ETQ-ODS.1]` La CAJA se imprime igual. NO lleva la promo (está declarada en PAQ, y
+        // medido: la promo no sale de su presentación), así que por unidad queda por encima del
+        // hero — pero el renglón no promete ser el mejor precio, dice cuánto cuesta la caja.
+        expect(tierTxts().some((t) => t.includes('1,331.14'))).toBe(true);
       });
 
       it('`[ETQ-AIDA.2]` la CONDICIÓN viaja pegada al número, con su unidad', async () => {

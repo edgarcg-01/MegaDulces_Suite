@@ -155,13 +155,37 @@ const N = (n) => Number(n ?? 0).toLocaleString('en-US');
     const codigo = fs.readFileSync(svc, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-    const leeFuente = /kepler_ods\.kdii/.test(codigo);
-    const usaVivo = /precioVivoDe\s*\(/.test(codigo);
-    check('⭐⭐ la etiquetera lee el precio de la FUENTE (kepler_ods.kdii), no de la copia',
-      leeFuente && usaVivo,
-      `join a kepler_ods.kdii: ${leeFuente} · usa precioVivoDe(): ${usaVivo}`
+    // `[ETQ-ODS.1]` Antes esto exigía el join literal a `kepler_ods.kdii` y la función
+    // `precioVivoDe()`. Las dos desaparecieron, y NO porque se revirtiera el candado: ahora TODO
+    // sale de `analytics.v_label_prices`, que es la vista derive-no-copy sobre ese mismo `kdii`.
+    // El guard viejo afirmaba una IMPLEMENTACIÓN; éste afirma la PROPIEDAD.
+    const leeVista = /analytics\.v_label_prices/.test(codigo);
+    const leeCopia = /commercial\.product_label_prices/.test(codigo);
+    check('⭐⭐ la etiquetera lee de la VISTA derivada, y ya no de la copia',
+      leeVista && !leeCopia,
+      `lee analytics.v_label_prices: ${leeVista} · todavía menciona la copia: ${leeCopia}`
       + ' — sin esto la etiqueta vuelve a imprimir el último precio conocido de la copia, que'
       + ' sobrevive aunque el ERP lo haya retirado');
+
+    // ⭐ Y el grep NO alcanza: un nombre en el código no prueba que del otro lado haya una vista
+    // sobre el ODS. Podría ser una TABLA con ese nombre, poblada por otro importer, y el candado
+    // se pondría verde igual. Se pregunta a la base qué es y de qué deriva.
+    const vd = await q(`SELECT c.relkind::text AS kind
+                          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = 'analytics' AND c.relname = 'v_label_prices'`);
+    if (!vd.length) {
+      nomedido('la fuente de la etiquetera es una vista sobre el ODS',
+        'analytics.v_label_prices no existe en esta DB');
+    } else {
+      const def = (await q(
+        `SELECT pg_get_viewdef('analytics.v_label_prices'::regclass, true) AS d`))[0].d || '';
+      const esVista = vd[0].kind === 'v';
+      const deriva = /kepler_ods\.kdii/.test(def) && /kepler_ods\.kdpv_prod_util/.test(def);
+      check('⭐⭐ y esa fuente es una VISTA que deriva del ODS, no otra copia',
+        esVista && deriva,
+        `relkind=${vd[0].kind} (v=vista) · la definición cita kdii y kdpv_prod_util: ${deriva}`
+        + ' — si alguien la materializa como tabla, la etiqueta vuelve a tener dos frescuras');
+    }
   }
 
   // ── 4. La copia no tiene dato propio → debería ser una VISTA ──────────────────────────────
