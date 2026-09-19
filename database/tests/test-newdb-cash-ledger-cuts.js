@@ -164,6 +164,46 @@ const corte = (over = {}) => ({
         .insert(mov({ corte_id: '00000000-0000-0000-0000-00000000dead' })));
       ok(c7 === '23503', `[negativa] atar un movimiento a un corte inexistente → 23503 (FK), got ${c7}`);
 
+      console.log('\n── 7b. ⛔ CERRAR NO DES-CANCELA (CG.19) ──');
+      // El defecto: `cerrar()` ataba los movimientos con un solo UPDATE que pisaba
+      // `estado = 'en_corte'` SIN excluir los cancelados. Un movimiento cancelado y todavía sin
+      // corte quedaba RESUCITADO: `v_cash_ledger_balance` descuenta por `estado='cancelado'`, así
+      // que al perder ese estado volvía a mover el saldo — y además dejaba de poder cancelarse.
+      //
+      // Lo que se prueba acá es el INVARIANTE, no la implementación: un movimiento cancelado puede
+      // pertenecer a un corte (se audita que se canceló) y aun así no mover un peso.
+      const [gx] = await trx('finance.cash_ledger')
+        .insert(mov({ tipo: 'gasto', monto: 777, folio: `CGZ-${Date.now()}` })).returning('*');
+      await trx('finance.cash_ledger').where({ id: gx.id }).update({
+        estado: 'cancelado', cancelled_by: CAPTURISTA, cancelled_by_username: 'capturista',
+        cancel_reason: 'Se canceló ANTES de que cerraran la caja', cancelled_at: new Date(),
+      });
+
+      const efectoDe = async (id) => {
+        const r = await trx.raw(
+          `SELECT estado, efecto FROM finance.v_cash_ledger_balance WHERE id = ?`, [id]);
+        return r.rows[0];
+      };
+      const antes = await efectoDe(gx.id);
+      ok(Number(antes.efecto) === 0, `cancelado y suelto: no mueve el saldo (efecto ${antes.efecto})`);
+
+      // Así lo ata `cerrar()` ahora: corte_id sí, estado NO.
+      await trx('finance.cash_ledger').where({ id: gx.id }).update({ corte_id: abierto.id });
+      const atado = await efectoDe(gx.id);
+      ok(atado.estado === 'cancelado',
+        'atado a un corte, el movimiento cancelado CONSERVA su estado');
+      ok(Number(atado.efecto) === 0,
+        `y sigue sin mover el saldo (efecto ${atado.efecto}) — pertenece al corte, pero no cuenta`);
+
+      // ⛔ LA PRUEBA NEGATIVA: esto es exactamente lo que hacía el código viejo. Si algún día
+      // vuelve, esta aserción lo grita — el movimiento cancelado empieza a mover $777.
+      await trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'en_corte' });
+      const resucitado = await efectoDe(gx.id);
+      ok(Number(resucitado.efecto) === -777,
+        `[negativa] si se le pisa el estado a 'en_corte', el cancelado RESUCITA y mueve `
+        + `${resucitado.efecto} — es el daño que el fix impide`);
+      await trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'cancelado' });
+
       throw new Error('__ROLLBACK__');
     }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; });
     console.log('  ✓ rollback aplicado — la DB queda como estaba');

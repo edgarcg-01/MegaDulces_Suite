@@ -88,14 +88,49 @@ export class CashCutService {
     });
   }
 
+  /**
+   * ⭐ ATAR PRIMERO, SUMAR DESPUÉS — y el orden no es preferencia, es la corrección de una carrera.
+   *
+   * Antes esto leía los movimientos sueltos, congelaba los totales y RECIÉN AL FINAL los ataba.
+   * En READ COMMITTED el `UPDATE ... WHERE corte_id IS NULL` **re-evalúa su predicado al momento de
+   * ejecutarse**, así que un `create()` que commiteara entre la lectura y la escritura quedaba
+   * **atado al corte pero fuera de los totales firmados**: el corte declaraba contener movimientos
+   * que no había sumado. Y no lo atrapaba nadie — `cut_cerrado_completo_chk` sólo exige `NOT NULL`
+   * (ver la nota en `cash-cut.engine.ts`), así que la DB no repite la cuenta.
+   *
+   * Invirtiendo el orden el conjunto atado y el sumado son **el mismo por construcción**, sin
+   * necesidad de SERIALIZABLE: lo que entre después simplemente queda suelto para el corte
+   * siguiente, que es el comportamiento correcto.
+   */
   async cerrar(id: string, input: CerrarCorteInput, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const c = await trx('finance.cash_ledger_cuts').where({ tenant_id: tenantId, id }).first();
+      // `forUpdate` sobre el CORTE: dos cierres simultáneos del mismo corte se serializan acá.
+      const c = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
+      if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
 
-      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      const base = () => trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, sucursal: c.sucursal })
+        .whereNull('corte_id').whereNull('deleted_at');
+
+      // ⛔ Un movimiento CANCELADO entra al corte (se audita que se canceló) pero CONSERVA su
+      // estado. Antes el UPDATE le pisaba `estado` a `'en_corte'`, y eso lo resucitaba: volvía a
+      // contar en `finance.v_cash_ledger_balance` (que descuenta por `estado='cancelado'`) y dejaba
+      // de poder cancelarse. Un movimiento cancelado no se des-cancela al cerrar la caja.
+      await base().where('estado', 'cancelado').update({ corte_id: id, updated_at: trx.fn.now() });
+      await base().whereNot('estado', 'cancelado')
+        .update({ corte_id: id, estado: 'en_corte', updated_at: trx.fn.now() });
+
+      // Ahora sí: se suma EXACTAMENTE lo que quedó atado. Si el gate falla, la trx revierte las dos
+      // cosas juntas.
+      const movs: MovimientoDelCorte[] = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, corte_id: id })
+        .whereNull('deleted_at')
+        .select('tipo', 'monto', 'estado');
+
       const t = calcularCorte({
         fondoInicial: Number(c.fondo_inicial), movimientos: movs,
         conteo: input.conteo, morralla: input.morralla ?? 0,
@@ -118,12 +153,6 @@ export class CashCutService {
         await trx('finance.cash_ledger_cut_denominations').insert(
           piezas.map((d) => ({ tenant_id: tenantId, cut_id: id, denominacion: d.denominacion, piezas: d.piezas })));
       }
-
-      // Los movimientos quedan atados: a partir de acá ya no se pueden cancelar.
-      await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal: c.sucursal })
-        .whereNull('corte_id').whereNull('deleted_at')
-        .update({ corte_id: id, estado: 'en_corte', updated_at: trx.fn.now() });
 
       return { ...cerrado, totales: t };
     });
