@@ -1,59 +1,72 @@
 import { cuerpoTicketVenta, TicketVenta, TicketVentaLinea } from './ticket-venta';
 
 /**
- * Candado del ticket de venta reimpreso (Fase TK.2).
+ * Candado del ticket de venta reimpreso, formato **departamental** (Fase TK.2).
  *
- * Calca el del arqueo (`tienda/ticket-arqueo.spec.ts`) porque comparten la restricción física,
- * y agrega lo propio de este papel: la cascada de descuento y lo que NO debe imprimirse.
+ * **1. La grilla de 82 caracteres.** El ticket no se maqueta con CSS sino CONTANDO CARACTERES.
+ * A 139.7 mm de ancho y 10px de Courier New entran exactamente 82 (medido en el navegador que
+ * imprime); uno más y el renglón se parte en dos, rompiendo la alineación de las cinco
+ * columnas. Eso no se ve en pantalla: se ve en el papel, que es el peor lugar para descubrirlo.
+ * Se prueba con los nombres de producto REALES de Kepler, que llegan a 70 caracteres.
  *
- * **1. La grilla de 32 caracteres.** El ticket no se maqueta con CSS sino contando caracteres.
- * La letra va en 14px, que ocupa el **99%** de los 72 mm imprimibles de un papel de 80 mm: un
- * renglón de 33 caracteres YA no entra, se parte en dos y rompe la alineación
- * `concepto ..... monto`. Eso no se ve en pantalla, se ve en el papel de la caja — el peor
- * lugar para descubrirlo. Acá se atrapa antes, con los nombres de producto REALES de Kepler,
- * que llegan a 70 caracteres.
+ * **2. El ticket cabe en la medida pedida.** 139.7 × 50.8 mm son ~12 renglones a 10px. Un
+ * ticket de 5 productos tiene que caber; si la maqueta engorda, este candado se cae.
  *
- * **2. La cascada tiene que CERRAR.** Lo único que un cliente puede comprobar de un papel es
- * que los números sumen. Si `lista − descuentos ≠ total`, el ticket se lee como un error del
- * sistema aunque cada cifra sea defendible por separado.
+ * **3. La cascada tiene que CERRAR.** Lo único que un cliente puede comprobar de un papel es
+ * que los números sumen.
  *
- * **3. Lo que no se imprime.** Sin descuento no se imprime "Descuento: $0.00" (el 70% de los
- * tickets de mostrador no trae ninguno, y un cero invita a buscar algo que no hubo). Y NUNCA
- * se imprime una hora de venta: Kepler no la guarda, y poner el reloj del navegador ahí sería
- * presentar la hora de la reimpresión como la de la venta (la falla que midió la Fase VP).
+ * **4. Lo que no se imprime.** Sin descuento no se imprime "Descuento $0.00" (el 70% de los
+ * tickets de mostrador no trae ninguno). Y NUNCA se imprime una hora de venta: Kepler no la
+ * guarda, y poner el reloj del navegador ahí sería presentar la hora de la reimpresión como la
+ * de la venta (la falla que midió la Fase VP).
  */
 
+/** Ancho del formato departamental (139.7 mm / 10px). Medido, no elegido: ver ticket-venta.ts. */
+const ANCHO = 82;
+/** Renglones que caben en los 50.8 mm de alto del diseño, a 3.64 mm por renglón. */
+const RENGLONES_EN_LA_MEDIDA = 12;
+
 const L = (p: Partial<TicketVentaLinea>): TicketVentaLinea => ({
-  linea: 1, sku: '92609', descripcion: 'VASO DART 32J32 TERMICO', unidad: 'PAQ',
-  cantidad: 3, precio_lista: 23.69, precio_pagado: 23.69,
-  descuento_unitario: 0, descuento_linea: 0, importe: 71.07, equivalencia: null, ...p,
+  linea: 1, sku: '70043', descripcion: 'GOMA A GRANEL LA ROSA 12KG', unidad: 'KG',
+  cantidad: 420, precio_lista: 58.88, lista_conocida: true, precio_pagado: 53.21,
+  descuento_unitario: 5.67, descuento_linea: 2381.40, importe: 22348.20, equivalencia: null, ...p,
 });
 
 const BASE: TicketVenta = {
-  id: '03UD1001-0018665', origen: 'mostrador', origen_label: 'Ticket de mostrador',
-  doc_label: 'Ticket Contado Caja 1', sucursal: '03', sucursal_nombre: 'Zamora Centro',
-  caja: 1, folio: '0018665', fecha: '2026-03-07',
+  id: '05UD1005-0006440', origen: 'mostrador', origen_label: 'Ticket de mostrador',
+  doc_label: 'Ticket Contado Caja 5', sucursal: '05', sucursal_nombre: 'Zamora Centro',
+  caja: 5, folio: '0006440', fecha: '2026-08-26', hora: null, hora_motivo: null,
   cliente_nombre: 'CONTADO', cliente_rfc: 'XAXX010101000',
-  atendio: 'VENTAS DE PISO', atendio_rol: 'Cajero',
+  atendio: 'SUCURSAL ZAMORA CENTRO PISO', atendio_rol: 'Cajero',
   impuestos_incluidos: true,
   lineas: [L({})],
   cascada: {
-    importe_lista: 71.07, descuento_precio: 0, subtotal: 71.07,
+    importe_lista: 24729.60, descuento_precio: 2381.40, subtotal: 22348.20,
     descuento_documento: 0, descuento_documento_pct_erp: null,
-    iva: 0, ieps: 2.04, total: 71.07, descuento_total: 0, descuento_total_pct: 0,
+    iva: 0, ieps: 0, total: 22348.20, descuento_total: 2381.40, descuento_total_pct: 9.63,
+    lineas_con_lista: 1, lineas_sin_lista: 0,
   },
   cuadra: true, aviso: null,
 };
 
+/** Un ticket SIN descuento y sin precio de lista: los anteriores al 2026-08-13. */
+const SIN_LISTA: Partial<TicketVenta> = {
+  lineas: [L({ lista_conocida: false, precio_lista: 53.21, descuento_unitario: 0, descuento_linea: 0 })],
+  cascada: {
+    ...BASE.cascada, importe_lista: 22348.20, descuento_precio: 0, descuento_total: 0,
+    descuento_total_pct: 0, lineas_con_lista: 0, lineas_sin_lista: 1,
+  },
+};
+
 const lineas = (t: Partial<TicketVenta>) => cuerpoTicketVenta({ ...BASE, ...t }).split('\n');
 
-describe('cuerpoTicketVenta — grilla de 32 caracteres', () => {
+describe('cuerpoTicketVenta — grilla de 82 caracteres', () => {
   /**
-   * El caso más cargado que puede salir de la pantalla: nombre de sucursal largo, cliente con
-   * razón social larga, productos con el nombre más largo medido en Kepler (70 caracteres),
-   * descuento en renglón, equivalencia de peldaño y aviso de documento incompleto.
+   * El caso más cargado que puede salir de la pantalla: sucursal larga, cliente con razón
+   * social larga, cajero con nombre completo, el producto más largo medido en Kepler (70
+   * caracteres), equivalencia de peldaño y aviso de documento incompleto.
    */
-  it('ningun renglon pasa de 32 caracteres, ni en el peor caso', () => {
+  it('ningun renglon pasa de 82 caracteres, ni en el peor caso', () => {
     const out = lineas({
       sucursal_nombre: 'Zamora Centro Comercial Norte Ampliacion',
       cliente_nombre: 'COMERCIALIZADORA Y DISTRIBUIDORA DE ABARROTES DEL BAJIO SA DE CV',
@@ -61,89 +74,130 @@ describe('cuerpoTicketVenta — grilla de 32 caracteres', () => {
       atendio: 'Rosa Maria Tinoco Venegas',
       lineas: [
         L({ descripcion: 'PALETA PAYASO VAINILLA CON CHOCOLATE Y MALVAVISCO BOLSA 24 PIEZAS 960G',
-            cantidad: 12, precio_lista: 1250.75, precio_pagado: 1180.5,
-            descuento_unitario: 70.25, descuento_linea: 843, importe: 14166,
+            cantidad: 12, precio_lista: 1250.75, precio_pagado: 1180.5, importe: 14166,
             equivalencia: '2 CJA' }),
-        L({ linea: 2, descripcion: 'SUPERCALIFRAGILISTICOESPIALIDOSOEXTRAORDINARIOINCREIBLE', cantidad: 0.605,
-            unidad: 'KG', precio_lista: 38.51, precio_pagado: 38.51, importe: 23.3 }),
+        L({ linea: 2, descripcion: 'SUPERCALIFRAGILISTICOESPIALIDOSOEXTRAORDINARIOINCREIBLE',
+            cantidad: 0.605, unidad: 'KG', importe: 123456.78 }),
       ],
-      cascada: { ...BASE.cascada, importe_lista: 15032.3, descuento_precio: 843,
-        subtotal: 14189.3, descuento_documento: 425.68, descuento_documento_pct_erp: 3,
-        total: 13763.62, descuento_total: 1268.68, descuento_total_pct: 8.44 },
+      cascada: { ...BASE.cascada, importe_lista: 150032.30, descuento_precio: 8430,
+        descuento_documento: 425.68, descuento_documento_pct_erp: 3,
+        total: 137636.20, descuento_total: 8855.68, descuento_total_pct: 5.9 },
       aviso: 'Los renglones no explican el total (hueco de 22.4%). Falta detalle en el ERP.',
     });
-    const largos = out.filter((l) => l.length > 32);
-    expect(largos).toEqual([]);
+    expect(out.filter((l) => l.length > ANCHO)).toEqual([]);
   });
 
-  /** Prueba NEGATIVA del candado de arriba: si no atrapara nada, sería una intención. */
-  it('el candado si detecta un renglon de 33', () => {
-    expect('x'.repeat(33).length > 32).toBe(true);
+  /** Prueba NEGATIVA: si el candado no atrapara nada, sería una intención. */
+  it('el candado si detecta un renglon de 83', () => {
+    expect('x'.repeat(ANCHO + 1).length > ANCHO).toBe(true);
   });
 
-  it('una palabra mas larga que el renglon se parte en vez de desbordar', () => {
-    const out = lineas({ lineas: [L({ descripcion: 'A'.repeat(80) })] });
-    expect(out.filter((l) => l.length > 32)).toEqual([]);
-    expect(out.join('\n')).toContain('A'.repeat(32));
+  /**
+   * ⚠️ `fila()` devolvía renglones de 92 caracteres en cuanto el cliente y el cajero tenían
+   * nombre largo — el caso NORMAL, no el raro. Un helper de maquetación que puede exceder el
+   * papel es el bug esperando; ahora recorta y termina con un `slice` duro.
+   */
+  it('el encabezado con cliente y cajero largos se recorta en vez de desbordar', () => {
+    const out = lineas({
+      cliente_nombre: 'COMERCIALIZADORA Y DISTRIBUIDORA DE ABARROTES DEL BAJIO SA DE CV',
+      atendio: 'SUCURSAL ZAMORA CENTRO COMERCIAL NORTE PISO DE VENTAS',
+    });
+    expect(out.filter((l) => l.length > ANCHO)).toEqual([]);
+  });
+});
+
+describe('cuerpoTicketVenta — cabe en 139.7 x 50.8 mm', () => {
+  /** La medida que dio diseño. Si la maqueta engorda, esto se cae antes que el papel. */
+  it('un ticket de 5 productos entra en los 12 renglones de la medida', () => {
+    const cinco = [1, 2, 3, 4, 5].map((i) => L({ linea: i, equivalencia: null }));
+    const out = lineas({ lineas: cinco, cascada: { ...BASE.cascada, lineas_con_lista: 5 } });
+    expect(out.length).toBeLessThanOrEqual(RENGLONES_EN_LA_MEDIDA);
+  });
+
+  it('cada producto ocupa UN renglon, equivalencia incluida', () => {
+    const uno = lineas({ lineas: [L({ equivalencia: null })] }).length;
+    const dos = lineas({ lineas: [L({ equivalencia: null }), L({ linea: 2, equivalencia: null })] }).length;
+    expect(dos - uno).toBe(1);
+    // La equivalencia va PEGADA al nombre: no gasta un renglon propio. A 50.8 mm de alto eso
+    // es la diferencia entre que un ticket de 5 productos quepa o no.
+    const conEq = lineas({ lineas: [L({ descripcion: 'GOMA A GRANEL', equivalencia: '35 CJA' })] });
+    expect(conEq.length).toBe(uno);
+    expect(conEq.join('\n')).toContain('GOMA A GRANEL (35 CJA)');
+  });
+
+  /** Si la equivalencia no cabe en la columna se omite: esta en la carta y en la pantalla. */
+  it('con nombre largo la equivalencia se omite en vez de desbordar', () => {
+    const out = lineas({
+      lineas: [L({ descripcion: 'PALETA PAYASO VAINILLA CON CHOCOLATE Y MALVAVISCO 24P', equivalencia: '2 CJA' })],
+    });
+    expect(out.filter((l) => l.length > ANCHO)).toEqual([]);
+    expect(out.join('\n')).not.toContain('(2 CJA)');
+  });
+
+  /** Los 5 productos del diseño, CON equivalencia: sigue cabiendo en la medida. */
+  it('5 productos con equivalencia siguen entrando en los 12 renglones', () => {
+    const cinco = [1, 2, 3, 4, 5].map((i) => L({ linea: i, descripcion: 'ALTOS BAJA CORT', equivalencia: '3 CJA' }));
+    const out = lineas({ lineas: cinco, cascada: { ...BASE.cascada, lineas_con_lista: 5 } });
+    expect(out.length).toBeLessThanOrEqual(RENGLONES_EN_LA_MEDIDA);
   });
 });
 
 describe('cuerpoTicketVenta — la cascada cierra', () => {
-  const dinero = (s: string) => Number(s.replace(/[^0-9.-]/g, ''));
-  const valor = (out: string[], etiqueta: string) => {
-    const l = out.find((x) => x.startsWith(etiqueta));
-    return l ? dinero(l.slice(etiqueta.length)) : null;
+  /** Extrae el número que sigue a una etiqueta dentro del renglón de totales. */
+  const tras = (out: string[], etiqueta: string): number | null => {
+    // Se escapa la etiqueta COMPLETA. Con `replace('.', …)` sólo cambiaba el primer punto, así
+    // que el llamador terminaba pre-escapando a mano y el patrón quedaba con doble barra.
+    const re = new RegExp(etiqueta.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+-?\\$([\\d,]+\\.\\d{2})');
+    for (const l of out) {
+      const m = re.exec(l);
+      if (m) return Number(m[1].replace(/,/g, ''));
+    }
+    return null;
   };
 
   it('lista - descuento en precio - descuento del documento = total', () => {
     const out = lineas({
-      lineas: [L({ precio_lista: 19.54, precio_pagado: 19.21, descuento_unitario: 0.33,
-        descuento_linea: 0.99, importe: 57.63 })],
-      cascada: { importe_lista: 58.62, descuento_precio: 0.99, subtotal: 57.63,
-        descuento_documento: 1.73, descuento_documento_pct_erp: 3, iva: 0, ieps: 0,
-        total: 55.9, descuento_total: 2.72, descuento_total_pct: 4.64 },
+      cascada: { ...BASE.cascada, importe_lista: 24729.60, descuento_precio: 2381.40,
+        descuento_documento: 100, total: 22248.20, descuento_total: 2481.40 },
     });
-    const lista = valor(out, 'Precio de lista');
-    const d1 = valor(out, 'Descuento en precio');
-    const d2 = valor(out, 'Descuento documento');
-    const total = valor(out, 'TOTAL PAGADO');
-    expect(lista).toBe(58.62);
-    // Los descuentos se imprimen con signo negativo: es lo que el ojo sigue en la columna.
-    expect(d1).toBe(-0.99);
-    expect(d2).toBe(-1.73);
-    expect(Number(((lista as number) + (d1 as number) + (d2 as number)).toFixed(2))).toBe(total);
+    const lista = tras(out, 'Lista');
+    const d1 = tras(out, 'Descuento');
+    const d2 = tras(out, 'Desc. documento');
+    const total = tras(out, 'TOTAL');
+    expect(lista).toBe(24729.60);
+    expect(d1).toBe(2381.40);
+    expect(d2).toBe(100);
+    expect(Number(((lista as number) - (d1 as number) - (d2 as number)).toFixed(2))).toBe(total);
   });
 
-  it('el renglon dice cuanto costaba antes cuando hubo descuento', () => {
-    const out = lineas({
-      lineas: [L({ precio_lista: 19.54, precio_pagado: 19.21, descuento_linea: 0.99, importe: 57.63 })],
-    });
-    expect(out.join('\n')).toContain('antes');
+  it('el renglon del producto muestra lista y pagado lado a lado', () => {
+    const l = lineas({}).find((x) => x.includes('GOMA A GRANEL'));
+    expect(l).toContain('58.88');   // lista
+    expect(l).toContain('53.21');   // pagado
   });
 
-  it('un total MAYOR que los renglones se rotula redondeo, no descuento negativo', () => {
-    const out = lineas({
-      cascada: { ...BASE.cascada, descuento_documento: -0.4, total: 71.47 },
-    }).join('\n');
-    expect(out).toContain('Ajuste de redondeo');
-    expect(out).not.toContain('Descuento documento');
+  it('un total MAYOR que los renglones se rotula ajuste, no descuento negativo', () => {
+    const out = lineas({ cascada: { ...BASE.cascada, descuento_documento: -0.4 } }).join('\n');
+    expect(out).toContain('Ajuste');
+    expect(out).not.toContain('Desc. documento');
   });
 });
 
 describe('cuerpoTicketVenta — lo que NO se imprime', () => {
-  it('sin descuento no imprime la linea de descuento ni el bloque AHORRASTE', () => {
-    const out = lineas({}).join('\n');
-    expect(out).not.toContain('Descuento en precio');
-    expect(out).not.toContain('Descuento documento');
+  it('sin descuento no imprime la cascada ni el bloque AHORRASTE', () => {
+    const out = lineas(SIN_LISTA).join('\n');
+    expect(out).not.toContain('Descuento');
     expect(out).not.toContain('AHORRASTE');
-    expect(out).not.toContain('antes');
+  });
+
+  it('sin precio de lista la columna LISTA desaparece entera', () => {
+    const out = lineas(SIN_LISTA).join('\n');
+    expect(out).not.toContain('LISTA');
+    expect(out).toContain('PRECIO');
   });
 
   it('con descuento si aparece el bloque AHORRASTE', () => {
-    const out = lineas({
-      cascada: { ...BASE.cascada, descuento_precio: 0.99, descuento_total: 0.99, descuento_total_pct: 1.39 },
-    }).join('\n');
-    expect(out).toContain('AHORRASTE');
+    expect(lineas({}).join('\n')).toContain('AHORRASTE');
   });
 
   /**
@@ -158,43 +212,27 @@ describe('cuerpoTicketVenta — lo que NO se imprime', () => {
   });
 
   it('dice que no es comprobante fiscal', () => {
-    // La leyenda va en DOS renglones a propósito. Antes era una sola frase de 43 caracteres
-    // que `envolver` partía por donde cayera: en un papel que se le entrega al cliente, la
-    // leyenda legal se lee de corrido o no se lee. Si alguien la vuelve a envolver, el
-    // `stringContaining` de abajo falla — el `toContain` sobre el texto pegado, no.
-    const out = lineas({});
-    expect(out).toEqual(expect.arrayContaining([
-      expect.stringContaining('COPIA INFORMATIVA'),
-      expect.stringContaining('No es comprobante fiscal'),
-    ]));
+    expect(lineas({}).join('\n')).toContain('No es comprobante fiscal');
   });
 
-  /**
-   * Lo encontro la MUESTRA IMPRESA, no el codigo: en un ticket sin descuento (los de antes del
-   * 13-ago-2026, que no tienen precio de lista) la regla de cierre de productos y la del TOTAL
-   * quedaban pegadas —`-----` y `=====` sin nada en medio— y en el papel eso se lee como un
-   * renglon que falta.
-   */
-  it('nunca imprime dos reglas seguidas', () => {
-    const esRegla = (l: string) => /^[-=]{32}$/.test(l);
-    for (const caso of [
-      {},                                                                       // sin descuento
-      { cascada: { ...BASE.cascada, descuento_precio: 5, descuento_total: 5 } }, // con descuento
-      { lineas: [] },                                                            // sin renglones
-    ]) {
-      const out = lineas(caso);
-      const pegadas = out.filter((l, i) => i > 0 && esRegla(l) && esRegla(out[i - 1]));
-      expect(pegadas).toEqual([]);
-    }
+  /** Con caja, `doc_label` repetiría palabra por palabra lo que ya dice el renglón de arriba. */
+  it('con caja no repite el tipo de documento; sin caja si lo dice', () => {
+    expect(lineas({}).join('\n')).not.toContain('Ticket Contado Caja 5');
+    const factura = lineas({ caja: null, doc_label: 'Factura Telemarketing' }).join('\n');
+    expect(factura).toContain('Factura Telemarketing');
   });
 
-  it('el candado de reglas pegadas si detecta el caso', () => {
-    const esRegla = (l: string) => /^[-=]{32}$/.test(l);
-    const falso = ['-'.repeat(32), '='.repeat(32)];
-    expect(falso.filter((l, i) => i > 0 && esRegla(l) && esRegla(falso[i - 1]))).toHaveLength(1);
-  });
   it('un documento sin renglones lo declara en vez de salir vacio', () => {
-    const out = lineas({ lineas: [], cascada: { ...BASE.cascada, importe_lista: 0, subtotal: 0 } }).join('\n');
+    const out = lineas({ lineas: [], cascada: { ...BASE.cascada, lineas_con_lista: 0 } }).join('\n');
     expect(out).toContain('SIN RENGLONES');
+  });
+
+  /** Lo encontró la muestra impresa: dos reglas seguidas se leen como un renglón que falta. */
+  it('nunca imprime dos reglas seguidas', () => {
+    const esRegla = (l: string) => new RegExp('^[-=]{' + ANCHO + '}$').test(l);
+    for (const caso of [{}, SIN_LISTA, { lineas: [] }]) {
+      const out = lineas(caso);
+      expect(out.filter((l, i) => i > 0 && esRegla(l) && esRegla(out[i - 1]))).toEqual([]);
+    }
   });
 });

@@ -151,11 +151,116 @@ export interface TicketDetalle {
 
 /** Los renglones no explican el total si el hueco pasa de esto. Umbral heredado del anexo (AX). */
 const GAP_MAX_PCT = 15;
-/** Tope de candidatos. Un folio compartido da ~7; 50 deja margen sin inundar la pantalla. */
+/** Tope de candidatos que se DEVUELVEN. Un folio compartido da ~7; 50 no inunda la pantalla. */
 const MAX_CANDIDATOS = 50;
+
+/**
+ * Cuántas filas se piden POR UNIVERSO antes de ordenar y recortar en memoria.
+ *
+ * ⚠️ Esto existe para poder quitar el `ORDER BY` de las consultas al ERP, y el motivo está
+ * documentado con medición en el servicio hermano (`commercial-sales-documents.service.ts`):
+ *
+ *   *"medido en prod, `ORDER BY … LIMIT 50` directo sobre la vista costaba **23,856 ms** y así
+ *   cuesta **970 ms** — 24×. El motivo es el `LIMIT`: invita al planner a un nested loop que
+ *   re-escanea el CTE de la cartera una vez por fila devuelta."*
+ *
+ * Y acá ese `ORDER BY` era **redundante**: el arreglo completo se reordena en JS después de unir
+ * los tres universos, así que sólo servía para que el recorte fuera "los más recientes".
+ *
+ * Quitarlo sin más habría roto eso: con `LIMIT 51` y sin orden, Postgres devuelve 51 filas
+ * ARBITRARIAS y la pantalla diría "los más recientes" sobre una muestra al azar. Un folio bajo
+ * como `0000001` existe en 7 sucursales × 5 cajas = **35 documentos sólo en mostrador**, así que
+ * el tope no es teórico. Con 200 el recorte no se activa en ninguna búsqueda por folio real, el
+ * orden lo da el JS sobre el conjunto completo, y devolver 200 filas de 8 columnas no le cuesta
+ * nada a nadie.
+ *
+ * ⚠️⚠️ **NO MEDIDO.** Los 23,856 ms son de una consulta por RANGO DE FECHAS; ésta filtra por
+ * folio exacto, que es mucho más selectivo, y el plan podría haber estado bien desde antes. El
+ * cambio se hizo sobre esa hipótesis y con `platform_test` caído, o sea que **no hay antes/después
+ * que enseñar** — contra la regla del repo, y por eso queda escrito acá en vez de supuesto. Lo
+ * que sí es seguro es que no empeora: quita trabajo, no lo agrega.
+ */
+const LIMITE_POR_UNIVERSO = 200;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
+
+/** Lo que se entendió de lo que el humano tecleó. */
+export interface FolioBuscado {
+  /** El texto normalizado (sin espacios, en mayúsculas). `''` si no tecleó nada. */
+  crudo: string;
+  /**
+   * Identidad completa reconocida: `03UD1001-0018665` **o** `03UD10010018665`. Cuando viene,
+   * la búsqueda va directo por `(sucursal, doc_prefix, folio)` — el camino indexado y sin
+   * ambigüedad. `folios` trae las variantes del folio suelto.
+   */
+  identidad: { sucursal: string; docPrefix: string; folios: string[] } | null;
+  /** Variantes del folio a probar cuando NO se reconoció una identidad completa. */
+  folios: string[];
+  /** Pedido propio de la plataforma: `PD-2026-00012`. */
+  code: string | null;
+}
+
+/**
+ * Normaliza lo que el humano tecleó.
+ *
+ * ⚠️ **Es tolerante a propósito, y lo es porque no serlo ya costó.** La primera versión exigía
+ * el guion de la identidad (`/^(\d{2})(UD\d{4})-(.+)$/`) y, al no reconocer `05UD10050006440`,
+ * caía al camino de folio suelto: le arrancaba las letras y terminaba buscando
+ * **`0510050006440`**, un número que no existe en ninguna sucursal. La pantalla respondía
+ * *"Ningún documento con ese folio · Revisa el número"* sobre un folio que estaba **bien** —
+ * echándole la culpa a quien preguntaba.
+ *
+ * Qué se acepta hoy:
+ *   `05UD1005-0006440`  identidad con guion (la que imprime la propia pantalla)
+ *   `05UD10050006440`   identidad SIN guion (lo que sale de copiar de un reporte o teclear)
+ *   `05UD1005-6440`     identidad con el folio sin los ceros a la izquierda
+ *   `0006440` / `6440`  folio suelto, con y sin ceros — busca en todas las plazas y cajas
+ *   `PD-2026-00012`     pedido propio de la plataforma
+ *
+ * `UD\d{4}` toma exactamente 4 dígitos (`doc_prefix` = `UD` + tipo(2) + caja(2)), así que el
+ * resto es el folio sin ambigüedad aunque no haya separador.
+ *
+ * Los ceros a la izquierda se prueban en las dos direcciones porque Kepler los guarda a 7
+ * posiciones y la gente dicta el número sin ellos: en la caja dicen "el seis mil cuatrocientos
+ * cuarenta" y en el sistema es `0006440`.
+ */
+export function parseFolioBuscado(termino: string): FolioBuscado {
+  // Se quitan TODOS los espacios, no sólo las puntas: un folio copiado de un PDF llega partido.
+  const crudo = String(termino || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!crudo) return { crudo: '', identidad: null, folios: [], code: null };
+
+  /** Un folio numérico y sus formas: como se tecleó, a 7 posiciones, y sin ceros de más. */
+  const variantesDeFolio = (f: string): string[] => {
+    const out = new Set<string>([f]);
+    const d = f.replace(/\D/g, '');
+    if (d) {
+      out.add(d);
+      if (d.length < 7) out.add(d.padStart(7, '0'));
+      out.add(String(Number(d)));
+    }
+    return [...out].filter(Boolean);
+  };
+
+  // Identidad completa: el guion es OPCIONAL.
+  const m = /^(\d{2})(UD\d{4})-?(\d+)$/.exec(crudo);
+  if (m) {
+    return {
+      crudo,
+      identidad: { sucursal: m[1], docPrefix: m[2], folios: variantesDeFolio(m[3]) },
+      folios: variantesDeFolio(m[3]),
+      code: null,
+    };
+  }
+
+  // Pedido propio.
+  if (/^PD-\d{4}-\d+$/.test(crudo)) return { crudo, identidad: null, folios: [crudo], code: crudo };
+
+  // Folio suelto. Sólo se le quitan las letras si el texto es enteramente numérico: si trae
+  // letras que no calzaron con ninguna forma conocida, arrancárselas fabrica un número que
+  // nadie tecleó — que es exactamente el bug que esta función existe para no repetir.
+  return { crudo, identidad: null, folios: /^\d+$/.test(crudo) ? variantesDeFolio(crudo) : [crudo], code: null };
+}
 
 @Injectable()
 export class CommercialTicketsService {
@@ -164,28 +269,9 @@ export class CommercialTicketsService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  /**
-   * Normaliza lo que el humano tecleó. Devuelve las variantes a buscar, no una sola:
-   * en la caja dictan "el dieciocho mil seiscientos sesenta y cinco" y en el sistema es
-   * `0018665`, así que hay que probar el número tal cual **y** rellenado a 7 dígitos.
-   */
-  private variantes(termino: string): { crudo: string; folios: string[]; folioDigital: string | null; code: string | null } {
-    const crudo = String(termino || '').trim().toUpperCase();
-    // Identidad completa pegada de otra pantalla: `03UD1001-0018665`.
-    const fd = /^(\d{2})(UD\d{4})-(.+)$/.test(crudo) ? crudo : null;
-    // Pedido propio: `PD-2026-00012`.
-    const code = /^PD-\d{4}-\d+$/.test(crudo) ? crudo : null;
-    const folios = new Set<string>();
-    const soloDigitos = crudo.replace(/\D/g, '');
-    if (crudo) folios.add(crudo);
-    if (soloDigitos) {
-      folios.add(soloDigitos);
-      // Kepler los guarda con ceros a la izquierda a 7 posiciones.
-      if (soloDigitos.length < 7) folios.add(soloDigitos.padStart(7, '0'));
-      // …y quien copia de un reporte a veces trae los ceros de más.
-      folios.add(String(Number(soloDigitos)));
-    }
-    return { crudo, folios: [...folios].filter(Boolean), folioDigital: fd, code };
+  /** Delegado en la función pura de arriba, que es la que tiene el candado. */
+  private variantes(termino: string): FolioBuscado {
+    return parseFolioBuscado(termino);
   }
 
   /**
@@ -204,19 +290,32 @@ export class CommercialTicketsService {
 
     return this.tk.run(async (trx) => {
       const out: TicketCandidato[] = [];
+      // true si algun universo devolvio mas filas de las que se leen: ahi el listado no solo
+      // esta recortado, ademas NO se puede afirmar que sean las mas recientes (ya no hay
+      // ORDER BY en SQL). Se distingue de "hay mas de 50" a proposito.
+      let topado = false;
 
       // ── Mostrador (U-D-10) ────────────────────────────────────────────────
       const tk = trx('analytics.erp_sale_tickets as t')
         .where('t.tenant_id', tenantId)
         .select('t.folio_digital as id', 't.sucursal', 't.warehouse_name as sucursal_nombre',
           't.caja', 't.folio', 't.fecha', 't.cliente_nombre', 't.total')
-        .orderBy([{ column: 't.fecha', order: 'desc' }, { column: 't.sucursal', order: 'asc' }])
-        .limit(MAX_CANDIDATOS + 1);
-      if (v.folioDigital) tk.andWhere('t.folio_digital', v.folioDigital);
-      else tk.whereIn('t.folio', v.folios);
+        // Sin ORDER BY: es redundante (se reordena en JS) y es lo que dispara el mal plan sobre
+        // estas vistas. Ver `LIMITE_POR_UNIVERSO`.
+        .limit(LIMITE_POR_UNIVERSO + 1);
+      // Con identidad reconocida se filtra por los TRES campos: es el camino indexado y no
+      // depende de que el humano haya escrito el guion. `folio_digital` es una concatenación,
+      // así que compararla como string no puede usar índice.
+      if (v.identidad) {
+        tk.andWhere('t.sucursal', v.identidad.sucursal)
+          .andWhere('t.doc_prefix', v.identidad.docPrefix)
+          .whereIn('t.folio', v.identidad.folios);
+      } else tk.whereIn('t.folio', v.folios);
       // `[]` ⇒ knex emite `1 = 0`: quien no alcanza ninguna sucursal ve cero filas, nunca todas.
       if (warehouseCodes) tk.whereIn('t.sucursal', warehouseCodes);
-      for (const f of v.code ? [] : await tk) {
+      const filas_tk = v.code ? [] : await tk;
+      if (filas_tk.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_tk.slice(0, LIMITE_POR_UNIVERSO)) {
         out.push({ ...f, origen: 'mostrador', origen_label: ORIGEN_LABEL.mostrador } as TicketCandidato);
       }
 
@@ -225,12 +324,17 @@ export class CommercialTicketsService {
         .where('i.tenant_id', tenantId)
         .select('i.folio_digital as id', 'i.sucursal', 'i.doc_tipo', 'i.folio', 'i.fecha',
           'i.cliente_nombre', 'i.total')
-        .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.sucursal', order: 'asc' }])
-        .limit(MAX_CANDIDATOS + 1);
-      if (v.folioDigital) fa.andWhere('i.folio_digital', v.folioDigital);
-      else fa.whereIn('i.folio', v.folios);
+        // Idem: sin ORDER BY. Ésta es la que el servicio hermano midió en 23,856 ms con él.
+        .limit(LIMITE_POR_UNIVERSO + 1);
+      if (v.identidad) {
+        fa.andWhere('i.sucursal', v.identidad.sucursal)
+          .andWhere('i.doc_prefix', v.identidad.docPrefix)
+          .whereIn('i.folio', v.identidad.folios);
+      } else fa.whereIn('i.folio', v.folios);
       if (warehouseCodes) fa.whereIn('i.sucursal', warehouseCodes);
-      for (const f of v.code ? [] : await fa) {
+      const filas_fa = v.code ? [] : await fa;
+      if (filas_fa.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_fa.slice(0, LIMITE_POR_UNIVERSO)) {
         const origen: TicketOrigen = f.doc_tipo === 'credito' ? 'credito' : 'telemarketing';
         out.push({
           id: f.id, origen, origen_label: ORIGEN_LABEL[origen],
@@ -253,21 +357,38 @@ export class CommercialTicketsService {
         .whereNull('o.deleted_at')
         .select('o.code as id', 'w.code as sucursal', 'w.name as sucursal_nombre', 'o.code as folio',
           trx.raw('o.created_at::date as fecha'), 'c.name as cliente_nombre', 'o.total')
+        // Acá el ORDER BY SÍ se queda: `commercial.orders` es una tabla nuestra, chica y con
+        // índice, no una vista derivada de 3.4M filas. El problema medido es de las otras dos.
         .orderBy('o.created_at', 'desc')
-        .limit(MAX_CANDIDATOS + 1);
-      if (v.code) pd.andWhere('o.code', v.code);
+        .limit(LIMITE_POR_UNIVERSO + 1);
+      // Con una identidad del ERP reconocida, ningún `PD-` puede calzar: no se lo consulta.
+      if (v.identidad) pd.whereRaw('1 = 0');
+      else if (v.code) pd.andWhere('o.code', v.code);
       // Sin prefijo `PD-`, el humano tecleó sólo el consecutivo: se busca por sufijo. `ILIKE`
       // con comodín al inicio no usa índice, pero `commercial.orders` es una tabla nuestra y
       // chica (miles), no las 3.4M líneas de Kepler.
       else pd.where((b) => { for (const f of v.folios) b.orWhere('o.code', 'ilike', `%${f}`); });
       if (warehouseCodes) pd.whereIn('w.code', warehouseCodes);
-      for (const f of await pd) {
+      const filas_pd = await pd;
+      if (filas_pd.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_pd.slice(0, LIMITE_POR_UNIVERSO)) {
         out.push({ ...f, caja: null, origen: 'pedido', origen_label: ORIGEN_LABEL.pedido } as TicketCandidato);
       }
 
-      // Lo más reciente primero: quien busca un folio casi siempre quiere el de esta semana.
-      out.sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')));
-      const truncado = out.length > MAX_CANDIDATOS;
+      // ⭐ Éste es AHORA el único orden que existe: las dos consultas al ERP ya no ordenan en
+      // SQL (ver `LIMITE_POR_UNIVERSO`). Lo más reciente primero, porque quien busca un folio
+      // casi siempre quiere el de esta semana.
+      //
+      // El desempate por `id` NO es cosmético: sin él, dos documentos de la misma fecha salen en
+      // el orden que le haya quedado al planner, que ahora no está fijado por ningún ORDER BY —
+      // o sea que la misma búsqueda podría listarlos distinto cada vez. Es el mismo criterio que
+      // el servicio hermano aplica a su paginación ("el desempate siempre es `folio`").
+      out.sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? ''))
+        || String(a.id).localeCompare(String(b.id)));
+      // `truncado` cubre los DOS motivos por los que el listado puede estar incompleto: que haya
+      // más coincidencias de las que se devuelven, o que algún universo haya topado su límite de
+      // lectura (y ahí ni siquiera se puede afirmar que sean las más recientes).
+      const truncado = out.length > MAX_CANDIDATOS || topado;
       return { termino: v.crudo, candidatos: out.slice(0, MAX_CANDIDATOS), truncado };
     });
   }

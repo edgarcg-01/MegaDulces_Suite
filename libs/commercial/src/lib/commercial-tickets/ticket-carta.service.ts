@@ -138,10 +138,6 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 .emisor .fl{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .emisor .fv{font-size:10.5pt;font-weight:700;color:var(--ink)}
 .rule{height:2px;background:var(--accent);margin:4px 0 0}
-.nofiscal{display:flex;align-items:center;gap:8px;margin-top:5px;padding:2px 9px;background:var(--accent-soft);
-  border:1.5px solid var(--accent);border-radius:4px;color:#6d2f04;font-size:7.5pt;font-weight:600;line-height:1.25;break-inside:avoid}
-.nofiscal .badge{flex:0 0 auto;font-size:7pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
-  background:var(--accent);color:#fff;padding:2px 7px;border-radius:3px}
 .info{display:flex;gap:8px;margin-top:7px}
 .box{flex:1 1 0;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;padding:4px 8px;break-inside:avoid}
 .info>.box:first-child{flex:1.35 1 0}
@@ -197,10 +193,11 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
   </div>
 </div>
 <div class="rule"></div>
-<div class="nofiscal"><span class="badge">No fiscal</span>
-  <span>Este documento desglosa lo que se cobro y el descuento que se aplico. <b>No sustituye al CFDI</b>,
-  que lo emite el ERP.</span></div>
 
+<!-- El banderín "NO FISCAL" se retiró a pedido de Edgar (2026-09-18). La leyenda NO desaparece
+     del documento: sigue en el pie de cada página ("documento informativo, no fiscal"), que es
+     donde la llevan los demás papeles de la suite. Lo que se quitó es el bloque grande que se
+     comía el ancho arriba del contenido, no la declaración. -->
 <div class="info">
   <div class="box"><h4>Cliente</h4>
     <dl class="kv">
