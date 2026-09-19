@@ -152,6 +152,37 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++
       `${a.canc.toLocaleString('es-MX')} arqueos cancelados llegan a la vista — es la prueba de que `
       + 'la fila MUTA y de que el espejo la actualiza en su lugar en vez de duplicarla');
 
+    // ⛔ EL CANDADO DEL `?`: knex.raw trata `?` como MARCADOR DE PARÁMETRO. La primera versión de
+    // esta vista usaba `'^-?[0-9]+([.][0-9]+)?$'` y se desplegó como `'^-$1[0-9]+([.][0-9]+)$2$'`
+    // — knex se comió los dos cuantificadores. La vista compiló sin una queja y publicó TODAS las
+    // denominaciones en NULL, donde el origen trae el conteo real.
+    //
+    // No se comprueba "que no sea null" (eso lo pasaría cualquier cosa): se comprueba contra un
+    // ÁRBITRO INDEPENDIENTE — el desglose reconstruido tiene que dar el `total_billetes` que el
+    // origen ya calculó. Medido: 2,425 de 2,425 en prod.
+    const den = await c.query(`
+      SELECT count(*)::int n,
+             count(*) FILTER (WHERE abs(
+                 coalesce((denom->>'B1000')::numeric,0)*1000 + coalesce((denom->>'B500')::numeric,0)*500
+               + coalesce((denom->>'B200')::numeric,0)*200  + coalesce((denom->>'B100')::numeric,0)*100
+               + coalesce((denom->>'B50')::numeric,0)*50    + coalesce((denom->>'B20')::numeric,0)*20
+               - total_billetes) < 0.005)::int cuadra
+        FROM analytics.caja_arqueos WHERE coalesce(total_billetes,0) <> 0`);
+    const dd = den.rows[0];
+    if (!dd.n) {
+      console.log('  ⃝ NO MEDIDO — no hay arqueos con billetes con qué comprobar el desglose');
+    } else {
+      // No se exige 100%: hay 5 arqueos de 2014-2022 donde el TOTAL tecleado no coincide con el
+      // DESGLOSE tecleado (dif de $300 a $87,500) — error del origen, no del carril. En 2026 el
+      // cuadre es 100%. El umbral está en 99.9% porque el bug que esto vigila daba **0%**: no hay
+      // zona gris entre "se comió los cuantificadores" y "cinco filas viejas mal capturadas".
+      const pct = dd.cuadra / dd.n;
+      ok(pct >= 0.999,
+        `el desglose reconstruye el total de billetes en ${dd.cuadra} de ${dd.n} arqueos `
+        + `(${(pct * 100).toFixed(3)}%, ${dd.n - dd.cuadra} excepciones del origen) — si esto se `
+        + 'desploma, alguien volvió a meter un `?` en un regex que pasa por knex.raw');
+    }
+
     console.log('\n[7] La marca del shipper existe y avanzó');
     const wm = await c.query(`SELECT to_regclass('caja_general_ods._ship_watermark') r`);
     if (!wm.rows[0].r) {

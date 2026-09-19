@@ -74,8 +74,20 @@ const texto = (col) => `NULLIF(btrim(${col}::text, ${WS}), '')`;
 /**
  * Cast honesto de los cortes de denominación que el origen guarda como texto:
  * lo que no es número sale NULL, no 0. Mismo trim ancho, por el mismo motivo.
+ *
+ * ⛔ **NI UN `?` EN ESTE SQL.** Va por `knex.raw()`, y para knex el `?` es un MARCADOR DE
+ * PARÁMETRO, no un cuantificador de regex. La primera versión usaba `'^-?[0-9]+([.][0-9]+)?$'` y
+ * knex la desplegó como **`'^-$1[0-9]+([.][0-9]+)$2$'`** — se comió los dos `?` y los reemplazó por
+ * bindings. La vista compiló sin quejarse y publicó **todas las denominaciones en NULL**, donde el
+ * origen traía el conteo real (72.6% de los arqueos de 2026 lo tienen).
+ *
+ * Por eso los cuantificadores van como `{0,1}`. Es la misma trampa que la Fase CV documentó al
+ * revés (allá los `?` sueltos de un regex rompían el conteo de bindings de knex).
+ *
+ * ⚠️ Y el A/B contra el importer NO lo atrapó, porque `analytics.caja_arqueos` estaba **vacía** en
+ * el entorno de prueba: un A/B sólo cubre lo que tiene datos de los DOS lados.
  */
-const numTexto = (col) => `CASE WHEN btrim(coalesce(${col},''), ${WS}) ~ '^-?[0-9]+([.][0-9]+)?$'
+const numTexto = (col) => `CASE WHEN btrim(coalesce(${col},''), ${WS}) ~ '^-{0,1}[0-9]+([.][0-9]+){0,1}$'
                                THEN btrim(${col}, ${WS})::numeric END`;
 
 /** Denominación de `Doctos` — los 15 cortes, con los nombres que usa hoy el importer. */
