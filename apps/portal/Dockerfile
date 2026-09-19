@@ -35,7 +35,31 @@ RUN COMMIT=$(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
       apps/portal/src/index.html apps/portal/public/assets/version.json
 # --import load-compiler.mjs: Angular v18 + esbuild en Node 20 necesita
 # @angular/compiler cargado antes de la CLI de Nx (mismo patrón que el Dockerfile raíz).
+#
+# `[NX.4]` Caché remoto de Nx Cloud. Token por build arg; si falta o está mal, Nx avisa y sigue
+# (medido con un token inventado: 401 en el log, exit 0).
+#
+# ⚠️ DECLARADO: hoy este target NUNCA va a acertar el caché, ni remoto ni local, y no es culpa
+# del caché. El `sed -i` de arriba escribe un RELOJ DE PARED (`date -u`) dentro de
+# `apps/portal/src/index.html` y `apps/portal/public/assets/version.json`, y los dos viven bajo
+# `{projectRoot}/**/*`, que es el namedInput `default` → `production` → los inputs de `build`.
+# O sea que cada build estampa un hash nuevo por diseño, incluso recompilando el MISMO commit.
+#
+# No se puede estampar DESPUÉS del build: `/index.html` y `/assets/**` están los dos en los
+# assetGroups de `ngsw-config.json`, así que mutarlos post-build desfasa `ngsw.json` y el
+# service worker entra en loop de re-fetch (es la lección que ya documenta el comentario del
+# `sed`, y sigue vigente).
+#
+# Tampoco se puede derivar la fecha del commit acá: `.dockerignore` excluye `.git` (línea 34),
+# así que en el contenedor no hay repo del cual sacarla.
+#
+# Queda cableado igual porque el día que el sello sea determinista por commit —quitando el
+# reloj de pared, o recibiendo la fecha del commit como build arg— el redeploy del mismo commit
+# empieza a acertar sin tocar nada más. Mientras tanto esta línea no hace daño: sube el
+# resultado al caché compartido, que es de donde leen los otros servicios.
+ARG NX_CLOUD_ACCESS_TOKEN=
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
+    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx build portal --configuration=production
 
 FROM node:20-slim AS runner

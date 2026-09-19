@@ -36,7 +36,24 @@ COPY nx.json package.json package-lock.json tsconfig*.json .npmrc vitest.shared.
 COPY apps ./apps
 COPY libs ./libs
 COPY database ./database
+
+# `[NX.4]` Caché REMOTO de Nx (Nx Cloud). Se pasa como build arg desde Railway; si falta o
+# viene mal, Nx imprime un warning y sigue con caché local — MEDIDO con un token inventado:
+# "Invalid Credentials (CI Access Token) ... (code: 401)" y el comando igual salió en 0. O sea
+# que esto no puede tumbar un deploy.
+#
+# ⭐ Acá es donde más paga, y no es teoría: este Dockerfile corre `nx build api`, que es
+# EXACTAMENTE la misma tarea que el `Dockerfile` principal ya compiló para el servicio api, del
+# mismo commit, minutos antes. Hasta hoy se compilaba DOS VECES por release, porque cada
+# servicio de Railway tiene su propio cache mount y un mount es por-servicio: no hay forma de
+# que el worker vea lo que compiló la api. El caché remoto sí cruza esa frontera — es la única
+# capa compartida entre servicios (y entre máquinas).
+#
+# Y este stage no tenía NINGÚN cache mount, así que hasta el redeploy del mismo commit
+# recompilaba entero.
+ARG NX_CLOUD_ACCESS_TOKEN=
 RUN NODE_OPTIONS="--max-old-space-size=4096" \
+    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx build api --configuration=production
 
 # ── Stage 3: deps solo de producción ────────────────────────────────────────

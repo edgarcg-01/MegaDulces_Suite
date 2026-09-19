@@ -58,6 +58,29 @@
   "plugins": [
     {
       "plugin": "@nx/eslint/plugin",
+      "//": [
+        "`[NX.8]` `exclude` de `database`: ese proyecto existe para tener el target `regression`",
+        "(la suite de ~218 pruebas que hasta hoy sólo se podía correr como `node",
+        "database/run-all-tests.js`, fuera de Nx). Al crearlo, el plugin le infirió `lint`",
+        "automáticamente y eso NO es gratis — MEDIDO el 2026-09-18: 1089 problems (468 errors,",
+        "621 warnings) sobre 238 archivos que nunca estuvieron lintados.",
+        "",
+        "Meterlos de golpe a `nx run-many -t lint` y a `npm run check` convertiría una compuerta",
+        "que hoy se puede leer en un muro rojo heredado, y un rojo que nadie puede bajar hoy es",
+        "un rojo que se aprende a ignorar.",
+        "",
+        "Se DECLARA, no se esconde: la deuda es 468 errores en `database/**`, y encenderla es",
+        "una decisión aparte —con su propio item— no un efecto colateral de haber querido correr",
+        "la regresión desde Nx. Para medirla sin encenderla: `npx eslint database`.",
+        "",
+        "⚠️ `exclude` toma PATRONES DE ARCHIVO, no nombres de proyecto. Con `\"database\"` a secas",
+        "el plugin sigue infiriendo el target y no avisa nada — se ve idéntico a que funcionara.",
+        "Va `\"database/**\"`. (Lo dice el schema: nx/schemas/nx-schema.json → definitions.plugins",
+        "→ exclude: \"File patterns which are excluded by the plugin\".)"
+      ],
+      "exclude": [
+        "database/**"
+      ],
       "options": {
         "targetName": "lint"
       }

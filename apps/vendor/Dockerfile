@@ -36,7 +36,24 @@ RUN COMMIT=$(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
       apps/vendor/src/index.html apps/vendor/public/assets/version.json
 # --import load-compiler.mjs: Angular v18 + esbuild en Node 20 necesita
 # @angular/compiler cargado antes de la CLI de Nx (mismo patrón que el Dockerfile raíz).
+#
+# `[NX.4]` Caché remoto de Nx Cloud. Token por build arg; si falta o está mal, Nx avisa y sigue
+# (medido con un token inventado: 401 en el log, exit 0).
+#
+# ⚠️ DECLARADO: mismo límite que `apps/portal/Dockerfile` — el `sed -i` de arriba mete un reloj
+# de pared (`date -u`) en `apps/vendor/src/index.html` y `apps/vendor/public/assets/version.json`,
+# ambos dentro de `{projectRoot}/**/*` y por lo tanto dentro del hash de `build`. Cada build es
+# un hash nuevo por construcción, así que este target no acierta ni remoto ni local.
+#
+# Acá el sello se lee en UN solo lugar: la sonda de diagnóstico de `vendor-shell.component.ts`
+# (`__BUILD_TIMESTAMP__`), al lado de `__BUILD_VERSION__` —el commit— que ya identifica el build
+# sin ambigüedad. O sea que el reloj de pared cuesta el caché entero y aporta poco.
+#
+# Cableado igual: el día que el sello sea determinista por commit, el redeploy del mismo commit
+# acierta sin tocar nada más.
+ARG NX_CLOUD_ACCESS_TOKEN=
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
+    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx build vendor --configuration=production
 
 FROM node:20-slim AS runner
