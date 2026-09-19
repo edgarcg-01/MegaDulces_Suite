@@ -552,6 +552,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Cobros: cartera por vencimiento. Pagos: obligaciones pendientes (Presupuestos + Compras + Finanzas). Liquidez a nivel empresa, no por ejercicio.</p>
           } @else if (loadingCashflow()) {
             <p class="pres-muted">Cargando flujo…</p>
+          } @else {
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsá <strong>«Actualizar»</strong> para calcularlo.</p>
           }
         </section>
       }
@@ -922,7 +924,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   ];
   setView(v: string) {
     this.view.set(v as PresView);
-    if (v === 'flujo') { if (!this.cashflow()) this.loadCashflow(); this.loadResultado(); }
+    if (v === 'flujo') this.loadResultado(); // el flujo de caja (lento, CXC ODS) es opt-in — ver botón «Actualizar»
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
     if (v === 'ventas') this.loadSalesComparison();
     if (v === 'gasto-op') this.loadExpensePlan();
