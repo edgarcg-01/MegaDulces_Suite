@@ -2550,11 +2550,46 @@ Cuesta caro porque revienta **a mitad de la migración**: el `ADD COLUMN` de
 arriba ya corrió, y si la migración no fuera transaccional quedaría la columna
 sin el comentario y el ledger sin la fila.
 
-## 52. ⛔ ABIERTO — `kepler_ods` lleva 12 días sin recibir catálogo/existencia (3 de 4 carriles medidos, mudos)
+## 52. ❌ REFUTADO — se midió la base de DESARROLLO y se publicó como incidente de producción
 
-**No es una lección cerrada, es un incidente activo.** Se deja registrado
-para que quien tenga acceso a los hosts on-prem lo levante — nadie con
-acceso a este repo puede reiniciar nada desde acá.
+> ### ⚠️ Leer esto antes que el resto de la sección
+>
+> **El incidente NUNCA existió en producción.** Re-medido el **2026-09-18 20:26 MX** contra las dos
+> bases en el mismo minuto:
+>
+> | tabla | `platform_test` (dev, `.245`) | **producción** |
+> |---|---|---|
+> | `kdii` | 04-sep · **14.2 días** | 20:12:49 · **13.9 min** |
+> | `kdik` / `kdil` | 04-sep · **14.2 días** | 20:26:25 · **0.3 min** |
+> | `kdm2` | 09-sep · **9.1 días** | 20:26:39 · **0.1 min** |
+> | detector de 10 min | **0 vivos de 59** | **17 vivos de 240** |
+>
+> Las fechas de dev coinciden **exactamente** con las que esta sección reportó: es la misma base,
+> y sigue congelada hoy. Está bien que lo esté — **nadie alimenta el `kepler_ods` de dev**; los
+> carriles on-prem escriben a prod (`ods_live_hot` corriendo, `ods_live_mirror` ok hace 2.4 min con
+> 464 filas, `cdc_reconcile` ok hace 14.8 min). Lo mismo vale para las fechas de agosto que esta
+> sección cita de `analytics.cron_runs`: son de dev. En prod, `feed_stock` cerró hace 2.9 minutos.
+>
+> **El dato para refutarlo estaba en esta misma sección**, en la frase "confirmado directo contra
+> `platform_test`". Nadie lo leyó como lo que era. De ahí sale la regla del **§56**.
+>
+> ### Lo que SÍ es cierto y sigue vivo — el hallazgo era bueno, la causa no
+>
+> * **Zamora `05` vale $12.37M** de inventario a costo en el ODS. Real: la réplica del POS —el ERP
+>   mismo— devuelve **$12,368,582**, idéntico al peso, 3,241 SKUs. El ODS es fiel a su fuente.
+> * **El producto `17237` tiene 30,250.54 unidades en Zamora** contra 21–86 en las otras cinco
+>   sucursales, a $53 = **$1,603,278**. Error de captura real en Kepler, **sin dueño asignado**.
+> * ❌ Pero el resto (~$8.8M) **no es "existencia de hace 12 días sin descontar ventas"**: el carril
+>   no estaba atrasado y el ERP declara esa cifra. Si el inventario real de Zamora fuera ~$2M, el
+>   problema está en Kepler, no en la replicación — y esa comparación necesita su propia fuente.
+>
+> **Pendiente real, medido el 2026-09-18:** `kdik`/`kdil` (existencia) cubren **8 sucursales — falta
+> `08` Morelia Abastos**, que arrancó ese día. Y en `kdm1` hay documentos con **fecha futura**: `00`
+> tiene 37 hasta el 2026-12-31, `01` diez hasta el 09-25, `02` uno hasta el 12-14. Las matvistas del
+> sell-out filtran `c9 <= hoy`, así que están protegidas; cualquier consulta que no filtre, no.
+
+<details>
+<summary>Texto original del 2026-09-16, conservado como hipótesis refutada</summary>
 
 **Hallado 2026-09-16** mientras se investigaba por qué el indicador de
 frescura de `catalogo-kp` salía en blanco (`0SistemasMD/catalogo-kp`,
@@ -2629,6 +2664,11 @@ sesión sin SSH/RDP a las máquinas on-prem que corren el shipper.
 No se reinició nada desde acá — ni acceso a los hosts, ni sentido:
 mismo criterio que §35/§39, reiniciar a mano sin entender la causa real
 sólo esconde el síntoma hasta la próxima vez.
+
+</details>
+
+⚠️ Los cuatro puntos "lo que falta revisar en la máquina real" de arriba **ya no aplican**: se
+revisó desde `md` el 2026-09-18 y los carriles están vivos. No hay proceso muerto que buscar.
 
 ## 53. En Windows, la CAJA de la letra de unidad decide si Angular compila tus tests
 
@@ -2755,3 +2795,71 @@ latido `kepler_replica_refresh` y umbral en `CRON_JOBS`.
 `kdc22610` que aparece en las réplicas es una sombra del `pg_dump` con que se armó el espejo — en
 el origen todavía no existe, Kepler la crea el 1°. Medido: el `REFRESH` de ese día dio `+0` en las
 7 ramas que la tenían localmente.
+
+## 56. ⛔⛔ REFUTÁ TU PROPIA IDEA antes de escribir algo que cambie cómo opera el equipo
+
+**Regla dura, sin excepciones.** Antes de escribir cualquier cosa que le diga a otro qué hacer o
+qué no hacer, tenés que intentar **demostrar que estás equivocado**, y dejar ese intento escrito en
+el mismo texto. Si no podés nombrar qué evidencia te haría estar equivocado, **todavía no lo
+escribas**.
+
+Aplica a: un `⛔ ABIERTO` · un "no usar" · "incidente activo" · "chequeo obligado antes de publicar
+cualquier número" · un umbral de alerta · una fila de tablero · un comentario de código que
+desaconseja una ruta · un runbook · un mensaje de commit que afirma una causa.
+
+No aplica a describir lo que hiciste. Aplica a **afirmar por qué pasa algo** y a **mandar a otros a
+actuar**.
+
+### Las cinco preguntas, cada una con su caso vivido
+
+1. **¿Contra QUÉ base, host y rol lo medí? Nombralo en el texto.**
+   §52 midió `platform_test` —la base de **desarrollo** de `.245`— y lo publicó como incidente de
+   **producción**. Medido el 2026-09-18, mismo minuto, las dos bases: dev `kdii/kdik/kdil` congeladas
+   hace **14.2 días** y `kdm1/kdm2` hace **9.1**; prod las mismas cuatro empujando hace **0.1 a 13.9
+   minutos**. El propio §52 decía "confirmado directo contra `platform_test`" — el dato para
+   refutarlo estaba **en la misma frase**, sin que nadie lo leyera como lo que era.
+
+2. **¿Quién ESCRIBE ese dato?** Si no hay nadie alimentándolo, "congelado" es el comportamiento
+   esperado, no una falla. El `kepler_ods` de dev da **0 carriles vivos de 59** y está perfecto así:
+   los carriles on-prem escriben a prod, nunca a dev.
+
+3. **¿Hay un segundo testigo independiente, del mismo grano?** (ADR-059.) El ODS decía que Zamora
+   tenía $12,368,582 de inventario; la réplica del POS —el ERP mismo— dijo **$12,368,582**, idéntico
+   al peso, 3,241 SKUs. Eso convirtió "el dato llega atrasado" en "el dato llega perfecto y el ERP
+   dice eso".
+
+4. **¿Cómo se vería "sano"?** Si no podés describirlo, no podés afirmar que está enfermo. El
+   "detector de 10 minutos" de §52 devuelve **17 de 240** en prod: no significa nada sin denominador
+   ni umbral, porque la mayoría de esas 240 son tablas **legítimamente estáticas** (pólizas de meses
+   cerrados de 2025, catálogos de 3 filas). Un número sin umbral registrado se lee como rojo o como
+   verde según el ánimo del que mira.
+
+5. **¿Qué va a hacer el lector con esto, y qué cuesta si me equivoco?** §52 ordenaba un "chequeo
+   obligado antes de publicar cualquier número". El costo de que esté mal no es un número mal: es
+   que **todo el sistema quede bajo sospecha**, y que la próxima persona empiece a trabajar
+   desconfiando de datos que están bien.
+
+### ⚠️ Separá el HALLAZGO de la CAUSA — se puede acertar uno y errar la otra
+
+§52 tenía el número **bien** y la causa **mal**, y eso es más peligroso que equivocarse en los dos:
+el número correcto le da credibilidad a la causa falsa.
+
+* Cierto y **vigente hoy**: Zamora `05` vale $12.37M en el ODS, y el producto `17237` tiene
+  **30,250.54** unidades contra 21–86 en las otras cinco sucursales — $1.6M de un error de captura
+  real en Kepler.
+* Falso: que el resto (~$8.8M) fuera "existencia de hace 12 días sin descontar ventas". El carril
+  no estaba atrasado; el ERP dice exactamente esa cifra.
+
+Un hallazgo correcto con causa falsa manda a todo el equipo a arreglar lo que no está roto, y deja
+lo que sí está roto (la captura del `17237`) sin dueño.
+
+### Lo que un `⛔ ABIERTO` debe traer, o no se escribe
+
+* **Fecha y base/host** de la medición, textual.
+* **Dueño** — quién lo levanta.
+* **Cómo se re-mide**, con la consulta y contra qué se compara.
+* **Qué lo cerraría** — la condición concreta.
+
+Sin eso es un rojo permanente. Y un rojo permanente enseña a ignorar el archivo entero: es
+exactamente el argumento que este repo ya escribió sobre `feed_catalog` y sobre los `cdc_wal_*` en
+`CRON_JOBS`, aplicado a la documentación.
