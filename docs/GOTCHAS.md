@@ -2863,3 +2863,81 @@ lo que sí está roto (la captura del `17237`) sin dueño.
 Sin eso es un rojo permanente. Y un rojo permanente enseña a ignorar el archivo entero: es
 exactamente el argumento que este repo ya escribió sobre `feed_catalog` y sobre los `cdc_wal_*` en
 `CRON_JOBS`, aplicado a la documentación.
+
+---
+
+## 57. Dos silencios de Nx: un `exclude` que no excluye y un comentario `//` que se come el JSON
+
+Los dos se descubrieron el 2026-09-18 en la Fase NX, y comparten familia: **la configuración
+queda mal y nada avisa** — el resultado se ve idéntico al correcto.
+
+### 57.1 `exclude` de un plugin toma PATRONES DE ARCHIVO, no nombres de proyecto
+
+Al crear `database/project.json` (para tener el target `regression`), `@nx/eslint/plugin` le
+infirió un `lint` automáticamente: **1089 problems / 468 errors** sobre 238 archivos que nunca
+estuvieron lintados, de golpe dentro de `nx run-many -t lint` y de `npm run check`.
+
+Para sacarlo se registró el `exclude` en `nx.json`… con el nombre del proyecto:
+
+```jsonc
+{ "plugin": "@nx/eslint/plugin", "exclude": ["database"] }   // ⛔ NO HACE NADA
+```
+
+**No tira error, no imprime warning, y el target se sigue infiriendo.** Sólo se nota si uno va a
+comprobar con `nx show project database` — que es justo lo que no se hace cuando el cambio
+"obviamente" funcionó. Lo correcto:
+
+```jsonc
+{ "plugin": "@nx/eslint/plugin", "exclude": ["database/**"] }  // ✅
+```
+
+Lo dice el schema, y conviene leerlo antes que la documentación:
+`node_modules/nx/schemas/nx-schema.json` → `definitions.plugins` → `exclude`:
+*"File patterns which are excluded by the plugin"*.
+
+> ⚠️ Y el fondo del asunto: **crear un proyecto de Nx no es gratis.** Los plugins registrados le
+> infieren targets a cualquier cosa que tenga un `project.json`. Antes de agregar uno, correr
+> `nx show project <nombre>` y mirar qué apareció sin pedirlo.
+
+### 57.2 Al quitar comentarios de un JSONC, primero las líneas `//` — después los bloques
+
+Un parser casero de JSONC (hacen falta: `tsconfig.base.json` y `tsconfig.ts7.json` llevan
+comentarios) que haga esto está roto:
+
+```js
+s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');   // ⛔ orden invertido
+```
+
+Un comentario de **línea** que contenga `/*` —por ejemplo al documentar el alias
+`@megadulces/contracts/authz/*`— abre un comentario de **bloque** falso que se come el archivo
+hasta el siguiente `*/`. El síntoma no menciona comentarios ni el alias:
+
+```
+SyntaxError: Unexpected non-whitespace character after JSON at position 18 (line 7 column 12)
+```
+
+…en una línea que no tiene nada que ver. El orden correcto:
+
+```js
+s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');   // ✅
+```
+
+El `^\s*` del regex de línea no es decorativo: sin él, un `https://…` dentro de un string se
+confundiría con un comentario.
+
+Es la misma familia que **§34** y **§54** (puntuación adentro de un comentario que termina el
+comentario), esta vez en JSON en vez de CSS.
+
+### 57.3 La regla de fondo, que ya cobró tres veces
+
+**Si un target depende de algo fuera de su `projectRoot`, ese algo va en sus `inputs`.**
+
+| Cuándo | Qué faltaba | Qué servía en silencio |
+|---|---|---|
+| `[NX.1]` | `database/migrations` en `build` de api | un bundle sin la migración nueva |
+| `[NX.3]` | `vitest.shared.ts` en `sharedGlobals` | pruebas que no re-corrían al cambiar su config |
+| `[NX.7]` | `tsconfig.ts7.json` en `typecheck` | un typecheck verde con el mapa de `paths` cambiado |
+
+En los tres el modo de falla es **mudo**: no hay error, hay un resultado viejo presentado como
+nuevo. La comprobación es una sola línea y hay que hacerla siempre: tocar el archivo de afuera y
+exigir que el target **re-corra** (`0/1 hit`). Si sigue dando `1/1 hit`, el input falta.
