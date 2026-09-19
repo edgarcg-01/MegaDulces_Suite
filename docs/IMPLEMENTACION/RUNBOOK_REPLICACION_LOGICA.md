@@ -996,3 +996,76 @@ distintas entre sí. Si el entorno no estuviera seteado, esas ramas quedaban fue
   registre nada hoy es consistente con el cambio, pero la confirmación es ver la venta **saliendo de
   Kepler**, y eso no se puede mirar hasta que el POS sea alcanzable. Hasta entonces, la fecha de
   corte se declara con esa salvedad — no se da por firme.
+
+---
+
+## 11. Cobertura de la suscripción — el tercer modo de falla (2026-09-18)
+
+Hasta acá el runbook tenía dos formas de que una tabla no llegara. El 18-sep apareció una tercera, y
+sólo se vio **después** de cerrar la primera: mientras Canindo tenía `kdc22609` sin permiso, nadie
+miró si además estaba suscrita.
+
+| | síntoma | dónde se ve | herramienta |
+|---|---|---|---|
+| 1. **sin permiso** (§4.2b) | `srsubstate='d'` reintentando | `pg_subscription_rel` | `kepler-pos-grant-ods.js` |
+| 2. **sin suscribir** | no figura en `pg_subscription_rel` | **en ningún lado** | `kepler-replica-refresh.js` |
+| 3. **sin tabla local** | el `REFRESH` aborta entero | sólo al intentar el REFRESH | idem (crea desde donante) |
+
+Detalle del porqué y de las trampas: [`docs/GOTCHAS.md` §55](../GOTCHAS.md).
+
+### 11.1 Lo que se corrigió ese día
+
+Primero la capa 1, desde `.249` (los POS conservan el `pg_hba` viejo):
+
+```bash
+node database/scripts/kepler-pos-grant-ods.js --user=postgres
+```
+
+**Resultado: 13 tablas trabadas → 0.** Otorgó en 5 ramas (00 CEDIS 10 · 02 La Piedad 4 · 03 8
+Esquinas 1 · 05 Zamora 1 · 06 Canindo 9). ⚠️ `08` Abastos falló con `timeout expired`: `.30.30` no
+es alcanzable desde `.249`. No hizo falta — nació con el `ALTER DEFAULT PRIVILEGES` correcto y sus
+319 tablas estaban en `'r'`.
+
+Después la capa 2 y 3, desde donde se alcancen las réplicas:
+
+```bash
+KEPLER_REPLICA_BASE="postgresql://postgres:***@192.168.0.222:5433/postgres" \
+  node database/scripts/kepler-replica-refresh.js --dry   # y después sin --dry
+```
+
+**Resultado: +16 tablas suscritas** (06 Canindo +9 · 00 CEDIS +3 · 02 La Piedad +3 · 07 Madero +1),
+de las cuales 14 hubo que **crearlas en la réplica** desde un donante. Todas en `'r'` en 3-6 s.
+
+**La póliza de septiembre, medida en las 9 réplicas después:**
+
+| 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---|---|---|---|---|---|---|---|
+| 10,880 | 4,379 | 1,557 | 621 | 912 | 909 | **2,162** | 1,998 | 0 |
+
+Canindo pasó de 0 a 2,162 renglones, del 1 al 18 de septiembre, los 18 días.
+
+### 11.2 Lo que queda vigilado, y lo que NO
+
+Queda el carril `replica-refresh` (diario 06:22 MX en [`ops/vl/crontab.feeds`](../../ops/vl/crontab.feeds))
+con latido `kepler_replica_refresh` y umbral en `CRON_JOBS`. Los dos caminos del latido se ejercieron
+—`ok` y `error`— contra `platform_test`.
+
+⚠️ **El latido NO está verificado contra prod todavía.** El `.env` de la máquina de desarrollo apunta
+a `platform_test`, así que la fila nace en prod recién la primera vez que el cron corra en `md`.
+Mientras tanto el tablero muestra la llave como `unknown` / "sin reporte aún" — no como rojo, que es
+la conducta correcta (VP.0). **Después del despliegue hay que confirmar la fila con `host` del
+contenedor**, igual que se hizo con `fleet_gps` en LT.9.1.
+
+### 11.3 ⛔ Abastos `08`: sigue sin venta, y hay que volver a mirarlo
+
+Al 18-sep 20:00, `md_08` tiene **144 documentos y todos son `N-A-44`** (traspasos de entrada), cero
+documentos de venta — y por eso su `kdc22609` está en 0 con la tabla suscrita y en `'r'`. Del otro
+lado, `w30` cerró el **17-sep** en las dos réplicas Wincaja (`.249` y `md` coinciden).
+
+Es consistente con "hoy migraron y cargaron inventario, mañana venden", pero **no está demostrado**.
+Lo que lo demuestra es ver documentos de venta en `md_08` mañana. Hasta entonces:
+
+- la fecha de corte del sell-out (18-sep) se sostiene por el lado Wincaja, no por el lado Kepler;
+- y sigue abierto lo de §10.4: **sin un `commercial.warehouses` con `code = '08'`, Abastos no aporta
+  al sell-out por el lado Kepler aunque empiece a vender** — `mv_kepler_sales_daily` hace
+  `JOIN commercial.warehouses w ON w.code = sucursal` y Abastos todavía es `MD-30`.
