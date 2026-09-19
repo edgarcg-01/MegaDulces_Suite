@@ -2941,3 +2941,68 @@ comentario), esta vez en JSON en vez de CSS.
 En los tres el modo de falla es **mudo**: no hay error, hay un resultado viejo presentado como
 nuevo. La comprobación es una sola línea y hay que hacerla siempre: tocar el archivo de afuera y
 exigir que el target **re-corra** (`0/1 hit`). Si sigue dando `1/1 hit`, el input falta.
+
+---
+
+## 58. Un secreto pasado *adentro* del `RUN` sale impreso en el log de build
+
+Medido en producción el **2026-09-18**, en el primer deploy real con el token de Nx Cloud.
+
+El Dockerfile decía esto, que parece inofensivo:
+
+```dockerfile
+ARG NX_CLOUD_ACCESS_TOKEN=
+RUN NODE_OPTIONS="--max-old-space-size=4096" \
+    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
+    npx nx build api --configuration=production
+```
+
+Y el log de build de Railway imprimió, textual:
+
+```
+[builder 8/8] RUN NODE_OPTIONS="--max-old-space-size=4096"
+    NX_CLOUD_ACCESS_TOKEN="NDQwYjBhZDUt…cml0ZQ=="     npx nx build api --configuration=production
+```
+
+**BuildKit hace eco de cada `RUN` con los `ARG` YA EXPANDIDOS.** No hay enmascarado: lo que esté
+en el texto del comando se publica. Railway enmascara variables en los logs de *deploy*, no en los
+de *build*.
+
+### El arreglo: `ENV` en línea propia
+
+```dockerfile
+ARG NX_CLOUD_ACCESS_TOKEN=
+ENV NX_CLOUD_ACCESS_TOKEN=${NX_CLOUD_ACCESS_TOKEN}
+RUN NODE_OPTIONS="--max-old-space-size=4096" \
+    npx nx build api --configuration=production
+```
+
+Las instrucciones `ENV` **no se imprimen como paso**, así que el valor no aparece. El proceso lo
+recibe igual.
+
+**Verificado con control negativo** (dos builds de una imagen mínima, `--progress=plain`):
+
+| Variante | Qué imprime el log |
+|---|---|
+| Inline en el `RUN` | `RUN SECRETO="VALOR-SUPER-SECRETO-123" …` ⛔ |
+| `ENV` en línea propia | *(nada)* ✅ |
+
+Sin el control negativo no se puede afirmar que el fix sirve: "no lo vi en el log" también es lo
+que pasa cuando el grep está mal escrito.
+
+### Los dos matices que conviene saber
+
+* **El `ENV` vive en el stage `builder`, que es descartable.** En un multi-stage el runner es otro
+  `FROM`, así que el valor no viaja a la imagen publicada. Si algún día el build deja de ser
+  multi-stage, esto vuelve a ser un problema — ahí sí queda en `docker history`.
+* **Quien lee logs de build de Railway normalmente también puede leer las variables del servicio
+  en el panel**, así que la exposición marginal *dentro* de Railway es chica. Deja de serlo en
+  cuanto un log se pega en un chat, un ticket o una captura.
+
+### Qué hacer si ya pasó
+
+El log viejo no se reescribe: **rotar el token** en el proveedor y volver a cargarlo. Es barato y
+es la única acción que realmente cierra la exposición.
+
+Relacionado: el incidente de credenciales de DB en texto plano en los lanzadores (Fase VL) es la
+misma familia — *un secreto que viaja como texto en algo que alguien más va a leer*.

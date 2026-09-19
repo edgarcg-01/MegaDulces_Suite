@@ -51,9 +51,16 @@ COPY database ./database
 #
 # Y este stage no tenía NINGÚN cache mount, así que hasta el redeploy del mismo commit
 # recompilaba entero.
+# ⛔ El token va por `ENV` en línea propia, NO asignado adentro del `RUN`. BuildKit imprime cada
+# `RUN` **con los ARG ya expandidos**, así que la forma inline publica el secreto en texto plano
+# en el log de build. No es hipotético: pasó en el primer deploy real del 2026-09-18, y el log de
+# Railway mostró `NX_CLOUD_ACCESS_TOKEN="NDQw…"` completo. Las instrucciones `ENV` no se imprimen
+# como paso, así que el valor no aparece. Medido con un control negativo: la variante inline
+# imprime `RUN SECRETO="VALOR-SUPER-SECRETO-123" …` y la variante `ENV` no imprime nada.
+# Vive sólo en el stage `builder`, que es descartable — el runner es otro `FROM`.
 ARG NX_CLOUD_ACCESS_TOKEN=
+ENV NX_CLOUD_ACCESS_TOKEN=${NX_CLOUD_ACCESS_TOKEN}
 RUN NODE_OPTIONS="--max-old-space-size=4096" \
-    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx build api --configuration=production
 
 # ── Stage 3: deps solo de producción ────────────────────────────────────────
