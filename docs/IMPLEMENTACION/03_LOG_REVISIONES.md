@@ -5,6 +5,86 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-18 — Fase NX · Nx Cloud a prod, y dos gates que estaban verdes o rojos por el motivo equivocado
+
+**Cómo se llegó:** pedido de Edgar — *"apliquemos nx y nx cloud a profundidad en local y prod"*.
+Continúa `[NX.1]`/`[NX.3]` del 2026-09-17. Plan y detalle en
+[`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md).
+
+**Lo que se midió ANTES de escribir nada** (y reordenó el trabajo entero):
+
+1. **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** Se comprobó que
+   el caché remoto funciona sin asumirlo: `contracts:test` con `NX_CACHE_DIRECTORY` apuntando a
+   **dos carpetas vacías distintas** → la 1ª `0/1 hit` (falla y escribe), la 2ª **`1/1 hit`**.
+   Un hit con la caché local vacía sólo puede venir del remoto. **1.4 s → 8 ms.**
+2. **3 de los 4 Dockerfiles de producción compilaban con CERO caché de Nx.** Y el peor caso no
+   era un olvido de configuración: `Dockerfile.worker` corre `nx build api`, **la misma tarea**
+   que el `Dockerfile` principal ya compiló del mismo commit minutos antes. Se compilaba **dos
+   veces por release**, y no hay forma de evitarlo con mounts de Railway: el mount lleva el
+   Service ID adentro, así que es por-servicio **por definición**.
+3. **El CI no corre desde el 2026-08-25** (cuenta bloqueada por facturación) y `main` tiene
+   `required_status_checks: null` — aun encendido, no bloquearía un merge.
+
+**Los dos hallazgos que no se buscaban:**
+
+* **`npm run typecheck:fast` estaba ROJO, y ninguno de sus 5 errores era del código.**
+  `tsconfig.ts7.json` mantiene su mapa de `paths` **a mano** (el comentario del archivo ya decía
+  "replicarlos acá" — no alcanzó) y se había desfasado: faltaban 6 alias y **sobraban 3 de
+  `@megadulces/shared-auth`, una lib que no existe en el repo y que nadie importa**. Salían
+  5 × `TS2307 Cannot find module`, que se leen como error del código. Sincronizado: **verde en
+  5.5 s**. Se verificó que la duplicación es **forzada** (con `extends`, tsgo sale 1 con
+  `TS5102`/`TS5090`), así que el arreglo no es re-sincronizar sino un candado:
+  `scripts/check-ts7-paths.js`, con sus 3 pruebas negativas.
+* **Crear un proyecto de Nx no es gratis.** Al agregar `database/project.json` para la
+  regresión, el plugin de eslint le infirió un `lint` de **1089 problems / 468 errors** sobre
+  238 archivos nunca lintados. Se excluyó y **se declaró la deuda con número** en vez de
+  encenderla de rebote. Al excluirlo apareció el segundo silencio: `exclude` toma **patrones de
+  archivo, no nombres de proyecto**, y con el nombre a secas **sigue infiriendo sin avisar**.
+
+**Decisiones y lo que NO se hizo, con motivo:**
+
+* **`database:regression` va con `cache: false`.** Las ~218 pruebas pegan contra Postgres real
+  y el estado de la base no entra al hash: cachearlas serviría un **veredicto** viejo — peor que
+  el bundle viejo de `[NX.1]`. Tampoco se le pusieron `implicitDependencies`: es una lista que
+  se desactualiza sola y miente en las dos direcciones. Se dice que su `affected` vale poco, en
+  vez de venderlo.
+* **Distribución en agentes de Nx Cloud: no.** Consume créditos del plan, y **cuál es el plan de
+  este workspace no se verificó**. Encenderlo a ciegas es gastar sin medir.
+* **⚠️ DECLARADO — `portal` y `vendor` no van a acertar el caché**, y no es culpa del caché: el
+  `sed -i` mete un **reloj de pared** (`date -u`) en `index.html` y `version.json`, los dos
+  dentro del hash, así que cada build es un hash nuevo por construcción. Los 3 caminos de salida
+  se investigaron y se cerraron: post-build rompe `ngsw.json` (los dos están en los
+  `assetGroups`), la fecha del commit no está en el contenedor (`.dockerignore` excluye `.git`),
+  y pasarla como build arg exige saber qué variable expone Railway — **no se verificó, no se
+  inventa**.
+
+**Verificación (`npm run check -- --all`): 6 de 9 en verde** — la línea base documentada al crear
+el runner el 2026-09-17 era **2 de 6**. Los dos gates nuevos (`ts7-paths`, `typecheck`) pasan, y
+`build` compila los 18 proyectos.
+
+**Los 3 rojos son preexistentes y ajenos a este cambio. Atribuidos uno por uno, porque decir
+"ya estaban rojos" sin nombrarlos es lo mismo que esconderlos:**
+
+| Gate | Causa | Evidencia |
+|---|---|---|
+| `provenance` | `StoreRhythm` declara `generated_at` sin procedencia | `store-socket.service.ts`, commiteado el **2026-09-10** (`TDA.P`) |
+| `test` | `view:test` — **`PU.6` agregó el proyecto `presupuestos` al `suite-map` y no actualizó la prueba de paridad de `SN.4`** | `suite-map.ts` último cambio **17-sep** (`fa024cae`), `landing-guards.spec.ts` **15-sep** — 7 asserts |
+| `lint` | deuda medida + WIP de otras sesiones | `contracts` 2 · `api` 64 · `finance` 5 errores, idénticos antes y después de `[NX.6]` |
+
+Este commit **no toca un solo archivo `.ts`**, que es lo que permite afirmar lo anterior.
+
+> ⭐ **Para el equipo de Presupuestos:** el renglón del medio es accionable. `PU.6` dejó
+> `view:test` en rojo con 7 asserts desde el 17-sep; la prueba de `SN.4` exige que todo proyecto
+> del `suite-map` tenga landing con entrada primaria, y `presupuestos` entró sin ella.
+
+**Pendiente — todo acción humana fuera del repo:** emitir el CI Access Token **read-write** en
+`cloud.nx.app` *(no hay CLI para mintearlo)* → cargarlo como build var en Railway y como secret
+en GitHub Actions → **destrabar la facturación** de `edgarcg-01` → `gh workflow enable CI` →
+agregar **required status checks** a `main`.
+
+**Lecciones a [`GOTCHAS §57`](../GOTCHAS.md).**
+
+---
 ## 2026-09-18 — `[WMS-REC.9]` El Andén se reordena, y el reordenamiento destapa que el put-away acomodaba un lote que ya no existe
 
 **Cómo se llegó:** pedido de Edgar sobre el Andén — el folio queda igual, después
