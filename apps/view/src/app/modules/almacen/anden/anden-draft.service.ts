@@ -5,21 +5,20 @@ import { AndenBorrador } from './anden.state';
  * Borrador local del Andén — **el vale sobrevive a que la app muera**.
  *
  * Un handheld se queda sin batería, entra una llamada, Android mata la app en
- * segundo plano. Hoy eso significa volver a empezar el cotejo con el camión
- * enfrente. Acá cada cambio se persiste al instante, con clave por `session_id`.
+ * segundo plano. Sin esto, volver a entrar obliga a teclear el folio del papel de
+ * nuevo con el camión enfrente. Acá el vale abierto se persiste al instante, con
+ * clave por `session_id`.
  *
  * **Sobre el almacenamiento:** en web es `localStorage`. En Capacitor lo correcto
  * es `Preferences` (nativo, sobrevive a que el sistema limpie el WebView), y por
  * eso el guardado es `async` aunque hoy la implementación sea síncrona: cambiar
  * el backend no obliga a tocar a los llamadores. Ver `ANDEN_DRAFT_NATIVE` abajo.
  *
- * **Qué se guarda y qué no.** Sólo lo que no se puede re-derivar del server: el
- * conteo, lo acomodado, la sección activa y los `scan_uuid` ya enviados. El
- * detalle del vale se vuelve a pedir, porque el server manda.
- *
- * **`scan_uuid`:** cada escaneo lleva el suyo. Al recuperar, reenviar lo que
- * quedó a medias es idempotente y no duplica cantidades. Es el mismo patrón que
- * el conteo físico resolvió con `inventory_count_scan_log`.
+ * **Qué se guarda y qué no.** Sólo el vale abierto y la sección activa. Lo
+ * fechado y lo acomodado NO se guardan acá, a propósito: los dos viven en la base
+ * (`declared_qty` y `stock_lot_locations`), así que copiarlos al navegador crea
+ * una segunda verdad que se desfasa en cuanto otra persona captura desde otro
+ * equipo. El borrador sólo contesta "¿qué vale estaba abierto en este equipo?".
  */
 
 const PREFIJO = 'anden.borrador.';
@@ -57,9 +56,9 @@ export class AndenDraftService {
         return null;
       }
       // Defensivo: un borrador corrupto no puede tumbar la pantalla de un andén.
-      b.contado = b.contado && typeof b.contado === 'object' ? b.contado : {};
-      b.ubicado = b.ubicado && typeof b.ubicado === 'object' ? b.ubicado : {};
-      b.scans = Array.isArray(b.scans) ? b.scans : [];
+      // Incluye los borradores del modelo viejo (traían `contado`/`ubicado`), que
+      // se leen igual porque lo único que se usa de ellos es el id del vale.
+      b.seccion = b.seccion === 'ubicacion' ? 'ubicacion' : 'fechas';
       return b;
     } catch {
       return null;

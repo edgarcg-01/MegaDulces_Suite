@@ -10,6 +10,30 @@
 
 ## [Unreleased]
 
+### Changed — Andén: del folio a las fechas, y la ubicación se crea y se rotula donde se usa (WMS-REC.9, 2026-09-18)
+- **El recorrido pasa a `folio → fechas → ubicación`.** Se retira el paso de Llegada (cotejo
+  contra Kepler + "dar acceso") por decisión de negocio. **Fechar es contar**: la cantidad que
+  se declara al fechar es la recibida, así que el faltante contra Kepler se sigue viendo y el
+  reclamo de WMS-REC.8 se levanta igual al cerrar el vale.
+- **«Todos caducan el mismo día»**: una fecha para todo el vale. Corre en serie, no se corta al
+  primer fallo, y lista con nombre y motivo los renglones que no se pudieron fechar.
+- **La ubicación se crea desde el Andén** (Rack / Tarima / Otro, con código sugerido editable) y
+  **se imprime su cartel**: media carta, dos por hoja, código gigante + CODE128 para que la misma
+  pistola que lee la caja lea el rack. Medido: `commercial.warehouse_bins` estaba en cero, así
+  que crear no es la excepción — es el único camino.
+
+### Fixed — El Andén acomodaba mercancía en un lote que ya no existía (WMS-REC.9, 2026-09-18)
+- El put-away mandaba sólo producto y cantidad, o sea el lote `NA`. Como fechar **reclasifica**
+  `NA` al lote real, acomodar después de fechar fallaba con *"El lote no existe en stock"*. La
+  cola de Ubicación pasa a ser **por lote** (derivada de `GET /unlocated`) y el payload lleva
+  `lot_code` y `expiry_date`.
+
+### Internal — `printIsolated()` sale de la etiquetera a `shared/util/` (2026-09-18)
+- El patrón de impresión aislada (iframe con su propio papel + copia de respaldo colgada del
+  body) queda reutilizable, con sus tres lecciones documentadas. `tienda-etiquetas` conserva su
+  copia a propósito: tiene 20 candados alrededor y migrarla es un item propio, declarado como
+  deuda con nombre.
+
 ### Added — Tickets de venta: buscar cualquier folio y reimprimirlo con el descuento (TK, 2026-09-18)
 
 Nuevo apartado **Tickets** en Ventas (`/comercial/tickets`, permiso propio `COMMERCIAL_TICKETS_VER`

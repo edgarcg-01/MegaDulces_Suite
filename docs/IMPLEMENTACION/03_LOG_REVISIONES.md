@@ -5,6 +5,80 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-18 — `[WMS-REC.9]` El Andén se reordena, y el reordenamiento destapa que el put-away acomodaba un lote que ya no existe
+
+**Cómo se llegó:** pedido de Edgar sobre el Andén — el folio queda igual, después
+aparecen los productos y **sólo se agregan las fechas** (con un camino para cuando
+toda la entrega caduca el mismo día), después se da la ubicación, y si el rack o la
+tarima no tiene ubicación **se crea una nueva** y se manda a imprimir un cartel grande.
+
+**Lo que se midió antes de escribir código** (y cambió el diseño tres veces):
+
+1. **`commercial.warehouse_bins` está en CERO** en `platform_test`: 0 bins, 0 pasillos,
+   0 filas en `stock_lot_locations`. O sea que "escaneá el rack" no tenía nada que
+   escanear: **crear la ubicación no es el caso raro, es el único camino**. Eso movió
+   la creación de la pantalla de administración al panel donde el bodeguero tiene la
+   tarima en las manos, y convirtió el cartel en parte de crear, no en un extra.
+2. **El put-away del Andén mandaba sólo producto y cantidad**, así que el backend caía
+   en el lote `NA`. Y fechar **reclasifica** `NA` al lote real
+   (`assignLotToUndeclared`, WMS-REC.5). Con el fechado por delante —justo lo que se
+   pidió— acomodar habría muerto con *"El lote no existe en stock"* en el primer
+   intento. La cola de Ubicación pasa a ser **por lote**, derivada de `GET /unlocated`
+   (que es quien lleva la cuenta), y el payload lleva `lot_code` + `expiry_date`.
+3. **Quitar el cotejo de Llegada dejaba sin insumo a los reclamos de WMS-REC.8.**
+   `close()` marca `pending → faltante` todo renglón con `expected_qty > 0`: sin nadie
+   escribiendo `received_qty`, el cierre habría levantado **un reclamo por cada renglón
+   del vale**, incluida la mercancía que sí llegó. Se resolvió leyendo `close()` antes
+   de tocar nada: ya descuenta lo que una captura de lote dio de alta
+   (`ya_dado_de_alta`), así que **fechar primero y cerrar después no duplica
+   existencia**. De ahí la tesis del rediseño: **fechar es contar** — la cantidad
+   declarada al fechar se escribe en el renglón cuando queda cerrado.
+4. **Quien entra al Andén (`INVENTORY_RECIBIR`) hoy también tiene `INVENTORY_ASIGNAR`**
+   (un solo rol, `supervisor`), así que crear la ubicación no da 403. Se dejó igual el
+   mensaje para el día que se separen: un botón que no hace nada es peor que un aviso.
+
+**Decisiones:**
+
+- **Dos secciones, no tres.** `Llegada` se retira por decisión de negocio; quedan
+  `Fechas` y `Ubicación`. Ubicación se habilita en cuanto hay **un** lote fechado: no
+  hace falta terminar todo para que otra persona empiece a acomodar.
+- **El fechado en bloque corre en serie y no se corta al primer fallo.** Los que fallan
+  se listan con nombre y motivo. Un "listo" sobre 9 de 12 es exactamente cómo se pierde
+  mercancía. El rojo lo sigue decidiendo el backend por producto y se reporta al terminar.
+- **El borrador deja de copiar lo fechado y lo acomodado.** Los dos viven en la base
+  (`declared_qty`, `stock_lot_locations`): copiarlos al navegador crea una segunda
+  verdad que se desfasa en cuanto otra persona captura desde otro equipo. El borrador
+  ahora sólo contesta "¿qué vale estaba abierto en este equipo?".
+- **`printIsolated()` se extrae** a `shared/util/`, con las tres lecciones de la
+  etiquetera adentro. `tienda-etiquetas` conserva su copia: tiene 20 candados escritos
+  alrededor y migrarla es un item propio — **queda declarada como deuda con nombre**
+  (ADR-056), no duplicada en silencio por tercera vez.
+
+**Hallazgo colateral (no de este item):** `AndenLinea.uxc` —piezas por caja— **nunca se
+poblaba**. El campo "Cajas completas" de la captura estaba permanentemente deshabilitado
+desde WMS-REC.7, mostrando "sin dato" a todo el mundo.
+
+**Verificación:** `ngc --noEmit` **0 errores**, con prueba negativa (se inyectó un método
+inexistente y salió rojo, o sea que el chequeo sí mira estos archivos) · `anden.state.spec.ts`
+**10 candados nuevos**, y los tres de fondo **vistos en rojo a propósito** antes de darlos por
+buenos · suite `almacen` **66/66** · suite `view` **430 pasan**; las **7 fallas de
+`landing-guards.spec` (SN.4) son pre-existentes**, confirmado corriendo la spec con mis
+cambios guardados en stash.
+
+⚠️ **Trampa de herramienta que casi hace pasar un verde falso:** el worktree no traía
+`node_modules` y se resolvió con una unión al del checkout principal. Con eso, **Nx resuelve
+la raíz del workspace al OTRO repo**: `nx build view` salió "Successfully" compilando código
+ajeno, y el `dist` quedó en el repo vecino. Se detectó buscando los textos nuevos en el
+bundle (cero coincidencias) y **no** se creyó el verde. El camino que sí mira el worktree:
+`node node_modules/@angular/compiler-cli/bundles/src/bin/ngc.js -p apps/view/tsconfig.app.json --noEmit`
+y `npx vitest run` **desde `apps/view`**. Por eso mismo **la validación visual queda pendiente**:
+el dev server arrastra el mismo problema de raíz.
+
+**Pendiente:** validación visual del flujo completo y del cartel impreso (el tamaño de la
+hoja sólo se comprueba imprimiendo) + redeploy `view`. Sin migraciones y sin permisos
+nuevos → **sin re-login**.
+
+---
 ## 2026-09-18 — `[PV.4]` La premisa era falsa, el error estaba en el doctype de al lado, y el aviso no habría llegado
 
 **Cómo se llegó:** Dirección trajo dos documentos — un TXT de pólizas de **ContPAQi**

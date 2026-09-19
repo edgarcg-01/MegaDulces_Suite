@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { AndenLinea } from '../anden.state';
+import { describirDiferencia } from '../cantidad.util';
 import { formatExpiryEcho, parseExpiryShort, maskExpiryMx } from '../../shared/expiry-short';
 
 export interface FechadoConfirmado {
@@ -16,33 +18,48 @@ export interface FechadoConfirmado {
 type Semaforo = 'g' | 'y' | 'r' | 'n';
 
 /**
- * Andén · **Caducidad** — le pone identidad al lote que entró como `NA`.
+ * Andén · **Fechar** — lote, caducidad y cuántas piezas llegaron, en una pantalla.
  *
- * Tres decisiones del rediseño viven acá:
- *  - **El semáforo se pinta MIENTRAS se teclea**, no al apretar un botón. Hoy el
- *    operario declara a ciegas y se entera del 🔴 después de guardar.
+ * **Fechar es contar.** No hay un cotejo aparte antes: la cantidad que se declara
+ * acá es la que se recibió. Viene precargada con lo que manda Kepler, que es el
+ * caso normal, y se corrige cuando llegó de menos o de más. Esa cantidad es la
+ * que después alimenta el faltante del cierre del vale, así que un dedazo acá es
+ * un reclamo falso — de ahí que la diferencia contra Kepler se diga en voz alta,
+ * abajo del campo, antes de guardar.
+ *
+ * Tres decisiones del rediseño siguen vivas:
+ *  - **El semáforo se pinta MIENTRAS se teclea**, no al apretar un botón. Antes el
+ *    operario declaraba a ciegas y se enteraba del 🔴 después de guardar.
  *  - **La caducidad se teclea en 4 dígitos** (`0327` = marzo 2027, último día del
  *    mes; `150327` = 15/03/2027). Sin separadores: se hace con guantes.
  *  - **El OCR corre solo** al tomar la foto. El humano confirma; el OCR propone.
+ *
+ * Un renglón puede partirse en varios lotes (llegaron 12 con una fecha y 12 con
+ * otra): se guarda dos veces y la segunda arranca con el resto. Cuando llegó de
+ * menos y no va a llegar más, **«ya no llegó más»** cierra el renglón con lo
+ * declarado — es lo que deja el faltante firme para el reclamo.
  */
 @Component({
   selector: 'app-anden-caducidad',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule],
+  imports: [DecimalPipe, FormsModule, ButtonModule, InputTextModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fx">
       <header class="fx-hd">
         <div>
           <h3 class="fx-nm">{{ nombre() }}</h3>
-          <p class="fx-sk">{{ linea().sku || linea().expected_sku || '—' }} · <b>{{ linea().faltaFechar }} pz</b> cotejadas</p>
+          <p class="fx-sk">
+            {{ linea().sku || linea().expected_sku || '—' }}
+            @if (!suelto()) { · Kepler manda <b>{{ +linea().expected_qty | number }} pz</b> }
+          </p>
         </div>
         <button type="button" class="fx-back" (click)="volver.emit()">← Lista</button>
       </header>
 
       <!-- La política se ve ANTES. Sin GET /policy/resolve sólo se muestra lo que
            se puede derivar honestamente; la cascada NO se duplica acá. Ojo: nada
-           de backticks dentro del template literal, cortan la cadena. -->
+           de acentos graves dentro del template literal, cortan la cadena. -->
       <p class="fx-pol">
         @if (minShelfLife() != null) {
           Política: mínimo <b>{{ minShelfLife() }} días</b> de vida.
@@ -88,10 +105,37 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
         <span class="fx-dot" aria-hidden="true"></span>{{ textoSemaforo() }}
       </div>
 
+      <!-- La cantidad va DESPUÉS de la fecha a propósito: el 90 % de las veces no
+           se toca (viene con lo que manda Kepler) y pedirla primero metía un campo
+           entre el operario y lo único que de verdad tiene que mirar, la etiqueta. -->
+      <div class="fx-cant">
+        <label class="fx-f">
+          <span>Piezas de este lote</span>
+          <input pInputText inputmode="numeric" class="fx-cant-num"
+            [ngModel]="cantidadVista()" (ngModelChange)="setCantidad($event)" />
+        </label>
+        <div class="fx-cant-lado">
+          <button type="button" class="fx-chip" [class.fx-chip-on]="cantidad() === restante()"
+            (click)="cantidad.set(restante())">
+            Todo · {{ restante() | number }}
+          </button>
+          <span class="fx-cant-dif" [class.fx-mal]="!suelto() && diferencia() !== 0">
+            {{ textoCantidad() }}
+          </span>
+        </div>
+      </div>
+
       <button pButton type="button" class="fx-go" [loading]="guardando()"
-        [disabled]="!iso() || guardando()" (click)="emitir()">
-        {{ iso() ? 'Guardar caducidad' : 'Falta la caducidad' }}
+        [disabled]="!puedeGuardar() || guardando()" (click)="emitir()">
+        {{ textoGuardar() }}
       </button>
+
+      @if (!suelto() && linea().declarado > 0 && restante() > 0) {
+        <button pButton type="button" [text]="true" severity="secondary" class="fx-cerrar"
+          [disabled]="guardando()" (click)="cerrarRenglon.emit(linea())">
+          Ya no llegó más — cerrar con {{ linea().declarado | number }} pz
+        </button>
+      }
     </div>
   `,
   styles: [`
@@ -141,7 +185,20 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
     .fx-sem--y { background: var(--warn-soft-bg, var(--surface-ground)); color: var(--warn-fg, var(--text-main)); }
     .fx-sem--r { background: var(--bad-soft-bg, var(--surface-ground)); color: var(--bad-fg); }
     .fx-sem--n { background: var(--surface-ground); color: var(--text-faint); }
+    .fx-cant { display: flex; gap: var(--sp-2); align-items: flex-end; }
+    .fx-cant-num { min-height: 52px; font-size: var(--fs-h2); font-weight: var(--fw-black);
+      text-align: center; font-variant-numeric: tabular-nums; }
+    .fx-cant-lado { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .fx-chip {
+      min-height: 40px; padding: 0 var(--sp-3); cursor: pointer; font: inherit;
+      font-size: var(--fs-sm); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums;
+      background: var(--card-bg); color: var(--text-main);
+      border: 1px solid var(--border-color); border-radius: var(--r-pill);
+    }
+    .fx-chip-on { border-color: var(--action); color: var(--action); }
+    .fx-cant-dif { font-size: var(--fs-micro); color: var(--text-muted); }
     .fx-go { width: 100%; min-height: 54px; font-size: var(--fs-body); font-weight: var(--fw-bold); }
+    .fx-cerrar { width: 100%; }
   `],
 })
 export class AndenCaducidadComponent {
@@ -151,23 +208,52 @@ export class AndenCaducidadComponent {
   readonly guardando = input(false);
 
   readonly confirmar = output<FechadoConfirmado>();
+  readonly cerrarRenglon = output<AndenLinea>();
   readonly pedirOcr = output<string>();
   readonly volver = output<void>();
 
   readonly lote = signal('');
   readonly fechaRaw = signal('');
+  readonly cantidad = signal(0);
   readonly fotoDataUri = signal<string | null>(null);
   readonly ocrCorriendo = signal(false);
   readonly ocrConfianza = signal<number | null>(null);
+
+  /** Captura fuera del vale: no hay renglón contra el cual comparar cantidades. */
+  readonly suelto = computed(() => !this.linea().id);
 
   readonly nombre = computed(() => {
     const l = this.linea();
     return l.product_name || l.expected_name || l.sku || l.expected_sku || 'Sin nombre';
   });
 
+  /** Lo que falta por fechar de este renglón. Es el default de la cantidad. */
+  readonly restante = computed(() => Math.max(0, this.linea().faltaFechar));
+
   readonly iso = computed(() => parseExpiryShort(this.fechaRaw()));
   readonly eco = computed(() => formatExpiryEcho(this.iso()));
   readonly ecoExistente = computed(() => formatExpiryEcho(this.existingMinExpiry()));
+
+  readonly cantidadVista = computed(() => (this.cantidad() > 0 ? String(this.cantidad()) : ''));
+  /** Contra lo que falta, no contra lo que Kepler manda: un renglón puede partirse en lotes. */
+  readonly diferencia = computed(() => this.cantidad() - this.restante());
+
+  readonly textoCantidad = computed(() => {
+    if (this.suelto()) return 'fuera del vale: no hay cantidad esperada';
+    const d = this.diferencia();
+    if (this.cantidad() === 0) return 'capturá cuántas piezas trae este lote';
+    if (d === 0) return this.linea().declarado > 0 ? 'con esto queda completo' : 'coincide con Kepler';
+    if (d < 0) return `${describirDiferencia(d, this.linea().uxc)} — el resto queda pendiente`;
+    return `${describirDiferencia(d, this.linea().uxc)} de lo que manda Kepler`;
+  });
+
+  readonly puedeGuardar = computed(() => !!this.iso() && this.cantidad() > 0);
+
+  readonly textoGuardar = computed(() => {
+    if (!this.iso()) return 'Falta la caducidad';
+    if (this.cantidad() <= 0) return 'Falta la cantidad';
+    return `Guardar ${this.cantidad()} pz`;
+  });
 
   private readonly dias = computed(() => {
     const i = this.iso();
@@ -204,8 +290,22 @@ export class AndenCaducidadComponent {
     return `${d} días de vida · buen plazo, entra directo`;
   });
 
+  constructor() {
+    // La cantidad arranca con lo que falta: el caso normal es que llegó completo y
+    // el operario no toca el campo. Se re-evalúa al abrir otro renglón.
+    effect(() => {
+      const r = this.restante();
+      this.cantidad.set(r);
+    });
+  }
+
   setFecha(v: unknown): void {
     this.fechaRaw.set(String(v ?? '').replace(/\D/g, '').slice(0, 8));
+  }
+
+  setCantidad(v: unknown): void {
+    const n = parseInt(String(v ?? '').replace(/\D/g, ''), 10);
+    this.cantidad.set(Number.isFinite(n) && n > 0 ? n : 0);
   }
 
   /**
@@ -290,14 +390,22 @@ export class AndenCaducidadComponent {
     this.fotoDataUri.set(null);
     this.ocrConfianza.set(null);
     this.ocrCorriendo.set(false);
+    this.cantidad.set(this.restante());
+  }
+
+  /** Precarga lote y fecha de una captura anterior (el fechado en bloque). */
+  precargar(lote: string, digitosFecha: string): void {
+    if (lote) this.lote.set(lote);
+    if (digitosFecha) this.fechaRaw.set(digitosFecha);
   }
 
   emitir(): void {
     const i = this.iso();
-    if (!i) return;
+    const c = this.cantidad();
+    if (!i || c <= 0) return;
     this.confirmar.emit({
       linea: this.linea(),
-      cantidad: this.linea().faltaFechar,
+      cantidad: c,
       lote: this.lote().trim() || 'NA',
       caducidadIso: i,
       fotoDataUri: this.fotoDataUri(),
