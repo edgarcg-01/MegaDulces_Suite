@@ -63,6 +63,12 @@ export interface TicketVentaLinea {
   descuento_linea: number;
   importe: number;
   equivalencia: string | null;
+  /** Impuesto ya descompuesto del precio. IVA e IEPS nunca vienen juntos (0 de 123,203). */
+  iva: number;
+  ieps: number;
+  impuesto_tipo: 'iva' | 'ieps' | null;
+  iva_tasa: number;
+  ieps_tasa: number;
 }
 
 export interface TicketVentaCascada {
@@ -79,6 +85,10 @@ export interface TicketVentaCascada {
   /** Cobertura del precio de lista, declarada: sin ella el descuento es un piso, no la cifra. */
   lineas_con_lista: number;
   lineas_sin_lista: number;
+  /** true => la suma del impuesto de los renglones reproduce la que declara el documento. */
+  impuesto_desglosado: boolean;
+  iva_lineas: number;
+  ieps_lineas: number;
 }
 
 export interface TicketVenta {
@@ -174,15 +184,29 @@ function envolver(texto: string, ancho = ANCHO): string[] {
 /**
  * Compone un renglón de la tabla en columnas de ancho fijo que suman **exactamente** `ANCHO`.
  *
- * Con precio de lista:   nombre 38 · cant 11 · lista 10 · pagado 11 · importe 12  = 82
- * Sin precio de lista:   nombre 49 · cant 11 · precio 10 ·            importe 12  = 82
+ *   lista + impuesto:   nombre 25 · cant 9 · lista 9 · pagado 9 · desc 9 · imp 11 · importe 10
+ *
+ * ⚠️ La columna de impuesto necesita **11**, no 9: lleva el monto Y la letra. Con 9 el candado
+ * atrapó `1,655.42 I` recortado a `1,655.42…` — el importe truncado justo en la celda que
+ * existe para declararlo. Los 2 caracteres salieron de `cantidad` (que con `306.5 KG` usa 8)
+ * y del nombre, nunca de otro monto.
+ *   lista sin impuesto: nombre 38 · cant 11 · lista 10 · pagado 11 ·                importe 12
+ *   sin lista:          nombre 49 · cant 11 · precio 10 ·                           importe 12
  *
  * El nombre se queda con todo el sobrante porque es lo único de ancho variable — medido en el
- * anexo, su p95 es 41 caracteres y el máximo 70, así que a 38 se recorta uno de cada cinco y a
- * 49 casi ninguno.
+ * anexo, su p95 es 41 caracteres y el máximo 70.
+ *
+ * ⭐ **El impuesto va en UNA columna, no en dos, y eso lo permite un hecho medido:** IVA e IEPS
+ * **nunca coinciden** en el mismo renglón (0 de 123,203 renglones, en los tres doctipos). Con
+ * dos columnas una siempre iría vacía y el nombre del producto bajaría de 26 a 19 caracteres.
+ * La letra final (`V` de IVA, `I` de IEPS) dice cuál es, y el pie del ticket la explica.
+ * ⚠️ Si algún día un renglón trae los dos, esta columna sólo puede mostrar uno — habría que
+ * volver a dos columnas, y el candado de 82 caracteres es el que avisa que ya no caben.
  */
-function renglon(cols: string[], conLista: boolean): string {
-  const w = conLista ? [38, 11, 10, 11, 12] : [49, 11, 10, 12];
+function renglon(cols: string[], conLista: boolean, conImp = false): string {
+  const w = conImp
+    ? (conLista ? [25, 9, 9, 9, 9, 11, 10] : [34, 9, 9, 9, 11, 10])
+    : (conLista ? [38, 11, 10, 11, 12] : [49, 11, 10, 12]);
   const partes = cols.map((c, i) => i === 0 ? corta(c, w[0]).padEnd(w[0]) : corta(c, w[i]).padStart(w[i]));
   return esc(partes.join('').slice(0, ANCHO));
 }
@@ -205,6 +229,10 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
   // La columna LISTA sólo existe si algún renglón tiene con qué compararse. Sin ella, su ancho
   // se lo queda el nombre del producto — ver la cabecera del archivo.
   const conLista = c.lineas_con_lista > 0;
+  // El desglose de impuesto por producto sale SOLO si la suma de los renglones reproduce la
+  // que declara el documento (lo verifica el backend contra la cabecera de Kepler). Unas
+  // columnas que no suman lo declarado son peores que no tenerlas (ADR-056).
+  const conImp = c.impuesto_desglosado;
 
   // ── Encabezado: DOS renglones. El formato ancho permite poner de un lado quién vende y del
   //    otro la identidad del documento, en vez de una etiqueta por línea como en 80 mm.
@@ -232,10 +260,18 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
     L.push(centro('SIN RENGLONES'));
     L.push(...envolver('Este documento no tiene detalle de productos en el sistema.'));
   } else {
-    L.push(conLista
-      ? renglon(['PRODUCTO', 'CANTIDAD', 'LISTA', 'PAGADO', 'IMPORTE'], true)
-      : renglon(['PRODUCTO', 'CANTIDAD', 'PRECIO', 'IMPORTE'], false));
-    const anchoNombre = conLista ? 38 : 49;
+    // La leyenda de las letras vive en el encabezado de PRODUCTO (que tiene 18 caracteres
+    // libres) y NO en un renglon propio: a 50.8 mm de alto, un renglon de leyenda es
+    // exactamente lo que saca de la medida a un ticket de 5 productos.
+    const encProd = conImp ? 'PRODUCTO  V=IVA I=IEPS' : 'PRODUCTO';
+    L.push(conImp
+      ? (conLista
+          ? renglon([encProd, 'CANTIDAD', 'LISTA', 'PAGADO', 'DESC', 'IMPUESTO', 'IMPORTE'], true, true)
+          : renglon([encProd, 'CANTIDAD', 'PRECIO', 'DESC', 'IMPTO', 'IMPORTE'], false, true))
+      : (conLista
+          ? renglon([encProd, 'CANTIDAD', 'LISTA', 'PAGADO', 'IMPORTE'], true)
+          : renglon([encProd, 'CANTIDAD', 'PRECIO', 'IMPORTE'], false)));
+    const anchoNombre = conImp ? (conLista ? 25 : 34) : (conLista ? 38 : 49);
     for (const l of t.lineas) {
       const base = l.descripcion || l.sku || 'PRODUCTO';
       // La equivalencia de peldaño ("35 CJA") va PEGADA AL NOMBRE, no en un renglón propio: a
@@ -245,10 +281,20 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
       const conEq = l.equivalencia ? `${base} (${l.equivalencia})` : base;
       const nombre = conEq.length <= anchoNombre ? conEq : base;
       const cantidad = cant(l.cantidad) + (l.unidad ? ' ' + l.unidad : '');
-      L.push(conLista
-        ? renglon([nombre, cantidad, l.lista_conocida ? money(l.precio_lista) : '-',
-            money(l.precio_pagado), money(l.importe)], true)
-        : renglon([nombre, cantidad, money(l.precio_pagado), money(l.importe)], false));
+      const lista = l.lista_conocida ? money(l.precio_lista) : '-';
+      const desc = l.descuento_linea > 0 ? money(l.descuento_linea) : '-';
+      // La letra pegada al monto dice CUÁL impuesto es: `V` de IVA, `I` de IEPS. Cabe porque
+      // nunca hay los dos en un renglón, y el pie del ticket la explica. Un guion cuando el
+      // producto no causa impuesto — no un $0.00, que se leería como "se cobró cero".
+      const impuesto = l.impuesto_tipo === 'iva' ? money(l.iva) + ' V'
+        : l.impuesto_tipo === 'ieps' ? money(l.ieps) + ' I' : '-';
+      L.push(conImp
+        ? (conLista
+            ? renglon([nombre, cantidad, lista, money(l.precio_pagado), desc, impuesto, money(l.importe)], true, true)
+            : renglon([nombre, cantidad, money(l.precio_pagado), desc, impuesto, money(l.importe)], false, true))
+        : (conLista
+            ? renglon([nombre, cantidad, lista, money(l.precio_pagado), money(l.importe)], true)
+            : renglon([nombre, cantidad, money(l.precio_pagado), money(l.importe)], false)));
     }
   }
 

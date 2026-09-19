@@ -29,7 +29,8 @@ const RENGLONES_EN_LA_MEDIDA = 12;
 const L = (p: Partial<TicketVentaLinea>): TicketVentaLinea => ({
   linea: 1, sku: '70043', descripcion: 'GOMA A GRANEL LA ROSA 12KG', unidad: 'KG',
   cantidad: 420, precio_lista: 58.88, lista_conocida: true, precio_pagado: 53.21,
-  descuento_unitario: 5.67, descuento_linea: 2381.40, importe: 22348.20, equivalencia: null, ...p,
+  descuento_unitario: 5.67, descuento_linea: 2381.40, importe: 22348.20, equivalencia: null,
+  iva: 0, ieps: 1655.42, impuesto_tipo: 'ieps', iva_tasa: 0, ieps_tasa: 0.08, ...p,
 });
 
 const BASE: TicketVenta = {
@@ -45,6 +46,7 @@ const BASE: TicketVenta = {
     descuento_documento: 0, descuento_documento_pct_erp: null,
     iva: 0, ieps: 0, total: 22348.20, descuento_total: 2381.40, descuento_total_pct: 9.63,
     lineas_con_lista: 1, lineas_sin_lista: 0,
+    impuesto_desglosado: true, iva_lineas: 0, ieps_lineas: 1655.42,
   },
   cuadra: true, aviso: null,
 };
@@ -180,6 +182,55 @@ describe('cuerpoTicketVenta — la cascada cierra', () => {
     const out = lineas({ cascada: { ...BASE.cascada, descuento_documento: -0.4 } }).join('\n');
     expect(out).toContain('Ajuste');
     expect(out).not.toContain('Desc. documento');
+  });
+});
+
+describe('cuerpoTicketVenta — desglose de impuesto (TK.4)', () => {
+  /**
+   * ⭐ La columna es UNA y no dos porque IVA e IEPS **nunca coinciden** en el mismo renglón
+   * (0 de 123,203 medidos en prod). Con dos columnas, una siempre iría vacía y el nombre del
+   * producto bajaría de 26 a 19 caracteres.
+   */
+  it('imprime el impuesto con la letra que dice cual es', () => {
+    const conIeps = lineas({ lineas: [L({ impuesto_tipo: 'ieps', ieps: 1655.42, iva: 0 })] }).join('\n');
+    expect(conIeps).toMatch(/1,655\.42 I/);
+    const conIva = lineas({ lineas: [L({ impuesto_tipo: 'iva', iva: 203.94, ieps: 0, ieps_tasa: 0, iva_tasa: 0.16 })] }).join('\n');
+    expect(conIva).toMatch(/203\.94 V/);
+  });
+
+  /** La leyenda va en el encabezado de columna: un renglón propio saca el ticket de la medida. */
+  it('la leyenda vive en el encabezado y no gasta un renglon', () => {
+    const con = lineas({});
+    const sin = lineas({ cascada: { ...BASE.cascada, impuesto_desglosado: false } });
+    expect(con.join('\n')).toContain('V=IVA I=IEPS');
+    expect(con.length).toBe(sin.length);
+  });
+
+  /** Un producto que no causa impuesto lleva GUION, no $0.00: son cosas distintas (ADR-056). */
+  it('sin impuesto imprime guion, no cero', () => {
+    const out = lineas({ lineas: [L({ impuesto_tipo: null, iva: 0, ieps: 0, ieps_tasa: 0 })] });
+    const fila = out.find((l) => l.includes('GOMA A GRANEL'));
+    expect(fila).not.toContain('0.00 I');
+    expect(fila).not.toContain('0.00 V');
+  });
+
+  /**
+   * ⚠️ El candado que importa: si la suma de los renglones NO reproduce lo que declara el
+   * documento, el papel no imprime el desglose. Unas columnas que el cliente suma y no le dan
+   * son peores que no tenerlas.
+   */
+  it('si el impuesto no cuadra contra el documento, no se imprime el desglose', () => {
+    const out = lineas({ cascada: { ...BASE.cascada, impuesto_desglosado: false } }).join('\n');
+    expect(out).not.toContain('IMPUESTO');
+    expect(out).not.toContain('V=IVA');
+  });
+
+  /** Con el desglose puesto, el ticket de 5 productos SIGUE cabiendo en la medida. */
+  it('5 productos con desglose de impuesto siguen entrando en los 12 renglones', () => {
+    const cinco = [1, 2, 3, 4, 5].map((i) => L({ linea: i, equivalencia: null }));
+    const out = lineas({ lineas: cinco, cascada: { ...BASE.cascada, lineas_con_lista: 5 } });
+    expect(out.length).toBeLessThanOrEqual(RENGLONES_EN_LA_MEDIDA);
+    expect(out.filter((l) => l.length > ANCHO)).toEqual([]);
   });
 });
 
