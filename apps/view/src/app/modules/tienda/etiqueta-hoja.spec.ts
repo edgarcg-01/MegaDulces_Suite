@@ -224,7 +224,14 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // precio grande. Sin este clamp, "el precio grande es el número más grande" deja de ser cierto.
     const fit = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
     expect(fit).toContain('Math.min(MONTO_MAX_MM');
-    expect(fit).toContain('* 0.7');
+    expect(fit).toContain('heroMm * k');
+    // [ETQ-PROMO.5] Dos techos: 0.7 general y uno mas apretado bajo oferta. El criterio de
+    // anaquel pide que el precio sea ~2x el texto de apoyo (comprador a 50-100 cm); el 0.7
+    // permitia que la barra de beneficio EMPATARA con el precio — que es lo que se vio.
+    expect(fit).toContain('this.enPromo ? MONTO_MAX_PROMO_K : 0.7');
+    const kPromo = Number(/const MONTO_MAX_PROMO_K = ([\d.]+)/.exec(LABEL)![1]);
+    expect(kPromo).toBeLessThan(0.7);        // bajo oferta APRIETA, nunca afloja
+    expect(kPromo).toBeLessThanOrEqual(0.5); // ~2x el texto de apoyo
   });
 
   it('ANTI-TRINQUETE: los dos ajustes arrancan de su constante, no del tamaño actual', () => {
