@@ -70,8 +70,13 @@ export class TicketCartaService {
    *     pasa en todo documento anterior al 2026-08-13, cuando Kepler empezó a guardarlo.
    *     Dejarla con guiones o en $0.00 le daría al cliente un "antes costaba nada".
    */
-  private fila(l: TicketLinea, conDesc: boolean, conLista: boolean): string {
+  private fila(l: TicketLinea, conDesc: boolean, conLista: boolean, conImp: boolean): string {
     const rebaja = l.descuento_linea > 0;
+    // Un GUION, no un $0.00, cuando el renglón no lleva ese impuesto. Medido: IVA e IEPS nunca
+    // coinciden (0 de 123,203 renglones), así que una de las dos celdas SIEMPRE va vacía — y un
+    // cero se leería como "se cobró cero de IVA" en vez de "este producto no causa IVA".
+    const imp = (v: number, tasa: number) => v > 0
+      ? `${money(v)} <i>${Math.round(tasa * 100)}%</i>` : '<i>&ndash;</i>';
     return `<tr>
       <td><div class="p-name">${esc(l.descripcion || l.sku || '')}</div>
         <div class="p-sku">${esc(l.sku || '')}${l.equivalencia ? ` &middot; equivale a ${esc(l.equivalencia)}` : ''}</div></td>
@@ -79,6 +84,7 @@ export class TicketCartaService {
       ${conLista ? `<td class="r ${rebaja ? 'tachado' : ''}">${l.lista_conocida ? money(l.precio_lista) : '<i>sin dato</i>'}</td>` : ''}
       <td class="r fuerte">${money(l.precio_pagado)}</td>
       ${conDesc ? `<td class="r ahorro">${rebaja ? '-' + money(l.descuento_linea) : ''}</td>` : ''}
+      ${conImp ? `<td class="r">${imp(l.ieps, l.ieps_tasa)}</td><td class="r">${imp(l.iva, l.iva_tasa)}</td>` : ''}
       <td class="r fuerte">${money(l.importe)}</td>
     </tr>`;
   }
@@ -91,7 +97,11 @@ export class TicketCartaService {
     // Cobertura del precio de lista, DECLARADA. Sin ella la columna "Precio de lista" no se
     // imprime en blanco ni en cero: no se imprime, y el aviso dice por que.
     const conLista = c.lineas_con_lista > 0;
-    const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista)).join('\n');
+    // El desglose de impuesto por producto sale SOLO si la suma de los renglones reproduce la
+    // que declara el documento. Unas columnas que no suman lo declarado son peores que no
+    // tenerlas: el cliente las suma y no le da (ADR-056).
+    const conImp = c.impuesto_desglosado;
+    const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista, conImp)).join('\n');
     const logo = this.anexo.logo();
 
     // Los renglones del resumen se arman como lista y se filtran: un "- $0.00" invita a
@@ -151,6 +161,12 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:8.5pt}
 col.c-prod{width:41%}col.c-cant{width:11%}col.c-pl{width:12%}col.c-pp{width:12%}col.c-ds{width:12%}col.c-imp{width:12%}
 table.det.sin-desc col.c-prod{width:47%}
+/* Con el desglose de impuesto son 8 columnas: el nombre cede lo que necesitan las dos nuevas.
+   27% de 197.9mm siguen siendo ~53mm, de sobra para el p95 de 41 caracteres del nombre. */
+col.c-tx{width:10%}
+table.det.con-imp col.c-prod{width:27%}table.det.con-imp col.c-cant{width:9%}
+table.det.con-imp col.c-pl,table.det.con-imp col.c-pp,table.det.con-imp col.c-ds{width:11%}
+table.det.con-imp col.c-imp{width:11%}
 table.det thead{display:table-header-group}
 table.det thead th{font-size:7pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;
   text-align:right;padding:3px 5px;border-bottom:1.5px solid var(--ink)}
@@ -221,11 +237,11 @@ ${doc.aviso ? `<div class="aviso">${esc(doc.aviso)}</div>` : ''}
 
 <div class="sec-h"><h2>Productos</h2>
   <span>${doc.lineas.length} renglon${doc.lineas.length === 1 ? '' : 'es'}</span></div>
-<table class="det ${conDesc ? '' : 'sin-desc'}">
-  <colgroup><col class="c-prod"><col class="c-cant">${conLista ? '<col class="c-pl">' : ''}<col class="c-pp">${conDesc ? '<col class="c-ds">' : ''}<col class="c-imp"></colgroup>
+<table class="det ${conDesc ? '' : 'sin-desc'} ${conImp ? 'con-imp' : ''}">
+  <colgroup><col class="c-prod"><col class="c-cant">${conLista ? '<col class="c-pl">' : ''}<col class="c-pp">${conDesc ? '<col class="c-ds">' : ''}${conImp ? '<col class="c-tx"><col class="c-tx">' : ''}<col class="c-imp"></colgroup>
   <thead><tr>
     <th class="l">Producto</th><th>Cantidad</th>${conLista ? '<th>Precio de lista</th>' : ''}<th>${conLista ? 'Precio pagado' : 'Precio'}</th>
-    ${conDesc ? '<th>Descuento</th>' : ''}<th>Importe</th>
+    ${conDesc ? '<th>Descuento</th>' : ''}${conImp ? '<th>IEPS</th><th>IVA</th>' : ''}<th>Importe</th>
   </tr></thead>
   <tbody>${filas}</tbody>
 </table>
