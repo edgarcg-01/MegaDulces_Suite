@@ -41,7 +41,7 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
       <form class="tk-search" (ngSubmit)="buscar()">
         <i class="pi pi-search" aria-hidden="true"></i>
         <input name="q" type="search" autocomplete="off" [(ngModel)]="termino" #campo
-               placeholder="Folio del ticket — 18665, 0018665, 03UD1001-0018665 o PD-2026-00012"
+               placeholder="Folio del ticket — 18665, 0018665, 03UD10010018665 (con o sin guion) o PD-2026-00012"
                aria-label="Folio a buscar" />
         <button pButton type="submit" [loading]="buscando()" [disabled]="!termino.trim()">Buscar</button>
       </form>
@@ -52,8 +52,12 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
       @if (buscado() && !candidatos().length && !buscando()) {
         <div class="comm-empty">
           <div class="comm-empty-icon"><i class="pi pi-receipt" aria-hidden="true"></i></div>
-          <h3>Ningún documento con ese folio</h3>
-          <p>Revisa el número. Si el ticket es de una sucursal que no alcanzas, no aparece acá.</p>
+          <!-- No dice "revisa el número": cuando lo decía, el número estaba bien y el que
+               fallaba era el parser (no aceptaba la identidad sin guion). Un vacío no es
+               evidencia de que el humano se equivocó. -->
+          <h3>No encontré ese folio</h3>
+          <p>Se buscó en mostrador, telemarketing, crédito y pedidos de la plataforma.
+             Si el ticket es de una sucursal que no alcanzas, no aparece acá.</p>
         </div>
       }
 
