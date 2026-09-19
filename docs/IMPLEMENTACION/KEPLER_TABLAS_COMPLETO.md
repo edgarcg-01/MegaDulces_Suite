@@ -137,13 +137,69 @@ Tablas del módulo POS que controlan precios por unidad/volumen, promociones con
 >
 > `kdpv_gratisxq` (2x1 / 5x4, `c6`=SKU regalado, `c11`=cantidad) existe y está **vencida**: 0
 > vigentes, la última terminó el 2025-12-31.
+>
+> ### ⭐⭐ La promo y el mayoreo SE APILAN al cobrar (verificado 2026-09-19)
+>
+> `cobrado = kdpv_prod_util(cantidad) × (1 − kdpv_descuxq.c6/100)`, **dentro de la presentación en
+> que la promo está declarada**. No es "uno u otro": el reemplazo prácticamente no existe.
+>
+> Medido contra PROD (`current_database() = railway`), plaza **05** (458 de las 498 promos
+> vigentes), doctipo `U-D-10`, ventana **2026-08-20 → 2026-09-18**, sólo renglones con
+> `kdm2.c66 > 0`. Instrumento libre de modelo: `descuento realizado = 1 − c12/c66`, ambos en
+> unidad base.
+>
+> | hecho | cifra |
+> |---|---|
+> | renglones con promo que reciben descuento | **96.9%** (control sin promo: **18.2%** de 10,922) |
+> | reproducen `peldaño × (1 − pct)` | **686 de 1,064** con umbral |
+> | al aflojar la tolerancia **20×** (0.05% → 1%) | 686 → **711** (el ajuste es real, no tolerancia generosa) |
+> | pagan MENOS que el precio promocional, teniendo umbral | **966 de 1,165 (82.9%)**, $4.11 en promedio |
+> | sólo mayoreo (reemplazo) | **11** |
+>
+> ⚠️ **El residuo es DRIFT DEL INSTRUMENTO, no de la regla.** `kdpv_prod_util.c7` y
+> `kdpv_descuxq.c6` son estado de HOY **sin historia**: una venta vieja no puede casar si el
+> precio cambió. Por semana el acierto sube **17.3% → 64.2% → 73.3% → 70.7% → 79.7%** al acercarse
+> a hoy. El 79.7% de la última semana es un **piso**, no un techo.
+>
+> ⭐ **La promo aplica por la unidad que el cliente COMPRÓ (`kdm2.c55`), no por la unidad base**:
+> de los renglones del residuo con promo en varias unidades a distinto %, **51 de 51** cierran al
+> usar el % de la unidad vendida. Y no sale de su presentación: promo en PAQ vendida en PZA →
+> **0 de 49** renglones con descuento.
+>
+> #### ⛔ Tres hipótesis REFUTADAS (para que nadie las reconstruya)
+>
+> | hipótesis | cómo murió |
+> |---|---|
+> | `kdpv_descuxq` es una escalera por cantidad | **493 de 495** grupos `(c1,c2,c3)` vigentes tienen UNA fila, y `c5` = 1 en **496 de 498**. Es un % plano desde la primera unidad. |
+> | La caja cotiza `costo × (1 + markup)` | Un SKU daba 11.00% exacto sobre `kdm2.c62`. En la población, sólo **2.9%** de los renglones caen en markup entero. Coincidencia. |
+> | El residuo es el peldaño mal elegido | Cinco reglas de selección (menor precio / rango `c4..c5` / primer alcanzable / más profundo / menor nivel) dan **685–686**, y su **unión también 686**. Los SKUs del residuo tienen un solo peldaño por presentación. |
+>
+> ⚠️ **Hueco declarado:** **392 de 7,046 peldaños (5.6%)** de los SKUs en promo de la plaza 05
+> tienen una presentación que `kdii` no declara (ni `c11`, ni `c80`, ni `c83`) → no se pueden
+> convertir a unidad base y quedan invisibles. Son 180 SKUs. Y quedan **~291 renglones (7.3%)**
+> sin fórmula; la pista no perseguida es `kdpv_descuxm` (descuento por MONTO, nivel ticket).
 | `kdpv_folio_caja` | 661 | 49 | 🟢 | **Corte/arqueo de caja POS** por cajero y turno (base del Plano 2 del supervisor de cuadre) | `c1`=suc · `c2`=caja · `c3`=folio · `c4`=tipo/seq · `c5`/`c10`=fecha_apertura/cierre · `c6`/`c11`=hora_apertura/cierre · `c7`=cajero_apertura · `c8`=cajero_cierre · `c12`=usuario_cierre · `c13`=turno · **`c15`=efectivo ESPERADO** · **`c25`=efectivo CONTADO (arqueo)** · **`c35`=DIFERENCIA (=c15−c25, faltante+/sobrante−)** · `c16`/`c26`=tarjeta esperado/contado · `c17`/`c27`=transferencia esp/cont · `c36`-`c40`=diffs otras formas · `c48`=efectivo retirado · `c49`≈`c15` (**NO** es la venta total: la venta real es `c15+c16+c17`). **Corte abierto**: c10=`1800-01-01`, montos en 0 → filtrar `c25<>0`. Verificado en vivo 2026-07-07 (md_01/02/03). **Corrección 2026-08-27** (3,048 cortes del ODS): `c35 = c15 − c25` se cumple en **3048/3048**; el **74.5%** cierra con `c25` idéntico a `c15` al centavo (arqueo no ciego, SM.7). **Corrección 2026-09-02 (rectifica la nota anterior):** `c43`=**billetes** y `c44`=**monedas** SÍ son un desglose real del efectivo — vienen poblados en **84–100%** de los cortes según sucursal (2,901 y 2,807 de 3,051). La identidad que cierra es **`c43 + c44 + c48` (retirado) = `c25`** → **63.6%** de los cortes (ej. 590+67+9,000 = 9,657 vs contado 9,657.16). La nota previa decía que el mapeo no se sostenía; ese análisis metía `c45` en la suma y usaba tolerancia de centavos — `c45` **no** forma parte del efectivo contado. En suc **04** el desglose cuadra sin retiros (48% exacto, desvío mediano **$16.68**). Cuando la identidad NO cierra, el faltante suele ser un número redondo ($9,000) = **retiro no registrado en `c48`** → sirve como chequeo de coherencia. `c46`/`c47` sí son parámetros: 42 y 44 valores distintos en 3,048 filas. Lo que Kepler **no** tiene es el conteo **por denominación** (cuántos billetes de $500): eso solo existe en `wincaja.arqueos` y en `reconciliation.blind_counts`. |
 | `kdpv_gerentes` | 2 | 3 | 🟡 | Catálogo de gerentes/supervisores POS por sucursal | `c1`=suc · `c2`=clave_usuario · `c3`=nombre_completo |
 | `kdpv_gratisxm` | 1 | 15 | 🟡 | Promociones "N lleva M gratis" por monto mínimo | `c1`=suc · `c2`=SKU_compra · `c3`=unidad · `c4`=nombre · `c5`=qty_trigger · `c6`=SKU_gratis · `c7`/`c8`=vigencia · `c9`/`c10`=qty_min/max · `c11`=qty_gratis · `c12`=unidad_gratis · `c14`=barcode |
 | `kdpv_gratisxq` | 5 | 15 | 🟢 | Promociones "compra N lleva M gratis" con vigencia | `c1`=suc · `c2`=SKU_compra · `c3`=unidad · `c4`=nombre · `c5`=qty_trigger · `c6`=SKU_gratis · `c7`/`c8`=vigencia_desde/hasta · `c9`/`c10`=qty_min/max · `c11`=qty_gratis · `c12`=unidad_gratis · `c14`=barcode |
 | `kdpv_kdku` | 142 | 5 | 🟡 | Catálogo de cajeros/usuarios POS con PIN | `c1`=clave_usuario · `c2`=nombre_completo · `c3`=PIN · `c4`=status |
 | `kdpv_prod_promo` | 0 | 8 | ⚪ | config/auxiliar (sin datos) | — |
-| `kdpv_prod_util` | 42,158 | 7 | 🟢 | Margen/utilidad por SKU y rango de cantidad | `c1`=SKU · `c2`=unidad · `c3`=nivel_precio · `c4`=qty_desde · `c5`=qty_hasta · `c6`=margen% · `c7`=utilidad |
+| `kdpv_prod_util` | 42,158 | 7 | 🟢 | **Escalera de MAYOREO** por SKU, presentación y rango de cantidad | `c1`=SKU · `c2`=**presentación** · `c3`=nivel/tier · `c4`=qty_desde · `c5`=qty_hasta · `c6`=**markup % sobre costo** · **`c7`=PRECIO de venta por unidad de `c2`** |
+
+> ⭐ **`c7` es el PRECIO, no la "utilidad"** (corregido 2026-09-19). Esta línea decía `c7`=utilidad
+> y contradecía al código y a [`KEPLER_PRECIOS_MODELO.md`](KEPLER_PRECIOS_MODELO.md) §5, sin que
+> ninguna nota reconciliara las dos. Evidencia: FERRERO 24P (`42001`, plaza 05) tiene `c7` =
+> **221.86** en PAQ contra una lista `kdii.c90` de **236.51** — un precio de mayoreo, no una
+> utilidad (el costo del renglón, `kdm2.c62`, es 188.46). Y `c6` es **markup sobre costo**, no
+> margen sobre precio: llega a 139%, imposible para un margen.
+>
+> ⚠️ **`c7` está en la unidad de `c2`, NO en la base.** Para compararlo con `kdm2.c12` (que es por
+> unidad base) hay que dividir por el factor de `kdii` (`c11`→1, `c80`/`c81`, `c83`/`c84`). Es la
+> misma conversión que hace `analytics.product_volume_tiers` (`precio_base = c7/factor`).
+>
+> ⛔ **`c5` (qty_hasta) es un tope REAL, no un centinela**: 22,623 de 23,130 pares consecutivos
+> cumplen `c5 = c4_siguiente − 1` (97.8%) → rangos contiguos sin traslape. El peldaño abierto usa
+> centinela `999999` / `99999` / `999999999`. Hay 53 filas (0.13%) con `c5 = 0`.
 | `kdpv_prov_prod` | 9,505 | 10 | 🟢 | Proveedor→producto con costo y condiciones | `c1`=proveedor · `c2`=SKU · `c3`=clave_interna · `c4`=costo · `c5`..`c7`=desc/bonif/otros · `c8`=flete · `c9`=costo_neto · `c10`=extra |
 | `kdpv_unico` | 0 | 3 | ⚪ | config/auxiliar (sin datos) | — |
 | `pos95caja` | 0 | 3 | ⚪ | Catálogo de cajas POS (sin datos en md_03) | — |
