@@ -1,40 +1,68 @@
 import { computed, signal } from '@angular/core';
 import { ErpOrderMatch, ReceivingLine, ReceivingSession } from '../receiving-session.service';
+import { UnlocatedLot } from '../bin-location.service';
 
 /**
  * Fase WMS-REC — Andén de Entrada. Estado puro, sin red.
  *
- * **Dos puertas con dos relojes, y la segunda se parte en dos trabajos paralelos.**
+ * **Dos secciones, en este orden: Fechas → Ubicación.**
  *
- *  - **Llegada** corre contra el chofer: identificar el vale con el folio del
- *    papel, contar contra lo que mandó Kepler, dar acceso. La mercancía entra sin
- *    fecha en lote `NA` y el camión se va. Todo lo lento queda afuera.
- *  - **Caducidad** y **Ubicación** corren contra el anaquel, y **NO son un paso
- *    encadenado**: son dos colas hermanas que pueden trabajar dos personas
- *    distintas en momentos distintos. Por eso son secciones, no pasos.
+ *  - **Fechas** es la puerta: con el folio aparece el vale y sus renglones, y lo
+ *    único que se captura es lote + caducidad + cuántas piezas llegaron. Ahí
+ *    entra la mercancía a existencia.
+ *  - **Ubicación** es lo que sigue: a cada lote ya fechado se le da su rack o su
+ *    tarima. Va después porque **se ubica un LOTE, no un renglón** — mientras no
+ *    haya fecha, lo que hay en existencia es el lote `NA`, y acomodarlo sería
+ *    acomodar algo que después se reclasifica.
  *
- * El segmento activo **no vive en la ruta**: es estado de pantalla. El vale es el
+ * **Fechar es contar.** No hay un paso de cotejo aparte: la cantidad que se
+ * declara al fechar es la que se recibió, y se escribe en `received_qty` cuando
+ * el renglón queda cerrado. Así el cierre del vale sigue viendo faltantes y
+ * sobrantes contra Kepler, y los reclamos de WMS-REC.8 conservan su insumo.
+ *
+ * La sección activa **no vive en la ruta**: es estado de pantalla. El vale es el
  * contexto y se conserva al saltar; meterlo en la URL rompe el flujo con el back
  * del navegador.
  */
 
-export type Seccion = 'llegada' | 'caducidad' | 'ubicacion';
+export type Seccion = 'fechas' | 'ubicacion';
 
 /** Renglón enriquecido con lo que la pantalla deriva. */
 export interface AndenLinea extends ReceivingLine {
   /** Piezas por unidad del código escaneado (24 = caja de 24). `null` = sin dato. */
   uxc: number | null;
-  /** Piezas cotejadas en Llegada. `undefined` = todavía no se contó. */
-  contado: number | undefined;
   /** Piezas ya declaradas con lote+caducidad. Derivado, nunca denormalizado. */
   declarado: number;
   /** Retenidas por un 🔴 sin autorizar: no entraron a stock. */
   retenido: number;
-  /** Falta fechar: contado − declarado − retenido. */
+  /**
+   * Piezas que todavía esperan lote y fecha.
+   *
+   * Mientras el renglón sigue `pending`, es lo que Kepler manda menos lo ya
+   * declarado: eso permite partir un renglón en varios lotes (llegaron 12 con una
+   * fecha y 12 con otra). En cuanto el renglón se cierra —porque se declaró todo,
+   * o porque el operario dijo que no llegó más— deja de ser cola.
+   */
   faltaFechar: number;
-  /** Se acomodó en un rack durante esta sesión de pantalla. */
-  ubicado: string | null;
   /** Rack sugerido por `pick-suggestion` — donde ya vive este SKU. */
+  binSugerido: string | null;
+}
+
+/**
+ * Un lote esperando rack. **Es la unidad de la cola de Ubicación**, y sale del
+ * backend (`/unlocated`), no de la memoria de la pantalla: el put-away exige el
+ * lote y la caducidad exactos, y recordarlos en el navegador los desfasa en
+ * cuanto otra persona fecha desde otro equipo.
+ */
+export interface AndenLote {
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  lot_code: string;
+  expiry_date: string | null;
+  /** Piezas de este lote que faltan por acomodar. */
+  porUbicar: number;
+  /** Rack donde ya vive este SKU, si lo hay. */
   binSugerido: string | null;
 }
 
@@ -42,13 +70,6 @@ export interface AndenLinea extends ReceivingLine {
 export interface AndenBorrador {
   sessionId: string;
   seccion: Seccion;
-  acceso: boolean;
-  /** lineId → piezas contadas, para no perder el cotejo si muere la app. */
-  contado: Record<string, number>;
-  /** lineId → rack, para no re-escanear lo ya acomodado. */
-  ubicado: Record<string, string>;
-  /** Escaneos ya enviados, por `scan_uuid`: reenviar al recuperar no duplica. */
-  scans: string[];
   guardadoEn: number;
 }
 
@@ -56,6 +77,11 @@ const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
+/** Clave de un lote: producto + lote + caducidad. La caducidad nula es parte de la identidad. */
+export function claveLote(l: { product_id: string; lot_code: string; expiry_date: string | null }): string {
+  return `${l.product_id}|${l.lot_code}|${l.expiry_date ?? ''}`;
+}
 
 export class AndenState {
   // ── Identificación del vale ──
@@ -66,15 +92,16 @@ export class AndenState {
   readonly erp = signal<ErpOrderMatch | null>(null);
 
   // ── Navegación entre secciones (NO va en la ruta) ──
-  readonly seccion = signal<Seccion>('llegada');
-  readonly acceso = signal(false);
+  readonly seccion = signal<Seccion>('fechas');
 
-  // ── Renglones ──
+  // ── Renglones y lotes ──
   readonly lineas = signal<AndenLinea[]>([]);
-  /** Renglón abierto en Llegada para capturar cantidad. */
-  readonly capturando = signal<AndenLinea | null>(null);
-  /** Renglón abierto en Caducidad o Ubicación. */
+  /** Lotes por acomodar, tal como los reporta el backend. */
+  readonly lotes = signal<AndenLote[]>([]);
+  /** Renglón abierto para fechar. */
   readonly actual = signal<AndenLinea | null>(null);
+  /** Lote abierto para ubicar. */
+  readonly loteActual = signal<AndenLote | null>(null);
 
   readonly cargando = signal(false);
   readonly guardando = signal(false);
@@ -84,9 +111,14 @@ export class AndenState {
   // ── Derivados ──
 
   readonly abierto = computed(() => this.vale() !== null);
+  readonly cerrado = computed(() => this.vale()?.status === 'closed');
 
   /** El almacén SIEMPRE se hereda del vale. Si algo lo vuelve a pedir, se rompió el flujo. */
   readonly warehouseId = computed(() => this.vale()?.warehouse_id ?? null);
+  readonly almacen = computed(() => {
+    const v = this.vale();
+    return v ? v.warehouse_code || v.warehouse_name || null : null;
+  });
 
   readonly proveedor = computed(() => {
     const e = this.erp();
@@ -106,70 +138,91 @@ export class AndenState {
    * código del "proveedor" de Kepler (`TI###` = traspaso, `TI000` = CEDIS) —
    * acá no se vuelve a calcular, para que haya una sola definición.
    */
-  readonly origen = computed(() => (this.vale() as any)?.origin ?? null);
+  readonly origen = computed(() => this.vale()?.origin ?? null);
 
-  readonly estado = computed(() => (!this.abierto() ? 'sin identificar' : this.acceso() ? 'con_acceso' : 'abierto'));
+  readonly estado = computed(() =>
+    !this.abierto() ? 'sin identificar' : this.cerrado() ? 'cerrado' : 'en captura',
+  );
 
-  /** Contadas ya en Llegada. */
-  readonly contadas = computed(() => this.lineas().filter((l) => l.contado !== undefined).length);
-  readonly porCotejar = computed(() => this.lineas().length - this.contadas());
-  readonly cotejoListo = computed(() => this.lineas().length > 0 && this.porCotejar() === 0);
+  /** Cola de Fechas: renglones que todavía esperan lote y caducidad. */
+  readonly pendientesFechar = computed(() => this.lineas().filter((l) => l.faltaFechar > 0));
+  /** Cola de Ubicación: lotes ya fechados sin rack. */
+  readonly pendientesUbicar = computed(() => this.lotes().filter((l) => l.porUbicar > 0));
 
-  /** Piezas cotejadas en total — lo que entra en lote `NA` al dar acceso. */
-  readonly unidades = computed(() => this.lineas().reduce((a, l) => a + num(l.contado), 0));
+  /** Piezas declaradas con fecha en todo el vale — lo que de verdad entró. */
+  readonly unidades = computed(() => this.lineas().reduce((a, l) => a + l.declarado, 0));
 
-  /** Renglones cuyo conteo no coincide con lo que mandó Kepler. */
+  /** Renglones cuya cantidad declarada no coincide con lo que mandó Kepler. */
   readonly diferencias = computed(
-    () => this.lineas().filter((l) => l.contado !== undefined && l.contado !== num(l.expected_qty)).length,
+    () => this.lineas().filter(
+      (l) => l.discrepancy_kind !== 'pending' && num(l.received_qty) !== num(l.expected_qty),
+    ).length,
   );
 
-  /** Cola de Caducidad: contado pero sin fechar. */
-  readonly pendientesFechar = computed(
-    () => this.lineas().filter((l) => l.contado !== undefined && l.faltaFechar > 0),
-  );
-  /** Cola de Ubicación: contado pero sin rack. */
-  readonly pendientesUbicar = computed(
-    () => this.lineas().filter((l) => l.contado !== undefined && !l.ubicado),
-  );
-
-  readonly siguienteCotejar = computed(() => this.lineas().find((l) => l.contado === undefined) ?? null);
   readonly siguienteFechar = computed(() => this.pendientesFechar()[0] ?? null);
   readonly siguienteUbicar = computed(() => this.pendientesUbicar()[0] ?? null);
 
   // ── Mutaciones ──
 
   /**
-   * Vuelca el detalle del vale a renglones de pantalla. `faltaFechar` se DERIVA
-   * (contado − declarado − retenido): un contador denormalizado se desfasa en
-   * cuanto un supervisor autoriza un rojo.
+   * Vuelca el detalle del vale a renglones de pantalla. `faltaFechar` se DERIVA:
+   * un contador denormalizado se desfasa en cuanto un supervisor autoriza un rojo.
    *
-   * Conserva lo que sólo vive en la pantalla (uxc resuelto, rack sugerido, y lo
-   * ya acomodado) para no perderlo en cada recarga del detalle.
+   * Un renglón deja de ser cola cuando su `discrepancy_kind` ya no es `pending`,
+   * que es la marca de renglón cerrado — y es del SERVER, no de la pantalla, así
+   * que sobrevive a cerrar la app o a que lo cierre otra persona.
+   *
+   * Conserva lo que sólo vive acá (uxc resuelto, rack sugerido) para no perderlo
+   * en cada recarga del detalle.
    */
   cargarDesdeVale(s: ReceivingSession): void {
     this.vale.set(s);
-    if (s.status === 'closed') this.acceso.set(true);
     const previas = new Map(this.lineas().map((l) => [l.id, l]));
     this.lineas.set(
       (s.lines ?? []).map((l) => {
         const prev = previas.get(l.id);
-        const recibido = num(l.received_qty);
         const declarado = num(l.declared_qty);
         const retenido = num(l.held_qty);
-        // Antes del acceso, `received_qty` sólo es "contado" si alguien lo tocó:
-        // el backend arranca las líneas en `pending` con received 0.
-        const contado = l.discrepancy_kind !== 'pending' ? recibido : prev?.contado;
+        const abiertoAun = l.discrepancy_kind === 'pending';
         return {
           ...l,
           uxc: prev?.uxc ?? null,
-          contado,
           declarado,
           retenido,
-          faltaFechar: Math.max(0, num(contado) - declarado - retenido),
-          ubicado: prev?.ubicado ?? null,
+          faltaFechar: abiertoAun ? Math.max(0, num(l.expected_qty) - declarado - retenido) : 0,
           binSugerido: prev?.binSugerido ?? null,
         };
       }),
+    );
+  }
+
+  /**
+   * Carga la cola de Ubicación con lo que el backend reporta sin acomodar,
+   * **acotado a los productos de este vale**: `/unlocated` contesta por almacén, y
+   * sin este filtro el andén arrastraría pendientes de recepciones de otro día que
+   * nadie pidió resolver ahora.
+   */
+  cargarLotes(rows: UnlocatedLot[]): void {
+    const delVale = new Set(this.lineas().map((l) => l.product_id).filter((x): x is string => !!x));
+    const previos = new Map(this.lotes().map((l) => [claveLote(l), l]));
+    this.lotes.set(
+      (rows || [])
+        .filter((r) => delVale.has(r.product_id))
+        .map((r) => {
+          const lote: AndenLote = {
+            product_id: r.product_id,
+            sku: r.sku ?? null,
+            product_name: r.product_name ?? null,
+            lot_code: r.lot_code,
+            expiry_date: r.expiry_date,
+            porUbicar: num(r.to_locate),
+            binSugerido: null,
+          };
+          lote.binSugerido = previos.get(claveLote(lote))?.binSugerido ?? null;
+          return lote;
+        })
+        .filter((l) => l.porUbicar > 0)
+        .sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '')),
     );
   }
 
@@ -177,33 +230,14 @@ export class AndenState {
     this.lineas.update((ls) => ls.map((l) => (l.id === lineId ? { ...l, ...patch } : l)));
   }
 
-  /** Aplica un borrador recuperado sobre los renglones ya cargados del server. */
-  aplicarBorrador(b: AndenBorrador): void {
-    this.seccion.set(b.seccion);
-    this.acceso.set(b.acceso);
-    this.lineas.update((ls) =>
-      ls.map((l) => {
-        const contado = b.contado[l.id] ?? l.contado;
-        return {
-          ...l,
-          contado,
-          faltaFechar: Math.max(0, num(contado) - l.declarado - l.retenido),
-          ubicado: b.ubicado[l.id] ?? l.ubicado,
-        };
-      }),
-    );
+  parchearLote(clave: string, patch: Partial<AndenLote>): void {
+    this.lotes.update((ls) => ls.map((l) => (claveLote(l) === clave ? { ...l, ...patch } : l)));
   }
 
-  aBorrador(scans: string[]): AndenBorrador | null {
+  aBorrador(): AndenBorrador | null {
     const v = this.vale();
     if (!v) return null;
-    const contado: Record<string, number> = {};
-    const ubicado: Record<string, string> = {};
-    for (const l of this.lineas()) {
-      if (l.contado !== undefined) contado[l.id] = l.contado;
-      if (l.ubicado) ubicado[l.id] = l.ubicado;
-    }
-    return { sessionId: v.id, seccion: this.seccion(), acceso: this.acceso(), contado, ubicado, scans, guardadoEn: Date.now() };
+    return { sessionId: v.id, seccion: this.seccion(), guardadoEn: Date.now() };
   }
 
   reset(): void {
@@ -212,10 +246,10 @@ export class AndenState {
     this.vale.set(null);
     this.erp.set(null);
     this.lineas.set([]);
-    this.capturando.set(null);
+    this.lotes.set([]);
     this.actual.set(null);
-    this.seccion.set('llegada');
-    this.acceso.set(false);
+    this.loteActual.set(null);
+    this.seccion.set('fechas');
     this.guardado.set(false);
   }
 }
