@@ -64,8 +64,16 @@ const DOCTOS_COLS = [
   ['m02', 'numeric'], ['m01', 'numeric'], ['mor', 'numeric'], ['bm', 'numeric'],
   ['saldod', 'numeric'], ['dolard', 'numeric'], ['tipocambd', 'numeric'],
   ['depcliented', 'numeric'], ['horad', 'text'],
-  // ⭐ El gancho al concepto de Kepler que el Access tiene desde 2008 y NUNCA se usó:
-  // vacío en el 99.3% de las filas. Se replica igual — es el hueco que ADR-070 viene a cerrar.
+  // ⚠️ `conceptod` NO es el gancho al concepto de Kepler, aunque el nombre lo sugiera —
+  // **medido sobre las 116,503 filas (2008→2026), no supuesto**: tiene **3 valores distintos en 18
+  // años** (`1` ×14,858 · `4` ×1,098 · `2` ×39) contra los 2,645 conceptos del catálogo de Kepler.
+  // Es una bandera de tres estados, no una llave foránea. Y su uso se apagó solo: 31% de las filas
+  // en 2018, **0.7% en 2026**.
+  //
+  // Importa dejarlo escrito porque la lectura fácil ("el gancho existía y nunca se usó") lleva a
+  // creer que hay un mapeo histórico que se puede recuperar. **No lo hay**: nadie mapeó nunca una
+  // cuenta de caja a un concepto de Kepler, y por eso ese mapa es HITL (`caja_kepler_concept_map`)
+  // y no algo derivable. Se replica igual, como todo lo demás.
   ['conceptod', 'numeric'],
 ];
 

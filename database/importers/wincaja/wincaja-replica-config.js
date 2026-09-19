@@ -27,8 +27,20 @@ const ADMIN_URL = process.env.WINCAJA_REPLICA_ADMIN_URL || 'postgresql://postgre
  * Rutas: se agregan tras probar el loop en 30/32.
  */
 const BRANCHES = [
-  { code: '30', schema: 'w30', name: 'Morelia Abastos', mdb: `${MDB_BASE}/30 MORELIA ABASTOS.MDB` },
-  { code: '32', schema: 'w32', name: 'Morelia Madero', mdb: `${MDB_BASE}/32 MORELIA MADERO.MDB` },
+  // ⛔ `30` Morelia Abastos y `32` Morelia Madero SALIERON del carril vivo: las dos migraron su
+  // PdV a Kepler y sus `.mdb` dejaron de moverse. Mismo criterio que Canindo `50`.
+  //
+  // Medido antes de sacarlas (2026-09-18), y el control importa: los dos carriles PM2 llevaban
+  // 3 días online con 0 reinicios, así que "no llega nada nuevo" es una medición, no un carril
+  // muerto.
+  //   w32 Madero  — último movimiento 2026-09-07; Kepler `md_07` arranca el 09-08.
+  //   w30 Abastos — último movimiento 2026-09-17 (651 movs); Kepler `md_08` arranca el 09-18,
+  //                 y `md_08.md.kdm1` NO tiene un solo documento anterior a esa fecha.
+  // Cero traslape y cero hueco en las dos. Dejarlas acá sería girar en vacío contra un archivo
+  // que ya nadie escribe.
+  //
+  // ⚠️ El HISTÓRICO se queda: los schemas `w30` y `w32` de la réplica son la única copia de lo
+  // que esas sucursales vendieron en Wincaja. Esto saca el carril CONTINUO, no el dato.
   { code: '00', schema: 'w00', name: 'CEDIS Irapuato', mdb: `${MDB_BASE}/0 BPIRAPUATO MOV.MDB` },
 ];
 

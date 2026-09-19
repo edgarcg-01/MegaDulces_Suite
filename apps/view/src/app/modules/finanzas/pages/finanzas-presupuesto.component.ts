@@ -145,9 +145,13 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Presupuesto</h1>
-          <p class="surf-page-sub">Planea y controla ejercicios (partidas, reservas, compromisos, ejercido) y alimenta el <strong>Calendario de pagos</strong> con la capacidad diaria y los gastos autorizados.</p>
+          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler; vos ajustás los <strong>supuestos del año</strong> y autorizás. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
-        <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista de presupuesto" />
+        <div class="pres-nav">
+          <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
+          <span class="pres-nav-sep">Programación de pagos</span>
+          <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="Programación de pagos" />
+        </div>
       </header>
 
       <!-- ══════════ EJERCICIOS (sistema de presupuestos) ══════════ -->
@@ -182,22 +186,44 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
               <div class="pres-detail-actions">
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openAddLine()"><span class="pi pi-plus"></span>&nbsp;Partida</button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'approve')" [loading]="savingLifecycle()">Aprobar</button>
                 }
                 @if (b.status === 'aprobado') {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="materializeNow(b)" [loading]="materializing()" title="Re-sincronizar las partidas desde los planes"><span class="pi pi-sync"></span>&nbsp;Re-materializar</button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="lifecycle(b, 'close')" [loading]="savingLifecycle()">Cerrar</button>
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openProjection()" title="Proyección de cierre"><span class="pi pi-flag"></span>&nbsp;Proyección</button>
                 }
-                @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openImport()" title="Importar partidas"><span class="pi pi-upload"></span>&nbsp;Importar</button>
-                }
-                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCopy()" title="Copiar ejercicio"><span class="pi pi-copy"></span>&nbsp;Copiar</button>
-                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCompare()" title="Comparar con otro ejercicio"><span class="pi pi-arrows-h"></span>&nbsp;Comparar</button>
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCopy()" title="Copiar del año anterior"><span class="pi pi-copy"></span>&nbsp;Copiar del año anterior</button>
               </div>
+            </div>
+
+            <!-- Supuestos del año: lo ÚNICO que ajusta el humano; el sistema propone con esto (PR.5) -->
+            <div class="pres-assump">
+              <div class="pres-assump-head">
+                <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— lo único que ajustás; el sistema propone ventas y gastos con esto</span></h3>
+                @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar supuestos</button>
+                }
+              </div>
+              <div class="pres-assump-grid">
+                <div class="pres-assump-col">
+                  <h4>Ventas — crecimiento por canal (%)</h4>
+                  @for (ch of channelsList; track ch) {
+                    <label class="pres-assump-row"><span>{{ ch }}</span><input pInputText type="number" [(ngModel)]="asVentasGrowth[ch]" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  }
+                  <label class="pres-assump-row"><span>Respaldo</span><input pInputText type="number" [(ngModel)]="asVentasDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                </div>
+                <div class="pres-assump-col">
+                  <h4>Gastos</h4>
+                  <label class="pres-assump-row"><span>Crecimiento (%)</span><input pInputText type="number" [(ngModel)]="asGastosDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  <label class="pres-assump-row"><span>Familias Kepler</span><input pInputText type="text" [(ngModel)]="asGastosFamilies" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" placeholder="6" /></label>
+                  <label class="pres-assump-row"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> &nbsp;Presupuestar por sucursal</label>
+                  <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión.</p>
+                </div>
+              </div>
+              <p class="pres-lbl-hint">Guardá los supuestos y luego usá «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
             </div>
 
             <!-- Answer-first: el resumen ejecutivo antes del grid (DESIGN §15) -->
@@ -236,11 +262,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Este ejercicio no tiene partidas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Agrega la primera con «Partida». }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas todavía. Las partidas se <strong>materializan de los planes</strong> (Ventas + Gastos) al aprobar el ejercicio — no se capturan a mano.</td></tr></ng-template>
             </p-table>
-            @if (b.status !== 'aprobado') {
-              <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas se capturan en borrador. Los movimientos (reservar / comprometer / ejercer / pagar / adecuar) se habilitan cuando el ejercicio está <strong>aprobado</strong>.</p>
-            }
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas son un <strong>derivado del plan</strong> (ingreso = plan de ventas · gasto = plan de gastos). Se materializan al aprobar (o con «Re-materializar»). Los movimientos (reservar / comprometer / ejercer / pagar) se habilitan con el ejercicio <strong>aprobado</strong>.</p>
           }
         </section>
       }
@@ -250,9 +274,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         <section class="pres-section">
           @if (selected(); as b) {
             <div class="pres-section-head">
-              <h2>Gasto operativo · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
+              <h2>Gastos · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
               @if (b.status === 'borrador' || b.status === 'en_revision') {
-                <button pButton type="button" class="p-button-sm" (click)="openNewGasto()"><span class="pi pi-plus"></span>&nbsp;Gasto operativo</button>
+                <button pButton type="button" class="p-button-sm" (click)="runProposeExpense()" [loading]="savingExpensePropose()" title="Arma los gastos con los supuestos del año"><span class="pi pi-bolt"></span>&nbsp;Proponer gastos del año</button>
               }
             </div>
             <app-metric-strip [items]="gastoKpis()" mode="strip" ariaLabel="Resumen de gasto operativo" />
@@ -279,16 +303,13 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin gastos operativos en este ejercicio. @if (b.status === 'borrador' || b.status === 'en_revision') { Agregá el primero con «Gasto operativo». }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas de gasto todavía. Se materializan del <strong>presupuesto propuesto</strong> (abajo) al aprobar el ejercicio.</td></tr></ng-template>
             </p-table>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Control antes de comprometer: el disponible manda. Reservar/comprometer más que el disponible se <strong>bloquea</strong> (o avisa) según el control de cada partida. Los movimientos se operan con el ejercicio <strong>aprobado</strong>.</p>
 
             <!-- ── Presupuesto de gastos PROPUESTO (automático desde egresos de Kepler · PVG) ── -->
             <div class="pres-section-head" style="margin-top:1.4rem">
               <h3 style="margin:0;font-size:1rem">Presupuesto propuesto <span class="pres-muted">· automático desde egresos de Kepler</span></h3>
-              @if (b.status === 'borrador' || b.status === 'en_revision') {
-                <button pButton type="button" class="p-button-sm" (click)="openExpensePropose()"><span class="pi pi-bolt"></span>&nbsp;Proponer gastos del año</button>
-              }
             </div>
             @if (lastExpenseCoverage(); as cov) {
               <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.accounts }}</strong> cuentas · <strong>{{ cov.historico_ajustado }}</strong> por base histórica · <strong>{{ cov.estacional }}</strong> por recurrencia · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
@@ -310,7 +331,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
             </p-table>
             @if (expenseByAccount().length) {
-              <p class="pres-hint"><span class="pi pi-calculator"></span> Total propuesto (año): <strong class="pres-mono">{{ money(expenseTotal()) }}</strong> · grano <strong>cuenta mayor × mes</strong> (base del año anterior × crecimiento; relleno por recurrencia). Es una <strong>propuesta</strong>; el libro mayor de 5 estados de arriba se materializa por separado.</p>
+              <p class="pres-hint"><span class="pi pi-calculator"></span> Total propuesto (año): <strong class="pres-mono">{{ money(expenseTotal()) }}</strong> · grano <strong>cuenta mayor × mes</strong> (base del año anterior × crecimiento; relleno por recurrencia). Al <strong>aprobar</strong> el ejercicio, esta propuesta se materializa en las partidas del libro de 5 estados (arriba).</p>
             }
           } @else {
             <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
@@ -327,9 +348,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <div class="pres-detail-actions">
                 <app-segmented [options]="salesTabOpts" [value]="salesTab()" (valueChange)="setSalesTab($any($event))" ariaLabel="Vista de ventas" />
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <button pButton type="button" class="p-button-sm" (click)="openProposePlan()"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openGenPlan()" title="Crecimiento plano único">Generar plano</button>
+                  <button pButton type="button" class="p-button-sm" (click)="runProposePlan()" [loading]="savingPropose()" title="Arma el plan con los supuestos del año (Ejercicio)"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
                 }
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="loadSalesComparison()" [loading]="loadingSales()" title="Consulta el sell-out del ODS (unos segundos)"><span class="pi pi-refresh"></span>&nbsp;{{ salesCmp() ? 'Actualizar real' : 'Cargar meta vs real' }}</button>
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="projectTargets()" [loading]="projecting()" title="Reparte la meta del plan (13×4) a metas mensuales del «vs objetivo» del sub-módulo Análisis (reparto por días)."><span class="pi pi-share-alt"></span>&nbsp;Proyectar a Análisis</button>
               </div>
             </div>
@@ -372,7 +393,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                       <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
                       <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
                       <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
-                      <td>@if (!r.is_rollup && salesPeriod > 0 && (b.status === 'borrador' || b.status === 'en_revision')) { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMetaEdit(r)" title="Capturar meta" aria-label="Capturar meta"><span class="pi pi-pencil"></span></button> }</td>
+                      <td></td>
                     </tr>
                   </ng-template>
                   <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
@@ -380,6 +401,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad donde no hay base) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—). Para ajustar una meta a mano, elegí un periodo (P1–P13).</p>
               } @else if (loadingSales()) {
                 <p class="pres-muted">Cargando presupuesto de ventas…</p>
+              } @else {
+                <p class="pres-hint"><span class="pi pi-info-circle"></span> El «meta vs real» consulta el sell-out del ODS (unos segundos). Pulsá <strong>«Cargar meta vs real»</strong> para verlo. La propuesta del plan no lo necesita.</p>
               }
             }
 
@@ -463,11 +486,37 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         </section>
       }
 
-      <!-- ══════════ FLUJO DE EFECTIVO (PU.3) ══════════ -->
+      <!-- ══════════ FLUJO / RESULTADO (PU.3 + PR.4) ══════════ -->
       @if (view() === 'flujo') {
         <section class="pres-section">
-          <div class="pres-section-head">
-            <h2>Flujo de efectivo previsto</h2>
+          <!-- Resultado presupuestado: ingresos (plan ventas) − egresos (plan gastos) · PR.4 -->
+          @if (selected()) {
+            <h2>Resultado presupuestado <span class="pres-muted">— plan de ventas − plan de gastos</span></h2>
+            @if (resultado(); as res) {
+              <div class="pres-result-kpis">
+                <div class="pres-result-kpi"><span class="pres-result-lbl">Ingresos (plan)</span><span class="pres-result-val pres-mono">{{ money(res.annual.ingresos) }}</span></div>
+                <div class="pres-result-kpi"><span class="pres-result-lbl">Egresos (plan)</span><span class="pres-result-val pres-mono">{{ money(res.annual.egresos) }}</span></div>
+                <div class="pres-result-kpi"><span class="pres-result-lbl">Resultado</span><span class="pres-result-val pres-mono" [class.pres-neg]="res.annual.resultado < 0">{{ money(res.annual.resultado) }}</span></div>
+                <div class="pres-result-kpi"><span class="pres-result-lbl">Margen</span><span class="pres-result-val pres-mono">{{ res.annual.margen_pct == null ? '—' : res.annual.margen_pct + '%' }}</span></div>
+              </div>
+              @if (!res.sources.ingresos.available || !res.sources.egresos.available) {
+                <p class="pres-nodata"><span class="pi pi-info-circle"></span> @if (!res.sources.ingresos.available) { {{ res.sources.ingresos.reason }}. } @if (!res.sources.egresos.available) { {{ res.sources.egresos.reason }}. }</p>
+              }
+              <p-table [value]="res.months" styleClass="p-datatable-sm surf-table pres-table">
+                <ng-template #header><tr><th>Mes</th><th class="ta-r">Ingresos</th><th class="ta-r">Egresos</th><th class="ta-r">Resultado</th></tr></ng-template>
+                <ng-template #body let-m>
+                  <tr><td class="pres-mono">{{ m.year_month }}</td><td class="ta-r pres-mono">{{ dash(m.ingresos) }}</td><td class="ta-r pres-mono">{{ dash(m.egresos) }}</td><td class="ta-r pres-mono" [class.pres-neg]="m.resultado < 0">{{ money(m.resultado) }}</td></tr>
+                </ng-template>
+              </p-table>
+            } @else if (loadingResultado()) {
+              <p class="pres-muted">Calculando resultado…</p>
+            }
+          } @else {
+            <p class="pres-muted">Elegí un ejercicio en «Ejercicio» para ver su resultado presupuestado.</p>
+          }
+
+          <div class="pres-section-head" style="margin-top:1.4rem">
+            <h2>Flujo de caja previsto</h2>
             <div class="pres-cf-period">
               <input type="date" [(ngModel)]="cfFrom" class="pres-date" aria-label="Desde" />
               <input type="date" [(ngModel)]="cfTo" class="pres-date" aria-label="Hasta" />
@@ -506,6 +555,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Cobros: cartera por vencimiento. Pagos: obligaciones pendientes (Presupuestos + Compras + Finanzas). Liquidez a nivel empresa, no por ejercicio.</p>
           } @else if (loadingCashflow()) {
             <p class="pres-muted">Cargando flujo…</p>
+          } @else {
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsá <strong>«Actualizar»</strong> para calcularlo.</p>
           }
         </section>
       }
@@ -591,10 +642,34 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         </section>
       }
 
-      <!-- ══════════ CAPACIDAD DE PAGO (Fase TP) ══════════ -->
+      <!-- ══════════ CAPACIDAD DE PAGO (Fase TP + PR.2) ══════════ -->
       @if (view() === 'capacidad') {
         <section class="pres-section">
-          <h2>Capacidad diaria</h2>
+          <!-- Proponer capacidad desde el flujo (cobranza esperada) · PR.2 -->
+          <div class="pres-section-head">
+            <h2>Capacidad de pago <span class="pres-muted">— el sistema la propone desde el flujo; vos confirmás</span></h2>
+          </div>
+          <div class="pres-cap-form">
+            <input type="date" [(ngModel)]="capProposeFrom" class="pres-date" aria-label="Desde" />
+            <input type="date" [(ngModel)]="capProposeTo" class="pres-date" aria-label="Hasta" />
+            <button pButton type="button" class="p-button-sm" (click)="proposeCapacity()" [loading]="loadingCapProp()"><span class="pi pi-bolt"></span>&nbsp;Proponer capacidad</button>
+          </div>
+          @if (capProposal(); as p) {
+            @if (!p.available) {
+              <p class="pres-nodata"><span class="pi pi-info-circle"></span> {{ p.reason || 'Sin cartera CXC para proponer capacidad.' }}</p>
+            } @else {
+              <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ p.note }} · <strong>{{ p.items.length }}</strong> días · total <strong class="pres-mono">{{ money(capProposalTotal()) }}</strong>.
+                <button pButton type="button" class="p-button-sm" (click)="confirmCapacity()" [loading]="confirmingCap()">Confirmar capacidad propuesta</button></p>
+              <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
+                <ng-template #header><tr><th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Cobranza de la semana</th></tr></ng-template>
+                <ng-template #body let-it>
+                  <tr><td class="pres-mono">{{ it.date }}</td><td class="ta-r pres-mono">{{ money(it.amount) }}</td><td class="ta-r pres-mono">{{ dash(it.cobros_week) }}</td></tr>
+                </ng-template>
+              </p-table>
+            }
+          }
+
+          <h3 style="margin-top:1.4rem">Ajuste manual de un día</h3>
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capDate" (change)="loadCapacity()" class="pres-date" aria-label="Fecha" />
             <input pInputText type="number" [(ngModel)]="capAmount" placeholder="Importe autorizado" class="pres-amt" />
@@ -625,29 +700,34 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         </section>
       }
 
-      <!-- ══════════ GASTOS AUTORIZADOS (Fase TP) ══════════ -->
+      <!-- ══════════ OBLIGACIONES (Fase TP + PR.3) ══════════ -->
       @if (view() === 'gastos') {
         <section class="pres-section">
           <div class="pres-section-head">
-            <h2>Gastos autorizados</h2>
-            <button pButton type="button" class="p-button-sm" (click)="openNew()"><span class="pi pi-plus"></span>&nbsp;Nuevo gasto</button>
+            <h2>Obligaciones <span class="pres-muted">— se auto-generan del plan de gastos; vos autorizás</span></h2>
+            <div class="pres-detail-actions">
+              <button pButton type="button" class="p-button-sm" (click)="generateObligFromPlan()" [loading]="generatingOblig()" title="Genera obligaciones recurrentes del plan de gastos aprobado"><span class="pi pi-bolt"></span>&nbsp;Generar del plan</button>
+              <button pButton type="button" class="p-button-sm" (click)="authorizeOblig()" [loading]="authorizingOblig()" title="Autoriza las seleccionadas (entran al Calendario)"><span class="pi pi-check"></span>&nbsp;Autorizar seleccionadas</button>
+            </div>
           </div>
+          <p class="pres-hint"><span class="pi pi-info-circle"></span> Las <strong>propuesta</strong> son auto-generadas (sin autorizar): selecciónalas y autoriza. Sólo las autorizadas entran al Calendario de Pagos.</p>
           <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
             <ng-template #header>
-              <tr><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
+              <tr><th style="width:2.2rem"><span class="sr-only">Seleccionar</span></th><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
             </ng-template>
             <ng-template #body let-e>
               <tr [class.pres-row-critical]="e.is_critical">
+                <td>@if (e.status === 'propuesta') { <input type="checkbox" [checked]="isObligSel(e.id)" (change)="toggleOblig(e.id)" aria-label="Seleccionar obligación" /> }</td>
                 <td>{{ e.concept }} @if (e.is_critical) { <i class="pi pi-flag pres-crit" [title]="e.critical_reason"></i> }</td>
                 <td>{{ e.beneficiary }}</td>
                 <td class="pres-muted">{{ e.subtype || '—' }}</td>
                 <td class="pres-mono">{{ e.original_due_date || '—' }}</td>
                 <td class="ta-r pres-mono">{{ money(e.available_amount) }}</td>
-                <td><p-tag [value]="e.status" [severity]="e.status === 'paid' ? 'success' : e.status === 'cancelled' ? 'secondary' : 'info'" styleClass="pres-tag" /></td>
-                <td>@if (e.status === 'pending') { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancelExpense(e)" title="Cancelar" aria-label="Cancelar gasto"><span class="pi pi-times"></span></button> }</td>
+                <td><p-tag [value]="e.status" [severity]="e.status === 'paid' ? 'success' : e.status === 'cancelled' ? 'secondary' : e.status === 'propuesta' ? 'warn' : 'info'" styleClass="pres-tag" /></td>
+                <td>@if (e.status === 'pending' || e.status === 'propuesta') { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancelExpense(e)" title="Cancelar" aria-label="Cancelar obligación"><span class="pi pi-times"></span></button> }</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="7" class="pres-empty">Sin gastos autorizados.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin obligaciones. Usá «Generar del plan» para crear las recurrentes del plan de gastos.</td></tr></ng-template>
           </p-table>
         </section>
       }
@@ -664,105 +744,20 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewBudget()" [loading]="savingBudget()">Crear</button></div>
     </p-dialog>
 
-    <!-- Nueva partida -->
-    <p-dialog [(visible)]="addLineVisible" [modal]="true" header="Nueva partida" [style]="{ width: '26rem' }">
-      <label class="pres-lbl">Concepto</label>
-      <input pInputText type="text" [(ngModel)]="lineForm.concept" class="pres-full" />
-      <label class="pres-lbl">Tipo</label>
-      <p-select [options]="lineTypeOpts" [(ngModel)]="lineForm.line_type" optionLabel="label" optionValue="value" placeholder="Tipo" styleClass="pres-full" />
-      <label class="pres-lbl">Área / centro de costo</label>
-      <input pInputText type="text" [(ngModel)]="lineForm.area" class="pres-full" />
-      <label class="pres-lbl">Importe autorizado (original)</label>
-      <input pInputText type="number" [(ngModel)]="lineForm.original_amount" class="pres-full" />
-      <label class="pres-lbl">Control</label>
-      <p-select [options]="controlOpts" [(ngModel)]="lineForm.control_level" optionLabel="label" optionValue="value" placeholder="Control" styleClass="pres-full" />
-      <p class="pres-lbl-hint">Bloqueo impide sobregiro; advertencia lo permite avisando; informativo no frena.</p>
-      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmAddLine()" [loading]="savingLine()">Agregar</button></div>
+    <!-- Copiar del año anterior -->
+    <p-dialog [(visible)]="copyVisible" [modal]="true" header="Copiar del año anterior" [style]="{ width: '26rem' }">
+      <p class="pres-lbl-hint">Crea un ejercicio nuevo en <strong>borrador</strong> clonando el actual (sin autorizaciones). Luego ajustás los supuestos y proponés.</p>
+      <label class="pres-lbl">Nombre</label>
+      <input pInputText type="text" [(ngModel)]="copyForm.name" class="pres-full" />
+      <label class="pres-lbl">Año fiscal</label>
+      <input pInputText type="number" [(ngModel)]="copyForm.fiscal_year" class="pres-full" />
+      <label class="pres-lbl">Escenario</label>
+      <p-select [options]="scenarioOpts" [(ngModel)]="copyForm.scenario" optionLabel="label" optionValue="value" placeholder="Escenario" styleClass="pres-full" />
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmCopy()" [loading]="savingCopy()">Copiar</button></div>
     </p-dialog>
 
-    <!-- Nuevo gasto operativo -->
-    <p-dialog [(visible)]="newGastoVisible" [modal]="true" header="Nuevo gasto operativo" [style]="{ width: '28rem' }">
-      <label class="pres-lbl">Concepto</label>
-      <input pInputText type="text" [(ngModel)]="gastoForm.concept" class="pres-full" placeholder="Ej. Renta CEDIS" />
-      <label class="pres-lbl">Centro de costo / área</label>
-      <input pInputText type="text" [(ngModel)]="gastoForm.area" class="pres-full" />
-      <label class="pres-lbl">Responsable</label>
-      <input pInputText type="text" [(ngModel)]="gastoForm.responsible" class="pres-full" />
-      <div class="pres-row2">
-        <div><label class="pres-lbl">Clase</label><p-select [options]="expenseClassOpts" [(ngModel)]="gastoForm.expense_class" optionLabel="label" optionValue="value" placeholder="Fijo/Variable" styleClass="pres-full" /></div>
-        <div><label class="pres-lbl">Recurrencia</label><p-select [options]="recurrenceOpts" [(ngModel)]="gastoForm.recurrence" optionLabel="label" optionValue="value" placeholder="Recurrente/No" styleClass="pres-full" /></div>
-      </div>
-      <label class="pres-lbl">Importe autorizado (original)</label>
-      <input pInputText type="number" [(ngModel)]="gastoForm.original_amount" class="pres-full" />
-      <label class="pres-lbl">Control</label>
-      <p-select [options]="controlOpts" [(ngModel)]="gastoForm.control_level" optionLabel="label" optionValue="value" placeholder="Control" styleClass="pres-full" />
-      <p class="pres-lbl-hint">Bloqueo impide sobregiro al reservar/comprometer; advertencia lo permite avisando; informativo no frena.</p>
-      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewGasto()" [loading]="savingGasto()">Agregar</button></div>
-    </p-dialog>
-
-    <!-- Generar plan de ventas desde histórico -->
-    <p-dialog [(visible)]="genPlanVisible" [modal]="true" header="Generar plan desde histórico" [style]="{ width: '26rem' }">
-      <p class="pres-lbl-hint">La meta se calcula como el <strong>real del año anterior</strong> (del sell-out del ODS, rolado al calendario 13×4) × (1 + crecimiento objetivo). Las entidades×periodo <strong>sin</strong> venta el año anterior NO se generan (se capturan a mano).</p>
-      <label class="pres-lbl">Crecimiento objetivo (%)</label>
-      <input pInputText type="number" [(ngModel)]="genGrowthPct" class="pres-full" placeholder="Ej. 10" />
-      <label class="pres-lbl"><p-checkbox [(ngModel)]="genOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir metas capturadas a mano</label>
-      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmGenPlan()" [loading]="savingGen()">Generar</button></div>
-    </p-dialog>
-
-    <!-- Capturar / ajustar meta de una celda -->
-    <p-dialog [(visible)]="metaEditVisible" [modal]="true" [header]="'Meta — ' + (metaEditRow()?.label || '')" [style]="{ width: '24rem' }">
-      @if (metaEditRow(); as r) {
-        <p class="pres-lbl-hint">{{ r.channel_label }} · Periodo P{{ salesPeriod }}</p>
-        <label class="pres-lbl">Meta de venta (MXN)</label>
-        <input pInputText type="number" [(ngModel)]="metaEditAmount" class="pres-full" />
-        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmMetaEdit()" [loading]="savingMeta()">Guardar</button></div>
-      }
-    </p-dialog>
-
-    <!-- Proponer presupuesto de gastos (PVG) -->
-    <p-dialog [(visible)]="expenseProposeVisible" [modal]="true" header="Proponer presupuesto de gastos" [style]="{ width: '32rem' }">
-      <p class="pres-lbl-hint">El sistema propone el gasto por <strong>cuenta mayor × mes</strong> desde los egresos de Kepler del año anterior (base × crecimiento; relleno por recurrencia). Lo que no tiene historia <strong>no se inventa</strong>.</p>
-      @if (loadingExpenseProposal()) {
-        <p class="pres-muted">Calculando la tendencia de egresos…</p>
-      } @else {
-        @if (expenseGrowthProposal(); as p) {
-          <p class="pres-lbl-hint">Tendencia global sugerida: <strong>{{ gpct(p.global.growth_pct) }}</strong> ({{ p.global.basis === 'yoy_paired' ? 'YoY histórico' : 'default' }}) · años con egresos: {{ p.years_available.join(', ') || '—' }}.</p>
-        }
-        <label class="pres-lbl">Crecimiento objetivo (%)</label>
-        <input pInputText type="number" [(ngModel)]="expenseDefaultGrowth" class="pres-full" />
-        <label class="pres-lbl">Familias Kepler (separadas por coma)</label>
-        <input pInputText type="text" [(ngModel)]="expenseFamilies" class="pres-full" placeholder="6" />
-        <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión.</p>
-        <label class="pres-lbl"><p-checkbox [(ngModel)]="expenseBySucursal" [binary]="true" /> &nbsp;Presupuestar por sucursal (si no, consolidado)</label>
-        <label class="pres-lbl"><p-checkbox [(ngModel)]="expenseOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir líneas capturadas a mano</label>
-        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmExpensePropose()" [loading]="savingExpensePropose()">Proponer gastos</button></div>
-      }
-    </p-dialog>
-
-    <!-- Proponer plan del año (PVA) -->
-    <p-dialog [(visible)]="proposeVisible" [modal]="true" header="Proponer plan del año" [style]="{ width: '34rem' }">
-      <p class="pres-lbl-hint">El sistema propone el <strong>crecimiento por canal</strong> desde la tendencia histórica. Ajustá lo que quieras; con eso arma las 299 celdas (base real × crecimiento donde hay historia; participación + estacionalidad donde no). Lo que no tiene señal <strong>no se inventa</strong>.</p>
-      @if (loadingProposal()) {
-        <p class="pres-muted">Calculando la tendencia…</p>
-      } @else {
-        <table class="pres-propose-tbl">
-          <thead><tr><th>Canal</th><th class="ta-r">Crecimiento %</th><th>Base de la propuesta</th></tr></thead>
-          <tbody>
-            @for (g of growthRows(); track g.channel) {
-              <tr>
-                <td>{{ g.channel_label }}</td>
-                <td class="ta-r"><input pInputText type="number" [(ngModel)]="g.growth_pct" class="pres-growth-in" /></td>
-                <td class="pres-muted">{{ basisLabel(g.basis) }}@if (g.paired_periods > 0) { · {{ g.paired_periods }} periodos }</td>
-              </tr>
-            }
-          </tbody>
-        </table>
-        <label class="pres-lbl">Crecimiento de respaldo (%) — canales sin tendencia</label>
-        <input pInputText type="number" [(ngModel)]="proposeDefaultGrowth" class="pres-full" />
-        <label class="pres-lbl"><p-checkbox [(ngModel)]="proposeOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir metas capturadas a mano</label>
-        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmProposePlan()" [loading]="savingPropose()">Proponer plan</button></div>
-      }
-    </p-dialog>
+    <!-- PR.5 (ADR-074): dialogos retirados — captura manual de partida/gasto/meta y los diálogos de
+         «Proponer» (ahora un clic con los Supuestos del año). La partida se materializa del plan. -->
 
     <!-- Movimiento de partida -->
     <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
@@ -829,24 +824,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmAddContrib()" [loading]="savingContrib()">Agregar</button></div>
     </p-dialog>
 
-    <!-- Nuevo gasto (Fase TP) -->
-    <p-dialog [(visible)]="newVisible" [modal]="true" header="Nuevo gasto autorizado" [style]="{ width: '28rem' }">
-      <label class="pres-lbl">Concepto</label>
-      <input pInputText type="text" [(ngModel)]="form.concept" class="pres-full" />
-      <label class="pres-lbl">Beneficiario</label>
-      <input pInputText type="text" [(ngModel)]="form.beneficiary" class="pres-full" />
-      <label class="pres-lbl">Tipo</label>
-      <p-select [options]="subtypeOpts" [(ngModel)]="form.subtype" optionLabel="label" optionValue="value" placeholder="Tipo" styleClass="pres-full" />
-      <label class="pres-lbl">Área / sucursal</label>
-      <input pInputText type="text" [(ngModel)]="form.area" class="pres-full" />
-      <label class="pres-lbl">Importe</label>
-      <input pInputText type="number" [(ngModel)]="form.original_amount" class="pres-full" />
-      <label class="pres-lbl">Vencimiento</label>
-      <input type="date" [(ngModel)]="form.original_due_date" class="pres-full" />
-      <label class="pres-check"><p-checkbox [(ngModel)]="form.is_critical" [binary]="true" />Crítico</label>
-      @if (form.is_critical) { <input pInputText type="text" [(ngModel)]="form.critical_reason" placeholder="Motivo (obligatorio)" class="pres-full" /> }
-      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNew()" [loading]="saving()">Guardar</button></div>
-    </p-dialog>
+    <!-- PR.5 (ADR-074): «Nuevo gasto autorizado» retirado — las obligaciones se auto-generan del plan
+         de gastos (estado propuesta) y se autorizan en lote desde la pestaña Obligaciones. -->
   `,
   styles: [`
     :host { display:block; }
@@ -874,6 +853,20 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-alert { display:flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--warn-fg,#b45309); background:color-mix(in srgb, var(--warn-fg,#b45309) 8%, transparent); border:1px solid color-mix(in srgb, var(--warn-fg,#b45309) 25%, transparent); border-radius:var(--r-md); padding:.4rem .6rem; margin:.5rem 0; }
     .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
     .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .pres-nav { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+    .pres-nav-sep { font-size:.68rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; padding-left:.3rem; border-left:1px solid var(--border-color); }
+    .pres-assump { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; margin:.6rem 0 1rem; background:color-mix(in srgb, var(--action, #d97706) 4%, transparent); }
+    .pres-assump-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; margin-bottom:.5rem; }
+    .pres-assump-head h3 { margin:0; font-size:.92rem; }
+    .pres-assump-grid { display:flex; gap:1.4rem; flex-wrap:wrap; }
+    .pres-assump-col { flex:1; min-width:14rem; }
+    .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
+    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; text-transform:capitalize; }
+    .pres-assump-in { width:8rem; }
+    .pres-result-kpis { display:flex; gap:1rem; flex-wrap:wrap; margin:.5rem 0 .6rem; }
+    .pres-result-kpi { display:flex; flex-direction:column; gap:.1rem; min-width:9rem; padding:.5rem .7rem; border:1px solid var(--border-color); border-radius:var(--r-md); }
+    .pres-result-lbl { font-size:.72rem; color:var(--text-muted); }
+    .pres-result-val { font-size:1.05rem; }
     .pres-date { padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.85rem; }
     .pres-amt { width:10rem; } .pres-reason { flex:1; min-width:12rem; }
     .pres-current { font-size:.82rem; color:var(--text-muted); margin-top:.5rem; }
@@ -920,21 +913,26 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Sub-navegación ──
   view = signal<PresView>('ejercicios');
-  viewOpts = [
-    { label: 'Ejercicios', value: 'ejercicios' },
-    { label: 'Gasto operativo', value: 'gasto-op' },
-    { label: 'Presupuesto de ventas', value: 'ventas' },
-    { label: 'Flujo de efectivo', value: 'flujo' },
+  // Grupo «armar el presupuesto» (automático) + grupo «programación de pagos» (alimenta Calendario).
+  viewOptsArmar = [
+    { label: 'Ejercicio', value: 'ejercicios' },
+    { label: 'Ventas', value: 'ventas' },
+    { label: 'Gastos', value: 'gasto-op' },
+    { label: 'Flujo / Resultado', value: 'flujo' },
     { label: 'Campañas', value: 'campanas' },
+  ];
+  viewOptsPagos = [
     { label: 'Capacidad de pago', value: 'capacidad' },
-    { label: 'Gastos autorizados', value: 'gastos' },
+    { label: 'Obligaciones', value: 'gastos' },
   ];
   setView(v: string) {
     this.view.set(v as PresView);
-    if (v === 'flujo' && !this.cashflow()) this.loadCashflow();
+    if (v === 'flujo') this.loadResultado(); // el flujo de caja (lento, CXC ODS) es opt-in — ver botón «Actualizar»
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
-    if (v === 'ventas') this.loadSalesComparison();
+    // 'ventas': el pivote meta-vs-real consulta el sell-out del ODS (lento) → opt-in por botón, no al cargar
     if (v === 'gasto-op') this.loadExpensePlan();
+    if (v === 'ejercicios') this.loadAssumptions();
+    if (v === 'gastos') this.loadObligProposals();
   }
 
   // ── Ejercicios (PU) ──
@@ -1073,10 +1071,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: ({ summary, lines }) => { this.summary.set(summary); this.lines.set(lines ?? []); this.loadingDetail.set(false); },
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
-    if (this.view() === 'ventas') this.loadSalesComparison();
+    this.loadAssumptions();
+    if (this.view() === 'flujo') this.loadResultado();
+    if (this.view() === 'gasto-op') this.loadExpensePlan();
+    if (this.view() === 'gastos') this.loadExpenses();
   }
 
-  openNewBudget(): void { this.budgetForm = { fiscal_year: new Date().getFullYear(), scenario: 'base' }; this.newBudgetVisible = true; }
+  openNewBudget(): void { this.budgetForm = { fiscal_year: new Date().getFullYear() + 1, scenario: 'base' }; this.newBudgetVisible = true; }
   confirmNewBudget(): void {
     if (!this.budgetForm.name?.trim() || !(Number(this.budgetForm.fiscal_year) >= 2000)) {
       this.toast.add({ severity: 'warn', summary: 'Faltan datos', detail: 'Nombre y año fiscal son requeridos.' }); return;
@@ -1091,8 +1092,26 @@ export class FinanzasPresupuestoComponent implements OnInit {
   lifecycle(b: BudgetHeader, action: 'submit' | 'approve' | 'close'): void {
     this.savingLifecycle.set(true);
     this.http.post<BudgetHeader>(`${this.base}/budgets/${b.id}/${action}`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.savingLifecycle.set(false); this.loadBudgets(); this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Listo', detail: action === 'approve' ? 'Ejercicio aprobado / vigente.' : action === 'submit' ? 'Enviado a autorización.' : 'Ejercicio cerrado.' }); },
+      next: () => {
+        this.savingLifecycle.set(false); this.loadBudgets(); this.reloadDetail();
+        if (action === 'approve') {
+          // el backend ya materializó las partidas; proyectamos las metas a Análisis (PVT) — automático
+          this.http.post(`${this.base}/budgets/${b.id}/sales-plan/project-targets`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => { /* silencioso */ }, error: () => { /* no bloquea */ } });
+          this.toast.add({ severity: 'success', summary: 'Ejercicio aprobado', detail: 'Partidas materializadas del plan y metas proyectadas a Análisis.' });
+        } else {
+          this.toast.add({ severity: 'success', summary: 'Listo', detail: action === 'submit' ? 'Enviado a autorización.' : 'Ejercicio cerrado.' });
+        }
+      },
       error: (e) => { this.savingLifecycle.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo', detail: e?.error?.message || 'Acción rechazada.' }); },
+    });
+  }
+
+  materializing = signal(false);
+  materializeNow(b: BudgetHeader): void {
+    this.materializing.set(true);
+    this.http.post<{ created: number; updated: number; adjusted: number; closed: number }>(`${this.base}/budgets/${b.id}/materialize`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.materializing.set(false); this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Partidas materializadas', detail: `${r.created} creadas · ${r.updated} actualizadas · ${r.adjusted} ajustadas · ${r.closed} cerradas.` }); },
+      error: (e) => { this.materializing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo materializar.' }); },
     });
   }
 
@@ -1132,7 +1151,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private reloadDetail(): void { const b = this.selected(); if (b) this.selectBudget(b); }
 
   // ── Planeación (PU.4) ──
-  openCopy(): void { const b = this.selected(); this.copyForm = { name: b?.name, scenario: b?.scenario, fiscal_year: b?.fiscal_year }; this.copyVisible = true; }
+  openCopy(): void { const b = this.selected(); this.copyForm = { name: b?.name, scenario: b?.scenario, fiscal_year: (Number(b?.fiscal_year) || new Date().getFullYear()) + 1 }; this.copyVisible = true; }
   confirmCopy(): void {
     const b = this.selected(); if (!b) return;
     this.savingCopy.set(true);
@@ -1462,6 +1481,115 @@ export class FinanzasPresupuestoComponent implements OnInit {
         },
         error: (e) => { this.projecting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proyectar el plan a las metas de Análisis.' }); },
       });
+  }
+
+  // ══════════ PR.5 (ADR-074): interfaz automática ══════════
+
+  // ── Supuestos del año (consolida las perillas de ventas + gastos) ──
+  loadingAssump = signal(false); savingAssump = signal(false); assumpLoaded = signal(false);
+  channelsList = ['mostrador', 'credito', 'ruta', 'preventa'];
+  asVentasGrowth: Record<string, number> = { mostrador: 8, credito: 8, ruta: 8, preventa: 8 };
+  asVentasDefault: number | null = 8;
+  asGastosDefault: number | null = 8;
+  asGastosFamilies = '6';
+  asGastosBySucursal = false;
+
+  loadAssumptions(): void {
+    const b = this.selected(); if (!b) return;
+    this.loadingAssump.set(true);
+    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number> }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; const g = s.growth_by_channel || {}; for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault; this.assumpLoaded.set(true); this.loadingAssump.set(false); },
+      error: () => this.loadingAssump.set(false),
+    });
+    this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.asGastosDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; this.asGastosFamilies = (s.proposal_families || ['6']).join(','); this.asGastosBySucursal = !!s.by_sucursal; },
+      error: () => { /* declara defaults */ },
+    });
+  }
+
+  saveAssumptions(): void {
+    const b = this.selected(); if (!b) return;
+    this.savingAssump.set(true);
+    const gbc: Record<string, number> = {}; for (const ch of this.channelsList) gbc[ch] = (Number(this.asVentasGrowth[ch]) || 0) / 100;
+    const families = this.asGastosFamilies.split(',').map((s) => s.trim()).filter(Boolean);
+    let done = 0; const finish = () => { if (++done === 2) { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Supuestos guardados', detail: 'El sistema propondrá ventas y gastos con estos supuestos.' }); } };
+    this.http.put(`${this.base}/budgets/${b.id}/sales-plan/settings`, { default_growth_pct: (Number(this.asVentasDefault) || 0) / 100, growth_by_channel: gbc }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de ventas.' }); } });
+    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
+  }
+
+  // ── Resultado (ingresos − egresos) ──
+  resultado = signal<{ months: Array<{ year_month: string; ingresos: number; egresos: number; resultado: number }>; annual: { ingresos: number; egresos: number; resultado: number; margen_pct: number | null }; sources: { ingresos: { available: boolean; reason: string | null }; egresos: { available: boolean; reason: string | null } } } | null>(null);
+  loadingResultado = signal(false);
+  loadResultado(): void {
+    const b = this.selected(); if (!b) { this.resultado.set(null); return; }
+    this.loadingResultado.set(true);
+    this.http.get<ReturnType<typeof this.resultado>>(`${this.base}/budgets/${b.id}/resultado`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.resultado.set(r); this.loadingResultado.set(false); },
+      error: () => this.loadingResultado.set(false),
+    });
+  }
+
+  // ── Capacidad propuesta desde el flujo ──
+  capProposeFrom = ''; capProposeTo = '';
+  capProposal = signal<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>; note?: string; reason?: string } | null>(null);
+  loadingCapProp = signal(false); confirmingCap = signal(false);
+  proposeCapacity(): void {
+    if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
+    this.loadingCapProp.set(true);
+    this.http.get<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }> }>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
+      error: (e) => { this.loadingCapProp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer la capacidad.' }); },
+    });
+  }
+  capProposalTotal(): number { const p = this.capProposal(); return p && p.items ? Math.round(p.items.reduce((s, i) => s + Number(i.amount), 0) * 100) / 100 : 0; }
+  confirmCapacity(): void {
+    const p = this.capProposal(); if (!p || !p.available || !p.items.length) return;
+    this.confirmingCap.set(true);
+    this.http.post<{ written: number }>(`${this.base}/capacity/confirm`, { items: p.items.map((i) => ({ date: i.date, amount: i.amount })), reason: 'Capacidad propuesta desde el flujo' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.confirmingCap.set(false); this.capProposal.set(null); this.toast.add({ severity: 'success', summary: 'Capacidad confirmada', detail: `${r.written} días escritos.` }); this.loadCapacity(); },
+      error: (e) => { this.confirmingCap.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo confirmar la capacidad.' }); },
+    });
+  }
+
+  // ── Obligaciones auto-generadas del plan + autorización ──
+  loadObligProposals(): void { this.loadExpenses(); }
+  generatingOblig = signal(false); authorizingOblig = signal(false);
+  obligSelected = new Set<string>();
+  isObligSel(id: string): boolean { return this.obligSelected.has(id); }
+  toggleOblig(id: string): void { if (this.obligSelected.has(id)) this.obligSelected.delete(id); else this.obligSelected.add(id); }
+  generateObligFromPlan(): void {
+    const b = this.selected(); if (!b) { this.toast.add({ severity: 'warn', summary: 'Ejercicio', detail: 'Elegí un ejercicio en «Ejercicio».' }); return; }
+    this.generatingOblig.set(true);
+    this.http.post<{ generated: number; updated: number; skipped: number; accounts_recurrent: number }>(`${this.base}/expenses/from-plan`, { budget_id: b.id }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.generatingOblig.set(false); this.toast.add({ severity: 'success', summary: 'Obligaciones generadas', detail: `${r.generated} nuevas · ${r.updated} actualizadas · ${r.skipped} sin cambio (${r.accounts_recurrent} cuentas recurrentes).` }); this.loadExpenses(); },
+      error: (e) => { this.generatingOblig.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron generar las obligaciones.' }); },
+    });
+  }
+  authorizeOblig(): void {
+    const ids = [...this.obligSelected]; if (!ids.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Seleccioná obligaciones en estado propuesta.' }); return; }
+    this.authorizingOblig.set(true);
+    this.http.post<{ authorized: number; skipped: number }>(`${this.base}/expenses/authorize`, { ids }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.authorizingOblig.set(false); this.obligSelected.clear(); this.toast.add({ severity: 'success', summary: 'Autorizadas', detail: `${r.authorized} obligaciones autorizadas (entran al Calendario).` }); this.loadExpenses(); },
+      error: (e) => { this.authorizingOblig.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron autorizar.' }); },
+    });
+  }
+
+  // Proponer de un clic usando los supuestos guardados (PR.5: la perilla vive en «Supuestos del año»)
+  runProposePlan(): void {
+    const b = this.selected(); if (!b) return;
+    this.savingPropose.set(true);
+    this.http.post<{ coverage: ProposeCoverage }>(`${this.base}/budgets/${b.id}/sales-plan/propose`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.savingPropose.set(false); this.lastCoverage.set(r.coverage); this.loadSalesComparison(); const c = r.coverage; this.toast.add({ severity: 'success', summary: 'Plan de ventas propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.no_signal} sin señal · ${c.manual_kept} manual.` }); },
+      error: (e) => { this.savingPropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el plan.' }); },
+    });
+  }
+  runProposeExpense(): void {
+    const b = this.selected(); if (!b) return;
+    this.savingExpensePropose.set(true);
+    this.http.post<{ coverage: ExpenseCoverage }>(`${this.base}/budgets/${b.id}/expense-plan/propose`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.savingExpensePropose.set(false); this.lastExpenseCoverage.set(r.coverage); this.loadExpensePlan(); const c = r.coverage; this.toast.add({ severity: 'success', summary: 'Gastos propuestos', detail: `${c.accounts} cuentas · ${c.historico_ajustado} histórico · ${c.estacional} recurrente · ${c.no_signal} sin señal.` }); },
+      error: (e) => { this.savingExpensePropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer los gastos.' }); },
+    });
   }
 
   indPart(r: IndicatorRow): string {

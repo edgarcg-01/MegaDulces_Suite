@@ -305,7 +305,11 @@ es el estado exacto, medido, no supuesto:
 
 Dos datos, y de los dos cuelga el sell-out:
 
-1. **El código de sucursal con el que Kepler va a emitir su venta** (el valor de `md.kdm1.sucursal`).
+1. ⛔ **CORREGIDO el 2026-09-18 — este punto era FALSO.** Decía que había que confirmar «el
+   código de sucursal con el que Kepler va a emitir su venta (el valor de `md.kdm1.sucursal`)».
+   **`md.kdm1` no tiene columna `sucursal`** — ni en el POS ni en las réplicas. Ese campo lo
+   agrega NUESTRO shipper al escribir al ODS (`replicate-ods-live.js:360`), tomándolo de
+   `BRANCHES[].code`. El código lo elegimos nosotros; ver §10.3 punto 4.
    Canindo tomó `06`; lo natural sería `07`, pero **eso es una suposición** y si sale mal el sell-out
    suma la venta a la sucursal equivocada. El verificador lo imprime en cuanto haya acceso:
    `SELECT DISTINCT sucursal FROM md.kdm1`.
@@ -772,7 +776,7 @@ desde `md`, no supuesto. Calca la forma de §9 (Madero) porque es el mismo movim
 | `wincaja-replica-config.js` | `30` = "Morelia Abastos" **sigue en el carril vivo** |
 | Servidores foráneos de `kepler_consolidado` | ninguno conoce un host `.30.x` |
 
-### 10.1 Bloqueo 1 — la IP del POS no existe (igual que pasó con Madero)
+### 10.1 Bloqueo 1 — el POS no responde (y la IP SÍ era la del patrón)
 
 `192.168.30.30` sale del patrón `192.168.<código Wincaja>.<código Wincaja>`, que se cumple en 7 de
 7 ramas. **Pero el patrón no es un hecho.** Acá no responde a nada, y la subred sí funciona, así que
@@ -900,9 +904,31 @@ dos.
 3. **En el POS**, lo que el verificador marque: `kepler-pos-alta-ods.sql` (idempotente, calca `02`/`03`).
    La contraseña de `ods_repl` **es la misma que las otras** y no está en ningún archivo: se
    reconstruye desde `pg_subscription.subconninfo` sin que pase por un chat (§9.6).
-4. ⭐ **Confirmar el código de sucursal ANTES de registrar la rama**: `SELECT DISTINCT sucursal FROM md.kdm1`.
-   Lo natural sería `08`, **y eso es una suposición**. De ese código cuelga el sell-out; si sale mal,
-   la venta se suma a la sucursal equivocada.
+4. ⛔ **El código de sucursal NO se "confirma" contra Kepler — lo elegimos nosotros.**
+
+   §9.1 manda correr `SELECT DISTINCT sucursal FROM md.kdm1` y **esa consulta no puede funcionar**:
+   esa columna no existe. Medido el 2026-09-18 en el POS de Abastos (`ERROR: no existe la columna
+   «sucursal»`) y también en las réplicas (`kepler_md_02.md.kdm1`: 0 columnas con ese nombre).
+
+   La prueba de dónde sale de verdad está en el shipper, `replicate-ods-live.js:360`:
+
+   ```js
+   const o = { sucursal: code };
+   ```
+
+   O sea: `sucursal` es una columna **que agregamos al shipear**, tomada de `BRANCHES[].code` en
+   `kepler-branches.js`. Canindo es `06` porque nosotros escribimos `06` ahí, no porque Kepler lo
+   diga. El POS no sabe su propio código y no tiene por qué saberlo.
+
+   ⚠️ **El riesgo real es otro, y sigue siendo serio:** no es adivinar mal lo que Kepler reporta,
+   es **elegir un código que colisione o que no case con el resto de la plataforma**. El valor
+   tiene que ser único entre ramas y coherente con `wincaja.branches.kepler_code`, con el corte
+   del sell-out y con `commercial.warehouses`. Para Abastos, `08` está libre (00–07 tomados) y
+   coincide con el nombre de la base `md_08`.
+
+   ⚠️ Lo que sí hay que decidir aparte es el **almacén**: hoy Abastos es `MD-30` en
+   `commercial.warehouses` (era Wincaja). Canindo pasó de `MD-50` a `06`, y renombrar el `code` de
+   un almacén CON historia (stock, ventas, políticas de reorden) no es gratis — ver el punto 5.
 5. Réplica + suscripción (`kepler_md_08` / `sub_md_08`), registrar en `kepler-branches.js`, sumar al
    carril de `replicate-ods-live.js`, y confirmar que aparece en `kepler_ods._sync_status`.
 6. **`wincaja.branches`** para `30`: `kepler_code`, `status`, y `last_movement_date = 2026-09-17`
@@ -914,7 +940,55 @@ dos.
    día (los dos lados lo traen) o le abre un **hueco** (ninguno). Correr
    `test-newdb-sellout-parity.js` **antes y después**, y comparar el mes contra su total conocido.
 
-### 10.4 Dos cosas que aparecieron de paso
+### 10.4 EJECUTADA el 2026-09-18 — lo que se hizo y lo que falta
+
+La rama `08` **está viva y entregando al ODS de producción**. Verificado en el destino, no en el
+rótulo: `kepler_ods.kdm1` tiene **93 documentos de la `08`**, último día `2026-09-18`.
+
+| paso | estado |
+|---|---|
+| Firewall del POS (1977 desde `192.168.0.222`) | ✅ |
+| `pg_hba.conf` — los DOS renglones | ✅ |
+| `wal_level = logical` + `max_slot_wal_keep_size = 20GB` | ✅ (exigió reiniciar el servicio) |
+| Roles `ods_repl` / `platform_ro` | ✅ ya existían |
+| `kepler_md_08` + 319 tablas + `sub_md_08` | ✅ copia inicial 939 MB, 319/319 |
+| Replicación en vivo | ✅ lag **1.6 s** |
+| Rama en `kepler-branches.js` + carriles | ✅ commit `82baaa94`, desplegado |
+| Entrega al ODS de prod | ✅ **93 docs medidos en el destino** |
+
+**Dos cosas se encontraron rotas EN el POS y se corrigieron:**
+
+1. ⛔ **La contraseña de `ods_repl` no era la compartida.** Todo lo observable decía que sí: el rol
+   existía, tenía `REPLICATION`, el `pg_hba` lo dejaba pasar. Lo único que falla es la conexión
+   real — exactamente el caso que §9.6 documenta del 2026-09-08. Se igualó con un `ALTER ROLE`.
+   **Moraleja operativa: mirar `pg_roles` no prueba nada; hay que abrir la conexión.**
+
+2. ⛔ **Tres tablas de `sa` ilegibles para `ods_repl`** (`kdc226`, `kdc20012`, `kdc22609`) — el
+   **mismo bug §4.2b** que tiene 12 tablas trabadas en `md_00`–`md_05`. Se destrabaron una por una
+   (no `ON ALL TABLES`, que lockea ~330 en una caja cobrando) y se puso el
+   `ALTER DEFAULT PRIVILEGES FOR ROLE sa`, así que **Abastos nace sin ese defecto**.
+   ⚠️ Una de las tres era `kdc22609` — la póliza de septiembre, la misma que sigue trabada en las
+   otras cinco ramas.
+
+**Y dos defaults atrasados en el código, corregidos de paso:** `ensure-monthly-tables.js` iba hasta
+`06` (**sin Madero**) y `ods-cdc-forward.js` empezaba en `01`. Los tres archivos tenían listas
+distintas entre sí. Si el entorno no estuviera seteado, esas ramas quedaban fuera en silencio —y a
+`07` no se le pre-crearían las `kdc2YYMM`, con la bomba de calendario de enero 2027 encima.
+
+#### Lo que NO se hizo, y por qué
+
+- **`wincaja.branches` para `30`** — `kepler_code='08'`, `status`, y `last_movement_date` =
+  **`2026-09-17`** (medido: 651 movimientos ese día, 0 el 18). Es una escritura a prod y desde el
+  entorno de desarrollo no hay acceso (`.env` apunta a `platform_test`).
+- **Sacar `30` del carril vivo de Wincaja** (`wincaja-replica-config.js`). ⚠️ Madero (`32`)
+  **tampoco salió** desde que cortó el 07-sep: es el paso 6 de §9.4, pendiente para las dos.
+- **El corte del sell-out.** Primer día Kepler = **2026-09-18**, y por primera vez está medido por
+  los dos lados (Wincaja cierra el 17, Kepler no tiene un solo documento anterior). Falta el
+  literal y correr `test-newdb-sellout-parity.js` antes y después.
+- **`commercial.warehouses`** — Abastos es `MD-30` hoy. Renombrar el `code` de un almacén con
+  historia no es un trámite; ver §9.4 punto 5.
+
+### 10.5 Dos cosas que aparecieron de paso
 
 - **Madero (`32`) tampoco salió del carril vivo de Wincaja.** Sigue en `wincaja-replica-config.js`
   desde que cortó el 07-sep: es el paso 6 de §9.4, pendiente. Su `.mdb` no se mueve desde el 08-sep.

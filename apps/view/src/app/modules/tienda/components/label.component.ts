@@ -211,6 +211,26 @@ const PX_POR_MM = 96 / 25.4;
 const PRECIO_PASO_MM = 0.25;
 const PRECIO_PISO_MM = 4.5;
 /**
+ * `[ETQ-PROMO.5]` Techo del texto de apoyo CUANDO HAY OFERTA, como fracción del precio medido.
+ *
+ * El criterio de anaquel (comprador a 50-100 cm) pide que el precio sea **~2x el texto de
+ * apoyo**. El techo general de la etiqueta es `MONTO_MAX_MM <= PRECIO_MM * 0.7`, o sea que un
+ * monto de renglón puede llegar al 70% del precio — un 40% más de lo que el estándar tolera, y
+ * es exactamente por qué la barra de beneficio EMPATABA con el precio en la primera versión.
+ * Bajo oferta el precio tiene que ganar sin discusión, así que acá el techo baja a la mitad.
+ */
+const MONTO_MAX_PROMO_K = 0.5;
+
+/**
+ * `[ETQ-PROMO.5]` Techo del código de barras CUANDO HAY OFERTA.
+ *
+ * `fitBarcode` le da al símbolo el aire que los renglones no usan. Al ocultar mayoreo y caja
+ * bajo promo ese aire se disparó y el código se fue a sus 12 mm: **el espacio que se le quitó a
+ * la información comercial se lo quedó la operativa**, que es al revés de lo que una etiqueta de
+ * promoción quiere. Nadie decidió que el barcode fuera el segundo elemento más pesado; pasó solo.
+ */
+const BARCODE_MAX_PROMO_MM = 8;
+/**
  * Los tres números del CSS de `.etq-price` que necesita el CÁLCULO del tamaño: el alto de línea y
  * los cuerpos relativos del signo y del punto. Están duplicados con el CSS a propósito (el CSS lo
  * necesita para pintar, el TS para calcular) y el spec exige que coincidan — si se mueve uno solo,
@@ -285,6 +305,16 @@ export interface LabelModel {
   unit_base: string | null;
   sold_by_kg?: boolean;
   scanned_unit?: string | null;   // unidad del barcode con que se resolvió (PZA/PAQ/CJA/KG) — auto-selecciona el hero
+  /**
+   * [ETQ-PROMO.1] Descuento por Cantidad vigente de Kepler (kdpv_descuxq). `promo_pct` es un
+   * PORCENTAJE. `promo_aplica` dice a cuál de los tres precios le toca: la promo apunta a una
+   * sola presentacion y en el 43% de los casos no es la base. Sin plaza no hay promo (es por
+   * tienda), y ahi llega null — que no es lo mismo que "no hay descuento".
+   */
+  promo_pct?: number | null;
+  promo_min_qty?: number | null;
+  promo_hasta?: string | null;
+  promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
 }
 
 /**
@@ -403,12 +433,63 @@ export interface LabelModel {
        **76.1% tiene 2 renglones** y sólo el **2.0% tiene 4**, así que el caso común se imprime
        al tamaño grande y los de 4 bajan lo que haga falta (fitTiers). */
     .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.5mm; }
+    /* SIN min-height:0 a proposito. El renglon es flex item de .etq-tiers; con min-height:0 se
+       APLASTA por debajo de su contenido en vez de desbordar, y entonces la suma de los rects de
+       los renglones nunca puede superar la caja: noCabe() queda estructuralmente en falso, la rama
+       de encogido de fitTiers es codigo muerto y el texto se sale por el overflow:hidden. Asi se
+       imprimio el SKU 70500 con la fila de CAJA cortada por la mitad y veredicto ok. Era
+       vestigial: nacio en c54dbb2d acompanando un flex:1 que ya no esta. El min-height:0 de
+       .etq-tiers (arriba) SI se queda: es el que deja que la caja ceda alto al codigo de barras. */
     .etq-tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
-      column-gap:1.2mm; padding:.2mm 0; min-height:0; }
+      column-gap:1.2mm; padding:.2mm 0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
     .etq-tier .txt{ font-family:var(--font-cond); font-size:2.6mm; font-weight:400; line-height:1; letter-spacing:.3px; }
+    /* ── [ETQ-PROMO.2] Estado OFERTA ──────────────────────────────────────────────────────
+       El precio de promocion tiene que ganar la mirada a un metro, no empatar con el normal.
+       Que el numero CAMBIE DE COLOR es la senal: verde = precio de siempre, rojo = oferta. El
+       rojo ya es color de marca y aca va sobre el amarillo, que es fondo de titular — con un
+       numero de 10 mm o mas el contraste alcanza de sobra.
+       El precio NORMAL sube de jerarquia respecto de un renglon comun (negrita, sin apagar) pero
+       queda MUY por debajo del grande: su monto entra al ajuste uniforme con los demas (#amtEl),
+       asi que no puede crecer por encima del 70% del precio grande. */
+    .etq-label.is-promo .etq-price{ color:var(--red); }
+    /* [ETQ-PROMO.5] La franja de unidad se queda VERDE a proposito. Estuvo roja una version y fue
+       un error: dice QUE unidad te llevas -- es informacion, no argumento comercial -- y en rojo
+       peleaba con la barra de beneficio justo encima. Bajo oferta hay UN solo rojo ademas del
+       precio, o el rojo deja de ser acento y pasa a ser fondo. */
+    .etq-antes .txt{ font-weight:700; letter-spacing:.4px; }
+    /* El AHORRO es el unico renglon que se pinta en rojo: es el argumento de compra, no un
+       precio mas. Sin separador punteado arriba para que se lea pegado al precio normal --
+       los dos juntos son una sola frase: "antes tanto, te ahorras tanto". */
+    .etq-oferta-tag{ flex:0 0 auto; margin-right:1.4mm; background:var(--yellow); color:var(--green);
+      font-family:var(--font-cond); font-size:3.6mm; line-height:1; letter-spacing:.6px;
+      padding:.7mm 1.2mm; border-radius:.6mm; white-space:nowrap; text-transform:uppercase; }
+    /* El AHORRO es una BARRA SOLIDA, no un renglon mas: es el argumento de compra y tiene que
+       leerse como un sello, no como otra linea de precios. Sin separador punteado arriba, para
+       que se lea pegado al precio normal -- los dos juntos son una sola frase. */
+    /* [ETQ-PROMO.3] La barra de AHORRO vive DENTRO del panel amarillo, apilada sobre la franja
+       de unidad. Las dos juntas reservan 11.4 mm abajo (5.2 + 6.2), y esa reserva tiene que
+       viajar en lockstep con el inset del punteado del ::before o el borde le pasa por encima.
+       Con el Codigo mudado a la columna derecha el panel gana los 5.9 mm de la meta, asi que el
+       hueco del numero queda en 13.8 mm: MAS que los 12.5 de la etiqueta sin oferta.
+       La reserva cuelga de .con-ahorro y NO de .is-promo: sin barra (el 57.7% de las promos, que
+       ahorran menos de $5) el panel no reserva nada y el precio se queda con los 18.4 mm enteros
+       -- ahi los precios de 2 digitos, que son el 66.5%, llegan al techo de 15 mm. */
+    .etq-label.con-ahorro .etq-pricebox{ padding-bottom:11.4mm; }
+    .etq-label.con-ahorro .etq-pricebox::before{ inset:.8mm .8mm 11.4mm .8mm; }
+    .etq-ahorro-bar{ position:absolute; left:0; right:0; bottom:6.2mm; height:5.2mm;
+      display:flex; align-items:center; justify-content:center; gap:.8mm;
+      background:var(--red); color:#fff; font-size:3.4mm; font-weight:700; line-height:1;
+      letter-spacing:.3px; text-transform:uppercase; white-space:nowrap; }
+    .etq-ahorro-bar b{ font-weight:800; font-size:4.3mm; font-variant-numeric:tabular-nums; }
+    /* La meta, cuando baja a la columna derecha, se pega al codigo de barras (misma familia). */
+    .etq-label.is-promo .etq-right .etq-meta{ margin-bottom:.4mm; }
+    .etq-tachado{ text-decoration:line-through; text-decoration-color:var(--red);
+      text-decoration-thickness:.35mm; }
+    /* Insignia de oferta. Absoluta arriba a la derecha de la caja del precio: fitPrice la mide
+       como OBSTACULO igual que al brote, asi que si estorba el numero se achica solo. */
     /* Celda de precio de ancho fijo → todos los precios arrancan en el mismo x (orden a la izquierda). */
     .etq-tier .pricecell{ width:22mm; display:flex; align-items:baseline; gap:.7mm; }
     /* ⚠️ 5.4mm duplicado en MONTO_MM (el TS arranca de ahí el ajuste); el spec lo verifica.
@@ -447,22 +528,27 @@ export interface LabelModel {
     .etq-right.is-solo .etq-tiers{ flex:0 0 auto; }
   `],
   template: `
-    <div class="etq-label" #root>
+    <div class="etq-label" [class.is-promo]="enPromo" [class.con-ahorro]="beneficio !== null" #root>
       <!-- El brote vive ACÁ y no en la caja del precio: era el techo del número. Medido, con la
            franja de la unidad más alta, dejarlo adentro anulaba el crecimiento (−0.1%); afuera
            el precio gana +17.4%. Va en amarillo porque el verde medio desaparece sobre esta
            banda. fitPrice no lo tiene cableado: busca un obstáculo DENTRO de la caja y, si no
            lo encuentra, la guarda es 0 sola. -->
       <div class="etq-head" #head>
+        <!-- [ETQ-PROMO.2] La palabra OFERTA va ANTES del nombre, no en su lugar: el nombre del
+             producto es la primera razon de existir de la etiqueta de anaquel. -->
+        @if (enPromo) { <span class="etq-oferta-tag">Oferta</span> }
         <span class="etq-head-txt" #headtxt>{{ headName }}</span>
         <svg class="etq-sprout" viewBox="0 0 40 40" fill="#f6c400" aria-hidden="true"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
       </div>
       <div class="etq-body">
         <div class="etq-left">
-          <div class="etq-meta" #meta>
-            @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
-            <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
-          </div>
+          @if (!enPromo) {
+            <div class="etq-meta" #meta>
+              @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
+              <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
+            </div>
+          }
           <div class="etq-pricebox">
             <!-- [ET.3] Sin precio NO se imprime $0.00. Antes este caso ni existia porque la
                  etiqueta tomaba el precio de la COPIA, que conservaba el ultimo valor conocido
@@ -474,6 +560,16 @@ export interface LabelModel {
               <div class="etq-price etq-sinprecio" #priceEl>SIN PRECIO</div>
             } @else {
               <div class="etq-price" #priceEl><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
+            }
+            <!-- [ETQ-PROMO.3] El ahorro EN PESOS, barra solida DENTRO del panel amarillo: es el
+                 argumento de compra y va pegado al numero, no como un renglon mas en la otra
+                 columna. Se apila sobre la franja de unidad (5.2 + 6.2 = 11.4 mm reservados
+                 abajo) y esa reserva viaja en lockstep con el punteado del ::before. -->
+            @if (beneficio; as b) {
+              <div class="etq-ahorro-bar">
+                @if (b.pesos) { Ahorra <b>\${{ b.valor | number:'1.2-2' }}</b> }
+                @else { <b>-{{ b.valor }}%</b> de descuento }
+              </div>
             }
             <!-- La UNIDAD del precio grande. El 73.5% de las etiquetas muestran un precio de
                  PAQUETE y el cliente compra esa unidad en el 92.8% de los renglones: leer el
@@ -489,6 +585,15 @@ export interface LabelModel {
                rótulo era lo que se comía el ancho de la columna y obligaba a encoger el monto
                hasta dejarlo ilegible. Acortarlo es lo que permite el monto grande. -->
           <div class="etq-tiers" #tiers>
+            <!-- [ETQ-PROMO.1] El precio de LISTA, tachado, cuando el grande ya lleva el descuento
+                 por cantidad de Kepler. Va primero para que se lea junto al numero grande.
+                 "desde N" solo si el umbral es real (medido: 496 de 498 promos arrancan en 1). -->
+            @if (precioNormal; as pn) {
+              <div class="etq-tier etq-antes">
+                <div class="txt">Precio normal@if (promoDesde; as q) { · desde <span class="etq-red">{{ q }}</span> }</div>
+                <div class="pricecell"><span class="amt etq-tachado" #amtEl>\${{ pn | number:'1.2-2' }}</span></div>
+              </div>
+            }
             @if (granelAltTier; as g) {
               <div class="etq-tier">
                 <div class="txt">Por {{ g.label }}</div>
@@ -524,6 +629,15 @@ export interface LabelModel {
               </div>
             }
           </div>
+          <!-- [ETQ-PROMO.3] Con oferta el Codigo baja aca, junto al barcode: son la misma
+               familia (dato operativo). Eso libera 5.9 mm arriba a la izquierda, que es justo
+               lo que la barra de ahorro necesita para no achicar el precio. -->
+          @if (enPromo) {
+            <div class="etq-meta" #meta>
+              @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
+              <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
+            </div>
+          }
           @if (hasBarcode) {
             <div class="etq-barcode">
               <svg #bc></svg>
@@ -605,6 +719,8 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     // Sin umbral REAL no se imprime: la etiqueta declara un precio que la caja va a cobrar, y
     // un mayoreo cuya condición de cantidad no se conoce fabrica una discusión en el mostrador.
     if (this.mayoreoMin === null) return false;
+    // [ETQ-PROMO.2] Bajo oferta sólo sobrevive si su precio por unidad le gana al promocional.
+    if (!this.ganaALaOferta(w, 1)) return false;
     return !!this.show.mayoreoPza && w > 0 && (base <= 0 || w < base);
   }
 
@@ -631,11 +747,14 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
   /** Cuántos renglones se van a imprimir. Alimenta el centrado del caso sin renglones. */
   get tierCount(): number {
-    return (this.granelAltTier ? 1 : 0) + (this.hasMayoreoPza ? 1 : 0) + (this.hasPaquete ? 1 : 0)
+    return (this.precioNormal !== null ? 1 : 0) + (this.ahorro !== null ? 1 : 0)
+      + (this.granelAltTier ? 1 : 0) + (this.hasMayoreoPza ? 1 : 0) + (this.hasPaquete ? 1 : 0)
       + (this.hasMayoreoPaq ? 1 : 0) + (this.hasCaja ? 1 : 0);
   }
   get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
   get hasMayoreoPaq(): boolean {
+    // [ETQ-PROMO.2] Mismo criterio que el mayoreo por pieza.
+    if (!this.ganaALaOferta(this.num(this.model?.wholesale_pack_price), 1)) return false;
     // El comparativo depende de la unidad base (Kepler unit_base):
     //  · base=paquete/caja → el "precio de paquete" ES el precio base (c90/piece_price); el
     //    mayoreo (wholesale_pack_price) vive suelto porque el paquete no está en pack_size. F-unit.
@@ -657,7 +776,14 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const size = this.num(this.model?.pack_size);
     return base > 0 && size > 0 && w < base;
   }
-  get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
+  get hasCaja(): boolean {
+    if (!this.show.caja) return false;
+    const total = this.num(this.model?.box_price);
+    const size = this.num(this.model?.box_size);
+    // [ETQ-PROMO.2] La caja tiene su PROPIA escalera (va a precio de mayoreo), asi que bajo
+    // oferta puede quedar mas cara por unidad que el promocional. Ahi no se imprime.
+    return total > 0 && size > 0 && this.ganaALaOferta(total, size);
+  }
   // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
   // del producto, o al menos el SKU (fallback CODE128) → toda etiqueta sale escaneable.
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
@@ -706,7 +832,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * GRANEL (unit_base KG/500/250/…): el "pieza" se muestra como **precio por kg**.
    * Sin override: pieza/kg; si no hay (>0), cae a paquete → caja para no imprimir $0.00.
    */
-  get bigUnit(): { word: string; value: number } {
+  get bigUnit(): { word: string; value: number; slot: 'pieza' | 'paquete' | 'caja' } {
     const m = this.model;
     const grams = this.granelGrams;
     const granel = grams > 0;
@@ -714,18 +840,112 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const portionWord = grams >= 1000 ? 'kg' : `${grams} g`; // "500 g" / "kg"
 
     // Overrides explícitos por ticket.
-    if (this.hero === 'kg' && granel) return { word: 'kg', value: this.perKgPrice };
-    if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
-    if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece } : { word: this.baseUnit, value: piece };
+    // `slot` = de qué precio del modelo salió este número. Lo devuelve ACÁ y no lo re-deriva
+    // nadie: el descuento de Kepler apunta a UNA presentación, y para saber si le toca al precio
+    // grande hay que saber cuál es. Re-implementar esta cascada en otro getter sería dos verdades.
+    // El granel sale de `piece_price`, así que su ranura es `pieza` aunque la palabra sea "kg".
+    if (this.hero === 'kg' && granel) return { word: 'kg', value: this.perKgPrice, slot: 'pieza' };
+    if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price), slot: 'paquete' };
+    if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price), slot: 'caja' };
+    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece, slot: 'pieza' } : { word: this.baseUnit, value: piece, slot: 'pieza' };
 
     // Default: granel = por kg (se vende por kilo); normal = unidad base (pieza/paquete/caja
     // según Kepler unit_base); con fallback. c90 es el precio de ESA unidad base.
-    if (granel && (piece > 0 || this.perKgPrice > 0)) return { word: 'kg', value: this.perKgPrice };
-    if (piece > 0) return { word: this.baseUnit, value: piece };
-    if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
-    if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    return granel ? { word: 'kg', value: 0 } : { word: this.baseUnit, value: 0 };
+    if (granel && (piece > 0 || this.perKgPrice > 0)) return { word: 'kg', value: this.perKgPrice, slot: 'pieza' };
+    if (piece > 0) return { word: this.baseUnit, value: piece, slot: 'pieza' };
+    if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price), slot: 'paquete' };
+    if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price), slot: 'caja' };
+    return granel ? { word: 'kg', value: 0, slot: 'pieza' } : { word: this.baseUnit, value: 0, slot: 'pieza' };
+  }
+
+  /**
+   * `[ETQ-PROMO.1]` El "Descuento por Cantidad" de Kepler, SÓLO si le toca al precio grande.
+   *
+   * La promo apunta a una presentación (`promo_aplica`); si el precio grande es otro —el
+   * operador puso caja y la promo es de paquete— no se aplica y la etiqueta no lo menciona.
+   * Medido: 43% de las promos vigentes NO son de la unidad base, así que esto no es un caso raro.
+   *
+   * `null` cuando no hay promo, cuando no aplica a esta ranura, o cuando no vino plaza (el
+   * descuento es POR TIENDA: sin saber cuál, no se puede afirmar ninguno).
+   */
+  get promoPct(): number | null {
+    const pct = this.num(this.model?.promo_pct);
+    if (!(pct > 0) || pct >= 100) return null;
+    return this.model?.promo_aplica === this.bigUnit.slot ? pct : null;
+  }
+
+  /** ¿Esta etiqueta va en OFERTA? Es el interruptor de todo el estado visual de promo. */
+  get enPromo(): boolean { return this.promoPct !== null; }
+
+  /**
+   * `[ETQ-PROMO.2]` Bajo oferta, un renglón sólo se imprime si su precio POR UNIDAD le GANA a la
+   * oferta. No es una regla estética, es aritmética de anaquel.
+   *
+   * Medido con el FERRERO 24P en la plaza 05: paquete normal $236.51, oferta $212.86, y la caja
+   * de 6 a $1,331.14 — que son **$221.86 por paquete**, el precio de mayoreo. O sea que con la
+   * promo puesta la caja quedó MÁS CARA por unidad que comprar suelto. Imprimir los dos números
+   * juntos le pide al cliente que haga la división para descubrir que el "volumen" le conviene
+   * menos; el que la haga pierde la confianza en la etiqueta, y el que no, paga de más.
+   *
+   * `ahorro` = la resta, en pesos. "10%" es abstracto; "AHORRA $23.65" es lo que el cliente
+   * compara contra lo que trae en la mano.
+   */
+  private ganaALaOferta(total: number, unidades: number): boolean {
+    if (!this.enPromo) return true;
+    const porUnidad = unidades > 0 ? total / unidades : total;
+    return porUnidad > 0 && porUnidad < this.precioGrande;
+  }
+
+  /** Lo que el cliente se ahorra, en pesos. `null` sin oferta. */
+  get ahorro(): number | null {
+    const normal = this.precioNormal;
+    return normal === null ? null : normal - this.precioGrande;
+  }
+
+  /**
+   * ⭐ `[ETQ-PROMO.5]` El beneficio, con el número que se ve MÁS GRANDE — la "Regla de 100".
+   *
+   * El comprador no hace la resta: **compara números y gana el que se ve más grande** (Berger,
+   * *Contagious*). Bajo $100 el porcentaje es el número mayor; por encima lo es el ahorro en
+   * pesos, y hay tres estudios que miden más percepción de valor con el monto en los caros.
+   *
+   * ⛔ Acá había un `AHORRO_MIN_MXN = 5` que yo inventé ("mostrar pesos si el ahorro llega a
+   * $5"). El criterio real es **el precio**, no el ahorro: medido sobre las 388 etiquetas en
+   * promo de prod, las dos reglas discrepan en 44 — 42 donde el umbral ponía pesos y corresponde
+   * porcentaje.
+   *
+   * Y no hace falta la constante 100: como `ahorro = precio * pct/100`, entonces
+   * **`ahorro > pct` si y sólo si `precio > 100`**. La regla es, literal, "mostrá el número más
+   * grande", y así se lee en el código sin ningún número mágico que explicar.
+   */
+  get beneficio(): { pesos: boolean; valor: number } | null {
+    const pct = this.promoPct;
+    const ah = this.ahorro;
+    if (pct === null || ah === null || !(ah > 0)) return null;
+    return ah > pct ? { pesos: true, valor: ah } : { pesos: false, valor: pct };
+  }
+
+  /** El precio que se imprime GRANDE: con el descuento ya aplicado si le toca. */
+  get precioGrande(): number {
+    const pct = this.promoPct;
+    const base = this.bigUnit.value;
+    return pct === null ? base : base * (1 - pct / 100);
+  }
+
+  /** El precio de lista, para el renglón chico tachado. `null` = no hay descuento que contrastar. */
+  get precioNormal(): number | null {
+    return this.promoPct === null ? null : this.bigUnit.value;
+  }
+
+  /**
+   * "desde N" — sólo cuando el umbral es real. Medido en prod: `Cant a Partir` = 1 en 496 de las
+   * 498 promos vigentes, o sea que casi siempre es una rebaja directa y decir "desde 1" sería
+   * ruido. Si alguna vez llega un umbral de verdad, la etiqueta LO TIENE QUE DECIR: un precio
+   * grande que el cliente sólo obtiene llevando N piezas, sin el N, es publicidad engañosa.
+   */
+  get promoDesde(): number | null {
+    const q = this.num(this.model?.promo_min_qty);
+    return this.promoPct !== null && q > 1 ? q : null;
   }
 
   /**
@@ -743,7 +963,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
       ? { label: `${grams} g`, value: piece }
       : { label: '1 kg', value: this.perKgPrice };
   }
-  private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
+  private get bigStr(): string { return this.precioGrande.toFixed(2); }
 
   /**
    * `[ET.3]` No hay precio que imprimir.
@@ -753,7 +973,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * tomaba el precio de la copia, que conserva el ultimo valor conocido porque el computo filtra
    * `c90 > 0.05` y el merge no borra. Imprimir $0.00 seria cambiar un precio falso por otro.
    */
-  get sinPrecio(): boolean { return this.bigUnit.value <= 0; }
+  get sinPrecio(): boolean { return this.precioGrande <= 0; }
   // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".
   get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
@@ -924,6 +1144,21 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (ancho * PRECIO_ANCHO_K > avail) return 'overflow';
     const desborda = (e?: HTMLElement): boolean => !!e && e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1;
     if (desborda(this.head?.nativeElement) || desborda(this.meta?.nativeElement)) return 'overflow';
+    // ⭐ Los RENGLONES también entran al veredicto, con EL MISMO criterio con que `fitTiers` decide
+    // si tiene que encoger (`noCabe`): `altoTiers` contra el alto de la caja. Que la compuerta y el
+    // ajuste compartan la regla es justo lo que evita que discrepen.
+    //
+    // Antes quedaban fuera: `fitTiers` encoge hasta su piso de 2.6 mm y, si ahí sigue sin caber,
+    // SALE — y el `overflow:hidden` de `.etq-label` se come el sobrante. El veredicto decía `ok`,
+    // así que `print()` —que cuenta `[data-etq-fit="overflow"]` para avisar antes de gastar papel—
+    // nunca se enteraba. Medido en vivo con el SKU 70500 en la sucursal 06 (3 renglones: mayoreo,
+    // paquete y caja): la fila de CAJA salía cortada por la mitad en el papel, sin una sola señal.
+    //
+    // ⛔ No se usa `scrollHeight`: es un flex con contenido centrado y ahí nunca baja de
+    // `clientHeight` (reporta 0 de aire donde hay 6 mm) ni ve el desborde por arriba. La razón
+    // larga está en `altoTiers()`.
+    const tiers = this.tiers?.nativeElement;
+    if (tiers && tiers.clientHeight > 0 && this.altoTiers(tiers) > tiers.clientHeight + 1) return 'overflow';
     return 'ok';
   }
 
@@ -969,11 +1204,41 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * invisible). Para encoger eso era un defecto tolerado; para CRECER sería un recorte.
    */
   private altoTiers(box: HTMLElement): number {
-    const hijos = Array.from(box.children) as HTMLElement[];
-    if (!hijos.length) return 0;
+    const filas = Array.from(box.children) as HTMLElement[];
+    if (!filas.length) return 0;
     const k = this.escalaVisual(box);
     const gap = parseFloat(getComputedStyle(box).rowGap || '0') || 0;
-    return hijos.reduce((a, e) => a + e.getBoundingClientRect().height / k, 0) + (hijos.length - 1) * gap;
+    return filas.reduce((a, f) => a + this.altoFila(f, k), 0) + (filas.length - 1) * gap;
+  }
+
+  /**
+   * ⭐ Alto que un renglón NECESITA — no el que el navegador le dejó.
+   *
+   * ⛔ Medir el rect del renglón no sirve, y es la razón por la que este defecto vivió tanto:
+   * `.etq-tier` es flex item de `.etq-tiers` y llevaba `min-height:0`, así que se APLASTA por
+   * debajo de su contenido en vez de desbordar. La suma de los rects de los renglones entonces
+   * **no puede** superar `clientHeight`, `noCabe()` es estructuralmente falso, la rama de
+   * encogido de `fitTiers` es código muerto y el texto se sale por el `overflow:hidden` de la
+   * etiqueta. Se veía como un renglón cortado, y ninguna medida lo declaraba: el SKU 70500 en
+   * la sucursal 06 imprimía la fila de CAJA partida por la mitad con veredicto `ok`.
+   *
+   * Se miden las CELDAS (`.txt` y `.pricecell`): son grid items con `align-items:center`, así
+   * que no se estiran ni se aplastan — su rect ES el alto natural. Es el mismo principio de
+   * "extensión de los hijos" de `altoTiers`, un nivel más abajo.
+   *
+   * ⚠️ El rect viene ESCALADO por el transform de la vista de hoja y el padding de
+   * `getComputedStyle` viene en px de LAYOUT: se divide el rect y NUNCA el padding. Mezclarlos
+   * es el mismo error que documenta `escalaVisual()`, un nivel más abajo.
+   */
+  private altoFila(fila: HTMLElement, k: number): number {
+    const rect = fila.getBoundingClientRect().height / k;
+    const celdas = Array.from(fila.children) as HTMLElement[];
+    if (!celdas.length) return rect;
+    const cs = getComputedStyle(fila);
+    const pad = (parseFloat(cs.paddingTop || '0') || 0) + (parseFloat(cs.paddingBottom || '0') || 0);
+    const contenido = Math.max(...celdas.map((c) => c.getBoundingClientRect().height / k)) + pad;
+    // Con el renglón sano los dos coinciden; aplastado, el contenido es el que dice la verdad.
+    return Math.max(rect, contenido);
   }
 
   /**
@@ -1231,7 +1496,11 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     // 4 cifras el hero baja de 10 mm y un monto de 7 sería más grande que el precio grande. Así
     // "el precio grande es siempre el número más grande de la etiqueta" queda como invariante.
     const heroMm = parseFloat(this.priceEl?.nativeElement.style.fontSize || '') || PRECIO_MM;
-    const techo = this.fuentesOk ? Math.min(MONTO_MAX_MM, heroMm * 0.7) : MONTO_MM;
+    // `[ETQ-PROMO.5]` Bajo oferta el techo baja al 50%: el criterio de anaquel pide que el precio
+    // sea ~2x el texto de apoyo, y el 0.7 general permitia que la barra de beneficio EMPATARA con
+    // el precio — que es lo que se vio en la primera version.
+    const k = this.enPromo ? MONTO_MAX_PROMO_K : 0.7;
+    const techo = this.fuentesOk ? Math.min(MONTO_MAX_MM, heroMm * k) : MONTO_MM;
     while (size + 0.2 <= techo && guard++ < 60) {
       set(size + 0.2);
       if (noCabe() || !anchoOk()) { set(size); return; }
@@ -1274,7 +1543,11 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const usado = this.altoTiers(box) + bloque.offsetHeight;
     const aire = (col.clientHeight - usado) / 96 * 25.4;
     if (!(aire > 0)) return;
-    const alto = Math.max(BARCODE_MIN_MM, Math.min(BARCODE_MAX_MM, BARCODE_MIN_MM + aire - 0.3));
+    // `[ETQ-PROMO.5]` Bajo oferta el simbolo tiene su propio techo. Al ocultar mayoreo y caja el
+    // aire se dispara y el codigo se iba a sus 12 mm: el espacio que se le quito a lo comercial
+    // se lo quedaba lo operativo. El sobrante queda para el precio normal, que es el ancla.
+    const techoBc = this.enPromo ? BARCODE_MAX_PROMO_MM : BARCODE_MAX_MM;
+    const alto = Math.max(BARCODE_MIN_MM, Math.min(techoBc, BARCODE_MIN_MM + aire - 0.3));
     svg.style.height = alto + 'mm';
   }
 

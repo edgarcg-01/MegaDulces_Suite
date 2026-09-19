@@ -430,6 +430,40 @@ libro mayor de 5 estados (ADR-073).
   grants `app_runtime`). Prod quedó en 780 aplicadas / 0 pendientes. Nota: PU.7/PV/PVA/PVR ya estaban en prod.
   **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044).
 
+### Fase PR — Reestructura de Presupuestos a interfaz AUTOMÁTICA · 2026-09-18 · ADR-074
+
+Reformulación completa de las interfaces bajo «casi 100% automatizado»: la página arranca en el resultado
+automático; el humano sólo ajusta los **supuestos del año** y autoriza; la **captura manual se retira**. El
+presupuesto operativo (`budget_lines`) es un derivado materializado de los planes; capacidad y obligaciones se
+proponen de lo ya computado (ADR-074).
+
+- [~] **[PR.1]** 🧪 Materialización plan→ledger: `BudgetMaterializeService` (sales/expense plan → partidas
+  ingreso/gasto; `source`/`source_ref` idempotente; partida con consumo se ajusta por movimiento con clamp).
+  Auto al aprobar + `POST budgets/:id/materialize`. Mig `20260918220000`. Smoke `test-newdb-budget-materialize` **14/14**.
+- [~] **[PR.2]** 🧪 Capacidad auto-propuesta desde el flujo (cobranza CXC ÷ días hábiles); `capacity/propose` +
+  `capacity/confirm`. «Sin CXC» se declara.
+- [~] **[PR.3]** 🧪 Obligaciones recurrentes auto-generadas (estado `propuesta`) + autorización en lote
+  (`expenses/from-plan`, `expenses/authorize`). Mig `20260918230000`. Flujo y Calendario **excluyen** `propuesta`.
+- [~] **[PR.4]** 🧪 Resumen «Resultado» = plan ventas − plan gastos (`budgets/:id/resultado`, derivado).
+- [~] **[PR.5]** 🧪 UI reestructurada: nav en grupos armar/pagos, panel «Supuestos del año», proponer de un clic,
+  partidas read-only materializadas, Resultado en Flujo, capacidad/obligaciones auto, **captura manual retirada**
+  (6 diálogos), proyección a Análisis automática al aprobar. Builds api+view+check:templates verdes.
+- [~] **[PR.2/3/4]** 🧪 smoke `test-newdb-budget-automations` **14/14**.
+- **Declarado (trade-off):** retirar el «Meta» por celda quita la válvula de escape de ADR-069 (corregir una
+  celda obliga a re-proponer). Reversible.
+- **✅ PROD 2026-09-18:** migs `20260918220000` (batch 479) + `20260918230000` (batch 480) aplicadas a Railway
+  una por una (`apply-one-migration-prod.js`, NO `migrate:latest`); verificadas (source/source_ref + índice en
+  budget_lines; status CHECK con `propuesta` + authorized_by nullable + source en expense_obligations). Prod en
+  784/0. **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044) + validación visual.
+- **[PR.perf] 🧪 Regla <1s por carga (medido con EXPLAIN ANALYZE):** las cargas por DEFAULT quedan <1s —
+  Ejercicio (summary sales_daily año **219 ms**), Gastos/Flujo-Resultado/Capacidad/Obligaciones 1–11 ms, Ventas
+  shell (meta-vs-real ahora **opt-in**). Lo pesado sobre vistas VIVAS del ODS pasó a opt-in/lazy: flujo de caja
+  (`customer_receivables` 2.4 s), meta-vs-real (roll `v_sellout_daily` 2.0 s), proponer capacidad (2.4 s), y las
+  sub-pestañas Indicadores (2.1 s)/Conciliación cargan sólo al clic. Commits `9405f068` (Flujo) + `fe1c24ec`
+  (Ventas). **Declarado — fase de perf pendiente:** construir matviews en prod (`mv` cobros CXC + sell-out por
+  entidad×periodo) + refresh crons para que esos paneles carguen <1s de verdad; hoy las matviews rápidas
+  (`mv_customer_receivables` 9 ms) existen en dev pero NO en prod (verificado). Ver [[feedback_interface_load_under_1s]].
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
@@ -3812,10 +3846,28 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
 `) →
   25 OK / 0 FALLA. Prueba negativa: el importer viejo **salta** las vistas, no revienta.
   `test-newdb-caja-general-derive.js` **18 ✓ / 0 ✗**.
-  ⬜ **Falta prod**: verificado todo contra `platform_test`; desde esta máquina no hay URL de prod.
-  ⬜ **Falta agendar** los dos carriles en `.249` (molde: el PM2 de Wincaja). Hoy el shipper está en
-  el modo `finance` de `run-prod-feeds.js`, **que no está en ninguna agenda** — que es exactamente
-  la causa del congelamiento que esta fase vino a arreglar.
+- [x] **[CG.9e]** ✅ 2026-09-18 · Los dos carriles AGENDADOS bajo PM2 en `.249`
+  (`ecosystem.caja-general.config.js`, molde del de Wincaja): `caja-general-replica` @30 min +
+  `caja-general-ship` @5 min, con **umbral registrado en `CRON_JOBS` ANTES de arrancar** (sin umbral
+  el latido se pinta verde incondicional). Prueba negativa: sin `DATABASE_URL_NEW` el ecosystem
+  **aborta** en vez de arrancar mudo. `pm2 save` hecho.
+- [x] **[CG.9f]** ✅ 2026-09-18 · **CUTOVER A PROD hecho y verificado.** Landing (lote 477) → ship
+  **146,629 filas en 62 s** → compuerta de paridad (✖ 1 arqueo de diferencia: el espejo ganó $24,084
+  mientras verificaba — **la compuerta probó que el carril está vivo**) → re-ship del delta 1 fila /
+  2.1 s, paridad exacta → swap (lote 478). En prod: `test-newdb-caja-general-derive.js` **18 ✓ /
+  0 ✗**, latido OK, `GRANT SELECT` a `app_runtime`, rendimiento 302/219/263 ms, las 3 tablas viejas
+  como `*_snapshot_bak` (rollback a un `ALTER`), **frescura publicada 2026-09-18** (era 09-17).
+  ⚠️ Corrección: prod NO estaba congelada en 09-11 — ese dato era un comentario del runner escrito
+  el 15-sep. El rezago real era de **1 día**; el problema no era que estuviera rota, sino que
+  dependía de que alguien corriera el modo `finance` a mano.
+  ⛔ `migrate.latest()` NO se usó: prod tiene DOS `knex_migrations` y el `search_path` lleva a la
+  vacía. Se aplicó `up()` con `lock_timeout` y se registró la fila a mano.
+  ⬜ **Falta el redeploy de la API** para que los 2 umbrales nuevos de `CRON_JOBS` entren en vigor.
+- [x] **[CG.9g]** ✅ 2026-09-18 · `Base Movimientos SI/NO` **medido, no supuesto**: capturas por año
+  ~3,000 hasta 2025 y **247 / 198 en 2026**; última captura `SI` 2026-07-02, `NO` 2026-02-03. El
+  `.ldb` y la fecha de hoy sólo dicen que alguien ABRE el Access. → **NO se replican los 1.07 GB**;
+  `caja_ventas_diarias`/`caja_depositos` quedan como histórico y **Finanzas decide si ese sistema se
+  retira formalmente**.
   ⚠️ Jet 32-bit → sigue en `.249` hasta VL.5.
 - [ ] **[CG.10b]** ⬜ ⭐ **Ruta crítica.** Vista `analytics.v_kepler_conceptos` sobre `kepler_ods.kdco`
   (molde FKJ: `security_invoker` + filtro de tenant **dentro** + gate de costo).

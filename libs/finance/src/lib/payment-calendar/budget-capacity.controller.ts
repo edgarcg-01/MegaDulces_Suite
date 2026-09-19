@@ -34,4 +34,19 @@ export class BudgetCapacityController {
   set(@Body() body: { date: string; amount: number; reason?: string }, @Req() req: AuthedRequest) {
     return this.svc.setForDate(body.date, Number(body.amount), body.reason, req.user?.username || 'sistema');
   }
+
+  @Get('propose')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Propone la capacidad diaria desde la cobranza esperada (flujo). Read-only; «sin CXC» se declara.' })
+  propose(@Query('from') from: string, @Query('to') to: string) {
+    if (!from || !to) throw new BadRequestException('Se requiere from+to');
+    return this.svc.propose(from, to);
+  }
+
+  @Post('confirm')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma (escribe) una lista de capacidades diarias propuestas/ajustadas.' })
+  confirm(@Body() body: { items: { date: string; amount: number }[]; reason?: string }, @Req() req: AuthedRequest) {
+    return this.svc.confirmProposed(body.items, body.reason, req.user?.username || 'sistema');
+  }
 }

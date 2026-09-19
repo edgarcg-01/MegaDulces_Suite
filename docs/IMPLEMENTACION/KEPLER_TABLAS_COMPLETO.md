@@ -111,7 +111,32 @@ Tablas del módulo POS que controlan precios por unidad/volumen, promociones con
 |---|---:|---:|:--:|---|---|
 | `kdpv_bitacora_precios` | 1,315,833 | 9 | 🟢 | Historial de cambios de precio por SKU/unidad | `c1`=fecha · `c2`=hora · `c3`=SKU · `c4`=unidad (CJA/PAQ) · `c5`=nombre producto · `c6`=precio anterior · `c7`=precio nuevo · `c8`=delta |
 | `kdpv_descuxm` | 507 | 12 | 🟡 | Descuentos por monto mínimo de compra con vigencia | `c1`=suc · `c2`=SKU · `c3`=unidad · `c4`=nombre · `c5`/`c6`=desc/precio · `c7`/`c8`=vigencia_desde/hasta · `c9`/`c10`=montos mín/máx |
-| `kdpv_descuxq` | 10,012 | 12 | 🟢 | Descuentos por cantidad con vigencia (promos por volumen) | `c1`=suc · `c2`=SKU · `c3`=unidad · `c4`=nombre · `c5`=qty_min · `c6`=precio_promo · `c7`/`c8`=vigencia_desde/hasta · `c9`/`c10`=montos |
+| `kdpv_descuxq` | 10,012 | 12 | 🟢 | Descuentos por cantidad con vigencia (pantalla `PV_descuxq.kpl`, "Descuento por Volumen") | `c1`=**tienda** · `c2`=SKU · `c3`=unidad · `c4`=descripción · `c5`="Cant a Partir" · **`c6`=% Descuento** · `c7`/`c8`=vigencia · `c9`/`c10`="Cant Max en Suc"/"**Saldo x Vender**" |
+
+> ⭐ **`kdpv_descuxq.c6` es un PORCENTAJE, no un precio** (verificado 2026-09-18). La línea de
+> arriba decía `precio_promo` y era falso; cerraba además la pregunta abierta de
+> [`FASE_MR_DICCIONARIO_MARGEN.md`](FASES/FASE_MR_DICCIONARIO_MARGEN.md) §260. Dos pruebas
+> independientes: la pantalla del ERP rotula esa columna, literal, **"% Descuento"**; y contra lo
+> que el mostrador cobró, **113 de 296 SKUs casan con `c90 × (1 − c6/100)` y sólo 2 casarían si
+> fuera un precio**.
+>
+> ⚠️ **`c1` es la TIENDA, `sucursal` es de qué base se replicó la fila** (consistente con §714:
+> en las tablas de detalle `c1` es el almacén, no la rama). Cada DB de sucursal guarda copias de
+> las promos de las otras, así que la misma promo aparece hasta 9 veces — hay que deduplicar por
+> `(c1, c2, c3)`. `analytics.erp_promotions` confunde las dos (filtra `sucursal='03'` y publica
+> `c1` como `warehouse_code`) y **hoy devuelve CERO filas**.
+>
+> ⛔ **La promo apunta a UNA presentación** (`c3`) y no siempre a la base: medido sobre las 498
+> vigentes, 285 (57%) apuntan a `c90`, 90 a `c91`, 44 a `c92` y **79 (16%) a ninguna de las tres**
+> (ej. `BTO` sobre un producto con base `KG`). Aplicar el `%` al precio base sin mirar la unidad
+> está mal en el 43%. Resolvedor: `analytics.v_label_promotions` (declara `aplica_a`, NULL cuando
+> no se puede ubicar).
+>
+> ⚠️ **La promo se AGOTA**: `c10` = "Saldo x Vender". Una vigente con saldo 0 ya no se otorga —
+> medido, pasa hoy. Filtrar por fechas y no por saldo publica un descuento que la caja no da.
+>
+> `kdpv_gratisxq` (2x1 / 5x4, `c6`=SKU regalado, `c11`=cantidad) existe y está **vencida**: 0
+> vigentes, la última terminó el 2025-12-31.
 | `kdpv_folio_caja` | 661 | 49 | 🟢 | **Corte/arqueo de caja POS** por cajero y turno (base del Plano 2 del supervisor de cuadre) | `c1`=suc · `c2`=caja · `c3`=folio · `c4`=tipo/seq · `c5`/`c10`=fecha_apertura/cierre · `c6`/`c11`=hora_apertura/cierre · `c7`=cajero_apertura · `c8`=cajero_cierre · `c12`=usuario_cierre · `c13`=turno · **`c15`=efectivo ESPERADO** · **`c25`=efectivo CONTADO (arqueo)** · **`c35`=DIFERENCIA (=c15−c25, faltante+/sobrante−)** · `c16`/`c26`=tarjeta esperado/contado · `c17`/`c27`=transferencia esp/cont · `c36`-`c40`=diffs otras formas · `c48`=efectivo retirado · `c49`≈`c15` (**NO** es la venta total: la venta real es `c15+c16+c17`). **Corte abierto**: c10=`1800-01-01`, montos en 0 → filtrar `c25<>0`. Verificado en vivo 2026-07-07 (md_01/02/03). **Corrección 2026-08-27** (3,048 cortes del ODS): `c35 = c15 − c25` se cumple en **3048/3048**; el **74.5%** cierra con `c25` idéntico a `c15` al centavo (arqueo no ciego, SM.7). **Corrección 2026-09-02 (rectifica la nota anterior):** `c43`=**billetes** y `c44`=**monedas** SÍ son un desglose real del efectivo — vienen poblados en **84–100%** de los cortes según sucursal (2,901 y 2,807 de 3,051). La identidad que cierra es **`c43 + c44 + c48` (retirado) = `c25`** → **63.6%** de los cortes (ej. 590+67+9,000 = 9,657 vs contado 9,657.16). La nota previa decía que el mapeo no se sostenía; ese análisis metía `c45` en la suma y usaba tolerancia de centavos — `c45` **no** forma parte del efectivo contado. En suc **04** el desglose cuadra sin retiros (48% exacto, desvío mediano **$16.68**). Cuando la identidad NO cierra, el faltante suele ser un número redondo ($9,000) = **retiro no registrado en `c48`** → sirve como chequeo de coherencia. `c46`/`c47` sí son parámetros: 42 y 44 valores distintos en 3,048 filas. Lo que Kepler **no** tiene es el conteo **por denominación** (cuántos billetes de $500): eso solo existe en `wincaja.arqueos` y en `reconciliation.blind_counts`. |
 | `kdpv_gerentes` | 2 | 3 | 🟡 | Catálogo de gerentes/supervisores POS por sucursal | `c1`=suc · `c2`=clave_usuario · `c3`=nombre_completo |
 | `kdpv_gratisxm` | 1 | 15 | 🟡 | Promociones "N lleva M gratis" por monto mínimo | `c1`=suc · `c2`=SKU_compra · `c3`=unidad · `c4`=nombre · `c5`=qty_trigger · `c6`=SKU_gratis · `c7`/`c8`=vigencia · `c9`/`c10`=qty_min/max · `c11`=qty_gratis · `c12`=unidad_gratis · `c14`=barcode |

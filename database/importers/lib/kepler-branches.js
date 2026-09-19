@@ -62,6 +62,20 @@ const BRANCHES = Object.freeze([
   // POS alcanzable con platform_ro (credencial compartida) verificado 2026-09-12 → los importers
   // leen el POS fresco; el ODS sigue con la réplica kepler_md_07 vía replicaDbName.
   { code: '07', host: '192.168.32.32', port: 1977, db: 'md_07', replica: 'kepler_md_07', name: 'Morelia Madero' },
+  // '08' Morelia Abastos: su POS migró de Wincaja ('30') a Kepler propio (`md_08`) el 2026-09-18
+  // (handoff limpio, medido por los DOS lados — Wincaja w30 cerró el 09-17 con 651 movimientos y
+  // 0 el 09-18; Kepler md_08 arranca el 09-18 y NO tiene un solo documento anterior. Cero traslape
+  // y cero hueco, que es exactamente lo que el corte del sell-out necesita).
+  //
+  // ⚠️ El código '08' lo elegimos NOSOTROS, no Kepler: `md.kdm1` no tiene columna `sucursal` — la
+  // agrega el shipper (`replicate-ods-live.js:360`, `const o = { sucursal: code }`). Se eligió `08`
+  // porque 00–07 están tomados y coincide con el nombre de la base. Ver §10.3 del runbook.
+  //
+  // Va con `replica` como '06' y '07': los importers leen del espejo local. El POS expone
+  // `platform_ro`, pero su contraseña NO es la compartida (la de `ods_repl` tampoco lo era y hubo
+  // que igualarla con un ALTER ROLE el 2026-09-18). Mientras `platform_ro` no se iguale, leer del
+  // espejo es lo correcto — y además es más barato para una caja que está cobrando.
+  { code: '08', host: '192.168.30.30', port: 1977, db: 'md_08', replica: 'kepler_md_08', name: 'Morelia Abastos' },
 ]);
 
 // URL de conexión por rama para los IMPORTERS: prefiere el POS remoto (platform_ro) cuando la rama

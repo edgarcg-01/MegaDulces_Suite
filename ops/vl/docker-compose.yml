@@ -115,7 +115,7 @@ services:
     environment:
       ODS_HB_KEY: ods_live_hot
       ODS_HB_MAX_MIN: "20"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
       ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
@@ -128,7 +128,7 @@ services:
     environment:
       ODS_HB_KEY: ods_live_mirror
       ODS_HB_MAX_MIN: "45"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       KP_ODS_TABLES: "*"
       ODS_EXCLUDE_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*,kdpv_bitacora_precios
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
@@ -144,7 +144,7 @@ services:
     environment:
       ODS_HB_KEY: cdc_reconcile
       ODS_HB_MAX_MIN: "45"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       ODS_RECONCILE_ALERT: "50"
       ODS_HB_IGNORE_ERROR: "1"
       # OBS.11 propagacion de DELETE: "0" = solo reporta sobrantes (default seguro). "1" = los BORRA
