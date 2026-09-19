@@ -151,8 +151,36 @@ export interface TicketDetalle {
 
 /** Los renglones no explican el total si el hueco pasa de esto. Umbral heredado del anexo (AX). */
 const GAP_MAX_PCT = 15;
-/** Tope de candidatos. Un folio compartido da ~7; 50 deja margen sin inundar la pantalla. */
+/** Tope de candidatos que se DEVUELVEN. Un folio compartido da ~7; 50 no inunda la pantalla. */
 const MAX_CANDIDATOS = 50;
+
+/**
+ * Cuántas filas se piden POR UNIVERSO antes de ordenar y recortar en memoria.
+ *
+ * ⚠️ Esto existe para poder quitar el `ORDER BY` de las consultas al ERP, y el motivo está
+ * documentado con medición en el servicio hermano (`commercial-sales-documents.service.ts`):
+ *
+ *   *"medido en prod, `ORDER BY … LIMIT 50` directo sobre la vista costaba **23,856 ms** y así
+ *   cuesta **970 ms** — 24×. El motivo es el `LIMIT`: invita al planner a un nested loop que
+ *   re-escanea el CTE de la cartera una vez por fila devuelta."*
+ *
+ * Y acá ese `ORDER BY` era **redundante**: el arreglo completo se reordena en JS después de unir
+ * los tres universos, así que sólo servía para que el recorte fuera "los más recientes".
+ *
+ * Quitarlo sin más habría roto eso: con `LIMIT 51` y sin orden, Postgres devuelve 51 filas
+ * ARBITRARIAS y la pantalla diría "los más recientes" sobre una muestra al azar. Un folio bajo
+ * como `0000001` existe en 7 sucursales × 5 cajas = **35 documentos sólo en mostrador**, así que
+ * el tope no es teórico. Con 200 el recorte no se activa en ninguna búsqueda por folio real, el
+ * orden lo da el JS sobre el conjunto completo, y devolver 200 filas de 8 columnas no le cuesta
+ * nada a nadie.
+ *
+ * ⚠️⚠️ **NO MEDIDO.** Los 23,856 ms son de una consulta por RANGO DE FECHAS; ésta filtra por
+ * folio exacto, que es mucho más selectivo, y el plan podría haber estado bien desde antes. El
+ * cambio se hizo sobre esa hipótesis y con `platform_test` caído, o sea que **no hay antes/después
+ * que enseñar** — contra la regla del repo, y por eso queda escrito acá en vez de supuesto. Lo
+ * que sí es seguro es que no empeora: quita trabajo, no lo agrega.
+ */
+const LIMITE_POR_UNIVERSO = 200;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
@@ -262,14 +290,19 @@ export class CommercialTicketsService {
 
     return this.tk.run(async (trx) => {
       const out: TicketCandidato[] = [];
+      // true si algun universo devolvio mas filas de las que se leen: ahi el listado no solo
+      // esta recortado, ademas NO se puede afirmar que sean las mas recientes (ya no hay
+      // ORDER BY en SQL). Se distingue de "hay mas de 50" a proposito.
+      let topado = false;
 
       // ── Mostrador (U-D-10) ────────────────────────────────────────────────
       const tk = trx('analytics.erp_sale_tickets as t')
         .where('t.tenant_id', tenantId)
         .select('t.folio_digital as id', 't.sucursal', 't.warehouse_name as sucursal_nombre',
           't.caja', 't.folio', 't.fecha', 't.cliente_nombre', 't.total')
-        .orderBy([{ column: 't.fecha', order: 'desc' }, { column: 't.sucursal', order: 'asc' }])
-        .limit(MAX_CANDIDATOS + 1);
+        // Sin ORDER BY: es redundante (se reordena en JS) y es lo que dispara el mal plan sobre
+        // estas vistas. Ver `LIMITE_POR_UNIVERSO`.
+        .limit(LIMITE_POR_UNIVERSO + 1);
       // Con identidad reconocida se filtra por los TRES campos: es el camino indexado y no
       // depende de que el humano haya escrito el guion. `folio_digital` es una concatenación,
       // así que compararla como string no puede usar índice.
@@ -280,7 +313,9 @@ export class CommercialTicketsService {
       } else tk.whereIn('t.folio', v.folios);
       // `[]` ⇒ knex emite `1 = 0`: quien no alcanza ninguna sucursal ve cero filas, nunca todas.
       if (warehouseCodes) tk.whereIn('t.sucursal', warehouseCodes);
-      for (const f of v.code ? [] : await tk) {
+      const filas_tk = v.code ? [] : await tk;
+      if (filas_tk.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_tk.slice(0, LIMITE_POR_UNIVERSO)) {
         out.push({ ...f, origen: 'mostrador', origen_label: ORIGEN_LABEL.mostrador } as TicketCandidato);
       }
 
@@ -289,15 +324,17 @@ export class CommercialTicketsService {
         .where('i.tenant_id', tenantId)
         .select('i.folio_digital as id', 'i.sucursal', 'i.doc_tipo', 'i.folio', 'i.fecha',
           'i.cliente_nombre', 'i.total')
-        .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.sucursal', order: 'asc' }])
-        .limit(MAX_CANDIDATOS + 1);
+        // Idem: sin ORDER BY. Ésta es la que el servicio hermano midió en 23,856 ms con él.
+        .limit(LIMITE_POR_UNIVERSO + 1);
       if (v.identidad) {
         fa.andWhere('i.sucursal', v.identidad.sucursal)
           .andWhere('i.doc_prefix', v.identidad.docPrefix)
           .whereIn('i.folio', v.identidad.folios);
       } else fa.whereIn('i.folio', v.folios);
       if (warehouseCodes) fa.whereIn('i.sucursal', warehouseCodes);
-      for (const f of v.code ? [] : await fa) {
+      const filas_fa = v.code ? [] : await fa;
+      if (filas_fa.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_fa.slice(0, LIMITE_POR_UNIVERSO)) {
         const origen: TicketOrigen = f.doc_tipo === 'credito' ? 'credito' : 'telemarketing';
         out.push({
           id: f.id, origen, origen_label: ORIGEN_LABEL[origen],
@@ -320,8 +357,10 @@ export class CommercialTicketsService {
         .whereNull('o.deleted_at')
         .select('o.code as id', 'w.code as sucursal', 'w.name as sucursal_nombre', 'o.code as folio',
           trx.raw('o.created_at::date as fecha'), 'c.name as cliente_nombre', 'o.total')
+        // Acá el ORDER BY SÍ se queda: `commercial.orders` es una tabla nuestra, chica y con
+        // índice, no una vista derivada de 3.4M filas. El problema medido es de las otras dos.
         .orderBy('o.created_at', 'desc')
-        .limit(MAX_CANDIDATOS + 1);
+        .limit(LIMITE_POR_UNIVERSO + 1);
       // Con una identidad del ERP reconocida, ningún `PD-` puede calzar: no se lo consulta.
       if (v.identidad) pd.whereRaw('1 = 0');
       else if (v.code) pd.andWhere('o.code', v.code);
@@ -330,13 +369,26 @@ export class CommercialTicketsService {
       // chica (miles), no las 3.4M líneas de Kepler.
       else pd.where((b) => { for (const f of v.folios) b.orWhere('o.code', 'ilike', `%${f}`); });
       if (warehouseCodes) pd.whereIn('w.code', warehouseCodes);
-      for (const f of await pd) {
+      const filas_pd = await pd;
+      if (filas_pd.length > LIMITE_POR_UNIVERSO) topado = true;
+      for (const f of filas_pd.slice(0, LIMITE_POR_UNIVERSO)) {
         out.push({ ...f, caja: null, origen: 'pedido', origen_label: ORIGEN_LABEL.pedido } as TicketCandidato);
       }
 
-      // Lo más reciente primero: quien busca un folio casi siempre quiere el de esta semana.
-      out.sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')));
-      const truncado = out.length > MAX_CANDIDATOS;
+      // ⭐ Éste es AHORA el único orden que existe: las dos consultas al ERP ya no ordenan en
+      // SQL (ver `LIMITE_POR_UNIVERSO`). Lo más reciente primero, porque quien busca un folio
+      // casi siempre quiere el de esta semana.
+      //
+      // El desempate por `id` NO es cosmético: sin él, dos documentos de la misma fecha salen en
+      // el orden que le haya quedado al planner, que ahora no está fijado por ningún ORDER BY —
+      // o sea que la misma búsqueda podría listarlos distinto cada vez. Es el mismo criterio que
+      // el servicio hermano aplica a su paginación ("el desempate siempre es `folio`").
+      out.sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? ''))
+        || String(a.id).localeCompare(String(b.id)));
+      // `truncado` cubre los DOS motivos por los que el listado puede estar incompleto: que haya
+      // más coincidencias de las que se devuelven, o que algún universo haya topado su límite de
+      // lectura (y ahí ni siquiera se puede afirmar que sean las más recientes).
+      const truncado = out.length > MAX_CANDIDATOS || topado;
       return { termino: v.crudo, candidatos: out.slice(0, MAX_CANDIDATOS), truncado };
     });
   }
