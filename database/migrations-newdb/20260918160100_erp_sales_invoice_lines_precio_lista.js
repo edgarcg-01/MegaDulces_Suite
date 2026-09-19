@@ -46,6 +46,17 @@ const PRECIO_LISTA = `NULLIF(${money('l.c66')}, 0)`;
 // Nunca negativo: donde el cobrado supera al de lista no hay descuento que presumir (ADR-056).
 const DESC_UNIT = `GREATEST(COALESCE(${PRECIO_LISTA}, ${money('l.c12')}) - ${money('l.c12')}, 0)`;
 
+/**
+ * Tasas de impuesto por renglon, iguales que en la vista hermana (20260918160000, que trae la
+ * explicacion larga). En corto: `kdm2.c17` = IVA, `c18` = IEPS, Kepler las guarda negativas y
+ * sobre 100, y **nunca coinciden en el mismo renglon** (0 de 123,203 medidos). Se publica la
+ * TASA, no el importe: el importe exige prorratear antes el descuento del documento, y eso es
+ * aritmetica de documento -- justo lo que mas pesa aca, porque 414 de 919 facturas de
+ * telemarketing traen descuento comercial.
+ */
+const TASA_IVA = `abs(coalesce(nullif(regexp_replace(l.c17::text,'[^0-9.-]','','g'),'')::numeric,0))/100`;
+const TASA_IEPS = `abs(coalesce(nullif(regexp_replace(l.c18::text,'[^0-9.-]','','g'),'')::numeric,0))/100`;
+
 const VIEW = `
   SELECT '${M}'::uuid AS tenant_id,
     btrim(l.sucursal) AS sucursal,
@@ -72,7 +83,9 @@ const VIEW = `
     -- ── TK.0b, columnas nuevas (siempre al final) ──────────────────────────
     ${PRECIO_LISTA} AS precio_lista,
     ${DESC_UNIT} AS descuento_unitario,
-    round(${DESC_UNIT} * abs(COALESCE(l.c9::numeric, 0::numeric)), 2) AS descuento_linea
+    round(${DESC_UNIT} * abs(COALESCE(l.c9::numeric, 0::numeric)), 2) AS descuento_linea,
+    ${TASA_IVA}  AS iva_tasa,
+    ${TASA_IEPS} AS ieps_tasa
    FROM kepler_ods.kdm2 l
      JOIN kepler_ods.kdm1 h ON btrim(h.sucursal) = btrim(l.sucursal) AND btrim(h.c1) = btrim(l.c1) AND h.c2 = l.c2 AND h.c3 = l.c3 AND h.c4::integer = l.c4::integer AND h.c6 = l.c6
      LEFT JOIN kepler_ods.kdii k ON btrim(k.sucursal) = btrim(l.sucursal) AND btrim(k.c1) = btrim(l.c8)

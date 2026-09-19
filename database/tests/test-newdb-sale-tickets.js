@@ -196,6 +196,47 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   console.log(`  · detector de despliegue a medias: soporte de precio de lista = ${soporte} `
     + `(si es false, el papel avisa "falta la migracion", NO "el ERP no lo guarda")`);
 
+  // ── 9. TK.4: el impuesto por renglon, contra el ARBITRO ────────────────
+  // El precio de Kepler ya trae el impuesto dentro, asi que se DESCOMPONE; y antes hay que
+  // prorratear el descuento del documento. El arbitro no es la formula: es la cabecera
+  // (kdm1.c14 = IVA, c15 = IEPS), un hecho independiente que Kepler ya escribio. Medido en
+  // prod: sin prorratear cae a 1.93% en telemarketing; prorrateando, 100.00% en los 3 doctipos.
+  const tieneTasas = (await db.query(`
+    SELECT count(*) n FROM information_schema.columns
+     WHERE table_schema='analytics' AND table_name='erp_sale_ticket_lines'
+       AND column_name IN ('iva_tasa','ieps_tasa')`)).rows[0];
+  if (Number(tieneTasas.n) === 2) {
+    const { rows: [imp] } = await db.query(`
+      with l as (
+        select sucursal, doc_prefix, folio, importe, iva_tasa, ieps_tasa
+          from analytics.erp_sale_ticket_lines
+         where fecha >= (select max(fecha) from analytics.erp_sale_tickets) - 7
+      ), sub as (select sucursal, doc_prefix, folio, sum(importe) st from l group by 1,2,3),
+      d as (
+        select l.sucursal, l.doc_prefix, l.folio,
+               sum(round(((l.importe * (t.total/nullif(sub.st,0)))/((1+l.ieps_tasa)*(1+l.iva_tasa)))*l.ieps_tasa,2)) ieps,
+               sum(round(((l.importe * (t.total/nullif(sub.st,0)))/((1+l.ieps_tasa)*(1+l.iva_tasa)))*(1+l.ieps_tasa)*l.iva_tasa,2)) iva,
+               max(t.iva) iva_cab, max(t.ieps) ieps_cab
+          from l join sub using (sucursal, doc_prefix, folio)
+               join analytics.erp_sale_tickets t using (sucursal, doc_prefix, folio)
+         group by 1,2,3)
+      select count(*) docs,
+             count(*) filter (where abs(iva-iva_cab)<=0.05 and abs(ieps-ieps_cab)<=0.05) cuadran,
+             count(*) filter (where iva_cab > 0 or ieps_cab > 0) con_impuesto
+        from d`);
+    const pct = Number(imp.docs) ? (100 * Number(imp.cuadran) / Number(imp.docs)) : 0;
+    chk(Number(imp.con_impuesto) > 0,
+      'PRUEBA NEGATIVA VACIA: ningun documento de la muestra declara impuesto, asi que este '
+      + 'bloque no comprueba nada aunque salga verde');
+    chk(pct >= 99,
+      `el impuesto por renglon solo reproduce la cabecera en ${pct.toFixed(2)}% de ${imp.docs} documentos `
+      + '(se espera >=99%: si cae, el desglose por producto NO se puede publicar)');
+    console.log(`  . impuesto por renglon vs cabecera: ${imp.cuadran}/${imp.docs} (${pct.toFixed(2)}%)`
+      + ` · documentos con impuesto declarado: ${imp.con_impuesto}`);
+  } else {
+    console.log('  . NO MEDIDO — la vista aun no trae iva_tasa/ieps_tasa (migracion 20260918160000 sin re-aplicar).');
+  }
+
   await db.end();
   console.log(`\n${fallos.length ? 'FALLOS' : 'OK'} — ${ok} aserciones verdes, ${fallos.length} fallidas`);
   for (const f of fallos) console.log(`  x ${f}`);
