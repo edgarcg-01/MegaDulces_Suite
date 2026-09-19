@@ -2961,7 +2961,7 @@ Y el log de build de Railway imprimió, textual:
 
 ```
 [builder 8/8] RUN NODE_OPTIONS="--max-old-space-size=4096"
-    NX_CLOUD_ACCESS_TOKEN="NDQwYjBhZDUt…cml0ZQ=="     npx nx build api --configuration=production
+    NX_CLOUD_ACCESS_TOKEN="<el token COMPLETO, en claro>"     npx nx build api --configuration=production
 ```
 
 **BuildKit hace eco de cada `RUN` con los `ARG` YA EXPANDIDOS.** No hay enmascarado: lo que esté
