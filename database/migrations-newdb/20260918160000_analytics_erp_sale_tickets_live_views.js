@@ -88,6 +88,30 @@ const HEAD = `h.c2='U' AND h.c3='D' AND (h.c4)::int=10 AND btrim(h.c1)=btrim(h.s
  * al consumidor a decidir qué hacer, y lo que hace es DECLARARLO (ADR-056).
  */
 const PRECIO_LISTA = `NULLIF(${money('l.c66')}, 0)`;
+/**
+ * ⭐⭐ LAS TASAS DE IMPUESTO POR RENGLON — `kdm2.c17` = IVA, `c18` = IEPS.
+ *
+ * Kepler las guarda NEGATIVAS (`-16`, `-8`) y como proporcion de 100. Medido en prod sobre
+ * 116,411 renglones de mostrador (10 dias): `c17` toma exactamente {0, -16} y `c18` {0, -8}.
+ *
+ * ⭐ **IVA e IEPS NUNCA coinciden en el mismo renglon**: 0 de 123,203 renglones medidos, en los
+ * tres doctipos (mostrador 0/116,411 · telemarketing 0/2,898 · credito 0/3,894). Un producto
+ * lleva uno u otro. Por eso el ticket puede darse el lujo de UNA columna rotulada en vez de
+ * dos, y por eso el orden de la cascada fiscal (IEPS primero, IVA sobre base+IEPS) da lo mismo
+ * que la version plana — se comprobaron las dos y devuelven identico.
+ *
+ * ⚠️ Si algun dia un renglon trae las dos, el consumidor tiene que aplicar la CASCADA
+ * (`base * (1+ieps) * (1+iva)`), que es el orden fiscal mexicano, no sumarlas planas.
+ *
+ * Se publica la TASA y no el importe a proposito: el importe exige prorratear antes el
+ * descuento del documento, y eso es aritmetica de documento. Medido: derivar el impuesto del
+ * importe CRUDO cuadra contra la cabecera en el 100.00% de los documentos SIN descuento, pero
+ * en los que SI lo traen cae a 1.93% (telemarketing). Prorrateando primero, vuelve a 100.00%
+ * en los tres doctipos con error medio de $0.001 a $0.010 (redondeo).
+ */
+const TASA_IVA = `abs(coalesce(nullif(regexp_replace(l.c17::text,'[^0-9.-]','','g'),'')::numeric,0))/100`;
+const TASA_IEPS = `abs(coalesce(nullif(regexp_replace(l.c18::text,'[^0-9.-]','','g'),'')::numeric,0))/100`;
+
 // El descuento del renglón, una sola vez y en un solo lugar: lo usan tres columnas. Sin precio
 // de lista el descuento no es 0 "porque no hubo": es 0 porque no hay con qué compararlo, y eso
 // lo dice `precio_lista IS NULL`, que viaja al lado.
@@ -183,6 +207,11 @@ exports.up = async function up(knex) {
       ${num('l.c56', 4)} AS cantidad_vendida,
       ${num('l.c57', 6)} AS precio_vendido,
       ${num('l.c58', 4)} AS factor_declarado,
+      -- ⭐ TASAS de impuesto POR RENGLON. La vista publica el HECHO que Kepler escribio (la
+      -- tasa); el IMPORTE del impuesto lo calcula el consumidor, porque depende de prorratear
+      -- antes el descuento del documento y eso es aritmetica de documento, no de renglon.
+      ${TASA_IVA}  AS iva_tasa,
+      ${TASA_IEPS} AS ieps_tasa,
       p.id AS product_id,
       now() AS computed_at
     FROM kepler_ods.kdm2 l
