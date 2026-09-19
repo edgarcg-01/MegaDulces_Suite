@@ -70,16 +70,43 @@
         "buildTarget": "api:build"
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint",
-      "outputs": [
-        "{options.outputFile}"
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "//": [
+        "`[NX.7]` El typecheck de la api vivía SÓLO como script de npm (`typecheck:fast`), o sea",
+        "fuera de Nx: sin caché, sin `affected`, y sin aparecer en `nx run-many`. Acá adentro",
+        "gana las tres cosas y se puede exigir en CI junto al resto.",
+        "",
+        "Por qué es la api y no cada proyecto: `apps/api` compila con SWC, que BORRA los tipos",
+        "sin comprobarlos — `nx build api` no typechequea nada. Las tres apps Angular sí lo",
+        "hacen en el build (AOT). O sea que este target cubre el único hueco real.",
+        "",
+        "`tsconfig.ts7.json` entra en `inputs` explícito porque vive en la RAÍZ, fuera de",
+        "{projectRoot}: sin esa línea, cambiarle los `paths` NO invalidaría la caché y el",
+        "typecheck serviría un verde viejo. Es la misma regla que ya cobró con",
+        "database/migrations en `build` (`[NX.1]`) y con vitest.shared.ts en `test` (`[NX.3]`).",
+        "",
+        "`^default` (no `^production`): las pruebas de una lib no se compilan, pero sus tipos",
+        "sí participan de la resolución.",
+        "",
+        "Medido 2026-09-18: 5.5 s en frío. Con caché, hit inmediato."
       ],
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/tsconfig.ts7.json"
+      ],
+      "outputs": [],
       "options": {
-        "lintFilePatterns": [
-          "apps/api/**/*.ts"
-        ]
+        "command": "tsgo -p tsconfig.ts7.json",
+        "cwd": "{workspaceRoot}"
       }
     }
-  }
+  },
+  "//lint": [
+    "`[NX.6]` `lint` lo infiere `@nx/eslint/plugin`; el executor `@nx/eslint:lint` explícito se",
+    "retiró porque está deprecado y se va en Nx v24. Ver el detalle en libs/contracts/project.json.",
+    "Medido antes/después (2026-09-18): 213 problems (64 errors, 149 warnings) en los dos casos."
+  ]
 }

@@ -1,7 +1,21 @@
 // Typecheck-only con el compilador nativo Go (tsgo / TypeScript 7).
 // No participa de ningun build. Standalone a proposito: TS 7 removio `baseUrl`
 // y exige `paths` relativos, asi que no puede extender tsconfig.base.json.
-// Si cambian los `paths` en tsconfig.base.json, replicarlos aca.
+//
+// `[NX.7]` Lo de "replicarlos aca" a mano YA FALLO, que era lo predecible. Medido el
+// 2026-09-18: faltaban los 5 subpaths `@megadulces/contracts/authz/*` mas `@megadulces/ui-web`,
+// y sobraban 3 entradas de `@megadulces/shared-auth`, una lib que NO EXISTE en el repo y que
+// nadie importa. Resultado: `npm run typecheck:fast` estaba ROJO con 5 errores TS2307
+// "Cannot find module" — no por un error de tipos, sino porque el mapa se desincronizo.
+// Un gate rojo por deriva de su propia config enseña a ignorarlo.
+//
+// Se verifico que la duplicacion es FORZADA, no pereza: poniendo `extends: ./tsconfig.base.json`
+// tsgo sale 1 con TS5102 ("Option 'baseUrl' has been removed") y TS5090 ("Non-relative paths
+// are not allowed"). O sea que no hay forma de tener una sola fuente.
+//
+// ⭐ Por eso el candado NO es volver a sincronizar a mano: es `scripts/check-ts7-paths.js`,
+// que compara este mapa contra el de tsconfig.base.json y sale 1 si divergen. Corre en
+// `npm run check` y en CI. Si agregas un `paths` alla, el gate te dice que lo agregues aca.
 {
   "compilerOptions": {
     "module": "esnext",
@@ -21,16 +35,19 @@
     "paths": {
       "@megadulces/commercial": ["./libs/commercial/src/index.ts"],
       "@megadulces/contracts": ["./libs/contracts/src/index.ts"],
+      "@megadulces/contracts/authz/authz-tree": ["./libs/contracts/src/authz/authz-tree.ts"],
+      "@megadulces/contracts/authz/permission-meta": ["./libs/contracts/src/authz/permission-meta.ts"],
+      "@megadulces/contracts/authz/permissions": ["./libs/contracts/src/authz/permissions.ts"],
+      "@megadulces/contracts/authz/role-presets": ["./libs/contracts/src/authz/role-presets.ts"],
+      "@megadulces/contracts/authz/suite-map": ["./libs/contracts/src/authz/suite-map.ts"],
       "@megadulces/finance": ["./libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["./libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["./libs/logistics/src/index.ts"],
       "@megadulces/platform-core": ["./libs/platform-core/src/index.ts"],
       "@megadulces/reconciliation": ["./libs/reconciliation/src/index.ts"],
-      "@megadulces/shared-auth": ["./libs/shared-auth/index.ts"],
-      "@megadulces/shared-auth/core": ["./libs/shared-auth/core/index.ts"],
-      "@megadulces/shared-auth/ui": ["./libs/shared-auth/ui/index.ts"],
       "@megadulces/shared-scoring": ["./libs/shared-scoring/index.ts"],
       "@megadulces/trade": ["./libs/trade/src/index.ts"],
+      "@megadulces/ui-web": ["./libs/ui-web/src/index.ts"],
       "@megadulces/whatsapp": ["./libs/whatsapp/src/index.ts"]
     }
   },

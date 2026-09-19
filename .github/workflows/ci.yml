@@ -32,6 +32,21 @@ name: CI
 # dice cuál pasa. Medido el 2026-09-17 al crearlo: **2 de 6 en verde**, y ninguna rojez era
 # reciente. Ése es el costo de tener esto apagado.
 #
+# ─── `[NX.5]` Qué falta para que esto valga, en orden ──────────────────────────────────────
+# El workflow ya está cableado a Nx Cloud (ver el bloque `env:` de abajo). Las tres cosas que
+# quedan NO se resuelven desde el repo, y sin las dos primeras esto sigue sin correr:
+#
+#   1. DESTRABAR la facturación de la cuenta `edgarcg-01`. Hasta que pase, cualquier corrida
+#      muere en 3 s sin arrancar, con o sin Nx Cloud.
+#   2. REACTIVAR el workflow (`gh workflow enable CI`) — hoy está `disabled_manually`.
+#   3. Cargar el secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets and variables → Actions).
+#      Sin él, el CI corre igual pero SIN caché remoto: el paso "Declarar el caché remoto" lo
+#      grita como warning en vez de dejarlo pasar callado.
+#
+# Y la cuarta, que es la que convierte esto en una compuerta de verdad: agregar los required
+# status checks a la branch protection de `main`. Medido el 2026-09-18: `required_status_checks`
+# sigue en `null`, así que aun con todo lo de arriba resuelto un PR rojo se puede mergear igual.
+#
 # Flujo de equipo (3 devs): rama por feature → PR → 1 review (CODEOWNERS) → merge a main.
 # Ver ONBOARDING.md §8.
 #
@@ -51,6 +66,19 @@ on:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# `[NX.5]` Caché REMOTO de Nx Cloud, para todos los jobs.
+#
+# El workspace ya está conectado (`nxCloudId` en `nx.json`, desde el PR #115) y el caché remoto
+# está VERIFICADO funcionando — medido el 2026-09-18 con dos cachés locales vacías distintas:
+# la primera falló y escribió, la segunda leyó del remoto (`1/1 hit`, 1.4 s → 8 ms).
+#
+# ⚠️ Si el secret no está cargado, Nx NO se cae: imprime el 401 y sigue con caché local
+# (medido con un token inventado — `Invalid Credentials (CI Access Token) ... (code: 401)`,
+# exit 0). Eso es bueno para no tumbar el CI, y es justo por eso que hace falta el paso
+# "Declarar el caché remoto" de abajo: si no, la ausencia del token se ve igual que tenerlo.
+env:
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 
 jobs:
   # Escaneo de secretos. Job SEPARADO del build (no lo bloquea). gitleaks-action
@@ -97,24 +125,22 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
-      # Caché de TAREAS de Nx entre corridas. Hasta el 2026-09-15 el workflow sólo cacheaba
-      # `npm` (vía setup-node), así que cada PR recompilaba todo desde cero aunque nada de lo
-      # suyo hubiera cambiado, y lo que ya había compilado otra corrida no le servía a nadie.
-      # No hay Nx Cloud configurado (`nxCloud: NO CONFIGURADO` en nx.json), y esto es el
-      # sustituto pobre pero gratis: el caché local de Nx, subido y bajado como artefacto.
-      #
-      # La key lleva el SHA para que cada corrida escriba su propia entrada; `restore-keys`
-      # hace que una corrida nueva arranque del caché más reciente de esa rama y, si no hay,
-      # de cualquiera. Nx igual verifica por hash de entradas: un caché viejo NUNCA devuelve
-      # un resultado incorrecto, sólo deja de acertar.
-      - name: Caché de tareas Nx
-        uses: actions/cache@v4
-        with:
-          path: .nx/cache
-          key: nx-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: |
-            nx-${{ runner.os }}-${{ github.ref_name }}-
-            nx-${{ runner.os }}-
+      # `[NX.5]` El `actions/cache` de `.nx/cache` que vivía acá SE RETIRÓ. Era el sustituto
+      # pobre de cuando no había Nx Cloud, y su propio comentario decía "No hay Nx Cloud
+      # configurado" — dejó de ser cierto en el PR #115. Ahora es peor que redundante: sube y
+      # baja un tarball con lo mismo que el caché remoto ya sirve, y encima particionado por
+      # rama (`restore-keys`), así que una rama nueva arrancaba en frío aunque otra corrida ya
+      # hubiera compilado ese hash exacto. El caché remoto no tiene esa frontera: es uno solo
+      # para todas las ramas, todas las máquinas y —esto es lo nuevo— también los builds de
+      # Railway (`[NX.4]`).
+      - name: Declarar el caché remoto (ADR-056 — no degradar en silencio)
+        run: |
+          if [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
+            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN. El CI corre SIN caché remoto (cada tarea desde cero). Cargalo en Settings → Secrets → Actions."
+            echo "caché remoto: NO MEDIDO (sin token)"
+          else
+            echo "caché remoto: activo"
+          fi
 
       - name: Derivar SHAs base/head para affected
         uses: nrwl/nx-set-shas@v4
@@ -171,16 +197,16 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
-      # Mismo caché de tareas que el job `build` — ver el comentario de allá. Acá aplica a
-      # `lint` y `test`, que también son targets cacheables de Nx.
-      - name: Caché de tareas Nx
-        uses: actions/cache@v4
-        with:
-          path: .nx/cache
-          key: nx-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: |
-            nx-${{ runner.os }}-${{ github.ref_name }}-
-            nx-${{ runner.os }}-
+      # `[NX.5]` Acá también se retiró el `actions/cache` — ver el motivo en el job `build`.
+      # `lint` y `test` son targets cacheables y los sirve el caché remoto.
+      - name: Declarar el caché remoto (ADR-056 — no degradar en silencio)
+        run: |
+          if [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
+            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN. El CI corre SIN caché remoto."
+            echo "caché remoto: NO MEDIDO (sin token)"
+          else
+            echo "caché remoto: activo"
+          fi
 
       - name: Lint (affected)
         run: npx nx affected -t lint --parallel=3
@@ -242,6 +268,25 @@ jobs:
       # Prueba negativa ejercida: quitando el archivo del COPY, sale 1 y lo nombra.
       - name: Docker context gate (la raíz que los configs de proyecto necesitan)
         run: npm run check:docker
+
+      # `[NX.7]` Va ANTES del typecheck: `tsconfig.ts7.json` no puede extender
+      # `tsconfig.base.json` (TS 7 removió `baseUrl` y exige paths relativos — verificado con
+      # TS5102/TS5090), así que el mapa de `paths` está duplicado a la fuerza y se desfasa solo.
+      # Medido el 2026-09-18: faltaban 6 alias y sobraban 3 de una lib inexistente, y el
+      # typecheck salía rojo con 5 × TS2307 que NO eran errores de código.
+      # Pruebas negativas ejercidas: alias que falta, alias que sobra, mismo alias con otro
+      # destino — los tres salen 1 y lo nombran.
+      - name: TS7 paths gate (typecheck y build resuelven lo mismo)
+        run: npm run check:ts7paths
+
+      # `[NX.7]` `apps/api` compila con SWC: los tipos se BORRAN sin comprobarse, así que el job
+      # `build` no dice nada sobre ellos. Las tres apps Angular sí typechequean en AOT. Este
+      # target es el único que cubre ese hueco, y desde que vive en Nx es cacheable y entra en
+      # `affected` (medido: 5.8 s en frío, 89 ms con caché).
+      - name: Typecheck (affected)
+        run: npx nx affected -t typecheck --parallel=3
+        env:
+          NX_DAEMON: 'false'
 
       # `--passWithNoTests` ya NO va acá: cada `vitest.config.ts` lo declara, y desde
       # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese

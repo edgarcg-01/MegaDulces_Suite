@@ -84,6 +84,47 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
+
+Continúa `[NX.1]`/`[NX.3]` (2026-09-17). **El hallazgo de entrada: Nx Cloud ya estaba conectado
+desde el PR #115 y nadie lo estaba usando** — el caché remoto funciona (verificado con dos cachés
+locales vacías distintas: la 1ª falla y escribe, la 2ª lee del remoto, **1.4 s → 8 ms**) pero
+**3 de los 4 Dockerfiles de prod compilaban con CERO caché**, y `ci.yml` seguía diciendo *"No hay
+Nx Cloud configurado"* mientras usaba `actions/cache` como sustituto.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[NX.4]` | 🔨 | **Prod**: `ARG NX_CLOUD_ACCESS_TOKEN` en los 4 Dockerfiles. `Dockerfile.worker` compilaba `api` **desde cero en cada release** — la misma tarea que el Dockerfile principal ya había compilado minutos antes, porque un cache mount de Railway lleva el Service ID adentro y es por-servicio por definición. Los 4 pasan `docker build --check`. Modos de falla del token medidos: ausente / vacío / inválido → **warning y exit 0**, nunca tumba el build |
+| `[NX.5]` | 🔨 | **CI**: `env` global con el token, **retirados los 2 `actions/cache`** (redundantes y particionados por rama), paso "Declarar el caché remoto" que grita con `::warning` si falta el secret (ADR-056), cabecera con las 4 acciones humanas en orden |
+| `[NX.6]` | ✅ | **Deuda que vence en Nx v24**: `contracts`/`api`/`finance` salen del executor deprecado `@nx/eslint:lint` al inferido. **Antes/después idéntico**: 6 / 213 / 1096 problems |
+| `[NX.7]` | ✅ | **`typecheck` entra a Nx** (`api`, porque SWC borra los tipos sin comprobarlos y las 3 Angular sí chequean en AOT): 5.8 s en frío → **89 ms** con caché, y **re-corre** al tocar `tsconfig.ts7.json` (input explícito, misma regla de `[NX.1]`/`[NX.3]`). Antes estaba **ROJO** con 5 × TS2307 que no eran errores de código: el mapa de `paths` se había desfasado (faltaban 6, sobraban 3 de una lib **que no existe**). Candado nuevo `scripts/check-ts7-paths.js` con **3 pruebas negativas** |
+| `[NX.8]` | ✅ | **Regresión (~218 pruebas) a Nx** como `database:regression`, **`cache: false`** a propósito (pegan contra Postgres real; el estado de la DB no entra al hash → cachear serviría un **veredicto** viejo). Efecto colateral atajado: crear el proyecto le infería un `lint` de **1089 problems / 468 errors** sobre 238 archivos nunca lintados → excluido y **declarado como deuda** |
+| `[NX.9]` | ✅ | **Nx 23.1.0 → 23.2.1**. `nx migrate` movió **sólo el core** y dejó los 13 `@nx/*` en 23.1.0 → se alinearon a mano. Cero migraciones que correr; grafo intacto (18 proyectos) |
+
+⛔ **Lo que NO se hizo, con motivo escrito:** distribución en agentes de Nx Cloud (consume créditos
+del plan y **cuál es el plan no se verificó** — encenderlo a ciegas es gastar sin medir).
+
+⚠️ **DECLARADO — `portal` y `vendor` no van a acertar el caché, ni remoto ni local, y no es culpa
+del caché:** los dos hacen `sed -i` con un **reloj de pared** (`date -u`) sobre `index.html` y
+`version.json` **antes** del build, y los dos archivos están dentro del hash. Cada build es un
+hash nuevo por construcción. Los 3 caminos de salida se investigaron y se cerraron: estampar
+post-build rompe `ngsw.json` (los dos archivos están en los `assetGroups`), la fecha del commit no
+está en el contenedor (`.dockerignore` excluye `.git`), y pasarla como build arg exige saber qué
+variable expone Railway — **no se verificó, no se inventa**. Cuesta sólo el redeploy del mismo
+commit. En `vendor` el sello se lee en **un solo lugar**: una sonda de diagnóstico, al lado del
+commit que ya identifica el build.
+
+**Pendiente — todo acción humana fuera del repo:** (1) emitir el CI Access Token **read-write** en
+`cloud.nx.app` *(no hay CLI para mintearlo)* · (2) cargarlo como build var en Railway · (3) como
+secret en GitHub Actions · (4) **destrabar la facturación** de `edgarcg-01` · (5)
+`gh workflow enable CI` · (6) agregar **required status checks** a `main` (hoy
+`required_status_checks: null` → un PR rojo se mergea igual).
+
+⬜ **Decisiones abiertas:** el reloj de pared de portal/vendor · agentes de Nx Cloud · encender el
+lint de `database/**` (468 errores declarados).
+
+---
+
 ### Fase PU — Presupuestos (motor de planeación y control) · 2026-09-17 · plan en [`FASE_PU`](FASES/FASE_PU_PRESUPUESTOS.md) · ADR-066
 
 Spec de negocio de Dirección (`Modulo_Presupuestos_ERP_Mega_Dulces.md`) revisada contra el código:

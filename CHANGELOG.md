@@ -10,6 +10,45 @@
 
 ## [Unreleased]
 
+### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
+- **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
+  funciona —verificado con dos cachés locales vacías distintas: la 1ª falla y escribe, la 2ª lee
+  del remoto, **1.4 s → 8 ms**— pero **3 de los 4 Dockerfiles de producción compilaban con cero
+  caché de Nx**, y `ci.yml` seguía afirmando *"No hay Nx Cloud configurado"*.
+- **`[NX.4]` Los 4 Dockerfiles comparten un caché.** `Dockerfile.worker` recompilaba `api`
+  **desde cero en cada release**: la misma tarea que el Dockerfile principal ya había compilado
+  del mismo commit minutos antes. No era descuido — un cache mount de Railway lleva el Service ID
+  adentro, así que es por-servicio **por definición**; el caché remoto es la única capa que cruza
+  esa frontera. Modos de falla del token medidos antes de cablearlo: ausente, vacío e inválido
+  dan **warning y exit 0** — nunca tumban un deploy.
+- **`[NX.5]` CI cableado y honesto.** Se retiraron los dos `actions/cache` de `.nx/cache`
+  (redundantes con el remoto y particionados por rama: una rama nueva arrancaba en frío aunque
+  otra corrida ya hubiera compilado ese hash). Paso nuevo que emite `::warning` si falta el
+  secret, en vez de degradar callado (ADR-056).
+- **`[NX.6]` Deuda que vence en Nx v24**: `contracts`, `api` y `finance` salen del executor
+  deprecado `@nx/eslint:lint` al inferido, con el veredicto **idéntico** antes y después
+  (6 / 213 / 1096 problems).
+- **`[NX.8]` La suite de regresión (~218 pruebas) entra a Nx** como `database:regression`, con
+  **`cache: false` a propósito**: pegan contra Postgres real y el estado de la base no entra al
+  hash, así que cachearlas serviría un **veredicto** viejo.
+- **`[NX.9]` Nx 23.1.0 → 23.2.1.** `nx migrate` movió sólo el core y dejó los 13 `@nx/*` atrás;
+  se alinearon a mano.
+
+### Fixed — `npm run typecheck:fast` estaba rojo, y ninguno de los 5 errores era del código (NX.7, 2026-09-18)
+- `tsconfig.ts7.json` mantiene su mapa de `paths` **a mano** y se había desfasado de
+  `tsconfig.base.json`: **faltaban 6** alias (los 5 subpaths `@megadulces/contracts/authz/*` y
+  `@megadulces/ui-web`) y **sobraban 3** de `@megadulces/shared-auth`, una lib que **no existe**
+  en el repo y que nadie importa. Salían 5 × `TS2307 Cannot find module`, que se leen como error
+  de código y no lo eran. Sincronizado: **verde en 5.5 s**.
+- **La duplicación es forzada, no pereza** (verificado): con `extends`, tsgo sale 1 con `TS5102`
+  (`baseUrl` removido) y `TS5090` (paths no relativos). Por eso el arreglo no es re-sincronizar:
+  es `scripts/check-ts7-paths.js`, con **3 pruebas negativas** (alias que falta, alias que sobra,
+  mismo alias con otro destino).
+- **`typecheck` pasa a ser target de Nx** en `api` —el único hueco real, porque SWC borra los
+  tipos sin comprobarlos y las 3 apps Angular sí chequean en AOT—: **5.8 s → 89 ms** con caché, y
+  **re-corre** al tocar `tsconfig.ts7.json`, porque ese archivo va en `inputs` explícito (vive en
+  la raíz, fuera de `{projectRoot}` — misma regla que ya cobró en `[NX.1]` y `[NX.3]`).
+
 ### Changed — Andén: del folio a las fechas, y la ubicación se crea y se rotula donde se usa (WMS-REC.9, 2026-09-18)
 - **El recorrido pasa a `folio → fechas → ubicación`.** Se retira el paso de Llegada (cotejo
   contra Kepler + "dar acceso") por decisión de negocio. **Fechar es contar**: la cantidad que

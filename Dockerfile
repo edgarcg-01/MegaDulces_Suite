@@ -95,8 +95,16 @@ COPY database ./database
 # cuesta wall-clock sólo en ese caso.
 # Una sola instancia Nx coordina el cache; NO usar `&` de shell (dos procesos
 # nx se pisarían el cache).
+#
+# `[NX.4]` El cache mount de arriba es la PRIMERA capa (rápida, local al servicio). El token de
+# abajo suma la SEGUNDA: el caché remoto de Nx Cloud, que es la única compartida entre
+# servicios y entre máquinas — un mount de Railway lleva el Service ID adentro y por definición
+# no lo ve nadie más. Acá eso importa porque `api:build` también lo compila `Dockerfile.worker`.
+# Si el token falta o está mal, Nx avisa y sigue con el mount local (medido: exit 0).
+ARG NX_CLOUD_ACCESS_TOKEN=
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx2,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
+    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx run-many -t build -p view,api --configuration=production --parallel=1
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────

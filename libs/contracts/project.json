@@ -3,19 +3,18 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/contracts/src",
   "projectType": "library",
-  "targets": {
-    "lint": {
-      "executor": "@nx/eslint:lint",
-      "outputs": [
-        "{options.outputFile}"
-      ],
-      "options": {
-        "lintFilePatterns": [
-          "libs/contracts/**/*.ts"
-        ]
-      }
-    }
-  },
+  "//": [
+    "`[NX.6]` El target `lint` NO se declara acá: lo INFIERE `@nx/eslint/plugin` (registrado en",
+    "nx.json con targetName `lint`). El executor `@nx/eslint:lint` que vivía en este archivo",
+    "está DEPRECADO y desaparece en Nx v24 — lo avisa el propio executor en cada corrida.",
+    "",
+    "Ningún proyecto del repo tiene config propia de eslint: la flat config de la raíz cubre",
+    "todo, y por eso el plugin puede inferir el target sin más. Los proyectos que YA usaban el",
+    "inferido (view, portal, vendor, commercial…) eran mayoría; éste era de los 3 rezagados.",
+    "",
+    "Medido antes/después (2026-09-18): el veredicto no se movió — 6 problems (2 errors,",
+    "4 warnings) con el executor explícito y los mismos 6 con el inferido."
+  ],
   "tags": [
     "scope:shared",
     "type:util"

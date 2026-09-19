@@ -55,8 +55,17 @@ const COMPUERTAS = [
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
   { nombre: 'docker-ctx', cmd: 'node scripts/check-docker-context.js', que: 'los Dockerfiles copian lo que los configs de proyecto importan de la raíz' },
+  // `[NX.7]` Va ANTES del typecheck a propósito: si los dos mapas de `paths` divergen, el
+  // typecheck sale rojo con TS2307 "Cannot find module", que se lee como un error del código y
+  // no lo es. Medido el 2026-09-18: así estaba —5 errores, cero de ellos reales— porque a
+  // `tsconfig.ts7.json` le faltaban 6 alias y le sobraban 3 de una lib que ya no existe.
+  { nombre: 'ts7-paths', cmd: 'node scripts/check-ts7-paths.js', que: 'el mapa de `paths` del typecheck no se desfasó del build' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
+  // `[NX.7]` `apps/api` compila con SWC, que borra los tipos SIN comprobarlos: `build` no
+  // typechequea la api. Las 3 apps Angular sí lo hacen en AOT. Éste cubre ese hueco, y desde
+  // que es target de Nx entra en `affected` y en la caché como cualquier otro.
+  { nombre: 'typecheck', cmd: nx('typecheck'), que: 'tipos de la api (SWC no los comprueba)' },
   // `[NX.3]` Sin `--passWithNoTests`: cada `vitest.config.ts` lo declara, y el target `test` lo
   // infiere el plugin `@nx/vitest` de ese archivo — si no hay config, no hay target que correr.
   { nombre: 'test', cmd: nx('test'), que: 'las suites del workspace (vitest)' },

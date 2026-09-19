@@ -3,14 +3,10 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/finance/src",
   "projectType": "library",
-  "targets": {
-    "lint": {
-      "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
-      "options": {
-        "lintFilePatterns": ["libs/finance/**/*.ts"]
-      }
-    }
-  },
+  "//": [
+    "`[NX.6]` `lint` lo infiere `@nx/eslint/plugin`; el executor `@nx/eslint:lint` explícito se",
+    "retiró porque está deprecado y se va en Nx v24. Ver el detalle en libs/contracts/project.json.",
+    "Medido antes/después (2026-09-18): 1096 problems (5 errors, 1091 warnings) en los dos casos."
+  ],
   "tags": ["scope:finance", "type:feature"]
 }
