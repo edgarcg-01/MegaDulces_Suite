@@ -108,34 +108,35 @@ export class CommercialLabelsService {
    */
   private static readonly TOLERANCIA_H: Record<string, number> = {
     ods_live_hot: 1,
-    recalculo: 12,
+    // `[ETQ-ODS.1]` `recalculo: 12` se retiró con su paso: la etiqueta ya no pasa por
+    // `commercial.product_label_prices`. Una tolerancia sin carril que la use es config muerta,
+    // y config muerta es lo que hace creer que algo se está vigilando.
   };
 
   /**
-   * La cadena del precio de etiqueta tiene DOS pasos, y cada uno se muere solo:
+   * `[ETQ-ODS.1]` La cadena del precio de etiqueta tiene UN solo paso.
    *
-   *   1. `ods_live_hot` shipea `kdii`/`kdpv_prod_util` del ERP al ODS   → si muere, el ERP cambia
+   *   1. `ods_live_hot` shipea `kdii`/`kdpv_prod_util` del ERP al ODS → si muere, el ERP cambia
    *      el precio y acá nunca llega. **Es lo que pasó el 27-ago.**
-   *   2. hop-2 recalcula `commercial.product_label_prices`              → si muere, el ODS está
-   *      fresco y la etiqueta igual queda vieja.
    *
-   * Vigilar sólo uno deja el otro ciego, así que se miran los dos.
+   * Tenía DOS: el segundo era el recálculo de `commercial.product_label_prices`, y se midió con
+   * `max(computed_at)` de esa tabla. Ese paso **desapareció** cuando la etiqueta pasó a leer
+   * `analytics.v_label_prices`, que deriva del ODS sin tabla intermedia.
    *
-   * ⚠️ NO se usa el `computed_at` de la FILA como señal de rezago. Se movería sólo cuando ESE
-   * producto cambia de precio, así que un SKU estable daría semanas de "edad" estando
-   * perfectamente al día — el mismo falso positivo que documenta `analytics.v_feed_freshness`
-   * para las tablas del ODS. Se usa el `max(computed_at)` de la tabla, que sí prueba que el paso
-   * de recálculo sigue vivo.
+   * ⛔ Y seguir midiéndolo sería peor que no medir nada: la píldora reportaría el rezago de una
+   * tabla que esta pantalla ya no lee, poniéndose roja por algo que no le afecta o —peor— verde
+   * porque ese importer corrió, mientras el carril que SÍ la alimenta está muerto. Es la familia
+   * exacta de defecto que VP.0 midió en 21 de 24 píldoras.
+   *
+   * ⚠️ Tampoco se usa el `computed_at` de la FILA: se movería sólo cuando ESE producto cambia de
+   * precio, así que un SKU estable daría semanas de "edad" estando perfectamente al día.
    */
   private async freshness(trx: any): Promise<LabelsFreshness> {
     try {
       const carril = await laneAt(trx, 'ods_live_hot');
-      const recalc = (await trx('commercial.product_label_prices').max('computed_at as at'))?.[0]?.at;
       return composeFreshness([
         evalInput('ods_live_hot', 'Carril del ODS (precios del ERP)', carril,
           CommercialLabelsService.TOLERANCIA_H['ods_live_hot']),
-        evalInput('recalculo', 'Recálculo de etiquetas', recalc,
-          CommercialLabelsService.TOLERANCIA_H['recalculo']),
       ]);
     } catch {
       // Que no se pueda MEDIR la frescura no puede impedir imprimir. Se declara desconocida —
@@ -181,15 +182,10 @@ export class CommercialLabelsService {
    * reproduce exactamente la fila que se publicaba hasta hoy. Es compatibilidad, no el camino
    * bueno: un `leftJoin` a la TABLA sin filtrar por plaza devolvería 8 filas por producto.
    */
-  /**
-   * `[ET.3]` El precio del ERP en vivo, o `null`. El umbral `0.05` es el MISMO que usa el cómputo
-   * de la etiquetera (`label-compute.js`: `WHERE k.c90::numeric > 0.05`): si se usara otro, la
-   * etiqueta y la copia discreparían por una frontera distinta, que es un defecto nuevo.
-   */
-  private precioVivoDe(r: any): number | null {
-    const v = r?.ods_piece_price != null ? Number(r.ods_piece_price) : NaN;
-    return Number.isFinite(v) && v > 0.05 ? v : null;
-  }
+  // `[ETQ-ODS.1]` Acá vivía `precioVivoDe()`, que leía `kdii.c90` por un join aparte y aplicaba
+  // el umbral `> 0.05` a mano. Se retiró: ese umbral ahora vive UNA sola vez, dentro de
+  // `analytics.v_label_prices`, que es la misma frontera que usa `label-compute.js`. Tenerlo en
+  // dos lugares era la forma de que la etiqueta y su fuente discreparan por el borde.
 
   /**
    * `[ETQ-PROMO.1]` A CUÁL de los tres precios de la etiqueta le toca el descuento.
@@ -235,16 +231,37 @@ export class CommercialLabelsService {
       const skuMatch = Array.from(new Set([...codes, ...extraSkus]));
 
       const rows = await trx('products as p')
-        .leftJoin(
-          `${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} as l`,
-          function (this: any) {
-            this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
-            // El filtro de plaza va en el ON, no en el WHERE: en un LEFT JOIN, mandarlo al WHERE
-            // convierte el LEFT en INNER y los productos sin etiqueta en esa tienda dejarían de
-            // aparecer — pasarían a `not_found` en vez de salir con los campos en null.
-            if (suc) this.andOn('l.sucursal', '=', trx.raw('?', [suc]));
-          },
-        )
+        // ── `[ETQ-ODS.1]` UNA sola fuente, y por lo tanto UNA sola frescura ────────────────
+        //
+        // Con plaza, TODO sale de `analytics.v_label_prices`: vista derivada de
+        // `kepler_ods.kdii` + `kdpv_prod_util`, sin tabla intermedia ni importer.
+        //
+        // Antes esta consulta mezclaba dos orígenes en el mismo papel: el precio base venía del
+        // ODS en vivo (~1-2 min) y el mayoreo, la caja, el paquete y la unidad de
+        // `commercial.product_label_prices`, que puebla un importer cada 30 min. Desde
+        // `[ETQ-AIDA.1]` el precio GRANDE es `mayoreo x (1 - pct)`, así que el número más grande
+        // de la etiqueta quedó colgando de la copia batch mientras el tachado de al lado venía
+        // del ODS. Medido antes de cambiarlo: 2 SKUs en las 9 plazas tenían en la tabla un
+        // precio que el ERP ya había bajado a la mitad (`84234`: $71.51 contra $40.37 vivo).
+        //
+        // ⚠️ El filtro de plaza va en el ON, no en el WHERE: en un LEFT JOIN, mandarlo al WHERE
+        // convierte el LEFT en INNER y los productos sin etiqueta en esa tienda dejarían de
+        // aparecer — pasarían a `not_found` en vez de salir con los campos en null.
+        //
+        // ⚠️ Sin plaza se conserva el camino de antes (la vista consolidada, por `product_id`):
+        // `kdii` trae una fila por (sku, sucursal), así que sin plaza multiplicaría cada
+        // producto por nueve. Ese camino sigue siendo una copia y lo declara `piece_price_origen`.
+        .modify((qb) => {
+          if (suc) {
+            qb.leftJoin('analytics.v_label_prices as l', function (this: any) {
+              this.on(trx.raw('l.sku = btrim(p.sku)')).andOn(trx.raw('l.sucursal = ?', [suc]));
+            });
+          } else {
+            qb.leftJoin('commercial.v_product_label_prices as l', function (this: any) {
+              this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
+            });
+          }
+        })
         // ── `[ET.3]` EL PRECIO SALE DE LA FUENTE, NO DE LA COPIA ───────────────────────────
         //
         // Edgar (2026-09-14): *"hay que usar fuentes principal y ver que esta interfaz tome
@@ -266,11 +283,9 @@ export class CommercialLabelsService {
         // (la vista consolidada), que es lo que ya se publicaba.
         .modify((qb) => {
           if (!suc) return;
-          qb.leftJoin('kepler_ods.kdii as k', function (this: any) {
-            this.on(trx.raw('btrim(k.c1) = btrim(p.sku)'))
-              .andOn(trx.raw('btrim(k.sucursal::text) = ?', [suc]));
-          }).select(trx.raw(
-            `NULLIF(regexp_replace(k.c90::text, '[^0-9.]', '', 'g'), '')::numeric AS ods_piece_price`));
+          // `[ETQ-ODS.1]` El join suelto a `kepler_ods.kdii` se RETIRÓ: `v_label_prices` ya trae
+          // `piece_price` del mismo `c90`, y leerlo por dos caminos era justamente la mezcla de
+          // fuentes que esta fase vino a cerrar.
           // `[ETQ-PROMO.1]` El descuento por cantidad vigente de ESA tienda.
           //
           // ⚠️ UNA sola fila por producto, con `DISTINCT ON`. Un mismo SKU puede tener promo en
@@ -337,9 +352,11 @@ export class CommercialLabelsService {
           // `[ET.3]` Con plaza, el precio es el del ERP EN VIVO. `null` cuando el ERP no lo
           // cotiza (0 o ausente) — y `null` es correcto: la etiqueta deja de imprimir un precio
           // en vez de imprimir el que el ERP ya retiró. Sin plaza se conserva el de la copia.
-          piece_price: suc ? this.precioVivoDe(r) : n(r.piece_price),
+          piece_price: n(r.piece_price),
           // `[ET.3]` De dónde salió, para que la pantalla lo pueda decir y no lo tenga que suponer.
-          piece_price_origen: suc ? (this.precioVivoDe(r) == null ? 'erp_sin_precio' : 'erp_vivo') : 'copia',
+          // `[ETQ-ODS.1]` Con plaza el origen es el ODS por construcción: `v_label_prices` sólo
+          // emite filas con `c90 > 0.05`, así que ausencia = el ERP no lo cotiza en esa tienda.
+          piece_price_origen: suc ? (n(r.piece_price) == null ? 'erp_sin_precio' : 'erp_vivo') : 'copia',
           wholesale_piece_min_qty: r.wholesale_piece_min_qty ?? null,
           wholesale_piece_price: n(r.wholesale_piece_price),
           pack_size: r.pack_size ?? null,

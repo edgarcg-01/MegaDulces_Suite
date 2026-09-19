@@ -797,9 +797,14 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (!this.show.caja) return false;
     const total = this.num(this.model?.box_price);
     const size = this.num(this.model?.box_size);
-    // [ETQ-PROMO.2] La caja tiene su PROPIA escalera (va a precio de mayoreo), asi que bajo
-    // oferta puede quedar mas cara por unidad que el promocional. Ahi no se imprime.
-    return total > 0 && size > 0 && this.ganaALaOferta(total, size);
+    // `[ETQ-ODS.1]` La caja SIEMPRE se imprime cuando hay dato. Estuvo gateada por
+    // `ganaALaOferta` y era un error de criterio: bajo oferta la caja NO lleva el descuento
+    // —la promo no sale de su presentación, medido: promo en PAQ vendida en PZA da 0 de 49
+    // renglones con descuento— así que por unidad queda por encima del hero y desaparecía.
+    // Pero este renglón no promete ser el mejor precio: dice cuánto cuesta la caja, que es lo
+    // que el cliente pregunta en el mostrador. El que promete es el REALCE, y ése sigue
+    // exigiendo un descuento real (`realceMayoreo*`).
+    return total > 0 && size > 0;
   }
   // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
   // del producto, o al menos el SKU (fallback CODE128) → toda etiqueta sale escaneable.
