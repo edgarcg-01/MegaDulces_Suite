@@ -5,9 +5,22 @@
  * ese número vive enredada con los SELECT, no se puede auditar sin levantar una base. Acá
  * está sola, con sus casos, y el servicio sólo le pasa filas.
  *
- * La misma cuenta la hace la DB (`cut_cerrado_completo_chk`) y la pantalla. Es a propósito:
- * la del servidor es el candado, ésta es para que el capturista vea la diferencia ANTES de
- * cerrar, y la de la pantalla para que la vea mientras cuenta.
+ * ⚠️ **CORREGIDO (CG.19).** Acá decía que "la misma cuenta la hace la DB
+ * (`cut_cerrado_completo_chk`)". **Es falso**: ese CHECK sólo exige que `esperado`, `contado` y
+ * `diferencia` NO sean NULL — no verifica ninguna aritmética. **Esta función es la única llave que
+ * existe**, no una de dos. Afirmar un candado que no está es peor que no tenerlo: invita a confiar.
+ *
+ * ⛔ **Y decía que la pantalla debe mostrar la diferencia "mientras cuenta". Eso se revierte.**
+ * Era un requisito explícito, no un descuido, así que queda escrito por qué cambió: ver la
+ * diferencia converger a cero mientras se teclea convierte el arqueo en una transcripción del
+ * esperado. El conteo pasa a ser CIEGO (CG.19 Capa 1) — se cuenta sin ver, y se revela al guardar.
+ *
+ * ⚠️ **Y hay un defecto de FONDO que esta función sola no puede arreglar** (CG.19): el `esperado`
+ * se deriva de los movimientos que un HUMANO capturó, así que si alguien no captura una entrega,
+ * el esperado baja junto con el contado y el corte **cuadra perfecto**. Un número que audita a una
+ * persona no puede calcularse con lo que esa persona tecleó. El esperado debe venir de Kepler
+ * (`analytics.customer_receivables`); mientras eso no esté, esta cuenta sólo detecta errores de
+ * dedo — no dinero faltante.
  */
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
