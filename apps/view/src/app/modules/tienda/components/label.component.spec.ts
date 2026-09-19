@@ -262,6 +262,93 @@ describe('LabelComponent · lo que sale impreso', () => {
       await render(BASE);
       expect(el().querySelector('.etq-label')?.getAttribute('data-etq-fit')).toBe('sin_medida');
     });
+
+    /**
+     * ⭐ NEGATIVA de la compuerta de renglones. Sin esta prueba, la compuerta es una intención.
+     *
+     * `fitTiers` encoge hasta su piso de 2.6 mm y, si ahí sigue sin caber, SALE — y el
+     * `overflow:hidden` de `.etq-label` se come el sobrante. El veredicto no miraba ese bloque,
+     * así que decía `ok` y `print()` —que cuenta `[data-etq-fit="overflow"]`— no avisaba.
+     * Medido en vivo: SKU 70500 sucursal 06, la fila de CAJA salía cortada por la mitad.
+     *
+     * Se mockea la geometría porque jsdom no hace layout, igual que el candado del zoom de abajo.
+     */
+    it('⭐ NEGATIVA: un renglón que NO cabe sale "overflow", no "ok"', async () => {
+      await render(BASE);
+      const cmp = fix.componentInstance as unknown as { veredicto(): string };
+      const precio = el().querySelector('.etq-price') as HTMLElement;
+      const cajaPrecio = precio.parentElement as HTMLElement;
+      const tiers = el().querySelector('.etq-tiers') as HTMLElement;
+
+      // El hero tiene que ser medible o el veredicto sale 'sin_medida' ANTES de mirar los renglones.
+      Object.defineProperty(cajaPrecio, 'clientWidth', { value: 200, configurable: true });
+
+      // Caja de renglones de 60 px, sin zoom (rect == offsetHeight → escalaVisual = 1).
+      Object.defineProperty(tiers, 'offsetHeight', { value: 60, configurable: true });
+      Object.defineProperty(tiers, 'clientHeight', { value: 60, configurable: true });
+      tiers.getBoundingClientRect = () => ({ height: 60 }) as DOMRect;
+      const hijos = Array.from(tiers.children) as HTMLElement[];
+      expect(hijos.length).toBeGreaterThan(0); // si no hay renglones el caso sería degenerado
+      const altoDeCadaRenglon = (px: number) =>
+        hijos.forEach((h) => { h.getBoundingClientRect = () => ({ height: px }) as DOMRect; });
+
+      // CABE: los renglones entran holgados en la caja.
+      altoDeCadaRenglon(10);
+      expect(cmp.veredicto()).toBe('ok');
+
+      // NO CABE: los MISMOS renglones, más altos que la caja. Esto es lo que antes salía 'ok'.
+      altoDeCadaRenglon(40);
+      expect(cmp.veredicto()).toBe('overflow');
+    });
+  });
+
+  /**
+   * ⭐ [ETQ-PROMO.1] El "Descuento por Cantidad" de Kepler en la etiqueta.
+   *
+   * El precio grande pasa a ser el DESCONTADO y el de lista baja a un renglón chico tachado.
+   * Lo que más importa acá es la negativa: la promo apunta a UNA presentación y en el 43% de las
+   * vigentes no es la base, así que aplicarla al precio grande sin mirar la unidad estaría mal
+   * en casi la mitad de los casos.
+   */
+  describe('⭐ descuento por cantidad', () => {
+    const CON_PROMO: LabelModel = { ...BASE, promo_pct: 10, promo_min_qty: 1, promo_aplica: 'pieza' };
+    const precio = (): string => el().querySelector('.etq-price')?.textContent?.replace(/\s/g, '') ?? '';
+    const antes = (): string | null => el().querySelector('.etq-antes .amt')?.textContent?.trim() ?? null;
+
+    it('el precio grande lleva el descuento y el normal baja a un renglón tachado', async () => {
+      await render(CON_PROMO);
+      expect(precio()).toContain('11.25');           // 12.50 − 10%
+      expect(antes()).toBe('$12.50');
+      expect(el().querySelector('.etq-tachado')).not.toBeNull();
+    });
+
+    it('⭐ NEGATIVA: si la promo es de OTRA presentación, el precio grande NO se toca', async () => {
+      // Hero = pieza (default de este modelo) pero la promo es de caja: no aplica.
+      await render({ ...CON_PROMO, promo_aplica: 'caja' });
+      expect(precio()).toContain('12.50');
+      expect(antes()).toBeNull();
+    });
+
+    it('sin plaza no hay promo, y eso NO se pinta como "sin descuento"', async () => {
+      await render({ ...BASE, promo_pct: null, promo_aplica: null });
+      expect(precio()).toContain('12.50');
+      expect(antes()).toBeNull();
+    });
+
+    it('"desde N" sólo aparece con umbral real — 496 de 498 promos arrancan en 1', async () => {
+      await render(CON_PROMO);
+      expect(el().querySelector('.etq-antes .txt')?.textContent).not.toContain('desde');
+      await render({ ...CON_PROMO, promo_min_qty: 3 });
+      expect(el().querySelector('.etq-antes .txt')?.textContent).toContain('desde');
+    });
+
+    it('un pct absurdo (0 o >=100) se ignora: no se imprime un precio de regalo', async () => {
+      for (const pct of [0, 100, 140]) {
+        await render({ ...CON_PROMO, promo_pct: pct });
+        expect(precio()).toContain('12.50');
+        expect(antes()).toBeNull();
+      }
+    });
   });
 
   /**

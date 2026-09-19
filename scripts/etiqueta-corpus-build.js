@@ -28,9 +28,34 @@ const TESTIGOS = ['78148', '20186', '70031', '70500', '70079', '70043'];
  * Contar columnas de la tabla en vez de esto sobreestima: da 73.7% con 2 renglones
  * cuando lo que se imprime de verdad es 78.4%.
  */
-const SQL = `
-WITH l AS (
-  SELECT p.sku, p.nombre AS name, lp.content, lp.barcode, lp.barcode_format,
+/**
+ * ⭐ El BARCODE sale de `catalog.products`, NO de `commercial.product_label_prices`.
+ *
+ * Es lo que resuelve el backend (`commercial-labels.service.ts`: `rawBc = p.barcode` y la
+ * simbología por longitud), o sea lo que de verdad se imprime. El corpus leía `lp.barcode` y
+ * quedaba en null muchísimas veces → el arnés dibujaba el CODE128 de RESPALDO donde producción
+ * dibuja un EAN-13/UPC. Y no es lo mismo: el alto del bloque del código es justo el insumo con
+ * que `fitBarcode` reparte el aire de la columna, así que el arnés medía una etiqueta que no
+ * existe y su invariante `tiers_recortado` daba 0 mientras el papel salía con un renglón cortado.
+ *
+ * Medido en PROD el 2026-09-18 sobre las 78,610 filas con precio: `lp.barcode` cubre 50,259 y
+ * `p.barcode` cubre 78,531 — o sea 28,272 filas (36%) con la simbología equivocada.
+ */
+const BARCODE_SQL = `
+         CASE WHEN btrim(coalesce(p.barcode,'')) ~ '^([0-9]{8}|[0-9]{12}|[0-9]{13})$'
+              THEN btrim(p.barcode) END AS barcode,
+         CASE WHEN btrim(coalesce(p.barcode,'')) ~ '^[0-9]{13}$' THEN 'EAN13'
+              WHEN btrim(coalesce(p.barcode,'')) ~ '^[0-9]{12}$' THEN 'UPC'
+              WHEN btrim(coalesce(p.barcode,'')) ~ '^[0-9]{8}$'  THEN 'EAN8' END AS barcode_format,`;
+
+/**
+ * La población base. Se define UNA vez porque de acá salen las dos cosas que tienen que hablar
+ * del mismo universo: la muestra del corpus y los PESOS con que el arnés pondera sus promedios.
+ * Con dos definiciones, los pesos terminan describiendo un catálogo distinto del que se mide.
+ */
+const CTE_L = `
+  SELECT DISTINCT ON (p.sku)
+         p.sku, p.nombre AS name, lp.content, lp.sucursal, ${BARCODE_SQL}
          lp.piece_price, lp.wholesale_piece_min_qty, lp.wholesale_piece_price,
          lp.pack_size, lp.pack_price, lp.wholesale_pack_price, lp.wholesale_pack_min_qty,
          lp.box_size, lp.box_price, lp.unit_base, lp.sold_by_kg,
@@ -54,7 +79,24 @@ WITH l AS (
          (coalesce(lp.wholesale_pack_price,0) > 0 AND coalesce(lp.wholesale_pack_min_qty,0) <= 1) AS sin_umbral
   FROM commercial.product_label_prices lp
   JOIN catalog.products p ON p.id = lp.product_id
-  WHERE coalesce(lp.piece_price,0) > 0),
+  WHERE coalesce(lp.piece_price,0) > 0
+  -- [NORM.3] la tabla paso a tener grano por PLAZA: sin esto cada producto entraría 9 veces.
+  -- Se conserva una plaza por SKU (la primera) para que el corpus siga siendo una muestra de
+  -- FORMAS de etiqueta, que es lo que la geometría mide.
+  ORDER BY p.sku, lp.sucursal`;
+
+/** Pesos del catálogo, derivados de la MISMA población que muestrea el corpus. */
+const PESOS_SQL = `
+WITH l AS (${CTE_L})
+SELECT 'digitos' AS eje, digitos::text AS k, round(100.0*count(*)/sum(count(*)) OVER (),1) AS pct
+  FROM l GROUP BY 1,2
+UNION ALL
+SELECT 'renglones', renglones::text, round(100.0*count(*)/sum(count(*)) OVER (),1)
+  FROM l GROUP BY 1,2
+ORDER BY 1,2`;
+
+const SQL = `
+WITH l AS (${CTE_L}),
 muestra AS (
   SELECT *, row_number() OVER (
     PARTITION BY digitos, renglones, upper(btrim(coalesce(unit_base,'?')))
@@ -68,13 +110,20 @@ UNION ALL SELECT *, 0 FROM (SELECT * FROM l WHERE sin_umbral ORDER BY sku LIMIT 
 -- los extremos de magnitud, que son los que desbordan
 UNION ALL SELECT *, 0 FROM (SELECT * FROM l ORDER BY piece_price DESC LIMIT 3) c
 UNION ALL SELECT *, 0 FROM (SELECT * FROM l ORDER BY coalesce(box_price,0) DESC LIMIT 3) d
-UNION ALL SELECT *, 0 FROM (SELECT * FROM l ORDER BY length(name) DESC LIMIT 3) e`;
+UNION ALL SELECT *, 0 FROM (SELECT * FROM l ORDER BY length(name) DESC LIMIT 3) e
+-- ⭐ La población que se recorta y que el corpus viejo NO podía representar: 3 renglones CON
+-- código real. Medido en prod: 654 de las 1,180 filas de 3 renglones. Entra explícita porque el
+-- muestreo por estrato no la garantiza — y es justo el caso que el arnés tiene que poder ver.
+UNION ALL SELECT *, 0 FROM (
+  SELECT * FROM l WHERE renglones >= 3 AND barcode IS NOT NULL
+   ORDER BY coalesce(box_price,0) DESC LIMIT 12) f`;
 
 (async () => {
   if (!URL) { console.error('Falta FLEET_DB_URL'); process.exit(1); }
   const c = new Client({ connectionString: URL, ssl: false, statement_timeout: 180000 });
   await c.connect();
   const { rows } = await c.query(SQL, [TESTIGOS]);
+  const { rows: pesosRows } = await c.query(PESOS_SQL);
   await c.end();
 
   const visto = new Set();
@@ -90,8 +139,13 @@ UNION ALL SELECT *, 0 FROM (SELECT * FROM l ORDER BY length(name) DESC LIMIT 3) 
 
   // Pesos del catálogo COMPLETO, para que el promedio del arnés sea representativo y no el
   // promedio de la muestra (que sobre-representa los estratos raros a propósito).
-  const pesos = { digitos: { 1: 9.1, 2: 78.2, 3: 12.3, 4: 0.4 },
-                  renglones: { 0: 5.0, 1: 14.6, 2: 78.4, 3: 1.9 } };
+  //
+  // ⭐ Se DERIVAN de la misma consulta, ya no se escriben a mano. Estaban clavados en
+  // {1:9.1, 2:78.2, ...} / {0:5.0, 1:14.6, 2:78.4, 3:1.9} y para el 2026-09-18 el catálogo ya
+  // decía {1:6.9, 2:80.1, ...} / {0:3.6, 1:20.2, 2:74.3, 3:1.9}: un número copiado a mano se
+  // separa de su fuente en silencio, y acá ese número pondera TODO lo que el arnés publica.
+  const pesos = { digitos: {}, renglones: {} };
+  for (const r of pesosRows) pesos[r.eje][r.k] = Number(r.pct);
 
   process.stdout.write(JSON.stringify({
     generado: new Date().toISOString().slice(0, 10),
