@@ -455,6 +455,14 @@ proponen de lo ya computado (ADR-074).
   una por una (`apply-one-migration-prod.js`, NO `migrate:latest`); verificadas (source/source_ref + índice en
   budget_lines; status CHECK con `propuesta` + authorized_by nullable + source en expense_obligations). Prod en
   784/0. **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044) + validación visual.
+- **[PR.perf] 🧪 Regla <1s por carga (medido con EXPLAIN ANALYZE):** las cargas por DEFAULT quedan <1s —
+  Ejercicio (summary sales_daily año **219 ms**), Gastos/Flujo-Resultado/Capacidad/Obligaciones 1–11 ms, Ventas
+  shell (meta-vs-real ahora **opt-in**). Lo pesado sobre vistas VIVAS del ODS pasó a opt-in/lazy: flujo de caja
+  (`customer_receivables` 2.4 s), meta-vs-real (roll `v_sellout_daily` 2.0 s), proponer capacidad (2.4 s), y las
+  sub-pestañas Indicadores (2.1 s)/Conciliación cargan sólo al clic. Commits `9405f068` (Flujo) + `fe1c24ec`
+  (Ventas). **Declarado — fase de perf pendiente:** construir matviews en prod (`mv` cobros CXC + sell-out por
+  entidad×periodo) + refresh crons para que esos paneles carguen <1s de verdad; hoy las matviews rápidas
+  (`mv_customer_receivables` 9 ms) existen en dev pero NO en prod (verificado). Ver [[feedback_interface_load_under_1s]].
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
