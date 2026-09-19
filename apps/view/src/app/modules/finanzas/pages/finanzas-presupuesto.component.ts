@@ -350,6 +350,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
                   <button pButton type="button" class="p-button-sm" (click)="runProposePlan()" [loading]="savingPropose()" title="Arma el plan con los supuestos del año (Ejercicio)"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
                 }
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="loadSalesComparison()" [loading]="loadingSales()" title="Consulta el sell-out del ODS (unos segundos)"><span class="pi pi-refresh"></span>&nbsp;{{ salesCmp() ? 'Actualizar real' : 'Cargar meta vs real' }}</button>
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="projectTargets()" [loading]="projecting()" title="Reparte la meta del plan (13×4) a metas mensuales del «vs objetivo» del sub-módulo Análisis (reparto por días)."><span class="pi pi-share-alt"></span>&nbsp;Proyectar a Análisis</button>
               </div>
             </div>
@@ -400,6 +401,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad donde no hay base) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—). Para ajustar una meta a mano, elegí un periodo (P1–P13).</p>
               } @else if (loadingSales()) {
                 <p class="pres-muted">Cargando presupuesto de ventas…</p>
+              } @else {
+                <p class="pres-hint"><span class="pi pi-info-circle"></span> El «meta vs real» consulta el sell-out del ODS (unos segundos). Pulsá <strong>«Cargar meta vs real»</strong> para verlo. La propuesta del plan no lo necesita.</p>
               }
             }
 
@@ -926,7 +929,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.view.set(v as PresView);
     if (v === 'flujo') this.loadResultado(); // el flujo de caja (lento, CXC ODS) es opt-in — ver botón «Actualizar»
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
-    if (v === 'ventas') this.loadSalesComparison();
+    // 'ventas': el pivote meta-vs-real consulta el sell-out del ODS (lento) → opt-in por botón, no al cargar
     if (v === 'gasto-op') this.loadExpensePlan();
     if (v === 'ejercicios') this.loadAssumptions();
     if (v === 'gastos') this.loadObligProposals();
@@ -1069,7 +1072,6 @@ export class FinanzasPresupuestoComponent implements OnInit {
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
     this.loadAssumptions();
-    if (this.view() === 'ventas') this.loadSalesComparison();
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
