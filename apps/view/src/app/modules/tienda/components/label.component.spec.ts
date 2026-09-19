@@ -312,13 +312,23 @@ describe('LabelComponent · lo que sale impreso', () => {
    */
   describe('⭐ descuento por cantidad', () => {
     const CON_PROMO: LabelModel = { ...BASE, promo_pct: 10, promo_min_qty: 1, promo_aplica: 'pieza' };
+    /**
+     * `[ETQ-AIDA.1]` SIN escalera de mayoreo, para aislar el camino de la promo sola.
+     *
+     * `BASE` trae `wholesale_piece_price: 11` contra una lista de 12.50, así que `CON_PROMO`
+     * entra por el hero de mayoreo (11 × 0.9 = 9.90) y ya no prueba lo que estos casos dicen
+     * probar. Peor: `PROMO_GRANDE` subía la lista a 236.51 y dejaba el mayoreo en 11, una
+     * combinación que no existe en el ERP — daba un "Ahorra $226.61". Un fixture incoherente no
+     * es un caso límite, es ruido: se parte en dos y cada uno prueba una cosa.
+     */
+    const SOLO_PROMO: LabelModel = { ...CON_PROMO, wholesale_piece_price: null, wholesale_piece_min_qty: null };
     // Ahorro por ENCIMA del piso ($23.65, como el FERRERO real de la plaza 05).
-    const PROMO_GRANDE: LabelModel = { ...CON_PROMO, piece_price: 236.51 };
+    const PROMO_GRANDE: LabelModel = { ...SOLO_PROMO, piece_price: 236.51 };
     const precio = (): string => el().querySelector('.etq-price')?.textContent?.replace(/\s/g, '') ?? '';
     const antes = (): string | null => el().querySelector('.etq-antes .amt')?.textContent?.trim() ?? null;
 
     it('el precio grande lleva el descuento y el normal baja a un renglón tachado', async () => {
-      await render(CON_PROMO);
+      await render(SOLO_PROMO);
       expect(precio()).toContain('11.25');           // 12.50 − 10%
       expect(antes()).toBe('$12.50');
       expect(el().querySelector('.etq-tachado')).not.toBeNull();
@@ -378,7 +388,7 @@ describe('LabelComponent · lo que sale impreso', () => {
       // prod, ese umbral discrepaba de la regla en 44 casos: 42 ponían pesos donde va porcentaje.
 
       // BARATO ($12.50, ahorro $1.25 vs 10%): gana el porcentaje.
-      await render(CON_PROMO);
+      await render(SOLO_PROMO);
       const barra1 = el().querySelector('.etq-ahorro-bar');
       expect(barra1?.textContent).toContain('10%');
       expect(barra1?.textContent).not.toContain('1.25');
@@ -399,6 +409,83 @@ describe('LabelComponent · lo que sale impreso', () => {
         expect(precio()).toContain('12.50');
         expect(antes()).toBeNull();
       }
+    });
+
+    /**
+     * ⭐⭐ `[ETQ-AIDA.1]` Los dos descuentos se APILAN, y el grande es el de mayoreo.
+     *
+     * Medido contra prod (plaza 05, ticket `U-D-10`, 2026-08-20→09-18, renglones con `c66 > 0`):
+     * de los 1,064 que alcanzan umbral, **686 reproducen exactamente `peldaño × (1 − pct)`**, y
+     * aflojar la tolerancia 20× sólo lo mueve a 711 — el ajuste es real, no tolerancia generosa.
+     * Y **82.9% de los renglones con umbral pagan MENOS que el precio promocional** ($4.11 en
+     * promedio): la versión anterior de esta etiqueta escondía justo ese precio, porque comparaba
+     * un mayoreo SIN descontar contra un promocional YA descontado.
+     */
+    describe('⭐⭐ el mayoreo apilado manda', () => {
+      const tierTxts = (): string[] =>
+        [...el().querySelectorAll('.etq-tier')].map((n) => n.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+
+      it('el precio grande es el peldaño CON la promo encima, no el promocional', async () => {
+        // lista 12.50 · mayoreo 11.00 desde 3 · promo 10% → 11.00 × 0.9 = 9.90 (no 11.25)
+        await render(CON_PROMO);
+        expect(precio()).toContain('9.90');
+        expect(antes()).toBe('$12.50');
+      });
+
+      it('⭐ NEGATIVA: con la escalera INVERTIDA el grande vuelve al promocional', async () => {
+        // 2 de 487 promos de la plaza 05 traen el mayoreo MÁS CARO que la lista. Ahí apilar daría
+        // un precio peor que la oferta, así que el hero no se mueve.
+        await render({ ...CON_PROMO, wholesale_piece_price: 13 });
+        expect(precio()).toContain('11.25');
+        expect(el().textContent).not.toContain('Llevando');
+      });
+
+      it('⭐ LA MINA DE UNIDADES: con base PAQ el peldaño sale de wholesale_PACK_price', async () => {
+        // `promo_aplica: 'pieza'` NO significa pieza: significa la unidad BASE. Y cuando la base
+        // es PAQ/CJA, `label-compute` guarda el peldaño de la base en `wholesale_pack_price` y
+        // deja `wholesale_piece_price` en null. Leer el campo "pieza" acá daría null y el hero
+        // nunca pasaría a mayoreo — fallando EN SILENCIO en el 73.5% del catálogo.
+        // Fixture = FERRERO 24P real de la plaza 05.
+        const FERRERO: LabelModel = {
+          ...BASE, sku: '42001', name: 'FERRERO 24P', unit_base: 'PAQ', piece_price: 236.51,
+          wholesale_piece_price: null, wholesale_piece_min_qty: null,
+          wholesale_pack_price: 221.86, wholesale_pack_min_qty: 3,
+          pack_size: null, pack_price: null, box_size: 6, box_price: 1331.14,
+          promo_pct: 10, promo_min_qty: 1, promo_aplica: 'pieza',
+        };
+        await render(FERRERO);
+        expect(precio()).toContain('199.67');                 // 221.86 × 0.9
+        expect(antes()).toBe('$236.51');
+        // La CAJA no lleva la promo (está declarada en PAQ) → por unidad sale más cara que el
+        // hero y se oculta. Es el renglón que el diseño anterior ocultaba por el motivo equivocado.
+        expect(tierTxts().some((t) => t.includes('1,331.14'))).toBe(false);
+      });
+
+      it('`[ETQ-AIDA.2]` la CONDICIÓN viaja pegada al número, con su unidad', async () => {
+        // El precio grande es condicional: medido, 70.8% de los renglones con promo NO alcanzan
+        // el umbral. Un precio de volumen sin su cantidad al lado es publicidad engañosa.
+        await render(CON_PROMO);
+        const franja = el().querySelector('.etq-pieza')?.textContent ?? '';
+        expect(franja).toContain('Llevando');
+        expect(franja).toContain('3+');
+        expect(franja).toContain('pzas');                     // ADR-055: la unidad NO se pierde
+      });
+
+      it('`[ETQ-AIDA.3]` aparece el escalón intermedio "Oferta 1 a N−1"', async () => {
+        await render(CON_PROMO);
+        const escalon = tierTxts().find((t) => t.includes('Oferta 1 a'));
+        expect(escalon).toBeDefined();
+        expect(escalon).toContain('2');                       // umbral 3 → "1 a 2"
+        expect(escalon).toContain('11.25');                   // el promocional puro
+      });
+
+      it('con umbral PROPIO de promo no se arma la escalera de tres', async () => {
+        // Dos umbrales distintos (el de la promo y el del mayoreo) no se pueden rotular sin
+        // ambigüedad → se cae al diseño de dos precios. Son 2 de 498 promos vigentes.
+        await render({ ...CON_PROMO, promo_min_qty: 3 });
+        expect(precio()).toContain('11.25');
+        expect(tierTxts().some((t) => t.includes('Oferta 1 a'))).toBe(false);
+      });
     });
   });
 

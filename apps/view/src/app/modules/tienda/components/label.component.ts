@@ -466,6 +466,12 @@ export interface LabelModel {
     .etq-oferta-tag{ flex:0 0 auto; margin-right:1.4mm; background:var(--yellow); color:var(--green);
       font-family:var(--font-cond); font-size:3.6mm; line-height:1; letter-spacing:.6px;
       padding:.7mm 1.2mm; border-radius:.6mm; white-space:nowrap; text-transform:uppercase; }
+    /* [ETQ-AIDA.2] La CONDICION del precio grande ("Llevando 3+ paquetes") reusa la franja de la
+       unidad, abajo del panel y con su mismo formato: el .pre chico lleva el verbo y el .u
+       grande la cantidad con su unidad. No se suma un elemento -- se cambia el texto del que ya
+       estaba -- asi que el hueco del numero no pierde un milimetro.
+       Se probo subirla arriba del numero y se volvio: el formato principal la quiere abajo,
+       cerrando el panel, que es donde la franja de unidad vivio siempre. */
     /* El AHORRO es una BARRA SOLIDA, no un renglon mas: es el argumento de compra y tiene que
        leerse como un sello, no como otra linea de precios. Sin separador punteado arriba, para
        que se lea pegado al precio normal -- los dos juntos son una sola frase. */
@@ -576,7 +582,7 @@ export interface LabelModel {
                  número sin su unidad es el error más caro del proyecto (ADR-055). Por eso la
                  palabra va en su propio nivel de jerarquía, no como pie de foto. -->
             <div class="etq-pieza" #pieza>
-              <span class="etq-pieza-txt" #piezaTxt>@if (sinPrecio) {<span class="pre">el ERP no lo cotiza en esta tienda</span>} @else {<span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span>}</span>
+              <span class="etq-pieza-txt" #piezaTxt>@if (sinPrecio) {<span class="pre">el ERP no lo cotiza en esta tienda</span>} @else if (condicionMayoreo; as cc) {<span class="pre">Llevando</span><span class="u">{{ cc }}</span>} @else {<span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span>}</span>
             </div>
           </div>
         </div>
@@ -588,6 +594,16 @@ export interface LabelModel {
             <!-- [ETQ-PROMO.1] El precio de LISTA, tachado, cuando el grande ya lleva el descuento
                  por cantidad de Kepler. Va primero para que se lea junto al numero grande.
                  "desde N" solo si el umbral es real (medido: 496 de 498 promos arrancan en 1). -->
+            <!-- [ETQ-AIDA.3] El escalón intermedio: lo que paga quien NO llega al umbral. Va
+                 arriba del precio normal para que la escalera se lea de abajo hacia arriba como
+                 una mejora (normal → oferta → el grande). Sólo existe cuando el grande ya es el
+                 mayoreo apilado; si no, el promocional ES el grande y este renglón lo repetiría. -->
+            @if (escalonOferta; as eo) {
+              <div class="etq-tier">
+                <div class="txt">Oferta 1 a <span class="etq-red">{{ eo.hasta }}</span></div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ eo.precio | number:'1.2-2' }}</span></div>
+              </div>
+            }
             @if (precioNormal; as pn) {
               <div class="etq-tier etq-antes">
                 <div class="txt">Precio normal@if (promoDesde; as q) { · desde <span class="etq-red">{{ q }}</span> }</div>
@@ -748,6 +764,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   /** Cuántos renglones se van a imprimir. Alimenta el centrado del caso sin renglones. */
   get tierCount(): number {
     return (this.precioNormal !== null ? 1 : 0) + (this.ahorro !== null ? 1 : 0)
+      + (this.escalonOferta ? 1 : 0)
       + (this.granelAltTier ? 1 : 0) + (this.hasMayoreoPza ? 1 : 0) + (this.hasPaquete ? 1 : 0)
       + (this.hasMayoreoPaq ? 1 : 0) + (this.hasCaja ? 1 : 0);
   }
@@ -919,17 +936,114 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * grande", y así se lee en el código sin ningún número mágico que explicar.
    */
   get beneficio(): { pesos: boolean; valor: number } | null {
-    const pct = this.promoPct;
     const ah = this.ahorro;
-    if (pct === null || ah === null || !(ah > 0)) return null;
+    const normal = this.precioNormal;
+    if (ah === null || normal === null || !(ah > 0) || !(normal > 0)) return null;
+    // `[ETQ-AIDA.4]` El porcentaje es el TOTAL contra el precio normal, no sólo el de la promo:
+    // cuando el grande es el mayoreo apilado el descuento real pasa de 5.28% a 11.34% promedio
+    // (medido sobre las 470 promos de la plaza 05 cuyo mayoreo le gana al promocional). Usar
+    // `promoPct` acá diría "-5%" debajo de un número que ahorra el doble.
+    const pct = Math.round(100 * (1 - this.precioGrande / normal));
     return ah > pct ? { pesos: true, valor: ah } : { pesos: false, valor: pct };
   }
 
-  /** El precio que se imprime GRANDE: con el descuento ya aplicado si le toca. */
-  get precioGrande(): number {
+  /**
+   * `[ETQ-AIDA.1]` El peldaño de mayoreo de LA PRESENTACIÓN EN PROMO, con su umbral.
+   *
+   * ⛔ **El mapeo ranura → campo NO es el obvio, y equivocarlo falla en SILENCIO.** La ranura
+   * 'pieza' no significa "pieza": significa **la unidad base**, sea PAQ, CJA o PZA — lo fija
+   * `bigUnit`, cuyo default toma `piece_price` (= `kdii.c90`, el precio de la unidad base) y le
+   * pone `slot: 'pieza'`. Y del otro lado, `label-compute.js` guarda el peldaño DE LA BASE en
+   * `wholesale_pack_price` cuando la base es PAQ/CJA, dejando `wholesale_piece_price` en null:
+   *
+   *     const grouped = bp === 'PAQ' || bp === 'CJA';
+   *     const w = grouped ? { packPrice: baseTier.price, piecePrice: null } : { piecePrice: ... }
+   *
+   * O sea que leer `wholesale_piece_price` para la ranura 'pieza' daría **null en el 73.5% del
+   * catálogo** (las bases PAQ) — y el hero nunca pasaría a mayoreo, que se lee como "este
+   * producto no tiene mayoreo" en vez de como un bug. Es la misma distinción que ya documenta
+   * `hasMayoreoPaq`.
+   *
+   * `null` cuando la promo es de CAJA sin que la base lo sea: ahí el modelo no trae ese peldaño.
+   */
+  private get peldanoDeLaPromo(): { precio: number; min: number } | null {
+    if (this.promoPct === null) return null;
+    const slot = this.bigUnit.slot;
+    if (slot === 'caja') return null;
+    const usaPaq = slot === 'paquete' || this.baseIsGrouped;
+    const precio = this.num(usaPaq ? this.model?.wholesale_pack_price : this.model?.wholesale_piece_price);
+    const min = usaPaq ? this.mayoreoPaqMin : this.mayoreoMin;
+    return precio > 0 && min !== null ? { precio, min } : null;
+  }
+
+  /**
+   * ⭐⭐ `[ETQ-AIDA.1]` El precio que la caja DE VERDAD cobra al alcanzar el umbral: el peldaño de
+   * mayoreo **con la promo encima**. Los dos descuentos se apilan.
+   *
+   * Medido contra prod (plaza 05, ticket de mostrador `U-D-10`, 2026-08-20→09-18, renglones con
+   * `kdm2.c66 > 0`): de los 1,064 renglones que alcanzan umbral, **686 reproducen exactamente
+   * `peldaño × (1 − pct)`**. Aflojar la tolerancia 20× (0.05% → 1%) sólo lo mueve a 711 — un
+   * ajuste que no crece al aflojar es real, no tolerancia generosa. Y **82.9% de los renglones
+   * con umbral pagan MENOS que el precio promocional**, $4.11 en promedio: la versión anterior
+   * de esta etiqueta escondía justo ese precio.
+   *
+   * El resto del residuo es drift del instrumento, no de la regla: `kdpv_prod_util.c7` y
+   * `kdpv_descuxq.c6` son estado de HOY **sin historia**, así que una venta vieja no puede casar
+   * si el precio cambió. Por semana el acierto sube 17.3% → 64.2% → 73.3% → 70.7% → **79.7%** al
+   * acercarse a hoy.
+   *
+   * ⛔ Sólo se devuelve si LE GANA al promocional: medido, en 2 de 487 promos la escalera está
+   * invertida (el mayoreo es más caro) y en 8 empata. Ahí el hero se queda en el promocional.
+   * ⛔ Y se exige que la promo NO traiga su propio umbral: con dos umbrales distintos la escalera
+   * de tres no se puede rotular sin ambigüedad (2 de 498 promos).
+   */
+  get heroMayoreo(): { precio: number; min: number } | null {
+    const pct = this.promoPct;
+    const p = this.peldanoDeLaPromo;
+    if (pct === null || p === null || this.promoDesde !== null) return null;
+    const apilado = p.precio * (1 - pct / 100);
+    return apilado > 0 && apilado < this.precioPromo - 0.005 ? { precio: apilado, min: p.min } : null;
+  }
+
+  /** ¿El precio grande es el de mayoreo? Interruptor del estado visual de la escalera de tres. */
+  get enMayoreo(): boolean { return this.heroMayoreo !== null; }
+
+  /**
+   * `[ETQ-AIDA.2]` La condición del precio grande, en la unidad del propio hero ("3+ paquetes").
+   *
+   * Va PEGADA al número y no en letra chica porque el precio grande es condicional: medido,
+   * **70.8% de los renglones con promo no alcanzan el umbral**. Un precio de volumen sin su
+   * cantidad al lado es publicidad engañosa y fabrica una discusión en el mostrador.
+   */
+  get condicionMayoreo(): string | null {
+    const h = this.heroMayoreo;
+    if (h === null) return null;
+    // La palabra sale de los mismos getters que rotulan los renglones de mayoreo, para que la
+    // etiqueta no tenga dos vocabularios. `plural(bigUnit.word)` NO sirve: en granel la palabra
+    // es "kg" y `plural` la mandaría a "cajas".
+    // Devuelve sólo la cantidad y la unidad: el "Llevando" lo pone la plantilla en el mismo
+    // `.pre` chico que usa "Precio por", para que la franja conserve EXACTAMENTE su formato.
+    const usaPaq = this.bigUnit.slot === 'paquete' || this.baseIsGrouped;
+    return h.min + '+ ' + (usaPaq ? this.mayoreoGroupWord : this.mayoreoBaseWord);
+  }
+
+  /** El promocional puro: la lista con el % de Kepler. Es el hero cuando no hay mayoreo que lo mejore. */
+  private get precioPromo(): number {
     const pct = this.promoPct;
     const base = this.bigUnit.value;
     return pct === null ? base : base * (1 - pct / 100);
+  }
+
+  /** El precio que se imprime GRANDE: el mayoreo apilado si lo hay, si no el promocional. */
+  get precioGrande(): number { return this.heroMayoreo?.precio ?? this.precioPromo; }
+
+  /**
+   * `[ETQ-AIDA.3]` El renglón del promocional cuando el grande ya es el mayoreo: el escalón
+   * intermedio de la escalera. "1 a 2" sale de `umbral − 1`, medido = 3 en 468 de 470 promos.
+   */
+  get escalonOferta(): { hasta: number; precio: number } | null {
+    const h = this.heroMayoreo;
+    return h === null ? null : { hasta: h.min - 1, precio: this.precioPromo };
   }
 
   /** El precio de lista, para el renglón chico tachado. `null` = no hay descuento que contrastar. */
