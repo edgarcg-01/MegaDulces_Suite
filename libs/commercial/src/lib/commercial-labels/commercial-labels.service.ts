@@ -30,6 +30,20 @@ export interface LabelModel {
   unit_base: string | null;
   sold_by_kg: boolean;
   scanned_unit: string | null;         // unidad del barcode con que se resolvió (PZA/CJA/…) o null
+  /**
+   * `[ETQ-PROMO.1]` Descuento por cantidad VIGENTE de Kepler (`kdpv_descuxq`, pantalla
+   * `PV_descuxq.kpl`). `promo_pct` es un **porcentaje**, no un precio — verificado contra lo que
+   * cobró el mostrador (113 SKUs casan con `c90*(1-pct/100)`, 2 casarían si fuera precio) y
+   * contra la propia UI del ERP, que rotula esa columna "% Descuento".
+   *
+   * `promo_aplica` dice a CUÁL de los tres precios de la etiqueta le toca: la promo apunta a una
+   * sola presentación y en el 43% de los casos NO es la base. `null` = la unidad de la promo no
+   * existe en el producto (ej. BTO sobre base KG, 16% de las vigentes) → **no se imprime**.
+   */
+  promo_pct?: number | null;
+  promo_min_qty?: number | null;
+  promo_hasta?: string | null;
+  promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
 }
 
 /**
@@ -177,6 +191,22 @@ export class CommercialLabelsService {
     return Number.isFinite(v) && v > 0.05 ? v : null;
   }
 
+  /**
+   * `[ETQ-PROMO.1]` A CUÁL de los tres precios de la etiqueta le toca el descuento.
+   *
+   * La unidad base se pregunta PRIMERO: cuando `unit_base` es PAQ —el 73.5% del catálogo— una
+   * promo sobre PAQ está descontando el precio BASE, no un renglón de paquete aparte. Invertir
+   * el orden le pondría el descuento al precio equivocado en la mayoría de los casos.
+   */
+  private promoAplicaA(unidad: unknown, unitBase: unknown): 'pieza' | 'paquete' | 'caja' | null {
+    const u = String(unidad ?? '').trim().toUpperCase();
+    if (!u) return null;
+    if (u === String(unitBase ?? '').trim().toUpperCase()) return 'pieza';
+    if (u === 'PAQ') return 'paquete';
+    if (u === 'CJA') return 'caja';
+    return null;
+  }
+
   async resolveForLabels(
     codesRaw: string[],
     sucursal: string | null = null,
@@ -241,6 +271,28 @@ export class CommercialLabelsService {
               .andOn(trx.raw('btrim(k.sucursal::text) = ?', [suc]));
           }).select(trx.raw(
             `NULLIF(regexp_replace(k.c90::text, '[^0-9.]', '', 'g'), '')::numeric AS ods_piece_price`));
+          // `[ETQ-PROMO.1]` El descuento por cantidad vigente de ESA tienda.
+          //
+          // ⚠️ UNA sola fila por producto, con `DISTINCT ON`. Un mismo SKU puede tener promo en
+          // DOS presentaciones a la vez (medido: el 20021 en la plaza 05 tiene 10% en PAQ y 3% en
+          // CJA), y un LEFT JOIN plano multiplicaría el renglón — la misma trampa que ya obligó a
+          // meter la plaza en el ON del join de `kdii`. Se elige la de la unidad BASE, que es la
+          // que lleva el precio grande en el 85% de las etiquetas, y a igualdad la de mayor
+          // descuento; `promo_unidad` viaja igual para que la etiqueta sólo la aplique al precio
+          // que de verdad le toca.
+          qb.leftJoin(
+            trx.raw(
+              `(SELECT DISTINCT ON (sucursal, sku) sucursal, sku, pct, min_qty, unidad, valid_to
+                  FROM analytics.v_label_promotions
+                 WHERE sucursal = ? AND aplica_a IS NOT NULL
+                 ORDER BY sucursal, sku, (aplica_a = 'base') DESC, pct DESC) AS pr`,
+              [suc],
+            ) as any,
+            trx.raw('pr.sku = btrim(p.sku)') as any,
+          ).select(
+            'pr.pct as promo_pct', 'pr.min_qty as promo_min_qty',
+            'pr.unidad as promo_unidad', 'pr.valid_to as promo_hasta',
+          );
         })
         .whereNull('p.deleted_at')
         .andWhere((b) => b.whereIn('p.sku', skuMatch).orWhereIn('p.barcode', codes))
@@ -299,6 +351,12 @@ export class CommercialLabelsService {
           unit_base: r.unit_base ?? null,
           sold_by_kg: r.sold_by_kg === true,
           scanned_unit: unitHit?.unit ?? null,
+          // `[ETQ-PROMO.1]` Sin plaza no hay promo: el descuento es POR TIENDA, así que sin
+          // saber cuál no se puede afirmar ninguno. Va `null`, no 0 — "no sé" no es "no hay".
+          promo_pct: suc ? n(r.promo_pct) : null,
+          promo_min_qty: suc ? n(r.promo_min_qty) : null,
+          promo_hasta: suc && r.promo_hasta ? String(r.promo_hasta).slice(0, 10) : null,
+          promo_aplica: suc ? this.promoAplicaA(r.promo_unidad, r.unit_base) : null,
         });
       }
       return { labels, not_found, freshness: await this.freshness(trx) };

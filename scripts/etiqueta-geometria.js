@@ -35,9 +35,46 @@ const arg = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : nu
 const PDF = arg('--pdf');
 const SKUS = (arg('--skus') || '').split(',').map((s) => s.trim()).filter(Boolean);
 
+const STYLES_CSS = path.join(RAIZ, 'apps/view/src/styles.css');
+const FONTS_DIR = path.join(RAIZ, 'apps/view/src/assets/fonts');
+
 const src = fs.readFileSync(SRC, 'utf8');
 const css = /styles:\s*\[`([\s\S]*?)`\],/.exec(src)[1];
 const num = (re, def) => { const m = re.exec(src); return m ? Number(m[1]) : def; };
+
+/**
+ * ⭐ Las tipografías REALES de la etiqueta, embebidas.
+ *
+ * El `styles:[...]` del componente NO lleva `@font-face` a propósito (viven en
+ * `apps/view/src/styles.css`, para que existan desde que arranca la app). Como este arnés sólo
+ * extraía ese bloque, medía con **Impact / Arial Narrow** y lo daba por bueno: `document.fonts`
+ * quedaba vacío mientras `fonts.check("5mm 'Bebas Neue'")` devolvía `true` — es la
+ * especificación (sin ninguna cara declarada no hay nada que cargar), la misma rareza que el
+ * componente documenta en `familiasFaltantes()`.
+ *
+ * No es cosmético: `$1,370.28` a 50 px mide 158.8 px con Bebas Neue y 188.3 px con el respaldo
+ * (+18.6% de ancho), así que `fitAmts` encogía montos que en producción caben. Los 30 SKUs que
+ * el arnés reportaba como "montos NO uniformes" eran ESO, no un defecto de la etiqueta.
+ *
+ * Se EXTRAEN de `styles.css`, no se copian: un literal acá se separaría del original en silencio.
+ */
+function fontFaceCss() {
+  const hoja = fs.readFileSync(STYLES_CSS, 'utf8');
+  const caras = hoja.match(/@font-face\s*\{[\s\S]*?\}/g) || [];
+  if (!caras.length) throw new Error('etiqueta-geometria: styles.css no declara ninguna @font-face');
+  return caras.map((cara) => cara.replace(/url\((['"]?)([^'")]+)\1\)/g, (_, __, u) => {
+    const f = path.join(FONTS_DIR, path.basename(u));
+    if (!fs.existsSync(f)) throw new Error(`etiqueta-geometria: falta el archivo de tipografia ${f}`);
+    return `url(data:font/woff2;base64,${fs.readFileSync(f).toString('base64')})`;
+  })).join('\n');
+}
+
+/** Las familias que deciden el tamaño, leídas del componente (no escritas a mano acá). */
+const FUENTES_SPECS = (() => {
+  const m = /export const FUENTES_SPECS[^=]*=\s*\[([^\]]+)\]/.exec(src);
+  if (!m) throw new Error('etiqueta-geometria: no se pudo leer FUENTES_SPECS del componente');
+  return m[1].split(',').map((s) => s.trim().replace(/^["'`]|["'`]$/g, '')).filter(Boolean);
+})();
 
 /** Constantes leídas del fuente. Las `*_MAX` ausentes = la versión que sólo encoge. */
 const K = {
@@ -62,6 +99,9 @@ const CONOCIDOS = {
   '00422': 'promo de 83 caracteres de nombre ("3 EXH SUIZO... = GRATIS...") — la banda tiene 78 mm y ni al piso de 2.3 mm entra',
   '59325': 'promo de 79 caracteres de nombre',
   '62253': 'promo de 81 caracteres de nombre',
+  '89037': 'el "nombre" son 60 caracteres de nota al capturista del ERP ("**DUPLICADO 89004 NO BORRAR '
+    + 'PURO TAMARINDO CHICO /4 JHONY $5"), no el nombre del producto — la banda tiene 78 mm y no entra '
+    + 'ni al piso. Es un dato a limpiar en Kepler, no un defecto del layout',
 };
 
 const n = (v) => (typeof v === 'number' && isFinite(v) ? v : Number(v) || 0);
@@ -115,7 +155,16 @@ function vista(m) {
     tiers.push({ txt: `Caja <span class="etq-red">${m.box_size}</span> paquetes`, amt: n(m.box_price) });
   }
   const nombre = String(m.name || '').replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g|gr|grs|ml|l)\s*\/?\s*\d*\s*$/i, '').trim() || m.name;
-  return { nombre, heroWord, heroVal, tiers, content: m.content, sku: m.sku };
+  // Los dígitos legibles bajo las barras — espejo de `barcodeDigits` en label.component.ts.
+  // ⚠️ El arnés los OMITÍA: son ~2.2 mm de alto que el bloque del código ocupa en producción y
+  // que acá se le regalaban a los renglones, o sea que medía una columna más holgada que la real.
+  // `null` para el CODE128 de respaldo: el componente tampoco los pinta (ya está el SKU arriba).
+  const d = String(m.barcode || '').trim();
+  const bcDigits = m.barcode_format === 'EAN13' && d.length === 13 ? `${d[0]} ${d.slice(1, 7)} ${d.slice(7)}`
+    : m.barcode_format === 'UPC' && d.length === 12 ? `${d[0]} ${d.slice(1, 6)} ${d.slice(6, 11)} ${d[11]}`
+    : m.barcode_format === 'EAN8' && d.length === 8 ? `${d.slice(0, 4)} ${d.slice(4)}`
+    : null;
+  return { nombre, heroWord, heroVal, tiers, content: m.content, sku: m.sku, bcDigits };
 }
 
 const SPROUT = '<svg class="etq-sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)">'
@@ -148,7 +197,7 @@ function html(v) {
       <div class="etq-tiers">${v.tiers.map((t) => `<div class="etq-tier${t.may ? ' is-mayoreo' : ''}">
         <div class="txt">${t.txt}</div>
         <div class="pricecell"><span class="amt">${dinero(t.amt)}</span>${t.cu ? '<span class="unit">c/u</span>' : ''}</div></div>`).join('')}</div>
-      <div class="etq-barcode">${BARRAS}</div>
+      <div class="etq-barcode">${BARRAS}${v.bcDigits ? `<div class="etq-bc-digits">${v.bcDigits}</div>` : ''}</div>
     </div>
   </div></div></wrap>`;
 }
@@ -163,17 +212,35 @@ function html(v) {
   const b = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
   const page = await b.newPage();
   await page.setViewport({ width: Math.round(263 / 25.4 * 96), height: 1000 });
-  await page.setContent(`<meta charset="utf-8"><style>${css}
+  await page.setContent(`<meta charset="utf-8"><style>${fontFaceCss()}
+    ${css}
     wrap{ display:inline-block; vertical-align:top; margin:2mm }
     body{ margin:0; font-size:0; text-align:center }
     .etq-label{ border-radius:0 !important }</style>${vistas.map(html).join('')}`, { waitUntil: 'networkidle0' });
-  await page.evaluate(async () => {
-    await Promise.all(['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"].map((f) => document.fonts.load(f)));
-    for (let i = 0; i < 100; i++) {
-      if (['11mm Anton', "5mm 'Bebas Neue'"].every((f) => document.fonts.check(f))) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  });
+  // La espera usa la MISMA regla que `familiasFaltantes()` del componente: no alcanza con
+  // `check()` (miente cuando no hay ninguna cara declarada), hace falta una cara `loaded`.
+  const faltan = await page.evaluate(async (specs) => {
+    await Promise.all(specs.map((f) => document.fonts.load(f).catch(() => undefined)));
+    const cargadas = () => {
+      const s = new Set();
+      for (const c of document.fonts) if (c?.status === 'loaded') s.add(String(c.family || '').replace(/^["']|["']$/g, ''));
+      return s;
+    };
+    const pendientes = () => {
+      const ok = cargadas();
+      return specs.filter((sp) => !ok.has(sp.replace(/^[\d.]+mm /, '').replace(/^["']|["']$/g, '')));
+    };
+    for (let i = 0; i < 100 && pendientes().length; i++) await new Promise((r) => setTimeout(r, 50));
+    return pendientes();
+  }, FUENTES_SPECS);
+  // ⛔ Lo que no se puede medir se DECLARA, no se publica (ADR-056). Medir con la tipografía de
+  // respaldo y reportar los números como si fueran los de la etiqueta es justo lo que hacía antes.
+  if (faltan.length) {
+    console.error(`\n⛔ No se pudieron cargar las tipografias: ${faltan.join(', ')}.`);
+    console.error('   El arnes NO reporta: con la de respaldo el ancho cambia hasta 18.6% y los numeros no serian los de la etiqueta.');
+    await browser.close();
+    process.exit(1);
+  }
 
   const filas = await page.evaluate((K) => {
     const MM = (px) => +(px / 96 * 25.4).toFixed(2);
@@ -224,10 +291,23 @@ function html(v) {
       const tb = lab.querySelector('.etq-tiers');
       const amts = [...lab.querySelectorAll('.amt')];
       const hijos = () => [...tb.children];
+      // Alto que los renglones NECESITAN, no el que el navegador les dejó: `.etq-tier` es flex
+      // item y si lleva `min-height:0` se APLASTA en vez de desbordar, así que sumar su rect no
+      // puede superar nunca la caja — la medida daba 0 de desborde mientras el papel salía con un
+      // renglón cortado. Se miden las CELDAS (grid items con align-items:center, no se estiran).
+      // Espejo de `altoFila()` en label.component.ts.
+      const altoFila = (f) => {
+        const rect = f.getBoundingClientRect().height;
+        const celdas = [...f.children];
+        if (!celdas.length) return rect;
+        const cs = getComputedStyle(f);
+        const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+        return Math.max(rect, Math.max(...celdas.map((c) => c.getBoundingClientRect().height)) + pad);
+      };
       const extension = () => {
         const h = hijos(); if (!h.length) return 0;
         const gap = parseFloat(getComputedStyle(tb).rowGap) || 0;
-        return h.reduce((a, e) => a + e.getBoundingClientRect().height, 0) + (h.length - 1) * gap;
+        return h.reduce((a, e) => a + altoFila(e), 0) + (h.length - 1) * gap;
       };
       const set = (v) => amts.forEach((a) => { a.style.fontSize = v + 'mm'; });
       let t = K.MONTO_MM;
