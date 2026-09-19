@@ -57,9 +57,11 @@ RUN COMMIT=$(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
 # reloj de pared, o recibiendo la fecha del commit como build arg— el redeploy del mismo commit
 # empieza a acertar sin tocar nada más. Mientras tanto esta línea no hace daño: sube el
 # resultado al caché compartido, que es de donde leen los otros servicios.
+# ⛔ Por `ENV` en línea propia, NO adentro del `RUN`: BuildKit imprime cada `RUN` con los ARG ya
+# expandidos y publicaría el token en el log de build. Control negativo en `Dockerfile.worker`.
 ARG NX_CLOUD_ACCESS_TOKEN=
+ENV NX_CLOUD_ACCESS_TOKEN=${NX_CLOUD_ACCESS_TOKEN}
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    NX_CLOUD_ACCESS_TOKEN="$NX_CLOUD_ACCESS_TOKEN" \
     npx nx build portal --configuration=production
 
 FROM node:20-slim AS runner
