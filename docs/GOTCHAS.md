@@ -2691,3 +2691,67 @@ comentario que documentaba el fix, que traía el mismo signo y además backticks
 **Regla:** dentro de `template:` y del arreglo de `styles:` — ni backticks, ni signos de menor o
 mayor, tampoco en comentarios. Nombrá los elementos en prosa ("el elemento body", "un elemento de
 estilos"). En los JSDoc de la clase, fuera del decorador, no hay problema.
+
+## 55. Una tabla que el POS publica y el espejo no escucha: el hueco que NINGÚN latido puede ver
+
+La publicación de los POS Kepler es `ods_pub_pilot FOR TABLES IN SCHEMA md`. Eso hace que una tabla
+nueva del origen **entre sola a la publicación** — y de ahí sale la falsa tranquilidad: parece que
+el esquema se mantiene solo. No se mantiene. El **suscriptor** no escucha esa tabla hasta que
+alguien corre `ALTER SUBSCRIPTION … REFRESH PUBLICATION`.
+
+Y Kepler crea **una tabla de póliza contable por mes**: `kdc2YYMM`. Así que cada 1° de mes, la
+contabilidad del mes nuevo deja de replicarse y **nada se pone rojo**: la suscripción sigue
+`enabled`, el apply worker sano, el lag en segundos, `pg_stat_subscription` impecable. No hay nada
+que pueda fallar, porque no hay nada intentándolo. La tabla simplemente no está en
+`pg_subscription_rel`.
+
+⚠️ Y es un hueco que los sensores existentes **no pueden** ver, por construcción:
+`ods_live_hot`/`ods_live_mirror` miden que el caño se mueva, y `cdc_reconcile` mide que no falten
+filas **de lo que el espejo escucha**. Ninguno mira lo que no escucha.
+
+### Son TRES capas distintas, y la primera tapa a la segunda
+
+| | síntoma | dónde se ve |
+|---|---|---|
+| **1. sin permiso** (`ERP_KEPLER.md` §4.2b) | `srsubstate='d'` reintentando para siempre | `pg_subscription_rel` |
+| **2. sin suscribir** (esta sección) | la tabla no existe en `pg_subscription_rel` | **en ningún lado** |
+| **3. sin tabla local** | el `REFRESH` aborta entero | sólo al intentar el REFRESH |
+
+Medido el 2026-09-18, y el orden importó: primero se cerró la capa 1 con
+`database/scripts/kepler-pos-grant-ods.js` (13 tablas trabadas → 0) y **recién entonces** se vio la
+capa 2, porque mientras Canindo tenía `kdc22609` sin permiso, nadie miró si además estaba suscrita.
+
+* `kdc22609` sin suscribir en `md_06` Canindo: **2,162 renglones de septiembre** esperando en el
+  origen, con 6,322 documentos vendidos ese mes y agosto replicado normal (1,971 renglones).
+* `kdc22610` (octubre) sin suscribir en **7 de 9 ramas**.
+
+### ⛔ La capa 3: `REFRESH PUBLICATION` es atómico
+
+Si el origen publica una tabla que la réplica no tiene localmente, el `REFRESH` **falla entero** con
+`relation "md.X" does not exist` y no suscribe **ninguna** — ni las que sí podía. Medido: 14 tablas
+así (RH, nómina CFDI y dos pólizas viejas), heredadas de instalaciones de Kepler con versiones
+distintas entre plazas. O sea que la capa 3 **bloquea el arreglo de la capa 2**, y el mensaje sólo
+nombra una tabla por intento.
+
+El arreglo es crear la tabla faltante en la réplica y reintentar. El DDL sale de **otra réplica que
+sí la tenga**, no del origen — las contraseñas de los POS no son uniformes. Antes de copiar hay que
+comparar la firma (columnas, tipos, NOT NULL, PK) en **todas** las réplicas que la tengan: si no son
+idénticas, no se adivina.
+
+⚠️ Y la tabla nueva **no puede nacer con los permisos por default**: el `pg_default_acl` del schema
+`md` en la réplica otorga a `platform_ro` y `dev_ro` pero **no a `app_runtime`** — el mismo cable
+cruzado del §4.2b, de este lado. Se copian los grants de una tabla hermana (`md.kdm1`).
+
+### Lo que queda puesto
+
+`database/scripts/kepler-replica-refresh.js` hace las tres cosas y **re-mide el estado** (no se
+conforma con que el comando no falle). Corre diario 06:22 MX desde `ops/vl/crontab.feeds`, con
+latido `kepler_replica_refresh` y umbral en `CRON_JOBS`.
+
+⚠️ **Diario aunque el hueco sea mensual.** Un job mensual no se puede vigilar: pasaría 29 días
+"vencido" y su umbral tendría que ser tan holgado que no avisaría de nada.
+
+⚠️ **No se puede adelantar.** Correrlo el 18 de septiembre NO suscribe la tabla de octubre: la
+`kdc22610` que aparece en las réplicas es una sombra del `pg_dump` con que se armó el espejo — en
+el origen todavía no existe, Kepler la crea el 1°. Medido: el `REFRESH` de ese día dio `+0` en las
+7 ramas que la tenían localmente.

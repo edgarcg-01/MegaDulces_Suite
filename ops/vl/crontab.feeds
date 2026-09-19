@@ -93,6 +93,25 @@
 # el 2026-09-11.
 45 5 * * *  /app/ops/vl/run-feed.sh contpaqi-cfdis-full "CONTPAQI_HB_KEY=contpaqi_add_cfdis_full node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --apply --full --from 2018-01-01"
 
+# [RL.11] COBERTURA de la suscripción de las 9 réplicas Kepler. No mueve datos: le pregunta a cada
+# POS qué publica y suscribe lo que el espejo todavía no escucha.
+#
+# Por qué existe: la publicación es `FOR TABLES IN SCHEMA md`, o sea que una tabla nueva del origen
+# entra SOLA a la publicación — pero el suscriptor no la oye hasta un `REFRESH PUBLICATION`. Y
+# Kepler crea una tabla de póliza POR MES (`kdc2YYMM`). Cada 1° de mes la contabilidad del mes
+# nuevo deja de replicarse **sin que nada se ponga rojo**: la suscripción sigue `enabled`, el apply
+# worker sano, el lag en segundos. No hay nada que falle — la tabla simplemente no está suscrita.
+# Medido el 2026-09-18: Canindo llevaba 18 días de septiembre así (2,162 renglones).
+#
+# ⚠️ DIARIO aunque el hueco sea mensual. Un job mensual no se puede vigilar: pasaría 29 días
+# "vencido" y el umbral tendría que ser tan holgado que no avisaría de nada. Cuando no hay nada que
+# agregar cuesta una consulta de catálogo por rama.
+#
+# 06:22 y no un borde de 5: `contpaqi-cfdis-full` termina cerca de las 05:45, el vigilante ocupa
+# :00/:05/:10…, `contpaqi-cfdis` ocupa :03/:08/:13…, y `stock` cae en :05/:20/:35/:50. Es la lección
+# de la fase de más abajo, aplicada por adelantado.
+22 6 * * *  /app/ops/vl/run-feed.sh replica-refresh "node /app/database/scripts/kepler-replica-refresh.js"
+
 # ⛔⛔ LA FASE IMPORTA TANTO COMO EL INTERVALO — y eso lo aprendimos rompiéndolo.
 #
 # VL.4 copió las CADENCIAS de las tareas de Windows y se documentó esa prudencia acá mismo

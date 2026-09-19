@@ -710,6 +710,19 @@ const CRON_JOBS: CronCfg[] = [
   // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
   { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
   { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // [RL.11] La COBERTURA de la suscripción — un modo de falla que NINGÚN latido de arriba puede
+  // ver, porque no hay nada que falle. La publicación de los POS es `FOR TABLES IN SCHEMA md`, así
+  // que una tabla nueva entra sola a la publicación, pero el suscriptor no la escucha hasta que
+  // alguien corre `ALTER SUBSCRIPTION … REFRESH PUBLICATION`. Y Kepler crea UNA TABLA DE PÓLIZA POR
+  // MES (`kdc2YYMM`). Cada 1° de mes, entonces, la contabilidad del mes nuevo deja de replicarse
+  // con la suscripción `enabled`, el apply worker sano y el lag en segundos: la tabla simplemente
+  // no está en `pg_subscription_rel`. `ods_live_*` mide que el caño se mueva, `cdc_reconcile` mide
+  // que no falten filas DE LO QUE ESCUCHA — ninguno de los dos mira lo que no escucha.
+  // Medido el 2026-09-18: `kdc22609` sin suscribir en Canindo (2,162 renglones de septiembre
+  // esperando, mientras agosto tenía 1,971) y `kdc22610` sin suscribir en 7 de 9 ramas.
+  // ⚠️ El carril es DIARIO aunque el hueco sea mensual: un job mensual no se puede vigilar (pasa
+  // 29 días "vencido"), y el REFRESH que no agrega nada cuesta una consulta de catálogo.
+  { key: 'kepler_replica_refresh', label: 'Réplicas Kepler — cobertura de la suscripción', cadence: 'diario 06:22 MX', warnH: 26, critH: 50, maxRunH: 1 },
   // OBS.1 — HUÉRFANOS: estos SÍ latían, pero al no estar acá caían en el `cfg ? classify : 'ok'` de
   // checkCronRuns() y se pintaban VERDE INCONDICIONAL por viejos que estuvieran. Un latido sin
   // umbral registrado no es una alarma, es decoración. (wincaja_replica_* justo se pasó 4 días en
