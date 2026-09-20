@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { StockSnapshotService } from './stock-snapshot.service';
+import { StockSnapshotService, SnapshotResult, SnapshotCoverageRow } from './stock-snapshot.service';
 
 /**
  * AB.0b — disparo manual y lectura de la **foto de inventario**.
@@ -28,7 +28,7 @@ export class StockSnapshotController {
   @Post('run')
   @RequirePermissions(Permission.EXISTENCIA_GESTIONAR)
   @ApiOperation({ summary: 'Toma la foto de inventario ahora (idempotente por fecha de corte)' })
-  run(@Body() body: { fecha?: string }) {
+  run(@Body() body: { fecha?: string }): Promise<SnapshotResult> {
     return this.service.snapshotAllTenants(body?.fecha);
   }
 
@@ -40,7 +40,7 @@ export class StockSnapshotController {
   @Get('coverage')
   @RequirePermissions(Permission.EXISTENCIA_VER)
   @ApiOperation({ summary: 'Qué almacenes se fotografiaron, por fecha de corte' })
-  coverage(@Query('desde') desde?: string, @Query('hasta') hasta?: string) {
+  coverage(@Query('desde') desde?: string, @Query('hasta') hasta?: string): Promise<SnapshotCoverageRow[]> {
     return this.service.coverage(desde, hasta);
   }
 }

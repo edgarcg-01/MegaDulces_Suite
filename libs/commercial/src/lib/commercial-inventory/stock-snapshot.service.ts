@@ -12,6 +12,32 @@ export interface SnapshotResult {
   fecha_corte: string;
 }
 
+/**
+ * Un renglón de **cobertura**: qué almacén se fotografió qué día. Es la mitad del par que evita
+ * la mentira — sin esto, un producto ausente de la foto se leería como "tenía cero" cuando pudo
+ * ser "ese almacén no reportó".
+ *
+ * `valor_total` es `number | null` a propósito y **el `null` no es cosmético**: si algún par del
+ * almacén no se pudo costear, el total del almacén queda NULL con `pares_sin_costo` a la vista.
+ * Tipar esto como `number` invitaría al consumidor a sumarlo, y un total parcial presentado como
+ * total es una cifra falsa (ADR-056).
+ */
+export interface SnapshotCoverageRow {
+  fecha_corte: string;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  pares: number;
+  pares_en_cero: number;
+  unidades_total: number | null;
+  valor_total: number | null;
+  pares_sin_costo: number;
+  cierre_semana: boolean;
+  cierre_mes: boolean;
+  cierre_trimestre: boolean;
+  cierre_anio: boolean;
+}
+
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
 /**
@@ -228,7 +254,7 @@ export class StockSnapshotService {
    * un producto ausente en la foto se lee como "tenía cero" cuando pudo ser "ese almacén no
    * reportó". Devuelve la cobertura, no el detalle.
    */
-  async coverage(desde?: string, hasta?: string) {
+  async coverage(desde?: string, hasta?: string): Promise<SnapshotCoverageRow[]> {
     const q = this.knex('analytics.stock_snapshot_coverage as c')
       .leftJoin('commercial.warehouses as w', 'w.id', 'c.warehouse_id')
       .select(
