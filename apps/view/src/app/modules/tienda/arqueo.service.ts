@@ -14,7 +14,28 @@ import { environment } from '../../../environments/environment';
  *    verlo", y la UI esconde la columna en vez de pintar un cero mentiroso.
  *    Solo `RECONCILIATION_VER` (supervisor) los recibe.
  */
-export type ArqueoTipo = 'cierre' | 'relevo' | 'retiro';
+/**
+ * SM.36 - `rd` y `rv` son la entrega del VENDEDOR DE RUTA en la tienda, no la
+ * caja de mostrador: no cuelgan de un turno de Kepler y no tienen esperado.
+ */
+export type ArqueoTipo = 'cierre' | 'relevo' | 'retiro' | 'rd' | 'rv';
+
+/** Una ruta dada de alta en la sucursal del usuario. */
+export interface RutaArqueo {
+  route_code: string;
+  label: string;
+  zona: string | null;
+  tipo: 'rd' | 'rv';
+}
+
+export interface RutasResp { warehouse_code: string; rd: RutaArqueo[]; rv: RutaArqueo[] }
+
+/** Lo que devuelve el arqueo de ruta. Sin diferencia, y lo dice.  */
+export interface ArqueoRutaResult {
+  tipo: ArqueoTipo; total_contado: number;
+  route_code: string; route_label: string;
+  medible: false; motivo_no_medible: string;
+}
 
 /**
  * Un turno de caja que Kepler abrió a nombre del usuario. Es lo que habilita la
@@ -70,6 +91,8 @@ export interface ArqueoDto {
   caja: string;
   business_date: string; // 'YYYY-MM-DD'
   tipo?: ArqueoTipo;
+  /** Solo rd/rv: la ruta que entrega. */
+  route_code?: string;
   cajero_code?: string;
   cajero_entrante?: string;
   denominations: Record<string, number>;
@@ -198,6 +221,22 @@ export class ArqueoService {
   /** Turnos que Kepler abrió a nombre del usuario y todavía no arqueó. */
   turnos(dias?: number): Observable<Turno[]> {
     return this.http.get<Turno[]>(`${this.base}/turnos${dias ? '?dias=' + dias : ''}`);
+  }
+
+  /**
+   * SM.36 - Las rutas dadas de alta en MI sucursal, partidas en RD y RV.
+   * Devolver listas vacias es respuesta valida: hay tiendas sin rutas.
+   */
+  rutas(): Observable<RutasResp> {
+    return this.http.get<RutasResp>(`${this.base}/rutas`);
+  }
+
+  /**
+   * SM.36 - El arqueo de la entrega del vendedor de ruta. Endpoint APARTE del
+   * de caja porque su permiso es otro: aca solo entran encargada y auxiliar.
+   */
+  submitRuta(dto: ArqueoDto): Observable<ArqueoRutaResult> {
+    return this.http.post<ArqueoRutaResult>(`${this.base}/ruta`, dto);
   }
 
   submit(dto: ArqueoDto): Observable<ArqueoResult> {

@@ -222,6 +222,93 @@ export class StoreArqueoController {
     );
   }
 
+  /**
+   * SM.36 - Las rutas que ESTA tienda puede arquear.
+   *
+   * Se resuelve con la sucursal del usuario, no con un parametro: el pedido fue
+   * que la encargada de Padre Hidalgo vea las rutas de Padre Hidalgo y nada mas.
+   * Devolver [] es respuesta valida (hay tiendas sin rutas dadas de alta).
+   */
+  @Get('rutas')
+  @RequirePermissions(Permission.STORE_ARQUEO_RUTA_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda - rutas RD/RV dadas de alta en tu sucursal, para el arqueo de la entrega del vendedor.' })
+  async rutas(@Query() query: Record<string, unknown>) {
+    const warehouse_code = await this.resolverSucursal((query?.['warehouse_code'] as string) || undefined);
+    const rutas = await this.blind.rutasDeSucursal(warehouse_code);
+    return {
+      warehouse_code,
+      rd: rutas.filter((r) => r.tipo === 'rd'),
+      rv: rutas.filter((r) => r.tipo === 'rv'),
+    };
+  }
+
+  /**
+   * SM.36 - El vendedor de ruta entrega su efectivo y la encargada lo cuenta.
+   *
+   * Endpoint APARTE del `POST /` a proposito, y esa es la decision de seguridad
+   * de esta entrega: `POST /` esta gateado con `STORE_ARQUEO_CAPTURAR`, que en
+   * prod tienen tambien `cajero` y `piso_tienda`. Si el arqueo de ruta fuera un
+   * `tipo` mas del mismo endpoint, cualquier cajera podria sellar la entrega de
+   * una ruta mandando `tipo: "rd"` - la puerta nueva seria decorativa.
+   *
+   * Tampoco pasa por `anclarAlTurno()`: una ruta no tiene turno de caja en
+   * Kepler. Por eso `caja` lleva el literal RD/RV (la estacion) y la identidad
+   * la da `route_code`.
+   *
+   * ⚠️ NO devuelve diferencia: el esperado de una ruta no existe hoy (medido).
+   * Se responde lo contado y se DECLARA el motivo, en vez de dibujar un cero
+   * que se leeria como "cuadro" (ADR-056).
+   */
+  @Post('ruta')
+  @RequirePermissions(Permission.STORE_ARQUEO_RUTA_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda - arqueo de la entrega del vendedor de ruta (RD/RV). Sin esperado: registra custodia, no diferencia.' })
+  async submitRuta(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
+    const tipo = body?.tipo;
+    if (tipo !== 'rd' && tipo !== 'rv') {
+      throw new BadRequestException('tipo debe ser "rd" (ruta de reparto) o "rv" (ruta vecinal).');
+    }
+    const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
+    const route_code = (body?.route_code || '').trim();
+
+    // La ruta tiene que estar dada de alta en SU tienda. Sin esta validacion, el
+    // alcance seria una sugerencia del frontend: bastaria mandar otra clave.
+    const permitidas = await this.blind.rutasDeSucursal(warehouse_code);
+    const ruta = permitidas.find((r) => r.route_code === route_code);
+    if (!ruta) {
+      throw new BadRequestException(
+        permitidas.length
+          ? `La ruta ${route_code || '(vacia)'} no esta dada de alta en la sucursal ${warehouse_code}.`
+          : `La sucursal ${warehouse_code} no tiene rutas dadas de alta. Pedile al administrador que las asigne.`,
+      );
+    }
+    if (ruta.tipo !== tipo) {
+      throw new BadRequestException(`La ruta ${route_code} es de tipo ${ruta.tipo}, no ${tipo}.`);
+    }
+
+    const res = await this.blind.submit(
+      {
+        ...body,
+        warehouse_code,
+        route_code,
+        // Una ruta no es una caja: `caja` lleva la estacion, la ruta va aparte.
+        caja: tipo.toUpperCase(),
+        cash_cut_folio: undefined,
+        caja_kepler: undefined,
+        turno_abierto_at: null,
+      },
+      user?.username,
+    );
+    return {
+      tipo: res.tipo,
+      total_contado: res.total_contado,
+      route_code,
+      route_label: ruta.label,
+      // Se DECLARA en la respuesta: la pantalla no tiene que inferirlo.
+      medible: false,
+      motivo_no_medible: 'sin_esperado',
+    };
+  }
+
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
   @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })

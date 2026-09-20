@@ -16,7 +16,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno, TurnoCorte } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -252,10 +252,39 @@ interface CortesPersona {
           }
 
           @if (puedeContar()) {
-            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)"
+            <app-segmented [options]="tipoOptions()" [value]="aTipo()" (valueChange)="elegirTipo($event)"
                            (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
+            }
+            @if (esRuta()) {
+              <!-- SM.36 - Solo las rutas de SU tienda. Si la lista viene vacia se
+                   DICE por que: una tienda sin rutas dadas de alta no es un error,
+                   es el caso de 8ESQ hoy. -->
+              @if (rutasDelTipo().length) {
+                <label class="arq-lbl arq-block">Ruta que entrega
+                  <p-select [options]="rutasDelTipo()" [(ngModel)]="aRuta" (ngModelChange)="dirty.set(true)"
+                            optionLabel="label" optionValue="route_code" styleClass="arq-fld"
+                            appendTo="body" placeholder="Elige la ruta…" />
+                </label>
+              } @else if (rutasCargadas()) {
+                <div class="arq-pide-box">
+                  <i class="pi pi-info-circle"></i>
+                  <div>
+                    <strong>Tu sucursal no tiene rutas {{ aTipo() === 'rd' ? 'de reparto' : 'vecinales' }} dadas de alta.</strong>
+                    <p class="muted">Pedile al administrador que las asigne para poder recibirles el efectivo.</p>
+                  </div>
+                </div>
+              }
+              <!-- El esperado de una ruta NO existe hoy: se DECLARA en vez de
+                   mostrar una diferencia inventada. -->
+              <div class="arq-pide-box">
+                <i class="pi pi-shield"></i>
+                <div>
+                  <strong>Este conteo queda como constancia de lo que entregó el vendedor.</strong>
+                  <p class="muted">No se compara contra un esperado: Kepler no publica cuánto debía entregar una ruta. Queda sellado quién entregó, cuánto y con qué billetes.</p>
+                </div>
+              </div>
             }
 
             <!-- SM.27 — Tres bloques a lo ancho, el formato de la hoja que ya se usa
@@ -1034,6 +1063,27 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
 
   /**
+   * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
+   * STORE_ARQUEO_CAPTURAR: ese lo tienen tambien cajero y piso_tienda, y
+   * recibir el dinero de una ruta es acto de encargada. Sin el permiso, las
+   * dos pestanas ni se dibujan.
+   */
+  readonly canCaptureRuta = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_RUTA_CAPTURAR] === true);
+
+  /** Rutas dadas de alta en MI sucursal. Vacio = esta tienda no recibe rutas. */
+  readonly rutasRd = signal<RutaArqueo[]>([]);
+  readonly rutasRv = signal<RutaArqueo[]>([]);
+  readonly rutasCargadas = signal(false);
+  /** La ruta elegida en la pestana activa. */
+  aRuta = '';
+
+  /** Las rutas del tipo que se esta capturando. */
+  readonly rutasDelTipo = computed(() =>
+    this.aTipo() === 'rd' ? this.rutasRd() : this.aTipo() === 'rv' ? this.rutasRv() : []);
+  readonly esRuta = computed(() => this.aTipo() === 'rd' || this.aTipo() === 'rv');
+
+  /**
    * Orden de las pestañas: RETIRO · CIERRE DE DÍA · RELEVO.
    *
    * El retiro va primero porque es lo que más se hace, y lo que se hace ANTES:
@@ -1048,11 +1098,25 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    *
    * El relevo queda al final: es el caso raro (cambio de turno a media jornada).
    */
-  readonly tipoOptions = [
-    { label: 'Retiro', value: 'retiro' as const },
-    { label: 'Cierre de día', value: 'cierre' as const },
-    { label: 'Relevo', value: 'relevo' as const },
-  ];
+  readonly tipoOptions = computed(() => {
+    const base = [
+      { label: 'Retiro', value: 'retiro' as const },
+      { label: 'Cierre de día', value: 'cierre' as const },
+      { label: 'Relevo', value: 'relevo' as const },
+    ];
+    /**
+     * SM.36 - RD y RV van DESPUES de los tres de caja porque son otro sujeto:
+     * los tres primeros cuentan el cajon de mostrador, estos dos cuentan lo que
+     * entrega un vendedor de ruta. Y solo aparecen con el permiso propio: sin
+     * el, la pestana no existe (no se dibuja deshabilitada, que invita a pedirla).
+     */
+    if (!this.canCaptureRuta()) return base;
+    return [
+      ...base,
+      { label: 'RD', value: 'rd' as const },
+      { label: 'RV', value: 'rv' as const },
+    ];
+  });
 
   readonly incidenciaOptions = [
     { label: 'Ninguna', value: '' },
@@ -1194,6 +1258,17 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       },
       error: () => this.cargandoTurnos.set(false),
     });
+
+    // SM.36 - Las rutas de MI sucursal. Solo si tengo el permiso: sin el, la
+    // llamada devolveria 403 y ensuciaria la consola por nada.
+    if (this.canCaptureRuta()) {
+      this.svc.rutas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.rutasRd.set(r.rd || []); this.rutasRv.set(r.rv || []); this.rutasCargadas.set(true); },
+        // Una tienda sin sucursal resuelta responde 400: se marca cargado igual,
+        // asi la pantalla dice "no hay rutas" en vez de quedarse en blanco.
+        error: () => this.rutasCargadas.set(true),
+      });
+    }
   }
 
   /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
@@ -1547,6 +1622,42 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const cabecera = t
       ? { cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date, cajero_code: t.cajero_code || undefined }
       : { warehouse_code: this.aSuc.trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
+    /**
+     * SM.36 - El arqueo de ruta sale por SU endpoint. No es cosmetico: el de
+     * caja esta gateado con el permiso viejo, que tienen tambien cajero y
+     * piso_tienda. Mandar rd/rv por ahi haria que la puerta nueva no sirva.
+     */
+    if (this.esRuta()) {
+      if (!this.aRuta) {
+        this.saving.set(false);
+        this.toast.add({ severity: 'warn', summary: 'Falta la ruta', detail: 'Elige la ruta que esta entregando.' });
+        return;
+      }
+      this.svc.submitRuta({
+        tipo: this.aTipo(), route_code: this.aRuta,
+        warehouse_code: this.aSuc.trim() || undefined,
+        business_date: this.fmtDate(this.aDate),
+        cajero_code: this.aCajero.trim() || undefined,
+        denominations, medios, nota: this.aNota.trim() || undefined,
+        incidencia_tipo: this.aIncidencia || undefined,
+      }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.saving.set(false); this.dirty.set(false);
+          this.toast.add({
+            severity: 'success', summary: `Entrega de ${r.route_label} sellada`,
+            // Se dice lo contado y NADA de diferencia: no hay contra que comparar.
+            detail: `Contado ${this.money(r.total_contado)}. Queda como constancia de la entrega.`,
+          });
+          this.denomCount = {}; this.medios = {}; this.aRuta = ''; this.recalcTotales();
+          this.cargarHistorial();
+        },
+        error: (e) => {
+          this.saving.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se guardo', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
+      return;
+    }
     this.svc.submit({
       ...cabecera, tipo: this.aTipo(),
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,

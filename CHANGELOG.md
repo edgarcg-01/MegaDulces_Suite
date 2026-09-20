@@ -228,6 +228,29 @@
   Caso real confirmado: `7506306248861` (GEL EGO GRANDE) empataba con `* DESCONTINUADO`.
 - Fix: la rama de `LPAD` solo aplica cuando el código escaneado mide ≤5 caracteres (su propósito
   real: código interno corto sin ceros a la izquierda, nunca un barcode). PR #127.
+### Added — el arqueo de las rutas: RD y RV (SM.36, 2026-09-20)
+
+Edgar: *«un nuevo módulo a un lado de los tres ya existentes… un arqueo para los vendedores de ambas rutas, sólo para las encargadas de tienda y auxiliares»*. **RD** = ruta de reparto / venta a bordo · **RV** = ruta vecinal / preventa. Hoy el vendedor entrega su efectivo en la tienda y de eso **no queda nada registrado**.
+
+- **El vínculo ruta↔tienda no se inventó, se midió:** las **24 rutas** del catálogo ya tienen tienda asignada en `commercial.route_warehouses`. Padre Hidalgo (01) concentra **7 RD + 2 RV**; Zamora Centro (05) 5 RD + 1 RV; La Piedad Abastos (02) sólo RVLPA01; Canindo (06) 501 y 502.
+- ⭐ **El alcance por sucursal resuelve solo la ambigüedad del catálogo** que JZ.2 dejó abierta: `501`/`502` los reclaman ZAMORA y CANINDO, y `VECINAL1` los dos Morelia — pero la encargada sólo ve las de SU tienda, así que nunca se le ofrecen las dos. No hubo que corregir el catálogo.
+- **Permiso propio `STORE_ARQUEO_RUTA_CAPTURAR`**, repartido por migración sólo a `encargado_tienda` y `auxiliar_tienda`. Medido: `STORE_ARQUEO_CAPTURAR` lo tienen **5 roles, incluidos `cajero` y `piso_tienda`** — colgarlo del permiso viejo habría dado la pestaña a toda la caja.
+- ⭐ **Endpoint aparte (`POST /store/arqueo/ruta`), no un `tipo` más del `POST /`.** Si fuera el mismo, una cajera mandando `tipo:"rd"` pasaría la puerta vieja y el permiso nuevo sería decorativo. El backend además revalida que la ruta esté dada de alta en la sucursal de quien captura — si no, el alcance sería una sugerencia del frontend.
+
+### Changed — `blind_counts` aprende a contar algo que no es una caja (SM.36)
+
+- `tipo` gana `rd` y `rv`; columna **`route_code` propia**. ⛔ La ruta **no** se mete en `caja`, que significa "estación de cobro": este repo ya pagó caro las columnas cuyo nombre miente (ADR-055).
+- **La clave única gana la ruta.** Sin eso, Padre Hidalgo —con sus 7 rutas RD— sólo podría arquear **una por día** y la segunda pisaría a la primera en silencio. ⚠️ El `ON CONFLICT` de `submit()` se movió en el mismo commit (GOTCHAS §50).
+- CHECK que ata `route_code` a rd/rv **en las dos direcciones**: un arqueo de ruta sin ruta y un cierre con ruta son igual de inválidos.
+
+### Fixed — lo que NO se puede medir, declarado (SM.36)
+
+⛔ **El arqueo de ruta no publica diferencia, y dice por qué.** El esperado de una caja sale de Kepler (`c15`); el de una ruta **no existe**: medido contra `analytics.v_route_sales_lines`, las filas vivas (`source='push'`) traen el **vendedor vacío** —el código ya lo decía: *«en RD la ruta ES el vendedor»*— y `forma_pago_credito`/`forma_pago_tarjeta` en **NULL**, así que no se puede separar el efectivo del crédito ni de la tarjeta. Sale `medible: false` · `motivo_no_medible: sin_esperado`, nunca un cero que se leería como "cuadró" (ADR-056). El conteo vale igual: queda sellado quién entregó cuánto y con qué billetes, que es más de lo que hay hoy. Cuando aparezca la fuente del esperado entra por el mismo `cuadreTurno()`.
+
+### Internal — SM.36
+
+Smoke nuevo `test-newdb-arqueo-rutas.js` con **4 pruebas negativas y su control positivo** (un candado que rechaza todo se ve igual de verde que uno que discrimina) + la aserción de que `cajero` y `piso_tienda` **no** reciben el permiso. `nx build api` + `nx build view` OK; `nx test view` 364 ✓ / 7 ✗ — los 7 son de `landing-guards.spec.ts` (SN.4) **preexistentes**, verificado corriendo la suite con y sin el cambio de `authz-tree`: idéntico. ⚠️ **Hallazgo de gate: `nx build view` no detecta un tipo inexistente** (`RutaArqueo` sin importar compiló sin chistar, incluso con `--skip-nx-cache`). ⛔ **Declarado: las 2 migraciones y el smoke NO se ejecutaron contra ninguna DB** — el Docker local está apagado (contenedores mudados a `md`, Fase VL) y `.245` no responde desde esta máquina; la única alcanzable es prod y no se toca sin autorización. **Pendiente: migraciones + smoke + validación visual + redeploy api+view + re-login.**
+
 
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
 - **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
