@@ -652,3 +652,42 @@ porque este PR corrigió los 3 que el WIP heredado había introducido (ver abajo
    compara contra un `BASELINE = 0` hardcodeado: ese commit subió la deuda a 1 sin corregirla ni mover la
    línea. **No se bajó la línea acá a propósito** — mover el BASELINE es justo lo que el gate existe para
    impedir.
+
+#### 🧪 Validación visual de PR 2 — hecha 2026-09-19, y encontró algo
+
+El PR se entregó declarando *"la pantalla no se abrió en el navegador"*. Se abrió, con el API local
+levantado y sesión real (`superuser`, SUPERADMIN).
+
+**Lo que quedó comprobado:**
+
+| Qué | Resultado |
+|---|---|
+| Ruta `/almacen/autoabasto` resuelve | ✅ |
+| Área **Abasto** en la migaja (`Almacenes y Logística › Almacén › Abasto`) | ✅ |
+| Barra de tabs del área: *Autoabasto* + *Análisis BI* | ✅ (el tab que cruza áreas de WMS-BI.6 aparece acá solo) |
+| Encabezado, filtros (almacén / proveedor / acción / posición / búsqueda) | ✅ pintan |
+| El aviso de alcance —*"estás viendo la **red completa**; el recorte por tu sucursal todavía no lo aplica el servidor"*— | ✅ en pantalla, no escondido |
+| El pie declara que la pantalla **sólo lee** | ✅ |
+
+**Lo que NO quedó comprobado, y por qué no es de este PR:** la tabla no cargó —
+`GET /commercial/autoabasto/mesa` devuelve **500**. La causa está medida:
+
+```
+no existe la relación «analytics.v_erp_unit_cost»
+falta una entrada para la tabla «euc» en la cláusula FROM     (errorMissingRTE)
+```
+
+⭐ **El endpoint ORIGINAL de Compras falla idéntico**: `GET /commercial/replenishment/critical-stock`
+también devuelve 500 contra esta misma base. Como PR 2 **no toca** `CommercialReplenishmentService`
+—sólo agrega un controlador que delega— el fallo es de la **base local**, que está aplicada a medias
+(122 migraciones sin registrar; falta esa vista, y también `identity.position_responsibilities`).
+
+Esa comparación es la que convierte "la pantalla falla" en "el entorno falla": sin correr el hermano
+de Compras, el 500 se habría leído como un bug de esta rama.
+
+**Vale la pena por sí solo:** la pantalla **degrada con honestidad**. No crashea, no pinta ceros ni una
+tabla vacía que se leería como *"no falta nada"* — muestra el error con su motivo y un botón de
+reintento. Es la conducta que ADR-056 pide y que un build verde no puede comprobar.
+
+**Sigue sin verificar:** el reparto de las 7 llaves nuevas. La migración no se aplicó, y `superuser`
+entra por `ALL_PERMS`, así que esta sesión **no probó ninguna compuerta**. Se mantiene declarado.
