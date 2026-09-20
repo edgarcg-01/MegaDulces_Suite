@@ -29,8 +29,9 @@
 | 2026-09-10 | Esta sesión: validación visual en browser con cuenta descartable | ✅ Los 3 estados (en vivo / no encontrado / respaldo) + modo kiosco, confirmados reales |
 | 2026-09-10 (más tarde) | 0Sistemas retoma el repo **standalone** `verificador-precios` (independiente de este monorepo) para portar el híbrido + las reglas de Edgar sobre el modelo visual anterior (`verificador.html`) | ✅ Repuntado a `kepler_ods` (`KP_CONCENTRADA` ya no existe) + TDA.2/TDA.3 portados + híbrido validado — ver §7 |
 | 2026-09-12 → 09-14 | `[CV.26/27]`: cámara del celular + clon fiel de `verificador.html` (excepción a DESIGN.md §O.3) + 3 bugs reales encontrados en uso real (mayoreo invisible, cámara Android congelada, feed de historial visible a terceros) | ✅ Los 3 corregidos y verificados en la terminal/celular real — ver §8 |
+| 2026-09-20 | `[CV.28]`: bug de datos — el mostrador confundía productos al escanear un código de barras (`LPAD` de Postgres trunca, no solo rellena) | ✅ Corregido y verificado contra `platform_test` real — ver §9. **PR #127, pendiente de review** |
 
-**Qué falta:** que Edgar apruebe el PR #96 (retiro del feed de historial, ver §8.5) — los PR #94 y #95 ya están mergeados. Del bloque anterior: mayoreo **ya confirmado en prod real** (ver §8.2, resuelve el pendiente de §3.2/§6). Para el repo standalone: que el equipo confirme el host/rol real de producción para `kepler_ods` (ver §7).
+**Qué falta:** que Edgar apruebe el **PR #127** (bug de datos, ver §9 — prioridad alta: el mostrador podía dar información de un producto equivocado) y el PR #96 (retiro del feed de historial, ver §8.5) — los PR #94 y #95 ya están mergeados. Del bloque anterior: mayoreo **ya confirmado en prod real** (ver §8.2, resuelve el pendiente de §3.2/§6). Para el repo standalone: que el equipo confirme el host/rol real de producción para `kepler_ods` (ver §7).
 
 ---
 
@@ -452,3 +453,53 @@ historial de qué se escaneó, así que no revela nada de terceros.
   loop de reinicios del executor `@nx/js:node`) sigue vigente — el
   workaround usado en esta sesión y en §5 es el mismo: `nx build api` +
   `node dist/apps/api/main.js` directo, sin pasar por el executor.
+
+## 9. Bug real #4 (datos): el mostrador confundía productos al escanear (2026-09-20)
+
+Reportado por 0Sistemas: personal de piso reportó que al escanear un
+código de barras, el verificador mostraba información de **otro
+producto** — a simple vista parecía que "solo leía los primeros 5
+dígitos".
+
+**Causa raíz, verificada contra `platform_test` real**: `KpService.
+getPrecio()` (`apps/api/src/modules/kp/kp.service.ts`) comparaba el
+código escaneado contra `kdii.c1` (el código interno) así:
+
+```sql
+WHERE TRIM(c1::text) = $1
+   OR LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0')
+   OR ... -- (barcodes: c7, c82, c93, c95, c96, c85)
+```
+
+`LPAD(x, N, '0')` en Postgres no solo rellena por la izquierda cuando
+`x` es más corto que `N` — **si `x` mide MÁS que `N`, lo TRUNCA** a los
+primeros `N` caracteres. Verificado en vivo: `lpad('7506306248861', 5,
+'0')` → `'75063'`, no un error ni el string sin tocar. La rama de arriba
+no tenía guarda de longitud, así que un código de barras EAN-13 completo
+se truncaba a sus primeros 5 dígitos **antes** de compararlo contra el
+código interno.
+
+**Caso real confirmado** (query directa contra `platform_test`): el
+barcode `7506306248861` (producto real `00610` / `GEL EGO GRANDE 1.350
+ML`) empataba con el código interno `75063` = `* DESCONTINUADO`, porque
+ambos truncan a `"75063"`. Como el prefijo GS1 de México es `750`, el
+riesgo no era un caso aislado — podía afectar una fracción grande de los
+escaneos reales con producto equivocado en pantalla.
+
+**Fix**: se agregó la guarda `length($1) <= 5` a esa rama —su propósito
+real es igualar un código interno CORTO tecleado sin ceros a la
+izquierda (ej. `"123"` contra `"00123"`), nunca un código de barras
+(8-13 dígitos):
+
+```sql
+OR (length($1) <= 5 AND LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0'))
+```
+
+Verificado antes/después con el caso real de arriba: antes resolvía a
+`75063`/`* DESCONTINUADO` (falso), después resuelve a `00610`/`GEL EGO
+GRANDE 1.350 ML / 1` (correcto). Se revisó también el camino offline del
+frontend (`padStart` de JS sobre el snapshot IndexedDB) — **no tiene este
+bug**: `padStart` nunca trunca, a diferencia del `lpad` de Postgres.
+
+**PR #127** — abierto, pendiente de review (prioridad alta: bug de datos
+incorrectos en el mostrador, no solo estético).
