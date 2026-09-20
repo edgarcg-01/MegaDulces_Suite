@@ -84,6 +84,247 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase TDA.A — Análisis de ventas de tienda: cuatro secciones y una cascada · 2026-09-19
+
+Pedido de Dirección sobre `/tienda/analisis-semanal`: partir el análisis en **cuatro secciones**
+—Tráfico · Productos y proveedores · Clientes · Promociones— y que debajo de la fotografía del
+período **caiga la cascada**: el mismo recorte visto semana por semana, por día de la semana (y
+cada lunes contra el lunes anterior), mes, trimestre y año. *«Que puedan ver la historia, cómo va
+evolucionando.»* El filtro de sucursal se conserva, para que Dirección vea todo, el gerente de zona
+lo suyo y el encargado su tienda.
+
+**Dos decisiones que el pedido no traía y cambian la forma** (consultadas y resueltas con Edgar):
+
+1. **Un solo control de tiempo.** El rango de arriba manda en toda la pantalla y el grano sólo
+   agrupa. La alternativa —que la cascada tuviera su propio «últimos N períodos»— deja dos relojes
+   en la misma pantalla y obliga al que la mira a adivinar cuál ganó.
+2. **Se retira el switch «Rango / Semana».** La cascada con grano Semana hace lo mismo y con el
+   juego completo de indicadores (antes la vista semanal sólo daba venta, margen y unidades). Dos
+   formas de mirar la misma semana que pueden no coincidir es exactamente cómo se pierde la
+   confianza en un tablero.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[TDA.A1.0]` | 🧪 | `GET /store/analytics/breakdown` — el mismo rango partido en 5 granos, con el juego completo de indicadores por bucket y un **segundo nivel** desplegable (semana→sus días · lunes→cada lunes · mes→sus días · trimestre→sus meses · año→sus trimestres) |
+| `[TDA.A1.1]` | 🧪 | **El bucket se define UNA sola vez, en SQL.** `generate_series` devuelve el mapa `día → bucket padre → bucket hijo` y todo se agrupa con ese mapa. No es preciosismo: los **clientes** se cuentan con `count(DISTINCT cliente_code)` —el mismo cliente que vino lunes y martes es uno en la semana, no dos— así que **no se pueden rodar desde el grano diario** y tienen que agruparse en SQL. Si el bucket se calculara además en JS, un `date_trunc('week')` que no coincidiera con el lunes de JS metería los clientes de un período en el renglón de otro **sin que nada fallara**. Medido: 0 buckets huérfanos en los 5 granos |
+| `[TDA.A1.2]` | 🧪 | **La compuerta de cobertura se evalúa POR BUCKET**, no para el rango entero. Un mes con el POS cubriendo 3 de 30 días declara `$/partida` y `uds/ticket` sin medir aunque el rango completo sí alcance. En la cascada, además, las razones nuevas **no arrastran el 0 histórico** de `range()`: sin tickets, el ticket promedio es «—», nunca $0 (ADR-056) |
+| `[TDA.A1.3]` | 🧪 | **La cobertura va en la fila**, no en una nota al pie: cada renglón dice cuántos de sus días tienen venta y cuántos tienen tickets. Es lo que explica un «—» y lo que delata un período a medias que si no se leería como caída de venta |
+| `[TDA.A1.4]` | 🧪 | **Los padres del grano «día de la semana» NO publican Δ%**: el lunes no viene después del domingo, y un número ahí parecería medido. Los hijos sí — cada lunes contra el lunes anterior es justo la pregunta de ese grano |
+| `[TDA.A1.5]` | 🧪 | Presets del rango de 400 → **760 días** (≈2 años) y el picker pasa a desplegable (10 opciones excluyentes; regla D.1 de `DESIGN.md`). El tope sale de la HISTORIA QUE HAY, no de gusto: la pierna Kepler de `mv_sales_blended` arranca 2025-10 para la 02 y 2026-07 para la 01 — más atrás se pintarían años vacíos que parecen derrumbe |
+| `[TDA.A1.6]` | 🧪 | Shell + 4 rutas hijas bajo la MISMA URL (`/tienda/analisis-semanal`, sin renombrar: rompería marcadores sin ganar nada). Filtro compartido en `AnalisisStateService`, provisto **en la ruta padre** — entrar arranca limpio, salir lo suelta, y cambiar de pestaña no te hace volver a elegir el período |
+| `[TDA.A1.7]` | 🧪 | `?with_products=0` en `/range`: el top de productos se mudó a su pestaña y es la consulta cara del endpoint. Con rangos de 2 años, pedirla para no dibujarla se paga dos veces |
+| `[TDA.A1.8]` | 🧪 | **Clientes y Promociones se publican DECLARADAS, sin dato.** No pintan tarjetas en cero ni gráficas de ejemplo: dicen qué va a vivir ahí y qué falta. En una pestaña nueva un cero dibujado es peor que en cualquier otro lado — el que la abre no puede distinguir «el negocio está en cero» de «esto no existe todavía» |
+
+#### TDA.A2 — «Productos y proveedores» pasa a ser LÍNEA → PRODUCTO · 2026-09-20
+
+Pedido: *«¿qué propones para que Productos aporte en proveedores, para el análisis de ventas
+histórico?»* — y la respuesta del negocio al presentar la medición: **«el análisis correcto es el
+de línea (proveedor) en catálogo dentro de productos».**
+
+**Se midió ANTES de proponer, y una de las dos opciones se cayó sola.** «Línea» es el proveedor al
+que pertenece un producto en el catálogo (`catalog.products.supplier_id`); no hay un campo `linea`
+aparte — se buscó y no existe. Medido contra prod, 12 meses de tienda sin ruta:
+
+| | |
+|---|---|
+| Venta cubierta por la línea del catálogo | **100.0 %** ($105.14M de $105.17M) |
+| ¿Un producto tiene una línea o varias? | **1:1** — 9,541 SKUs con una, 2 con dos |
+| ¿Coincide con Kepler (`kdpv_prov_prod`)? | **99.77 %** (8,936 de 8,957) |
+| Concentración | **11 líneas = 50 %** de la venta · 45 = 80 % · 302 en total |
+
+⛔ **La alternativa se descartó CON MEDICIÓN, no con opinión.** Atribuir la venta a *quién entregó*
+(desde `analytics.erp_goods_receipts` × sus líneas) no funciona: el **94.8 %** de la venta viene de
+SKUs recibidos de **más de un proveedor real**, y en la misma ventana se compró **$521M** contra
+**$94M** vendidos a costo — el CEDIS surte a toda la red y la tienda es una parte, no son el mismo
+universo. Y de fondo: una venta no sabe de qué entrega salió, no hay trazabilidad de lote.
+
+⚠️ **Dos trampas que la medición destapó y casi me llevan:**
+1. El primer conteo dio «97.6 % de la venta cambió de proveedor». Casi lo reporto. Era que los
+   **traspasos internos** (`TI000` CEDIS, `TI001` otra sucursal) están en la misma tabla que los
+   proveedores: el prefijo del código es la taxonomía (`C*` = compra, `TI*` = traspaso).
+2. Después sospeché de mi propio join —el repo documenta que *el folio no es único entre
+   doctypes*— y lo verifiqué: **12,039 pares `(sucursal, folio)`, todos únicos, un solo doctype
+   `XA2001`**. La sospecha era infundada y el número se sostuvo.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[TDA.A2.0]` | 🧪 | `GET /store/analytics/suppliers` — venta por línea con Δ% vs período previo, participación, margen, margen%, unidades y **SKUs con venta** (no los del catálogo), más la **concentración calculada** (cuántas líneas hacen el 50 % y el 80 %) |
+| `[TDA.A2.1]` | 🧪 | Los productos **sin línea** salen en su propia fila (`__SIN_LINEA__`), no por un `INNER JOIN`. Hoy son centavos ($21,669), pero el día que alguien dé de alta productos sin línea el total dejaría de cuadrar con la fotografía **y nadie lo vería** |
+| `[TDA.A2.2]` | 🧪 | `GET /store/analytics/supplier-products` — el detalle del maestro-detalle. `share_pct` es **dentro de la línea**, que es la pregunta que se hace al abrirla; contra el total de la tienda los números no se distinguirían entre sí |
+| `[TDA.A2.3]` | 🧪 | **Modo línea en la cascada** (`?supplier_code=`): la evolución histórica de esa línea, reusando el mismo componente de Tráfico |
+| `[TDA.A2.4]` | 🧪 | **Lo no atribuible se APAGA, no se reparte.** Un ticket lleva productos de varias líneas → *tickets, partidas por ticket, ticket promedio, $/partida, unidades por ticket y clientes* vuelven `null` y la tabla esconde esas columnas diciendo por qué. Repartirlos sería inventar; dejar el número de la tienda entera sería peor, porque en una fila que dice «La Rosa» se leería como de La Rosa |
+| `[TDA.A2.5]` | 🧪 | Tráfico **suelta** la línea al entrar: las dos pestañas comparten una sola cascada, y si la selección sobreviviera, Tráfico mostraría la evolución de una línea bajo tarjetas de toda la tienda |
+
+**Verificado, smoke de 72 → 93/93:** `Σ(líneas) == la fotografía` al peso, `Σ(productos) == su
+línea`, participación ~100 % en los dos niveles, el modo línea con su **prueba negativa** (los 8
+campos no atribuibles en `null` en todas las filas **y sus hijos**) y su contraparte (venta, margen,
+unidades y $/unidad siguen publicándose), y una línea inexistente devolviendo 0 filas en vez de un
+error. Builds `api` + `view` OK.
+
+⚠️ **Se DECLARA en pantalla, no se esconde:** la línea es un atributo de **hoy** y no tiene historia
+(el hueco VP.3). Si mañana le cambian la línea a un producto, su venta pasada se re-atribuye sola.
+
+⬜ **Hallazgo para Compras, no para esta pantalla:** el proveedor **asignado** coincide con el que
+más entregó en sólo **66.4 %** de los SKUs comparables (3,866 de 5,818). O sea que **1 de cada 3**
+está asignado a quien no es su proveedor real principal — y de ahí salen el lead time y el punto de
+reorden de Fase RA. No se tocó; queda nombrado.
+
+⬜ **Declarado, no construido** (lo propuesto y pospuesto): altas y bajas de SKU dentro de la línea
+—lo que explica por qué una línea cae sin revisar sus 228 productos— y la concentración interna de
+cada línea.
+
+#### TDA.A3 — «Productos TOP»: Pareto, y las tres etiquetas del ERP · 2026-09-20
+
+Pedido: separar el análisis de productos en su propia pestaña —quedan **cinco**: Tráfico ·
+Proveedores y productos · **Productos TOP** · Clientes · Promociones— con **participación y
+acumulado hasta el 80 %**, *«que es lo que Pareto nos recomienda no perder del foco»*, más las
+columnas **línea (proveedor) · tipo (categoría) · grupo (subcategoría)** y KPIs que la vista de
+proveedores no da.
+
+**El decode, hecho con una sonda que dio el negocio.** Mandó la ficha de Kepler del SKU `70001`
+«LA ROSA MAZAPAN /30» → Línea *DIST DE LA ROSA*, Tipo *DULCES*, Grupo *MAZAPAN CACAHUATE*. Con ese
+SKU se leyó su fila de `kepler_ods.kdii` y se buscó, entre las **129 tablas chicas** del ODS, cuál
+contenía esos dos textos:
+
+| Ficha del ERP | Columna | Catálogo | |
+|---|---|---|---|
+| **Línea** | `kdii.c6`/`c8` | `catalog.suppliers` | ya construido en A2 |
+| **Tipo** | `kdii.c4` | `kepler_ods.kdie` | **12 tipos** · cubre 98.0 % de la venta |
+| **Grupo** | `kdii.c5` | `kepler_ods.kdif` | **231 grupos** · cubre 99.7 % |
+
+⛔ **Lo obvio habría sido usar `catalog.products.category_id` y era una trampa:** de 8,004
+productos con categoría y proveedor, **3,051 (38 %) tienen la categoría con el MISMO NOMBRE que el
+proveedor**; el catálogo mezcla categorías reales (CHOCOLATES) con razones sociales (FERRERO,
+MONDELEZ), nombres de producto (CAMISETA CLASICA COLOR) y plazas (CAT LA PIEDAD). Y
+`catalog.products.department` está **100 % en NULL** (14,794 de 14,794).
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[TDA.A3.0]` | 🧪 | `analytics.v_product_taxonomy` — **vista** derivada del ODS (mig `20260920120000`), cero importers y cero tablas nuevas: la regla principal del proyecto aplicada tal cual |
+| `[TDA.A3.1]` | 🧪 | **`kdii` es por sucursal y el mismo SKU puede estar etiquetado distinto** (132 de 9,548 discrepan en tipo, 162 en grupo). Se ancla al CEDIS —que tiene 9,546 de los 9,548— y la vista **declara de qué plaza salió** (`fuente_sucursal`) en vez de esconder la discrepancia detrás de un `DISTINCT ON` |
+| `[TDA.A3.2]` | 🧪 | ⚠️ **Tipo y Grupo NO son jerarquía**: 86 de 241 grupos aparecen bajo más de un tipo. Por eso van como **dos filtros independientes** y no como árbol «tipo → sus grupos», que habría sido lo natural de dibujar y habría mentido |
+| `[TDA.A3.3]` | 🧪 | `GET /store/analytics/top-products`: Pareto (`share_pct` + `cum_pct`) + Línea/Tipo/Grupo + `$/unidad` y **días con venta** — el KPI que proveedores no da: dos productos con la misma venta, uno vendiendo todos los días y el otro en un pico, no se reponen igual |
+| `[TDA.A3.4]` | 🧪 | **El acumulado se calcula en el SERVIDOR sobre el universo filtrado completo**, y por eso hasta el buscador es un parámetro. Si filtrara en el navegador, el «acumulado» pasaría a ser el de las filas visibles: el mismo nombre de columna con otro significado, que es la peor clase de error porque no se ve |
+| `[TDA.A3.5]` | 🧪 | La respuesta trae el **universo**, no sólo lo servido — sin él, «80 %» no se puede interpretar. Y las **facetas ignoran los filtros de taxonomía**: si se filtraran con la selección puesta, elegir un tipo dejaría el desplegable con ese único tipo y no habría forma de volver |
+| `[TDA.A3.6]` | 🧪 | La cascada se acota también **a un producto** (`?product_id=`), mismo patrón que la línea. El recorte se generalizó: `supplier_scope` → `scope: { kind: 'linea' \| 'producto' }` |
+| `[TDA.A3.7]` | 🧪 | Pestañas 4 → **5**. «Productos y proveedores» pasa a «Proveedores y productos» y el Pareto sale a `/tienda/analisis-semanal/top`: eran dos preguntas, y la segunda vivía al pie de la primera donde nadie llegaba |
+
+**Por qué el corte de Pareto no es decoración, medido:** de **5,744 productos con venta**, **249
+hacen el 50 %** y **1,012 el 80 %** — o sea que 4,732 renglones, el 82 % del catálogo vendido,
+pesan juntos una quinta parte. La pestaña abre en el corte y «Todos» trae el resto.
+
+⚠️ **Se DECLARA en pantalla:** `NO APLICA` es un valor **real** del catálogo, no un dato faltante,
+y pesa **$15.1M = 14.3 % de la venta** (2,427 SKUs). Convertirlo en NULL escondería que uno de cada
+siete pesos está sin clasificar a propósito.
+
+**Verificado, smoke de 93 → 119/119** (+2 declarados NO MEDIDO, los dos por el tope de 1,500
+filas): el universo cuadra con la fotografía, el acumulado es monótono y cierra en ~100 %, y —la
+aserción que ata todo— **al filtrar por tipo el acumulado se RE-CALCULA** y vuelve a cerrar en
+100 % sobre el universo achicado, con las facetas intactas. Más la **sonda del decode**: el SKU
+70001 reproduce la ficha del ERP. Builds `api` + `view` OK.
+
+⛔ **PENDIENTE prod (cambia respecto de A1/A2):** ahora **sí hay una migración** —
+`20260920120000_v_product_taxonomy` — además del redeploy `api`+`view`. Sigue sin permisos nuevos,
+así que **no hace falta re-login**.
+
+#### TDA.A4 — «Clientes»: la pestaña que abre declarando su techo · 2026-09-20
+
+Pedido: continuar con la pestaña de Clientes, con **libertad creativa**, y dos capturas de la
+pantalla «Datos del cliente» del ERP como insumo. La libertad se usó en el diseño; la medición
+decidió el alcance.
+
+**⭐ El techo, medido antes de diseñar nada.** La facturación a nombre son **$23.1M** contra
+**$105.2M** del fact, y el **62 %** de eso es televenta (que tiene su propio módulo). Con el
+recorte de esta pantalla quedan $7.96M de 284 clientes — y de esos, **$6.48M son DOS cuentas del
+propio piso de venta**. Clientes externos reales: **$1.43M = 1.4 % de la venta**.
+
+Por eso la pantalla **no abre con un KPI, abre con la proporción**: una barra de tres franjas
+—clientes con nombre · cuentas internas · mostrador anónimo— contra la venta total. Una tabla de
+clientes con cifras grandes y sin ese encabezado se lee como si fuera la venta del negocio.
+
+**⭐ Un solo código explicaba el 80 %, y no era un cliente.** `10-00` «Padre Hidalgo Piso», 33
+documentos, $6.42M. Es la cuenta del propio piso. El ERP ya tiene el campo que lo separa —**Grupo**,
+catálogo `kduj`— y `PV-01` se llama literalmente «PISOS DE VENTA». Misma familia del `TI*` =
+traspaso de proveedores: lo interno vive en la misma tabla que lo real.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[TDA.A4.0]` | 🧪 | `analytics.v_customer_master` — **vista** derivada del ODS (mig `20260920130000`): la ficha del ERP por cliente. `c12`→`kduv` Vendedor · `c13`→`kduj` Grupo · `c14`→`kduk` Zona · `c15` Límite · `c16` Plazo |
+| `[TDA.A4.1]` | 🧪 | ⚠️ **La llave es (sucursal, clave) y la vista NO deduplica.** Medido: de 1,574 claves, **141 son un cliente DISTINTO según la plaza** — `00002` es Tania en la 00, Viviana en la 01 y Yanett en la 04. El propio ERP lo advierte al pie de su pantalla, y el personal escribe «NO TOCAR» en el nombre para defenderse. Anclar al CEDIS —como sí se hace con el SKU, que es global— mostraría a una persona cuando la venta fue de otra |
+| `[TDA.A4.2]` | 🧪 | `es_interno` marca los grupos que no son clientes. La lista sale de **leer los 20 nombres del catálogo**, no de un patrón: los grupos «VENTAS DE PISO ‹plaza›» **NO son internos** (ISICLEAN, de tu segunda captura, es uno) y un `nombre ILIKE '%PISO%'` los habría borrado a todos |
+| `[TDA.A4.3]` | 🧪 | `GET /store/analytics/customers`: cartera con la ficha del ERP + venta, Δ%, compras, ticket promedio, primera/última compra, días sin comprar y **estado derivado de fechas** (nuevo/activo/dormido) |
+| `[TDA.A4.4]` | 🧪 | **Incluye a los que NO compraron** en el período pero sí en el anterior: son los `dormido`, y son la única señal de fuga que esta pantalla puede dar. Una consulta que sólo mire el período actual no los ve por construcción |
+| `[TDA.A4.5]` | 🧪 | **«Nuevo» se APAGA cuando no se puede saber.** Si la facturación empieza dentro del período, todos salen nuevos — medido acá: 284 de 284. La pantalla lo declara y esconde el número en vez de publicar un padrón entero como altas |
+| `[TDA.A4.6]` | 🧪 | **Acá NO va la cascada**, y se dice por qué: el fact de venta **no sabe quién compró**. El cliente vive en la facturación, que es otro universo y otro tamaño; poner la misma cascada mezclaría los dos |
+
+⚠️ **El casi-acierto que sólo se vio por la captura:** la Zona resolvía contra `kduv` y daba
+«VENDEDORES ZONA LA PIEDAD». El ERP dice «**CLIENTES** ZONA LA PIEDAD» — mismo código, nombre
+parecido, catálogo equivocado (`kduk`). Contra un agregado habría pasado sin que nada fallara.
+
+⚠️ **Mi propia optimización fue 13× más lenta, y sólo se supo midiendo.** Acotar el CTE de «primera
+compra» con un `EXISTS` contra el CTE de arriba: **38 s contra 2.9 s**. Postgres no puede indexar un
+CTE, así que recorría el CTE entero por cada fila del histórico. Lo que sí sirvió fue
+`AS MATERIALIZED` en las vistas del ODS: sin eso el join de dos vistas costaba **10 s** (33 ms + 684
+ms por separado) y el endpoint moría en el `statement_timeout`.
+
+⚠️ **Y caí en la trampa que el propio repo documenta:** un acento grave dentro de un comentario
+**del SQL**, que va adentro de un template literal de JS. Quinta vez en el repo, primera en SQL.
+
+**Verificado, smoke de 119 → 132/132:** el techo cuadra contra la misma venta de la fotografía,
+`facturado = interno + clientes` sin perder nada, la **prueba negativa de la separación** (el
+segmento «clientes» no trae ninguna interna, y externos+internos == todos), el estado derivado de
+fechas, la sonda del cliente `10259` reproduciendo su ficha, y el **candado de la llave**: la clave
+`00002` sigue siendo 4 personas distintas. Builds `api` + `view` OK.
+
+⛔ **PENDIENTE prod:** las **dos** migraciones de vista (`20260920120000_v_product_taxonomy` y
+`20260920130000_v_customer_master`) + redeploy `api`+`view`. Sin permisos nuevos → sin re-login.
+
+**El bug que cazó el smoke antes que un humano:** con grano «día de la semana» las filas salían en
+el orden en que empieza el rango. Un rango que arrancaba en viernes abría la tabla con *Viernes,
+Sábado, Domingo, Lunes…* — la semana desordenada, y **distinta cada vez que se mueve el filtro**.
+El orden del calendario sirve para los otros cuatro granos y para éste no.
+
+**Verificado contra `platform_test` real (sólo lectura), `http-store-analytics-breakdown-test.js`
+72/72 en `run-all-tests.js`:** la cascada **cuadra al peso con la fotografía** en los 5 granos
+(`Σ(filas) == totals == /range`), `Σ(hijos) == padre` en todas las filas, 0 buckets de clientes
+huérfanos, y la compuerta probada **en rojo** (74 buckets con el POS corto devuelven `null`) **y en
+verde** (1 bucket con cobertura pareja sí publica), con `$/unidad` —fuente única— siguiendo vivo en
+los mismos buckets donde la compuerta apagó lo demás. Builds `api` + `view` OK.
+
+⛔ **Encontrado, NO arreglado (ajeno, y lo digo porque está rojo #1):** `node
+scripts/check-provenance.js` —una de las tres compuertas locales, con `BASELINE = 0` declarado
+*regla dura*— sale **1**. La única deuda es `StoreRhythm` en
+`apps/view/.../tienda/store-socket.service.ts`, que declara `generated_at` y ni `freshness` ni
+`data_as_of`. Nació con `[TDA.P]` (f40234a9, **2026-09-10**) y el archivo está idéntico a HEAD: la
+compuerta lleva nueve días roja y no la rompió esta fase (ninguno de sus archivos declara
+`generated_at`). **No se arregla de a una línea y por eso no se tocó:** el endpoint
+`/store/live/rhythm` emite `generated_at: new Date()`, o sea el reloj del servidor, y para declarar
+procedencia de verdad hay que derivar hasta qué día CIERRA la ventana del ritmo — que es justo el
+hueco que ADR-056 nombra. Agregarle un `data_as_of` opcional al tipo del cliente sin que el
+servidor lo mande pondría la compuerta en verde sin que nadie sepa de cuándo es el dato, que es
+peor que tenerla en rojo. Es un item de `[TDA.R]`, con medición.
+
+⛔ **Encontrado, NO arreglado (ajeno, rojo #2):**
+`http-store-analytics-range-test.js` falla **10 de 24** desde `[SD.3b]` (01acecac, 2026-09-17), que
+movió la fuente de la venta a `analytics.mv_sales_blended`. El test siembra `analytics.sales_daily`
+con sucursales sintéticas `91`/`92`, y la pierna de `sales_daily` de esa matvista sólo toma
+`w.code LIKE 'RUTA-%'` → **lo sembrado es estructuralmente invisible** y ninguna aserción del lado
+del fact puede pasar. Las del lado del POS siguen verdes. Arreglarlo no es una línea: hay que
+sembrar `mv_kepler_sales_daily` + refrescar, o re-escribirlo contra data real como el de la
+cascada. La protección no se perdió mientras tanto — el smoke nuevo cubre la misma compuerta.
+
+⚠️ **NO verificado: la pantalla en el navegador.** Builds y datos sí; el render no. Falta ver la
+tabla ancha con la primera columna congelada, el segundo nivel alineado con el de arriba, y las 4
+pestañas en claro y oscuro.
+
+⛔ **PENDIENTE prod — sólo de `[TDA.A1]`/`[TDA.A2]`, NO de la fase:** redeploy `api` + `view`.
+A1 y A2 no traen migraciones ni permisos nuevos (reusan `STORE_ANALYTICS_VER`).
+
+⛔ **PENDIENTE prod DE LA FASE (es lo que vale para desplegar):** las **dos** migraciones de vista
+— `20260920120000_v_product_taxonomy` y `20260920130000_v_customer_master` — **más** el redeploy
+`api`+`view`. Sin permisos nuevos → **sin re-login**. *Este bloque cierra la fase; el de arriba se
+escribió cuando sólo existían A1 y A2, y leerlo como cierre se llevaría las dos vistas sin aplicar.*
+
 ### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
 
 Continúa `[NX.1]`/`[NX.3]` (2026-09-17). **El hallazgo de entrada: Nx Cloud ya estaba conectado
