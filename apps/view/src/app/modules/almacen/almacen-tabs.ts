@@ -119,6 +119,26 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    key: 'abasto',
+    label: 'Abasto',
+    /**
+     * Fase AB — el trabajo de **decidir qué falta y a quién pedírselo**. Va acá, después de
+     * Inventario, porque es lo que sigue a mirar el censo: primero ves qué hay, después
+     * decidís qué traer.
+     *
+     * Hoy trae un solo tab, así que la barra NO se pinta (el shell la esconde con menos de
+     * dos) y el área se ve como un item simple de sidebar — igual que Análisis BI.
+     * *Nivelación de inventarios* (`/almacen/nivelacion`, `NIVELACION_VER`) es el segundo tab
+     * y entra con su pantalla en el PR siguiente de la fase: declarar acá una ruta que
+     * todavía no existe pondría un tab que tira 404. El prefijo SÍ se declara ya, para que
+     * un deep-link a esa URL resuelva a esta área en vez de quedar huérfano.
+     */
+    match: ['/almacen/autoabasto', '/almacen/nivelacion'],
+    tabs: [
+      { label: 'Autoabasto', icon: 'pi pi-shopping-cart', route: '/almacen/autoabasto', permission: Permission.AUTOABASTO_VER, exact: true },
+    ],
+  },
+  {
     key: 'conteo',
     label: 'Conteo',
     match: [

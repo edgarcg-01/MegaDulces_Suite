@@ -520,7 +520,7 @@ en `ventana_incompleta` por tiempo indefinido** — que es un resultado honesto,
 | PR | Alcance | Estado |
 |---|---|---|
 | **1** | **AB.0b — La foto de inventario.** El reloj | 🧪 **EN CÓDIGO 2026-09-19** |
-| **2** | AB.2 + AB.3 — Mesa de trabajo `/almacen/autoabasto` + permisos + navegación | ⬜ |
+| **2** | AB.2 + AB.3 — Mesa de trabajo `/almacen/autoabasto` + permisos + navegación | 🔨 **EN CÓDIGO 2026-09-19** |
 | **3** | AB.7 — Bandeja al comprador: escalera de facultades, backorder, status tipado | ⬜ |
 | **4** | AB.8 — `/almacen/nivelacion`: traspasos, crossdock, excedente cedible | ⬜ |
 | **5** | AB.4 + AB.5 + AB.6 — Temporalidad, caída abrupta y propuestas de parámetro | ⬜ |
@@ -560,3 +560,76 @@ desde el test. **Falta:** aplicar la migración en prod, redeploy, y la primera 
 
 **Retención:** declarada, no implementada. Diario > 400 días se purga salvo bandera de cierre. Con 0 filas
 sería código muerto; se escribe cuando la tabla lo pida.
+
+---
+
+### 🔨 PR 2 — AB.2 + AB.3, la mesa de trabajo (2026-09-19)
+
+**Qué entrega.** `/almacen/autoabasto` de punta a punta en LECTURA: `AutoabastoController`
+(`/commercial/autoabasto/{mesa,mesa/resumen,filtros}`), las 7 llaves nuevas en el enum + `permission-meta`
++ `authz-tree`, la **migración que las reparte** (`20260919160000`), el área *Abasto* en el sidebar del
+almacén, la ruta bajo el shell de área y la pantalla.
+
+**Las decisiones que no son obvias:**
+
+1. **El controlador no calcula.** Delega en `CommercialReplenishmentService`, el mismo motor de
+   `/compras/existencia`. Dos audiencias, un solo número: un segundo motor de reorden sería la forma más
+   cara de que el almacén y el comprador discutan cifras distintas del mismo hecho (ADR-056). Por eso las
+   firmas del boundary se **derivan** del motor (`Awaited<ReturnType<...>>`) en vez de declarar una
+   interfaz nueva — declararla a mano sería una segunda definición del mismo hecho.
+2. **Llaves propias, no `COMPRAS_*` reusadas.** Medido: `COMPRAS_PEDIDO_VER` está en **`false` explícito**
+   para `almacenista` y en `true` para `encargado_tienda`. La persona que hace el trabajo es justo la que
+   no alcanza Existencia Crítica. Ese `false` es una decisión manual guardada desde `/admin/roles` y **no
+   se pisa**: se abre con llave propia, que al ser clave nueva está en NULL en los 38 roles vivos.
+3. **El reparto se deriva del estado vivo, y la separación §2 se sostiene sola.** `AUTOABASTO_SOLICITAR`
+   se ancla en `COMMERCIAL_INVENTORY_AJUSTAR` (7 roles — incluye `almacenista`) y `_AUTORIZAR` en
+   `COMPRAS_PEDIDO_GESTIONAR` (9) + `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (2, para que entre `direccion`,
+   que tiene la otra en NULL). `almacenista` tiene `COMPRAS_PEDIDO_GESTIONAR` en `false` explícito, así
+   que **queda fuera de AUTORIZAR por su propio estado**: quien prepara no firma, sin lista a mano.
+   `_EXCEDER_TOPE` y `_POLITICA` calcan `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (direccion, superadmin) —
+   el precedente vivo de permiso restringido (TP.6) — y quedan fuera de todo MODULE_GROUP: no se otorgan
+   de paquete.
+4. **⚠️ `customer_b2b` se excluye a mano, y es lo único que no sale de una derivación.** Tiene
+   `COMMERCIAL_INVENTORY_VER = true` **y es el portal EXTERNO** (`PORTAL_B2B_ACCESS`, 3 usuarios vivos).
+   Sin ese `<> ALL`, derivar de `COMMERCIAL_INVENTORY_VER` le habría entregado la mesa interna de
+   reabasto a tres cuentas de cliente. Medido antes de escribir la migración, no supuesto.
+
+**Verificación:** `nx build api` verde · `nx build view` verde · `npm run check:templates` verde (321
+componentes) · `npm run lint:boundary` verde **en lo nuevo de este PR** · `nx test contracts` 76/76 ·
+`nx test view` 463 pasan, **7 fallan — los mismos 7 antes y después de este cambio** (medido con el árbol
+limpio; son deuda previa de `landing-guards.spec.ts`, ver abajo).
+
+**Simulación del reparto, contra la base viva, sólo con `SELECT`** (la migración NO se aplicó):
+
+| Llave | Roles que la recibirían |
+|---|---|
+| `AUTOABASTO_VER` | 14 |
+| `AUTOABASTO_SOLICITAR` | 7 — incluye `almacenista` |
+| `AUTOABASTO_AUTORIZAR` | 10 — **sin** `almacenista` |
+| `AUTOABASTO_EXCEDER_TOPE` · `_POLITICA` | 2 (direccion, superadmin) |
+| `NIVELACION_VER` | 10 |
+| `NIVELACION_GESTIONAR` | 7 |
+
+**Declarado, no verificado:**
+- **La pantalla no se abrió en el navegador.** El build en verde no dice nada sobre lo que se renderiza —
+  es exactamente la lección de [`docs/GOTCHAS.md` §59](../../GOTCHAS.md), que salió de `/finanzas/caja-general`.
+- **La migración no se aplicó.** La base está aplicada a medias (122 migraciones sin registrar), así que
+  un `migrate:latest` a ciegas choca. Se corre cuando se decida cómo reconciliar ese estado.
+- **Scope por sucursal: NO existe.** `warehouse_id` es del llamador, no del token. Un almacenista con la
+  clave ve la red completa si no filtra. Está **dicho en pantalla**, no disimulado con un filtro de front
+  que daría sensación de alcance sin serlo.
+- **`accion` se filtra en el cliente.** El endpoint todavía no la acepta como parámetro; se recorta sobre
+  la página cargada y el total refleja eso, en vez de mandar un parámetro que el backend ignoraría en
+  silencio. Pasa al backend cuando entre la escritura.
+
+**Dos hallazgos que no son de este PR y no se escondieron:**
+
+1. **PR #125 (AB.0b) tiene 3 violaciones del boundary gate** — `stock-snapshot.controller.ts` (2) y
+   `stock-snapshot.service.ts` (1), todas *"Missing return type"*. Entraron con `7af95329`. El PR se
+   reportó verde porque se corrió `nx build api` y los tests, **no** `npm run lint:boundary`; y CI está
+   `disabled_manually`, así que nadie más lo miró.
+2. **`npm run check:provenance` falla en `main`** — `StoreRhythm` (`apps/view/.../store-socket.service.ts`)
+   declara `generated_at` sin procedencia. Entró con `f40234a9` (TDA.P), que está en `main`. El gate
+   compara contra un `BASELINE = 0` hardcodeado: ese commit subió la deuda a 1 sin corregirla ni mover la
+   línea. **No se bajó la línea acá a propósito** — mover el BASELINE es justo lo que el gate existe para
+   impedir.

@@ -4,6 +4,17 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 
 /**
+ * ADR-052 — el boundary va tipado. Y acá el tipo correcto es **el del motor**, derivado, no una
+ * interfaz nueva: este controlador no calcula nada, así que declarar a mano la forma de la
+ * respuesta sería una SEGUNDA definición del mismo hecho — justo lo que la regla de "derivá, no
+ * materialices" evita. Derivándolo, el día que el motor agregue una columna, la firma la sigue
+ * sola en vez de quedarse mintiendo.
+ */
+type AutoabastoMesa = Awaited<ReturnType<CommercialReplenishmentService['criticalStock']>>;
+type AutoabastoResumen = Awaited<ReturnType<CommercialReplenishmentService['summary']>>;
+type AutoabastoFiltros = Awaited<ReturnType<CommercialReplenishmentService['filters']>>;
+
+/**
  * Fase AB — **Autoabasto**: la mesa de trabajo del almacenista y del encargado de sucursal.
  *
  * ── Por qué es un controlador nuevo y no un permiso más en el de Compras ─────
@@ -58,7 +69,7 @@ export class AutoabastoController {
     @Query('sort_dir') sort_dir?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
-  ) {
+  ): Promise<AutoabastoMesa> {
     return this.svc.criticalStock({
       warehouse_id, warehouse_ids, supplier_id, category_id, abc, bucket, search,
       target_basis, sort_by, sort_dir,
@@ -78,7 +89,7 @@ export class AutoabastoController {
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
-  ) {
+  ): Promise<AutoabastoResumen> {
     return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, category_id, search, target_basis });
   }
 
@@ -86,7 +97,7 @@ export class AutoabastoController {
   @Get('filtros')
   @RequirePermissions(Permission.AUTOABASTO_VER)
   @ApiOperation({ summary: 'Catálogos para los filtros de la mesa' })
-  filtros() {
+  filtros(): Promise<AutoabastoFiltros> {
     return this.svc.filters();
   }
 }

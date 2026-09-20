@@ -879,6 +879,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
         children: [
       {
+        // AUTOABASTO (Fase AB) — la mesa del almacenista y del encargado. Sirve los MISMOS
+        // números que /compras/pedido (mismo CommercialReplenishmentService) para la OTRA
+        // audiencia, con llave propia: `almacenista` tiene COMPRAS_PEDIDO_VER en `false`
+        // explícito y por eso no alcanza la pantalla del comprador. Hoy sólo LEE; solicitar y
+        // autorizar entran en el PR siguiente de la fase.
+        path: 'autoabasto',
+        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto.component').then(m => m.AlmacenAutoabastoComponent),
+        canActivate: [permissionGuard(Permission.AUTOABASTO_VER)]
+      },
+      {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
         // publicados a propósito: ver el doc del componente.
         path: 'analisis-bi',
