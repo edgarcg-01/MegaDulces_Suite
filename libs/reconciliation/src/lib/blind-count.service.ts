@@ -344,7 +344,11 @@ export class BlindCountService {
                    WHERE b.tenant_id = ?
                      AND b.warehouse_code = k.sucursal
                      AND b.tipo = 'cierre'
-                     AND b.cash_cut_folio = k.c3::bigint::text)
+                     AND b.cash_cut_folio = k.c3::bigint::text
+                     -- SM.37 - El folio de Kepler se REUSA: sin caja ni fecha, el
+                     -- cierre de OTRA caja de OTRO dia tacha el turno abierto de hoy.
+                     AND b.caja = k.c2
+                     AND b.business_date = k.c5::date)
           -- Del MÁS VIEJO al más nuevo: el primero de la lista es el que toca.
           -- Al revés (que es como estaba) la pantalla preseleccionaba el turno de
           -- hoy y dejaba saltarse el corte pendiente de ayer — justo el que hay
@@ -443,11 +447,14 @@ export class BlindCountService {
    * de una **corrección** del que ya se hizo — que no es lo mismo y no se puede
    * tratar igual (ver `exigirElMasViejo` en el controlador).
    */
-  async yaArqueado(warehouseCode: string, folio: string): Promise<boolean> {
+  async yaArqueado(warehouseCode: string, folio: string, caja?: string, businessDate?: string): Promise<boolean> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const row = await trx('reconciliation.blind_counts')
         .where({ tenant_id: tenantId, warehouse_code: warehouseCode, tipo: 'cierre', cash_cut_folio: String(folio) })
+        // SM.37 - Mismo motivo: el folio solo no identifica el turno.
+        .modify((q) => { if (caja) q.where('caja', caja); })
+        .modify((q) => { if (businessDate) q.where('business_date', businessDate); })
         .first('id');
       return !!row;
     });

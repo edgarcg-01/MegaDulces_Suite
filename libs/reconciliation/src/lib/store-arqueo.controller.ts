@@ -165,7 +165,7 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
-    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code);
+    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code, turno);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -193,7 +193,7 @@ export class StoreArqueoController {
    * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
    * Y el supervisor queda exento: captura por otros y en contingencia.
    */
-  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string) {
+  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string, turno?: { caja?: string; business_date?: string }) {
     if (revela) return;
     if ((body?.tipo ?? 'cierre') !== 'cierre') return;
     // Corregir un conteo YA hecho no es saltarse la fila: el turno viejo sigue
@@ -202,7 +202,9 @@ export class StoreArqueoController {
     // justo lo contrario de lo que esta regla busca.
     // La sucursal RESUELTA, no `body.warehouse_code`: la cajera no lo manda, así
     // que leerlo del body dejaría el chequeo en un no-op silencioso.
-    if (await this.blind.yaArqueado(warehouseCode, folio)) return;
+    // SM.37 - Con caja y fecha: el folio de Kepler se reusa, y sin acotar, el
+    // cierre de otra caja de otro dia daba este turno por arqueado.
+    if (await this.blind.yaArqueado(warehouseCode, folio, turno?.caja, turno?.business_date)) return;
     const scope = (await this.scope.current()).dims.warehouse;
     // MISMA ventana que la pantalla: si a la cajera no se le ofrece el corte de
     // anteayer, tampoco puede bloquearla. Con la ventana ancha quedaba trabada en
