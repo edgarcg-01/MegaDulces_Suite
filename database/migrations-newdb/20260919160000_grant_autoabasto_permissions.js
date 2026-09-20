@@ -49,10 +49,13 @@
  *                  o general (§2 del pedido).
  * · POLITICA     → igual que EXCEDER_TOPE: mover el umbral de temporalidad decide dirección.
  *
- * · NIVELACION_VER       → `COMMERCIAL_INVENTORY_VER`, sin el OR de Compras: el traspaso lo mira
- *                  el almacén de ORIGEN y el de destino, no el comprador.
- * · NIVELACION_GESTIONAR → `COMMERCIAL_INVENTORY_AJUSTAR`, el mismo set que SOLICITAR: confirmar
- *                  o rechazar un traspaso es mover existencia.
+ * ── NIVELACION_* NO se reparte acá, y es a propósito ─────────────────────────────────────────
+ * Las dos claves existen en el enum, pero `/almacen/nivelacion` **no existe hasta el PR 4** de la
+ * fase. Repartir hoy una llave que no abre nada es un permiso muerto (ADR-054): el gate se otorga
+ * junto con la acción que gatea. Va en la migración del PR 4, con el mismo anclaje ya elegido —
+ * VER de `COMMERCIAL_INVENTORY_VER` (el traspaso lo mira el almacén de ORIGEN y el de destino, no
+ * el comprador) y GESTIONAR de `COMMERCIAL_INVENTORY_AJUSTAR` (confirmar o rechazar un traspaso
+ * es mover existencia).
  *
  * ── ⚠️ `customer_b2b` se excluye a mano, y es lo único que no sale de una derivación ─────────
  * `customer_b2b` tiene `COMMERCIAL_INVENTORY_VER = true` **y es el portal EXTERNO**: su perfil
@@ -122,34 +125,17 @@ exports.up = async function (knex) {
         AND permissions -> 'AUTOABASTO_POLITICA' IS NULL
         AND (permissions ->> 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR')::boolean IS TRUE`);
 
-  const nver = await knex.raw(
-    `UPDATE role_permissions
-        SET permissions = permissions || '{"NIVELACION_VER": true}'::jsonb
-      WHERE role_name NOT LIKE 'retirado%'
-        AND role_name <> ALL(?)
-        AND permissions -> 'NIVELACION_VER' IS NULL
-        AND (permissions ->> 'COMMERCIAL_INVENTORY_VER')::boolean IS TRUE`, [EXTERNOS]);
-
-  const nges = await knex.raw(
-    `UPDATE role_permissions
-        SET permissions = permissions || '{"NIVELACION_GESTIONAR": true}'::jsonb
-      WHERE role_name NOT LIKE 'retirado%'
-        AND role_name <> ALL(?)
-        AND permissions -> 'NIVELACION_GESTIONAR' IS NULL
-        AND (permissions ->> 'COMMERCIAL_INVENTORY_AJUSTAR')::boolean IS TRUE`, [EXTERNOS]);
-
   // eslint-disable-next-line no-console
   console.log(
     `[AB.2] permisos repartidos — AUTOABASTO_VER: ${ver.rowCount} · SOLICITAR: ${sol.rowCount} · ` +
-    `AUTORIZAR: ${aut.rowCount} · EXCEDER_TOPE: ${tope.rowCount} · POLITICA: ${pol.rowCount} · ` +
-    `NIVELACION_VER: ${nver.rowCount} · NIVELACION_GESTIONAR: ${nges.rowCount} filas de role_permissions`);
+    `AUTORIZAR: ${aut.rowCount} · EXCEDER_TOPE: ${tope.rowCount} · POLITICA: ${pol.rowCount} ` +
+    `filas de role_permissions`);
 };
 
 exports.down = async function (knex) {
   for (const k of [
     'AUTOABASTO_VER', 'AUTOABASTO_SOLICITAR', 'AUTOABASTO_AUTORIZAR',
     'AUTOABASTO_EXCEDER_TOPE', 'AUTOABASTO_POLITICA',
-    'NIVELACION_VER', 'NIVELACION_GESTIONAR',
   ]) {
     await knex.raw(`UPDATE role_permissions SET permissions = permissions - '${k}'`);
   }

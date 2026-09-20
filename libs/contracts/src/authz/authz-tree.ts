@@ -184,13 +184,15 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.
           { id: 'analisis-bi', label: 'Análisis BI', route: '/almacen/analisis-bi', view: [Permission.ALMACEN_BI_VER], manage: [] },
-          // Fase AB — Autoabasto y Nivelación. Dos módulos, dos claves de lectura distintas:
-          // Nivelación la ve también el almacén de ORIGEN, que no tiene nada que hacer en el
-          // autoabasto del destino. `manage` = la llave que ESCRIBE (solicitar / gestionar);
-          // AUTORIZAR y EXCEDER_TOPE no van acá porque no son "ver ni gestionar la pantalla",
-          // son facultades de firma y se piden en el endpoint que firma.
+          // Fase AB — Autoabasto. `manage` = la llave que ESCRIBE (solicitar); AUTORIZAR y
+          // EXCEDER_TOPE no van acá porque no son "ver ni gestionar la pantalla", son facultades
+          // de firma y se piden en el endpoint que firma.
+          //
+          // **Nivelación NO se declara todavía**, aunque sus claves ya existan en el enum: su
+          // ruta `/almacen/nivelacion` no existe en `app.routes.ts` hasta el PR 4 de la fase, y
+          // un nodo del árbol que apunta a una ruta inexistente es un candidato de aterrizaje
+          // que manda a la nada — SN.4 lo acusa, con razón. Entra junto con su pantalla.
           { id: 'autoabasto', label: 'Autoabasto', route: '/almacen/autoabasto', view: [Permission.AUTOABASTO_VER], manage: [Permission.AUTOABASTO_SOLICITAR] },
-          { id: 'nivelacion', label: 'Nivelación de inventarios', route: '/almacen/nivelacion', view: [Permission.NIVELACION_VER], manage: [Permission.NIVELACION_GESTIONAR] },
           // Fase CV — absorbido de 0SistemasMD/catalogo-kp. `route` es la que tendría
           // en apps/view si algún día se le hace pantalla propia; hoy el frontend
           // sigue siendo el HTML estático del repo standalone (deuda documentada

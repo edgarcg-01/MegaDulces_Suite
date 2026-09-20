@@ -554,6 +554,25 @@ Ejercita el **servicio real** vía `ts-node` —no una copia de su SQL, que se c
 no se publica, re-correr corrige sin duplicar, y un día cualquiera no lleva bandera de cierre.
 `nx build api` verde.
 
+**Nivelación queda FUERA de este PR, y eso fue un hallazgo del propio gate.** El WIP heredado ya
+declaraba `/almacen/nivelacion` en `authz-tree` y la migración ya repartía `NIVELACION_*`. El spec
+`landing-guards.spec.ts` (SN.4) lo acusó: **3 candidatos de aterrizaje nuevos que rebotan** — dos
+apuntando a una ruta que no existe en `app.routes.ts`, y `AUTOABASTO_SOLICITAR` cayendo en una puerta
+que sólo aceptaba `AUTOABASTO_VER`. Los tres se corrigieron en vez de declararse como deuda:
+
+| Qué acusaba SN.4 | Qué se hizo |
+|---|---|
+| `AUTOABASTO_SOLICITAR→/almacen/autoabasto` rebota | la ruta pasa a `anyPermissionGuard(VER, SOLICITAR)`: quien prepara tiene que poder abrir la mesa |
+| `NIVELACION_VER→/almacen/nivelacion` no existe | el nodo sale de `authz-tree`; vuelve en el PR 4 **con su pantalla** |
+| `NIVELACION_GESTIONAR→/almacen/nivelacion` no existe | ídem, y el prefijo sale también de `ALMACEN_AREAS` |
+
+Y por lo mismo **la migración ya no reparte `NIVELACION_*`**: repartir una llave que no abre nada es
+un permiso muerto (ADR-054). El anclaje ya está elegido y escrito en el encabezado de la migración,
+para que el PR 4 no lo vuelva a decidir.
+
+Antes del arreglo el área `almacen` tenía **5** candidatos que rebotan; después, **2** — y esos dos
+(`CATALOGO_INTERNO_*`, Fase CV) son deuda previa. Este PR no suma ninguno.
+
 **Declarado, no verificado:** el endpoint HTTP **no se probó contra la API viva** — la que corre en `:3334`
 es un build anterior y reiniciarla no me corresponde. El servicio sí se ejercitó de verdad, con su Knex,
 desde el test. **Falta:** aplicar la migración en prod, redeploy, y la primera corrida real del cron.
@@ -596,8 +615,9 @@ almacén, la ruta bajo el shell de área y la pantalla.
 
 **Verificación:** `nx build api` verde · `nx build view` verde · `npm run check:templates` verde (321
 componentes) · `npm run lint:boundary` verde **en lo nuevo de este PR** · `nx test contracts` 76/76 ·
-`nx test view` 463 pasan, **7 fallan — los mismos 7 antes y después de este cambio** (medido con el árbol
-limpio; son deuda previa de `landing-guards.spec.ts`, ver abajo).
+`nx test view` 463 pasan y **7 fallan, los mismos que en `main`** — deuda previa de
+`landing-guards.spec.ts`. Lo que sí cambió: el área `almacen` pasó de **5 candidatos que rebotan a 2**,
+porque este PR corrigió los 3 que el WIP heredado había introducido (ver abajo).
 
 **Simulación del reparto, contra la base viva, sólo con `SELECT`** (la migración NO se aplicó):
 
@@ -607,8 +627,7 @@ limpio; son deuda previa de `landing-guards.spec.ts`, ver abajo).
 | `AUTOABASTO_SOLICITAR` | 7 — incluye `almacenista` |
 | `AUTOABASTO_AUTORIZAR` | 10 — **sin** `almacenista` |
 | `AUTOABASTO_EXCEDER_TOPE` · `_POLITICA` | 2 (direccion, superadmin) |
-| `NIVELACION_VER` | 10 |
-| `NIVELACION_GESTIONAR` | 7 |
+| `NIVELACION_*` | **no se reparten acá** — ver abajo |
 
 **Declarado, no verificado:**
 - **La pantalla no se abrió en el navegador.** El build en verde no dice nada sobre lo que se renderiza —

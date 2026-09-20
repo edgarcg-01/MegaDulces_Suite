@@ -886,7 +886,11 @@ export const routes: Routes = [
         // autorizar entran en el PR siguiente de la fase.
         path: 'autoabasto',
         loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto.component').then(m => m.AlmacenAutoabastoComponent),
-        canActivate: [permissionGuard(Permission.AUTOABASTO_VER)]
+        // `anyPermissionGuard` y no `permissionGuard(VER)`: quien PREPARA solicitudes tiene que
+        // poder abrir la mesa. Con sólo VER en la puerta, `AUTOABASTO_SOLICITAR` queda como
+        // candidato de aterrizaje que rebota — el defecto "manage sin view" que SN.4 ya arrastra
+        // veinte veces como deuda declarada. Acá no se declara: se evita.
+        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
