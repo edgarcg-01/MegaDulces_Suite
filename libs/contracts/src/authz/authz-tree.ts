@@ -184,6 +184,13 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.
           { id: 'analisis-bi', label: 'Análisis BI', route: '/almacen/analisis-bi', view: [Permission.ALMACEN_BI_VER], manage: [] },
+          // Fase AB — Autoabasto y Nivelación. Dos módulos, dos claves de lectura distintas:
+          // Nivelación la ve también el almacén de ORIGEN, que no tiene nada que hacer en el
+          // autoabasto del destino. `manage` = la llave que ESCRIBE (solicitar / gestionar);
+          // AUTORIZAR y EXCEDER_TOPE no van acá porque no son "ver ni gestionar la pantalla",
+          // son facultades de firma y se piden en el endpoint que firma.
+          { id: 'autoabasto', label: 'Autoabasto', route: '/almacen/autoabasto', view: [Permission.AUTOABASTO_VER], manage: [Permission.AUTOABASTO_SOLICITAR] },
+          { id: 'nivelacion', label: 'Nivelación de inventarios', route: '/almacen/nivelacion', view: [Permission.NIVELACION_VER], manage: [Permission.NIVELACION_GESTIONAR] },
           // Fase CV — absorbido de 0SistemasMD/catalogo-kp. `route` es la que tendría
           // en apps/view si algún día se le hace pantalla propia; hoy el frontend
           // sigue siendo el HTML estático del repo standalone (deuda documentada

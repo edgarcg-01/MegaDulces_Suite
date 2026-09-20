@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ObjectStorageService } from '@megadulces/platform-core';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
+import { AutoabastoController } from './autoabasto.controller';
 import { CommercialReplenishmentController } from './commercial-replenishment.controller';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { CommercialPurchaseOrdersService } from './commercial-purchase-orders.service';
@@ -18,7 +19,7 @@ import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments
  * TenantKnexService/TenantContextService vienen del módulo global de platform-core.
  */
 @Module({
-  controllers: [CommercialReplenishmentController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController],
+  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController],
   providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
