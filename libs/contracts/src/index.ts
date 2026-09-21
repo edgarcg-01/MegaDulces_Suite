@@ -22,9 +22,6 @@ export * from './http/provenance.contract';
 // [VU.0] La unidad viaja CON la cantidad al escribir. Censo 2026-09-12: 22 tablas con una
 // columna de cantidad y ninguna de unidad al lado. Leer el contrato antes de agregar otra.
 export * from './http/quantity-unit.contract';
-// [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
-// billete y la moneda de $20 valen lo mismo y son cosas distintas.
-export * from './money/denominations';
 // [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".

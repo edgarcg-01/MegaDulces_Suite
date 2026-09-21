@@ -34,13 +34,7 @@
  * Es configuración de una vez por equipo, el patrón estándar en punto de venta.
  */
 
-/**
- * SM.39 - `familia` es obligatoria: el billete y la moneda de $20 valen lo
- * mismo, asi que el monto no alcanza para saber en que columna va la fila. El
- * ticket la parte por familia y no comparando `>= 20`, que metia la moneda de
- * $20 en billetes.
- */
-export interface TicketDenominacion { denominacion: number; cantidad: number; subtotal: number; familia: 'billete' | 'moneda'; label?: string }
+export interface TicketDenominacion { denominacion: number; cantidad: number; subtotal: number }
 
 export interface TicketArqueo {
   sucursal: string;
@@ -208,17 +202,14 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
     // Sin `×` ni acentos a propósito: muchas térmicas de 203 dpi no traen esos
     // glifos en su tabla de caracteres y los imprimen como basura.
     for (const d of a.denominaciones) {
-      // El label viene del catalogo; el fallback es para tickets viejos.
-      const et = d.label ? d.label.replace(/[$,]/g, '')
-        : (d.denominacion >= 1 ? String(d.denominacion) : `${d.denominacion * 100}c`);
-      const marca = d.familia === 'moneda' && d.denominacion >= 20 ? 'm' : '';
-      const izq = `${(et + marca).padStart(5)} x ${String(d.cantidad).padStart(4)} =`;
+      const et = d.denominacion >= 1 ? String(d.denominacion) : `${d.denominacion * 100}c`;
+      const izq = `${et.padStart(5)} x ${String(d.cantidad).padStart(4)} =`;
       L.push(fila(izq, money(d.subtotal)));
     }
     L.push(linea());
     // Billetes y monedas por separado: es la única forma de comparar nuestro
     // conteo contra lo que Kepler declara, que solo trae esos dos totales.
-    const bil = a.denominaciones.filter((d) => d.familia === 'billete').reduce((t, d) => t + d.subtotal, 0);
+    const bil = a.denominaciones.filter((d) => d.denominacion >= 20).reduce((t, d) => t + d.subtotal, 0);
     const mon = a.total_contado - bil;
     L.push(fila('  billetes', money(bil)));
     L.push(fila('  monedas', money(mon)));
