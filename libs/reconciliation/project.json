@@ -3,21 +3,15 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/reconciliation/src",
   "projectType": "library",
-  "targets": {
-    "lint": {
-      "executor": "@nx/eslint:lint",
-      "outputs": [
-        "{options.outputFile}"
-      ],
-      "options": {
-        "lintFilePatterns": [
-          "libs/reconciliation/**/*.ts"
-        ]
-      }
-    }
-  },
   "tags": [
     "scope:reconciliation",
     "type:feature"
+  ],
+  "//lint": [
+    "`[NX.6]` `lint` lo INFIERE `@nx/eslint/plugin` (registrado en nx.json). El executor",
+    "`@nx/eslint:lint` explícito que vivía acá está DEPRECADO y desaparece en Nx v24 — lo avisa",
+    "él mismo en cada corrida. Ningún proyecto del repo tiene config propia de eslint: la flat",
+    "config de la raíz cubre todo, y por eso el plugin puede inferirlo sin más.",
+    "Ver el detalle en libs/contracts/project.json."
   ]
 }

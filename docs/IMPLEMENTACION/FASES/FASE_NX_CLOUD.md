@@ -132,22 +132,40 @@ el plan.
 
 ## 3 · `[NX.6]` — Executors deprecados (vencen en Nx v24)
 
-`contracts`, `api` y `finance` declaraban `lint` con `@nx/eslint:lint`, que el propio executor
-avisa como deprecado. Los otros seis proyectos ya usaban el inferido.
-
 Ningún proyecto del repo tiene config propia de eslint — la flat config de la raíz cubre todo —
-así que el plugin puede inferir el target sin más. Se borraron los tres bloques.
+así que el plugin `@nx/eslint/plugin` puede inferir el target sin más. Se borraron los bloques
+explícitos.
 
-**Antes/después, sin mover el veredicto:**
+> ⛔ **Corrección del 2026-09-21.** La primera pasada dijo *"3 proyectos"* y **eran 12**: se
+> muestrearon 6 proyectos (`contracts`, `view`, `api`, `portal`, `vendor`, `finance`), se
+> encontraron 3 con el executor viejo y **se generalizó desde la muestra en vez de contar**. Lo
+> delató el CI al encenderse: el log seguía imprimiendo `The @nx/eslint:lint executor is
+> deprecated` después de la fase que supuestamente lo había retirado.
+>
+> Lección, que es la de siempre en este repo: **una muestra responde "existe", nunca "cuántos"**.
+> El conteo se hace con `grep -rn '"@nx/eslint:lint"' --include=project.json`.
 
-| Proyecto | Con executor explícito | Con target inferido |
+**Antes/después, sin mover el veredicto en ninguno de los 12:**
+
+| Proyecto | Antes | Después |
 |---|---|---|
 | `contracts` | 6 problems (2 errors, 4 warnings) | **idéntico** |
 | `api` | 213 problems (64 errors, 149 warnings) | **idéntico** |
 | `finance` | 1096 problems (5 errors, 1091 warnings) | **idéntico** |
+| `commercial` | 1467 problems (8 errors, 1459 warnings) | **idéntico** |
+| `trade` | 707 problems (8 errors, 699 warnings) | **idéntico** |
+| `logistics` | 217 problems (1 error, 216 warnings) | **idéntico** |
+| `fiscal` | 130 problems (2 errors, 128 warnings) | **idéntico** |
+| `reconciliation` | 129 problems (0 errors, 129 warnings) | **idéntico** |
+| `platform-core` | 79 problems (3 errors, 76 warnings) | **idéntico** |
+| `whatsapp` | 65 problems (0 errors, 65 warnings) | **idéntico** |
+| `shared-scoring` | limpio | **idéntico** |
+| `ui-web` | limpio | **idéntico** |
+
+Verificación de cierre: `grep -rn '"@nx/eslint:lint"' --include=project.json` → **0 resultados**.
 
 > ⚠️ Esos números son deuda de lint **preexistente**, no algo que esta fase introdujo. `lint`
-> está rojo hoy.
+> está rojo hoy, y eso tiene una consecuencia que se descubrió al encender el CI — ver §9.
 
 ---
 
@@ -327,3 +345,76 @@ que es una conversación distinta de la de Nx y no se mezcla acá.
 
 `lint` está rojo: 2 errores en `contracts`, 64 en `api`, 5 en `finance`. Es anterior a esta fase
 y es parte de lo que costó tener el CI apagado desde el 2026-08-25.
+
+---
+
+## 9 · 2026-09-21 — el CI se encendió, y eso midió lo que faltaba
+
+La facturación de `edgarcg-01` se destrabó y el workflow pasó a `active`. Las corridas duran
+**2–4 minutos**, no los 3 segundos de las 25 muertes anteriores. Con eso, la fase deja de
+apoyarse en suposiciones.
+
+### Lo que quedó verificado en producción
+
+| Qué | Cómo se comprobó |
+|---|---|
+| El token **ya no se filtra** | El build del `worker` del 21-sep: **0 ocurrencias** del token en claro (antes salía completo) |
+| El caché remoto **funciona en Railway** | Mismo build: `shared-scoring:build → Remote Cache Hit`, `Cache: 1/2 hit`. El miss es `api:build` porque el código de api cambió — comportamiento correcto, no falla |
+| El build y el typecheck **pasan en CI** | Job `Build & typecheck (affected)`: **SUCCESS** |
+
+### ⛔ El defecto que el CI destapó: mis compuertas nunca corrían
+
+En GitHub Actions **un paso fallado corta el job**. `Lint (affected)` está rojo por deuda
+preexistente, y yo puse las compuertas nuevas **después** de él:
+
+```
+✗ Lint (affected)        ← muere acá
+  Boundary type gate     ← nunca corre
+  Provenance gate        ← nunca corre
+  Comment gate           ← nunca corre
+  Docker context gate    ← nunca corre
+  TS7 paths gate         ← nunca corre
+  Typecheck (affected)   ← nunca corre
+  Test (affected)        ← nunca corre
+```
+
+O sea: **siete compuertas instaladas y ninguna reportando**, con el job en rojo de todos modos.
+Un rojo que tapa a los otros seis es exactamente el defecto que `scripts/check-all.js` ya existía
+para no cometer — su propio comentario lo dice: *"con `&&` el primer rojo tapa a los demás y no
+se sabe si hay uno o cinco problemas"*. La versión de CI contradecía a la versión local.
+
+**Arreglo:** `if: ${{ !cancelled() }}` en los 7 pasos posteriores. Todos reportan, el job sigue
+fallando si alguno falla, y el resumen dice cuántos problemas hay — no cuál fue el primero.
+
+### El estado honesto de las compuertas hoy
+
+| Compuerta | Estado | De quién es |
+|---|---|---|
+| Build & typecheck (affected) | ✅ | — |
+| Lint (affected) | ⛔ | deuda preexistente, ~12 proyectos |
+| Test (affected) | ⛔ | `view:test`, 7 asserts — `PU.6` agregó `presupuestos` al `suite-map` sin actualizar la paridad de `SN.4` (sigue igual desde el 17-sep) |
+| Secret scan (gitleaks) | ⛔ | **fuga real**, ver abajo |
+| Las otras 5 | ⬜ NO MEDIDO hasta este arreglo | — |
+
+### ⚠️ Hallazgo ajeno y urgente: gitleaks encontró una credencial de verdad
+
+```
+database/tests/http-store-analytics-breakdown-test.js:76
+db-connection-string-with-password
+commit 3afbebf8 · 2026-09-21 · franciscolopez-hash
+```
+
+Es un *fallback* `postgresql://usuario:clave@127.0.0.1:5432/postgres_platform` — host local, no
+un prod alcanzable desde internet, así que **no es una puerta abierta**. Pero es una contraseña
+en texto plano en un **repo público**, y sigue en `origin/main`.
+
+Importa por una razón concreta y ya documentada: en este entorno **la contraseña del rol se
+comparte entre sistemas** (`GOTCHAS §24`, el cluster `.245`). Si ésa es la misma, deja de ser
+"la de mi máquina".
+
+**Qué hacer:** sacar el literal (dejar que `DATABASE_URL_NEW` falle fuerte si no está) y rotar
+si esa clave se usa en otro lado. **El historial no se reescribe solo** — el commit queda
+público aunque se borre la línea.
+
+> Es la misma familia que `§58`: *un secreto que viaja como texto en algo que alguien más va a
+> leer*. Allá era un log de build; acá, un repo público.

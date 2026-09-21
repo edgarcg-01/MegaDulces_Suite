@@ -217,6 +217,7 @@ jobs:
       # .controller.ts/.service.ts CAMBIADOS y falla si agregan `any` o returns
       # sin tipar. Usa NX_BASE/NX_HEAD que expone nx-set-shas arriba.
       - name: Boundary type gate (nuevo/cambiado)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-boundary-gate.js
 
       # VP.2.3 (ADR-056): una respuesta de reporte que declara `generated_at` tiene que declarar
@@ -225,6 +226,7 @@ jobs:
       # conveniente es cómo la plataforma sirvió precio, costo y margen muertos durante seis días.
       # Ratchet, como TS.0: la deuda medida se declara y SÓLO PUEDE BAJAR. Rojo si sube.
       - name: Provenance gate (generated_at sin freshness)
+        if: ${{ !cancelled() }}
         run: node scripts/check-provenance.js
 
       # DESIGN (2026-09-14): una sola familia de bug — PUNTUACIÓN ADENTRO DE UN COMENTARIO QUE
@@ -258,6 +260,7 @@ jobs:
       # Pruebas negativas 2026-09-14, una por caso + la del camino "no medido": los tres rotos a
       # propósito salen 1 apuntando a la línea correcta; el bloque con ${} sale 0 pero declarando.
       - name: Comment gate (comentario que se cierra solo en template/styles)
+        if: ${{ !cancelled() }}
         run: npm run check:templates
 
       # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
@@ -267,6 +270,7 @@ jobs:
       # build del contenedor ni arrancaba, con un error que no menciona ni Docker ni el COPY.
       # Prueba negativa ejercida: quitando el archivo del COPY, sale 1 y lo nombra.
       - name: Docker context gate (la raíz que los configs de proyecto necesitan)
+        if: ${{ !cancelled() }}
         run: npm run check:docker
 
       # `[NX.7]` Va ANTES del typecheck: `tsconfig.ts7.json` no puede extender
@@ -277,6 +281,7 @@ jobs:
       # Pruebas negativas ejercidas: alias que falta, alias que sobra, mismo alias con otro
       # destino — los tres salen 1 y lo nombran.
       - name: TS7 paths gate (typecheck y build resuelven lo mismo)
+        if: ${{ !cancelled() }}
         run: npm run check:ts7paths
 
       # `[NX.7]` `apps/api` compila con SWC: los tipos se BORRAN sin comprobarse, así que el job
@@ -284,6 +289,7 @@ jobs:
       # target es el único que cubre ese hueco, y desde que vive en Nx es cacheable y entra en
       # `affected` (medido: 5.8 s en frío, 89 ms con caché).
       - name: Typecheck (affected)
+        if: ${{ !cancelled() }}
         run: npx nx affected -t typecheck --parallel=3
         env:
           NX_DAEMON: 'false'
@@ -292,6 +298,7 @@ jobs:
       # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese
       # archivo — un proyecto sin config simplemente no tiene target que correr.
       - name: Test (affected)
+        if: ${{ !cancelled() }}
         run: npx nx affected -t test --parallel=3
         env:
           NX_DAEMON: 'false'
