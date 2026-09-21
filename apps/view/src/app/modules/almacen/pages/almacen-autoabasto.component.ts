@@ -46,6 +46,20 @@ import {
  *    front que daría sensación de alcance sin serlo.
  *  · **El $ retenido no se dibuja en cero.** Cuando el costo de compra contradice el peldaño de
  *    unidades (U.2), el motor manda `suggested_cost: null`. La mesa lo cuenta aparte y lo dice.
+ *
+ * ── [AB.3b] Los porqués: tres de siete, y las otras cuatro dichas ────────────
+ * El plan del 2026-09-21 exige que cada sugerencia se explique. Se contestan **cuánto** (la resta
+ * con el objetivo que publica el motor), **a quién** (`replenish_via` + origen) y **para cuándo**
+ * (`next_due_date` + `lead_time_days` + días de cobertura) — los tres salían del motor desde
+ * RA-PRO.9 y esta pantalla no los mostraba.
+ *
+ * Las cuatro que faltan **no se simulan**:
+ *  · *¿Por qué mover el parámetro?* → AB.6, necesita `parameter_proposal` (propuesta con vigencia).
+ *  · *¿Por qué requiere revisión?* → parcial: `rung_veredicto` declara la unidad; pedido mínimo,
+ *    caducidad y excepción entran con la solicitud (AB.7).
+ *  · ⛔ *¿Por qué NO propone pedir?* → **sigue sin contestarse, y es el más caro**: la mesa lista
+ *    sólo lo que falta, así que un producto cubierto no aparece y *"lo revisé y está cubierto"*
+ *    se lee igual que *"nunca lo miré"*. Pedirlo es un modo nuevo de la pantalla, no una columna.
  */
 
 /** Etiqueta y tono de cada acción. El orden del mapa es el orden de lectura de la mesa. */
@@ -163,7 +177,11 @@ const BUCKET_LABEL: Record<string, string> = {
               <th class="ab-c-num">De la red</th>
               <th class="ab-c-num">A comprar</th>
               <th class="ab-c-acc">Acción</th>
-              <th pSortableColumn="supplier_name" class="ab-c-sup">Proveedor</th>
+              <!-- [AB.3b] "a quién" y "para cuándo". Reemplazan a la columna Proveedor: el
+                   proveedor sigue visible dentro de Origen cuando la ruta es compra, y cuando es
+                   traspaso el proveedor NO es la respuesta a "a quién le pido". -->
+              <th class="ab-c-org">Origen</th>
+              <th class="ab-c-cua">Entrega</th>
             </tr>
           </ng-template>
 
@@ -182,7 +200,9 @@ const BUCKET_LABEL: Record<string, string> = {
               <td class="ab-c-num ab-dim">{{ qty(r.reorder_point) }}</td>
               <td class="ab-c-num ab-dim">{{ qty(r.max_stock) }}</td>
               <td class="ab-c-num">{{ r.in_transit > 0 ? qty(r.in_transit) : '—' }}</td>
-              <td class="ab-c-num ab-strong">{{ qty(r.suggested_qty) }}</td>
+              <!-- [AB.3b] "¿por qué esa cantidad?" — la resta, con el objetivo que publicó el motor. -->
+              <td class="ab-c-num ab-strong ab-why"
+                  [pTooltip]="cantidadPorQue(r)" tooltipPosition="top">{{ qty(r.suggested_qty) }}</td>
               <!-- Lo que la empresa YA compró y está en otra sucursal. Va antes que "A comprar"
                    porque ese es el orden de decisión que pide la regla de traspaso. -->
               <td class="ab-c-num ab-transfer">{{ r.transfer_in > 0 ? qty(r.transfer_in) : '—' }}</td>
@@ -193,7 +213,12 @@ const BUCKET_LABEL: Record<string, string> = {
                   {{ accionMeta(r.accion).label }}
                 </span>
               </td>
-              <td class="ab-c-sup">{{ r.supplier_name || '—' }}</td>
+              <td class="ab-c-org">
+                <span class="ab-org {{ origenCls(r) }}"
+                      [pTooltip]="origenPorQue(r)" tooltipPosition="left">{{ origenTexto(r) }}</span>
+              </td>
+              <td class="ab-c-cua ab-why"
+                  [pTooltip]="cuandoPorQue(r)" tooltipPosition="left">{{ cuandoTexto(r) }}</td>
             </tr>
           </ng-template>
         </p-table>
@@ -254,6 +279,18 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-ac-ok { background: var(--surface-100); color: var(--text-color-secondary); }
 
     .ab-c-sup { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* [AB.3b] Origen y entrega. El subrayado punteado marca la celda que EXPLICA al pasar el
+       mouse: sin esa pista el tooltip existe y nadie lo encuentra. */
+    .ab-c-org { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ab-c-cua { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ab-org { display: inline-block; padding: .12rem .45rem; border-radius: 6px; font-size: .75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .ab-o-transfer { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); font-weight: 600; }
+    .ab-o-buy { background: var(--surface-100); color: var(--text-color); }
+    /* Sin ruta configurada NO es compra: se ve distinto a propósito (ADR-056). */
+    .ab-o-none { background: transparent; color: var(--text-color-secondary); font-style: italic; }
+    .ab-why { text-decoration: underline dotted var(--surface-400, #b9b9b9); text-underline-offset: 3px; cursor: help; }
+
     .ab-foot { margin: 0; font-size: .78rem; color: var(--text-color-secondary); }
 
     @media (max-width: 900px) {
@@ -403,5 +440,123 @@ export class AlmacenAutoabastoComponent {
     const n = Number(v ?? 0);
     if (!Number.isFinite(n)) return '—';
     return n.toLocaleString('es-MX', { maximumFractionDigits: 1 });
+  }
+
+  // ── [AB.3b] Los porqués ────────────────────────────────────────────────────────────────────
+  // El plan exige que cada sugerencia se explique. Tres de las siete preguntas se contestan con
+  // datos que el motor YA devolvía y la pantalla no mostraba; las otras cuatro entran en AB.6 y
+  // AB.7 y NO se simulan acá.
+  //
+  // ⚠️ Regla de esta sección: cuando falta el dato se dice **por qué falta**, no se rellena.
+  // Un "Compra" por default sobre un par sin canal configurado sería un origen inventado.
+
+  /**
+   * Formatea una fecha `YYYY-MM-DD` **sin pasar por la zona horaria**.
+   *
+   * ⛔ `new Date('2026-09-25T00:00:00.000Z').toLocaleDateString('es-MX')` imprime **24 de sep**:
+   * la API serializa un `date` de Postgres como medianoche UTC y el navegador lo renderiza en
+   * hora de México (−06:00), o sea el día anterior. Es el mismo bug que LC.16 encontró en el
+   * libro de compras, y en una fecha de entrega se leería como "llega un día antes".
+   * Por eso se parsea el texto y se construye la fecha en hora LOCAL.
+   */
+  private fechaCorta(v: string | null): string | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '');
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      .toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+  }
+
+  /** Días entre hoy y una fecha `YYYY-MM-DD`, en días de calendario locales. */
+  private diasHasta(v: string | null): number | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '');
+    if (!m) return null;
+    const hoy = new Date();
+    const a = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime();
+    const b = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+    return Math.round((b - a) / 86_400_000);
+  }
+
+  /**
+   * Días que aguanta la existencia a la venta medida. `null` = **sin venta medida** — que no es
+   * "dura para siempre": es que no hay con qué calcularlo.
+   */
+  private diasDeCobertura(r: AutoabastoRow): number | null {
+    const v = Number(r.avg_daily_units ?? 0);
+    if (!Number.isFinite(v) || v <= 0) return null;
+    return Math.floor(Number(r.on_hand ?? 0) / v);
+  }
+
+  /** ¿Por qué a ese origen? — texto de la columna. */
+  origenTexto(r: AutoabastoRow): string {
+    if (r.replenish_via === 'transfer') return r.source_warehouse_code ? `← ${r.source_warehouse_code}` : 'Traspaso';
+    if (r.replenish_via === 'purchase') return r.supplier_name || 'Compra';
+    return r.supplier_name || '—';
+  }
+
+  /** Clase del chip de origen: distingue traspaso, compra y **sin canal**. */
+  origenCls(r: AutoabastoRow): string {
+    if (r.replenish_via === 'transfer') return 'ab-o-transfer';
+    if (r.replenish_via === 'purchase') return 'ab-o-buy';
+    return 'ab-o-none';
+  }
+
+  /** ¿Por qué a ese origen? — la explicación larga, en el tooltip. */
+  origenPorQue(r: AutoabastoRow): string {
+    if (r.replenish_via === 'transfer') {
+      const src = r.source_warehouse_code ? `el almacén ${r.source_warehouse_code}` : 'otro almacén';
+      return `Traspaso: la ruta configurada para este proveedor en esta sucursal surte desde ${src}.`;
+    }
+    if (r.replenish_via === 'purchase') {
+      return `Compra directa a ${r.supplier_name || 'su proveedor'}: es la ruta configurada para esta sucursal.`;
+    }
+    return 'Sin ruta configurada para este proveedor en esta sucursal. El origen no está decidido — no se supone que sea compra.';
+  }
+
+  /** ¿Por qué debo pedir hoy? — texto corto de la columna. */
+  cuandoTexto(r: AutoabastoRow): string {
+    const f = this.fechaCorta(r.next_due_date);
+    if (f) return f;
+    return r.cadence_days ? `cada ${r.cadence_days} d` : '—';
+  }
+
+  /** ¿Por qué debo pedir hoy? — la explicación larga. */
+  cuandoPorQue(r: AutoabastoRow): string {
+    const partes: string[] = [];
+    const f = this.fechaCorta(r.next_due_date);
+    const d = this.diasHasta(r.next_due_date);
+    if (f) {
+      partes.push(d === null ? `Próxima entrega: ${f}.`
+        : d < 0 ? `La entrega del ${f} está vencida por ${-d} día(s).`
+        : d === 0 ? `La entrega es HOY (${f}).`
+        : `Próxima entrega: ${f}, en ${d} día(s).`);
+    } else if (r.cadence_days) {
+      partes.push(`El canal entrega cada ${r.cadence_days} día(s), pero no hay fecha de próxima entrega registrada.`);
+    } else {
+      partes.push('Sin calendario de entregas configurado para este origen.');
+    }
+    if (r.lead_time_days) partes.push(`Tarda ${r.lead_time_days} día(s) en llegar desde que se solicita.`);
+    const cob = this.diasDeCobertura(r);
+    partes.push(cob === null
+      ? 'La existencia no tiene venta medida, así que no se puede estimar cuándo se agota.'
+      : `Con la venta actual, la existencia alcanza ~${cob} día(s).`);
+    return partes.join(' ');
+  }
+
+  /** ¿Por qué esa cantidad? — la resta, con el objetivo que publicó el motor. */
+  cantidadPorQue(r: AutoabastoRow): string {
+    // ⚠️ `target_qty` lo agregó AB.3b al motor. Si la API que responde es anterior, llega
+    // `undefined` — y `qty()` lo imprimiría como **0**, que se leería como "el objetivo es cero"
+    // en vez de "esta API no lo publica". Se dice cuál es la causa (ADR-056).
+    if (r.target_qty == null || !Number.isFinite(Number(r.target_qty))) {
+      return `Faltan ${this.qty(r.suggested_qty)} caja(s) para el objetivo, pero esta versión de la API ` +
+        `no publica el objetivo que usó, así que la resta no se puede mostrar.`;
+    }
+    const base = `Objetivo ${this.qty(r.target_qty)} − existencia ${this.qty(r.on_hand)} − en camino ` +
+      `${this.qty(r.in_transit)} = faltan ${this.qty(r.suggested_qty)} caja(s).`;
+    if (r.transfer_in > 0 && r.buy_qty > 0) {
+      return `${base} De eso, ${this.qty(r.transfer_in)} sale del sobrante de la red y ${this.qty(r.buy_qty)} hay que comprarlo.`;
+    }
+    if (r.transfer_in > 0) return `${base} Se cubre completo con el sobrante de otras sucursales.`;
+    return base;
   }
 }
