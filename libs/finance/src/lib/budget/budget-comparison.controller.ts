@@ -29,8 +29,10 @@ export class BudgetComparisonController {
   @Get('budgets/:id/summary')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Resumen ejecutivo: presupuesto vs real, disponible, ocupación, KPIs §10.' })
-  summary(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string, @Query('warehouseId') warehouseId?: string) {
-    return this.svc.executiveSummary(id, { from, to, warehouseId });
+  summary(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string, @Query('warehouseId') warehouseId?: string, @Query('real') real?: string) {
+    // El bloque «real» agrega analytics.sales_daily (ODS) — puede ser lento en prod. Por defecto se
+    // difiere (carga <1s del ledger); el frontend lo pide con ?real=1 (opt-in). «diferido» ≠ «sin datos».
+    return this.svc.executiveSummary(id, { from, to, warehouseId, includeReal: real === '1' || real === 'true' });
   }
 
   @Get('budgets/:id/variance')

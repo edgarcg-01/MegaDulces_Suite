@@ -23,7 +23,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? round2((num / den) * 100) : null);
 
-export interface SummaryOpts { from?: string; to?: string; warehouseId?: string }
+export interface SummaryOpts { from?: string; to?: string; warehouseId?: string; includeReal?: boolean }
 
 @Injectable()
 export class BudgetComparisonService {
@@ -75,24 +75,33 @@ export class BudgetComparisonService {
       };
 
       // ── 2. Real del ODS (analytics.sales_daily) — tenant × periodo ───────────
-      const q = trx('analytics.sales_daily').where({ tenant_id: tenantId }).whereBetween('sale_date', [from, to]);
-      if (opts.warehouseId) q.andWhere({ warehouse_id: opts.warehouseId });
-      const [agg] = await q.select(
-        trx.raw('count(*)::int AS n'),
-        trx.raw('coalesce(sum(revenue),0) AS ventas'),
-        trx.raw('coalesce(sum(cost),0) AS costo'),
-        trx.raw('coalesce(sum(margin),0) AS margen'),
-        trx.raw('coalesce(sum(units),0) AS unidades'),
-        trx.raw('max(updated_at) AS data_as_of'),
-      );
-      const available = Number(agg.n) > 0;
-      const real = available
-        ? { available: true, source: 'analytics.sales_daily', data_as_of: agg.data_as_of,
-            ventas: round2(Number(agg.ventas)), costo: round2(Number(agg.costo)),
-            margen: round2(Number(agg.margen)), unidades: round2(Number(agg.unidades)) }
-        // «Sin datos» ≠ cero (ADR-056): importes en null, no 0.
-        : { available: false, source: 'analytics.sales_daily', data_as_of: null,
-            reason: 'Sin ventas registradas en el periodo/alcance', ventas: null, costo: null, margen: null, unidades: null };
+      // Se difiere por defecto (opt-in con includeReal): agregar sales_daily sobre un año es una consulta
+      // pesada que no debe bloquear la carga del ejercicio (gate <1s). «diferido» ≠ «sin datos» ≠ cero.
+      let real: any;
+      if (!opts.includeReal) {
+        real = { available: false, deferred: true, source: 'analytics.sales_daily', data_as_of: null,
+                 reason: 'Real vs presupuesto no cargado (se consulta el sell-out del ODS aparte)', ventas: null, costo: null, margen: null, unidades: null };
+      } else {
+        const q = trx('analytics.sales_daily').where({ tenant_id: tenantId }).whereBetween('sale_date', [from, to]);
+        if (opts.warehouseId) q.andWhere({ warehouse_id: opts.warehouseId });
+        const [agg] = await q.select(
+          trx.raw('count(*)::int AS n'),
+          trx.raw('coalesce(sum(revenue),0) AS ventas'),
+          trx.raw('coalesce(sum(cost),0) AS costo'),
+          trx.raw('coalesce(sum(margin),0) AS margen'),
+          trx.raw('coalesce(sum(units),0) AS unidades'),
+          trx.raw('max(updated_at) AS data_as_of'),
+        );
+        const available = Number(agg.n) > 0;
+        real = available
+          ? { available: true, source: 'analytics.sales_daily', data_as_of: agg.data_as_of,
+              ventas: round2(Number(agg.ventas)), costo: round2(Number(agg.costo)),
+              margen: round2(Number(agg.margen)), unidades: round2(Number(agg.unidades)) }
+          // «Sin datos» ≠ cero (ADR-056): importes en null, no 0.
+          : { available: false, source: 'analytics.sales_daily', data_as_of: null,
+              reason: 'Sin ventas registradas en el periodo/alcance', ventas: null, costo: null, margen: null, unidades: null };
+      }
+      const available = real.available as boolean;
 
       // ── 3. KPIs (spec §10) — null cuando no hay base o no hay real ───────────
       const kpis = {
