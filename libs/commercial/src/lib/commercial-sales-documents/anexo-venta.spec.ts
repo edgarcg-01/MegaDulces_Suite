@@ -234,9 +234,13 @@ describe('AX.11 · cuentas de depósito por plaza', () => {
 
   it('la cuenta impresa es la que va embebida en su propia CLABE', () => {
     // Las posiciones 7..17 de la CLABE son el número de cuenta. Si la fila mezcla la cuenta de
-    // un banco con la CLABE de otro, esto lo caza — y es justo el segundo síntoma que tenía el
-    // renglón de BAJÍO. Banamex queda fuera: su CLABE lleva la cuenta con prefijo de plaza.
-    for (const c of TODAS_LAS_CUENTAS.filter((x) => x.banco !== 'Banamex')) {
+    // un banco con la CLABE de otro, esto lo caza.
+    // ⚠️ Dos bancos quedan fuera, y no por conveniencia: NO embeben la cuenta del cliente.
+    // Banamex le antepone prefijo de plaza (`70078301463` para la cuenta `8301463`), y Bajío usa
+    // un número interno — medido en las tres suyas de `kepler_ods.kdb1`: 6506→`90001749435`,
+    // 5854→`90001749383`, 3660→`90004538309`, ninguno parecido a la cuenta impresa.
+    const SIN_CUENTA_EMBEBIDA = ['Banamex', 'Bajío'];
+    for (const c of TODAS_LAS_CUENTAS.filter((x) => !SIN_CUENTA_EMBEBIDA.includes(x.banco))) {
       const d = c.clabe.replace(/\D/g, '');
       expect(`${c.banco}:${d.slice(6, 17)}`).toBe(`${c.banco}:${c.cuenta.replace(/\D/g, '').padStart(11, '0')}`);
     }
@@ -245,6 +249,7 @@ describe('AX.11 · cuentas de depósito por plaza', () => {
   it('Morelia (07 Madero y 08 Abastos) cobra en SUS cuentas, no en las generales', () => {
     for (const suc of ['07', '08']) {
       const html = render({ sucursal: suc });
+      expect(html).toContain('030 229 90001749435 6'); // Bajío Morelia (dígitos de Kepler)
       expect(html).toContain('014 496 65507301604 7'); // Santander Morelia
       expect(html).toContain('012 496 00485934176 7'); // BBVA Morelia
       // NEGATIVA: si las generales siguen apareciendo, el pago se va a la plaza equivocada.
@@ -265,16 +270,25 @@ describe('AX.11 · cuentas de depósito por plaza', () => {
   it('cuentasDeposito no se rompe con una sucursal nula o desconocida', () => {
     expect(cuentasDeposito(null)).toEqual(cuentasDeposito('99'));
     expect(cuentasDeposito(undefined).length).toBe(3);
-    expect(cuentasDeposito(' 08 ').map((c) => c.banco)).toEqual(['Santander', 'BBVA']);
+    expect(cuentasDeposito(' 08 ').map((c) => c.banco)).toEqual(['Bajío', 'Santander', 'BBVA']);
   });
 
-  it('PRUEBA NEGATIVA: el candado rechaza la CLABE de BAJÍO de la ficha de Morelia', () => {
-    // `03 0229 9000 1719 4356` — la ficha la trae así y el dígito NO cuadra: da 5, no 6.
-    // Si algún día alguien la agrega tal cual, la primera prueba de este bloque se pone roja.
-    // Se deja acá escrita para que el motivo de su ausencia no se pierda.
-    const bajioFicha = '030229900017194356';
-    expect(digitoVerificadorClabe(bajioFicha)).toBe(5);
-    expect(Number(bajioFicha[17])).toBe(6);
-    expect(TODAS_LAS_CUENTAS.some((c) => c.clabe.replace(/\D/g, '') === bajioFicha)).toBe(false);
+  it('BAJÍO va con los dígitos de KEPLER, no con los de la ficha', () => {
+    // La ficha que entregó Dirección trae `03 0229 9000 1719 4356` y su dígito verificador NO
+    // cuadra (da 5, no 6). El árbitro es `kepler_ods.kdb1.c3` — el catálogo de cuentas del
+    // propio ERP —, que dice `...17494356` y sí valida. Difieren en UNA posición, la 13.
+    // Las otras dos de la ficha son idénticas a las de Kepler, así que el árbitro no está
+    // desalineado con lo que entregó Dirección: es un dígito mal tipeado en el documento.
+    const FICHA = '030229900017194356';
+    const KEPLER = '030229900017494356';
+    expect(digitoVerificadorClabe(FICHA)).toBe(5);
+    expect(Number(FICHA[17])).toBe(6);            // la de la ficha NO cuadra
+    expect(Number(KEPLER[17])).toBe(digitoVerificadorClabe(KEPLER)); // la de Kepler sí
+    expect([...FICHA].findIndex((d, i) => d !== KEPLER[i])).toBe(12); // una sola posición
+
+    const publicadas = TODAS_LAS_CUENTAS.map((c) => c.clabe.replace(/\D/g, ''));
+    expect(publicadas).toContain(KEPLER);
+    // NEGATIVA: si alguien re-teclea la ficha encima, esto se pone rojo.
+    expect(publicadas).not.toContain(FICHA);
   });
 });
