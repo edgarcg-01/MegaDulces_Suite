@@ -1487,6 +1487,16 @@ export const routes: Routes = [
             (m) => m.TeleventaQuotesComponent,
           ),
       },
+      // [E.12.1] Alta. Va ANTES que cualquier ':id' de cotizaciones y con permiso de GESTIONAR,
+      // no el de ver: entrar al alta es empezar a ofrecer precio.
+      {
+        path: 'cotizaciones/nueva',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_GESTIONAR)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quote-new.component').then(
+            (m) => m.TeleventaQuoteNewComponent,
+          ),
+      },
       {
         path: 'my',
         // Reusa el mismo queue component (muestra Mis reservas activas arriba).

@@ -48,6 +48,18 @@ export class CommercialQuotesController {
     return this.service.list(query);
   }
 
+  @Get('wholesale-customers')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      'Padrón de clientes de MAYOREO (C####) derivado de kepler_ods.kdud, con sus condiciones POR SUCURSAL.',
+  })
+  @ApiQuery({ name: 'search', required: false, description: 'Código o nombre. Vacío = primeros N.' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  searchWholesaleCustomers(@Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20);
+  }
+
   @Get('summary')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({
@@ -76,11 +88,14 @@ export class CommercialQuotesController {
     @Body()
     body: {
       customer_id?: string;
+      /** Cliente de mayoreo del ERP (`C####`). Exige `source_branch`. */
+      erp_customer_code?: string;
+      source_branch?: string;
       contact_name?: string;
       contact_phone?: string;
       contact_email?: string;
       origin?: QuoteOrigin;
-      warehouse_id: string;
+      warehouse_id?: string;
       price_list_id?: string;
       valid_until?: string;
       customer_request?: string;

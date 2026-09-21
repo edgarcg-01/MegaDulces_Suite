@@ -71,7 +71,17 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
   template: `
     <section class="section">
       <header class="section-header">
-        <h1>Cotizaciones de mayoreo</h1>
+        <div class="head-row">
+          <h1>Cotizaciones de mayoreo</h1>
+          <!-- El botón sólo existe con la llave de GESTIONAR: cotizar es ofrecer precio. Quien
+               sólo tiene lectura ve la mesa y no un botón que le va a rebotar el guard. -->
+          @if (puedeGestionar()) {
+            <button pButton routerLink="/telemarketing/cotizaciones/nueva">
+              <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span>
+              <span class="p-button-label">Nueva cotización</span>
+            </button>
+          }
+        </div>
         <p>
           La oferta de precio que todavía no es venta. Entra acá la lista que manda el cliente y la
           venta que se levanta en la visita de ruta. Una cotización <strong>no aparta inventario</strong>:
@@ -161,8 +171,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
             <div class="empty">
               <p class="empty-title">No hay cotizaciones en este filtro.</p>
               <p class="empty-hint">
-                Las cotizaciones se crean desde el cliente, en la ficha del lead o durante la visita
-                de ruta.
+                Arranca una con el boton Nueva cotizacion: se elige el cliente de mayoreo y la
+                sucursal con cuyas condiciones se cotiza.
               </p>
             </div>
           } @else {
@@ -240,6 +250,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
   styles: [
     `
       .section { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+      .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
       .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.25rem; }
       .section-header p { color: var(--text-color-secondary); font-size: 0.875rem; margin: 0; max-width: 72ch; }
 

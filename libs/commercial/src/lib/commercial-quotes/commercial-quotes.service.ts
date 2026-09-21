@@ -131,7 +131,7 @@ export class CommercialQuotesService {
       }
       if (query.search) {
         where.push(
-          `(q.code ILIKE :search OR c.name ILIKE :search OR c.code ILIKE :search OR q.contact_name ILIKE :search)`,
+          `(q.code ILIKE :search OR c.name ILIKE :search OR c.code ILIKE :search OR q.contact_name ILIKE :search OR q.erp_customer_code ILIKE :search OR q.erp_customer_name ILIKE :search)`,
         );
         binds['search'] = `%${String(query.search).trim()}%`;
       }
@@ -142,8 +142,8 @@ export class CommercialQuotesService {
         `
         SELECT
           q.id, q.code, q.status, q.origin, q.customer_id,
-          c.code  AS customer_code,
-          COALESCE(c.name, q.contact_name) AS recipient_name,
+          COALESCE(c.code, q.erp_customer_code) AS customer_code,
+          COALESCE(c.name, q.erp_customer_name, q.contact_name) AS recipient_name,
           to_char(q.quote_date,  'YYYY-MM-DD') AS quote_date,
           to_char(q.valid_until, 'YYYY-MM-DD') AS valid_until,
           (q.valid_until - CURRENT_DATE)::int  AS days_to_expiry,
@@ -295,6 +295,68 @@ export class CommercialQuotesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // El padrón de mayoreo (derivado del ERP, sin copiar nada)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Busca clientes de MAYOREO en `analytics.v_erp_wholesale_customers` (vista sobre
+   * `kepler_ods.kdud`, filtrada a `C####`).
+   *
+   * ⚠️ Devuelve **una fila por (cliente, sucursal)** colapsada a un cliente con el arreglo de
+   * sus sucursales, porque las condiciones DIFIEREN entre ellas y quien cotiza tiene que elegir
+   * —y ver— con cuáles está cotizando. Medido: C1086 tiene $60,000 y 3% en la sucursal 01 y 06,
+   * y $30,000 sin descuento en las otras cinco. Colapsarlo a un solo juego de condiciones sería
+   * elegir una sucursal en silencio.
+   */
+  async searchWholesaleCustomers(search: string, limit = 20) {
+    const term = (search || '').trim();
+    const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
+
+    return this.tk.run(async (knex) => {
+      const res = await knex.raw(
+        `
+        WITH hit AS (
+          SELECT DISTINCT customer_code
+          FROM analytics.v_erp_wholesale_customers
+          WHERE :term = '' OR customer_code ILIKE :like OR name ILIKE :like
+          ORDER BY customer_code
+          LIMIT :lim
+        )
+        SELECT
+          v.customer_code,
+          max(v.name)                      AS name,
+          max(v.phone)                     AS phone,
+          max(v.rfc)                       AS rfc,
+          max(v.address_1)                 AS address_1,
+          max(v.state)                     AS state,
+          jsonb_agg(
+            jsonb_build_object(
+              'sucursal',       v.sucursal,
+              'credit_limit',   v.credit_limit,
+              'payment_days',   v.payment_days,
+              'discount_1_pct', v.discount_1_pct,
+              'discount_2_pct', v.discount_2_pct,
+              'zone_code',      v.zone_code,
+              'group_code',     v.group_code
+            ) ORDER BY v.sucursal
+          )                                AS branches,
+          -- ¿Las condiciones son las mismas en todas sus sucursales? Si no, la pantalla tiene
+          -- que decirlo: es la diferencia entre "$60,000 con 3%" y "$30,000 sin descuento".
+          (count(DISTINCT coalesce(v.discount_1_pct::text, '-')) > 1
+           OR count(DISTINCT coalesce(v.credit_limit::text, '-')) > 1
+           OR count(DISTINCT coalesce(v.payment_days::text, '-')) > 1) AS terms_vary_by_branch
+        FROM analytics.v_erp_wholesale_customers v
+        JOIN hit ON hit.customer_code = v.customer_code
+        GROUP BY v.customer_code
+        ORDER BY v.customer_code
+        `,
+        { term, like: `%${term}%`, lim: n },
+      );
+      return res.rows;
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Escritura
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -304,11 +366,15 @@ export class CommercialQuotesService {
    */
   async create(dto: {
     customer_id?: string | null;
+    /** Cliente de mayoreo del ERP (`C####`). Tercera vía de destinatario. */
+    erp_customer_code?: string | null;
+    /** Sucursal Kepler desde la que se cotiza. Obligatoria si el cliente viene del ERP. */
+    source_branch?: string | null;
     contact_name?: string | null;
     contact_phone?: string | null;
     contact_email?: string | null;
     origin?: QuoteOrigin;
-    warehouse_id: string;
+    warehouse_id?: string | null;
     price_list_id?: string | null;
     valid_until?: string | null;
     customer_request?: string | null;
@@ -319,15 +385,17 @@ export class CommercialQuotesService {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!userId) throw new BadRequestException('Sesión sin usuario: no se puede cotizar.');
 
-    if (!dto.warehouse_id) {
-      throw new BadRequestException(
-        'warehouse_id requerido: el precio y la disponibilidad dependen del almacén desde el que se cotiza.',
-      );
-    }
-    const hasRecipient = !!dto.customer_id || !!(dto.contact_name && dto.contact_name.trim());
+    const erpCode = (dto.erp_customer_code || '').trim().toUpperCase() || null;
+    const hasRecipient =
+      !!dto.customer_id || !!erpCode || !!(dto.contact_name && dto.contact_name.trim());
     if (!hasRecipient) {
       throw new BadRequestException(
-        'La cotización necesita destinatario: un cliente registrado, o al menos un nombre de contacto.',
+        'La cotización necesita destinatario: un cliente de mayoreo del ERP, un cliente registrado, o al menos un nombre de contacto.',
+      );
+    }
+    if (erpCode && !dto.source_branch) {
+      throw new BadRequestException(
+        'Falta la sucursal: las condiciones del cliente (descuento, límite, plazo) DIFIEREN entre sucursales, así que cotizar sin decir cuál es irreproducible.',
       );
     }
     const origin = dto.origin ?? 'telemarketing';
@@ -339,6 +407,44 @@ export class CommercialQuotesService {
     // entero va en UNA trx). Abrir otra acá anidaría un savepoint sin ganar nada.
     return this.tk.run(async (trx) => {
       const year = new Date().getFullYear();
+
+      // ── Las condiciones se LEEN del ERP y se congelan; NO se aceptan del request ────────
+      // Si el cliente las mandara, la cotización podría afirmar un descuento que el ERP nunca
+      // dio. Se resuelven por (código, sucursal) porque es el grano en el que existen.
+      let terms = {
+        source: 'unknown' as 'kepler_kdud' | 'manual' | 'unknown',
+        branch: dto.source_branch ?? null,
+        discount: null as number | null,
+        credit_limit: null as number | null,
+        payment_days: null as number | null,
+        name: null as string | null,
+      };
+      if (erpCode) {
+        const found = await trx.raw(
+          `
+          SELECT name, credit_limit, payment_days, discount_1_pct
+          FROM analytics.v_erp_wholesale_customers
+          WHERE customer_code = :code AND sucursal = :branch
+          `,
+          { code: erpCode, branch: dto.source_branch },
+        );
+        if (!found.rows.length) {
+          throw new NotFoundException(
+            `El cliente ${erpCode} no existe en el padrón de mayoreo de la sucursal ${dto.source_branch}.`,
+          );
+        }
+        const r = found.rows[0];
+        terms = {
+          source: 'kepler_kdud',
+          branch: String(dto.source_branch),
+          // NULL se queda NULL: "sin descuento configurado" no es "0% de descuento" hasta que
+          // alguien lo verifique. El 0 lo dibujaría como una decisión que nadie tomó (ADR-056).
+          discount: r.discount_1_pct === null ? null : Number(r.discount_1_pct),
+          credit_limit: r.credit_limit === null ? null : Number(r.credit_limit),
+          payment_days: r.payment_days === null ? null : Number(r.payment_days),
+          name: r.name,
+        };
+      }
 
         // Folio atómico, mismo patrón que commercial.order_sequences: el UPSERT de Postgres
         // garantiza que dos transacciones concurrentes obtengan valores distintos.
@@ -356,44 +462,60 @@ export class CommercialQuotesService {
         const n = seq.rows[0].current_value as number;
         const code = `COT-${year}-${String(n).padStart(5, '0')}`;
 
+        // La vigencia se resuelve en JS, no en SQL. Hacerlo con `CURRENT_DATE + :param` costó
+        // dos errores de Postgres seguidos: 42725 (operador ambiguo: date + int o + interval?)
+        // y, al castear el parámetro, 42P18 (knex no resuelve un binding nombrado pegado a `::`).
+        // Un parámetro menos y cero aritmética de fechas en el SQL.
         const validUntil =
           dto.valid_until && /^\d{4}-\d{2}-\d{2}$/.test(dto.valid_until)
             ? dto.valid_until
-            : null;
+            : new Date(Date.now() + DEFAULT_VALIDITY_DAYS * 86400000).toISOString().slice(0, 10);
 
         const inserted = await trx.raw(
           `
           INSERT INTO commercial.quotes (
-            tenant_id, code, customer_id, contact_name, contact_phone, contact_email,
+            tenant_id, code, customer_id, erp_customer_code, erp_customer_name,
+            contact_name, contact_phone, contact_email,
             origin, user_id, warehouse_id, price_list_id, status,
             quote_date, valid_until, customer_request, notes, internal_notes,
+            source_branch, terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days,
             created_by, updated_by
           ) VALUES (
-            :tenant_id, :code, :customer_id, :contact_name, :contact_phone, :contact_email,
+            :tenant_id, :code, :customer_id, :erp_code, :erp_name,
+            :contact_name, :contact_phone, :contact_email,
             :origin, :user_id, :warehouse_id, :price_list_id, 'draft',
             CURRENT_DATE,
-            COALESCE(:valid_until::date, CURRENT_DATE + :default_days),
+            :valid_until::date,
             :customer_request, :notes, :internal_notes,
+            :branch, :terms_source, :discount, :credit_limit, :payment_days,
             :user_id, :user_id
           )
-          RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until
+          RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until,
+                    erp_customer_code, erp_customer_name, source_branch,
+                    terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days
           `,
           {
             tenant_id: tenantId,
             code,
             customer_id: dto.customer_id ?? null,
+            erp_code: erpCode,
+            erp_name: terms.name,
             contact_name: dto.contact_name ?? null,
             contact_phone: dto.contact_phone ?? null,
             contact_email: dto.contact_email ?? null,
             origin,
             user_id: userId,
-            warehouse_id: dto.warehouse_id,
+            warehouse_id: dto.warehouse_id ?? null,
             price_list_id: dto.price_list_id ?? null,
-            valid_until: validUntil,
-            default_days: DEFAULT_VALIDITY_DAYS,
+            valid_until: validUntil,
             customer_request: dto.customer_request ?? null,
             notes: dto.notes ?? null,
             internal_notes: dto.internal_notes ?? null,
+            branch: terms.branch,
+            terms_source: terms.source,
+            discount: terms.discount,
+            credit_limit: terms.credit_limit,
+            payment_days: terms.payment_days,
           },
         );
 

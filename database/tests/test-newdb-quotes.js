@@ -270,6 +270,70 @@ async function intentar(tabla, fila) {
       `folio repetido: rechazado [${c7}]`,
     );
 
+    // ── BLOQUE 9: el padrón de MAYOREO y su alta ───────────────────────────────────────────
+    // Lo que se afirma acá es que el alta no puede inventar condiciones: el cliente vive en el
+    // ERP, sus condiciones DIFIEREN por sucursal, y cotizar sin decir cuál es irreproducible.
+    console.log('\nBLOQUE 9 — el padrón de mayoreo (vista derivada del ERP)');
+
+    const vista = await knex.raw(`
+      SELECT count(*)::int filas,
+             count(DISTINCT customer_code)::int clientes,
+             count(*) FILTER (WHERE customer_code !~ '^C[0-9]{4}$')::int fuera_de_patron
+      FROM analytics.v_erp_wholesale_customers
+    `);
+    const v = vista.rows[0];
+    ok(v.clientes > 0, `la vista trae ${v.clientes} clientes de mayoreo en ${v.filas} filas (cliente × sucursal)`);
+    ok(v.fuera_de_patron === 0, 'todos cumplen el patrón C + 4 dígitos (0 colados)');
+
+    // El punto de la fase: el MISMO cliente con condiciones distintas según la sucursal.
+    const varia = await knex.raw(`
+      SELECT count(*)::int n FROM (
+        SELECT customer_code
+        FROM analytics.v_erp_wholesale_customers
+        GROUP BY customer_code
+        HAVING count(DISTINCT coalesce(discount_1_pct::text,'-')) > 1
+            OR count(DISTINCT coalesce(credit_limit::text,'-')) > 1
+      ) x
+    `);
+    ok(
+      varia.rows[0].n > 0,
+      `${varia.rows[0].n} clientes de mayoreo tienen condiciones DISTINTAS entre sucursales ` +
+        '(por eso la sucursal es obligatoria y se congela)',
+    );
+
+    // Un cliente del ERP sin sucursal: la base lo rechaza.
+    const c9 = await intentar('commercial.quotes', {
+      ...base,
+      code: `COT-${SUFIJO}-E`,
+      erp_customer_code: 'C1086',
+      source_branch: null,
+    });
+    ok(
+      c9 === 'commercial_quotes_erp_customer_needs_branch',
+      `cliente del ERP sin sucursal: rechazado [${c9}]`,
+    );
+
+    // Con sucursal sí pasa, y el destinatario vale SIN cliente nuestro ni contacto suelto.
+    const c9b = await intentar('commercial.quotes', {
+      ...base,
+      code: `COT-${SUFIJO}-F`,
+      erp_customer_code: 'C1086',
+      erp_customer_name: 'MANUEL RIOS DURAN',
+      source_branch: '01',
+      terms_source: 'kepler_kdud',
+      terms_discount_pct: 3,
+      terms_credit_limit: 60000,
+      terms_payment_days: 15,
+    });
+    ok(c9b === null, 'el cliente del ERP es destinatario válido por sí solo (3ª vía)');
+
+    // Y sigue sin poder no tener NINGUNA de las tres vías.
+    const c9c = await intentar('commercial.quotes', { ...base, code: `COT-${SUFIJO}-G2` });
+    ok(
+      c9c === 'commercial_quotes_has_recipient',
+      `sin ninguna de las 3 vías de destinatario: rechazado [${c9c}]`,
+    );
+
     // ── BLOQUE 8: RLS forzado y grants ─────────────────────────────────────────────────────
     console.log('\nBLOQUE 8 — aislamiento por tenant declarado en la tabla');
     const rls = await knex.raw(`
