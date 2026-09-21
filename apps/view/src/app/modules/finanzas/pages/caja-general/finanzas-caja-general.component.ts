@@ -13,7 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type IngresoPendiente } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
@@ -175,9 +175,36 @@ import {
           <input pInputText [(ngModel)]="f.sucursal" (ngModelChange)="onSucursal()" placeholder="00" />
         </div>
 
+        <!-- ⭐ CG.19 Capa 1 — el ingreso se ELIGE, no se teclea. El monto viaja de Kepler.
+             Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP detrás. -->
+        @if (f.tipo === 'ingreso') {
+          <div class="fin-row fin-row-col">
+            <label>Entrega contra un cobro de Kepler</label>
+            <p-autocomplete [(ngModel)]="cobroSel" [suggestions]="cobros()"
+                            (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
+                            (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
+                            [minQueryLength]="0" [showClear]="true" appendTo="body" styleClass="w-full"
+                            placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
+            @if (cobroElegido(); as c) {
+              <small class="fin-hint-ok">
+                Tomado de Kepler: {{ c.folio }} · {{ c.cliente_nombre || c.cliente_code }} ·
+                {{ money(c.monto) }}<span *ngIf="c.tipo_cuenta"> · {{ c.tipo_cuenta }}</span>.
+                El monto no se edita: lo pone el documento.
+              </small>
+            } @else {
+              <small class="fin-dim">
+                Sin cobro elegido: esto se registra como captura manual. Está bien —
+                cerca de la mitad del ingreso todavía no tiene un documento en el ERP— pero queda
+                marcado así en la cobertura.
+              </small>
+            }
+          </div>
+        }
+
         <div class="fin-row">
           <label>Beneficiario</label>
-          <input pInputText [(ngModel)]="f.beneficiario" (blur)="pedirPropuesta()" class="w-full" />
+          <input pInputText [(ngModel)]="f.beneficiario" (blur)="pedirPropuesta()" class="w-full"
+                 [readonly]="!!cobroElegido()" />
         </div>
 
         <div class="fin-row">
@@ -200,7 +227,10 @@ import {
 
         <div class="fin-row">
           <label>Monto</label>
-          <p-inputnumber [(ngModel)]="f.monto" mode="currency" currency="MXN" locale="es-MX" />
+          <!-- Con el cobro elegido el monto NO se edita. El servidor lo ignora igual y toma el del
+               documento; bloquearlo acá es para que nadie teclee una cifra que no va a viajar. -->
+          <p-inputnumber [(ngModel)]="f.monto" mode="currency" currency="MXN" locale="es-MX"
+                         [readonly]="!!cobroElegido()" />
           <label>Morralla</label>
           <p-inputnumber [(ngModel)]="f.morralla" mode="currency" currency="MXN" locale="es-MX" />
         </div>
@@ -320,6 +350,10 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   cargando = signal(false);
   guardando = signal(false);
   conceptos = signal<Array<ConceptoKepler & { label: string }>>([]);
+  /** CG.19 — los cobros de Kepler sin aplicar, y cuál se eligió. */
+  cobros = signal<Array<IngresoPendiente & { label: string }>>([]);
+  cobroElegido = signal<IngresoPendiente | null>(null);
+  cobroSel: (IngresoPendiente & { label: string }) | null = null;
   cobertura = signal<Array<{ usables: number; filas_origen: number; sin_subcuenta: number }>>([]);
   propuesta = signal<AutofillResponse | null>(null);
   kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number } | null>(null);
@@ -536,10 +570,66 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.f = this.formVacio();
     this.conceptoSel = null;
     this.propuesta.set(null);
+    // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
+    // una entrega a otra, que es justo el error que el índice único frena del lado del servidor.
+    this.cobroSel = null;
+    this.cobroElegido.set(null);
+    this.cobros.set([]);
     this.capturaAbierta = true;
   }
 
   conceptoLabel = (c: ConceptoKepler) => `${c.cuenta} / ${c.concepto} — ${c.concepto_nombre}`;
+
+  // ── CG.19 Capa 1 — elegir el cobro en vez de teclear el monto ──────────────────────────────
+
+  /** Etiqueta del cobro: primero lo que identifica la entrega, después el monto. */
+  cobroLabel = (c: IngresoPendiente) =>
+    `${dmy(c.cobro_date)} · ${c.cliente_nombre || c.cliente_code || 's/cliente'} · ${money(c.monto)} · ${c.folio}`;
+
+  buscarCobros(e: AutoCompleteCompleteEvent): void {
+    this.svc.ingresosPendientes({
+      sucursal: this.f.sucursal || undefined,
+      search: (e.query || '').trim() || undefined,
+      limit: 40,
+    }).subscribe({
+      next: (r) => this.cobros.set((r.rows ?? []).map((c) => ({ ...c, label: this.cobroLabel(c) }))),
+      // Un error de red NO es "no hay cobros pendientes": se deja la lista como estaba y el
+      // capturista puede seguir a mano. Vaciarla diría que el ERP no tiene nada, que es distinto.
+      error: () => this.cobros.set([]),
+    });
+  }
+
+  /**
+   * Toma el documento: monto, fecha, motivo y beneficiario salen del ERP.
+   *
+   * ⚠️ El monto que se pone acá es **cosmético**: el servidor lo relee del documento y descarta el
+   * del formulario. Se escribe igual para que el arqueo por denominación pueda cuadrar contra la
+   * cifra correcta antes de mandar, y para que la persona vea contra qué está contando.
+   */
+  elegirCobro(e: AutoCompleteSelectEvent): void {
+    const c = e.value as IngresoPendiente;
+    if (!c) return;
+    this.cobroElegido.set(c);
+    this.f = {
+      ...this.f,
+      monto: Number(c.monto),
+      // La fecha del cobro es cuándo Kepler registró el documento; la del movimiento es cuándo
+      // entró el efectivo. Se propone, no se impone: el capturista puede corregirla.
+      fecha: String(c.cobro_date).slice(0, 10) || this.f.fecha,
+      beneficiario: c.cliente_nombre || c.cliente_code || this.f.beneficiario,
+      glosa: this.f.glosa?.trim()
+        || `Cobro ${c.folio} · ${c.cliente_nombre || c.cliente_code || 'cliente'}`.slice(0, 200),
+      // El desglose viejo dejaría de cuadrar contra el monto nuevo: se limpia y se vuelve a contar.
+      denominaciones: [],
+    };
+    this.pedirPropuesta();
+  }
+
+  /** Soltar el cobro devuelve el formulario a captura manual, sin arrastrar el monto del ERP. */
+  soltarCobro(): void {
+    this.cobroElegido.set(null);
+    this.f = { ...this.f, monto: null, denominaciones: [] };
+  }
 
   buscarConceptos(e: AutoCompleteCompleteEvent): void {
     this.svc.conceptos(this.f.sucursal || undefined, e.query || '', 30).subscribe({
@@ -608,9 +698,14 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   guardar(): void {
     if (this.bloqueos().length) return;
     this.guardando.set(true);
+    const cobro = this.cobroElegido();
     this.svc.crear({
       ...this.f,
       denominaciones: this.f.denominaciones,
+      // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
+      // descarta el del formulario, y el índice único impide que el mismo cobro entre dos veces.
+      origen_tipo: cobro ? 'cobro' : null,
+      origen_ref: cobro ? cobro.origen_ref : null,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: crypto.randomUUID(),
