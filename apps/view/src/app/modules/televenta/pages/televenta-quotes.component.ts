@@ -166,14 +166,16 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
               </p>
             </div>
           } @else {
+            <!-- ⚠️ SIN scrollHeight="flex": PrimeNG lo resuelve contra un padre flex de altura
+                 definida, y dentro de un contenedor de bloque normal el cuerpo colapsa a 0 px.
+                 Medido en el navegador: la tabla existía en el DOM, el pie decía "Mostrando 1 de 1"
+                 y no se pintaba UNA sola fila. El scroll horizontal lo da el contenedor. -->
             <p-table
               [value]="rows()"
-              [scrollable]="true"
-              scrollHeight="flex"
               styleClass="p-datatable-sm"
               [tableStyle]="{ 'min-width': '60rem' }"
             >
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Folio</th>
                   <th>Cliente</th>
@@ -185,7 +187,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                   <th>Cotizó</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-q>
+              <ng-template #body let-q>
                 <tr>
                   <td class="mono">
                     {{ q.code }}
@@ -248,7 +250,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
         border-radius: 8px; background: var(--card-bg);
         font-size: 0.8125rem; color: var(--text-color-secondary);
       }
-      .scope-note i { color: var(--primary-color); margin-top: 0.1rem; }
+      .scope-note i { color: var(--primary-color, var(--action)); margin-top: 0.1rem; }
       .scope-note p { margin: 0; }
       .scope-title { font-weight: 600; color: var(--text-color); margin-bottom: 0.15rem; }
 
@@ -273,14 +275,16 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
         cursor: pointer; color: var(--text-color-secondary); min-height: 32px;
       }
       .chip:hover { background: var(--neutral-100); }
-      .chip-active { background: var(--primary-color); border-color: var(--primary-color); color: #fff; font-weight: 600; }
+      .chip-active { background: var(--primary-color, var(--action)); border-color: var(--primary-color, var(--action)); color: #fff; font-weight: 600; }
       .search {
         flex: 1; min-width: 220px; padding: 0.4rem 0.75rem;
         border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.875rem;
         background: var(--card-bg); color: var(--text-color); min-height: 34px;
       }
 
-      .table-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+      /* overflow-x aquí (no scroll interno de PrimeNG): la tabla tiene min-width 60rem y en
+         pantallas chicas hay que poder correrla, sin que el cuerpo colapse. */
+      .table-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow-x: auto; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: 0.8125rem; }
       .lineage { display: block; font-size: 0.75rem; color: var(--green-600, #15803d); }
