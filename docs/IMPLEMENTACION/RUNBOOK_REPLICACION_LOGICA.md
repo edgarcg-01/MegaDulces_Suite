@@ -1122,13 +1122,38 @@ de aplicarlo. Es barato y es la única forma de probar un repunte de 76 columnas
 - Existencia viva cargada: **2,974 SKUs / 662,261 piezas**.
 - `erp_sucursal_warehouse` ahora mapea `'08'` **y** `'30'` (la historia sigue emitiendo `'30'`).
 
-### 11.3 Abierto, con dueño
+### 11.3 El despliegue, y lo que reveló: la red está registrada en DOS lugares
 
-- ⛔ **`ops/vl` sin desplegar.** Los tres contenedores (`feeds-cron`, `feeds-livefast`,
-  `store-poller`) conocen **00–07**: no la `08`. Consecuencias medidas: el monitor en vivo de
-  Abastos está oscuro desde el 19-sep 02:41, la existencia de hoy es una **carga puntual** (no se
-  refresca cada 15 min) y `analytics.sales_daily` sigue **en cero** para la `08` (su fact viene de
-  `mart.ventas_enriched`, que se arma con la misma lista). **Es el único pendiente que bloquea.**
+`ops/vl/deploy.sh` corrido desde HEAD `15e44619` (autorizado por 0Sistemas). Los tres
+contenedores pasaron de **00–07** a **00–08**. Entrega verificada, no el rótulo:
+
+- `store_poller` reporta **9/9 ramas** (antes 8) y entregó **130 tickets de la `08` en 30 min** —
+  la sucursal más activa de la red, viva otra vez en `/tienda/live` tras 2.5 días oscura.
+- El carril permanente de stock corrió a las 10:20 y **selló la existencia de la `08`**
+  (`updated_at` 16:20:11Z, 2,974 SKUs): ya no depende de la carga puntual.
+
+⛔ **Y ahí apareció lo que el despliegue NO arregla.** `analytics.sales_daily` seguía en **cero**
+para Abastos con la tienda vendiendo. La causa es que la red está registrada en **dos** lugares y
+sólo uno es código:
+
+| registro | dónde | lo arregla |
+|---|---|---|
+| ramas del CÓDIGO | `database/importers/lib/kepler-branches.js` | el despliegue ✅ |
+| ramas de la CONSOLIDACIÓN | `dim.sucursales` en `kepler_consolidado` | **una fila en la base** |
+
+`mart.refresh_si_cambio()` hace `FOR r IN SELECT db, host, port, dbname FROM dim.sucursales`, así
+que sin fila para `md_08` la consolidación **nunca la consulta** → `mart.ventas` vacía →
+`mart.ventas_enriched` vacía → `sales_daily` en cero. **Es la clase de hueco que en pantalla se
+lee como "la sucursal no vendió".** Vale la pena recordarlo para la próxima alta de sucursal:
+`kepler-branches.js` **no** es la fuente única, aunque su comentario diga que habilita ~40
+importers de una vez.
+
+### 11.4 Abierto, con dueño
+
+- ⛔ **`dim_sucursales_md08.sql` sin aplicar** (`database/importers/kepler/sql/`). Es el alta de
+  la rama en la consolidación + el relleno de los días ya vendidos. Hasta que corra, **Abastos
+  aporta $0 al fact de venta** (Command Center, margen, rotación). El sell-out NO depende de esto
+  —`mv_kepler_sales_daily` lee del ODS— así que ahí sí aparece.
 - ⚠️ **7,122 SKUs por cargar en el POS `md_08`**: Kepler arrancó con 2,975 y Wincaja tenía 10,097.
   Decisión explícita de 0Sistemas: que caiga y se reporte, antes que Compras pida contra stock
   fantasma. **Dueño: Sistemas.**
