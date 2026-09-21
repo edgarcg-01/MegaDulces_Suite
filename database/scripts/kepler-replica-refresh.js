@@ -182,6 +182,21 @@ async function unaRama(b) {
         if (!p.length) { out.segundos = (i + 1) * 3; break; }
       }
     }
+    // ⛔⛔ EL VEREDICTO QUE FALTABA (2026-09-21). Todo lo de arriba puede estar verde con la rama
+    // MUERTA: si el origen creó una tabla después del último REFRESH y alguien le escribió una
+    // fila, el apply worker recibe un cambio para una relación que no existe acá, **muere**, y
+    // Postgres lo relanza cada 60 s para siempre. No se pierde esa tabla: se pierde la sucursal.
+    // Medido en `sub_md_08`: 2 días caída (929 documentos) con `srsubstate<>'r'` en CERO, el
+    // REFRESH devolviendo `+0` y `subenabled = true`. Los tres ciertos, los tres inútiles.
+    // El único catálogo que lo ve es `pg_stat_subscription`: worker sin `pid`.
+    const w = (await c.query(
+      `SELECT pid, latest_end_time,
+              round(extract(epoch FROM (now() - latest_end_time)))::int AS seg
+         FROM pg_stat_subscription WHERE subname = $1`, [out.sub])).rows[0];
+    if (!w || w.pid == null) out.sinWorker = 'la suscripción NO tiene apply worker (rama muerta)';
+    else if (w.seg != null && w.seg > 600) out.sinWorker = `el worker no aplica nada hace ${Math.round(w.seg / 60)} min`;
+    else out.lagSeg = w.seg;
+
     return out;
   } catch (e) {
     out.error = (e.message || '').split('\n')[0].slice(0, 90); return out;
@@ -211,7 +226,13 @@ async function unaRama(b) {
       continue;
     }
     console.log(`${cab} suscritas ${r.antes} -> ${r.despues} (+${r.agregadas})`
-      + (r.segundos != null ? ` · todas en 'r' en ${r.segundos}s` : ''));
+      + (r.segundos != null ? ` · todas en 'r' en ${r.segundos}s` : '')
+      + (r.lagSeg != null ? ` · worker vivo, ${r.lagSeg}s` : ''));
+    if (r.sinWorker) {
+      console.log(`       ⛔ ${r.sinWorker} — ver el motivo con:`);
+      console.log('          docker logs --since 30m pgvector-md 2>&1 | grep -iE "ERROR|does not exist" | tail');
+      motivos.push(`${r.rama}: ${r.sinWorker}`); fallaron++;
+    }
     if (r.creadas.length) console.log(`       creadas en la réplica: ${r.creadas.join(' ')}`);
     for (const d of r.declaradas) {
       console.log(`       ⛔ NO se pudo suscribir '${d.tabla}': ${d.motivo}`);
