@@ -15,6 +15,7 @@ import { ReceivingAuditorService } from '../receiving-auditor.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { unidadDelVale } from '../shared/unidad-vale';
 
 /** Un plazo corto es riesgo inmediato: entra y hay que sacarlo casi de inmediato. */
 const PLAZO_RIESGOSO_DIAS = 30;
@@ -450,9 +451,7 @@ export class AlmacenCaducidadesPorFecharComponent implements OnInit {
 
   /** Unidad en la que se cuenta este renglón (la del vale). */
   unidadDe(l: PendingExpiryLine): string {
-    const u = (l.expected_unit || '').trim();
-    if (!u || u === 'ambigua') return 'unidades';
-    return u.toLowerCase();
+    return unidadDelVale(l.expected_unit);
   }
 
   /**
