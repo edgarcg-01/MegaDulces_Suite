@@ -170,7 +170,7 @@ export interface ArqueoRow {
   kepler_desglose_cuadra?: boolean | null; kepler_desglose_faltante?: number | null;
   nuestro_billetes?: number; nuestro_monedas?: number;
   /** El conteo pieza por pieza. Kepler no lo tiene: existe porque la cajera lo capturó. */
-  denominaciones?: { denominacion: number; cantidad: number; subtotal: number }[];
+  denominaciones?: { key?: string; denominacion: number; cantidad: number; subtotal: number; familia?: 'billete' | 'moneda'; label?: string }[];
 }
 
 /**

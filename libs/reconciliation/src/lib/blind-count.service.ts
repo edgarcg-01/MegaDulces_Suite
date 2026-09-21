@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, valorDe, totalDenominaciones, RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
 import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
 import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
 
@@ -78,7 +78,8 @@ export interface BloqueoDobleCaja {
   arrastradas: CajaAbierta[];
 }
 
-const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+// SM.39 - El catalogo se mudo a `libs/contracts` (money/denominations): estaba
+// escrito tres veces y el umbral `>= 20` otras tres, sin nada que los atara.
 /** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
 const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cobro', 'otro'];
 /** Umbrales del descuadre autolineado (espejan la regla `arqueo_ciego_divergente`). */
@@ -187,15 +188,42 @@ export class BlindCountService {
     @Optional() @Inject(RECON_NOTIFIER_PORT) private readonly notifier?: ReconNotifierPort,
   ) {}
 
+  /**
+   * SM.39 - El total sale del catalogo compartido, no de `Number(la llave)`.
+   *
+   * Antes la llave ERA el valor, asi que `Number('20')` daba 20 y listo. Con la
+   * moneda de $20 eso deja de servir: su llave es `20m` y `Number('20m')` es
+   * NaN. Y una llave desconocida se RECHAZA en vez de sumar 0 -- un cero se
+   * suma en silencio y deja el total mas chico que el dinero real, que es la
+   * peor forma de fallar en un arqueo.
+   */
   private computeTotal(denoms: Record<string, number>): number {
-    let total = 0;
     for (const [d, n] of Object.entries(denoms || {})) {
-      const denom = Number(d); const count = Number(n);
-      if (!DENOMS.includes(denom)) throw new BadRequestException(`Denominación inválida: ${d}`);
+      if (valorDe(d) == null) throw new BadRequestException(`Denominación inválida: ${d}`);
+      const count = Number(n);
       if (!Number.isFinite(count) || count < 0) throw new BadRequestException(`Conteo inválido para ${d}`);
-      total += denom * count;
     }
-    return Math.round(total * 100) / 100;
+    return totalDenominaciones(denoms).total;
+  }
+
+  /**
+   * SM.39 - El desglose pieza por pieza, en el orden del catalogo.
+   *
+   * Sale con `key` y `familia` porque ya no alcanza el valor para identificar la
+   * fila: el billete y la moneda de $20 valen lo mismo. El ticket y la pantalla
+   * parten por `familia`, no comparando `>= 20`.
+   */
+  private desglosar(den: Record<string, number>) {
+    return DENOMINACIONES_MXN
+      .map((d) => ({
+        key: d.key,
+        denominacion: d.valor,
+        familia: d.familia,
+        label: d.label,
+        cantidad: Number(den?.[d.key]) || 0,
+      }))
+      .filter((x) => x.cantidad > 0)
+      .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
   }
 
   /**
@@ -979,10 +1007,7 @@ export class BlindCountService {
       // sirve para ver el turno, no para imputarle un faltante a una persona.
       const diff = c.diff_real;
       const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
-      const denominaciones = DENOMS
-        .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
-        .filter((x) => x.cantidad > 0)
-        .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
+      const denominaciones = this.desglosar(den);
 
       g.cortes++;
       g.dias.add(String(r.business_date).slice(0, 10));
@@ -1219,14 +1244,11 @@ export class BlindCountService {
         // Nuestro conteo partido igual que el de Kepler, para poder compararlos:
         // en MXN el billete arranca en $20 y de ahí para abajo es moneda.
         const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
-        let nuestroBilletes = 0, nuestroMonedas = 0;
-        for (const [d, q] of Object.entries(den)) {
-          const v = Math.round(Number(d) * Number(q) * 100) / 100;
-          if (!Number.isFinite(v)) continue;
-          if (Number(d) >= 20) nuestroBilletes += v; else nuestroMonedas += v;
-        }
-        nuestroBilletes = Math.round(nuestroBilletes * 100) / 100;
-        nuestroMonedas = Math.round(nuestroMonedas * 100) / 100;
+        // SM.39 - Se parte por FAMILIA, no comparando `>= 20`: el billete y la
+        // moneda de $20 valen lo mismo y caian los dos en billetes.
+        const sumas = totalDenominaciones(den);
+        const nuestroBilletes = sumas.billetes;
+        const nuestroMonedas = sumas.monedas;
         /**
          * El conteo pieza por pieza — `1000 × 2 = 2000`. Kepler NO tiene esto
          * (verificado sobre las 307 tablas del catálogo: solo guarda el total de
@@ -1234,10 +1256,7 @@ export class BlindCountService {
          * porque nuestra cajera lo captura. Es la evidencia de cómo se llegó al
          * total: sin él, "conté $17,190.50" es una afirmación sin respaldo.
          */
-        const denominaciones = DENOMS
-          .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
-          .filter((x) => x.cantidad > 0)
-          .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
+        const denominaciones = this.desglosar(den);
         const keplerBilletes = intraTurno ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
         const keplerMonedas = intraTurno ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
         const keplerRetirado = c?.retirado_kepler ?? null;

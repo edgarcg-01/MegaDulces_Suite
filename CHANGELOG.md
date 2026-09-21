@@ -250,6 +250,35 @@ Edgar: *«un nuevo módulo a un lado de los tres ya existentes… un arqueo para
 ### Internal — SM.36
 
 Smoke nuevo `test-newdb-arqueo-rutas.js` con **4 pruebas negativas y su control positivo** (un candado que rechaza todo se ve igual de verde que uno que discrimina) + la aserción de que `cajero` y `piso_tienda` **no** reciben el permiso. `nx build api` + `nx build view` OK; `nx test view` 364 ✓ / 7 ✗ — los 7 son de `landing-guards.spec.ts` (SN.4) **preexistentes**, verificado corriendo la suite con y sin el cambio de `authz-tree`: idéntico. ⚠️ **Hallazgo de gate: `nx build view` no detecta un tipo inexistente** (`RutaArqueo` sin importar compiló sin chistar, incluso con `--skip-nx-cache`). ⛔ **Declarado: las 2 migraciones y el smoke NO se ejecutaron contra ninguna DB** — el Docker local está apagado (contenedores mudados a `md`, Fase VL) y `.245` no responde desde esta máquina; la única alcanzable es prod y no se toca sin autorización. **Pendiente: migraciones + smoke + validación visual + redeploy api+view + re-login.**
+### Fixed — la caja abierta en Kepler no aparecía en la suite (SM.37, 2026-09-21)
+
+Reportado en vivo: *«al estar abierta la caja de Kepler no se vincula con la suite, arroja que está cerrado como si no abrieran turno»*.
+
+**El folio de Kepler se REUSA**, y el filtro que decide si un turno ya fue arqueado preguntaba sólo por **sucursal + folio**. Hoy `10C01` abrió la caja 1 de Padre Hidalgo con **folio 82** y su pantalla no le ofrecía ningún turno, porque el 18-sep `10C02` había cerrado la **caja 2** — también folio 82. Es **el mismo defecto que SM.35 corrigió en `compare()` y `retirosContados()`**, en dos escondites que no se revisaron entonces. Verificado antes/después contra prod: **0 turnos → 1**.
+
+Y de fondo: `analytics.cash_cuts.cerrado` era el literal `true` — lo decía en **3,648 de 3,648 filas**. No era una medición, era una constante. El sync sólo trae cortes cerrados, así que **una fila que entró como cerrada no podía volver a "abierta" nunca**: el folio 66 de Padre Hidalgo lleva **19 días abierto en Kepler** y figuraba cerrado con diferencia 0. Ahora `cerrado` se deriva de `closed_at`, y una sentencia `REABIERTOS` camina de vuelta los turnos reabiertos.
+
+### Added — dos cajas abiertas con el mismo usuario bloquean todo (SM.38, 2026-09-21)
+
+Pedido de Edgar. **Derivado del ODS en vivo, sin bandera guardada**: el bloqueo se levanta solo en cuanto Kepler cierra una de las dos — una bandera en tabla habría necesitado que alguien la apague a mano.
+
+⭐ **El candado mira el mismo DÍA, y eso lo decidió la medición.** De las 5 cajeras con dos cajas abiertas, sólo **dos** son el caso real (`C02` y `C04`, cada una con una caja en la sucursal 07 y otra en la 08, ambas de hoy). Las otras tres arrastran turnos que nadie va a cerrar — **`40VMC` tiene uno abierto desde el 31 de enero, 233 días** — y con la regla literal quedaban bloqueadas **para siempre** por un problema de datos. Las arrastradas se **declaran**, no bloquean.
+
+**Fail-closed en el servidor:** `GET /turnos` devuelve la lista vacía más el bloqueo, y el `POST` rechaza con 409 aunque llamen la API a mano. Verificado contra prod: dispara en `C02`/`C04` y no en las otras tres.
+
+### Added — la moneda de $20 (SM.39, 2026-09-21)
+
+Pedido de una línea que no se podía cumplir: **la llave de una denominación era su valor**, así que `20` ya era el **billete**, y el reparto billetes/monedas comparaba `valor >= 20` — una moneda de $20 habría caído en billetes.
+
+- El catálogo estaba escrito **tres veces** y el umbral `>= 20` **otras tres**. Ahora vive en `libs/contracts/src/money/denominations.ts` con `{ key, valor, familia, label }`.
+- **Compatibilidad: la llave del billete sigue siendo `20`**, así que lo ya capturado conserva su significado — sin backfill. La moneda es `20m`.
+- `valorDe()` de una llave desconocida devuelve **`null`, no 0**, y el total **enumera** lo desconocido: un cero se suma en silencio y deja el total más chico que el dinero real.
+
+⚠️ **Deuda declarada en el código:** `/almacen/cuadre` sigue con su lista suelta — ahí la moneda de $20 todavía no se captura.
+
+### Internal — SM.37 a SM.39
+
+⚠️ **Hallazgo de gate, medido:** ni `nx test view` ni `nx test contracts` declaran `typecheck` en vitest, y `nx build view` **no atrapó** un tipo inexistente (`RutaArqueo` sin importar) ni un campo obligatorio faltante. Dos bugs de SM.39 (`imprimir()` usando el número como llave, y un `track` que colisiona con dos filas de $20) aparecieron **leyendo**, no compilando. Por eso los specs fijan valores devueltos, no tipos. `nx test contracts` **76/76**; `nx build api`+`view` OK; `nx test view` 364 ✓ / 7 ✗ (los 7 preexistentes de `landing-guards`/SN.4, verificado con y sin los cambios). ⛔ Los smokes de DB **no se pudieron correr**: ninguna base de prueba es alcanzable desde esta máquina (Docker local apagado tras la mudanza a `md`, `.245` sin respuesta).
 
 
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)

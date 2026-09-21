@@ -17,6 +17,7 @@ import { DataScopeService, ScopeOption } from '../../../core/services/data-scope
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, BloqueoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
+import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -325,17 +326,17 @@ interface CortesPersona {
               <section class="arq-col" role="group" aria-label="Registro detallado de billetes">
                 <h4 class="arq-col-t">Registro detallado de billetes</h4>
                 <div class="arq-col-rows">
-                  @for (d of billetes; track d; let i = $index) {
+                  @for (d of billetes; track d.key; let i = $index) {
                     <label class="arq-den">
-                      <span class="arq-den-lbl">{{ '$' + d }}</span>
+                      <span class="arq-den-lbl">{{ d.label }}</span>
                       <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
                            casilla en vez de sumar/restar. Con el spinner puesto, una flecha
                            de más cambia el conteo del billete sin que la cajera lo note. -->
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de billetes de $' + d"
-                             [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                             [attr.aria-label]="'Cantidad de billetes de ' + d.label"
+                             [value]="denomCount[d.key] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
                     </label>
                   }
                 </div>
@@ -349,14 +350,14 @@ interface CortesPersona {
               <section class="arq-col" role="group" aria-label="Registro detallado de monedas">
                 <h4 class="arq-col-t">Registro detallado de monedas</h4>
                 <div class="arq-col-rows">
-                  @for (d of monedas; track d; let i = $index) {
+                  @for (d of monedas; track d.key; let i = $index) {
                     <label class="arq-den">
-                      <span class="arq-den-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</span>
+                      <span class="arq-den-lbl">{{ d.label }}</span>
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de monedas de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
-                             [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                             [attr.aria-label]="'Cantidad de monedas de ' + d.label"
+                             [value]="denomCount[d.key] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
                     </label>
                   }
                 </div>
@@ -557,9 +558,9 @@ interface CortesPersona {
                       @if (b.denominaciones?.length) {
                         <table class="arq-mini-t">
                           <tbody>
-                            @for (d of b.denominaciones; track d.denominacion) {
+                            @for (d of b.denominaciones; track (d.key ?? d.denominacion)) {
                               <tr>
-                                <td class="arq-mono">{{ d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢' }}</td>
+                                <td class="arq-mono">{{ d.label ?? (d.denominacion >= 1 ? '</td> + d.denominacion : (d.denominacion * 100) + '¢') }}{{ d.familia === 'moneda' && d.denominacion >= 20 ? ' m' : '' }}</td>
                                 <td class="arq-mono muted">× {{ d.cantidad }}</td>
                                 <td class="ta-r">{{ money(d.subtotal) }}</td>
                               </tr>
@@ -1192,11 +1193,18 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * `blind-count.service` para partir nuestro conteo contra el de Kepler — si uno
    * se mueve, el otro tambien.
    */
-  readonly billetes = [1000, 500, 200, 100, 50, 20];
-  readonly monedas = [10, 5, 2, 1, 0.5];
+  /**
+   * SM.39 - Del catalogo compartido (`libs/contracts`), no de una lista suelta.
+   * Estaba escrita aca, en el servicio y en /almacen/cuadre, y el reparto
+   * billetes/monedas por `>= 20` otras tres veces. La moneda de $20 no cabia:
+   * su valor ya era la llave del billete.
+   */
+  readonly billetes = BILLETES_MXN;
+  readonly monedas = MONEDAS_MXN;
   /** El orden importa: es el de los inputs en pantalla (navegacion ↑/↓). */
-  readonly denoms = [...this.billetes, ...this.monedas];
-  denomCount: Record<number, number> = {};
+  readonly denoms = DENOMINACIONES_MXN;
+  /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
+  denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
   aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
@@ -1397,7 +1405,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   imprimir(r: ArqueoResult) {
     const t = this.turnoSel();
     const denominaciones = this.denoms
-      .map((d) => ({ denominacion: d, cantidad: Number(this.denomCount[d]) || 0, subtotal: (Number(this.denomCount[d]) || 0) * d }))
+      // SM.39 - Con `familia` y `label`: el ticket parte las columnas por familia,
+      // y el billete y la moneda de $20 ya no se confunden.
+      .map((d) => ({
+        denominacion: d.valor, familia: d.familia, label: d.label,
+        cantidad: Number(this.denomCount[d.key]) || 0,
+        subtotal: Math.round((Number(this.denomCount[d.key]) || 0) * d.valor * 100) / 100,
+      }))
       .filter((x) => x.cantidad > 0);
     const ok = imprimirTicket({
       sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc),
@@ -1442,12 +1456,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   // ─────────────────── pad de denominaciones ───────────────────
 
   /** Solo dígitos: es un conteo de billetes, no una fórmula. */
-  onDenomInput(denom: number, ev: Event) {
+  onDenomInput(key: string, ev: Event) {
     const el = ev.target as HTMLInputElement;
     const limpio = (el.value || '').replace(/\D/g, '');
     if (limpio !== el.value) el.value = limpio;
-    if (limpio) this.denomCount[denom] = Number(limpio);
-    else delete this.denomCount[denom];
+    if (limpio) this.denomCount[key] = Number(limpio);
+    else delete this.denomCount[key];
     this.recalc();
   }
 
@@ -1637,8 +1651,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** Solo los números — sin tocar `dirty`, para poder limpiar tras guardar. */
   private recalcTotales() {
-    const monto = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0);
-    const pzas = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0), 0);
+    const monto = (l: readonly Denominacion[]) =>
+      l.reduce((s, d) => s + (Number(this.denomCount[d.key]) || 0) * d.valor, 0);
+    const pzas = (l: readonly Denominacion[]) =>
+      l.reduce((s, d) => s + (Number(this.denomCount[d.key]) || 0), 0);
     const b = monto(this.billetes), m = monto(this.monedas);
     this.totBilletes.set(b); this.totMonedas.set(m);
     this.recalcMedios();
@@ -1654,7 +1670,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.saving.set(true);
     this.confirmando.set(false);
     const denominations: Record<string, number> = {};
-    for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
+    for (const d of this.denoms) {
+      const n = Number(this.denomCount[d.key]) || 0;
+      if (n > 0) denominations[d.key] = n;
+    }
     const medios = Object.keys(this.medios).length ? { ...this.medios } : undefined;
     const relevo = this.aTipo() === 'relevo';
     const t = this.turnoSel();
