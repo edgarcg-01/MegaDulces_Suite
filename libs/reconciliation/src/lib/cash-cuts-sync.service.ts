@@ -109,6 +109,12 @@ export class CashCutsSyncService {
   async syncTenant(tenantId: string, dias = CashCutsSyncService.DIAS): Promise<number> {
     return this.tenantKnex.run(tenantId, async (trx) => {
       const r: any = await trx.raw(UPSERT, { dias, tenant: tenantId });
+      const re: any = await trx.raw(REABIERTOS, { dias, tenant: tenantId });
+      if (re?.rowCount) {
+        this.logger.warn(
+          `${re.rowCount} corte(s) que Kepler volvio a ABRIR estaban marcados como cerrados aca. Corregidos.`,
+        );
+      }
       return r?.rowCount ?? 0;
     });
   }
@@ -213,7 +219,7 @@ SELECT CAST(:tenant AS uuid), s.sucursal, w.name, s.caja, s.folio, s.business_da
        s.arq_bil, s.arq_mon, s.arq_otros,
        s.retirado, s.cash_limit, s.cash_limit_max, s.total_venta, s.venta_total,
        s.hora_apertura, s.hora_cierre, s.duracion_horas,
-       w.id, true, 'kepler'
+       w.id, (s.closed_at IS NOT NULL), 'kepler'
   FROM (${SRC}) s
   JOIN commercial.warehouses w
     ON w.tenant_id = CAST(:tenant AS uuid) AND w.code = s.sucursal AND w.deleted_at IS NULL
@@ -245,7 +251,7 @@ ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio, cajero_cierr
   hora_apertura     = EXCLUDED.hora_apertura,
   hora_cierre       = EXCLUDED.hora_cierre,
   duracion_horas    = EXCLUDED.duracion_horas,
-  cerrado           = true,
+  cerrado           = (EXCLUDED.closed_at IS NOT NULL),
   source            = 'kepler',
   updated_at        = now()
 `;
@@ -262,4 +268,40 @@ const GAP = `
               ON c.tenant_id = CAST(:tenant AS uuid) AND c.warehouse_code = s.sucursal
              AND c.caja = s.caja AND c.business_date = s.business_date AND c.folio = s.folio
            WHERE c.id IS NULL) faltan
+`;
+
+
+/**
+ * SM.37 - Los turnos que Kepler REABRIO.
+ *
+ * El `UPSERT` de arriba solo trae cortes CERRADOS: su filtro exige que haya
+ * contado o diferencia (`c25 <> 0 OR c35 <> 0`), y un turno abierto viene en
+ * ceros. Eso esta bien -- meter turnos abiertos ensuciaria KPIs y focos -- pero
+ * tiene un efecto que nadie habia visto: **una fila que ya entro como cerrada no
+ * puede volver a "abierta" nunca**. Si Kepler reabre el turno, nuestra tabla se
+ * queda con la foto vieja.
+ *
+ * Medido en prod el 2026-09-20: el folio 66 de la caja 1 de Padre Hidalgo lleva
+ * **19 dias abierto** en Kepler y aca figuraba `cerrado = true`, con importes
+ * completos y diferencia 0.
+ *
+ * Peor: `cerrado` se escribia como el literal `true`, asi que decia lo mismo en
+ * **3,648 de 3,648 filas**. No era una medicion, era una constante -- y una
+ * columna que solo puede decir una cosa se cree igual que una que mide.
+ *
+ * Esta sentencia es la unica que puede caminar una fila de vuelta, y por eso
+ * corre DESPUES del upsert y no dentro: el upsert no ve estas filas.
+ */
+const REABIERTOS = `
+UPDATE analytics.cash_cuts cc
+   SET cerrado = false, closed_at = NULL, updated_at = now()
+  FROM kepler_ods.kdpv_folio_caja k
+ WHERE cc.tenant_id = CAST(:tenant AS uuid)
+   AND cc.warehouse_code = k.sucursal
+   AND cc.caja           = k.c2
+   AND cc.business_date  = k.c5::date
+   AND cc.folio          = k.c3::bigint::text
+   AND k.c10::date = DATE '1800-01-01'
+   AND cc.cerrado
+   AND cc.business_date >= current_date - CAST(:dias AS int)
 `;

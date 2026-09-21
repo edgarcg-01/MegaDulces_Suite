@@ -24,9 +24,9 @@ const BASE: TicketArqueo = {
   fecha: '2026-09-11',
   cajera: '10C02',
   denominaciones: [
-    { denominacion: 1000, cantidad: 3, subtotal: 3000 },
-    { denominacion: 500, cantidad: 12, subtotal: 6000 },
-    { denominacion: 0.5, cantidad: 24, subtotal: 12 },
+    { denominacion: 1000, cantidad: 3, subtotal: 3000, familia: 'billete' },
+    { denominacion: 500, cantidad: 12, subtotal: 6000, familia: 'billete' },
+    { denominacion: 0.5, cantidad: 24, subtotal: 12, familia: 'moneda' },
   ],
   total_contado: 9012,
 };
