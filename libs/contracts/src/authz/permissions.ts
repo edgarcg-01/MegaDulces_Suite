@@ -280,6 +280,30 @@ export enum Permission {
   // Sin _GESTIONAR: la pantalla todavía no escribe nada, y un gate sin acción que gatear es un
   // permiso muerto (ADR-054). Se agrega cuando exista la acción.
   ALMACEN_BI_VER = 'ALMACEN_BI_VER',
+  // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
+  //
+  // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:
+  //  · de negocio — el módulo es del ALMACENISTA y del ENCARGADO; el comprador *recibe* la
+  //    solicitud y la gestiona en Compras. Reusar COMPRAS_* volvería a mezclar las dos
+  //    audiencias que la fase existe para separar.
+  //  · medida — COMPRAS_VER está repartido en 0 de 37 roles (platform_test), así que colgarse
+  //    de él dejaría el módulo inalcanzable el día uno, que es justo el bug de LC.6.2.
+  //
+  // SOLICITAR ≠ AUTORIZAR a propósito (§2 del pedido), y EXCEDER_TOPE es una TERCERA llave, no
+  // un AUTORIZAR más grande: el tope de inventario sólo lo pasa dirección comercial o general.
+  // Por eso queda FUERA de cualquier MODULE_GROUP — no se otorga "de paquete", igual que
+  // FINANCE_PAYMENT_CALENDAR_AUTORIZAR (TP.6), que es el precedente vivo del mismo criterio.
+  AUTOABASTO_VER = 'AUTOABASTO_VER',
+  AUTOABASTO_SOLICITAR = 'AUTOABASTO_SOLICITAR',
+  AUTOABASTO_AUTORIZAR = 'AUTOABASTO_AUTORIZAR',
+  AUTOABASTO_EXCEDER_TOPE = 'AUTOABASTO_EXCEDER_TOPE',
+  // Mover el umbral del ±50% y los calendarios de temporada. Deciden dirección general y
+  // comercial; proponen gerencia de zona, encargado y almacenista (decisión del PM #12).
+  AUTOABASTO_POLITICA = 'AUTOABASTO_POLITICA',
+  // Nivelación: separado de AUTOABASTO_* porque su público incluye al almacén de ORIGEN, que
+  // confirma o rechaza un traspaso sin tener nada que ver con el autoabasto del destino.
+  NIVELACION_VER = 'NIVELACION_VER',
+  NIVELACION_GESTIONAR = 'NIVELACION_GESTIONAR',
   // Páginas independientes que estaban bajo un permiso compartido:
   COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /comercial/erp-promos (promos del ERP)
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)

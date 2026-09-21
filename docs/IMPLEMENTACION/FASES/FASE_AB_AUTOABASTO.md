@@ -169,6 +169,11 @@ pedido —mínimo de 5 días, demanda de 10→15, mínimo 50→75 sin tocar los 
 
 ## 5. Modelo de datos
 
+> ⚠️ **Corregido el 2026-09-21 — `supply_policy` queda CANCELADA como tabla nueva.**
+> Lo que proponía modelar ya existe en `commercial.replenishment_channel` (RA-PRO.8, mig
+> `20260720120000`). El alcance real es **extenderla** con prioridad, orígenes alternos y excepción
+> por producto. Ver §14.6.
+
 Cuatro tablas nuevas en `commercial.*`, todas con `tenant_id` + audit completo + RLS forzado.
 
 ```
@@ -520,7 +525,7 @@ en `ventana_incompleta` por tiempo indefinido** — que es un resultado honesto,
 | PR | Alcance | Estado |
 |---|---|---|
 | **1** | **AB.0b — La foto de inventario.** El reloj | 🧪 **EN CÓDIGO 2026-09-19** |
-| **2** | AB.2 + AB.3 — Mesa de trabajo `/almacen/autoabasto` + permisos + navegación | ⬜ |
+| **2** | AB.2 + AB.3 — Mesa de trabajo `/almacen/autoabasto` + permisos + navegación | 🔨 **EN CÓDIGO 2026-09-19** |
 | **3** | AB.7 — Bandeja al comprador: escalera de facultades, backorder, status tipado | ⬜ |
 | **4** | AB.8 — `/almacen/nivelacion`: traspasos, crossdock, excedente cedible | ⬜ |
 | **5** | AB.4 + AB.5 + AB.6 — Temporalidad, caída abrupta y propuestas de parámetro | ⬜ |
@@ -554,9 +559,281 @@ Ejercita el **servicio real** vía `ts-node` —no una copia de su SQL, que se c
 no se publica, re-correr corrige sin duplicar, y un día cualquiera no lleva bandera de cierre.
 `nx build api` verde.
 
+**Nivelación queda FUERA de este PR, y eso fue un hallazgo del propio gate.** El WIP heredado ya
+declaraba `/almacen/nivelacion` en `authz-tree` y la migración ya repartía `NIVELACION_*`. El spec
+`landing-guards.spec.ts` (SN.4) lo acusó: **3 candidatos de aterrizaje nuevos que rebotan** — dos
+apuntando a una ruta que no existe en `app.routes.ts`, y `AUTOABASTO_SOLICITAR` cayendo en una puerta
+que sólo aceptaba `AUTOABASTO_VER`. Los tres se corrigieron en vez de declararse como deuda:
+
+| Qué acusaba SN.4 | Qué se hizo |
+|---|---|
+| `AUTOABASTO_SOLICITAR→/almacen/autoabasto` rebota | la ruta pasa a `anyPermissionGuard(VER, SOLICITAR)`: quien prepara tiene que poder abrir la mesa |
+| `NIVELACION_VER→/almacen/nivelacion` no existe | el nodo sale de `authz-tree`; vuelve en el PR 4 **con su pantalla** |
+| `NIVELACION_GESTIONAR→/almacen/nivelacion` no existe | ídem, y el prefijo sale también de `ALMACEN_AREAS` |
+
+Y por lo mismo **la migración ya no reparte `NIVELACION_*`**: repartir una llave que no abre nada es
+un permiso muerto (ADR-054). El anclaje ya está elegido y escrito en el encabezado de la migración,
+para que el PR 4 no lo vuelva a decidir.
+
+Antes del arreglo el área `almacen` tenía **5** candidatos que rebotan; después, **2** — y esos dos
+(`CATALOGO_INTERNO_*`, Fase CV) son deuda previa. Este PR no suma ninguno.
+
 **Declarado, no verificado:** el endpoint HTTP **no se probó contra la API viva** — la que corre en `:3334`
 es un build anterior y reiniciarla no me corresponde. El servicio sí se ejercitó de verdad, con su Knex,
 desde el test. **Falta:** aplicar la migración en prod, redeploy, y la primera corrida real del cron.
 
 **Retención:** declarada, no implementada. Diario > 400 días se purga salvo bandera de cierre. Con 0 filas
 sería código muerto; se escribe cuando la tabla lo pida.
+
+---
+
+### 🔨 PR 2 — AB.2 + AB.3, la mesa de trabajo (2026-09-19)
+
+**Qué entrega.** `/almacen/autoabasto` de punta a punta en LECTURA: `AutoabastoController`
+(`/commercial/autoabasto/{mesa,mesa/resumen,filtros}`), las 7 llaves nuevas en el enum + `permission-meta`
++ `authz-tree`, la **migración que las reparte** (`20260919160000`), el área *Abasto* en el sidebar del
+almacén, la ruta bajo el shell de área y la pantalla.
+
+**Las decisiones que no son obvias:**
+
+1. **El controlador no calcula.** Delega en `CommercialReplenishmentService`, el mismo motor de
+   `/compras/existencia`. Dos audiencias, un solo número: un segundo motor de reorden sería la forma más
+   cara de que el almacén y el comprador discutan cifras distintas del mismo hecho (ADR-056). Por eso las
+   firmas del boundary se **derivan** del motor (`Awaited<ReturnType<...>>`) en vez de declarar una
+   interfaz nueva — declararla a mano sería una segunda definición del mismo hecho.
+2. **Llaves propias, no `COMPRAS_*` reusadas.** Medido: `COMPRAS_PEDIDO_VER` está en **`false` explícito**
+   para `almacenista` y en `true` para `encargado_tienda`. La persona que hace el trabajo es justo la que
+   no alcanza Existencia Crítica. Ese `false` es una decisión manual guardada desde `/admin/roles` y **no
+   se pisa**: se abre con llave propia, que al ser clave nueva está en NULL en los 38 roles vivos.
+3. **El reparto se deriva del estado vivo, y la separación §2 se sostiene sola.** `AUTOABASTO_SOLICITAR`
+   se ancla en `COMMERCIAL_INVENTORY_AJUSTAR` (7 roles — incluye `almacenista`) y `_AUTORIZAR` en
+   `COMPRAS_PEDIDO_GESTIONAR` (9) + `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (2, para que entre `direccion`,
+   que tiene la otra en NULL). `almacenista` tiene `COMPRAS_PEDIDO_GESTIONAR` en `false` explícito, así
+   que **queda fuera de AUTORIZAR por su propio estado**: quien prepara no firma, sin lista a mano.
+   `_EXCEDER_TOPE` y `_POLITICA` calcan `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (direccion, superadmin) —
+   el precedente vivo de permiso restringido (TP.6) — y quedan fuera de todo MODULE_GROUP: no se otorgan
+   de paquete.
+4. **⚠️ `customer_b2b` se excluye a mano, y es lo único que no sale de una derivación.** Tiene
+   `COMMERCIAL_INVENTORY_VER = true` **y es el portal EXTERNO** (`PORTAL_B2B_ACCESS`, 3 usuarios vivos).
+   Sin ese `<> ALL`, derivar de `COMMERCIAL_INVENTORY_VER` le habría entregado la mesa interna de
+   reabasto a tres cuentas de cliente. Medido antes de escribir la migración, no supuesto.
+
+**Verificación:** `nx build api` verde · `nx build view` verde · `npm run check:templates` verde (321
+componentes) · `npm run lint:boundary` verde **en lo nuevo de este PR** · `nx test contracts` 76/76 ·
+`nx test view` 463 pasan y **7 fallan, los mismos que en `main`** — deuda previa de
+`landing-guards.spec.ts`. Lo que sí cambió: el área `almacen` pasó de **5 candidatos que rebotan a 2**,
+porque este PR corrigió los 3 que el WIP heredado había introducido (ver abajo).
+
+**Simulación del reparto, contra la base viva, sólo con `SELECT`** (la migración NO se aplicó):
+
+| Llave | Roles que la recibirían |
+|---|---|
+| `AUTOABASTO_VER` | 14 |
+| `AUTOABASTO_SOLICITAR` | 7 — incluye `almacenista` |
+| `AUTOABASTO_AUTORIZAR` | 10 — **sin** `almacenista` |
+| `AUTOABASTO_EXCEDER_TOPE` · `_POLITICA` | 2 (direccion, superadmin) |
+| `NIVELACION_*` | **no se reparten acá** — ver abajo |
+
+**Declarado, no verificado:**
+- **La pantalla no se abrió en el navegador.** El build en verde no dice nada sobre lo que se renderiza —
+  es exactamente la lección de [`docs/GOTCHAS.md` §59](../../GOTCHAS.md), que salió de `/finanzas/caja-general`.
+- **La migración no se aplicó.** La base está aplicada a medias (122 migraciones sin registrar), así que
+  un `migrate:latest` a ciegas choca. Se corre cuando se decida cómo reconciliar ese estado.
+- **Scope por sucursal: NO existe.** `warehouse_id` es del llamador, no del token. Un almacenista con la
+  clave ve la red completa si no filtra. Está **dicho en pantalla**, no disimulado con un filtro de front
+  que daría sensación de alcance sin serlo.
+- **`accion` se filtra en el cliente.** El endpoint todavía no la acepta como parámetro; se recorta sobre
+  la página cargada y el total refleja eso, en vez de mandar un parámetro que el backend ignoraría en
+  silencio. Pasa al backend cuando entre la escritura.
+
+**Dos hallazgos que no son de este PR y no se escondieron:**
+
+1. **PR #125 (AB.0b) tiene 3 violaciones del boundary gate** — `stock-snapshot.controller.ts` (2) y
+   `stock-snapshot.service.ts` (1), todas *"Missing return type"*. Entraron con `7af95329`. El PR se
+   reportó verde porque se corrió `nx build api` y los tests, **no** `npm run lint:boundary`; y CI está
+   `disabled_manually`, así que nadie más lo miró.
+2. **`npm run check:provenance` falla en `main`** — `StoreRhythm` (`apps/view/.../store-socket.service.ts`)
+   declara `generated_at` sin procedencia. Entró con `f40234a9` (TDA.P), que está en `main`. El gate
+   compara contra un `BASELINE = 0` hardcodeado: ese commit subió la deuda a 1 sin corregirla ni mover la
+   línea. **No se bajó la línea acá a propósito** — mover el BASELINE es justo lo que el gate existe para
+   impedir.
+
+#### 🧪 Validación visual de PR 2 — hecha 2026-09-19, y encontró algo
+
+El PR se entregó declarando *"la pantalla no se abrió en el navegador"*. Se abrió, con el API local
+levantado y sesión real (`superuser`, SUPERADMIN).
+
+**Lo que quedó comprobado:**
+
+| Qué | Resultado |
+|---|---|
+| Ruta `/almacen/autoabasto` resuelve | ✅ |
+| Área **Abasto** en la migaja (`Almacenes y Logística › Almacén › Abasto`) | ✅ |
+| Barra de tabs del área: *Autoabasto* + *Análisis BI* | ✅ (el tab que cruza áreas de WMS-BI.6 aparece acá solo) |
+| Encabezado, filtros (almacén / proveedor / acción / posición / búsqueda) | ✅ pintan |
+| El aviso de alcance —*"estás viendo la **red completa**; el recorte por tu sucursal todavía no lo aplica el servidor"*— | ✅ en pantalla, no escondido |
+| El pie declara que la pantalla **sólo lee** | ✅ |
+
+**Lo que NO quedó comprobado, y por qué no es de este PR:** la tabla no cargó —
+`GET /commercial/autoabasto/mesa` devuelve **500**. La causa está medida:
+
+```
+no existe la relación «analytics.v_erp_unit_cost»
+falta una entrada para la tabla «euc» en la cláusula FROM     (errorMissingRTE)
+```
+
+⭐ **El endpoint ORIGINAL de Compras falla idéntico**: `GET /commercial/replenishment/critical-stock`
+también devuelve 500 contra esta misma base. Como PR 2 **no toca** `CommercialReplenishmentService`
+—sólo agrega un controlador que delega— el fallo es de la **base local**, que está aplicada a medias
+(122 migraciones sin registrar; falta esa vista, y también `identity.position_responsibilities`).
+
+Esa comparación es la que convierte "la pantalla falla" en "el entorno falla": sin correr el hermano
+de Compras, el 500 se habría leído como un bug de esta rama.
+
+**Vale la pena por sí solo:** la pantalla **degrada con honestidad**. No crashea, no pinta ceros ni una
+tabla vacía que se leería como *"no falta nada"* — muestra el error con su motivo y un botón de
+reintento. Es la conducta que ADR-056 pide y que un build verde no puede comprobar.
+
+**Sigue sin verificar:** el reparto de las 7 llaves nuevas. La migración no se aplicó, y `superuser`
+entra por `ALL_PERMS`, así que esta sesión **no probó ninguna compuerta**. Se mantiene declarado.
+
+---
+
+## 14. Reconciliación con el plan del 2026-09-21 (12 etapas · 10 PRs)
+
+El plan nuevo reordena el mismo pedido en **12 etapas** y propone **10 PRs**. No cambia la tesis de la
+fase. Agrega tres cosas que este documento no tenía, **corrige una que sí tenía**, y —esto es lo primero
+que hay que decir— **empieza la secuencia en algo que ya está escrito**.
+
+### 14.1 Dónde está cada etapa, medido el 2026-09-21
+
+| # | Etapa del plan | Estado real | Dónde |
+|---|---|---|---|
+| 1 | Responsabilidades y autorizaciones | 🧪 **escrito, sin mergear ni aplicar** | 7 llaves (§6) + mig `20260919160000` de reparto |
+| 2 | Validar la información disponible | 🟡 **parcial** — las fuentes están identificadas; **falta la "fecha de actualización visible"** | §1 · ver 14.5(3) |
+| 3 | Rutas de abastecimiento | ⚠️ **ya existe** — ver 14.6 | `commercial.replenishment_channel` (RA-PRO.8, mig `20260720120000`) |
+| 4 | Mínimos, reorden y máximos | ✅ motor · ⬜ la **propuesta con vigencia** | `commercial.reorder_policy` (RA) + §4.1 |
+| 5 | Demanda y temporalidad | ⛔ **bloqueado por la historia**, no por el código | §0 · §12 (Fase NH) |
+| 6 | Motor de sugerencias | ✅ existe **y ya parte el origen** en `transfer_in` + `buy_qty` | `criticalStock()` |
+| 7 | Mesa del almacenista | 🧪 **escrita, sin mergear** | rama `feat/ab-mesa-trabajo` |
+| 8 | Revisión del encargado | ⬜ | AB.6 |
+| 9 | Solicitudes y seguimiento | ⬜ | AB.7 (compra) · AB.8 (traspaso) |
+| 10 | Supervisión de zona | ⬜ **NUEVO — no estaba en este plan** | → AB.10 |
+| 11 | Piloto | ✅ decidido: almacén `02` | §7.1 |
+| 12 | Desplegar y medir | ⬜ **NUEVO** | → AB.11 |
+
+### 14.2 Los 10 PRs contra lo que ya está escrito
+
+| PR del plan | Estado real | Nota |
+|---|---|---|
+| **1** ruta `/almacen/autoabasto` + permisos | ✅ **escrito** | rama `feat/ab-mesa-trabajo`, **sin pushear** |
+| **2** acceso en la navegación | ✅ **escrito, en el mismo PR** | se entregan juntos a propósito: **una ruta sin puerta no se puede probar**, y el reparto de permisos sólo se comprueba viendo quién ve el item |
+| **3** rutas, calendarios y parámetros | ↩️ **cambia de alcance** | no es tabla nueva: es **pantalla de administración sobre `replenishment_channel`** + prioridad, orígenes alternos y excepción por producto |
+| **4** consulta y validación de datos | ⬜ | acá entra la **fecha de actualización** de la etapa 2 |
+| **5** motor en simulación | ✅ **ya se cumple** | el motor de RA calcula y **no emite documentos**; la mesa es de sólo lectura |
+| **6** mesa y preparación de solicitudes | 🧪 la mesa sí; **preparar la solicitud no** | la parte de preparar es AB.7 |
+| **7** autorizaciones y cambio de parámetros | ⬜ | AB.6 |
+| **8** solicitudes a Compras | ⬜ | AB.7, sobre `purchase_requisitions` (no se crea entidad) |
+| **9** traspaso habitual | ⬜ | AB.8, `transfer_requests` — **lo único del modelo que sigue siendo tabla nueva** |
+| **10** seguimiento, alertas y zona | ⬜ | AB.8 + AB.10 |
+
+> **Cuatro de los diez PRs ya están resueltos o cambian de alcance.** Arrancar en el 1 sería volver a
+> escribir lo que está en la rama.
+
+### 14.3 El contrato de los siete porqués — se acepta, y se vuelve criterio de aceptación
+
+Es el aporte más valioso del plan nuevo: convierte la pantalla en algo **falsable**. Medido contra el
+código de hoy, renglón por renglón:
+
+| Pregunta | Qué la contesta | Estado |
+|---|---|---|
+| ¿Por qué debo pedir? | `bucket` (agotado / bajo mín / bajo reorden) | 🟡 **es una etiqueta, no una frase** |
+| ¿Por qué esa cantidad? | `suggested_qty = objetivo − existencia − tránsito`, ajustado por caja | 🟡 el número sí; **la resta no se muestra** |
+| ¿Por qué a ese origen? | `replenish_via` · `source_warehouse_code` · `supplier_name` | ⛔ **el motor los devuelve y la pantalla NO los pinta** |
+| ¿Por qué debo pedir hoy? | `next_due_date` · `cadence_days` · `lead_time_days` | ⛔ **idem** |
+| ¿Por qué mover el parámetro? | — | ⬜ AB.6 |
+| **¿Por qué NO propone pedir?** | — | ⛔ **no hay renglón**: la mesa sólo lista lo que falta |
+| ¿Por qué requiere revisión? | `rung_veredicto` declara la unidad | 🟡 falta pedido mínimo, caducidad y excepción |
+
+⭐ **El sexto es el más caro y el más importante.** Hoy un producto cubierto **no aparece en la mesa**, así
+que *"lo revisé y está cubierto"* y *"nunca lo miré"* se leen exactamente igual. Es la trampa de ADR-056
+en su forma más pura —la ausencia significando dos cosas— y obliga a que la mesa tenga un modo que hoy no
+tiene. **No se resuelve pintando un renglón vacío: hay que decir con qué existencia o con qué entrega
+confirmada está cubierta.**
+
+**Medido:** `autoabasto.service.ts` tipa y la tabla pinta `suggested_qty`, `transfer_in`, `buy_qty` y
+`bucket`. **No** tipa `replenish_via`, `source_warehouse_code`, `next_due_date` ni `lead_time_days` —
+aunque `criticalStock()` los selecciona y los está devolviendo. El hueco de "a quién" y "para cuándo" es
+**de pantalla, no de motor**.
+
+### 14.4 ⛔ El primer compromiso verificable — por qué hoy no se puede demostrar
+
+El plan lo fija bien: *"para un producto y una sucursal, explicar correctamente cuánto pedir, a quién y
+para cuándo"*. Medido contra `platform_test` el 2026-09-21:
+
+| Pieza | Estado | Número |
+|---|---|---|
+| **cuánto** | ✅ el motor lo calcula y lo parte en compra vs traspaso | — |
+| **a quién** | 🟡 el campo existe; **la tabla está vacía** | `commercial.replenishment_channel` = **0 filas** |
+| **para cuándo** | 🟡 idem — `next_due_date` y `lead_time_days` viven en esa misma tabla | **0 filas** |
+| base de parámetros | ⚠️ apenas semilla de pruebas | `commercial.reorder_policy` = **35 filas · 4 almacenes · 0 con `policy_method`** |
+
+**No falta código: falta el dato en este entorno.** `platform_test` no tiene corrido
+`import-replenishment-cadence.js` ni los importers de política. En prod la Fase RA **sí** está desplegada,
+pero **desde esta máquina no hay credencial de prod** — el `.env` sólo trae `platform_test`. Es la misma
+medición que AB.0 ya declaraba pendiente, ahora con el número que le faltaba.
+
+**Lo que desbloquea la demostración, en este orden:**
+1. correr AB.0 **contra prod** (cuántas filas de canal y de política hay de verdad, y en qué almacenes);
+2. llevar `replenish_via` / `source_warehouse_code` / `next_due_date` / `lead_time_days` **a la pantalla**
+   (es tipado y columnas, no motor);
+3. poblar el canal del almacén del piloto si prod tampoco lo tiene.
+
+⚠️ **Hasta que (1) esté corrido, cualquier fecha comprometida sería inventada.** El plan tiene razón en no
+fijarlas todavía.
+
+### 14.5 Lo que el plan nuevo agrega y este documento no tenía
+
+1. **Etapa 10 — supervisión de zona.** Sprint nuevo **AB.10**: comparativo entre sucursales, agotados
+   recurrentes, solicitudes detenidas y entregas atrasadas, **con responsable y fecha compromiso**. Es la
+   primera pieza de la fase con audiencia de *gerente de zona*, que hasta ahora no existía en el diseño.
+2. **Etapa 12 — desplegar y medir.** Sprint **AB.11**: incorporación por sucursal y marca + indicadores.
+   Sin esto la fase no tiene forma de saber si sirvió.
+3. **Etapa 2 — "con fecha de actualización visible".** ⭐ No se inventa: es exactamente ADR-056 / Fase VP.
+   Se consume `libs/contracts/http/provenance.contract.ts` (VP.2.1) y se declara `unknown` cuando no se
+   pudo medir — **nunca un "actualizado hace 2 min" leído del reloj del navegador**, que es el error que
+   VP.0 ya encontró en 21 de 24 píldoras.
+4. **El renglón "por qué NO propone pedir"** (14.3), que cambia la forma de la mesa.
+
+### 14.6 ⚠️ Lo que se corrige de este documento
+
+**`commercial.supply_policy` queda cancelada como tabla nueva.** El §5 la proponía para la etapa 3. Medido:
+`commercial.replenishment_channel` (RA-PRO.8, mig `20260720120000`) **ya modela lo mismo** — `via`
+(`purchase` / `transfer`), `source_warehouse_id`, `cadence_days`, `next_due_date`, `last_delivery_date`,
+`lead_time_days`, `health_band`, y un `cadence_source='manual'` que **protege el override humano de que el
+job lo pise**. Crear `supply_policy` sería una segunda materialización del mismo hecho: exactamente lo que
+la regla ⭐ del proyecto prohíbe.
+
+**Lo que sí falta, y por lo tanto es el alcance real del PR 3:**
+
+| Del pedido | En `replenishment_channel` |
+|---|---|
+| origen preferente | ✅ `via` + `source_warehouse_id` |
+| calendario | ✅ `cadence_days` + `next_due_date` |
+| tiempo de entrega | ✅ `lead_time_days` |
+| **prioridad** | ❌ |
+| **orígenes alternos** | ❌ |
+| **excepción por producto** | ❌ — el grano es (almacén × **proveedor**) |
+
+⚠️ **Y una medición pendiente antes de tocar el grano:** el pedido pide (sucursal × **marca/línea**), la
+tabla es (almacén × **proveedor**). Si en este catálogo proveedor ≈ marca, no hay nada que agregar; si no,
+agregar grano a una tabla que un job reescribe cada noche necesita decidir antes quién gana. **Se mide, no
+se asume.**
+
+### 14.7 Sprints que se agregan
+
+| # | Sprint | Qué cierra |
+|---|---|---|
+| **AB.3b** | Los porqués en la mesa | 14.3: origen y fecha a la pantalla, la resta a la vista, el renglón de "cubierto", y la procedencia del dato |
+| **AB.10** | Supervisión de zona | Etapa 10: comparativo, recurrentes, detenidas, atrasadas — con responsable y fecha compromiso |
+| **AB.11** | Despliegue y medición | Etapa 12: incorporación progresiva + indicadores de disponibilidad vs inventario |
