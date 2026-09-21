@@ -10,6 +10,180 @@
 
 ## [Unreleased]
 
+### Added — Análisis de ventas de tienda: cuatro secciones y una cascada por período (Fase TDA.A, 2026-09-19)
+- **`/tienda/analisis-semanal` se parte en cuatro secciones** —Tráfico · Productos y proveedores ·
+  Clientes · Promociones— sobre el MISMO recorte. El filtro de período y sucursal vive una sola vez,
+  en el shell: cambiar de pestaña no te hace volver a elegirlo, y «Tráfico dice 30 días y Productos
+  dice el mes» deja de ser un estado alcanzable. La URL no cambió.
+- **La cascada: la misma fotografía, repetida hacia abajo.** Debajo de las tarjetas, el mismo rango
+  partido en **semana · día de la semana · mes · trimestre · año**, con el juego completo de
+  indicadores en cada fila y un **segundo nivel** que se abre — la semana a sus días, el lunes a
+  cada lunes, el trimestre a sus meses. Cada fila se compara con la de arriba.
+- **Un solo control de tiempo**: el rango manda, el grano sólo agrupa. Presets hasta **2 años**
+  (antes 400 días), topados por la historia que de verdad hay en el fact y no por gusto.
+- **El bucket se define UNA vez, en SQL.** `generate_series` da el mapa `día → bucket` y todo se
+  agrupa con él. Los **clientes** se cuentan con `count(DISTINCT)` —el mismo cliente que vino lunes
+  y martes es uno en la semana— así que no se pueden rodar desde el grano diario: si el bucket se
+  calculara dos veces, los clientes de un período caerían en el renglón de otro **sin que nada
+  fallara**. Verificado: 0 buckets huérfanos en los 5 granos.
+- **La compuerta de cobertura, ahora POR BUCKET.** Un mes con el POS cubriendo 3 de 30 días declara
+  `$/partida` y `uds/ticket` sin medir aunque el rango completo sí alcance. Y **la cobertura va en
+  la fila** (días con venta / días con tickets): es lo que explica un «—» y lo que delata un período
+  a medias que si no se leería como caída de venta.
+- **Los padres del grano «día de la semana» no publican Δ%**: el lunes no viene después del domingo.
+  Los hijos sí — cada lunes contra el lunes anterior.
+- **Clientes y Promociones se publican declaradas, sin dato**: dicen qué va a vivir ahí y qué falta,
+  en vez de estrenar tarjetas en cero. En una pestaña nueva, un cero dibujado no se distingue de
+  «esto no existe todavía».
+- Smoke nuevo `http-store-analytics-breakdown-test.js` **72/72** en `run-all-tests.js`: cuadre al
+  peso contra la fotografía en los 5 granos, `Σ(hijos) == padre`, y la compuerta probada en rojo
+  (74 buckets) y en verde.
+
+### Added — «Clientes»: la pestaña que abre declarando su techo (Fase TDA.A4, 2026-09-20)
+- **Lo primero que se ve no es un KPI, es la proporción.** Una barra de tres franjas contra la venta
+  total: clientes con nombre · cuentas internas · mostrador anónimo. Medido: de **$105.2M** de venta,
+  los clientes externos reales son **$1.43M = 1.4 %**. El mostrador es anónimo por naturaleza; una
+  tabla de clientes sin ese encabezado se lee como si fuera la venta del negocio.
+- **Un solo código explicaba el 80 % de la venta "identificada" y no era un cliente:** `10-00`
+  «Padre Hidalgo Piso», 33 documentos, $6.42M — la cuenta del propio piso. El ERP ya tiene el campo
+  que lo separa (**Grupo**), y ahora la pantalla lo usa: las cuentas internas se **marcan y se
+  muestran aparte**, nunca se borran.
+- **La ficha del ERP entra a la tabla**: Grupo · Zona · Vendedor · Límite de crédito · Plazo, vía la
+  nueva vista `analytics.v_customer_master` (derivada del ODS, sin importer ni tabla nueva),
+  decodificada con dos capturas de la pantalla «Datos del cliente» como sonda.
+- ⚠️ **La clave de cliente es POR SUCURSAL.** De 1,574 claves, **141 son un cliente distinto según
+  la plaza** (`00002` es tres personas diferentes); el propio ERP lo advierte y el personal escribe
+  «NO TOCAR» en el nombre para defenderse. La vista **no deduplica**, cada fila trae su plaza, y la
+  pantalla declara que **no se pueden sumar clientes entre plazas** — a un cliente además le pueden
+  vender varios vendedores o sucursales.
+- **Estado derivado de fechas** (nuevo · activo · dormido), incluyendo a los que **no** compraron en
+  el período pero sí en el anterior: son la única señal de fuga que esta pantalla puede dar.
+- **«Nuevo» se apaga cuando no se puede saber:** si la facturación empieza dentro del período, todos
+  salen nuevos (medido: 284 de 284) — se declara en vez de publicar el padrón entero como altas.
+- **Acá no va la cascada, y se dice por qué:** el fact de venta no sabe quién compró.
+- Smoke de 119 → **132/132**, con el candado de la llave y la prueba negativa de la separación.
+
+### Added — «Productos TOP»: Pareto y las tres etiquetas del ERP (Fase TDA.A3, 2026-09-20)
+- **Quinta pestaña.** El análisis de productos se separa en la suya: Tráfico · Proveedores y
+  productos · **Productos TOP** · Clientes · Promociones. Eran dos preguntas distintas y la segunda
+  vivía al pie de la primera, donde nadie llegaba.
+- **El acumulado es lo que la hace útil.** Una lista de 5,744 productos ordenada por venta no es una
+  decisión; con la columna de acumulado sí, porque dice dónde cortar. Medido: **249 productos hacen
+  el 50 % de la venta y 1,012 el 80 %** — los otros 4,732, el 82 % del catálogo vendido, pesan
+  juntos una quinta parte. La pestaña abre en el corte del 80 % y «Todos» trae el resto.
+- **Línea · Tipo · Grupo, decodificados con una sonda del negocio.** Con la ficha de Kepler del SKU
+  70001 se buscó entre las 129 tablas chicas del ODS cuál contenía cada texto: `kdii.c4` →
+  `kdie` = **Tipo** (12, cubre 98.0 % de la venta), `kdii.c5` → `kdif` = **Grupo** (231, cubre
+  99.7 %). Nueva vista `analytics.v_product_taxonomy`: **derivada del ODS, sin importer y sin tabla
+  nueva**.
+- ⛔ **`catalog.products.category_id` no servía y por poco se usa:** el 38 % de sus categorías
+  repiten el nombre del proveedor, y `department` está 100 % en NULL.
+- ⚠️ **Tipo y Grupo NO son jerarquía** (86 de 241 grupos aparecen bajo más de un tipo): van como dos
+  filtros independientes, nunca como árbol. Y **`kdii` es por sucursal**: 1.4-1.7 % de los SKUs
+  discrepan entre plazas, se ancla al CEDIS y la vista **declara de qué plaza salió**.
+- **Los filtros van al servidor, incluido el buscador**, porque el acumulado tiene que ser el del
+  universo filtrado: si filtrara en el navegador sería el de las filas visibles — el mismo nombre de
+  columna con otro significado.
+- Nuevos KPIs que la vista de proveedores no da: **$/unidad** y **días con venta** (dos productos
+  con la misma venta, uno todos los días y el otro en un pico, no se reponen igual).
+- Se declara que **`NO APLICA` es un valor real del catálogo, no un hueco**: pesa $15.1M = 14.3 % de
+  la venta.
+- La cascada se acota también **a un producto**, con el mismo patrón que la línea.
+- Smoke de 93 → **119/119** (+2 declarados sin medir por el tope de filas), con la aserción que ata
+  todo: al filtrar por tipo el acumulado **se re-calcula** y vuelve a cerrar en 100 %.
+
+### Added — «Productos y proveedores» pasa a ser LÍNEA → PRODUCTO (Fase TDA.A2, 2026-09-20)
+- **La pestaña deja de ser una lista de 50 productos.** Arriba, la venta por **línea** (el proveedor
+  al que pertenece el producto en el catálogo); al elegir una, abajo sus productos y **su evolución
+  histórica** en la misma cascada de Tráfico (semana · día de la semana · mes · trimestre · año).
+- **Por qué la línea del catálogo, medido y no opinado** (12 meses de tienda, sin ruta): cubre el
+  **100.0 %** de la venta, es **1:1** (9,541 SKUs con una línea, 2 con dos) y coincide con Kepler en
+  **99.77 %**. **11 líneas explican la mitad** de la venta, de 302.
+- **La alternativa se descartó con número:** atribuir por *quién entregó* (las recepciones) no
+  funciona — el **94.8 %** de la venta viene de SKUs recibidos de más de un proveedor real, y en la
+  misma ventana se compró $521M contra $94M vendidos a costo, porque el CEDIS surte a toda la red.
+  No son el mismo universo, y una venta no sabe de qué entrega salió.
+- **Lo que no es atribuible a una línea se apaga, no se reparte.** Un ticket lleva productos de
+  varias líneas → tickets, partidas por ticket, ticket promedio, $/partida, unidades por ticket y
+  clientes vuelven `null` y la tabla esconde esas columnas diciendo por qué. Repartirlos sería
+  inventarlos; dejar el número de la tienda entera se leería como si fuera de esa línea.
+- **Los productos sin línea salen en su propia fila**, no por un `INNER JOIN`: hoy son $21,669 de
+  $105.17M, pero un `INNER JOIN` los tiraría sin dejar rastro y el total dejaría de cuadrar con la
+  fotografía sin que nadie lo viera.
+- Se declara en pantalla que **la línea es un atributo de hoy y no tiene historia** (hueco VP.3): si
+  mañana le cambian la línea a un producto, su venta pasada se re-atribuye sola.
+- ⬜ **Hallazgo abierto para Compras:** el proveedor **asignado** es el que más entregó en sólo
+  **66.4 %** de los SKUs — 1 de cada 3 está asignado a quien no es su proveedor real principal, y de
+  ahí salen el lead time y el punto de reorden de Fase RA.
+- Smoke de 72 → **93/93**: `Σ(líneas) == la fotografía` y `Σ(productos) == su línea` al peso, más la
+  prueba negativa del modo línea y su contraparte.
+
+### Changed
+- **Se retira el switch «Rango / Semana»** de `/tienda/analisis-semanal`: la cascada con grano
+  Semana hace lo mismo y con todos los indicadores (la vista semanal sólo daba venta, margen y
+  unidades). Dos formas de mirar la misma semana que pueden no coincidir es cómo se pierde la
+  confianza en un tablero. `GET /store/analytics/weekly` queda sin consumidor — declarado, no
+  retirado.
+- `GET /store/analytics/range` acepta `with_products=0` (default `1`, contrato viejo intacto): el
+  top de productos se mudó a su pestaña y es la consulta cara del endpoint.
+
+### Added — Lista de faltantes: la venta que NO ocurrió llega a Compras (Fase FLT, 2026-09-19)
+- **El único dato de demanda que ningún feed puede ver.** Cajeras y anaquelistas reportan desde el
+  mostrador lo que un cliente pidió y no había. Una venta que no pasó no deja ticket, ni movimiento,
+  ni renglón en `kepler_ods`: el cliente preguntó, no lo había, y se fue. La persona del mostrador
+  es el único instrumento capaz de registrarlo, así que es tabla propia (dato HITL) y no una vista.
+- **El pedido incluía una hoja que la medición desarmó.** Se pidió *"el listado de productos que no
+  tienen código de barras, para que la caja no busque a mano"*. Medido: **139 SKUs (1.5 % del
+  catálogo) que valen 0.01 % de la venta de 90 días ($3,130 de $45.7M)**, y la mayoría ni son
+  mercancía — códigos de promoción, etiquetas de anaquel, un ajuste contable. Productos reales: ~6.
+  **El problema real es otro**: el código **existe** y el escaneo **falla igual** (etiqueta borrada,
+  granel reempacado, código impreso distinto al de Kepler), y eso hoy se evapora. Es el motivo
+  `codigo_no_pasa`, y la herramienta de caja pasó a ser la lista **medida** de los que de verdad
+  fallan en SU sucursal.
+- **Kiosco `/tienda/faltantes`** con tres pestañas: Reportar (un toque) · Buscar por nombre · Los
+  que no pasan. **La búsqueda por nombre no existía en ninguna parte** —el verificador sólo resuelve
+  por código— y corre contra el catálogo que ese kiosco **ya baja a IndexedDB**: instantánea, sin
+  red y **sin un endpoint nuevo**. Enganchado desde el verificador: en "no encontrado" aparece
+  *"El cliente lo pidió"* con el código puesto.
+- **Bandeja `/compras/faltantes`** ordenada por dinero estimado, y la decisión **vuelve a la pantalla
+  de la tienda** — sin ese regreso la cajera deja de reportar en dos semanas y la fuente se seca
+  (medido en la propia landing: hay bandejas con **0 resueltas en 30 días**).
+- **Lo que no se pudo medir se declara, nunca se dibuja como cero** (ADR-056): sin precio con qué
+  valorar, el monto va **NULL** y el KPI cuenta aparte *"no incluye N sin precio con qué valorar"*.
+  Y `on_hand_at_report` separa **dos señales**: persona ve 0 + ERP dice 12 no es una compra, es un
+  **descuadre de inventario**.
+- Permisos nuevos `STORE_STOCKOUT_CAPTURAR` / `_VER`, **repartidos** (no sólo declarados) derivando
+  del estado vivo. Corrección medida: lo obvio era calcar el verificador y **`cajero` no tiene ese
+  permiso** → se habría quedado sin reportar justo quien atiende al cliente que pregunta.
+- Migraciones `20260919150000` + `20260919150100`. Smoke `test-newdb-floor-stockouts.js` **14/14**
+  (las 4 formas de mentir, cada una rota a propósito) en `run-all-tests.js`.
+
+### Fixed — Caja General: los tres diálogos abrían sin botones, o sea que no se podía guardar (2026-09-19)
+- **Medido en vivo, no deducido:** *"Registrar movimiento de caja"* y *"Abrir corte de caja"* se abren
+  con **cero botones** — `.p-dialog-footer` **no existe en el DOM** y el arreglo de botones del
+  diálogo viene vacío. No hay Guardar, no hay Cancelar. Nadie puede registrar un movimiento ni abrir
+  un corte desde esa pantalla. El tercero (*"Cerrar corte"*) es el mismo constructo en el mismo
+  archivo, pero sólo aparece con un corte abierto y no se forzó uno en la base compartida.
+- **Causa:** los 3 usaban `<ng-template pTemplate="footer">`. **PrimeNG 22 no proyecta eso** en
+  `p-dialog`; el pie se declara con `<ng-template #footer>`, que es lo que ya usan las otras ~50
+  pantallas del repo. Los 3 `pTemplate="header"` que quedan en el repo **no** se tocaron: están
+  sobre `p-table`, donde sí funciona (verificado: esas tablas renderizan).
+- **Por qué no lo atrapó nada:** no hay error en consola, el build pasa en verde y el typecheck
+  también. Angular acepta el `ng-template` como válido; simplemente nadie lo consume. La única
+  forma de verlo es abrir el diálogo.
+- Encontrado de casualidad mientras se construía la Lista de faltantes (Fase FLT), al chocar con el
+  mismo defecto en un diálogo nuevo. Queda un comentario en el código para que no se repita.
+
+### Fixed — el verificador confundía productos al escanear un código de barras (CV.28, 2026-09-20)
+- Reportado en campo: al escanear, la pantalla mostraba información de OTRO producto.
+- Causa: `LPAD(x, 5, '0')` de Postgres **trunca** cuando `x` mide más de 5 caracteres
+  (`lpad('7506306248861',5,'0')` → `'75063'`) — la comparación de `KpService.getPrecio()` entre
+  `LPAD(c1,5,'0')` y `LPAD($1,5,'0')` no tenía guarda de longitud, así que un código de barras
+  EAN-13 completo se truncaba a sus primeros 5 dígitos antes de comparar contra el código interno.
+  Caso real confirmado: `7506306248861` (GEL EGO GRANDE) empataba con `* DESCONTINUADO`.
+- Fix: la rama de `LPAD` solo aplica cuando el código escaneado mide ≤5 caracteres (su propósito
+  real: código interno corto sin ceros a la izquierda, nunca un barcode). PR #127.
+
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
 - **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
   funciona —verificado con dos cachés locales vacías distintas: la 1ª falla y escribe, la 2ª lee

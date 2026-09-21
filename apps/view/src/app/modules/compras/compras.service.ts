@@ -264,7 +264,12 @@ export interface WorkbookRow {
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;
   territories: WorkbookTerritory[];       // puntos de compra presentes → columnas dinámicas
-  totals: { pedido: number; venta: number; exis: number };
+  /**
+   * `[RA-PRO.49]` `venta_costo` = la venta 30d **al costo**, sobre las mismas celdas verificadas
+   * que `exis`. Es el denominador de los días de inventario; `venta` está a PRECIO y no sirve
+   * para ese cociente. `null` = sin demanda medida — no es cero.
+   */
+  totals: { pedido: number; venta: number; exis: number; venta_costo?: number | null };
   // U.2 — el hueco del inventario valuado, declarado. `exis` de arriba es sólo lo verificado, así
   // que sin esto el total bajaría en silencio y se leería como "hay menos inventario".
   unit_rung?: { skus: number; celdas: number; arbitrado: number };

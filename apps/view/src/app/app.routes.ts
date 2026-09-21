@@ -8,6 +8,7 @@ import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
+import { AnalisisStateService } from './modules/tienda/analisis/analisis-state.service';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
@@ -601,6 +602,17 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
+        // `[FLT.13]` Faltantes de piso: lo que el mostrador reportó que un cliente pidió y no
+        // había. Reusa el permiso de Hallazgos porque es la misma persona (el comprador) la que
+        // abre las tres bandejas — mismo criterio que WMS-REC.8 tomó para Reclamos.
+        //
+        // Es la única señal de demanda que NO sale de un feed: una venta que no ocurrió no deja
+        // rastro en el ERP, así que el barrido nocturno de Hallazgos nunca la puede ver.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/compras/pages/compras-faltantes.component').then(m => m.ComprasFaltantesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
         // WMS-REC.8 — reclamos de faltantes de recepción (ADR-053). Reusa el permiso de
         // Hallazgos: es la misma persona (el comprador) la que abre las dos bandejas, así
         // que no se agrega un permiso nuevo (ni su backfill ni su re-login).
@@ -1064,9 +1076,45 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
       {
+        // `[TDA.A1]` Análisis de ventas — cuatro secciones sobre el MISMO recorte
+        // (rango + sucursal): Tráfico · Productos y proveedores · Clientes · Promociones.
+        //
+        // El shell monta el encabezado, el filtro y la barra de pestañas una sola vez; el
+        // estado va en `providers` de ESTA ruta (no `providedIn: 'root'`) para que entrar
+        // al módulo arranque limpio y salir lo suelte. Al ser providers de ruta, las 4
+        // hijas comparten la misma instancia sin depender del injector del outlet.
+        //
+        // La URL no cambió aunque la pantalla ya no sea sólo semanal: renombrarla rompería
+        // marcadores y el nav sin ganar nada. Los hijos cuelgan de ella, así que
+        // `/tienda/analisis-semanal` sigue abriendo Tráfico.
         path: 'analisis-semanal',
-        loadComponent: () => import('./modules/tienda/pages/tienda-weekly.component').then(m => m.TiendaWeeklyComponent),
-        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
+        loadComponent: () => import('./modules/tienda/analisis/analisis-shell.component').then(m => m.TiendaAnalisisShellComponent),
+        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)],
+        providers: [AnalisisStateService],
+        children: [
+          {
+            path: '',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-trafico.component').then(m => m.TiendaAnalisisTraficoComponent),
+          },
+          {
+            path: 'productos',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-productos.component').then(m => m.TiendaAnalisisProductosComponent),
+          },
+          {
+            // `[TDA.A3]` Productos TOP: Pareto + Línea/Tipo/Grupo. Separada de
+            // «Proveedores y productos» porque son dos preguntas distintas.
+            path: 'top',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-top.component').then(m => m.TiendaAnalisisTopComponent),
+          },
+          {
+            path: 'clientes',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-clientes.component').then(m => m.TiendaAnalisisClientesComponent),
+          },
+          {
+            path: 'promociones',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-promociones.component').then(m => m.TiendaAnalisisPromocionesComponent),
+          },
+        ],
       },
       {
         // [CV.24] Verificador de precios de mostrador (kiosco con lector de barras).
@@ -1076,6 +1124,21 @@ export const routes: Routes = [
         path: 'verificador',
         loadComponent: () => import('./modules/tienda/pages/tienda-verificador.component').then(m => m.TiendaVerificadorComponent),
         canActivate: [permissionGuard(Permission.STORE_PRICE_CHECK_VER)]
+      },
+      {
+        // `[FLT.10]` Lista de faltantes: la venta que NO ocurrió, capturada en el piso. Es el
+        // único dato de la suite que ningún feed puede ver — una venta que no pasó no deja rastro.
+        //
+        // Gate de CUALQUIERA de los dos permisos, no sólo VER: la cajera tiene únicamente
+        // CAPTURAR (medido — `cajero` ni siquiera tiene el del verificador), y con
+        // `permissionGuard(VER)` no podría entrar a la pantalla donde trabaja. Es la misma
+        // corrección que ya necesitó Caducidades.
+        //
+        // Acepta `?sucursal=NN` igual que el verificador, para la máquina del mostrador que no
+        // tiene cuenta de esa tienda.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/tienda/pages/tienda-faltantes.component').then(m => m.TiendaFaltantesComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)]
       },
       {
         // Caducidades de tienda (2026-09-08): captura directa, un producto a la

@@ -180,6 +180,31 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
   },
 ];
 
+/**
+ * **Análisis BI — el único tab que cruza las áreas.**
+ *
+ * El resto de la barra son "las pantallas de este trabajo"; BI no es un trabajo,
+ * es la lectura cruzada de todos. Se agrega al final de la barra de CADA área
+ * (`almacenTabsForUrl`) en vez de copiarse dentro de los cinco arrays: así hay
+ * un solo lugar donde cambia la etiqueta, la ruta o el permiso.
+ *
+ * **No entra en `area.tabs`** a propósito. `almacenLandingCandidates` lee ese
+ * array para elegir a dónde apunta el item de sidebar del área, y un rol que sólo
+ * tuviera `ALMACEN_BI_VER` habría hecho que "Inventario" aterrizara en BI — dos
+ * items del sidebar apuntando a la misma ruta.
+ *
+ * Quien no tiene el permiso no lo ve: `app-page-tabs` filtra por `permission` y
+ * se esconde solo cuando queda un tab visible, así que para esos roles la barra
+ * queda exactamente como estaba.
+ */
+export const ANALISIS_BI_TAB: PageTab = {
+  label: 'Análisis BI',
+  icon: 'pi pi-chart-line',
+  route: '/almacen/analisis-bi',
+  permission: Permission.ALMACEN_BI_VER,
+  exact: true,
+};
+
 /** Quita query string y fragmento — `routerLinkActive` compara sin ellos. */
 function cleanUrl(url: string): string {
   return url.split('?')[0].split('#')[0];
@@ -207,8 +232,12 @@ export function resolveAlmacenArea(url: string): AlmacenArea | null {
 }
 
 /**
- * Tabs del área a la que pertenece la URL. Vacío en las pantallas de **foco**
- * (`focusEntries`): ahí la barra no se pinta a propósito.
+ * Tabs del área a la que pertenece la URL, más **Análisis BI** al final: es el
+ * único tab que cruza las áreas, para que el indicador se alcance desde cualquier
+ * pantalla del almacén sin volver al sidebar (`ANALISIS_BI_TAB`).
+ *
+ * Vacío en las pantallas de **foco** (`focusEntries`): ahí la barra no se pinta a
+ * propósito, y sumarle BI la haría aparecer.
  */
 export function almacenTabsForUrl(url: string): PageTab[] {
   const area = resolveAlmacenArea(url);
@@ -217,7 +246,15 @@ export function almacenTabsForUrl(url: string): PageTab[] {
   const isFocus = (area.focusEntries ?? []).some(
     (f) => path === f.route || path.startsWith(f.route + '/'),
   );
-  return isFocus ? [] : area.tabs;
+  if (isFocus) return [];
+  // Un área sin tabs (Andén) NO estrena barra por sumarle BI: quedaría una barra
+  // de un solo elemento en una pantalla de foco, que es justo lo que el diseño
+  // del área evita.
+  if (!area.tabs.length) return [];
+  // El área de BI ya trae su propia pantalla (*Panorama*); repetirla acá pondría
+  // dos tabs apuntando a la misma ruta.
+  if (area.key === 'analisis-bi') return area.tabs;
+  return [...area.tabs, ANALISIS_BI_TAB];
 }
 
 /**

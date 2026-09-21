@@ -1177,6 +1177,19 @@ export class CommercialReplenishmentService {
                  CASE WHEN ${RUNG_OK}
                       THEN round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0))::numeric, 2)
                  END                                                          AS valor_exis_col,
+                 -- RA-PRO.49 — la VENTA 30d valuada AL MISMO costo de caja que la existencia. Es el
+                 -- denominador de los dias de inventario, y tiene que estar al costo: valor_venta
+                 -- (revenue30) esta a PRECIO, y dividir inventario-al-costo entre venta-a-precio
+                 -- mete el margen en el cociente y devuelve los dias cortos por ese margen (Fase MR
+                 -- lo mide en ~11-13 pp). Con el mismo caja_cost arriba y abajo, el margen se cancela
+                 -- y la unidad tambien: es un cociente de dinero, el arbitro del ADR-059.
+                 -- Gateado por el MISMO RUNG_OK que el numerador a proposito: si se dejara pasar la
+                 -- venta de una celda cuya existencia no se suma, el cociente mezclaria poblaciones
+                 -- y los dias saldrian de menos. Numerador y denominador cubren las mismas celdas.
+                 -- SIN BACKTICKS EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 CASE WHEN ${RUNG_OK}
+                      THEN round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}) * COALESCE(max(b.caja_cost),0))::numeric, 2)
+                 END                                                          AS valor_vta_col,
                  max(b.rung_veredicto)                                        AS rung_veredicto,
                  round(max(b.rung_razon)::numeric, 3)                         AS rung_razon,
                  round(max(b.rung_valor_arbitrado)::numeric, 2)               AS rung_arbitrado,
@@ -1230,6 +1243,8 @@ export class CommercialReplenishmentService {
                  -- suman ni se dibujan como cero: se declaran en las 3 columnas de abajo, que el
                  -- front usa para el banner ("N almacenes sin valuar") y el KPI aparte.
                  round(sum(valor_exis_col)::numeric, 2)                                  AS valor_exis,
+                 -- RA-PRO.49 — Sigma de la venta 30d al costo, sobre las MISMAS celdas verificadas.
+                 round(sum(valor_vta_col)::numeric, 2)                                   AS valor_vta_costo,
                  count(*) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::int AS almacenes_sin_valuar,
                  round(sum(rung_arbitrado) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::numeric, 2) AS valor_exis_arbitrado,
                  max(rung_veredicto) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada')) AS rung_peor,
@@ -1260,6 +1275,7 @@ export class CommercialReplenishmentService {
           round(SUM(pedido_valor)::numeric,2) total_pedido,
           round(SUM(valor_venta)::numeric,2)  total_venta,
           round(SUM(valor_exis)::numeric,2)   total_exis,
+          round(SUM(valor_vta_costo)::numeric,2) total_venta_costo,
           COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0)::int          exis_sin_valuar_skus,
           COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
           round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
@@ -1290,6 +1306,18 @@ export class CommercialReplenishmentService {
           pedido: Number(tot?.total_pedido || 0),
           venta: Number(tot?.total_venta || 0),
           exis: Number(tot?.total_exis || 0),
+          /**
+           * `[RA-PRO.49]` Venta 30d **al costo** de lo filtrado, sobre las mismas celdas
+           * verificadas que `exis`. Existe para una sola cosa: ser el denominador de los días de
+           * inventario. `venta` NO sirve para eso — está a precio.
+           *
+           * `null` cuando no hay demanda medida (no `0`): con cero abajo el cociente es infinito,
+           * y publicar "0 días" o "∞ días" es peor que decir que no se midió (ADR-056). Hoy en
+           * `platform_test` es exactamente este caso: `product_demand` está vacía.
+           */
+          venta_costo: tot?.total_venta_costo == null || Number(tot.total_venta_costo) <= 0
+            ? null
+            : Number(tot.total_venta_costo),
         },
         // U.2 — lo que la pantalla NO puede valuar, declarado en vez de omitido. `arbitrado` es lo
         // que el árbitro (la compra real / el costo propio de Wincaja) sí puede afirmar; es una

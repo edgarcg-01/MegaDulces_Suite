@@ -2,12 +2,14 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListene
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -274,6 +276,15 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
             <div class="vf-err">
               DISCULPE LAS MOLESTIAS
               <small>PRODUCTO NO ENCONTRADO · Código: {{ ultimoCodigo() }}</small>
+              <!-- [FLT.16] El momento exacto en que se pierde la venta, y hasta hoy se evaporaba:
+                   el cliente preguntó, no lo tenemos, y nadie lo anota. Un toque lo manda a la
+                   Lista de faltantes con el código ya puesto. Sólo aparece a quien puede
+                   capturar; para el kiosco público sin cuenta, no se pinta. -->
+              @if (puedeReportarFaltante()) {
+                <p-button type="button" label="El cliente lo pidió" icon="pi pi-flag"
+                          styleClass="p-button-sm vf-btn-respaldo"
+                          (click)="reportarFaltante()"></p-button>
+              }
             </div>
           }
           @case ('sin_datos') {
@@ -531,6 +542,9 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   private readonly svc = inject(VerificadorService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  // `[FLT.16]` Para mandar el código no encontrado a la Lista de faltantes.
+  private readonly router = inject(Router);
+  private readonly permisos = inject(PermissionsService);
   private readonly socket = inject(StoreSocketService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -984,6 +998,31 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
     if (!confirm('¿Reiniciar el contador de productos escaneados a cero?')) return;
     this.contador.set(0);
     try { localStorage.setItem(TiendaVerificadorComponent.LS_CONTADOR, '0'); } catch { /* no crítico */ }
+  }
+
+  /**
+   * `[FLT.16]` ¿Mostrar el botón de reportar faltante?
+   *
+   * Sólo a quien puede capturar. El verificador también corre como kiosco PÚBLICO sin cuenta
+   * (sus endpoints son `@Public()`), y ahí no hay a quién ofrecerle una escritura: el botón
+   * llevaría a una pantalla que le va a contestar 403. Ofrecer una puerta que no abre es el
+   * defecto que `landing-guards.spec.ts` encontró tres veces en esta app.
+   */
+  puedeReportarFaltante(): boolean {
+    return this.permisos.has(Permission.STORE_STOCKOUT_CAPTURAR);
+  }
+
+  /**
+   * Manda el código que NO se encontró a la Lista de faltantes, ya escrito.
+   *
+   * Es el momento exacto en que se pierde la venta —el cliente preguntó, no lo tenemos— y hasta
+   * hoy se evaporaba sin dejar rastro. Ninguna otra fuente lo puede ver: una venta que no ocurrió
+   * no genera ticket ni movimiento en el ERP.
+   */
+  reportarFaltante(): void {
+    this.router.navigate(['/tienda/faltantes'], {
+      queryParams: { sucursal: this.sucursal() || undefined, codigo: this.ultimoCodigo() || undefined },
+    });
   }
 
   descargarRespaldo(): void {

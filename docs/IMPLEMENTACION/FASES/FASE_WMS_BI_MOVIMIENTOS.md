@@ -246,6 +246,40 @@ monta: el TestBed lo llega a instanciar y a correr `ngAfterViewInit`.
 `source_system`, clasificación venta/costo, paridad `mv_unit_truth` vs vista, latencia con
 presupuesto. **Tercer estado obligatorio:** lo que no se pueda medir reporta `NO MEDIDO`, no ✔.
 
+### ✅ WMS-BI.6 — El indicador se alcanza desde cualquier pantalla del almacén — **2026-09-19**
+
+**El pedido era "que la pestaña de BI exista en todos los submódulos de /almacen".** Medido antes
+de tocar nada: el módulo ya estaba entero — ruta, permiso `ALMACEN_BI_VER` **repartido** (10 roles
+en `platform_test`: almacenista, supervisor, prevencion, compras, direccion…), backend de 12
+endpoints, e item propio en el sidebar. Lo que faltaba no era el módulo sino **el atajo**: BI era un
+área aislada, así que desde Inventario, Conteo o Control la barra de tabs no lo mencionaba y había
+que salir al sidebar para llegar.
+
+**Un solo tab, agregado en un solo lugar.** `ANALISIS_BI_TAB` se añade al final de la barra de
+**cada** área dentro de `almacenTabsForUrl`, no copiado dentro de los cinco arrays de `ALMACEN_AREAS`.
+
+**Por qué NO vive dentro de `area.tabs`, que era lo obvio:** `almacenLandingCandidates` lee ese
+array para decidir a dónde apunta el item de sidebar de cada área — *el primer tab que el rol
+alcanza*. Con BI ahí dentro, un rol que sólo tuviera `ALMACEN_BI_VER` habría hecho que el item
+**"Inventario" aterrizara en `/almacen/analisis-bi`**, dejando dos items del sidebar sobre la misma
+ruta. Está fijado con una prueba negativa, no con un comentario.
+
+**Tres casos que se dejan como estaban, a propósito:**
+- **Pantallas de foco** (Andén, Contar, detalle de vale): siguen sin barra. Sumarles BI la haría
+  aparecer, que es exactamente lo que el diseño del área evita — una salida visible a media tarima.
+- **El área de BI** no repite el tab: ya tiene su propia pantalla (*Panorama*).
+- **Diario de Movimientos** (`/almacen/movimientos`) no cae en ningún área → sigue sin barra. Intocable.
+
+**Sin cambio para quien no tiene el permiso:** `app-page-tabs` filtra por `permission` y se esconde
+con un solo tab visible, así que esos roles ven la barra idéntica.
+
+**Verificación:** `apps/view/src/app/modules/almacen/almacen-tabs.spec.ts`, 8 aserciones (4 áreas +
+área de BI + 3 negativas). `nx test view` 370/379 y `nx build view` verde — los 6 fallos restantes
+son de `landing-guards.spec.ts` (SN.4) y **preexistentes**: medidos en el árbol limpio antes del
+cambio, mismo 6/362.
+
+---
+
 ---
 
 ## 4. Decisiones que este plan toma — y las que rechaza
