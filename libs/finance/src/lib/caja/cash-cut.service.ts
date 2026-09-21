@@ -3,6 +3,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
+  proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA,
   type ConteoDenominacion, type MovimientoDelCorte,
 } from './cash-cut.engine';
 
@@ -80,18 +81,106 @@ export class CashCutService {
     });
   }
 
+  /** Guarda el conteo (denominaciones + morralla + total) sobre el corte, dentro de la trx. */
+  private async sellarConteo(trx: any, tenantId: string, id: string, t: { contado: number }, input: CerrarCorteInput) {
+    await trx('finance.cash_ledger_cuts').where({ id }).update({
+      contado: t.contado, morralla: input.morralla ?? 0, updated_at: trx.fn.now(),
+    });
+    await trx('finance.cash_ledger_cut_denominations').where({ tenant_id: tenantId, cut_id: id }).del();
+    const piezas = (input.conteo ?? []).filter((d) => Number(d.piezas) > 0);
+    if (piezas.length) {
+      await trx('finance.cash_ledger_cut_denominations').insert(
+        piezas.map((d) => ({ tenant_id: tenantId, cut_id: id, denominacion: d.denominacion, piezas: d.piezas })));
+    }
+  }
+
   /**
-   * Vista previa del corte SIN cerrarlo: el capturista ve la diferencia mientras cuenta.
-   * Es la misma cuenta que se va a congelar al cerrar, no una aproximación.
+   * ⭐ CG.19 Capa 1b — **SELLAR Y REVELAR.** Era `previa()` y hacía lo contrario.
+   *
+   * El docstring viejo decía: *"el capturista ve la diferencia mientras cuenta"*. Ese era el
+   * requisito y **se revierte a propósito**: ver la diferencia converger a cero mientras se teclea
+   * convierte el arqueo en una transcripción del esperado. Se contaba hasta que diera.
+   *
+   * ⛔ **Y por eso esto GUARDA antes de revelar.** Un conteo que se revela sin sellarse no es
+   * ciego: bastaba con mirar el resultado, corregir el conteo y volver a preguntar. El conteo se
+   * escribe primero, y recién entonces se dice qué dio. Cambiarlo después exige `recontar()`, que
+   * deja rastro.
+   *
+   * ⚠️ El endpoint tenía **cero llamadores** (verificado en `apps/view` y `libs/finance`): se
+   * reusa en vez de inventar otro, y se le cambia el nombre porque `previa` ya no describe lo que
+   * hace — un endpoint que miente es peor que uno que no existe.
    */
-  async previa(id: string, conteo?: ConteoDenominacion[], morralla = 0) {
+  async contar(id: string, input: CerrarCorteInput, user: Usuario) {
+    const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const c = await trx('finance.cash_ledger_cuts').where({ tenant_id: tenantId, id }).first();
+      const c = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
+      if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
+      // Sellar dos veces sin motivo sería recontar por la puerta de atrás.
+      if (Number(c.contado ?? 0) > 0 || c.conteo_previo != null) {
+        throw new BadRequestException(
+          'Este corte ya tiene un conteo sellado. Para cambiarlo hay que recontar, y el reconteo pide motivo.',
+        );
+      }
+
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
-      const totales = calcularCorte({ fondoInicial: Number(c.fondo_inicial), movimientos: movs, conteo, morralla });
-      return { corte: c, totales };
+      const totales = calcularCorte({
+        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        conteo: input.conteo, morralla: input.morralla ?? 0,
+      });
+      if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
+
+      await this.sellarConteo(trx, tenantId, id, totales, input);
+      // Recién acá se revela: el conteo ya está escrito y no se puede retocar en silencio.
+      return { corte_id: id, sellado_por: u.username ?? u.id, totales, puede_recontar: totales.veredicto !== 'cuadra' };
+    });
+  }
+
+  /**
+   * ⛔ **UNA sola vez, con motivo, y el primer conteo NO se borra.**
+   *
+   * Un reconteo ilimitado es un ajuste con otro nombre: se cuenta hasta que dé. El primero pasa a
+   * `conteo_previo` con su razón escrita, y los dos quedan a la vista — que es todo el punto.
+   */
+  async recontar(id: string, input: CerrarCorteInput & { motivo?: string }, user: Usuario) {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const c = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
+      if (!c) throw new NotFoundException('Corte no encontrado');
+
+      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      const previos = await trx('finance.cash_ledger_cut_denominations')
+        .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
+      const totalesPrevios = calcularCorte({
+        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
+      });
+
+      const gate = puedeRecontar(c, totalesPrevios, input.motivo);
+      if (!gate.ok) throw new BadRequestException(TEXTO_NO_RECUENTA[gate.motivo!]);
+
+      // El primero se guarda ENTERO antes de que el segundo lo pise.
+      await trx('finance.cash_ledger_cuts').where({ id }).update({
+        conteo_previo: JSON.stringify({
+          denominaciones: previos, morralla: Number(c.morralla ?? 0),
+          contado: Number(c.contado ?? 0), sellado_at: c.updated_at, recontado_por: u.username ?? u.id,
+        }),
+        reconteo_motivo: String(input.motivo).trim(),
+        updated_at: trx.fn.now(),
+      });
+
+      const totales = calcularCorte({
+        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        conteo: input.conteo, morralla: input.morralla ?? 0,
+      });
+      if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
+      await this.sellarConteo(trx, tenantId, id, totales, input);
+
+      return { corte_id: id, totales, conteo_previo_contado: Number(c.contado ?? 0), puede_recontar: false };
     });
   }
 
@@ -207,8 +296,19 @@ export class CashCutService {
   /**
    * Saldo actual de la caja: fondo del corte abierto + efecto de sus movimientos.
    * Se DERIVA (vista con ventana), no se guarda — ver §CG.15 de la fase.
+   *
+   * ⛔ **CG.19 Capa 1b — ACÁ ESTABA LA FUGA DEL ARQUEO CIEGO.** Este endpoint devolvía
+   * `totales` completo (con `esperado`) y la pantalla lo pintaba en el diálogo de cierre mientras
+   * la persona teclea el conteo. Contar viendo el esperado no es contar: es transcribir.
+   *
+   * Ahora sólo lo ve quien **autoriza** (`FINANCE_CAJA_AUTORIZAR`), que es la segunda llave del
+   * corte — la misma persona que ya no puede ser la que cerró. Quien captura cuenta a ciegas y lo
+   * ve al guardar.
+   *
+   * ⚠️ `saldo` también se recorta: es literalmente `t.esperado` con otro nombre. Dejarlo hubiera
+   * sido tapar el campo y publicarlo en el de al lado — que es como se rompen estos candados.
    */
-  async saldo(sucursal: string) {
+  async saldo(sucursal: string, revela = false) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const abierto = await trx('finance.cash_ledger_cuts')
@@ -217,12 +317,22 @@ export class CashCutService {
       const t = calcularCorte({ fondoInicial: Number(abierto?.fondo_inicial ?? 0), movimientos: movs });
       return {
         sucursal,
-        corte_abierto: abierto ? { id: abierto.id, folio: abierto.folio, fondo_inicial: Number(abierto.fondo_inicial) } : null,
+        corte_abierto: abierto
+          ? {
+            id: abierto.id, folio: abierto.folio, fondo_inicial: Number(abierto.fondo_inicial),
+            // Que ya se recontó NO es secreto: no revela el esperado y la pantalla necesita
+            // saberlo para apagar el botón antes de que el usuario lo intente.
+            ya_reconto: abierto.conteo_previo != null,
+          }
+          : null,
         // Sin corte abierto el "saldo" no tiene punto de partida: se declara, no se dibuja en 0.
-        saldo: abierto ? t.esperado : null,
+        saldo: revela ? (abierto ? t.esperado : null) : null,
+        // Se DICE que está oculto. Un `null` por candado y un `null` por "no hay corte" son cosas
+        // distintas y no pueden leerse igual (ADR-056).
+        saldo_oculto: !revela,
         sin_corte_abierto: !abierto,
         movimientos_sueltos: t.movimientos,
-        totales: t,
+        totales: proyectarCiego(t, revela),
       };
     });
   }

@@ -128,8 +128,17 @@ export class CashLedgerService {
   }
 
   /** La MISMA cuenta que se congela al cerrar: el capturista ve la diferencia mientras cuenta. */
-  previaCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0): Observable<{ corte: CorteCaja; totales: TotalesCorte }> {
-    return this.http.post<{ corte: CorteCaja; totales: TotalesCorte }>(`${this.base}/cortes/${id}/previa`, { conteo, morralla });
+  /**
+   * CG.19 — SELLA el conteo y recién entonces revela. Era `previa`, que mostraba la diferencia
+   * mientras se contaba: con eso el arqueo era una transcripción del esperado.
+   */
+  contarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/contar`, { conteo, morralla });
+  }
+
+  /** Segundo y ÚLTIMO conteo. El motivo es obligatorio y el primero se conserva. */
+  recontarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla: number, motivo: string): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`, { conteo, morralla, motivo });
   }
 
   cerrarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string): Observable<CorteCaja & { totales: TotalesCorte }> {
@@ -167,15 +176,41 @@ export interface CorteCaja {
 
 export interface TotalesCorte {
   ingresos: number; gastos: number; depositos: number;
-  esperado: number; contado: number; diferencia: number;
-  veredicto: 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+  /**
+   * ⛔ CG.19 — **opcionales a propósito.** El servidor los recorta para quien no autoriza: el
+   * arqueo es CIEGO. `diferencia` y `veredicto` se van JUNTO con `esperado` porque
+   * `esperado = contado − diferencia` y el veredicto es su signo — publicar uno es publicar los
+   * tres. Cuando faltan, viene `oculto: true`.
+   */
+  esperado?: number; diferencia?: number;
+  veredicto?: 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+  contado: number;
   movimientos: number; cancelados: number;
+  /** De qué está hecho el esperado: cuánto del ingreso viene de Kepler y cuánto de un teclado. */
+  ingresos_anclados: number; ingresos_capturados: number;
+  /** 0..1, o `null` si no hubo ingresos. NUNCA 0 por falta de datos. */
+  cobertura_ingreso: number | null;
+  /** El servidor DICE que recortó, en vez de mandar campos ausentes sin explicación. */
+  oculto?: true;
+  /** Viaja aunque sea ciego: no revela nada y la pantalla necesita saber si ya se contó. */
+  conto?: boolean;
+}
+
+/** Lo que devuelve sellar el conteo: acá SÍ viene revelado — ya no se puede retocar en silencio. */
+export interface RevelacionCorte {
+  corte_id: string;
+  totales: TotalesCorte;
+  puede_recontar: boolean;
+  sellado_por?: string;
+  conteo_previo_contado?: number;
 }
 
 export interface SaldoResponse {
   sucursal: string;
-  corte_abierto: { id: string; folio: string; fondo_inicial: number } | null;
+  corte_abierto: { id: string; folio: string; fondo_inicial: number; ya_reconto: boolean } | null;
   saldo: number | null;
+  /** `saldo` es el esperado con otro nombre: cuando está oculto se declara, no se confunde con 0. */
+  saldo_oculto: boolean;
   sin_corte_abierto: boolean;
   movimientos_sueltos: number;
   totales: TotalesCorte;

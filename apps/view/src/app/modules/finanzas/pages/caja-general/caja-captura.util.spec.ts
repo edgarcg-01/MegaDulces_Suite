@@ -9,7 +9,7 @@
 import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, DENOMINACIONES, GLOSA_MIN,
-  veredictoCorte, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  puedeAutorizarUI, puedeCerrarUI, textoSaldo,
   type FormularioCaja, type CorteVista,
 } from './caja-captura.util';
 
@@ -190,29 +190,6 @@ const corteCerrado: CorteVista = {
   id: 'c1', folio: 'CC-2026-00001', estado: 'cerrado',
   closed_by: 'u-capturista', closed_by_username: 'karmen',
 };
-
-describe('veredictoCorte — sin contar NO es cuadrar', () => {
-  it('[negativa] sin conteo devuelve sin_contar, no cuadra', () => {
-    const r = veredictoCorte(1000, [], 0);
-    expect(r.veredicto).toBe('sin_contar');
-    expect(r.veredicto).not.toBe('cuadra');
-    expect(r.contado).toBe(0);
-  });
-  it('[negativa] todas las piezas en 0 tampoco es un conteo', () => {
-    expect(veredictoCorte(100, [{ denominacion: 500, piezas: 0 }]).veredicto).toBe('sin_contar');
-  });
-  it('cuadra cuando el conteo iguala lo esperado', () => {
-    const r = veredictoCorte(1300, [
-      { denominacion: 1000, piezas: 1 }, { denominacion: 200, piezas: 1 }, { denominacion: 100, piezas: 1 },
-    ]);
-    expect(r.veredicto).toBe('cuadra');
-    expect(r.diferencia).toBe(0);
-  });
-  it('distingue sobra de falta', () => {
-    expect(veredictoCorte(100, [{ denominacion: 200, piezas: 1 }]).veredicto).toBe('sobra');
-    expect(veredictoCorte(500, [{ denominacion: 100, piezas: 1 }]).veredicto).toBe('falta');
-  });
-});
 
 describe('puedeAutorizarUI — la doble llave en el botón', () => {
   it('otra persona puede, y el texto dice quién cerró', () => {

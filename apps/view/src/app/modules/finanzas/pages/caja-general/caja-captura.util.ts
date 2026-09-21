@@ -205,22 +205,24 @@ export interface CorteVista {
 }
 
 /**
- * Veredicto del conteo. `sin_contar` es un estado propio: si devolviera `cuadra` con 0 contra
- * 0, el día que nadie contó se vería igual que el día que cuadró al centavo.
+ * ⛔ **RETIRADA (CG.19 Capa 1b) — no la vuelvas a cablear.**
+ *
+ * Calculaba el veredicto **en el navegador**, a partir de un `esperado` que el servidor le había
+ * mandado. Eso es exactamente lo que el arqueo ciego elimina: con el esperado en el bundle,
+ * ocultarlo en la plantilla no oculta nada, y la persona cuenta hasta que la diferencia dé cero.
+ *
+ * El veredicto ahora lo produce el SERVIDOR al **sellar** el conteo
+ * (`POST /finance/cash-ledger/cortes/:id/contar` → `cash-cut.engine.ts#calcularCorte`), que es el
+ * único momento en que el conteo ya no se puede retocar en silencio.
+ *
+ * Se deja la firma borrada a propósito en vez de dejar la función "por si acaso": una herramienta
+ * que hace justo lo que el candado prohíbe es una invitación a romperlo sin querer. Lo único que
+ * valía la pena de acá —que `sin_contar` es un estado propio y no `cuadra`— ya está probado del
+ * lado del servidor, en `cash-cut.engine.spec.ts`.
+ *
+ * ⚠️ `sumaDesglose` SÍ sigue viva y es legítima: suma lo que la persona misma tecleó y no toca el
+ * esperado. Es lo que la pantalla muestra mientras se cuenta a ciegas.
  */
-export function veredictoCorte(
-  esperado: number,
-  dens: DenominacionCapturada[] | null | undefined,
-  morralla = 0,
-): { veredicto: VeredictoCorte; contado: number; diferencia: number } {
-  const piezas = (dens ?? []).filter((d) => d && Number(d.piezas) > 0);
-  const hubo = piezas.length > 0 || Number(morralla) > 0;
-  const contado = sumaDesglose(dens, morralla);
-  const diferencia = redondea(contado - Number(esperado || 0));
-  if (!hubo) return { veredicto: 'sin_contar', contado: 0, diferencia: 0 };
-  if (Math.abs(diferencia) <= ARQUEO_EPSILON) return { veredicto: 'cuadra', contado, diferencia };
-  return { veredicto: diferencia > 0 ? 'sobra' : 'falta', contado, diferencia };
-}
 
 /** La doble llave, para el botón. Devuelve el motivo, no un booleano pelado. */
 export function puedeAutorizarUI(
