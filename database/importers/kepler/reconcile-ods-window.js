@@ -51,6 +51,7 @@
 
 const { Client } = require('pg');
 const sink = require('../lib/sink');
+const { veredicto } = require('../lib/reconcile-veredicto');
 const { asegurar: asegurarTablasCalendario } = require('./ensure-monthly-tables');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
@@ -238,8 +239,24 @@ const resumen = (out) => ({
   errores: out.filter((r) => r.error).length,
 });
 
-// Umbral de alarma. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese intervalo se ve
-// "ausente" sin serlo. Un puñado por pasada es ese ruido; decenas son pérdida real.
+// Umbral de TENDENCIA. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese intervalo se
+// ve "ausente" sin serlo. Un puñado por pasada es ese ruido; decenas dicen que el carril caliente se
+// está saltando filas y que este reconciliador las está tapando.
+//
+// ⚠️ 2026-09-21 — ESTE NÚMERO YA NO PONE ROJO, y la corrección importa. El comentario original decía
+// "decenas son pérdida real", y es justo lo que la medición desmiente: en cinco pasadas seguidas
+// —huecos 48/32/52/58/106— las repuestas fueron 48/32/52/58/106 y los errores 0, y la ventana FULL
+// del mismo día dio `huecos 0`. No se perdió una sola fila: el reconciliador hizo su trabajo y el
+// tablero lo marcó CRÍTICO por haberlo hecho.
+//
+// Además el 50 quedó viejo por un cambio de la red, no del software: se calibró con 8 ramas y desde
+// el 2026-09-18 hay 9, siendo la nueva —Morelia Abastos— la de mayor volumen de la empresa. En dos
+// pasadas de esa tarde aportó ella sola 42 de 52 y 54 de 56 huecos. O sea que el umbral pasó a
+// dispararse en operación normal.
+//
+// Es exactamente el criterio que este mismo archivo ya aplica a ALERTA_SOBRANTES (abajo): un rojo
+// permanente que nadie puede atender enseña al equipo a ignorar el tablero. El conteo sigue viajando
+// en la nota, que es donde sirve como tendencia.
 const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 50);
 
 // Umbral de SOBRANTES, aparte y APAGADO por default (0 = sólo reportar en la nota, nunca poner rojo).
@@ -268,8 +285,12 @@ async function latir(destUrl, r, ms) {
   const c = new Client({ connectionString: destUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
   try {
     await c.connect();
-    const sobranMal = ALERTA_SOBRANTES > 0 && r.sobrantes > ALERTA_SOBRANTES;
-    const malo = r.huecos > ALERTA || r.errores > 0 || sobranMal || r.abortados > 0;
+    // ⭐ El veredicto NO se decide acá. Vive en `lib/reconcile-veredicto.js` como función pura
+    // porque dentro de `latir()` era inejercitable —abre conexión, hace exit— y por eso nunca se
+    // probó. Su prueba negativa: `database/tests/test-reconcile-veredicto.js`.
+    const v = veredicto(r, {
+      apply: APPLY, alerta: ALERTA, alertaSobrantes: ALERTA_SOBRANTES, maxDeleteFrac: MAX_DELETE_FRAC,
+    });
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
@@ -279,14 +300,9 @@ async function latir(destUrl, r, ms) {
         last_start=EXCLUDED.last_start, last_finish=EXCLUDED.last_finish, status=EXCLUDED.status,
         rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
         note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
-    [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
-      `ventana ${FULL ? 'FULL' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
-      malo ? [
-        r.huecos > ALERTA ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) — el carril esta perdiendo filas` : null,
-        sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
-        r.errores > 0 ? `${r.errores} tablas con error` : null,
-        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano` : null,
-      ].filter(Boolean).join(' · ') : null,
+    [TENANT, ms, v.status, r.repuestas,
+      `ventana ${FULL ? 'FULL' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}${v.tendencia}`,
+      v.error,
       require('os').hostname()]);
   } catch (e) {
     console.error(`latido falló: ${e.message}`);   // nunca corta la reconciliación
