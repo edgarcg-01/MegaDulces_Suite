@@ -10,6 +10,26 @@
 
 ## [Unreleased]
 
+### Added — Andén: varias caducidades en un mismo renglón (WMS-REC.9b, 2026-09-21)
+- Llegan 6 cajas de un lote y 4 de otro: ahora las fechas se **van agregando a una lista**,
+  cada una con su lote, su cantidad y **su propia foto**, y se guardan todas al final. Mientras
+  están en la lista se pueden quitar — todavía no tocaron el inventario.
+- Se guardan en serie y **un éxito parcial se dice como tal**: si la 2ª de 3 falla, el aviso
+  dice cuáles entraron y cuál no, en vez de un "guardado" sobre mercancía a medio declarar.
+
+### Fixed — El Andén decía "pz" y el 73.6% de los renglones no se cuenta en piezas (WMS-REC.9b, 2026-09-21)
+- El vale del ERP ya trae su unidad (`PAQ` 60,468 · `PZA` 24,587 · `KG` 4,455 · `CJA` 168…) y la
+  pantalla la ignoraba. Ahora la cantidad se dice en la unidad del vale. El resolvedor se extrajo
+  a `shared/unidad-vale.ts`, compartido con la bandeja de caducidades.
+
+### Fixed — 4 de los 5 usuarios del Andén no podían acomodar nada (WMS-REC.9b, 2026-09-21)
+- Medido en producción: el rol `almacenista` (4 usuarios) tiene `INVENTORY_RECIBIR` pero **no**
+  `VER` ni `ASIGNAR`, así que la sección de Ubicación le contestaba 403 entera — *"No tienes los
+  permisos dinámicos necesarios"*. Las tres lecturas que el Andén usa y la creación del bin pasan
+  a `RequireAnyPermission`, incluyendo a quien recibe. **`DELETE /bins` no se abre.** Sin
+  migración y sin re-login: el guard lee los permisos frescos de la base.
+- Corrige lo que WMS-REC.9 afirmó ("sin 403"), que se había medido contra staging.
+
 ### Changed — La imagen de prod adelgaza 860 MB, y compilar resultó ser el 38% del build (`[NX.10]`, 2026-09-21)
 - **Se midió el build real de Railway antes de tocar nada** (deploy 2026-09-21 09:03, 5m 21s):
   `nx run-many` **2m 02s (38%)** · `COPY --chown node_modules` **1m 30s (28%)** · `export`

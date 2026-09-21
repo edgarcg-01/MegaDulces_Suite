@@ -12,12 +12,13 @@ import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.s
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
 import { AndenSegmentedComponent, SegItem } from './components/anden-segmented.component';
-import { AndenCaducidadComponent, FechadoConfirmado } from './components/anden-caducidad.component';
+import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './components/anden-caducidad.component';
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
 import { AndenUbicacionComponent, UbicacionNueva, UbicadoConfirmado } from './components/anden-ubicacion.component';
 import { AndenCartelComponent, CartelUbicacion } from './components/anden-cartel.component';
 import { ScanFieldComponent } from './components/scan-field.component';
 import { formatExpiryEcho } from '../shared/expiry-short';
+import { unidadDelVale } from '../shared/unidad-vale';
 import { Buscable, coincide, normalizar } from './filtro.util';
 
 /**
@@ -673,70 +674,136 @@ export class AndenComponent implements OnInit {
     });
   }
 
-  confirmarFechado(f: FechadoConfirmado): void {
+  /**
+   * **Un renglón puede llevar VARIAS caducidades** (llegan 6 cajas de un lote y 4
+   * de otro). Se guardan de a una y **en serie**: cada una escribe stock y el
+   * backend le resuelve su propio veredicto, así que una puede entrar verde y la
+   * siguiente quedar retenida.
+   *
+   * **No se corta al primer fallo y no se reporta un éxito parcial como éxito.**
+   * Si la 2ª de 3 falla, la 1ª ya entró a inventario: decir "guardado" ahí
+   * escondería mercancía a medio declarar. Se dice cuántas entraron, cuántas
+   * quedaron retenidas y cuál falló con su motivo.
+   */
+  async confirmarFechado(f: FechadoConfirmado): Promise<void> {
     const v = this.s.vale();
     const wh = this.s.warehouseId();
-    if (!v || !wh || !f.linea.product_id) return;
+    if (!v || !wh || !f.linea.product_id || !f.entradas.length) return;
     this.s.guardando.set(true);
-    this.guardarCaptura(f).then(
-      (cap) => {
-        this.s.guardando.set(false);
-        this.toast.add(cap.verdict === 'red'
-          ? { severity: 'error', summary: 'Retenida',
-              detail: 'Fechada, pero 🔴: un supervisor tiene que liberarla antes de cerrar el vale.' }
-          : { severity: 'success', summary: 'Fechada',
-              detail: `${this.nombre(f.linea)} — ${f.cantidad} pz, lote ${f.lote}.` });
-        this.cargarDetalle(v.id, () => {
-          this.s.actual.set(null);
-          this.volverALaBarra();
-          this.cargarLotes();
-          // Una captura suelta no destraba ningún renglón del vale: encadenar al
-          // "siguiente pendiente" mandaría al operario a otro producto sin que lo
-          // pidiera. Sólo se encadena cuando lo que se fechó era del vale.
-          if (f.linea.id) this.siguienteFechar();
-        });
-      },
-      (e) => {
-        this.s.guardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo fechar', detail: e?.error?.message || 'Error' });
-      },
-    );
+
+    let declarado = f.linea.declarado;
+    let retenidas = 0;
+    let ok = 0;
+    const fallas: string[] = [];
+
+    for (const e of f.entradas) {
+      try {
+        const cap = await this.guardarUna(f.linea, e);
+        ok++;
+        declarado += e.cantidad;
+        if (cap.verdict === 'red') retenidas++;
+      } catch (err: unknown) {
+        const x = err as { error?: { message?: string }; message?: string };
+        fallas.push(`${formatExpiryEcho(e.caducidadIso)}: ${x?.error?.message || x?.message || 'error'}`);
+      }
+    }
+
+    // El renglón se cierra con lo que de verdad se declaró, y una sola vez. Va
+    // afuera del loop: mientras siga `pending` se le pueden seguir agregando lotes.
+    if (ok > 0) {
+      try {
+        await this.cerrarSiCompleto(f.linea, declarado);
+      } catch (err: unknown) {
+        const x = err as { error?: { message?: string } };
+        fallas.push(`cerrar el renglón: ${x?.error?.message || 'error'}`);
+      }
+    }
+
+    this.s.guardando.set(false);
+    this.avisarFechado(f, ok, retenidas, fallas);
+
+    if (!ok) return;
+    this.cargarDetalle(v.id, () => {
+      this.s.actual.set(null);
+      this.volverALaBarra();
+      this.cargarLotes();
+      // Una captura suelta no destraba ningún renglón del vale: encadenar al
+      // "siguiente pendiente" mandaría al operario a otro producto sin que lo
+      // pidiera. Sólo se encadena cuando lo que se fechó era del vale, y sólo si
+      // no quedó nada a medias que el operario tenga que mirar.
+      if (f.linea.id && !fallas.length) this.siguienteFechar();
+    });
+  }
+
+  /** Lo que pasó, dicho como pasó: nada de un "listo" sobre 2 de 3. */
+  private avisarFechado(f: FechadoConfirmado, ok: number, retenidas: number, fallas: string[]): void {
+    const n = f.entradas.length;
+    const unidad = unidadDelVale(f.linea.expected_unit);
+    if (fallas.length) {
+      this.toast.add({
+        severity: 'error', summary: ok ? 'Guardado a medias' : 'No se pudo fechar',
+        detail: ok
+          ? `Entraron ${ok} de ${n} caducidades de ${this.nombre(f.linea)}. NO entró — ${fallas.join(' · ')}`
+          : fallas.join(' · '),
+        life: 9000,
+      });
+      return;
+    }
+    if (retenidas > 0) {
+      this.toast.add({
+        severity: 'error', summary: 'Retenida',
+        detail: retenidas === n
+          ? 'Fechada, pero 🔴: un supervisor tiene que liberarla antes de cerrar el vale.'
+          : `${retenidas} de ${n} quedaron 🔴 y esperan a un supervisor; el resto entró.`,
+        life: 7000,
+      });
+      return;
+    }
+    const cantidad = f.entradas.reduce((a, e) => a + e.cantidad, 0);
+    this.toast.add({
+      severity: 'success', summary: 'Fechada',
+      detail: n === 1
+        ? `${this.nombre(f.linea)} — ${cantidad} ${unidad}, lote ${f.entradas[0].lote}.`
+        : `${this.nombre(f.linea)} — ${n} caducidades, ${cantidad} ${unidad} en total.`,
+    });
   }
 
   /**
-   * Una captura: evalúa + (si el renglón quedó completo) cierra el renglón con lo
-   * declarado.
-   *
-   * **Ese `setLine` es lo que mantiene vivo el reclamo.** Sin paso de cotejo, si
-   * nadie escribe `received_qty` el cierre del vale marca TODO como faltante y
-   * levanta reclamos por mercancía que sí llegó. Se escribe acá, con la cantidad
-   * que se declaró, que es la única que alguien miró de verdad.
-   *
-   * Y se escribe **al final**, no antes: mientras el renglón siga `pending` se le
-   * pueden seguir agregando lotes (llegaron 12 con una fecha y 12 con otra).
+   * **Una caducidad.** Sólo evalúa; cerrar el renglón es decisión de quien la
+   * llama, porque con varias fechas el renglón se cierra UNA vez al final.
    */
-  private async guardarCaptura(f: FechadoConfirmado): Promise<ReceivingCapture> {
+  private async guardarUna(linea: AndenLinea, e: FechadoEntrada): Promise<ReceivingCapture> {
     const v = this.s.vale()!;
     const wh = this.s.warehouseId()!;
-    const cap = await firstValueFrom(this.auditor.evaluate({
+    return firstValueFrom(this.auditor.evaluate({
       warehouse_id: wh,
-      product_id: f.linea.product_id!,
+      product_id: linea.product_id!,
       supplier_code: v.supplier_code || undefined,
       source_ref: v.folio,
       // Sin `id` es una captura SUELTA (el producto no venía en el vale). El
       // backend acepta `receiving_line_id` nulo desde WMS-REC.4; mandarlo vacío
       // lo haría fallar la validación de UUID.
-      receiving_line_id: f.linea.id || undefined,
-      quantity: f.cantidad,
-      confirmed_lot: f.lote,
-      confirmed_expiry: f.caducidadIso,
-      photo_data_uri: f.fotoDataUri || undefined,
+      receiving_line_id: linea.id || undefined,
+      quantity: e.cantidad,
+      confirmed_lot: e.lote,
+      confirmed_expiry: e.caducidadIso,
+      photo_data_uri: e.fotoDataUri || undefined,
     }));
-    const declarado = f.linea.declarado + f.cantidad;
-    if (f.linea.id && declarado + f.linea.retenido >= Number(f.linea.expected_qty)) {
-      await firstValueFrom(this.sessions.setLine(v.id, f.linea.id, { received_qty: declarado }));
-    }
-    return cap;
+  }
+
+  /**
+   * Cierra el renglón con lo declarado, si con esto quedó completo.
+   *
+   * **Ese `setLine` es lo que mantiene vivo el reclamo.** Sin paso de cotejo, si
+   * nadie escribe `received_qty` el cierre del vale marca TODO como faltante y
+   * levanta reclamos por mercancía que sí llegó. Se escribe con la cantidad que
+   * se declaró, que es la única que alguien miró de verdad.
+   */
+  private async cerrarSiCompleto(linea: AndenLinea, declarado: number): Promise<void> {
+    const v = this.s.vale()!;
+    if (!linea.id) return;
+    if (declarado + linea.retenido < Number(linea.expected_qty)) return;
+    await firstValueFrom(this.sessions.setLine(v.id, linea.id, { received_qty: declarado }));
   }
 
   /**
@@ -796,10 +863,13 @@ export class AndenComponent implements OnInit {
     for (const l of m.lineas) {
       try {
         if (!l.product_id) throw new Error('el renglón no tiene producto del catálogo');
-        const cap = await this.guardarCaptura({
-          linea: l, cantidad: l.faltaFechar, lote: m.lote, caducidadIso: m.caducidadIso, fotoDataUri: null,
+        const cap = await this.guardarUna(l, {
+          cantidad: l.faltaFechar, lote: m.lote, caducidadIso: m.caducidadIso, fotoDataUri: null,
         });
         if (cap.verdict === 'red') retenidas++;
+        // El renglón queda completo por construcción (se declaró lo que faltaba),
+        // así que acá es donde el faltante/sobrante contra Kepler queda firme.
+        await this.cerrarSiCompleto(l, l.declarado + l.faltaFechar);
       } catch (e: unknown) {
         const err = e as { error?: { message?: string }; message?: string };
         fallas.push({ nombre: this.nombre(l), motivo: err?.error?.message || err?.message || 'error desconocido' });
