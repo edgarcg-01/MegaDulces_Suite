@@ -169,6 +169,11 @@ pedido —mínimo de 5 días, demanda de 10→15, mínimo 50→75 sin tocar los 
 
 ## 5. Modelo de datos
 
+> ⚠️ **Corregido el 2026-09-21 — `supply_policy` queda CANCELADA como tabla nueva.**
+> Lo que proponía modelar ya existe en `commercial.replenishment_channel` (RA-PRO.8, mig
+> `20260720120000`). El alcance real es **extenderla** con prioridad, orígenes alternos y excepción
+> por producto. Ver §14.6.
+
 Cuatro tablas nuevas en `commercial.*`, todas con `tenant_id` + audit completo + RLS forzado.
 
 ```
@@ -691,3 +696,144 @@ reintento. Es la conducta que ADR-056 pide y que un build verde no puede comprob
 
 **Sigue sin verificar:** el reparto de las 7 llaves nuevas. La migración no se aplicó, y `superuser`
 entra por `ALL_PERMS`, así que esta sesión **no probó ninguna compuerta**. Se mantiene declarado.
+
+---
+
+## 14. Reconciliación con el plan del 2026-09-21 (12 etapas · 10 PRs)
+
+El plan nuevo reordena el mismo pedido en **12 etapas** y propone **10 PRs**. No cambia la tesis de la
+fase. Agrega tres cosas que este documento no tenía, **corrige una que sí tenía**, y —esto es lo primero
+que hay que decir— **empieza la secuencia en algo que ya está escrito**.
+
+### 14.1 Dónde está cada etapa, medido el 2026-09-21
+
+| # | Etapa del plan | Estado real | Dónde |
+|---|---|---|---|
+| 1 | Responsabilidades y autorizaciones | 🧪 **escrito, sin mergear ni aplicar** | 7 llaves (§6) + mig `20260919160000` de reparto |
+| 2 | Validar la información disponible | 🟡 **parcial** — las fuentes están identificadas; **falta la "fecha de actualización visible"** | §1 · ver 14.5(3) |
+| 3 | Rutas de abastecimiento | ⚠️ **ya existe** — ver 14.6 | `commercial.replenishment_channel` (RA-PRO.8, mig `20260720120000`) |
+| 4 | Mínimos, reorden y máximos | ✅ motor · ⬜ la **propuesta con vigencia** | `commercial.reorder_policy` (RA) + §4.1 |
+| 5 | Demanda y temporalidad | ⛔ **bloqueado por la historia**, no por el código | §0 · §12 (Fase NH) |
+| 6 | Motor de sugerencias | ✅ existe **y ya parte el origen** en `transfer_in` + `buy_qty` | `criticalStock()` |
+| 7 | Mesa del almacenista | 🧪 **escrita, sin mergear** | rama `feat/ab-mesa-trabajo` |
+| 8 | Revisión del encargado | ⬜ | AB.6 |
+| 9 | Solicitudes y seguimiento | ⬜ | AB.7 (compra) · AB.8 (traspaso) |
+| 10 | Supervisión de zona | ⬜ **NUEVO — no estaba en este plan** | → AB.10 |
+| 11 | Piloto | ✅ decidido: almacén `02` | §7.1 |
+| 12 | Desplegar y medir | ⬜ **NUEVO** | → AB.11 |
+
+### 14.2 Los 10 PRs contra lo que ya está escrito
+
+| PR del plan | Estado real | Nota |
+|---|---|---|
+| **1** ruta `/almacen/autoabasto` + permisos | ✅ **escrito** | rama `feat/ab-mesa-trabajo`, **sin pushear** |
+| **2** acceso en la navegación | ✅ **escrito, en el mismo PR** | se entregan juntos a propósito: **una ruta sin puerta no se puede probar**, y el reparto de permisos sólo se comprueba viendo quién ve el item |
+| **3** rutas, calendarios y parámetros | ↩️ **cambia de alcance** | no es tabla nueva: es **pantalla de administración sobre `replenishment_channel`** + prioridad, orígenes alternos y excepción por producto |
+| **4** consulta y validación de datos | ⬜ | acá entra la **fecha de actualización** de la etapa 2 |
+| **5** motor en simulación | ✅ **ya se cumple** | el motor de RA calcula y **no emite documentos**; la mesa es de sólo lectura |
+| **6** mesa y preparación de solicitudes | 🧪 la mesa sí; **preparar la solicitud no** | la parte de preparar es AB.7 |
+| **7** autorizaciones y cambio de parámetros | ⬜ | AB.6 |
+| **8** solicitudes a Compras | ⬜ | AB.7, sobre `purchase_requisitions` (no se crea entidad) |
+| **9** traspaso habitual | ⬜ | AB.8, `transfer_requests` — **lo único del modelo que sigue siendo tabla nueva** |
+| **10** seguimiento, alertas y zona | ⬜ | AB.8 + AB.10 |
+
+> **Cuatro de los diez PRs ya están resueltos o cambian de alcance.** Arrancar en el 1 sería volver a
+> escribir lo que está en la rama.
+
+### 14.3 El contrato de los siete porqués — se acepta, y se vuelve criterio de aceptación
+
+Es el aporte más valioso del plan nuevo: convierte la pantalla en algo **falsable**. Medido contra el
+código de hoy, renglón por renglón:
+
+| Pregunta | Qué la contesta | Estado |
+|---|---|---|
+| ¿Por qué debo pedir? | `bucket` (agotado / bajo mín / bajo reorden) | 🟡 **es una etiqueta, no una frase** |
+| ¿Por qué esa cantidad? | `suggested_qty = objetivo − existencia − tránsito`, ajustado por caja | 🟡 el número sí; **la resta no se muestra** |
+| ¿Por qué a ese origen? | `replenish_via` · `source_warehouse_code` · `supplier_name` | ⛔ **el motor los devuelve y la pantalla NO los pinta** |
+| ¿Por qué debo pedir hoy? | `next_due_date` · `cadence_days` · `lead_time_days` | ⛔ **idem** |
+| ¿Por qué mover el parámetro? | — | ⬜ AB.6 |
+| **¿Por qué NO propone pedir?** | — | ⛔ **no hay renglón**: la mesa sólo lista lo que falta |
+| ¿Por qué requiere revisión? | `rung_veredicto` declara la unidad | 🟡 falta pedido mínimo, caducidad y excepción |
+
+⭐ **El sexto es el más caro y el más importante.** Hoy un producto cubierto **no aparece en la mesa**, así
+que *"lo revisé y está cubierto"* y *"nunca lo miré"* se leen exactamente igual. Es la trampa de ADR-056
+en su forma más pura —la ausencia significando dos cosas— y obliga a que la mesa tenga un modo que hoy no
+tiene. **No se resuelve pintando un renglón vacío: hay que decir con qué existencia o con qué entrega
+confirmada está cubierta.**
+
+**Medido:** `autoabasto.service.ts` tipa y la tabla pinta `suggested_qty`, `transfer_in`, `buy_qty` y
+`bucket`. **No** tipa `replenish_via`, `source_warehouse_code`, `next_due_date` ni `lead_time_days` —
+aunque `criticalStock()` los selecciona y los está devolviendo. El hueco de "a quién" y "para cuándo" es
+**de pantalla, no de motor**.
+
+### 14.4 ⛔ El primer compromiso verificable — por qué hoy no se puede demostrar
+
+El plan lo fija bien: *"para un producto y una sucursal, explicar correctamente cuánto pedir, a quién y
+para cuándo"*. Medido contra `platform_test` el 2026-09-21:
+
+| Pieza | Estado | Número |
+|---|---|---|
+| **cuánto** | ✅ el motor lo calcula y lo parte en compra vs traspaso | — |
+| **a quién** | 🟡 el campo existe; **la tabla está vacía** | `commercial.replenishment_channel` = **0 filas** |
+| **para cuándo** | 🟡 idem — `next_due_date` y `lead_time_days` viven en esa misma tabla | **0 filas** |
+| base de parámetros | ⚠️ apenas semilla de pruebas | `commercial.reorder_policy` = **35 filas · 4 almacenes · 0 con `policy_method`** |
+
+**No falta código: falta el dato en este entorno.** `platform_test` no tiene corrido
+`import-replenishment-cadence.js` ni los importers de política. En prod la Fase RA **sí** está desplegada,
+pero **desde esta máquina no hay credencial de prod** — el `.env` sólo trae `platform_test`. Es la misma
+medición que AB.0 ya declaraba pendiente, ahora con el número que le faltaba.
+
+**Lo que desbloquea la demostración, en este orden:**
+1. correr AB.0 **contra prod** (cuántas filas de canal y de política hay de verdad, y en qué almacenes);
+2. llevar `replenish_via` / `source_warehouse_code` / `next_due_date` / `lead_time_days` **a la pantalla**
+   (es tipado y columnas, no motor);
+3. poblar el canal del almacén del piloto si prod tampoco lo tiene.
+
+⚠️ **Hasta que (1) esté corrido, cualquier fecha comprometida sería inventada.** El plan tiene razón en no
+fijarlas todavía.
+
+### 14.5 Lo que el plan nuevo agrega y este documento no tenía
+
+1. **Etapa 10 — supervisión de zona.** Sprint nuevo **AB.10**: comparativo entre sucursales, agotados
+   recurrentes, solicitudes detenidas y entregas atrasadas, **con responsable y fecha compromiso**. Es la
+   primera pieza de la fase con audiencia de *gerente de zona*, que hasta ahora no existía en el diseño.
+2. **Etapa 12 — desplegar y medir.** Sprint **AB.11**: incorporación por sucursal y marca + indicadores.
+   Sin esto la fase no tiene forma de saber si sirvió.
+3. **Etapa 2 — "con fecha de actualización visible".** ⭐ No se inventa: es exactamente ADR-056 / Fase VP.
+   Se consume `libs/contracts/http/provenance.contract.ts` (VP.2.1) y se declara `unknown` cuando no se
+   pudo medir — **nunca un "actualizado hace 2 min" leído del reloj del navegador**, que es el error que
+   VP.0 ya encontró en 21 de 24 píldoras.
+4. **El renglón "por qué NO propone pedir"** (14.3), que cambia la forma de la mesa.
+
+### 14.6 ⚠️ Lo que se corrige de este documento
+
+**`commercial.supply_policy` queda cancelada como tabla nueva.** El §5 la proponía para la etapa 3. Medido:
+`commercial.replenishment_channel` (RA-PRO.8, mig `20260720120000`) **ya modela lo mismo** — `via`
+(`purchase` / `transfer`), `source_warehouse_id`, `cadence_days`, `next_due_date`, `last_delivery_date`,
+`lead_time_days`, `health_band`, y un `cadence_source='manual'` que **protege el override humano de que el
+job lo pise**. Crear `supply_policy` sería una segunda materialización del mismo hecho: exactamente lo que
+la regla ⭐ del proyecto prohíbe.
+
+**Lo que sí falta, y por lo tanto es el alcance real del PR 3:**
+
+| Del pedido | En `replenishment_channel` |
+|---|---|
+| origen preferente | ✅ `via` + `source_warehouse_id` |
+| calendario | ✅ `cadence_days` + `next_due_date` |
+| tiempo de entrega | ✅ `lead_time_days` |
+| **prioridad** | ❌ |
+| **orígenes alternos** | ❌ |
+| **excepción por producto** | ❌ — el grano es (almacén × **proveedor**) |
+
+⚠️ **Y una medición pendiente antes de tocar el grano:** el pedido pide (sucursal × **marca/línea**), la
+tabla es (almacén × **proveedor**). Si en este catálogo proveedor ≈ marca, no hay nada que agregar; si no,
+agregar grano a una tabla que un job reescribe cada noche necesita decidir antes quién gana. **Se mide, no
+se asume.**
+
+### 14.7 Sprints que se agregan
+
+| # | Sprint | Qué cierra |
+|---|---|---|
+| **AB.3b** | Los porqués en la mesa | 14.3: origen y fecha a la pantalla, la resta a la vista, el renglón de "cubierto", y la procedencia del dato |
+| **AB.10** | Supervisión de zona | Etapa 10: comparativo, recurrentes, detenidas, atrasadas — con responsable y fecha compromiso |
+| **AB.11** | Despliegue y medición | Etapa 12: incorporación progresiva + indicadores de disponibilidad vs inventario |
