@@ -601,6 +601,17 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
+        // `[FLT.13]` Faltantes de piso: lo que el mostrador reportó que un cliente pidió y no
+        // había. Reusa el permiso de Hallazgos porque es la misma persona (el comprador) la que
+        // abre las tres bandejas — mismo criterio que WMS-REC.8 tomó para Reclamos.
+        //
+        // Es la única señal de demanda que NO sale de un feed: una venta que no ocurrió no deja
+        // rastro en el ERP, así que el barrido nocturno de Hallazgos nunca la puede ver.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/compras/pages/compras-faltantes.component').then(m => m.ComprasFaltantesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
         // WMS-REC.8 — reclamos de faltantes de recepción (ADR-053). Reusa el permiso de
         // Hallazgos: es la misma persona (el comprador) la que abre las dos bandejas, así
         // que no se agrega un permiso nuevo (ni su backfill ni su re-login).
@@ -1076,6 +1087,21 @@ export const routes: Routes = [
         path: 'verificador',
         loadComponent: () => import('./modules/tienda/pages/tienda-verificador.component').then(m => m.TiendaVerificadorComponent),
         canActivate: [permissionGuard(Permission.STORE_PRICE_CHECK_VER)]
+      },
+      {
+        // `[FLT.10]` Lista de faltantes: la venta que NO ocurrió, capturada en el piso. Es el
+        // único dato de la suite que ningún feed puede ver — una venta que no pasó no deja rastro.
+        //
+        // Gate de CUALQUIERA de los dos permisos, no sólo VER: la cajera tiene únicamente
+        // CAPTURAR (medido — `cajero` ni siquiera tiene el del verificador), y con
+        // `permissionGuard(VER)` no podría entrar a la pantalla donde trabaja. Es la misma
+        // corrección que ya necesitó Caducidades.
+        //
+        // Acepta `?sucursal=NN` igual que el verificador, para la máquina del mostrador que no
+        // tiene cuenta de esa tienda.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/tienda/pages/tienda-faltantes.component').then(m => m.TiendaFaltantesComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)]
       },
       {
         // Caducidades de tienda (2026-09-08): captura directa, un producto a la

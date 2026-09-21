@@ -503,6 +503,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
         { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },
         { label: 'Cajas abiertas',  icon: 'pi pi-inbox',      route: '/tienda/cajas',    permission: Permission.STORE_LIVE_VER },
+        // `[FLT.11]` Va en Operación y no en Análisis: es captura de mostrador, se usa con el
+        // cliente enfrente. `anyOf` porque la cajera sólo tiene CAPTURAR — con el gate en VER el
+        // item no le aparecería en el menú, que es el mismo defecto que tuvo Caducidades.
+        { label: 'Lista de faltantes', icon: 'pi pi-flag',    route: '/tienda/faltantes', permission: Permission.STORE_STOCKOUT_VER,
+          anyOf: [Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR] },
       ],
     },
     {
@@ -686,6 +691,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
+        // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
+        // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
+        // las tres bandejas las trabaja el mismo comprador.
+        { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
         // WMS-REC.8 — el faltante del andén con responsable y seguimiento. Mismo permiso
         // que Hallazgos: es la bandeja del mismo comprador.
         { label: 'Reclamos',            icon: 'pi pi-inbox',      route: '/compras/reclamos',    permission: Permission.COMPRAS_HALLAZGOS_VER },

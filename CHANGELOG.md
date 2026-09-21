@@ -10,6 +10,37 @@
 
 ## [Unreleased]
 
+### Added — Lista de faltantes: la venta que NO ocurrió llega a Compras (Fase FLT, 2026-09-19)
+- **El único dato de demanda que ningún feed puede ver.** Cajeras y anaquelistas reportan desde el
+  mostrador lo que un cliente pidió y no había. Una venta que no pasó no deja ticket, ni movimiento,
+  ni renglón en `kepler_ods`: el cliente preguntó, no lo había, y se fue. La persona del mostrador
+  es el único instrumento capaz de registrarlo, así que es tabla propia (dato HITL) y no una vista.
+- **El pedido incluía una hoja que la medición desarmó.** Se pidió *"el listado de productos que no
+  tienen código de barras, para que la caja no busque a mano"*. Medido: **139 SKUs (1.5 % del
+  catálogo) que valen 0.01 % de la venta de 90 días ($3,130 de $45.7M)**, y la mayoría ni son
+  mercancía — códigos de promoción, etiquetas de anaquel, un ajuste contable. Productos reales: ~6.
+  **El problema real es otro**: el código **existe** y el escaneo **falla igual** (etiqueta borrada,
+  granel reempacado, código impreso distinto al de Kepler), y eso hoy se evapora. Es el motivo
+  `codigo_no_pasa`, y la herramienta de caja pasó a ser la lista **medida** de los que de verdad
+  fallan en SU sucursal.
+- **Kiosco `/tienda/faltantes`** con tres pestañas: Reportar (un toque) · Buscar por nombre · Los
+  que no pasan. **La búsqueda por nombre no existía en ninguna parte** —el verificador sólo resuelve
+  por código— y corre contra el catálogo que ese kiosco **ya baja a IndexedDB**: instantánea, sin
+  red y **sin un endpoint nuevo**. Enganchado desde el verificador: en "no encontrado" aparece
+  *"El cliente lo pidió"* con el código puesto.
+- **Bandeja `/compras/faltantes`** ordenada por dinero estimado, y la decisión **vuelve a la pantalla
+  de la tienda** — sin ese regreso la cajera deja de reportar en dos semanas y la fuente se seca
+  (medido en la propia landing: hay bandejas con **0 resueltas en 30 días**).
+- **Lo que no se pudo medir se declara, nunca se dibuja como cero** (ADR-056): sin precio con qué
+  valorar, el monto va **NULL** y el KPI cuenta aparte *"no incluye N sin precio con qué valorar"*.
+  Y `on_hand_at_report` separa **dos señales**: persona ve 0 + ERP dice 12 no es una compra, es un
+  **descuadre de inventario**.
+- Permisos nuevos `STORE_STOCKOUT_CAPTURAR` / `_VER`, **repartidos** (no sólo declarados) derivando
+  del estado vivo. Corrección medida: lo obvio era calcar el verificador y **`cajero` no tiene ese
+  permiso** → se habría quedado sin reportar justo quien atiende al cliente que pregunta.
+- Migraciones `20260919150000` + `20260919150100`. Smoke `test-newdb-floor-stockouts.js` **14/14**
+  (las 4 formas de mentir, cada una rota a propósito) en `run-all-tests.js`.
+
 ### Fixed — Caja General: los tres diálogos abrían sin botones, o sea que no se podía guardar (2026-09-19)
 - **Medido en vivo, no deducido:** *"Registrar movimiento de caja"* y *"Abrir corte de caja"* se abren
   con **cero botones** — `.p-dialog-footer` **no existe en el DOM** y el arreglo de botones del
