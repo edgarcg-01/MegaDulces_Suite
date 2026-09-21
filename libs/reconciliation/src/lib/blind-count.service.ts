@@ -45,6 +45,7 @@ export type TipoArqueo = typeof TIPOS_VALIDOS[number];
 /** Los que NO se comparan contra el corte del dia (intra-turno o sin turno). */
 export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv'];
 
+/**
  * SM.38 - Ventana del candado de doble caja.
  *
  * Se bloquea por cajas abiertas el MISMO DIA, no por "2 o mas abiertas" a secas,
@@ -273,6 +274,7 @@ export class BlindCountService {
     });
   }
 
+  /**
    * SM.38 - Dos cajas abiertas con el MISMO usuario: se bloquea todo.
    *
    * Una persona no puede estar operando dos cajas a la vez. Medido en vivo:

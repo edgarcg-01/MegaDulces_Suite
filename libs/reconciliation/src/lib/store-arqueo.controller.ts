@@ -140,7 +140,7 @@ export class StoreArqueoController {
      * hay bloqueo -- fail-closed: no se puede arquear con dos cajas abiertas, asi
      * que no se ofrece ninguna.
      */
-    const bloqueo = await this.blind.bloqueoDobleCaja(cajero);
+    const bloqueo = cajero ? await this.blind.bloqueoDobleCaja(cajero) : null;
     if (bloqueo) return { turnos: [], bloqueo };
     const turnos = await this.blind.turnosPendientes({
       cajeroCode: cajero,
@@ -149,7 +149,6 @@ export class StoreArqueoController {
       revela: this.revela(user),
     });
     return { turnos, bloqueo: null };
-  }
   }
 
   /**
