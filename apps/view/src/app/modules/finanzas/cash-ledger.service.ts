@@ -106,6 +106,21 @@ export class CashLedgerService {
     return this.http.post<MovimientoCaja>(this.base, body);
   }
 
+  /**
+   * CG.19 Capa 1 — **Los cobros que Kepler ya registró y todavía no se aplicaron.**
+   *
+   * El capturista ELIGE de acá en vez de teclear monto, fecha y motivo: el valor se toma del ERP
+   * y el registro precede al dinero. Lo que NO está en esta lista no deja de existir — es el
+   * ingreso que sigue capturándose a mano (~40-45% del total, medido), y por eso la pantalla
+   * conserva el camino manual en vez de obligar a elegir.
+   */
+  ingresosPendientes(f: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number } = {}): Observable<{ rows: IngresoPendiente[]; limit: number; has_more: boolean }> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<{ rows: IngresoPendiente[]; limit: number; has_more: boolean }>(
+      `${this.base}/ingresos-pendientes`, { params: p });
+  }
+
   detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number }>; arqueo: { desglosado: number; diferencia: number } | null }> {
     return this.http.get<any>(`${this.base}/${id}`);
   }
@@ -127,7 +142,6 @@ export class CashLedgerService {
     return this.http.post<CorteCaja>(`${this.base}/cortes`, body);
   }
 
-  /** La MISMA cuenta que se congela al cerrar: el capturista ve la diferencia mientras cuenta. */
   /**
    * CG.19 — SELLA el conteo y recién entonces revela. Era `previa`, que mostraba la diferencia
    * mientras se contaba: con eso el arqueo era una transcripción del esperado.
@@ -194,6 +208,24 @@ export interface TotalesCorte {
   oculto?: true;
   /** Viaja aunque sea ciego: no revela nada y la pantalla necesita saber si ya se contó. */
   conto?: boolean;
+}
+
+/**
+ * Un cobro de Kepler todavía sin aplicar a la caja. `origen_ref` es su identidad —`sucursal|folio`,
+ * medida como llave real (2,708 llaves para 2,708 filas)— y es lo que viaja al guardar.
+ */
+export interface IngresoPendiente {
+  origen_ref: string;
+  sucursal: string;
+  folio: string;
+  cobro_date: string;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  concepto: string | null;
+  monto: number;
+  /** `ruta` | `interno` | `cliente_final`. Se muestra: no todos los cobros son entrega de ruta. */
+  tipo_cuenta: string | null;
+  forma_pago: string | null;
 }
 
 /** Lo que devuelve sellar el conteo: acá SÍ viene revelado — ya no se puede retocar en silencio. */
