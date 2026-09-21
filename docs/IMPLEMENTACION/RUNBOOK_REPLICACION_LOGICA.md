@@ -1148,12 +1148,36 @@ lee como "la sucursal no vendió".** Vale la pena recordarlo para la próxima al
 `kepler-branches.js` **no** es la fuente única, aunque su comentario diga que habilita ~40
 importers de una vez.
 
-### 11.4 Abierto, con dueño
+### 11.4 El alta en la consolidación, y la trampa que destapó
 
-- ⛔ **`dim_sucursales_md08.sql` sin aplicar** (`database/importers/kepler/sql/`). Es el alta de
-  la rama en la consolidación + el relleno de los días ya vendidos. Hasta que corra, **Abastos
-  aporta $0 al fact de venta** (Command Center, margen, rotación). El sell-out NO depende de esto
-  —`mv_kepler_sales_daily` lee del ODS— así que ahí sí aparece.
+`dim_sucursales_md08.sql` aplicado. El `INSERT` entró y el relleno **falló en el acto**:
+`permission denied for schema md`. La réplica `kepler_md_08` había nacido **sin un solo permiso**
+para `platform_ro`, que es con quien `refresh_si_cambio` abre su `dblink`:
+
+| réplica | `platform_ro` USAGE | tablas legibles |
+|---|---|---|
+| `kepler_md_07` (sana) | true | 334 |
+| `kepler_md_08` | **false** | **0** |
+
+⛔ **Y el radio de daño es mayor que "falta una sucursal".** `refresh_si_cambio` **no tiene bloque
+`EXCEPTION` por sucursal** — sólo lo tiene su hermana `refresh_ventas`, a la que se lo agregaron
+el 2026-08-10 justamente por esto. Una rama ilegible **aborta la función entera**, o sea que deja
+de refrescarse `mart.ventas` de **todas** las sucursales. Dar de alta una rama sin verificar
+primero que `platform_ro` la pueda leer es, literalmente, poder apagar el fact de venta de la red.
+
+Resuelto con `replica_md08_grants_platform_ro.sql`, que calca lo de la réplica sana (`USAGE` +
+`SELECT` para `platform_ro` y `dev_ro`, más el `ALTER DEFAULT PRIVILEGES` que hace que las
+`kdc2YYMM` mensuales nazcan legibles en vez de trabarse en enero).
+
+**Verificado después:** 332 tablas legibles · los **9** `md_*` refrescando en el mismo ciclo ·
+y el fact con Abastos adentro — **19-sep $710,618 · 20-sep $286,008 · 21-sep $214,781**, ~$1.21M
+que la plataforma no estaba viendo.
+
+⚠️ **Deuda que esto deja con nombre:** ponerle a `refresh_si_cambio` el mismo `EXCEPTION` por
+sucursal que tiene `refresh_ventas`. Hoy una sola rama caída o ilegible apaga la consolidación
+completa, y el modo de falla es mudo: `mart.ventas` simplemente deja de avanzar.
+
+### 11.5 Abierto, con dueño
 - ⚠️ **7,122 SKUs por cargar en el POS `md_08`**: Kepler arrancó con 2,975 y Wincaja tenía 10,097.
   Decisión explícita de 0Sistemas: que caiga y se reporte, antes que Compras pida contra stock
   fantasma. **Dueño: Sistemas.**
