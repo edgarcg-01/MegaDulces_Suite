@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, ConflictException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
@@ -132,12 +132,43 @@ export class StoreArqueoController {
     // lo que tiene enfrente. Los cortes viejos sin contar son de la bandeja del
     // supervisor, no de su mostrador — y el tope va en el SERVICIO, no acá, para
     // que mandar `?dias=30` a mano tampoco los destape.
-    return this.blind.turnosPendientes({
-      cajeroCode: user?.username,
+    const cajero = user?.username;
+    /**
+     * SM.38 - El bloqueo viaja con la lista, no en una llamada aparte: si la
+     * pantalla tuviera que preguntarlo por separado, un error de red la dejaria
+     * mostrando los turnos sin el aviso. Y los turnos se devuelven VACIOS cuando
+     * hay bloqueo -- fail-closed: no se puede arquear con dos cajas abiertas, asi
+     * que no se ofrece ninguna.
+     */
+    const bloqueo = await this.blind.bloqueoDobleCaja(cajero);
+    if (bloqueo) return { turnos: [], bloqueo };
+    const turnos = await this.blind.turnosPendientes({
+      cajeroCode: cajero,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
       dias: dias ? Number(dias) : undefined,
       revela: this.revela(user),
     });
+    return { turnos, bloqueo: null };
+  }
+  }
+
+  /**
+   * SM.38 - El candado de doble caja, fail-closed.
+   *
+   * Se pregunta por la persona a la que se le ATRIBUYE el conteo, no por quien
+   * lo teclea: si la supervisora captura por una cajera que tiene dos cajas
+   * abiertas, el bloqueado es el conteo de esa cajera. Bloquear a la supervisora
+   * por sus propias cajas seria castigar a la persona equivocada.
+   */
+  private async exigirUnaSolaCaja(cajero_code: string | undefined) {
+    if (!cajero_code) return;
+    const b = await this.blind.bloqueoDobleCaja(cajero_code);
+    if (!b) return;
+    const lista = b.cajas.map((c) => `sucursal ${c.warehouse_code} caja ${c.caja}`).join(' y ');
+    throw new ConflictException(
+      `Hay dos cajas abiertas con el mismo usuario (${lista}). `
+      + `Cierra la sesion en una de las dos en Kepler y se reactiva solo.`,
+    );
   }
 
   /**
@@ -318,6 +349,7 @@ export class StoreArqueoController {
     const revela = this.revela(user);
     const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
     const cajero_code = this.atribuir(body, user, revela);
+    await this.exigirUnaSolaCaja(cajero_code);
     const delTurno = await this.anclarAlTurno(body, warehouse_code, cajero_code, revela);
     const res = await this.blind.submit({ ...body, warehouse_code, cajero_code, ...delTurno }, user?.username);
     // Sin revelación, `matched`/`ambiguous` tampoco tienen sentido (no hay nada

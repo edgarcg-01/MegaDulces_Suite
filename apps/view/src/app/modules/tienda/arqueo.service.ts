@@ -84,6 +84,31 @@ export interface Turno {
   retiro_sin_contar_monto?: number | null;
 }
 
+/** SM.38 - Una caja abierta de esta persona. */
+export interface CajaAbierta {
+  warehouse_code: string;
+  caja: string;
+  folio: string;
+  business_date: string;
+  hora_apertura: string | null;
+  dias_abierta: number;
+}
+
+/**
+ * SM.38 - El veredicto del candado de doble caja. `null` = puede operar.
+ * `arrastradas` son cajas abiertas de dias anteriores: NO bloquean, se avisan.
+ */
+export interface BloqueoDobleCaja {
+  cajas: CajaAbierta[];
+  arrastradas: CajaAbierta[];
+}
+
+/** El bloqueo viaja CON la lista: pedirlo aparte dejaria la pantalla sin aviso si falla. */
+export interface TurnosResp {
+  turnos: Turno[];
+  bloqueo: BloqueoDobleCaja | null;
+}
+
 export interface ArqueoDto {
   warehouse_code?: string; // ignorado si el usuario está scopeado a una sucursal
   /** Folio del turno de Kepler. Obligatorio para la cajera: la caja y la fecha salen de ahí. */
@@ -219,8 +244,8 @@ export class ArqueoService {
   private readonly base = `${environment.apiUrl}/store/arqueo`;
 
   /** Turnos que Kepler abrió a nombre del usuario y todavía no arqueó. */
-  turnos(dias?: number): Observable<Turno[]> {
-    return this.http.get<Turno[]>(`${this.base}/turnos${dias ? '?dias=' + dias : ''}`);
+  turnos(dias?: number): Observable<TurnosResp> {
+    return this.http.get<TurnosResp>(`${this.base}/turnos${dias ? '?dias=' + dias : ''}`);
   }
 
   /**

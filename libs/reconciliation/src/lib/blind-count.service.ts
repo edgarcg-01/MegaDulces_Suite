@@ -45,6 +45,39 @@ export type TipoArqueo = typeof TIPOS_VALIDOS[number];
 /** Los que NO se comparan contra el corte del dia (intra-turno o sin turno). */
 export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv'];
 
+ * SM.38 - Ventana del candado de doble caja.
+ *
+ * Se bloquea por cajas abiertas el MISMO DIA, no por "2 o mas abiertas" a secas,
+ * y la diferencia la decidio la medicion (2026-09-21): de las 5 cajeras con dos
+ * cajas abiertas, solo DOS son el caso real -- C02 y C04, cada una con una caja
+ * en la sucursal 07 y otra en la 08, ambas de hoy. Las otras tres arrastran
+ * turnos que nadie va a cerrar: 40VMC tiene uno abierto desde el 31 de ENERO
+ * (233 dias), y 26VHGH/21VUO dos de hace 19-20 dias.
+ *
+ * Con la regla literal esas tres quedarian bloqueadas PARA SIEMPRE por un
+ * problema de datos, no por lo que el control busca evitar. Los arrastrados se
+ * DECLARAN aparte (ya los vigila `arqueo_no_realizado`): bloquear no los cierra.
+ */
+const BLOQUEO_SOLO_MISMO_DIA = true;
+
+/** Una caja abierta de esta persona, con lo justo para poder nombrarla. */
+export interface CajaAbierta {
+  warehouse_code: string;
+  caja: string;
+  folio: string;
+  business_date: string;
+  hora_apertura: string | null;
+  dias_abierta: number;
+}
+
+/** El veredicto del candado. `null` = no hay bloqueo. */
+export interface BloqueoDobleCaja {
+  /** Las que disparan el bloqueo: dos o mas del mismo dia. */
+  cajas: CajaAbierta[];
+  /** Abiertas de dias anteriores. NO bloquean, pero se dicen. */
+  arrastradas: CajaAbierta[];
+}
+
 const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 /** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
 const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cobro', 'otro'];
@@ -209,6 +242,53 @@ export class BlindCountService {
         [tenantId, code],
       );
       return rows as Array<{ route_code: string; label: string; zona: string | null; tipo: 'rd' | 'rv' }>;
+    });
+  }
+
+   * SM.38 - Dos cajas abiertas con el MISMO usuario: se bloquea todo.
+   *
+   * Una persona no puede estar operando dos cajas a la vez. Medido en vivo:
+   * `C02` tenia abierta la caja 2 de la sucursal 07 y la caja 3 de la 08, las
+   * dos el mismo dia -- y `C04` lo mismo con la 4 y la 1. No hay forma de que
+   * el efectivo de las dos sea de la misma persona al mismo tiempo.
+   *
+   * Se DERIVA del ODS en vivo, sin bandera guardada, y esa es la decision de
+   * diseno: el bloqueo se levanta SOLO en cuanto Kepler cierra una de las dos,
+   * que es justo lo pedido ("hasta que cierren la sesion en una de las dos ya le
+   * activas de nuevo todo"). Una bandera en tabla habria necesitado que alguien
+   * la apague a mano, y esa persona no existe a las 9 de la noche.
+   *
+   * ⚠️ Devuelve las arrastradas por separado y NO bloquea con ellas: ver el
+   * comentario de `BLOQUEO_SOLO_MISMO_DIA`.
+   */
+  async bloqueoDobleCaja(cajeroCode: string): Promise<BloqueoDobleCaja | null> {
+    const cajero = (cajeroCode || '').trim().toUpperCase();
+    if (!cajero) return null;
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT k.sucursal                          AS warehouse_code,
+                k.c2                                AS caja,
+                k.c3::bigint::text                  AS folio,
+                k.c5::date::text                    AS business_date,
+                NULLIF(btrim(k.c6), '')             AS hora_apertura,
+                (current_date - k.c5::date)::int    AS dias_abierta
+           FROM kepler_ods.kdpv_folio_caja k
+          WHERE upper(btrim(k.c8)) = ?
+            AND k.c10::date = DATE '1800-01-01'
+            -- El renglon centinela (folio 0, sin cajero ni hora) no es un turno.
+            AND btrim(COALESCE(k.c8, '')) <> ''
+          ORDER BY k.c5 DESC, k.c2`,
+        [cajero],
+      );
+      const abiertas = rows as CajaAbierta[];
+      const deHoy = abiertas.filter((c) => Number(c.dias_abierta) === 0);
+      const arrastradas = abiertas.filter((c) => Number(c.dias_abierta) > 0);
+
+      // El disparo. Con BLOQUEO_SOLO_MISMO_DIA en false pasa a ser "2 o mas
+      // abiertas" a secas, que es la regla literal y la que bloquea de mas.
+      const disparan = BLOQUEO_SOLO_MISMO_DIA ? deHoy : abiertas;
+      if (disparan.length < 2) return null;
+      return { cajas: disparan, arrastradas };
     });
   }
 

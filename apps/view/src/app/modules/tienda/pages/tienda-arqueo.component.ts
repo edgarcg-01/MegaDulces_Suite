@@ -16,7 +16,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, BloqueoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -91,7 +91,34 @@ interface CortesPersona {
            historial queda donde va: abajo. -->
       <div class="arq-stack">
         <!-- Captura -->
-        @if (canCapture()) {
+          <!-- SM.38 - Dos cajas abiertas con el mismo usuario. Va ANTES de todo y
+               reemplaza la captura: mostrar el formulario debajo de un bloqueo
+               invita a intentarlo y a chocar con un 409 sin entender por que. -->
+          @if (bloqueo(); as b) {
+            <div class="arq-bloqueo">
+              <i class="pi pi-lock"></i>
+              <div>
+                <strong>Tienes dos cajas abiertas con tu usuario. Todo queda bloqueado.</strong>
+                <ul class="arq-bloqueo-lista">
+                  @for (c of b.cajas; track c.warehouse_code + c.caja + c.folio) {
+                    <li>Sucursal <strong>{{ branchLabel(c.warehouse_code) }}</strong> — caja <strong>{{ c.caja }}</strong>
+                      @if (c.hora_apertura) { <span class="muted">(abierta {{ c.hora_apertura }})</span> }
+                    </li>
+                  }
+                </ul>
+                <p class="muted">Cierra la sesión en <strong>una de las dos</strong> desde Kepler. En cuanto la cierres se reactiva solo — no hay que pedirle nada a nadie.</p>
+                @if (b.arrastradas.length) {
+                  <!-- Se DECLARAN pero no bloquean: hay cajas abiertas desde hace
+                       meses que nadie va a cerrar, y bloquear por ellas dejaria a
+                       la persona trabada para siempre. -->
+                  <p class="muted arq-bloqueo-extra">
+                    Además tienes {{ b.arrastradas.length }} caja(s) abierta(s) de días anteriores
+                    ({{ b.arrastradas[0].dias_abierta }} día(s) la más vieja). Ésas no bloquean, pero avísale a tu encargada.
+                  </p>
+                }
+              </div>
+            </div>
+          } @else if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
 
@@ -805,6 +832,17 @@ interface CortesPersona {
     .arq-pide-box.urge { border-color: color-mix(in srgb, var(--warn-fg) 55%, transparent);
                          background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     .arq-pide-box.urge i { color: var(--warn-fg); }
+    /* SM.38 - El bloqueo usa el tono de peligro, no el de aviso: es lo unico de
+       esta pantalla que IMPIDE trabajar, y tiene que leerse distinto de un
+       recordatorio. */
+    .arq-bloqueo { display: flex; gap: .8rem; align-items: flex-start; padding: 1rem;
+                   margin-bottom: 1rem; border-radius: var(--r-md);
+                   border: 1px solid color-mix(in srgb, var(--danger-fg, #b91c1c) 55%, transparent);
+                   background: color-mix(in srgb, var(--danger-fg, #b91c1c) 10%, transparent); }
+    .arq-bloqueo i { color: var(--danger-fg, #b91c1c); font-size: 1.1rem; margin-top: .1rem; }
+    .arq-bloqueo p { margin: .4rem 0 0; font-size: .8rem; }
+    .arq-bloqueo-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
+    .arq-bloqueo-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
     .arq-pide-box.urge p-button { margin-top: .45rem; display: inline-block; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
     .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
@@ -1059,6 +1097,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.sucursales().map((w) => ({ value: w.value, label: `${w.value} — ${w.label}` })));
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
+  /**
+   * SM.38 - Dos cajas abiertas con el mismo usuario: se bloquea todo hasta que
+   * cierren una. Viene resuelto del servidor y el POST tambien lo rechaza, asi
+   * que esconder la captura es cortesia, no la compuerta.
+   */
+  readonly bloqueo = signal<BloqueoDobleCaja | null>(null);
+
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
 
@@ -1244,18 +1289,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private cargarTurnos(silencioso = false) {
     if (!silencioso) this.cargandoTurnos.set(true);
     this.svc.turnos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (t) => {
-        this.turnos.set(t);
-        this.turnosAl.set(new Date().toISOString());
-        // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
-        // Se preselecciona el que TOCA (el más viejo), no el primero que llegó.
-        if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
-        // SM.35 - y con el turno ya elegido, el TIPO que toca (sangria antes que
-        // corte). Sin esto la pantalla pedia el retiro y dejaba el formulario en
-        // 'Cierre de dia': el aviso decia una cosa y el formulario otra.
-        this.sugerirTipo();
-        this.cargandoTurnos.set(false);
-      },
+        next: (r) => {
+          this.bloqueo.set(r.bloqueo);
+          const t = r.turnos || [];
+          this.turnos.set(t);
+          this.turnosAl.set(new Date().toISOString());
+          if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
+          this.cargandoTurnos.set(false);
+        },
       error: () => this.cargandoTurnos.set(false),
     });
 
