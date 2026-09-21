@@ -135,6 +135,18 @@ export class CommercialLabelsService {
    */
   private static readonly TOPE_CAMBIOS = 300;
 
+  /**
+   * `[ETQ-CAMBIOS.4]` Piso del cambio que vale la pena reimprimir, en pesos. Se ocultan los de
+   * **exactamente un centavo** (`abs(delta) <= 0.01`), que son el 41.9% de la semana y el 93% de
+   * un domingo, producidos por 116 SKUs que oscilan ~36 veces cada uno. Interpolado en el SQL —
+   * no es binding, es una constante numérica de esta clase; `?` acá chocaría con el conteo.
+   *
+   * ⚠️ Subirlo es una decisión de NEGOCIO ("$0.50 tampoco vale la pena"), no una optimización:
+   * cambia qué etiqueta se reimprime. Si se toca, se mide el antes/después como cualquier `WHERE`
+   * de negocio, y se dice cuántas filas se movieron.
+   */
+  private static readonly PISO_DELTA = 0.01;
+
   private static readonly TOLERANCIA_H: Record<string, number> = {
     ods_live_hot: 1,
     // `[ETQ-ODS.1]` `recalculo: 12` se retiró con su paso: la etiqueta ya no pasa por
@@ -205,10 +217,32 @@ export class CommercialLabelsService {
    *
    * ⚠️ `fuente_al` viaja SIEMPRE, incluso con la lista vacía: sin él, *"ese día no cambió nada"* y
    * *"ese día todavía no llegó al ODS"* se ven idénticos en pantalla, y son lo contrario.
+   *
+   * ── ⭐ `[ETQ-CAMBIOS.4]` El centavo se OCULTA, y se DICE cuánto se ocultó ────────────────────
+   * La vista ya filtra el ruido sub-centavo (`round(c6,2) <> round(c7,2)`: si el papel sale igual,
+   * no es un cambio). Queda un escalón más, y **es de negocio, no de redondeo**: un movimiento de
+   * **exactamente $0.01** sí cambia el número impreso, pero no justifica caminar al anaquel.
+   *
+   * No es una corazonada — medido en prod el 2026-09-21, 7 días × 9 plazas:
+   *
+   *   de 9,969 cambios, **4,176 (41.9%) son de un centavo** · 5,311 (53.3%) son de $1 o más
+   *   esos 4,176 salen de **116 SKUs distintos = 36 apariciones cada uno en 7 días**
+   *   el domingo 20-sep fueron **437 de 469 (93%)**: la pantalla mostraba casi puro ruido
+   *
+   * 36 apariciones del mismo SKU en una semana no es "el precio cambió": es el ERP oscilando entre
+   * dos valores. La lista existe para decidir qué reimprimir, y con eso adentro no se puede.
+   *
+   * ⛔ El filtro va ACÁ, no en la vista. `analytics.v_label_price_changes` responde *"qué registró
+   * Kepler que mueve el precio impreso"* — eso es un hecho y otros consumidores lo van a querer
+   * entero. *"Qué vale la pena reimprimir"* es criterio de ESTA pantalla, y un criterio de pantalla
+   * que se hornea en la fuente deja de poder discutirse.
+   *
+   * ⚠️ Y se **declara**: `ocultos_centavo` viaja en la respuesta. Un filtro mudo que se lleva el
+   * 93% de un domingo se lee como "no pasó nada" — exactamente lo que ADR-056 prohíbe.
    */
   async priceChanges(sucursal: string | null, fecha: string | null): Promise<{
     items: LabelPriceChange[]; fecha: string; truncado: boolean; fuente_al: string | null;
-    freshness: LabelsFreshness;
+    ocultos_centavo: number; freshness: LabelsFreshness;
   }> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
@@ -222,11 +256,18 @@ export class CommercialLabelsService {
       const fuente_al = (alRow?.rows?.[0]?.al ?? null) as string | null;
       // Sin plaza no hay nada que mostrar: la bitácora es por tienda y mezclarlas diría que
       // cambió algo que en TU tienda no cambió.
-      if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, freshness };
+      if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0, freshness };
+      // Cuántos se van por el filtro del centavo. Se cuenta ANTES de filtrar y viaja a la pantalla:
+      // un filtro que se lleva el 93% de un domingo sin decirlo se lee como "no hubo cambios".
+      const oc = await trx.raw(
+        `SELECT count(*)::int AS n FROM analytics.v_label_price_changes
+          WHERE sucursal = ? AND fecha = ?::date AND abs(delta) <= ${CommercialLabelsService.PISO_DELTA}`,
+        [suc, dia]);
+      const ocultos_centavo = Number(oc?.rows?.[0]?.n ?? 0);
       const r = await trx.raw(
         `SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
            FROM analytics.v_label_price_changes
-          WHERE sucursal = ? AND fecha = ?::date
+          WHERE sucursal = ? AND fecha = ?::date AND abs(delta) > ${CommercialLabelsService.PISO_DELTA}
           ORDER BY abs(delta) DESC, sku
           LIMIT ?`,
         [suc, dia, CommercialLabelsService.TOPE_CAMBIOS + 1]);
@@ -236,7 +277,7 @@ export class CommercialLabelsService {
       const truncado = filas.length > CommercialLabelsService.TOPE_CAMBIOS;
       return {
         items: truncado ? filas.slice(0, CommercialLabelsService.TOPE_CAMBIOS) : filas,
-        fecha: dia, truncado, fuente_al, freshness,
+        fecha: dia, truncado, fuente_al, ocultos_centavo, freshness,
       };
     });
   }
