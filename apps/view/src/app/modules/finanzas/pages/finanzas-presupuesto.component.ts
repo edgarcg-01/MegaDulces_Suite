@@ -204,7 +204,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <div class="pres-assump-head">
                 <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— lo único que ajustás; el sistema propone ventas y gastos con esto</span></h3>
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar supuestos</button>
+                  <div class="pres-detail-actions">
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="suggestAssumptions()" [loading]="suggestingAssump()" title="Estima el crecimiento desde la historia: ventas año-contra-año del sell-out + egresos de Kepler"><span class="pi pi-bolt"></span>&nbsp;Sugerir automáticamente</button>
+                    <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar supuestos</button>
+                  </div>
                 }
               </div>
               <div class="pres-assump-grid">
@@ -223,7 +226,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión.</p>
                 </div>
               </div>
-              <p class="pres-lbl-hint">Guardá los supuestos y luego usá «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
+              <p class="pres-lbl-hint">Usá «<strong>Sugerir automáticamente</strong>» para estimar el crecimiento desde la historia (ventas año-contra-año + egresos de Kepler), ajustá lo que cambie este año y <strong>Guardá</strong>. Luego «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
             </div>
 
             <!-- Answer-first: el resumen ejecutivo antes del grid (DESIGN §15) -->
@@ -1509,6 +1512,30 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => { this.asGastosDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; this.asGastosFamilies = (s.proposal_families || ['6']).join(','); this.asGastosBySucursal = !!s.by_sucursal; },
       error: () => { /* declara defaults */ },
+    });
+  }
+
+  // Estima el crecimiento desde la historia y llena los supuestos (no guarda — el humano revisa y Guarda).
+  // Reusa los motores PVA: ventas = YoY del sell-out por canal; gastos = tendencia de egresos Kepler.
+  suggestingAssump = signal(false);
+  suggestAssumptions(): void {
+    const b = this.selected(); if (!b) return;
+    this.suggestingAssump.set(true);
+    let pending = 2; const done = () => { if (--pending === 0) this.suggestingAssump.set(false); };
+    this.http.get<GrowthProposal>(`${this.base}/budgets/${b.id}/sales-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        const g = Math.round((p.global?.growth_pct || 0) * 1000) / 10; // fracción → %
+        this.asVentasDefault = g;
+        for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c ? Math.round((c.growth_pct || 0) * 1000) / 10 : g; }
+        const yoy = Object.values(p.by_channel || {}).filter((c) => c.basis === 'yoy_paired').length;
+        this.toast.add({ severity: 'success', summary: 'Crecimiento sugerido', detail: `Ventas: ${yoy} canal(es) con base histórica año-contra-año; el resto por tendencia global. Revisá, ajustá y Guardá.` });
+        done();
+      },
+      error: (e) => { this.toast.add({ severity: 'warn', summary: 'Ventas', detail: e?.error?.message || 'Sin historia suficiente para estimar el crecimiento de ventas.' }); done(); },
+    });
+    this.http.get<ExpenseGrowthProposal>(`${this.base}/budgets/${b.id}/expense-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => { this.asGastosDefault = Math.round((p.global?.growth_pct || 0) * 1000) / 10; done(); },
+      error: () => { done(); },
     });
   }
 
