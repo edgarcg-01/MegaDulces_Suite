@@ -158,6 +158,13 @@ export enum Permission {
   COMMERCIAL_TELEVENTA_VER = 'COMMERCIAL_TELEVENTA_VER',
   COMMERCIAL_TELEVENTA_OPERATE = 'COMMERCIAL_TELEVENTA_OPERATE',
 
+  // Submódulo: Telemarketing — Cotizaciones de mayoreo (Fase E.12).
+  // Par PROPIO y no derivado de COMMERCIAL_TELEVENTA_*: cotizar es ofrecer un precio, y quien
+  // trabaja la cola de llamadas no necesariamente tiene autorizado mover precio. Separarlos
+  // ahora es gratis; separarlos después de haberlos repartido juntos no lo es ([LC.6.2]).
+  COMMERCIAL_QUOTES_VER = 'COMMERCIAL_QUOTES_VER',
+  COMMERCIAL_QUOTES_GESTIONAR = 'COMMERCIAL_QUOTES_GESTIONAR',
+
   // Fase V — Vendedor de campo con OCR de ticket
   CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',
 

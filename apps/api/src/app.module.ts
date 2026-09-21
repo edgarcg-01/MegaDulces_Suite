@@ -82,6 +82,7 @@ import { PortalAiOrderModule } from '@megadulces/commercial';
 import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 // Fase E — Remote Manager / Televenta
 import { CommercialTeleventaModule } from '@megadulces/commercial';
+import { CommercialQuotesModule } from '@megadulces/commercial';
 import { CommercialStockReservationModule } from '@megadulces/commercial';
 import { CommercialTrustModule } from '@megadulces/commercial';
 // Cierre de ruta — tickets venta/carga/combustible del vendedor (port Automation_RD)
@@ -206,6 +207,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PortalAiOrderModule,
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
+      // [E.12] Cotizaciones de mayoreo — submódulo de Telemarketing.
+      CommercialQuotesModule,
       CommercialStockReservationModule,
       CommercialTrustModule,
       CommercialRouteControlModule,
