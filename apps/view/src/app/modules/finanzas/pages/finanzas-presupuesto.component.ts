@@ -106,7 +106,7 @@ interface GrowthProposal {
   years_available: number[]; fiscal_year: number; min_paired_periods?: number;
 }
 interface GrowthEditRow { channel: string; channel_label: string; growth_pct: number; basis: string; paired_periods: number }
-interface ProposeCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number }
+interface ProposeCoverage { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number }
 interface IndicatorSeries { year: number; real: number | null; crec_pct: number | null; part_pct: number | null }
 interface IndicatorCurrent { meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null }
 interface IndicatorRow { channel?: string; channel_label: string; label?: string; entity_key?: string; series: IndicatorSeries[]; current: IndicatorCurrent }
@@ -382,7 +382,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 </div>
                 <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
                 @if (lastCoverage(); as cov) {
-                  <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> capturadas a mano.</p>
+                  <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
                 }
                 <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
                   <label class="pres-muted">Periodo (13×4):</label>
@@ -412,7 +412,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   </ng-template>
                   <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
                 </p-table>
-                <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad donde no hay base) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—). Para ajustar una meta a mano, elegí un periodo (P1–P13).</p>
+                <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad) · Proxy canal (entidad nueva, estimada desde su canal) · Sin base (ni entidad ni canal con señal → declarada en 0, no ausente) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—).</p>
               } @else if (loadingSales()) {
                 <p class="pres-muted">Cargando presupuesto de ventas…</p>
               } @else {
@@ -907,6 +907,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .ec-src { display:inline-block; font-size:.62rem; padding:.05rem .35rem; border-radius:.35rem; border:1px solid var(--border); color:var(--text-muted); white-space:nowrap; }
     .ec-src-historico_ajustado { color:var(--good-fg,#067647); border-color:color-mix(in srgb, var(--good-fg,#067647) 40%, transparent); }
     .ec-src-estacional { color:var(--text-muted); border-style:dashed; }
+    .ec-src-proxy_canal { color:var(--warn-fg); border-style:dashed; }
+    .ec-src-sin_base_declarado { color:var(--text-faint); border-style:dotted; }
     .ec-src-manual { color:var(--bad-fg,#b42318); border-color:color-mix(in srgb, var(--bad-fg,#b42318) 40%, transparent); }
     .ec-src-mixto { color:var(--text-faint); }
     .pres-propose-tbl { width:100%; border-collapse:collapse; font-size:.82rem; margin:.4rem 0 .2rem; }
@@ -1450,7 +1452,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   methodLabel(m: string | null): string {
-    return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
+    return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'proxy_canal' ? 'Proxy canal' : m === 'sin_base_declarado' ? 'Sin base' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
   }
   basisLabel(b: string): string {
     return b === 'yoy_paired' ? 'tendencia histórica' : b === 'global' ? 'tendencia global' : 'default (sin tendencia confiable)';
@@ -1490,7 +1492,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
           this.savingPropose.set(false); this.proposeVisible = false; this.lastCoverage.set(r.coverage);
           this.loadSalesComparison(); this.indicators.set(null);
           const c = r.coverage;
-          this.toast.add({ severity: 'success', summary: 'Plan propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.no_signal} sin señal · ${c.manual_kept} manual.` });
+          this.toast.add({ severity: 'success', summary: 'Plan propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.proxy_canal} proxy · ${c.sin_base_declarado} sin base · ${c.no_signal} sin señal · ${c.manual_kept} manual.` });
         },
         error: (e) => { this.savingPropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el plan.' }); },
       });
@@ -1634,7 +1636,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const b = this.selected(); if (!b) return;
     this.savingPropose.set(true);
     this.http.post<{ coverage: ProposeCoverage }>(`${this.base}/budgets/${b.id}/sales-plan/propose`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.savingPropose.set(false); this.lastCoverage.set(r.coverage); this.loadSalesComparison(); const c = r.coverage; this.toast.add({ severity: 'success', summary: 'Plan de ventas propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.no_signal} sin señal · ${c.manual_kept} manual.` }); },
+      next: (r) => { this.savingPropose.set(false); this.lastCoverage.set(r.coverage); this.loadSalesComparison(); const c = r.coverage; this.toast.add({ severity: 'success', summary: 'Plan de ventas propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.proxy_canal} proxy · ${c.sin_base_declarado} sin base · ${c.no_signal} sin señal · ${c.manual_kept} manual.` }); },
       error: (e) => { this.savingPropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el plan.' }); },
     });
   }

@@ -324,7 +324,22 @@ export class BudgetSalesPlanService {
       }
       const seasIdx = method === 'hibrido' ? this.seasonalIndexByEntity(realY1) : new Map<string, number[]>();
 
-      const cov = { historico_ajustado: 0, estacional: 0, no_signal: 0, manual_kept: 0 };
+      // Fallback declarado (Q3, ADR-056): proxy por CANAL para entidades sin historia propia.
+      // promedio de entidades del canal (base) × estacionalidad del canal. «nunca dejar hueco».
+      const chAnnualSum = new Map<string, number>();
+      const chEntCount = new Map<string, number>();
+      const chPeriodSum = new Map<string, number[]>();
+      for (const e of entities) {
+        const ek = e.entity_key as string; const ch = e.channel as string;
+        const ann = entityAnnual.get(ek) || 0;
+        if (ann > 0) { chAnnualSum.set(ch, (chAnnualSum.get(ch) || 0) + ann); chEntCount.set(ch, (chEntCount.get(ch) || 0) + 1); }
+        const bp = realMap.get(ek);
+        if (bp) { const arr = chPeriodSum.get(ch) || new Array(13).fill(0); for (let p = 1; p <= 13; p++) arr[p - 1] += (bp.get(p) || 0); chPeriodSum.set(ch, arr); }
+      }
+      const chProxyAnnual = (ch: string): number | null => { const s = chAnnualSum.get(ch); const n = chEntCount.get(ch); return s && n ? s / n : null; };
+      const chSeasShare = (ch: string): number[] | null => { const arr = chPeriodSum.get(ch); if (!arr) return null; const tot = arr.reduce((a, c) => a + c, 0); return tot > 0 ? arr.map((v) => v / tot) : null; };
+
+      const cov = { historico_ajustado: 0, estacional: 0, proxy_canal: 0, sin_base_declarado: 0, no_signal: 0, manual_kept: 0 };
       for (const e of entities) {
         const ek = e.entity_key as string;
         const ch = e.channel as string;
@@ -341,7 +356,7 @@ export class BudgetSalesPlanService {
           if (existing && existing.method === 'manual' && !dto.overwrite_manual) { cov.manual_kept++; continue; }
 
           let meta: number | null = null;
-          let rowMethod: 'historico_ajustado' | 'estacional' | null = null;
+          let rowMethod: 'historico_ajustado' | 'estacional' | 'proxy_canal' | 'sin_base_declarado' | null = null;
           let baseAmount: number | null = null;
           if (base > 0) {
             meta = round2(base * (1 + growth)); rowMethod = 'historico_ajustado'; baseAmount = round2(base);
@@ -349,6 +364,17 @@ export class BudgetSalesPlanService {
             const share = idx[period - 1] || 0;
             const m = round2(projectedAnnual * share);
             if (m > 0) { meta = m; rowMethod = 'estacional'; baseAmount = null; }
+          }
+          // Fallback declarado (Q3, ADR-056) — sólo en modo híbrido; el modo histórico NO rellena.
+          if (meta == null && method === 'hibrido') {
+            // (1) proxy del CANAL: promedio de sus entidades × estacionalidad del canal × crecimiento.
+            const proxyAnnual = chProxyAnnual(ch); const chShare = chSeasShare(ch);
+            if (proxyAnnual != null && proxyAnnual > 0 && chShare) {
+              const m = round2(proxyAnnual * (1 + growth) * (chShare[period - 1] || 0));
+              if (m > 0) { meta = m; rowMethod = 'proxy_canal'; baseAmount = null; }
+            }
+            // (2) ni entidad ni canal con señal → la entidad IGUAL aparece, declarada en 0 (no ausente).
+            if (meta == null) { meta = 0; rowMethod = 'sin_base_declarado'; baseAmount = null; }
           }
           if (meta == null || rowMethod == null) { cov.no_signal++; continue; }
 
