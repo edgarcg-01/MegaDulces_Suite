@@ -47,19 +47,24 @@ export interface LabelModel {
 }
 
 /**
- * `[ETQ-CAMBIOS.1]` Un producto cuyo precio cambió, para la pantalla de reimpresión.
+ * `[ETQ-CAMBIOS.2]` Un cambio de precio, con su ANTES y su DESPUÉS.
  *
- * ⛔ **No trae precio anterior a propósito**: ninguna tabla del sistema lo guarda (verificado;
- * es la deuda `VP.3`). Inventar un "antes" a partir de otra fuente sería dibujar un número que
- * nadie puede comprobar. Se muestra el precio NUEVO y cuándo cambió, que es lo que decide si
- * hay que reimprimir.
+ * Sale de `analytics.v_label_price_changes`, derivada de la bitácora nativa de Kepler — la única
+ * fuente del sistema que guarda el precio anterior. La primera versión de esta pantalla no podía
+ * traerlo (ninguna tabla propia lo tiene, deuda `VP.3`) y por eso mostraba sólo el precio nuevo.
+ *
+ * `es_baja` = el precio nuevo es cero. No es una rebaja: el ERP le quitó el precio, y la etiqueta
+ * de ese producto diría SIN PRECIO. Viaja como bandera para que la pantalla lo diga.
  */
 export interface LabelPriceChange {
   sku: string;
-  name: string;
-  piece_price: number | null;
-  unit_base: string | null;
-  changed_at: string;
+  name: string | null;
+  unidad: string | null;
+  precio_anterior: number | null;
+  precio_nuevo: number | null;
+  delta: number | null;
+  es_baja: boolean;
+  hora: string | null;
 }
 
 /**
@@ -188,52 +193,59 @@ export class CommercialLabelsService {
    * ⚠️ Y aunque llegara, el 92% sería ruido: de 165,421 filas en 90 días de la plaza 05,
    * **153,115 son cambios de menos de UN CENTAVO** (`3.3500 → 3.3480`), residuo de recálculo.
    *
-   * ── Lo que se usa mientras tanto, y su límite ───────────────────────────────────────────────
-   * El reloj es `commercial.product_label_prices.updated_at`. Su UPSERT es *churn-free*: toca la
-   * fila **sólo cuando cambia**, así que sirve de señal de cambio. Está vivo (6–10 productos por
-   * plaza en 24 h).
+   * ── `[ETQ-CAMBIOS.2]` Resuelto: se usa la bitácora ──────────────────────────────────────────
+   * La tabla estaba **excluida a propósito** de los dos carriles del ODS (`ops/vl/docker-compose.yml`,
+   * `ODS_EXCLUDE_TABLES`, desde la migración del servidor). Se sacó de ahí, y esta consulta lee
+   * `analytics.v_label_price_changes`, que filtra a los cambios que mueven el precio IMPRESO.
    *
-   * ⛔ Dos cosas que esto NO puede hacer, y se declaran en vez de disimularse:
-   *   1. **No hay precio anterior.** Ninguna tabla del sistema lo guarda — verificado, y es la
-   *      deuda `VP.3` del roadmap. La pantalla muestra el precio NUEVO y cuándo cambió.
-   *   2. **La ventana útil es corta.** A 7 días el conteo salta a ~4,750 filas por plaza, que es
-   *      medio catálogo: hubo una reescritura masiva y `updated_at` no la distingue de un cambio
-   *      real. Por eso el tope por defecto es de horas, no de días.
+   * ⛔ La primera versión leía `commercial.product_label_prices.updated_at` y **no podía dar lo
+   * que se pedía**: esa columna guarda el ÚLTIMO toque, no un registro, así que un selector de
+   * fechas sólo acierta por casualidad (si el producto cambió el 15 y otra vez el 20, sólo queda
+   * el 20) y el precio anterior no existe en ninguna tabla propia.
    *
-   * El PRECIO, en cambio, sale de `analytics.v_label_prices` como en toda la etiquetera: la copia
-   * aporta el reloj, nunca la cifra.
+   * ⚠️ `fuente_al` viaja SIEMPRE, incluso con la lista vacía: sin él, *"ese día no cambió nada"* y
+   * *"ese día todavía no llegó al ODS"* se ven idénticos en pantalla, y son lo contrario.
    */
-  async priceChanges(sucursal: string | null, horas: number): Promise<{
-    items: LabelPriceChange[]; ventana_horas: number; truncado: boolean; freshness: LabelsFreshness;
+  async priceChanges(sucursal: string | null, fecha: string | null): Promise<{
+    items: LabelPriceChange[]; fecha: string; truncado: boolean; fuente_al: string | null;
+    freshness: LabelsFreshness;
   }> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
-    const h = Math.min(Math.max(Math.round(Number(horas) || 24), 1), 168);
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
     return this.tk.run(async (trx) => {
       const freshness = await this.freshness(trx);
-      // Sin plaza no hay reloj: `updated_at` es por (producto, sucursal) y mezclarlas diría que
-      // cambió algo que en TU tienda no cambió. Se devuelve vacío y la pantalla lo dice.
-      if (!suc) return { items: [], ventana_horas: h, truncado: false, freshness };
+      // ⛔ Hasta dónde llegó la bitácora. Va SIEMPRE, incluso con la lista vacía: sin esto,
+      // "no cambió nada ese día" y "ese día todavía no llegó" se ven idénticos en la pantalla —
+      // y son cosas opuestas. Es la misma trampa que VP.0 midió en las píldoras de frescura.
+      const alRow = await trx.raw(
+        `SELECT max(fecha)::text AS al FROM analytics.v_label_price_changes WHERE sucursal = ?`, [suc ?? '']);
+      const fuente_al = (alRow?.rows?.[0]?.al ?? null) as string | null;
+      // Sin plaza no hay nada que mostrar: la bitácora es por tienda y mezclarlas diría que
+      // cambió algo que en TU tienda no cambió.
+      if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, freshness };
       const r = await trx.raw(
-        `SELECT btrim(p.sku) AS sku, p.nombre AS name, v.piece_price, v.unit_base,
-                lp.updated_at AS changed_at
-           FROM commercial.product_label_prices lp
-           JOIN catalog.products p
-             ON p.id = lp.product_id AND p.tenant_id = lp.tenant_id AND p.deleted_at IS NULL
-           JOIN analytics.v_label_prices v
-             ON v.sucursal = lp.sucursal AND v.sku = btrim(p.sku)
-          WHERE lp.sucursal = ? AND lp.updated_at > now() - make_interval(hours => ?)
-          ORDER BY lp.updated_at DESC
+        `SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
+           FROM analytics.v_label_price_changes
+          WHERE sucursal = ? AND fecha = ?::date
+          ORDER BY abs(delta) DESC, sku
           LIMIT ?`,
-        [suc, h, CommercialLabelsService.TOPE_CAMBIOS + 1]);
+        [suc, dia, CommercialLabelsService.TOPE_CAMBIOS + 1]);
       const filas = (r?.rows ?? []) as LabelPriceChange[];
       // Un tope que recorta en silencio se lee como "no hubo más". Se pide uno de más para poder
       // DECIRLO, y recién ahí se recorta.
       const truncado = filas.length > CommercialLabelsService.TOPE_CAMBIOS;
       return {
         items: truncado ? filas.slice(0, CommercialLabelsService.TOPE_CAMBIOS) : filas,
-        ventana_horas: h, truncado, freshness,
+        fecha: dia, truncado, fuente_al, freshness,
       };
     });
+  }
+
+  /** Ayer en hora de México, que es el día que el operador quiere revisar al abrir la tienda. */
+  private static ayer(): string {
+    const hoyMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+    hoyMx.setDate(hoyMx.getDate() - 1);
+    return `${hoyMx.getFullYear()}-${String(hoyMx.getMonth() + 1).padStart(2, '0')}-${String(hoyMx.getDate()).padStart(2, '0')}`;
   }
 
   /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */

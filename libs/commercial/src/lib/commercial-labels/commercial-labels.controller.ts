@@ -25,19 +25,20 @@ export class CommercialLabelsController {
 
   @Get('price-changes')
   @RequirePermissions(Permission.STORE_LABELS_VER)
-  @ApiQuery({ name: 'sucursal', required: true, description: 'Plaza de dos dígitos. Sin ella la lista va vacía: el reloj de cambio es POR tienda.' })
-  @ApiQuery({ name: 'horas', required: false, description: 'Ventana en horas (1–168, default 24).' })
+  @ApiQuery({ name: 'sucursal', required: true, description: 'Plaza de dos dígitos. Sin ella la lista va vacía: la bitácora es POR tienda.' })
+  @ApiQuery({ name: 'fecha', required: false, description: 'Día a revisar (YYYY-MM-DD). Default: AYER en hora de México.' })
   @ApiOperation({
-    summary: 'Etiquetera — productos cuyo precio cambió, para reimprimir su etiqueta.',
+    summary: 'Etiquetera — cambios de precio de un día, con precio anterior y nuevo.',
     description:
-      'El reloj es `commercial.product_label_prices.updated_at` (UPSERT churn-free: sólo toca la fila ' +
-      'cuando cambia). El PRECIO sale de `analytics.v_label_prices`, como toda la etiquetera. ' +
-      '⛔ NO devuelve precio anterior: ninguna tabla lo guarda (deuda VP.3). Y la ventana útil es ' +
-      'corta — a 7 días `updated_at` toca medio catálogo por una reescritura masiva. La fuente ' +
-      'correcta sería `kdpv_bitacora_precios`, que lleva sin llegar al ODS desde el 2026-09-01.',
+      'Deriva de `analytics.v_label_price_changes` sobre la bitácora nativa de Kepler — la única ' +
+      'fuente que guarda el precio ANTERIOR. Filtra a los cambios que mueven el precio IMPRESO: ' +
+      'Kepler escribe una fila por recálculo y el 99.8% son deltas de menos de un centavo. ' +
+      '`fuente_al` dice hasta qué día llegó la bitácora, para que "no cambió nada" y "todavía no ' +
+      'llegó" no se vean iguales. `es_baja` marca el precio nuevo en cero: no es rebaja, es que el ' +
+      'ERP le quitó el precio.',
   })
-  priceChanges(@Query('sucursal') sucursal?: string, @Query('horas') horas?: string) {
-    return this.svc.priceChanges(sucursal ?? null, Number(horas ?? 24));
+  priceChanges(@Query('sucursal') sucursal?: string, @Query('fecha') fecha?: string) {
+    return this.svc.priceChanges(sucursal ?? null, fecha ?? null);
   }
 
   @Post('resolve')
