@@ -23,6 +23,23 @@ export class CommercialLabelsController {
     return this.svc.search(q);
   }
 
+  @Get('price-changes')
+  @RequirePermissions(Permission.STORE_LABELS_VER)
+  @ApiQuery({ name: 'sucursal', required: true, description: 'Plaza de dos dígitos. Sin ella la lista va vacía: el reloj de cambio es POR tienda.' })
+  @ApiQuery({ name: 'horas', required: false, description: 'Ventana en horas (1–168, default 24).' })
+  @ApiOperation({
+    summary: 'Etiquetera — productos cuyo precio cambió, para reimprimir su etiqueta.',
+    description:
+      'El reloj es `commercial.product_label_prices.updated_at` (UPSERT churn-free: sólo toca la fila ' +
+      'cuando cambia). El PRECIO sale de `analytics.v_label_prices`, como toda la etiquetera. ' +
+      '⛔ NO devuelve precio anterior: ninguna tabla lo guarda (deuda VP.3). Y la ventana útil es ' +
+      'corta — a 7 días `updated_at` toca medio catálogo por una reescritura masiva. La fuente ' +
+      'correcta sería `kdpv_bitacora_precios`, que lleva sin llegar al ODS desde el 2026-09-01.',
+  })
+  priceChanges(@Query('sucursal') sucursal?: string, @Query('horas') horas?: string) {
+    return this.svc.priceChanges(sucursal ?? null, Number(horas ?? 24));
+  }
+
   @Post('resolve')
   @RequirePermissions(Permission.STORE_LABELS_VER)
   @ApiOperation({

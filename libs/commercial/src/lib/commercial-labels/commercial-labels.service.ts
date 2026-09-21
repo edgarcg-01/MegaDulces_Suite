@@ -47,6 +47,22 @@ export interface LabelModel {
 }
 
 /**
+ * `[ETQ-CAMBIOS.1]` Un producto cuyo precio cambió, para la pantalla de reimpresión.
+ *
+ * ⛔ **No trae precio anterior a propósito**: ninguna tabla del sistema lo guarda (verificado;
+ * es la deuda `VP.3`). Inventar un "antes" a partir de otra fuente sería dibujar un número que
+ * nadie puede comprobar. Se muestra el precio NUEVO y cuándo cambió, que es lo que decide si
+ * hay que reimprimir.
+ */
+export interface LabelPriceChange {
+  sku: string;
+  name: string;
+  piece_price: number | null;
+  unit_base: string | null;
+  changed_at: string;
+}
+
+/**
  * [OBS.6.2] Qué tan viejo es el precio que se está por IMPRIMIR.
  *
  * Existe por el incidente del 2026-09-02: el carril de catálogos del ODS estuvo parado 6 días y la
@@ -106,6 +122,14 @@ export class CommercialLabelsService {
    * Los dos eslabones tienen ritmo VIVO (minutos), así que 1 h y 12 h son holgados a propósito:
    * el objetivo es cazar un caño roto, no hacer parpadear la pantalla por un hipo de red.
    */
+  /**
+   * `[ETQ-CAMBIOS.1]` Tope de filas de la lista de cambios. No es una estética: la etiquetera
+   * misma tiene un tope de cola, y una lista de miles con "imprimir todas" al lado es una
+   * promesa que la impresión no puede cumplir. Cuando se alcanza, la respuesta lo DICE
+   * (`truncado: true`) en vez de recortar en silencio.
+   */
+  private static readonly TOPE_CAMBIOS = 300;
+
   private static readonly TOLERANCIA_H: Record<string, number> = {
     ods_live_hot: 1,
     // `[ETQ-ODS.1]` `recalculo: 12` se retiró con su paso: la etiqueta ya no pasa por
@@ -143,6 +167,73 @@ export class CommercialLabelsService {
       // nunca se afirma "está fresco", que es la mentira que esta función existe para evitar.
       return FRESHNESS_UNKNOWN;
     }
+  }
+
+  /**
+   * ⭐ `[ETQ-CAMBIOS.1]` Los productos cuyo PRECIO CAMBIÓ, para reimprimir su etiqueta.
+   *
+   * ── ⛔ De dónde sale "cambió", y por qué NO de donde debería ────────────────────────────────
+   * La fuente correcta sería `kepler_ods.kdpv_bitacora_precios`: es la bitácora NATIVA de Kepler,
+   * trae precio anterior, nuevo y delta, está por plaza y su índice responde en 0.1 ms. **No se
+   * usa porque no está llegando.** Medido en prod el 2026-09-21:
+   *
+   *   `_sync_status.last_push_at` de esa tabla ... 2026-09-02 02:35 (19 días), `rows_last` = 2
+   *   última fila de CADA una de las 7 sucursales .. 2026-09-01   · la sucursal 08 no existe ahí
+   *   y los dos carriles del ODS estaban VERDES     (`ods_live_hot` 0 min, `ods_live_mirror` 4 min)
+   *
+   * O sea que no es un carril caído: esa tabla simplemente no se shipea, aunque es append-only y
+   * los precios sí cambiaron (la copia se actualizó ese mismo día). `replicate-ods-live.js:87` la
+   * nombra entre las que "un full-mirror viejo dejó CONGELADAS".
+   *
+   * ⚠️ Y aunque llegara, el 92% sería ruido: de 165,421 filas en 90 días de la plaza 05,
+   * **153,115 son cambios de menos de UN CENTAVO** (`3.3500 → 3.3480`), residuo de recálculo.
+   *
+   * ── Lo que se usa mientras tanto, y su límite ───────────────────────────────────────────────
+   * El reloj es `commercial.product_label_prices.updated_at`. Su UPSERT es *churn-free*: toca la
+   * fila **sólo cuando cambia**, así que sirve de señal de cambio. Está vivo (6–10 productos por
+   * plaza en 24 h).
+   *
+   * ⛔ Dos cosas que esto NO puede hacer, y se declaran en vez de disimularse:
+   *   1. **No hay precio anterior.** Ninguna tabla del sistema lo guarda — verificado, y es la
+   *      deuda `VP.3` del roadmap. La pantalla muestra el precio NUEVO y cuándo cambió.
+   *   2. **La ventana útil es corta.** A 7 días el conteo salta a ~4,750 filas por plaza, que es
+   *      medio catálogo: hubo una reescritura masiva y `updated_at` no la distingue de un cambio
+   *      real. Por eso el tope por defecto es de horas, no de días.
+   *
+   * El PRECIO, en cambio, sale de `analytics.v_label_prices` como en toda la etiquetera: la copia
+   * aporta el reloj, nunca la cifra.
+   */
+  async priceChanges(sucursal: string | null, horas: number): Promise<{
+    items: LabelPriceChange[]; ventana_horas: number; truncado: boolean; freshness: LabelsFreshness;
+  }> {
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
+    const h = Math.min(Math.max(Math.round(Number(horas) || 24), 1), 168);
+    return this.tk.run(async (trx) => {
+      const freshness = await this.freshness(trx);
+      // Sin plaza no hay reloj: `updated_at` es por (producto, sucursal) y mezclarlas diría que
+      // cambió algo que en TU tienda no cambió. Se devuelve vacío y la pantalla lo dice.
+      if (!suc) return { items: [], ventana_horas: h, truncado: false, freshness };
+      const r = await trx.raw(
+        `SELECT btrim(p.sku) AS sku, p.nombre AS name, v.piece_price, v.unit_base,
+                lp.updated_at AS changed_at
+           FROM commercial.product_label_prices lp
+           JOIN catalog.products p
+             ON p.id = lp.product_id AND p.tenant_id = lp.tenant_id AND p.deleted_at IS NULL
+           JOIN analytics.v_label_prices v
+             ON v.sucursal = lp.sucursal AND v.sku = btrim(p.sku)
+          WHERE lp.sucursal = ? AND lp.updated_at > now() - make_interval(hours => ?)
+          ORDER BY lp.updated_at DESC
+          LIMIT ?`,
+        [suc, h, CommercialLabelsService.TOPE_CAMBIOS + 1]);
+      const filas = (r?.rows ?? []) as LabelPriceChange[];
+      // Un tope que recorta en silencio se lee como "no hubo más". Se pide uno de más para poder
+      // DECIRLO, y recién ahí se recorta.
+      const truncado = filas.length > CommercialLabelsService.TOPE_CAMBIOS;
+      return {
+        items: truncado ? filas.slice(0, CommercialLabelsService.TOPE_CAMBIOS) : filas,
+        ventana_horas: h, truncado, freshness,
+      };
+    });
   }
 
   /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */

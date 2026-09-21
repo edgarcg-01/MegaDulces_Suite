@@ -14,6 +14,8 @@ import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiq
 // `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 
 /** `freshness` = la edad del precio en el momento en que ESTE ítem se resolvió. Viaja con él. */
 interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; freshness: Freshness | null; }
@@ -67,7 +69,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
 @Component({
   selector: 'app-tienda-etiquetas',
   standalone: true,
-  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, SelectModule, TextareaModule, LabelComponent],
+  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, SelectModule, TextareaModule, LabelComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
@@ -256,6 +258,10 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
   `],
   template: `
     <div class="etqp-screen">
+      <!-- [ETQ-CAMBIOS.1] El selector entre esta pantalla y "Cambios de precio". La barra se
+           esconde sola si queda un solo tab visible, asi que un usuario sin el permiso del otro
+           no ve una barra de uno. -->
+      <app-page-tabs [tabs]="etiquetasTabs" />
       <div class="etqp-head">
         <div class="etqp-title">
           <h1>Etiquetas de anaquel</h1>
@@ -527,6 +533,9 @@ export class TiendaEtiquetasComponent {
    */
   private readonly sucursalUsuario = this.auth.user()?.warehouse_code || null;
 
+  /** `[ETQ-CAMBIOS.1]` El selector entre esta pantalla y "Cambios de precio". */
+  readonly etiquetasTabs = ETIQUETAS_TABS;
+
   // ── `[TDA.1]` El precio cambió mientras la pantalla estaba abierta ──────────
   //
   // Hasta acá esta pantalla era 100% pull: consultaba el precio SÓLO cuando el operador escaneaba,
@@ -767,6 +776,21 @@ export class TiendaEtiquetasComponent {
     });
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
+
+    // `[ETQ-CAMBIOS.1]` Puerta de entrada desde «Cambios de precio». Los códigos llegan por
+    // ESTADO del router (no por query param: "imprimir todas" pueden ser cientos y la URL tiene
+    // tope) y se cargan con el MISMO camino que la carga masiva — mismo `resolve`, mismo tope de
+    // cola, mismos avisos. Sin esto habría que duplicar la maquinaria de impresión allá, que es
+    // un segundo lugar donde arreglar el mismo bug.
+    const traidos = (history.state as { codes?: unknown } | null)?.codes;
+    if (Array.isArray(traidos) && traidos.length) {
+      const codes = traidos.filter((c): c is string => typeof c === 'string' && !!c.trim());
+      if (codes.length) {
+        this.bulk.set(codes.join('\n'));
+        // Diferido un tick: `addBulk` escribe señales que el primer render todavía no leyó.
+        queueMicrotask(() => this.addBulk());
+      }
+    }
 
     // Qué tipografía está usable para medir — con la MISMA función con que la etiqueta decide
     // su techo al medir (`familiasFaltantes`), así pantalla y medida no pueden discrepar.

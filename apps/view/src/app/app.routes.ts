@@ -1051,6 +1051,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
       },
       {
+        // `[ETQ-CAMBIOS.1]` VA ANTES que `etiquetas`: esa ruta es una hoja (component, sin
+        // children), así que declarada primero se comería el prefijo y `etiquetas/cambios`
+        // nunca resolvería. Mismo permiso: quien imprime una etiqueta puede ver cuáles quedaron
+        // viejas — es la misma decisión.
+        path: 'etiquetas/cambios',
+        loadComponent: () => import('./modules/tienda/pages/tienda-cambios-precio.component').then(m => m.TiendaCambiosPrecioComponent),
+        canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
+      },
+      {
         path: 'etiquetas',
         loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
         canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
