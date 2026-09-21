@@ -2269,3 +2269,44 @@ Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PR).
 **Hereda:** ADR-059 (la verdad se arbitra; lo que no, se declara) · ADR-056 (frescura declarada, nunca cero/verde falso) · la regla del ODS (derivar, no copiar — el Parquet es un snapshot de lectura, la fuente sigue siendo el ODS/PG) · `feedback_interface_load_under_1s` (>1s = no funciona).
 
 Spike y mediciones en `md:/home/superoot/spike/` (2026-09-21).
+
+---
+
+## ADR-076
+
+**Un KPI directivo se publica sólo si (1) alguien OCUPA el puesto que responde de él, (2) su cifra sale de la MISMA fuente que la pantalla a la que el bloque enlaza, y (3) su veredicto lo emite el SERVIDOR contra un umbral registrado — sin umbral el estado es `sin_meta`, nunca `ok`.** (Fase CDRP — propuesto 2026-09-21)
+
+**Contexto.** Dirección entregó una especificación funcional del «Cuadro de Resultados por Puesto» ([`ESPEC_CDRP_DIRECCION_2026-09-17.md`](FASES/ESPEC_CDRP_DIRECCION_2026-09-17.md), versionada verbatim en el repo). El pedido del usuario acotó el alcance más que la spec: *«mucho de lo que vamos a presentar ya existe, sólo vamos a tomar la información o redireccionar a la interfaz correcta»*. O sea: el CDRP no es una pantalla nueva, se renderiza dentro de «Mi trabajo» (`/projects`, ADR-061).
+
+**Lo medido contra prod, que es lo que obliga a escribir el ADR:**
+- `identity.positions`: **`direccion` 0 personas · `direccion_comercial` 0 personas**. Las responsabilidades `comercial.venta_zonas` y `comercial.thot` están repartidas a esos puestos desde `[CDRP.0]` y **no le llegan a nadie**: tres commits ya en prod que no ve ninguna persona.
+- Renglones de presupuesto en **0** (`budget.sales_plan_lines`, `budget_lines`, `expense_plan_lines`, `commercial.sales_targets`) — o sea **13 de 16 KPIs primarios de §2 y §3 no pueden tener semáforo**.
+- §12 de la spec define **tres** estados (`green|yellow|red`) y §13 propone el umbral como **porcentaje de la meta**. Las dos cosas fallan: con tres estados **un KPI sin meta sale verde** (el `cfg ? classify : 'ok'` que la Fase VP midió dando verde incondicional a 3 matvistas del sell-out), y el porcentaje **se rompe con meta 0**, que es un objetivo real acá («cartera vencida, meta 0»).
+- Cartera vencida NO era un KPI por construir: **Fase CXC ya lo tiene entero**. Lo que falta es que su foto diaria (`analytics.customer_receivable_snapshots`) **está en 0 filas y sin ningún `cron_runs`** que la mencione.
+
+**Decisión — las tres condiciones, y por qué cada una:**
+
+1. **Puesto ocupado.** Un KPI que se pinta para una silla vacía no es un tablero: es decorado que nadie audita. Hereda `[SN.30]` (*si no respondés de una cola, no la ves*). ⭐ Corolario práctico: **ocupar la silla no exige mover a nadie de puesto** — `identity.user_responsibilities` ya tiene endpoint y UI, y `responsabilidadesDe()` resuelve la unión. Es un clic reversible, no una migración.
+2. **Misma fuente que el destino.** El bloque toma la cifra de donde la toma la pantalla a la que enlaza (regla de `[JZ.6]`). Si el número del tablero y el de la pantalla salen de consultas distintas, el drill-down desmiente al tablero y se pierde la confianza en los dos.
+3. **Veredicto del servidor contra umbral registrado.** `clasificarKpi()` corre en el backend y sólo cruza el cable su salida; el cliente mapea `estado` → clase CSS y **no guarda ningún número ni tiene un `if`**. Los umbrales viven en `analytics.kpi_thresholds`, **una fila por (kpi, puesto, periodo)**, con `manual_lock`/`auto_tuned_at` heredados de Horus (ADR-021).
+
+**Cinco estados, no tres.** `ok | warn | bad | sin_meta | sin_medir`. Las dos ausencias **no son la misma**: `sin_medir` = no hay cifra (**la arregla Sistemas**); `sin_meta` = hay cifra y nada contra qué compararla (**la arregla Dirección**). Colapsarlas convierte «no sé cuánto vendimos» en «vendimos y no sé si está bien». `ORDEN_KPI_ESTADO` pone `ok` **último**, para que un tablero ordenado por estado no esconda justo lo que nadie puede juzgar.
+
+**Umbrales ABSOLUTOS, y el riesgo se impide en vez de pedirse.** Un CHECK rechaza la fila incoherente. ⚠️ Su propia prueba refutó lo que yo había escrito: con `higher_is_better`, **subir** la meta la aleja del amarillo y no rompe nada; el descuido real es **RECORTARLA** a mitad de año dejando el amarillo arriba — ahí `warn` se vuelve inalcanzable y el indicador salta de verde a rojo sin etapa intermedia.
+
+**Se rechaza:**
+- (a) un tablero directivo como pantalla aparte — sería la duodécima landing y rompería `[SN.30]`;
+- (b) los tres estados de §12 y el umbral porcentual de §13, por lo medido arriba;
+- (c) sembrar umbrales «de ejemplo» para que el tablero se vea lleno: es el cero dibujado que ADR-056 prohíbe, un nivel más arriba. **La tabla nace vacía y hay un candado que se pone rojo si alguien la siembra**;
+- (d) aflojar un umbral para que un mosaico salga verde (con **89.7 % de cartera vencida medida**, la primera fila nace `bad` y escalando, y eso es correcto);
+- (e) construir liquidez, EBITDA o capital de trabajo: no son consultas, son decisiones contables (qué cuentas son circulantes, qué agrupadores entran) — se **declaran con dueño**, no se aproximan.
+
+**Consecuencias:**
+- ✅ El registro de umbrales existe antes que cualquier KPI, así que ningún indicador puede nacer con su número clavado en la pantalla (§13 de la spec, cumplido).
+- ✅ Con la tabla vacía **todo indicador sale `sin_meta`**, que es lo que hoy es cierto y es auditable.
+- ⚠️ **Una medición con fecha envejece**: la que justificaba la tabla vacía duró **tres días** y estaba persistida en un `COMMENT ON TABLE` de prod, donde editar el archivo no la alcanza. La lección se convirtió en compuerta: el smoke se pone rojo el día que aparezca el primer renglón de presupuesto. *Un comentario no avisa cuando deja de ser cierto; un test sí.*
+- ⚠️ Mientras las sillas sigan vacías, la fase entrega valor **cero visible** por más código que se escriba. Ése es el orden de trabajo, no una preferencia.
+
+**Hereda:** ADR-056 (lo que no se mide se DECLARA, nunca cero ni verde) · ADR-053 (un umbral registrado, o verde incondicional) · ADR-021 (`manual_lock`: el auto-calibrador no pisa al humano) · ADR-057 (la precedencia vive en un solo lugar) · ADR-061 y `[SN.30]` · `[JZ.6]`.
+
+Plan y mediciones en [`FASE_CDRP_CUADRO_RESULTADOS.md`](FASES/FASE_CDRP_CUADRO_RESULTADOS.md).
