@@ -713,12 +713,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
 
   it('ignora acentos y acepta los tokens en cualquier orden', async () => {
     await montar({ perms: [], role: 'superadmin' });
-    buscar('auditoria');
+    buscar('analisis');
     const conAcento = tarjetas().length;
     expect(conAcento).toBeGreaterThan(0);
-    buscar('ruta auditoria');
+    buscar('rutas analisis');
     expect(tarjetas().length).toBeGreaterThan(0);
-    expect(html()).toContain('Auditoría en Ruta');
+    // El módulo se llama «Análisis de rutas»; la tarjeta que lo contiene, «Venta al detalle».
+    expect(html()).toContain('Venta al detalle');
   });
 
   it('encuentra un proyecto por el nombre de un MÓDULO de adentro', async () => {
