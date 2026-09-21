@@ -3006,3 +3006,52 @@ es la única acción que realmente cierra la exposición.
 
 Relacionado: el incidente de credenciales de DB en texto plano en los lanzadores (Fase VL) es la
 misma familia — *un secreto que viaja como texto en algo que alguien más va a leer*.
+
+---
+
+## 59. Un diálogo sin botones: `pTemplate="footer"` dejó de proyectar en PrimeNG 22
+
+**Medido en vivo el 2026-09-19.** En `/finanzas/caja-general`, los diálogos *"Registrar movimiento
+de caja"* y *"Abrir corte de caja"* se abrían con **cero botones**: `.p-dialog-footer` no existía en
+el DOM y el arreglo de botones del diálogo venía vacío. Sin Guardar y sin Cancelar, o sea que
+**nadie podía registrar un movimiento ni abrir un corte desde esa pantalla**.
+
+### La causa
+
+```html
+<!-- ❌ PrimeNG 22: no proyecta nada. El diálogo se abre sin pie. -->
+<ng-template pTemplate="footer"> … </ng-template>
+
+<!-- ✅ -->
+<ng-template #footer> … </ng-template>
+```
+
+### Por qué no lo atrapó NADA
+
+* **Cero errores en consola.** Angular acepta el `ng-template` como válido; simplemente nadie lo
+  consume, así que el contenido se descarta en silencio.
+* **`nx build` pasa en verde.** **`nx typecheck` también.** No es un error de tipos ni de sintaxis.
+* **`check:templates` tampoco lo ve**, y con razón: ese candado busca puntuación que rompe el
+  literal, no APIs de librería que cambiaron de nombre.
+* La única forma de verlo es **abrir el diálogo**. Un smoke que llama al endpoint de guardado pasa
+  perfecto, porque el backend está bien — lo que falta es el botón que lo llama.
+
+### El alcance, medido antes de generalizar
+
+No es que `pTemplate` haya muerto: **`pTemplate="header"` sobre `p-table` sigue funcionando** (las 3
+apariciones que quedan en el repo renderizan bien, verificado). Es específico del **pie de
+`p-dialog`**. Al momento del arreglo, **50 de las 53 pantallas con `p-dialog` ya usaban `#footer`**;
+las 3 rezagadas vivían todas en el mismo archivo, que es justo cómo sobrevive un patrón viejo: nadie
+volvió a abrir esa pantalla.
+
+### La regla
+
+> Al subir de major una librería de UI, **el build en verde no dice nada sobre lo que se renderiza.**
+> Lo que cambió de forma se ve abriendo la pantalla, no compilando.
+
+Y la de siempre en este repo: una pantalla no está entregada hasta que alguien la abrió. Es la misma
+familia que el §34 (comentario que rompe el estilo y el build sólo avisa como *warning*) y que
+`AU.32` (un candado que se ponía verde leyendo el código fuente en vez de ejercer la ruta).
+
+Encontrado de casualidad construyendo la Lista de faltantes (Fase FLT), al chocar con el mismo
+defecto en un diálogo nuevo.
