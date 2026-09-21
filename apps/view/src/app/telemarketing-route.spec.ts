@@ -130,6 +130,7 @@ describe('E.9 · la configuración real de la app tiene esa forma', () => {
       join(modulo, 'pages', 'televenta-queue.component.ts'),
       join(modulo, 'pages', 'televenta-lead.component.ts'),
       join(modulo, 'pages', 'televenta-take-order.component.ts'),
+      join(modulo, 'pages', 'televenta-quotes.component.ts'),
     ];
     const culpables = archivos.filter((f) => readFileSync(f, 'utf8').includes("'/televenta/"));
     expect(culpables).toEqual([]);

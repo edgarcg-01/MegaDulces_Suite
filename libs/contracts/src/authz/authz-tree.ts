@@ -251,6 +251,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         route: '/telemarketing',
         modules: [
           { id: 'televenta', label: 'Telemarketing', route: '/telemarketing', view: [Permission.COMMERCIAL_TELEVENTA_VER], manage: [Permission.COMMERCIAL_TELEVENTA_OPERATE] },
+          // [E.12] Cotizaciones de mayoreo. Módulo aparte con `route` propia: sin `route` el
+          // permiso no se ofrece como salida navegable en los 404/403 (`AccessibleRoutesService`
+          // filtra por `!!m.route`) y la casilla de /admin/roles no llevaría a ningún lado.
+          { id: 'televenta-cotizaciones', label: 'Cotizaciones', route: '/telemarketing/cotizaciones', view: [Permission.COMMERCIAL_QUOTES_VER], manage: [Permission.COMMERCIAL_QUOTES_GESTIONAR] },
         ],
       },
       {
