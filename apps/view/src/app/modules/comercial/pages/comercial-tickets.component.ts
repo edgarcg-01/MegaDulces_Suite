@@ -155,6 +155,14 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
                     @if (hayDescuento()) {
                       <td class="tk-num tk-ahorro">{{ l.descuento_linea > 0 ? ('-' + (l.descuento_linea | currency:'MXN':'symbol-narrow')) : '' }}</td>
                     }
+                    @if (hayImpuesto()) {
+                      <!-- Guion, no $0.00: un producto que no causa ese impuesto no es uno al que
+                           se le cobró cero. Medido: IVA e IEPS nunca coinciden en un renglón. -->
+                      <td class="tk-num">{{ l.ieps > 0 ? (l.ieps | currency:'MXN':'symbol-narrow') : '—' }}
+                        @if (l.ieps > 0) { <i class="tk-uni">{{ l.ieps_tasa * 100 }}%</i> }</td>
+                      <td class="tk-num">{{ l.iva > 0 ? (l.iva | currency:'MXN':'symbol-narrow') : '—' }}
+                        @if (l.iva > 0) { <i class="tk-uni">{{ l.iva_tasa * 100 }}%</i> }</td>
+                    }
                     <td class="tk-num tk-fuerte">{{ l.importe | currency:'MXN':'symbol-narrow' }}</td>
                   </tr>
                 </ng-template>
@@ -279,6 +287,12 @@ export class ComercialTicketsComponent {
    * documento explica por qué no está (ADR-056: lo que no se puede medir se declara).
    */
   readonly hayLista = computed(() => (this.doc()?.cascada.lineas_con_lista ?? 0) > 0);
+  /**
+   * El desglose de impuesto por producto sale SOLO si la suma de los renglones reproduce la que
+   * declara el documento — lo verifica el backend contra la cabecera de Kepler. Unas columnas
+   * que el cliente suma y no le dan son peores que no tenerlas (ADR-056).
+   */
+  readonly hayImpuesto = computed(() => this.doc()?.cascada.impuesto_desglosado === true);
   /** Sin nada que restar, "Precio de lista" sería el total repetido con otro nombre. */
   readonly hayQueRestar = computed(() => {
     const c = this.doc()?.cascada;

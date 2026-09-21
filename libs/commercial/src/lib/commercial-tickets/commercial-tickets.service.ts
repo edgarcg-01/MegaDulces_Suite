@@ -86,6 +86,20 @@ export interface TicketLinea {
   importe: number;
   /** "5 CJA" cuando el renglón se cobró en un peldaño distinto al de la aritmética. */
   equivalencia: string | null;
+  /**
+   * Impuesto contenido en este renglón, ya descompuesto del precio (que lo trae dentro) y
+   * **después** de prorratearle el descuento del documento.
+   *
+   * ⭐ Los dos NUNCA vienen juntos: medido, 0 de 123,203 renglones traen IVA e IEPS a la vez.
+   * Por eso el ticket los imprime en UNA columna rotulada; la carta, que tiene espacio, los
+   * separa. `impuesto_tipo` dice cuál aplica sin tener que comparar dos ceros.
+   */
+  iva: number;
+  ieps: number;
+  impuesto_tipo: 'iva' | 'ieps' | null;
+  /** La tasa tal como la escribe Kepler (0.16 / 0.08), para poder rotular "IVA 16%". */
+  iva_tasa: number;
+  ieps_tasa: number;
 }
 
 /**
@@ -120,6 +134,16 @@ export interface TicketCascada {
    */
   lineas_con_lista: number;
   lineas_sin_lista: number;
+  /**
+   * ⭐ true ⇒ la suma del impuesto de los renglones REPRODUCE la que declara la cabecera del
+   * documento, que es un hecho independiente que Kepler ya escribió. Sólo entonces los papeles
+   * imprimen el desglose por producto: unas columnas de impuesto que no suman lo que declara el
+   * documento son peores que no tenerlas (ADR-056).
+   */
+  impuesto_desglosado: boolean;
+  /** Lo que suman los renglones. Se publica para poder contrastarlo contra `iva`/`ieps`. */
+  iva_lineas: number;
+  ieps_lineas: number;
 }
 
 export interface TicketDetalle {
@@ -532,7 +556,7 @@ export class CommercialTicketsService {
         })
         .where('l.tenant_id', tenantId).andWhere('l.order_id', o.id)
         .select('l.line_number', 'l.quantity', 'l.unit_price', 'l.discount_percent',
-          'l.line_subtotal', 'l.qty_unit', 'p.sku', 'p.name')
+          'l.line_subtotal', 'l.qty_unit', 'l.tax_rate', 'p.sku', 'p.name')
         .orderBy('l.line_number');
 
       // `unit_price` ES el precio de lista (sale de la lista de precios; el descuento se aplica
@@ -555,6 +579,9 @@ export class CommercialTicketsService {
           descuento_linea: r2((lista - pagado) * cant),
           importe: num(l['line_subtotal']),
           cantidad_vendida: null, unidad_vendida: null,
+          // El pedido propio guarda la tasa de IVA por renglon y el precio SIN impuesto;
+          // no maneja IEPS. `armar()` lo suma en vez de descomponerlo.
+          iva_tasa: num(l['tax_rate']), ieps_tasa: 0,
         };
       });
 
@@ -676,6 +703,10 @@ export class CommercialTicketsService {
         // `cantidad_vendida × precio_vendido` no reproduce el importe en el 4% de los casos.
         equivalencia: uv && cv != null && (uv !== unidad || cv !== cant)
           ? `${Number(cv.toFixed(4))} ${uv}` : null,
+        // El importe se llena abajo: depende de prorratear el descuento del DOCUMENTO, y eso
+        // no se puede saber mirando un renglón solo.
+        iva: 0, ieps: 0, impuesto_tipo: null,
+        iva_tasa: num(l['iva_tasa']), ieps_tasa: num(l['ieps_tasa']),
       };
     });
 
@@ -690,6 +721,43 @@ export class CommercialTicketsService {
     const gapPct = base > 0 ? (descuentoDocumento / base) * 100 : (lineas.length ? 100 : 0);
     const cuadra = lineas.length > 0 && Math.abs(gapPct) <= GAP_MAX_PCT;
 
+    // ── IMPUESTO POR RENGLÓN ────────────────────────────────────────────────
+    //
+    // El precio de Kepler YA trae el impuesto dentro (medido: Σ renglones = total en 99.84%),
+    // así que acá se DESCOMPONE. Y antes hay que prorratear el descuento del documento.
+    //
+    // ⭐ Medido en prod contra la cabecera (`kdm1.c14`/`c15`), que es un hecho independiente:
+    //   derivarlo del importe CRUDO  → 100.00% en los documentos SIN descuento, 1.93% en los
+    //                                   que sí lo traen (telemarketing: 414 de 919 lo traen);
+    //   prorrateando primero         → **100.00% en los tres doctipos**, error medio $0.001.
+    //
+    // Los pedidos propios van por el otro camino: su precio NO trae impuesto, se suma aparte.
+    const factor = h.impuestos_incluidos && subtotal > 0 ? r2(h.total) / subtotal : 1;
+    for (const l of lineas) {
+      const neto = l.importe * factor;
+      if (h.impuestos_incluidos) {
+        // Cascada fiscal mexicana: IEPS sobre la base, IVA sobre (base + IEPS). Hoy da idéntico
+        // que la versión plana —se probaron las dos— porque los dos impuestos nunca coinciden
+        // en un renglón (0 de 123,203). Si algún día coinciden, ÉSTA es la correcta.
+        const sinImp = neto / ((1 + l.ieps_tasa) * (1 + l.iva_tasa));
+        l.ieps = r2(sinImp * l.ieps_tasa);
+        l.iva = r2(sinImp * (1 + l.ieps_tasa) * l.iva_tasa);
+      } else {
+        l.ieps = r2(neto * l.ieps_tasa);
+        l.iva = r2(neto * l.iva_tasa);
+      }
+      l.impuesto_tipo = l.iva > 0 ? 'iva' : (l.ieps > 0 ? 'ieps' : null);
+    }
+    // ⚠️ Se COMPRUEBA contra la cabecera en vez de confiar en la fórmula. Si no cuadra, los
+    // papeles no imprimen el desglose: unas columnas de impuesto que no suman lo que declara el
+    // documento son peores que no tenerlas (ADR-056).
+    const ivaLineas = r2(lineas.reduce((a, l) => a + l.iva, 0));
+    const iepsLineas = r2(lineas.reduce((a, l) => a + l.ieps, 0));
+    const tolerancia = Math.max(0.05, lineas.length * 0.01);
+    const impuestoCuadra = lineas.length > 0
+      && (h.iva == null || Math.abs(ivaLineas - num(h.iva)) <= tolerancia)
+      && (h.ieps == null || Math.abs(iepsLineas - num(h.ieps)) <= tolerancia);
+
     const descuentoTotal = r2(descuentoPrecio + (cuadra ? descuentoDocumento : 0));
     const cascada: TicketCascada = {
       importe_lista: importeLista,
@@ -703,6 +771,9 @@ export class CommercialTicketsService {
       descuento_total_pct: importeLista > 0 ? r2((descuentoTotal / importeLista) * 100) : 0,
       lineas_con_lista: conLista,
       lineas_sin_lista: lineas.length - conLista,
+      impuesto_desglosado: impuestoCuadra,
+      iva_lineas: ivaLineas,
+      ieps_lineas: iepsLineas,
     };
 
     return {
