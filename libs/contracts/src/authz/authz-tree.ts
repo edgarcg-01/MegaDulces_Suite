@@ -106,7 +106,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
       },
       {
         id: 'trade',
-        label: 'Auditoría en Ruta',
+        label: 'Venta al detalle',
         icon: 'pi pi-chart-bar',
         route: '/dashboard',
         modules: [

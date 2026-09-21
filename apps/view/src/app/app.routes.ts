@@ -54,7 +54,7 @@ export const routes: Routes = [
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'live-map', loadComponent: () => import('./modules/dashboard/live-map/live-map.component').then(m => m.LiveMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
-      // LTV — Flota de RUTA (camionetas R-NN + vendedor). Dominio Auditoría en Ruta, separado de Logística.
+      // LTV — Flota de RUTA (camionetas R-NN + vendedor). Dominio Venta al detalle, separado de Logística.
       { path: 'route-tracking', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'route-activity', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'route-compliance', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },

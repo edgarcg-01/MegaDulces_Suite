@@ -40,7 +40,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     <div class="surf-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <span class="rk-eyebrow"><i class="pi pi-chart-bar" aria-hidden="true"></i> {{ fleet === 'route' ? 'Auditoría en Ruta' : 'Logística' }}</span>
+          <span class="rk-eyebrow"><i class="pi pi-chart-bar" aria-hidden="true"></i> {{ fleet === 'route' ? 'Venta al detalle' : 'Logística' }}</span>
           <h1>{{ fleet === 'route' ? 'Actividad de ruta' : 'Actividad de flota' }}</h1>
           <p class="surf-page-sub">
             {{ rows().length }} unidad{{ rows().length === 1 ? '' : 'es' }} con actividad
@@ -268,7 +268,7 @@ export class LogisticaActividadComponent {
   private readonly api = inject(LogisticaService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  /** Alcance de flota: 'route' (Auditoría en Ruta) o 'logistics' (Logística). */
+  /** Alcance de flota: 'route' (Venta al detalle) o 'logistics' (Logística). */
   readonly fleet: 'route' | 'logistics' = this.route.snapshot.data['fleet'] ?? 'logistics';
 
   readonly today = todayMx();

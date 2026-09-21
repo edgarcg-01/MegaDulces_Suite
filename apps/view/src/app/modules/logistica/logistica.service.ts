@@ -1230,7 +1230,7 @@ export class LogisticaService {
   }
 
   // ── LT Rastreo de flota GPS (MagniTracking) ────────────────────────────────
-  // fleet: 'route' = camionetas de ruta (dominio Auditoría en Ruta),
+  // fleet: 'route' = camionetas de ruta (dominio Venta al detalle),
   // 'logistics' = flota logística (foráneas/embarques). Separación estricta.
   liveTracking(fleet?: 'route' | 'logistics'): Observable<TrackerLive[]> {
     let params = new HttpParams();

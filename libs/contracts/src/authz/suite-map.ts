@@ -209,9 +209,13 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         kind: 'project',
         project: 'trade',
         group: ['Ventas', 'Rutas de detalle'],
-        // Se llama por lo que ES hoy. "Gestión y ejecución de rutas" (§8.7) es a lo que debe
-        // convertirse; estrenar el nombre antes que la función es lo que §29 llama fracaso.
-        label: 'Auditoría en Ruta',
+        // Se llamaba "Auditoría en Ruta" por lo que ERA (§8.7 propone "Gestión y ejecución de
+        // rutas", que se estrena cuando exista la función). Renombrado a "Venta al detalle"
+        // (2026-09-21): el canal que atiende ES la venta al detalle; la auditoría es una de sus
+        // tareas, no el canal. Esta etiqueta es el nombre del proyecto en TODA la suite —tarjeta
+        // de /projects, migaja del layout, origen de los módulos que Mercadotecnia enlaza— y
+        // `authz-tree.ts` carga la misma palabra.
+        label: 'Venta al detalle',
         gate: {
           anyOf: TRADE_LEGACY_ANYOF,
           reason:

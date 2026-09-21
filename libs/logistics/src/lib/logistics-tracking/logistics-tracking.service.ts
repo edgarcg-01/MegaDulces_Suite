@@ -283,7 +283,7 @@ export class LogisticsTrackingService {
   /**
    * Última posición de cada tracker (para el mapa en vivo). Scoped por RLS.
    * `fleet`: 'route' = solo camionetas de ruta (route_number no nulo, dominio
-   * Auditoría en Ruta); 'logistics' = solo flota logística (route_number nulo);
+   * Venta al detalle); 'logistics' = solo flota logística (route_number nulo);
    * undefined = todas. Es la separación estricta ruta ↔ logística.
    */
   async listLive(fleet?: 'route' | 'logistics', tenantId?: string) {
