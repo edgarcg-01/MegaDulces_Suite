@@ -121,7 +121,7 @@ interface EntradaVisible {
    *
    * Medido contra el árbol: **10 de las 22 tarjetas** son esto. «Promociones» y «Promos del ERP» ya
    * están dentro de Ventas; «Prevención» y «Cuadre» dentro de Almacén; «Planogramas», «Scoring»,
-   * «Catálogos de captura» y «Supervisor AI» dentro de Auditoría en Ruta. Y por eso hay **dos
+   * «Catálogos de captura» y «Supervisor AI» dentro de Venta al detalle. Y por eso hay **dos
    * «Hallazgos» idénticos**: uno es el de Finanzas y el otro el de Compras.
    *
    * Hasta ahora llevaban el mismo cuerpo, el mismo tamaño y el mismo peso que un módulo de 21

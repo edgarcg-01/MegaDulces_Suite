@@ -77,6 +77,14 @@ export enum Permission {
   // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
   STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
+  /**
+   * SM.36 — Arqueo de las rutas (RD/RV): la entrega del vendedor de ruta en la
+   * tienda. Permiso APARTE de STORE_ARQUEO_CAPTURAR a proposito: ese lo tienen
+   * tambien `cajero` y `piso_tienda` (medido en prod), y recibir el dinero de
+   * una ruta es acto de encargada, no de mostrador. Se reparte solo a
+   * `encargado_tienda` y `auxiliar_tienda`.
+   */
+  STORE_ARQUEO_RUTA_CAPTURAR = 'STORE_ARQUEO_RUTA_CAPTURAR',
   // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
   // Módulo: RH / Asistencia — el acto de checar en el kiosco de una sucursal (Fase CH).

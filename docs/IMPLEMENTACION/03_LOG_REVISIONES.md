@@ -5,6 +5,87 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-21 — `[WMS-REC.9b]` Varias caducidades por renglón — y la corrección de un "sin 403" que era falso
+
+**Cómo se llegó:** dos pedidos de Edgar sobre el Andén ya reordenado. Primero:
+*"en ocasiones cuentan distintas cajas con distintas fechas, entonces agreguemos un
+apartado en donde podamos agregar más de una fecha de caducidad a cierta cantidad
+de cajas"*. Después, con una captura del 403 en pantalla: *"el usuario de
+luis_espino es uno de los que sí tiene permiso para esa sección"*.
+
+### ⛔ La corrección: mi medición de permisos fue contra staging y es falsa en prod
+
+En el sprint anterior escribí, en el tracker y en el PR, que **quien entra al Andén
+también tiene `INVENTORY_ASIGNAR` → sin 403**. Lo medí contra `platform_test`,
+donde el único rol con `RECIBIR` es `supervisor`. **En producción no es así:**
+
+| rol           | RECIBIR | VER    | ASIGNAR | usuarios activos |
+|---------------|---------|--------|---------|------------------|
+| `almacenista` | sí      | **no** | **no**  | **4**            |
+| `supervisor`  | sí      | sí     | sí      | 1                |
+
+`luis_espino` es `almacenista`. O sea que **4 de los 5 usuarios** que pueden entrar
+al Andén recibían un 403 en la sección de Ubicación **entera**: no podían leer su
+propia cola de pendientes (`/unlocated`), ni saber si un rack existe (`/bins`), ni
+darlo de alta (`POST /bins`). Sólo el supervisor podía acomodar — justo lo que la
+fase venía a habilitar.
+
+**Arreglo quirúrgico, no reparto de permiso.** `RequireAnyPermission(VER, RECIBIR)`
+en las tres lecturas que el Andén usa y `RequireAnyPermission(ASIGNAR, RECIBIR)` en
+crear el bin. Se evaluó y se descartó lo obvio —darle `INVENTORY_VER` al rol
+`almacenista`— porque ese permiso gatea **14 endpoints en tres controladores**
+(conteo físico y existencia incluidos) y abrirlos todos para destrabar cuatro es
+pagar de más. **`DELETE /bins` se queda en `ASIGNAR`** y hay un candado que lo fija:
+crear la ubicación es parte de acomodar, borrar el layout no.
+
+`RolesGuard` resuelve contra `role_permissions` **fresco de la DB, no contra el
+snapshot del JWT** (caché de 30 s), así que esto entra **sin migración y sin
+re-login**.
+
+**La lección, para el próximo:** una medición de permisos contra staging no dice
+nada de prod. `platform_test` es copia de datos, **no de la matriz de roles**.
+
+### Varias caducidades en un mismo renglón
+
+El panel arma una **lista** de fechas —cada una con su lote, su cantidad y **su
+propia foto**, porque cada juego de cajas tiene su etiqueta y una sola foto para
+tres caducidades no es evidencia de nada— y recién al final las guarda todas. Que
+vivan en la lista antes de guardar es lo que hace segura la corrección: quitar una
+no toca el inventario. Se guardan **en serie** (cada una escribe stock y el backend
+le resuelve su propio veredicto: una puede entrar verde y la siguiente quedar
+retenida), **no se corta al primer fallo**, y un éxito parcial se dice como tal
+—*"entraron 2 de 3 · NO entró 31/08/27: …"*— en vez de un "guardado" sobre
+mercancía a medio declarar.
+
+**Bug propio que el candado destapó y el navegador habría escondido:** el `effect`
+que repone la cantidad dependía de `libre()`. Al agregar una fecha, `libre()`
+cambia, el effect queda encolado y **pisa la cantidad que el operario teclea justo
+después** — se guardaba el resto entero en vez de las 25 capturadas. En el
+navegador el orden de la detección de cambios suele salvarlo, y por eso es la clase
+de defecto que llega a producción. Ahora el effect reacciona **al renglón** y la
+cantidad se repone donde cambia de verdad: al abrir, al agregar y al quitar.
+
+### La palabra "cajas" del pedido destapó otra cosa
+
+El Andén escribía **"pz"** hardcodeado en todos lados. Medido:
+**68,440 de 93,030 renglones de vale (73.6%) NO se cuentan en piezas** — `PAQ`
+60,468 · `PZA` 24,587 · `KG` 4,455 · `CJA` 168 · `BTO` 8, y alguna con el gramaje
+metido como unidad (`500`, `250`, `2KG`). El vale ya trae su unidad y una pantalla
+hermana (`/almacen/inventory/por-fechar`) ya la resolvía a mano. El resolvedor se
+**extrae** a `shared/unidad-vale.ts` y las dos lo usan — era la segunda copia, no
+la tercera, y ese era el momento de sacarla (ADR-056).
+
+**Verificación:** `ngc --noEmit` y `tsc` de la API, **0 errores** · spec nuevo de
+componente **9 candados sobre el DOM renderizado** (no sobre el archivo fuente) y
+spec nuevo de permisos **7 candados**, ambos **vistos en ROJO a propósito** (emitir
+sólo la última fecha · volver a "pz" · cerrar la puerta de lectura) · suite `view`
+**439 pasan** (eran 430) · suite `commercial` **84/84** · las 7 fallas de
+`landing-guards.spec` (SN.4) siguen siendo pre-existentes.
+
+**Pendiente:** sigue la validación visual (misma trampa de raíz de Nx del sprint
+anterior) + redeploy de **api y view** — la api ahora también cambia, por las cuatro
+puertas. **Sin migración y sin re-login.**
+
 ## 2026-09-19 — Fase TDA.A · El análisis de ventas de tienda pasa a cuatro secciones, y la fotografía aprende a repetirse
 
 **Cómo se llegó:** pedido sobre `/tienda/analisis-semanal` — partir el análisis en cuatro

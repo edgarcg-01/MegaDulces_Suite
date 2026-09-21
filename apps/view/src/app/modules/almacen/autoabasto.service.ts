@@ -40,6 +40,14 @@ export interface AutoabastoRow {
   reorder_point: number;
   max_stock: number;
   in_transit: number;
+  /**
+   * [AB.3b] El objetivo que el motor usó en ESTA corrida — lo publica él, no lo deduce la pantalla.
+   * Con `target_basis='cadence'` no coincide con ninguna de las tres columnas de arriba.
+   *
+   * ⚠️ `null` cuando responde una API anterior a AB.3b. Se tipa así a propósito: si fuera `number`,
+   * el `undefined` real se imprimiría como **0** y se leería "el objetivo es cero".
+   */
+  target_qty: number | null;
   /** Lo que falta para llegar al objetivo, ya NETO de lo que viene en camino. */
   suggested_qty: number;
   /** El residual que de verdad hay que COMPRAR, después de descontar lo traspasable. */
@@ -65,6 +73,30 @@ export interface AutoabastoRow {
   rung_veredicto: string | null;
   /** Rótulo de la unidad NATIVA del almacén (KG, PAQ, PZA…), tal como lo declara su ERP. */
   rung_base_label: string | null;
+
+  // ── [AB.3b] "a quién" y "para cuándo" ──────────────────────────────────────────────────────
+  // El motor los devolvía desde RA-PRO.9 y la mesa no los tipaba, así que la pantalla contestaba
+  // sólo "cuánto". Los cinco salen de `commercial.replenishment_channel` (almacén × proveedor).
+  //
+  // ⚠️ Los cinco son `null`-ables y el `null` NO es cosmético: significa **no hay canal
+  // configurado para ese par**, que es distinto de "es compra" o de "no toca todavía". La
+  // pantalla lo declara; no rellena con un origen por default (ADR-056).
+
+  /** `purchase` = compra al proveedor · `transfer` = traspaso desde `source_warehouse_code`. */
+  replenish_via: 'purchase' | 'transfer' | null;
+  /** Almacén que surte cuando `replenish_via === 'transfer'`. */
+  source_warehouse_code: string | null;
+  /** Ritmo del canal, en días. */
+  cadence_days: number | null;
+  /** Próxima entrega esperada = última entrega + cadencia. */
+  next_due_date: string | null;
+  /** Días entre que se solicita y llega. Sale de la política, no del canal. */
+  lead_time_days: number | null;
+  /**
+   * Venta diaria promedio en CAJAS (misma unidad que `on_hand`, ya dividida por el factor del
+   * almacén). `0` o `null` = **sin venta medida**: con eso no se calcula fecha de agotamiento.
+   */
+  avg_daily_units: number | null;
 }
 
 export interface AutoabastoMesaResponse {

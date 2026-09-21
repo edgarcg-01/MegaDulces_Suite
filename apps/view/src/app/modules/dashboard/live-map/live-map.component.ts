@@ -585,7 +585,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   }
 
   private loadFleet(): void {
-    // Solo camionetas de ruta (Auditoría en Ruta). La flota logística vive en /logistica.
+    // Solo camionetas de ruta (Venta al detalle). La flota logística vive en /logistica.
     this.logi.liveTracking('route').subscribe({
       next: (rows) => this.vehicles.set(rows || []),
       error: () => { /* sin flota / endpoint no disponible → deja la capa vacía */ },

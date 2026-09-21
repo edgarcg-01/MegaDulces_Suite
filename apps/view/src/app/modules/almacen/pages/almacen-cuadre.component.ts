@@ -538,6 +538,15 @@ export class AlmacenCuadreComponent implements OnInit {
   readonly fClase = signal<string | null>(null);
   fSku = ''; fSucMov = ''; fMovFrom = ''; fMovTo = '';
   // arqueo ciego
+  /**
+   * ⚠️ SM.39 - Deuda declarada: esta lista deberia venir de
+   * `DENOMINACIONES_MXN` (`libs/contracts`), como ya lo hacen el servicio, la
+   * pantalla de tienda y el ticket. Mientras siga aca, la moneda de $20 NO se
+   * puede capturar desde /almacen/cuadre -- y peor, su clave chocaria con la
+   * del billete. Migrarla exige tocar el pad de captura del supervisor, que
+   * tiene su propio teclado; se hace aparte para no mezclarlo con el cambio
+   * de mostrador que se pidio.
+   */
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
   readonly aTipo = signal<'cierre' | 'relevo'>('cierre');

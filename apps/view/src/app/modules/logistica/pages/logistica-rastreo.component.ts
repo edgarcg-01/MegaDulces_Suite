@@ -41,7 +41,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
     <div class="surf-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <span class="rk-eyebrow"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ fleet === 'route' ? 'Auditoría en Ruta' : 'Logística' }}</span>
+          <span class="rk-eyebrow"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ fleet === 'route' ? 'Venta al detalle' : 'Logística' }}</span>
           <h1>{{ fleet === 'route' ? 'Rastreo de ruta' : 'Rastreo de flota' }}</h1>
           <p class="surf-page-sub">
             {{ units().length }} unidad{{ units().length === 1 ? '' : 'es' }}
@@ -293,7 +293,7 @@ export class LogisticaRastreoComponent {
   private readonly destroyRef = inject(DestroyRef);
   /** True cuando el WS está empujando posiciones (trazabilidad en vivo). */
   readonly liveWs = this.socket.connected;
-  /** Alcance: 'route' (camionetas de ruta, Auditoría en Ruta) o 'logistics'. */
+  /** Alcance: 'route' (camionetas de ruta, Venta al detalle) o 'logistics'. */
   readonly fleet: 'route' | 'logistics' = inject(ActivatedRoute).snapshot.data['fleet'] ?? 'logistics';
   @ViewChild('map') map?: MapComponent;
 
