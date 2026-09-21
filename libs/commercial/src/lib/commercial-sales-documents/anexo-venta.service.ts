@@ -36,12 +36,69 @@ import { CommercialSalesDocumentsService } from './commercial-sales-documents.se
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-/** Cuentas de depósito. Cambian poco; si se vuelven configurables, mover a `finance.bank_accounts`. */
-const CUENTAS = [
+export interface CuentaDeposito { banco: string; cuenta: string; clabe: string }
+
+/**
+ * Cuentas de depósito **POR PLAZA**. Hasta el 2026-09-21 eran una sola lista para toda la red;
+ * Dirección confirmó que cada zona cobra en las suyas, así que la lista se resuelve por la
+ * sucursal del documento.
+ *
+ * ⚠️ **El número que importa es la CLABE, no el de cuenta**: una transferencia interbancaria se
+ * hace con la CLABE, y la CLABE trae dígito verificador. Por eso `anexo-venta.spec.ts` valida el
+ * dígito de TODAS las que estén acá — un dígito mal no se ve leyendo, se ve al rechazarse la
+ * transferencia, con el cliente del otro lado. El candado ya cobró: ver MORELIA abajo.
+ *
+ * Dónde debería vivir esto: `finance.bank_accounts` (Fase CB) ya tiene estas mismas cuentas y de
+ * hecho **confirma la plaza** en `contpaqi_cuenta_nombre` — "BANCO DEL BAJIO 24576506 MORELIA",
+ * "BANCO STDER CH 50730160 MORELIA", "BBVA BANCOMER 0485934176 MORELIA". Pero esa tabla es de
+ * CONCILIACIÓN: guarda 4 dígitos (`account_label`) y la cuenta contable, **no la CLABE ni el
+ * número completo ni la plaza como dato**. Moverlo ahí es una migración de 3 columnas más el
+ * mapa plaza→cuentas para TODAS las zonas, y hoy sólo está confirmada Morelia; media tabla
+ * autoritativa y media vacía obliga a un fallback silencioso, que es justo lo que no se hace.
+ * Queda declarado, no hecho.
+ */
+const CUENTAS_DEFAULT: CuentaDeposito[] = [
   { banco: 'BBVA', cuenta: '0489396721', clabe: '012 535 00489396721 7' },
   { banco: 'Banorte', cuenta: '1326933041', clabe: '072 496 01326933041 2' },
   { banco: 'Banamex', cuenta: '8301463', clabe: '002 496 70078301463 6' },
 ];
+
+/**
+ * Zona **Morelia** — Madero (`07`) y Abastos (`08`), las dos plazas que migraron de Wincaja a
+ * Kepler en septiembre 2026. Origen: la ficha de cuentas que Dirección entregó, encabezada
+ * "MORELIA 30".
+ *
+ * ⛔ **BAJÍO falta a propósito, no se olvidó.** La ficha trae
+ * `03 0229 9000 1719 4356` (= `030229900017194356`) y **su dígito verificador está mal**:
+ * calculado sobre los 17 primeros da **5**, no 6. No es un error de transcripción — se releyó la
+ * imagen. Las otras dos de la misma ficha validan, y las tres de `CUENTAS_DEFAULT` también, así
+ * que el validador no está rechazando todo. Un segundo indicio apunta al mismo renglón: en
+ * SANTANDER y BBVA la cuenta impresa coincide con la embebida en su CLABE, y en BAJÍO no
+ * (`90001719435` contra `245765060201`). Imprimir una CLABE inválida manda al cliente a una
+ * transferencia que el banco rechaza. Se agrega cuando Dirección confirme el dígito correcto.
+ */
+const CUENTAS_MORELIA: CuentaDeposito[] = [
+  { banco: 'Santander', cuenta: '65507301604', clabe: '014 496 65507301604 7' },
+  { banco: 'BBVA', cuenta: '0485934176', clabe: '012 496 00485934176 7' },
+];
+
+/** Plaza → cuentas. La llave es `erp_sales_invoices.sucursal` (código Kepler de 2 dígitos). */
+export const CUENTAS_POR_PLAZA: Record<string, CuentaDeposito[]> = {
+  '07': CUENTAS_MORELIA, // Morelia Madero
+  '08': CUENTAS_MORELIA, // Morelia Abastos
+};
+
+/**
+ * Las cuentas que le tocan a un documento. Una sucursal sin plaza propia cae en la lista
+ * general — que es el comportamiento que había hasta hoy para todas, así que ninguna pierde
+ * cuentas por este cambio.
+ */
+export function cuentasDeposito(sucursal?: string | null): CuentaDeposito[] {
+  return CUENTAS_POR_PLAZA[String(sucursal ?? '').trim()] ?? CUENTAS_DEFAULT;
+}
+
+/** Todas las listas, para que el candado del spec no dependa de acordarse de sumar la nueva. */
+export const TODAS_LAS_CUENTAS: CuentaDeposito[] = [CUENTAS_DEFAULT, CUENTAS_MORELIA].flat();
 /**
  * Etiquetas que el CP fiscal NO trae: la plaza de pago del pagaré. Sólo la del CP configurado
  * está validada contra el catálogo del SAT (36910 = GUA/023); para cualquier otro CP se imprime
@@ -421,7 +478,8 @@ export class AnexoVentaService {
         }).filter(Boolean).join('\n')
       : filasArr.map((f) => f.html).join('\n');
 
-    const ctas = CUENTAS.map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
+    const ctas = cuentasDeposito(doc.sucursal)
+      .map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
     const rfc = this.rfcCliente(doc);
 
     return `<meta charset="utf-8"><title>Detalle de Pedido</title>
