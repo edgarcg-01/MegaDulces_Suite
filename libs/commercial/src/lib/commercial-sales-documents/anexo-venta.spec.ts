@@ -7,7 +7,7 @@ vi.mock('@megadulces/platform-core', () => ({
   applySmartSearch: () => undefined,
 }));
 
-import { AnexoVentaService } from './anexo-venta.service';
+import { AnexoVentaService, cuentasDeposito, TODAS_LAS_CUENTAS } from './anexo-venta.service';
 import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -199,5 +199,82 @@ describe('AX.10 · la hoja usa el ancho y el alto que tiene', () => {
     expect(html).not.toContain('class="foot-grid"');
     expect(html).not.toContain('class="admin"');
     expect(html).not.toContain('class="titleband"');
+  });
+});
+
+/**
+ * AX.11 — las cuentas de depósito, que desde 2026-09-21 son POR PLAZA.
+ *
+ * Por qué hay candado y no sólo una constante: una transferencia interbancaria se hace con la
+ * CLABE, la CLABE trae dígito verificador, y un dígito mal **no se ve leyendo** — se ve cuando el
+ * banco rechaza la transferencia, con el cliente del otro lado y la factura en la mano. Esto lo
+ * comprueba en TODAS las listas a la vez, así que agregar una plaza nueva no puede colar un
+ * número malo por olvidarse de probarlo.
+ *
+ * Ya cobró: de la ficha de Morelia que entregó Dirección, la CLABE de BAJÍO no pasa (ver la
+ * prueba negativa al final) y por eso esa cuenta NO está en el servicio.
+ */
+const digitoVerificadorClabe = (clabe: string): number => {
+  const d = clabe.replace(/\D/g, '');
+  const pesos = [3, 7, 1];
+  let suma = 0;
+  for (let i = 0; i < 17; i++) suma += (Number(d[i]) * pesos[i % 3]) % 10;
+  return (10 - (suma % 10)) % 10;
+};
+
+describe('AX.11 · cuentas de depósito por plaza', () => {
+  it('toda CLABE publicada tiene 18 dígitos y su dígito verificador cuadra', () => {
+    expect(TODAS_LAS_CUENTAS.length).toBeGreaterThan(0);
+    for (const c of TODAS_LAS_CUENTAS) {
+      const d = c.clabe.replace(/\D/g, '');
+      expect(`${c.banco} ${d}`).toMatch(/ \d{18}$/);
+      expect(`${c.banco} dv=${d[17]}`).toBe(`${c.banco} dv=${digitoVerificadorClabe(c.clabe)}`);
+    }
+  });
+
+  it('la cuenta impresa es la que va embebida en su propia CLABE', () => {
+    // Las posiciones 7..17 de la CLABE son el número de cuenta. Si la fila mezcla la cuenta de
+    // un banco con la CLABE de otro, esto lo caza — y es justo el segundo síntoma que tenía el
+    // renglón de BAJÍO. Banamex queda fuera: su CLABE lleva la cuenta con prefijo de plaza.
+    for (const c of TODAS_LAS_CUENTAS.filter((x) => x.banco !== 'Banamex')) {
+      const d = c.clabe.replace(/\D/g, '');
+      expect(`${c.banco}:${d.slice(6, 17)}`).toBe(`${c.banco}:${c.cuenta.replace(/\D/g, '').padStart(11, '0')}`);
+    }
+  });
+
+  it('Morelia (07 Madero y 08 Abastos) cobra en SUS cuentas, no en las generales', () => {
+    for (const suc of ['07', '08']) {
+      const html = render({ sucursal: suc });
+      expect(html).toContain('014 496 65507301604 7'); // Santander Morelia
+      expect(html).toContain('012 496 00485934176 7'); // BBVA Morelia
+      // NEGATIVA: si las generales siguen apareciendo, el pago se va a la plaza equivocada.
+      expect(html).not.toContain('012 535 00489396721 7');
+      expect(html).not.toContain('072 496 01326933041 2');
+      expect(html).not.toContain('002 496 70078301463 6');
+    }
+  });
+
+  it('una sucursal sin plaza propia conserva las cuentas generales', () => {
+    const html = render({ sucursal: '01' });
+    expect(html).toContain('012 535 00489396721 7');
+    expect(html).toContain('072 496 01326933041 2');
+    expect(html).toContain('002 496 70078301463 6');
+    expect(html).not.toContain('014 496 65507301604 7');
+  });
+
+  it('cuentasDeposito no se rompe con una sucursal nula o desconocida', () => {
+    expect(cuentasDeposito(null)).toEqual(cuentasDeposito('99'));
+    expect(cuentasDeposito(undefined).length).toBe(3);
+    expect(cuentasDeposito(' 08 ').map((c) => c.banco)).toEqual(['Santander', 'BBVA']);
+  });
+
+  it('PRUEBA NEGATIVA: el candado rechaza la CLABE de BAJÍO de la ficha de Morelia', () => {
+    // `03 0229 9000 1719 4356` — la ficha la trae así y el dígito NO cuadra: da 5, no 6.
+    // Si algún día alguien la agrega tal cual, la primera prueba de este bloque se pone roja.
+    // Se deja acá escrita para que el motivo de su ausencia no se pierda.
+    const bajioFicha = '030229900017194356';
+    expect(digitoVerificadorClabe(bajioFicha)).toBe(5);
+    expect(Number(bajioFicha[17])).toBe(6);
+    expect(TODAS_LAS_CUENTAS.some((c) => c.clabe.replace(/\D/g, '') === bajioFicha)).toBe(false);
   });
 });
