@@ -249,6 +249,13 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
 
   // ── Almacén — Análisis BI ─────────────────────────────────────────────
   [Permission.ALMACEN_BI_VER]: { label: 'Ver Análisis BI (Almacén)', description: 'Espacio de indicadores cruzados del almacén (/almacen/analisis-bi). Solo lectura.', category: 'Comercial' },
+  [Permission.AUTOABASTO_VER]: { label: 'Ver Autoabasto', description: 'Mesa de trabajo del almacenista y el encargado: qué falta, cuánto pedir y para cuándo (/almacen/autoabasto). Solo lectura.', category: 'Comercial' },
+  [Permission.AUTOABASTO_SOLICITAR]: { label: 'Preparar solicitudes de abasto', description: 'Prepara solicitudes al comprador y propone cambios de mínimos, reorden y máximos. NO autoriza.', category: 'Comercial' },
+  [Permission.AUTOABASTO_AUTORIZAR]: { label: 'Autorizar abasto (dentro del tope)', description: 'Autoriza solicitudes y cambios de parámetro que NO exceden el tope de inventario. Encargado de sucursal.', category: 'Comercial' },
+  [Permission.AUTOABASTO_EXCEDER_TOPE]: { label: 'Autorizar por encima del tope', description: 'Única llave que permite pasar el tope de inventario. Dirección comercial o general. No se otorga de paquete.', category: 'Comercial' },
+  [Permission.AUTOABASTO_POLITICA]: { label: 'Cambiar política de abasto', description: 'Mueve el umbral de temporalidad (±50%) y los calendarios de temporada. Dirección general y comercial.', category: 'Comercial' },
+  [Permission.NIVELACION_VER]: { label: 'Ver Nivelación de inventarios', description: 'Excedentes y traspasos propuestos entre sucursales (/almacen/nivelacion). Solo lectura.', category: 'Comercial' },
+  [Permission.NIVELACION_GESTIONAR]: { label: 'Gestionar traspasos', description: 'Solicita, confirma o rechaza traspasos entre sucursales. Incluye al almacén de origen.', category: 'Comercial' },
 
   // ── Fase CV — Catálogo interno (absorbido de 0SistemasMD/catalogo-kp) ──
   [Permission.CATALOGO_INTERNO_VER]: { label: 'Ver Catálogo Interno', description: 'Consultar el catálogo interno de mostrador: existencia y precio por sucursal.', category: 'Catálogo Interno' },
