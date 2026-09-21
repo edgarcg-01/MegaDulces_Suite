@@ -64,14 +64,24 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" \
     npx nx build api --configuration=production
 
 # ── Stage 3: deps solo de producción ────────────────────────────────────────
+# `[NX.10]` Mismo criterio que el `Dockerfile` raíz, y acá aplica todavía más fuerte:
+# el worker NO sirve ningún front, corre sólo `node dist/apps/api/main.js`. El
+# manifiesto se toma del que emite el build (`generatePackageJson`), que son las
+# 64 deps que el bundle requiere, en vez de las 116 de la raíz (que arrastraban
+# Angular, PrimeNG, Capacitor y `@imgly` — 184MB él solo). El `chown` se hace
+# acá, en capa cacheada, para que el `COPY` del runner no tenga que reescribir
+# un inodo por archivo. Candado en el runner.
 FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
     CI=true
-COPY package*.json .npmrc ./
-RUN npm ci --omit=dev --ignore-scripts --prefer-offline
+COPY .npmrc ./
+COPY --from=builder /app/dist/apps/api/package.json      ./package.json
+COPY --from=builder /app/dist/apps/api/package-lock.json ./package-lock.json
+RUN npm ci --omit=dev --ignore-scripts --prefer-offline && \
+    chown -R node:node /app/node_modules
 
 # ── Stage 4: imagen final ────────────────────────────────────────────────────
 FROM node:20-slim AS runner
@@ -93,7 +103,12 @@ ENV NODE_ENV=production \
 # El heap se capa por env NODE_OPTIONS (seteado en el servicio Railway).
 COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
 COPY --from=builder  --chown=node:node /app/database     ./database
-COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+# SIN `--chown`: ya viene con owner `node` desde `prod-deps`.
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# `[NX.10]` Candado del árbol podado (ver `scripts/check-bundle-externals.js`).
+COPY --chown=node:node scripts/check-bundle-externals.js ./scripts/check-bundle-externals.js
+RUN node ./scripts/check-bundle-externals.js ./dist/apps/api/main.js ./node_modules
 
 STOPSIGNAL SIGTERM
 USER node

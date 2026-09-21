@@ -337,7 +337,10 @@ que es una conversación distinta de la de Nx y no se mezcla acá.
 ### Decisiones abiertas
 
 - ⬜ **El reloj de pared de portal/vendor.** Quitarlo o pasar la fecha del commit como build arg.
-  Hoy esos dos builds no aciertan el caché ni una vez.
+  Hoy esos dos builds no aciertan el caché ni una vez. **§10 la desbloqueó con una tercera salida
+  medida:** `/build-info.json` en la raíz servida no cae en ningún `assetGroup` de ninguno de los
+  dos `ngsw-config.json`, así que el reloj se puede sellar en el stage `runner` —después del
+  build— sin desfasar `ngsw.json`, dejando sólo el commit adentro del hash de Nx.
 - ⬜ **Distribución en agentes de Nx Cloud.** Depende del plan del workspace, que no se verificó.
 - ⬜ **Lint de `database/**`:** 468 errores declarados, apagado a propósito.
 
@@ -418,3 +421,123 @@ público aunque se borre la línea.
 
 > Es la misma familia que `§58`: *un secreto que viaja como texto en algo que alguien más va a
 > leer*. Allá era un log de build; acá, un repo público.
+
+---
+
+## 10 · `[NX.10]` — El build de prod, medido paso por paso: compilar era el 38%
+
+Disparado por *"los tiempos de compilación y build siguen siendo demasiado tardados… **en prod**"*.
+La fase venía optimizando la **compilación** (caché local, caché remoto, `affected`). El log real
+del deploy del **2026-09-21 09:03** (servicio `MegaDulces`, 5m 21s) dijo que ese no era el problema
+principal.
+
+| paso | tiempo | % |
+|---|---|---|
+| `nx run-many -t build -p view,api --parallel=1` | 2m 02s | 38% |
+| `COPY --from=prod-deps --chown=node:node node_modules` | **1m 30s** | **28%** |
+| `exporting to docker image format` | **1m 13s** | **23%** |
+| `image push` (633.4 MB) | 21s | 7% |
+| resto (unpack, upload, `COPY` de dist y database) | ~10s | 4% |
+
+**Compilar era el 38%. Mover y empaquetar `node_modules` era el 58%.** Todo el esfuerzo previo
+estaba puesto sobre la minoría del reloj.
+
+### Lo que se encontró
+
+`prod-deps` instalaba desde el `package.json` de la **raíz** — 116 deps de producción, porque ahí
+conviven la api y tres apps de Angular. La imagen final corre exactamente dos cosas:
+`node dist/apps/api/main.js` y `npx knex migrate:latest`.
+
+Y el arreglo ya estaba escrito y sin usar: `apps/api/webpack.config.js` emite
+`generatePackageJson: true` desde siempre, o sea que **cada build ya producía**
+`dist/apps/api/package.json` con las **64** deps que el grafo de imports realmente usa, más su
+`package-lock.json` podado (863 paquetes contra 1,331).
+
+### Medido, no estimado
+
+`npm ci --omit=dev` real adentro de Docker, los dos árboles:
+
+| árbol de `node_modules` de producción | tamaño | archivos |
+|---|---|---|
+| manifiesto de la **raíz** (como estaba) | 1,210 MB | 102,821 |
+| manifiesto **generado por el build** | 592 MB | 58,914 |
+| | **−618 MB (−51%)** | **−43,907 (−43%)** |
+
+Lo que sobraba: `@imgly` 184 MB · `@angular` 64 MB · `@zxing` 29 MB · PrimeNG + temas + iconos
+26 MB · chart.js, leaflet, gsap, dexie, capacitor, ngrx, zone.js.
+
+### La segunda causa: `--chown` en un `COPY` entre stages
+
+Con `--chown`, BuildKit no puede reusar los inodos del snapshot origen y crea uno nuevo por
+archivo. Sobre decenas de miles de archivos chicos, eso **es** el 1m 30s. El `chown -R` movido al
+stage `prod-deps` queda dentro de una capa cacheada y el `COPY` del runner preserva el owner gratis.
+
+### Antes/después, build local completo, misma máquina y misma sesión
+
+| | viejo | nuevo | |
+|---|---|---|---|
+| `COPY node_modules` → runner | 88.6s | **26.9s** | −70% |
+| `exporting to docker image format` | 115.3s | **85.3s** | −26% |
+| imagen | 3.97 GB | **3.11 GB** | −860 MB |
+| candado de externals | — | 0.7s | nuevo |
+
+⚠️ Las dos causas se arreglaron en el mismo commit: **la atribución entre "menos archivos" y "sin
+`--chown`" no quedó aislada.** Lo medido es el efecto combinado.
+
+⚠️ El `npm ci` de `prod-deps` **no es comparable** entre las dos corridas (196.6s vs 50.4s): la
+primera tenía el cache mount de npm frío. No se usa como número.
+
+### ⛔ El modo de falla que esto abre, y su candado
+
+`generatePackageJson` deriva la lista de los `externals` que **webpack ve**. Un
+`require(unaVariable)` no está en el grafo → no entra al manifiesto → no se instala →
+`MODULE_NOT_FOUND` **recién en el arranque de prod**. Un build verde no lo ve.
+
+`scripts/check-bundle-externals.js` corre en el stage `runner` de los dos Dockerfiles: saca del
+bundle emitido los `require("...")` **literales** —árbitro independiente del manifiesto— y exige
+que cada uno resuelva contra el árbol podado. Si el recorte se pasa de listo, **rompe el build**.
+
+- Prueba positiva: `✔ 59 externals … resuelven` (adentro del build real).
+- Prueba negativa: contra un `node_modules` vacío sale 1 nombrando los 59.
+- Lo que **no** cubre, declarado en el propio script: el `require` dinámico, que tampoco queda
+  literal en el bundle. Para eso el testigo es arrancar el contenedor.
+
+### Verificación de runtime (el testigo del segundo modo de falla)
+
+Contra la imagen podada, en local:
+
+| qué | resultado |
+|---|---|
+| `npx knex --version` | `Knex CLI version: 3.2.7` |
+| `sh ./migrate.sh` sin DB | muere en `connect ECONNREFUSED`, **no** en `MODULE_NOT_FOUND` |
+| `node dist/apps/api/main.js` | los ~200 módulos de Nest inicializan · **0 `MODULE_NOT_FOUND`** |
+
+### Lo que cambia de operación
+
+`prod-deps` ahora **depende de `builder`**. Sigue cacheándose por contenido del manifiesto, que
+sólo cambia cuando cambia el grafo de dependencias de la api —bastante más raro que "cambió
+código"— pero cuando cambia, paga el `npm ci` (~50s en caliente) en vez de los 5 ms de hoy. Y ya
+no puede correr en paralelo con `builder`; hoy eso no costaba nada porque estaba cacheado.
+
+### Proyección a prod, declarada como proyección
+
+Aplicando las razones medidas en local a los tiempos medidos en Railway: `COPY` 90s → ~27s,
+export 73s → ~54s, push por debajo. **≈ −85s de 5m 21s (−27%).** ⚠️ **NO MEDIDO en prod**: hay que
+compararlo contra el próximo deploy real.
+
+### ⬜ Lo que NO se tocó, con motivo
+
+- **`--parallel=1`.** Nx recomienda en el log subir el paralelismo para recuperar 24.2s. El
+  comentario del Dockerfile ya documenta por qué está en serie (2×4 GB de heap contra 8 GB de
+  contenedor = OOM-kill sin línea de error). 24s no paga ese riesgo mientras haya 85s más baratos.
+- **El reloj de pared de portal/vendor** (decisión abierta de §1). **Hallazgo nuevo que la
+  desbloquea:** un archivo en la RAÍZ servida —`/build-info.json`— **no cae en ningún `assetGroup`**
+  de ninguno de los dos `ngsw-config.json` (sólo listan `/index.html`, `/manifest.webmanifest`,
+  `/*.css`, `/*.js`, `/favicon.ico`, `/assets/**` y extensiones de imagen/fuente). O sea que el
+  sello se puede escribir **en el stage `runner`, después del build**, sin desfasar `ngsw.json`:
+  el commit queda determinista adentro del hash de Nx y el reloj de pared sale afuera.
+  No se hizo acá porque esos dos servicios salieron **`SKIPPED`** en el deploy medido → no hay
+  antes/después que exhibir, y toca una sonda de diagnóstico que pide validación visual.
+- **El `npm ci` sin cache mount de portal/vendor.** Cada build de esos dos baja las deps enteras
+  de la red. Railway exige `id=s/<service-id>-…` y **no tengo los Service ID** de
+  `Portal_MegaDulces` ni `Vendor_MegaDulces`. Acción humana: pasarlos.
