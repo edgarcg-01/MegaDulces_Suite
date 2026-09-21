@@ -7,22 +7,32 @@ import { LabelModel } from './components/label.component';
 export interface SearchHit { product_id: string; sku: string | null; name: string; barcode: string | null; }
 
 /**
- * `[ETQ-CAMBIOS.1]` Un producto cuyo precio cambió. **Sin precio anterior**: no existe en ninguna
- * tabla del sistema (deuda `VP.3`), y dibujar un "antes" que nadie puede comprobar es peor que
- * no mostrarlo. Lo que decide reimprimir es el precio NUEVO y cuándo cambió.
+ * `[ETQ-CAMBIOS.2]` Un cambio de precio, con su ANTES y su DESPUÉS. Sale de la bitácora nativa de
+ * Kepler, la única fuente que guarda el precio anterior.
+ *
+ * `es_baja` = el precio nuevo es cero. No es rebaja: el ERP le quitó el precio, y esa etiqueta
+ * diría SIN PRECIO. Se marca en vez de esconderse, porque es lo que hay que ir a ver al anaquel.
  */
 export interface PriceChange {
   sku: string;
-  name: string;
-  piece_price: number | null;
-  unit_base: string | null;
-  changed_at: string;
+  name: string | null;
+  unidad: string | null;
+  precio_anterior: number | null;
+  precio_nuevo: number | null;
+  delta: number | null;
+  es_baja: boolean;
+  hora: string | null;
 }
 export interface PriceChangesResult {
   items: PriceChange[];
-  ventana_horas: number;
+  fecha: string;
   /** El backend alcanzó su tope. Se DICE en la pantalla; un recorte mudo se lee como "no hubo más". */
   truncado: boolean;
+  /**
+   * Hasta qué día llegó la bitácora. Sin esto, "ese día no cambió nada" y "ese día todavía no
+   * llegó" se ven idénticos en la pantalla, y son lo contrario.
+   */
+  fuente_al: string | null;
   freshness: Freshness | null;
 }
 
@@ -74,9 +84,9 @@ export class EtiquetasService {
    * ⛔ Sin plaza la respuesta viene VACÍA, y es correcto: el reloj de cambio es por
    * (producto, sucursal). Mezclar plazas diría que cambió algo que en TU tienda no cambió.
    */
-  priceChanges(sucursal: string | null, horas = 24): Observable<PriceChangesResult> {
+  priceChanges(sucursal: string | null, fecha: string): Observable<PriceChangesResult> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : '';
     return this.http.get<PriceChangesResult>(
-      `${this.base}/price-changes?sucursal=${encodeURIComponent(suc)}&horas=${horas}`);
+      `${this.base}/price-changes?sucursal=${encodeURIComponent(suc)}&fecha=${encodeURIComponent(fecha)}`);
   }
 }

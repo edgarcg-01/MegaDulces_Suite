@@ -10,30 +10,30 @@ import { EtiquetasService, PriceChange } from '../etiquetas.service';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 
 /**
- * `[ETQ-CAMBIOS.1]` **Cambios de precio** — qué etiquetas quedaron viejas en el anaquel.
+ * `[ETQ-CAMBIOS.2]` **Cambios de precio** — qué etiquetas quedaron viejas en el anaquel.
  *
  * Es la otra mitad de la etiquetera: `/tienda/etiquetas` es el acto deliberado (buscar, escanear,
  * armar la cola) y ésta es el disparador. El ERP mueve un precio y hasta hoy nadie se enteraba
  * hasta que un cliente reclamaba en la caja.
  *
- * ── ⛔ Lo que esta pantalla NO puede decir, y por qué se declara en vez de disimularse ─────────
- * **No muestra el precio anterior.** Ninguna tabla del sistema lo guarda — medido, y es la deuda
- * `VP.3` del roadmap. La fuente que sí lo tiene es `kepler_ods.kdpv_bitacora_precios` (bitácora
- * nativa de Kepler, con anterior/nuevo/delta por plaza), y **no está llegando**: su último push
- * al ODS fue el 2026-09-02 y la última fila de cada sucursal es del 2026-09-01, con los dos
- * carriles del ODS en verde. Mientras eso siga así, inventar un "antes" desde otra fuente sería
- * dibujar un número que nadie puede comprobar.
+ * ── De dónde sale, y por qué cambió de fuente ───────────────────────────────────────────────
+ * Lee `analytics.v_label_price_changes`, derivada de la bitácora NATIVA de Kepler — la única
+ * fuente del sistema que guarda el precio ANTERIOR. La primera versión usaba
+ * `product_label_prices.updated_at` y **no podía dar lo que se pedía**: esa columna guarda el
+ * ÚLTIMO toque, no un registro, así que un selector de fechas sólo acierta por casualidad (si el
+ * producto cambió el 15 y otra vez el 20, sólo queda el 20), y el precio anterior no existe en
+ * ninguna tabla propia.
  *
- * **Y la ventana es corta a propósito.** El reloj es `product_label_prices.updated_at`, cuyo
- * UPSERT es churn-free (toca la fila sólo cuando cambia). A 24 h da 6–10 productos por plaza, que
- * es creíble; a 7 días salta a ~4,750 —medio catálogo— porque hubo una reescritura masiva que
- * `updated_at` no distingue de un cambio real. Por eso el selector llega a 72 h y no a semanas.
+ * El día por defecto es **ayer**: es el que la encargada revisa al abrir la tienda.
+ *
+ * ⚠️ La lista sólo trae los cambios que mueven el precio IMPRESO. Kepler escribe una fila cada
+ * vez que RECALCULA: medido, de ~54,500 filas de un día en las 9 plazas, ~102 cambian el número
+ * que sale en el papel. El resto son deltas de menos de un centavo.
  *
  * ── Por qué no imprime ella misma ───────────────────────────────────────────────────────────
  * Manda los códigos a `/tienda/etiquetas` por **estado del router** y deja que la cola de allá
  * haga su trabajo: mismo `resolve`, mismo tope, mismo aviso de precio en vivo, misma hoja.
- * Duplicar la maquinaria de impresión acá sería un segundo lugar donde arreglar el mismo bug. Va
- * por estado y no por query param porque "imprimir todas" puede ser cientos de códigos.
+ * Duplicar la maquinaria de impresión acá sería un segundo lugar donde arreglar el mismo bug.
  */
 @Component({
   selector: 'app-tienda-cambios-precio',
@@ -46,10 +46,10 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
     .cpr-head p{ margin:.25rem 0 0; color:var(--text-color-secondary); font-size:.85rem; }
     .cpr-bar{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     .cpr-bar .spacer{ flex:1 1 auto; }
-    .cpr-bar select{ padding:.35rem .5rem; border:1px solid var(--surface-border); border-radius:.35rem;
-      background:var(--surface-0); color:inherit; font-size:.85rem; }
-    /* El aviso de lo que la pantalla NO sabe. Va arriba y siempre visible: si se esconde detras de
-       un icono, el operador asume que el precio anterior no existia, no que no lo tenemos. */
+    .cpr-bar input[type=date]{ padding:.35rem .5rem; border:1px solid var(--surface-border);
+      border-radius:.35rem; background:var(--surface-0); color:inherit; font-size:.85rem; }
+    /* Aviso de lo que la pantalla NO sabe. Va arriba y siempre visible: escondido detras de un
+       icono, el operador asume que no hubo cambios en vez de que el dato no llego. */
     .cpr-nota{ border-left:3px solid #d4a015; background:var(--surface-100);
       padding:.6rem .8rem; border-radius:.35rem; font-size:.8rem; line-height:1.45; }
     .cpr-nota b{ font-weight:700; }
@@ -62,8 +62,14 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
     .cpr-tabla tbody tr:hover{ background:var(--surface-50); }
     .cpr-wrap{ max-height:60vh; overflow:auto; border:1px solid var(--surface-border); border-radius:.4rem; }
     .cpr-num{ font-variant-numeric:tabular-nums; }
-    .cpr-precio{ text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
-    .cpr-cuando{ color:var(--text-color-secondary); white-space:nowrap; }
+    .cpr-money{ text-align:right; font-variant-numeric:tabular-nums; }
+    /* El precio viejo se APAGA y el nuevo manda: el ojo tiene que caer en lo que hay que imprimir. */
+    .cpr-antes{ color:var(--text-color-secondary); text-decoration:line-through; }
+    .cpr-ahora{ font-weight:700; }
+    .cpr-sube{ color:#b3261e; }
+    .cpr-baja{ color:#1b6b3a; }
+    .cpr-badge{ font-size:.7rem; font-weight:700; padding:.05rem .35rem; border-radius:.25rem;
+      background:#fde7e7; color:#8c1d18; white-space:nowrap; }
     .cpr-trunc{ color:#c1620a; font-size:.8rem; margin:0; }
   `],
   template: `
@@ -72,20 +78,19 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 
       <div class="cpr-head">
         <h1>Cambios de precio</h1>
-        <p>Productos cuyo precio cambió en tu tienda. Marca los que quieras y mándalos a la cola de impresión.</p>
+        <p>Lo que el ERP movió ese día en tu tienda. Marca lo que quieras y mándalo a la cola de impresión.</p>
       </div>
 
       @if (!sucursal) {
         <div class="cpr-nota">
-          Tu usuario no tiene tienda asignada, así que no hay de dónde leer los cambios: el reloj es
-          por <b>producto y sucursal</b>. Mezclar plazas diría que cambió algo que en tu tienda no cambió.
+          Tu usuario no tiene tienda asignada, así que no hay de dónde leer los cambios: la bitácora
+          es por <b>producto y sucursal</b>. Mezclar plazas diría que cambió algo que en tu tienda no cambió.
         </div>
       } @else {
         <div class="cpr-bar">
-          <label for="cpr-ventana">Últimas</label>
-          <select id="cpr-ventana" [ngModel]="horas()" (ngModelChange)="horas.set(+$event)">
-            @for (v of ventanas; track v.value) { <option [value]="v.value">{{ v.label }}</option> }
-          </select>
+          <label for="cpr-fecha">Día</label>
+          <input id="cpr-fecha" type="date" [ngModel]="fecha()" (ngModelChange)="fecha.set($event)" [max]="hoy" />
+          <p-button label="Ayer" size="small" [text]="true" (onClick)="fecha.set(ayer)" />
           <span class="spacer"></span>
           <p-button label="Actualizar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="datos.reload()" />
           <p-button [label]="'Imprimir selección (' + marcados().length + ')'" icon="pi pi-print" size="small"
@@ -94,28 +99,32 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
                     [outlined]="true" [disabled]="!items().length" (onClick)="imprimir(items())" />
         </div>
 
-        <div class="cpr-nota">
-          <b>No se muestra el precio anterior:</b> el sistema todavía no lo guarda. La bitácora de
-          Kepler —la única fuente que lo tiene— dejó de llegar el 1-sep-2026, y está reportado.
-          Lo que ves es el precio <b>nuevo</b> y cuándo cambió, que es lo que decide si hay que reimprimir.
-        </div>
+        <!-- Hasta donde llego la bitacora. Sin esto, "ese dia no cambio nada" y "ese dia todavia
+             no llego" se ven identicos, y son lo contrario. -->
+        @if (sinDato()) {
+          <div class="cpr-nota">
+            <b>Ese día todavía no llegó.</b> La bitácora de precios tiene datos hasta
+            <b>{{ fuenteAl() || '—' }}</b>. No es que no haya habido cambios: es que el dato no está.
+          </div>
+        }
 
         @if (datos.error()) {
           <div class="cpr-nota">No se pudo leer la lista de cambios. Intenta de nuevo con Actualizar.</div>
         }
         @if (truncado()) {
-          <p class="cpr-trunc">Hay más cambios de los que caben en la lista: se muestran los
-            {{ items().length }} más recientes. Acorta la ventana para verlos todos.</p>
+          <p class="cpr-trunc">Ese día tuvo más cambios de los que caben en la lista: se muestran los
+            {{ items().length }} de mayor diferencia.</p>
         }
 
         @if (datos.isLoading()) {
           <p>Buscando cambios…</p>
-        } @else if (!items().length) {
+        } @else if (!items().length && !sinDato()) {
           <div class="cpr-empty">
-            <h2>Ningún precio cambió en las últimas {{ horas() }} horas</h2>
-            <p>Si esperabas un cambio y no aparece, puede que el ERP todavía no lo haya publicado.</p>
+            <h2>Ningún precio cambió el {{ fecha() }}</h2>
+            <p>Sólo se listan los cambios que mueven el precio impreso: Kepler registra cada recálculo,
+              y los de menos de un centavo no cambian la etiqueta.</p>
           </div>
-        } @else {
+        } @else if (items().length) {
           <div class="cpr-wrap">
             <table class="cpr-tabla">
               <thead>
@@ -124,23 +133,30 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
                     <input type="checkbox" [checked]="todosMarcados()" (change)="marcarTodos($any($event.target).checked)"
                            aria-label="Marcar todos" />
                   </th>
-                  <th style="width:7rem">Código</th>
+                  <th style="width:6.5rem">Código</th>
                   <th>Producto</th>
-                  <th style="width:8rem" class="cpr-precio">Precio nuevo</th>
-                  <th style="width:5rem">Unidad</th>
-                  <th style="width:9rem">Cambió</th>
+                  <th style="width:4rem">Unidad</th>
+                  <th style="width:7rem" class="cpr-money">Antes</th>
+                  <th style="width:7rem" class="cpr-money">Ahora</th>
+                  <th style="width:7rem" class="cpr-money">Diferencia</th>
                 </tr>
               </thead>
               <tbody>
-                @for (r of items(); track r.sku) {
+                @for (r of items(); track r.sku + '|' + (r.unidad || '') + '|' + (r.hora || '')) {
                   <tr>
                     <td><input type="checkbox" [checked]="marcado(r.sku)" (change)="alternar(r.sku)"
                                [attr.aria-label]="'Marcar ' + r.sku" /></td>
                     <td class="cpr-num">{{ r.sku }}</td>
-                    <td>{{ r.name }}</td>
-                    <td class="cpr-precio">{{ r.piece_price != null ? ('$' + (r.piece_price | number:'1.2-2')) : 'sin precio' }}</td>
-                    <td>{{ r.unit_base || '—' }}</td>
-                    <td class="cpr-cuando">{{ r.changed_at | date:'dd/MM HH:mm' }}</td>
+                    <td>
+                      {{ r.name || '—' }}
+                      @if (r.es_baja) { <span class="cpr-badge" title="El ERP le quitó el precio: esa etiqueta saldría SIN PRECIO.">sin precio</span> }
+                    </td>
+                    <td>{{ r.unidad || '—' }}</td>
+                    <td class="cpr-money cpr-antes">{{ r.precio_anterior != null ? ('$' + (r.precio_anterior | number:'1.2-2')) : '—' }}</td>
+                    <td class="cpr-money cpr-ahora">{{ r.precio_nuevo != null ? ('$' + (r.precio_nuevo | number:'1.2-2')) : '—' }}</td>
+                    <td class="cpr-money" [class.cpr-sube]="(r.delta || 0) > 0" [class.cpr-baja]="(r.delta || 0) < 0">
+                      {{ (r.delta || 0) > 0 ? '+' : '' }}{{ r.delta != null ? ('$' + (r.delta | number:'1.2-2')) : '—' }}
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -160,27 +176,32 @@ export class TiendaCambiosPrecioComponent {
   /** Misma fuente de plaza que la etiquetera: la tienda del propio usuario. */
   readonly sucursal = this.auth.user()?.warehouse_code || null;
 
-  readonly horas = signal(24);
-  /**
-   * Tope en 72 h MEDIDO, no elegido: a 7 días `updated_at` toca ~4,750 filas por plaza (medio
-   * catálogo) por una reescritura masiva que no se distingue de un cambio real. Ofrecer "7 días"
-   * sería ofrecer una lista que no significa nada.
-   */
-  readonly ventanas = [
-    { label: '24 horas', value: 24 },
-    { label: '48 horas', value: 48 },
-    { label: '72 horas', value: 72 },
-  ];
+  /** Hoy y ayer en hora de México — el día que se revisa al abrir la tienda es AYER, no el UTC. */
+  readonly hoy = TiendaCambiosPrecioComponent.diaMx(0);
+  readonly ayer = TiendaCambiosPrecioComponent.diaMx(-1);
+  readonly fecha = signal(this.ayer);
+
+  private static diaMx(offset: number): string {
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+    d.setDate(d.getDate() + offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
   readonly datos = rxResource({
-    params: () => ({ suc: this.sucursal, h: this.horas() }),
-    stream: ({ params }) => this.svc.priceChanges(params.suc, params.h),
+    params: () => ({ suc: this.sucursal, f: this.fecha() }),
+    stream: ({ params }) => this.svc.priceChanges(params.suc, params.f),
   });
 
   readonly items = computed<PriceChange[]>(() => this.datos.value()?.items ?? []);
   readonly truncado = computed(() => this.datos.value()?.truncado === true);
+  readonly fuenteAl = computed(() => this.datos.value()?.fuente_al ?? null);
+  /** El día pedido está más allá de lo que la bitácora alcanzó: la lista vacía NO significa "sin cambios". */
+  readonly sinDato = computed(() => {
+    const al = this.fuenteAl();
+    return !this.datos.isLoading() && !this.items().length && (!al || this.fecha() > al);
+  });
 
-  /** Marcados por SKU. Se limpia solo cuando cambia la lista: un sku que ya no está no se imprime. */
+  /** Marcados por SKU: la cola de impresión trabaja con códigos, no con renglones de bitácora. */
   private readonly sel = signal<ReadonlySet<string>>(new Set<string>());
   readonly marcado = (sku: string): boolean => this.sel().has(sku);
   readonly marcados = computed<PriceChange[]>(() => {
@@ -207,6 +228,7 @@ export class TiendaCambiosPrecioComponent {
   /**
    * Manda los códigos a la etiquetera por estado del router. Allá `addBulk()` los resuelve con el
    * mismo camino de siempre — incluido el tope de cola, que deja el sobrante en el textarea.
+   * Se deduplica: la bitácora trae una fila por presentación y el mismo SKU puede venir 3 veces.
    */
   imprimir(filas: PriceChange[]): void {
     const codes = Array.from(new Set(filas.map((f) => f.sku).filter(Boolean)));
