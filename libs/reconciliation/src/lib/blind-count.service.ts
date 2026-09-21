@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { DENOMINACIONES_MXN, valorDe, totalDenominaciones, RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
+import { RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
 import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
 import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
 
@@ -33,54 +33,7 @@ const MEDIOS_CUADRABLES: Record<string, string> = {
 };
 
 /** Denominaciones MXN válidas (billetes + monedas). */
-/**
- * SM.36 - Los cinco tipos de arqueo.
- *
- * cierre/relevo/retiro son de la CAJA de mostrador y cuelgan de un turno de
- * Kepler. rd/rv son la entrega del VENDEDOR DE RUTA en la tienda: no hay turno
- * de caja, no hay esperado, y la diferencia se declara no medible.
- */
-export const TIPOS_VALIDOS = ['cierre', 'relevo', 'retiro', 'rd', 'rv'] as const;
-export type TipoArqueo = typeof TIPOS_VALIDOS[number];
-/** Los que NO se comparan contra el corte del dia (intra-turno o sin turno). */
-export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv'];
-
-/**
- * SM.38 - Ventana del candado de doble caja.
- *
- * Se bloquea por cajas abiertas el MISMO DIA, no por "2 o mas abiertas" a secas,
- * y la diferencia la decidio la medicion (2026-09-21): de las 5 cajeras con dos
- * cajas abiertas, solo DOS son el caso real -- C02 y C04, cada una con una caja
- * en la sucursal 07 y otra en la 08, ambas de hoy. Las otras tres arrastran
- * turnos que nadie va a cerrar: 40VMC tiene uno abierto desde el 31 de ENERO
- * (233 dias), y 26VHGH/21VUO dos de hace 19-20 dias.
- *
- * Con la regla literal esas tres quedarian bloqueadas PARA SIEMPRE por un
- * problema de datos, no por lo que el control busca evitar. Los arrastrados se
- * DECLARAN aparte (ya los vigila `arqueo_no_realizado`): bloquear no los cierra.
- */
-const BLOQUEO_SOLO_MISMO_DIA = true;
-
-/** Una caja abierta de esta persona, con lo justo para poder nombrarla. */
-export interface CajaAbierta {
-  warehouse_code: string;
-  caja: string;
-  folio: string;
-  business_date: string;
-  hora_apertura: string | null;
-  dias_abierta: number;
-}
-
-/** El veredicto del candado. `null` = no hay bloqueo. */
-export interface BloqueoDobleCaja {
-  /** Las que disparan el bloqueo: dos o mas del mismo dia. */
-  cajas: CajaAbierta[];
-  /** Abiertas de dias anteriores. NO bloquean, pero se dicen. */
-  arrastradas: CajaAbierta[];
-}
-
-// SM.39 - El catalogo se mudo a `libs/contracts` (money/denominations): estaba
-// escrito tres veces y el umbral `>= 20` otras tres, sin nada que los atara.
+const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 /** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
 const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cobro', 'otro'];
 /** Umbrales del descuadre autolineado (espejan la regla `arqueo_ciego_divergente`). */
@@ -160,13 +113,7 @@ export interface BlindCountDto {
   turno?: string;
   cajero_code?: string;           // cierre: cajero que cierra · relevo: cajero SALIENTE
   cajero_entrante?: string;       // solo relevo: quién recibe la caja
-  tipo?: 'cierre' | 'relevo' | 'retiro' | 'rd' | 'rv';   // default 'cierre'
-  /**
-   * SM.36 — Solo rd/rv: la ruta que entrega. Es la `route_key` del catalogo
-   * (21, 501, RVPH01, VECINAL1...), y el CHECK de la tabla la exige presente
-   * para esos dos tipos y ausente para los demas.
-   */
-  route_code?: string;
+  tipo?: 'cierre' | 'relevo' | 'retiro';   // default 'cierre'
   denominations: Record<string, number>;  // {"1000":2,"0.5":10,…}
   nota?: string;
   photo_url?: string;
@@ -189,137 +136,15 @@ export class BlindCountService {
     @Optional() @Inject(RECON_NOTIFIER_PORT) private readonly notifier?: ReconNotifierPort,
   ) {}
 
-  /**
-   * SM.39 - El total sale del catalogo compartido, no de `Number(la llave)`.
-   *
-   * Antes la llave ERA el valor, asi que `Number('20')` daba 20 y listo. Con la
-   * moneda de $20 eso deja de servir: su llave es `20m` y `Number('20m')` es
-   * NaN. Y una llave desconocida se RECHAZA en vez de sumar 0 -- un cero se
-   * suma en silencio y deja el total mas chico que el dinero real, que es la
-   * peor forma de fallar en un arqueo.
-   */
   private computeTotal(denoms: Record<string, number>): number {
+    let total = 0;
     for (const [d, n] of Object.entries(denoms || {})) {
-      if (valorDe(d) == null) throw new BadRequestException(`Denominación inválida: ${d}`);
-      const count = Number(n);
+      const denom = Number(d); const count = Number(n);
+      if (!DENOMS.includes(denom)) throw new BadRequestException(`Denominación inválida: ${d}`);
       if (!Number.isFinite(count) || count < 0) throw new BadRequestException(`Conteo inválido para ${d}`);
+      total += denom * count;
     }
-    return totalDenominaciones(denoms).total;
-  }
-
-  /**
-   * SM.39 - El desglose pieza por pieza, en el orden del catalogo.
-   *
-   * Sale con `key` y `familia` porque ya no alcanza el valor para identificar la
-   * fila: el billete y la moneda de $20 valen lo mismo. El ticket y la pantalla
-   * parten por `familia`, no comparando `>= 20`.
-   */
-  private desglosar(den: Record<string, number>) {
-    return DENOMINACIONES_MXN
-      .map((d) => ({
-        key: d.key,
-        denominacion: d.valor,
-        familia: d.familia,
-        label: d.label,
-        cantidad: Number(den?.[d.key]) || 0,
-      }))
-      .filter((x) => x.cantidad > 0)
-      .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
-  }
-
-  /**
-   * SM.36 - Las rutas dadas de alta en ESTA tienda.
-   *
-   * Derivado, sin tabla nueva: `commercial.route_warehouses` (que ya dice a que
-   * tienda reporta cada ruta) cruzado con `analytics.v_route_warehouse` (clave,
-   * etiqueta y zona). Medido en prod el 2026-09-20: las 24 rutas del catalogo
-   * tienen tienda asignada, asi que no hace falta inventar el vinculo.
-   *
-   * ⭐ El alcance por sucursal es lo que resuelve solo la ambiguedad del
-   * catalogo: las claves `501`/`502` las reclaman ZAMORA y CANINDO, y
-   * `VECINAL1` la reclaman los dos Morelia (JZ.2 las marca `ambigua`). Como la
-   * encargada solo ve las de SU tienda, nunca se le ofrecen las dos.
-   *
-   * ⚠️ La clasificacion RD/RV sale del nombre, que es la unica senal que hay:
-   * `RV*`/`VECINAL*` o zona que diga VECINAL = vecinal; el resto = reparto. Eso
-   * mete a `MAYOREO01` (Morelia Madero) en RD, y NO es ruta de reparto. Se
-   * devuelve la etiqueta cruda para que se vea lo que es en vez de esconderlo;
-   * hoy no estorba porque esa tienda no tiene encargada asignada.
-   *
-   * Una tienda sin rutas devuelve [] - es una respuesta legitima, no un error:
-   * 8ESQ (03) hoy no tiene ninguna dada de alta.
-   */
-  async rutasDeSucursal(warehouseCode: string) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const code = (warehouseCode || '').trim();
-    if (!code) return [];
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT v.route_key                AS route_code,
-                v.route_label              AS label,
-                v.zona_name                AS zona,
-                CASE WHEN v.route_key ~* '^(RV|VECINAL)'
-                       OR coalesce(v.zona_name, '') ~* 'VECINAL'
-                     THEN 'rv' ELSE 'rd' END AS tipo
-           FROM commercial.route_warehouses rw
-           JOIN commercial.warehouses w
-             ON w.id = rw.warehouse_id AND w.tenant_id = rw.tenant_id AND w.deleted_at IS NULL
-           JOIN analytics.v_route_warehouse v
-             ON v.route_catalog_id = rw.route_id AND v.tenant_id = rw.tenant_id
-          WHERE rw.tenant_id = ? AND w.code = ?
-          ORDER BY tipo, v.route_key`,
-        [tenantId, code],
-      );
-      return rows as Array<{ route_code: string; label: string; zona: string | null; tipo: 'rd' | 'rv' }>;
-    });
-  }
-
-  /**
-   * SM.38 - Dos cajas abiertas con el MISMO usuario: se bloquea todo.
-   *
-   * Una persona no puede estar operando dos cajas a la vez. Medido en vivo:
-   * `C02` tenia abierta la caja 2 de la sucursal 07 y la caja 3 de la 08, las
-   * dos el mismo dia -- y `C04` lo mismo con la 4 y la 1. No hay forma de que
-   * el efectivo de las dos sea de la misma persona al mismo tiempo.
-   *
-   * Se DERIVA del ODS en vivo, sin bandera guardada, y esa es la decision de
-   * diseno: el bloqueo se levanta SOLO en cuanto Kepler cierra una de las dos,
-   * que es justo lo pedido ("hasta que cierren la sesion en una de las dos ya le
-   * activas de nuevo todo"). Una bandera en tabla habria necesitado que alguien
-   * la apague a mano, y esa persona no existe a las 9 de la noche.
-   *
-   * ⚠️ Devuelve las arrastradas por separado y NO bloquea con ellas: ver el
-   * comentario de `BLOQUEO_SOLO_MISMO_DIA`.
-   */
-  async bloqueoDobleCaja(cajeroCode: string): Promise<BloqueoDobleCaja | null> {
-    const cajero = (cajeroCode || '').trim().toUpperCase();
-    if (!cajero) return null;
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT k.sucursal                          AS warehouse_code,
-                k.c2                                AS caja,
-                k.c3::bigint::text                  AS folio,
-                k.c5::date::text                    AS business_date,
-                NULLIF(btrim(k.c6), '')             AS hora_apertura,
-                (current_date - k.c5::date)::int    AS dias_abierta
-           FROM kepler_ods.kdpv_folio_caja k
-          WHERE upper(btrim(k.c8)) = ?
-            AND k.c10::date = DATE '1800-01-01'
-            -- El renglon centinela (folio 0, sin cajero ni hora) no es un turno.
-            AND btrim(COALESCE(k.c8, '')) <> ''
-          ORDER BY k.c5 DESC, k.c2`,
-        [cajero],
-      );
-      const abiertas = rows as CajaAbierta[];
-      const deHoy = abiertas.filter((c) => Number(c.dias_abierta) === 0);
-      const arrastradas = abiertas.filter((c) => Number(c.dias_abierta) > 0);
-
-      // El disparo. Con BLOQUEO_SOLO_MISMO_DIA en false pasa a ser "2 o mas
-      // abiertas" a secas, que es la regla literal y la que bloquea de mas.
-      const disparan = BLOQUEO_SOLO_MISMO_DIA ? deHoy : abiertas;
-      if (disparan.length < 2) return null;
-      return { cajas: disparan, arrastradas };
-    });
+    return Math.round(total * 100) / 100;
   }
 
   /**
@@ -454,11 +279,7 @@ export class BlindCountService {
                    WHERE b.tenant_id = ?
                      AND b.warehouse_code = k.sucursal
                      AND b.tipo = 'cierre'
-                     AND b.cash_cut_folio = k.c3::bigint::text
-                     -- SM.37 - El folio de Kepler se REUSA: sin caja ni fecha, el
-                     -- cierre de OTRA caja de OTRO dia tacha el turno abierto de hoy.
-                     AND b.caja = k.c2
-                     AND b.business_date = k.c5::date)
+                     AND b.cash_cut_folio = k.c3::bigint::text)
           -- Del MÁS VIEJO al más nuevo: el primero de la lista es el que toca.
           -- Al revés (que es como estaba) la pantalla preseleccionaba el turno de
           -- hoy y dejaba saltarse el corte pendiente de ayer — justo el que hay
@@ -557,14 +378,11 @@ export class BlindCountService {
    * de una **corrección** del que ya se hizo — que no es lo mismo y no se puede
    * tratar igual (ver `exigirElMasViejo` en el controlador).
    */
-  async yaArqueado(warehouseCode: string, folio: string, caja?: string, businessDate?: string): Promise<boolean> {
+  async yaArqueado(warehouseCode: string, folio: string): Promise<boolean> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const row = await trx('reconciliation.blind_counts')
         .where({ tenant_id: tenantId, warehouse_code: warehouseCode, tipo: 'cierre', cash_cut_folio: String(folio) })
-        // SM.37 - Mismo motivo: el folio solo no identifica el turno.
-        .modify((q) => { if (caja) q.where('caja', caja); })
-        .modify((q) => { if (businessDate) q.where('business_date', businessDate); })
         .first('id');
       return !!row;
     });
@@ -599,15 +417,7 @@ export class BlindCountService {
     // `retiro` = la sangría que Kepler pide al llegar al límite de la caja (c46,
     // típicamente $15,000). Es donde va el 63-81% del efectivo, así que sin este
     // tipo el conteo del cierre solo verificaba un tercio del dinero.
-    const tipo = TIPOS_VALIDOS.includes(dto.tipo as any) ? (dto.tipo as TipoArqueo) : 'cierre';
-    const esRuta = tipo === 'rd' || tipo === 'rv';
-    const routeCode = (dto.route_code || '').trim() || null;
-    if (esRuta && !routeCode) {
-      throw new BadRequestException('Elige la ruta que esta entregando.');
-    }
-    if (!esRuta && routeCode) {
-      throw new BadRequestException('route_code solo aplica al arqueo de rutas (rd/rv).');
-    }
+    const tipo = dto.tipo === 'relevo' ? 'relevo' : dto.tipo === 'retiro' ? 'retiro' : 'cierre';
     const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
     if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
     const medios = this.saneaMedios(dto.medios);
@@ -625,11 +435,10 @@ export class BlindCountService {
         cash_cut_folio: dto.cash_cut_folio ? String(dto.cash_cut_folio) : null,
         caja_kepler: dto.caja_kepler ? String(dto.caja_kepler) : null,
         turno_abierto_at: dto.turno_abierto_at || null,
-        route_code: routeCode,
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
-        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo, COALESCE(route_code,''))"))
+        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo)"))
         // Re-capturar NO borra la validación por accidente: si la encargada ya firmó
         // y el conteo cambia, se limpia la firma a propósito — un arqueo distinto es
         // un arqueo sin validar.
@@ -638,14 +447,13 @@ export class BlindCountService {
           medios: row.medios,
           nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, incidencia_tipo: incidencia,
           cash_cut_folio: row.cash_cut_folio, caja_kepler: row.caja_kepler, turno_abierto_at: row.turno_abierto_at,
-          route_code: row.route_code,
           validado_por: null, validado_at: null, validado_nota: null,
           captured_at: trx.fn.now(),
         });
       // Ni el relevo ni el retiro se comparan contra el corte del día: son
       // intra-turno y el corte todavía no existe. El retiro se cuadra al cerrar,
       // cuando la identidad `Σ retiros + cajón = contado` ya se puede evaluar.
-      if (TIPOS_SIN_CORTE.includes(tipo)) {
+      if (tipo === 'relevo' || tipo === 'retiro') {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
         return { result: { tipo, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
@@ -1009,7 +817,10 @@ export class BlindCountService {
       // sirve para ver el turno, no para imputarle un faltante a una persona.
       const diff = c.diff_real;
       const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
-      const denominaciones = this.desglosar(den);
+      const denominaciones = DENOMS
+        .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
+        .filter((x) => x.cantidad > 0)
+        .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
 
       g.cortes++;
       g.dias.add(String(r.business_date).slice(0, 10));
@@ -1221,7 +1032,7 @@ export class BlindCountService {
          * falso, el peor "+$49,583.70" sobre un retiro de $8,250 que es
          * exactamente lo que tenía que salir del cajón.
          */
-        const intraTurno = TIPOS_SIN_CORTE.includes(r.tipo);
+        const intraTurno = r.tipo === 'relevo' || r.tipo === 'retiro';
         // Los alias del SELECT no son los nombres de la tabla, así que el corte
         // se arma explícito: pasar la fila cruda leería `undefined` en silencio.
         const c = intraTurno ? null : cuadreTurno({
@@ -1246,11 +1057,14 @@ export class BlindCountService {
         // Nuestro conteo partido igual que el de Kepler, para poder compararlos:
         // en MXN el billete arranca en $20 y de ahí para abajo es moneda.
         const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
-        // SM.39 - Se parte por FAMILIA, no comparando `>= 20`: el billete y la
-        // moneda de $20 valen lo mismo y caian los dos en billetes.
-        const sumas = totalDenominaciones(den);
-        const nuestroBilletes = sumas.billetes;
-        const nuestroMonedas = sumas.monedas;
+        let nuestroBilletes = 0, nuestroMonedas = 0;
+        for (const [d, q] of Object.entries(den)) {
+          const v = Math.round(Number(d) * Number(q) * 100) / 100;
+          if (!Number.isFinite(v)) continue;
+          if (Number(d) >= 20) nuestroBilletes += v; else nuestroMonedas += v;
+        }
+        nuestroBilletes = Math.round(nuestroBilletes * 100) / 100;
+        nuestroMonedas = Math.round(nuestroMonedas * 100) / 100;
         /**
          * El conteo pieza por pieza — `1000 × 2 = 2000`. Kepler NO tiene esto
          * (verificado sobre las 307 tablas del catálogo: solo guarda el total de
@@ -1258,7 +1072,10 @@ export class BlindCountService {
          * porque nuestra cajera lo captura. Es la evidencia de cómo se llegó al
          * total: sin él, "conté $17,190.50" es una afirmación sin respaldo.
          */
-        const denominaciones = this.desglosar(den);
+        const denominaciones = DENOMS
+          .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
+          .filter((x) => x.cantidad > 0)
+          .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
         const keplerBilletes = intraTurno ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
         const keplerMonedas = intraTurno ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
         const keplerRetirado = c?.retirado_kepler ?? null;
