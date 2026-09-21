@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { SelloutRollupService } from './sellout-rollup.service';
 
 /**
  * Fase PV.3 — Presupuesto de Ventas: captura de la meta (ADR-066 / PV).
@@ -65,6 +66,7 @@ export class BudgetSalesPlanService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly rollup: SelloutRollupService,
   ) {}
 
   /** Catálogo de entidades de venta (eje columnas del molde). */
@@ -93,32 +95,9 @@ export class BudgetSalesPlanService {
     });
   }
 
-  /** Real del AÑO ANTERIOR rolado a entidad × periodo (del ODS, por el calendario 13×4). */
-  private async priorYearRealByEntityPeriod(trx: import('knex').Knex, tenantId: string, priorYear: number) {
-    const rows = await trx('analytics.v_sellout_daily as sd')
-      .join('analytics.v_retail_calendar as cal', function () {
-        this.on('cal.date', '=', 'sd.business_date');
-      })
-      .join('analytics.v_sales_entity as se', function () {
-        this.on('se.tenant_id', '=', 'sd.tenant_id')
-          .andOn('se.channel', '=', 'sd.channel')
-          .andOn('se.warehouse_code', '=', 'sd.warehouse_code');
-      })
-      .where('sd.tenant_id', tenantId)
-      .andWhere('cal.fiscal_year', priorYear)
-      .groupBy('se.entity_key', 'cal.period_no')
-      .select('se.entity_key', 'cal.period_no')
-      .sum({ real_monto: 'sd.monto' }) as unknown as Array<{ entity_key: string; period_no: number | string; real_monto: number | string | null }>;
-    // mapa entity_key → { period_no → real_monto }
-    const map = new Map<string, Map<number, number>>();
-    for (const r of rows) {
-      const ek = r.entity_key as string;
-      const pn = Number(r.period_no);
-      const v = Number(r.real_monto) || 0;
-      if (!map.has(ek)) map.set(ek, new Map());
-      map.get(ek)!.set(pn, v);
-    }
-    return map;
+  /** Real del AÑO ANTERIOR rolado a entidad × periodo. Servido del rollup DuckDB+Parquet (ADR-075). */
+  private async priorYearRealByEntityPeriod(_trx: import('knex').Knex, tenantId: string, priorYear: number) {
+    return this.rollup.priorYearByEntityPeriod(tenantId, priorYear);
   }
 
   /** Generar meta = real año anterior × (1+growth). Sin base → NO se crea fila (sin datos ≠ cero). */
@@ -215,32 +194,15 @@ export class BudgetSalesPlanService {
   // el humano solo ajusta. «Sin datos» ≠ cero (escalera de fallback, cobertura declarada).
   // ════════════════════════════════════════════════════════════════════════════════════════════
 
-  /** Real por entidad × año × periodo (del ODS por el calendario 13×4), para N años. */
-  private async realByEntityYearPeriod(trx: import('knex').Knex, tenantId: string, years: number[]) {
-    if (!years.length) return [] as Array<{ entity_key: string; channel: string; year: number; period: number; monto: number }>;
-    const rows = await trx('analytics.v_sellout_daily as sd')
-      .join('analytics.v_retail_calendar as cal', 'cal.date', 'sd.business_date')
-      .join('analytics.v_sales_entity as se', function () {
-        this.on('se.tenant_id', '=', 'sd.tenant_id')
-          .andOn('se.channel', '=', 'sd.channel')
-          .andOn('se.warehouse_code', '=', 'sd.warehouse_code');
-      })
-      .where('sd.tenant_id', tenantId)
-      .whereIn('cal.fiscal_year', years)
-      .groupBy('se.entity_key', 'se.channel', 'cal.fiscal_year', 'cal.period_no')
-      .select('se.entity_key', 'se.channel', 'cal.fiscal_year', 'cal.period_no')
-      .sum({ real_monto: 'sd.monto' }) as unknown as Array<{ entity_key: string; channel: string; fiscal_year: number | string; period_no: number | string; real_monto: number | string | null }>;
-    return rows.map((r) => ({ entity_key: r.entity_key, channel: r.channel, year: Number(r.fiscal_year), period: Number(r.period_no), monto: Number(r.real_monto) || 0 }));
+  /** Real por entidad × año × periodo. Servido del rollup DuckDB+Parquet (ADR-075) en <30ms
+   *  en vez de las vistas vivas del ODS (medido 76s en prod). Misma forma de salida. */
+  private async realByEntityYearPeriod(_trx: import('knex').Knex, tenantId: string, years: number[]) {
+    return this.rollup.realByEntityYearPeriod(tenantId, years);
   }
 
-  /** Años fiscales con real en el sell-out, anteriores a `fy`. */
-  private async yearsWithRealBefore(trx: import('knex').Knex, tenantId: string, fy: number): Promise<number[]> {
-    const rows = await trx('analytics.v_sellout_daily as sd')
-      .join('analytics.v_retail_calendar as cal', 'cal.date', 'sd.business_date')
-      .where('sd.tenant_id', tenantId)
-      .andWhere('cal.fiscal_year', '<', fy)
-      .distinct('cal.fiscal_year') as unknown as Array<{ fiscal_year: number | string }>;
-    return rows.map((r) => Number(r.fiscal_year)).sort((a, b) => a - b);
+  /** Años fiscales con real, anteriores a `fy`. Servido del rollup DuckDB+Parquet (ADR-075). */
+  private async yearsWithRealBefore(_trx: import('knex').Knex, tenantId: string, fy: number): Promise<number[]> {
+    return this.rollup.yearsWithRealBefore(tenantId, fy);
   }
 
   /**
