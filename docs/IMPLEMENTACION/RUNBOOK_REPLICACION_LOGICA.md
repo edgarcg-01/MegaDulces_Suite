@@ -1069,3 +1069,72 @@ Lo que lo demuestra es ver documentos de venta en `md_08` mañana. Hasta entonce
 - y sigue abierto lo de §10.4: **sin un `commercial.warehouses` con `code = '08'`, Abastos no aporta
   al sell-out por el lado Kepler aunque empiece a vender** — `mv_kepler_sales_daily` hace
   `JOIN commercial.warehouses w ON w.code = sucursal` y Abastos todavía es `MD-30`.
+
+---
+
+## 11. `[RL.13]` FUSIÓN de Morelia Abastos — el sufijo `MD-30` ya no existe (2026-09-21)
+
+Cierra lo que §10.4 dejó abierto, pero **no como lo proponía**. §10.4 y la migración
+`20260919130000` resolvieron la falta del almacén creando una fila NUEVA `08` y dejando `MD-30`
+intacto ("cada era, su casa", calcando a Madero). Medido tres días después, ese modelo tenía a la
+sucursal operando a ciegas:
+
+| | `MD-30` (era Wincaja) | `08` (era Kepler) |
+|---|---|---|
+| historia | 1,091,667 movs · 15,675 tickets | 3,421 movs · 12 cortes |
+| existencia viva | 10,097 SKUs **congelados el 18-sep 12:55** | **0 filas** |
+| reorden · salud · ABC | 9,900 · 10,101 · 10,101 | 3,300 · 2,928 · 2,928 |
+| hub de resurtido de `07` Madero | **sí** | no |
+
+Y la tienda **sí vendía**: `kdm1` de la `08` trae 710 tickets `U-D-10` el 19, 479 el 20 y 126 el 21.
+O sea que Compras planeaba Morelia Abastos contra un inventario Wincaja muerto mientras el vivo no
+entraba por ningún lado.
+
+**Se volvió al modelo mayoritario de la red, el de Canindo: UNA fila con las dos identidades**
+(`kepler_code='08'` + `wincaja_source_branch='30'`). Se renombró el VIEJO (`MD-30` → `08`),
+plegando dentro las 12,618 filas de la fila joven: al revés eran ~1,160,000 `UPDATE` sobre prod, y
+además `07` ya tenía a `MD-30` de hub, así que renombrando quedó bien sin tocarlo.
+
+### 11.1 Tres cosas que la medición refutó — cada una habría roto algo en silencio
+
+1. ⛔ **"Si quedó algo apuntando, la FK aborta el `DELETE`" es FALSO.** De las **76 FKs** hacia
+   `commercial.warehouses`, **36 no abortan**: 11 `ON DELETE CASCADE` (`reorder_policy`,
+   `replenishment_channel`, `route_warehouses`, `erp_sucursal_warehouse`, `inventory_risk_index`,
+   `warehouse_aisles`, `stock_movement_audits`, `erp_transfer_origin`, `inventory.warehouse_stock*`)
+   y 25 `ON DELETE SET NULL` (entre ellas `analytics.cash_cuts`, que tenía los 12 cortes de la `08`,
+   e `identity.users`, con sus 2 personas). Un `DELETE` confiado **habría borrado y desvinculado sin
+   avisar**. Por eso el repunte se enumera desde `pg_constraint` y se **afirma cero** antes de borrar.
+2. ⛔ **El alcance por sucursal.** `branchKeySql` (`scope.types.ts:102`) es
+   `CASE WHEN code ~ '^[0-9]{2}$' THEN code ELSE wincaja_source_branch END`. Con `MD-30` la llave
+   era `'30'`; al renombrar a `'08'` pasa a ser `'08'`. Sin migrar los scopes, **8 usuarios** con
+   `user_scopes = ['30']` veían **cero, sin un solo error**. Se reescribieron en la misma transacción.
+3. ⛔ **`wincaja-stock-extract`** mandaba a `warehouse_code: 'MD-30'`, que deja de existir → el sink
+   habría tirado `warehouse code=MD-30 no existe` en cada ciclo. Salió del extract.
+
+⭐ **El `up` se ensayó contra PROD dentro de una transacción que siempre revierte** (37.3 s) antes
+de aplicarlo. Es barato y es la única forma de probar un repunte de 76 columnas sin fe.
+
+### 11.2 Estado verificado después de aplicar (batch 490)
+
+- Un solo almacén `08` «Morelia Abastos» con **1,095,088 movimientos** y 15,675 tickets; `MD-30` no
+  existe; `07` Madero se surte de `08`.
+- 55,216 filas derivadas de la era Wincaja purgadas (se reconstruyen con los feeds nocturnos).
+- Existencia viva cargada: **2,974 SKUs / 662,261 piezas**.
+- `erp_sucursal_warehouse` ahora mapea `'08'` **y** `'30'` (la historia sigue emitiendo `'30'`).
+
+### 11.3 Abierto, con dueño
+
+- ⛔ **`ops/vl` sin desplegar.** Los tres contenedores (`feeds-cron`, `feeds-livefast`,
+  `store-poller`) conocen **00–07**: no la `08`. Consecuencias medidas: el monitor en vivo de
+  Abastos está oscuro desde el 19-sep 02:41, la existencia de hoy es una **carga puntual** (no se
+  refresca cada 15 min) y `analytics.sales_daily` sigue **en cero** para la `08` (su fact viene de
+  `mart.ventas_enriched`, que se arma con la misma lista). **Es el único pendiente que bloquea.**
+- ⚠️ **7,122 SKUs por cargar en el POS `md_08`**: Kepler arrancó con 2,975 y Wincaja tenía 10,097.
+  Decisión explícita de 0Sistemas: que caiga y se reporte, antes que Compras pida contra stock
+  fantasma. **Dueño: Sistemas.**
+- ⛔ **Madero sigue partida** (`07` + `MD-32` soft-deleted, que todavía llavea `'32'`): **4 usuarios**
+  con alcance `'32'` ven sólo la era Wincaja. Fuera de alcance por decisión; queda con nombre.
+- ⚠️ Hallazgo colateral: el sensor `wincaja_existencias_entrega` reportaba **316 h** de rezago por
+  culpa de Madero y **tapaba** que el CEDIS `'00'` —la única rama que todavía carga de un `.mdb`
+  vivo— llevaba **77 h** sin entregar. Ahora deriva de `status='live_on_wincaja'`; el rezago del
+  CEDIS es real y **sigue abierto** (es la tarea `WincajaSyncActual` de `.249`, Fase VL.5).
