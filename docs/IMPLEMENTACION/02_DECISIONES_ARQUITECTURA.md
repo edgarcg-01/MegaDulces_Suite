@@ -2235,3 +2235,37 @@ Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVG)
 **Hereda:** ADR-066 (Presupuestos) · ADR-069 (motor propone / humano ajusta) · ADR-073 (gastos auto) · ADR-064 (capacidad la fija Presupuestos; obligaciones tienen origen; autorización HITL) · ADR-056 (lo no medido se declara).
 
 Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PR).
+
+## ADR-075
+
+**DuckDB+Parquet como capa analítica para consultas pesadas NO precomputables; matview nativo para rollups fijos. La ganancia es del almacenamiento columnar, no de «poner Duck sobre PG en vivo». La verdad sigue siendo PG; el snapshot columnar se valida por paridad y se declara su frescura.** (Spike — propuesto 2026-09-21)
+
+**Contexto.** Varias operaciones analíticas leen vistas VIVAS del ODS y en prod tardan decenas de segundos, rompiendo el gate de <1s (medido: resumen de Presupuestos sobre `sales_daily` 3.0M filas = 16–40s; `yearsWithRealBefore` sobre `v_sellout_daily` = **76s**; el detector de Maat `detDuplicadaExacta` sobre `gl_poliza_lines` 512k = 1.64s, y el scanner corre ~10 detectores). Se evaluó `pg_duckdb`/DuckDB con un **spike medido** en el servidor on-prem `md` (DuckDB es un binario aparte; **no toca ningún Postgres**, sólo lee → cero riesgo para la ingesta).
+
+**Resultados del spike (mismos datos, misma agregación):**
+- `sales_daily` mes×almacén (3.0M filas): PG-nativo **16.1s** · DuckDB sobre Parquet **0.087s** (**~185×**).
+- Maat `detDuplicadaExacta` (512k): PG-nativo **1.64s** · DuckDB Parquet **0.044s** (**~37×**).
+- DuckDB escaneando PG **en vivo** (postgres_scanner): **69.5s — peor que PG.** La ganancia exige materializar a columnar (Parquet); no basta con la extensión sobre las tablas PG actuales.
+- Factibilidad: `pg_duckdb` **no está** en `pg_available_extensions` de prod ni dev — requiere instalar el binario en la imagen de Postgres. DuckDB standalone en `md` sí (imagen controlada).
+
+**Paridad verificada (exigido antes de confiar en la cifra).** En periodo CERRADO (`anio_mes <= '2026-08'`, sin escritura viva), DuckDB == PG **exacto** (155=155 filas, `EXCEPT` 0 de cada lado). Las diferencias aparentes en las primeras corridas eran **frescura del snapshot** (fila en el mes en curso `2026-09`; +613 filas que el ETL agregó tras el pull), no error de motor.
+
+**Decisión:**
+1. **Rollups fijos y precomputables** (Presupuestos sell-out, dashboards) → **matview nativo PG**: <1ms, RLS-compatible, sin motor ni pipeline nuevos. DuckDB ahí sería sobre-ingeniería (igual escanearía el hecho completo).
+2. **Consultas exploratorias / ad-hoc con filtros variables sobre hechos grandes** (Maat sobre el mayor, drill-downs, MR) → **DuckDB+Parquet en `md`**, donde no se puede fijar un matview por combinación.
+3. **Tres disciplinas OBLIGATORIAS del export** (el spike las cazó):
+   - **Zona horaria:** `timestamptz` fijado a MX y buckets de fecha computados igual en ambos lados (el bucketing mensual es tz-sensible; hasta PG da 350 vs 351 grupos según la zona).
+   - **Tipos numéricos exactos:** `numeric → DECIMAL`, **nunca DOUBLE** (agrupar por un `double` puede partir grupos que PG mantiene juntos).
+   - **Frescura declarada:** el Parquet es un snapshot; la cadencia de refresco define el rezago (el periodo en curso siempre irá atrás) — se declara, no se dibuja como al día.
+4. **La verdad sigue siendo PG.** DuckDB acelera lectura sobre un snapshot validado por paridad; no es fuente de razón. **Scoping por tenant EXPLÍCITO** (el Parquet no tiene RLS).
+
+**Se rechaza:** (a) `pg_duckdb` sobre las tablas PG en vivo como atajo (medido: peor que PG); (b) DuckDB para rollups fijos (matview gana y es RLS-safe); (c) confiar en la cifra columnar sin prueba de paridad en periodo cerrado y sin declarar la frescura.
+
+**Consecuencias:**
+- ✅ Camino medido para el OLAP no-precomputable: 18–185× con resultados idénticos a PG (probado).
+- ⚠️ Requiere pipeline de export (refresco nightly/incremental) con las tres disciplinas; sin ellas, la cifra rápida MIENTE (tz + double).
+- ⚠️ Presupuestos NO depende de esto: se cierra con matview. DuckDB es para Maat/exploratorio.
+
+**Hereda:** ADR-059 (la verdad se arbitra; lo que no, se declara) · ADR-056 (frescura declarada, nunca cero/verde falso) · la regla del ODS (derivar, no copiar — el Parquet es un snapshot de lectura, la fuente sigue siendo el ODS/PG) · `feedback_interface_load_under_1s` (>1s = no funciona).
+
+Spike y mediciones en `md:/home/superoot/spike/` (2026-09-21).
