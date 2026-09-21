@@ -272,9 +272,16 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     { label: '8 Esquinas (03)', value: '03' },
     { label: 'Yurécuaro (04)', value: '04' },
     { label: 'Zamora Centro (05)', value: '05' },
-    { label: 'Morelia Abastos (30)', value: '30' },
-    { label: 'Morelia Madero (32)', value: '32' },
-    { label: 'Canindo (50)', value: '50' },
+    // Las tres que migraron a Kepler propio emiten su código Kepler en las órdenes nuevas y
+    // faltaban acá: sin fila de mapeo, el almacén destino no se autollena y hay que elegirlo a
+    // mano en cada recepción. Canindo desde 2026-08-15, Madero 09-08, Abastos 09-18.
+    { label: 'Canindo (06)', value: '06' },
+    { label: 'Morelia Madero (07)', value: '07' },
+    { label: 'Morelia Abastos (08)', value: '08' },
+    // Códigos Wincaja: se conservan porque las órdenes viejas los siguen trayendo.
+    { label: 'Morelia Abastos · histórico Wincaja (30)', value: '30' },
+    { label: 'Morelia Madero · histórico Wincaja (32)', value: '32' },
+    { label: 'Canindo · histórico Wincaja (50)', value: '50' },
   ];
 
   readonly mapOpen = signal(false);

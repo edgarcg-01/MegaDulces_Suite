@@ -15,7 +15,9 @@
  */
 export const WAREHOUSE_DISPLAY_ORDER: ReadonlyArray<{ label: string; codes: ReadonlyArray<string> }> = Object.freeze([
   { label: 'PH',            codes: ['01', 'MD-10'] },
-  { label: 'MA',            codes: ['MD-30', '30'] },
+  // '08' es el código VIVO desde la fusión del 2026-09-21 (antes `MD-30`); los otros dos son
+  // alias de su historia Wincaja, que los feeds antiguos siguen emitiendo.
+  { label: 'MA',            codes: ['08', 'MD-30', '30'] },
   { label: 'MM',            codes: ['MD-32', '32', '07'] },
   { label: '8ESQ',          codes: ['03', 'MD-40'] },
   { label: 'LPA',           codes: ['02', 'MD-42'] },

@@ -56,7 +56,17 @@ const DRY = process.argv.includes('--dry');
  * las dos que hoy existen; si aparece otra tienda Wincaja, se agrega acá.
  */
 const BRANCHES = [
-  { schema: 'w30', code: '30', name: 'Morelia Abastos' },
+  // ⛔ `w30` Morelia Abastos SALIÓ el 2026-09-21. Su PdV es Kepler `md_08` desde el 09-18: el
+  // `.mdb` cerró el 09-17 y el último ticket que este poller alcanzó a entregar fue el 09-19
+  // 02:41. Seguir consultándolo no da error — devuelve la misma ventana vacía para siempre, que
+  // en el monitor se lee igual que "la tienda no vendió". Su venta viva llega ahora por
+  // `live-tickets-poller.js` como rama `'08'` (`kepler-branches.js`).
+  //
+  // ⚠️ Además, desde la fusión del almacén (`MD-30` → `08`) este carril ya NO podría resolver su
+  // destino: mapeaba a `commercial.warehouses.code = 'MD-30'`, que dejó de existir.
+  //
+  // `w32` Madero está en la misma situación desde el 09-08 y se queda A PROPÓSITO: su almacén
+  // todavía no se fusionó, así que sacarla la dejaría sin monitor en vivo y sin reemplazo.
   { schema: 'w32', code: '32', name: 'Morelia Madero' },
 ];
 

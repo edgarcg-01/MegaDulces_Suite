@@ -52,9 +52,14 @@ const STORES = (() => {
   if (process.env.WINCAJA_STOCK_MDBS_FILE) return JSON.parse(fs.readFileSync(process.env.WINCAJA_STOCK_MDBS_FILE, 'utf8'));
   if (process.env.WINCAJA_STOCK_MDBS) return JSON.parse(process.env.WINCAJA_STOCK_MDBS);
   return [
-    { code: '30', mdb: `${MDB_BASE}/30 MORELIA ABASTOS.MDB`, warehouse_code: 'MD-30', name: 'Morelia Abastos' },
     { code: '32', mdb: `${MDB_BASE}/32 MORELIA MADERO.MDB`, warehouse_code: 'MD-32', name: 'Morelia Madero' },
     // Canindo '50' migró su POS a Kepler ('06') → su stock lo alimenta el feed Kepler, no Wincaja.
+    // Morelia Abastos '30' hizo lo mismo el 2026-09-18 (Kepler `md_08`) y el 09-21 su almacén se
+    // FUSIONÓ: `MD-30` se renombró a `08`. Dos razones para sacarla, y la segunda es dura:
+    //   · su `.mdb` cerró el 09-17 — lo último que escribió acá quedó congelado el 09-18 12:55;
+    //   · `warehouse_code: 'MD-30'` YA NO EXISTE, y el sink resuelve por `code` → tiraría
+    //     "wincaja-stock: warehouse code=MD-30 no existe" en cada ciclo.
+    // Su existencia la alimenta ahora `import-branch-stock-live` por la rama Kepler '08'.
   ];
 })();
 
