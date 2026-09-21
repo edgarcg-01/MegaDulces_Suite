@@ -2765,6 +2765,53 @@ capa 2, porque mientras Canindo tenía `kdc22609` sin permiso, nadie miró si ad
   origen, con 6,322 documentos vendidos ese mes y agosto replicado normal (1,971 renglones).
 * `kdc22610` (octubre) sin suscribir en **7 de 9 ramas**.
 
+### ⛔⛔ CORRECCIÓN 2026-09-21 — la capa 3 NO es silenciosa: MATA LA RAMA ENTERA
+
+Lo de abajo describe la capa 3 como "la tabla no se puede suscribir". **Es peor que eso**, y lo
+cobró Morelia Abastos tres días después de escribir esta sección.
+
+Si el origen **crea** una tabla después del último `REFRESH` y **alguien le escribe una fila**, el
+publicador manda ese cambio igual (la publicación es por schema, la tabla entró sola). El apply
+worker recibe un cambio para una relación que no existe localmente y **muere**:
+
+```
+ERROR: logical replication target relation "md.kdvavance" does not exist
+```
+
+Postgres relanza el worker cada 60 s y vuelve a morir. **No es esa tabla la que se pierde: es la
+sucursal completa.** `sub_md_08` estuvo así del **19 al 21 de septiembre** — 929 documentos de
+venta detenidos, dos días de Morelia Abastos, incluido el domingo entero (488 documentos).
+
+⚠️ **Y los dos indicadores obvios estaban VERDES:**
+
+| indicador | decía | realidad |
+|---|---|---|
+| `pg_subscription_rel` con `srsubstate<>'r'` | **0** | la rama llevaba 2 días muerta |
+| `kepler-replica-refresh.js` | **`+0`, "al día"** | el REFRESH no ve la tabla que rompe |
+| `pg_subscription.subenabled` | **`true`** | sí, y sin worker |
+
+Los tres son ciertos y ninguno sirve. **El único que lo ve es `pg_stat_subscription`**: la fila de
+esa suscripción sale con **`pid` NULL** y `latest_end_time` NULL, mientras las sanas traen pid y
+1-12 segundos de rezago.
+
+```sql
+-- en cada kepler_md_NN: una rama sin worker es una rama muerta, por enabled que esté
+SELECT subname, pid, latest_end_time,
+       round(extract(epoch FROM (now() - latest_end_time)))::int AS seg
+  FROM pg_stat_subscription WHERE pid IS NULL OR latest_end_time < now() - interval '10 min';
+```
+
+Y el motivo exacto sólo está en el log del contenedor, no en ningún catálogo:
+
+```bash
+docker logs --since 30m pgvector-md 2>&1 | grep -iE "ERROR|FATAL|does not exist" | tail
+```
+
+El arreglo es el mismo (`kepler-replica-refresh.js` crea la tabla desde un donante y reintenta:
+`+9 tablas, todas en 'r' en 81 s`, y la rama recuperó los 929 documentos en menos de un minuto),
+pero **el que lo detecta es otro**. Esto es exactamente ADR-056: el latido prueba que el caño se
+mueve, no que llegó todo — y acá ni siquiera había latido por rama.
+
 ### ⛔ La capa 3: `REFRESH PUBLICATION` es atómico
 
 Si el origen publica una tabla que la réplica no tiene localmente, el `REFRESH` **falla entero** con
