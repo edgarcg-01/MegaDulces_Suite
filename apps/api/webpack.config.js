@@ -51,6 +51,13 @@ module.exports = {
   externals: [
     // Función para marcar como externos todos los sub-paths conflictivos
     function ({ request }, callback) {
+      // @duckdb/node-api (Presupuestos rollup, ADR-075) es ESM-only + nativo: external de tipo `import`
+      // → webpack lo deja como import() en runtime (el bundle CJS carga ESM así) y lo detecta
+      // generatePackageJson (para que el deploy instale su binario). NO va como 'commonjs' (require de
+      // un ESM revienta) ni oculto (no lo instalaría el deploy).
+      if (request === '@duckdb/node-api' || request.startsWith('@duckdb/node-api/')) {
+        return callback(null, 'import ' + request);
+      }
       const externals = [
         '@nestjs/websockets',
         '@nestjs/microservices',
