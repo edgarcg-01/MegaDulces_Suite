@@ -23,6 +23,8 @@ import { InventoryRiskService } from './inventory-risk.service';
 import { InventoryRiskController } from './inventory-risk.controller';
 import { ExistenciaService } from './existencia.service';
 import { ExistenciaController } from './existencia.controller';
+import { StockSnapshotService } from './stock-snapshot.service';
+import { StockSnapshotController } from './stock-snapshot.controller';
 
 @Module({
   imports: [
@@ -34,8 +36,8 @@ import { ExistenciaController } from './existencia.controller';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService],
-  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController, StockSnapshotController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService],
 })
 export class CommercialInventoryModule {}

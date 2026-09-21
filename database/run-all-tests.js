@@ -63,6 +63,7 @@ const TESTS = [
   { file: 'test-newdb-inventory-risk.js', label: 'PREV.3 índice de riesgo (schema+RLS+computeScore niveles+agregación expedientes/monitoreo+reincidencia→crítico+CHECK nivel+único por SKU)', needsApi: false },
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
+  { file: 'test-newdb-stock-snapshots.js', label: 'AB.0b Foto de inventario (servicio REAL vía ts-node: cero no deja fila pero sí cobertura · sin costo = NULL no 0 · re-correr corrige no duplica · banderas de cierre)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-oc-survival.js', label: 'RA-PRO.45 tránsito pesado por P(llega|edad) (curva monótona derivada del ODS + eff ≤ papel + estatus c43)', needsApi: false },
   { file: 'test-newdb-fact-vs-kepler.js', label: 'existencia y ventas del fact vs Kepler (mediana por SKU + prueba de unidad bf/1÷bf)', needsApi: false },
