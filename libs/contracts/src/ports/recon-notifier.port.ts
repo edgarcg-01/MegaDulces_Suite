@@ -2,12 +2,12 @@
 //
 // Cuando una cajera captura un arqueo ciego divergente en /tienda/arqueo, el motor
 // levanta el descuadre al instante (autolineado) y necesita empujar una alerta WS al
-// supervisor en /almacen/cuadre. El canal WS (AlertsGateway) vive en libs/commercial;
+// supervisor en /finanzas/cuadre. El canal WS (AlertsGateway) vive en libs/commercial;
 // reconciliation NO cruza esa frontera → inyecta este token + interface (@Optional) y
 // el binding al impl real se hace en el composition root.
 //
 // Separado de FINANCE_NOTIFIER_PORT a propósito: aquel rutea a /finanzas/hallazgos con
-// branding Maat; éste rutea a /almacen/cuadre. Best-effort: sin binding, no notifica.
+// branding Maat; éste rutea a /finanzas/cuadre. Best-effort: sin binding, no notifica.
 
 export const RECON_NOTIFIER_PORT = 'RECON_NOTIFIER_PORT';
 

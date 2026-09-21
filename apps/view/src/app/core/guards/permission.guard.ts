@@ -185,8 +185,9 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   { perm: Permission.COMMERCIAL_WAREHOUSES_VER, url: '/almacen/warehouses' },
   { perm: Permission.COMMERCIAL_DEADSTOCK_VER, url: '/almacen/dead-stock' },
   { perm: Permission.COMMERCIAL_INVHEALTH_VER, url: '/almacen/inventory-health' },
-  // Rol de prevención (solo RECONCILIATION_VER): su landing es el Cuadre.
-  { perm: Permission.RECONCILIATION_VER, url: '/almacen/cuadre' },
+  // `[SM.9]` El Cuadre se mudó a Finanzas: su candidatura vive ahora en FINANZAS_LANDING.
+  // Ojo — quien sólo tenga `RECONCILIATION_VER` ya no es candidato a aterrizar en `/almacen`,
+  // que es justo lo correcto: nunca tuvo un permiso de almacén.
   // `[AUTHZ.6]` El piso de almacén. Ninguno de estos era candidato, así que el `almacenista`
   // caía al fallback `/almacen/inventory` — que exige `_INVENTORY_VER`, el permiso que NO tiene
   // — y de ahí a `/sin-acceso`. Su landing es el trabajo del día: los vales por recibir.
@@ -276,6 +277,10 @@ export const FINANZAS_LANDING: LandingCandidate[] = withTreeCandidates('finanzas
   { perm: Permission.FINANCE_PAYMENTS_VER, url: '/finanzas/pagos-comprobantes' },
   { perm: Permission.FINANCE_AI_CHAT, url: '/finanzas/hallazgos' },
   { perm: Permission.FINANCE_EXPENSES_CAPTURAR, url: '/finanzas/gastos' },
+  // `[SM.9]` Llegó de ALMACEN_LANDING con el Cuadre. El rol de prevención (sólo
+  // `RECONCILIATION_VER`) aterriza acá; sin esta línea rebotaría al fallback
+  // `/finanzas/egresos`, que exige un permiso que no tiene, y de ahí a /sin-acceso.
+  { perm: Permission.RECONCILIATION_VER, url: '/finanzas/cuadre' },
 ]);
 export const finanzasHomeGuard: CanActivateFn = landingRedirectGuard(FINANZAS_LANDING, '/finanzas/egresos');
 

@@ -178,7 +178,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'caducidades', label: 'Control de Caducidades', route: '/almacen/inventory/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'dead-stock', label: 'Stock muerto', route: '/almacen/dead-stock', view: [Permission.COMMERCIAL_DEADSTOCK_VER], manage: [] },
           { id: 'inventory-health', label: 'Salud de inventario', route: '/almacen/inventory-health', view: [Permission.COMMERCIAL_INVHEALTH_VER], manage: [] },
-          { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/almacen/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
+          // `[SM.9]` Cuadre se fue a Finanzas (`/finanzas/cuadre`). No era de almacén:
+          // su permiso es `RECONCILIATION_*`, dominio propio (ADR-029), y lo que resuelve
+          // es dinero —arqueo ciego, descuadre de caja— con una pata en inventario.
           { id: 'movimientos', label: 'Diario de movimientos', route: '/almacen/movimientos', view: [Permission.COMMERCIAL_MOVEMENTS_VER], manage: [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
@@ -304,6 +306,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
           { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
+          // `[SM.9]` Llegó de `/almacen/cuadre`: el Supervisor de Movimientos (ADR-029)
+          // cuadra el arqueo ciego contra el corte de caja. Su permiso `RECONCILIATION_*`
+          // es de dominio propio y NO cambió con la mudanza — el árbol sólo dice dónde
+          // se muestra la casilla, no qué concede.
+          { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/finanzas/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
           { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
           // Presupuestos se movió a su PROPIO proyecto top-level (`presupuestos`, /presupuesto):
           // es responsable distinto de Tesorería/Finanzas (decisión usuario 2026-09-17). Ver el nodo abajo.

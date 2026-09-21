@@ -384,6 +384,17 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        /**
+         * SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce).
+         * `[SM.9]` Llegó de `/almacen/cuadre` (redirect allá). El componente se queda en
+         * `modules/almacen/` porque consume su servicio — mismo criterio que el vecino
+         * `cuadre-proveedor`, que vive acá con el componente en `modules/compras/`.
+         */
+        path: 'cuadre',
+        loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
+      },
+      {
         // CXP.7 — Cuadre y deuda por proveedor (CxP/Tesorería): estado de cuenta 201 Kepler +
         // deuda real ContPAQi 2120. Vive en Finanzas (el componente sigue en modules/compras
         // porque consume ComprasService). Antes en /compras/cuadre-proveedor (redirect abajo).
@@ -867,6 +878,20 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
+      {
+        /**
+         * `[SM.9]` El Supervisor de Movimientos (SM.4) se fue a `/finanzas/cuadre`: su
+         * permiso siempre fue `RECONCILIATION_*` —dominio propio, ADR-029— y lo que
+         * cuadra es dinero (arqueo ciego contra corte de caja) con una pata en inventario.
+         * Queda el redirect porque la URL vieja está viva en las alertas WS ya enviadas
+         * y en el marcador de quien la abría a diario.
+         * ⚠️ Va ANTES del shell de áreas, no adentro: el shell pinta la barra de tabs de
+         * almacén, y esta URL ya no es de almacén.
+         */
+        path: 'cuadre',
+        redirectTo: '/finanzas/cuadre',
+        pathMatch: 'full'
+      },
       // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
       // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
       // deep-links y los redirects viejos (`/comercial/inventory/**`) siguen
@@ -1014,12 +1039,6 @@ export const routes: Routes = [
         path: 'riesgo',
         loadComponent: () => import('./modules/almacen/pages/almacen-riesgo.component').then(m => m.AlmacenRiesgoComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
-      },
-      {
-        // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
-        path: 'cuadre',
-        loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
-        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
         ]
       },
