@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, ConflictException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
@@ -132,12 +132,42 @@ export class StoreArqueoController {
     // lo que tiene enfrente. Los cortes viejos sin contar son de la bandeja del
     // supervisor, no de su mostrador — y el tope va en el SERVICIO, no acá, para
     // que mandar `?dias=30` a mano tampoco los destape.
-    return this.blind.turnosPendientes({
-      cajeroCode: user?.username,
+    const cajero = user?.username;
+    /**
+     * SM.38 - El bloqueo viaja con la lista, no en una llamada aparte: si la
+     * pantalla tuviera que preguntarlo por separado, un error de red la dejaria
+     * mostrando los turnos sin el aviso. Y los turnos se devuelven VACIOS cuando
+     * hay bloqueo -- fail-closed: no se puede arquear con dos cajas abiertas, asi
+     * que no se ofrece ninguna.
+     */
+    const bloqueo = cajero ? await this.blind.bloqueoDobleCaja(cajero) : null;
+    if (bloqueo) return { turnos: [], bloqueo };
+    const turnos = await this.blind.turnosPendientes({
+      cajeroCode: cajero,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
       dias: dias ? Number(dias) : undefined,
       revela: this.revela(user),
     });
+    return { turnos, bloqueo: null };
+  }
+
+  /**
+   * SM.38 - El candado de doble caja, fail-closed.
+   *
+   * Se pregunta por la persona a la que se le ATRIBUYE el conteo, no por quien
+   * lo teclea: si la supervisora captura por una cajera que tiene dos cajas
+   * abiertas, el bloqueado es el conteo de esa cajera. Bloquear a la supervisora
+   * por sus propias cajas seria castigar a la persona equivocada.
+   */
+  private async exigirUnaSolaCaja(cajero_code: string | undefined) {
+    if (!cajero_code) return;
+    const b = await this.blind.bloqueoDobleCaja(cajero_code);
+    if (!b) return;
+    const lista = b.cajas.map((c) => `sucursal ${c.warehouse_code} caja ${c.caja}`).join(' y ');
+    throw new ConflictException(
+      `Hay dos cajas abiertas con el mismo usuario (${lista}). `
+      + `Cierra la sesion en una de las dos en Kepler y se reactiva solo.`,
+    );
   }
 
   /**
@@ -165,7 +195,7 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
-    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code);
+    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code, turno);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -193,7 +223,7 @@ export class StoreArqueoController {
    * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
    * Y el supervisor queda exento: captura por otros y en contingencia.
    */
-  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string) {
+  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string, turno?: { caja?: string; business_date?: string }) {
     if (revela) return;
     if ((body?.tipo ?? 'cierre') !== 'cierre') return;
     // Corregir un conteo YA hecho no es saltarse la fila: el turno viejo sigue
@@ -202,7 +232,9 @@ export class StoreArqueoController {
     // justo lo contrario de lo que esta regla busca.
     // La sucursal RESUELTA, no `body.warehouse_code`: la cajera no lo manda, así
     // que leerlo del body dejaría el chequeo en un no-op silencioso.
-    if (await this.blind.yaArqueado(warehouseCode, folio)) return;
+    // SM.37 - Con caja y fecha: el folio de Kepler se reusa, y sin acotar, el
+    // cierre de otra caja de otro dia daba este turno por arqueado.
+    if (await this.blind.yaArqueado(warehouseCode, folio, turno?.caja, turno?.business_date)) return;
     const scope = (await this.scope.current()).dims.warehouse;
     // MISMA ventana que la pantalla: si a la cajera no se le ofrece el corte de
     // anteayer, tampoco puede bloquearla. Con la ventana ancha quedaba trabada en
@@ -222,6 +254,93 @@ export class StoreArqueoController {
     );
   }
 
+  /**
+   * SM.36 - Las rutas que ESTA tienda puede arquear.
+   *
+   * Se resuelve con la sucursal del usuario, no con un parametro: el pedido fue
+   * que la encargada de Padre Hidalgo vea las rutas de Padre Hidalgo y nada mas.
+   * Devolver [] es respuesta valida (hay tiendas sin rutas dadas de alta).
+   */
+  @Get('rutas')
+  @RequirePermissions(Permission.STORE_ARQUEO_RUTA_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda - rutas RD/RV dadas de alta en tu sucursal, para el arqueo de la entrega del vendedor.' })
+  async rutas(@Query() query: Record<string, unknown>) {
+    const warehouse_code = await this.resolverSucursal((query?.['warehouse_code'] as string) || undefined);
+    const rutas = await this.blind.rutasDeSucursal(warehouse_code);
+    return {
+      warehouse_code,
+      rd: rutas.filter((r) => r.tipo === 'rd'),
+      rv: rutas.filter((r) => r.tipo === 'rv'),
+    };
+  }
+
+  /**
+   * SM.36 - El vendedor de ruta entrega su efectivo y la encargada lo cuenta.
+   *
+   * Endpoint APARTE del `POST /` a proposito, y esa es la decision de seguridad
+   * de esta entrega: `POST /` esta gateado con `STORE_ARQUEO_CAPTURAR`, que en
+   * prod tienen tambien `cajero` y `piso_tienda`. Si el arqueo de ruta fuera un
+   * `tipo` mas del mismo endpoint, cualquier cajera podria sellar la entrega de
+   * una ruta mandando `tipo: "rd"` - la puerta nueva seria decorativa.
+   *
+   * Tampoco pasa por `anclarAlTurno()`: una ruta no tiene turno de caja en
+   * Kepler. Por eso `caja` lleva el literal RD/RV (la estacion) y la identidad
+   * la da `route_code`.
+   *
+   * ⚠️ NO devuelve diferencia: el esperado de una ruta no existe hoy (medido).
+   * Se responde lo contado y se DECLARA el motivo, en vez de dibujar un cero
+   * que se leeria como "cuadro" (ADR-056).
+   */
+  @Post('ruta')
+  @RequirePermissions(Permission.STORE_ARQUEO_RUTA_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda - arqueo de la entrega del vendedor de ruta (RD/RV). Sin esperado: registra custodia, no diferencia.' })
+  async submitRuta(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
+    const tipo = body?.tipo;
+    if (tipo !== 'rd' && tipo !== 'rv') {
+      throw new BadRequestException('tipo debe ser "rd" (ruta de reparto) o "rv" (ruta vecinal).');
+    }
+    const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
+    const route_code = (body?.route_code || '').trim();
+
+    // La ruta tiene que estar dada de alta en SU tienda. Sin esta validacion, el
+    // alcance seria una sugerencia del frontend: bastaria mandar otra clave.
+    const permitidas = await this.blind.rutasDeSucursal(warehouse_code);
+    const ruta = permitidas.find((r) => r.route_code === route_code);
+    if (!ruta) {
+      throw new BadRequestException(
+        permitidas.length
+          ? `La ruta ${route_code || '(vacia)'} no esta dada de alta en la sucursal ${warehouse_code}.`
+          : `La sucursal ${warehouse_code} no tiene rutas dadas de alta. Pedile al administrador que las asigne.`,
+      );
+    }
+    if (ruta.tipo !== tipo) {
+      throw new BadRequestException(`La ruta ${route_code} es de tipo ${ruta.tipo}, no ${tipo}.`);
+    }
+
+    const res = await this.blind.submit(
+      {
+        ...body,
+        warehouse_code,
+        route_code,
+        // Una ruta no es una caja: `caja` lleva la estacion, la ruta va aparte.
+        caja: tipo.toUpperCase(),
+        cash_cut_folio: undefined,
+        caja_kepler: undefined,
+        turno_abierto_at: null,
+      },
+      user?.username,
+    );
+    return {
+      tipo: res.tipo,
+      total_contado: res.total_contado,
+      route_code,
+      route_label: ruta.label,
+      // Se DECLARA en la respuesta: la pantalla no tiene que inferirlo.
+      medible: false,
+      motivo_no_medible: 'sin_esperado',
+    };
+  }
+
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
   @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
@@ -229,6 +348,7 @@ export class StoreArqueoController {
     const revela = this.revela(user);
     const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
     const cajero_code = this.atribuir(body, user, revela);
+    await this.exigirUnaSolaCaja(cajero_code);
     const delTurno = await this.anclarAlTurno(body, warehouse_code, cajero_code, revela);
     const res = await this.blind.submit({ ...body, warehouse_code, cajero_code, ...delTurno }, user?.username);
     // Sin revelación, `matched`/`ambiguous` tampoco tienen sentido (no hay nada
