@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
+import { casarPorImporte, canonBank, escapaLike, type MovCuadre } from './caja-cuadre.engine';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -177,10 +178,20 @@ export class CajaGeneralService {
       const tot: any = await inRange()
         .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
           trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
-      // Saldo actual = último SaldoD (running balance) REAL. Ojo: mov_id es texto (IdDocto
-      // por TipoDto) → ordenar por él es un sort lexicográfico, no cronológico; y la última
-      // fila suele traer saldo=0. Tomamos el saldo más reciente DISTINTO de 0 por (fecha, hora).
+      // Saldo al CIERRE DEL PERIODO = último SaldoD (running balance) REAL dentro de [from,to].
+      // Ojo: mov_id es texto (IdDocto por TipoDto) → ordenar por él es un sort lexicográfico, no
+      // cronológico; y la última fila suele traer saldo=0. Tomamos el saldo más reciente DISTINTO
+      // de 0 por (fecha, hora); `hora` viene 'HH:MM:SS' con cero a la izquierda, así que el orden
+      // de texto SÍ es cronológico.
+      //
+      // ⛔ **Acá faltaba el filtro de periodo, y por eso el KPI "Saldo caja" era el mismo número
+      // para todos los meses.** Tomaba el último saldo de TODA la historia y lo ponía al lado de
+      // Ingresos/Gastos/Neto, que sí están filtrados. MEDIDO en `platform_test` (12,276 movs,
+      // ene→sep 2026): la pantalla publicaba **$750** —el saldo del 18-sep— mirases el mes que
+      // mirases, cuando el cierre real de enero fue **$20,778** y el de mayo **$20,487**. No es
+      // un número mal calculado: es el número de otro periodo.
       const sal: any = await trx(T).where('tenant_id', tenantId).whereRaw('saldo <> 0')
+        .whereBetween('fecha', [from, to])
         .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).first('saldo', 'fecha');
 
       const porMes = await trx(T).where('tenant_id', tenantId)
@@ -199,9 +210,15 @@ export class CajaGeneralService {
         // Cronológico real por (fecha, hora); mov_id es texto → no sirve como orden temporal.
         .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).limit(500);
       if (q.tipo) movq = movq.where('tipo', q.tipo);
-      if (q.search) movq = movq.whereRaw(
-        '(cuenta_nombre ILIKE ? OR nombre_cliente ILIKE ? OR concepto ILIKE ?)',
-        [`%${q.search}%`, `%${q.search}%`, `%${q.search}%`]);
+      if (q.search) {
+        // `%` y `_` del usuario se escapan: sin esto, buscar "100%" traía el libro COMPLETO y la
+        // persona creía que había filtrado. No es inyección (el valor va parametrizado) — es una
+        // mentira silenciosa en pantalla, que es peor porque nadie la reporta.
+        const s = `%${escapaLike(q.search)}%`;
+        movq = movq.whereRaw(
+          `(cuenta_nombre ILIKE ? ESCAPE '\\' OR nombre_cliente ILIKE ? ESCAPE '\\' OR concepto ILIKE ? ESCAPE '\\')`,
+          [s, s, s]);
+      }
       const movs = await movq;
 
       const freshness = await this.frescura();
@@ -257,9 +274,25 @@ export class CajaGeneralService {
       const arqByDay = new Map<string, { efectivo: number; n: number }>();
       for (const a of arq as any[]) arqByDay.set(ymd(a.arqueo_date), { efectivo: n(a.efectivo), n: n(a.n) });
 
-      // CG.8 — Ingreso por ORIGEN (de dónde viene el efectivo): sucursal (POS) / ruta / otros.
-      // Heurística sobre cuenta + nombre_cliente (texto libre). 'otros' = directivos/nómina/
-      // pagarés/cambios/cartón/préstamos (no venta de piso). Es informativo, no un cuadre.
+      // CG.8 — Ingreso por ORIGEN (de dónde viene el efectivo): sucursal (POS) / ruta / lo demás.
+      // Heurística sobre cuenta + nombre_cliente (texto libre).
+      //
+      // ⛔ **El `ELSE` decía `'ruta'`.** O sea: todo lo que no dijera "suc" y no cayera en la lista
+      // de cuentas se PUBLICABA como venta de ruta, con su monto, en un KPI. Eso no es "ruta": es
+      // "no se pudo determinar". Un default disfrazado de medición es justo lo que ADR-056
+      // prohíbe, y acá importa el doble porque CG.19 va a aplicar dinero contra el saldo de una
+      // ruta — el día que ese número decida algo, un `ELSE` no puede ser la fuente.
+      // Ahora `sin_clasificar` es un balde propio y se ve.
+      //
+      // ⛔ **Y NO se agrega acá un regex de ruta** (`R.D`, `RV`, …), aunque haría subir el balde
+      // `ruta`. Esa expresión ya vive en TRES lugares con DOS formas distintas (ver la cabecera de
+      // `20260918260000_finance_route_customer_map.js`); una cuarta copia empeora justo lo que la
+      // Capa 0 vino a arreglar. `ruta` se queda con lo que el texto DICE ("RUTA"); lo demás se
+      // declara. Cuando `finance.route_customer_map` esté confirmado, este balde sale de ahí.
+      //
+      // ⚠️ Al escribir esto metí `R\.?[DV]` en un `trx.raw` y lo corregí antes de compilar: para
+      // knex el `?` es un marcador de parámetro (regla M1, ya se pagó una columna entera en NULL).
+      // Que la regla esté escrita no impide romperla; por eso el balde es literal y sin `?`.
       const orig = await trx('analytics.caja_general_movimientos')
         .where('tenant_id', tenantId).where('tipo_dto', 1).whereBetween('fecha', [from, to])
         .select(trx.raw(`CASE
@@ -267,10 +300,14 @@ export class CajaGeneralService {
                OR nombre_cliente ILIKE '%prestamo%' OR nombre_cliente ILIKE '%pagare%'
                OR nombre_cliente ILIKE '%nomina%' OR nombre_cliente ILIKE '%directivo%' THEN 'otros'
           WHEN nombre_cliente ILIKE '%suc%' THEN 'sucursal'
-          ELSE 'ruta' END AS origen`),
+          WHEN nombre_cliente ILIKE '%ruta%' THEN 'ruta'
+          ELSE 'sin_clasificar' END AS origen`),
           trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(ingreso)::numeric AS monto'))
         .groupByRaw('1');
-      const og: Record<string, { n: number; monto: number }> = { sucursal: { n: 0, monto: 0 }, ruta: { n: 0, monto: 0 }, otros: { n: 0, monto: 0 } };
+      const og: Record<string, { n: number; monto: number }> = {
+        sucursal: { n: 0, monto: 0 }, ruta: { n: 0, monto: 0 },
+        otros: { n: 0, monto: 0 }, sin_clasificar: { n: 0, monto: 0 },
+      };
       for (const r of orig as any[]) if (og[r.origen]) og[r.origen] = { n: n(r.n), monto: r2(n(r.monto)) };
 
       // Testigo POS: efectivo contado en los cortes de caja (Kepler) del periodo. La parte
@@ -469,47 +506,38 @@ export class CajaGeneralService {
     const [from, to] = this.range(q);
     const n = (x: any) => Number(x) || 0;
     const r2 = (v: number) => Math.round(v * 100) / 100;
-    const cents = (v: any) => Math.round(n(v) * 100);
-    const AMT_TOL = MATCH_EPS * 100; // en CENTAVOS — derivado, no escrito a mano (ver la cabecera)
-
     // Etiqueta uniforme de un movimiento (para render idéntico en el frontend). `source` + `key`
     // (PK completa codificada) habilitan el click → detalle completo del movimiento (movementDetail).
-    type Lbl = { id: string; source: 'control' | 'workbook' | 'kepler'; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null };
-    // Casa greedy por importe: consume del otro lado; lo que sobra son los huérfanos.
-    const matchDir = (caja: { amt: number; lbl: Lbl }[], other: { amt: number; lbl: Lbl }[]) => {
-      const byAmt = new Map<number, { amt: number; lbl: Lbl }[]>();
-      for (const o of other) { const k = cents(o.amt); (byAmt.get(k) ?? byAmt.set(k, []).get(k)!).push(o); }
-      const cajaOnly: Lbl[] = []; let matched = 0, matchedAmt = 0;
-      /**
-       * Pares que SÍ casaron. Antes se descartaban (sólo se contaban) y por eso el detalle
-       * del día únicamente podía pintar los huérfanos: no había forma de armar la tabla
-       * "un movimiento del Control × una columna por fuente" que sí tiene el Cuadre de
-       * Bancos. Guardar el par cuesta un push y habilita esa vista.
-       */
-      const pairs: { caja: Lbl; other: Lbl }[] = [];
-      for (const c of caja) {
-        const t = cents(c.amt); let hit: Lbl | null = null;
-        for (let d = 0; d <= AMT_TOL && !hit; d++) {
-          for (const cand of d === 0 ? [t] : [t - d, t + d]) {
-            const bucket = byAmt.get(cand);
-            if (bucket && bucket.length) { hit = bucket.shift()!.lbl; break; }
-          }
-        }
-        if (hit) { matched++; matchedAmt += c.amt; pairs.push({ caja: c.lbl, other: hit }); } else cajaOnly.push(c.lbl);
-      }
-      const otherOnly: Lbl[] = [];
-      for (const arr of byAmt.values()) for (const o of arr) otherOnly.push(o.lbl);
-      cajaOnly.sort((a, b) => b.importe - a.importe); otherOnly.sort((a, b) => b.importe - a.importe);
-      const cajaTotal = r2(caja.reduce((s, r) => s + r.amt, 0));
-      const otherTotal = r2(other.reduce((s, r) => s + r.amt, 0));
-      return {
-        caja_total: cajaTotal, other_total: otherTotal, delta: r2(cajaTotal - otherTotal),
-        matched_count: matched, matched_amount: r2(matchedAmt), pairs,
-        caja_only: cajaOnly, other_only: otherOnly,
-        caja_only_amount: r2(cajaOnly.reduce((s, r) => s + r.importe, 0)),
-        other_only_amount: r2(otherOnly.reduce((s, r) => s + r.importe, 0)),
-      };
-    };
+    // Cumple `MovCuadre` (key/importe/fecha), que es lo que el motor necesita para ordenar.
+    type Lbl = MovCuadre & { id: string; source: 'control' | 'workbook' | 'kepler'; concepto: string | null; extra: string | null };
+
+    /**
+     * ⭐ El casamiento vive ahora en `caja-cuadre.engine.ts`, con pruebas. Acá había un greedy
+     * que consumía del otro lado **en el orden en que Postgres hubiera devuelto las filas** — y
+     * ninguno de los tres `SELECT` de abajo tiene `ORDER BY`. Dos cargas del mismo día podían
+     * publicar huérfanos distintos, o sea **un descuadre distinto sin que cambiara un dato**.
+     *
+     * ⚠️ La garantía de orden vive en el MOTOR (`ordenCanonico`), no en el SQL: no hace falta
+     * agregar `ORDER BY` a los SELECT, y agregarlo no alcanzaría (el orden también depende del
+     * otro lado y de cómo se consume). Si alguien "arregla" esto poniendo un ORDER BY y sacando
+     * el motor, vuelve el problema.
+     *
+     * MEDIDO en `platform_test` (jul→sep 2026, 3,746 movimientos del Control con importe):
+     * **965 (25.8%, $1,519,632.85) tienen más de un candidato a ±$5 el mismo día y dirección.**
+     * Ése es exactamente el conjunto donde el orden —hasta hoy indefinido— decidía la respuesta.
+     */
+    const adapta = (res: ReturnType<typeof casarPorImporte<Lbl>>) => ({
+      caja_total: res.caja_total, other_total: res.otro_total, delta: res.delta,
+      matched_count: res.casados_n, matched_amount: res.casados_monto,
+      pairs: res.pares.map((p) => ({ caja: p.caja, other: p.otro, ambiguo: p.ambiguo, candidatos: p.candidatos, delta: p.delta })),
+      caja_only: res.caja_solos, other_only: res.otro_solos,
+      caja_only_amount: res.caja_solos_monto, other_only_amount: res.otro_solos_monto,
+      // Lo que el casamiento NO sabe, dicho: cuántos pudieron haber casado con otra cosa y
+      // cuántos existen sólo gracias a la tolerancia.
+      ambiguos_n: res.ambiguos_n, inexactos_n: res.inexactos_n, tolerancia: res.tolerancia,
+    });
+    const matchDir = (caja: { amt: number; lbl: Lbl }[], other: { amt: number; lbl: Lbl }[]) =>
+      adapta(casarPorImporte(caja.map((x) => x.lbl), other.map((x) => x.lbl), MATCH_EPS));
 
     return this.tk.run(async (trx) => {
       const mdb = await trx('analytics.caja_general_movimientos')
@@ -541,6 +569,12 @@ export class CajaGeneralService {
       const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
       const vs_kepler = { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) };
 
+      // Índice `key del Control` → par casado, por lado y dirección (ver el comentario en `rows`).
+      const indexa = (pares: { caja: Lbl; other: Lbl; ambiguo: boolean; delta: number }[]) =>
+        new Map(pares.map((p) => [p.caja.key, p]));
+      const idxManIn = indexa(vs_manual.ingresos.pairs), idxManOut = indexa(vs_manual.gastos.pairs);
+      const idxKepIn = indexa(vs_kepler.ingresos.pairs), idxKepOut = indexa(vs_kepler.gastos.pairs);
+
       /**
        * Modelo de fila único: UN movimiento del Control por renglón, con lo que casó en cada
        * fuente. Es el mismo shape que el detalle del Cuadre de Bancos (un movimiento del
@@ -552,19 +586,30 @@ export class CajaGeneralService {
         ...mdbIn.map((m) => ({ m, dir: 'in' as const })),
         ...mdbGas.map((m) => ({ m, dir: 'out' as const })),
       ].map(({ m, dir }) => {
-        const side = (v: typeof vs_manual) => (dir === 'in' ? v.ingresos : v.gastos);
         // Enlazar por `key` (tipo_dto|mov_id), NO por `id`: mov_id es el IdDocto y sólo es único
         // POR tipo_dto. Dos movimientos del día con el mismo mov_id compartían el mismo par.
-        const hit = (v: typeof vs_manual) => side(v).pairs.find((p) => p.caja.key === m.lbl.key) ?? null;
-        const man = hit(vs_manual), kep2 = hit(vs_kepler);
+        // Índice en vez de `pairs.find()`: era O(n²) sobre miles de filas (~28M comparaciones en
+        // un mes), y esta pantalla tiene presupuesto de 1 s.
+        const man = (dir === 'in' ? idxManIn : idxManOut).get(m.lbl.key) ?? null;
+        const kep2 = (dir === 'in' ? idxKepIn : idxKepOut).get(m.lbl.key) ?? null;
         return {
           id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
           concepto: m.lbl.concepto, extra: m.lbl.extra,
           manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null, manual_key: man ? man.other.key : null,
           kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null, kepler_key: kep2 ? kep2.other.key : null,
+          // ⭐ Cuánto vale ESTE casamiento. `ambiguo` = había más de un candidato a la misma
+          // distancia de importe, o sea que pudo haber casado con otro movimiento; `delta` ≠ 0 =
+          // existe sólo porque la tolerancia de ±$5 lo permitió. Sin esto, un par forzado y un par
+          // que salió de 40 iguales se pintaban idénticos, y la pantalla insinuaba una certeza
+          // que el método no tiene (M3: ligar por importe+fecha es un atributo débil).
+          manual_ambiguo: !!man?.ambiguo, manual_delta: man ? man.delta : null,
+          kepler_ambiguo: !!kep2?.ambiguo, kepler_delta: kep2 ? kep2.delta : null,
         };
-      }).sort((a, b) => (a.fecha === b.fecha ? b.importe - a.importe : a.fecha.localeCompare(b.fecha)));
+        // Desempate final por `key`: sin él, dos movimientos del mismo día y mismo importe
+        // quedaban en orden indefinido — el mismo defecto que este commit vino a matar.
+      }).sort((a, b) => a.fecha.localeCompare(b.fecha) || b.importe - a.importe || a.key.localeCompare(b.key));
 
+      const sumaLados = (v: typeof vs_manual, k: 'ambiguos_n' | 'inexactos_n') => v.ingresos[k] + v.gastos[k];
       const totals = {
         control_n: rows.length,
         control_monto: r2(rows.reduce((s, r) => s + r.importe, 0)),
@@ -574,6 +619,14 @@ export class CajaGeneralService {
         manual_only_monto: r2(vs_manual.ingresos.other_only_amount + vs_manual.gastos.other_only_amount),
         kepler_only_n: vs_kepler.ingresos.other_only.length + vs_kepler.gastos.other_only.length,
         kepler_only_monto: r2(vs_kepler.ingresos.other_only_amount + vs_kepler.gastos.other_only_amount),
+        // Cuánto de lo que se ve casado es una decisión del algoritmo y no un hecho.
+        manual_ambiguos_n: sumaLados(vs_manual, 'ambiguos_n'), manual_inexactos_n: sumaLados(vs_manual, 'inexactos_n'),
+        kepler_ambiguos_n: sumaLados(vs_kepler, 'ambiguos_n'), kepler_inexactos_n: sumaLados(vs_kepler, 'inexactos_n'),
+        // ⚠️ Un lado vacío NO es "todo descuadrado": es una fuente que no tiene datos en el
+        // periodo. Se declara, igual que en `conciliacion()` (ADR-056).
+        manual_disponible: (man as any[]).length > 0,
+        kepler_disponible: (kep as any[]).length > 0,
+        tolerancia: MATCH_EPS,
       };
 
       return { period: { from, to }, vs_manual, vs_kepler, rows, totals };
@@ -781,22 +834,9 @@ export class CajaGeneralService {
     const tenantId = this.tenantCtx.requireTenantId();
     const [from, to] = this.range(q);
     const inst = this.inst(q);
-    // Nombre de banco → clave canónica común a las 3 fuentes.
-    const canon = (s: string): string => {
-      const u = String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      if (/BAJIO|BBAJIO/.test(u)) return 'BAJIO';
-      if (/BBVA|BANCOMER/.test(u)) return 'BBVA';
-      if (/BANORTE/.test(u)) return 'BANORTE';
-      if (/SANTANDER/.test(u)) return 'SANTANDER';
-      if (/BANAMEX|CITI/.test(u)) return 'BANAMEX';
-      if (/AZTECA/.test(u)) return 'AZTECA';
-      if (/INBURSA/.test(u)) return 'INBURSA';
-      if (/HSBC/.test(u)) return 'HSBC';
-      if (/SCOTIA/.test(u)) return 'SCOTIABANK';
-      if (/BANREGIO|REGIO/.test(u)) return 'BANREGIO';
-      if (/CAJA/.test(u)) return 'CAJA';
-      return (u.replace(/\s+/g, ' ').trim().split(' ')[0]) || 'OTRO';
-    };
+    // Nombre de banco → clave canónica común a las 4 fuentes. Antes acá vivía una SEGUNDA copia
+    // de esta función que no coincidía con la del método de clase (ver `canonBank`).
+    const canon = canonBank;
     return this.tk.run(async (trx) => {
       const caja = await trx('analytics.caja_depositos')
         .where({ tenant_id: tenantId, source_instance: inst }).whereBetween('deposito_date', [from, to]).where('eliminado', false)
@@ -849,6 +889,12 @@ export class CajaGeneralService {
         period: { from, to, instance: inst },
         totals: {
           caja: sum(caja, 'real'), wb: sum(cb, 'monto'), kep: sum(kep, 'monto'), cpq: sum(cpq, 'monto'),
+          // ⛔ `caja_disponible` faltaba, y es la fuente SUJETO de esta pantalla. Las otras tres
+          // declaraban si tenían datos; la caja no. Y es la que se apagó: `caja_depositos` dejó de
+          // alimentarse en ene-2026, así que para cualquier mes posterior esto publicaba
+          // `caja: 0` contra `wb: $X` — un descuadre del 100% que NO es un descuadre, es una
+          // fuente parada. Cero medido y cero por falta de datos no pueden verse igual (ADR-056).
+          caja_disponible: caja.length > 0,
           wb_disponible: cb.length > 0, kep_disponible: kep.length > 0, cpq_disponible: cpq.length > 0,
         },
         por_banco, cuadre_eps: CUADRE_EPS,
@@ -973,20 +1019,13 @@ export class CajaGeneralService {
     });
   }
 
-  /** Nombre de banco → clave canónica común a Caja / CB / Kepler. */
-  private canonBank(s: string): string {
-    const u = String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    if (/BAJIO|BBAJIO/.test(u)) return 'BAJIO';
-    if (/BBVA|BANCOMER/.test(u)) return 'BBVA';
-    if (/BANORTE/.test(u)) return 'BANORTE';
-    if (/SANTANDER/.test(u)) return 'SANTANDER';
-    if (/BANAMEX|CITI/.test(u)) return 'BANAMEX';
-    if (/AZTECA/.test(u)) return 'AZTECA';
-    if (/INBURSA/.test(u)) return 'INBURSA';
-    if (/HSBC/.test(u)) return 'HSBC';
-    if (/CAJA/.test(u)) return 'CAJA';
-    return u.replace(/\s+/g, ' ').trim().split(' ')[0] || 'OTRO';
-  }
+  /**
+   * ⛔ **Había DOS de estas en este archivo y no eran iguales.** Ésta (método de clase, usada por
+   * `conciliacionDetalle` y `crosswalk`) no conocía `SCOTIABANK` ni `BANREGIO`; la copia local de
+   * `conciliacion()` sí. El mismo banco se agrupaba distinto según por qué pestaña entraras.
+   * Ahora las dos llaman a `canonBank` del motor — una sola definición, con pruebas.
+   */
+  private canonBank(s: string): string { return canonBank(s); }
 
   /**
    * CG.7 — Enlace de cuentas: sugiere el `account_label` (cuenta CB/Kepler) para cada

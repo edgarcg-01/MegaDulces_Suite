@@ -22,10 +22,17 @@ import { exportXlsx, XlsxSheet } from '../../../shared/export/xlsx-export';
 
 type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface OrigenCell { n: number; monto: number }
+/**
+ * ⚠️ **Tipo HUÉRFANO, medido (CG.19):** nada llama a `/finance/caja/cuadre`. La pestaña "Cuadre"
+ * pide `conciliacion-workbook` (señal `wbc`), así que `cq` es siempre `null` y `cqKpis()` no se
+ * ejecuta nunca. Se deja declarado —no borrado— porque el endpoint sigue expuesto y retirar
+ * superficie de API es una decisión aparte; pero nadie debe agregarle campos creyendo que se ven.
+ */
 interface CajaCuadre {
   period: { from: string; to: string };
   totals: { ingreso: number; gasto: number; deposito: number; remisiones_gastos: number; neto: number; cuadra: boolean; dias: number };
-  ingreso_origen: { sucursal: OrigenCell; ruta: OrigenCell; otros: OrigenCell };
+  /** `sin_clasificar` reemplaza al viejo `ELSE 'ruta'`: lo no identificable se declara, no se bautiza. */
+  ingreso_origen: { sucursal: OrigenCell; ruta: OrigenCell; otros: OrigenCell; sin_clasificar: OrigenCell };
   pos_efectivo: { efectivo: number; n: number };
   por_dia: { fecha: string; ingreso: number; gasto: number; deposito: number; neto: number; n: number; arqueo_efectivo: number | null; arqueo_n: number }[];
 }
@@ -40,18 +47,39 @@ interface CajaWb {
 interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
 type MovSource = 'control' | 'workbook' | 'kepler';
 interface OrphanMov { id: string; source: MovSource; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null; dir?: 'in' | 'out' }
-interface ReconSide { caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number; caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number }
+interface ReconSide {
+  caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number;
+  caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number;
+  /** Casamientos que pudieron haber sido otros (más de un candidato al mismo importe). */
+  ambiguos_n: number;
+  /** Casamientos que existen sólo porque la tolerancia los permitió (delta ≠ 0). */
+  inexactos_n: number;
+  tolerancia: number;
+}
 /** Una fila del detalle del día: un movimiento del Control con lo que casó en cada fuente. */
 interface DiaRow {
   id: string; key: string; fecha: string; dir: 'in' | 'out'; importe: number; concepto: string | null; extra: string | null;
   manual: boolean; manual_importe: number | null; manual_ref: string | null; manual_key: string | null;
   kepler: boolean; kepler_importe: number | null; kepler_ref: string | null; kepler_key: string | null;
+  /**
+   * CG.19 — Qué tan firme es ESTE casamiento. El cruce es por importe+fecha (atributo débil, no
+   * hay llave entre el Access y Kepler), así que un par que salió de entre 40 iguales no puede
+   * pintarse igual que uno forzado. `ambiguo` = había otro candidato tan bueno; `delta` ≠ 0 = casó
+   * gracias a la tolerancia de ±$5, no porque los importes coincidan.
+   */
+  manual_ambiguo: boolean; manual_delta: number | null;
+  kepler_ambiguo: boolean; kepler_delta: number | null;
 }
 /** Detalle completo de un movimiento (modal al clickear una vía). */
 interface MovDetail { source: MovSource; title: string; fields: { label: string; value: string | number | null }[] }
 interface DiaTotals {
   control_n: number; control_monto: number; en_manual: number; en_kepler: number;
   manual_only_n: number; manual_only_monto: number; kepler_only_n: number; kepler_only_monto: number;
+  manual_ambiguos_n: number; manual_inexactos_n: number;
+  kepler_ambiguos_n: number; kepler_inexactos_n: number;
+  /** Un lado sin datos NO es "todo descuadrado": es una fuente apagada en el periodo. */
+  manual_disponible: boolean; kepler_disponible: boolean;
+  tolerancia: number;
 }
 interface ConcDia {
   period: { from: string; to: string };
@@ -80,7 +108,7 @@ interface DepResp { rows: DepRow[]; totals: { n: number; total: number; total_re
 interface ArqRow { mov_id: string; source_caja: string; folio: string | null; tipo: string | null; arqueo_date: string; capturo: string | null; total_efectivo: number; total_cheques: number; total_tarjeta: number; mov_total: number; revisado: boolean; cancelado: boolean; observaciones: string | null }
 interface ArqResp { rows: ArqRow[]; by_tipo: { tipo: string; n: number; monto: number }[] }
 interface ConcRow { banco: string; caja: number; caja_n: number; wb: number; wb_n: number; kep: number; kep_n: number; cpq: number; cpq_n: number; delta_caja_wb: number; delta_caja_cpq: number; cuadra_caja_wb: boolean; cuadra_wb_kep: boolean; cuadra_wb_cpq: boolean }
-interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; cpq: number; wb_disponible: boolean; kep_disponible: boolean; cpq_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
+interface Conc { period: { from: string; to: string; instance: string }; totals: { caja: number; wb: number; kep: number; cpq: number; caja_disponible: boolean; wb_disponible: boolean; kep_disponible: boolean; cpq_disponible: boolean }; por_banco: ConcRow[]; cuadre_eps: number }
 interface CDet {
   totals: { matched_n: number; matched: number; caja_only_n: number; caja_only: number; cobranza_n: number; cobranza: number; residual_n: number; residual: number; bank_only_n: number; bank_only: number };
   matched: { banco: string; almacen: string; fecha: string; monto: number }[];
@@ -545,16 +573,30 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
       @else if (wbDayErr()[dayKey()]?.dia; as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
       @else if (wbDayDia()[dayKey()]; as cd) {
+        <!-- La tolerancia sale del servidor (cd.totals.tolerancia). Estaba escrita a mano acá como
+             "±$1" y el servidor ya casaba con ±$5: una CUARTA copia del mismo número, divergida. -->
         <p class="dlg-lead">Cada movimiento del <b>Control</b> (caja real) marca si <b>Workbook</b> (copia manual)
-          y <b>Kepler</b> (ERP) lo tienen, casando por importe ±$1 dentro de su dirección. Abajo, lo que esas
-          fuentes registran y el Control no movió (huérfanos).</p>
+          y <b>Kepler</b> (ERP) lo tienen, casando por importe ±{{ money(cd.totals.tolerancia) }} dentro de su
+          dirección. Abajo, lo que esas fuentes registran y el Control no movió (huérfanos).</p>
+        <!-- ⚠️ No hay llave entre el Access y Kepler: se casa por importe+fecha, que es un atributo
+             débil. Decirlo acá es parte del número — sin esto la tabla se lee como una identidad. -->
+        <p class="dlg-lead muted">No existe un folio común entre las tres fuentes: el casamiento es
+          <b>por importe</b>, así que un movimiento puede haber casado con otro igual. Los marcados con
+          <b>~</b> tenían más de un candidato.</p>
 
         <div class="tw-drill-kpis">
           <span><b>{{ cd.totals.control_n }}</b> movs Control</span>
-          <span class="ok"><b>{{ cd.totals.en_manual }}</b> en Workbook</span>
-          <span class="ok"><b>{{ cd.totals.en_kepler }}</b> en Kepler</span>
+          @if (cd.totals.manual_disponible) { <span class="ok"><b>{{ cd.totals.en_manual }}</b> en Workbook</span> }
+          @else { <span class="muted">Workbook sin datos en el periodo</span> }
+          @if (cd.totals.kepler_disponible) { <span class="ok"><b>{{ cd.totals.en_kepler }}</b> en Kepler</span> }
+          @else { <span class="muted">Kepler sin datos en el periodo</span> }
           @if (cd.totals.manual_only_n) { <span class="warn"><b>{{ cd.totals.manual_only_n }}</b> solo Workbook ({{ money(cd.totals.manual_only_monto) }})</span> }
           @if (cd.totals.kepler_only_n) { <span class="warn"><b>{{ cd.totals.kepler_only_n }}</b> solo Kepler ({{ money(cd.totals.kepler_only_monto) }})</span> }
+          @if (ambiguosTotal(cd)) {
+            <span class="warn" title="Casaron teniendo más de un candidato al mismo importe: el par pudo haber sido otro.">
+              <b>{{ ambiguosTotal(cd) }}</b> casamientos ambiguos
+            </span>
+          }
         </div>
 
         <div class="tw-drill-filters">
@@ -593,8 +635,12 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="e.dir === 'in' ? 'Ingreso' : 'Gasto'"></i></td>
                   <td class="ta-r num"><button type="button" class="tw-mlink" (click)="openMovement('control', e.key)" title="Ver detalle del movimiento (Control)">{{ money(e.importe) }}</button></td>
-                  <td class="ta-r num">@if (e.manual) { <button type="button" class="tw-mlink" [class.tw-cent]="e.manual_importe !== e.importe" [title]="'Ver detalle (Workbook) · ' + (e.manual_ref || '')" (click)="openMovement('workbook', e.manual_key)">{{ money(e.manual_importe) }}</button> } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
-                  <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [class.tw-cent]="e.kepler_importe !== e.importe" [title]="'Ver detalle (Kepler) · ' + (e.kepler_ref || '')" (click)="openMovement('kepler', e.kepler_key)">{{ money(e.kepler_importe) }}</button> } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
+                  <!-- La virgulilla marca el par que casó teniendo MAS DE UN candidato al mismo
+                       importe. Un par forzado y uno elegido entre varios no pueden pintarse igual:
+                       el cruce es por importe, no por una llave. (Sin acentos graves aca: el
+                       template es un literal y un acento grave lo cierra — ya pasó cinco veces.) -->
+                  <td class="ta-r num">@if (e.manual) { <button type="button" class="tw-mlink" [class.tw-cent]="e.manual_importe !== e.importe" [title]="tituloPar('Workbook', e.manual_ref, e.manual_ambiguo, e.manual_delta)" (click)="openMovement('workbook', e.manual_key)">{{ money(e.manual_importe) }}</button>@if (e.manual_ambiguo) { <span class="tw-amb" aria-label="casamiento ambiguo">~</span> } } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
+                  <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [class.tw-cent]="e.kepler_importe !== e.importe" [title]="tituloPar('Kepler', e.kepler_ref, e.kepler_ambiguo, e.kepler_delta)" (click)="openMovement('kepler', e.kepler_key)">{{ money(e.kepler_importe) }}</button>@if (e.kepler_ambiguo) { <span class="tw-amb" aria-label="casamiento ambiguo">~</span> } } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
                   <td class="tw-concept" [title]="(e.extra || '') + ' ' + (e.concepto || '')">{{ e.concepto || e.extra || '—' }}</td>
                 </tr>
               }
@@ -729,6 +775,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .tw-mlink { font:inherit; font-variant-numeric:tabular-nums; color:inherit; background:none; border:none; padding:0; cursor:pointer; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px; }
     .tw-mlink:hover { color:var(--action); }
     .tw-mlink:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm,4px); }
+    /* Marca de casamiento ambiguo: habia mas de un candidato con el mismo importe. No es un
+       error del dato, es una decision del algoritmo, y tiene que verse distinto de un hecho. */
+    .tw-amb { color:var(--warn-fg); font-weight:700; margin-left:2px; cursor:help; }
     /* CG.18 — grid de detalle del movimiento */
     .cg-movd { margin:0; }
     .cg-movd-row { display:grid; grid-template-columns:11rem 1fr; gap:.5rem; padding:.3rem .1rem; border-bottom:1px solid var(--border-color); }
@@ -1021,6 +1070,24 @@ export class FinanzasCajaComponent implements OnInit {
    * Huérfanos de cada fuente, juntando ingresos y gastos. El backend los devuelve partidos por
    * dirección porque el casado corre por dirección; para leerlos da igual de qué lado vinieron.
    */
+  /**
+   * Cuántos casamientos del día pudieron haber sido otros. Es la medida de lo que el método NO
+   * sabe: el cruce es por importe (no hay folio común entre el Access y Kepler), así que un par
+   * elegido entre varios candidatos iguales es una decisión del algoritmo, no un hecho.
+   */
+  ambiguosTotal(cd: ConcDia): number {
+    return (cd.totals.manual_ambiguos_n || 0) + (cd.totals.kepler_ambiguos_n || 0);
+  }
+
+  /** Título del par: de dónde salió, si pudo ser otro, y si casó al peso o por tolerancia. */
+  tituloPar(fuente: string, ref: string | null, ambiguo: boolean, delta: number | null): string {
+    const partes = [`Ver detalle (${fuente})`];
+    if (ref) partes.push(ref);
+    if (ambiguo) partes.push('⚠ había más de un candidato con este importe: pudo casar con otro');
+    if (delta) partes.push(`casó por tolerancia, difiere ${this.money(Math.abs(delta))}`);
+    return partes.join(' · ');
+  }
+
   dayOrphans(cd: ConcDia): { manual: OrphanMov[]; kepler: OrphanMov[] } {
     // Etiquetamos la dirección (ingreso/gasto) al juntar: el backend los parte por lado, y así el
     // panel muestra si cada huérfano es ingreso o egreso (antes sólo se veía monto+concepto).
@@ -1150,7 +1217,10 @@ export class FinanzasCajaComponent implements OnInit {
   }
   concKpis(d: Conc): MetricStripItem[] {
     return [
-      { label: 'Caja (operativo)', value: d.totals.caja, format: 'currency-short', tone: 'default' },
+      // `caja_disponible` es la fuente SUJETO de esta pantalla y era la única que no declaraba si
+      // tenía datos — justo la que se apagó (caja_depositos murió en ene-2026). Sin esto, cualquier
+      // mes posterior mostraba $0 contra el banco y parecía un descuadre total.
+      { label: 'Caja (operativo)', value: d.totals.caja, format: 'currency-short', tone: d.totals.caja_disponible ? 'default' : ('muted' as any), sub: d.totals.caja_disponible ? undefined : 'sin datos en el periodo' },
       { label: 'Workbook (banco)', value: d.totals.wb, format: 'currency-short', tone: d.totals.wb_disponible ? 'default' : ('muted' as any), sub: d.totals.wb_disponible ? undefined : 'sin cargar' },
       { label: 'Kepler', value: d.totals.kep, format: 'currency-short', tone: d.totals.kep_disponible ? 'default' : ('muted' as any), sub: d.totals.kep_disponible ? undefined : 'sin feed' },
       { label: 'ContPAQi (fiscal)', value: d.totals.cpq, format: 'currency-short', tone: d.totals.cpq_disponible ? 'default' : ('muted' as any), sub: d.totals.cpq_disponible ? undefined : 'sin libros' },

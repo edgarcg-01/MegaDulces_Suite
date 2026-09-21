@@ -9,6 +9,17 @@ interface AuthedRequest { user?: { username?: string } }
  * Fase CG.3 — Caja General (Tesorería). Read-only sobre analytics.caja_*.
  * Permiso FINANCE_BANK_VER (misma persona que Bancos/CB — la caja general concilia
  * contra el estado de cuenta bancario).
+ *
+ * ⚠️ **CG.19 — tres de estos quince endpoints NO TIENEN LLAMADOR.** Medido: `/finanzas/caja` es
+ * el único consumidor de `/finance/caja/*` en todo el repo, y no pide `cuadre`,
+ * `workbook-movimientos` ni `kepler-movimientos`. Los dos últimos son el diseño anterior del
+ * drill por día, que `conciliacion-dia` reemplazó devolviendo los dos lados en `rows`; `cuadre`
+ * tiene su tipo y su constructor de KPIs en el frontend, pero la pestaña "Cuadre" pide
+ * `conciliacion-workbook`.
+ *
+ * Quedan expuestos y marcados, no borrados: retirar superficie de API es una decisión aparte de
+ * arreglar fórmulas, y borrar a ciegas un endpoint que responde 200 es cómo se rompe un consumidor
+ * que nadie recordaba. Si al cerrar la Capa 4 siguen sin llamador, se retiran con su nota.
  */
 @ApiTags('finance-caja')
 @ApiBearerAuth()
