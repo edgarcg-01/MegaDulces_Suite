@@ -7,7 +7,7 @@
  */
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
-  buildFolioCorte, redondea, CORTE_EPSILON, type MovimientoDelCorte,
+  buildFolioCorte, redondea, CORTE_EPSILON, proyectarCiego, puedeRecontar, type MovimientoDelCorte,
 } from './cash-cut.engine';
 
 const m = (tipo: MovimientoDelCorte['tipo'], monto: number, estado?: string): MovimientoDelCorte =>
@@ -265,5 +265,85 @@ describe('calcularCorte — cobertura del ingreso (CG.19 Capa 1)', () => {
     expect(anclado.esperado).toBe(1000);
     expect(anclado.veredicto).toBe('falta');
     expect(anclado.diferencia).toBe(-400);
+  });
+});
+
+/**
+ * CG.19 Capa 1b — el arqueo ciego.
+ *
+ * La prueba que importa es la segunda: `diferencia` y `veredicto` se van JUNTO con `esperado`.
+ * Dejar cualquiera de los tres es publicar los otros dos — `esperado = contado − diferencia`, y el
+ * veredicto es el signo de la diferencia. Es la trampa más fácil de este candado.
+ */
+describe('proyectarCiego — qué ve quien cuenta', () => {
+  const totales = calcularCorte({
+    fondoInicial: 500,
+    movimientos: [{ tipo: 'ingreso', monto: 1000, anclado: true }],
+    conteo: [{ denominacion: 500, piezas: 2 }],
+  });
+
+  it('a quien AUTORIZA se le devuelve todo, sin tocar', () => {
+    const r = proyectarCiego(totales, true) as typeof totales;
+    expect(r.esperado).toBe(1500);
+    expect(r.diferencia).toBe(-500);
+    expect(r.veredicto).toBe('falta');
+  });
+
+  it('⭐ a quien CUENTA se le van los TRES: esperado, diferencia y veredicto', () => {
+    const r = proyectarCiego(totales, false) as Record<string, unknown>;
+    expect(r.esperado).toBeUndefined();
+    // esperado = contado − diferencia: dejar la diferencia es publicar el esperado.
+    expect(r.diferencia).toBeUndefined();
+    // y el veredicto es el SIGNO de la diferencia: "falta" ya dice para qué lado.
+    expect(r.veredicto).toBeUndefined();
+  });
+
+  it('lo que NO revela nada se conserva: su propio conteo y la cobertura', () => {
+    const r = proyectarCiego(totales, false) as Record<string, unknown>;
+    expect(r.contado).toBe(1000);
+    expect(r.ingresos).toBe(1000);
+    expect(r.cobertura_ingreso).toBe(1);
+    expect(r.oculto).toBe(true);   // se DICE que se recortó
+    expect(r.conto).toBe(true);    // y si ya contó, que no revela nada
+  });
+
+  it('un corte sin contar declara conto=false sin filtrar el esperado', () => {
+    const sin = calcularCorte({ fondoInicial: 100, movimientos: [], conteo: [] });
+    const r = proyectarCiego(sin, false) as Record<string, unknown>;
+    expect(r.conto).toBe(false);
+    expect(r.esperado).toBeUndefined();
+  });
+});
+
+describe('puedeRecontar — una vez, con motivo, sin borrar el primero', () => {
+  const conDif = calcularCorte({
+    fondoInicial: 0, movimientos: [{ tipo: 'ingreso', monto: 1000 }],
+    conteo: [{ denominacion: 500, piezas: 1 }],
+  });
+  const cuadra = calcularCorte({
+    fondoInicial: 0, movimientos: [{ tipo: 'ingreso', monto: 1000 }],
+    conteo: [{ denominacion: 500, piezas: 2 }],
+  });
+
+  it('con diferencia y motivo, se puede', () => {
+    expect(puedeRecontar({ estado: 'borrador' }, conDif, 'Se conto mal la caja chica').ok).toBe(true);
+  });
+
+  it('⛔ [negativa] sin motivo NO: un reconteo sin razón no se distingue de un ajuste', () => {
+    expect(puedeRecontar({ estado: 'borrador' }, conDif, '').motivo).toBe('sin_motivo');
+    expect(puedeRecontar({ estado: 'borrador' }, conDif, 'mal').motivo).toBe('sin_motivo');
+  });
+
+  it('⛔ [negativa] DOS veces no: contar hasta que dé es ajustar con otro nombre', () => {
+    expect(puedeRecontar({ estado: 'borrador', conteo_previo: { x: 1 } }, conDif, 'otra vez').motivo)
+      .toBe('ya_reconto');
+  });
+
+  it('si el conteo CUADRÓ no hay nada que recontar', () => {
+    expect(puedeRecontar({ estado: 'borrador' }, cuadra, 'porque si').motivo).toBe('no_hay_diferencia');
+  });
+
+  it('un corte cerrado no se recuenta: se corrige con un movimiento nuevo', () => {
+    expect(puedeRecontar({ estado: 'cerrado' }, conDif, 'Se conto mal la caja').motivo).toBe('no_es_borrador');
   });
 });

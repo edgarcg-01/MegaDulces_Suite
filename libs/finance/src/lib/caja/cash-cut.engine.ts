@@ -215,6 +215,76 @@ export function puedeCancelarse(m: { estado?: string; corte_id?: string | null }
   return true;
 }
 
+// ── CG.19 Capa 1b — EL ARQUEO CIEGO ───────────────────────────────────────────────────────────
+//
+// Se cuenta SIN ver el esperado, y se revela al guardar. Ver el esperado mientras se teclea
+// convierte el arqueo en una transcripción: el que cuenta ajusta hasta que la diferencia dé cero.
+//
+// ⭐ **Y esto recién ahora sirve de algo.** Antes de la Capa 1, esconder el esperado era teatro:
+// los dos números —el esperado y el contado— salían de la misma persona, así que taparle uno no
+// le quitaba información. Con el ingreso anclado a un cobro de Kepler, el esperado es un hecho
+// ajeno al que cuenta, y taparlo vuelve el conteo una medición independiente de verdad.
+//
+// ⚠️ **Antes de calcar esto se midió por qué el arqueo ciego que ya existe casi no se usa**
+// (`reconciliation.blind_counts`, SM.8): tiene **5 filas en total**, todas del 27-ago al 02-sep —
+// la ventana en que se construyó— y nada después. La causa NO es el software: de los **32 cajeros,
+// sólo 8 se han logueado alguna vez, 7 en 30 días y CERO en los últimos 7**. El mecanismo estaba
+// bien; la población no entra al sistema.
+//
+// El riesgo NO se traslada igual acá: la caja general la captura gente de oficina
+// (`FINANCE_CAJA_GESTIONAR` → tesorería, finanzas_operativo, crédito y cobranza), que sí usa la
+// plataforma. Pero son **pocas personas** (1 de tesorería, 3 activos de finanzas_operativo), así
+// que el éxito de esta capa se mide con uso real, no con que compile.
+
+/** Lo que se le oculta a quien cuenta. `diferencia` se va CON `esperado`: publicar uno es publicar los dos. */
+export type TotalesCiegos = Omit<TotalesCorte, 'esperado' | 'diferencia' | 'veredicto'> & {
+  /** Se dice que hay algo oculto. Un campo ausente y un campo en 0 no pueden confundirse. */
+  oculto: true;
+  /** `sin_contar` sí viaja: no revela nada y la pantalla necesita saber si ya hay conteo. */
+  conto: boolean;
+};
+
+/**
+ * Quita del corte todo lo que permita deducir el esperado.
+ *
+ * ⛔ `diferencia` sale junto con `esperado` **a propósito**: `esperado = contado − diferencia`,
+ * así que publicar la diferencia es publicar el esperado con un paso de aritmética. Es la misma
+ * regla que ya está escrita en `store-arqueo.controller.ts` (`proyectar`), y la razón de que
+ * `veredicto` también se vaya: "sobra"/"falta" es el signo de la diferencia.
+ */
+export function proyectarCiego(t: TotalesCorte, revela: boolean): TotalesCorte | TotalesCiegos {
+  if (revela) return t;
+  const { esperado: _e, diferencia: _d, veredicto, ...ciego } = t;
+  return { ...ciego, oculto: true, conto: veredicto !== 'sin_contar' };
+}
+
+export type MotivoNoRecuenta = 'no_es_borrador' | 'ya_reconto' | 'sin_motivo' | 'no_hay_diferencia';
+
+export const TEXTO_NO_RECUENTA: Record<MotivoNoRecuenta, string> = {
+  no_es_borrador: 'El corte ya está cerrado: para corregirlo hace falta un movimiento nuevo, no un reconteo.',
+  ya_reconto: 'Ya se recontó una vez. El segundo conteo es el que vale; si sigue sin cuadrar, eso es el hallazgo.',
+  sin_motivo: 'Decí por qué se vuelve a contar, con al menos 5 caracteres. Un reconteo sin razón no se distingue de un ajuste.',
+  no_hay_diferencia: 'El conteo cuadró: no hay nada que recontar.',
+};
+
+/**
+ * ¿Se puede volver a contar? **Una sola vez, con motivo, y el primer conteo NO se borra.**
+ *
+ * Un reconteo ilimitado es un ajuste con otro nombre: se cuenta hasta que dé. Uno solo, guardado
+ * junto al primero y con su razón escrita, deja ver exactamente lo que pasó — que es el punto.
+ */
+export function puedeRecontar(
+  c: { estado: string; conteo_previo?: unknown | null },
+  totales: TotalesCorte,
+  motivo: string | null | undefined,
+): { ok: boolean; motivo?: MotivoNoRecuenta } {
+  if (c.estado !== 'borrador') return { ok: false, motivo: 'no_es_borrador' };
+  if (c.conteo_previo != null) return { ok: false, motivo: 'ya_reconto' };
+  if (totales.veredicto === 'cuadra') return { ok: false, motivo: 'no_hay_diferencia' };
+  if (!motivo || motivo.trim().length < CANCEL_MOTIVO_MIN) return { ok: false, motivo: 'sin_motivo' };
+  return { ok: true };
+}
+
 /** Folio del corte. El consecutivo lo da Postgres; acá sólo se le da forma. */
 export function buildFolioCorte(year: number, seq: number): string {
   if (!Number.isInteger(seq) || seq < 1) throw new Error(`consecutivo inválido: ${seq}`);

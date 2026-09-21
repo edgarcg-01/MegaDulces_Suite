@@ -266,9 +266,43 @@ const corte = (over = {}) => ({
     console.log('  ok rollback aplicado - la DB queda como estaba');
     pass++;
 
+    // -- 10. CG.19 Capa 1b: el reconteo deja rastro o no existe ------------------------------
+    console.log('\n-- 10. CG.19 Capa 1b - reconteo con rastro --');
+    await knex.transaction(async (trx) => {
+      const [c] = await trx('finance.cash_ledger_cuts').insert(corte()).returning('*');
+
+      // El primer conteo guardado SIN razon no se distingue de un ajuste: la DB lo frena.
+      const sinMotivo = await violation(trx, () => trx('finance.cash_ledger_cuts')
+        .where({ id: c.id }).update({ conteo_previo: JSON.stringify({ contado: 100 }) }));
+      ok(sinMotivo === '23514', `[negativa] conteo_previo sin motivo -> 23514, fue ${sinMotivo}`);
+
+      // Y una razon de adorno tampoco: mismo piso que el motivo de cancelacion.
+      const motivoCorto = await violation(trx, () => trx('finance.cash_ledger_cuts')
+        .where({ id: c.id }).update({ conteo_previo: JSON.stringify({ contado: 100 }), reconteo_motivo: 'eh' }));
+      ok(motivoCorto === '23514', `[negativa] motivo de menos de 5 caracteres -> 23514, fue ${motivoCorto}`);
+
+      // Una razon sin el conteo viejo no se puede auditar: tambien se frena.
+      const soloMotivo = await violation(trx, () => trx('finance.cash_ledger_cuts')
+        .where({ id: c.id }).update({ reconteo_motivo: 'Se conto mal la caja chica' }));
+      ok(soloMotivo === '23514', `[negativa] motivo sin conteo previo -> 23514, fue ${soloMotivo}`);
+
+      await trx('finance.cash_ledger_cuts').where({ id: c.id }).update({
+        conteo_previo: JSON.stringify({ contado: 100, denominaciones: [{ denominacion: 100, piezas: 1 }] }),
+        reconteo_motivo: 'Se conto mal la caja chica',
+      });
+      const r = await trx('finance.cash_ledger_cuts').where({ id: c.id }).first('conteo_previo', 'reconteo_motivo');
+      ok(r.conteo_previo && Number(r.conteo_previo.contado) === 100 && r.reconteo_motivo.length >= 5,
+        'el PRIMER conteo se conserva entero, con su motivo: los dos quedan a la vista');
+
+      throw new Error('__ROLLBACK__');
+    }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; });
+    console.log('  ok rollback aplicado - la DB queda como estaba');
+    pass++;
+
     console.log('\n── 8. Declarado ──');
     skip('que el saldo corrido escale con volumen real (la vista usa una ventana sobre toda la sucursal): se mide cuando haya movimientos de verdad, no con 3 filas.');
     skip('CG.19 Capa 1 por HTTP (ADR-044): que create() IGNORE el monto del formulario y tome el de Kepler se prueba contra el SERVICIO, no contra la tabla. Esta sesion no tiene credenciales: queda declarado, no verde.');
+    skip('CG.19 Capa 1b por HTTP: que /saldo NO devuelva esperado a quien no autoriza es una proyeccion del CONTROLADOR (revela() lee el permiso del JWT). Se prueba con dos tokens reales, no contra la tabla. Sin credenciales en esta sesion: declarado.');
 
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} ✓ / ${fail} ✗ / ${nomedido} NO MEDIDO\n`);
     process.exitCode = fail === 0 ? 0 : 1;

@@ -13,11 +13,11 @@ import { MessageModule } from 'primeng/message';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
-  textoCobertura, sumaDesglose, veredictoCorte, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  textoCobertura, sumaDesglose, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
 
@@ -255,10 +255,19 @@ import {
     <p-dialog [(visible)]="cierreAbierto" [modal]="true" [style]="{ width: '40rem' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
-        <p class="fin-dim">Esperado: <strong>{{ money(esperadoCorte()) }}</strong> ·
-          Contado: <strong>{{ money(veredicto().contado) }}</strong> ·
-          Diferencia: <strong>{{ money(veredicto().diferencia) }}</strong></p>
-        <p-tag [value]="veredicto().veredicto" [severity]="sevVeredicto(veredicto().veredicto)"></p-tag>
+        <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
+             persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
+             ve lo que ella misma sumó; el resultado aparece al SELLAR. -->
+        @if (revelado(); as r) {
+          <p class="fin-dim">Esperado: <strong>{{ money(r.esperado) }}</strong> ·
+            Contado: <strong>{{ money(r.contado) }}</strong> ·
+            Diferencia: <strong>{{ money(r.diferencia) }}</strong></p>
+          <p-tag [value]="r.veredicto || ''" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
+        } @else {
+          <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
+          <p-message severity="info" styleClass="w-full"
+            text="Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo."></p-message>
+        }
         <div class="fin-denoms">
           @for (d of denominaciones; track d) {
             <label class="fin-denom">
@@ -271,12 +280,30 @@ import {
           <label>Morralla</label>
           <p-inputnumber [(ngModel)]="morrallaCorte" mode="currency" currency="MXN" locale="es-MX" />
         </div>
+        @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
+          <div class="fin-row">
+            <label>Motivo del reconteo</label>
+            <input pInputText [(ngModel)]="motivoReconteo" class="w-full"
+                   placeholder="Por qué se vuelve a contar — queda guardado junto al primer conteo" />
+          </div>
+        }
         <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto = false"></p-button>
-        <p-button label="Cerrar corte" icon="pi pi-lock" size="small"
-                  [disabled]="!gateCierre().ok" (onClick)="cerrarCorte()"></p-button>
+        @if (!revelado()) {
+          <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
+               corregir el conteo, y el arqueo ciego dejaría de serlo. -->
+          <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
+                    [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
+        } @else {
+          @if (revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
+            <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
+                      [disabled]="motivoReconteo.trim().length < 5 || sellando()" (onClick)="recontar()"></p-button>
+          }
+          <p-button label="Cerrar corte" icon="pi pi-check" size="small"
+                    [disabled]="!gateCierre().ok" (onClick)="cerrarCorte()"></p-button>
+        }
       </ng-template>
     </p-dialog>
   `,
@@ -305,6 +332,15 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   conteoCorte: DenominacionCapturada[] = [];
   saldoResp = signal<SaldoResponse | null>(null);
   cortes = signal<CorteCaja[]>([]);
+  /**
+   * CG.19 Capa 1b — `null` mientras se cuenta a ciegas; con valor una vez SELLADO el conteo.
+   * No se inicializa con los totales del saldo a propósito: ahí está justamente lo que hay que
+   * ocultar, y el servidor ya no lo manda a quien no autoriza.
+   */
+  revelado = signal<TotalesCorte | null>(null);
+  puedeRecontar = signal(false);
+  sellando = signal(false);
+  motivoReconteo = '';
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
   from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   to = new Date().toISOString().slice(0, 10);
@@ -330,13 +366,26 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
   textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
-  esperadoCorte = computed(() => this.saldoResp()?.totales?.esperado ?? 0);
-  veredicto = computed(() => veredictoCorte(this.esperadoCorte(), this.conteoCorte, this.morrallaCorte));
+  /**
+   * ⛔ CG.19 Capa 1b — acá estaba la fuga. `esperadoCorte` leía `saldoResp().totales.esperado` y
+   * `veredicto` calculaba la diferencia EN EL NAVEGADOR mientras la persona tecleaba: se contaba
+   * hasta que diera cero. Las dos se retiran.
+   *
+   * El veredicto ahora lo produce el SERVIDOR al sellar el conteo (`revelado()`), que es el único
+   * momento en que el conteo ya no se puede retocar. Calcularlo del lado del cliente sería
+   * devolverle el esperado por la ventana: con `esperado` en el bundle, taparlo en la plantilla
+   * no tapa nada.
+   */
   corteVista = computed<CorteVista | null>(() => {
     const c = this.corteAbierto();
     return c ? { id: c.id, folio: c.folio, estado: 'borrador' } : null;
   });
-  gateCierre = computed(() => puedeCerrarUI(this.corteVista(), this.veredicto().veredicto));
+  /** No se cierra sin haber SELLADO el conteo: sin revelación no hay nada firmado que cerrar. */
+  gateCierre = computed(() => {
+    const r = this.revelado();
+    if (!r) return { ok: false, texto: 'Guardá el conteo primero: el resultado se revela al sellarlo.' };
+    return puedeCerrarUI(this.corteVista(), r.veredicto ?? 'sin_contar');
+  });
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f));
   etiquetaConcepto = computed(() => etiquetaProcedencia(this.propuesta()?.concepto as never));
@@ -406,7 +455,42 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     }).subscribe({ next: () => { this.aperturaAbierta = false; this.cargarSaldo(); this.cargarCortes(); } });
   }
 
-  abrirCierre(): void { this.conteoCorte = []; this.morrallaCorte = 0; this.cierreAbierto = true; }
+  /**
+   * CG.19 Capa 1b — el arqueo es CIEGO: se abre sin revelación y sin motivo de reconteo.
+   * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
+   */
+  abrirCierre(): void {
+    this.conteoCorte = []; this.morrallaCorte = 0;
+    this.revelado.set(null); this.motivoReconteo = '';
+    this.cierreAbierto = true;
+  }
+
+  /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
+  sumaConteo(): number {
+    return sumaDesglose(this.conteoCorte, this.morrallaCorte);
+  }
+
+  /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
+  sellarConteo(): void {
+    const c = this.corteAbierto();
+    if (!c || this.sellando()) return;
+    this.sellando.set(true);
+    this.svc.contarCorte(c.id, this.conteoCorte, this.morrallaCorte).subscribe({
+      next: (r) => { this.revelado.set(r.totales); this.puedeRecontar.set(r.puede_recontar); this.sellando.set(false); },
+      error: () => this.sellando.set(false),
+    });
+  }
+
+  /** Segundo y último conteo. El motivo es obligatorio y el primero se conserva en el corte. */
+  recontar(): void {
+    const c = this.corteAbierto();
+    if (!c || this.motivoReconteo.trim().length < 5 || this.sellando()) return;
+    this.sellando.set(true);
+    this.svc.recontarCorte(c.id, this.conteoCorte, this.morrallaCorte, this.motivoReconteo.trim()).subscribe({
+      next: (r) => { this.revelado.set(r.totales); this.puedeRecontar.set(false); this.sellando.set(false); },
+      error: () => this.sellando.set(false),
+    });
+  }
 
   piezasCorteDe(d: number): number {
     return this.conteoCorte.find((x) => x.denominacion === d)?.piezas ?? 0;

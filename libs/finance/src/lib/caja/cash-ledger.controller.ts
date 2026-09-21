@@ -1,11 +1,16 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 
-interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
+interface AuthedRequest {
+  user?: {
+    id?: string; sub?: string; userId?: string; username?: string;
+    role_name?: string; permissions?: Record<string, boolean>;
+  };
+}
 
 /**
  * CG.13/CG.17 — Caja General: el libro donde la plataforma REGISTRA el efectivo (ADR-070).
@@ -32,6 +37,20 @@ export class CashLedgerController {
   private user(req: AuthedRequest) {
     const u = req?.user ?? {};
     return { id: u.id ?? u.sub ?? u.userId, username: u.username };
+  }
+
+  /**
+   * ⛔ CG.19 Capa 1b — **¿este usuario puede ver el esperado?**
+   *
+   * Sólo quien AUTORIZA, que es la segunda llave del corte y la persona que ya no puede ser la
+   * que lo cerró. Quien captura cuenta a ciegas: el esperado se revela al sellar el conteo.
+   *
+   * Calca `revela()` de `store-arqueo.controller.ts` (SM.8), que resuelve exactamente lo mismo.
+   * Se lee del permiso, NO del rol: un gate por nombre de rol se rompe en la siguiente alta.
+   */
+  private revela(req: AuthedRequest): boolean {
+    return isPlatformAdminRole(req?.user?.role_name)
+      || req?.user?.permissions?.[Permission.FINANCE_CAJA_AUTORIZAR] === true;
   }
 
   @Get()
@@ -99,9 +118,9 @@ export class CashLedgerController {
 
   @Get('saldo/:sucursal')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
-  @ApiOperation({ summary: 'Saldo de la caja: fondo del corte abierto + efecto de sus movimientos. DERIVADO, no guardado. Sin corte abierto devuelve null y lo declara, no 0.' })
-  saldo(@Param('sucursal') sucursal: string) {
-    return this.cortes.saldo(sucursal);
+  @ApiOperation({ summary: 'Saldo de la caja: fondo del corte abierto + efecto de sus movimientos. DERIVADO, no guardado. Sin corte abierto devuelve null y lo declara, no 0. CG.19: el esperado y la diferencia SOLO viajan a quien AUTORIZA — quien captura cuenta a ciegas, y lo que se oculta se declara (saldo_oculto).' })
+  saldo(@Param('sucursal') sucursal: string, @Req() req: AuthedRequest) {
+    return this.cortes.saldo(sucursal, this.revela(req));
   }
 
   @Get('cortes')
@@ -121,11 +140,24 @@ export class CashLedgerController {
     return this.cortes.abrir(body, this.user(req));
   }
 
-  @Post('cortes/:id/previa')
+  /**
+   * ⚠️ Era `POST cortes/:id/previa`, cuyo resumen decía «para que el capturista vea la diferencia
+   * mientras cuenta» — exactamente lo que CG.19 revierte. Tenía **cero llamadores** (verificado en
+   * `apps/view` y `libs/finance`), así que se reusa y se renombra: un endpoint cuyo nombre miente
+   * es peor que uno que no existe.
+   */
+  @Post('cortes/:id/contar')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
-  @ApiOperation({ summary: 'Vista previa del cuadre SIN cerrar: la misma cuenta que se va a congelar, para que el capturista vea la diferencia mientras cuenta.' })
-  previaCorte(@Param('id') id: string, @Body() body: CerrarCorteInput) {
-    return this.cortes.previa(id, body?.conteo, body?.morralla ?? 0);
+  @ApiOperation({ summary: 'CG.19 — SELLA el conteo y RECIÉN ENTONCES revela la diferencia. Sellar antes de revelar es lo que vuelve ciego al arqueo: sin eso bastaba mirar el resultado, corregir el conteo y volver a preguntar.' })
+  contarCorte(@Param('id') id: string, @Body() body: CerrarCorteInput, @Req() req: AuthedRequest) {
+    return this.cortes.contar(id, body ?? {}, this.user(req));
+  }
+
+  @Post('cortes/:id/recontar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.19 — Segundo y ÚLTIMO conteo, con motivo obligatorio. El primero se conserva en conteo_previo: un reconteo sin rastro no se distingue de un ajuste.' })
+  recontarCorte(@Param('id') id: string, @Body() body: CerrarCorteInput & { motivo?: string }, @Req() req: AuthedRequest) {
+    return this.cortes.recontar(id, body ?? {}, this.user(req));
   }
 
   @Post('cortes/:id/cerrar')
