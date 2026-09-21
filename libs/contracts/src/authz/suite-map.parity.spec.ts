@@ -30,6 +30,14 @@ interface TarjetaLegacy {
   destino: string;
   anyOf: readonly Permission[];
   hideForRoles?: readonly string[];
+  /**
+   * Claves cuyo destino SE MUDÓ a propósito después del 2026-09-10.
+   *
+   * ⛔ No es una lista de excepciones: es la misma garantía apuntando a otro lado. La clave sigue
+   * teniendo que abrir *algo*, sólo que otro espacio. Borrar la clave de `anyOf` habría hecho
+   * pasar el spec dejando de vigilarla, que es exactamente cómo una puerta se pierde en silencio.
+   */
+  movidas?: readonly { perm: Permission; a: string; motivo: string }[];
 }
 
 const TARJETAS_2026_09_10: readonly TarjetaLegacy[] = [
@@ -86,6 +94,22 @@ const TARJETAS_2026_09_10: readonly TarjetaLegacy[] = [
       Permission.COMMERCIAL_EXPIRY_CAPTURAR,
       Permission.COMMERCIAL_MOVEMENTS_VER,
       Permission.COMMERCIAL_PREVENTION_VER,
+    ],
+    // `[SM.9]` (posterior al congelado): el Cuadre / Supervisor de Movimientos se mudó de
+    // `/almacen/cuadre` a `/finanzas/cuadre` — cuadra el arqueo ciego contra el corte de caja, no
+    // era de almacén. Con eso `RECONCILIATION_VER` dejó de abrir «Almacenes» y pasó a abrir
+    // «Administración y Finanzas». Es el destino el que se movió, no la puerta la que se cerró.
+    //
+    // Medido en prod (2026-09-21) antes de aceptarlo: los 10 roles que tienen RECONCILIATION_VER
+    // tienen ADEMÁS COMMERCIAL_INVENTORY_VER (9 de ellos, 22 usuarios) o FINANCE_BANK_VER
+    // (`auditor_externo`, 0 usuarios) — **ningún usuario real perdió acceso a nada**. La aserción
+    // sigue vigilando la clave; sólo cambia contra qué espacio.
+    movidas: [
+      {
+        perm: Permission.RECONCILIATION_VER,
+        a: 'finanzas',
+        motivo: '[SM.9] Cuadre pasó de /almacen/cuadre a /finanzas/cuadre (ADR-029)',
+      },
     ],
   },
   {
@@ -154,17 +178,26 @@ const buscar = (mapa: readonly SuiteSpace[], id: string): SuiteEntry => {
   return e;
 };
 
-/** Puertas que se pierden: (tarjeta, clave) tal que una persona con SÓLO esa clave ya no ve el destino. */
-function puertasPerdidas(mapa: readonly SuiteSpace[]): string[] {
+/**
+ * Puertas que se pierden: (tarjeta, clave) tal que una persona con SÓLO esa clave ya no ve el
+ * destino. Una clave declarada en `movidas` se juzga contra su destino NUEVO — sigue exigiéndosele
+ * que abra algo, que es la garantía entera; lo único que cambia es contra qué.
+ */
+function puertasPerdidas(
+  mapa: readonly SuiteSpace[],
+  tarjetas: readonly TarjetaLegacy[] = TARJETAS_2026_09_10,
+): string[] {
   const perdidas: string[] = [];
-  for (const t of TARJETAS_2026_09_10) {
-    const destino = buscar(mapa, t.destino);
-    const abren = new Set(entryPermissions(destino));
+  for (const t of tarjetas) {
     for (const perm of t.anyOf) {
-      if (!abren.has(perm)) perdidas.push(`${t.card} → ${perm} ya no abre ${t.destino}`);
+      const mudanza = t.movidas?.find((m) => m.perm === perm);
+      const destinoId = mudanza ? mudanza.a : t.destino;
+      const destino = buscar(mapa, destinoId);
+      const abren = new Set(entryPermissions(destino));
+      if (!abren.has(perm)) perdidas.push(`${t.card} → ${perm} ya no abre ${destinoId}`);
       const vis = visibleSuiteMap({ [perm]: true }, false, null, mapa);
-      const ve = vis.spaces.some((s) => s.entries.some((e) => e.entry.id === t.destino));
-      if (!ve) perdidas.push(`${t.card} → con sólo ${perm} no se ve ${t.destino}`);
+      const ve = vis.spaces.some((s) => s.entries.some((e) => e.entry.id === destinoId));
+      if (!ve) perdidas.push(`${t.card} → con sólo ${perm} no se ve ${destinoId}`);
     }
   }
   return perdidas;
@@ -173,6 +206,43 @@ function puertasPerdidas(mapa: readonly SuiteSpace[]): string[] {
 describe('paridad · la landing nueva no cierra ninguna puerta de la vieja', () => {
   it('las 11 tarjetas legacy conservan todas sus claves y todas sus puertas', () => {
     expect(puertasPerdidas(SUITE_SPACES)).toEqual([]);
+  });
+
+  /*
+   * ⛔ `movidas` es la única puerta de escape de este spec, así que se le pone reja por los dos
+   * lados: no puede declararse una mudanza que no ocurrió, ni una que lleve a la nada.
+   */
+  it('una mudanza declarada es REAL: la clave ya no abre el destino viejo', () => {
+    for (const t of TARJETAS_2026_09_10) {
+      for (const m of t.movidas ?? []) {
+        const viejo = new Set(entryPermissions(buscar(SUITE_SPACES, t.destino)));
+        // Si todavía abriera el destino original, la mudanza sería un pretexto para no vigilarla.
+        expect(`${m.perm} sigue abriendo ${t.destino}: ${viejo.has(m.perm)}`).toBe(
+          `${m.perm} sigue abriendo ${t.destino}: false`,
+        );
+        expect(m.motivo.length).toBeGreaterThan(20);
+      }
+    }
+  });
+
+  it('PRUEBA NEGATIVA: una mudanza hacia un espacio que la clave NO abre se detecta', () => {
+    const mentira: TarjetaLegacy[] = TARJETAS_2026_09_10.map((t) =>
+      t.destino === 'almacenes'
+        ? {
+            ...t,
+            movidas: [
+              {
+                perm: Permission.RECONCILIATION_VER,
+                a: 'compras',
+                motivo: 'mudanza inventada para la prueba negativa',
+              },
+            ],
+          }
+        : t,
+    );
+    expect(puertasPerdidas(SUITE_SPACES, mentira).join('\n')).toMatch(
+      /RECONCILIATION_VER.*compras/,
+    );
   });
 
   it('cada tarjeta tiene su destino en el mapa (la fixture no quedó colgada)', () => {
