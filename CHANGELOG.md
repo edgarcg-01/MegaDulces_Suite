@@ -127,6 +127,63 @@
 - `GET /store/analytics/range` acepta `with_products=0` (default `1`, contrato viejo intacto): el
   top de productos se mudó a su pestaña y es la consulta cara del endpoint.
 
+### Added — Lista de faltantes: la venta que NO ocurrió llega a Compras (Fase FLT, 2026-09-19)
+- **El único dato de demanda que ningún feed puede ver.** Cajeras y anaquelistas reportan desde el
+  mostrador lo que un cliente pidió y no había. Una venta que no pasó no deja ticket, ni movimiento,
+  ni renglón en `kepler_ods`: el cliente preguntó, no lo había, y se fue. La persona del mostrador
+  es el único instrumento capaz de registrarlo, así que es tabla propia (dato HITL) y no una vista.
+- **El pedido incluía una hoja que la medición desarmó.** Se pidió *"el listado de productos que no
+  tienen código de barras, para que la caja no busque a mano"*. Medido: **139 SKUs (1.5 % del
+  catálogo) que valen 0.01 % de la venta de 90 días ($3,130 de $45.7M)**, y la mayoría ni son
+  mercancía — códigos de promoción, etiquetas de anaquel, un ajuste contable. Productos reales: ~6.
+  **El problema real es otro**: el código **existe** y el escaneo **falla igual** (etiqueta borrada,
+  granel reempacado, código impreso distinto al de Kepler), y eso hoy se evapora. Es el motivo
+  `codigo_no_pasa`, y la herramienta de caja pasó a ser la lista **medida** de los que de verdad
+  fallan en SU sucursal.
+- **Kiosco `/tienda/faltantes`** con tres pestañas: Reportar (un toque) · Buscar por nombre · Los
+  que no pasan. **La búsqueda por nombre no existía en ninguna parte** —el verificador sólo resuelve
+  por código— y corre contra el catálogo que ese kiosco **ya baja a IndexedDB**: instantánea, sin
+  red y **sin un endpoint nuevo**. Enganchado desde el verificador: en "no encontrado" aparece
+  *"El cliente lo pidió"* con el código puesto.
+- **Bandeja `/compras/faltantes`** ordenada por dinero estimado, y la decisión **vuelve a la pantalla
+  de la tienda** — sin ese regreso la cajera deja de reportar en dos semanas y la fuente se seca
+  (medido en la propia landing: hay bandejas con **0 resueltas en 30 días**).
+- **Lo que no se pudo medir se declara, nunca se dibuja como cero** (ADR-056): sin precio con qué
+  valorar, el monto va **NULL** y el KPI cuenta aparte *"no incluye N sin precio con qué valorar"*.
+  Y `on_hand_at_report` separa **dos señales**: persona ve 0 + ERP dice 12 no es una compra, es un
+  **descuadre de inventario**.
+- Permisos nuevos `STORE_STOCKOUT_CAPTURAR` / `_VER`, **repartidos** (no sólo declarados) derivando
+  del estado vivo. Corrección medida: lo obvio era calcar el verificador y **`cajero` no tiene ese
+  permiso** → se habría quedado sin reportar justo quien atiende al cliente que pregunta.
+- Migraciones `20260919150000` + `20260919150100`. Smoke `test-newdb-floor-stockouts.js` **14/14**
+  (las 4 formas de mentir, cada una rota a propósito) en `run-all-tests.js`.
+
+### Fixed — Caja General: los tres diálogos abrían sin botones, o sea que no se podía guardar (2026-09-19)
+- **Medido en vivo, no deducido:** *"Registrar movimiento de caja"* y *"Abrir corte de caja"* se abren
+  con **cero botones** — `.p-dialog-footer` **no existe en el DOM** y el arreglo de botones del
+  diálogo viene vacío. No hay Guardar, no hay Cancelar. Nadie puede registrar un movimiento ni abrir
+  un corte desde esa pantalla. El tercero (*"Cerrar corte"*) es el mismo constructo en el mismo
+  archivo, pero sólo aparece con un corte abierto y no se forzó uno en la base compartida.
+- **Causa:** los 3 usaban `<ng-template pTemplate="footer">`. **PrimeNG 22 no proyecta eso** en
+  `p-dialog`; el pie se declara con `<ng-template #footer>`, que es lo que ya usan las otras ~50
+  pantallas del repo. Los 3 `pTemplate="header"` que quedan en el repo **no** se tocaron: están
+  sobre `p-table`, donde sí funciona (verificado: esas tablas renderizan).
+- **Por qué no lo atrapó nada:** no hay error en consola, el build pasa en verde y el typecheck
+  también. Angular acepta el `ng-template` como válido; simplemente nadie lo consume. La única
+  forma de verlo es abrir el diálogo.
+- Encontrado de casualidad mientras se construía la Lista de faltantes (Fase FLT), al chocar con el
+  mismo defecto en un diálogo nuevo. Queda un comentario en el código para que no se repita.
+
+### Fixed — el verificador confundía productos al escanear un código de barras (CV.28, 2026-09-20)
+- Reportado en campo: al escanear, la pantalla mostraba información de OTRO producto.
+- Causa: `LPAD(x, 5, '0')` de Postgres **trunca** cuando `x` mide más de 5 caracteres
+  (`lpad('7506306248861',5,'0')` → `'75063'`) — la comparación de `KpService.getPrecio()` entre
+  `LPAD(c1,5,'0')` y `LPAD($1,5,'0')` no tenía guarda de longitud, así que un código de barras
+  EAN-13 completo se truncaba a sus primeros 5 dígitos antes de comparar contra el código interno.
+  Caso real confirmado: `7506306248861` (GEL EGO GRANDE) empataba con `* DESCONTINUADO`.
+- Fix: la rama de `LPAD` solo aplica cuando el código escaneado mide ≤5 caracteres (su propósito
+  real: código interno corto sin ceros a la izquierda, nunca un barcode). PR #127.
+
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
 - **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
   funciona —verificado con dos cachés locales vacías distintas: la 1ª falla y escribe, la 2ª lee

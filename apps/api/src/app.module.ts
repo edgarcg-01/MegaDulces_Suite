@@ -57,6 +57,8 @@ import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
+// [FLT] Lista de faltantes — el piso reporta la venta que NO ocurrió (ningún feed puede verla).
+import { CommercialStockoutsModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
@@ -181,6 +183,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
+      CommercialStockoutsModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
       CommercialHomeDeliveryModule,

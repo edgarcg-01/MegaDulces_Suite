@@ -325,6 +325,50 @@ A1 y A2 no traen migraciones ni permisos nuevos (reusan `STORE_ANALYTICS_VER`).
 `api`+`view`. Sin permisos nuevos → **sin re-login**. *Este bloque cierra la fase; el de arriba se
 escribió cuando sólo existían A1 y A2, y leerlo como cierre se llevaría las dos vistas sin aplicar.*
 
+### Fase FLT — Lista de faltantes: la venta que NO ocurrió · 2026-09-19
+
+Pedido de piso: que el *"no tenemos"* / *"está agotado"* / *"no lo trabajamos"* de cajeras y
+anaquelistas llegue a Compras. **Es el único dato de demanda de la suite que ningún feed puede
+ver** — una venta que no pasó no deja ticket, ni movimiento, ni renglón en `kepler_ods`. El cliente
+preguntó, no lo había, y se fue. Por eso hay tabla propia (dato HITL, la excepción que la regla del
+ODS nombra) y no una vista.
+
+**El hallazgo que cambió el alcance, medido antes de escribir código.** El pedido incluía *"el
+listado de productos que no tienen código de barras, como herramienta de cajas para evitar búsqueda
+manual"*. Se midió: son **139 SKUs = 1.5 % del catálogo** que valen **0.01 % de la venta de 90 días
+($3,130 de $45.7M)**, y la mayoría **ni son mercancía** — `***DESC. NO USAR CERILLOS MAYAS`,
+`ETIQUETA P/ANAQUEL BOPP`, `3X2 EN CH POOSH` (códigos de promoción). Productos reales: ~6. Una hoja
+con esos renglones no le ahorra una sola búsqueda a la cajera. **El problema real es otro y nadie
+lo medía:** el código **existe** y el escaneo **falla igual** (etiqueta borrada, granel reempacado,
+código impreso distinto al de Kepler). Hoy ese intento se evapora. Se convirtió en el motivo
+`codigo_no_pasa`, y la herramienta de caja pasó a ser la lista **medida** de los que de verdad
+fallan, por frecuencia real en SU sucursal.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[FLT.0]` | 🧪 | `commercial.floor_stockouts` (mig `20260919150000`): 4 motivos, grano **(sucursal, motivo, cosa, SEMANA)** con contador —si lo piden 9 veces la señal es el 9, no 9 renglones—, RLS forzado, FK compuestas. **6 CHECK de coherencia, cada uno roto a propósito**: `est_source`/`est_lost_revenue` en las dos direcciones (sin precio = NULL declarado, **nunca $0** — ADR-056), `no_en_catalogo` sin `product_id`, estado↔decisión, motivo cerrado, contador > 0 |
+| `[FLT.1]` | 🧪 | Permisos `STORE_STOCKOUT_CAPTURAR` / `_VER` en enum + `authz-tree` + `permission-meta` (ADR-054: la clave se cablea en los tres) |
+| `[FLT.2]` | 🧪 | Reparto (mig `20260919150100`) **derivado del estado vivo, con una corrección medida**: lo obvio era calcar el verificador, y **`cajero` NO tiene `STORE_PRICE_CHECK_VER`** → se habría quedado sin reportar justo quien atiende al cliente que pregunta. CAPTURAR ← `PRICE_CHECK_VER` ∪ `ARQUEO_CAPTURAR` (7 roles); VER ← `LIVE_VER` ∪ `PRICE_CHECK_VER` (6). `cajero` queda con CAPTURAR y **sin** VER, a propósito. Candado que revienta si `cajero` queda fuera |
+| `[FLT.3-5]` | 🧪 | Backend `libs/commercial/commercial-stockouts`: UPSERT semanal, snapshots **derivados de las vistas canónicas** (existencia `analytics.v_erp_stock_on_hand`, precio `analytics.v_label_prices` — el mismo que ve la etiqueta), y `on_hand_at_report`, que es lo que separa **dos señales**: persona ve 0 + ERP dice 12 = **descuadre de inventario, no compra** |
+| `[FLT.6-11]` | 🧪 | Kiosco `/tienda/faltantes`, 3 pestañas (Reportar · Buscar por nombre · Los que no pasan) + item de sidebar en *Operación*. **La búsqueda por nombre no existía en ninguna parte**: el verificador sólo resuelve por código. Corre contra el snapshot que ese kiosco **ya baja a IndexedDB** → instantánea, sin red y **sin un endpoint nuevo** (el nombre estaba ahí, sin usarse) |
+| `[FLT.12-15]` | 🧪 | Bandeja `/compras/faltantes` (answer-first, reusa `COMPRAS_HALLAZGOS_*` como Reclamos) + decisión que **vuelve a la pantalla de la tienda**. `no_se_trabaja` **exige motivo escrito**: es lo que la sucursal va a leer y un "no" a secas no se puede rebatir |
+| `[FLT.16]` | 🧪 | Enganche desde el verificador: en "no encontrado" aparece **"El cliente lo pidió"** con el código ya puesto. Sólo a quien puede capturar — el verificador también corre como kiosco público sin cuenta, y ofrecer una puerta que contesta 403 es el defecto que `landing-guards.spec.ts` ya encontró tres veces |
+
+**Verificado end-to-end contra `platform_test` real:** 6 casos de captura por HTTP (contador agrupa,
+valoración se recalcula, texto escrito distinto cae en la misma fila, barcode resuelve, contradicción
+con el ERP detectada), decisión con sus 2 pruebas negativas, y la cadena completa en navegador:
+verificador → no encontrado → botón → captura → texto libre → guardado → bandeja de Compras →
+respuesta → **de vuelta en la pantalla de la tienda**. Smoke `test-newdb-floor-stockouts.js` **14/14**,
+repetible, en `run-all-tests.js`. Builds `api` + `view` OK, light + dark.
+
+⚠️ **DECISIÓN ABIERTA (Edgar):** la pantalla usa los tokens estándar de Operations. **No** copia la
+piel del verificador (Sniglet, paleta `--vf-*`, tema claro fijo) porque ésa es una excepción
+autorizada explícitamente para esa pantalla, y su propio comentario dice *«no repetir el patrón en
+otro módulo sin la misma autorización»*. Si el mostrador las quiere idénticas, es decisión suya.
+
+⛔ **PENDIENTE prod:** 2 migraciones a Railway + redeploy `api`/`view` + **re-login** (los permisos
+viajan en el JWT). Sin el re-login, nadie ve el módulo aunque esté desplegado — la lección de LC.6.2.
+
 ### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
 
 Continúa `[NX.1]`/`[NX.3]` (2026-09-17). **El hallazgo de entrada: Nx Cloud ya estaba conectado

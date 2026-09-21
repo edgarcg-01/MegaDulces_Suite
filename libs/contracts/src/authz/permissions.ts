@@ -91,6 +91,19 @@ export enum Permission {
   // sesión; esta clave gatea la PANTALLA, que es lo que se le da a una persona.
   STORE_PRICE_CHECK_VER = 'STORE_PRICE_CHECK_VER',
 
+  // Módulo: Tienda — Lista de faltantes (`[FLT]`). El kiosco donde el piso reporta la venta que
+  // NO ocurrió: "no hay", "no lo trabajamos", "el código no pasó". Es el único instrumento capaz
+  // de registrar ese hecho — una venta que no pasó no deja rastro en ninguna fuente.
+  //
+  // Dos claves porque parten dos oficios, igual que el arqueo (CAPTURAR/VER) y las caducidades:
+  //  · CAPTURAR — la cajera/anaquelista reporta. Es lo único que necesita para trabajar, y se le
+  //    da a la cuenta de mostrador, que corre SIN sesión de persona.
+  //  · VER      — el encargado mira lo reportado en su sucursal y la lista de códigos que fallan.
+  // La bandeja de Compras NO usa estas claves: reusa `COMPRAS_HALLAZGOS_VER/GESTIONAR`, que es la
+  // misma persona que ya trabaja Hallazgos y Reclamos.
+  STORE_STOCKOUT_CAPTURAR = 'STORE_STOCKOUT_CAPTURAR',
+  STORE_STOCKOUT_VER = 'STORE_STOCKOUT_VER',
+
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',
