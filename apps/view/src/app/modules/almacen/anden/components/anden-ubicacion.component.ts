@@ -6,6 +6,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { AndenLote } from '../anden.state';
 import { WarehouseBin } from '../../bin-location.service';
 import { formatExpiryEcho } from '../../shared/expiry-short';
+import { TIPOS_UBICACION, TipoUbicacion } from '../../shared/tipo-ubicacion';
 import { ScanFieldComponent } from './scan-field.component';
 
 export interface UbicadoConfirmado {
@@ -19,14 +20,6 @@ export interface UbicacionNueva {
   label: string;
 }
 
-/** Los tipos de ubicación que hay en la bodega. No es una tabla: es el vocabulario. */
-export const TIPOS_UBICACION = [
-  { key: 'rack', label: 'Rack', prefijo: 'R' },
-  { key: 'tarima', label: 'Tarima', prefijo: 'T' },
-  { key: 'otro', label: 'Otro', prefijo: 'U' },
-] as const;
-
-export type TipoUbicacion = (typeof TIPOS_UBICACION)[number]['key'];
 
 /** Compara códigos como los compara el backend: sin espacios y sin importar mayúsculas. */
 function mismo(a: string, b: string): boolean {

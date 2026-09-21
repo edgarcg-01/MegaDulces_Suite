@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Added — Ubicaciones: el mapa de la bodega, rack por rack (WMS-REC.10, 2026-09-21)
+- La pantalla pasa a **maestro–detalle**: a la izquierda las ubicaciones (con buscador y chips
+  Rack / Tarima / Otra), a la derecha **qué hay adentro** en orden de caducidad. Antes era una
+  tabla plana de lote × posición que nunca contestaba "¿qué hay en el rack 12?".
+- El tipo de ubicación se **deriva** del nombre o del código — sin columna nueva ni migración.
+- "¿Dónde está este producto?" queda como bloque propio, y desde ahí se salta al rack.
+
+### Fixed — Los bodegueros no veían la pestaña de Ubicaciones (WMS-REC.10, 2026-09-21)
+- Medido en producción: el rol `almacenista` tiene 3 permisos y la pestaña exigía
+  `INVENTORY_VER`, así que **ni se dibujaba**. Ruta y pestaña aceptan ahora `VER` **o**
+  `RECIBIR`; quien acomoda puede volver a ver dónde acomodó. No se reparte `INVENTORY_VER`,
+  que abriría además la consola de ajustes de stock.
+
+### Fixed — Un 403 se veía igual que una bodega vacía (WMS-REC.10, 2026-09-21)
+- Los tres `subscribe` de la pantalla tragaban el error y dejaban listas vacías. Ahora el fallo
+  se muestra, y el 403 se nombra.
+
 ### Added — Andén: varias caducidades en un mismo renglón (WMS-REC.9b, 2026-09-21)
 - Llegan 6 cajas de un lote y 4 de otro: ahora las fechas se **van agregando a una lista**,
   cada una con su lote, su cantidad y **su propia foto**, y se guardan todas al final. Mientras

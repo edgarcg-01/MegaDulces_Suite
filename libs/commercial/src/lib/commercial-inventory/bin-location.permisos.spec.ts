@@ -30,11 +30,21 @@ import { join } from 'path';
  */
 const FUENTE = readFileSync(join(__dirname, 'bin-location.controller.ts'), 'utf8');
 
-/** El bloque de decoradores + firma de una ruta, para leer su gate. */
+/**
+ * El bloque de UNA ruta: desde su decorador de metodo hasta el de la siguiente.
+ *
+ * El corte por longitud fija (400 caracteres) que tenia esto se contaminaba con
+ * la ruta de abajo: al abrir `bins/:id/contents`, el bloque de `DELETE bins/:id`
+ * se comia su decorador y el candado de "el borrado no se abre" salia rojo con
+ * el borrado intacto. Un candado que se rompe por su propia ventana ensena a
+ * ignorarlo.
+ */
 function gateDe(metodo: string, ruta: string): string {
   const i = FUENTE.indexOf(`@${metodo}('${ruta}')`);
   if (i < 0) throw new Error(`No existe la ruta @${metodo}('${ruta}')`);
-  return FUENTE.slice(i, i + 400);
+  const resto = FUENTE.slice(i + 1);
+  const siguiente = resto.search(/@(Get|Post|Delete|Put|Patch)\(/);
+  return siguiente < 0 ? FUENTE.slice(i) : FUENTE.slice(i, i + 1 + siguiente);
 }
 
 describe('bins · quien recibe puede acomodar', () => {
@@ -42,6 +52,11 @@ describe('bins · quien recibe puede acomodar', () => {
     ['Get', 'bins'],
     ['Get', 'unlocated'],
     ['Get', 'pick-suggestion'],
+    // WMS-REC.10 — la pantalla de Ubicaciones: que hay en ESTE rack, y donde esta
+    // un producto. Sin estas dos, el bodeguero acomoda la tarima y no puede volver
+    // a mirar donde la dejo.
+    ['Get', 'bins/:id/contents'],
+    ['Get', 'locations'],
   ] as const;
 
   it.each(abiertasALectura)('%s /%s acepta al que sólo tiene RECIBIR', (metodo, ruta) => {
