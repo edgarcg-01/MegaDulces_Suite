@@ -23,3 +23,17 @@ ops/vl/crontab.feeds text eol=lf
 # y 3b8dcba4 (GX.11) lo pasaron entero a LF, con diffs de ~3,000 lineas por cambio de fin
 # de linea sobre 38 lineas reales. Se fija la norma que el repo ya tenia de hecho.
 *.md text eol=lf
+
+# ── merge=union: los 3 archivos APPEND-ONLY que chocan en CADA merge ──────────────────────────
+# Con ~10 sesiones y decenas de PR/dia, estos tres acumulan una entrada nueva por trabajo y las
+# entradas caen SIEMPRE en el mismo lugar (arriba de [Unreleased] / al final del bloque de fase).
+# Dos sesiones que agregan su entrada = conflicto de contenido, que hasta ahora se resolvia A MANO
+# en un worktree en cada merge (medido: es la mitad de los "problemas de ramas"). `merge=union`
+# le dice a git que, ante un choque en estos archivos, CONSERVE AMBOS lados en vez de frenar.
+# ⚠️ union CONCATENA los dos hunks: puede dejar dos entradas juntas o el orden cronologico
+# mezclado, nunca borra. Es exactamente lo que se quiere para un log de solo-agregar; el equipo
+# ordena de vez en cuando. NO poner union en codigo: ahi "conservar ambos" produce basura que
+# compila mal. Solo estos tres, que son prosa append-only.
+CHANGELOG.md                              merge=union
+docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md merge=union
+docs/IMPLEMENTACION/03_LOG_REVISIONES.md   merge=union
