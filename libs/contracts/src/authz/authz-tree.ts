@@ -220,6 +220,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },
+          // `[FLT.1]` La ruta la abre CUALQUIERA de las dos claves (`anyPermissionGuard`): quien
+          // sólo reporta tiene que poder entrar a la pantalla donde trabaja. Es la misma lección
+          // que obligó a corregir Caducidades, donde el gate en VER le negaba la pantalla al
+          // colaborador que únicamente captura.
+          { id: 'store-stockouts', label: 'Lista de faltantes', route: '/tienda/faltantes', view: [Permission.STORE_STOCKOUT_VER], manage: [Permission.STORE_STOCKOUT_CAPTURAR] },
           // `[CH.1.2]` SIN `route` a propósito: la pantalla del checador es `[CH.0.10]` y
           // todavía no existe. Estar acá lo hace visible y quitable desde /admin/roles (un
           // permiso fuera del árbol no tiene casilla: nadie lo ve ni lo puede revocar);
@@ -267,6 +272,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // WMS-REC.8 — misma pareja de permisos que Hallazgos (la bandeja es del
           // comprador), así que otorgar Hallazgos habilita las dos vistas a propósito.
           { id: 'compras-reclamos', label: 'Reclamos de recepción', route: '/compras/reclamos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
+          // `[FLT.15]` Tercera bandeja del mismo comprador, mismo par de permisos. Lo que llega
+          // acá lo captura el mostrador: es la única señal de demanda que ningún feed puede ver,
+          // porque una venta que no ocurrió no deja rastro en el ERP.
+          { id: 'compras-faltantes', label: 'Faltantes de piso', route: '/compras/faltantes', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
           { id: 'compras-categorias', label: 'Categorías', route: '/compras/categorias', view: [Permission.COMPRAS_CATEGORIAS_VER], manage: [Permission.COMPRAS_CATEGORIAS_GESTIONAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que

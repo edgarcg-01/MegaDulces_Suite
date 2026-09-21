@@ -660,6 +660,13 @@ const CRON_JOBS: CronCfg[] = [
   // último latido envejece y salta en rojo aquí, aunque el dato downstream aún se vea fresco.
   // Umbral = ~2-4× la cadencia de su tarea. Los modos MANUALES (finance/logistics/all) NO se
   // registran a propósito: laten pero se muestran 'ok' sin alarmar (no tienen cadencia esperada).
+  // [AB.0b] La FOTO DE INVENTARIO. Es el unico job del registro cuyo dato NO se puede
+  // reconstruir despues: la venta de ayer se saca del ERP, la EXISTENCIA de ayer no la
+  // guardo nadie. Un dia que no corre es un dia perdido para siempre, asi que el umbral
+  // es estrecho: warn al saltarse UNA corrida (26 h), critico a las dos (50 h) -- mismo
+  // criterio que los demas jobs diarios. `maxRunH: 1` porque la corrida medida es de
+  // segundos sobre ~58k pares; una hora ya es un cuelgue.
+  { key: 'stock_snapshot',      label: 'Foto diaria de inventario',         cadence: 'diario 23:50 MX', warnH: 26, critH: 50, maxRunH: 1 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },

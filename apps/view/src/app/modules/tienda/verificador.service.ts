@@ -362,6 +362,66 @@ export class VerificadorService {
     );
   }
 
+  /**
+   * `[FLT.8]` BÚSQUEDA POR NOMBRE — la que el verificador nunca tuvo.
+   *
+   * Hasta acá esta pantalla sólo resolvía por CÓDIGO. Cuando el código no pasa (etiqueta borrada,
+   * granel reempacado, código impreso distinto al de Kepler) la única salida de la cajera era
+   * buscar a mano en el POS, que es justo el minuto que la Lista de faltantes existe para medir.
+   *
+   * Corre **contra el snapshot local**, no contra el servidor: el catálogo de la sucursal ya está
+   * en IndexedDB para el modo sin red, y cada renglón trae su nombre (`n`). O sea que la búsqueda
+   * sale instantánea, funciona sin internet y **no agrega un endpoint** — el dato ya estaba ahí,
+   * sin usarse. Si no hay respaldo descargado devuelve `null`, que la pantalla lee como "no puedo
+   * buscar" y NO como "no hay resultados": son dos cosas distintas y confundirlas haría creer que
+   * el producto no existe (DESIGN pre-vuelo §6, empty ≠ error).
+   *
+   * El match es por TODAS las palabras escritas, en cualquier orden y sin acentos, porque nadie
+   * teclea "PAL CHIQUI HUESO C/CHILE ALVHER /40" de corrido: se teclea "chiqui chile".
+   */
+  async buscarPorNombre(
+    sucursal: string,
+    texto: string,
+    limite = 40,
+  ): Promise<Array<{ codigo: string; nombre: string; precio: number | null; unidad: string | null }> | null> {
+    const q = this.normalizar(texto);
+    if (!q) return [];
+    const hay = await this.cargarIndice(sucursal);
+    if (!hay) return null; // no hay respaldo: "no puedo buscar" ≠ "no hay resultados"
+
+    const palabras = q.split(' ').filter(Boolean);
+    const vistos = new Set<string>();
+    const res: Array<{ codigo: string; nombre: string; precio: number | null; unidad: string | null }> = [];
+
+    for (const it of this.indice.values()) {
+      if (!it?.c || vistos.has(it.c)) continue;     // el índice repite el mismo item por cada código
+      const nombre = it.n || '';
+      const norm = this.normalizar(nombre);
+      if (!palabras.every((p) => norm.includes(p))) continue;
+      vistos.add(it.c);
+      // La unidad BASE es la primera del arreglo: es la que el mostrador cotiza por pieza.
+      const base = it.u?.[0];
+      res.push({
+        codigo: it.c,
+        nombre,
+        precio: base?.p != null ? base.p : null,
+        unidad: base?.u ?? null,
+      });
+      if (res.length >= limite) break;
+    }
+
+    // El que empieza con lo tecleado primero: es el que la persona está buscando.
+    const arranca = (n: string) => (this.normalizar(n).startsWith(palabras[0]) ? 0 : 1);
+    return res.sort((a, b) => arranca(a.nombre) - arranca(b.nombre) || a.nombre.localeCompare(b.nombre));
+  }
+
+  /** Sin acentos, mayúsculas, espacios colapsados. Lo que se teclea nunca coincide con el ERP. */
+  private normalizar(s: string): string {
+    return (s || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toUpperCase().replace(/\s+/g, ' ').trim();
+  }
+
   /** Carga el índice en memoria desde IndexedDB si hace falta. `false` = no hay respaldo. */
   private async cargarIndice(sucursal: string): Promise<boolean> {
     if (this.indiceDe === sucursal && this.indice.size) return true;

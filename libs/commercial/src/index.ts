@@ -15,6 +15,9 @@ export * from './lib/commercial-commissions/commercial-commissions.service';
 export * from './lib/commercial-inventory/commercial-inventory.module';
 export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';
+// [FLT] Lista de faltantes: la venta que NO ocurrió, reportada desde el piso.
+export * from './lib/commercial-stockouts/commercial-stockouts.module';
+export * from './lib/commercial-stockouts/floor-stockouts.service';
 export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-payments/commercial-payments.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.module';
