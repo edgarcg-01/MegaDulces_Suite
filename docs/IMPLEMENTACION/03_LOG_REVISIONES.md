@@ -5,6 +5,315 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-19 — Fase TDA.A · El análisis de ventas de tienda pasa a cuatro secciones, y la fotografía aprende a repetirse
+
+**Cómo se llegó:** pedido sobre `/tienda/analisis-semanal` — partir el análisis en cuatro
+secciones (Tráfico · Productos y proveedores · Clientes · Promociones) y que debajo de la
+fotografía del período **caiga la cascada**: el mismo recorte visto semana por semana, por día de
+la semana, mes, trimestre y año. *«Que puedan ver la historia, cómo va evolucionando.»* Las
+métricas que ya vivían en la pantalla se sostienen tal cual; el top de productos se muda a su
+pestaña. Detalle de items en [`01_TRACKER_PROGRESO.md`](01_TRACKER_PROGRESO.md), Fase TDA.A.
+
+**Las dos preguntas que se hicieron ANTES de escribir, porque cambiaban la forma:**
+
+1. **¿La cascada usa el rango de arriba o tiene el suyo?** → el de arriba. Un solo control de
+   tiempo; el grano sólo agrupa. La alternativa deja dos relojes en la misma pantalla y obliga a
+   adivinar cuál ganó. Costo aceptado: presets más largos (hasta 2 años) y decir en pantalla
+   cuándo el rango no alcanza para el grano elegido, en vez de corregirle el filtro al usuario
+   por detrás.
+2. **¿Qué pasa con el switch «Rango / Semana»?** → se retira. La cascada con grano Semana da las
+   mismas semanas y con el juego completo de indicadores; la vista semanal sólo publicaba venta,
+   margen y unidades. Dos formas de mirar la misma semana que pueden no coincidir es como se
+   pierde la confianza en un tablero.
+
+**Lo que decidió el diseño del backend, y no es preciosismo:** los **clientes** se cuentan con
+`count(DISTINCT cliente_code)`. El mismo cliente que vino lunes y martes es UNO en la semana, no
+dos — o sea que a diferencia de la venta y los tickets, **no se pueden rodar desde el grano
+diario**: hay que agruparlos en SQL, por bucket. Y si el bucket se calculara dos veces (una en
+Postgres para los clientes y otra en JS para el resto), un `date_trunc('week')` que no coincidiera
+con el lunes de JS metería los clientes de un período en el renglón de otro **sin que nada
+fallara, sin un error en el log, y con la tabla cuadrando en todas las demás columnas**. Por eso
+el bucket se define una sola vez: `generate_series` sobre el rango devuelve el mapa
+`día → bucket padre → bucket hijo`, y el fact, el POS y los clientes se agrupan con ÉSE. Medido
+contra `platform_test`: **0 buckets de clientes huérfanos del calendario en los cinco granos**.
+
+**Dos cosas que la cascada hace distinto de la fotografía de arriba, a propósito:**
+
+* **La compuerta de cobertura se evalúa POR BUCKET.** Las razones que cruzan el fact con el POS
+  (`$/partida`, `unidades/ticket`) sólo se publican si el POS cubrió los mismos días que el fact
+  **en ese período**. Un mes con el POS cubriendo 3 de 30 días las declara sin medir aunque el
+  rango completo sí alcance — evaluar la compuerta para el rango entero habría publicado, en ese
+  mes, la venta de 30 días dividida entre los tickets de 3.
+* **Las razones nuevas no arrastran el 0 histórico de `range()`.** Ahí `avg_ticket` y `basket`
+  conservan su cero a propósito (cambiarlo es parte del arreglo de cobertura, no de este item);
+  en la cascada, un período sin tickets muestra «—». Decir «$0 de ticket promedio» es afirmar algo
+  falso, y en una tabla de 40 renglones esa afirmación falsa aparece 40 veces.
+
+Y **la cobertura va EN LA FILA**, no en una nota al pie: cada renglón dice cuántos de sus días
+tienen venta y cuántos tienen tickets. Es lo que explica un «—», y lo que delata un período a
+medias que de otro modo se leería como caída de venta.
+
+**El bug que cazó el smoke antes que un humano.** Con grano «día de la semana» las filas salían en
+el orden en que empieza el rango: uno que arrancaba en viernes abría la tabla con *Viernes,
+Sábado, Domingo, Lunes…*, la semana desordenada y **distinta cada vez que se mueve el filtro**. El
+orden del calendario es el correcto para los otros cuatro granos y el equivocado para éste. La
+aserción existía porque el test pregunta por la forma esperada («los 7 días, lunes → domingo») y
+no sólo por los totales; un test de cuadre puro habría pasado en verde con la semana al revés.
+
+**Verificado contra `platform_test` real, sólo lectura** — `http-store-analytics-breakdown-test.js`
+**72/72**, en `run-all-tests.js`:
+
+* la cascada **cuadra al peso con la fotografía** en los 5 granos (`Σ(filas) == totals == /range`);
+* `Σ(hijos) == padre` en todas las filas, y ninguna fila se queda sin detalle;
+* la compuerta probada **en rojo** (74 buckets con el POS más corto que el fact devuelven `null`)
+  **y en verde** (1 bucket con cobertura pareja sí publica) — y en esos mismos buckets en rojo,
+  `$/unidad`, que sale de una sola fuente, **sigue publicando**: una compuerta que apaga todo
+  sería tan inútil como no tenerla;
+* los bordes del contrato: grano desconocido cae a `month`, rango invertido 400, sin fechas 400,
+  más de 760 días 400, sin token 401.
+
+El test **reporta `NO MEDIDO` en vez de ponerse verde** en cualquier bloque que el entorno no le
+permita comprobar (sin venta en la ventana, sin buckets con hueco de POS, sin facturación a
+nombre). En esta corrida fueron 0.
+
+**Gates locales** (el CI sigue apagado, así que son el único filtro): `check:templates` ✅ 328
+componentes · `lint-boundary-gate` ✅ · **`check-provenance` ❌ sale 1**, y no por esta fase — ver
+abajo.
+
+**Encontrado y NO arreglado #1, ajeno.** La compuerta de procedencia (`BASELINE = 0`, declarada
+*regla dura*) lleva **nueve días en rojo**. Su única deuda es `StoreRhythm` en
+`store-socket.service.ts`: declara `generated_at` y ninguna procedencia. Nació con `[TDA.P]`
+(f40234a9, 2026-09-10) y el archivo está idéntico a HEAD; ninguno de los archivos de esta fase
+declara `generated_at`, así que no puede venir de acá. **Se dejó en rojo a propósito.** El endpoint
+`/store/live/rhythm` emite `generated_at: new Date()` —el reloj del servidor— y declarar
+procedencia de verdad exige derivar hasta qué día CIERRA la ventana del ritmo. Meterle un
+`data_as_of` opcional al tipo del cliente sin que el servidor lo mande pondría la compuerta en
+verde sin que nadie sepa de cuándo es el dato: exactamente la mentira que la compuerta existe para
+cazar. Queda como item de `[TDA.R]`, con su medición.
+
+**Encontrado y NO arreglado #2, ajeno a esta fase.** `http-store-analytics-range-test.js` falla
+**10 de 24** desde `[SD.3b]` (01acecac, 2026-09-17), que movió la fuente de la venta a
+`analytics.mv_sales_blended`. El test siembra `analytics.sales_daily` con sucursales sintéticas
+`91`/`92`, y la pierna de `sales_daily` de esa matvista sólo toma `w.code LIKE 'RUTA-%'` → **lo
+sembrado es estructuralmente invisible** y ninguna aserción del lado del fact puede pasar; las del
+POS siguen verdes. No es una línea: hay que sembrar `mv_kepler_sales_daily` y refrescar, o
+re-escribirlo contra data real como el de la cascada. Se reporta con causa y camino en vez de
+convertir sus FAIL en NO MEDIDO, que sería justo el lavado de verde que ADR-056 prohíbe.
+
+**Nota del entorno local:** `analytics.mv_sales_blended` no existía en esta copia de
+`platform_test` (la base local va muy por detrás de las migraciones). Se creó con
+`20260909180000_recreate_mv_sales_blended_madero` y se refrescó — 682,461 filas, 10.2 s. Sin eso,
+ninguna medición de esta fase habría sido posible y el trabajo se habría entregado sin ejercer.
+
+**Lo que NO se verificó:** la pantalla en el navegador. Builds `api` + `view` OK y los datos
+comprobados, pero el render no se vio — falta la tabla ancha con la primera columna congelada, el
+segundo nivel alineado con las columnas de arriba, y las 4 pestañas en claro y oscuro.
+
+### TDA.A2 · «Productos y proveedores» — la línea del catálogo, y la opción obvia que la medición tiró
+
+**Cómo se llegó:** *«¿qué propones para que Productos aporte en proveedores, para el análisis de
+ventas histórico?»*. Se midió antes de proponer, y el negocio cerró la elección: **«el análisis
+correcto es el de línea (proveedor) en catálogo dentro de productos»**.
+
+**Había dos candidatos y sólo uno sobrevivió la medición.**
+
+*El que quedó* — la **línea del catálogo** (`catalog.products.supplier_id`; no existe un campo
+`linea` aparte, se buscó): cubre el **100.0 %** de la venta de 12 meses, es **1:1** (9,541 SKUs con
+una línea, 2 con dos) y coincide con Kepler (`kdpv_prov_prod`) en **8,936 de 8,957 = 99.77 %**. Y
+**11 líneas explican la mitad** de la venta, de 302 — o sea que la tabla se lee de un golpe y no
+hace falta buscador para lo importante.
+
+*El que se cayó* — atribuir por **quién entregó** (`erp_goods_receipts` × sus líneas): el **94.8 %**
+de la venta viene de SKUs recibidos de más de un proveedor real, y en la misma ventana se compró
+**$521M** contra **$94M** vendidos a costo. No son el mismo universo: el CEDIS surte a toda la red y
+la tienda es una parte. De fondo, una venta no sabe de qué entrega salió — no hay trazabilidad de
+lote, y sin eso «ventas por quien entregó» no es un dato difícil, es un dato que no existe.
+
+**Dos trampas en el camino, las dos del mismo tipo — creerle al primer número.**
+
+1. El primer conteo dio **97.6 % de la venta «cambió de proveedor»**, y estuve a un paso de
+   reportarlo como hallazgo grande. Era falso: los **traspasos internos** viven en la misma tabla
+   que los proveedores, y el prefijo del código es la taxonomía (`C*` = compra a proveedor, `TI*` =
+   traspaso — `TI000` es el CEDIS, `TI001` otra sucursal). Lo destapó mirar UN ejemplo concreto en
+   vez de otro agregado: el SKU más vendido tenía seis «proveedores» y cuatro eran sucursales
+   propias.
+2. Después sospeché de **mi propio join** —el repo documenta que *el folio no es único entre
+   doctypes* y la vista de líneas no trae `doc_prefix`— y lo verifiqué antes de seguir: **12,039
+   pares `(sucursal, folio)`, todos únicos, un solo doctype `XA2001`**. La sospecha era infundada.
+   Vale igual: la diferencia entre un número que sobrevivió una sospecha y uno que nadie miró.
+
+**La decisión de diseño que importa: lo que no es atribuible se APAGA, no se reparte.** Un ticket
+lleva productos de varias líneas. Entonces *tickets, partidas por ticket, ticket promedio,
+$/partida, unidades por ticket y clientes* **no son de una línea**. Hay tres salidas y dos son
+mentiras: repartirlos entre líneas es inventarlos, y dejar el número de la tienda entera es peor —
+en una fila que dice «La Rosa» se lee como si fuera de La Rosa. La tercera es la que se tomó:
+vuelven `null`, la tabla esconde esas columnas y **dice por qué**. Lo que sí es atribuible —venta,
+margen, unidades, $/unidad— sigue entero.
+
+**Un cuadre que sólo existe porque se eligió no usar `INNER JOIN`.** `supplier_id` puede venir NULL.
+Con un `INNER JOIN` esos productos se irían de la tabla **sin dejar rastro**: el total por línea
+daría menos que la fotografía y no habría nada que lo delatara. Salen en su propia fila
+(`__SIN_LINEA__`). Hoy son $21,669 de $105.17M — centavos, y exactamente por eso nadie los echaría
+de menos el día que dejaran de serlo.
+
+**Verificado — el smoke pasa de 72 a 93/93**, contra prod y sólo lectura: `Σ(líneas) == la
+fotografía` y `Σ(productos) == su línea` al peso, participación ~100 % en los dos niveles, la
+**prueba negativa** del modo línea (los 8 campos no atribuibles en `null` en todas las filas *y sus
+hijos*) con su contraparte (venta/margen/unidades/$-unidad siguen publicándose), y una línea
+inexistente devolviendo 0 filas en vez de un error. Builds `api` + `view` OK.
+
+**Declarado en pantalla:** la línea es un atributo de **hoy** y no tiene historia (hueco VP.3) — si
+mañana le cambian la línea a un producto, su venta pasada se re-atribuye sola.
+
+**Hallazgo que no es de esta pantalla y queda nombrado:** el proveedor **asignado** coincide con el
+que más entregó en sólo **66.4 %** de los SKUs comparables (3,866 de 5,818). **1 de cada 3** está
+asignado a quien no es su proveedor real principal, y de ahí salen el lead time y el punto de
+reorden de Fase RA.
+
+**Propuesto y pospuesto** (decisión del negocio: «ok 1 y 2»): altas y bajas de SKU dentro de la
+línea —lo que explica por qué una línea cae sin revisar sus 228 productos— y la concentración
+interna de cada línea.
+
+### TDA.A3 · «Productos TOP» — Pareto, y un decode que salió de una captura de pantalla
+
+**Cómo se llegó:** el negocio pidió separar el análisis de productos en su propia pestaña, con
+**participación y acumulado hasta el 80 %** —*«que es lo que Pareto nos recomienda no perder del
+foco»*— y con las columnas **línea · tipo · grupo**. Y, sin que se lo pidieran, mandó **la captura
+de la ficha del artículo en Kepler**. Esa captura fue la que hizo el trabajo.
+
+**El decode.** La ficha del SKU `70001` «LA ROSA MAZAPAN /30» decía Línea *DIST DE LA ROSA*, Tipo
+*DULCES*, Grupo *MAZAPAN CACAHUATE*. Con ese SKU como sonda se leyó su fila de `kepler_ods.kdii` y
+se recorrieron las **129 tablas chicas** del ODS buscando cuál contenía esos textos:
+`kdii.c4` → `kdie` = **Tipo** (12 valores) y `kdii.c5` → `kdif` = **Grupo** (231). `kdii.c6` ya se
+sabía que era el proveedor. Cobertura sobre la venta de 12 meses: **tipo 98.0 %, grupo 99.7 %**.
+
+⛔ **La trampa que la captura evitó.** Lo natural era usar `catalog.products.category_id`, que
+existe, cubre el 98.2 % de la venta y se llama «categoría». Es inservible: de 8,004 productos con
+categoría y proveedor, **3,051 (38 %) tienen la categoría con el mismo nombre que el proveedor**, y
+el catálogo mezcla categorías reales (CHOCOLATES) con razones sociales (FERRERO, MONDELEZ), nombres
+de producto (CAMISETA CLASICA COLOR) y hasta plazas (CAT LA PIEDAD). El hermano `department` está
+**100 % en NULL**, 14,794 de 14,794. Sin la ficha del ERP se habría publicado «Tipo» mostrando
+proveedores, con cobertura del 98 % y sin un solo error en el log.
+
+**Dos cosas que el dato es y que la pantalla NO puede fingir que no:**
+
+* **Tipo y Grupo no son una jerarquía.** 86 de 241 grupos aparecen bajo más de un tipo. Lo natural
+  era un drill-down «tipo → sus grupos» y habría mentido en un tercio de los casos; van como dos
+  filtros independientes.
+* **`kdii` es por sucursal y el mismo SKU puede estar etiquetado distinto** — 132 de 9,548 en tipo,
+  162 en grupo. Se ancla al CEDIS (tiene 9,546 de los 9,548) y la vista **declara de qué plaza
+  salió cada fila**, en vez de esconder la discrepancia detrás de un `DISTINCT ON` que siempre
+  contesta algo.
+
+Y una tercera que se deja pasar tal cual: **`NO APLICA` es un valor real del catálogo, no un hueco**
+— pesa **$15.1M, el 14.3 % de la venta**, con 2,427 SKUs. Convertirlo en NULL escondería que uno de
+cada siete pesos está sin clasificar a propósito.
+
+**La decisión de arquitectura: una VISTA, no un importer.** `analytics.v_product_taxonomy` deriva de
+`kdii` + `kdie` + `kdif` en vivo. Es la regla principal del proyecto aplicada sin adorno: cero
+importers, del ODS, de una tabla principal, documentada y verificada contra un hecho independiente
+—la propia ficha del ERP.
+
+**Por qué el corte de Pareto no es decoración.** Medido: de **5,744 productos con venta**, **249
+hacen el 50 %** y **1,012 el 80 %**. Los otros 4,732 —el 82 % del catálogo vendido— pesan juntos una
+quinta parte. La pestaña abre en el corte; «Todos» trae el resto.
+
+**El error que este diseño esquiva y que no se ve.** Los filtros —incluido el buscador— van al
+**servidor**. Si filtraran en el navegador, el acumulado seguiría calculado sobre el universo entero
+mientras la tabla muestra otro: la columna se llamaría igual y significaría otra cosa. Por eso la
+respuesta trae el **universo completo** aparte de las filas (sin él, «80 %» no se puede interpretar)
+y las **facetas ignoran los filtros de taxonomía** (si se filtraran con la selección puesta, elegir
+un tipo dejaría el desplegable con ese único tipo y no habría forma de volver).
+
+**Verificado — el smoke pasa de 93 a 119/119**, con 2 bloques declarados `NO MEDIDO` (los dos porque
+la lista viene topada en 1,500 de 5,744 filas, y exigir que las participaciones visibles sumen 100 %
+sería exigir un bug). Lo que se exige: el universo cuadra con la fotografía, el acumulado es
+monótono y arranca en la participación de la primera fila, cierra en ~100 % con `mode=all`, y —la
+aserción que ata todo— **al filtrar por tipo se RE-CALCULA** y vuelve a cerrar en 100 % sobre el
+universo achicado, con las facetas sin filtrarse a sí mismas. Más la **sonda del decode**: el SKU
+70001 reproduce la ficha del ERP (Tipo DULCES · Grupo MAZAPAN CACAHUATE). Builds `api` + `view` OK.
+
+**Refactor colateral:** el recorte de la cascada se generalizó de `supplier_scope` a
+`scope: { kind: 'linea' | 'producto' }`, y cada pestaña **suelta** el recorte que no es suyo al
+entrar — comparten una sola cascada, y sin eso «Productos TOP» podía abrir mostrando la evolución de
+una línea debajo de una tabla de productos, sin nada que lo delatara.
+
+### TDA.A4 · «Clientes» — la pestaña cuyo mejor aporte es decir de qué NO puede hablar
+
+**Cómo se llegó:** *«continúa con la pestaña de clientes, te doy libertad creativa»*, con dos
+capturas de la pantalla «Datos del cliente» del ERP. La libertad se usó en el diseño; el alcance lo
+decidió la medición, y la medición fue incómoda.
+
+**⭐ El techo.** La facturación a nombre son **$23.1M** contra **$105.2M** del fact, y el **62 %** de
+eso es televenta (otro módulo). Con el recorte de esta pantalla quedan $7.96M de 284 clientes, y de
+esos **$6.48M son DOS cuentas del propio piso de venta**. Clientes externos reales: **$1.43M = 1.4 %
+de la venta**. Se puede construir una pestaña de clientes con eso, pero no se puede construir una
+que finja hablar del negocio.
+
+Por eso lo primero de la pantalla no es un KPI: es una barra de tres franjas contra la venta total
+—clientes con nombre · cuentas internas · mostrador anónimo—. La proporción se ve antes de leerse.
+
+**⭐ El hallazgo que salvó el ranking.** Un solo código, `10-00` «Padre Hidalgo Piso», explicaba el
+**80 %** de la venta "identificada" con 33 documentos. No es un cliente: es la cuenta del propio
+piso. Su nombre no lo delata, así que en un top de clientes habría encabezado la lista pareciendo
+uno. El ERP ya tiene el campo que lo separa —**Grupo**, catálogo `kduj`, donde `PV-01` se llama
+literalmente «PISOS DE VENTA»—, y esta es la tercera vez en la misma sesión que lo interno vive en
+la misma tabla que lo real: `TI*` = traspaso en proveedores, `NO APLICA` en productos, y ahora esto.
+
+⚠️ **Y la lista de internos NO se sacó de un patrón.** Salió de leer los 20 nombres del catálogo,
+porque los grupos «VENTAS DE PISO ‹plaza›» **no son internos** — son clientes reales que compran en
+el piso, como el ISICLEAN de la segunda captura. Un `nombre ILIKE '%PISO%'` los habría borrado a
+todos y nadie habría notado la diferencia entre 38 clientes y 0.
+
+**⭐ La clave de cliente es POR SUCURSAL, y eso cambió la llave de la vista.** El propio ERP lo
+advierte al pie de la captura que mandó el negocio: *«Debe Tener Cuidado de No Sobreescribir una
+Clave en Datos Internos de la Sucursal»*. Medido: de **1,574 claves**, 1,195 existen en varias
+plazas y **141 son un cliente DISTINTO según la plaza** — la `00002` es Tania en la 00, Viviana en
+la 01, Yanett en la 04 y «NO TOCAR JESUS ZUNO RUIZ» en la 05. Esos «NO TOCAR» / «NO USAR» metidos
+dentro del nombre son el personal defendiéndose de la colisión a mano.
+
+Con el producto la llave global funcionó (el SKU es el mismo en toda la red). Acá **la misma
+decisión habría mostrado a una persona cuando la venta fue de otra**. La vista se re-escribió a
+`(sucursal, clave)` y no deduplica; el negocio añadió el otro lado de la moneda —*«a un cliente le
+pueden vender varios vendedores o sucursales»*—, así que tampoco se pueden **sumar** clientes entre
+plazas, y la pantalla lo dice.
+
+**Tres cosas que la pantalla se niega a afirmar:**
+
+* **«Nuevo», cuando no hay con qué saberlo.** Si la facturación empieza dentro del período, todos
+  salen nuevos: acá, 284 de 284. No es un dato, es la ausencia de historia. Se declara y el número
+  se esconde.
+* **La cascada.** Las otras tres pestañas la tienen; ésta no, y se explica: **el fact de venta no
+  sabe quién compró**. El cliente vive en la facturación, que es otro universo y otro tamaño.
+* **El vendedor como autor de la venta.** El de la ficha es el **asignado**; quién vendió cada
+  documento es otro campo. Se rotula como asignado.
+
+**Dos errores míos, los dos encontrados midiendo y no leyendo:**
+
+1. **El casi-acierto.** La Zona resolvía contra `kduv` y daba «VENDEDORES ZONA LA PIEDAD». La
+   captura decía «**CLIENTES** ZONA LA PIEDAD»: mismo código, nombre parecido, catálogo equivocado
+   (`kduk`). Contra un agregado habría pasado — se vio sólo porque había el texto exacto contra el
+   cual comparar.
+2. **Mi «optimización» fue 13× más lenta.** Acotar el CTE de primera-compra con un `EXISTS` contra
+   el CTE de arriba: **38 s contra 2.9 s**, porque Postgres no puede indexar un CTE y recorría el
+   CTE entero por cada fila del histórico. Lo que sí sirvió fue `AS MATERIALIZED` en las vistas del
+   ODS: sin eso, unir dos vistas que por separado cuestan 33 ms y 684 ms costaba **10 s** y el
+   endpoint moría en el `statement_timeout`.
+
+Y una tercera de otra clase: un **acento grave dentro de un comentario del SQL**, que va adentro de
+un template literal de JS. Quinta vez en el repo, primera en SQL. El compilador reportó
+`Expected ',', got 'ident'` sobre una línea de prosa.
+
+**Verificado — el smoke pasa de 119 a 132/132**: el techo cuadra contra la misma venta de la
+fotografía, `facturado = interno + clientes` sin perder nada, la **prueba negativa de la separación**
+(el segmento «clientes» no trae ninguna interna y externos+internos == todos), el estado derivado de
+fechas, la sonda del cliente `10259` reproduciendo su ficha del ERP, y el **candado de la llave**: la
+clave `00002` sigue siendo 4 personas distintas según la plaza. Builds `api` + `view` OK.
+
+**Pendiente prod:** las **dos** migraciones de vista (`20260920120000_v_product_taxonomy` y
+`20260920130000_v_customer_master`) + redeploy `api` + `view`. Sin permisos nuevos → sin re-login.
+
+---
 ## 2026-09-18 — Fase NX · Nx Cloud a prod, y dos gates que estaban verdes o rojos por el motivo equivocado
 
 **Cómo se llegó:** pedido de Edgar — *"apliquemos nx y nx cloud a profundidad en local y prod"*.
