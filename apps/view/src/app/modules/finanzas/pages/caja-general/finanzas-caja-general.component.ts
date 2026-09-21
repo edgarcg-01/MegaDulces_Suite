@@ -224,7 +224,13 @@ import {
         }
       </div>
 
-      <ng-template pTemplate="footer">
+      <!-- ⚠️ El pie va con #footer, NO con pTemplate="footer". En PrimeNG 22 el segundo NO
+           PROYECTA NADA: el diálogo se abre sin Guardar ni Cancelar, sin un solo error en
+           consola y sin que el build se queje. Los 3 diálogos de esta pantalla lo tenían y
+           quedaron inutilizables — medido en vivo: .p-dialog-footer no existía y el diálogo
+           no tenía ningún botón. Las otras 50 pantallas del repo ya usan #footer.
+           SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y lo cierran. -->
+      <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="capturaAbierta = false"></p-button>
         <p-button label="Guardar" icon="pi pi-check" size="small"
                   [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
@@ -240,7 +246,7 @@ import {
         </div>
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="aperturaAbierta = false"></p-button>
         <p-button label="Abrir" icon="pi pi-check" size="small" (onClick)="abrirCorte()"></p-button>
       </ng-template>
@@ -267,7 +273,7 @@ import {
         </div>
         <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto = false"></p-button>
         <p-button label="Cerrar corte" icon="pi pi-lock" size="small"
                   [disabled]="!gateCierre().ok" (onClick)="cerrarCorte()"></p-button>

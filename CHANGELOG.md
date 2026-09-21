@@ -41,13 +41,31 @@
 - Migraciones `20260919150000` + `20260919150100`. Smoke `test-newdb-floor-stockouts.js` **14/14**
   (las 4 formas de mentir, cada una rota a propósito) en `run-all-tests.js`.
 
-### Fixed — tres diálogos de Caja General salían sin botones (hallazgo colateral, 2026-09-19)
-- `finanzas-caja-general.component.ts` usa `<ng-template pTemplate="footer">` en sus 3 `p-dialog`.
-  **En PrimeNG 22 eso no proyecta nada**: el diálogo *"Registrar movimiento de caja"* se abre **sin
-  Guardar ni Cancelar** — verificado en vivo, `.p-dialog-footer` no existe y el único botón es la X.
-  Nadie puede registrar un movimiento desde ahí. El patrón correcto (`<ng-template #footer>`) es el
-  que usan las otras 12 pantallas del repo. **Reportado, no corregido**: está fuera del alcance del
-  pedido y toca otro módulo.
+### Fixed — Caja General: los tres diálogos abrían sin botones, o sea que no se podía guardar (2026-09-19)
+- **Medido en vivo, no deducido:** *"Registrar movimiento de caja"* y *"Abrir corte de caja"* se abren
+  con **cero botones** — `.p-dialog-footer` **no existe en el DOM** y el arreglo de botones del
+  diálogo viene vacío. No hay Guardar, no hay Cancelar. Nadie puede registrar un movimiento ni abrir
+  un corte desde esa pantalla. El tercero (*"Cerrar corte"*) es el mismo constructo en el mismo
+  archivo, pero sólo aparece con un corte abierto y no se forzó uno en la base compartida.
+- **Causa:** los 3 usaban `<ng-template pTemplate="footer">`. **PrimeNG 22 no proyecta eso** en
+  `p-dialog`; el pie se declara con `<ng-template #footer>`, que es lo que ya usan las otras ~50
+  pantallas del repo. Los 3 `pTemplate="header"` que quedan en el repo **no** se tocaron: están
+  sobre `p-table`, donde sí funciona (verificado: esas tablas renderizan).
+- **Por qué no lo atrapó nada:** no hay error en consola, el build pasa en verde y el typecheck
+  también. Angular acepta el `ng-template` como válido; simplemente nadie lo consume. La única
+  forma de verlo es abrir el diálogo.
+- Encontrado de casualidad mientras se construía la Lista de faltantes (Fase FLT), al chocar con el
+  mismo defecto en un diálogo nuevo. Queda un comentario en el código para que no se repita.
+
+### Fixed — el verificador confundía productos al escanear un código de barras (CV.28, 2026-09-20)
+- Reportado en campo: al escanear, la pantalla mostraba información de OTRO producto.
+- Causa: `LPAD(x, 5, '0')` de Postgres **trunca** cuando `x` mide más de 5 caracteres
+  (`lpad('7506306248861',5,'0')` → `'75063'`) — la comparación de `KpService.getPrecio()` entre
+  `LPAD(c1,5,'0')` y `LPAD($1,5,'0')` no tenía guarda de longitud, así que un código de barras
+  EAN-13 completo se truncaba a sus primeros 5 dígitos antes de comparar contra el código interno.
+  Caso real confirmado: `7506306248861` (GEL EGO GRANDE) empataba con `* DESCONTINUADO`.
+- Fix: la rama de `LPAD` solo aplica cuando el código escaneado mide ≤5 caracteres (su propósito
+  real: código interno corto sin ceros a la izquierda, nunca un barcode). PR #127.
 
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
 - **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
