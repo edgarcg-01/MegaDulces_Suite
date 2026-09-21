@@ -32,7 +32,7 @@ interface BudgetLine {
   paid_amount: number; available_amount: number; control_level: string; status: string;
   expense_class: string | null; recurrence: string | null; responsible: string | null;
 }
-interface RealBlock { available: boolean; ventas: number | null; costo: number | null; margen: number | null; data_as_of: string | null; reason?: string }
+interface RealBlock { available: boolean; deferred?: boolean; ventas: number | null; costo: number | null; margen: number | null; data_as_of: string | null; reason?: string }
 interface Summary {
   budget: BudgetHeader;
   ejecucion: { vigente: number; reserved: number; committed: number; exercised: number; paid: number; disponible: number; ocupacion_pct: number | null };
@@ -234,6 +234,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <div class="pres-summary-head">
                 @if (s.real.available && s.real.data_as_of) {
                   <app-freshness-pill measures="data" [since]="s.real.data_as_of" [staleAfterSec]="86400" />
+                } @else if (s.real.deferred) {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="loadSummaryReal()" [loading]="loadingSummaryReal()" title="Consulta el sell-out del ODS (unos segundos)"><span class="pi pi-refresh"></span>&nbsp;Cargar real vs presupuesto</button>
                 } @else {
                   <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: {{ s.real.reason || 'sin datos' }}</span>
                 }
@@ -1158,6 +1160,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   private reloadDetail(): void { const b = this.selected(); if (b) this.selectBudget(b); }
 
+  // El «real vs presupuesto» agrega el sell-out del ODS (lento) → opt-in, no bloquea la carga del ejercicio.
+  loadingSummaryReal = signal(false);
+  loadSummaryReal(): void {
+    const b = this.selected(); if (!b) return;
+    this.loadingSummaryReal.set(true);
+    this.http.get<Summary>(`${this.base}/budgets/${b.id}/summary`, { params: { real: '1' } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.summary.set(s); this.loadingSummaryReal.set(false); },
+      error: (e) => { this.loadingSummaryReal.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el real del ODS.' }); },
+    });
+  }
+
   // ── Planeación (PU.4) ──
   openCopy(): void { const b = this.selected(); this.copyForm = { name: b?.name, scenario: b?.scenario, fiscal_year: (Number(b?.fiscal_year) || new Date().getFullYear()) + 1 }; this.copyVisible = true; }
   confirmCopy(): void {
@@ -1753,6 +1766,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
       items.push(s.kpis.cumplimiento_ventas_pct != null
         ? { label: 'Cumplimiento', value: s.kpis.cumplimiento_ventas_pct, format: 'percent', tone: s.kpis.cumplimiento_ventas_pct >= 100 ? 'ok' : 'warn' }
         : { label: 'Cumplimiento', value: 'sin base', format: 'text' });
+    } else if (s.real.deferred) {
+      items.push({ label: 'Ventas real', value: 'sin cargar', format: 'text' });
     } else {
       items.push({ label: 'Ventas real', value: 'sin datos', format: 'text', tone: 'warn' });
     }
