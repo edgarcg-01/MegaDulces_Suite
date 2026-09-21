@@ -575,6 +575,16 @@ importers.
   nullable, solo aplican a gasto (mig `20260917200000`, aditiva e idempotente). `nx build api`+`view` verdes.
   **Pendiente: mig a prod + push/redeploy + verificación HTTP (ADR-044).**
 
+> **Remediación PU (verificación de los 2 criterios del usuario: máxima automatización + comprensión perfecta).**
+> Auditoría en código (3 ejes): **automatización** — el armado anual sí; la OPERACIÓN del ledger es 100% manual y §16.3 sin cablear; 6 huecos donde lo "auto" falla o se calla. **Comprensión** — fuentes canónicas (bien), pero sin contrato de procedencia, frescura ternaria en el navegador, `measured` sin declarar, 2 fugas «sin datos→número», costo/margen sin salvedad. **Integridad** — DOS verdades del gasto (`budget_lines` vs `expense_obligations`) enlazadas por un FK muerto; cero pruebas HTTP; nada en prod. Direcciones del usuario: **unificar en el ledger · auto-avanzar · fallback declarado**. Plan por bloques A (comprensión) → B (unificar+auto) → C (HTTP+deploy).
+
+- [~] **[PU.8]** 🔨 **Bloque A — Comprensión perfecta (backend+frontend, builds verdes).**
+  - **A2 — fugas «sin datos→número»:** el CREC ya no fabrica −100% desde un real ausente (`budget-sales-comparison.service.ts` per-celda+totales, `budget-sales-indicators.service.ts` `yoy`, front `crec()`+subtotal/total null-preservados) y el KPI "Real" muestra «sin datos» en vez de `$0` (`totals.real` nullable + `salesKpis` con `format:'text'`).
+  - **A3 — salvedad costo/margen (ADR-051/059):** `budget-comparison.service.ts` mide `cost_coverage_pct` (filas con costo / total), publica `margen_real_confiable` y una nota de fuente-mezclada — `sum(cost)` ya no se publica en silencio.
+  - **A4 — `dash()`:** distingue el 0 real (→ `$0.00`) del null (→ «—»); ya no colapsa ambos.
+  - **A1 — contrato de procedencia compartido:** los 5 servicios con píldora (`budget-comparison`/`budget-sales-comparison`/`budget-sales-indicators`×2/`budget-cashflow`/`budget-campaigns`) emiten `Freshness` (fresh/stale/**unknown**) + `Coverage.measured` vía `composeFreshness`/`evalInput` de `@megadulces/platform-core` (patrón de `caja-general`). La píldora gana input `[freshness]` retrocompatible: consume el veredicto del SERVER y declara «sin medir», en vez de re-derivar con `[staleAfterSec]="86400"` en el navegador (las 6 píldoras reconectadas). Tira "Cobertura real: N%" en el presupuesto de ventas. **Bonus:** corregido bug pre-existente de campañas (`ventas_vinculadas` leía `data_as_of`/`ventas` inexistentes → mostraba `$0`; ahora `as_of`/`monto`).
+  - `nx build api`+`view`+`check:templates` verdes (332 componentes). **Pendiente: Bloque B (unificar ledger↔obligaciones + auto-avance §16.3 + fallback declarado) · Bloque C (pruebas HTTP ADR-044 + deploy).**
+
 ### Fase PV *(pólizas)* — Validación y cuadre de pólizas · ADR-041 · [`FASE_PV_VALIDACION_POLIZAS`](FASES/FASE_PV_VALIDACION_POLIZAS.md)
 
 > ⚠️ **`PV` está DOBLE-OCUPADO y las claves están DUPLICADAS** (como pasó con ADR-052, pero peor:

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
+import type { Coverage } from '@megadulces/contracts';
 
 /**
  * Fase PU.3 — Presupuestos: flujo de efectivo previsto (ADR-066 / ADR-056).
@@ -118,6 +119,13 @@ export class BudgetCashflowService {
         saldo_minimo_proyectado: opening.available ? saldoMin : null,
         buckets,
         alerts,
+        // [PU-VP] Procedencia declarada por el SERVER (ADR-056): frescura del peor eslabón + cobertura.
+        freshness: composeFreshness([
+          evalInput('cartera_cxc', 'Cartera / cobranza (kdue, CXC)', cobrosMeta?.as_of ?? null, 30),
+          evalInput('bancos_cb', 'Bancos (Fase CB)', bank?.as_of ?? null, 30),
+        ]),
+        coverage: { measured: opening.available, pct: null,
+          note: opening.available ? 'Saldo inicial de bancos disponible.' : 'Sin saldo inicial de bancos (Fase CB): el saldo proyectado va en null; el neto por semana sí es real.' } as Coverage,
         sources: {
           cobros: { source: 'analytics.customer_receivables', as_of: cobrosMeta?.as_of ?? null },
           pagos: { source: 'budget.expense_obligations + commercial.supplier_payment_obligations + finance.financial_commitments' },

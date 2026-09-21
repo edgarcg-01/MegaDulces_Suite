@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
+import type { Coverage, Freshness } from '@megadulces/contracts';
 
 /**
  * Fase PU.2 — Presupuestos: presupuesto vs real (ADR-066 / ADR-056 / ADR-059).
@@ -78,6 +79,9 @@ export class BudgetComparisonService {
       // Se difiere por defecto (opt-in con includeReal): agregar sales_daily sobre un año es una consulta
       // pesada que no debe bloquear la carga del ejercicio (gate <1s). «diferido» ≠ «sin datos» ≠ cero.
       let real: any;
+      // [PU-VP] Procedencia declarada por el SERVER (ADR-056): frescura ternaria + cobertura medida.
+      let realFreshness: Freshness = FRESHNESS_UNKNOWN;
+      let realCoverage: Coverage = { measured: false, pct: null, note: 'Real vs presupuesto no cargado (se pide aparte con includeReal).' };
       if (!opts.includeReal) {
         real = { available: false, deferred: true, source: 'analytics.sales_daily', data_as_of: null,
                  reason: 'Real vs presupuesto no cargado (se consulta el sell-out del ODS aparte)', ventas: null, costo: null, margen: null, unidades: null };
@@ -86,6 +90,7 @@ export class BudgetComparisonService {
         if (opts.warehouseId) q.andWhere({ warehouse_id: opts.warehouseId });
         const [agg] = await q.select(
           trx.raw('count(*)::int AS n'),
+          trx.raw('count(*) FILTER (WHERE cost IS NOT NULL)::int AS cost_n'),
           trx.raw('coalesce(sum(revenue),0) AS ventas'),
           trx.raw('coalesce(sum(cost),0) AS costo'),
           trx.raw('coalesce(sum(margin),0) AS margen'),
@@ -93,15 +98,28 @@ export class BudgetComparisonService {
           trx.raw('max(updated_at) AS data_as_of'),
         );
         const available = Number(agg.n) > 0;
+        // Cobertura de costo (ADR-051/059): sum(cost) OMITE filas sin costo → margen sobredeclarado.
+        // Se DECLARA la cobertura y se marca la confiabilidad; no se dibuja como completo (ADR-056).
+        const costCov = available ? round2((Number(agg.cost_n) / Number(agg.n)) * 100) : null;
         real = available
           ? { available: true, source: 'analytics.sales_daily', data_as_of: agg.data_as_of,
               ventas: round2(Number(agg.ventas)), costo: round2(Number(agg.costo)),
-              margen: round2(Number(agg.margen)), unidades: round2(Number(agg.unidades)) }
+              margen: round2(Number(agg.margen)), unidades: round2(Number(agg.unidades)),
+              cost_coverage_pct: costCov }
           // «Sin datos» ≠ cero (ADR-056): importes en null, no 0.
           : { available: false, source: 'analytics.sales_daily', data_as_of: null,
-              reason: 'Sin ventas registradas en el periodo/alcance', ventas: null, costo: null, margen: null, unidades: null };
+              reason: 'Sin ventas registradas en el periodo/alcance', ventas: null, costo: null, margen: null, unidades: null,
+              cost_coverage_pct: null };
+        if (available) {
+          realFreshness = composeFreshness([evalInput('sales_daily', 'Fact de ventas (ODS)', agg.data_as_of ?? null, 26)]);
+          realCoverage = { measured: true, pct: costCov, note: 'cost_coverage_pct = % de filas del periodo con costo (mezcla de fuentes, ADR-051/059).' };
+        } else {
+          realFreshness = FRESHNESS_UNKNOWN;
+          realCoverage = { measured: false, pct: null, note: 'Sin ventas registradas en el periodo/alcance.' };
+        }
       }
       const available = real.available as boolean;
+      const costCovPct = (real.cost_coverage_pct ?? null) as number | null;
 
       // ── 3. KPIs (spec §10) — null cuando no hay base o no hay real ───────────
       const kpis = {
@@ -109,6 +127,9 @@ export class BudgetComparisonService {
         desviacion_ventas: available ? round2((real.ventas as number) - presupuesto.ingresos) : null,
         desviacion_costo: available ? round2((real.costo as number) - presupuesto.costo_ventas) : null,
         margen_real: available ? round2((real.ventas as number) - (real.costo as number)) : null,
+        // El margen sólo es confiable si el costo cubre ~todo el periodo; si no, se declara la salvedad (ADR-051/059).
+        margen_real_confiable: available ? (costCovPct != null && costCovPct >= 99) : null,
+        margen_real_cost_coverage_pct: costCovPct,
         margen_presupuestado: presupuesto.margen,
         ocupacion_presupuestaria_pct: ocupacion,
       };
@@ -119,11 +140,14 @@ export class BudgetComparisonService {
         ejecucion: { ...totals, disponible, ocupacion_pct: ocupacion, by_type: byType.map((r: any) => this.withOccupancy(r)) },
         presupuesto,
         real,
+        freshness: realFreshness,
+        coverage: realCoverage,
         kpis,
         // Nota de alcance honesta para el consumidor (spec §5.1: identificar cobertura/integraciones).
         notes: {
           real_scope: 'Real a nivel tenant × periodo. El cruce por partida (correspondencia cuenta↔dimensión) está declarado, no construido (PU.0.5/§16.3).',
           gasto_real: 'El "ejercido" es presupuestario (reconocido en el ledger). La conciliación contra Contabilidad/GX es Capa 2-ext (spec §14 #13).',
+          costo: 'El costo de sales_daily MEZCLA fuentes (Wincaja real / Kepler álgebra ciega al precio — ADR-051/059) y sum(cost) omite filas sin costo, así que margen_real puede estar SOBREdeclarado. cost_coverage_pct declara la cobertura; margen_real_confiable=false cuando no cubre ~todo el periodo.',
         },
       };
     });

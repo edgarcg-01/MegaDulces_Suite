@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
 
 /**
  * Fase PU.5 — Presupuestos: Marketing (campañas) (ADR-066, spec §9/§6/§10).
@@ -171,6 +171,8 @@ export class BudgetCampaignsService {
         costo_neto_aportacion: costo_neto,
         aportaciones: { confirmada: aport_confirmada, incierta: aport_incierta, nota: 'La incierta NO reduce el gasto (spec §9).' },
         ventas_vinculadas: ventas,
+        // [PU-VP] Procedencia declarada por el SERVER (ADR-056): frescura del fact de ventas vinculado.
+        freshness: composeFreshness([evalInput('sales_daily', 'Ventas vinculadas (ODS)', ventas.as_of ?? null, 26)]),
         intensidad_gasto_ventas_pct: ventas.available ? pct(costo, ventas.monto as number) : null, // gasto/ventas (§10: intensidad, NO retorno)
         retorno,
         warnings: esDescuento ? ['Tipo descuento_comercial: su costo puede estar YA deducido en ventas netas — no sumar otra vez como gasto (spec §9).'] : [],

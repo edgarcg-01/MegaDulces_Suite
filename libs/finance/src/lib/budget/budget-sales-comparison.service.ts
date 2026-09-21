@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
+import type { Coverage } from '@megadulces/contracts';
 
 /**
  * Fase PV.4 — Presupuesto de Ventas: comparación meta vs real + CREC + PART (ADR-066 / PV).
@@ -113,7 +114,8 @@ export class BudgetSalesComparisonService {
             real,
             real_prior: realPrior,
             cumplimiento_pct: pct(real, meta),
-            crec_pct: realPrior == null || realPrior === 0 ? null : round2(((Number(real ?? 0) - realPrior) / realPrior) * 100),
+            // «Sin datos» ≠ cero (ADR-056): sin real actual, el CREC es desconocido, NO −100%.
+            crec_pct: real == null || realPrior == null || realPrior === 0 ? null : round2(((real - realPrior) / realPrior) * 100),
             part_pct: real == null ? null : pct(real, totalReal),
             method: methodMap.get(key) ?? null,
           });
@@ -127,6 +129,7 @@ export class BudgetSalesComparisonService {
       // frescura declarada
       const fresh = await trx('analytics.v_sellout_daily').where({ tenant_id: tenantId }).max({ mx: 'business_date' }).first();
       const dataAsOf = fresh?.mx ? new Date(fresh.mx).toISOString().slice(0, 10) : null;
+      const cellsWithReal = cells.filter((c) => c.real != null).length;
 
       return {
         budget: { id: budget.id, name: budget.name, fiscal_year: fy, status: budget.status },
@@ -134,13 +137,18 @@ export class BudgetSalesComparisonService {
         cells,
         totals: {
           meta: round2(totalMeta),
-          real: round2(totalReal),
+          // «Sin datos» ≠ cero (ADR-056): sin real del ejercicio, el total va NULL, nunca $0.
+          real: totalReal > 0 ? round2(totalReal) : null,
           real_prior: round2(totalRealPrior),
-          cumplimiento_pct: pct(totalReal, totalMeta),
-          crec_pct: totalRealPrior === 0 ? null : round2(((totalReal - totalRealPrior) / totalRealPrior) * 100),
+          cumplimiento_pct: totalReal > 0 ? pct(totalReal, totalMeta) : null,
+          crec_pct: totalReal > 0 && totalRealPrior > 0 ? round2(((totalReal - totalRealPrior) / totalRealPrior) * 100) : null,
         },
         data_as_of: dataAsOf,
         real_available: totalReal > 0 || totalRealPrior > 0,
+        // [PU-VP] Procedencia declarada por el SERVER (ADR-056): frescura ternaria + cobertura medida.
+        freshness: composeFreshness([evalInput('sellout_daily', 'Sell-out del ODS', fresh?.mx ?? null, 26)]),
+        coverage: { measured: cells.length > 0, pct: cells.length ? round2((cellsWithReal / cells.length) * 100) : null,
+          note: cells.length ? `${cellsWithReal} de ${cells.length} celdas con real observado; el resto es meta sin real aún.` : 'Sin celdas con meta ni real.' } as Coverage,
       };
     });
   }

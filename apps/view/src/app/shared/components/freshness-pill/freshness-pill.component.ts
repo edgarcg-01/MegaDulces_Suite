@@ -1,5 +1,9 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 
+// `import type` → se borra en build (cero bytes al bundle): el warning de +225 kB del barrel es por
+// imports de VALOR usados en el arranque, no por tipos. Ver tsconfig.base.json.
+import type { Freshness } from '@megadulces/contracts';
+
 /**
  * DESIGN §9 (datos añejos) — píldora de frescura.
  *
@@ -33,7 +37,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ts() != null) {
+    @if (ts() != null || unknownState()) {
       <span class="fp" [class.warn]="stale()" [class.is-fetch]="measures() === 'fetch'"
             [attr.title]="titleText()" aria-live="polite">
         <span class="dot"></span>{{ text() }}
@@ -62,6 +66,13 @@ export class FreshnessPillComponent {
   /** El timestamp a medir (Date | epoch ms | ISO string). null = oculta. */
   readonly since = input<Date | string | number | null>(null);
 
+  /**
+   * [PU-VP] Veredicto de frescura del SERVIDOR (ternario). Cuando llega, la píldora usa su
+   * `status`/`stale`/`age_human` en vez de re-derivarlos en el navegador con `staleAfterSec` —
+   * y declara el tercer estado «sin medir» (`status === 'unknown'`) en vez de esconderse.
+   */
+  readonly freshness = input<Freshness | null>(null);
+
   /** Sobrescribe la palabra. Vacío = la que corresponde a `measures`. */
   readonly label = input<string | null>(null);
 
@@ -70,20 +81,31 @@ export class FreshnessPillComponent {
   private readonly now = signal(Date.now());
 
   readonly ts = computed(() => {
-    const v = this.since();
+    const f = this.freshness();
+    const v = f ? f.data_as_of : this.since();
     if (v == null) return null;
     return v instanceof Date ? v.getTime() : typeof v === 'number' ? v : Date.parse(v);
   });
+  /** El servidor no pudo medir la edad (status 'unknown'): se DECLARA «sin medir», no se oculta. */
+  readonly unknownState = computed(() => this.freshness()?.status === 'unknown');
   readonly ageSec = computed(() => {
     const t = this.ts();
     return t == null ? null : Math.max(0, Math.floor((this.now() - t) / 1000));
   });
-  readonly stale = computed(() => { const a = this.ageSec(); return a != null && a >= this.staleAfterSec(); });
+  readonly stale = computed(() => {
+    const f = this.freshness();
+    if (f) return f.stale; // veredicto del server (incluye 'unknown' → stale=true)
+    const a = this.ageSec();
+    return a != null && a >= this.staleAfterSec();
+  });
 
   readonly text = computed(() => {
+    const w = this.label() ?? (this.measures() === 'data' ? 'datos' : 'cargado');
+    if (this.unknownState()) return `${w} sin medir`;
+    const f = this.freshness();
+    if (f && f.age_human) return `${w} hace ${f.age_human}`;
     const a = this.ageSec();
     if (a == null) return '';
-    const w = this.label() ?? (this.measures() === 'data' ? 'datos' : 'cargado');
     return `${w} ${this.rel(a)}`;
   });
 
@@ -92,6 +114,7 @@ export class FreshnessPillComponent {
    * y donde queda claro que una píldora de carga NO habla de la edad del dato.
    */
   readonly titleText = computed(() => {
+    if (this.unknownState()) return 'No se pudo medir la edad del dato — se declara sin medir, no como al día.';
     const t = this.ts();
     if (t == null) return '';
     const cuando = new Date(t).toLocaleString('es-MX');

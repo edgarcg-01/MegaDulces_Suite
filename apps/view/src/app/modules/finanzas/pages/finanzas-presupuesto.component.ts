@@ -16,6 +16,7 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import type { Freshness, Coverage } from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 
 interface Capacity { capacity_date: string; authorized_amount: number; note: string | null; updated_by: string | null; updated_at: string }
@@ -39,6 +40,7 @@ interface Summary {
   presupuesto: { ingresos: number; costo_ventas: number; gasto: number; margen: number };
   real: RealBlock;
   kpis: { cumplimiento_ventas_pct: number | null; desviacion_ventas: number | null; margen_real: number | null; ocupacion_presupuestaria_pct: number | null };
+  freshness: Freshness; coverage: Coverage;
 }
 interface CashBucket { week: string; cobros: number; pagos: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
 interface Cashflow {
@@ -49,6 +51,7 @@ interface Cashflow {
   buckets: CashBucket[];
   alerts: { week: string; saldo_proyectado: number | null; tipo: string }[];
   sources: { cobros: { source: string; as_of: string | null } };
+  freshness: Freshness; coverage: Coverage;
 }
 
 interface Campaign {
@@ -60,7 +63,8 @@ interface CampaignEval {
   campaign: { id: string; name: string; campaign_type: string; status: string; start_date: string | null; end_date: string | null; attribution_rule: string | null };
   partidas: number; presupuesto: number; costo: number; costo_neto_aportacion: number;
   aportaciones: { confirmada: number; incierta: number; nota: string };
-  ventas_vinculadas: { available: boolean; source: string; data_as_of: string | null; attribution: string; reason?: string; ventas: number | null };
+  ventas_vinculadas: { available: boolean; source: string; as_of: string | null; attribution: string; reason?: string; monto: number | null };
+  freshness: Freshness;
   intensidad_gasto_ventas_pct: number | null;
   retorno: { available: boolean; roi_pct: number | null; basis?: string; reason?: string };
   warnings: string[];
@@ -83,9 +87,10 @@ interface SalesComparison {
   budget: { id: string; name: string; fiscal_year: number; status: string };
   prior_year: number;
   cells: SalesCell[];
-  totals: { meta: number; real: number; real_prior: number; cumplimiento_pct: number | null; crec_pct: number | null };
+  totals: { meta: number; real: number | null; real_prior: number; cumplimiento_pct: number | null; crec_pct: number | null };
   data_as_of: string | null;
   real_available: boolean;
+  freshness: Freshness; coverage: Coverage;
 }
 interface SalesEntity { entity_key: string; channel: string; channel_label: string; entity_type: string; warehouse_code: string; branch_name: string | null; route_code: string | null; route_zona: string | null }
 interface SalesRow {
@@ -111,9 +116,10 @@ interface SalesIndicators {
   company: { series: IndicatorSeries[]; current: IndicatorCurrent };
   by_channel: IndicatorRow[]; by_entity: IndicatorRow[];
   data_as_of: string | null; real_available: boolean;
+  freshness: Freshness;
 }
 interface ReconAnnualRow { channel: string; channel_label: string; year: string; sell_out: number; facturacion: number; delta: number; ratio_pct: number | null; status: string }
-interface SalesReconciliation { annual: ReconAnnualRow[]; monthly: unknown[]; notes: string[]; data_as_of: string | null }
+interface SalesReconciliation { annual: ReconAnnualRow[]; monthly: unknown[]; notes: string[]; data_as_of: string | null; freshness: Freshness }
 
 // ── PVG: presupuesto de gastos auto-propuesto desde egresos Kepler ──
 interface ExpensePlanLine { account_code: string; account_name: string | null; familia: string | null; sucursal: string; year_month: string; monto: number; method: string; growth_pct: number | null; base_amount: number | null }
@@ -233,7 +239,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             @if (summary(); as s) {
               <div class="pres-summary-head">
                 @if (s.real.available && s.real.data_as_of) {
-                  <app-freshness-pill measures="data" [since]="s.real.data_as_of" [staleAfterSec]="86400" />
+                  <app-freshness-pill measures="data" [freshness]="s.freshness" />
                 } @else if (s.real.deferred) {
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="loadSummaryReal()" [loading]="loadingSummaryReal()" title="Consulta el sell-out del ODS (unos segundos)"><span class="pi pi-refresh"></span>&nbsp;Cargar real vs presupuesto</button>
                 } @else {
@@ -365,11 +371,14 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               @if (salesCmp(); as c) {
                 <div class="pres-summary-head">
                   @if (c.real_available && c.data_as_of) {
-                    <app-freshness-pill measures="data" [since]="c.data_as_of" [staleAfterSec]="86400" />
+                    <app-freshness-pill measures="data" [freshness]="c.freshness" />
                   } @else {
                     <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
                   }
                   <span class="pres-muted">CREC = crecimiento vs {{ c.prior_year }}</span>
+                  @if (c.coverage?.measured && c.coverage?.pct != null) {
+                    <span class="pres-muted" [title]="c.coverage.note">Cobertura real: {{ c.coverage.pct }}%</span>
+                  }
                 </div>
                 <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
                 @if (lastCoverage(); as cov) {
@@ -416,7 +425,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               @if (indicators(); as ind) {
                 <div class="pres-summary-head">
                   @if (ind.real_available && ind.data_as_of) {
-                    <app-freshness-pill measures="data" [since]="ind.data_as_of" [staleAfterSec]="86400" />
+                    <app-freshness-pill measures="data" [freshness]="ind.freshness" />
                   } @else {
                     <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
                   }
@@ -460,7 +469,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             <!-- ── CONCILIACIÓN (documentada) sell-out ↔ facturación contable 401 ── -->
             @if (salesTab() === 'conciliacion') {
               @if (reconciliation(); as rec) {
-                @if (rec.data_as_of) { <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="rec.data_as_of" [staleAfterSec]="86400" /><span class="pres-muted">Conciliación documental — el real del presupuesto sigue siendo el sell-out</span></div> }
+                @if (rec.freshness) { <div class="pres-summary-head"><app-freshness-pill measures="data" [freshness]="rec.freshness" /><span class="pres-muted">Conciliación documental — el real del presupuesto sigue siendo el sell-out</span></div> }
                 <p-table [value]="rec.annual" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
                   <ng-template #header>
                     <tr><th>Año</th><th>Canal</th><th class="ta-r">Sell-out</th><th class="ta-r">Facturación (401)</th><th class="ta-r">Δ</th><th class="ta-r">401/sell-out</th><th>Estado</th></tr>
@@ -531,7 +540,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
 
           @if (cashflow(); as cf) {
             @if (cf.sources.cobros.as_of) {
-              <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="cf.sources.cobros.as_of" [staleAfterSec]="86400" /></div>
+              <div class="pres-summary-head"><app-freshness-pill measures="data" [freshness]="cf.freshness" /></div>
             }
             <app-metric-strip [items]="cashflowKpis(cf)" mode="strip" ariaLabel="Resumen de flujo de efectivo" />
 
@@ -602,15 +611,15 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               </div>
             </div>
 
-            @if (ev.ventas_vinculadas.available && ev.ventas_vinculadas.data_as_of) {
-              <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="ev.ventas_vinculadas.data_as_of" [staleAfterSec]="86400" /></div>
+            @if (ev.ventas_vinculadas.available && ev.ventas_vinculadas.as_of) {
+              <div class="pres-summary-head"><app-freshness-pill measures="data" [freshness]="ev.freshness" /></div>
             }
             <app-metric-strip [items]="campKpis(ev)" mode="strip" ariaLabel="Evaluación de campaña" />
 
             <!-- Honestidad declarada (spec §9/§10): atribución, retorno, aportaciones, descuento -->
             <div class="pres-eval-notes">
               <p><span class="pi pi-link"></span> <strong>Ventas vinculadas:</strong>
-                {{ ev.ventas_vinculadas.available ? money(ev.ventas_vinculadas.ventas) : (ev.ventas_vinculadas.reason || 'sin datos') }}
+                {{ ev.ventas_vinculadas.available ? money(ev.ventas_vinculadas.monto) : (ev.ventas_vinculadas.reason || 'sin datos') }}
                 — atribución: {{ ev.ventas_vinculadas.attribution }} <em>(no prueba efecto incremental)</em>.</p>
               <p><span class="pi pi-chart-line"></span> <strong>Retorno:</strong>
                 @if (ev.retorno.available) { {{ ev.retorno.roi_pct }}% <span class="pres-muted">({{ ev.retorno.basis }})</span> }
@@ -1348,7 +1357,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   salesKpis(c: SalesComparison): MetricStripItem[] {
     return [
       { label: 'Meta total', value: c.totals.meta, format: 'currency-short' },
-      { label: 'Real', value: c.totals.real, format: 'currency-short', sub: c.real_available ? undefined : 'sin datos' },
+      { label: 'Real', value: c.totals.real == null ? '—' : c.totals.real, format: c.totals.real == null ? 'text' : 'currency-short', sub: c.totals.real == null ? 'sin datos' : undefined },
       { label: 'Cumplimiento', value: c.totals.cumplimiento_pct ?? 0, format: c.totals.cumplimiento_pct == null ? 'text' : 'percent', sub: c.totals.cumplimiento_pct == null ? 's/meta' : undefined, tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined },
       { label: `CREC vs ${c.prior_year}`, value: c.totals.crec_pct ?? 0, format: c.totals.crec_pct == null ? 'text' : 'percent', sub: c.totals.crec_pct == null ? 's/base' : undefined, tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined },
     ];
@@ -1373,7 +1382,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
     }
     const rowMethod = (ms: Set<string>): string | null => (ms.size === 0 ? null : ms.size === 1 ? [...ms][0] : 'mixto');
     const pct = (n: number | null, d: number | null) => (n == null || d == null || d === 0 ? null : Math.round((n / d) * 1000) / 10);
-    const crec = (r: number | null, p: number | null) => (p == null || p === 0 ? null : Math.round(((((r ?? 0) - p) / p) * 100) * 10) / 10);
+    // «Sin datos» ≠ cero (ADR-056): sin real (r=null) el CREC es desconocido, NO −100%.
+    const crec = (r: number | null, p: number | null) => (r == null || p == null || p === 0 ? null : Math.round((((r - p) / p) * 100) * 10) / 10);
     const rows: SalesRow[] = [];
     const channelOrder = ['mostrador', 'credito', 'ruta', 'preventa'];
     const entries = [...byEntity.entries()];
@@ -1384,19 +1394,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
         rows.push({ label: e.label, channel_label: e.channel_label, entity_key: ek, is_rollup: false,
           meta: e.meta, real: e.real, cumplimiento_pct: pct(e.real, e.meta), crec_pct: crec(e.real, e.prior), part_pct: pct(e.real, scopeReal), method: rowMethod(e.methods) });
       }
-      // subtotal por canal
+      // subtotal por canal — real NULL si ningún miembro tiene real (no 0 falso → CREC/PART correctos)
       const sMeta = inCh.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
-      const sReal = inCh.reduce((s, [, e]) => s + (e.real ?? 0), 0);
+      const sReal = inCh.some(([, e]) => e.real != null) ? inCh.reduce((s, [, e]) => s + (e.real ?? 0), 0) : null;
       const sPrior = inCh.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
       rows.push({ label: `Subtotal ${inCh[0][1].channel_label}`, channel_label: '', entity_key: null, is_rollup: true,
         meta: sMeta, real: sReal, cumplimiento_pct: pct(sReal, sMeta), crec_pct: crec(sReal, sPrior), part_pct: pct(sReal, scopeReal), method: null });
     }
     // total general
     const tMeta = entries.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
-    const tReal = entries.reduce((s, [, e]) => s + (e.real ?? 0), 0);
+    const tReal = entries.some(([, e]) => e.real != null) ? entries.reduce((s, [, e]) => s + (e.real ?? 0), 0) : null;
     const tPrior = entries.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
     rows.push({ label: 'Total Venta', channel_label: '', entity_key: null, is_rollup: true,
-      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal > 0 ? 100 : null, method: null });
+      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal != null && tReal > 0 ? 100 : null, method: null });
     return rows;
   }
 
@@ -1741,7 +1751,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
       { label: 'Costo (ejercido)', value: ev.costo, format: 'currency-short' },
       { label: 'Costo neto', value: ev.costo_neto_aportacion, format: 'currency-short', sub: 'menos aportación confirmada' },
       ev.ventas_vinculadas.available
-        ? { label: 'Ventas vinculadas', value: ev.ventas_vinculadas.ventas as number, format: 'currency-short' }
+        ? { label: 'Ventas vinculadas', value: ev.ventas_vinculadas.monto as number, format: 'currency-short' }
         : { label: 'Ventas vinculadas', value: 'sin datos', format: 'text', tone: 'warn' },
       ev.intensidad_gasto_ventas_pct != null
         ? { label: 'Gasto / ventas', value: ev.intensidad_gasto_ventas_pct, format: 'percent' }
@@ -1786,7 +1796,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   budgetSeverity(status: string): 'success' | 'info' | 'warn' | 'secondary' {
     return status === 'aprobado' ? 'success' : status === 'cerrado' ? 'secondary' : status === 'pendiente' ? 'warn' : 'info';
   }
-  dash(n: number | null | undefined): string { return Number(n) > 0 ? this.money(n) : '—'; }
+  // «Sin datos» ≠ cero (ADR-056): sólo null/undefined es «—»; un 0 real se muestra como $0.00.
+  dash(n: number | null | undefined): string { return n == null ? '—' : this.money(n); }
 
   // ── Capacidad (TP) ──
   loadCapacity(): void {

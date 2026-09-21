@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
+import type { Coverage } from '@megadulces/contracts';
 
 /**
  * Fase PVA.3 — Tablero de indicadores del Presupuesto de Ventas: CREC y PART por canal/entidad × año
@@ -19,7 +20,8 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const pct = (num: number | null, den: number | null): number | null => (num == null || den == null || den === 0 ? null : round2((num / den) * 100));
-const yoy = (cur: number | null, prev: number | null): number | null => (prev == null || prev === 0 ? null : round2(((Number(cur ?? 0) - prev) / prev) * 100));
+// «Sin datos» ≠ cero (ADR-056): sin real actual (cur=null) el YoY es desconocido, NO −100%.
+const yoy = (cur: number | null, prev: number | null): number | null => (cur == null || prev == null || prev === 0 ? null : round2(((cur - prev) / prev) * 100));
 
 @Injectable()
 export class BudgetSalesIndicatorsService {
@@ -114,6 +116,10 @@ export class BudgetSalesIndicatorsService {
         company, by_channel, by_entity,
         data_as_of: dataAsOf,
         real_available: (companyByYear.get(fy) ?? 0) > 0 || (companyByYear.get(priorYear) ?? 0) > 0,
+        // [PU-VP] Procedencia declarada por el SERVER (ADR-056).
+        freshness: composeFreshness([evalInput('sellout_daily', 'Sell-out del ODS', fresh?.mx ?? null, 26)]),
+        coverage: { measured: years.length > 0, pct: null,
+          note: years.length ? `${years.length} año(s) de historia del sell-out (${years[0]}–${years[years.length - 1]}).` : 'Sin historia de sell-out.' } as Coverage,
       };
     });
   }
@@ -167,6 +173,8 @@ export class BudgetSalesIndicatorsService {
           'Preventa NO reconcilia: el vecinal en 401-003 aparece como un asiento de jul-ago 2026 (~$17M en 2 meses), no como flujo parejo — anomalía contable declarada.',
         ],
         data_as_of: fresh?.mx ? new Date(fresh.mx).toISOString().slice(0, 10) : null,
+        // [PU-VP] Procedencia declarada por el SERVER (ADR-056).
+        freshness: composeFreshness([evalInput('sellout_daily', 'Sell-out del ODS', fresh?.mx ?? null, 26)]),
       };
     });
   }
