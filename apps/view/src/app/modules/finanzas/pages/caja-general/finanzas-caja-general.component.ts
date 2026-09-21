@@ -24,10 +24,15 @@ import {
 /**
  * CG.14 — Caja General: la pantalla donde la plataforma REGISTRA el efectivo (ADR-070).
  *
- * Reemplaza las 6 formas del Access `Control` (`Fichas de Efectivo por Cobranza`,
- * `Fichas de Otros Ingresos`, `Comprobante de Gasto`, `Comprobación de Gasto`,
- * `Depósitos al banco`) **con los mismos nombres que la gente ya usa**: reestructurar es
+ * Reemplaza las 6 formas del Access "Control" ("Fichas de Efectivo por Cobranza",
+ * "Fichas de Otros Ingresos", "Comprobante de Gasto", "Comprobación de Gasto",
+ * "Depósitos al banco") **con los mismos nombres que la gente ya usa**: reestructurar es
  * renombrar y reordenar, no rediseñar.
+ *
+ * ⚠️ Acá se citaba con acento grave y se cambió a comillas a propósito: este archivo tiene DOS
+ * literales de plantilla (`styles` y `template`) y un acento grave suelto en un comentario los
+ * cierra. Pasó siete veces en el repo — la séptima, en el comentario CSS de abajo, en esta misma
+ * sesión. Comillas dobles en los comentarios de este archivo, siempre.
  *
  * Tres cosas que esta pantalla hace y la de Access no podía:
  *   · El concepto contable de Kepler es un buscador sobre el catálogo vivo, no un número que
@@ -37,7 +42,7 @@ import {
  *   · La cobertura del catálogo está SIEMPRE a la vista: "0 conceptos" por carril caído no
  *     puede leerse igual que "esta sucursal no tiene conceptos".
  *
- * La lógica de decisión vive en `caja-captura.util.ts` (puro, con pruebas unitarias).
+ * La lógica de decisión vive en caja-captura.util.ts (puro, con pruebas unitarias).
  */
 @Component({
   selector: 'app-finanzas-caja-general',
@@ -47,15 +52,68 @@ import {
     SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [FINANZAS_SHARED_STYLES],
+  /**
+   * ⛔ Esta pantalla se pintaba SIN UN SOLO ESTILO. Usaba 19 clases fin-* que no existen en
+   * ningún lado del repo: FINANZAS_SHARED_STYLES define 63 clases y ni una empieza con fin-.
+   * Nadie lo vio porque nadie abrió la página; la validación visual quedó declarada como pendiente
+   * dos veces y el hueco era esto.
+   *
+   * El shell (página, encabezado, subtítulo) pasa al global surf-*. Lo de acá abajo es lo que sí
+   * es propio de una captura de caja —la barra del corte, el formulario, la reja de denominaciones—
+   * y vive local con el mismo criterio que cg-* en /finanzas/caja. Se conservan los nombres
+   * fin-* en vez de renombrar 19 usos: el arreglo es que EXISTAN, no cómo se llamen.
+   */
+  styles: [FINANZAS_SHARED_STYLES, `
+    .cg-head-actions { display:flex; align-items:center; gap:.5rem; }
+
+    /* La barra del corte: saldo + estado + acción, en una línea que se lee de un vistazo. */
+    .fin-corte-bar { display:flex; align-items:center; flex-wrap:wrap; gap:.75rem; margin:.75rem 0 1rem; }
+    .fin-saldo { font-weight:600; font-variant-numeric:tabular-nums; }
+
+    .fin-filters { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:1rem 0 .75rem; }
+    .fin-filters input, .fin-filters p-select { min-width:11rem; }
+
+    .fin-h2 { font-size:1rem; font-weight:700; margin:1.5rem 0 .5rem; }
+    .fin-dim { color:var(--text-muted); font-size:.78rem; }
+    .fin-empty { text-align:center; color:var(--text-muted); padding:1.25rem 0; }
+    .fin-neg { color:var(--danger-fg, #b42318); }
+    .d-block { display:block; }
+
+    /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
+       debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
+    .fin-form { display:flex; flex-direction:column; gap:.85rem; }
+    .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+    .fin-row > label { min-width:6.5rem; font-size:.8rem; color:var(--text-muted); }
+    .fin-row-col { flex-direction:column; align-items:stretch; gap:.35rem; }
+    .fin-row-col > label { min-width:0; }
+    .w-full { width:100%; }
+
+    .fin-hint-ok   { color:var(--ok-fg, #067647); font-size:.78rem; }
+    .fin-hint-warn { color:var(--warn-fg, #b54708); font-size:.78rem; }
+
+    .fin-details { border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-sm,6px); padding:.5rem .75rem; }
+    .fin-details > summary { cursor:pointer; font-size:.82rem; }
+
+    /* Reja de denominaciones: fija y ancha para que contar sea teclear en orden, no buscar. */
+    .fin-denoms { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr)); gap:.5rem; margin-top:.6rem; }
+    .fin-denom { display:flex; align-items:center; justify-content:space-between; gap:.4rem;
+                 border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-sm,6px); padding:.3rem .5rem; }
+    .fin-denom .mono { font-variant-numeric:tabular-nums; font-size:.8rem; }
+
+    /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
+    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg, #b54708); font-size:.8rem; }
+  `],
   template: `
-    <div class="fin-page">
-      <header class="fin-head">
-        <div>
+    <div class="surf-page in">
+      <!-- El shell de página es el GLOBAL (surf-*, styles.css), el mismo que usa /finanzas/caja.
+           Antes eran clases fin-* que NO EXISTEN en el repo: la página se pintaba sin un solo
+           estilo. Inventar un segundo shell de página es exactamente lo que ADR-056 prohíbe. -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
           <h1>Caja General</h1>
-          <p class="fin-sub">{{ coberturaTexto() }}</p>
+          <p class="surf-page-sub">{{ coberturaTexto() }}</p>
         </div>
-        <div class="fin-actions">
+        <div class="cg-head-actions">
           <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
                     (onClick)="abrirCaptura()" [disabled]="!hayConceptos()"></p-button>
         </div>
@@ -88,15 +146,15 @@ import {
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()" placeholder="Folio, glosa o beneficiario" />
       </div>
 
-      <p-table [value]="rows()" [loading]="cargando()" size="small" styleClass="fin-table"
+      <p-table [value]="rows()" [loading]="cargando()" size="small" styleClass="p-datatable-sm"
                [scrollable]="true" scrollHeight="flex">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Folio</th><th>Fecha</th><th>Tipo</th><th>Cuenta / Concepto</th>
             <th>Qué pasó</th><th class="ta-r">Monto</th><th>Capturó</th><th>Origen</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-m>
+        <ng-template #body let-m>
           <tr>
             <td class="mono">{{ m.folio }}</td>
             <td>{{ dmy(m.fecha) }}</td>
@@ -117,21 +175,21 @@ import {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="fin-empty">Sin movimientos en el periodo.</td></tr>
         </ng-template>
       </p-table>
 
       <h2 class="fin-h2">Cortes</h2>
-      <p-table [value]="cortes()" size="small" styleClass="fin-table">
-        <ng-template pTemplate="header">
+      <p-table [value]="cortes()" size="small" styleClass="p-datatable-sm">
+        <ng-template #header>
           <tr>
             <th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Estado</th>
             <th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th>
             <th>Cerró / Autorizó</th><th></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c>
+        <ng-template #body let-c>
           <tr>
             <td class="mono">{{ c.folio }}</td>
             <td>{{ dmy(c.fecha) }}</td>
@@ -156,7 +214,7 @@ import {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="9" class="fin-empty">Sin cortes en el periodo.</td></tr>
         </ng-template>
       </p-table>
@@ -367,7 +425,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   saldoResp = signal<SaldoResponse | null>(null);
   cortes = signal<CorteCaja[]>([]);
   /**
-   * CG.19 Capa 1b — `null` mientras se cuenta a ciegas; con valor una vez SELLADO el conteo.
+   * CG.19 Capa 1b — null mientras se cuenta a ciegas; con valor una vez SELLADO el conteo.
    * No se inicializa con los totales del saldo a propósito: ahí está justamente lo que hay que
    * ocultar, y el servidor ya no lo manda a quien no autoriza.
    */
@@ -401,13 +459,13 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
   /**
-   * ⛔ CG.19 Capa 1b — acá estaba la fuga. `esperadoCorte` leía `saldoResp().totales.esperado` y
-   * `veredicto` calculaba la diferencia EN EL NAVEGADOR mientras la persona tecleaba: se contaba
+   * ⛔ CG.19 Capa 1b — acá estaba la fuga. esperadoCorte leía saldoResp().totales.esperado y
+   * veredicto calculaba la diferencia EN EL NAVEGADOR mientras la persona tecleaba: se contaba
    * hasta que diera cero. Las dos se retiran.
    *
-   * El veredicto ahora lo produce el SERVIDOR al sellar el conteo (`revelado()`), que es el único
+   * El veredicto ahora lo produce el SERVIDOR al sellar el conteo (revelado()), que es el único
    * momento en que el conteo ya no se puede retocar. Calcularlo del lado del cliente sería
-   * devolverle el esperado por la ventana: con `esperado` en el bundle, taparlo en la plantilla
+   * devolverle el esperado por la ventana: con esperado en el bundle, taparlo en la plantilla
    * no tapa nada.
    */
   corteVista = computed<CorteVista | null>(() => {
@@ -455,8 +513,8 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   }
 
   /**
-   * La doble llave, en el boton. El `sub` del JWT es el MISMO id que el backend guarda en
-   * `closed_by` (el controller resuelve `id ?? sub ?? userId`), asi que la comparacion es
+   * La doble llave, en el boton. El sub del JWT es el MISMO id que el backend guarda en
+   * closed_by (el controller resuelve id ?? sub ?? userId), asi que la comparacion es
    * valida. El candado real esta en la DB: esto solo evita el 403 sorpresa.
    */
   gateAutorizar(c: CorteCaja) {
