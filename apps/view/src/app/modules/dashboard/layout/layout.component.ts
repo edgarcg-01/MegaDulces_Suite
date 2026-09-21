@@ -799,9 +799,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Cortes de caja',   icon: 'pi pi-wallet',     route: '/reparto/cortes',           permission: Permission.REPARTO_DESPACHAR },
   ];
 
-  /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */
+  /**
+   * Título de la primera sección del sidebar. En «Venta al detalle» se llama «Auditoría en
+   * ruta»: la auditoría de ejecución NO es el proyecto, es LO QUE SE HACE adentro (decisión
+   * 2026-09-21, junto con el renombre de la tarjeta). Decía «Trade», que no se lo dice a nadie
+   * que no venga de trade marketing. Resto de proyectos, «Operaciones».
+   */
   mainSectionTitle = computed(() =>
-    this.currentProject() === 'trademk' ? 'Trade' : 'Operaciones',
+    this.currentProject() === 'trademk' ? 'Auditoría en ruta' : 'Operaciones',
   );
 
   navItems = computed(() => {

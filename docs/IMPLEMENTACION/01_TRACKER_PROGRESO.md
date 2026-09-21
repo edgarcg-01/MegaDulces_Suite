@@ -1261,7 +1261,7 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 
 ⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
 
-✅ **Renombre 2026-09-21:** «Auditoría en Ruta» → **«Venta al detalle»** (tarjeta de `/projects`, migaja del layout, árbol de roles y encabezados de flota de ruta). No toca permisos, rutas ni ids: sólo la etiqueta, en sus dos fuentes (`suite-map.ts` + `authz-tree.ts`). P-14 (dónde vive) queda abierta.
+✅ **Renombre 2026-09-21:** «Auditoría en Ruta» → **«Venta al detalle»** (tarjeta de `/projects`, migaja del layout, árbol de roles y encabezados de flota de ruta). No toca permisos, rutas ni ids: sólo etiquetas. **La auditoría no desaparece, baja de nivel**: es la primera sección del sidebar de ese proyecto (decía «Trade») y el grupo del mapa pasa a `Ventas › Venta al detalle` (el canal). P-14 (dónde vive) queda abierta.
 
 ### Fase ET — Etiqueta de anaquel (`/tienda/etiquetas`)
 
