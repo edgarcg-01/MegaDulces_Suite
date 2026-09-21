@@ -10,6 +10,37 @@
 
 ## [Unreleased]
 
+### Changed — La imagen de prod adelgaza 860 MB, y compilar resultó ser el 38% del build (`[NX.10]`, 2026-09-21)
+- **Se midió el build real de Railway antes de tocar nada** (deploy 2026-09-21 09:03, 5m 21s):
+  `nx run-many` **2m 02s (38%)** · `COPY --chown node_modules` **1m 30s (28%)** · `export`
+  **1m 13s (23%)** · push 21s. O sea que **el 58% del reloj era mover y empaquetar
+  `node_modules`**, no compilar — y toda la optimización previa apuntaba a la minoría.
+- **El stage `prod-deps` instala ahora desde el manifiesto que el propio build emite**, no desde
+  el `package.json` de la raíz. `apps/api/webpack.config.js` ya tenía `generatePackageJson: true`
+  y **nadie usaba la salida**: 64 deps contra las 116 de la raíz, que arrastraban al runner todo
+  el stack de front. Medido con `npm ci` real adentro de Docker: **1,210 MB / 102,821 archivos →
+  592 MB / 58,914 (−618 MB, −51%)**. Lo que sobraba: `@imgly` 184 MB, `@angular` 64 MB,
+  `@zxing` 29 MB, PrimeNG + temas + iconos 26 MB, chart.js, leaflet, gsap, dexie, capacitor.
+- **El `chown` se movió al stage origen.** `--chown` en un `COPY` entre stages impide a BuildKit
+  reusar los inodos del snapshot: crea uno nuevo por archivo. Hecho en `prod-deps` queda en una
+  capa cacheada y el runner copia preservando el owner.
+- **Antes/después, build local completo en la misma máquina:** `COPY node_modules` 88.6s →
+  **26.9s** · `export` 115.3s → **85.3s** · imagen **3.97 GB → 3.11 GB**. ⚠️ Las dos causas se
+  arreglaron juntas: la atribución entre ellas **no quedó aislada**.
+- ⚠️ **La ganancia en PROD está NO MEDIDA.** Proyección ≈ −85s de 5m 21s (−27%); se confirma
+  contra el próximo deploy real.
+
+### Added — Candado del `node_modules` podado (`scripts/check-bundle-externals.js`)
+- Podar por un manifiesto derivado abre un modo de falla: un `require(variable)` no entra al grafo
+  de webpack, no se instala, y revienta con `MODULE_NOT_FOUND` **recién en el arranque de prod**.
+- El candado usa un **árbitro independiente del manifiesto**: los `require("...")` literales que
+  quedaron en el bundle emitido, exigiendo que cada uno resuelva contra el árbol podado. Corre en
+  el stage `runner` de los dos Dockerfiles → **rompe el build**, no el boot.
+- Positivo dentro del build real: `✔ 59 externals`. Negativo: contra un árbol vacío sale 1
+  nombrando los 59. Verificación de runtime sobre la imagen podada: `npx knex` ✔, `migrate.sh`
+  muere en `ECONNREFUSED` (no en `MODULE_NOT_FOUND`) y los ~200 módulos de Nest arrancan con
+  **0 `MODULE_NOT_FOUND`**.
+
 ### Added — Análisis de ventas de tienda: cuatro secciones y una cascada por período (Fase TDA.A, 2026-09-19)
 - **`/tienda/analisis-semanal` se parte en cuatro secciones** —Tráfico · Productos y proveedores ·
   Clientes · Promociones— sobre el MISMO recorte. El filtro de período y sucursal vive una sola vez,

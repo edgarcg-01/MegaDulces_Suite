@@ -385,6 +385,7 @@ Nx Cloud configurado"* mientras usaba `actions/cache` como sustituto.
 | `[NX.7]` | ✅ | **`typecheck` entra a Nx** (`api`, porque SWC borra los tipos sin comprobarlos y las 3 Angular sí chequean en AOT): 5.8 s en frío → **89 ms** con caché, y **re-corre** al tocar `tsconfig.ts7.json` (input explícito, misma regla de `[NX.1]`/`[NX.3]`). Antes estaba **ROJO** con 5 × TS2307 que no eran errores de código: el mapa de `paths` se había desfasado (faltaban 6, sobraban 3 de una lib **que no existe**). Candado nuevo `scripts/check-ts7-paths.js` con **3 pruebas negativas** |
 | `[NX.8]` | ✅ | **Regresión (~218 pruebas) a Nx** como `database:regression`, **`cache: false`** a propósito (pegan contra Postgres real; el estado de la DB no entra al hash → cachear serviría un **veredicto** viejo). Efecto colateral atajado: crear el proyecto le infería un `lint` de **1089 problems / 468 errors** sobre 238 archivos nunca lintados → excluido y **declarado como deuda** |
 | `[NX.9]` | ✅ | **Nx 23.1.0 → 23.2.1**. `nx migrate` movió **sólo el core** y dejó los 13 `@nx/*` en 23.1.0 → se alinearon a mano. Cero migraciones que correr; grafo intacto (18 proyectos) |
+| `[NX.10]` | 🧪 | ⭐ **El build de prod, medido paso por paso — y compilar era el 38%.** El log real del deploy 2026-09-21 (5m 21s): `nx run-many` **2m 02s**, `COPY --chown node_modules` **1m 30s**, `export` **1m 13s**, push 21s. O sea que **el 58% era mover y empaquetar `node_modules`**, y toda la fase venía optimizando la minoría del reloj. Dos causas: (1) `prod-deps` instalaba desde el `package.json` de la **raíz** (116 deps, con Angular/PrimeNG/Capacitor adentro) cuando el build **ya emitía** el manifiesto podado (`generatePackageJson`, 64 deps) y nadie lo usaba — medido con `npm ci` real: **1,210 MB/102,821 archivos → 592 MB/58,914 (−618 MB, −51%)**; (2) `--chown` en un `COPY` entre stages impide reusar inodos → un inodo nuevo por archivo. **Antes/después local: `COPY` 88.6s→26.9s · `export` 115.3s→85.3s · imagen 3.97 GB→3.11 GB.** Candado nuevo `scripts/check-bundle-externals.js` (los `require("...")` literales del bundle son árbitro **independiente** del manifiesto; prueba negativa hecha) + verificación de runtime en la imagen podada: knex CLI ✔, `migrate.sh` muere en `ECONNREFUSED` (no en `MODULE_NOT_FOUND`) y los ~200 módulos de Nest arrancan con **0 `MODULE_NOT_FOUND`**. ⚠️ **La ganancia en PROD está NO MEDIDA** — proyección ≈ −85s (−27%), se confirma con el próximo deploy |
 
 ⛔ **Lo que NO se hizo, con motivo escrito:** distribución en agentes de Nx Cloud (consume créditos
 del plan y **cuál es el plan no se verificó** — encenderlo a ciegas es gastar sin medir).
@@ -398,6 +399,16 @@ está en el contenedor (`.dockerignore` excluye `.git`), y pasarla como build ar
 variable expone Railway — **no se verificó, no se inventa**. Cuesta sólo el redeploy del mismo
 commit. En `vendor` el sello se lee en **un solo lugar**: una sonda de diagnóstico, al lado del
 commit que ya identifica el build.
+⭐ **`[NX.10]` encontró una CUARTA salida y está medida:** un archivo en la RAÍZ servida
+—`/build-info.json`— **no cae en ningún `assetGroup`** de ninguno de los dos `ngsw-config.json`
+(sólo listan `/index.html`, `/manifest.webmanifest`, `/*.css`, `/*.js`, `/favicon.ico`,
+`/assets/**` y extensiones de imagen/fuente). O sea que el reloj de pared **sí** se puede sellar
+post-build, en el stage `runner`, sin desfasar `ngsw.json` — dejando sólo el commit adentro del
+hash de Nx. No se hizo en `[NX.10]` porque esos dos servicios salieron **`SKIPPED`** en el deploy
+medido (no hay antes/después que exhibir) y toca una sonda que pide validación visual.
+⬜ **Y hay un costo mayor sin medir en esos dos:** su `npm ci` corre **sin cache mount** (Railway
+exige `id=s/<service-id>-…` y **no se tienen los Service ID** de `Portal_MegaDulces` ni
+`Vendor_MegaDulces`) → cada build baja las dependencias enteras de la red. Acción humana: pasarlos.
 
 **Pendiente — todo acción humana fuera del repo:** (1) emitir el CI Access Token **read-write** en
 `cloud.nx.app` *(no hay CLI para mintearlo)* · (2) cargarlo como build var en Railway · (3) como

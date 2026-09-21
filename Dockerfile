@@ -5,7 +5,8 @@
 # Pipeline:
 #   1. deps      → instala TODAS las deps (con devDeps) para compilar
 #   2. builder   → reutiliza node_modules de `deps`, compila view + api
-#   3. prod-deps → reusa node_modules y le aplica npm prune (sin re-descargar)
+#   3. prod-deps → instala SOLO lo que el bundle de la api requiere, desde el
+#                  manifiesto podado que el propio build emite (no el de la raíz)
 #   4. runner    → imagen final: nginx-light + node + dist + node_modules de prod
 #                  Corre como user `node` (UID 1000), NO root.
 #
@@ -116,11 +117,35 @@ RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx2,target=/app
 # Nx/Angular/jest/karma/playwright) en overlayfs; el unlink masivo de archivos
 # pequeños tarda ~5min. `npm ci` escribe solo las prod deps en capa limpia,
 # reusando los tarballs que `deps` ya bajó al cache mount (mismo id) → sin red.
-# Replica el `npm ci` del stage `deps` (que ya corre en cada deploy) + flags.
 # `--ignore-scripts`: puppeteer no baja Chromium y sharp usa sus binarios
 # precompilados @img/* (no necesitan build script).
 # NO usar `npm dedupe`: en monorepos Nx el árbol ya viene plano y dedupe camina
 # todo el árbol 5-7min para ahorrar <1MB (build Railway 6m59s).
+#
+# `[NX.10]` ⭐ El manifiesto es el PODADO que emite el propio build, no el de la raíz.
+# ---------------------------------------------------------------------------
+# El `package.json` de la raíz declara 116 deps de producción porque ahí viven
+# juntas la api y las tres apps de Angular. Pero la imagen final sólo corre DOS
+# cosas: `node dist/apps/api/main.js` y `npx knex migrate:latest`. Instalar el
+# manifiesto de la raíz metía en el runner todo el stack de front —medido en el
+# árbol local: `@imgly` 184MB, `@angular` 64MB, `@zxing` 29MB, PrimeNG+temas+
+# iconos 26MB, chart.js/leaflet/gsap/dexie/capacitor/ngrx/zone.js— que el bundle
+# de la api nunca requiere.
+#
+# `apps/api/webpack.config.js` ya emite `generatePackageJson: true`, o sea que
+# el build escribe en `dist/apps/api/` un `package.json` con las 64 deps que el
+# grafo de imports REALMENTE usa, más su `package-lock.json` podado del lock de
+# la raíz. Esa es la lista correcta y es DERIVADA, no mantenida a mano.
+#
+# Esto NO se paga en tiempo de instalación: el `RUN` se cachea por el contenido
+# de los dos archivos copiados, y el manifiesto de la api sólo cambia cuando
+# cambia su grafo de dependencias — bastante más raro que "cambió código".
+#
+# ⚠️ El modo de falla que abre: un `require(variable)` no queda en el grafo de
+# webpack → no entra al manifiesto → no se instala → `MODULE_NOT_FOUND` recién
+# en el arranque de prod. Por eso el stage `runner` corre
+# `scripts/check-bundle-externals.js`, que exige que cada `require("...")`
+# literal del bundle resuelva contra ESTE árbol. El candado vive abajo.
 FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 
@@ -129,10 +154,19 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_AUDIT=false \
     CI=true
 
-COPY package*.json .npmrc ./
+COPY .npmrc ./
+COPY --from=builder /app/dist/apps/api/package.json      ./package.json
+COPY --from=builder /app/dist/apps/api/package-lock.json ./package-lock.json
 
+# El `chown` va ACÁ y no en el `COPY --from=prod-deps` del runner. Con
+# `--chown`, BuildKit tiene que crear un inodo nuevo por archivo al copiar entre
+# stages (no puede reusar los del snapshot origen); sobre un node_modules eso
+# son decenas de miles de archivos chicos y en el build de prod del 2026-09-21
+# ese solo paso midió **1m 30s** — el 28% del build entero. Hecho acá queda
+# dentro de una capa que se cachea, y el runner copia preservando el owner.
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts --prefer-offline
+    npm ci --omit=dev --ignore-scripts --prefer-offline && \
+    chown -R node:node /app/node_modules
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
@@ -194,7 +228,16 @@ ENV NODE_ENV=production \
 # necesidad de un `chown -R` post-copy (que duplicaría todos los inodes).
 COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
 COPY --from=builder  --chown=node:node /app/database     ./database
-COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+# SIN `--chown`: ya viene con owner `node` desde `prod-deps` (ver el comentario
+# de ese stage). `--chown` acá costaba 1m 30s de reescritura de inodos.
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# `[NX.10]` Candado del árbol podado: cada `require("...")` literal que quedó en el
+# bundle tiene que resolver contra el node_modules que se acaba de copiar. Si el
+# manifiesto generado se comió un paquete, el build ROMPE acá y no en el boot de
+# prod. Prueba negativa hecha al escribirlo (borrar un paquete → exit 1).
+COPY --chown=node:node scripts/check-bundle-externals.js ./scripts/check-bundle-externals.js
+RUN node ./scripts/check-bundle-externals.js ./dist/apps/api/main.js ./node_modules
 # Bundle del SPA → /usr/share/nginx/html. Solo nginx lo sirve. NestJS YA
 # NO usa ServeStaticModule (removido por bug del exclude pattern en
 # Express 5: el fallback static interceptaba TODO request no-API y tiraba

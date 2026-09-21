@@ -3102,3 +3102,88 @@ familia que el §34 (comentario que rompe el estilo y el build sólo avisa como 
 
 Encontrado de casualidad construyendo la Lista de faltantes (Fase FLT), al chocar con el mismo
 defecto en un diálogo nuevo.
+
+---
+
+## 60. La imagen de prod cargaba 618 MB de Angular que la api nunca requiere — y el `--chown` de un `COPY` costaba 1m 30s
+
+**Medido el 2026-09-21**, sobre el build real de Railway del servicio `MegaDulces`
+(5m 21s de punta a punta). El desglose por paso dejó el diagnóstico servido:
+
+| paso | tiempo | % |
+|---|---|---|
+| `nx run-many -t build -p view,api --parallel=1` | 2m 02s | 38% |
+| `COPY --from=prod-deps --chown=node:node node_modules` | **1m 30s** | 28% |
+| `exporting to docker image format` | **1m 13s** | 23% |
+| `image push` (633.4 MB) | 21s | 7% |
+
+O sea: **compilar era el 38%; mover y empaquetar `node_modules` era el 58%.**
+
+### Causa 1 — el manifiesto equivocado
+
+El stage `prod-deps` instalaba `npm ci --omit=dev` desde el `package.json` de la
+**raíz**, que declara 116 deps de producción porque en ese monorepo conviven la
+api y tres apps de Angular. Pero la imagen sólo corre dos cosas: el bundle de la
+api y `npx knex migrate:latest`.
+
+`apps/api/webpack.config.js` ya emitía `generatePackageJson: true` desde siempre
+— o sea que el build **ya estaba escribiendo** en `dist/apps/api/` el manifiesto
+con las 64 deps que el grafo de imports realmente usa, más su `package-lock.json`
+podado. Nadie lo usaba.
+
+Instalar uno u otro, medido con `npm ci` de verdad adentro de Docker:
+
+| árbol | tamaño | archivos |
+|---|---|---|
+| manifiesto de la raíz | 1,210 MB | 102,821 |
+| manifiesto generado | 592 MB | 58,914 |
+| | **−618 MB (−51%)** | **−43,907 (−43%)** |
+
+Lo que sobraba: `@imgly` 184 MB, `@angular` 64 MB, `@zxing` 29 MB, PrimeNG +
+temas + iconos 26 MB, chart.js, leaflet, gsap, dexie, capacitor, ngrx, zone.js.
+
+### Causa 2 — `--chown` en un `COPY` entre stages
+
+Con `--chown`, BuildKit **no puede reusar los inodos del snapshot origen**: crea
+uno nuevo por archivo. Sobre decenas de miles de archivos chicos eso es el 1m 30s.
+El `chown -R` equivalente hecho en el stage `prod-deps` queda dentro de una capa
+**cacheada** y el `COPY` del runner preserva el owner gratis.
+
+### El antes/después, build local completo, misma máquina
+
+| | viejo | nuevo |
+|---|---|---|
+| `COPY node_modules` → runner | 88.6s | **26.9s** (−70%) |
+| `exporting to docker image format` | 115.3s | **85.3s** (−26%) |
+| imagen | 3.97 GB | **3.11 GB** (−860 MB) |
+
+⚠️ Las dos causas se arreglaron en el mismo commit, así que **la atribución
+entre "menos archivos" y "sin `--chown`" no quedó aislada**. Lo que sí quedó
+medido es el efecto combinado.
+
+### ⛔ El modo de falla que esto abre, y su candado
+
+`generatePackageJson` deriva la lista de los `externals` que **webpack ve** en el
+grafo. Un `require(unaVariable)` no está en el grafo → no entra al manifiesto →
+no se instala → `MODULE_NOT_FOUND` recién en el arranque de prod. Un build verde
+no lo detecta.
+
+Por eso el stage `runner` corre `scripts/check-bundle-externals.js`: saca del
+bundle emitido los `require("...")` **literales** —árbitro independiente del
+manifiesto— y exige que cada uno resuelva contra el árbol podado. Si el recorte
+se pasa de listo, **rompe el build**, no el boot. Prueba negativa hecha: contra
+un `node_modules` vacío sale 1 nombrando los 59.
+
+Ese candado cubre el error de *poda*, no el de *análisis estático*. Para el
+segundo el testigo es arrancar el contenedor: se hizo, y los ~200 módulos de Nest
+inicializan con **0 `MODULE_NOT_FOUND`**; `npx knex` resuelve y `migrate.sh` llega
+hasta el intento de conexión.
+
+### Lo que hay que saber al tocarlo
+
+- `prod-deps` ahora **depende de `builder`** (le copia el manifiesto). Sigue
+  cacheándose por contenido, y el manifiesto de la api sólo cambia cuando cambia
+  su grafo de dependencias — bastante más raro que "cambió código". Pero cuando
+  cambia, paga el `npm ci` (~50s en caliente) en vez de los 5 ms de hoy.
+- Regla general: **`--chown` en un `COPY` de muchos archivos chicos entre stages
+  se paga en wall-clock cada build.** Poné el owner correcto en el stage origen.
