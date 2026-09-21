@@ -446,11 +446,22 @@ export class KpService {
     try {
       // Se traen TODAS las filas del código (una por sucursal: son pocas) en vez de `LIMIT 1`.
       // Es lo que permite a la vez elegir la plaza pedida y saber si las demás discrepan.
+      // `[BUG.1]` `LPAD(x, 5, '0')` en Postgres no sólo rellena — si `x` mide MÁS de 5
+      // caracteres lo TRUNCA a los primeros 5 (verificado: `lpad('7501234567890',5,'0')`
+      // devuelve `'75012'`, no un error ni el string completo). La comparación de abajo
+      // comparaba `LPAD(c1,5,'0') = LPAD($1,5,'0')` SIN condición de longitud, así que un
+      // código de barras EAN-13 completo se truncaba a sus primeros 5 dígitos antes de
+      // comparar — cualquier `c1` cuyos primeros 5 dígitos coincidieran con los del barcode
+      // escaneado daba un MATCH FALSO (reportado en campo: "sólo lee los primeros 5 dígitos
+      // y da información errónea"). El propósito real de esta rama es equiparar un código
+      // INTERNO corto tecleado sin ceros a la izquierda (ej. "123") contra `c1` almacenado
+      // como "00123" — nunca debe activarse para un barcode (8-13 dígitos), así que se
+      // condiciona a que el código escaneado mida 5 caracteres o menos.
       const rows = await this.query<any>(`
         SELECT ${KpService.COLS_PRECIO}, TRIM(sucursal::text) AS sucursal
         FROM kepler_ods.kdii
         WHERE TRIM(c1::text) = $1
-           OR LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0')
+           OR (length($1) <= 5 AND LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0'))
            OR TRIM(c7::text)  = $1
            OR TRIM(c82::text) = $1
            OR TRIM(c93::text) = $1

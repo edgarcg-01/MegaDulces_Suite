@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Fixed — el verificador confundía productos al escanear un código de barras (CV.28, 2026-09-20)
+- Reportado en campo: al escanear, la pantalla mostraba información de OTRO producto.
+- Causa: `LPAD(x, 5, '0')` de Postgres **trunca** cuando `x` mide más de 5 caracteres
+  (`lpad('7506306248861',5,'0')` → `'75063'`) — la comparación de `KpService.getPrecio()` entre
+  `LPAD(c1,5,'0')` y `LPAD($1,5,'0')` no tenía guarda de longitud, así que un código de barras
+  EAN-13 completo se truncaba a sus primeros 5 dígitos antes de comparar contra el código interno.
+  Caso real confirmado: `7506306248861` (GEL EGO GRANDE) empataba con `* DESCONTINUADO`.
+- Fix: la rama de `LPAD` solo aplica cuando el código escaneado mide ≤5 caracteres (su propósito
+  real: código interno corto sin ceros a la izquierda, nunca un barcode). PR #127.
+
 ### Changed — Nx Cloud llega a prod, y el typecheck deja de estar rojo por su propia config (Fase NX, 2026-09-18)
 - **Nx Cloud ya estaba conectado desde el PR #115 y nadie lo estaba usando.** El caché remoto
   funciona —verificado con dos cachés locales vacías distintas: la 1ª falla y escribe, la 2ª lee
