@@ -25,7 +25,12 @@ export const KEPLER_BRANCH_NAMES: Readonly<Record<string, string>> = Object.free
   // Morelia Madero pasó a tener sucursal Kepler propia (`md_07`) desde el 2026-09-08; antes sólo
   // existía del lado Wincaja ('32', que se conserva abajo para los registros previos al cutover).
   '07': 'Morelia Madero',
-  // Wincaja (mostrador)
+  // Morelia Abastos pasó a Kepler propio (`md_08`) el 2026-09-18, y el 2026-09-21 su almacén se
+  // FUSIONÓ: `MD-30` se renombró a `08` y quedó con las dos identidades en la misma fila
+  // (`kepler_code='08'` + `wincaja_source_branch='30'`), como Canindo. El '30' de abajo sigue
+  // siendo la llave de su historia Wincaja, que los feeds antiguos emiten y nadie reescribe.
+  '08': 'Morelia Abastos',
+  // Wincaja (mostrador) — eras cerradas; se conservan porque la historia se sigue consultando.
   '30': 'Morelia Abastos',
   '32': 'Morelia Madero',
   '50': 'Canindo',

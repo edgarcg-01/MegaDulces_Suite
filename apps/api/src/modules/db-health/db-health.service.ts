@@ -464,18 +464,32 @@ const APP_SOURCES: SourceCfg[] = [
     key: 'wincaja_existencias_entrega',
     label: 'Wincaja — existencia ENTREGADA (imported_at, no fecha de negocio)',
     table: 'wincaja.existencias', tsCandidates: [],
-    sql: `WITH r AS (
-            SELECT source_branch, max(imported_at) AS ult
-              FROM wincaja.existencias
-             WHERE source_dataset = 'actual' AND source_branch IN ('00','30','32')
-             GROUP BY source_branch
+    // ⛔ La lista de ramas ya NO va hardcodeada, por la misma razón que en `wincaja_branch_stale`
+    // (ver arriba, el caso Canindo). Estaba fija en ('00','30','32') y medido el 2026-09-21
+    // reportaba **316 h** de rezago por culpa de Madero ('32', que migró a Kepler el 09-08) —
+    // TAPANDO que el CEDIS '00', la única rama que de verdad sigue cargando, llevaba 77 h sin
+    // entregar. Un sensor que no se puede apagar no avisa: enseña a ignorar el tablero, y encima
+    // acá escondía el problema real detrás del falso.
+    //
+    // Ahora se deriva de `wincaja.branches.status = 'live_on_wincaja'` = las que todavía se
+    // alimentan de un `.mdb` vivo. Las que migraron quedan en 'transition'/'legacy_on_kepler' y
+    // salen solas; cuando Madero se funda como Abastos, este sensor no hay que tocarlo.
+    sql: `WITH vivas AS (
+            SELECT source_branch FROM wincaja.branches WHERE status = 'live_on_wincaja'
+          ), r AS (
+            SELECT e.source_branch, max(e.imported_at) AS ult
+              FROM wincaja.existencias e
+              JOIN vivas v ON v.source_branch = e.source_branch
+             WHERE e.source_dataset = 'actual'
+             GROUP BY e.source_branch
           )
           SELECT min(ult) AS last_update,
                  'la rama más atrasada es ' ||
                  COALESCE((SELECT source_branch FROM r ORDER BY ult LIMIT 1), '—') ||
                  ', cargada ' ||
                  COALESCE(to_char(min(ult) AT TIME ZONE 'America/Mexico_City', 'DD/MM HH24:MI'), '—') ||
-                 ' · ' || count(*)::text || ' de 3 ramas presentes' AS note_extra
+                 ' · ' || count(*)::text || ' de ' ||
+                 (SELECT count(*) FROM vivas)::text || ' ramas Wincaja vivas presentes' AS note_extra
             FROM r`,
     warnH: 30, critH: 50, cadence: 'diario 05:00 (mismo carril que wincaja_sync)',
   },

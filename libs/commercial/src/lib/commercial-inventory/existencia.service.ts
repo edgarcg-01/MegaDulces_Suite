@@ -496,13 +496,20 @@ export class ExistenciaService {
       this.logger.warn(`frescura Kepler no disponible: ${e.message}`);
     }
     try {
+      // Las ramas NO van hardcodeadas: se derivan de las que siguen alimentándose de un `.mdb`
+      // vivo. Estaba fijo en ('00','30','32') y desde que Abastos migró a Kepler (2026-09-18) y
+      // se fusionó su almacén (09-21), medir la '30' era medir un archivo que ya nadie escribe:
+      // la etiqueta decía "Wincaja" y el minutero contaba una rama muerta, o sea una frescura
+      // que no es la de nadie. Mismo criterio que el sensor `wincaja_existencias_entrega`.
       const w = (await trx.raw(`
-        SELECT max(imported_at) AS dato_al,
-               round(EXTRACT(epoch FROM now() - max(imported_at)) / 60.0, 1) AS minutos
-          FROM wincaja.existencias
-         WHERE tenant_id = ? AND source_dataset = 'actual'
-           AND source_branch IN ('00', '30', '32')`, [tenantId])).rows[0];
-      if (w && w.dato_al) out.push({ rama: 'wincaja', label: 'Wincaja 00 / MD-30 / MD-32', dato_al: w.dato_al, minutos: Number(w.minutos) });
+        SELECT max(e.imported_at) AS dato_al,
+               round(EXTRACT(epoch FROM now() - max(e.imported_at)) / 60.0, 1) AS minutos,
+               string_agg(DISTINCT e.source_branch, ' / ' ORDER BY e.source_branch) AS ramas
+          FROM wincaja.existencias e
+          JOIN wincaja.branches b ON b.source_branch = e.source_branch
+         WHERE e.tenant_id = ? AND e.source_dataset = 'actual'
+           AND b.status = 'live_on_wincaja'`, [tenantId])).rows[0];
+      if (w && w.dato_al) out.push({ rama: 'wincaja', label: `Wincaja ${w.ramas || '—'}`, dato_al: w.dato_al, minutos: Number(w.minutos) });
     } catch (e: any) {
       this.logger.warn(`frescura Wincaja no disponible: ${e.message}`);
     }

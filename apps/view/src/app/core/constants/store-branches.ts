@@ -20,6 +20,11 @@ export const STORE_BRANCHES: StoreBranch[] = [
   { code: '04', name: 'Yurécuaro' },
   { code: '05', name: 'Zamora Centro' },
   { code: '06', name: 'Canindo' },
+  // Madero (2026-09-08) y Abastos (2026-09-18) migraron su PdV de Wincaja a Kepler propio, así
+  // que su venta llega por el poller de Kepler como '07' y '08'. Faltaban acá: el monitor las
+  // ofrecía todavía como '32'/'30' (abajo), o sea apuntando al `.mdb` que dejó de moverse.
+  { code: '07', name: 'Morelia Madero' },
+  { code: '08', name: 'Morelia Abastos' },
 ];
 
 /**
@@ -37,12 +42,24 @@ export const STORE_BRANCHES: StoreBranch[] = [
  * platform-core.
  */
 export const WINCAJA_BRANCHES: StoreBranch[] = [
-  { code: '30', name: 'Morelia Abastos' },
-  { code: '32', name: 'Morelia Madero' },
+  { code: '30', name: 'Morelia Abastos (era Wincaja)' },
+  { code: '32', name: 'Morelia Madero (era Wincaja)' },
 ];
 
-/** Las 9 sucursales de la red, sin importar qué punto de venta corran. */
-export const NETWORK_BRANCHES: StoreBranch[] = [...STORE_BRANCHES, ...WINCAJA_BRANCHES];
+/**
+ * Las 9 sucursales de la red, sin importar qué punto de venta corran.
+ *
+ * ⚠️ Desde el 2026-09-21 son `'00'..'08'` y **ya no incluye `'30'`/`'32'`**. No es cosmético:
+ * estos códigos se usan como valores de ALCANCE, y el alcance se resuelve con `branchKeySql`
+ * (`CASE WHEN code ~ '^[0-9]{2}$' THEN code ELSE wincaja_source_branch END`). Al fusionarse
+ * Morelia Abastos, su almacén pasó de `'MD-30'` a `'08'` → su llave canónica dejó de ser `'30'`.
+ * Ofrecer `'30'` acá sería ofrecer un alcance que no matchea ninguna fila.
+ *
+ * ⛔ Madero sigue partida (`'07'` Kepler + `MD-32` Wincaja soft-deleted, que todavía llavea
+ * `'32'`): hay 4 usuarios con alcance `'32'` que sólo ven la era Wincaja. Se arregla cuando
+ * Madero se funda igual que Abastos; hasta entonces queda declarado, no disfrazado.
+ */
+export const NETWORK_BRANCHES: StoreBranch[] = [...STORE_BRANCHES];
 
 /**
  * `[TDA.Wincaja]` Sucursales con **monitor de ventas EN VIVO** en `/tienda/live`.
@@ -61,7 +78,13 @@ export const NETWORK_BRANCHES: StoreBranch[] = [...STORE_BRANCHES, ...WINCAJA_BR
  * códigos distintos. Mientras `32` siga vendiendo en Wincaja, va acá.
  */
 export const LIVE_MONITOR_WINCAJA: StoreBranch[] = [
-  { code: '30', name: 'Morelia Abastos' },
+  // ⛔ Abastos ('30') SALIÓ el 2026-09-21: su PdV es Kepler `md_08` desde el 09-18 y su venta
+  // llega por el poller de Kepler como '08' (ya está en STORE_BRANCHES). Dejarla acá ofrecía
+  // una tienda cuyo `.mdb` no se mueve desde el 09-17 — el monitor "en vivo" mostrando un
+  // último ticket de hace días, que se lee igual que "no vendió".
+  //
+  // ⛔ Madero ('32') debería salir por lo mismo (Kepler desde el 09-08) pero su fusión no está
+  // hecha: se deja y se DECLARA, porque sacarla sin fusionar la deja sin monitor en vivo.
   { code: '32', name: 'Morelia Madero' },
 ];
 
