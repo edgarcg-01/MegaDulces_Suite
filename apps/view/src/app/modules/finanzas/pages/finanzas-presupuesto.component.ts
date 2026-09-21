@@ -1112,13 +1112,18 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   lifecycle(b: BudgetHeader, action: 'submit' | 'approve' | 'close'): void {
     this.savingLifecycle.set(true);
-    this.http.post<BudgetHeader>(`${this.base}/budgets/${b.id}/${action}`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
+    this.http.post<{ materialization?: { error?: string } }>(`${this.base}/budgets/${b.id}/${action}`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
         this.savingLifecycle.set(false); this.loadBudgets(); this.reloadDetail();
         if (action === 'approve') {
-          // el backend ya materializó las partidas; proyectamos las metas a Análisis (PVT) — automático
+          // el backend materializa best-effort; NO afirmar éxito si falló (era una falla silenciosa).
+          const matErr = resp?.materialization?.error;
           this.http.post(`${this.base}/budgets/${b.id}/sales-plan/project-targets`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => { /* silencioso */ }, error: () => { /* no bloquea */ } });
-          this.toast.add({ severity: 'success', summary: 'Ejercicio aprobado', detail: 'Partidas materializadas del plan y metas proyectadas a Análisis.' });
+          if (matErr) {
+            this.toast.add({ severity: 'warn', summary: 'Aprobado, pero SIN materializar', detail: `Las partidas NO se materializaron: ${matErr}. Corregí y usá "Re-materializar".`, life: 8000 });
+          } else {
+            this.toast.add({ severity: 'success', summary: 'Ejercicio aprobado', detail: 'Partidas materializadas del plan y metas proyectadas a Análisis.' });
+          }
         } else {
           this.toast.add({ severity: 'success', summary: 'Listo', detail: action === 'submit' ? 'Enviado a autorización.' : 'Ejercicio cerrado.' });
         }
