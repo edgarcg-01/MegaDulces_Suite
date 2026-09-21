@@ -237,6 +237,43 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
     console.log('  . NO MEDIDO — la vista aun no trae iva_tasa/ieps_tasa (migracion 20260918160000 sin re-aplicar).');
   }
 
+  // ── 10. El JOIN de erp_sales_invoice_lines deja DEDUCIR el folio (TK.6) ──────────────────
+  // La vista deriva folio y sucursal de kdm2 y ataba el folio con h.c6 = l.c6 crudo, asi que el
+  // predicado del consumidor no alcanzaba a kdm1: 87,344 busquedas de indice para traer los
+  // renglones de UN documento (medido en prod: 2,230 ms).
+  //
+  // El arreglo AGREGA condiciones, no reemplaza ninguna, y por eso no puede cambiar el
+  // resultado -- SIEMPRE QUE no haya padding. Eso es lo que se comprueba aca: la premisa, sobre
+  // TODAS las filas y no sobre una muestra. Si algun dia Kepler empieza a mandar la columna con
+  // espacios, la equivalencia deja de valer y esto se pone rojo ANTES de que alguien vea
+  // renglones de mas en un papel.
+  console.log('\n[10] el JOIN de facturas: la premisa del arreglo sigue en pie');
+  const { rows: [pad] } = await db.query(`
+    SELECT (SELECT count(*) FROM kepler_ods.kdm1 WHERE c2='U'
+              AND (c6 <> btrim(c6) OR sucursal <> btrim(sucursal) OR c1 <> btrim(c1)))::bigint AS h,
+           (SELECT count(*) FROM kepler_ods.kdm2 WHERE c2='U'
+              AND (c6 <> btrim(c6) OR sucursal <> btrim(sucursal) OR c1 <> btrim(c1)))::bigint AS l,
+           (SELECT count(*) FROM catalog.products
+              WHERE sku IS NOT NULL AND deleted_at IS NULL AND sku::text <> btrim(sku::text))::bigint AS p`);
+  chk(Number(pad.h) === 0 && Number(pad.l) === 0,
+    `kdm1/kdm2 traen padding en c6/sucursal/c1 (${pad.h}/${pad.l} filas): el JOIN con btrim YA NO `
+    + 'es equivalente al crudo y la vista de facturas puede estar casando renglones de mas');
+  chk(Number(pad.p) === 0,
+    `catalog.products.sku trae padding en ${pad.p} filas: quitarle el btrim al JOIN pierde esos productos`);
+  console.log(`  . padding: kdm1 ${pad.h} · kdm2 ${pad.l} · products.sku ${pad.p} (los tres deben ser 0)`);
+
+  // Y que el arreglo este REALMENTE aplicado, no solo escrito: se lee la definicion viva.
+  const { rows: [def] } = await db.query(
+    `SELECT pg_get_viewdef('analytics.erp_sales_invoice_lines'::regclass, true) AS d`);
+  if (/btrim\(h\.c6\)\s*=\s*btrim\(l\.c6\)|btrim\(l\.c6\)\s*=\s*btrim\(h\.c6\)/.test(def.d)) {
+    chk(!/btrim\(\(?p\.sku/.test(def.d),
+      'la vista sigue envolviendo p.sku en btrim: eso anula products_tenant_sku_unique y fuerza '
+      + 'un hash de catalog.products entera por cada documento');
+    console.log('  . el JOIN por folio con btrim en los dos lados esta aplicado.');
+  } else {
+    console.log('  . NO MEDIDO — la migracion 20260921160000 aun no esta aplicada en esta base.');
+  }
+
   await db.end();
   console.log(`\n${fallos.length ? 'FALLOS' : 'OK'} — ${ok} aserciones verdes, ${fallos.length} fallidas`);
   for (const f of fallos) console.log(`  x ${f}`);

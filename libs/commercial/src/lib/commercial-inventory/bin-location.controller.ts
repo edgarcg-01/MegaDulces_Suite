@@ -66,8 +66,9 @@ export class BinLocationController {
     return this.service.deleteBin(id);
   }
 
+  // Que hay en ESTE rack. Quien acomoda tiene que poder volver a mirarlo.
   @Get('bins/:id/contents')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({ summary: 'Contenido de un bin (lotes + cantidades)' })
   binContents(@Param('id') id: string) {
     return this.service.binContents(id);
@@ -80,8 +81,9 @@ export class BinLocationController {
     return this.service.putAway(body);
   }
 
+  // Donde esta un producto, para el que lo fue a dejar.
   @Get('locations')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({ summary: 'Auxiliar de ubicaciones: dónde está cada lote (?warehouse_id=&product_id=)' })
   locations(@Query('warehouse_id') warehouseId?: string, @Query('product_id') productId?: string) {
     return this.service.locations({ warehouse_id: warehouseId, product_id: productId });
