@@ -560,7 +560,7 @@ interface CortesPersona {
                           <tbody>
                             @for (d of b.denominaciones; track (d.key ?? d.denominacion)) {
                               <tr>
-                                <td class="arq-mono">{{ d.label ?? (d.denominacion >= 1 ? '</td> + d.denominacion : (d.denominacion * 100) + '¢') }}{{ d.familia === 'moneda' && d.denominacion >= 20 ? ' m' : '' }}</td>
+                                <td class="arq-mono">{{ d.label ?? (d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢') }}{{ d.familia === 'moneda' && d.denominacion >= 20 ? ' m' : '' }}</td>
                                 <td class="arq-mono muted">× {{ d.cantidad }}</td>
                                 <td class="ta-r">{{ money(d.subtotal) }}</td>
                               </tr>
@@ -1709,7 +1709,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
             detail: `Contado ${this.money(r.total_contado)}. Queda como constancia de la entrega.`,
           });
           this.denomCount = {}; this.medios = {}; this.aRuta = ''; this.recalcTotales();
-          this.cargarHistorial();
+          this.load();   // la entrega de ruta no tiene turno: solo se recarga el historial
         },
         error: (e) => {
           this.saving.set(false);

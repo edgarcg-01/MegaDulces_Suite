@@ -202,7 +202,14 @@ export interface TurnoCorte {
   /** `null` = el turno cerró en Kepler y nadie contó el efectivo. */
   nuestro_contado: number | null;
   diff_real?: number | null;
-  denominaciones: { denominacion: number; cantidad: number; subtotal: number }[];
+  /**
+   * SM.39 - lleva `familia` porque el ticket la NECESITA: el billete y la moneda de $20
+   * valen lo mismo y solo la familia los distingue. Es obligatoria y no opcional porque el
+   * backend la saca del CATALOGO de denominaciones (`desglosar()` mapea DENOMINACIONES_MXN),
+   * no de lo capturado: nunca puede faltar. Sin ella, el ticket parte billetes y monedas
+   * comparando `>= 20`, que es justo el bug que SM.39 arreglo.
+   */
+  denominaciones: { key?: string; denominacion: number; cantidad: number; subtotal: number; familia: 'billete' | 'moneda'; label?: string }[];
   capturado_por: string | null; capturado_at: string | null;
   validado_por: string | null; validado_at: string | null;
   /** SM.22 — lo que el ticket necesita para ser el arqueo COMPLETO y no un resumen. */
@@ -260,7 +267,13 @@ export class ArqueoService {
    * SM.36 - El arqueo de la entrega del vendedor de ruta. Endpoint APARTE del
    * de caja porque su permiso es otro: aca solo entran encargada y auxiliar.
    */
-  submitRuta(dto: ArqueoDto): Observable<ArqueoRutaResult> {
+  /**
+   * SM.36 - La entrega de una ruta NO manda `caja`: no hay caja que entregar. El backend la
+   * pone el mismo (`caja: tipo.toUpperCase()` = RD/RV, la estacion) y la identidad la da
+   * `route_code`. Por eso el DTO de acá afloja ese campo en vez de obligar al llamador a
+   * inventarse un valor que el servidor va a pisar igual.
+   */
+  submitRuta(dto: Omit<ArqueoDto, 'caja'> & { caja?: string }): Observable<ArqueoRutaResult> {
     return this.http.post<ArqueoRutaResult>(`${this.base}/ruta`, dto);
   }
 
