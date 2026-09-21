@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Fixed — Caja General: los tres diálogos abrían sin botones, o sea que no se podía guardar (2026-09-19)
+- **Medido en vivo, no deducido:** *"Registrar movimiento de caja"* y *"Abrir corte de caja"* se abren
+  con **cero botones** — `.p-dialog-footer` **no existe en el DOM** y el arreglo de botones del
+  diálogo viene vacío. No hay Guardar, no hay Cancelar. Nadie puede registrar un movimiento ni abrir
+  un corte desde esa pantalla. El tercero (*"Cerrar corte"*) es el mismo constructo en el mismo
+  archivo, pero sólo aparece con un corte abierto y no se forzó uno en la base compartida.
+- **Causa:** los 3 usaban `<ng-template pTemplate="footer">`. **PrimeNG 22 no proyecta eso** en
+  `p-dialog`; el pie se declara con `<ng-template #footer>`, que es lo que ya usan las otras ~50
+  pantallas del repo. Los 3 `pTemplate="header"` que quedan en el repo **no** se tocaron: están
+  sobre `p-table`, donde sí funciona (verificado: esas tablas renderizan).
+- **Por qué no lo atrapó nada:** no hay error en consola, el build pasa en verde y el typecheck
+  también. Angular acepta el `ng-template` como válido; simplemente nadie lo consume. La única
+  forma de verlo es abrir el diálogo.
+- Encontrado de casualidad mientras se construía la Lista de faltantes (Fase FLT), al chocar con el
+  mismo defecto en un diálogo nuevo. Queda un comentario en el código para que no se repita.
+
 ### Fixed — el verificador confundía productos al escanear un código de barras (CV.28, 2026-09-20)
 - Reportado en campo: al escanear, la pantalla mostraba información de OTRO producto.
 - Causa: `LPAD(x, 5, '0')` de Postgres **trunca** cuando `x` mide más de 5 caracteres
