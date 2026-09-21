@@ -123,6 +123,28 @@ exports.up = async function (knex) {
       table.uuid('warehouse_id').notNullable(); // desde qué almacén se cotiza (precio y disponibilidad)
       table.uuid('price_list_id'); // lista base usada, snapshot
 
+      // ── Condiciones comerciales CON LAS QUE SE COTIZÓ (snapshot) ────────────────────────
+      // No son adorno: medido en `kepler_ods.kdud` el 2026-09-21, el padrón de clientes es
+      // POR SUCURSAL, y el mismo cliente NO tiene las mismas condiciones en todas. Sobre 1,574
+      // clientes distintos: **204 (13%) tienen distinto límite de crédito**, **118 (7.5%)
+      // distinto plazo** y **57 (3.6%) distinto descuento**, según la sucursal que lo atienda.
+      // El caso que lo destapó (C1086, MANUEL RIOS DURAN): en La Piedad tiene $60,000 de límite
+      // y 3% de descuento; en el CEDIS y en la 02, $30,000 y **sin descuento**.
+      // Conclusión: "el descuento del cliente" no existe como dato único — existe el descuento
+      // del cliente EN UNA SUCURSAL, y una cotización que no diga cuál usó no se puede auditar
+      // después. Por eso se congela acá, con su procedencia.
+      table.string('source_branch', 4); // sucursal Kepler cuyas condiciones se aplicaron
+      table.decimal('terms_discount_pct', 6, 3); // kdud.c17 al momento de cotizar
+      table.decimal('terms_credit_limit', 14, 2); // kdud.c15
+      table.integer('terms_payment_days'); // kdud.c16 (plazo, NO la vigencia de la cotización)
+      // De dónde salieron. NULL en los tres de arriba significa "no se pudo leer", y este campo
+      // lo DECLARA en vez de dejar que un 0 se lea como "sin descuento" (ADR-056).
+      table.string('terms_source', 20).notNullable().defaultTo('unknown');
+
+      // Una dirección de entrega del cliente (`kepler_ods.kdudent`): un mayorista puede tener
+      // varias, y cada una trae SU ruta asignada. Se guarda la clave, no la dirección copiada.
+      table.string('delivery_address_key', 10);
+
       table.string('status', 20).notNullable().defaultTo('draft');
       table.date('quote_date').notNullable().defaultTo(knex.raw('CURRENT_DATE'));
       table.date('valid_until').notNullable(); // una cotización sin vigencia es una promesa eterna
@@ -191,6 +213,18 @@ exports.up = async function (knex) {
       ALTER TABLE commercial.quotes
         ADD CONSTRAINT commercial_quotes_order_only_when_accepted
         CHECK (order_id IS NULL OR status = 'accepted')
+    `);
+    await knex.raw(`
+      ALTER TABLE commercial.quotes
+        ADD CONSTRAINT commercial_quotes_terms_source_valid
+        CHECK (terms_source IN ('kepler_kdud', 'manual', 'unknown'))
+    `);
+    // Si las condiciones dicen venir de Kepler, tienen que traer la sucursal de la que salieron:
+    // un descuento sin sucursal no es auditable, y las condiciones varían por sucursal.
+    await knex.raw(`
+      ALTER TABLE commercial.quotes
+        ADD CONSTRAINT commercial_quotes_kepler_terms_need_branch
+        CHECK (terms_source <> 'kepler_kdud' OR source_branch IS NOT NULL)
     `);
     await knex.raw(
       `ALTER TABLE commercial.quotes ADD CONSTRAINT commercial_quotes_subtotal_nonneg CHECK (subtotal >= 0)`,
@@ -290,6 +324,26 @@ exports.up = async function (knex) {
       table.decimal('line_subtotal', 14, 2).notNullable().defaultTo(0);
       table.decimal('line_total', 14, 2).notNullable().defaultTo(0);
 
+      // De dónde salió `unit_price`. El precio de mayoreo en Kepler NO es un número: es una
+      // escalera. Verificado en el ODS el 2026-09-21, los cuatro mecanismos del menú
+      // "Descuentos" de Kepler existen como tablas con vigencia y por sucursal —
+      // `kdpv_descuxq` (por cantidad, 56,995 filas), `kdpv_descuxm` (por monto, 3,549),
+      // `kdpv_gratisxq` (producto gratis por cantidad, 35) y `kdpv_gratisxm` (por monto, 7)—
+      // más el descuento propio del cliente en `kdud.c17`.
+      // Regla: la cotización **deriva** ese precio, no inventa un esquema de descuento nuevo.
+      // Esta columna dice cuál se aplicó, para que un precio bajo sea explicable y no sospechoso.
+      table.string('price_source', 24).notNullable().defaultTo('unknown');
+
+      // Un renglón de REGALO. Verificado en `kepler_ods.kdpv_gratisxq` (pantalla
+      // "Producto Gratis por Volumen"): a partir de N unidades de un SKU se regalan M unidades
+      // de **OTRO** SKU (`c6`), con su propia unidad (`c12`). O sea que un renglón cotizado
+      // puede engendrar un segundo renglón, de otro producto, a precio cero.
+      // ⚠️ Ese cero es REAL, y hay que poder distinguirlo del cero que significa "no supe
+      // ponerle precio" — que en esta tabla es NULL. Los separa `price_source='free_goods'`.
+      // `parent_line_number` apunta al renglón que se ganó el regalo: sin eso, un regalo suelto
+      // en la cotización parece un error de captura.
+      table.integer('parent_line_number');
+
       table.string('availability', 20).notNullable().defaultTo('unknown');
       table.decimal('stock_at_quote', 14, 3); // existencia al momento de cotizar, snapshot
       table.text('notes');
@@ -325,6 +379,32 @@ exports.up = async function (knex) {
       ALTER TABLE commercial.quote_lines
         ADD CONSTRAINT commercial_quote_lines_unmatched_has_no_price
         CHECK (product_id IS NOT NULL OR unit_price IS NULL)
+    `);
+    await knex.raw(`
+      ALTER TABLE commercial.quote_lines
+        ADD CONSTRAINT commercial_quote_lines_price_source_valid
+        CHECK (price_source IN (
+          'list',            -- precio de lista, sin descuento
+          'customer_terms',  -- descuento propio del cliente (kdud.c17/c18)
+          'volume_qty',      -- kdpv_descuxq: descuento por cantidad
+          'volume_amount',   -- kdpv_descuxm: descuento por monto
+          'free_goods',      -- kdpv_gratisxq/xm: renglón de regalo, su cero es REAL
+          'manual',          -- lo puso una persona (y por eso se audita aparte)
+          'unknown'          -- no se pudo determinar: se DECLARA, no se asume 'list'
+        ))
+    `);
+    // El cero sólo es precio legítimo cuando el renglón es un regalo. En cualquier otro caso un
+    // 0 es "no supe", y para eso está el NULL.
+    await knex.raw(`
+      ALTER TABLE commercial.quote_lines
+        ADD CONSTRAINT commercial_quote_lines_zero_price_only_free_goods
+        CHECK (unit_price IS NULL OR unit_price > 0 OR price_source = 'free_goods')
+    `);
+    // Un regalo cuelga del renglón que lo ganó, y sólo un regalo cuelga de algo.
+    await knex.raw(`
+      ALTER TABLE commercial.quote_lines
+        ADD CONSTRAINT commercial_quote_lines_parent_only_free_goods
+        CHECK (parent_line_number IS NULL OR price_source = 'free_goods')
     `);
     await knex.raw(`
       ALTER TABLE commercial.quote_lines
