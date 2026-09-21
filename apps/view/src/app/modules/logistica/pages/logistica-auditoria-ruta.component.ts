@@ -60,7 +60,7 @@ interface RouteEntry {
     <div class="surf-page rk-mapfirst">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <span class="rk-eyebrow"><i class="pi pi-check-circle" aria-hidden="true"></i> Auditoría en Ruta</span>
+          <span class="rk-eyebrow"><i class="pi pi-check-circle" aria-hidden="true"></i> Venta al detalle</span>
           <h1>Mapa de rutas</h1>
           <p class="surf-page-sub">
             {{ visibleUnits().length }} de {{ units().length }} ruta{{ units().length === 1 ? '' : 's' }} en el mapa

@@ -1261,6 +1261,8 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 
 ⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
 
+✅ **Renombre 2026-09-21:** «Auditoría en Ruta» → **«Venta al detalle»** (tarjeta de `/projects`, migaja del layout, árbol de roles y encabezados de flota de ruta). No toca permisos, rutas ni ids: sólo la etiqueta, en sus dos fuentes (`suite-map.ts` + `authz-tree.ts`). P-14 (dónde vive) queda abierta.
+
 ### Fase ET — Etiqueta de anaquel (`/tienda/etiquetas`)
 
 Reporte de 0Sistemas (2026-09-14), con captura: *"existen problemas con el formato o tamaño de los
