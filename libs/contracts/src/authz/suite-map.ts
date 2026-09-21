@@ -368,7 +368,12 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         id: 'apc-cuadre',
         kind: 'module',
         icon: 'pi pi-sliders-h',
-        project: 'almacen',
+        // `[SM.9]` mudó el Cuadre de Almacén a Finanzas (`authz-tree.ts`, nodo `finanzas`) y este
+        // enlace cruzado se quedó apuntando al viejo. No era cosmético: `validateSuiteMap()` lo
+        // marcaba como «módulo inexistente», y este espacio ENTERO perdía la puerta al Cuadre —
+        // para todos, no sólo para quien no tuviera el permiso. El permiso `RECONCILIATION_*` no
+        // cambió con la mudanza; lo único que se movió es dónde se muestra la casilla.
+        project: 'finanzas',
         module: 'cuadre',
         crossLink: true,
         source: { status: 'propuesta', cite: '§14 — traspasos y movimientos' },
