@@ -182,3 +182,88 @@ describe('buildFolioCorte', () => {
     expect(() => buildFolioCorte(2026, -1)).toThrow(/consecutivo/);
   });
 });
+
+/**
+ * CG.19 Capa 1 — de qué está hecho el `esperado`.
+ *
+ * ⛔ La prueba que DEFINE la capa es `no captura una entrega -> el corte cuadra igual`: es el
+ * defecto que la fase existe para matar, y hasta que el ingreso esté anclado al 100% **sigue
+ * vivo**. Dejarlo escrito como prueba (y no como comentario) es lo que impide que alguien lo dé
+ * por resuelto al ver la cobertura en pantalla.
+ */
+describe('calcularCorte — cobertura del ingreso (CG.19 Capa 1)', () => {
+  const ing = (monto: number, anclado?: boolean): MovimientoDelCorte =>
+    ({ tipo: 'ingreso', monto, anclado });
+
+  it('separa lo que viene de Kepler de lo que alguien tecleó', () => {
+    const t = calcularCorte({
+      fondoInicial: 0,
+      movimientos: [ing(600, true), ing(400)],
+      conteo: [{ denominacion: 1000, piezas: 1 }],
+    });
+    expect(t.ingresos).toBe(1000);
+    expect(t.ingresos_anclados).toBe(600);
+    expect(t.ingresos_capturados).toBe(400);
+    expect(t.cobertura_ingreso).toBe(0.6);
+    // La aritmética NO cambió: declarar la procedencia no mueve el número.
+    expect(t.esperado).toBe(1000);
+  });
+
+  it('⭐ sin ingresos la cobertura es null, NUNCA 0', () => {
+    const t = calcularCorte({ fondoInicial: 100, movimientos: [{ tipo: 'gasto', monto: 50 }], conteo: [] });
+    expect(t.cobertura_ingreso).toBeNull();
+    // 0 diría "nada está anclado", que es una acusación; null dice "no hay qué medir".
+    expect(t.cobertura_ingreso).not.toBe(0);
+  });
+
+  it('todo anclado = 1; nada anclado = 0 (y 0 acá SÍ significa algo)', () => {
+    expect(calcularCorte({ fondoInicial: 0, movimientos: [ing(100, true)], conteo: [] }).cobertura_ingreso).toBe(1);
+    expect(calcularCorte({ fondoInicial: 0, movimientos: [ing(100)], conteo: [] }).cobertura_ingreso).toBe(0);
+  });
+
+  it('un ingreso cancelado no cuenta para la cobertura (no entra al corte)', () => {
+    const t = calcularCorte({
+      fondoInicial: 0,
+      movimientos: [ing(100, true), { tipo: 'ingreso', monto: 900, estado: 'cancelado' }],
+      conteo: [],
+    });
+    expect(t.ingresos).toBe(100);
+    expect(t.cobertura_ingreso).toBe(1);
+  });
+
+  it('gastos y depósitos no entran a la cobertura: sólo se mide el INGRESO', () => {
+    const t = calcularCorte({
+      fondoInicial: 0,
+      movimientos: [ing(500, true), { tipo: 'gasto', monto: 200 }, { tipo: 'deposito', monto: 100 }],
+      conteo: [],
+    });
+    expect(t.ingresos_anclados).toBe(500);
+    expect(t.ingresos_capturados).toBe(0);
+    expect(t.cobertura_ingreso).toBe(1);
+  });
+
+  it('⛔ [negativa] el defecto de FONDO sigue vivo: no capturar una entrega hace que CUADRE', () => {
+    // La verdad: entraron $1,000. El capturista sólo registra $600 y cuenta $600.
+    const honesto = calcularCorte({
+      fondoInicial: 0, movimientos: [ing(1000)], conteo: [{ denominacion: 500, piezas: 2 }],
+    });
+    expect(honesto.veredicto).toBe('cuadra');
+
+    const omitido = calcularCorte({
+      fondoInicial: 0, movimientos: [ing(600)], conteo: [{ denominacion: 500, piezas: 1 }, { denominacion: 100, piezas: 1 }],
+    });
+    // El esperado BAJÓ junto con el contado -> cuadra perfecto y faltan $400.
+    expect(omitido.esperado).toBe(600);
+    expect(omitido.veredicto).toBe('cuadra');
+
+    // Lo ÚNICO que delata la omisión hoy es la cobertura: nada de esto vino de Kepler.
+    expect(omitido.cobertura_ingreso).toBe(0);
+    // Y con el ingreso anclado, omitir deja de ser gratis: el hecho existe aunque no lo capturen.
+    const anclado = calcularCorte({
+      fondoInicial: 0, movimientos: [ing(1000, true)], conteo: [{ denominacion: 500, piezas: 1 }, { denominacion: 100, piezas: 1 }],
+    });
+    expect(anclado.esperado).toBe(1000);
+    expect(anclado.veredicto).toBe('falta');
+    expect(anclado.diferencia).toBe(-400);
+  });
+});

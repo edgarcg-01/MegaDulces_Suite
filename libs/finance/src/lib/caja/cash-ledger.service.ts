@@ -97,7 +97,14 @@ export class CashLedgerService {
         .select('sucursal', 'filas_origen', 'usables', 'sin_subcuenta', 'sin_codigo', 'sin_nombre')
         .orderBy('sucursal');
       const mapa = await trx('finance.v_caja_concept_map_coverage').select('*');
-      return { catalogo, mapa };
+      // CG.19 Capa 1 — qué proporción del ingreso descansa en un hecho de Kepler y cuánta en un
+      // teclado. Va SIEMPRE, por el mismo motivo que las otras dos: sin este número, una caja
+      // 100% capturada a mano se ve idéntica a una anclada al ERP (ADR-056).
+      const ingreso = await trx('finance.v_caja_ingreso_cobertura')
+        .orderBy([{ column: 'mes', order: 'desc' }, { column: 'sucursal', order: 'asc' }])
+        .limit(24)
+        .select('*');
+      return { catalogo, mapa, ingreso };
     });
   }
 
@@ -144,6 +151,45 @@ export class CashLedgerService {
   }
 
   /**
+   * CG.19 Capa 1 — **El valor se TOMA de Kepler.**
+   *
+   * Cuando el movimiento viene anclado a un cobro del ERP, el monto **no se acepta del cliente**:
+   * se lee de `finance.v_caja_ingresos_pendientes` (vista viva sobre `analytics.erp_collections`).
+   * Si el capturista manda otra cifra, se ignora — y si difiere, se dice, porque un front que
+   * manda un monto distinto del documento es un bug que hay que ver, no un dato que hay que
+   * aceptar.
+   *
+   * ⚠️ La vista ya excluye lo aplicado, así que "no encontrado" tiene DOS causas muy distintas y
+   * se separan a propósito: un cobro que no existe es un error de integración; uno ya aplicado es
+   * una persona repitiendo trabajo, y merece otro mensaje.
+   *
+   * ⚠️ No hay `FOR UPDATE` posible sobre una vista del ODS. La carrera la corta el índice único
+   * `ux_cash_ledger_origen_vivo` (23505), que se traduce abajo. El candado es el índice; esto es
+   * para que el usuario vea una frase en vez de un error de Postgres.
+   */
+  private async resolveCobro(trx: any, tenantId: string, origenRef: string) {
+    const row = await trx('finance.v_caja_ingresos_pendientes')
+      .where({ tenant_id: tenantId, origen_ref: origenRef })
+      .first('origen_ref', 'folio', 'sucursal', 'cobro_date', 'cliente_code', 'cliente_nombre', 'concepto', 'monto', 'tipo_cuenta');
+    if (row) return row;
+
+    const aplicado = await trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId, origen_tipo: 'cobro', origen_ref: origenRef })
+      .whereNull('deleted_at').whereNot('estado', 'cancelado')
+      .first('folio', 'fecha', 'created_by_username');
+    if (aplicado) {
+      throw new BadRequestException(
+        `Ese cobro de Kepler ya se registró en la caja con el folio ${aplicado.folio}`
+        + `${aplicado.created_by_username ? ` (lo capturó ${aplicado.created_by_username})` : ''}. `
+        + 'Un mismo cobro no puede entrar dos veces: si el anterior está mal, cancelalo y volvé a registrarlo.',
+      );
+    }
+    throw new BadRequestException(
+      `El cobro ${origenRef} no existe en Kepler. No se registra efectivo contra un documento que el ERP no tiene.`,
+    );
+  }
+
+  /**
    * Registra un movimiento. TODO en una transacción: folio, validación del par contable,
    * cabecera y denominaciones. Si algo falla, el consecutivo tampoco avanza.
    */
@@ -154,7 +200,6 @@ export class CashLedgerService {
       throw new BadRequestException('No se pudo identificar al usuario que captura.');
     }
     const dens = input.denominaciones ?? [];
-    this.assertArqueo(input.monto, input.morralla ?? 0, dens);
 
     return this.tk.run(async (trx) => {
       // Idempotencia: el reintento del cliente devuelve el movimiento que ya se guardó,
@@ -165,9 +210,27 @@ export class CashLedgerService {
         if (prev) return { ...prev, idempotent_replay: true };
       }
 
+      // ⭐ El monto del documento MANDA sobre el del formulario.
+      const anclado = input.origen_tipo === 'cobro' && !!input.origen_ref;
+      const cobro = anclado ? await this.resolveCobro(trx, tenantId, input.origen_ref as string) : null;
+      const monto = cobro ? Number(cobro.monto) : Number(input.monto);
+      const montoDiscrepa = cobro != null && Math.abs(Number(input.monto || 0) - monto) > ARQUEO_EPSILON;
+
+      // ⚠️ El arqueo se comprueba contra el monto RESUELTO, no contra el que llegó. Si se validara
+      // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
+      // contra la cifra del formulario y NO contra la del documento.
+      this.assertArqueo(monto, input.morralla ?? 0, dens);
+
+      // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
+      // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y
+      // confundirlos volvería a meter la fecha del ERP en un arqueo físico.
       const snap = await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
+
+      // Con el cobro atado, el capturista no tiene que escribir el motivo: ya está en el documento.
+      const glosa = input.glosa?.trim()
+        || (cobro ? `Cobro ${cobro.folio} · ${cobro.cliente_nombre || cobro.cliente_code || 'cliente'}`.slice(0, 200) : '');
 
       const [mov] = await trx('finance.cash_ledger').insert({
         tenant_id: tenantId,
@@ -182,10 +245,10 @@ export class CashLedgerService {
         kepler_concepto: input.kepler_concepto,
         kepler_cuenta_nombre: snap.cuenta_nombre,
         kepler_concepto_nombre: snap.concepto_nombre,
-        glosa: input.glosa,
-        beneficiario: input.beneficiario ?? null,
+        glosa,
+        beneficiario: input.beneficiario ?? (cobro?.cliente_nombre ?? null),
         beneficiario_rfc: input.beneficiario_rfc ?? null,
-        monto: input.monto,
+        monto,
         morralla: input.morralla ?? 0,
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
@@ -201,7 +264,49 @@ export class CashLedgerService {
           dens.map((d) => ({ tenant_id: tenantId, cash_ledger_id: mov.id, denominacion: d.denominacion, piezas: d.piezas })),
         );
       }
-      return mov;
+      // Que el monto del formulario NO coincidiera con el del documento se DICE. Es un dato de
+      // diagnóstico, no un error: el que manda es el de Kepler y ya se guardó ése. Si esto aparece
+      // seguido, el front está mandando una cifra propia y hay que ir a verlo.
+      return montoDiscrepa
+        ? { ...mov, monto_origen: 'kepler', monto_enviado: Number(input.monto), monto_aplicado: monto }
+        : mov;
+    });
+  }
+
+  /**
+   * CG.19 Capa 1 — **Ingresos recientes que se pueden entregar y arquear.**
+   *
+   * Es el cambio de forma que pidió Edgar: en vez de que el capturista teclee fecha, motivo y
+   * monto, se le muestran los cobros que Kepler YA registró y él **elige cuál está entregando**.
+   * El registro precede al dinero, y el valor se toma del ERP.
+   *
+   * ⚠️ Lo que NO está en esta lista no deja de existir: es justamente el ingreso que todavía se
+   * captura a mano (~40-45% del total, medido). Por eso `coverage()` publica la proporción — una
+   * lista corta no puede leerse como "ya está todo cubierto".
+   */
+  async ingresosPendientes(q: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    return this.tk.run(async (trx) => {
+      let qb = trx('finance.v_caja_ingresos_pendientes').where('tenant_id', tenantId);
+      if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
+      if (q.tipo_cuenta) qb = qb.where('tipo_cuenta', q.tipo_cuenta);
+      if (q.from) qb = qb.where('cobro_date', '>=', q.from);
+      if (q.to) qb = qb.where('cobro_date', '<=', q.to);
+      if (q.search) {
+        // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
+        const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        qb = qb.where((b: any) => b
+          .whereRaw(`cliente_nombre ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`cliente_code ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s]));
+      }
+      const rows = await qb
+        .orderBy([{ column: 'cobro_date', order: 'desc' }, { column: 'folio', order: 'desc' }])
+        .limit(limit)
+        .select('origen_ref', 'sucursal', 'folio', 'cobro_date', 'cliente_code', 'cliente_nombre',
+          'concepto', 'monto', 'tipo_cuenta', 'forma_pago');
+      return { rows, limit, has_more: rows.length === limit };
     });
   }
 

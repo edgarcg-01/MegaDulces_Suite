@@ -62,6 +62,24 @@ export class CashLedgerController {
     return this.svc.coverage();
   }
 
+  /**
+   * CG.19 Capa 1 — va ANTES de `@Get(':id')` como el resto: Nest resuelve por orden de
+   * declaración y `ingresos-pendientes` se comería como un id.
+   */
+  @Get('ingresos-pendientes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.19 — Cobros que Kepler YA registró y todavía no se aplicaron a la caja. El capturista ELIGE de acá en vez de teclear monto/fecha/motivo: el valor se toma del ERP y el registro precede al dinero. Filtros: sucursal, tipo_cuenta(ruta|interno|cliente_final), from/to, search.' })
+  ingresosPendientes(
+    @Query('sucursal') sucursal?: string,
+    @Query('tipo_cuenta') tipo_cuenta?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.ingresosPendientes({ sucursal, tipo_cuenta, from, to, search, limit: limit ? Number(limit) : undefined });
+  }
+
   @Post('autofill')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
   @ApiOperation({ summary: 'PROPONE los campos del movimiento con su procedencia y confianza. No guarda nada. Lo que no puede proponer sale en null con motivo.' })

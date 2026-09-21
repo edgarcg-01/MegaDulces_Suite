@@ -18,9 +18,28 @@
  * ⚠️ **Y hay un defecto de FONDO que esta función sola no puede arreglar** (CG.19): el `esperado`
  * se deriva de los movimientos que un HUMANO capturó, así que si alguien no captura una entrega,
  * el esperado baja junto con el contado y el corte **cuadra perfecto**. Un número que audita a una
- * persona no puede calcularse con lo que esa persona tecleó. El esperado debe venir de Kepler
- * (`analytics.customer_receivables`); mientras eso no esté, esta cuenta sólo detecta errores de
- * dedo — no dinero faltante.
+ * persona no puede calcularse con lo que esa persona tecleó (regla M4).
+ *
+ * ⛔ **CG.19 Capa 1 — REFUTADO, con medición: el `esperado` NO puede salir de
+ * `analytics.customer_receivables.saldo_ajustado`**, como decía el plan aprobado. El saldo de la
+ * cartera mide **lo que la ruta DEBE**, o sea exactamente la parte que **no** se volvió efectivo:
+ * los 1,504 documentos con estatus `EFECTIVO` suman **$85,951,094.54 de importe** contra
+ * **$915.00 de saldo**. Y para los clientes de ruta (`RD028`, `RV002`, …) el `saldo_ajustado`
+ * viene en **0 o NULL**. Peor: las dos cifras se mueven en **direcciones opuestas** — mientras más
+ * cobra la ruta, más efectivo hay en el cajón y más BAJA el saldo. Como `esperado`, mediría al revés.
+ *
+ * ✅ **Lo que sí ancla el ingreso: `analytics.erp_collections` con `tipo_cuenta = 'ruta'`** — el
+ * COBRO registrado en Kepler, con su `monto` y su llave `(sucursal, folio)`, que está **medida**
+ * como identidad real (2,708 llaves para 2,708 filas). Ahí el valor se **toma** de Kepler en vez
+ * de recapturarse, y el documento existe **antes** de que el efectivo se mueva: es el orden que
+ * esta fase viene a invertir.
+ *
+ * ⚠️ **Y no alcanza para todo, medido:** los cobros de ruta son ~55-60% del ingreso de la caja
+ * general (ene-2026: $5.38M contra $9.95M; jul-2026: $6.07M contra $10.45M). El resto —préstamos,
+ * pagarés, directivos, venta de piso— sigue siendo captura humana. Por eso esta función **no
+ * finge** que el esperado ya es de Kepler: reporta `cobertura_ingreso`, que es qué proporción del
+ * ingreso descansa en un hecho del ERP y no en un teclado. Un corte con cobertura 0.58 y otro con
+ * 1.00 no pueden leerse igual.
  */
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
@@ -30,6 +49,12 @@ export interface MovimientoDelCorte {
   monto: number;
   /** Un movimiento cancelado NO entra al corte, pero sigue existiendo (se audita que se canceló). */
   estado?: string;
+  /**
+   * CG.19 Capa 1 — ¿este movimiento está atado a un hecho de Kepler (`origen_tipo`/`origen_ref`)
+   * o lo tecleó una persona? No cambia la aritmética: **cambia cuánto vale el resultado.**
+   * Ver `cobertura_ingreso`.
+   */
+  anclado?: boolean;
 }
 
 export interface ConteoDenominacion { denominacion: number; piezas: number }
@@ -49,6 +74,18 @@ export interface TotalesCorte {
   /** Cuántos movimientos entraron y cuántos se ignoraron por estar cancelados. */
   movimientos: number;
   cancelados: number;
+
+  // ── CG.19 Capa 1: de qué está hecho el `esperado` ──────────────────────────────────────────
+  /** Σ de ingresos atados a un hecho de Kepler. El monto NO salió de un teclado. */
+  ingresos_anclados: number;
+  /** Σ de ingresos que alguien tecleó. Es la parte del `esperado` que no se puede auditar sola. */
+  ingresos_capturados: number;
+  /**
+   * `ingresos_anclados / ingresos totales`, 0..1. **`null` si no hubo ingresos** — no 0:
+   * "no se pudo medir" y "nada anclado" son cosas distintas (ADR-056), y un corte sin ingresos
+   * no tiene cobertura buena ni mala, no tiene cobertura.
+   */
+  cobertura_ingreso: number | null;
 }
 
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
@@ -83,6 +120,14 @@ export function calcularCorte(input: {
   const depositos = suma('deposito');
   const esperado = redondea(Number(input.fondoInicial || 0) + ingresos - gastos - depositos);
 
+  // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte
+  // ahora DICE qué parte descansa en lo que alguien tecleó (ver el defecto de fondo, arriba).
+  const sumaIngreso = (pred: (m: MovimientoDelCorte) => boolean) =>
+    redondea(vivos.filter((m) => m.tipo === 'ingreso' && pred(m)).reduce((a, m) => a + Number(m.monto || 0), 0));
+  const ingresos_anclados = sumaIngreso((m) => m.anclado === true);
+  const ingresos_capturados = sumaIngreso((m) => m.anclado !== true);
+  const cobertura_ingreso = ingresos > 0 ? Math.round((ingresos_anclados / ingresos) * 10000) / 10000 : null;
+
   const piezas = (input.conteo ?? []).filter((d) => d && Number(d.piezas) > 0);
   const morralla = Number(input.morralla || 0);
   const huboConteo = piezas.length > 0 || morralla > 0;
@@ -99,6 +144,7 @@ export function calcularCorte(input: {
     contado: huboConteo ? contado : 0,
     diferencia: huboConteo ? diferencia : 0,
     veredicto, movimientos: vivos.length, cancelados,
+    ingresos_anclados, ingresos_capturados, cobertura_ingreso,
   };
 }
 

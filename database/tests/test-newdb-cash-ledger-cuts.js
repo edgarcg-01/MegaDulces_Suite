@@ -209,8 +209,66 @@ const corte = (over = {}) => ({
     console.log('  ✓ rollback aplicado — la DB queda como estaba');
     pass++;
 
+    // -- 9. CG.19 Capa 1: el valor se TOMA de Kepler ----------------------------------------
+    //
+    // La pregunta no es si la suma da: es si el monto pudo haber venido de un teclado, y si el
+    // mismo cobro del ERP puede entrar dos veces. Las dos con prueba negativa.
+    console.log('\n-- 9. CG.19 Capa 1 - el ingreso anclado a un cobro de Kepler --');
+    await knex.transaction(async (trx) => {
+      await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [T]);
+
+      const ref = `00|ZZTEST-${Date.now()}`;
+      const ancl = (over = {}) => mov({
+        tipo: 'ingreso', monto: 1000, glosa: 'Entrega de ruta anclada',
+        origen_tipo: 'cobro', origen_ref: ref, estado: 'registrado', ...over,
+      });
+
+      const [a] = await trx('finance.cash_ledger').insert(ancl()).returning('*');
+      ok(!!a.id, 'un ingreso anclado a un cobro de Kepler se guarda');
+
+      // El invariante: el MISMO cobro no puede aplicarse dos veces. Sin el indice unico
+      // (ux_cash_ledger_origen_vivo) se sumaba dos veces al esperado sin un solo error.
+      const dup = await violation(trx, () => trx('finance.cash_ledger').insert(ancl()));
+      ok(dup === '23505', `[negativa] el mismo cobro NO entra dos veces (23505, fue ${dup})`);
+
+      // Pero cancelar tiene que LIBERARLO: si no, un error de dedo inutiliza el documento para
+      // siempre y ese cobro no se puede registrar nunca.
+      await trx('finance.cash_ledger').where({ id: a.id }).update({
+        estado: 'cancelado', cancelled_by: CAPTURISTA, cancelled_at: trx.fn.now(),
+        cancel_reason: 'Se capturo con el cobro equivocado',
+      });
+      const [b] = await trx('finance.cash_ledger').insert(ancl()).returning('*');
+      ok(!!b.id && b.id !== a.id, 'cancelar LIBERA el cobro: se puede volver a aplicar');
+
+      // Un movimiento sin origen no toca el indice. Si lo tocara, solo cabria UNA captura manual
+      // en toda la tabla: es el error que evita el unico PARCIAL en vez de NULLS NOT DISTINCT.
+      await trx('finance.cash_ledger').insert(mov({ tipo: 'ingreso', monto: 55 }));
+      const [c2] = await trx('finance.cash_ledger').insert(mov({ tipo: 'ingreso', monto: 66 })).returning('*');
+      ok(!!c2.id, 'dos capturas manuales (origen NULL) conviven: el unico es PARCIAL');
+
+      // La vista de pendientes tiene que ESCONDER lo ya aplicado. Se prueba con un cobro REAL del
+      // ERP, no con uno inventado; si no hay ninguno se declara NO MEDIDO (regla M5).
+      const real = await trx('finance.v_caja_ingresos_pendientes').first('origen_ref', 'monto');
+      if (!real) {
+        skip('la vista de ingresos pendientes no trae cobros en esta base: no se pudo probar que esconda lo aplicado (M5 - un lado vacio no prueba nada).');
+      } else {
+        await trx('finance.cash_ledger').insert(mov({
+          tipo: 'ingreso', monto: Number(real.monto), glosa: 'Aplica el cobro real',
+          origen_tipo: 'cobro', origen_ref: real.origen_ref,
+        }));
+        const sigue = await trx('finance.v_caja_ingresos_pendientes')
+          .where('origen_ref', real.origen_ref).first();
+        ok(!sigue, `un cobro ya aplicado DESAPARECE de los pendientes (${real.origen_ref})`);
+      }
+
+      throw new Error('__ROLLBACK__');
+    }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; });
+    console.log('  ok rollback aplicado - la DB queda como estaba');
+    pass++;
+
     console.log('\n── 8. Declarado ──');
     skip('que el saldo corrido escale con volumen real (la vista usa una ventana sobre toda la sucursal): se mide cuando haya movimientos de verdad, no con 3 filas.');
+    skip('CG.19 Capa 1 por HTTP (ADR-044): que create() IGNORE el monto del formulario y tome el de Kepler se prueba contra el SERVICIO, no contra la tabla. Esta sesion no tiene credenciales: queda declarado, no verde.');
 
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} ✓ / ${fail} ✗ / ${nomedido} NO MEDIDO\n`);
     process.exitCode = fail === 0 ? 0 : 1;
