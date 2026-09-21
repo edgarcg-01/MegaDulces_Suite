@@ -49,6 +49,10 @@ import { Permission } from '../../core/constants/permissions';
             <i class="pi pi-bookmark" aria-hidden="true"></i>
             <span>Mis activos</span>
           </a>
+          <a routerLink="cotizaciones" routerLinkActive="active">
+            <i class="pi pi-file-edit" aria-hidden="true"></i>
+            <span>Cotizaciones</span>
+          </a>
           <!-- La facturación completa vive en su propia pantalla (Operations, tabla densa +
                side-peek + anexo imprimible). Aquí sólo el enlace: duplicar esa UI dentro del
                shell sería una segunda copia de la misma pantalla.
@@ -180,6 +184,8 @@ export class TeleventaShellComponent {
   private readonly perms = inject(PermissionsService);
 
   readonly username = signal<string>(this.auth.user()?.username || '');
+  /** Submódulo E.12 Cotizaciones: sólo visible con permiso de lectura de cotizaciones. */
+  readonly verCotizaciones = this.perms.has$(Permission.COMMERCIAL_QUOTES_VER);
   /** La facturación es otra superficie con su propio permiso; sin él, el enlace no se ofrece. */
   readonly verFacturacion = this.perms.has$(Permission.COMMERCIAL_SALES_DOCS_VER);
 
