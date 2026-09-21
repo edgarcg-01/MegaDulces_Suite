@@ -8,6 +8,7 @@ import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
+import { AnalisisStateService } from './modules/tienda/analisis/analisis-state.service';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
@@ -1075,9 +1076,45 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
       {
+        // `[TDA.A1]` Análisis de ventas — cuatro secciones sobre el MISMO recorte
+        // (rango + sucursal): Tráfico · Productos y proveedores · Clientes · Promociones.
+        //
+        // El shell monta el encabezado, el filtro y la barra de pestañas una sola vez; el
+        // estado va en `providers` de ESTA ruta (no `providedIn: 'root'`) para que entrar
+        // al módulo arranque limpio y salir lo suelte. Al ser providers de ruta, las 4
+        // hijas comparten la misma instancia sin depender del injector del outlet.
+        //
+        // La URL no cambió aunque la pantalla ya no sea sólo semanal: renombrarla rompería
+        // marcadores y el nav sin ganar nada. Los hijos cuelgan de ella, así que
+        // `/tienda/analisis-semanal` sigue abriendo Tráfico.
         path: 'analisis-semanal',
-        loadComponent: () => import('./modules/tienda/pages/tienda-weekly.component').then(m => m.TiendaWeeklyComponent),
-        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
+        loadComponent: () => import('./modules/tienda/analisis/analisis-shell.component').then(m => m.TiendaAnalisisShellComponent),
+        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)],
+        providers: [AnalisisStateService],
+        children: [
+          {
+            path: '',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-trafico.component').then(m => m.TiendaAnalisisTraficoComponent),
+          },
+          {
+            path: 'productos',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-productos.component').then(m => m.TiendaAnalisisProductosComponent),
+          },
+          {
+            // `[TDA.A3]` Productos TOP: Pareto + Línea/Tipo/Grupo. Separada de
+            // «Proveedores y productos» porque son dos preguntas distintas.
+            path: 'top',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-top.component').then(m => m.TiendaAnalisisTopComponent),
+          },
+          {
+            path: 'clientes',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-clientes.component').then(m => m.TiendaAnalisisClientesComponent),
+          },
+          {
+            path: 'promociones',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-promociones.component').then(m => m.TiendaAnalisisPromocionesComponent),
+          },
+        ],
       },
       {
         // [CV.24] Verificador de precios de mostrador (kiosco con lector de barras).
