@@ -1054,7 +1054,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (rows) => {
         this.budgets.set(rows ?? []);
         this.loadingBudgets.set(false);
-        if (!this.selected() && rows?.length) this.selectBudget(rows[0]);
+        const cur = this.selected();
+        if (!cur && rows?.length) this.selectBudget(rows[0]);
+        // Re-sincronizar el header del ejercicio abierto (estado/versión) con la fila fresca:
+        // sin esto, tras un cambio de ciclo de vida el chip mostraba el estado nuevo y la barra
+        // de detalle el viejo (selectBudget solo refresca resumen/partidas, no el header).
+        else if (cur) { const fresh = (rows ?? []).find((r) => r.id === cur.id); if (fresh) this.selected.set(fresh); }
       },
       error: () => { this.loadingBudgets.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los ejercicios.' }); },
     });
