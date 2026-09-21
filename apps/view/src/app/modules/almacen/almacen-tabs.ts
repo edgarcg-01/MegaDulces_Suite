@@ -110,7 +110,9 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       // punta, pero no cubre la deuda que dejaron los vales anteriores (Por
       // fechar) ni la consulta de dónde vive cada lote (Ubicaciones).
       { label: 'Por fechar', icon: 'pi pi-clock', route: '/almacen/inventory/por-fechar', permission: Permission.COMMERCIAL_EXPIRY_CAPTURAR, exact: true },
-      { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+      // `anyOf`: quien RECIBE tiene que poder ver donde acomodo. En prod el rol
+      // `almacenista` solo tiene RECIBIR y esta pestana le estaba OCULTA.
+      { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR], exact: true },
       // exact:false a propósito — el tab sigue activo en el detalle `/:id`.
       { label: 'Hojas de anaquel', icon: 'pi pi-clipboard', route: '/almacen/inventory/caducidades', permission: Permission.COMMERCIAL_EXPIRY_VER, exact: false },
       { label: 'Stock muerto', icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock', permission: Permission.COMMERCIAL_DEADSTOCK_VER, exact: false },

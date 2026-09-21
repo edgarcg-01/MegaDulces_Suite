@@ -193,8 +193,6 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
   color:#0f4527;font-size:10pt;font-weight:800;text-align:center;break-inside:avoid}
 .ahorraste i{display:block;font-style:normal;font-size:7.5pt;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .nota{font-size:7.5pt;color:var(--muted);margin:5px 0 0;line-height:1.3}
-.aviso{margin-top:7px;padding:5px 9px;border:1.5px solid #8a6d06;background:#fdf6e3;border-radius:4px;
-  font-size:8pt;font-weight:600;color:#5c4803;break-inside:avoid}
 </style>
 <div class="head">
   ${logo ? `<img class="logo" src="${logo}" alt="">` : ''}
@@ -233,7 +231,11 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
     </dl></div>
 </div>
 
-${doc.aviso ? `<div class="aviso">${esc(doc.aviso)}</div>` : ''}
+<!-- El recuadro del aviso de procedencia se retiro del PAPEL a pedido del usuario (TK.5), igual
+     que en el ticket. ⚠️ El aviso NO desaparecio: lo sigue mostrando /comercial/tickets, que es
+     quien reimprime. Lo que declara —en un documento anterior al 2026-08-13 un descuento en
+     $0.00 significa "no se sabe", no "no hubo"— le sirve al operador, no al cliente. Si algun
+     dia se quita tambien de la pantalla, esa distincion deja de ser visible para nadie. -->
 
 <div class="sec-h"><h2>Productos</h2>
   <span>${doc.lineas.length} renglon${doc.lineas.length === 1 ? '' : 'es'}</span></div>

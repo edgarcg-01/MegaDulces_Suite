@@ -346,21 +346,70 @@ export class ComercialTicketsComponent {
     }
   }
 
+  /**
+   * Abre la carta en PDF.
+   *
+   * ── ⚠️ POR QUÉ LA PESTAÑA SE ABRE **ANTES** DE PEDIR EL PDF ─────────────────────────────
+   * La versión anterior llamaba `window.open(url)` DENTRO del callback del HTTP, o sea segundos
+   * después del clic. Para entonces la **activación transitoria** del gesto ya caducó (Chrome y
+   * Edge la dan por ~5 s; Firefox y Safari son más estrictos) y el bloqueador de emergentes
+   * rechaza la ventana. No era "según el navegador" ni intermitente: era determinista, y
+   * dependía de cuánto tardara el PDF — que lo arma Chromium del lado del servidor, o sea justo
+   * lo que más tarda. Y el aviso que salía ("el navegador bloqueó la pestaña, permite las
+   * emergentes") culpaba al usuario de un bug nuestro y le pedía un permiso que no hacía falta.
+   *
+   * La pestaña se abre **sincrónicamente en el manejador del clic**, que es cuando el gesto
+   * todavía vale, con un cartel de "generando" para que no se quede en `about:blank`. Cuando
+   * llega el blob se la navega. Si el usuario tiene las emergentes bloqueadas a mano, se cae a
+   * una **descarga**, que no necesita ese permiso — así el papel sale igual.
+   *
+   * ⚠️ Si la petición falla hay que CERRAR la pestaña que ya abrimos: si no, queda una en
+   * blanco y no se sabe si el PDF viene o no.
+   */
   carta(d: TicketVenta): void {
+    // El gesto del usuario vive acá y sólo acá.
+    const tab = window.open('', '_blank');
+    if (tab) {
+      tab.document.write(
+        '<!doctype html><meta charset="utf-8"><title>Generando…</title>'
+        + '<body style="font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0;color:#57534e">'
+        + `Generando la carta de ${d.id}…</body>`);
+      tab.document.close();
+    }
+
     this.generandoPdf.set(true);
     this.svc.cartaPdf(d.id).subscribe({
       next: (blob) => {
         this.generandoPdf.set(false);
-        // Se abre desde un blob URL: la ruta va con Bearer y una pestaña nueva no lleva el token.
+        // Blob URL y no la ruta directa: el endpoint va con Bearer y una pestaña nueva no
+        // lleva el token.
         const url = URL.createObjectURL(blob);
-        const w = window.open(url, '_blank');
-        if (!w) this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la pestaña', detail: 'Permite las ventanas emergentes para ver el PDF.' });
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        if (tab && !tab.closed) tab.location.href = url;
+        else this.descargar(url, `ticket-${d.id}.pdf`);
+        // Se revoca tarde: revocarlo antes de que la pestaña termine de pintar deja la hoja
+        // en blanco.
+        setTimeout(() => URL.revokeObjectURL(url), 120_000);
       },
       error: () => {
         this.generandoPdf.set(false);
+        if (tab && !tab.closed) tab.close();
         this.toast.add({ severity: 'error', summary: 'No se pudo generar el PDF' });
       },
+    });
+  }
+
+  /** Salida sin emergentes: un ancla con `download` no necesita permiso de ventanas. */
+  private descargar(url: string, nombre: string): void {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombre;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    this.toast.add({
+      severity: 'info', summary: 'PDF descargado',
+      detail: 'Este navegador tiene bloqueadas las pestañas nuevas, así que se descargó.',
     });
   }
 }

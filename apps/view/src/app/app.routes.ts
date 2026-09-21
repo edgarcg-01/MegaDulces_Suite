@@ -981,7 +981,11 @@ export const routes: Routes = [
         // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
         path: 'inventory/ubicaciones',
         loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+        // Tambien entra quien RECIBE: medido en prod, el rol `almacenista` (4 de los 5
+        // usuarios que reciben) solo tiene RECIBIR, asi que acomodaba la tarima y no
+        // podia volver a ver donde la dejo. No se le reparte INVENTORY_VER porque ese
+        // permiso abre ademas la consola de ajustes de stock.
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
         // WMS-REC (ADR-044, Opción A) — Caducidades · Por fechar: la cola del bodeguero.

@@ -5,6 +5,87 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-21 — `[WMS-REC.10]` La pantalla de Ubicaciones se vuelve el mapa de la bodega — y deja de estar oculta para quien acomoda
+
+**Cómo se llegó:** *"quiero que también esté disponible la sección de ubicación
+para tener bien estructurado en qué racks o tarimas están acomodados"*. Dos cosas
+en una frase: **que esté disponible** y **que esté estructurada**. Las dos
+estaban mal, y por motivos distintos.
+
+### Por qué no estaba disponible
+
+La pantalla existe desde WMS-REC.3 en `/almacen/inventory/ubicaciones`, con su
+pestaña. Pero medido en producción, el rol `almacenista` tiene **exactamente tres
+permisos**:
+
+    ALMACEN_BI_VER · COMMERCIAL_INVENTORY_RECIBIR · COMMERCIAL_INVENTORY_SUPERVISAR
+
+y la pestaña exigía `COMMERCIAL_INVENTORY_VER`. O sea que para los 4 bodegueros
+**la pestaña ni siquiera se dibujaba**, y la ruta rebotaba si llegaban por URL.
+Acomodaban la tarima desde el Andén y no tenían forma de volver a mirar dónde la
+habían dejado.
+
+Ruta y pestaña pasan a `anyOf(VER, RECIBIR)` —`anyPermissionGuard` y
+`PageTab.anyOf` ya existían, no se inventó mecanismo— y se abren las **dos
+lecturas que faltaban** del backend (`GET /locations`, `GET /bins/:id/contents`),
+completando las cuatro de WMS-REC.9b.
+
+⛔ **No se reparte `INVENTORY_VER` al rol.** Es la salida fácil y abre de paso la
+pestaña **Ajustes de stock**, que es la consola de ajuste de existencia. Dar
+acceso al mapa de la bodega no es dar acceso a corregir el inventario.
+
+### Por qué no estaba estructurada
+
+Era una tabla plana de `lote × posición`. Contestaba *"¿dónde está este
+producto?"* a medias —con un buscador— y *"¿qué hay en el rack 12?"* **nunca**:
+había que leer 800 renglones buscando un código de bin repetido. Ahora es
+**maestro–detalle**: a la izquierda las **ubicaciones** (código, nombre, tipo,
+unidades, con buscador y chips Rack / Tarima / Otra), a la derecha **qué hay
+adentro**, en orden FEFO. El auxiliar por producto queda como bloque propio y
+sólo se pide **con un producto elegido**.
+
+**El detalle usa `GET /bins/:id/contents` — un endpoint que existía desde
+WMS-REC.3 y que ninguna pantalla usaba.** Importa cuál se usa: `GET /locations`
+trae `LIMIT 1000` **sin declararlo**, así que en una bodega cargada habría
+mostrado un rack a medias sin un solo aviso. El contenido de una ubicación no se
+puede truncar en silencio.
+
+### El tipo Rack/Tarima/Otra se deriva, no se guarda
+
+`commercial.warehouse_bins` no tiene columna de tipo, y no hace falta: el nombre
+ya lo lleva ("Rack 12", `R-12`). Agregar `kind` obliga a migración y backfill
+para un dato que nadie consulta sin mirar también el nombre. El resolvedor sale a
+`shared/tipo-ubicacion.ts`, **extraído del Andén al segundo uso** (ADR-056: el
+primero lo escribe, el segundo lo saca).
+
+La trampa quedó con candado: **`TIENDA-1` no es tarima y `RETORNO` no es rack**.
+Sin exigir separador o dígito después del prefijo, cualquier nombre que empiece
+con T caía en tarima y el filtro mostraría lo que no es. Y lo que no dice nada se
+declara **Otra** — no se inventa un tipo.
+
+### El defecto que estaba a la vista y nadie veía
+
+Los tres `subscribe` de la pantalla hacían `error: () => set([])`. Un 403 —justo
+el que tenía `almacenista`— se veía **idéntico a una bodega vacía**: sin racks,
+sin pendientes, sin una sola pista de por qué. Ahora el error se guarda y se
+muestra con `app-load-state`, y el 403 se nombra por lo que es.
+
+**Verificación:** `ngc` (view) y `tsc` (api) **0 errores** · candados nuevos
+`tipo-ubicacion.spec` **6** y el de permisos ampliado a **9**, **los dos vistos en
+ROJO a propósito** (quitarle el dígito obligatorio al prefijo · cerrar
+`binContents`) · suite `view` **502 pasan** · `commercial` **103/103**.
+
+**Bug de mi propio candado, corregido:** `gateDe()` recortaba el bloque de una
+ruta por 400 caracteres fijos, así que al abrir `bins/:id/contents` el bloque de
+`DELETE /bins/:id` se comió el decorador de la ruta siguiente y el candado de "el
+borrado NO se abre" salió rojo con el borrado intacto. Ahora corta en el próximo
+decorador de ruta. Un candado que se rompe por su propia ventana enseña a
+ignorarlo.
+
+**Pendiente:** validación visual + redeploy de `api` y `view`. **Sin migración y
+sin re-login.**
+
+---
 ## 2026-09-21 — `[WMS-REC.9b]` Varias caducidades por renglón — y la corrección de un "sin 403" que era falso
 
 **Cómo se llegó:** dos pedidos de Edgar sobre el Andén ya reordenado. Primero:
