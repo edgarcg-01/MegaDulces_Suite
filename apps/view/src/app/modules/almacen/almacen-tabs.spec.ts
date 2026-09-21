@@ -17,7 +17,9 @@ describe('almacen-tabs · el tab de Análisis BI cruza las áreas', () => {
   const URLS_POR_AREA: Record<string, string> = {
     inventario: '/almacen/inventory/existencia',
     conteo: '/almacen/inventory/sessions',
-    control: '/almacen/cuadre',
+    // `[SM.9]` Era `/almacen/cuadre`, que se mudó a Finanzas; Prevención es ahora la
+    // primera del área Control y su URL representativa.
+    control: '/almacen/prevencion',
     entrada: '/almacen/inventory/recepcion-sesiones',
   };
 

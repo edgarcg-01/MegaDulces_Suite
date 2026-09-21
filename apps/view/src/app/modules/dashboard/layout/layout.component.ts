@@ -547,6 +547,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
           permission: Permission.FINANCE_RECEIVABLES_VER,
           anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER] },
         { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
+         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
+         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
+         */
+        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
       ],
     },
     {

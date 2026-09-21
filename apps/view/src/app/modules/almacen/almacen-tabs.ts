@@ -159,9 +159,16 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     // Movimientos** queda intacto por decisión del equipo (2026-08-31) — item
     // propio de sidebar, su ruta cuelga fuera del shell y no lleva barra de
     // tabs. No moverlo a un área.
-    match: ['/almacen/cuadre', '/almacen/prevencion', '/almacen/monitoreo', '/almacen/riesgo'],
+    /**
+     * `[SM.9]` **Cuadre salió de acá y se fue a Finanzas** (`/finanzas/cuadre`): su permiso
+     * nunca fue de almacén —es `RECONCILIATION_*`, dominio propio (ADR-029)— y lo que
+     * resuelve es dinero (arqueo ciego, descuadre de caja) con una pata en inventario.
+     * Quedan las tres de prevención, que sí son de piso.
+     * ⚠️ Salió también del `match`: dejarlo ahí encendía esta barra sobre una URL que ya
+     * no cuelga de este shell.
+     */
+    match: ['/almacen/prevencion', '/almacen/monitoreo', '/almacen/riesgo'],
     tabs: [
-      { label: 'Cuadre', icon: 'pi pi-check-square', route: '/almacen/cuadre', permission: Permission.RECONCILIATION_VER, exact: true },
       { label: 'Prevención', icon: 'pi pi-shield', route: '/almacen/prevencion', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },
       { label: 'Monitoreo', icon: 'pi pi-eye', route: '/almacen/monitoreo', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },
       { label: 'Riesgo', icon: 'pi pi-chart-bar', route: '/almacen/riesgo', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },

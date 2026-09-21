@@ -45,7 +45,7 @@ interface CortesPersona {
  * **La cajera solo ve lo suyo**: su total contado y su historial. No ve el esperado
  * ni su diferencia — mostrarle la diferencia equivale a mostrarle el esperado
  * (esperado = contado + diferencia), y con eso el arqueo deja de ser ciego: se puede
- * recapturar "ajustando". El supervisor revela en /almacen/cuadre. El descuadre se
+ * recapturar "ajustando". El supervisor revela en /finanzas/cuadre. El descuadre se
  * levanta igual en su bandeja (autolineado SM.9): la cajera no lo ve, pero pasa.
  *
  * La encargada cierra el circuito **validando presencialmente** desde el historial.

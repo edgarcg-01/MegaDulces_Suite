@@ -55,7 +55,9 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_INVENTORY_ASIGNAR, url: '/almacen/inventory/sessions', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PREVENTION_GESTIONAR, url: '/almacen/prevencion', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_EXPIRY_CAPTURAR, url: '/almacen/inventory/caducidades', motivo: 'la ruta de almacén exige EXPIRY_VER (la de tienda acepta las dos)' },
-  { perm: Permission.RECONCILIATION_GESTIONAR, url: '/almacen/cuadre', motivo: 'manage sin view' },
+  // `[SM.9]` El Cuadre se mudó a Finanzas; la deuda viaja con él (sigue siendo la misma:
+  // GESTIONAR sin VER no aterriza en ningún lado).
+  { perm: Permission.RECONCILIATION_GESTIONAR, url: '/finanzas/cuadre', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_MOVEMENTS_GESTIONAR, url: '/almacen/movimientos', motivo: 'manage sin view' },
   // compras
   { perm: Permission.EXISTENCIA_GESTIONAR, url: '/compras/existencia', motivo: 'manage sin view' },

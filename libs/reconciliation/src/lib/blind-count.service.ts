@@ -11,7 +11,7 @@ import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
  *
  * SM.9 — Autolineado: al capturar un cierre divergente, el arqueo se convierte al
  * INSTANTE en un descuadre `arqueo_ciego_divergente` en la bandeja del supervisor
- * (/almacen/cuadre), sin esperar al scan nocturno, + alerta WS best-effort.
+ * (/finanzas/cuadre), sin esperar al scan nocturno, + alerta WS best-effort.
  *
  * `reconciliation.blind_counts` tiene RLS forzado → TenantKnexService.run().
  */

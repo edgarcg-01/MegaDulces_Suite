@@ -11,7 +11,8 @@ import { AlertsService } from '@megadulces/commercial';
  * Liga RECON_NOTIFIER_PORT (declarado en contracts, inyectado @Optional por
  * BlindCountService) al canal de alertas WS de commercial (AlertsService →
  * AlertsGateway, room por tenant). @Global() para que el token resuelva sin que
- * reconciliation importe commercial. Rutea a /almacen/cuadre (no /finanzas/hallazgos).
+ * reconciliation importe commercial. Rutea a /finanzas/cuadre (`[SM.9]`: la pantalla salió
+ * de almacén; NO a /finanzas/hallazgos, que es la bandeja de Maat).
  * Best-effort: si el gateway no está listo, AlertsService lo loguea y sigue.
  */
 @Injectable()
@@ -27,7 +28,7 @@ class ReconNotifierAdapter implements ReconNotifierPort {
       severity: item.kepler_enmascaro ? 'critical' : 'warn',
       title: `Corte malo — suc ${item.warehouse_code} caja ${item.caja}`,
       message: `Arqueo ciego destapa ${falta ? 'faltante' : 'sobrante'} real ${fmt(abs)}${item.kepler_enmascaro ? ' — Kepler lo dio por cuadrado' : ''}${item.cajero ? ` · cajero ${item.cajero}` : ''}.`,
-      data: { source: 'reconciliation', route: '/almacen/cuadre', ...item },
+      data: { source: 'reconciliation', route: '/finanzas/cuadre', ...item },
     });
   }
 

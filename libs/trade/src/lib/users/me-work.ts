@@ -261,7 +261,12 @@ export const BANDEJAS: readonly BandejaDef[] = [
     id: 'cuadre',
     label: 'Descuadres por revisar',
     detalle: 'caja, inventario y cruce · sin clasificar todavía',
-    ruta: '/almacen/cuadre',
+    // `[SM.9]` La pantalla se mudó a Finanzas. La CLAVE de responsabilidad se queda
+    // como `almacen.cuadre` a propósito: está persistida en `identity.responsibilities`
+    // y repartida a roles reales en prod (migs 20260911140000/220000, 20260918120000).
+    // Renombrarla es una migración de datos, no un cambio de ruta — y el prefijo no es
+    // la ubicación de la pantalla sino el nombre con el que ya se reparte el trabajo.
+    ruta: '/finanzas/cuadre',
     icono: 'pi pi-exclamation-triangle',
     alcance: 'bandeja',
     responsabilidad: 'almacen.cuadre',

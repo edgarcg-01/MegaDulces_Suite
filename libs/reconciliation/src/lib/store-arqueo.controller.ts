@@ -25,7 +25,7 @@ import type { BlindCountDto } from './blind-count.service';
  *    ciegas y después ver el hueco es lo mismo que saber el esperado (esperado =
  *    contado + diferencia): con eso puede "ajustar" el conteo en una recaptura, o
  *    saber cuánto puede faltar sin que se note. Solo el supervisor
- *    (`RECONCILIATION_VER`, /almacen/cuadre) revela — y ahí ya se ve además el
+ *    (`RECONCILIATION_VER`, /finanzas/cuadre) revela — y ahí ya se ve además el
  *    flag de enmascaramiento de Kepler. El descuadre igual se levanta al instante
  *    en la bandeja del supervisor (autolineado SM.9): la cajera no lo ve, pero pasa.
  */
