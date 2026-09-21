@@ -68,16 +68,22 @@ const CUENTAS_DEFAULT: CuentaDeposito[] = [
  * Kepler en septiembre 2026. Origen: la ficha de cuentas que Dirección entregó, encabezada
  * "MORELIA 30".
  *
- * ⛔ **BAJÍO falta a propósito, no se olvidó.** La ficha trae
- * `03 0229 9000 1719 4356` (= `030229900017194356`) y **su dígito verificador está mal**:
- * calculado sobre los 17 primeros da **5**, no 6. No es un error de transcripción — se releyó la
- * imagen. Las otras dos de la misma ficha validan, y las tres de `CUENTAS_DEFAULT` también, así
- * que el validador no está rechazando todo. Un segundo indicio apunta al mismo renglón: en
- * SANTANDER y BBVA la cuenta impresa coincide con la embebida en su CLABE, y en BAJÍO no
- * (`90001719435` contra `245765060201`). Imprimir una CLABE inválida manda al cliente a una
- * transferencia que el banco rechaza. Se agrega cuando Dirección confirme el dígito correcto.
+ * ⚠️ **La CLABE de BAJÍO de la ficha trae un dígito mal, y la que va acá es la de KEPLER.**
+ * La ficha dice `03 0229 9000 1719 4356` y su dígito verificador no cuadra (da 5, no 6). No fue
+ * error de transcripción: se releyó la imagen. El árbitro es `kepler_ods.kdb1`, el catálogo de
+ * cuentas del propio ERP, cuya `c3` es la CLABE — dice `030229900017494356`, que **sí valida**.
+ * Difieren en **una sola posición, la 13**: la ficha tiene `1` donde Kepler tiene `4`.
+ * Las otras dos de la ficha son **idénticas** a las de Kepler, lo que descarta que el árbitro
+ * esté desalineado con lo que Dirección entregó (ADR-059: dos testigos, gana el que valida, y la
+ * diferencia se declara en vez de elegirse a dedo).
+ *
+ * ⛔ Y `kdb1` **no puede dar el mapa de plazas**, sólo los números: está REPLICADO IDÉNTICO en
+ * las 9 sucursales — las mismas 20 cuentas con las mismas CLABEs en todas, `07` y `08` incluidas.
+ * O sea que Kepler dice *cuánto vale cada CLABE*, y la ficha de Dirección dice *cuáles cobra
+ * Morelia*. Hacen falta las dos; por eso el mapa sigue acá y no se deriva.
  */
 const CUENTAS_MORELIA: CuentaDeposito[] = [
+  { banco: 'Bajío', cuenta: '245765060201', clabe: '030 229 90001749435 6' },
   { banco: 'Santander', cuenta: '65507301604', clabe: '014 496 65507301604 7' },
   { banco: 'BBVA', cuenta: '0485934176', clabe: '012 496 00485934176 7' },
 ];
