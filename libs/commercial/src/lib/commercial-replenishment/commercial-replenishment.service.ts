@@ -535,6 +535,13 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(rp.min_stock / (${cf}), 1) AS min_stock`),
           trx.raw(`ROUND(rp.reorder_point / (${cf}), 1) AS reorder_point`),
           trx.raw(`ROUND(rp.max_stock / (${cf}), 1) AS max_stock`),
+          // [AB.3b] El objetivo que ESTA corrida usó, publicado por el motor. La pantalla necesita
+          // explicar la resta (`objetivo − existencia − en camino = falta`) y **no debe adivinar
+          // cuál columna fue**: con `target_basis='cadence'` el objetivo no es ninguna de las tres
+          // de arriba, sino `cadenceTarget()`. Re-derivarlo en el front sería reimplementar la
+          // precedencia del motor — el error que ADR-057 ya cobró. Mismo ÷cf que las demás
+          // cantidades, para que la resta cuadre en pantalla sin conversiones.
+          trx.raw(`ROUND((${target}) / (${cf}), 1) AS target_qty`),
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
           trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),

@@ -17,6 +17,9 @@ import {
   AutoabastoService, AutoabastoRow, AutoabastoResumen, AutoabastoAccion,
   AutoabastoWarehouseOpt, AutoabastoSupplierOpt, AutoabastoQuery,
 } from '../autoabasto.service';
+import {
+  qty, origenTexto, origenCls, origenPorQue, cuandoTexto, cuandoPorQue, cantidadPorQue,
+} from '../porques.util';
 
 /**
  * Fase AB — **Autoabasto**: la mesa de trabajo del almacenista y del encargado de sucursal.
@@ -46,6 +49,20 @@ import {
  *    front que daría sensación de alcance sin serlo.
  *  · **El $ retenido no se dibuja en cero.** Cuando el costo de compra contradice el peldaño de
  *    unidades (U.2), el motor manda `suggested_cost: null`. La mesa lo cuenta aparte y lo dice.
+ *
+ * ── [AB.3b] Los porqués: tres de siete, y las otras cuatro dichas ────────────
+ * El plan del 2026-09-21 exige que cada sugerencia se explique. Se contestan **cuánto** (la resta
+ * con el objetivo que publica el motor), **a quién** (`replenish_via` + origen) y **para cuándo**
+ * (`next_due_date` + `lead_time_days` + días de cobertura) — los tres salían del motor desde
+ * RA-PRO.9 y esta pantalla no los mostraba.
+ *
+ * Las cuatro que faltan **no se simulan**:
+ *  · *¿Por qué mover el parámetro?* → AB.6, necesita `parameter_proposal` (propuesta con vigencia).
+ *  · *¿Por qué requiere revisión?* → parcial: `rung_veredicto` declara la unidad; pedido mínimo,
+ *    caducidad y excepción entran con la solicitud (AB.7).
+ *  · ⛔ *¿Por qué NO propone pedir?* → **sigue sin contestarse, y es el más caro**: la mesa lista
+ *    sólo lo que falta, así que un producto cubierto no aparece y *"lo revisé y está cubierto"*
+ *    se lee igual que *"nunca lo miré"*. Pedirlo es un modo nuevo de la pantalla, no una columna.
  */
 
 /** Etiqueta y tono de cada acción. El orden del mapa es el orden de lectura de la mesa. */
@@ -163,7 +180,11 @@ const BUCKET_LABEL: Record<string, string> = {
               <th class="ab-c-num">De la red</th>
               <th class="ab-c-num">A comprar</th>
               <th class="ab-c-acc">Acción</th>
-              <th pSortableColumn="supplier_name" class="ab-c-sup">Proveedor</th>
+              <!-- [AB.3b] "a quién" y "para cuándo". Reemplazan a la columna Proveedor: el
+                   proveedor sigue visible dentro de Origen cuando la ruta es compra, y cuando es
+                   traspaso el proveedor NO es la respuesta a "a quién le pido". -->
+              <th class="ab-c-org">Origen</th>
+              <th class="ab-c-cua">Entrega</th>
             </tr>
           </ng-template>
 
@@ -182,7 +203,9 @@ const BUCKET_LABEL: Record<string, string> = {
               <td class="ab-c-num ab-dim">{{ qty(r.reorder_point) }}</td>
               <td class="ab-c-num ab-dim">{{ qty(r.max_stock) }}</td>
               <td class="ab-c-num">{{ r.in_transit > 0 ? qty(r.in_transit) : '—' }}</td>
-              <td class="ab-c-num ab-strong">{{ qty(r.suggested_qty) }}</td>
+              <!-- [AB.3b] "¿por qué esa cantidad?" — la resta, con el objetivo que publicó el motor. -->
+              <td class="ab-c-num ab-strong ab-why"
+                  [pTooltip]="cantidadPorQue(r)" tooltipPosition="top">{{ qty(r.suggested_qty) }}</td>
               <!-- Lo que la empresa YA compró y está en otra sucursal. Va antes que "A comprar"
                    porque ese es el orden de decisión que pide la regla de traspaso. -->
               <td class="ab-c-num ab-transfer">{{ r.transfer_in > 0 ? qty(r.transfer_in) : '—' }}</td>
@@ -193,7 +216,12 @@ const BUCKET_LABEL: Record<string, string> = {
                   {{ accionMeta(r.accion).label }}
                 </span>
               </td>
-              <td class="ab-c-sup">{{ r.supplier_name || '—' }}</td>
+              <td class="ab-c-org">
+                <span class="ab-org {{ origenCls(r) }}"
+                      [pTooltip]="origenPorQue(r)" tooltipPosition="left">{{ origenTexto(r) }}</span>
+              </td>
+              <td class="ab-c-cua ab-why"
+                  [pTooltip]="cuandoPorQue(r)" tooltipPosition="left">{{ cuandoTexto(r) }}</td>
             </tr>
           </ng-template>
         </p-table>
@@ -254,6 +282,18 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-ac-ok { background: var(--surface-100); color: var(--text-color-secondary); }
 
     .ab-c-sup { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* [AB.3b] Origen y entrega. El subrayado punteado marca la celda que EXPLICA al pasar el
+       mouse: sin esa pista el tooltip existe y nadie lo encuentra. */
+    .ab-c-org { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ab-c-cua { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ab-org { display: inline-block; padding: .12rem .45rem; border-radius: 6px; font-size: .75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .ab-o-transfer { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); font-weight: 600; }
+    .ab-o-buy { background: var(--surface-100); color: var(--text-color); }
+    /* Sin ruta configurada NO es compra: se ve distinto a propósito (ADR-056). */
+    .ab-o-none { background: transparent; color: var(--text-color-secondary); font-style: italic; }
+    .ab-why { text-decoration: underline dotted var(--surface-400, #b9b9b9); text-underline-offset: 3px; cursor: help; }
+
     .ab-foot { margin: 0; font-size: .78rem; color: var(--text-color-secondary); }
 
     @media (max-width: 900px) {
@@ -398,10 +438,22 @@ export class AlmacenAutoabastoComponent {
   accionMeta(a: AutoabastoAccion) { return ACCION_META[a] ?? ACCION_META.ok; }
   bucketLabel(b: string): string { return BUCKET_LABEL[b] ?? b; }
 
-  /** Cajas con hasta 1 decimal, sin arrastrar el `.0` cuando es entero. */
-  qty(v: number | null | undefined): string {
-    const n = Number(v ?? 0);
-    if (!Number.isFinite(n)) return '—';
-    return n.toLocaleString('es-MX', { maximumFractionDigits: 1 });
-  }
+  /**
+   * Cajas con hasta 1 decimal, sin arrastrar el `.0` cuando es entero. Se delega en el util:
+   * los porqués imprimen las MISMAS cantidades que la tabla, y con dos definiciones el tooltip
+   * podría redondear distinto que la celda que está explicando.
+   */
+  readonly qty = qty;
+
+  // ── [AB.3b] Los porqués — la lógica vive en `porques.util.ts` ──────────────────────────────
+  // Son texto de NEGOCIO (el almacenista los usa para justificar un pedido frente a su
+  // encargado), así que se prueban con candado propio en `porques.util.spec.ts` en vez de
+  // quedar atrapados en un componente que sólo se ejercita con TestBed. Acá sólo se delega.
+  readonly origenTexto = origenTexto;
+  readonly origenCls = origenCls;
+  readonly origenPorQue = origenPorQue;
+  readonly cuandoTexto = cuandoTexto;
+  readonly cantidadPorQue = cantidadPorQue;
+  /** `hoy` queda por default acá; el util lo recibe inyectado para poder probarlo. */
+  cuandoPorQue(r: AutoabastoRow): string { return cuandoPorQue(r); }
 }
