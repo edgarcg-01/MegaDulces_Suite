@@ -82,7 +82,10 @@ const jetDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return 
 /** Corre extract-query.ps1 (32-bit) y devuelve el array de filas parseadas del JSONL. */
 function runQuery(mdb, query) {
   const out = path.join(os.tmpdir(), `wclive_${Date.now()}_${Math.round(process.hrtime()[1] % 1e6)}.jsonl`);
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  // windowsHide: el default de Node es FALSE -> cada lectura del .mdb abría una consola de PS32
+  // en el escritorio. Bajo la tarea `WincajaLive` (cada 10 min) eso son ventanas negras
+  // apareciendo todo el día. Mismo arreglo que ya tenía `lib/access-adapter.js`.
+  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, windowsHide: true });
   if (res.status !== 0) throw new Error(`extract-query falló: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   let rows = [];
   try {
