@@ -713,12 +713,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
 
   it('ignora acentos y acepta los tokens en cualquier orden', async () => {
     await montar({ perms: [], role: 'superadmin' });
-    buscar('auditoria');
+    buscar('analisis');
     const conAcento = tarjetas().length;
     expect(conAcento).toBeGreaterThan(0);
-    buscar('ruta auditoria');
+    buscar('rutas analisis');
     expect(tarjetas().length).toBeGreaterThan(0);
-    expect(html()).toContain('Auditoría en Ruta');
+    // El módulo se llama «Análisis de rutas»; la tarjeta que lo contiene, «Venta al detalle».
+    expect(html()).toContain('Venta al detalle');
   });
 
   it('encuentra un proyecto por el nombre de un MÓDULO de adentro', async () => {
@@ -931,7 +932,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('la rama del árbol no compite con el nombre, pero sigue disponible al señalar', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const celda = (href: string) => Array.from(tarjetas()).find((a) => a.getAttribute('href') === href);
-    expect(celda('/dashboard')?.getAttribute('title')).toContain('Ventas › Rutas de detalle');
+    expect(celda('/dashboard')?.getAttribute('title')).toContain('Ventas › Venta al detalle');
     // El grupo completo de Telemarketing tiene un tercer nivel que repite el nombre de la entrada.
     expect(celda('/telemarketing')?.getAttribute('title')).toContain('Atención telefónica');
     // Y ya no se pinta como renglón propio: era lo que competía con el título.
