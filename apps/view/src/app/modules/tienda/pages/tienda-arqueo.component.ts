@@ -16,7 +16,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno, TurnoCorte } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, BloqueoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
+import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -91,7 +92,34 @@ interface CortesPersona {
            historial queda donde va: abajo. -->
       <div class="arq-stack">
         <!-- Captura -->
-        @if (canCapture()) {
+          <!-- SM.38 - Dos cajas abiertas con el mismo usuario. Va ANTES de todo y
+               reemplaza la captura: mostrar el formulario debajo de un bloqueo
+               invita a intentarlo y a chocar con un 409 sin entender por que. -->
+          @if (bloqueo(); as b) {
+            <div class="arq-bloqueo">
+              <i class="pi pi-lock"></i>
+              <div>
+                <strong>Tienes dos cajas abiertas con tu usuario. Todo queda bloqueado.</strong>
+                <ul class="arq-bloqueo-lista">
+                  @for (c of b.cajas; track c.warehouse_code + c.caja + c.folio) {
+                    <li>Sucursal <strong>{{ branchLabel(c.warehouse_code) }}</strong> — caja <strong>{{ c.caja }}</strong>
+                      @if (c.hora_apertura) { <span class="muted">(abierta {{ c.hora_apertura }})</span> }
+                    </li>
+                  }
+                </ul>
+                <p class="muted">Cierra la sesión en <strong>una de las dos</strong> desde Kepler. En cuanto la cierres se reactiva solo — no hay que pedirle nada a nadie.</p>
+                @if (b.arrastradas.length) {
+                  <!-- Se DECLARAN pero no bloquean: hay cajas abiertas desde hace
+                       meses que nadie va a cerrar, y bloquear por ellas dejaria a
+                       la persona trabada para siempre. -->
+                  <p class="muted arq-bloqueo-extra">
+                    Además tienes {{ b.arrastradas.length }} caja(s) abierta(s) de días anteriores
+                    ({{ b.arrastradas[0].dias_abierta }} día(s) la más vieja). Ésas no bloquean, pero avísale a tu encargada.
+                  </p>
+                }
+              </div>
+            </div>
+          } @else if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
 
@@ -252,10 +280,39 @@ interface CortesPersona {
           }
 
           @if (puedeContar()) {
-            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)"
+            <app-segmented [options]="tipoOptions()" [value]="aTipo()" (valueChange)="elegirTipo($event)"
                            (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
+            }
+            @if (esRuta()) {
+              <!-- SM.36 - Solo las rutas de SU tienda. Si la lista viene vacia se
+                   DICE por que: una tienda sin rutas dadas de alta no es un error,
+                   es el caso de 8ESQ hoy. -->
+              @if (rutasDelTipo().length) {
+                <label class="arq-lbl arq-block">Ruta que entrega
+                  <p-select [options]="rutasDelTipo()" [(ngModel)]="aRuta" (ngModelChange)="dirty.set(true)"
+                            optionLabel="label" optionValue="route_code" styleClass="arq-fld"
+                            appendTo="body" placeholder="Elige la ruta…" />
+                </label>
+              } @else if (rutasCargadas()) {
+                <div class="arq-pide-box">
+                  <i class="pi pi-info-circle"></i>
+                  <div>
+                    <strong>Tu sucursal no tiene rutas {{ aTipo() === 'rd' ? 'de reparto' : 'vecinales' }} dadas de alta.</strong>
+                    <p class="muted">Pedile al administrador que las asigne para poder recibirles el efectivo.</p>
+                  </div>
+                </div>
+              }
+              <!-- El esperado de una ruta NO existe hoy: se DECLARA en vez de
+                   mostrar una diferencia inventada. -->
+              <div class="arq-pide-box">
+                <i class="pi pi-shield"></i>
+                <div>
+                  <strong>Este conteo queda como constancia de lo que entregó el vendedor.</strong>
+                  <p class="muted">No se compara contra un esperado: Kepler no publica cuánto debía entregar una ruta. Queda sellado quién entregó, cuánto y con qué billetes.</p>
+                </div>
+              </div>
             }
 
             <!-- SM.27 — Tres bloques a lo ancho, el formato de la hoja que ya se usa
@@ -269,17 +326,17 @@ interface CortesPersona {
               <section class="arq-col" role="group" aria-label="Registro detallado de billetes">
                 <h4 class="arq-col-t">Registro detallado de billetes</h4>
                 <div class="arq-col-rows">
-                  @for (d of billetes; track d; let i = $index) {
+                  @for (d of billetes; track d.key; let i = $index) {
                     <label class="arq-den">
-                      <span class="arq-den-lbl">{{ '$' + d }}</span>
+                      <span class="arq-den-lbl">{{ d.label }}</span>
                       <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
                            casilla en vez de sumar/restar. Con el spinner puesto, una flecha
                            de más cambia el conteo del billete sin que la cajera lo note. -->
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de billetes de $' + d"
-                             [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                             [attr.aria-label]="'Cantidad de billetes de ' + d.label"
+                             [value]="denomCount[d.key] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
                     </label>
                   }
                 </div>
@@ -293,14 +350,14 @@ interface CortesPersona {
               <section class="arq-col" role="group" aria-label="Registro detallado de monedas">
                 <h4 class="arq-col-t">Registro detallado de monedas</h4>
                 <div class="arq-col-rows">
-                  @for (d of monedas; track d; let i = $index) {
+                  @for (d of monedas; track d.key; let i = $index) {
                     <label class="arq-den">
-                      <span class="arq-den-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</span>
+                      <span class="arq-den-lbl">{{ d.label }}</span>
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de monedas de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
-                             [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                             [attr.aria-label]="'Cantidad de monedas de ' + d.label"
+                             [value]="denomCount[d.key] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
                     </label>
                   }
                 </div>
@@ -501,9 +558,9 @@ interface CortesPersona {
                       @if (b.denominaciones?.length) {
                         <table class="arq-mini-t">
                           <tbody>
-                            @for (d of b.denominaciones; track d.denominacion) {
+                            @for (d of b.denominaciones; track (d.key ?? d.denominacion)) {
                               <tr>
-                                <td class="arq-mono">{{ d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢' }}</td>
+                                <td class="arq-mono">{{ d.label ?? (d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢') }}{{ d.familia === 'moneda' && d.denominacion >= 20 ? ' m' : '' }}</td>
                                 <td class="arq-mono muted">× {{ d.cantidad }}</td>
                                 <td class="ta-r">{{ money(d.subtotal) }}</td>
                               </tr>
@@ -776,6 +833,17 @@ interface CortesPersona {
     .arq-pide-box.urge { border-color: color-mix(in srgb, var(--warn-fg) 55%, transparent);
                          background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     .arq-pide-box.urge i { color: var(--warn-fg); }
+    /* SM.38 - El bloqueo usa el tono de peligro, no el de aviso: es lo unico de
+       esta pantalla que IMPIDE trabajar, y tiene que leerse distinto de un
+       recordatorio. */
+    .arq-bloqueo { display: flex; gap: .8rem; align-items: flex-start; padding: 1rem;
+                   margin-bottom: 1rem; border-radius: var(--r-md);
+                   border: 1px solid color-mix(in srgb, var(--danger-fg, #b91c1c) 55%, transparent);
+                   background: color-mix(in srgb, var(--danger-fg, #b91c1c) 10%, transparent); }
+    .arq-bloqueo i { color: var(--danger-fg, #b91c1c); font-size: 1.1rem; margin-top: .1rem; }
+    .arq-bloqueo p { margin: .4rem 0 0; font-size: .8rem; }
+    .arq-bloqueo-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
+    .arq-bloqueo-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
     .arq-pide-box.urge p-button { margin-top: .45rem; display: inline-block; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
     .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
@@ -1030,8 +1098,36 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.sucursales().map((w) => ({ value: w.value, label: `${w.value} — ${w.label}` })));
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
+  /**
+   * SM.38 - Dos cajas abiertas con el mismo usuario: se bloquea todo hasta que
+   * cierren una. Viene resuelto del servidor y el POST tambien lo rechaza, asi
+   * que esconder la captura es cortesia, no la compuerta.
+   */
+  readonly bloqueo = signal<BloqueoDobleCaja | null>(null);
+
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
+
+  /**
+   * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
+   * STORE_ARQUEO_CAPTURAR: ese lo tienen tambien cajero y piso_tienda, y
+   * recibir el dinero de una ruta es acto de encargada. Sin el permiso, las
+   * dos pestanas ni se dibujan.
+   */
+  readonly canCaptureRuta = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_RUTA_CAPTURAR] === true);
+
+  /** Rutas dadas de alta en MI sucursal. Vacio = esta tienda no recibe rutas. */
+  readonly rutasRd = signal<RutaArqueo[]>([]);
+  readonly rutasRv = signal<RutaArqueo[]>([]);
+  readonly rutasCargadas = signal(false);
+  /** La ruta elegida en la pestana activa. */
+  aRuta = '';
+
+  /** Las rutas del tipo que se esta capturando. */
+  readonly rutasDelTipo = computed(() =>
+    this.aTipo() === 'rd' ? this.rutasRd() : this.aTipo() === 'rv' ? this.rutasRv() : []);
+  readonly esRuta = computed(() => this.aTipo() === 'rd' || this.aTipo() === 'rv');
 
   /**
    * Orden de las pestañas: RETIRO · CIERRE DE DÍA · RELEVO.
@@ -1048,11 +1144,25 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    *
    * El relevo queda al final: es el caso raro (cambio de turno a media jornada).
    */
-  readonly tipoOptions = [
-    { label: 'Retiro', value: 'retiro' as const },
-    { label: 'Cierre de día', value: 'cierre' as const },
-    { label: 'Relevo', value: 'relevo' as const },
-  ];
+  readonly tipoOptions = computed(() => {
+    const base = [
+      { label: 'Retiro', value: 'retiro' as const },
+      { label: 'Cierre de día', value: 'cierre' as const },
+      { label: 'Relevo', value: 'relevo' as const },
+    ];
+    /**
+     * SM.36 - RD y RV van DESPUES de los tres de caja porque son otro sujeto:
+     * los tres primeros cuentan el cajon de mostrador, estos dos cuentan lo que
+     * entrega un vendedor de ruta. Y solo aparecen con el permiso propio: sin
+     * el, la pestana no existe (no se dibuja deshabilitada, que invita a pedirla).
+     */
+    if (!this.canCaptureRuta()) return base;
+    return [
+      ...base,
+      { label: 'RD', value: 'rd' as const },
+      { label: 'RV', value: 'rv' as const },
+    ];
+  });
 
   readonly incidenciaOptions = [
     { label: 'Ninguna', value: '' },
@@ -1083,11 +1193,18 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * `blind-count.service` para partir nuestro conteo contra el de Kepler — si uno
    * se mueve, el otro tambien.
    */
-  readonly billetes = [1000, 500, 200, 100, 50, 20];
-  readonly monedas = [10, 5, 2, 1, 0.5];
+  /**
+   * SM.39 - Del catalogo compartido (`libs/contracts`), no de una lista suelta.
+   * Estaba escrita aca, en el servicio y en /almacen/cuadre, y el reparto
+   * billetes/monedas por `>= 20` otras tres veces. La moneda de $20 no cabia:
+   * su valor ya era la llave del billete.
+   */
+  readonly billetes = BILLETES_MXN;
+  readonly monedas = MONEDAS_MXN;
   /** El orden importa: es el de los inputs en pantalla (navegacion ↑/↓). */
-  readonly denoms = [...this.billetes, ...this.monedas];
-  denomCount: Record<number, number> = {};
+  readonly denoms = DENOMINACIONES_MXN;
+  /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
+  denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
   aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
@@ -1180,20 +1297,27 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private cargarTurnos(silencioso = false) {
     if (!silencioso) this.cargandoTurnos.set(true);
     this.svc.turnos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (t) => {
-        this.turnos.set(t);
-        this.turnosAl.set(new Date().toISOString());
-        // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
-        // Se preselecciona el que TOCA (el más viejo), no el primero que llegó.
-        if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
-        // SM.35 - y con el turno ya elegido, el TIPO que toca (sangria antes que
-        // corte). Sin esto la pantalla pedia el retiro y dejaba el formulario en
-        // 'Cierre de dia': el aviso decia una cosa y el formulario otra.
-        this.sugerirTipo();
-        this.cargandoTurnos.set(false);
-      },
+        next: (r) => {
+          this.bloqueo.set(r.bloqueo);
+          const t = r.turnos || [];
+          this.turnos.set(t);
+          this.turnosAl.set(new Date().toISOString());
+          if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
+          this.cargandoTurnos.set(false);
+        },
       error: () => this.cargandoTurnos.set(false),
     });
+
+    // SM.36 - Las rutas de MI sucursal. Solo si tengo el permiso: sin el, la
+    // llamada devolveria 403 y ensuciaria la consola por nada.
+    if (this.canCaptureRuta()) {
+      this.svc.rutas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.rutasRd.set(r.rd || []); this.rutasRv.set(r.rv || []); this.rutasCargadas.set(true); },
+        // Una tienda sin sucursal resuelta responde 400: se marca cargado igual,
+        // asi la pantalla dice "no hay rutas" en vez de quedarse en blanco.
+        error: () => this.rutasCargadas.set(true),
+      });
+    }
   }
 
   /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
@@ -1281,7 +1405,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   imprimir(r: ArqueoResult) {
     const t = this.turnoSel();
     const denominaciones = this.denoms
-      .map((d) => ({ denominacion: d, cantidad: Number(this.denomCount[d]) || 0, subtotal: (Number(this.denomCount[d]) || 0) * d }))
+      // SM.39 - Con `familia` y `label`: el ticket parte las columnas por familia,
+      // y el billete y la moneda de $20 ya no se confunden.
+      .map((d) => ({
+        denominacion: d.valor, familia: d.familia, label: d.label,
+        cantidad: Number(this.denomCount[d.key]) || 0,
+        subtotal: Math.round((Number(this.denomCount[d.key]) || 0) * d.valor * 100) / 100,
+      }))
       .filter((x) => x.cantidad > 0);
     const ok = imprimirTicket({
       sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc),
@@ -1326,12 +1456,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   // ─────────────────── pad de denominaciones ───────────────────
 
   /** Solo dígitos: es un conteo de billetes, no una fórmula. */
-  onDenomInput(denom: number, ev: Event) {
+  onDenomInput(key: string, ev: Event) {
     const el = ev.target as HTMLInputElement;
     const limpio = (el.value || '').replace(/\D/g, '');
     if (limpio !== el.value) el.value = limpio;
-    if (limpio) this.denomCount[denom] = Number(limpio);
-    else delete this.denomCount[denom];
+    if (limpio) this.denomCount[key] = Number(limpio);
+    else delete this.denomCount[key];
     this.recalc();
   }
 
@@ -1521,8 +1651,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** Solo los números — sin tocar `dirty`, para poder limpiar tras guardar. */
   private recalcTotales() {
-    const monto = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0);
-    const pzas = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0), 0);
+    const monto = (l: readonly Denominacion[]) =>
+      l.reduce((s, d) => s + (Number(this.denomCount[d.key]) || 0) * d.valor, 0);
+    const pzas = (l: readonly Denominacion[]) =>
+      l.reduce((s, d) => s + (Number(this.denomCount[d.key]) || 0), 0);
     const b = monto(this.billetes), m = monto(this.monedas);
     this.totBilletes.set(b); this.totMonedas.set(m);
     this.recalcMedios();
@@ -1538,7 +1670,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.saving.set(true);
     this.confirmando.set(false);
     const denominations: Record<string, number> = {};
-    for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
+    for (const d of this.denoms) {
+      const n = Number(this.denomCount[d.key]) || 0;
+      if (n > 0) denominations[d.key] = n;
+    }
     const medios = Object.keys(this.medios).length ? { ...this.medios } : undefined;
     const relevo = this.aTipo() === 'relevo';
     const t = this.turnoSel();
@@ -1547,6 +1682,42 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const cabecera = t
       ? { cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date, cajero_code: t.cajero_code || undefined }
       : { warehouse_code: this.aSuc.trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
+    /**
+     * SM.36 - El arqueo de ruta sale por SU endpoint. No es cosmetico: el de
+     * caja esta gateado con el permiso viejo, que tienen tambien cajero y
+     * piso_tienda. Mandar rd/rv por ahi haria que la puerta nueva no sirva.
+     */
+    if (this.esRuta()) {
+      if (!this.aRuta) {
+        this.saving.set(false);
+        this.toast.add({ severity: 'warn', summary: 'Falta la ruta', detail: 'Elige la ruta que esta entregando.' });
+        return;
+      }
+      this.svc.submitRuta({
+        tipo: this.aTipo(), route_code: this.aRuta,
+        warehouse_code: this.aSuc.trim() || undefined,
+        business_date: this.fmtDate(this.aDate),
+        cajero_code: this.aCajero.trim() || undefined,
+        denominations, medios, nota: this.aNota.trim() || undefined,
+        incidencia_tipo: this.aIncidencia || undefined,
+      }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.saving.set(false); this.dirty.set(false);
+          this.toast.add({
+            severity: 'success', summary: `Entrega de ${r.route_label} sellada`,
+            // Se dice lo contado y NADA de diferencia: no hay contra que comparar.
+            detail: `Contado ${this.money(r.total_contado)}. Queda como constancia de la entrega.`,
+          });
+          this.denomCount = {}; this.medios = {}; this.aRuta = ''; this.recalcTotales();
+          this.load();   // la entrega de ruta no tiene turno: solo se recarga el historial
+        },
+        error: (e) => {
+          this.saving.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se guardo', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
+      return;
+    }
     this.svc.submit({
       ...cabecera, tipo: this.aTipo(),
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,
