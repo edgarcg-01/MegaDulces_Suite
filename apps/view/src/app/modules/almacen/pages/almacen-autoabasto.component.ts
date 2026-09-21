@@ -17,6 +17,9 @@ import {
   AutoabastoService, AutoabastoRow, AutoabastoResumen, AutoabastoAccion,
   AutoabastoWarehouseOpt, AutoabastoSupplierOpt, AutoabastoQuery,
 } from '../autoabasto.service';
+import {
+  qty, origenTexto, origenCls, origenPorQue, cuandoTexto, cuandoPorQue, cantidadPorQue,
+} from '../porques.util';
 
 /**
  * Fase AB — **Autoabasto**: la mesa de trabajo del almacenista y del encargado de sucursal.
@@ -435,128 +438,22 @@ export class AlmacenAutoabastoComponent {
   accionMeta(a: AutoabastoAccion) { return ACCION_META[a] ?? ACCION_META.ok; }
   bucketLabel(b: string): string { return BUCKET_LABEL[b] ?? b; }
 
-  /** Cajas con hasta 1 decimal, sin arrastrar el `.0` cuando es entero. */
-  qty(v: number | null | undefined): string {
-    const n = Number(v ?? 0);
-    if (!Number.isFinite(n)) return '—';
-    return n.toLocaleString('es-MX', { maximumFractionDigits: 1 });
-  }
-
-  // ── [AB.3b] Los porqués ────────────────────────────────────────────────────────────────────
-  // El plan exige que cada sugerencia se explique. Tres de las siete preguntas se contestan con
-  // datos que el motor YA devolvía y la pantalla no mostraba; las otras cuatro entran en AB.6 y
-  // AB.7 y NO se simulan acá.
-  //
-  // ⚠️ Regla de esta sección: cuando falta el dato se dice **por qué falta**, no se rellena.
-  // Un "Compra" por default sobre un par sin canal configurado sería un origen inventado.
-
   /**
-   * Formatea una fecha `YYYY-MM-DD` **sin pasar por la zona horaria**.
-   *
-   * ⛔ `new Date('2026-09-25T00:00:00.000Z').toLocaleDateString('es-MX')` imprime **24 de sep**:
-   * la API serializa un `date` de Postgres como medianoche UTC y el navegador lo renderiza en
-   * hora de México (−06:00), o sea el día anterior. Es el mismo bug que LC.16 encontró en el
-   * libro de compras, y en una fecha de entrega se leería como "llega un día antes".
-   * Por eso se parsea el texto y se construye la fecha en hora LOCAL.
+   * Cajas con hasta 1 decimal, sin arrastrar el `.0` cuando es entero. Se delega en el util:
+   * los porqués imprimen las MISMAS cantidades que la tabla, y con dos definiciones el tooltip
+   * podría redondear distinto que la celda que está explicando.
    */
-  private fechaCorta(v: string | null): string | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '');
-    if (!m) return null;
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-      .toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
-  }
+  readonly qty = qty;
 
-  /** Días entre hoy y una fecha `YYYY-MM-DD`, en días de calendario locales. */
-  private diasHasta(v: string | null): number | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '');
-    if (!m) return null;
-    const hoy = new Date();
-    const a = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime();
-    const b = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-    return Math.round((b - a) / 86_400_000);
-  }
-
-  /**
-   * Días que aguanta la existencia a la venta medida. `null` = **sin venta medida** — que no es
-   * "dura para siempre": es que no hay con qué calcularlo.
-   */
-  private diasDeCobertura(r: AutoabastoRow): number | null {
-    const v = Number(r.avg_daily_units ?? 0);
-    if (!Number.isFinite(v) || v <= 0) return null;
-    return Math.floor(Number(r.on_hand ?? 0) / v);
-  }
-
-  /** ¿Por qué a ese origen? — texto de la columna. */
-  origenTexto(r: AutoabastoRow): string {
-    if (r.replenish_via === 'transfer') return r.source_warehouse_code ? `← ${r.source_warehouse_code}` : 'Traspaso';
-    if (r.replenish_via === 'purchase') return r.supplier_name || 'Compra';
-    return r.supplier_name || '—';
-  }
-
-  /** Clase del chip de origen: distingue traspaso, compra y **sin canal**. */
-  origenCls(r: AutoabastoRow): string {
-    if (r.replenish_via === 'transfer') return 'ab-o-transfer';
-    if (r.replenish_via === 'purchase') return 'ab-o-buy';
-    return 'ab-o-none';
-  }
-
-  /** ¿Por qué a ese origen? — la explicación larga, en el tooltip. */
-  origenPorQue(r: AutoabastoRow): string {
-    if (r.replenish_via === 'transfer') {
-      const src = r.source_warehouse_code ? `el almacén ${r.source_warehouse_code}` : 'otro almacén';
-      return `Traspaso: la ruta configurada para este proveedor en esta sucursal surte desde ${src}.`;
-    }
-    if (r.replenish_via === 'purchase') {
-      return `Compra directa a ${r.supplier_name || 'su proveedor'}: es la ruta configurada para esta sucursal.`;
-    }
-    return 'Sin ruta configurada para este proveedor en esta sucursal. El origen no está decidido — no se supone que sea compra.';
-  }
-
-  /** ¿Por qué debo pedir hoy? — texto corto de la columna. */
-  cuandoTexto(r: AutoabastoRow): string {
-    const f = this.fechaCorta(r.next_due_date);
-    if (f) return f;
-    return r.cadence_days ? `cada ${r.cadence_days} d` : '—';
-  }
-
-  /** ¿Por qué debo pedir hoy? — la explicación larga. */
-  cuandoPorQue(r: AutoabastoRow): string {
-    const partes: string[] = [];
-    const f = this.fechaCorta(r.next_due_date);
-    const d = this.diasHasta(r.next_due_date);
-    if (f) {
-      partes.push(d === null ? `Próxima entrega: ${f}.`
-        : d < 0 ? `La entrega del ${f} está vencida por ${-d} día(s).`
-        : d === 0 ? `La entrega es HOY (${f}).`
-        : `Próxima entrega: ${f}, en ${d} día(s).`);
-    } else if (r.cadence_days) {
-      partes.push(`El canal entrega cada ${r.cadence_days} día(s), pero no hay fecha de próxima entrega registrada.`);
-    } else {
-      partes.push('Sin calendario de entregas configurado para este origen.');
-    }
-    if (r.lead_time_days) partes.push(`Tarda ${r.lead_time_days} día(s) en llegar desde que se solicita.`);
-    const cob = this.diasDeCobertura(r);
-    partes.push(cob === null
-      ? 'La existencia no tiene venta medida, así que no se puede estimar cuándo se agota.'
-      : `Con la venta actual, la existencia alcanza ~${cob} día(s).`);
-    return partes.join(' ');
-  }
-
-  /** ¿Por qué esa cantidad? — la resta, con el objetivo que publicó el motor. */
-  cantidadPorQue(r: AutoabastoRow): string {
-    // ⚠️ `target_qty` lo agregó AB.3b al motor. Si la API que responde es anterior, llega
-    // `undefined` — y `qty()` lo imprimiría como **0**, que se leería como "el objetivo es cero"
-    // en vez de "esta API no lo publica". Se dice cuál es la causa (ADR-056).
-    if (r.target_qty == null || !Number.isFinite(Number(r.target_qty))) {
-      return `Faltan ${this.qty(r.suggested_qty)} caja(s) para el objetivo, pero esta versión de la API ` +
-        `no publica el objetivo que usó, así que la resta no se puede mostrar.`;
-    }
-    const base = `Objetivo ${this.qty(r.target_qty)} − existencia ${this.qty(r.on_hand)} − en camino ` +
-      `${this.qty(r.in_transit)} = faltan ${this.qty(r.suggested_qty)} caja(s).`;
-    if (r.transfer_in > 0 && r.buy_qty > 0) {
-      return `${base} De eso, ${this.qty(r.transfer_in)} sale del sobrante de la red y ${this.qty(r.buy_qty)} hay que comprarlo.`;
-    }
-    if (r.transfer_in > 0) return `${base} Se cubre completo con el sobrante de otras sucursales.`;
-    return base;
-  }
+  // ── [AB.3b] Los porqués — la lógica vive en `porques.util.ts` ──────────────────────────────
+  // Son texto de NEGOCIO (el almacenista los usa para justificar un pedido frente a su
+  // encargado), así que se prueban con candado propio en `porques.util.spec.ts` en vez de
+  // quedar atrapados en un componente que sólo se ejercita con TestBed. Acá sólo se delega.
+  readonly origenTexto = origenTexto;
+  readonly origenCls = origenCls;
+  readonly origenPorQue = origenPorQue;
+  readonly cuandoTexto = cuandoTexto;
+  readonly cantidadPorQue = cantidadPorQue;
+  /** `hoy` queda por default acá; el util lo recibe inyectado para poder probarlo. */
+  cuandoPorQue(r: AutoabastoRow): string { return cuandoPorQue(r); }
 }
