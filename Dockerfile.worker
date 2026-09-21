@@ -83,6 +83,16 @@ COPY --from=builder /app/dist/apps/api/package-lock.json ./package-lock.json
 RUN npm ci --omit=dev --ignore-scripts --prefer-offline && \
     chown -R node:node /app/node_modules
 
+# `[NX.10.1]` El candado corre acá y no en `runner`: las capas de `prod-deps` nunca se exportan,
+# mientras que un `RUN` después del `COPY` masivo del stage final hace que BuildKit diffee un
+# filesystem de ~60k archivos y ese costo cae en `exporting`. ⚠️ Motivo NO ATRIBUIDO: es uno de
+# dos candidatos para los +25s de `exporting` medidos en prod el 2026-09-21; se mueve porque acá
+# es estrictamente más barato, no porque esté probado. Detalle en el `Dockerfile` raíz.
+# Va después del `npm ci` para no invalidarlo: `main.js` cambia en cada build.
+COPY --from=builder /app/dist/apps/api/main.js ./main.js
+COPY scripts/check-bundle-externals.js ./check-bundle-externals.js
+RUN node ./check-bundle-externals.js ./main.js /app/node_modules && rm -f ./main.js ./check-bundle-externals.js
+
 # ── Stage 4: imagen final ────────────────────────────────────────────────────
 FROM node:20-slim AS runner
 WORKDIR /app
@@ -104,11 +114,9 @@ ENV NODE_ENV=production \
 COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
 COPY --from=builder  --chown=node:node /app/database     ./database
 # SIN `--chown`: ya viene con owner `node` desde `prod-deps`.
+# ⚠️ Pensarlo dos veces antes de agregar un `RUN` después de esta línea: se paga en `exporting`,
+# no en el renglón del `RUN` (`[NX.10.1]`).
 COPY --from=prod-deps /app/node_modules ./node_modules
-
-# `[NX.10]` Candado del árbol podado (ver `scripts/check-bundle-externals.js`).
-COPY --chown=node:node scripts/check-bundle-externals.js ./scripts/check-bundle-externals.js
-RUN node ./scripts/check-bundle-externals.js ./dist/apps/api/main.js ./node_modules
 
 STOPSIGNAL SIGTERM
 USER node

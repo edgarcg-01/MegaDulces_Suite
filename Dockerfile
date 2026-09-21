@@ -168,6 +168,26 @@ RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/roo
     npm ci --omit=dev --ignore-scripts --prefer-offline && \
     chown -R node:node /app/node_modules
 
+# `[NX.10.1]` El candado corre ACÁ, no en `runner`. `prod-deps` es sólo fuente de un
+# `COPY --from`: sus capas NUNCA se exportan a la imagen, así que el candado sale gratis del
+# `exporting`. En el stage final, en cambio, un `RUN` después del `COPY` de node_modules obliga a
+# BuildKit a snapshotear y diffear un filesystem con ~60k archivos recién copiados para
+# materializar esa capa — trabajo que NO aparece en el renglón del `RUN` (reportaba 1s) sino en
+# `exporting`.
+#
+# ⚠️ NO ATRIBUIDO: en el deploy del 2026-09-21 16:10 `exporting` subió de 1m 13s a **1m 38s**
+# mientras el `COPY` bajaba de 1m 30s a 52s y el push de 633 MB a 428 MB. El `RUN` en el stage
+# final es UN candidato; el otro es el estado de la caché de capas del builder de Railway, que no
+# controlo. Tengo n=1 de cada lado y la medición local no sirve de árbitro (ahí el build viejo
+# escribió TODAS las capas y el nuevo reusó `deps`/`builder`). Se mueve igual porque acá es
+# estrictamente más barato y cuesta cero — elimina un candidato, no prueba la causa.
+#
+# Las dos líneas van DESPUÉS del `npm ci` a propósito: `main.js` cambia en cada build, y copiarlo
+# antes invalidaría la instalación entera en cada deploy.
+COPY --from=builder /app/dist/apps/api/main.js ./main.js
+COPY scripts/check-bundle-externals.js ./check-bundle-externals.js
+RUN node ./check-bundle-externals.js ./main.js /app/node_modules && rm -f ./main.js ./check-bundle-externals.js
+
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
 
@@ -229,15 +249,11 @@ ENV NODE_ENV=production \
 COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
 COPY --from=builder  --chown=node:node /app/database     ./database
 # SIN `--chown`: ya viene con owner `node` desde `prod-deps` (ver el comentario
-# de ese stage). `--chown` acá costaba 1m 30s de reescritura de inodos.
+# de ese stage). `--chown` acá costaba 1m 30s de reescritura de inodos, medido.
+# ⚠️ Pensarlo dos veces antes de agregar un `RUN` después de esta línea: el diff de esa capa
+# camina un filesystem con ~60k archivos recién copiados y el costo aparece en `exporting`, no en
+# el renglón del `RUN`. El candado del árbol podado vive en `prod-deps` por eso (`[NX.10.1]`).
 COPY --from=prod-deps /app/node_modules ./node_modules
-
-# `[NX.10]` Candado del árbol podado: cada `require("...")` literal que quedó en el
-# bundle tiene que resolver contra el node_modules que se acaba de copiar. Si el
-# manifiesto generado se comió un paquete, el build ROMPE acá y no en el boot de
-# prod. Prueba negativa hecha al escribirlo (borrar un paquete → exit 1).
-COPY --chown=node:node scripts/check-bundle-externals.js ./scripts/check-bundle-externals.js
-RUN node ./scripts/check-bundle-externals.js ./dist/apps/api/main.js ./node_modules
 # Bundle del SPA → /usr/share/nginx/html. Solo nginx lo sirve. NestJS YA
 # NO usa ServeStaticModule (removido por bug del exclude pattern en
 # Express 5: el fallback static interceptaba TODO request no-API y tiraba

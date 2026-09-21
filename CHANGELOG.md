@@ -27,8 +27,22 @@
 - **Antes/después, build local completo en la misma máquina:** `COPY node_modules` 88.6s →
   **26.9s** · `export` 115.3s → **85.3s** · imagen **3.97 GB → 3.11 GB**. ⚠️ Las dos causas se
   arreglaron juntas: la atribución entre ellas **no quedó aislada**.
-- ⚠️ **La ganancia en PROD está NO MEDIDA.** Proyección ≈ −85s de 5m 21s (−27%); se confirma
-  contra el próximo deploy real.
+- ⚠️ **Medido en prod (deploy 16:10) — y la proyección no se cumplió.** `COPY node_modules`
+  **1m 30s → 52s** · `npm ci` de `prod-deps` 0 ms → 11s (previsto) · candado 1s ·
+  **`exporting` 1m 13s → 1m 38s (+25s)** · push **633.4 MB → 428.7 MB (−32%)**. **Neto sobre lo
+  tocado: ≈ empate en wall-clock**, con la imagen 32% más liviana. La proyección de −85s era una
+  regla de tres sobre razones medidas en otra máquina.
+- ⚠️ **Los +25s de `exporting` NO son atribuibles a este cambio, y las dos hipótesis obvias
+  cayeron.** Un tercer build local, esta vez **en frío**: viejo 3.97 GB → 115.3s · nuevo 3.11 GB →
+  **116.3s**. En frío contra frío, **quitar 860 MB movió el export 1 segundo** — `exporting`
+  escala con cuántas capas son *nuevas*, no con los bytes. Y el `RUN` extra en el stage final
+  tampoco lo explica (el build que lo tenía fue el más rápido, por estar tibio). Queda como
+  candidato la caché de capas del builder de Railway, que no se observa desde acá; no se sigue
+  persiguiendo. El candado igual se movió a `prod-deps` —cuyas capas nunca se exportan— porque
+  ahí es gratis (`[NX.10.1]`).
+- ⭐ **Pregunta abierta que vale más que esos 25s:** con el esquema viejo `prod-deps` estaba
+  cacheado (5 ms) y el `COPY` de su `node_modules` igual tardaba 1m 30s. Una capa con origen
+  cacheado no debería re-materializarse.
 
 ### Added — Candado del `node_modules` podado (`scripts/check-bundle-externals.js`)
 - Podar por un manifiesto derivado abre un modo de falla: un `require(variable)` no entra al grafo

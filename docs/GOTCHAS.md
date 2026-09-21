@@ -3187,3 +3187,54 @@ hasta el intento de conexión.
   cambia, paga el `npm ci` (~50s en caliente) en vez de los 5 ms de hoy.
 - Regla general: **`--chown` en un `COPY` de muchos archivos chicos entre stages
   se paga en wall-clock cada build.** Poné el owner correcto en el stage origen.
+
+### ⚠️ El resultado en prod, y por qué la proyección no vale
+
+Deploy del **2026-09-21 16:10** contra el de las 09:03:
+
+| paso | antes | después | Δ |
+|---|---|---|---|
+| `COPY node_modules` → runner | 1m 30s | **52s** | −38s |
+| `prod-deps` `npm ci` | 0 ms (cached) | 11s | +11s (previsto) |
+| candado de externals | — | 1s | +1s |
+| `exporting to docker image format` | 1m 13s | **1m 38s** | **+25s** |
+| `image push` | 633.4 MB | **428.7 MB** | −32% |
+
+**Neto sobre lo tocado: ≈ empate en wall-clock**, con la imagen 32% más liviana. La proyección
+previa (−85s) era una regla de tres sobre razones medidas en OTRA máquina; **no se cumplió**, y
+la lección es que *una razón medida en local no se traslada a un builder que no controlás*.
+
+Los **+25s de `exporting` quedan SIN ATRIBUIR**: el `RUN` del candado quedó después del `COPY`
+masivo en el stage final (esa capa hace diffear ~60k archivos, y el costo cae en `exporting`, no
+en el renglón del `RUN`, que reportó 1s), pero el otro candidato es la caché de capas del builder
+de Railway. **La medición local no arbitra**: ahí `exporting` bajó, pero el build viejo escribió
+todas las capas y el nuevo reusó `deps`/`builder`. El candado se movió a `prod-deps` —cuyas capas
+nunca se exportan— porque ahí es gratis, **no** porque esté probado que era la causa.
+
+⭐ La pregunta que quedó abierta y vale más que esos 25s: con el esquema viejo, `prod-deps` estaba
+cacheado (5 ms) y aun así el `COPY` de su `node_modules` tardaba 1m 30s. **Una capa cuyo origen
+está cacheado no debería re-materializarse.** Si el próximo deploy sin cambios en el manifiesto la
+sigue pagando, el problema no es el árbol sino la caché de capas del builder.
+
+### ⭐ El tercer dato, y la conclusión: `exporting` no escala con el tamaño
+
+Rehaciendo el build local **en frío** con el candado ya movido a `prod-deps`:
+
+| build local | imagen | `exporting` |
+|---|---|---|
+| viejo, **en frío** | 3.97 GB | 115.3s |
+| nuevo, candado en `runner`, **en caliente** | 3.11 GB | 85.3s |
+| nuevo, candado en `prod-deps`, **en frío** | 3.11 GB | **116.3s** |
+
+**En frío contra frío, quitar 860 MB movió el export 1 segundo.** `exporting` escala con cuántas
+capas son NUEVAS, no con los bytes de la imagen — y el `RUN` extra en el stage final tampoco lo
+explica (el build que lo tenía fue el más rápido, por estar tibio).
+
+O sea que **las dos hipótesis de tamaño que parecían obvias son falsas**, y el candidato que queda
+para los +25s de prod es el estado de la caché de capas del builder de Railway, que no se observa
+desde acá. Lo atribuible y real es el `COPY` (−38s) y el push (−32%).
+
+> Lección transversal: **un paso caro no siempre se abarata reduciendo lo que procesa.** Antes de
+> optimizar por tamaño, medí si el costo es por bytes o por *cantidad de unidades nuevas*. Acá dos
+> razonamientos plausibles —"menos MB → export más rápido" y "un `RUN` de más → export más
+> lento"— cayeron con una sola corrida en frío.
