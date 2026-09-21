@@ -117,7 +117,7 @@ cierto; un test sí.*
 
 ## 4. ⛔ Estado medido contra prod — 2026-09-21
 
-### 4.1 El bloqueo #1: las sillas están vacías
+### 4.1 Las sillas estaban vacías — resueltas el 2026-09-21, con salvedad
 
 ```
 identity.positions   direccion             0 personas
@@ -135,6 +135,22 @@ prod y no los ve ninguna persona.**
 (`persona-detalle.component.ts`, `agregarResponsabilidad()`), y `responsabilidadesDe()`
 (`users.service.ts`) resuelve `position_responsibilities ∪ user_responsibilities`. Es **un clic,
 reversible, sin migración ni deploy**.
+
+✅ **Hecho el 2026-09-21 (`[CDRP.3]`, prod batch 505), autorizado por el usuario.** Tres filas por
+persona: `superuser` → `comercial.venta_zonas`; `guillermo_lopez` → `comercial.venta_zonas` **y**
+`comercial.thot` (su puesto responde de las dos). Verificado replicando la resolución exacta de
+`responsabilidadesDe()` contra prod y corriendo la `medirZona` de producción: **6 zonas, 28.19 MDP
++12.0%**.
+
+⚠️ **Dos cosas que la medición evitó:** hay **dos Guillermos** en prod y uno es `vendedor_vecinal`
+(se resuelve por `username` exacto); y `valid_from` resultó ser **`date` con default `CURRENT_DATE`**
+— si hubiera sido un `timestamptz` de `now()`, el `valid_from <= CURRENT_DATE` del servicio habría
+dado **false** y la clave no habría llegado nunca, en silencio.
+
+⛔ **Sigue siendo un PUENTE, no el estado final.** Mientras el puesto siga siendo `sistemas`: la frase
+«mi trabajo se llama» que les toca es la de §10 Sistemas y no la de §2/§3, y el organigrama los cuenta
+en Sistemas. El arreglo de fondo es moverlas de puesto **desde `/admin/personas`**; cuando eso pase,
+estas filas sobran y hay que retirarlas (`down` de la migración).
 
 ⚠️ **La aceptación es visual, no de base de datos.** Si la clave se escribe mal, `medirZona`
 devuelve vacío **con `motivo: null`** — pantalla muda, sin mensaje de error. El criterio de cierre
@@ -202,7 +218,7 @@ meses lo revienta. Es una **tercera consulta separada**, no una tercera ventana.
 
 | Item | Estado | Qué falta y qué decisión humana espera |
 |---|---|---|
-| **[CDRP.3]** ocupar la silla | ⬜ **bloqueado en el usuario** | Cero código. `/admin/personas` → Luis Francisco → Responsabilidades → `comercial.venta_zonas`. Ídem `comercial.thot` para Dirección Comercial. **Enciende cuatro commits ya pagados** |
+| **[CDRP.3]** ocupar la silla | ✅ 2026-09-21 · prod **batch 505** | `23d11c48`. Autorizado por el usuario. **3 filas** por PERSONA en `identity.user_responsibilities` (ver §4.1). Enciende los cuatro commits ya pagados. ⛔ Es un **puente**: el arreglo de fondo sigue siendo mover a las personas a su puesto desde `/admin/personas` |
 | **[CDRP.4]** cartera vencida en «Mi trabajo» | ⬜ | Latido + umbral en `CRON_JOBS` **antes** de diagnosticar por qué el scanner está mudo; bloque `me-cartera.ts` sobre la **foto diaria**, nunca la vista viva; `snapshot_date` + `dias_de_rezago` en pantalla. ⛔ **sin backfill**: la vista es de saldos actuales, no hay pasado que reconstruir |
 | **[CDRP.5]** primer consumidor de `clasificarKpi()` | ⬜ | Hoy **nadie lo llama**. El veredicto lo emite el **servidor**; el cliente sólo mapea `estado` → clase CSS. Falta `KPI_KEY` como catálogo único + candado de biyección contra la tabla |
 | **[CDRP.6]** crecimiento interanual | ⬜ | Tercera consulta + `desde_interanual` en `ventanaComparable()` + **tercer universo de pareo** (un canal puede no haber existido el año pasado). Gate de perf obligatorio |
@@ -222,7 +238,7 @@ meses lo revienta. Es una **tercera consulta separada**, no una tercera ventana.
 
 ## 6. Decisiones que sólo puede tomar un humano
 
-1. **Ocupar `direccion` y `direccion_comercial`** (o repartir la responsabilidad por persona).
+1. **Mover a las personas a `direccion` y `direccion_comercial` desde `/admin/personas`** — el puente por persona ya está puesto (`[CDRP.3]`), pero el puesto sigue diciendo `sistemas`.
 2. **Arbitrar el 89.7 % de cartera vencida** — o es real y es una emergencia, o el criterio de
    `vencimiento` no es el que usa el negocio. Hoy nadie lo ha dicho.
 3. **Firmar qué agrupadores SAT entran a EBITDA** y qué cuentas son circulantes.
