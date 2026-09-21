@@ -519,11 +519,67 @@ sólo cambia cuando cambia el grafo de dependencias de la api —bastante más r
 código"— pero cuando cambia, paga el `npm ci` (~50s en caliente) en vez de los 5 ms de hoy. Y ya
 no puede correr en paralelo con `builder`; hoy eso no costaba nada porque estaba cacheado.
 
-### Proyección a prod, declarada como proyección
+### El resultado REAL en prod — y la proyección estaba mal
 
-Aplicando las razones medidas en local a los tiempos medidos en Railway: `COPY` 90s → ~27s,
-export 73s → ~54s, push por debajo. **≈ −85s de 5m 21s (−27%).** ⚠️ **NO MEDIDO en prod**: hay que
-compararlo contra el próximo deploy real.
+Deploy del **2026-09-21 16:10**, contra el de las 09:03 que fundó el diagnóstico:
+
+| paso | 09:03 (antes) | 16:10 (después) | Δ |
+|---|---|---|---|
+| `nx run-many` | 2m 02s | 2m 58s | +56s · **ajeno** (no se tocó el stage `builder`) |
+| `prod-deps` `npm ci` | 0 ms (cached) | **11s** | +11s · previsto y declarado (se estimó ~50s) |
+| `COPY node_modules` → runner | 1m 30s | **52s** | **−38s (−42%)** |
+| candado de externals | — | 1s | +1s |
+| `exporting to docker image format` | 1m 13s | **1m 38s** | **+25s** ⬅️ |
+| `image push` | 633.4 MB | **428.7 MB** | **−204.7 MB (−32%)** |
+
+**Sobre los pasos que esta fase tocó, el neto es ≈ empate en wall-clock** (−38 +11 +1 +25), con la
+imagen un 32% más liviana. **La proyección de −85s no se cumplió** y hay que leerla como lo que
+era: una regla de tres sobre razones medidas en otra máquina, no una medición.
+
+⚠️ **Los +25s de `exporting` quedan SIN ATRIBUIR.** Dos candidatos:
+
+1. El `RUN` del candado quedó **después** del `COPY` de `node_modules` en el stage final, y esa
+   capa obliga a BuildKit a diffear un filesystem con ~60k archivos recién copiados — trabajo que
+   no aparece en el renglón del `RUN` (reportó 1s) sino en `exporting`.
+2. El estado de la caché de capas del builder de Railway, que no se controla ni se observa.
+
+**La medición local no sirve de árbitro**: ahí `exporting` bajó (115.3s → 85.3s), pero el build
+viejo escribió *todas* las capas y el nuevo reusó `deps` y `builder`. n=1 de cada lado en prod.
+
+#### ⭐ El tercer dato desarma las dos hipótesis de tamaño
+
+Al rehacer el build local **en frío** con el candado ya movido:
+
+| build local | imagen | `exporting` |
+|---|---|---|
+| viejo, **en frío** | 3.97 GB | 115.3s |
+| nuevo, candado en `runner`, **en caliente** | 3.11 GB | 85.3s |
+| nuevo, candado en `prod-deps`, **en frío** | 3.11 GB | **116.3s** |
+
+En frío contra frío, **quitar 860 MB movió el export 1 segundo**. O sea que `exporting` no escala
+con el tamaño de la imagen sino con **cuántas capas son nuevas** — y el `RUN` extra en el stage
+final tampoco lo explica (el build que lo tenía fue el más rápido de los tres, por estar tibio).
+
+Con eso, el candidato que queda para los +25s de prod es el **estado de la caché de capas del
+builder de Railway**, que no se observa desde acá. **No se sigue persiguiendo.** Lo que sí bajó de
+verdad y es atribuible es el `COPY` (−38s) y el push (−32%).
+
+### `[NX.10.1]` — el candado se mueve a `prod-deps`
+
+No porque esté probado que es la causa, sino porque **ahí es estrictamente más barato y cuesta
+cero**: `prod-deps` es sólo fuente de un `COPY --from`, sus capas nunca se exportan. Elimina uno
+de los dos candidatos sin apostar a cuál era. Va **después** del `npm ci` para no invalidarlo
+(`main.js` cambia en cada build) y borra sus dos archivos en el mismo `RUN`.
+
+Si el próximo deploy sigue con `exporting` arriba de 1m 30s, el candidato que queda es el builder
+de Railway y hay que dejar de perseguirlo.
+
+### ⭐ Lo que hay que mirar en el PRÓXIMO deploy
+
+`COPY --from=prod-deps node_modules` costó 52s porque `prod-deps` era nuevo. Si el manifiesto de
+la api no cambia, esa capa **debería cachear y costar ~0**. Con el esquema viejo eso no pasaba:
+el `prod-deps` de las 09:03 estaba cacheado (5 ms) y aun así el `COPY` tardó 1m 30s. Entender por
+qué esa capa no cacheaba es la próxima pregunta, y vale más que los 25s del export.
 
 ### ⬜ Lo que NO se tocó, con motivo
 
