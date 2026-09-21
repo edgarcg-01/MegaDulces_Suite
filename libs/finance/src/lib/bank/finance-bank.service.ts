@@ -1414,6 +1414,22 @@ export class FinanceBankService {
     const [yy, mm] = period.split('-').map(Number);
     const ini = `${period}-01`;
     const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    // CB.44 — el pool de Kepler se abre ±45 días fuera del mes. Antes los DOS lados estaban
+    // cortados al mes calendario, así que los pases que anunciaban «±10d» y «sin tope de
+    // fecha» no podían salir del periodo: un cobro capturado el 12-ago cuyo depósito entró
+    // el 24-jul no tenía candidato POSIBLE. Ver el bloque de pases cruzados abajo.
+    const OVERLAP_DAYS = 45;
+    const shift = (s: string, k: number) => { const d = new Date(`${s}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); };
+    const iniWide = shift(ini, -OVERLAP_DAYS), finWide = shift(fin, OVERLAP_DAYS);
+    // ⚠️ `pg` devuelve las columnas `date` como Date, y `String(date).slice(0,10)` da
+    // "Tue Sep 01" — comparado contra '2026-09-01' ordena por la letra y miente siempre.
+    // Ya pasó acá (el `dentro` de abajo quedaba en false y mataba los pases 1-4 enteros).
+    const ymd = (v: any): string => {
+      if (!v) return '';
+      if (typeof v === 'string') return v.slice(0, 10);
+      const d = new Date(v);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
 
     const subsetSum = (arr: number[], target: number, maxN: number): number[] | null => {
       let out: number[] | null = null;
@@ -1442,20 +1458,44 @@ export class FinanceBankService {
           dir: n(b.amount_out) > 0 ? 'out' : 'in', amount: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in) }));
 
       // Lado Kepler tesorería: por cuenta + dirección (signo>0=entra, signo<0=sale).
-      const kep = (await trx('analytics.kepler_bank_movements')
+      const kepAll = (await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).whereRaw('signo <> 0')
-        .select('doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'beneficiario'))
+        .andWhere('fecha_valor', '>=', iniWide).andWhere('fecha_valor', '<', finWide).whereRaw('signo <> 0')
+        .select('doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'fecha_captura', 'beneficiario'))
         .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, clave: p.clave_banco, label: p.account_label,
-          importe: n(p.importe), fecha: p.fecha_valor, benef: p.beneficiario, dir: Number(p.signo) > 0 ? 'in' : 'out', used: false }));
+          importe: n(p.importe), fecha: p.fecha_valor, fcap: p.fecha_captura, benef: p.beneficiario,
+          dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
+          dentro: ymd(p.fecha_valor) >= ini && ymd(p.fecha_valor) < fin }));
+
+      // Anti doble-cobro entre periodos: el `used` sólo vive dentro de UNA corrida, y el
+      // borrado de matches previos es por `bank_movement_id` del periodo. Sin esto, un doc
+      // de Kepler ya casado por la corrida de otro mes se volvería a casar acá y el mismo
+      // dinero contaría dos veces. Quien corre primero se lo queda; se declara en el result.
+      const claimedRows = await trx('finance.bank_recon_matches as m')
+        .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('m.tenant_id', tenantId).andWhereNot('st.period', period)
+        .distinct('m.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio');
+      const claimed = new Set((claimedRows as any[]).map((r) => `${r.dt}|${r.folio}`));
+      let yaCasadosOtroPeriodo = 0;
+      for (const p of kepAll) if (claimed.has(`${p.doc_tipo}|${p.folio}`)) { p.used = true; yaCasadosOtroPeriodo++; }
+
+      // Los 4 pases originales ven SÓLO el mes (comportamiento idéntico al previo: cero
+      // regresión sobre lo que ya casaba). Los pases cruzados de abajo usan el pool ancho.
+      const kep = kepAll.filter((p) => p.dentro);
 
       // Índice (cuenta|dir) → { byAmt: Map<cents, kep[]>, all: kep[] }
-      const pool = new Map<string, { byAmt: Map<number, any[]>; all: any[] }>();
-      for (const p of kep) {
-        const key = `${p.label}|${p.dir}`;
-        let e = pool.get(key); if (!e) { e = { byAmt: new Map(), all: [] }; pool.set(key, e); }
-        e.all.push(p); const c = cents(p.importe); (e.byAmt.get(c) || e.byAmt.set(c, []).get(c))!.push(p);
-      }
+      const indexar = (rows: any[]) => {
+        const m = new Map<string, { byAmt: Map<number, any[]>; all: any[] }>();
+        for (const p of rows) {
+          const key = `${p.label}|${p.dir}`;
+          let e = m.get(key); if (!e) { e = { byAmt: new Map(), all: [] }; m.set(key, e); }
+          e.all.push(p); const c = cents(p.importe); (e.byAmt.get(c) || e.byAmt.set(c, []).get(c))!.push(p);
+        }
+        return m;
+      };
+      const pool = indexar(kep);          // sólo el mes → pases 1-4 (sin cambios)
+      const poolWide = indexar(kepAll);   // mes ±45d   → pases 5-6 (cruzados)
       const AMT_TOL = 100;
       const candsInTol = (byAmt: Map<number, any[]>, target: number) => {
         const out: any[] = [];
@@ -1526,6 +1566,86 @@ export class FinanceBankService {
         for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
       }
 
+      // ── CB.44 — pases CRUZADOS de mes (pool ancho) ────────────────────────────────────
+      // Nacen de un caso medido: factura U-D-8 0000319 del 21-jul ($1,653.00), pagada el
+      // 24-jul, y capturada como cobro U-A-7 0000213 el 12-AGO a las 16:52 — junto con otros
+      // cinco cobros del mismo cliente, teclados entre 16:50 y 16:54. El banco lo tiene en
+      // julio y Kepler en agosto, así que ningún pase acotado al mes podía verlo.
+      //
+      // Pase 5 (lote): Kepler YA trae el lote armado — mismo pagador, misma cuenta, misma
+      // fecha. En vez de reconstruirlo a ciegas con suma de subconjuntos (que se topaba en 5
+      // sumandos y recortaba a los 30 candidatos más GRANDES, dejando fuera justo a los
+      // renglones chicos del lote), se suma el grupo y se compara contra el depósito.
+      let p5 = 0;
+      const grupos = new Map<string, { label: string; dir: string; fecha: any; docs: any[]; total: number }>();
+      for (const p of kepAll) {
+        if (p.used || !p.benef) continue;
+        const key = `${p.label}|${p.dir}|${normKey(p.benef)}|${ymd(p.fecha)}`;
+        let g = grupos.get(key);
+        if (!g) { g = { label: p.label, dir: p.dir, fecha: p.fecha, docs: [], total: 0 }; grupos.set(key, g); }
+        g.docs.push(p); g.total += p.importe;
+      }
+      const gruposPorClave = new Map<string, any[]>();
+      for (const g of grupos.values()) {
+        if (g.docs.length < 2) continue; // el 1:1 lo resuelve el pase 6
+        const k = `${g.label}|${g.dir}`;
+        (gruposPorClave.get(k) || gruposPorClave.set(k, []).get(k))!.push(g);
+      }
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id)) continue;
+        const gs = gruposPorClave.get(`${mv.label}|${mv.dir}`); if (!gs) continue;
+        let best: any = null, bestD = OVERLAP_DAYS + 1;
+        for (const g of gs) {
+          if (g.docs.some((d: any) => d.used)) continue;           // lote ya consumido
+          if (Math.abs(cents(g.total) - cents(mv.amount)) > 100) continue; // ±$1
+          const d = g.fecha ? days(mv.date, g.fecha) : 999;
+          if (d <= OVERLAP_DAYS && d < bestD) { best = g; bestD = d; }
+        }
+        if (!best) continue;
+        p5++;
+        for (const doc of best.docs) emit(mv, doc, bestD === 0 ? 0.75 : 0.65, 'motor-tes-lote');
+      }
+
+      // Pase 6: 1:1 exacto (o ±$1) FUERA del mes, para lo que quedó suelto. Sin piso de
+      // importe: el piso de los pases 2/3/4 se mide sobre el movimiento del banco, y un
+      // cobro chico capturado tarde no tiene por qué quedar huérfano.
+      let p6 = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id)) continue;
+        const e = poolWide.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+        const tc = cents(mv.amount);
+        let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+        const exact = cands.length > 0;
+        if (!exact) cands = candsInTol(e.byAmt, tc);
+        if (!cands.length) continue;
+        let best: any = null, bestD = OVERLAP_DAYS + 1;
+        for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 999; if (d <= OVERLAP_DAYS && d < bestD) { best = p; bestD = d; } }
+        if (best) { emit(mv, best, exact ? 0.6 : 0.5, 'motor-tes-cruzado'); p6++; }
+      }
+
+      // Declaración (ADR-056): dónde `fecha_valor` NO es la fecha del movimiento bancario
+      // sino el día en que se capturó. Medido: la sucursal 00 retrofecha (c9≠c68 en ~92% de
+      // sus cobros, lag 2-5 días) y la 01 no lo hace nunca (c9=c68 en ~97%). Donde no se
+      // retrofecha, conciliar por fecha es imposible por diseño — hay que DECIRLO, no
+      // reportar los cobros como «no existe en el banco».
+      // El grano es (cuenta × tipo de documento), NO la cuenta: por una cuenta pasan varios
+      // procesos de captura y agregarlos diluye la señal hasta apagarla. Medido en la 6721:
+      // agregado da 27% (parece sano) y desagregado da U-A-7 **95%** contra U-A-5 1% y
+      // X-D-26 23% — el problema es un doctype, no la cuenta.
+      const capPorFuente = new Map<string, { label: string; dt: string; docs: number; sinRetrofecha: number; monto: number }>();
+      for (const p of kepAll) {
+        const k = `${p.label}|${p.doc_tipo}`;
+        const e = capPorFuente.get(k) || { label: p.label, dt: p.doc_tipo, docs: 0, sinRetrofecha: 0, monto: 0 };
+        e.docs++; e.monto += p.importe;
+        if (p.fcap && ymd(p.fcap) === ymd(p.fecha)) e.sinRetrofecha++;
+        capPorFuente.set(k, e);
+      }
+      const fechaNoConfiable = Array.from(capPorFuente.values())
+        .filter((v) => v.docs >= 10 && v.sinRetrofecha / v.docs >= 0.9)
+        .map((v) => ({ account_label: v.label, doc_tipo: v.dt, docs: v.docs,
+          pct_sin_retrofecha: Math.round((v.sinRetrofecha / v.docs) * 100), monto: Math.round(v.monto * 100) / 100 }))
+        .sort((a, b) => b.monto - a.monto);
+
       // Persistir. Colapsa por (bank_movement_id, doc_tipo, folio): el pase agrupado
       // suma varias LÍNEAS del mismo folio Kepler → si no, dos filas con la misma llave
       // única → duplicate key → 500. Aquí se unen sumando el importe.
@@ -1548,10 +1668,15 @@ export class FinanceBankService {
       const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
-      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado)`);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado)`);
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4,
+        // CB.44 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
+        // por fecha porque la fecha no existe (se declara, no se disfraza de faltante).
+        batch_pass: p5, cross_month_pass: p6,
+        kepler_ya_casado_otro_periodo: yaCasadosOtroPeriodo,
+        fecha_no_confiable: fechaNoConfiable,
         matched_deposits: inMovs.filter((m) => matchedSet.has(m.id)).length, deposits: inMovs.length,
         matched_withdrawals: outMovs.filter((m) => matchedSet.has(m.id)).length, withdrawals: outMovs.length,
         unmatched_bank: bankMovs.length - matchedBank, kepler_postings: kep.length,

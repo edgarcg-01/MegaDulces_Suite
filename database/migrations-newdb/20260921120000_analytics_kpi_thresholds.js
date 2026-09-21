@@ -27,12 +27,29 @@
  * fijó), y el grano pasa a ser **una FILA por (kpi, puesto, periodo)**.
  *
  * ── ⛔ Nace VACÍA, y eso es la verdad, no un pendiente ───────────────────────────────────────
- * No se siembra ningún umbral porque **no existe ninguna meta**: medido el 2026-09-18, las seis
- * tablas que las guardarían (`budget.budgets`, `budget.budget_lines`, `budget.line_movements`,
- * `budget.daily_capacity`, `budget.expense_obligations`, `commercial.sales_targets`) tienen 0
- * filas. Con la tabla vacía, `clasificarKpi` devuelve `sin_meta` para todo — que es exactamente lo
- * que hoy es cierto. Sembrar un umbral inventado para «que se vea» sería el cero dibujado que
- * ADR-056 prohíbe, un nivel más arriba.
+ * No se siembra ningún umbral porque **no existe ninguna meta por renglón**. Con la tabla vacía,
+ * `clasificarKpi` devuelve `sin_meta` para todo — que es exactamente lo que hoy es cierto.
+ * Sembrar un umbral inventado para «que se vea» sería el cero dibujado que ADR-056 prohíbe, un
+ * nivel más arriba.
+ *
+ * ⚠️ La redacción original de esta migración decía «las SEIS tablas de presupuesto tienen 0 filas
+ * (2026-09-18)». Al re-medir el 2026-09-21 resultó falsa al pie de la letra por dos lados: son
+ * **13** tablas (Fase PU sumó `budget.sales_plan_{lines,settings}` y `expense_plan_{lines,settings}`
+ * entre otras) y **3 ya tienen filas** — `budget.budgets` 2 (una FY2027 en borrador creada ese
+ * mismo día 17:21Z), `sales_plan_settings` 1 y `expense_plan_settings` 1. O sea: **el presupuesto
+ * ya se está capturando** mientras se escribe esto.
+ *
+ * La conclusión NO cambia, y por eso la tabla sigue naciendo vacía: lo que hay son ENCABEZADOS y
+ * parámetros de método, no metas. Los renglones siguen en cero — `budget.sales_plan_lines` 0,
+ * `budget.budget_lines` 0, `budget.expense_plan_lines` 0, `commercial.sales_targets` 0.
+ *
+ * ⭐ Y la medición contestó una pregunta que estaba abierta: **la meta de ventas va a salir de
+ * `budget.sales_plan_lines` (`budget_id, entity_key, period_no, meta_amount`), NO de
+ * `commercial.sales_targets`**, que tiene la forma pero nadie la escribe.
+ *
+ * ⛔ Lección: una medición con fecha envejece. Ésta duró tres días. El `COMMENT ON TABLE` de abajo
+ * la repetía y quedó persistida en el catálogo de prod, donde editar este archivo NO la alcanza
+ * (la migración ya corrió, batch 495) — hizo falta una migración aparte para reemitirlo.
  *
  * ── Los tres números, y el CHECK que los mantiene coherentes ────────────────────────────────
  *     higher_is_better:  target ≥ warn_at ≥ escalate_at      (y al revés en lower_is_better)
@@ -164,7 +181,10 @@ exports.up = async function up(knex) {
     'queden incoherentes. manual_lock + auto_tuned_at heredados de commercial.execution_thresholds '
     '(Horus HIQ.2, ADR-021): el auto-calibrador no pisa lo que un humano fijo. '
     'SIN FILA no hay semaforo: el clasificador devuelve sin_meta, nunca ok (ADR-056). '
-    'Nace VACIA porque no existe ninguna meta: las 6 tablas de presupuesto tienen 0 filas (2026-09-18).'
+    'Nace VACIA porque no existe ninguna meta POR RENGLON: al 2026-09-21 hay encabezados de '
+    'presupuesto (budget.budgets 2 filas, una FY2027 en borrador) pero los renglones siguen en 0 '
+    '(budget.sales_plan_lines, budget_lines, expense_plan_lines, commercial.sales_targets). '
+    'La meta de ventas saldra de budget.sales_plan_lines, no de commercial.sales_targets.'
   `);
 
   const n = await knex(FULL).count({ n: '*' }).first();

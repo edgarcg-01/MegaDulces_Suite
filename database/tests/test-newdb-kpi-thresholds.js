@@ -103,6 +103,45 @@ const base = (over) => ({
   check('sin umbrales sembrados (no existe ninguna meta que registrar)',
     Number(reales.n) === 0, reales.n);
 
+  /*
+   * ⭐ EL CANDADO QUE ESTE BLOQUE NECESITABA Y NO TENÍA.
+   *
+   * La justificación de que la tabla nazca vacía es una MEDICIÓN («no hay metas por renglón»), y
+   * una medición con fecha envejece. Ésta duró tres días: la migración afirmaba «las 6 tablas de
+   * presupuesto tienen 0 filas (2026-09-18)» y al 2026-09-21 ya eran 13 tablas con 3 pobladas
+   * (Fase PU), incluido un presupuesto FY2027 en borrador capturado ese mismo día. La afirmación
+   * quedó además persistida en `COMMENT ON TABLE`, en prod, donde nadie la iba a revisar.
+   *
+   * Así que la medición deja de ser un comentario y pasa a ser una compuerta: **el día que
+   * aparezca el primer RENGLÓN de presupuesto, esta suite se pone roja** — no porque algo se haya
+   * roto, sino porque la razón para tener la tabla vacía dejó de existir y toca registrar el
+   * primer umbral con su `source`. Un comentario no avisa; un test sí.
+   *
+   * ⚠️ Se miran los RENGLONES, no los encabezados: `budget.budgets` con una fila es un
+   * presupuesto empezado, no una meta. La meta es `meta_amount` en una línea.
+   */
+  const TABLAS_DE_META = [
+    'budget.sales_plan_lines',   // ⭐ de acá saldrá la meta de ventas (medido 2026-09-21)
+    'budget.budget_lines',
+    'budget.expense_plan_lines',
+    'commercial.sales_targets',  // tiene la forma exacta y CERO escritores
+  ];
+  const conRenglones = [];
+  for (const t of TABLAS_DE_META) {
+    const existe = await knex.raw('SELECT to_regclass(?) AS t', [t]);
+    if (!existe.rows[0] || !existe.rows[0].t) continue; // ausente ≠ vacía: se declara, no se cuenta
+    const n = await knex(t).count({ n: '*' }).first();
+    if (Number(n.n) > 0) conRenglones.push(`${t}=${n.n}`);
+  }
+  check('⛔ la razón de nacer vacía sigue vigente: cero RENGLONES de presupuesto ' +
+    '(si esto se pone rojo, ya hay meta y toca registrar el primer umbral, no aflojar el test)',
+    conRenglones.length === 0, conRenglones);
+
+  // Y el `COMMENT ON TABLE` no puede seguir publicando la medición que ya se corrigió.
+  const com = await knex.raw('SELECT obj_description(?::regclass) AS c', [TABLA]);
+  check('⛔ NEGATIVA — el comentario de la tabla no repite la medición vencida del 2026-09-18',
+    !/6 tablas de presupuesto/.test((com.rows[0] && com.rows[0].c) || ''));
+
   console.log('\n── 3. Los CHECK, cada uno roto a propósito ──');
   const insertado = await knex(TABLA).insert(base()).returning('id');
   check('una fila coherente SÍ entra', insertado.length === 1);

@@ -240,11 +240,16 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
   /*
    * `[JZ.7]` **Lo que va a ver la dirección, ANTES de moverle el puesto a nadie.**
    *
-   * Es una SIMULACIÓN y se rotula como tal: corre la `medirZona` de producción con la clave
-   * `comercial.venta_zonas` en la mano, contra los datos reales. Existe porque los dos puestos de
-   * dirección están HOY vacíos (`superuser` y `guillermo_lopez` están fichados en `sistemas`), así
-   * que la migración reparte la clave y no la recibe nadie: sin esto, la primera vez que alguien
-   * viera el bloque sería en producción, con el director mirando.
+   * Corre la `medirZona` de producción con la clave `comercial.venta_zonas` en la mano, contra los
+   * datos reales, para que la primera vez que alguien vea el bloque no sea en producción con el
+   * director mirando.
+   *
+   * ⚠️ **El rótulo se MIDE, no se clava.** Nació diciendo «hoy nadie la tiene», que era cierto
+   * mientras los dos puestos de dirección estaban vacíos — y dejó de serlo el 2026-09-21, cuando
+   * `[CDRP.3]` repartió la clave por persona. Es el mismo defecto que esta misma fase encontró en
+   * un `COMMENT ON TABLE` de prod: **una afirmación con fecha, escrita a mano, que nadie relee.**
+   * Así que ahora se cuenta a quién le llega de verdad (puesto ∪ persona, vigencia incluida) y el
+   * encabezado dice el número. Si mañana alguien ocupa el puesto, el rótulo se entera solo.
    *
    * ⛔ El sujeto es un usuario REAL (el primero de la tenant) sólo para que `medirZona` tenga un
    * `userId` válido: con esta clave la zona NO sale de su ficha, así que cuál sea da igual.
@@ -252,6 +257,36 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
   const tenant = jefes[0] && jefes[0].tenant_id;
   if (tenant) {
     const alguien = await knex('identity.users').where({ tenant_id: tenant }).first('id');
+    /*
+     * Quién recibe HOY `comercial.venta_zonas`: por su puesto o por excepción de persona vigente.
+     * Misma resolución que `responsabilidadesDe()` — `resta` gana sobre `suma`.
+     */
+    const CLAVE = 'comercial.venta_zonas';
+    const porPuesto = await knex('identity.users as u')
+      .join('identity.position_responsibilities as pr', function () {
+        this.on('pr.position_code', '=', 'u.position_code').andOn('pr.tenant_id', '=', 'u.tenant_id');
+      })
+      .where({ 'u.tenant_id': tenant, 'pr.responsibility_key': CLAVE })
+      .whereNull('u.deleted_at')
+      .whereNull('pr.deleted_at')
+      .pluck('u.username');
+    const porPersona = await knex('identity.user_responsibilities as ur')
+      .join('identity.users as u', 'u.id', 'ur.user_id')
+      .where({ 'ur.tenant_id': tenant, 'ur.responsibility_key': CLAVE })
+      .whereNull('ur.deleted_at')
+      .whereNull('u.deleted_at')
+      .whereRaw('ur.valid_from <= CURRENT_DATE')
+      .andWhere((q) => q.whereNull('ur.valid_to').orWhereRaw('ur.valid_to >= CURRENT_DATE'))
+      .select('u.username', 'ur.accion');
+    const reciben = new Set(porPuesto);
+    for (const r of porPersona) {
+      if (r.accion === 'resta') reciben.delete(r.username);
+      else reciben.add(r.username);
+    }
+    const quien =
+      reciben.size === 0
+        ? 'HOY NO LA TIENE NADIE — el bloque no lo ve ninguna persona'
+        : `la reciben ${reciben.size}: ${[...reciben].join(', ')}`;
     const d = await meZona.medirZona(
       knex,
       {
@@ -264,7 +299,7 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
       PERIODO,
     );
     console.log('═'.repeat(78));
-    console.log('SIMULACIÓN — lo que verá DIRECCIÓN con comercial.venta_zonas (hoy nadie la tiene)');
+    console.log(`DIRECCIÓN — lo que ve con comercial.venta_zonas · ${quien}`);
     if (d.consolidado) {
       const k = d.consolidado;
       console.log(

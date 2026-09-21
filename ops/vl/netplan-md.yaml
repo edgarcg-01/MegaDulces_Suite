@@ -1,0 +1,124 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Red del servidor de ingesta `md` — IP FIJA 192.168.0.222, atada a la MAC.
+#
+# Destino en el server:  /etc/netplan/00-installer-config.yaml   (modo 600, root:root)
+# Procedimiento de aplicación (con reversión automática): ver el bloque de abajo.
+#
+# ── ⭐ POR QUÉ EXISTE ESTE ARCHIVO, medido el 2026-09-21 ──────────────────────
+# `md` se reinició (arranque 16:06) y "cambió de IP": pasó de .222 a .244.
+#
+# ⚠️ La causa NO fue que el DHCP repartiera otra dirección, y tampoco fue —como se
+# creyó al principio— una simple renumeración de PCIe. Al leer la configuración que
+# había, quedó claro que **la placa de red es OTRA**:
+#
+#     config vieja (subiquity)   enp6s0   match macaddress: e8:9c:25:0f:7a:d0
+#     NIC presente hoy           enp3s0   MAC              30:c5:99:d1:dd:d1
+#
+# Son MAC distintas: no es la misma tarjeta con otro nombre. La configuración
+# matcheaba una placa que ya no está, así que ninguna regla de netplan aplicó y la
+# interfaz real quedó gobernada por el comodín que trae dracut:
+#
+#     /run/systemd/network/zzzz-dracut-default.network
+#     [Match] Kind=!*  Type=!loopback        ← CUALQUIER interfaz
+#     [Network] DHCP=yes
+#
+# Un `.network` de respaldo que matchea todo y pide DHCP. Por eso tomó .244.
+#
+# ⛔⛔ **Y el hallazgo que más importa: la .222 NUNCA fue estática.** La config vieja
+# decía `dhcp4: true` — o sea que el servidor tenía esa dirección porque el router
+# se la venía arrendando, casi con seguridad por una RESERVA DHCP atada a la MAC
+# vieja `e8:9c:25:0f:7a:d0`. Al cambiar la placa, la reserva dejó de aplicarle.
+# Eso explica por qué "siempre tuvo .222" y por qué la perdió sin que nadie tocara
+# nada. Acá pasa a ser estática de verdad, en el server.
+#
+# ⛔ **Fijar la IP por NOMBRE de interfaz volvería a romperse** a la próxima
+# renumeración. Por eso se matchea por **MAC**. El nombre pasa a ser irrelevante y
+# NO se renombra (un `set-name` agrega riesgo sin ganancia: Docker cuelga de sus
+# bridges, no del nombre de la NIC).
+#
+# ── LO QUE ESTO ARREGLA, y no es cosmético ───────────────────────────────────
+# Los POS de las sucursales autorizan por IP de ORIGEN. Con `md` en .244:
+#
+#     FATAL: no hay una línea en pg_hba.conf para «192.168.0.244», usuario «ods_repl»
+#
+# Medido: **5 de 9 suscripciones sin apply worker** (`sub_md_00`, `02`, `04`, `05`,
+# `sub_pilot` = las cinco del puerto 5432, cuyo `pg_hba` se ató a .222 en la Fase VL).
+# El TCP llegaba a las cinco — no era red, era autenticación. Volver a .222 las
+# repara solas, **sin tocar un solo POS**.
+#
+# ── APLICADO el 2026-09-21, verificado ───────────────────────────────────────
+# Las 9 suscripciones volvieron a tener apply worker (`sub_md_01` y `sub_md_07`
+# tardaron ~25 s más: los workers se reinician con el cambio de red y reconectan
+# solos). `store_poller` 9/9 ramas · `ods_live_hot` 9/9 ramas, 733 filas, 0 tablas
+# con error · tickets en vivo entrando de 6 sucursales.
+#
+# ⚠️ **PENDIENTE EN EL ROUTER (192.168.0.254), no en el server.** Dos cosas, y la
+# segunda es la que muerde:
+#   1. Sacar `.222` del pool DHCP, o reservarla para la MAC NUEVA
+#      `30:c5:99:d1:dd:d1`. Dentro del pool, el router puede arrendarla a otro
+#      equipo: un choque de IP no da un error claro, da caídas intermitentes.
+#      Verificado el 2026-09-21 antes de aplicar: `.222` estaba LIBRE
+#      (ARP `INCOMPLETE` desde la propia LAN).
+#   2. **Borrar la reserva vieja de `e8:9c:25:0f:7a:d0` → `.222`**, si existe. Hoy
+#      apunta a una placa que ya no está; el día que esa NIC vuelva a aparecer
+#      —se reactiva en BIOS, se reinstala la tarjeta— el router le daría la misma
+#      dirección que ahora es estática acá, y chocarían.
+# ─────────────────────────────────────────────────────────────────────────────
+
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    lan-md:
+      # La identidad estable del servidor. `lan-md` es sólo un ID interno de netplan;
+      # lo que decide es el match por MAC.
+      match:
+        macaddress: "30:c5:99:d1:dd:d1"
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - 192.168.0.222/24
+      routes:
+        - to: default
+          via: 192.168.0.254
+      nameservers:
+        addresses:
+          - 192.168.0.254
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CÓMO APLICARLO (desde una sesión en `md`, requiere sudo con contraseña)
+#
+#   ⭐ El paso 2 es el que hace esto reversible: si la configuración nueva deja al
+#   server incomunicado, a los 5 minutos vuelve sola a DHCP. Sin esa red, un error
+#   de sintaxis o un gateway mal puesto exige ir físicamente a la máquina.
+#
+#   # 1) respaldar lo que hay
+#   sudo cp -a /etc/netplan/00-installer-config.yaml /root/netplan-dhcp.bak.yaml
+#
+#   # 2) red de seguridad: revierte sola en 5 min salvo que la cancelemos
+#   sudo systemd-run --on-active=5min --unit=netplan-rollback /bin/sh -c \
+#     'cp -a /root/netplan-dhcp.bak.yaml /etc/netplan/00-installer-config.yaml && netplan apply'
+#
+#   # 3) instalar esta configuración (pegar el YAML de arriba)
+#   sudo install -m 600 -o root -g root /dev/stdin /etc/netplan/00-installer-config.yaml
+#
+#   # 4) validar la SINTAXIS sin aplicar — netplan generate falla antes de romper nada
+#   sudo netplan generate && echo "sintaxis OK"
+#
+#   # 5) aplicar (la sesión SSH sobre .244 se va a cortar: es lo esperado)
+#   sudo netplan apply
+#
+#   # 6) reconectar por la IP nueva y, SÓLO si responde, cancelar la reversión:
+#   #    ssh superoot@192.168.0.222
+#   sudo systemctl stop netplan-rollback.timer
+#   sudo systemctl reset-failed netplan-rollback.service
+#
+# VERIFICAR (después de reconectar en .222):
+#   ip -br addr show | grep -v '^lo\|docker\|br-'        # una sola IP, la .222
+#   ip route | grep default                              # via 192.168.0.254
+#   ping -c2 192.168.0.254 && ping -c2 8.8.8.8           # LAN y salida
+#   docker exec pgvector-md psql -U postgres -d kepler_md_08 \
+#     -c 'SELECT subname, pid FROM pg_stat_subscription ORDER BY 1'
+#   # ⭐ El veredicto es ése: las 9 con `pid` NO nulo. Si alguna sigue en NULL,
+#   #    su `pg_hba` nunca tuvo la .222 y hay que agregársela en ESE POS.
+# ─────────────────────────────────────────────────────────────────────────────

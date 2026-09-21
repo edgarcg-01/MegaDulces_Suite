@@ -33,6 +33,13 @@ export interface PriceChangesResult {
    * llegó" se ven idénticos en la pantalla, y son lo contrario.
    */
   fuente_al: string | null;
+  /**
+   * `[ETQ-CAMBIOS.4]` Cuántos movimientos de **un centavo** se ocultaron ese día. Medido: son el
+   * 41.9% de la semana y el 93% de un domingo, de 116 SKUs que oscilan ~36 veces cada uno. Se
+   * filtran porque no justifican caminar al anaquel, pero el número VIAJA: un filtro mudo que se
+   * lleva casi todo se lee como "no hubo cambios".
+   */
+  ocultos_centavo: number;
   freshness: Freshness | null;
 }
 

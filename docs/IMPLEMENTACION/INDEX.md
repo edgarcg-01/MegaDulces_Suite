@@ -57,6 +57,8 @@
 | [`FASES/FASE_RE15_UI_ENTRADAS.md`](FASES/FASE_RE15_UI_ENTRADAS.md) | 📝 **Plan listo 2026-08-27** (las 6 pantallas de entradas al canon de DESIGN.md: auditoria medida + 7 sprints + 3 decisiones de Edgar) | 7 sprints |
 | [`FASES/FASE_RE16_TRES_PANTALLAS.md`](FASES/FASE_RE16_TRES_PANTALLAS.md) | 🧪 **En codigo 2026-08-27** (de 6 pantallas a 3 una por rol + Centro de control 4 pestanas + arrastrar el PDF a su fila + solo PDF; lote absorbido) | RE.16.0-16.8 |
 | [`FASES/FASE_SN_SUITE_NAVEGACION.md`](FASES/FASE_SN_SUITE_NAVEGACION.md) | 🧪 **En código y probado 2026-09-10** (ADR-061: la landing `/projects` por los 10 espacios de la spec de Dirección, derivada de `suite-map.ts` sobre `AUTHZ_TREE`; home guards + gate "la puerta no rebota"; revisión crítica de la spec con P-14 abierta) | SN.0–SN.6 |
+| [`FASES/FASE_CDRP_CUADRO_RESULTADOS.md`](FASES/FASE_CDRP_CUADRO_RESULTADOS.md) | 🔨 **En curso 2026-09-21** (ADR-076: el Cuadro de Resultados por Puesto que pidió Dirección, **dentro de «Mi trabajo», no como pantalla nueva**. Registro de umbrales con 5 estados —`sin_meta` nunca es `ok`— antes que cualquier KPI. ⛔ Bloqueo #1: las sillas `direccion` y `direccion_comercial` tienen **0 personas**, así que lo ya entregado no lo ve nadie) | CDRP.0–CDRP.6 |
+| [`FASES/ESPEC_CDRP_DIRECCION_2026-09-17.md`](FASES/ESPEC_CDRP_DIRECCION_2026-09-17.md) | 📄 **Documento AJENO, verbatim** — la especificación funcional que entregó Dirección. No editar: las objeciones medidas van en `FASE_CDRP`, no acá | — |
 
 ### Referencia Kepler (ERP)
 

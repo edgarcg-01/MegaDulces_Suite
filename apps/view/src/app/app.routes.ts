@@ -1519,6 +1519,15 @@ export const routes: Routes = [
             (m) => m.TeleventaTakeOrderComponent,
           ),
       },
+      // E.12 — Cotizaciones de mayoreo
+      {
+        path: 'cotizaciones',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quotes.component').then(
+            (m) => m.TeleventaQuotesComponent,
+          ),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_QUOTES_VER, Permission.COMMERCIAL_TELEVENTA_OPERATE)],
+      },
     ],
   },
   {

@@ -5,6 +5,83 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-21 — Fase CDRP: re-verificar lo pendiente antes de seguir, y descubrir que la mitad ya no era cierto
+
+**Cómo se llegó:** *"verifica nuevamente lo que tienes que hacer"*. La fase llevaba cuatro commits
+en prod y una lista de pendientes escrita días antes. Se volvió a medir contra prod, solo lectura,
+antes de escribir una línea. **Cuatro de los pendientes anotados resultaron falsos o mal
+dimensionados**, y el orden de trabajo que traía estaba mal por eso.
+
+### ⛔ La deuda que encabezaba todo y no estaba en ninguna lista
+
+CDRP tenía **cuatro commits y cero renglones** en el tracker, el log, los ADRs o un `FASE_*.md`.
+La regla del proyecto lo exige como mandatorio. Y peor: la **especificación de Dirección** que esos
+commits citan (§1.1, §3, §4, §9, §12, §13) vivía sólo en la carpeta de descargas de una máquina —
+o sea que **cada una de esas citas era inverificable**. Un acuerdo con Dirección que no está en el
+repo no es un acuerdo, es un recuerdo. Se versionó verbatim con cabecera de procedencia
+(`ESPEC_CDRP_DIRECCION_2026-09-17.md`), y las objeciones medidas viven en el doc de fase, no
+mezcladas con la spec: mezclarlas borra la diferencia entre lo que pidieron y lo que se pudo hacer.
+
+### Lo que la medición corrigió
+
+| Lo que yo tenía anotado | Lo medido |
+|---|---|
+| «mover a Luis Francisco de puesto para que Dirección vea sus zonas» | **`direccion` 0 personas · `direccion_comercial` 0 personas**, sí — pero ⭐ **el reparto por PERSONA ya existe entero** (`identity.user_responsibilities` + endpoint + UI en `/admin/personas`): un clic reversible, sin migración ni deploy. La solución que traía era la cara |
+| «decidir de dónde sale el presupuesto de ventas» | **Ya se está capturando**: `budget.budgets` con un FY2027 en borrador creado ese mismo día 17:21Z. La respuesta es **`budget.sales_plan_lines`**, no `commercial.sales_targets` (forma exacta, cero escritores) |
+| «cartera vencida = una consulta» | **No es un KPI por construir: Fase CXC ya lo tiene entero.** Es un consumo. Pero su foto diaria está en **0 filas** y **sin ni un `cron_runs`** que la mencione, la vista viva cuesta **2.5 s** (gate <1 s) y `estatus` es **texto libre a mano** (`VTA 2-73`, `CARRO`, `0119`). Medido: **$56.84 M, 89.7% vencido** |
+| «liquidez = una consulta» | **No lo es.** Falta el mapa de cuentas circulantes — decisión contable, no código. Y el riesgo mayor no es no tenerla: es que alguien confunda el `falta_liquidez` de `budget-cashflow.service.ts` (flujo prospectivo) con la razón corriente |
+| «interanual = una tercera ventana en la consulta que ya corre» | Los `whereBetween` acotan a ~2 meses y el archivo documenta que esa forma bajó de **4.4 s a 131 ms**. A 13 meses lo revienta → **tercera consulta separada** |
+
+### Lo entregado
+
+**`46dab556` — `fix([SM.9])`.** `suite-map.ts` mandaba el Cuadre a `almacen/cuadre`, que `[SM.9]`
+había mudado a Finanzas: el espacio «Auditoría, Prevención y Control» **perdía esa puerta para
+todos**. El fix del mapa es una palabra; lo que costó fue la segunda mitad. La paridad de puertas
+también estaba roja **y decía la verdad**: `RECONCILIATION_VER` dejó de abrir «Almacenes». ⛔ La
+salida fácil era borrar la clave de la fixture congelada — eso pone el spec en verde **dejando de
+vigilarla**, que es exactamente cómo una puerta se pierde en silencio. En su lugar la fixture gana
+`movidas`: la misma garantía apuntando a otro lado, con reja por los dos lados (una mudanza
+declarada tiene que ser **real**, y una hacia un espacio que la clave no abre se detecta). Medido
+antes de aceptarlo: **de los 10 roles con `RECONCILIATION_VER`, los 10 conservan otra puerta** —
+ningún usuario real perdió acceso; la falla era del usuario hipotético de una sola clave. La
+segunda falla era colateral (la prueba negativa del `alsoAnyOf` cuenta 11 y asumía base limpia).
+`contracts` **106/109 → 111/111**, con la rotura reintroducida a propósito para ver el rojo.
+
+**`0ef752d9` — `fix([CDRP.2])`.** La medición que justifica que `analytics.kpi_thresholds` nazca
+vacía **envejeció en tres días**: decía «las 6 tablas de presupuesto tienen 0 filas (2026-09-18)» y
+al 21-sep eran **13** con **3 pobladas**. Y estaba dentro de un `COMMENT ON TABLE`, o sea
+**persistida en prod**, donde editar el archivo no alcanza porque la migración ya corrió (batch
+495) → migración aparte (batch **503**) que lo reemite, con lectura de vuelta del catálogo dentro
+de la propia migración. ⛔ Volvió a morder el mismo bug de la vez pasada: `COMMENT ON TABLE x IS ?`
+da `syntax error at or near "$1"` — la sentencia exige un **literal**, ni expresión (`'a' || 'b'`,
+el error anterior) ni binding. La conclusión de fondo **no cambió** (los renglones siguen en 0), y
+la lección se convirtió en compuerta: el smoke se pone rojo el día que aparezca el primer renglón
+de presupuesto. *Un comentario con una medición no avisa cuando deja de ser cierto; un test sí.*
+Smoke **40 → 42**, las dos negativas ejercidas en rojo.
+
+**Documentación:** `FASE_CDRP_CUADRO_RESULTADOS.md` nuevo · **ADR-076** · renglón CDRP en el
+tracker con CDRP.0–CDRP.6 · la spec de Dirección versionada.
+
+### Lecciones
+
+1. **Una medición con fecha es código que caduca.** Ésta duró tres días. Si sostiene una decisión,
+   va en un test que se ponga rojo, no en un comentario que nadie relee.
+2. **Un spec que se pone rojo por una mudanza deliberada está diciendo la verdad.** Borrar la
+   aserción la calla; declarar la mudanza la conserva.
+3. **Verificar antes de seguir es trabajo, no ceremonia.** Cuatro de cinco pendientes estaban mal:
+   uno ya resuelto por otra sesión, uno mucho más barato de lo que creía, y dos mucho más caros.
+
+### Pendiente humano
+
+Ocupar las dos sillas (`/admin/personas`) — sin eso la fase entrega **valor cero visible** por más
+código que se escriba · arbitrar el 89.7 % de cartera vencida · firmar qué cuentas son circulantes
+y qué agrupadores entran a EBITDA · redeploy.
+
+🔴 **Ajeno, reportado y no corregido:** `nx build view` está **rojo en `main`** por `a945abab`
+(`[SM.36–SM.39]`, PR #133): `tienda-arqueo.component.ts:1712` llama `this.cargarHistorial()` sin
+declararla, más `ArqueoDto` y `TicketDenominacion` desalineados. `nx build api` verde.
+
+---
 ## 2026-09-21 — `[WMS-REC.10]` La pantalla de Ubicaciones se vuelve el mapa de la bodega — y deja de estar oculta para quien acomoda
 
 **Cómo se llegó:** *"quiero que también esté disponible la sección de ubicación
