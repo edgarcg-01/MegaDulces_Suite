@@ -71,7 +71,10 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Corre extract-query.ps1 (32-bit) y devuelve el array de filas del JSONL. */
 function runQuery(mdb, query) {
   const out = path.join(os.tmpdir(), `wcstk_${process.pid}_${Math.round(process.hrtime()[1] % 1e6)}.jsonl`);
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // windowsHide: sin esto, cada lectura del .mdb abre una consola de PS32 en el escritorio.
+  // Lo llama `run-wincaja-live.ps1` (tarea `WincajaLive`, cada 10 min).
+  // Mismo arreglo que ya tenía `lib/access-adapter.js`.
+  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true });
   if (res.status !== 0) throw new Error(`extract-query falló: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   try {
     return fs.readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));

@@ -3238,3 +3238,38 @@ desde acá. Lo atribuible y real es el `COPY` (−38s) y el push (−32%).
 > optimizar por tamaño, medí si el costo es por bytes o por *cantidad de unidades nuevas*. Acá dos
 > razonamientos plausibles —"menos MB → export más rápido" y "un `RUN` de más → export más
 > lento"— cayeron con una sola corrida en frío.
+
+---
+
+## 61. `windowsHide` no es cosmético: 4 de 6 lectores del `.mdb` abrían consola en el escritorio
+
+**Síntoma reportado (2026-09-21):** *"se está abriendo un task scheduler en mi PC"* — una consola
+negra apareciendo cada pocos minutos en `.249`.
+
+**No era una tarea de más.** Las tres tareas frecuentes (`\Kepler\FeedGuardian` PT5M,
+`\WincajaLive` PT10M, `\WincajaSyncActual`) ya lanzan por `wscript.exe` con un `*-hidden.vbs` que
+usa `sh.Run …, 0, True` — ventana oculta. El agujero estaba **un nivel más abajo**.
+
+`child_process.spawnSync` en Windows tiene **`windowsHide: false` por defecto**. Los extractores
+de Wincaja lanzan PowerShell **32-bit** (obligatorio para Jet/Access) una vez por lectura, y sin
+esa opción cada lectura abre su propia consola. `run-wincaja-live.ps1` hace **3 lecturas por
+pasada** (existencia + ventas + movimientos) **cada 10 minutos**.
+
+⛔ **Lo que hace a esto una lección y no un bug:** `lib/access-adapter.js` ya tenía el arreglo,
+con este comentario textual —
+
+> `windowsHide: true, // NO abrir ventana de consola por cada lectura (bajo PM2/interactivo salían visibles)`
+
+— o sea que **el problema ya se había encontrado y resuelto en un archivo, y los otros cuatro
+nunca se actualizaron**. Auditados los 6 `spawnSync(PS32, …)` del repo: 2 ocultaban, **4 no**
+(`wincaja-live-extract.js`, `wincaja-sales-extract.js`, `wincaja-stock-extract.js`,
+`import-wincaja.js`).
+
+**Regla:** al arreglar algo en un lector/lanzador, **auditar los hermanos en el mismo commit**. Un
+arreglo que vive en un solo archivo es una nota al pie, no un arreglo. Es la misma familia que
+`ADR-056`: *el primitivo que no se generaliza vuelve a costar.*
+
+⛔ **Y lo que NO se hizo, a propósito:** borrar la tarea. `WincajaLive` es uno de los 3 carriles
+que la Fase VL dejó en `.249` porque Jet 32-bit no corre en el servidor Linux, y `FeedGuardian`
+es el guardián de los feeds. La ventana molesta se apaga en el `spawn`; apagar la tarea apaga
+ingesta de producción y nadie se entera hasta que falta el dato.
