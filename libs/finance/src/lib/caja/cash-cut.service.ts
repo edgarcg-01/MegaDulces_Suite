@@ -45,12 +45,19 @@ export class CashCutService {
     return buildFolioCorte(year, r.rows[0].current_value);
   }
 
-  /** Movimientos que entran a un corte: los de la sucursal que todavía no tienen corte. */
+  /**
+   * Movimientos que entran a un corte: los de la sucursal que todavía no tienen corte.
+   *
+   * CG.19 Capa 1 — trae `origen_tipo` para que el motor sepa qué parte del `esperado` viene de un
+   * hecho de Kepler y qué parte la tecleó una persona. **No cambia la aritmética**: cambia lo que
+   * el corte puede DECIR de sí mismo (`cobertura_ingreso`).
+   */
   private async movimientosSueltos(trx: any, tenantId: string, sucursal: string): Promise<MovimientoDelCorte[]> {
-    return trx('finance.cash_ledger')
+    const rows = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId, sucursal })
       .whereNull('corte_id').whereNull('deleted_at')
-      .select('tipo', 'monto', 'estado');
+      .select('tipo', 'monto', 'estado', 'origen_tipo');
+    return rows.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
   }
 
   async abrir(input: AbrirCorteInput, user: Usuario) {
@@ -126,10 +133,14 @@ export class CashCutService {
 
       // Ahora sí: se suma EXACTAMENTE lo que quedó atado. Si el gate falla, la trx revierte las dos
       // cosas juntas.
-      const movs: MovimientoDelCorte[] = await trx('finance.cash_ledger')
+      const filas = await trx('finance.cash_ledger')
         .where({ tenant_id: tenantId, corte_id: id })
         .whereNull('deleted_at')
-        .select('tipo', 'monto', 'estado');
+        .select('tipo', 'monto', 'estado', 'origen_tipo');
+      // `anclado` viaja al motor para que el corte FIRMADO deje constancia de cuánto de su
+      // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
+      // repite lo que el capturista tecleó (regla M4).
+      const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
 
       const t = calcularCorte({
         fondoInicial: Number(c.fondo_inicial), movimientos: movs,
