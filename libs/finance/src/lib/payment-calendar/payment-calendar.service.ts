@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable';
 
@@ -47,9 +48,11 @@ export interface CreateAgreementDto {
  */
 @Injectable()
 export class PaymentCalendarService {
+  private readonly logger = new Logger(PaymentCalendarService.name);
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Optional() @Inject(BUDGET_LEDGER_PORT) private readonly ledger?: BudgetLedgerPort,
   ) {}
 
   private assertDate(d: string) {
@@ -390,7 +393,27 @@ export class PaymentCalendarService {
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
-      for (const it of items as any[]) await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
+      for (const it of items as any[]) {
+        await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
+        // §16.3 (default) — pagar = EJERCER + PAGAR la partida ligada (ADR-066, unificar el gasto).
+        // Best-effort con SAVEPOINT: un pago YA en ejecución no se bloquea por una desincronía del
+        // ledger, y el error NO envenena la trx del pago (gotcha 25P02). La deriva se registra.
+        if (this.ledger && it.obligation_source === 'budget_expense') {
+          const ob = await trx('budget.expense_obligations').where({ tenant_id: tenantId, id: it.obligation_id }).first();
+          if (ob?.budget_line_id) {
+            const applied = Number(it.applied_amount);
+            await trx.raw('SAVEPOINT led_pay');
+            try {
+              await this.ledger.applyInTrx(trx, ob.budget_line_id, 'ejercido', applied, { sourceKind: 'payment', sourceRef: it.id }, username);
+              await this.ledger.applyInTrx(trx, ob.budget_line_id, 'pago', applied, { sourceKind: 'payment', sourceRef: it.id }, username);
+              await trx.raw('RELEASE SAVEPOINT led_pay');
+            } catch (e) {
+              await trx.raw('ROLLBACK TO SAVEPOINT led_pay').catch(() => undefined);
+              this.logger.warn(`Ledger no movido para pago item ${it.id} (partida ${ob.budget_line_id}): ${(e as Error)?.message}`);
+            }
+          }
+        }
+      }
       return updated;
     });
   }
