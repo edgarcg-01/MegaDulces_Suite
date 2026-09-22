@@ -21,6 +21,10 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { InputTextModule } from 'primeng/inputtext';
 
 import { AdminService, PermisosDePersona } from '../admin.service';
+import {
+  PERMISSION_META,
+  PERMISSION_CATEGORY_ORDER,
+} from '../../../core/constants/permission-meta';
 
 /**
  * `[AU.10]` — Qué abre una persona: su perfil base, sus complementos y sus
@@ -120,17 +124,24 @@ interface Excepcion {
           <ul class="pd-lista">
             @for (e of excepciones(); track e.permission_key) {
               <li class="pa-exc">
-                <span class="comm-code">{{ e.permission_key }}</span>
+                <!-- [AU.6] La etiqueta primero y la clave debajo. Antes salía sólo
+                     COMMERCIAL_QUOTES_VER: quien administra personas lee lo que el permiso
+                     ABRE, no cómo se declara en el enum. La clave se conserva —es lo que se
+                     guarda y lo que se menciona en un soporte— pero demotada. -->
+                <span class="pa-perm">
+                  <span class="pa-perm-label">{{ etiqueta(e.permission_key) }}</span>
+                  <span class="pa-perm-key">{{ e.permission_key }}</span>
+                </span>
                 <p-tag [value]="e.allow ? 'concede' : 'quita'"
                        [severity]="e.allow ? 'success' : 'danger'" styleClass="pd-tag"></p-tag>
                 <input pInputText [ngModel]="e.nota ?? ''" (ngModelChange)="setNota(e.permission_key, $event)"
                        [disabled]="!puedeEscribir" class="pa-nota"
                        placeholder="Por qué (obligatorio)"
-                       [attr.aria-label]="'Motivo de ' + e.permission_key" />
+                       [attr.aria-label]="'Motivo de ' + etiqueta(e.permission_key)" />
                 @if (puedeEscribir) {
                   <button pButton type="button" class="icon-btn-ghost-bad"
                           (click)="quitar(e.permission_key)"
-                          [attr.aria-label]="'Quitar la excepción ' + e.permission_key">
+                          [attr.aria-label]="'Quitar la excepción ' + etiqueta(e.permission_key)">
                     <span class="pi pi-times" aria-hidden="true"></span>
                   </button>
                 }
@@ -141,9 +152,14 @@ interface Excepcion {
 
         @if (puedeEscribir && !permisos()?.platform_admin) {
           <div class="pa-nueva">
+            <!-- [AU.6] Agrupado por categoría y con la etiqueta legible. Eran 201 claves en
+                 SCREAMING_SNAKE ordenadas alfabéticamente: para encontrar "ver cotizaciones"
+                 había que saber de antemano que se llama COMMERCIAL_QUOTES_VER.
+                 filterBy=label,key para que el que sí se sabe la clave la siga tecleando. -->
             <p-select [options]="claveOpts()" [ngModel]="nuevaClave()"
                       (ngModelChange)="nuevaClave.set($event)" optionLabel="label" optionValue="value"
-                      [filter]="true" filterBy="label" appendTo="body"
+                      [group]="true" optionGroupLabel="label" optionGroupChildren="items"
+                      [filter]="true" filterBy="label,key" appendTo="body"
                       placeholder="Agregar una excepción" ariaLabel="Permiso"></p-select>
             <p-select [options]="signoOpts" [ngModel]="nuevoAllow()"
                       (ngModelChange)="nuevoAllow.set($event)" optionLabel="label" optionValue="value"
@@ -166,7 +182,7 @@ interface Excepcion {
             </div>
             @if (faltaNota(); as k) {
               <p class="pd-hint">
-                Falta el motivo de <span class="comm-code">{{ k }}</span>. Sin él, dentro de seis
+                Falta el motivo de <strong>{{ etiqueta(k) }}</strong>. Sin él, dentro de seis
                 meses nadie va a saber si fue una decisión o un descuido.
               </p>
             }
@@ -212,15 +228,48 @@ export class PersonaAccesoComponent implements OnChanges {
       .map((r) => ({ label: r, value: r })),
   );
 
-  /** Las claves que todavía no son excepción. Un permiso no se declara dos veces. */
+  /**
+   * Las claves que todavía no son excepción. Un permiso no se declara dos veces.
+   *
+   * `[AU.6]` Agrupadas por la categoría de `PERMISSION_META` y ordenadas por etiqueta, no por
+   * clave: el orden alfabético del enum mezcla dominios (`COMMERCIAL_*` de ventas, de almacén y
+   * de logística quedan intercalados) y no es el orden en el que nadie busca.
+   */
   readonly claveOpts = computed(() => {
     const ya = new Set(this.excepciones().map((e) => e.permission_key));
-    return (this.permisos()?.efectivos ?? [])
+    const claves = (this.permisos()?.efectivos ?? [])
       .concat(this.permisos()?.del_puesto ?? [])
-      .filter((k, i, a) => a.indexOf(k) === i && !ya.has(k))
-      .sort()
-      .map((k) => ({ label: k, value: k }));
+      .filter((k, i, a) => a.indexOf(k) === i && !ya.has(k));
+
+    const porCategoria = new Map<string, Array<{ label: string; key: string; value: string }>>();
+    for (const k of claves) {
+      const meta = PERMISSION_META[k];
+      const cat = meta?.category || 'Otros';
+      if (!porCategoria.has(cat)) porCategoria.set(cat, []);
+      porCategoria.get(cat)!.push({ label: meta?.label || k, key: k, value: k });
+    }
+
+    // El orden declarado del catálogo manda; lo que no esté en él va al final, por nombre.
+    const orden = (c: string) => {
+      const i = PERMISSION_CATEGORY_ORDER.indexOf(c);
+      return i === -1 ? PERMISSION_CATEGORY_ORDER.length : i;
+    };
+    return [...porCategoria.entries()]
+      .sort((a, b) => orden(a[0]) - orden(b[0]) || a[0].localeCompare(b[0]))
+      .map(([label, items]) => ({
+        label,
+        items: items.sort((a, b) => a.label.localeCompare(b.label)),
+      }));
   });
+
+  /**
+   * `[AU.6]` La etiqueta legible de una clave. Fallback a la clave cruda —el catálogo cubre
+   * hoy 201 de 201, pero un permiso nuevo sin entrada tiene que salir con algo, no vacío.
+   * Mismo helper que ya usa el editor de roles (`admin-roles-permissions.metaLabel`).
+   */
+  etiqueta(key: string): string {
+    return PERMISSION_META[key]?.label || key;
+  }
 
   readonly demasiadas = computed(() => this.excepciones().length >= 10);
 
