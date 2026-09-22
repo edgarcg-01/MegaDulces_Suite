@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, Permission, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
 import { CommercialTicketsService } from './commercial-tickets.service';
+import { CustomerReportService, ReporteFiltros } from './customer-report.service';
 import { TicketCartaService } from './ticket-carta.service';
 
 /**
@@ -22,6 +23,7 @@ export class CommercialTicketsController {
   constructor(
     private readonly svc: CommercialTicketsService,
     private readonly carta: TicketCartaService,
+    private readonly reporte: CustomerReportService,
     private readonly scope: ScopeService,
   ) {}
 
@@ -55,6 +57,49 @@ export class CommercialTicketsController {
     // inline: el caso normal es verlo e imprimirlo, no bajarlo.
     res.setHeader('Content-Disposition', `inline; filename="ticket-${doc.id}.pdf"`);
     res.end(pdf);
+  }
+
+  /**
+   * TK.8 — Reporte por cliente. Va ANTES de ':id' (si no, 'clientes' entraría como un folio).
+   */
+  @Get('clientes')
+  @RequirePermissions(Permission.COMMERCIAL_TICKETS_VER)
+  @ApiQuery({ name: 'q', required: true, description: 'Nombre o clave del cliente (mínimo 2 caracteres).' })
+  @ApiOperation({ summary: 'Busca clientes en el MAESTRO de Kepler (kdud), no en los documentos. Excluye CONTADO y las cuentas internas: el mostrador es anónimo en el 97% de los tickets y esas claves no son de nadie. Devuelve (sucursal, clave), porque 29 de 1,005 claves nombran a un cliente distinto según la plaza.' })
+  async clientes(@Query() raw: Record<string, string>): ReturnType<CustomerReportService['clientes']> {
+    return this.reporte.clientes(raw.q, await this.alcance(raw, 'clientes'));
+  }
+
+  @Get('clientes/:sucursal/:code/reporte')
+  @RequirePermissions(Permission.COMMERCIAL_TICKETS_VER)
+  @ApiQuery({ name: 'date_from', required: false })
+  @ApiQuery({ name: 'date_to', required: false })
+  @ApiQuery({ name: 'min', required: false, description: 'Importe mínimo del documento.' })
+  @ApiQuery({ name: 'max', required: false, description: 'Importe máximo del documento.' })
+  @ApiQuery({ name: 'caja', required: false, description: '⚠️ Sólo existe en mostrador: filtrar por caja deja fuera facturas y notas de crédito.' })
+  @ApiQuery({ name: 'atendio', required: false, description: 'Clave de quien atendió: cajero en mostrador, vendedor en facturas.' })
+  @ApiQuery({ name: 'brand_id', required: false, description: 'El documento entra COMPLETO si alguna partida es de esa marca.' })
+  @ApiQuery({ name: 'supplier_id', required: false, description: '⚠️ Sólo alcanza al 84.2% del catálogo: 1,777 productos no tienen proveedor.' })
+  @ApiQuery({ name: 'solo_con_descuento', required: false })
+  @ApiOperation({ summary: 'Los documentos de UN cliente de UNA plaza en el periodo, de los dos universos (mostrador y facturas/crédito/notas). Las notas de crédito entran en NEGATIVO para que el total sea lo que el cliente pagó.' })
+  async reporteCliente(
+    @Param('sucursal') sucursal: string,
+    @Param('code') code: string,
+    @Query() raw: Record<string, string>,
+  ): ReturnType<CustomerReportService['reporte']> {
+    const n = (v: string | undefined) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    const f: ReporteFiltros = {
+      from: raw.date_from || undefined,
+      to: raw.date_to || undefined,
+      min: n(raw.min),
+      max: n(raw.max),
+      caja: n(raw.caja),
+      atendio: raw.atendio || undefined,
+      brand_id: raw.brand_id || undefined,
+      supplier_id: raw.supplier_id || undefined,
+      solo_con_descuento: raw.solo_con_descuento === 'true',
+    };
+    return this.reporte.reporte(sucursal, code, f, await this.alcance(raw, 'reporte'));
   }
 
   // Declarada AL FINAL: si fuera antes, ':id' se tragaría cualquier ruta hermana que se agregue.
