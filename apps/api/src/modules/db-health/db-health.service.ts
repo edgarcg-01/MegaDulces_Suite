@@ -648,6 +648,29 @@ interface CronCfg {
 }
 // NOTA: Consolidado (mart.refresh_state) y KP-Concentrate (kp.sync_control) YA se monitorean
 // en el grupo 'source' (EXT_SOURCES) con su heartbeat nativo → no se duplican aquí.
+/**
+ * `[DBH.5]` **Qué se dice de un job que NUNCA escribió un latido.** Pura a propósito: es la
+ * única rama de `checkCronRuns` que no depende de la base, y sacarla acá es lo que permite
+ * probarla — incluida su negativa (ADR-056: un gate sin prueba negativa es una intención).
+ *
+ * `declarado` = el job está en `CRON_JOBS`, o sea que alguien afirmó que debe correr.
+ */
+export function veredictoSinLatido(
+  declarado: { cadence: string } | undefined,
+): { status: Status; note: string } {
+  if (!declarado) {
+    // Nadie lo declaró y nunca reportó: no hay nada contra qué juzgarlo. `unknown` es correcto.
+    return { status: 'unknown', note: 'sin reporte aún (no está en CRON_JOBS: no se puede juzgar)' };
+  }
+  return {
+    status: 'warn',
+    note:
+      `DECLARADO Y NUNCA REPORTÓ: está en CRON_JOBS (cadencia ${declarado.cadence}) y no ha ` +
+      'escrito ni un latido. O no está desplegado, o no corre, o corre y no late. ' +
+      'No se puede saber cuál sin mirarlo.',
+  };
+}
+
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50, maxRunH: 3 },
@@ -1123,7 +1146,33 @@ export class DbHealthService {
         ts_col: 'last_finish', last_update: null, age_seconds: null, status: 'unknown',
         cadence: cfg?.cadence || '—', rows: null,
       };
-      if (!row) { out.push({ ...base, note: 'sin reporte aún' }); continue; }
+      /*
+       * `[DBH.5]` ⛔ **Un job REGISTRADO que nunca reportó no es `unknown`: es un job que no
+       * está entregando, y hasta hoy era invisible.**
+       *
+       * `unknown` no cuenta para el `overall` (`getReport()` lo saltea a propósito, y está bien:
+       * una fuente no configurada o inalcanzable no debe ensuciar el semáforo). Pero acá se
+       * estaba usando para dos cosas distintas, y a una le mentía:
+       *
+       *   · un job que **nadie declaró** y que apareció solo en `cron_runs` → ése sí es `unknown`;
+       *   · un job que **está en `CRON_JOBS`** —o sea, alguien afirmó que debe correr— y que
+       *     **nunca escribió una fila**. Eso no es «no sé»: es «lo esperábamos y no llegó».
+       *
+       * Medido en prod el 2026-09-21: **3 de 44** jobs registrados nunca reportaron —
+       * `stock_snapshot` (la foto diaria de inventario, **con latido ya escrito en su código**),
+       * `kepler_replica_refresh` y `cxc_snapshot`. Los tres decían «sin reporte aún» y el tablero
+       * seguía verde. Es la misma familia del `cfg ? classify : 'ok'` que la Fase VP.0 cazó: la
+       * ausencia leyéndose como salud.
+       *
+       * ⚠️ Es `warn` y no `critical` a propósito: un job recién agregado a `CRON_JOBS` que todavía
+       * no cumple su primera cadencia cae legítimamente acá, y un rojo por eso enseñaría a ignorar
+       * el tablero. El `warn` dice exactamente lo que se sabe — *se declaró y no ha entregado* — y
+       * se apaga solo con el primer latido.
+       */
+      if (!row) {
+        out.push({ ...base, ...veredictoSinLatido(cfg) });
+        continue;
+      }
       const finish = row.last_finish ? new Date(row.last_finish) : null;
       const ageSec = this.ageOf(finish);
       let status: Status;
