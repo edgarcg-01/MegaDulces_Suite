@@ -211,6 +211,22 @@ Cada celda que se vuelve link es una consulta nueva, así que se midió antes de
 
 MVP = **RR3.0 → RR3.3**.
 
+### 7.3.1 RR4.1 — Ritmo de venta por cliente ✅
+
+El desglose de ruta incorpora los indicadores pedidos por Comercial: venta total, clientes
+atendidos por ruta, venta promedio por cliente, artículos distintos por cliente, valor promedio
+por artículo, unidades por cliente y valor unitario promedio.
+
+Las dos identidades auditables usan exactamente el mismo universo de clientes identificados:
+
+`venta/cliente = artículos distintos/cliente × valor/artículo`
+
+`venta/cliente = unidades/cliente × valor/unidad`
+
+El cliente público (`NULL`, vacío o `0001`) no tiene identidad y queda fuera de los promedios; su
+peso se informa por separado. Sin clientes identificados, los promedios son `null` y la UI muestra
+“—”: ausencia de población no equivale a cero.
+
 ### 7.4 Los promedios (medidos en prod, ruta 27 · 2026)
 
 "Promedio por línea (cantidad de productos)" admite dos lecturas y **son preguntas de negocio distintas**; propongo mostrar las dos porque juntas cuentan la historia:

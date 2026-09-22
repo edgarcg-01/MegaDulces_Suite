@@ -2053,7 +2053,10 @@ export interface SalesByRouteDetail {
    *  El público ("Mostrador a bordo") no tiene identidad → fuera del promedio y declarado en `public_pct`. */
   per_client: {
     clients: number; revenue: number; public_revenue: number; public_pct: number;
-    avg_revenue: number; avg_skus: number; avg_tickets: number; avg_lines: number; avg_units: number;
+    avg_revenue: number | null; avg_skus: number | null; avg_tickets: number | null;
+    avg_lines: number | null; avg_units: number | null;
+    avg_value_per_article: number | null;
+    avg_unit_value: number | null;
   };
   products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];

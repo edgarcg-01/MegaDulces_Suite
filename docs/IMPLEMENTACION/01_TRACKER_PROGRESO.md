@@ -4321,6 +4321,15 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
 ¿se resuelve junto con VL.5?
 
 ---
+
+## Fase RR — Ventas por ruta
+
+- [x] **[RR4.1]** ✅ Ritmo de venta por ruta: venta total, clientes atendidos, venta promedio por
+  cliente, artículos distintos/cliente, valor/artículo, unidades/cliente y valor/unidad. Todos los
+  promedios comparten el universo identificado; público se declara aparte y sin población se
+  representa como `null`/“—”. Incluye prueba de las dos identidades del cálculo (2026-09-22).
+
+---
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
