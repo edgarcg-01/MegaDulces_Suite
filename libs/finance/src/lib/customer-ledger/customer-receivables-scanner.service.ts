@@ -37,6 +37,33 @@ const CRIT_EMBARQUE = 10000; // pesos: fuga crítica
 const MIN_DIF_EMBARQUE = 500;// pesos: por debajo es redondeo por renglón (máximo real medido: $189)
 const DIAS_EMBARQUE = 365;   // ventana: no resucitar embarques antiguos ya conciliados a mano
 
+/**
+ * `[VL.9.4]` El MOTIVO de un error de knex, no la consulta que lo produjo.
+ *
+ * Knex arma su `message` como `<sql> - <mensaje de postgres>` — verificado en vivo el
+ * 2026-09-22 contra una base real: `"SELECT columna_que_no_existe FROM … - column
+ * "columna_que_no_existe" does not exist"`, y conserva `e.code`. El latido
+ * (`cron-heartbeat.js`) trunca a 500 caracteres **por la izquierda**, así que con una
+ * consulta larga guarda 500 caracteres de SELECT y **tira justo la parte que explica la
+ * falla**.
+ *
+ * No es hipotético: `cxc_snapshot` llevaba meses en rojo y su columna `error` eran 500
+ * caracteres de `INSERT INTO analytics.customer_receivable_snapshots (…) SELECT …` sin una
+ * sola palabra sobre el motivo, mientras `customer_receivable_snapshots` seguía en **0 filas**.
+ * Un error guardado que no dice por qué es un renglón rojo que nadie puede atender.
+ *
+ * ⬜ DEUDA CON NOMBRE (ADR-056): esto le sirve a CUALQUIER servicio que guarde un error de
+ *    knex en un latido, no sólo a éste. Vive acá y no en `libs/` compartido porque se
+ *    encontró en medio de la mudanza de producción; mover el ayudante es su propio cambio.
+ */
+export function motivoDeError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const pg = e as Error & { code?: string; detail?: string };
+  const i = e.message.lastIndexOf(' - ');
+  const razon = i >= 0 ? e.message.slice(i + 3) : e.message;
+  return [pg.code ? `[${pg.code}]` : null, razon, pg.detail].filter(Boolean).join(' ');
+}
+
 @Injectable()
 export class CustomerReceivablesScannerService {
   private readonly logger = new Logger(CustomerReceivablesScannerService.name);
@@ -68,7 +95,7 @@ export class CustomerReceivablesScannerService {
         try {
           filas += await this.snapshotTenant(t.id);
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = motivoDeError(e);
           fallas.push(`snapshot ${t.id}: ${msg}`);
           this.logger.warn(`snapshot ${t.id}: ${msg}`);
         }
