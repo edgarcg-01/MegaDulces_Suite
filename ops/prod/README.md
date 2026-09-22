@@ -467,9 +467,10 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 | 2 | **Cloudflare Tunnel** | Elegido como forma de exposición. `cloudflared` ya está declarado en el compose, tras el perfil `tunel` | Hace falta cuenta de Cloudflare + el dominio (o un subdominio delegado) en su DNS, y el `CLOUDFLARE_TUNNEL_TOKEN` |
 | 3 | **VL.8 — aguante** | **Sin UPS gestionado** (`nut`/`apcupsd` ausentes), **sin respaldo fuera de sitio**, **un solo enlace** de 44 Mbit de subida compartido con la oficina y con los 14 carriles | Compra de UPS + destino de respaldo externo. Elegido como **precondición dura** |
 | 4 | **La alarma no avisa** | El worker manda el correo (verificado en vivo) pero Gmail lo rechaza: `534-5.7.9 Application-specific password required`. `SMTP_PASS` tiene 11 caracteres; una contraseña de aplicación son 16 | Generar la contraseña de aplicación en la cuenta de Google y ponerla en `SMTP_PASS` de **los dos** servicios |
-| 5 | **El volcado correcto** | El respaldo diario no trae roles ni GRANT (§3) | Tomar `pg_dumpall --globals-only` + `pg_dump` con privilegios el día del corte |
+| 5 | ~~**El volcado correcto**~~ ✅ **RESUELTO 2026-09-22** | Era que el respaldo diario usaba `--no-privileges`. Desde `[VL.6.4]` el carril de `md` lo toma **con** privilegios, y `restaurar.sh` **aborta** si el volcado trae menos de 100 entradas `ACL` — o sea que el defecto ya no puede volver en silencio | — |
 | 6 | **`JWT_SECRET` cambia** | El valor de Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo. Recortarlo equivale a rotarlo | Decidirlo: rotar una sola vez y avisar que **todos re-loguean** |
 | 7 | **El bucket** | 597 MB de comprobantes (§5) | Decidir MinIO on-prem o seguir en Railway |
+| 8 | ~~**El RPO**~~ ✅ **RESUELTO 2026-09-22** | ⭐ **No estaba en esta lista y era el peor**: prod corre pgBackRest con `archive_mode=on` y la copia estaba en `off` — el corte bajaba la recuperación de *minutos* a *24 horas*, en silencio. Cerrado en §9 | — |
 
 ### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las dos vías
 
@@ -495,11 +496,14 @@ pasa a apuntar al túnel. ⚠️ Cuesta un salto de red extra y un componente m�
 mientras dure la convivencia — pero **compra exactamente lo que importa: que el corte sea
 reversible sin tocar un solo equipo en campo**.
 
-⚠️ **Y una advertencia sobre el APK**: la app nativa de vendedor trae la URL **compilada
-adentro** (`NATIVE_API_URL`), así que el dominio nuevo **no la alcanza** hasta que se
-reconstruya y se redistribuya. Medido: hoy apunta a
-`trademarketing-production-5084.up.railway.app`, que **responde 404** — o sea que ese host ya
-no existe y conviene averiguar de qué vive la app instalada **antes** de tocar nada más.
+⚠️ **Y la advertencia sobre el APK, MEDIDA — y la medición la desactiva.** La app nativa de
+vendedor trae la URL **compilada adentro** (`NATIVE_API_URL`), así que un dominio nuevo no la
+alcanzaría hasta reconstruirla y redistribuirla. Pero el censo de inicios de sesión de 30 días
+dice que **nadie la usa**: 64 escritorio · 10 Android **navegador** (Chrome 151-153 Mobile, sin
+el marcador `; wv)` de un WebView) · 2 iOS · **cero sesiones nativas**. Coherente con que su
+host compilado (`trademarketing-production-5084.up.railway.app`) **responda 404** desde hace
+quién sabe cuánto. ⇒ **Reconstruir y redistribuir el APK NO es parte del corte.** Un bloqueo
+que se cae al medirlo.
 
 ---
 
@@ -703,6 +707,82 @@ acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
   restauró es una hipótesis.
 - ⬜ **Fuera de sitio** (VL.8): hoy repositorio y volcados están en el mismo disco de la misma
   máquina que la base.
+
+---
+
+## 10. El camino: qué está hecho, qué falta, y qué cambió del plan original
+
+> Esta sección es **el plan**. Vive acá y no en un archivo de sesión porque los `.md` del repo
+> son la memoria compartida entre máquinas: un roadmap que sólo ve una sesión no existe.
+> Última medición: **2026-09-22**.
+
+### 10.1 Hecho, y verificado con datos
+
+| | Qué | Cómo se comprobó |
+|---|---|---|
+| ✅ | **El sustrato**: `pg-prod` (5434) + `pg-rag` (5435), PostgreSQL **18.6** — la misma minor que Railway — con TLS, los 3 roles con su hash real y **1,217 GRANT** aplicados | `pg_authid` comparado fila por fila contra prod; TLSv1.3 negociado |
+| ✅ | **Las 6 imágenes** construidas en `md`; `api`, `worker`, `portal` y `vendor` sirviendo | `/api/health` 200 con su commit · `/api/sucursales` con sucursales reales · `/api/kp/precios-todos` 9,532 productos en 0.85 s |
+| ✅ | **El respaldo diario** mudado del Programador de Windows a `md` (contenedor `prod-backup`, 22:00 MX), con 3 compuertas y clasificación del destino **por contenido** | Modo `--prueba` completo + canario de `cron` de un minuto. Tarea de Windows **deshabilitada** (un solo dueño) |
+| ✅ | **pgBackRest**: archivado continuo de WAL + primer respaldo completo | `check` forzó un WAL y confirmó que llegó al repositorio · **20.3 GB → 4 GB en 66 s** · sensor `wal_archive` en Salud BD |
+| ✅ | **El restore** como guion con compuertas + esperador que aguarda la *señal*, no el reloj | 4 pruebas: sin privilegios aborta · con privilegios pasa · piso de tablas aborta · volcado viejo aborta |
+| 🟡 | **La copia** de los 34 GB: restaurada, **pero no fiel** (724 de 825 migraciones) | Y se sabe por qué: §3.3. Se reemplaza esta noche con un volcado fresco |
+
+### 10.2 Lo que cambió respecto del plan original, por medición
+
+| Lo que decía el plan | Lo medido | Consecuencia |
+|---|---|---|
+| Volcado de **6.1 h** a 6.22 MB/min → *"un corte por dump/restore no es viable"* | **~30 MB/min, ~75 min** (4 respaldos reales). La tasa vieja se midió **durante el cuelgue del socket muerto** — cronometrando un proceso que no transfería | La ventana del corte es **~2.5 h**. `wal_level=logical` deja de ser obligatorio: pasa a optativo |
+| El enlace es el cuello de botella | **218 MB/min desde `SISTEMAS`, 260 desde `md`** con el mismo comando | El enlace no es el problema. Lo caro del volcado es el **catálogo**: 121 s antes del primer byte |
+| **Coolify orquesta**, `deploy.sh` construye | Coolify 4.3.23 **no tiene el tipo `dockerimage`**; los 5 build packs exigen `git_repository` + `git_branch`. No puede adoptar una imagen ya construida | Decisión del usuario: **Coolify = panel, no dueño**. Los 4 servicios siguen en este compose (§10.4) |
+| 7 bloqueos del corte | Apareció el **#8** y no estaba en ninguna lista: prod corre pgBackRest y la copia no → el corte **bajaba el RPO de minutos a 24 h** | Cerrado en §9. Es el hallazgo de más valor de la fase |
+| — | **No existe rollback**: las 6 imágenes son `:latest` y las versiones anteriores quedan **sin etiqueta**; un `docker image prune` las borra | Hueco nuevo, §10.3 |
+
+### 10.3 Lo que falta — ordenado por lo que cuesta, no por lo que entusiasma
+
+**Sin depender de nadie:**
+
+1. ⬜ **Verificar el restore de esta noche.** El veredicto es `/api/sucursales` con datos, no que los contenedores arranquen.
+2. ⬜ **Etiquetar las imágenes por commit** (`trade-prod-api:903b5c4` además de `latest`) y conservar las N anteriores. Hoy **no hay a qué volver**: es lo más barato de la lista y lo que peor se siente a las 3 AM.
+3. ⬜ **Agendar los respaldos de pgBackRest** (completo semanal + diferencial diario). La decisión abierta es *desde dónde*: `backup` necesita leer `PGDATA`, así que o corre dentro de `pg-prod`, o el contenedor `backup` recibe el socket de Docker (**privilegio de root en el host**), o se monta el modo servidor TLS. Las tres tienen costo; ninguna es obviamente correcta.
+4. ⬜ **Probar una recuperación a un punto en el tiempo.** *Un respaldo que nunca se restauró es una hipótesis.*
+5. ⬜ **`verificar-copia.sh` completo** contra prod, una vez que la copia sea fiel.
+
+**Requiere una persona:**
+
+| | Qué | Por qué está trabado |
+|---|---|---|
+| ⛔ | **Rotar las credenciales** que se pegaron en una conversación | Es lo único urgente |
+| ⛔ | **El dominio** en Railway (§6.1) | El CLI devuelve `Unauthorized` sólo al crear dominio → restricción de plan |
+| ⛔ | **Cuenta de Cloudflare** + token del túnel | No existe |
+| ⛔ | **Contraseña de aplicación de Google** para `SMTP_PASS` | Gmail rechaza una de 11 caracteres; son 16 |
+| ⛔ | **VL.8**: UPS, respaldo fuera de sitio, segundo enlace | Precondición dura elegida por el usuario |
+| ❓ | **Decidir**: `DISABLE_CRONS=true` en `MegaDulces` de Railway · rotar `JWT_SECRET` · el bucket · parar Coolify | Son decisiones de producto, no técnicas |
+
+**Contra el estándar, no contra este corte** (§ *"debemos seguir estándares"*):
+
+- ⛔ **La CI está apagada** (`disabled_manually` desde el 25-ago) y `main` **no tiene ningún required status check**. Los 4 gates existen y se corren a mano. *Un gate que depende de que alguien se acuerde no es un gate.* Es el hueco más grande que tiene el proyecto y no lo abre esta fase.
+- ⚠️ **Secretos en texto plano** en varios lanzadores.
+- ⚠️ **3-2-1 incompleto**: repositorio, volcados y base viven en **el mismo disco de la misma máquina**.
+
+### 10.4 Coolify: qué se decidió y por qué
+
+Medido: **no puede tomar las imágenes ya construidas** — su enum de build packs
+(`nixpacks · railpack · static · dockerfile · dockercompose`) no incluye ninguno que parta de
+una imagen local, y los cuatro endpoints de creación exigen `git_repository` + `git_branch`.
+Las únicas dos formas eran:
+
+- un **Service con compose pegado** → el compose quedaría duplicado (repo + su base) y el del
+  repo dejaría de ser la verdad: dos dueños del mismo archivo, que es justo lo que `ops/vl` y
+  `ops/prod` existen para evitar. Además el botón *"Pull latest images"* del panel **rompe** el
+  despliegue (hace `docker compose pull` de tags que no están en ningún registro);
+- una **Application desde git** → despliega lo *pusheado*, no lo probado, y agrega una
+  credencial.
+
+⇒ **Decisión (usuario, 2026-09-22): Coolify queda como panel; los 4 servicios siguen acá.**
+Cuesta 433 MB de 28 GB, o sea que el costo real no es la RAM sino la **superficie**: un panel
+de administración con cuenta propia en la máquina que va a tener los datos de prod.
+⬜ Pendiente de decidir si se **para** hasta que tenga una responsabilidad de verdad.
+⚠️ Y cuando se levante el túnel, el `:8000` **no puede quedar expuesto**.
 
 ---
 
