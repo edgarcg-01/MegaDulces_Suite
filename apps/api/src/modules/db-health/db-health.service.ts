@@ -284,6 +284,42 @@ const APP_SOURCES: SourceCfg[] = [
             FROM analytics.customer_receivable_snapshots`,
     warnH: 30, critH: 50, cadence: 'diario 08:30 MX (customer-receivables-scanner)',
   },
+  // `[VL.9.6]` ARCHIVADO DE WAL. Al encender pgBackRest se creó un modo de falla nuevo cuyo
+  // desenlace es caro: si `archive_command` empieza a fallar, Postgres RETIENE el WAL en
+  // `pg_wal` esperando poder archivarlo, el disco se llena y la base se detiene. Y el disco
+  // es el mismo que usan los 9 contenedores de la ingesta.
+  //
+  // ⛔ EL VEREDICTO NO PUEDE SER `failed_count > 0`. Ese contador es ACUMULATIVO y no se
+  // reinicia: las 9 fallas del 2026-09-22 (la config con `;`, ya arreglada) lo dejarían en
+  // rojo para siempre — el rojo permanente que enseña a ignorar el tablero. Lo que dice si
+  // está roto AHORA es `last_failed_time > last_archived_time`.
+  //
+  // La edad se mide contra el último archivado EXITOSO, que es exactamente la exposición de
+  // RPO: "cuánto hace que no logro guardar un segmento". Con `archive_timeout=300` un sistema
+  // sano archiva al menos cada 5 min, así que 15 min ya es anómalo.
+  //
+  // ⚠️ Con `archive_mode=off` NO se inventa una fecha: se devuelve el arranque del servidor,
+  // que es el hecho real ("desde que arrancó, no se archivó nada"). Envejece solo y termina
+  // en rojo, que es lo correcto para producción — un clúster de prod sin archivado no tiene
+  // recuperación a un punto en el tiempo, y eso no es un estado aceptable en verde.
+  {
+    key: 'wal_archive', label: 'Archivado de WAL (pgBackRest)', table: 'pg_stat_archiver', tsCandidates: [],
+    sql: `SELECT CASE WHEN current_setting('archive_mode') = 'off'
+                        THEN pg_postmaster_start_time()
+                      ELSE coalesce(last_archived_time, pg_postmaster_start_time()) END AS last_update,
+                 CASE
+                   WHEN current_setting('archive_mode') = 'off'
+                     THEN 'archive_mode=off — SIN recuperacion a un punto en el tiempo'
+                   WHEN last_failed_time > last_archived_time
+                     THEN 'el ULTIMO intento FALLO (' || coalesce(last_failed_wal,'?') ||
+                          ') — el WAL se esta acumulando en pg_wal'
+                   ELSE archived_count::text || ' segmentos archivados · ' ||
+                        failed_count::text || ' fallas historicas (acumulado, no reinicia) · ultimo ' ||
+                        coalesce(last_archived_wal,'—')
+                 END AS note_extra
+            FROM pg_stat_archiver`,
+    warnH: 0.25, critH: 1, cadence: 'continuo (archive_timeout=300 s)',
+  },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
