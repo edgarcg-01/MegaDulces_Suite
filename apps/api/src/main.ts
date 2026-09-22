@@ -347,7 +347,21 @@ async function bootstrapWorker(): Promise<void> {
     app.flushLogs();
   }
   app.enableShutdownHooks();
-  logger.log('Worker-tier arriba (sin HTTP/WS): crons + cola pg-boss activos.');
+  // `[REP.0.3]` puso una línea que DICE si los cron quedaron apagados, con el motivo
+  // exacto: "un interruptor que apaga 51 cron y no deja rastro en el log es una trampa
+  // en las dos direcciones". Pero la puso en el arranque HTTP — o sea en el proceso que,
+  // desde ADR-043, es justamente el que NO los corre. El worker, que es donde los cron
+  // viven de verdad, afirmaba "crons + cola pg-boss activos" SIEMPRE, fuera cierto o no.
+  // Medido el 2026-09-22: con `DISABLE_CRONS=true` el worker imprimía esa frase igual.
+  // El interruptor existe (`app.module.ts`: sin ScheduleModule los 48 @Cron quedan
+  // inertes) — lo que faltaba era que el proceso lo dijera. Ahora el renglón LEE la
+  // variable en vez de afirmar de memoria.
+  const cronsInertes = process.env.DISABLE_CRONS === 'true';
+  logger.log(
+    cronsInertes
+      ? 'Worker-tier arriba (sin HTTP/WS): cola pg-boss activa. ⛔ DISABLE_CRONS=true → ScheduleModule NO registrado: los 48 @Cron están INERTES en este proceso. Si el API también los tiene apagados, NO corre ningún cron.'
+      : 'Worker-tier arriba (sin HTTP/WS): crons + cola pg-boss activos.',
+  );
 }
 
 if (process.env.WORKER === 'true') {
