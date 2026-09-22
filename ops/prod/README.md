@@ -201,6 +201,20 @@ Cosas encontradas midiendo, **anteriores a esta fase** y ajenas a la mudanza:
    (`npm run check:powershell`) que parsea los 26 `.ps1` versionados — varios de los cuales
    corren **desatendidos en cajas de sucursal**.
 
+   ⭐ **Y el matiz que más enseña: no fue invisible.** La detección funcionó **tres veces** y
+   ninguna cerró el lazo:
+   - `db-health` tenía el umbral bien puesto (`warnH 26 / critH 50`) y la alerta está en
+     **`critical` desde el 13-sep**;
+   - el Programador devolvía `LastTaskResult = 1` **todos los días**;
+   - y un humano lo escribió: la **auditoría de bases del 2026-09-14** lo anotó textualmente
+     — *"`backup_prod` sin correr 2.8 d en `.249`"* — y lo **ruteó a VL.5**, una fase que no
+     había empezado. Quedó clasificado como *"deuda operativa con dueño"*.
+
+   O sea que el sistema **sí sabía**. Lo que falló fue el tramo entre saber y actuar: la
+   alerta no tenía canal (§7.2), el código de salida no lo mira nadie, y el hallazgo escrito
+   se archivó en una fase futura. **Un hallazgo ruteado a una fase que no arrancó es un
+   hallazgo apagado**, y conviene que eso tenga nombre antes de que vuelva a pasar.
+
 2. **La alarma se computaba donde no había canal.** El scanner de Salud BD corre en el
    `worker`, y `SMTP_*` + `DB_HEALTH_ALERT_EMAILS` estaban sólo en `MegaDulces`. Medido:
    `max(last_notified_at)` **NULL en toda la tabla** — el sistema nunca envió un correo.
@@ -208,11 +222,24 @@ Cosas encontradas midiendo, **anteriores a esta fase** y ajenas a la mudanza:
    cosa y ahora se ve).
 
 3. **Los 48 `@Cron` corren por duplicado.** Ni `MegaDulces` ni `worker` definen
-   `DISABLE_CRONS`, así que `ScheduleModule` se registra en los dos. Anula el propósito
+   `DISABLE_CRONS`, así que `ScheduleModule` se registra en los dos. **Verificado en los logs
+   de producción**: el API imprime `Cron in-process ACTIVOS (48 @Cron)`. Anula el propósito
    declarado del worker-tier (ADR-043) y crea **dos dueños por `job_key`** — el mismo pecado
    que `ops/README.md` nombra para los carriles. **Corregido en el stack on-prem** (el `api`
    lleva `DISABLE_CRONS=true`); **en Railway sigue igual**, porque cambiarlo es un cambio de
    comportamiento de producción que hay que decidir, no deducir.
+
+   ⚠️ **Y el arreglo del punto 2 lo vuelve visible**: ahora los DOS servicios tienen el canal
+   de correo, así que en cuanto la contraseña de aplicación funcione **cada alerta va a llegar
+   dos veces**. No es un defecto nuevo — es el defecto viejo saliendo a la superficie, porque
+   antes el duplicado no se notaba: ninguno de los dos podía enviar nada. Dos correos por
+   alerta es exactamente el tipo de ruido que enseña a ignorar el tablero (el repo ya midió
+   *488 alertas, cero reconocidas en cinco semanas*), así que conviene resolver esto **antes**
+   de poner la contraseña, no después.
+
+   ⚠️ Corolario a saber antes de aplicarlo: con `DISABLE_CRONS=true` en el API, **si el worker
+   está abajo no corre ningún cron**. Hoy el API los cubre por accidente. Por eso el worker
+   necesita su healthcheck de entrega (§4).
 
 ---
 
