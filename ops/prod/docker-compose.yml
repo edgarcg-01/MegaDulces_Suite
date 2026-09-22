@@ -111,6 +111,27 @@ services:
       - "shared_preload_libraries=pg_stat_statements"
       - "-c"
       - "timezone=America/Mexico_City"
+      # ⭐ TLS. NO es paranoia de red — es que LA APP LO EXIGE.
+      # Medido el 2026-09-22 al levantar el stack contra la copia: `GET /api/sucursales` daba
+      # `500: The server does not support SSL connections`, y `pg-boss` arrancaba inerte por lo
+      # mismo. En Railway la imagen de la base es `postgres-ssl` (TLS activo) y el bloque
+      # `production` de `database/knexfile-newdb.js` pone `ssl: { rejectUnauthorized: false }`
+      # SIN condicional. O sea: sin TLS acá, la mitad de la app no conecta.
+      #
+      # Se arregla del lado de la BASE y no del código a propósito: así la configuración de la app
+      # queda IDÉNTICA entre Railway y on-prem, que es una divergencia menos el día del corte.
+      # Y como el cliente usa `rejectUnauthorized: false`, un certificado autofirmado alcanza.
+      #
+      # El certificado se genera UNA vez dentro del volumen (sobrevive a recrear el contenedor):
+      #   docker exec -u postgres pg-prod sh -c 'cd $PGDATA &&
+      #     openssl req -new -x509 -days 3650 -nodes -text -out server.crt -keyout server.key
+      #       -subj "/CN=pg-prod" && chmod 600 server.key server.crt'
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/18/docker/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/18/docker/server.key"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d railway"]
       interval: 30s
@@ -140,6 +161,14 @@ services:
       - "maintenance_work_mem=512MB"
       - "-c"
       - "timezone=America/Mexico_City"
+      # Mismo motivo que en pg-prod: la app exige TLS (`VECTOR_DATABASE_URL` pasa por el mismo
+      # bloque `production` del knexfile). Certificado autofirmado, generado una vez en el volumen.
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/18/docker/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/18/docker/server.key"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d railway"]
       interval: 30s
