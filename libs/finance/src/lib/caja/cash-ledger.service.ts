@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { FINANCE_FINDINGS_SINK_PORT, type FinanceFindingsSinkPort } from '@megadulces/contracts';
+import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSinkPort } from '@megadulces/contracts';
 import { buildFolio } from './caja-autofill.engine';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
@@ -374,11 +374,29 @@ export class CashLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
     return this.tk.run(async (trx) => {
-      let qb = trx('finance.v_caja_movimientos_pendientes').where('tenant_id', tenantId);
-      if (q.tipo) qb = qb.where('tipo', q.tipo);
-      if (q.caja) qb = qb.where('clave_banco', q.caja);
-      if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
-      if (q.from) qb = qb.where('fecha_valor', '>=', q.from);
+      // ⭐ Ventana por default. Medido en prod: sin ella la bandeja lista **12,160 movimientos, el
+      // más viejo de 2025-01-01**, porque `finance.cash_ledger` está vacío y entonces "pendiente"
+      // es todo lo que Kepler registró desde que hay ODS. Es cierto y es inútil como cola de
+      // trabajo. Se puede pedir explícitamente un `from` anterior; el default no lo hace.
+      const desde = q.from
+        || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
+
+      const filtros = (b: any) => {
+        let x = b.where('tenant_id', tenantId);
+        if (q.tipo) x = x.where('tipo', q.tipo);
+        if (q.caja) x = x.where('clave_banco', q.caja);
+        if (q.sucursal) x = x.where('sucursal', q.sucursal);
+        return x;
+      };
+
+      // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
+      // dónde cortó es indistinguible de una bandeja vacía (ADR-056).
+      const atras: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+        .where('fecha_valor', '<', desde)
+        .count({ n: '*' }).sum({ monto: 'monto' }).first();
+
+      let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
+        .where('fecha_valor', '>=', desde);
       if (q.to) qb = qb.where('fecha_valor', '<=', q.to);
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
@@ -402,6 +420,11 @@ export class CashLedgerService {
         // Cuántas de las que se ven se pueden confirmar sin tocar nada. Sin este número, una lista
         // llena de filas no confirmables se lee igual que una lista lista para un clic (ADR-056).
         confirmables: conCuenta.filter((r: any) => r.confirmable).length,
+        desde,
+        ventana_dias: q.from ? null : CAJA_VENTANA_DIAS,
+        // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
+        // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
+        fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
       };
     });
   }
