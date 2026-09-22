@@ -10,6 +10,56 @@
 
 ## [Unreleased]
 
+### Changed — el respaldo de prod se muda a `md`, y el número que sostenía el plan del corte estaba mal (`[VL.6.4]`, 2026-09-22)
+- El respaldo diario deja de ser una tarea del Programador de Windows y pasa a ser el contenedor
+  `prod-backup` del compose (`ops/prod/backup-prod.sh`, **22:00 MX**).
+- ⭐ **No se mudó por el enlace.** Se corrió el MISMO comando desde las dos máquinas —100 MB
+  generados en prod hacia `/dev/null`— y dan casi igual: **218 MB/min desde `SISTEMAS`, 260 desde
+  `md`**. Se mudó porque la tarea de Windows es `Interactive` y no corre sin sesión iniciada (ya
+  medido el 11-sep con `WincajaSyncActual`), porque `md` trae `pg_dump` **18.6** —la misma minor
+  que el servidor, contra 18.4—, porque desaparece la clase de fallo del ParserError, y porque
+  **el restore del corte ocurre en `md`**: tomar ahí el volcado cada noche es ensayar ese camino
+  todas las noches en vez de estrenarlo el día que importa.
+- ⭐⭐ **Corrige el plan: la ventana del corte es ~2.5 h, no 6+.** El plan proyectaba 6.1 h a
+  partir de 6.22 MB/min, y **esa tasa se midió durante el cuelgue del socket muerto** — o sea
+  cronometrando un proceso que no transfería nada. Los cuatro respaldos reales en disco dicen
+  **68, 69, 89 y 74 min** para 2.0–2.2 GB. Los de 236 MB del 1 al 6 de septiembre **no cuentan**:
+  son de la base equivocada.
+- Dos cambios de fondo respecto del script viejo: la compuerta que clasifica el destino mira el
+  **CONTENIDO** (≥200 tablas de `kepler_ods`) y no el host —*una regla por host se rompe sola el
+  día del corte, cuando prod pase a ser `pg-prod` en esta misma máquina*—, y el volcado va **con
+  privilegios**, porque se midió que sin ellos la app queda en 500 (`aclcheck_error`) y hubo que
+  extraer 1,304 `GRANT` a mano.
+- `TradeMarketing-DailyBackup` queda **deshabilitada, no borrada**: un solo dueño de `backup_prod`.
+
+### Fixed — el reconciliador del ODS salía en ROJO por hacer su trabajo (`[OBS.7]`, 2026-09-22)
+- Medido sobre **1,217 corridas de 14 días**: la distribución de `huecos` es p50=5 · p90=115 ·
+  p95=182 · **p99=503**, y el umbral estaba en **50** — dentro del ruido. **280 corridas (23 %) lo
+  cruzaban**: una de cada cuatro filas del tablero salía roja.
+- Y en las **359 corridas de los últimos 4 días, `huecos == repuestas` SIEMPRE**. El texto del
+  error decía *"el carril esta perdiendo filas"* sin medirlo; no perdía ninguna.
+- El rojo pasa a ser **"NO cerró el hueco"**, que es lo que el mensaje ya afirmaba. El umbral de
+  volumen sube a 1000 y cambia de significado: *"revisar el carril PRIMARIO, no éste"*.
+- ⚠️ El umbral **también estaba fijado en el compose**: cambiar sólo el default del script habría
+  sido un arreglo que no llega a producción.
+
+### Fixed — el `worker` decía "crons activos" sin haberlo mirado (`[VL.9.3]`, 2026-09-22)
+- `[REP.0.3]` agregó una línea que DICE si los cron quedaron apagados, con este motivo al lado:
+  *"un interruptor que apaga 51 cron y no deja rastro en el log es una trampa en las dos
+  direcciones"*. **La puso en el arranque HTTP** — o sea en el proceso que, desde ADR-043, es
+  justamente el que no corre cron. El worker afirmaba *"crons + cola pg-boss activos"* siempre.
+- Verificado con `DISABLE_CRONS=true` puesto: imprimía esa frase igual. Ahora el renglón lee la
+  variable en vez de afirmar de memoria.
+
+### Fixed — `.gitattributes`: la regla de fines de línea cubría un caso, no un patrón (2026-09-22)
+- La regla nombraba **una ruta literal** (`ops/vl/crontab.feeds`) en vez del patrón, así que la
+  siguiente agenda que se creara volvía a quedar afuera — el mismo CRLF que hizo correr los 9
+  carriles **en seco diciendo "ok"**. Generalizada a `crontab.*`, más `Dockerfile*` y los `.yml`
+  de `ops/`, que tampoco tenían regla.
+- Y el comentario que explica ese bug **tiene saltos de línea literales adentro** (para "dibujar"
+  el carácter invisible), así que git leía tres continuaciones como **patrones** y avisaba en cada
+  consulta de atributos. Comentadas.
+
 ### Added — la cartera de clientes tiene dueño: Crédito y Cobranza (`[SN.36]`, 2026-09-22)
 - Pedido de Edgar: *«hay que generar el de crédito y cobranza»*. **La pantalla ya existía** (Fase
   CXC: `/finanzas/cartera` con saldo, aging por vencimiento, límite de crédito y compromisos de
