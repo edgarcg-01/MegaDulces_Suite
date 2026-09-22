@@ -428,8 +428,11 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             @if (keplerOnlyRows(); as ko) { @if (ko.length) {
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ ko.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(ko) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
+                @if (otroPeriodoN(ko); as n) {
+                  <p class="tw-orphan-note muted">De estos, <b>{{ n }}</b> SÍ están en el banco — en otro mes (se cobró antes o después de que Kepler lo capturara). No son faltantes: es desfase de corte.</p>
+                }
                 <table class="tw-tbl"><tbody>
-                  @for (k of ko; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (k of ko; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             } }
@@ -541,6 +544,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-daily-grp .tw-grp-ret { color: var(--warn-fg); }
     .tw-kpi-grp { font-weight: 700; color: var(--text-main); }
     .tw-kpi-sep { border-left: 1px solid var(--border-color); padding-left: var(--sp-2); margin-left: var(--sp-1); }
+    .tw-otro-per { display: inline-block; margin-left: var(--sp-2); padding: 0 var(--sp-1);
+      font-size: var(--fs-xs); color: var(--text-muted); border: 1px solid var(--border-color);
+      border-radius: var(--r-pill); white-space: nowrap; }
     .tw-orphan-tot { color: var(--text-muted); font-weight: 400; font-family: var(--font-mono); }
     .tw-orphan-note { font-size: var(--fs-xs); margin: var(--sp-1) 0 0; }
     .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-fg); font-weight: 700; }
@@ -728,6 +734,9 @@ export class BancosThreeWayComponent {
     });
   }
   readonly keplerOnlyRows = computed(() => this.orphanFilter(this.drill()?.kepler_only));
+
+  /** CB.45 — cuántos de los «sólo Kepler» ya tienen su movimiento de banco en otro mes. */
+  otroPeriodoN(rows: any[]): number { return (rows || []).filter((r) => r?.casado_otro_periodo).length; }
   readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only));
 
   constructor() {

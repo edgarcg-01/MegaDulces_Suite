@@ -277,13 +277,17 @@ export interface ThreeWayDetail {
   period: string;
   account: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_nombre: string | null; linked_cpq: boolean };
   excel: ThreeWayDetailExcel[];
-  kepler_only: { source: 'kepler'; key: string; doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null }[];
+  kepler_only: { source: 'kepler'; key: string; doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null;
+    /** CB.45 — null = huérfano real; con valor = el banco SÍ lo tiene, en otro periodo (desfase de corte). */
+    casado_otro_periodo: { period: string; fecha_banco: string; concepto_banco: string | null; matched_by: string | null } | null }[];
   contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
   recon_totals: Record<ReconStatus, { n: number; monto: number }>;
   agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
   totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
     sin_match_n: number; sin_match_monto: number;
-    kepler_only_n: number; kepler_only_monto: number; contpaqi_only_n: number; contpaqi_only_monto: number };
+    kepler_only_n: number; kepler_only_monto: number;
+    kepler_only_otro_periodo_n: number; kepler_only_otro_periodo_monto: number;
+    contpaqi_only_n: number; contpaqi_only_monto: number };
 }
 
 export interface ThreeWayDailyRow {
