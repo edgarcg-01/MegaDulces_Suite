@@ -133,6 +133,12 @@
   desaparecieron**, confirmando que escala con **capas nuevas**, no con bytes.
 - ⚠️ **NO descompuesto:** Railway recortó la salida de Nx, así que no se sabe cuántas tareas
   pegaron caché — parte de los 102 s puede ser un hit remoto de `view`, no sólo el peaje quitado.
+### Added — Ritmo de venta por ruta (RR4.1, 2026-09-22)
+- El desglose de cada ruta muestra venta total, clientes atendidos, venta por cliente,
+  artículos distintos y unidades por cliente, valor por artículo y valor unitario.
+- Todos los promedios usan exclusivamente clientes identificados; la venta de mostrador a bordo
+  se declara aparte. Cuando no existe población, la interfaz muestra “—” en vez de un cero falso.
+- El cálculo quedó aislado y cubierto por pruebas que validan ambas descomposiciones de la venta.
 
 ### Added — Ubicaciones: el mapa de la bodega, rack por rack (WMS-REC.10, 2026-09-21)
 - La pantalla pasa a **maestro–detalle**: a la izquierda las ubicaciones (con buscador y chips
