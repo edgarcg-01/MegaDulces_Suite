@@ -157,6 +157,55 @@ y dejaría los roles a medias: es de los pocos lugares donde parar en el primer 
 no *qué puede tocar*. Eso viaja en el dump de la base, y sólo si se toma **sin**
 `--no-privileges`.
 
+
+### 3.1 ⛔ Las matviews NO se reconstruyen con el planificador por defecto
+
+Medido el 2026-09-22 en el restore de verificación. El `pg_restore` cargó los datos en ~35 min y
+después se quedó **más de 70 minutos** en `REFRESH MATERIALIZED VIEW`, con el disco al **1.65 %**
+de utilización y los backends al **98 % de CPU** — sin terminar.
+
+La causa está en el plan, no en la máquina:
+
+```text
+GroupAggregate  (rows=16)              <- estima 16; la realidad son 24,397
+  -> Nested Loop  (rows=7)             <- estima 7 iteraciones
+       -> Parallel Seq Scan kdm1  (rows=178,048)
+       -> Memoize -> Index Scan kdm2_pkey    <- una búsqueda por CADA fila
+     Filter: (sucursal = btrim(c1)) AND (btrim(c4) = ANY ...) AND ...
+```
+
+Los `btrim()` y el filtro correlacionado `sucursal = btrim(c1)` colapsan la selectividad estimada,
+el planificador cree que son 7 filas y elige un **nested loop**; termina haciendo una búsqueda por
+índice por cada una de **178 mil** filas. `mv_kepler_sales_daily` sufre lo mismo (`rows=1` en su
+nodo superior contra **779,144** reales).
+
+**La receta, medida:**
+
+```sh
+psql … -c "SET enable_nestloop = off;" -c "REFRESH MATERIALIZED VIEW analytics.mv_kepler_sold_rung;"
+```
+
+| Vista | Plan por defecto | Con `enable_nestloop=off` |
+|---|---|---|
+| `mv_kepler_sold_rung` | **>70 min sin terminar** | **9.7 s** |
+| `mv_kepler_sales_daily` | **>70 min sin terminar** | **< 2 min** |
+
+⚠️ **Esto no es un defecto de la copia: es de prod.** Misma definición, mismas estadísticas, mismo
+plan. Lo que lo mantiene invisible es que `REFRESH` de estas vistas **no aparece en ningún cron ni
+importador** — sólo en migraciones y scripts sueltos. O sea que la próxima migración que cambie una
+de estas definiciones se va a colgar en producción, y nadie lo tiene anotado.
+
+⚠️ **Tres hipótesis se probaron y se cayeron antes de dar con ésta**, y se dejan escritas para que
+nadie las repita: *no* eran estadísticas faltantes (todas las tablas grandes con `reltuples` exacto
+y `analizada = t`), *no* era configuración pobre (la copia tiene **más** que prod: `shared_buffers`
+6 GB vs 1.5, `work_mem` 32 MB vs 16, `maintenance_work_mem` 1 GB vs 256 MB), y *no* eran los índices
+que faltaban (los 2 ausentes son parciales sobre `c2='U' AND c3='A'` — abonos — y estas vistas
+filtran por `c3='D'`).
+
+⚠️ Y una que también se cayó: al ver los workers paralelos en 0 % de CPU concluí que el `-j4` del
+restore era el error. Falso — el trabajo total de CPU es fijo y los 4 núcleos estaban al 98 % en
+trabajo útil. **El `-j` no es la palanca; el plan sí.**
+
 ---
 
 ## 4. Cómo se verifica — el rótulo no es el veredicto
