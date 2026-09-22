@@ -210,13 +210,43 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 
 | # | Bloqueo | Estado medido | Quién lo destraba |
 |---|---|---|---|
-| 1 | **El dominio** | Todo cuelga de `*.up.railway.app`, que es de Railway y **no se puede mover**. **553 referencias** en 33 archivos, incluidos agentes desplegados en cajas de sucursal (`store-agent.template.cmd`) y los assets compilados del **APK de vendedor** | Poner `api/portal/vendor.megadulces.com.mx` delante **mientras sigue en Railway**: el corte pasa a ser un cambio de DNS, reversible en minutos y sin tocar un solo cliente. El DNS lo controlan ustedes (HostGator) |
+| 1 | **El dominio** ⛔ **intentado 2026-09-22 y RECHAZADO** | Todo cuelga de `*.up.railway.app`, que es de Railway y **no se puede mover**. **553 referencias** en 33 archivos, incluidos agentes desplegados en cajas de sucursal (`store-agent.template.cmd`) y los assets compilados del **APK de vendedor**. Al intentar agregar el dominio propio, el CLI devuelve `Unauthorized. Please run railway login again` — **y el mensaje miente**: la sesión es válida (los `railway variables --set` de esta misma sesión funcionaron) y las lecturas también. Falla **sólo** crear dominio, con cualquier nombre → es una restricción de **plan/feature de la cuenta**, no de credenciales | Edgar, desde el **dashboard** de Railway (§6.1) |
 | 2 | **Cloudflare Tunnel** | Elegido como forma de exposición. `cloudflared` ya está declarado en el compose, tras el perfil `tunel` | Hace falta cuenta de Cloudflare + el dominio (o un subdominio delegado) en su DNS, y el `CLOUDFLARE_TUNNEL_TOKEN` |
 | 3 | **VL.8 — aguante** | **Sin UPS gestionado** (`nut`/`apcupsd` ausentes), **sin respaldo fuera de sitio**, **un solo enlace** de 44 Mbit de subida compartido con la oficina y con los 14 carriles | Compra de UPS + destino de respaldo externo. Elegido como **precondición dura** |
 | 4 | **La alarma no avisa** | El worker manda el correo (verificado en vivo) pero Gmail lo rechaza: `534-5.7.9 Application-specific password required`. `SMTP_PASS` tiene 11 caracteres; una contraseña de aplicación son 16 | Generar la contraseña de aplicación en la cuenta de Google y ponerla en `SMTP_PASS` de **los dos** servicios |
 | 5 | **El volcado correcto** | El respaldo diario no trae roles ni GRANT (§3) | Tomar `pg_dumpall --globals-only` + `pg_dump` con privilegios el día del corte |
 | 6 | **`JWT_SECRET` cambia** | El valor de Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo. Recortarlo equivale a rotarlo | Decidirlo: rotar una sola vez y avisar que **todos re-loguean** |
 | 7 | **El bucket** | 597 MB de comprobantes (§5) | Decidir MinIO on-prem o seguir en Railway |
+
+### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las dos vías
+
+**Lo que NO funciona**, y conviene saberlo antes de perder una tarde: poner un `CNAME` de
+`app.megadulces.com.mx` a `megadulces.up.railway.app` **no sirve**. Railway rutea por el
+**encabezado `Host`**, así que una petición que llega con `Host: app.megadulces.com.mx` no
+coincide con ningún dominio registrado y Railway contesta *"Application not found"*. El DNS
+sólo resuelve la IP; no cambia el `Host`.
+
+Por eso el dominio propio tiene que estar **registrado del lado de Railway**. Dos vías:
+
+**A) Dominio propio en Railway (lo natural).** Settings → Networking → *Custom Domain* en cada
+servicio, y Railway devuelve el `CNAME` a cargar en HostGator. ⛔ **Intentado por CLI el
+2026-09-22 y rechazado con `Unauthorized`** aunque la sesión es válida y las escrituras de
+variables de esa misma sesión funcionaron — o sea, restricción de **plan**. El dashboard va a
+decir cuál; si pide subir de plan, ése es el costo real de esta vía.
+
+**B) Un Worker de Cloudflare que reescriba el `Host`.** Si (A) resulta cara o imposible, se
+pone el dominio en Cloudflare (que igual hace falta para el túnel, §6 #2) y un Worker chico
+reenvía a `megadulces.up.railway.app` **reescribiendo el `Host`**. Los clientes ya hablan con
+`*.megadulces.com.mx` desde el día uno, y el día del corte el Worker se retira y el `CNAME`
+pasa a apuntar al túnel. ⚠️ Cuesta un salto de red extra y un componente más que mantener
+mientras dure la convivencia — pero **compra exactamente lo que importa: que el corte sea
+reversible sin tocar un solo equipo en campo**.
+
+⚠️ **Y una advertencia sobre el APK**: la app nativa de vendedor trae la URL **compilada
+adentro** (`NATIVE_API_URL`), así que el dominio nuevo **no la alcanza** hasta que se
+reconstruya y se redistribuya. Medido: hoy apunta a
+`trademarketing-production-5084.up.railway.app`, que **responde 404** — o sea que ese host ya
+no existe y conviene averiguar de qué vive la app instalada **antes** de tocar nada más.
 
 ---
 
