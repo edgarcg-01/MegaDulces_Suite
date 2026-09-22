@@ -16,7 +16,7 @@
 
 | | `md` — **el servidor** | `.249` — **la máquina de escritorio** |
 |---|---|---|
-| Qué es | `192.168.0.222` · Ubuntu Server 26.04.1 · Ryzen 5 4600G 6c/12h · 14 GiB · NVMe 1 TB | `SISTEMAS` · Windows 11 · Ryzen 5 3400G · 30 GB |
+| Qué es | `192.168.0.222` · Ubuntu Server 26.04.1 · **Ryzen 5 3400G 4c/8t** · **28.8 GiB** · NVMe 1 TB ⚠️ *corregido 2026-09-22 con `lscpu`: este renglón decía «4600G 6c/12h · 14 GiB» desde el 10-sep — es el **mismo** modelo que `.249`, no uno mejor, y la RAM ya se había subido* | `SISTEMAS` · Windows 11 · Ryzen 5 3400G · 30 GB |
 | Qué corre | **La ingesta completa**: la fuente + los 14 carriles | Sólo lo que **no puede** correr en Linux, y el respaldo |
 | Cómo arranca | `systemd` → Docker → `restart: unless-stopped`. **Sin sesión, sin nadie.** | Docker Desktop y 5 de 6 tareas **exigen sesión iniciada** |
 | Verificado | ⭐ **Reinicio real el 2026-09-11**: los 8 contenedores volvieron solos en **39 s**, Postgres sin recuperación de caída, las 8 suscripciones al instante | — |
@@ -87,9 +87,9 @@ serializa con `flock` (no existe el `IgnoreNew` del Programador, y los de 1 minu
 
 | Tarea | Por qué no se mudó | Cuándo |
 |---|---|---|
-| `WincajaLive` · `WincajaSyncActual` · `WincajaSyncConcentrada` | ⛔ **El único bloqueo real de "todo en Linux"**: leen `.mdb` con **Jet 4.0 de 32 bits** sobre `Z:` (`\\192.168.0.245\D`). `Z:` es una unidad **mapeada por sesión**, así que la tarea **no puede** correr sin sesión iniciada — y un token `S4U` tampoco lleva credenciales de red | ⭐ **VL.5 se CANCELA**: Sistemas informó el 2026-09-12 que **Wincaja deja de existir en ~1 semana**. No se porta nada a Linux — sería infraestructura para un sistema con siete días de vida |
-| `\Kepler\FeedGuardian` | Su único vigilado vivo es `WincajaLive`; se retira cuando cierre VL.5 | VL.5 → VL.6 |
-| `TradeMarketing-DailyBackup` | `pg_dump` de prod. Es `S4U`: **sí sobrevive al reinicio**. Late en `backup_prod` | **VL.6.3** |
+| ~~`WincajaLive` · `WincajaSyncActual` · `WincajaSyncConcentrada`~~ ✅ **DESHABILITADAS 2026-09-22** | ⛔ **El único bloqueo real de "todo en Linux"**: leen `.mdb` con **Jet 4.0 de 32 bits** sobre `Z:` (`\\192.168.0.245\D`). `Z:` es una unidad **mapeada por sesión**, así que la tarea **no puede** correr sin sesión iniciada — y un token `S4U` tampoco lleva credenciales de red | ⭐ **VL.5 se CANCELA**: Sistemas informó el 2026-09-12 que **Wincaja deja de existir en ~1 semana**. No se porta nada a Linux — sería infraestructura para un sistema con siete días de vida |
+| `KeplerFeedGuardian` | ⛔ **Desde el 2026-09-22 NO VIGILA NADA**: su lista son 11 tareas y las 11 están `Disabled` (10 se mudaron en VL.4 y `WincajaLive` se retiró hoy), y su código hace `continue` con las deshabilitadas. Sigue latiendo en verde — el falso verde de siempre. **Se deja prendido a propósito**: su llave `feed_guardian` tiene umbral registrado (`warnH 0.5 / critH 2`), así que apagar la tarea sin retirar la llave del código pone esa alarma en rojo. Retirarlo = apagar la tarea **y** sacar la llave, en el mismo cambio | VL.7 |
+| `TradeMarketing-DailyBackup` | `pg_dump` de prod. Es `S4U`: **sí sobrevive al reinicio**. ⛔ **Y su latido NO era evidencia de salud**: medido el 2026-09-22, llevaba **12 días sin producir un archivo** (ParserError de PowerShell) y el `ok` de `backup_prod` lo había escrito una **prueba de instrumentación**, nunca un respaldo real. Arreglado, más keepalives contra el cuelgue de 93 min en socket muerto | **VL.6.3** |
 | `PM2 Resurrect ODS` | ⛔ **NO es residuo todavía**: es lo que revive los carriles de PM2 de abajo tras un reinicio. Apagarlo antes de que Wincaja se vaya los mata en el próximo boot | VL.7, **después** de Wincaja |
 
 ### 3.1 PM2 en `.249` — que este README omitía
@@ -97,11 +97,12 @@ serializa con `flock` (no existe el `IgnoreNew` del Programador, y los de 1 minu
 Medido el **2026-09-12**. Existe un segundo sustrato en `.249` además del Programador, y no estaba
 documentado: si sólo mirás `Get-ScheduledTask` concluís que la máquina ya no hace nada, y es falso.
 
-| App PM2 | Qué hace | Estado |
+| App PM2 | Qué hace | Estado, medido el **2026-09-22** |
 |---|---|---|
-| `wincaja-inc` · `wincaja-hash` | Réplica cruda Access → `:5433/wincaja` | siguen acá — Wincaja se retira |
-| `wincaja-live-tickets` | Tickets w30/w32/w00 → `/tienda/live` | ídem |
-| `contpaqi-cfdis-inc` · `contpaqi-cfdis-full` | CFDIs del ADD → `fiscal.cfdis` | ✅ **mudados a `md` el 2026-09-12** (VL.7.1). Quedaron en `pm2 stop`, no borrados — rollback con `pm2 start` |
+| `caja-general-replica` · `caja-general-ship` | `.mdb` de Caja General → espejo `:5433/caja_general` → `caja_general_ods` | 🟢 **ONLINE — y este README no los listaba.** ⛔ Son ahora **el único bloqueo real de «todo en Linux»**: Jet 32-bit sobre `Z:` (`\192.168.0.245\D`), igual que Wincaja. ⚠️ Su `CAJA_GENERAL_REPLICA_URL` dice `localhost:5433`, pero el `:5433` de `.249` está jubilado (§3.2) — llega a **`md`** por el reenvío `netsh` de §3.2.1. Funciona, y la configuración no lo dice |
+| ~~`wincaja-inc` · `wincaja-hash`~~ | Réplica cruda Access → `:5433/wincaja` | ⏹️ **DETENIDOS 2026-09-22** (`pm2 stop` + `pm2 save`, reversible). Medido antes de tocarlos: `inc` daba `read 0 · wrote 0` en cada ciclo, y `hash` leía **186,255 filas para escribir CERO** en **873 s por pasada** |
+| ~~`wincaja-live-tickets`~~ | Tickets w30/w32/w00 → `/tienda/live` | ⏹️ **DETENIDO 2026-09-22.** Fallaba cada minuto (`timeout expired`, `ECONNRESET`) contra `.245/platform_test` —la base de **desarrollo**, no prod— y PM2 lo mostraba `online` |
+| ~~`contpaqi-cfdis-inc` · `contpaqi-cfdis-full`~~ | CFDIs del ADD → `fiscal.cfdis` | ⏹️ **DETENIDOS 2026-09-22.** ⛔ Este README los daba por mudados el 12-sep y *en `pm2 stop`*, y estaban **ONLINE**: `PM2 Resurrect` los revivió tras un reinicio de Windows, porque el `pm2 save` los tenía como activos. El `inc` corría **duplicado** con el contenedor de `md` **y mudo** — su latido fallaba con `timeout expired`, así que el renglón lo escribía el otro y el duplicado era invisible |
 
 ⚠️ **`contpaqi_add_cfdis_full` va a seguir diciendo `host = SISTEMAS` hasta mañana 05:45**, que es
 su primera pasada en `md`. Es lo mismo que pasó con `feed_nightly` tras VL.4: hasta la primera
