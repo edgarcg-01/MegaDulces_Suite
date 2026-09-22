@@ -285,10 +285,22 @@ export class BudgetLinesService {
     lineId: string, type: 'reserva' | 'compromiso' | 'ejercido' | 'pago' | 'ampliacion' | 'reduccion' | 'cancelacion',
     amount: number, opts: MovementOpts, username: string, cancelTarget?: 'reserva' | 'compromiso',
   ) {
+    return this.tk.run((trx) => this.applyMovementInTrx(trx, lineId, type, amount, opts, username, cancelTarget));
+  }
+
+  /**
+   * Núcleo del movimiento del ledger DENTRO de una trx dada (no abre tk.run) — para que el Calendario
+   * de Pagos (Fase TP, `BUDGET_LEDGER_PORT`) lo llame en SU propia transacción sin anidar `tk.run`
+   * (regla del proyecto). `applyMovement` es el wrapper que abre la trx del request normal.
+   */
+  async applyMovementInTrx(
+    trx: any,
+    lineId: string, type: 'reserva' | 'compromiso' | 'ejercido' | 'pago' | 'ampliacion' | 'reduccion' | 'cancelacion',
+    amount: number, opts: MovementOpts, username: string, cancelTarget?: 'reserva' | 'compromiso',
+  ) {
     const amt = round2(amount);
     if (!(amt > 0)) throw new BadRequestException('El monto debe ser > 0');
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
       const existing = await this.findIdempotent(trx, tenantId, lineId, type, opts);
       if (existing) {
         const line = await trx('budget.budget_lines').where({ tenant_id: tenantId, id: lineId }).first();
@@ -365,6 +377,18 @@ export class BudgetLinesService {
           exercised_amount: exercised, paid_amount: paid, updated_by: username, updated_at: trx.fn.now(),
         }).returning('*');
       return { line: this.decorate(updated), movement: mov, idempotent: false, warning };
-    });
+  }
+
+  /**
+   * Puerto `BUDGET_LEDGER_PORT` (Fase TP → PU): aplica un movimiento sobre la partida en la trx del
+   * llamador. Es el punto por el que el Calendario de Pagos une lo que PAGA con el ledger de la
+   * partida — una sola verdad del gasto (ADR-066). Idempotente por (sourceKind, sourceRef, tipo).
+   */
+  async applyInTrx(
+    trx: any, budgetLineId: string,
+    type: 'compromiso' | 'ejercido' | 'pago' | 'cancelacion', amount: number,
+    opts: MovementOpts, username: string, cancelTarget?: 'reserva' | 'compromiso',
+  ): Promise<void> {
+    await this.applyMovementInTrx(trx, budgetLineId, type, amount, opts, username, cancelTarget);
   }
 }

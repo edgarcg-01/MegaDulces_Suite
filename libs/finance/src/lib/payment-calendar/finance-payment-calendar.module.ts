@@ -8,6 +8,9 @@ import { FinancialCommitmentsController } from './financial-commitments.controll
 import { PaymentCalendarService } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import { PaymentCalendarController } from './payment-calendar.controller';
+import { FinanceBudgetModule } from '../budget/finance-budget.module';
+import { BudgetLinesService } from '../budget/budget-lines.service';
+import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
 
 /**
  * Fase TP (ADR-064) — Calendario de Pagos: Presupuestos (capacidad + gastos autorizados) +
@@ -18,6 +21,9 @@ import { PaymentCalendarController } from './payment-calendar.controller';
  * `@megadulces/commercial` — este módulo solo las LEE por knex directo.
  */
 @Module({
+  // Importa FinanceBudgetModule sólo para el puerto del ledger (unificar el gasto — ADR-066). Sin ciclo:
+  // FinanceBudgetModule no importa nada de payment-calendar.
+  imports: [FinanceBudgetModule],
   controllers: [
     BudgetCapacityController,
     BudgetExpenseObligationsController,
@@ -30,6 +36,9 @@ import { PaymentCalendarController } from './payment-calendar.controller';
     FinancialCommitmentsService,
     PaymentCalendarService,
     PaymentCalendarDocumentService,
+    // El movimiento del ledger de la partida lo hace BudgetLinesService, expuesto por token para no
+    // acoplar TP a la clase concreta (BUDGET_LEDGER_PORT).
+    { provide: BUDGET_LEDGER_PORT, useExisting: BudgetLinesService },
   ],
   exports: [BudgetCapacityService, BudgetExpenseObligationsService, FinancialCommitmentsService, PaymentCalendarService],
 })

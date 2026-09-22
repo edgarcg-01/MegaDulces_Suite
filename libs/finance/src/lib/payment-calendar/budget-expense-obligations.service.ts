@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 
 export interface CreateExpenseObligationDto {
   concept: string;
@@ -24,6 +25,7 @@ export class BudgetExpenseObligationsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Optional() @Inject(BUDGET_LEDGER_PORT) private readonly ledger?: BudgetLedgerPort,
   ) {}
 
   async list(q: { status?: string; search?: string; dueFrom?: string; dueTo?: string }) {
@@ -119,13 +121,21 @@ export class BudgetExpenseObligationsService {
         sum.accounts_recurrent++;
         const accountCode = key.slice(0, key.indexOf('|'));
         const subtype = this.inferSubtype(g.name);
+        // Link a la partida materializada del ledger (source_ref `gasto:cuenta:sucursal`) — unificar
+        // el gasto en una sola verdad (ADR-066). Si aún no está materializada, queda null (declarado).
+        const partida = await trx('budget.budget_lines')
+          .where({ tenant_id: tenantId, budget_id: budgetId, source: 'plan', source_ref: `gasto:${accountCode}:${g.sucursal}` }).first();
+        const budgetLineId = partida?.id ?? null;
         for (const m of g.months) {
           const sref = `plan:${budgetId}:${accountCode}:${g.sucursal}:${m.ym}`;
           const existing = await trx('budget.expense_obligations').where({ tenant_id: tenantId, source_ref: sref }).first();
           if (existing) {
-            if (existing.status === 'propuesta' && Math.abs(Number(existing.original_amount) - m.monto) >= 0.01) {
+            const patch: Record<string, unknown> = {};
+            if (existing.status === 'propuesta' && Math.abs(Number(existing.original_amount) - m.monto) >= 0.01) patch.original_amount = m.monto;
+            if (budgetLineId && !existing.budget_line_id) patch.budget_line_id = budgetLineId; // backfill del link
+            if (Object.keys(patch).length) {
               await trx('budget.expense_obligations').where({ tenant_id: tenantId, id: existing.id })
-                .update({ original_amount: m.monto, updated_by: username, updated_at: trx.fn.now() });
+                .update({ ...patch, updated_by: username, updated_at: trx.fn.now() });
               sum.updated++;
             } else { sum.skipped++; }
             continue;
@@ -142,6 +152,7 @@ export class BudgetExpenseObligationsService {
             authorized_by: null,
             source: 'plan',
             source_ref: sref,
+            budget_line_id: budgetLineId,
             created_by: username,
           });
           sum.generated++;
@@ -162,6 +173,12 @@ export class BudgetExpenseObligationsService {
         if (!row || row.status !== 'propuesta') { skipped++; continue; }
         await trx('budget.expense_obligations').where({ tenant_id: tenantId, id })
           .update({ status: 'pending', authorized_by: username, authorized_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() });
+        // §16.3 (default) — autorizar = COMPROMETER la partida ligada, en la MISMA trx (ADR-066). Si el
+        // presupuesto bloquea por sobregiro (control_level='bloqueo'), la autorización del lote falla.
+        if (this.ledger && row.budget_line_id) {
+          await this.ledger.applyInTrx(trx, row.budget_line_id, 'compromiso', Number(row.original_amount),
+            { sourceKind: 'obligation', sourceRef: id }, username);
+        }
         authorized++;
       }
       return { authorized, skipped };
@@ -179,6 +196,12 @@ export class BudgetExpenseObligationsService {
       const [updated] = await trx('budget.expense_obligations').where({ tenant_id: tenantId, id })
         .update({ status: 'cancelled', notes: reason ? `${row.notes ?? ''}\n[cancelado] ${reason}`.trim() : row.notes, updated_by: username, updated_at: trx.fn.now() })
         .returning('*');
+      // §16.3 — cancelar una obligación PENDING (comprometida, sin pagos) LIBERA su compromiso del
+      // ledger: el disponible de la partida vuelve (ADR-066). 'propuesta' nunca se comprometió.
+      if (this.ledger && row.budget_line_id && row.status === 'pending') {
+        await this.ledger.applyInTrx(trx, row.budget_line_id, 'cancelacion', Number(row.original_amount),
+          { sourceKind: 'obligation-cancel', sourceRef: id }, username, 'compromiso');
+      }
       return updated;
     });
   }
