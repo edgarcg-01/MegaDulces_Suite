@@ -41,7 +41,7 @@ estado() {
   ssh_md 'docker ps --filter "label=com.docker.compose.project=prod" --format "{{.Names}}|{{.Status}}|{{.Image}}" | sort | column -t -s"|" || true'
   echo
   echo "── Imágenes de prod ──"
-  ssh_md 'for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+  ssh_md 'for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
             docker image inspect "$i:latest" --format "  {{.RepoTags}}  creada {{.Created}}" 2>/dev/null || echo "  $i:latest  (no existe)";
           done'
   echo
@@ -94,10 +94,12 @@ construir() {
   # wall-clock y quita el riesgo de un OOM-kill, que se ve como un log cortado a la mitad
   # sin ninguna línea de error.
   ssh_md "cd $REMOTO && set -e
-    for par in 'trade-prod-api:Dockerfile' \
+    for par in 'trade-prod-pg:ops/prod/Dockerfile.pg' \
+               'trade-prod-api:Dockerfile' \
                'trade-prod-worker:Dockerfile.worker' \
                'trade-prod-portal:apps/portal/Dockerfile' \
-               'trade-prod-vendor:apps/vendor/Dockerfile' \n               'trade-prod-backup:ops/prod/Dockerfile.backup'; do
+               'trade-prod-vendor:apps/vendor/Dockerfile' \
+               'trade-prod-backup:ops/prod/Dockerfile.backup'; do
       img=\${par%%:*}; df=\${par#*:}
       printf '   %-22s ' \"\$img\"
       t0=\$(date +%s)

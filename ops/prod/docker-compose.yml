@@ -69,8 +69,18 @@ services:
   # ═══════════════════════════════════════════════════════════════════════════
   pg-prod:
     <<: *pg
+    # [VL.9.6] Imagen propia = la de siempre + pgBackRest. `archive_command` lo ejecuta el
+    # propio Postgres, así que la herramienta tiene que vivir ACÁ ADENTRO; no hay forma de
+    # que corra en un contenedor al lado. Ver ops/prod/Dockerfile.pg.
+    image: trade-prod-pg:latest
     container_name: pg-prod
-    volumes: ["pg-prod-data:/var/lib/postgresql"]
+    volumes:
+      - "pg-prod-data:/var/lib/postgresql"
+      # El repositorio de pgBackRest en una ruta del HOST, no en un volumen de Docker: tiene
+      # que sobrevivir a un `docker compose down -v` y poder copiarse fuera de sitio sin
+      # pedirle permiso a Docker. Mismo criterio que la carpeta de volcados.
+      - "/home/superoot/pgbackrest:/var/lib/pgbackrest"
+      - "/home/superoot/pgbackrest-log:/var/log/pgbackrest"
     # ⚠️ 5434, NO 5432 ni 5433. El 5433 es el CONCENTRADOR y confundirlos es el modo de
     # falla más caro que tiene esta máquina: una medición contra la base equivocada se lee
     # perfectamente bien. Ver GOTCHAS §17/§18 y `reference_prod_db_connection_topology`.
@@ -126,6 +136,24 @@ services:
       #   docker exec -u postgres pg-prod sh -c 'cd $PGDATA &&
       #     openssl req -new -x509 -days 3650 -nodes -text -out server.crt -keyout server.key
       #       -subj "/CN=pg-prod" && chmod 600 server.key server.crt'
+      # ═══ [VL.9.6] ARCHIVADO CONTINUO DE WAL ═══
+      # ⛔ APAGADO POR DEFECTO, y el interruptor es una variable de entorno a propósito.
+      # Encender `archive_mode` con el repositorio sin inicializar hace que `archive_command`
+      # falle en cada segmento y el WAL se ACUMULE hasta llenar el disco — es la trampa
+      # clásica de esta herramienta. El orden correcto está en ops/prod/README.md §9:
+      #   1. crear el stanza   2. `pgbackrest check`   3. PGPROD_ARCHIVE_MODE=on + recrear
+      # ⚠️ Y NO se enciende antes de un restore grande: restaurar 34 GB genera decenas de GB
+      #    de WAL, archivados, de una base que se va a reemplazar entera.
+      - "-c"
+      - "archive_mode=${PGPROD_ARCHIVE_MODE:-off}"
+      - "-c"
+      - "archive_command=pgbackrest --stanza=prod archive-push %p"
+      # Fuerza un cambio de segmento cada 5 min aunque no haya escrituras: es lo que ACOTA el
+      # RPO cuando la base está tranquila. Sin esto, un segmento a medio llenar puede quedarse
+      # sin archivar horas, y lo que no se archivó no se recupera. Los segmentos casi vacíos
+      # comprimen a casi nada con zstd, así que el costo en disco es despreciable.
+      - "-c"
+      - "archive_timeout=300"
       - "-c"
       - "ssl=on"
       - "-c"
