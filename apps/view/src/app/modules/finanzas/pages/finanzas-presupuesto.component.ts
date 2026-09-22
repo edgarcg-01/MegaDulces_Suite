@@ -229,7 +229,14 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <label class="pres-assump-row"><span>Crecimiento (%)</span><input pInputText type="number" [(ngModel)]="asGastosDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
                   <label class="pres-assump-row"><span>Familias Kepler</span><input pInputText type="text" [(ngModel)]="asGastosFamilies" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" placeholder="6" /></label>
                   <label class="pres-assump-row"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> &nbsp;Presupuestar por sucursal</label>
-                  <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión.</p>
+                  <label class="pres-assump-row"><span>Control de sobregiro</span>
+                    <select [(ngModel)]="asGastosControl" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in">
+                      <option value="informativo">Informativo (no avisa)</option>
+                      <option value="advertencia">Advertencia (avisa)</option>
+                      <option value="bloqueo">Bloqueo (impide sobregirar)</option>
+                    </select>
+                  </label>
+                  <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión. <strong>Bloqueo</strong> impide autorizar un gasto que exceda la partida.</p>
                 </div>
               </div>
               <p class="pres-lbl-hint">Usá «<strong>Sugerir automáticamente</strong>» para estimar el crecimiento desde la historia (ventas año-contra-año + egresos de Kepler), ajustá lo que cambie este año y <strong>Guardá</strong>. Luego «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
@@ -1531,6 +1538,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   asGastosDefault: number | null = 8;
   asGastosFamilies = '6';
   asGastosBySucursal = false;
+  asGastosControl: 'informativo' | 'advertencia' | 'bloqueo' = 'advertencia';
 
   loadAssumptions(): void {
     const b = this.selected(); if (!b) return;
@@ -1539,8 +1547,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (s) => { this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; const g = s.growth_by_channel || {}; for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault; this.assumpLoaded.set(true); this.loadingAssump.set(false); },
       error: () => this.loadingAssump.set(false),
     });
-    this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.asGastosDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; this.asGastosFamilies = (s.proposal_families || ['6']).join(','); this.asGastosBySucursal = !!s.by_sucursal; },
+    this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean; control_level?: 'informativo' | 'advertencia' | 'bloqueo' }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.asGastosDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; this.asGastosFamilies = (s.proposal_families || ['6']).join(','); this.asGastosBySucursal = !!s.by_sucursal; this.asGastosControl = s.control_level || 'advertencia'; },
       error: () => { /* declara defaults */ },
     });
   }
@@ -1576,7 +1584,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const families = this.asGastosFamilies.split(',').map((s) => s.trim()).filter(Boolean);
     let done = 0; const finish = () => { if (++done === 2) { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Supuestos guardados', detail: 'El sistema propondrá ventas y gastos con estos supuestos.' }); } };
     this.http.put(`${this.base}/budgets/${b.id}/sales-plan/settings`, { default_growth_pct: (Number(this.asVentasDefault) || 0) / 100, growth_by_channel: gbc }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de ventas.' }); } });
-    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
+    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
   }
 
   // ── Resultado (ingresos − egresos) ──
