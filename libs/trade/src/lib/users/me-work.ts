@@ -66,7 +66,8 @@ export type ResponsabilidadKey =
   | 'comercial.thot'
   | 'finanzas.caja'
   | 'finanzas.conciliacion_ingresos'
-  | 'finanzas.conciliacion_egresos';
+  | 'finanzas.conciliacion_egresos'
+  | 'sistemas.salud_datos';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -112,8 +113,19 @@ export interface MedidaCola {
 export interface EjesCola {
   /** Columna de estado (`'status'`, `'estado'`, o `'f.status'` cuando hay JOIN). */
   estadoCol: string;
-  /** Valor que significa «abierto» (`'nuevo'`, `'pending_approval'`, `'open'`, `'draft'`). */
-  estadoAbierto: string;
+  /**
+   * Valor que significa «abierto» (`'nuevo'`, `'pending_approval'`, `'open'`, `'draft'`).
+   *
+   * `[SN.32]` **`null` = abierto es «`estadoCol` está vacía»**, no «el estado es NULL». Es el
+   * segundo patrón real de la casa: `analytics.db_health_alerts` no tiene columna de estado
+   * abierto/cerrado —su `status` es `warn|critical`, o sea la GRAVEDAD— y lo que marca la salida
+   * es `resolved_at IS NULL`. Ahí `estadoCol` y `cierre` son la MISMA columna, y eso es correcto.
+   *
+   * ⛔ Se generaliza el helper en vez de escribirle una medición a mano a esa bandeja: los cinco
+   * contadores tienen que significar lo mismo en todas las colas. Cada `medir` propio es una
+   * oportunidad de que `entradas_7d` cuente una cosa acá y otra allá, sin que nadie lo note.
+   */
+  estadoAbierto: string | null;
   /** Columna de entrada. La misma que ordenaba antes (`'created_at'`, `'f.created_at'`). */
   fecha: string;
   /**
@@ -191,20 +203,31 @@ async function medirCola(knex: Knex, q: Knex.QueryBuilder, ejes: EjesCola): Prom
    * lo mismo que la de dos contadores que reemplaza. La alternativa —una segunda consulta por
    * bandeja— habría sumado seis viajes en serie a la primera pantalla que todos abren.
    */
+  /*
+   * `[SN.32]` El predicado de «abierta» se arma una vez y se reusa en los cuatro contadores que
+   * lo necesitan. Con `estadoAbierto: null` la pregunta deja de ser «¿el estado es tal?» y pasa a
+   * ser «¿la columna de cierre está vacía?» — ver `EjesCola.estadoAbierto`.
+   */
+  const ABIERTA = estadoAbierto === null ? '?? is null' : '?? = ?';
+  const CERRADA = estadoAbierto === null ? '?? is not null' : '?? <> ?';
+  // La comparación va inline (y no contra un `porNulo` precalculado) porque es la que hace que
+  // TypeScript estreche `estadoAbierto` a `string` en la rama que sí lo usa como binding.
+  const argsAb: string[] = estadoAbierto === null ? [estadoCol] : [estadoCol, estadoAbierto];
+
   const row = await q
     .clearSelect()
     .select(
-      knex.raw('count(*) filter (where ?? = ?) as n', [estadoCol, estadoAbierto]),
-      knex.raw('min(??) filter (where ?? = ?) as viejo', [fecha, estadoCol, estadoAbierto]),
+      knex.raw(`count(*) filter (where ${ABIERTA}) as n`, argsAb),
+      knex.raw(`min(??) filter (where ${ABIERTA}) as viejo`, [fecha, ...argsAb]),
       knex.raw(
-        `count(*) filter (where ?? = ? and ?? > now() - interval '7 days') as e7`,
-        [estadoCol, estadoAbierto, fecha],
+        `count(*) filter (where ${ABIERTA} and ?? > now() - interval '7 days') as e7`,
+        [...argsAb, fecha],
       ),
       knex.raw(`count(*) filter (where ?? > now() - interval '30 days') as e30`, [fecha]),
       cierre
         ? knex.raw(
-            `count(*) filter (where ?? <> ? and ?? > now() - interval '30 days') as c30`,
-            [estadoCol, estadoAbierto, cierre],
+            `count(*) filter (where ${CERRADA} and ?? > now() - interval '30 days') as c30`,
+            [...argsAb, cierre],
           )
         : // ⛔ `null`, NO `0`: la fuente no puede contestarlo. Son afirmaciones opuestas.
           knex.raw('null::int as c30'),
@@ -519,6 +542,62 @@ export const BANDEJAS: readonly BandejaDef[] = [
         flujo: { entradas_7d: num(row.e7), entradas_30d: num(row.e30), cerradas_30d: num(row.c30) },
       };
     },
+  },
+  {
+    id: 'salud-datos',
+    label: 'Fuentes de datos con falla',
+    detalle: 'bases, réplicas y feeds que dejaron de actualizarse · sin resolver',
+    ruta: '/admin/db-health',
+    icono: 'pi pi-database',
+    alcance: 'bandeja',
+    responsabilidad: 'sistemas.salud_datos',
+    acotablePorSucursal: false,
+    /*
+     * `[SN.32]` **1 día.** Medido en prod el 2026-09-22 sobre las **758 alertas resueltas** en los
+     * últimos 30 días: la mediana de vida es **0.5 h** y el percentil 90 **11.8 h** — o sea que
+     * una alerta viva más de un día ya está fuera del régimen normal, no es «todavía fresca».
+     * El promedio (8.06 h) y el máximo (30 días) muestran de dónde sale la diferencia: casi todas
+     * se resuelven solas en el siguiente ciclo del feed, y las pocas que no, se quedan meses.
+     *
+     * ⚠️ Con este umbral la bandeja **nace `atrasada`**, y eso es correcto: hoy hay 6 abiertas y
+     * la más vieja lleva desde el 12-sep. Subirlo para que se vea al día sería el
+     * `cfg ? classify : 'ok'` de la Fase VP con otro sombrero.
+     */
+    umbral_dias: 1,
+    anyOf: [Permission.USUARIOS_GESTIONAR],
+    /*
+     * ⛔ **La pantalla ya existe** (`[DBH.1]`, `/admin/db-health`: frescura por fuente + bandeja +
+     * motor). Acá no se recalcula nada: se lee la MISMA tabla que esa pantalla publica, para que
+     * el número de la portada y el de la pantalla no puedan discrepar.
+     *
+     * ⛔ `status` es **`warn|critical`**, o sea la GRAVEDAD, no el estado: lo que abre y cierra es
+     * `resolved_at`. Por eso `estadoCol` y `cierre` son la misma columna y `estadoAbierto` va
+     * `null`. Tomar `status` como estado habría contado las críticas como «abiertas» y las de
+     * aviso como «cerradas» — un número verosímil y falso.
+     *
+     * ⚠️ El filtro por `tenant_id` es EXPLÍCITO porque este knex bypassa RLS (ver la cabecera).
+     * Desde `[DBH.4]` el barrido corre bajo un solo tenant —el de plataforma—, así que en la
+     * práctica es una sola familia de filas; el filtro queda igual, que es lo que hace el resto
+     * del registro.
+     *
+     * ⚠️ Lo que esta cola NO ve, y se dice: las fuentes en `unknown` (no configuradas o no
+     * alcanzables desde este backend) **no abren alerta** por decisión del scanner. No son falla
+     * comprobada; salen declaradas en la pantalla, no contadas acá.
+     *
+     * ⚠️ **Deuda heredada de `medirCola`, medida acá porque acá se nota:** `entradas_7d` cuenta
+     * sólo las que entraron en 7 días **y siguen abiertas**, mientras `entradas_30d` cuenta todas
+     * las que entraron. En una cola que drena en 0.5 h de mediana eso se lee raro —medido contra
+     * prod: **4 en 7 días contra 762 en 30**—, cuando las entradas reales de 7 días fueron 188.
+     * No se corrige acá: la asimetría es del helper compartido y moverla cambiaría el flujo de las
+     * nueve bandejas, que es otro commit y otra medición.
+     */
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex('analytics.db_health_alerts').where({ tenant_id: tenantId }), {
+        estadoCol: 'resolved_at',
+        estadoAbierto: null,
+        fecha: 'first_seen_at',
+        cierre: 'resolved_at',
+      }),
   },
 ];
 
