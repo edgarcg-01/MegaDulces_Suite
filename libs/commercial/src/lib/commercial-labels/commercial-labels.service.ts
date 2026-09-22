@@ -147,6 +147,42 @@ export class CommercialLabelsService {
    */
   private static readonly PISO_DELTA = 0.01;
 
+  /**
+   * `[ETQ-CAMBIOS.6]` Las TRES cosas que la pantalla necesita, en **un solo viaje**.
+   *
+   * ── Por qué una y no tres ───────────────────────────────────────────────────────────────────
+   * El índice parcial (`20260921180000`) bajó el trabajo del servidor de **172,133 bloques a
+   * 260** por carga. Con eso, lo que quedaba dominando ya no era Postgres: era la **latencia**.
+   * Prod vive en Railway, cada consulta es un viaje de ida y vuelta por internet (~150 ms
+   * medidos, ver `feedback_measure_the_real_service_query_not_a_similar_one`), y esto hacía
+   * cuatro. Tres de ellos se responden con los MISMOS datos del mismo día: se fusionan.
+   *
+   * `dia` va `MATERIALIZED` a propósito: sin eso el planificador la inserta dos veces (una por
+   * la lista, otra por el conteo del centavo) y se paga el índice dos veces por gusto.
+   *
+   * ⚠️ El orden va DENTRO de `jsonb_agg`, no sólo en la CTE: una CTE con `LIMIT` no garantiza
+   * en qué orden la lee el agregado, y el renglón de mayor diferencia tiene que quedar arriba.
+   *
+   * `fuente_al` se queda como subconsulta aparte porque pregunta otra cosa —hasta qué día llegó
+   * la bitácora, sin importar el día elegido— y con el índice cuesta **4 bloques**.
+   */
+  private static readonly SQL_CAMBIOS = `
+    WITH dia AS MATERIALIZED (
+      SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
+        FROM analytics.v_label_price_changes
+       WHERE sucursal = ? AND fecha = ?::date
+    ), lista AS (
+      SELECT to_jsonb(d) AS fila, abs(d.delta) AS orden, d.sku
+        FROM dia d
+       WHERE abs(d.delta) > ${CommercialLabelsService.PISO_DELTA}
+       ORDER BY abs(d.delta) DESC, d.sku
+       LIMIT ?
+    )
+    SELECT
+      (SELECT coalesce(jsonb_agg(fila ORDER BY orden DESC, sku), '[]'::jsonb) FROM lista) AS items,
+      (SELECT count(*)::int FROM dia WHERE abs(delta) <= ${CommercialLabelsService.PISO_DELTA}) AS ocultos_centavo,
+      (SELECT max(fecha)::text FROM analytics.v_label_price_changes WHERE sucursal = ?) AS fuente_al`;
+
   private static readonly TOLERANCIA_H: Record<string, number> = {
     ods_live_hot: 1,
     // `[ETQ-ODS.1]` `recalculo: 12` se retiró con su paso: la etiqueta ya no pasa por
@@ -248,36 +284,23 @@ export class CommercialLabelsService {
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
     return this.tk.run(async (trx) => {
       const freshness = await this.freshness(trx);
-      // ⛔ Hasta dónde llegó la bitácora. Va SIEMPRE, incluso con la lista vacía: sin esto,
-      // "no cambió nada ese día" y "ese día todavía no llegó" se ven idénticos en la pantalla —
-      // y son cosas opuestas. Es la misma trampa que VP.0 midió en las píldoras de frescura.
-      const alRow = await trx.raw(
-        `SELECT max(fecha)::text AS al FROM analytics.v_label_price_changes WHERE sucursal = ?`, [suc ?? '']);
-      const fuente_al = (alRow?.rows?.[0]?.al ?? null) as string | null;
       // Sin plaza no hay nada que mostrar: la bitácora es por tienda y mezclarlas diría que
       // cambió algo que en TU tienda no cambió.
       if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0, freshness };
-      // Cuántos se van por el filtro del centavo. Se cuenta ANTES de filtrar y viaja a la pantalla:
-      // un filtro que se lleva el 93% de un domingo sin decirlo se lee como "no hubo cambios".
-      const oc = await trx.raw(
-        `SELECT count(*)::int AS n FROM analytics.v_label_price_changes
-          WHERE sucursal = ? AND fecha = ?::date AND abs(delta) <= ${CommercialLabelsService.PISO_DELTA}`,
-        [suc, dia]);
-      const ocultos_centavo = Number(oc?.rows?.[0]?.n ?? 0);
-      const r = await trx.raw(
-        `SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
-           FROM analytics.v_label_price_changes
-          WHERE sucursal = ? AND fecha = ?::date AND abs(delta) > ${CommercialLabelsService.PISO_DELTA}
-          ORDER BY abs(delta) DESC, sku
-          LIMIT ?`,
-        [suc, dia, CommercialLabelsService.TOPE_CAMBIOS + 1]);
-      const filas = (r?.rows ?? []) as LabelPriceChange[];
+      const r = await trx.raw(CommercialLabelsService.SQL_CAMBIOS,
+        [suc, dia, CommercialLabelsService.TOPE_CAMBIOS + 1, suc]);
+      const row = r?.rows?.[0] ?? {};
+      const filas = (row.items ?? []) as LabelPriceChange[];
       // Un tope que recorta en silencio se lee como "no hubo más". Se pide uno de más para poder
       // DECIRLO, y recién ahí se recorta.
       const truncado = filas.length > CommercialLabelsService.TOPE_CAMBIOS;
       return {
         items: truncado ? filas.slice(0, CommercialLabelsService.TOPE_CAMBIOS) : filas,
-        fecha: dia, truncado, fuente_al, ocultos_centavo, freshness,
+        fecha: dia,
+        truncado,
+        fuente_al: (row.fuente_al ?? null) as string | null,
+        ocultos_centavo: Number(row.ocultos_centavo ?? 0),
+        freshness,
       };
     });
   }
