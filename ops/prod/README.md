@@ -188,7 +188,9 @@ psql … -c "SET enable_nestloop = off;" -c "REFRESH MATERIALIZED VIEW analytics
 | Vista | Plan por defecto | Con `enable_nestloop=off` |
 |---|---|---|
 | `mv_kepler_sold_rung` | **>70 min sin terminar** | **9.7 s** |
-| `mv_kepler_sales_daily` | **>70 min sin terminar** | **< 2 min** |
+| `mv_kepler_sales_daily` | **>70 min sin terminar** | **29.6 s** |
+
+Son **~140×** en la grande y **>430×** en la chica, con una sola línea de `SET`.
 
 ⚠️ **Esto no es un defecto de la copia: es de prod.** Misma definición, mismas estadísticas, mismo
 plan. Lo que lo mantiene invisible es que `REFRESH` de estas vistas **no aparece en ningún cron ni
@@ -205,6 +207,24 @@ filtran por `c3='D'`).
 ⚠️ Y una que también se cayó: al ver los workers paralelos en 0 % de CPU concluí que el `-j4` del
 restore era el error. Falso — el trabajo total de CPU es fijo y los 4 núcleos estaban al 98 % en
 trabajo útil. **El `-j` no es la palanca; el plan sí.**
+
+
+⛔ **Y el ORDEN importa: primero el esquema, después las matviews.** Medido el 2026-09-22: con un
+`REFRESH MATERIALIZED VIEW` corriendo, una migración `ALTER TABLE commercial.warehouses ADD COLUMN`
+quedó **bloqueada** — la vista lee esa tabla con `ACCESS SHARE` y el `ALTER` necesita
+`ACCESS EXCLUSIVE`. Y como la cola de locks de Postgres es FIFO, ese `ALTER` bloqueado **frena a
+todo lo que venga detrás**, aunque no toque esa tabla.
+
+Con un restore de una fecha anterior a la de prod (que es el caso normal: el dump siempre es más
+viejo que el momento del corte) hay migraciones pendientes que aplicar. La secuencia correcta:
+
+```text
+1. pg_restore  (datos + índices)        ← las matviews quedan sin poblar, y está bien
+2. knex migrate:latest                  ← el esquema al día, sin nada que lo bloquee
+3. SET enable_nestloop=off; REFRESH …   ← al final, cuando ya no hay DDL esperando
+```
+
+Hacerlo al revés cuesta lo que costó acá: la migración esperando a una vista que tardaba una hora.
 
 ---
 
