@@ -16,8 +16,15 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { BinLocationService, WarehouseBin, LotLocation, UnlocatedLot } from '../bin-location.service';
+import { BinLocationService, WarehouseBin, LotLocation, UnlocatedLot, BinLookup } from '../bin-location.service';
 import { tipoDeUbicacion, TIPOS_UBICACION } from '../shared/tipo-ubicacion';
+import { motivoHttp } from '../shared/http-motivo';
+// El campo de escaneo y el cartel viven en `anden/components/` porque ahí
+// nacieron. Se reusan tal cual en vez de duplicarlos; mudarlos a `shared/`
+// queda como deuda con nombre (lo está editando otra rama y moverlos ahora
+// sería pelearse por el mismo archivo).
+import { ScanFieldComponent } from '../anden/components/scan-field.component';
+import { AndenCartelComponent, CartelUbicacion } from '../anden/components/anden-cartel.component';
 
 /** Una ubicación con lo que la pantalla deriva para poder ordenarla y filtrarla. */
 interface UbicacionFila extends WarehouseBin {
@@ -48,6 +55,15 @@ interface UbicacionFila extends WarehouseBin {
  * oculta — acomodaba la tarima y no podía volver a ver dónde la había dejado. No
  * se reparte `INVENTORY_VER` al rol porque ese permiso abre también la consola de
  * **ajustes de stock**, que es otra cosa.
+ *
+ * **Escaneá el rack y decime qué tiene.** Es la entrada principal de la pantalla
+ * y va arriba de todo: el cartel del rack ya se imprime con su CODE128 desde el
+ * Andén, pero hasta ahora ese código no servía para *preguntar* — sólo para
+ * acomodar. El escaneo resuelve por `GET /bins/lookup`, que trae la ubicación y
+ * su contenido juntos y **no exige haber elegido almacén**: quien llega con la
+ * pistola no eligió ninguno, y obligarlo a elegirlo primero anula la ventaja del
+ * escaneo. Si el mismo código existe en dos bodegas se muestran las dos y
+ * desempata la persona; si no existe, se ofrece crearlo ahí mismo.
  */
 @Component({
   selector: 'app-almacen-ubicaciones',
@@ -55,6 +71,7 @@ interface UbicacionFila extends WarehouseBin {
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
     InputTextModule, DialogModule, ToastModule, ProductSearchComponent, LoadStateComponent,
+    ScanFieldComponent, AndenCartelComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,11 +93,52 @@ interface UbicacionFila extends WarehouseBin {
         </div>
       </header>
 
+      <!-- ── Escaneá el rack: la pregunta más frecuente de la bodega ──────── -->
+      <section class="surf-card ub-scan">
+        <div class="ub-scan-main">
+          <app-scan-field
+            [valor]="codigoRack()"
+            etiqueta="Escaneá el cartel del rack"
+            placeholder="R-12 · o escribilo y Enter"
+            [refocoTick]="refocoScan()"
+            (valorChange)="codigoRack.set($event)"
+            (enter)="escanearRack()"
+            (sinCamara)="avisoCamara($event)"></app-scan-field>
+          @if (escaneando()) { <span class="ub-scan-busy"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando…</span> }
+        </div>
+
+        @if (escaneoSinMatch(); as c) {
+          <div class="ub-scan-miss" role="status">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>No existe ninguna ubicación con el código <b>{{ c }}</b>.</span>
+            @if (canAssign() && warehouseId) {
+              <button pButton size="small" [text]="true" (click)="crearDesdeEscaneo(c)" [loading]="savingBin()">
+                Crearla en este almacén
+              </button>
+            } @else if (canAssign() && !warehouseId) {
+              <span class="ub-scan-hint">Elegí primero el almacén para poder darla de alta.</span>
+            }
+          </div>
+        }
+
+        @if (escaneoCandidatos().length) {
+          <div class="ub-scan-cands" role="group" aria-label="Elegí el almacén">
+            <span class="ub-scan-hint">Ese código existe en {{ escaneoCandidatos().length }} almacenes — elegí cuál:</span>
+            @for (c of escaneoCandidatos(); track c.id) {
+              <button type="button" class="ub-scan-cand" (click)="abrirDesdeLookup(c)">
+                <b>{{ c.code }}</b>
+                <span>{{ c.warehouse_code }} · {{ c.warehouse_name || '' }}</span>
+              </button>
+            }
+          </div>
+        }
+      </section>
+
       @if (!warehouseId) {
         <div class="comm-empty">
           <div class="comm-empty-icon"><i class="pi pi-map-marker" aria-hidden="true"></i></div>
           <h3>Elegí un almacén</h3>
-          <p>Seleccioná un almacén para ver cómo está acomodado.</p>
+          <p>Seleccioná un almacén para ver cómo está acomodado — o escaneá un rack arriba y te llevo solo.</p>
         </div>
       } @else {
         <!-- Los tres números que contestan "¿cómo vamos?" sin abrir nada. -->
@@ -156,9 +214,16 @@ interface UbicacionFila extends WarehouseBin {
                     <h2 class="ub-h2">{{ b.code }}</h2>
                     <p class="ub-sub">{{ b.label || b.tipoLabel }} · {{ b.unidades | number }} unidades</p>
                   </div>
-                  <button pButton [text]="true" size="small" severity="secondary" (click)="cerrarDetalle()">
-                    <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
-                  </button>
+                  <div class="ub-det-acts">
+                    <!-- Un cartel se despega, se moja o se rompe. Sin reimpresión,
+                         la única forma de recuperarlo era dar de alta otra ubicación. -->
+                    <button pButton [text]="true" size="small" severity="secondary" (click)="reimprimirCartel(b)">
+                      <span class="p-button-icon p-button-icon-left pi pi-print" aria-hidden="true"></span> Cartel
+                    </button>
+                    <button pButton [text]="true" size="small" severity="secondary" (click)="cerrarDetalle()">
+                      <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
+                    </button>
+                  </div>
                 </div>
 
                 <app-load-state [loading]="cargandoDetalle()" [error]="errorDetalle()"
@@ -284,6 +349,15 @@ interface UbicacionFila extends WarehouseBin {
         </div>
       }
 
+      <!-- Cartel para reimprimir (mismo componente y mismo formato que el Andén:
+           dos carteles por hoja carta, con su CODE128). -->
+      <p-dialog [visible]="!!cartel()" (visibleChange)="!$event && cartel.set(null)" [modal]="true"
+        [style]="{ width: '640px' }" header="Cartel de la ubicación" [dismissableMask]="true">
+        @if (cartel(); as cs) {
+          <app-anden-cartel [ubicaciones]="cs" (cerrar)="cartel.set(null)" />
+        }
+      </p-dialog>
+
       <!-- Administrar ubicaciones -->
       <p-dialog [visible]="binsOpen()" (visibleChange)="binsOpen.set($event)" [modal]="true"
         [style]="{ width: '620px' }" header="Administrar ubicaciones" [dismissableMask]="true">
@@ -327,6 +401,23 @@ interface UbicacionFila extends WarehouseBin {
   `,
   styles: [`
     .ub-head-actions { display: flex; gap: .5rem; align-items: center; }
+    /* Escaneo: es la entrada principal, va ancha y arriba. */
+    .ub-scan { display: grid; gap: .6rem; padding: .9rem; margin-bottom: 1rem; }
+    .ub-scan-main { display: flex; align-items: flex-end; gap: .6rem; flex-wrap: wrap; }
+    .ub-scan-main > app-scan-field { flex: 1 1 320px; min-width: 0; }
+    .ub-scan-busy { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-xs, .72rem); color: var(--text-muted); }
+    .ub-scan-miss { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+      padding: .5rem .65rem; border-radius: var(--r-md, 8px); font-size: var(--fs-sm, .85rem);
+      border: 1px solid var(--border-color); background: var(--card-bg); }
+    .ub-scan-hint { font-size: var(--fs-xs, .72rem); color: var(--text-muted); }
+    .ub-scan-cands { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .ub-scan-cand { display: inline-flex; flex-direction: column; gap: .1rem; text-align: left;
+      padding: .45rem .6rem; min-height: 44px; cursor: pointer; font: inherit;
+      border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
+      background: var(--card-bg); color: var(--text-main); }
+    .ub-scan-cand:hover { border-color: var(--action); }
+    .ub-scan-cand span { font-size: var(--fs-xs, .72rem); color: var(--text-muted); }
+    .ub-det-acts { display: flex; gap: .25rem; align-items: center; }
     :host ::ng-deep .ub-w { width: 100%; min-width: 200px; }
     .ub-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .ub-kpi {
@@ -421,6 +512,18 @@ export class AlmacenUbicacionesComponent implements OnInit {
 
   filterProductId = '';
 
+  // ── escaneo del rack ──
+  readonly codigoRack = signal('');
+  readonly escaneando = signal(false);
+  /** Código que se escaneó y no existe. Se muestra con la salida (crearlo). */
+  readonly escaneoSinMatch = signal<string | null>(null);
+  /** El mismo código en varios almacenes: desempata la persona, no el sistema. */
+  readonly escaneoCandidatos = signal<WarehouseBin[]>([]);
+  /** Se incrementa para devolver el foco: sin esto no hay ráfaga de escaneos. */
+  readonly refocoScan = signal(0);
+  /** Carteles a imprimir (null = diálogo cerrado). */
+  readonly cartel = signal<CartelUbicacion[] | null>(null);
+
   // put-away
   readonly puProductLabel = signal<string>('');
   puProductId = '';
@@ -514,6 +617,94 @@ export class AlmacenUbicacionesComponent implements OnInit {
     });
   }
 
+  /**
+   * Un disparo de la pistola (o Enter a mano) sobre el cartel del rack.
+   *
+   * Resuelve contra el servidor y **no contra la lista ya cargada**: la lista es
+   * de un solo almacén y el que escanea puede no haber elegido ninguno. Un
+   * código que no existe NO es un error — es la respuesta, y trae la salida
+   * (darlo de alta).
+   */
+  escanearRack(): void {
+    const code = this.codigoRack().trim();
+    if (!code || this.escaneando()) return;
+    this.escaneando.set(true);
+    this.escaneoSinMatch.set(null);
+    this.escaneoCandidatos.set([]);
+
+    this.svc.lookupBin(code, this.warehouseId || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.escaneando.set(false);
+          if (r.match) { this.abrirDesdeLookup(r.match, r); return; }
+          if (r.candidates?.length) { this.escaneoCandidatos.set(r.candidates); return; }
+          this.escaneoSinMatch.set(r.code);
+          this.refocoScan.update((n) => n + 1);
+        },
+        error: (e) => {
+          this.escaneando.set(false);
+          this.toast.add({
+            severity: 'error', summary: 'No se pudo leer la ubicación', life: 8000,
+            detail: motivoHttp(e, 'buscar la ubicación escaneada'),
+          });
+        },
+      });
+  }
+
+  /**
+   * Muestra el rack resuelto por el escaneo.
+   *
+   * Si es de otro almacén, **se cambia el selector**: dejar la pantalla en el
+   * almacén anterior mostrando el contenido de un rack de otro es la forma más
+   * rápida de acomodar mercancía en la bodega equivocada.
+   *
+   * Cuando el lookup ya trajo el contenido (`match` + `contents`) se pinta ése y
+   * no se vuelve a pedir: es la misma consulta y el que escanea está esperando.
+   */
+  abrirDesdeLookup(b: WarehouseBin, r?: BinLookup): void {
+    this.escaneoCandidatos.set([]);
+    this.escaneoSinMatch.set(null);
+
+    const cambiaAlmacen = this.warehouseId !== b.warehouse_id;
+    if (cambiaAlmacen) {
+      this.warehouseId = b.warehouse_id;
+      this.reload(); // `reload` limpia el detalle; por eso la selección va después
+    }
+
+    const t = tipoDeUbicacion(b.code, b.label);
+    const unidades = r?.totals?.unidades ?? Number(b.units || 0);
+    this.seleccionada.set({ ...b, unidades, tipo: t.key, tipoLabel: t.label });
+    this.errorDetalle.set(null);
+
+    if (r?.contents) {
+      this.contenido.set(r.contents);
+      this.cargandoDetalle.set(false);
+    } else {
+      this.abrir({ ...b, unidades, tipo: t.key, tipoLabel: t.label });
+    }
+    this.codigoRack.set('');
+    this.refocoScan.update((n) => n + 1);
+  }
+
+  /** Da de alta la ubicación que se acaba de escanear y no existía. */
+  crearDesdeEscaneo(code: string): void {
+    if (!this.warehouseId) return;
+    this.newBinCode = code;
+    this.newBinLabel = '';
+    this.createBin();
+  }
+
+  /** La cámara no abrió (sin HTTPS o sin permiso): se dice el motivo real. */
+  avisoCamara(msg: string): void {
+    this.toast.add({ severity: 'warn', summary: 'Cámara no disponible', detail: msg, life: 8000 });
+  }
+
+  /** Reimprime el cartel de una ubicación ya existente (se despegan, se mojan). */
+  reimprimirCartel(b: UbicacionFila): void {
+    const w = this.warehouses().find((x) => x.id === b.warehouse_id);
+    this.cartel.set([{ code: b.code, label: b.label || b.tipoLabel, almacen: b.warehouse_code || w?.code || null }]);
+  }
+
   /** Salta al rack desde el resultado de "dónde está este producto". */
   abrirPorCodigo(code: string | null | undefined): void {
     if (!code) return;
@@ -568,7 +759,10 @@ export class AlmacenUbicacionesComponent implements OnInit {
         this.puLot = ''; this.puExpiry = ''; this.puQty = null;
         this.reload();
       },
-      error: (e) => { this.placing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo acomodar' }); },
+      error: (e) => {
+        this.placing.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo acomodar', life: 8000, detail: motivoHttp(e, 'acomodar la mercancía') });
+      },
     });
   }
 
@@ -596,15 +790,25 @@ export class AlmacenUbicacionesComponent implements OnInit {
       code: this.newBinCode.trim().toUpperCase(),
       label: this.newBinLabel?.trim() || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
+      next: (b) => {
         this.savingBin.set(false);
         this.newBinCode = ''; this.newBinLabel = '';
-        this.toast.add({ severity: 'success', summary: 'Ubicación creada' });
+        this.escaneoSinMatch.set(null);
+        this.toast.add({
+          severity: 'success', summary: 'Ubicación creada',
+          detail: `${b.code} — imprimí el cartel y pegalo antes de acomodar.`,
+        });
+        // El cartel se ofrece de una: una ubicación sin cartel pegado es una
+        // ubicación que nadie vuelve a encontrar ni la pistola puede leer.
+        this.cartel.set([{ code: b.code, label: b.label || null, almacen: b.warehouse_code || null }]);
         this.reload();
       },
       error: (e) => {
         this.savingBin.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo crear', detail: e?.error?.message || 'Error' });
+        // `motivoHttp` y no `e.error.message || 'Error'`: un 500 y una petición que
+        // ni salió llegan SIN mensaje, y las dos se veían como "Error" — que es lo
+        // que dejó la falla de la bodega sin diagnóstico.
+        this.toast.add({ severity: 'error', summary: 'No se pudo crear', life: 9000, detail: motivoHttp(e, 'crear la ubicación') });
       },
     });
   }
@@ -613,10 +817,10 @@ export class AlmacenUbicacionesComponent implements OnInit {
     this.svc.deleteBin(b.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.toast.add({ severity: 'info', summary: 'Ubicación eliminada' }); this.reload(); },
       error: (e) => this.toast.add({
-        severity: 'error', summary: 'No se pudo eliminar',
+        severity: 'error', summary: 'No se pudo eliminar', life: 8000,
         detail: e?.status === 403
-          ? 'Borrar una ubicación exige el permiso de asignar layout.'
-          : e?.error?.message || 'Error',
+          ? 'Borrar una ubicación exige el permiso de asignar layout (no alcanza con el de recibir).'
+          : motivoHttp(e, 'borrar la ubicación'),
       }),
     });
   }
