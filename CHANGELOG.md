@@ -25,8 +25,16 @@
 - **Arreglo:** `CI=true` sale **sólo del stage `builder`** en los 4 Dockerfiles; se queda en
   `deps`/`prod-deps`, donde npm lo necesita. Verificado que nada de nuestro código lee
   `process.env.CI`. Probado con `--skip-nx-cache`: `rc=0`, build correcto, **gap 83 s → 5 s**.
-- ⚠️ El mecanismo es hipótesis; el efecto está medido. **No verificado en contenedor** (el motor de
-  Docker Desktop se cayó durante la prueba) — se confirma con el próximo deploy.
+- ⚠️ El mecanismo es hipótesis; el efecto está medido.
+- ✅ **Confirmado en prod** (deploy ~18:30, mismo servicio): `nx run-many` **2m 54s → 1m 12s** ·
+  `COPY node_modules` **1m 30s → 6s** · `exporting` **1m 38s → 7s** · push **633 MB → 452 MB** ·
+  **build completo ≈ 5m 17s → ≈ 1m 44s (3×)**.
+- ⭐ Cierra además las dos preguntas que `[NX.10]`/`[NX.10.1]` habían dejado abiertas: la capa de
+  `node_modules` **sí cachea** (comparación limpia — `prod-deps` estaba cacheado en los dos
+  deploys, así que los 84 s son atribuibles) y los **+25 s de `exporting` sin atribuir
+  desaparecieron**, confirmando que escala con **capas nuevas**, no con bytes.
+- ⚠️ **NO descompuesto:** Railway recortó la salida de Nx, así que no se sabe cuántas tareas
+  pegaron caché — parte de los 102 s puede ser un hit remoto de `view`, no sólo el peaje quitado.
 
 ### Added — Ubicaciones: el mapa de la bodega, rack por rack (WMS-REC.10, 2026-09-21)
 - La pantalla pasa a **maestro–detalle**: a la izquierda las ubicaciones (con buscador y chips

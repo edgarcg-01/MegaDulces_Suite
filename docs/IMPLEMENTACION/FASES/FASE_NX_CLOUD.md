@@ -676,3 +676,46 @@ wall 69 s vs Run duration 1m 4s → gap de 5 s   (antes 83 s)
   No se tocó: es ruido al lado de lo anterior, y cambiar el entrypoint tiene su propio riesgo.
 - ⭐ La medición también deja sin argumento el `--parallel=1`: Nx reporta 26.9 s recuperables,
   contra los ~63 s que valía esto. Sigue en serie por el OOM documentado.
+
+---
+
+## 12 · Confirmación en PROD — deploy del 2026-09-21 ~18:30
+
+Los tres deploys del mismo día, mismo servicio (`MegaDulces`), leídos del log de Railway:
+
+| paso | 09:03 (base) | 16:10 (`[NX.10]`) | **tras `[NX.10.1]`+`[NX.11]`** |
+|---|---|---|---|
+| `nx run-many -t build view,api` | 2m 02s | 2m 58s | **1m 12s** |
+| `prod-deps` `npm ci` | cached | 11s | **cached** |
+| candado de externals | — | 1s | 798 ms |
+| `COPY --from=prod-deps node_modules` | **1m 30s** | 52s | **6s** |
+| `exporting to docker image format` | **1m 13s** | 1m 38s | **7s** |
+| `image push` | 633.4 MB / 21s | 428.7 MB | 452.4 MB / **11s** |
+| **build completo** | **≈ 5m 17s** | ≈ 5m 30s | **≈ 1m 44s** |
+
+**≈ 3× más rápido**, −3m 33s.
+
+### Las dos preguntas abiertas, contestadas
+
+⭐ **«¿La capa de `node_modules` cachea con el esquema nuevo?»** (§10, la que se declaró como *la
+que vale más que los 25 s del export*). **Sí: 1m 30s → 6s.** Y es la comparación **limpia** de toda
+la fase: en los dos deploys `prod-deps` estaba **cacheado**, o sea mismo estado de caché a ambos
+lados → los 84 s son atribuibles al árbol podado + quitar el `--chown`, sin confusión.
+
+⭐ **Los +25 s de `exporting` que §10 dejó SIN ATRIBUIR** — desaparecieron: **1m 38s → 7s**. Eso
+confirma lo que la corrida en frío ya había medido y que contradecía la intuición: `exporting`
+escala con **cuántas capas son NUEVAS**, no con los bytes de la imagen.
+
+### ⚠️ Lo que este log NO cierra
+
+`nx run-many` bajó de 2m 54s a **1m 12s**, pero Railway **recortó la salida de Nx** (quedó sólo un
+`npm notice`), así que **no se sabe cuántas tareas pegaron en caché**. Parte de esos 102 s puede
+ser un hit remoto de `view`, no sólo el peaje de `CI=true` que se quitó. **Queda como NO
+DESCOMPUESTO**: para cerrarlo hace falta la tabla `Status / Task / Duration / Cache Status` de ese
+paso — que es, justamente, lo que destapó todo este hilo.
+
+### Verificado de paso
+
+El candado del árbol podado corrió en su lugar nuevo (`prod-deps`, 798 ms) y reportó
+**`✔ 60 externals`** — uno más que el día anterior: el código nuevo de `[PU.*]` agregó una
+dependencia y la puerta la vio. Un candado que no se mueve cuando el código cambia sería un no-op.
