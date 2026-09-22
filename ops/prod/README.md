@@ -298,6 +298,56 @@ lógica). `restore viejo + migrate` queda **descartado como camino**, no como pr
 tres defectos reales que nadie había visto. Vale la pena repetirlo de vez en cuando **a propósito**,
 sabiendo que va a fallar y que eso es el punto.
 
+
+### 3.4 ⛔ La app EXIGE TLS contra la base — y los GRANT no vienen en el dump
+
+Los dos se descubrieron levantando el stack contra la copia el 2026-09-22, y los dos aparecen
+**sólo en runtime**: el restore termina en verde y la app arranca igual.
+
+**1. TLS.** `GET /api/sucursales` daba `500: The server does not support SSL connections`, y
+`pg-boss` arrancaba *"inerte"* por lo mismo. Causa: el bloque `production` de
+`database/knexfile-newdb.js` pone `ssl: { rejectUnauthorized: false }` **sin condicional**, y en
+Railway la imagen de la base es `postgres-ssl` (TLS activo). `pgvector/pgvector:pg18` no lo trae.
+
+Se arregla **del lado de la base**, no del código, para que la configuración de la app quede
+idéntica en los dos lados. Certificado autofirmado, una vez, dentro del volumen:
+
+```sh
+docker exec -u postgres pg-prod sh -c 'cd $PGDATA &&
+  openssl req -new -x509 -days 3650 -nodes -text -out server.crt -keyout server.key \
+    -subj "/CN=pg-prod" && chmod 600 server.key server.crt'
+```
+
+y `ssl=on` + `ssl_cert_file` + `ssl_key_file` en el `command:` del compose (ya está). Verificado:
+`SHOW ssl` → `on`, y las conexiones negocian **TLSv1.3**. ⚠️ Vale para `pg-rag` también.
+
+**2. Los GRANT.** Con TLS resuelto, el mismo endpoint pasó a fallar con `aclcheck_error` —
+permiso denegado. Es el bloqueo que §3 ya declaraba: el respaldo diario corre con
+`--no-privileges`, así que la app (que conecta como `app_runtime`) no tiene permisos sobre nada.
+
+Mientras el dump del corte no se tome con privilegios, se resuelve trasplantándolos:
+
+```sh
+pg_dump --schema-only --no-owner "$ODS_HB_URL" > /tmp/prod-schema.sql
+grep -E '^(GRANT|REVOKE|ALTER DEFAULT PRIVILEGES)' /tmp/prod-schema.sql > /tmp/grants.sql
+psql … -v ON_ERROR_STOP=0 -f /tmp/grants.sql
+```
+
+Medido: **1,304 sentencias — 1,298 a `app_runtime` y 6 a `fdw_verificador_ro`**; se aplicaron
+1,217 `GRANT` con **cero errores**.
+
+**Después de los dos arreglos, verificado contra la copia:**
+
+```text
+/api/health           200
+/api/sucursales       200 · sucursales reales · 33 ms
+/api/kp/precios-todos 200 · 9,532 productos · 1.8 MB · 1.13 s
+```
+
+⚠️ **Ninguno de los dos lo habría encontrado un smoke de infraestructura.** `pg_isready` decía
+`healthy`, el contenedor decía `Up`, y `/api/health` devolvía 200 — porque no toca la base. Hizo
+falta pedirle **datos**.
+
 ---
 
 ## 4. Cómo se verifica — el rótulo no es el veredicto
