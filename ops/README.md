@@ -89,7 +89,7 @@ serializa con `flock` (no existe el `IgnoreNew` del Programador, y los de 1 minu
 |---|---|---|
 | ~~`WincajaLive` · `WincajaSyncActual` · `WincajaSyncConcentrada`~~ ✅ **DESHABILITADAS 2026-09-22** | ⛔ **El único bloqueo real de "todo en Linux"**: leen `.mdb` con **Jet 4.0 de 32 bits** sobre `Z:` (`\\192.168.0.245\D`). `Z:` es una unidad **mapeada por sesión**, así que la tarea **no puede** correr sin sesión iniciada — y un token `S4U` tampoco lleva credenciales de red | ⭐ **VL.5 se CANCELA**: Sistemas informó el 2026-09-12 que **Wincaja deja de existir en ~1 semana**. No se porta nada a Linux — sería infraestructura para un sistema con siete días de vida |
 | `KeplerFeedGuardian` | ⛔ **Desde el 2026-09-22 NO VIGILA NADA**: su lista son 11 tareas y las 11 están `Disabled` (10 se mudaron en VL.4 y `WincajaLive` se retiró hoy), y su código hace `continue` con las deshabilitadas. Sigue latiendo en verde — el falso verde de siempre. **Se deja prendido a propósito**: su llave `feed_guardian` tiene umbral registrado (`warnH 0.5 / critH 2`), así que apagar la tarea sin retirar la llave del código pone esa alarma en rojo. Retirarlo = apagar la tarea **y** sacar la llave, en el mismo cambio | VL.7 |
-| `TradeMarketing-DailyBackup` | `pg_dump` de prod. Es `S4U`: **sí sobrevive al reinicio**. ⛔ **Y su latido NO era evidencia de salud**: medido el 2026-09-22, llevaba **12 días sin producir un archivo** (ParserError de PowerShell) y el `ok` de `backup_prod` lo había escrito una **prueba de instrumentación**, nunca un respaldo real. Arreglado, más keepalives contra el cuelgue de 93 min en socket muerto | **VL.6.3** |
+| ~~`TradeMarketing-DailyBackup`~~ ✅ **DESHABILITADA 2026-09-22 — se mudó a `md`** | `pg_dump` de prod. Era `S4U` (sobrevivía al reinicio) pero **llevaba 12 días sin producir un archivo** (ParserError de PowerShell) y el `ok` de `backup_prod` lo había escrito una **prueba de instrumentación**, nunca un respaldo real. ⭐ **No se mudó por el enlace**: se midió el cable con el MISMO comando desde las dos máquinas y dan casi igual (218 MB/min desde `SISTEMAS`, 260 desde `md`). Se mudó porque `md` arranca sin sesión, su `pg_dump` es 18.6 —la misma minor que el servidor, contra 18.4 acá—, desaparece la clase de fallo del ParserError, y **el restore del corte ocurre en `md`: tomar ahí el volcado cada noche es ensayar ese camino todas las noches**. Ahora es el contenedor `prod-backup`, 22:00 MX, latido con `host = md-backup`. Deshabilitada y **no borrada**: un solo dueño de `backup_prod` | **VL.6.4** ✅ |
 | `PM2 Resurrect ODS` | ⛔ **NO es residuo todavía**: es lo que revive los carriles de PM2 de abajo tras un reinicio. Apagarlo antes de que Wincaja se vaya los mata en el próximo boot | VL.7, **después** de Wincaja |
 
 ### 3.1 PM2 en `.249` — que este README omitía
@@ -125,7 +125,9 @@ sin una diferencia.**
 
 Lo demás que sigue vivo en `.249`: los 3 carriles Wincaja, `redis-md` (pub/sub de un dev server, no
 es ingesta), `ods-autoheal` (**ya no vigila nada**: sus objetivos se fueron a `md` — residuo de
-VL.7), `FeedGuardian`, `TradeMarketing-DailyBackup` y `PM2 Resurrect ODS`.
+VL.7), `FeedGuardian` y `PM2 Resurrect ODS`. ⚠️ `TradeMarketing-DailyBackup` **salió de esta
+lista el 2026-09-22**: el respaldo de prod vive ahora en el contenedor `prod-backup` de `md`
+(VL.6.4). La tarea quedó **deshabilitada, no borrada**.
 
 #### 3.2.1 ⛔ El REENVÍO TCP de `.249:5433` — 11 camionetas cuelgan de él, y no estaba escrito acá
 

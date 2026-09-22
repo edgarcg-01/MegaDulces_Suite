@@ -687,7 +687,12 @@ const CRON_JOBS: CronCfg[] = [
   // compuertas (validar el dump, piso de tablas, retencion) no corrian.
   // Umbral de job diario, mismo criterio que sales_daily: warn al saltarse una corrida,
   // critico al saltarse dos. `maxRunH: 3` porque las corridas medidas son de 69-90 min.
-  { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 17:00', warnH: 26, critH: 50, maxRunH: 3 },
+  // [VL.6.4] Se mudó de la tarea de Windows (17:00 en `SISTEMAS`) al contenedor `prod-backup`
+  // de `md` (22:00). El `host` del latido lo distingue: `SISTEMAS` vs `md-backup`. La cadencia
+  // se corrige acá porque es lo que el tablero le muestra a una persona: con la hora vieja,
+  // quien viniera a ver por qué falta el respaldo lo buscaría cinco horas antes y en otra máquina.
+  // `maxRunH: 3` aguanta: los cuatro respaldos reales medidos tardaron 68, 69, 89 y 74 min.
+  { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 22:00 (md)', warnH: 26, critH: 50, maxRunH: 3 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
   // kepler_catalog_bulk RETIRADO (2026-09-11): el catálogo lo mantienen los repoint-catalog-* del
   // nightly (presence/names/prices/cost, CANON.0.1) — catalog.products fresco 0 h. Su latido llevaba
