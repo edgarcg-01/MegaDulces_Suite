@@ -48,6 +48,8 @@ function acotes(f: ReporteFiltrosUI): string[] {
   const out: string[] = [];
   if (f.min) out.push(`importe desde ${money(Number(f.min))}`);
   if (f.max) out.push(`importe hasta ${money(Number(f.max))}`);
+  if (f.folio) out.push(`folio que contenga "${f.folio}"`);
+  if (f.warehouse_codes) out.push(`sólo la sucursal ${f.warehouse_codes}`);
   if (f.caja) out.push(`sólo caja ${f.caja} (deja fuera facturas y notas de crédito)`);
   if (f.atendio) out.push(`sólo lo atendido por ${f.atendio}`);
   if (f.brand_id) out.push('sólo documentos que traen la marca elegida, completos');
@@ -62,13 +64,14 @@ export function cuerpoReporteCliente(
   const total = docs.reduce((s, d) => s + d.total, 0);
   const desc = docs.reduce((s, d) => s + d.descuento, 0);
   const abonos = docs.filter((d) => d.origen === 'abono');
+  const plazas = new Set(docs.map((d) => d.sucursal)).size;
   const ac = acotes(f);
 
   const filas = docs.map((d) => `<tr>
       <td class="m">${esc(d.id)}</td>
       <td class="m">${fechaCorta(d.fecha)}</td>
       <td>${esc(d.origen_label)}</td>
-      <td>${esc(d.sucursal)}${d.caja != null ? ' · caja ' + d.caja : ''}</td>
+      <td>${esc(d.sucursal_nombre || d.sucursal)}${d.caja != null ? ' · caja ' + d.caja : ''}</td>
       <td>${esc(d.atendio || '—')}</td>
       <td class="m r">${d.descuento > 0 ? money(d.descuento) : '—'}</td>
       <td class="m r${d.total < 0 ? ' neg' : ''}">${money(d.total)}</td>
@@ -91,12 +94,13 @@ export function cuerpoReporteCliente(
     <div class="caja">
       <h4>Cliente</h4>
       <div class="v">${esc(c.nombre || c.cliente_code)}</div>
-      <div class="sub">Clave <span class="m">${esc(c.cliente_code)}</span> · ${esc(c.sucursal_nombre || c.sucursal)}</div>
+      <div class="sub">Clave <span class="m">${esc(c.cliente_code)}</span>${c.zona ? ' · zona ' + esc(c.zona) : ''}${c.ciudad ? ' · ' + esc(c.ciudad) : ''}</div>
+      ${c.clave_ambigua ? '<div class="amb">⚠ Esta clave trae nombres distintos segun la sucursal: el reporte puede estar sumando a mas de un cliente.</div>' : ''}
     </div>
     <div class="caja">
       <h4>Periodo y alcance</h4>
       <div class="v">${esc(periodo(f))}</div>
-      <div class="sub">${docs.length} documento${docs.length === 1 ? '' : 's'}${fuera > 0 ? ` · ${fuera} fuera del reporte` : ''}</div>
+      <div class="sub">${docs.length} documento${docs.length === 1 ? '' : 's'} en ${plazas} sucursal${plazas === 1 ? '' : 'es'}${fuera > 0 ? ` · ${fuera} fuera del reporte` : ''}</div>
     </div>
   </div>
 
@@ -177,6 +181,7 @@ export function imprimirReporteCliente(
   .neg { color: #991B1B; }
   .m { font-family: "Consolas", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
   .vacio { text-align: center; color: #A1A1AA; padding: 14px; }
+  .amb { margin-top: 4px; font-size: 8pt; color: #92400E; }
   .pie { margin-top: 12px; padding-top: 8px; border-top: 1px solid #E4E4E7;
          font-size: 7.5pt; line-height: 1.5; color: #71717A; }
   tr { break-inside: avoid; }

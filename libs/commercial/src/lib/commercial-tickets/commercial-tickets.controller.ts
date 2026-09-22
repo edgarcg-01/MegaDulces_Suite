@@ -70,20 +70,21 @@ export class CommercialTicketsController {
     return this.reporte.clientes(raw.q, await this.alcance(raw, 'clientes'));
   }
 
-  @Get('clientes/:sucursal/:code/reporte')
+  @Get('clientes/:code/reporte')
   @RequirePermissions(Permission.COMMERCIAL_TICKETS_VER)
   @ApiQuery({ name: 'date_from', required: false })
   @ApiQuery({ name: 'date_to', required: false })
-  @ApiQuery({ name: 'min', required: false, description: 'Importe mínimo del documento.' })
-  @ApiQuery({ name: 'max', required: false, description: 'Importe máximo del documento.' })
-  @ApiQuery({ name: 'caja', required: false, description: '⚠️ Sólo existe en mostrador: filtrar por caja deja fuera facturas y notas de crédito.' })
-  @ApiQuery({ name: 'atendio', required: false, description: 'Clave de quien atendió: cajero en mostrador, vendedor en facturas.' })
+  @ApiQuery({ name: 'folio', required: false, description: 'Folio o parte de el. Es "contiene": el folio no identifica un documento.' })
+  @ApiQuery({ name: 'min', required: false, description: 'Importe minimo del documento.' })
+  @ApiQuery({ name: 'max', required: false, description: 'Importe maximo del documento.' })
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. ScopeService lo interseca con tu alcance: no es un filtro aparte.' })
+  @ApiQuery({ name: 'caja', required: false, description: '⚠️ Solo existe en mostrador: filtrar por caja deja fuera facturas y notas de credito.' })
+  @ApiQuery({ name: 'atendio', required: false, description: 'Clave de quien atendio: cajero en mostrador, vendedor en facturas.' })
   @ApiQuery({ name: 'brand_id', required: false, description: 'El documento entra COMPLETO si alguna partida es de esa marca.' })
-  @ApiQuery({ name: 'supplier_id', required: false, description: '⚠️ Sólo alcanza al 84.2% del catálogo: 1,777 productos no tienen proveedor.' })
+  @ApiQuery({ name: 'supplier_id', required: false, description: '⚠️ Solo alcanza al 84.2% del catalogo: 1,777 productos no tienen proveedor.' })
   @ApiQuery({ name: 'solo_con_descuento', required: false })
-  @ApiOperation({ summary: 'Los documentos de UN cliente de UNA plaza en el periodo, de los dos universos (mostrador y facturas/crédito/notas). Las notas de crédito entran en NEGATIVO para que el total sea lo que el cliente pagó.' })
+  @ApiOperation({ summary: 'Los documentos de UN cliente en TODAS las plazas que alcanzas, de los dos universos (mostrador y facturas/credito/notas). La clave de cliente es global: el catalogo esta replicado en las nueve sucursales (1,862 de 2,395 claves existen en las nueve), asi que la sucursal es un filtro, no parte de la identidad. Las notas de credito entran en NEGATIVO para que el total sea lo que el cliente pago.' })
   async reporteCliente(
-    @Param('sucursal') sucursal: string,
     @Param('code') code: string,
     @Query() raw: Record<string, string>,
   ): ReturnType<CustomerReportService['reporte']> {
@@ -91,6 +92,7 @@ export class CommercialTicketsController {
     const f: ReporteFiltros = {
       from: raw.date_from || undefined,
       to: raw.date_to || undefined,
+      folio: raw.folio || undefined,
       min: n(raw.min),
       max: n(raw.max),
       caja: n(raw.caja),
@@ -99,7 +101,7 @@ export class CommercialTicketsController {
       supplier_id: raw.supplier_id || undefined,
       solo_con_descuento: raw.solo_con_descuento === 'true',
     };
-    return this.reporte.reporte(sucursal, code, f, await this.alcance(raw, 'reporte'));
+    return this.reporte.reporte(code, f, await this.alcance(raw, 'reporte'));
   }
 
   // Declarada AL FINAL: si fuera antes, ':id' se tragaría cualquier ruta hermana que se agregue.
