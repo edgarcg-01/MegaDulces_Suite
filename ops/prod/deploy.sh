@@ -6,6 +6,7 @@
 #   ops/prod/deploy.sh --imagenes      # construye las 4 imágenes, no recrea nada
 #   ops/prod/deploy.sh --db            # sólo levanta pg-prod + pg-rag
 #   ops/prod/deploy.sh --recrear api   # sube el compose y recrea, SIN reconstruir imágenes
+#   ops/prod/deploy.sh --volver 4bf36b2 # ROLLBACK: reapunta :latest a esa versión y recrea
 #   ops/prod/deploy.sh                 # construye y recrea todo
 #   ops/prod/deploy.sh api worker      # sólo esos servicios
 #
@@ -95,11 +96,19 @@ subir_compose() {
 }
 
 construir() {
+  commit=$(cd "$REPO" && git rev-parse --short HEAD)
   echo "── Construyendo (esto tarda: son 3 bundles de Angular) ──"
   # En serie a propósito: 4 builds en paralelo sobre 4 núcleos físicos se pelean por CPU y
   # por RAM (cada `nx build` de Angular pide hasta 4 GB de heap). Serializar cuesta
   # wall-clock y quita el riesgo de un OOM-kill, que se ve como un log cortado a la mitad
   # sin ninguna línea de error.
+  #
+  # ⭐ DOBLE ETIQUETA: `:<commit>` **y** `:latest`. Sin la primera no existe el rollback —
+  # medido el 2026-09-22: las 6 imágenes eran sólo `:latest` y las versiones anteriores
+  # quedaban SIN ETIQUETA, o sea recuperables únicamente adivinando un hash por fecha… hasta
+  # que alguien corre `docker image prune` para liberar disco y desaparecen. No poder volver
+  # a la versión de ayer es la mitad que falta del control de cambios: la otra mitad (que no
+  # entre una mala) la da la CI, que hoy está apagada.
   ssh_md "cd $REMOTO && set -e
     for par in 'trade-prod-pg:ops/prod/Dockerfile.pg' \
                'trade-prod-api:Dockerfile' \
@@ -110,13 +119,49 @@ construir() {
       img=\${par%%:*}; df=\${par#*:}
       printf '   %-22s ' \"\$img\"
       t0=\$(date +%s)
-      if docker build -q -f \"\$df\" -t \"\$img:latest\" . >/dev/null 2>/tmp/build-\$img.log; then
-        echo \"ok (\$(( \$(date +%s) - t0 ))s)\"
+      if docker build -q -f \"\$df\" -t \"\$img:$commit\" -t \"\$img:latest\" . >/dev/null 2>/tmp/build-\$img.log; then
+        echo \"ok (\$(( \$(date +%s) - t0 ))s)  →  \$img:$commit\"
       else
         echo 'FALLÓ'; tail -25 /tmp/build-\$img.log | sed 's/^/      /'; exit 1
       fi
     done"
   subir_compose
+  podar_imagenes
+}
+
+# Conserva las $RETENER_IMG etiquetas de commit más nuevas de cada imagen y borra las demás.
+# ⚠️ NO toca `:latest` ni la imagen que algún contenedor esté usando — `docker rmi` de una
+# etiqueta en uso falla, y acá ese fallo es benigno (se ignora): lo que importa es no dejar
+# el disco creciendo sin tope. Con 6 imágenes de hasta 2.2 GB, 5 versiones son ~35 GB.
+RETENER_IMG="${RETENER_IMG:-5}"
+podar_imagenes() {
+  ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+            docker images --format '{{.Tag}} {{.CreatedAt}}' \"\$i\" \
+              | grep -v '^latest ' | sort -k2,3 -r | tail -n +\$(( $RETENER_IMG + 1 )) | awk '{print \$1}' \
+              | while read t; do docker rmi \"\$i:\$t\" >/dev/null 2>&1 || true; done
+          done" 2>/dev/null
+  echo "   (se conservan las $RETENER_IMG versiones más nuevas de cada imagen)"
+}
+
+# ⭐ EL ROLLBACK. `deploy.sh --volver <commit>` reapunta `:latest` a esa versión y recrea.
+# No hace falta registro ni reconstruir: las imágenes ya están en la máquina, etiquetadas.
+volver() {
+  destino="$1"; shift
+  servicios="${*:-$SERVICIOS_DEF}"
+  [ -n "$destino" ] || { echo "uso: deploy.sh --volver <commit-corto> [servicios...]"; exit 2; }
+  echo "── Volviendo a $destino ──"
+  faltan=$(ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+                     docker image inspect \"\$i:$destino\" >/dev/null 2>&1 || echo \"\$i\"
+                   done")
+  if [ -n "$faltan" ]; then
+    echo "⛔ No existe la etiqueta $destino para:"; echo "$faltan" | sed 's/^/     /'
+    echo "   Versiones disponibles:"
+    ssh_md "docker images --format '{{.Repository}}:{{.Tag}}' | grep '^trade-prod-' | grep -v ':latest' | sort -u" | sed 's/^/     /'
+    exit 1
+  fi
+  ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+            docker tag \"\$i:$destino\" \"\$i:latest\"; done && echo '   :latest reapuntado'"
+  recrear $servicios
 }
 
 recrear() {
@@ -145,6 +190,7 @@ case "${1:---todo}" in
   --imagenes)  verificar_limpio; enviar; construir ;;
   --db)        recrear pg-prod pg-rag ;;
   --recrear)   shift; subir_compose; [ $# -gt 0 ] || set -- $SERVICIOS_DEF; recrear "$@" ;;
+  --volver)    shift; volver "$@" ;;
   --todo)      verificar_limpio; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,12p' "$0"; exit 2 ;;
   *)           verificar_limpio; enviar; construir; recrear "$@" ;;
