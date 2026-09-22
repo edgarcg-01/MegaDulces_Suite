@@ -198,7 +198,10 @@ Write-Log "Iniciando dump -> $dumpFile"
 # valores el peer muerto se detecta en ~60 s (30 de inactividad + 3 sondeos cada 10) y
 # pg_dump sale con error -- que el paso siguiente ya sabe manejar (borra el .dump y escribe
 # el latido en 'error'). Es preferible un respaldo que FALLA fuerte a uno que cuelga mudo.
-$sep = if ($databaseUrl -match '?') { '&' } else { '?' }
+# ⚠️ `.Contains()`, NO `-match` ni `-like`: los dos interpretan el argumento como patron y
+# un '?' suelto los rompe -- `-match '?'` tira "Cuantificador {x,y} despues de nada" (pasado
+# en esta misma linea el 2026-09-22) y en `-like` el '?' es comodin de un caracter.
+$sep = if ($databaseUrl.Contains('?')) { '&' } else { '?' }
 $dumpUrl = $databaseUrl
 if ($databaseUrl -notmatch 'keepalives=') {
     $dumpUrl = "$databaseUrl$sep" + 'keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=15'
