@@ -377,27 +377,35 @@ export async function medirZona(
   const rutasCodes = canales.filter((c) => c.grupo !== 'tienda').map((c) => c.clave);
   const fuentes: { fuente: string; ultimo: string }[] = [];
 
-  if (tiendasIds.length) {
-    const f = (await knex('analytics.sales_daily')
-      .where('tenant_id', tenantId)
-      .whereIn('warehouse_id', tiendasIds)
-      // ⛔ Tope en hoy: hay filas fechadas en el futuro y una fuente adelantada no puede estirar.
-      .whereBetween('sale_date', [limiteVivo, hoy])
-      .groupBy('channel')
-      .select('channel', knex.raw('max(sale_date) as ultimo'))) as {
-      channel: string; ultimo: Date | string;
-    }[];
-    for (const r of f) fuentes.push({ fuente: r.channel, ultimo: iso(r.ultimo) as string });
-  }
-  if (rutasCodes.length) {
-    const f = (await knex('analytics.v_rd_route_daily')
-      .where('tenant_id', tenantId)
-      .whereIn('route_code', rutasCodes)
-      .whereBetween('business_date', [limiteVivo, hoy])
-      .select(knex.raw('max(business_date) as ultimo'))
-      .first()) as { ultimo: Date | string | null } | undefined;
-    if (f?.ultimo) fuentes.push({ fuente: 'venta por ruta', ultimo: iso(f.ultimo) as string });
-  }
+  /*
+   * `[CDRP.4-perf]` Las dos frescuras son INDEPENDIENTES: van en paralelo, no una tras otra.
+   * No cambia ninguna cifra — cambia que el costo del par sea el del más lento y no la suma.
+   * Importa recién con el bloque de dirección (`comercial.venta_zonas`, 6 zonas), donde el
+   * `IN (...)` de almacenes y rutas es mucho más grande que el de un jefe de zona.
+   */
+  const [fTiendas, fRutas] = await Promise.all([
+    tiendasIds.length
+      ? (knex('analytics.sales_daily')
+          .where('tenant_id', tenantId)
+          .whereIn('warehouse_id', tiendasIds)
+          // ⛔ Tope en hoy: hay filas fechadas en el futuro y una fuente adelantada no puede estirar.
+          .whereBetween('sale_date', [limiteVivo, hoy])
+          .groupBy('channel')
+          .select('channel', knex.raw('max(sale_date) as ultimo')) as Promise<
+          { channel: string; ultimo: Date | string }[]
+        >)
+      : Promise.resolve([] as { channel: string; ultimo: Date | string }[]),
+    rutasCodes.length
+      ? (knex('analytics.v_rd_route_daily')
+          .where('tenant_id', tenantId)
+          .whereIn('route_code', rutasCodes)
+          .whereBetween('business_date', [limiteVivo, hoy])
+          .select(knex.raw('max(business_date) as ultimo'))
+          .first() as Promise<{ ultimo: Date | string | null } | undefined>)
+      : Promise.resolve(undefined),
+  ]);
+  for (const r of fTiendas) fuentes.push({ fuente: r.channel, ultimo: iso(r.ultimo) as string });
+  if (fRutas?.ultimo) fuentes.push({ fuente: 'venta por ruta', ultimo: iso(fRutas.ultimo) as string });
 
   let v = nominal;
   let corte: MeZona['corte'] = null;
@@ -476,6 +484,24 @@ export async function medirZona(
   }
 
   if (rutasCodes.length) {
+    /*
+     * ⚠️ `[CDRP.4-perf]` **HIPÓTESIS REFUTADA — el tope inferior se queda, y no es cosmético.**
+     *
+     * Se intentó quitarlo para que `max(business_date)` sirviera también a las rutas mudas y así
+     * ahorrar una segunda pasada. `EXPLAIN` (sin `ANALYZE`) daba el MISMO costo estimado con y sin
+     * tope — `68560.75` contra `68560.74` — y sobre esa estimación se hizo el cambio.
+     *
+     * ⛔ La estimación estaba mal por 67×. Medido con `EXPLAIN (ANALYZE, BUFFERS)` contra prod,
+     * sobre la lista real de rutas:
+     *
+     *     con tope inferior   →   8,436,929 buffers hit ·      66 read
+     *     sin tope inferior   → 568,896,149 buffers hit · 909,910 read
+     *
+     * El planificador SÍ empuja el rango hacia `v_route_sales_lines`; lo que no refleja es cuánto.
+     * Queda escrito para que nadie lo reconstruya: **en esta vista, el costo estimado no sirve para
+     * decidir, y el reloj contra prod tampoco** (la misma consulta se midió en 86 s, 119 s y 41 s
+     * según la carga del momento). Acá sólo decide `BUFFERS`.
+     */
     const filas = (await knex('analytics.v_rd_route_daily')
       .where('tenant_id', tenantId)
       .whereIn('route_code', rutasCodes)
