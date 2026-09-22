@@ -238,9 +238,17 @@ const resumen = (out) => ({
   errores: out.filter((r) => r.error).length,
 });
 
-// Umbral de alarma. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese intervalo se ve
-// "ausente" sin serlo. Un puñado por pasada es ese ruido; decenas son pérdida real.
-const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 50);
+// Umbral de VOLUMEN de huecos. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese
+// intervalo se ve "ausente" sin serlo.
+//
+// ⭐ SUBIDO DE 50 A 1000 EL 2026-09-22, CON LA MEDICIÓN AL LADO. El 50 estaba dentro del ruido:
+// sobre 1,217 corridas de 14 días la distribución de `huecos` es p50=5 · p90=115 · p95=182 ·
+// p99=503 · max=14,479, o sea que 280 corridas (23 %) cruzaban el umbral. Una de cada cuatro
+// filas del tablero salía en ROJO — y en las 359 corridas de los últimos 4 días **ni una sola**
+// dejó un hueco sin reponer. Es el mismo argumento que este archivo ya escribió tres renglones
+// más abajo para `sobrantes`: "un rojo permanente que nadie atiende enseña a ignorar el tablero".
+// 1000 deja pasar el régimen medido y sigue atrapando los 6 picos de 1,217 (0.5 %).
+const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 1000);
 
 // Umbral de SOBRANTES, aparte y APAGADO por default (0 = sólo reportar en la nota, nunca poner rojo).
 // Deliberado: todavía no está medido cuánto de este número es DELETE sin propagar y cuánto es la fila
@@ -269,7 +277,16 @@ async function latir(destUrl, r, ms) {
   try {
     await c.connect();
     const sobranMal = ALERTA_SOBRANTES > 0 && r.sobrantes > ALERTA_SOBRANTES;
-    const malo = r.huecos > ALERTA || r.errores > 0 || sobranMal || r.abortados > 0;
+    // ⭐ EL ROJO ES "NO CERRÓ EL HUECO", NO "ENCONTRÓ HUECOS". Encontrarlos y reponerlos es el
+    // TRABAJO de este carril: ponerlo en rojo por hacer su trabajo es el falso rojo que el
+    // comentario de ALERTA_SOBRANTES (abajo) ya había identificado para la otra columna.
+    // Y el texto del error decía "el carril esta perdiendo filas" sin medirlo — medido el
+    // 2026-09-22: en 359 corridas de 4 días, `huecos == repuestas` SIEMPRE. No perdía nada.
+    // ⚠️ `sinReponer` sólo tiene sentido con --apply. En dry-run `repuestas` es 0 por
+    //    construcción, así que la resta daría "todo sin reponer" y el rojo sería falso en la
+    //    dirección contraria — que es cómo suelen fallar los arreglos de alarmas.
+    const sinReponer = APPLY ? (r.huecos - r.repuestas) : 0;
+    const malo = sinReponer > 0 || r.errores > 0 || sobranMal || r.abortados > 0 || r.huecos > ALERTA;
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
@@ -282,7 +299,8 @@ async function latir(destUrl, r, ms) {
     [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
       `ventana ${FULL ? 'FULL' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
       malo ? [
-        r.huecos > ALERTA ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) — el carril esta perdiendo filas` : null,
+        sinReponer > 0 ? `${sinReponer} de ${r.huecos} filas ausentes NO se repusieron — el carril esta perdiendo filas` : null,
+        r.huecos > ALERTA ? `${r.huecos} huecos en la ventana (se repusieron ${r.repuestas}) — muy por encima del regimen medido (p99=503 sobre 1217 corridas de 14 dias): revisar el carril PRIMARIO, no este` : null,
         sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
         r.errores > 0 ? `${r.errores} tablas con error` : null,
         r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano` : null,
