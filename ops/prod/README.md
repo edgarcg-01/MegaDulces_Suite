@@ -96,15 +96,58 @@ la copia nace con las credenciales que la app ya trae. **Rotar es un paso aparte
 
 ---
 
-## 3. Cómo se restaura la base — y por qué el respaldo diario NO alcanza para cortar
+## 3. Cómo se restaura la base — y por qué el respaldo diario NO alcanzaba para cortar
 
-El respaldo diario (`scripts/backup-db.ps1`) corre con `--no-owner --no-privileges`, elegido
-para portabilidad. Consecuencia **medida**:
+> ⭐ **[VL.6.4] Esta sección describía el respaldo de PowerShell. El 2026-09-22 el respaldo se
+> mudó a `md`** (`ops/prod/backup-prod.sh`, contenedor `prod-backup`, 22:00 MX) **y se le quitó
+> `--no-privileges` justo por lo que sigue.** Lo de abajo se conserva porque explica **por qué**,
+> y porque cualquier dump viejo que alguien encuentre en disco tiene esta forma.
+
+El respaldo de PowerShell (`scripts/backup-db.ps1`) corría con `--no-owner --no-privileges`,
+elegido para portabilidad. Consecuencia **medida**:
 
 - **no trae los roles** — y prod tiene **613 políticas RLS que nombran `app_runtime`**. Un
   `pg_restore` contra una base sin ese rol falla en 613 sentencias, **a mitad del restore**,
   no al principio.
-- **no trae los GRANT**. O sea que aunque el rol exista, no tiene permisos sobre nada.
+- **no trae los GRANT**. O sea que aunque el rol exista, no tiene permisos sobre nada. Hubo que
+  extraer **1,304 sentencias** de un dump aparte y aplicarlas a mano (§3.4).
+
+El respaldo nuevo conserva `--no-owner` (el destino crea todo como `postgres`; el dueño es ruido)
+y **sí trae los privilegios**. Los roles siguen yendo aparte, con `pg_dumpall --globals-only`.
+
+### 3.0 ⭐ MEDIDO: la ventana del corte es ~2.5 h, no 6+
+
+El plan de VL.9 proyectaba **6.1 h** de volcado a partir de **6.22 MB/min**. Está mal, y vale la
+pena decir por qué para no repetirlo: **esa tasa se midió durante el cuelgue del socket muerto**,
+o sea cronometrando un proceso que no transfería nada. Medir la velocidad de algo que está
+colgado da la velocidad del cuelgue.
+
+Los cuatro respaldos reales que existen en disco dicen otra cosa (el nombre del archivo lleva la
+hora de inicio; el `mtime`, la de fin):
+
+| Volcado | Tamaño | Duración |
+|---|---|---|
+| 08-sep 13:23 → 14:31 | 2003 MB | 68 min |
+| 08-sep 17:00 → 18:09 | 2005 MB | 69 min |
+| 09-sep 17:00 → 18:29 | 2161 MB | 89 min |
+| 10-sep 17:00 → 18:14 | 2171 MB | 74 min |
+
+⇒ **~30 MB/min comprimidos, ~75 min.** ⚠️ Los volcados de **236 MB** del 1 al 6 de septiembre
+**no cuentan**: son de la base equivocada — el bug que el propio script dice haber cerrado el
+08-sep. Usarlos para promediar da una tasa fantasía.
+
+Y el cable no es el cuello. Medido con el **mismo comando** desde las dos máquinas (100 MB
+generados en prod hacia `/dev/null`): **218 MB/min desde `SISTEMAS`, 260 MB/min desde `md`** —
+~35 Mbit, casi el techo del enlace de 44.
+
+⚠️ **El catálogo cuesta 121 s ANTES del primer byte de datos.** Prod tiene 1,251
+tablas/vistas/matvistas, 2,527 índices y 27,290 columnas, y el viaje de ida y vuelta a Railway es
+de **149 ms**: `pg_dump` hace miles de consultas de catálogo antes de empezar. Una sonda de 90 s
+devuelve **0 bytes** y parece un cuelgue. No lo es.
+
+**Consecuencia para el corte:** volcado ~75 min + restore ~73 min ≈ **2.5 h**. Sigue sin caber en
+día hábil, pero deja de **exigir** `wal_level=logical` como única salida: una ventana de noche o
+de fin de semana alcanza. La medición de F0.2 sigue valiendo la pena, ya no como bloqueo.
 
 Por eso el orden es:
 
@@ -510,6 +553,66 @@ Cosas encontradas midiendo, **anteriores a esta fase** y ajenas a la mudanza:
    ⚠️ Corolario a saber antes de aplicarlo: con `DISABLE_CRONS=true` en el API, **si el worker
    está abajo no corre ningún cron**. Hoy el API los cubre por accidente. Por eso el worker
    necesita su healthcheck de entrega (§4).
+
+---
+
+## 8. [VL.6.4] El respaldo de prod se mudó a `md` — y con eso deja de ser PowerShell
+
+El respaldo diario ya no es una tarea del Programador de Windows: es el servicio `prod-backup`
+del compose (`ops/prod/backup-prod.sh` + `ops/prod/crontab.backup`), **22:00 MX**, con volcados en
+`/home/superoot/backups` del servidor.
+
+**La razón NO es que Linux sea mejor, y conviene decirlo porque el argumento fácil era otro.**
+Se midió el cable con el mismo comando desde las dos máquinas y dan casi igual (218 vs 260
+MB/min, §3.0). Lo que decide:
+
+- **La tarea de Windows no corre sin sesión iniciada.** Ya está medido que eso pasa: el
+  2026-09-11 `WincajaSyncActual` no corrió tras un reinicio nocturno y dejó su pierna del
+  sell-out tres días atrás. Los contenedores de `md` arrancan sin sesión — verificado con un
+  reinicio real.
+- **El cliente coincide con el servidor.** `md` trae `pg_dump` **18.6**, la misma minor que
+  prod; la laptop trae 18.4.
+- **Desaparece una clase entera de fallo** — la del ParserError de §7.1, donde el archivo no
+  llega ni a compilar.
+- **Es el ensayo del corte.** El restore del corte ocurre en `md`. Tomar acá el volcado cada
+  noche es ensayar ese camino todas las noches, en vez de estrenarlo el día que importa.
+
+### Lo que cambió respecto del script viejo, con su motivo
+
+| | PowerShell (`.249`) | `prod-backup` (`md`) |
+|---|---|---|
+| ¿Es prod el destino? | por **host y nombre de base** | por **CONTENIDO**: ≥200 tablas en `kepler_ods` (prod tiene 240) |
+| Privilegios | `--no-privileges` | **sí los trae** (§3) |
+| Hora | 17:00, en horario laboral | 22:00 |
+| Arranque | sesión de usuario | contenedor, sin sesión |
+| `host` del latido | `SISTEMAS` | `md-backup` |
+
+⭐ **Por qué la compuerta mira el contenido y no el host:** una regla por host ("no puede ser la
+LAN") **se rompe sola el día del corte**, cuando prod pase a ser `pg-prod` en esta misma máquina
+— o sea justo cuando más falta hace. Y lo que delató el bug del 08-sep no fue el host: fue que el
+volcado traía **1 tabla de `kepler_ods`** donde prod tiene 226.
+
+### Un solo dueño
+
+`TradeMarketing-DailyBackup` quedó **deshabilitada, no borrada** (mismo criterio que VL.4b). Con
+las dos habilitadas habría **dos dueños de `backup_prod`**, que es el pecado que `ops/README.md`
+nombra para los carriles — y dos volcados de 75 min saturando el mismo enlace de 44 Mbit.
+
+### Cómo se probó, sin esperar a las 22:00
+
+```sh
+# ejercita TODAS las compuertas en ~2 min y NO toca el latido real
+docker exec prod-backup /usr/local/bin/backup-prod.sh --prueba
+```
+
+Corrido el 2026-09-22: 240 tablas de `kepler_ods` · 330 GB libres · TOC con 1,830 entradas ·
+retención · TZ `CST`. Y el camino de `cron` se probó con un canario de un minuto dentro del
+contenedor — porque **"el contenedor está arriba" no prueba que `cron` haya leído el archivo**:
+`/etc/cron.d` ignora en silencio los archivos con punto en el nombre, escribibles por grupo, o
+sin salto de línea final.
+
+⬜ **Falta:** la primera corrida real (22:00 de hoy). El veredicto es el latido `backup_prod` con
+`host = md-backup`, no que el contenedor esté `Up`.
 
 ---
 
