@@ -10,6 +10,53 @@
 
 ## [Unreleased]
 
+### Added — tres puestos que ya podían abrir su cola y no sabían que era suya (`[SN.37]`, 2026-09-22)
+- Pedido de Edgar: *«vayamos haciéndolo sin perder la afinidad por cada uno y el detalle»*. **Cero
+  código, cero claves nuevas, cero permisos nuevos**: reparte tres claves que ya existen a tres
+  puestos cuyo rol ya abre la pantalla (mig `20260922230000`, prod **batch 520**).
+- ⭐ `auxiliar_prevencion` → `almacen.cuadre` — su jefatura ya respondía; ella no. **2,526
+  descuadres abiertos**, el más viejo del 8-jul, 719 en 30 días y **0 cerrados**.
+- ⭐ `analista_abastecimiento_comercial` → `compras.reabasto` — respondían `auxiliar_compras`,
+  `comprador` y `gerente_compras`; su puesto, que se llama igual que la cola, no. **18,752
+  hallazgos abiertos.**
+- `tesoreria` → `finanzas.caja` — ⚠️ **hoy no le aparece nada y se dice**:
+  `v_caja_movimientos_pendientes` devuelve 0 filas y una cola en cero no se pinta. Se reparte igual
+  porque la responsabilidad declara de quién **es** el trabajo, no cuánto hay hoy.
+
+### Changed — tres puestos que la medición sacó de la lista (`[SN.37]`, 2026-09-22)
+- ⛔ **Las cajeras** (16 personas, 11 activas — el grupo más grande sin nada). `[FLT.2]` decidió
+  **a propósito y midiéndolo** que el rol `cajero` tenga `STORE_STOCKOUT_CAPTURAR` y **no**
+  `_VER`: *«reporta y sigue atendiendo; no se le abre una bandeja que no le toca trabajar»*. Y
+  tiene razón — la cajera **captura**, Compras **decide**: un faltante abierto es justo lo único
+  sobre lo que ella no puede hacer nada. Además la ruta `/tienda/faltantes` **ya acepta
+  `CAPTURAR`**, así que no hay permiso que falte ni bug que arreglar; la recomendación anterior
+  («falta medio permiso») era **falsa**. Se buscó otra cola propia y no hay:
+  `finance.expense_comprobaciones` tiene **1 fila en todo el tenant**. Su trabajo es de **captura,
+  no de pila** — lo que les sirve de la portada es «Tus espacios», no la columna de colas.
+- ⛔ `vendedor_piso` → `tienda.caducidades` sería un **no-op**: esa clave sólo mapea a
+  `caducidades-mias`, que es `alcance: 'mio'`, y `'mio'` está **exento** del filtro de `[SN.30]`.
+- ⛔ `encargado_operaciones` → `compras.reabasto`: su ficha dice `warehouse_code = '08'` y la
+  sucursal **08 tiene cero hallazgos** (la cola se acota por sucursal). Sería una bandeja que no se
+  pinta. Antes hay que decidir si su alcance es su zona o su almacén — **decisión de negocio**.
+- Corregidos dos códigos de puesto mal nombrados en la recomendación previa: los reales son
+  `analista_abastecimiento_comercial` y `encargado_operaciones`.
+
+### Fixed — el recorte de finanzas cayó en la columna equivocada (revert `[SN.34]`, 2026-09-22)
+- Corrección de Edgar: *«te dije que me ocultaras finanzas pero sólo lo de mi trabajo, no el
+  módulo»*. `/projects` tiene dos columnas —«Tu trabajo» (las colas) y «Tus espacios» (los
+  mosaicos, que son la navegación a los módulos)— y el recorte cayó en la segunda: le quitó la
+  **puerta** en vez de la cola. El módulo nunca estuvo cerrado (`vis()` sólo lo consume la portada;
+  ruta, sidebar y `Ctrl K` nunca lo miraron), pero el mosaico era lo único visible que cambió.
+- ⛔ **No hizo falta mover el recorte a la otra columna**: «Tu trabajo» de Sistemas ya no tiene nada
+  de finanzas —`[SN.30]` sólo muestra las colas de las que uno responde— y el resto es un contador
+  anónimo que nunca nombra un dominio. Se retiró el mecanismo entero (`hideForDepartments`) con su
+  único uso; lo medido queda escrito por si vuelve a hacer falta.
+- ⚠️ El departamento **se sigue leyendo**: lo necesita `[SN.35]` para apagar «A tu nombre». Hay una
+  aserción nueva que lo vigila, para que un revert de más no se lleve también ese pedido.
+- **La lección**: cuando se pregunta «¿cuál de estos es?», las opciones van **en los términos de la
+  pantalla que la persona mira**. «El espacio Administración y Finanzas» es vocabulario del mapa
+  interno; lo que él tenía enfrente eran dos columnas con título.
+
 ### Removed — Coolify: instalado, medido y desinstalado el mismo día (`[VL.9.9]`, 2026-09-22)
 - Se instaló como capa de orquestación por decisión del usuario. Se quitó doce horas después,
   con tres mediciones y un incidente real.
