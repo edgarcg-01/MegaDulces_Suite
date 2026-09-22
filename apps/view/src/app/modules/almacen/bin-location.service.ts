@@ -12,6 +12,8 @@ export interface WarehouseBin {
   id: string;
   warehouse_id: string;
   warehouse_code?: string;
+  /** Sólo lo trae `lookupBin` (el escaneo, que puede cruzar almacenes). */
+  warehouse_name?: string | null;
   aisle_id?: string | null;
   code: string;
   label?: string | null;
@@ -58,6 +60,30 @@ export interface PickSuggestion {
   days_to_expiry?: number | null;
 }
 
+/**
+ * Lo que devuelve escanear el cartel de un rack.
+ *
+ * `match: null` con `candidates: []` **no es un error**: es "ese código no
+ * existe todavía", que es una respuesta legítima (y la puerta para crearlo).
+ * `candidates` con más de uno = el mismo código existe en dos almacenes y lo
+ * desempata la persona, no el sistema.
+ */
+export interface BinLookup {
+  /** El código ya normalizado por el servidor (mayúsculas, sin espacios). */
+  code: string;
+  match: WarehouseBin | null;
+  candidates: WarehouseBin[];
+  contents: LotLocation[];
+  totals: {
+    lineas: number;
+    productos: number;
+    unidades: number;
+    vencidos: number;
+    por_vencer: number;
+    sin_fecha: number;
+  } | null;
+}
+
 export interface PutAwayDto {
   warehouse_id: string;
   product_id: string;
@@ -89,6 +115,17 @@ export class BinLocationService {
 
   binContents(id: string): Observable<LotLocation[]> {
     return this.http.get<LotLocation[]>(`${this.base}/bins/${id}/contents`);
+  }
+
+  /**
+   * Escaneá el cartel del rack → la ubicación y lo que tiene adentro, en una
+   * sola llamada. El almacén es **opcional** a propósito: quien llega con la
+   * pistola no eligió ninguno, y es justo el paso que el escaneo evita.
+   */
+  lookupBin(code: string, warehouseId?: string): Observable<BinLookup> {
+    let params = new HttpParams().set('code', code);
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<BinLookup>(`${this.base}/bins/lookup`, { params });
   }
 
   putAway(dto: PutAwayDto): Observable<{ located: boolean; bin_id: string; lot_code: string; quantity: number }> {

@@ -5,6 +5,61 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-22 — `[WMS-REC.11]` Ubicaciones: por qué fallaba el alta, y el rack que ya se puede escanear
+
+**Disparador:** *"al crearle una ubicación me arroja que no se puede crear… además genera un código de barras propio para el rack, en donde los escaneamos y nos muestre el catálogo que tiene ese rack"*.
+
+### Lo que se midió antes de tocar nada
+
+| Qué | Resultado |
+|---|---|
+| Tablas, grants de `app_runtime`, RLS y policy en **prod** | correctos |
+| Ubicaciones creadas en **prod** | **0** — nunca funcionó ahí |
+| Permisos en prod | `almacenista` (el que acomoda, 4 de 5 usuarios que reciben): `RECIBIR=true`, **`ASIGNAR=false`**, `VER=false`. Sólo `supervisor`, `compras`, `gerente_compras`, `marketing` y `superadmin` tienen `ASIGNAR` |
+| `POST /bins` con un admin, contra el código de `main` | **201** — el alta funciona |
+| `main` (WMS-REC.9b/.10, mergeado el 21-sep) | ya abre el alta y la pantalla a quien sólo tiene `RECIBIR` |
+
+**Conclusión declarada, no afirmada:** con `main` desplegado el caso del bodeguero funciona; lo más probable es que **prod esté corriendo código anterior a ese merge**. No se pudo confirmar — el CLI de Railway perdió el link a mitad de sesión y no hay URL pública documentada. Queda como el primer paso a verificar.
+
+### Dos defectos reales, reproducidos
+
+1. **`500` pelado por los largos de las columnas.** `code` es `varchar(40)` y `label` `varchar(120)`; nadie los validaba, así que Postgres tiraba `22001` y Nest lo servía como *"Internal server error"*. Medido: 41 y 121 caracteres → 500. **Importa en el Andén**, donde el código se arma con el campo libre *"Número o nombre"*: escribir el nombre largo del rack alcanzaba para caer ahí.
+2. **El código no se normalizaba del lado del servidor.** La pantalla lo pasaba a mayúsculas, el backend no, y `putAway` busca por igualdad exacta → un alta por API con `r-12` creaba un rack que ningún escaneo de `R-12` encontraría, y el `UNIQUE` los aceptaba como dos ubicaciones distintas aunque el cartel impreso se vea idéntico. Además entraban espacios y eñes: un espacio al final es invisible en pantalla y rompe el escaneo en silencio.
+
+### Por qué el mensaje era el problema, no sólo el síntoma
+
+El manejador del Andén trataba aparte **sólo el 403** y metía todo lo demás en `e?.error?.message || 'Error'`. Justo los casos que más importan —un `500`, o una petición que no salió— llegan **sin** `error.message`, así que caían todos en la misma línea muda. Por eso el reporte desde la bodega no pudo decir qué pasó. `motivoHttp()` (en `almacen/shared/`, usado por las dos superficies) traduce cada caso a una frase y **nunca devuelve "Error"**.
+
+### Lo que se construyó para el escaneo
+
+El cartel del rack con su **CODE128** ya existía (sale al crear la ubicación desde el Andén), pero el código sólo servía para *acomodar*. Faltaba la vuelta: **preguntarle al rack qué tiene**.
+
+- `GET /commercial/inventory/bins/lookup?code=` → ubicación + contenido + totales en una llamada.
+- **No exige almacén**: quien llega con la pistola no eligió ninguno, y obligarlo anula la ventaja del escaneo. Si el código existe en dos bodegas, devuelve candidatos — no adivina.
+- Un código inexistente es **200 con `match: null`**, no 404: es una respuesta legítima y la puerta para crearlo.
+- `days_to_expiry` se calcula en la **base** (`CURRENT_DATE`), no en el navegador de un handheld que puede tener la fecha corrida.
+
+### Verificación
+
+- Smoke nuevo `http-bin-locations-test` **22/22**, **por HTTP**. El que había (`test-newdb-bin-locations`) es DB-directo y **espeja las reglas del servicio en JS** — el mismo molde que en WMS-REC.4 dio 17/17 en verde con la ruta principal caída. Incluye pruebas negativas de los dos `500`, vistos en rojo antes del arreglo.
+- `test-newdb-bin-locations` sigue **18/18**.
+- Verificación visual con Playwright contra la API real: escaneo de `r-12` **sin almacén elegido** → salta solo a la sucursal 02, selecciona el rack y muestra su catálogo; `T-99` inexistente → *"Crearla en este almacén"* → se crea y sale su cartel con el CODE128.
+- `nx build api` y `nx build view` verdes · `check:templates` 333/333 · eslint **0 errores**.
+
+### Tropiezos del entorno (no del producto)
+
+- **`node_modules` compartido roto por mí y reparado.** `main` agregó `@duckdb/node-api` al `package.json` y el árbol instalado en la máquina era el viejo, así que `nx build api` fallaba. Un `npm install --no-save` para traer sólo esa dependencia **reconcilió el árbol entero** (440 agregados / 443 quitados) y dejó `redis@6.2.1` con `@redis/client@5.12.1` → la API no arrancaba. Se reparó bajando la familia `redis` a **6.0.0** (lo que piden los dos lockfiles) extrayendo los tarballs a mano, sin tocar `package.json` ni el lockfile. **Lección: en una máquina con ~12 worktrees sobre un `node_modules` junctioned, `npm install` no es una operación local.**
+- `nx` desde un worktree compila el **otro** árbol si no se sobreescribe `NX_WORKSPACE_ROOT_PATH`, y con Nx Cloud activo revienta con `EISDIR lstat 'C:'` → hace falta `NX_NO_CLOUD=true`.
+- **Deuda ajena que el gate reporta:** `check-provenance` marca `StoreRhythm` (`tienda/store-socket.service.ts`) como deuda nueva. Se verificó con los cambios guardados aparte: **ya venía así en `origin/main`**, no es de esta entrega.
+
+### Pendiente
+
+- **Verificar qué versión corre en prod y redesplegar api+view.** Sin migraciones ni permisos nuevos → **no hace falta re-login**.
+- Validación visual en un **handheld real** con pistola (acá se probó con teclado y con la cámara del navegador).
+- Declarado como deuda con nombre: `anden-cartel.component.ts` y `scan-field.component.ts` ya se usan desde dos superficies y deberían mudarse a `almacen/shared/`. No se movieron ahora porque otra rama está editando el Andén y mover archivos debajo de ella es pelearse por el mismo archivo.
+
+---
+
 ## 2026-09-21 — Fase CDRP: re-verificar lo pendiente antes de seguir, y descubrir que la mitad ya no era cierto
 
 **Cómo se llegó:** *"verifica nuevamente lo que tienes que hacer"*. La fase llevaba cuatro commits

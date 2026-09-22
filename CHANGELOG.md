@@ -256,6 +256,22 @@
 - No cambia VL.0–VL.8; **sí cambia VL.9**: con 8 hilos, el recurso escaso pasa a ser la **CPU**
   (los techos de los 9 servicios de Railway suman **11 vCPU**).
 
+### Fixed — Ubicaciones: el alta que fallaba sin decir por qué, y el rack que ya se puede escanear (`[WMS-REC.11]`, 2026-09-22)
+
+Se reportó desde la bodega que **crear una ubicación en el Andén no funciona**: la pantalla decía *"No se pudo crear"* y nada más. Con ese mensaje no se podía saber si era un permiso, un código repetido, la sesión vencida, la red o el servidor — y esa es la razón por la que el problema llevaba días sin diagnóstico.
+
+**Lo que se midió** (producción, sólo lectura): las tablas, los permisos de base y el RLS están bien, y hay **0 ubicaciones creadas** — nunca funcionó ahí. El rol `almacenista`, que es el que acomoda (4 de los 5 usuarios que reciben), tiene `RECIBIR` pero **no** `ASIGNAR`; `main` ya abrió el alta a quien recibe (WMS-REC.9b/.10, mergeado el 21-sep), así que **lo más probable es que prod esté corriendo código anterior a ese merge**. No se pudo confirmar desde acá y queda declarado, no afirmado.
+
+**Dos defectos reales, reproducidos y corregidos:**
+
+- **El alta tiraba `500` pelado** con un código de más de 40 caracteres o un nombre de más de 120 — los largos de las columnas, que nadie validaba (`22001` de Postgres → *"Internal server error"*). En el Andén el código se arma con el campo libre *"Número o nombre"*, así que escribir el nombre largo del rack alcanzaba para caer ahí. Ahora contesta `400` diciendo cuál es el límite.
+- **El código no se normalizaba en el servidor.** La pantalla lo pasaba a mayúsculas y el backend no, y las búsquedas son por igualdad exacta: un alta por API con `r-12` creaba una ubicación que ningún escaneo de `R-12` iba a encontrar, y el `UNIQUE` aceptaba las dos como distintas aunque en el cartel impreso se vean idénticas. Ahora el servidor normaliza (mayúsculas, sin espacios), rechaza los caracteres que una pistola no devuelve igual, y el duplicado se detecta sin importar mayúsculas.
+
+**Y el mensaje dejó de ser mudo.** Un helper compartido traduce el fallo a una frase: permiso, sesión vencida, código repetido, dato inválido, *"no hubo respuesta del servidor"* (la petición no salió) o *"el servidor falló — error 500, avisá a sistemas"*. Nunca devuelve `"Error"` pelado. Aplica al Andén y a Ubicaciones.
+
+**Escaneá el rack y te digo qué tiene.** El cartel con su **CODE128** ya se imprimía al crear la ubicación desde el Andén, pero ese código sólo servía para *acomodar*, no para *preguntar*. Nuevo `GET /commercial/inventory/bins/lookup`: resuelve el código escaneado y devuelve la ubicación **con su contenido y sus totales** en una sola llamada, **sin exigir haber elegido almacén** — quien llega con la pistola no eligió ninguno. Si el mismo código existe en dos bodegas se muestran las dos y desempata la persona; si no existe, se ofrece darlo de alta ahí mismo y sale su cartel. En `/almacen/inventory/ubicaciones` la caja de escaneo es ahora la entrada principal, y el cartel **se puede reimprimir** (se despegan, se mojan).
+
+Smoke nuevo `http-bin-locations-test` **22/22**, por HTTP y no espejando la lógica —el smoke que había es DB-directo y ya dejó pasar una ruta caída en esta misma fase—, con pruebas negativas de los dos `500`. El DB-directo sigue 18/18. **Pendiente: validación visual en un handheld real + redeploy api+view** (sin migraciones ni permisos nuevos → sin re-login).
 
 ### Fixed — `CI=true` × Nx Cloud costaba ~63s por build, y lo habíamos puesto nosotros (`[NX.11]`, 2026-09-21)
 - **La salida expandida del `nx run-many` de prod destapó que la mitad del build no compila nada**:
