@@ -681,6 +681,12 @@ const CRON_JOBS: CronCfg[] = [
   // criterio que los demas jobs diarios. `maxRunH: 1` porque la corrida medida es de
   // segundos sobre ~58k pares; una hora ya es un cuelgue.
   { key: 'stock_snapshot',      label: 'Foto diaria de inventario',         cadence: 'diario 23:50 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // `[CDRP.4]` Corre 08:30 MX. Umbral calcado del hermano `stock_snapshot`: 26 h tolera que un
+  // dia se corra un rato, 50 h avisa que se perdio una foto. ⛔ Registrarlo es OBLIGATORIO y no
+  // cosmetico: sin entrada aca el sensor cae en `cfg ? classify : 'ok'` — verde incondicional.
+  // Medido el 2026-09-21: la tabla de fotos tenia 0 filas y CERO renglones en `cron_runs`, o sea
+  // que llevaba quien sabe cuanto sin tomarse y nadie podia enterarse.
+  { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },
