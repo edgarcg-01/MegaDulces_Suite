@@ -42,17 +42,24 @@ export interface TicketBusqueda {
   documento?: TicketVenta | null;
 }
 
-/** TK.8 — Un cliente del buscador. La identidad es (sucursal, clave), nunca la clave sola. */
+/**
+ * TK.8 — Un cliente del buscador: UNO por clave, no uno por plaza.
+ *
+ * ⚠️ La clave de Kepler es GLOBAL: el catálogo está replicado en las nueve sucursales (medido:
+ * 1,862 de 2,395 claves existen en las nueve). Por eso la sucursal es un filtro posterior y no
+ * parte de la identidad del cliente.
+ */
 export interface ClienteCandidato {
-  id: string;
-  sucursal: string;
-  sucursal_nombre: string | null;
   cliente_code: string;
   nombre: string | null;
   ciudad: string | null;
-  vendedor_nombre: string | null;
-  /** La misma clave nombra a otro cliente en otra plaza: 29 de 1,005 medidas. */
+  zona: string | null;
+  /** En cuántas sucursales existe la clave, de las que alcanza quien pregunta. */
+  plazas: number;
+  /** La MISMA clave trae nombres distintos según la plaza: puede ser otra persona. */
   clave_ambigua: boolean;
+  /** 1 = el nombre es idéntico a lo tecleado. Ordena la lista, no es alfabética. */
+  score: number;
 }
 
 export interface ReporteDocumento {
@@ -60,11 +67,11 @@ export interface ReporteDocumento {
   origen: 'mostrador' | 'telemarketing' | 'credito' | 'abono';
   origen_label: string;
   sucursal: string;
+  sucursal_nombre: string | null;
   caja: number | null;
   folio: string;
   fecha: string | null;
   atendio: string | null;
-  renglones: number | null;
   descuento: number;
   /** NEGATIVO en las notas de crédito. */
   total: number;
@@ -73,7 +80,10 @@ export interface ReporteDocumento {
 export interface ReporteCliente {
   cliente: ClienteCandidato;
   documentos: ReporteDocumento[];
-  resumen: { documentos: number; importe: number; descuento: number; promedio: number; abonos: number };
+  resumen: {
+    documentos: number; importe: number; descuento: number; promedio: number;
+    abonos: number; plazas_con_compra: number;
+  };
   /** Lo que los filtros no dicen por sí solos. `null` = no hay nada que declarar. */
   aviso: string | null;
 }
@@ -81,8 +91,12 @@ export interface ReporteCliente {
 export interface ReporteFiltrosUI {
   date_from?: string;
   date_to?: string;
+  /** Folio o parte de él: es "contiene", el folio no identifica un documento. */
+  folio?: string;
   min?: string;
   max?: string;
+  /** ⚠️ Viaja como `warehouse_codes`: ScopeService lo interseca con el alcance del usuario. */
+  warehouse_codes?: string;
   caja?: string;
   atendio?: string;
   brand_id?: string;
@@ -113,15 +127,17 @@ export class TicketsService {
       `${this.base}/clientes`, { params: { q } });
   }
 
-  /** Los documentos de UN cliente de UNA plaza. Los vacíos no viajan como cadena vacía. */
-  reporte(sucursal: string, code: string, f: ReporteFiltrosUI): Observable<ReporteCliente> {
+  /**
+   * Los documentos de UN cliente, en todas las plazas que alcanza quien pregunta.
+   * Los vacíos no viajan como cadena vacía: un `''` en el query se lee como un filtro puesto.
+   */
+  reporte(code: string, f: ReporteFiltrosUI): Observable<ReporteCliente> {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(f)) {
       if (v !== undefined && v !== null && v !== '' && v !== false) params = params.set(k, String(v));
     }
     return this.http.get<ReporteCliente>(
-      `${this.base}/clientes/${encodeURIComponent(sucursal)}/${encodeURIComponent(code)}/reporte`,
-      { params });
+      `${this.base}/clientes/${encodeURIComponent(code)}/reporte`, { params });
   }
 
   cartaPdf(id: string): Observable<Blob> {

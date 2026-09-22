@@ -20,6 +20,14 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.spec.ts'],
     passWithNoTests: true,
+    /**
+     * ⚠️ `platform-core` hace fail-fast de `JWT_SECRET` AL IMPORTARSE (`[AUTHZ-HARD]`), así que
+     * cualquier spec que toque un controller de esta librería muere antes de la primera
+     * aserción — no por un defecto del código, sino porque el runner no trae entorno. Se le da
+     * un secreto de prueba, que NO relaja la compuerta: sigue reventando en un arranque real
+     * sin él. Es el mismo motivo por el que `api:test` está rojo en CI (falta esta línea allá).
+     */
+    env: { JWT_SECRET: 'secreto-solo-para-pruebas-con-32-bytes-o-mas-de-largo' },
     coverage: {
       provider: 'v8',
       reportsDirectory: '../../coverage/libs/commercial',
