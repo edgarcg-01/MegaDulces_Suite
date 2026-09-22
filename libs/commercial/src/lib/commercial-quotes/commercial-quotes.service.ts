@@ -69,6 +69,58 @@ export interface QuoteListRow {
   created_by_username: string | null;
 }
 
+/** Una fila de `analytics.v_erp_wholesale_customers`: el cliente EN UNA sucursal. */
+export interface WholesaleBranchTerms {
+  sucursal: string;
+  credit_limit: string | null;
+  payment_days: number | null;
+  discount_1_pct: string | null;
+  discount_2_pct: string | null;
+  zone_code: string | null;
+  group_code: string | null;
+}
+
+export interface WholesaleCustomerRow {
+  customer_code: string;
+  name: string;
+  phone: string | null;
+  rfc: string | null;
+  address_1: string | null;
+  state: string | null;
+  branches: WholesaleBranchTerms[];
+  /** true = sus condiciones NO son iguales en todas las sucursales. */
+  terms_vary_by_branch: boolean;
+}
+
+/** Cabecera + renglones. Las columnas se devuelven tal cual salen del SELECT. */
+export interface QuoteDetail extends Record<string, unknown> {
+  id: string;
+  code: string;
+  status: QuoteStatus;
+  lines: Array<Record<string, unknown>>;
+}
+
+/** Lo que devuelve crear una cotización: su identidad y las condiciones congeladas. */
+export interface CreatedQuote {
+  id: string;
+  code: string;
+  status: QuoteStatus;
+  valid_until: string;
+  erp_customer_code: string | null;
+  erp_customer_name: string | null;
+  source_branch: string | null;
+  terms_source: string;
+  terms_discount_pct: string | null;
+  terms_credit_limit: string | null;
+  terms_payment_days: number | null;
+}
+
+export interface CancelledQuote {
+  id: string;
+  code: string;
+  status: QuoteStatus;
+}
+
 export interface QuotesSummary {
   /** Cuenta por estado. Lo que no tiene filas NO se omite: va en 0 explícito. */
   by_status: Record<QuoteStatus, number>;
@@ -248,7 +300,7 @@ export class CommercialQuotesService {
   }
 
   /** Cabecera + renglones de una cotización. */
-  async getOne(id: string) {
+  async getOne(id: string): Promise<QuoteDetail> {
     return this.tk.run(async (knex) => {
       const head = await knex.raw(
         `
@@ -308,7 +360,7 @@ export class CommercialQuotesService {
    * y $30,000 sin descuento en las otras cinco. Colapsarlo a un solo juego de condiciones sería
    * elegir una sucursal en silencio.
    */
-  async searchWholesaleCustomers(search: string, limit = 20) {
+  async searchWholesaleCustomers(search: string, limit = 20): Promise<WholesaleCustomerRow[]> {
     const term = (search || '').trim();
     const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
 
@@ -380,7 +432,7 @@ export class CommercialQuotesService {
     customer_request?: string | null;
     notes?: string | null;
     internal_notes?: string | null;
-  }) {
+  }): Promise<CreatedQuote> {
     const userId = this.tenantCtx.get()?.userId;
     const tenantId = this.tenantCtx.requireTenantId();
     if (!userId) throw new BadRequestException('Sesión sin usuario: no se puede cotizar.');
@@ -507,7 +559,7 @@ export class CommercialQuotesService {
             user_id: userId,
             warehouse_id: dto.warehouse_id ?? null,
             price_list_id: dto.price_list_id ?? null,
-            valid_until: validUntil,
+            valid_until: validUntil,
             customer_request: dto.customer_request ?? null,
             notes: dto.notes ?? null,
             internal_notes: dto.internal_notes ?? null,
@@ -529,7 +581,7 @@ export class CommercialQuotesService {
    * cancelada = la dimos de baja nosotros. Se distinguen porque miden cosas distintas
    * (una es tasa de conversión, la otra es ruido operativo).
    */
-  async cancel(id: string, reason: string) {
+  async cancel(id: string, reason: string): Promise<CancelledQuote> {
     if (!reason || !reason.trim()) {
       throw new BadRequestException('Cancelar exige motivo: sin motivo no se puede medir después.');
     }

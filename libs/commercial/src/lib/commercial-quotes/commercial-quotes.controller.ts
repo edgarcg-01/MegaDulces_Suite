@@ -5,6 +5,8 @@ import {
   CommercialQuotesService,
   ListQuotesQuery,
   QuoteOrigin,
+  WholesaleCustomerRow,
+  CreatedQuote,
 } from './commercial-quotes.service';
 
 /**
@@ -56,7 +58,10 @@ export class CommercialQuotesController {
   })
   @ApiQuery({ name: 'search', required: false, description: 'Código o nombre. Vacío = primeros N.' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  searchWholesaleCustomers(@Query('search') search?: string, @Query('limit') limit?: string) {
+  searchWholesaleCustomers(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ): Promise<WholesaleCustomerRow[]> {
     return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20);
   }
 
@@ -102,7 +107,7 @@ export class CommercialQuotesController {
       notes?: string;
       internal_notes?: string;
     },
-  ) {
+  ): Promise<CreatedQuote> {
     return this.service.create(body);
   }
 
