@@ -125,9 +125,22 @@ export interface PropuestaVista {
 }
 
 export interface EtiquetaProcedencia {
-  /** 'propuesto' pinta el campo como sugerido; 'vacio' lo deja en blanco con su aviso. */
-  tono: 'propuesto' | 'vacio';
+  /**
+   * 'propuesto' pinta el campo como sugerido; 'vacio' lo deja en blanco con su aviso;
+   * 'manual' es lo que el humano eligió él mismo.
+   *
+   * ⚠️ 'manual' se agregó en CG.22 porque faltaba el tercer estado y su ausencia MENTÍA: la
+   * pantalla sólo miraba la propuesta, así que después de elegir el concepto a mano en el
+   * buscador seguía diciendo "Propuesto de la sesión — 12 antecedentes, 80% coinciden". La
+   * etiqueta existe justamente para separar propuesto de tecleado.
+   */
+  tono: 'propuesto' | 'vacio' | 'manual';
   texto: string;
+}
+
+/** Lo eligió la persona. No hay procedencia que declarar más que esa. */
+export function etiquetaManual(): EtiquetaProcedencia {
+  return { tono: 'manual', texto: 'Elegido a mano por vos.' };
 }
 
 const TEXTO_FUENTE: Record<string, string> = {
