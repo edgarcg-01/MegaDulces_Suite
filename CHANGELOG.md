@@ -10,6 +10,32 @@
 
 ## [Unreleased]
 
+### Added — la salud de las bases de datos tiene dueño, y por eso aparece en «Mi trabajo» (`[SN.32]`, 2026-09-22)
+- Pedido de Edgar: *«necesito que en mi interfaz "superoot" muestres el estado de las bases de datos
+  /admin/db-health»*. **La pantalla ya existía** (`[DBH.1]`: frescura por fuente + bandeja de
+  alertas + motor, con su entrada en el menú). Lo que faltaba no era pantalla: era **de quién es
+  ese trabajo**.
+- **Medido en prod**: `superoot` está fichado en el puesto `sistemas`, y `sistemas` tenía **CERO
+  responsabilidades** — de 14 puestos repartidos, ninguno era el suyo. Por `[SN.30]` su portada
+  salía **vacía**, con `superadmin` y todo. Y había trabajo esperando: **6 alertas abiertas, 5
+  críticas, la más vieja del 12-sep**; de **869** históricas, **cero reconocidas**.
+- Clave nueva `sistemas.salud_datos` repartida **al puesto** (mig `20260922200000`, prod batch 517;
+  la reciben 4 personas) + bandeja `salud-datos` → `/admin/db-health`. ⛔ Repartirla **por permiso**
+  (`USUARIOS_GESTIONAR`) habría barrido a todo puesto administrativo: el modo de falla exacto que
+  `[SN.30]` corrigió.
+- ⛔ El estado abierto sale de **`resolved_at`**, no de `status` — `status` es la **gravedad**
+  (`warn|critical`), y usarlo como estado habría contado las críticas como abiertas y las de aviso
+  como cerradas. Como esa tabla no tiene columna de estado, `medirCola` se generaliza
+  (`estadoAbierto: null` = «la columna de cierre está vacía») **en vez de** escribirle una medición
+  propia: los cinco contadores tienen que significar lo mismo en las nueve bandejas.
+- **Umbral 1 día**, medido sobre las 758 resueltas de 30 días (mediana **0.5 h**, p90 **11.8 h**).
+  Con eso la bandeja **nace atrasada**, y está bien: aflojarlo para que se vea al día sería el
+  `cfg ? classify : 'ok'` de la Fase VP con otro sombrero.
+- ⚠️ El candado del catálogo del smoke **estaba ciego**: sólo reconocía la forma
+  `['clave', 'Etiqueta', …]`, y `[CG.21]` declaró la suya como `const KEY = 'finanzas.caja'` → el
+  catálogo salía en 14 con 15 claves sembradas y dos aserciones de biyección acusaban en falso a
+  una clave que **sí** estaba declarada.
+
 ### Added — la caja confirma los DOS signos, y el gasto **sí** estaba en Kepler (`[CG.21]`, 2026-09-22)
 - **Corrige a CG.20**, que declaró que los gastos *"no están en Kepler — acá no hay derivación
   posible"*. Están enteros. El discriminante es **`kdm1.c45`**, la cuenta por la que se movió el
