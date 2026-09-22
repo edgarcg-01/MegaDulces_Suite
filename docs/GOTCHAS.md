@@ -3332,3 +3332,57 @@ wall 69 s vs Run duration 1m 4s → gap de 5 s  (antes: 83 s)
 - ⭐ **Regla general:** cuando un paso de build tarda más que la suma de lo que declara hacer, el
   hueco se mide, no se atribuye. Acá el hueco era **la mitad del build**, y las dos causas que
   parecían evidentes eran las dos falsas.
+
+## 63. Arreglar que un control SE VEA no es arreglar que FUNCIONE — y un `computed()` sobre campo plano queda congelado
+
+**Medido el 2026-09-22, auditando `/finanzas/caja-general`.** Cuatro días antes, el §59 de este
+mismo documento había arreglado los tres `p-dialog` que abrían sin botones (`pTemplate="footer"` →
+`#footer`). El botón **Guardar** volvió a pintarse. Y seguía sin servir:
+
+```ts
+// ⛔ como estaba
+f: { … } = this.formVacio();                                  // campo PLANO
+bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f));
+// plantilla
+[disabled]="bloqueos().length > 0 || guardando()"
+```
+
+Un `computed()` de Angular sólo se invalida cuando se lo avisa un **productor reactivo**. Este no
+lee ninguna señal —`motivosDeBloqueo` es puro y su archivo ni siquiera importa `@angular/core`—,
+así que **se evalúa una vez, al abrir el diálogo con el formulario vacío, y cachea para siempre**.
+Ejecutado contra el runtime real de Angular:
+
+```
+1) primera lectura (form vacío): ["falta_concepto","glosa_corta","monto_invalido"]
+2) motivos REALES tras llenarlo: []
+3) lo que el computed publica:   ["falta_concepto","glosa_corta","monto_invalido"]
+   Guardar [disabled] -> true      ← de por vida
+```
+
+La persona llenaba todo bien, veía la lista roja de motivos que ya no aplicaban, y no podía
+guardar. Doble candado: el `[disabled]` y un `if (this.bloqueos().length) return;` dentro de
+`guardar()`, los dos leyendo el mismo valor fósil.
+
+**Por qué nadie lo vio.** Es mudo por construcción, y la app corre `provideZonelessChangeDetection()`:
+sin error, sin warning, `nx build` verde, `nx typecheck` verde, `check:templates` verde. La única
+forma de verlo era abrir el diálogo y teclear.
+
+**Lo que hace este caso distinto: la lección ya estaba escrita y no alcanzó.** El 2026-09-14 el
+mismo defecto se encontró en `almacen-analisis-bi.component.ts` y se dejó
+`almacen-analisis-bi.reactividad.spec.ts`, que prueba la regla en aislamiento. Ocho días después
+reapareció en otra pantalla. **Un spec que prueba el principio no revisa el código que se escribe
+después: eso lo hace un barrido.** De ahí `scripts/check-signal-reactivity.js` (en `npm run check`),
+que marca todo `this.campo` leído dentro de un `computed(...)` cuando el campo no es señal **y**
+cambia en algún lado. Barrido inicial: **24 casos en 8 pantallas más**, enumerados uno por uno en
+el propio script — 3 congelados de verdad (el indicador de "hay filtros puestos" nunca se enciende,
+así que el botón de limpiar filtros no aparece), 3 parciales (se recalculan por otra señal del
+cuerpo, no por el campo) y 1 correcto a propósito (señal de versión deliberada).
+
+**Reglas:**
+- Si un `computed` va a depender de algo, ese algo es una **señal**. Se lee **primero e
+  incondicional**: un `&&` que corte antes lo deja sin dependencias (ya mordió en Existencia Crítica).
+- `signal.update(v => ({...v, campo}))`, nunca mutar `f().campo`: el signal notifica por identidad.
+- **Un control visible no es un control que funciona.** Al arreglar un defecto de render, probar la
+  acción de punta a punta — si no, se cambia "no hay botón" por "el botón no hace nada".
+- Una pantalla sin una sola prueba no tiene forma de contradecir al build. `/finanzas/caja-general`
+  tenía spec de su lógica pura y **cero** de la pantalla; ahí vivían los dos defectos.

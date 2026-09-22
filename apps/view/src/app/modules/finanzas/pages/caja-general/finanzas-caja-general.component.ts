@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -10,16 +9,43 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
 import { MessageModule } from 'primeng/message';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { CAJA_VENTANA_DIAS } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente } from '../../cash-ledger.service';
+import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import {
-  DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
-  textoCobertura, sumaDesglose, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
+  textoCobertura, sumaDesglose, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
+
+/** Etiquetas de lo que se PINTA. El enum de la columna (`deposito`, `sin_contar`) es de la DB. */
+const ETIQUETA_TIPO: Record<string, string> = {
+  ingreso: 'Ingreso', gasto: 'Gasto', deposito: 'Depósito',
+};
+const ETIQUETA_ESTADO_CORTE: Record<string, string> = {
+  borrador: 'Abierto', cerrado: 'Cerrado', autorizado: 'Autorizado',
+};
+const ETIQUETA_VEREDICTO: Record<string, string> = {
+  cuadra: 'Cuadra', sobra: 'Sobra efectivo', falta: 'Falta efectivo', sin_contar: 'Sin contar',
+};
+
+/**
+ * El formulario de captura. Es el tipo CONCRETO que la pantalla mantiene; `FormularioCaja` del
+ * util es el contrato laxo (todo opcional) que consume `motivosDeBloqueo`, y este encaja en aquél.
+ */
+interface FormularioCajaUI {
+  tipo: TipoMovimiento; fecha: string; sucursal: string;
+  kepler_cuenta: string | null; kepler_concepto: string | null;
+  glosa: string; beneficiario: string; monto: number | null; morralla: number;
+  denominaciones: DenominacionCapturada[];
+}
 
 /**
  * CG.14 — Caja General: la pantalla donde la plataforma REGISTRA el efectivo (ADR-070).
@@ -48,9 +74,13 @@ import {
   selector: 'app-finanzas-caja-general',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule,
-    SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, MetricStripComponent,
+    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule,
+    SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, ToastModule,
+    MetricStripComponent, LoadStateComponent,
   ],
+  // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
+  // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   /**
    * ⛔ Esta pantalla se pintaba SIN UN SOLO ESTILO. Usaba 19 clases fin-* que no existen en
@@ -76,7 +106,10 @@ import {
     .fin-h2 { font-size:1rem; font-weight:700; margin:1.5rem 0 .5rem; }
     .fin-dim { color:var(--text-muted); font-size:.78rem; }
     .fin-empty { text-align:center; color:var(--text-muted); padding:1.25rem 0; }
-    .fin-neg { color:var(--danger-fg, #b42318); }
+    /* ⚠️ Acá decía "var(--danger-fg, #b42318)" y --danger-fg NO EXISTE en tokens.css: ganaba
+       siempre el hex de fallback, que es un rojo de tema claro. O sea que en modo oscuro un
+       faltante de caja se pintaba ilegible. El token de la casa es --bad-fg y sí flipea. */
+    .fin-neg { color:var(--bad-fg); }
     .d-block { display:block; }
 
     /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
@@ -88,52 +121,80 @@ import {
     .fin-row-col > label { min-width:0; }
     .w-full { width:100%; }
 
-    .fin-hint-ok   { color:var(--ok-fg, #067647); font-size:.78rem; }
-    .fin-hint-warn { color:var(--warn-fg, #b54708); font-size:.78rem; }
+    .fin-hint-ok   { color:var(--ok-fg); font-size:.78rem; }
+    .fin-hint-warn { color:var(--warn-fg); font-size:.78rem; }
 
-    .fin-details { border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-sm,6px); padding:.5rem .75rem; }
+    .fin-details { border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.5rem .75rem; }
     .fin-details > summary { cursor:pointer; font-size:.82rem; }
 
     /* Reja de denominaciones: fija y ancha para que contar sea teclear en orden, no buscar. */
     .fin-denoms { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr)); gap:.5rem; margin-top:.6rem; }
     .fin-denom { display:flex; align-items:center; justify-content:space-between; gap:.4rem;
-                 border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-sm,6px); padding:.3rem .5rem; }
+                 border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.3rem .5rem; }
     .fin-denom .mono { font-variant-numeric:tabular-nums; font-size:.8rem; }
 
     /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
-    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg, #b54708); font-size:.8rem; }
+    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg); font-size:.8rem; }
 
     /* CG.20 - la bandeja de entregas. Densa, tipo Operations: la persona la recorre marcando. */
-    .cg-bandeja { border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-md,8px);
+    .cg-bandeja { border:1px solid var(--border-color); border-radius:var(--r-md,8px);
                   padding:.75rem .9rem; margin:1rem 0; }
     .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
+    .cg-sel { min-width:9rem; }
     .cg-tbl { width:100%; border-collapse:collapse; font-size:.82rem; }
     .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
-                 border-bottom:1px solid var(--surface-border, #e5e5e5); white-space:nowrap; }
-    .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--surface-border, #f0f0f0);
+                 border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--border-color);
                  vertical-align:top; }
     /* La fila trabada se ve distinta PERO SIGUE VISIBLE: esconderla dejaria a la persona sin
-       saber que ese movimiento existe y que alguien tiene que declarar su cuenta. */
-    .cg-trabada { opacity:.62; }
+       saber que ese movimiento existe y que alguien tiene que declarar su cuenta.
+       ⚠️ El .62 de antes se comia tambien el motivo, que es justo lo que hay que poder leer:
+       texto de .78rem al 62% no pasa AA. Se atenua la fila y se EXCLUYE el motivo. */
+    .cg-trabada { opacity:.78; }
+    .cg-trabada .fin-hint-warn { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
-    .cg-sel { min-width:9rem; }
     .cg-rezago { margin:.5rem 0 0; font-size:.78rem; }
+    /* El control principal de la bandeja es marcar fila por fila: un checkbox de 13px es el
+       objetivo mas chico de la pantalla y el que mas se usa. */
+    .cg-check { width:1.05rem; height:1.05rem; cursor:pointer; accent-color:var(--action); }
     /* CG.21 - el signo se lee de un vistazo. La flecha va ADEMAS del color, no en su lugar:
-       el color solo deja fuera a quien no lo distingue. */
-    .cg-in  { color:var(--p-green-600, #16a34a); }
-    .cg-out { color:var(--p-orange-600, #ea580c); }
+       el color solo deja fuera a quien no lo distingue.
+       ⚠️ Decia var(--p-green-600) / var(--p-orange-600): son tokens de paleta de @primeuix que
+       este preset NO emite, asi que siempre ganaba el hex y no flipeaba en oscuro. */
+    .cg-in  { color:var(--ok-fg); }
+    .cg-out { color:var(--warn-fg); }
 
     /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion. */
     .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .cg-chip { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
-               border:1px solid var(--surface-border, #e5e5e5); border-radius:999px;
+               border:1px solid var(--border-color); border-radius:999px;
                background:transparent; color:inherit; font:inherit; font-size:.78rem;
-               padding:.22rem .6rem; }
+               padding:.3rem .7rem; min-height:2rem; }
     .cg-chip:hover { border-color:var(--action); color:var(--action); }
     .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:.72rem; }
+
+    /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
+    @media (pointer: coarse) {
+      .cg-chip { min-height:var(--tap-min, 44px); padding:.5rem .9rem; }
+      .cg-check { width:1.4rem; height:1.4rem; }
+    }
+
+    /* ⛔ ACA VIVIA UN BUG MUDO. Estos anchos se pedian con styleClass="w-full" / "cg-sel", y
+       PrimeNG 22 RETIRO el input styleClass de p-select, p-message, p-table, p-autocomplete y
+       p-inputnumber (verificado en node_modules/primeng/types: solo p-dialog lo conserva). Como
+       es un atributo estatico, Angular no se queja y la clase nunca llega al elemento: los tres
+       selectores de la bandeja salian truncados y los dos buscadores del dialogo, angostos.
+       Se reemplaza por regla propia. El ::ng-deep es para entrar al DOM de PrimeNG y es el
+       patron que ya usan las pantallas hermanas (comercial-inventory-aisles). */
+    .cg-full { display:block; width:100%; }
+    :host ::ng-deep .cg-full .p-autocomplete,
+    :host ::ng-deep .cg-full .p-autocomplete-input,
+    :host ::ng-deep .cg-full .p-inputtext { width:100%; }
+    .cg-sel { display:inline-block; min-width:9rem; }
+    :host ::ng-deep .cg-sel .p-select { width:100%; }
   `],
   template: `
     <div class="surf-page in">
@@ -146,24 +207,39 @@ import {
           <p class="surf-page-sub">{{ coberturaTexto() }}</p>
         </div>
         <div class="cg-head-actions">
+          <!-- Sólo se bloquea con cobertura MEDIDA en cero. Si la medición falló no sabemos si hay
+               conceptos, y trabar la captura por una caída transitoria es peor que dejar que el
+               servidor rechace: la persona se queda sin poder registrar efectivo que ya tiene. -->
           <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
-                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos()"></p-button>
+                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
         </div>
       </header>
 
-      @if (!hayConceptos() && !cargando()) {
-        <p-message severity="warn" styleClass="w-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir.</p-message>
+      <!-- ⚠️ Antes esto decía "No hay conceptos" también cuando la medición había FALLADO, y el
+           subtítulo de arriba decía "sin medir" al mismo tiempo. Dos frases contradictorias sobre
+           el mismo hecho. Ahora cada ausencia dice la suya. -->
+      @if (coberturaSinMedir()) {
+        <p-message severity="warn" class="cg-full">No se pudo medir la cobertura del catálogo de conceptos. No es "no hay conceptos": es que no sabemos. Se puede capturar, pero si la cuenta no existe el servidor la va a rechazar.</p-message>
+      } @else if (!hayConceptos()) {
+        <p-message severity="warn" class="cg-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir.</p-message>
       }
 
       <div class="fin-corte-bar">
         <span class="fin-saldo">{{ textoSaldoUI() }}</span>
-        @if (corteAbierto()) {
+        <!-- ⚠️ Tres estados, no dos. Cuando el saldo NO se pudo medir no sabemos si hay corte
+             abierto, y el @else pintaba "Abrir corte" -- o sea que la pantalla AFIRMABA que no
+             había ninguno. Ofrecer abrir un segundo corte sobre uno vivo es el peor final. -->
+        @if (saldoSinMedir()) {
+          <p-tag value="Corte sin medir" severity="warn"></p-tag>
+          <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
+                    [text]="true" (onClick)="cargarSaldo()"></p-button>
+        } @else if (corteAbierto()) {
           <p-tag [value]="'Corte ' + corteAbierto()!.folio" severity="info"></p-tag>
           <p-button label="Cerrar corte" icon="pi pi-lock" size="small" severity="secondary"
                     (onClick)="abrirCierre()"></p-button>
         } @else {
           <p-button label="Abrir corte" icon="pi pi-unlock" size="small" severity="secondary"
-                    (onClick)="abrirApertura()"></p-button>
+                    [disabled]="abriendo()" (onClick)="abrirApertura()"></p-button>
         }
       </div>
 
@@ -173,43 +249,62 @@ import {
            pantalla, no un accesorio: medido sobre 5 meses cerrados, el egreso de la caja cuadra
            al 100% contra Kepler ($44,108,221.92 vs $44,123,427.09) y el ingreso de julio con
            $19.88 de diferencia en $10.45M. La persona no deberia capturarlos: confirmarlos. -->
-      @if (pendientes().length || cargandoPend()) {
-        <section class="cg-bandeja">
-          <header class="cg-bandeja-head">
-            <h2 class="fin-h2">Movimientos por confirmar</h2>
-            <span class="fin-dim">
-              {{ confirmables() }} de {{ pendientes().length }} se confirman sin elegir nada
-              @if (confirmables() < pendientes().length) {
-                · el resto necesita que su cuenta esté declarada
-              }
-              @if (ventanaDias) { · últimos {{ ventanaDias }} día{{ ventanaDias === 1 ? '' : 's' }} }
-            </span>
-            <span class="cg-bandeja-sp"></span>
-            <p-select [options]="opcionesVentana" [(ngModel)]="ventanaDias" optionLabel="label" optionValue="value"
-                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Desde cuándo'"></p-select>
-            <p-select [options]="opcionesSigno" [(ngModel)]="signoBandeja" optionLabel="label" optionValue="value"
-                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Signo'"></p-select>
-            <p-select [options]="opcionesCaja()" [(ngModel)]="cajaActiva" optionLabel="label" optionValue="value"
-                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Caja'"></p-select>
-            <p-button [label]="'Confirmar ' + marcadas().length" icon="pi pi-check" size="small"
-                      [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
-          </header>
+      <!-- ⛔ ACÁ ESTABA EL PEOR DEFECTO DE USO. La sección se montaba con
+           "@if (pendientes().length || cargandoPend())" y adentro el vacío preguntaba
+           "@if (!pendientes().length && !cargandoPend())" — las dos condiciones son
+           EXCLUYENTES, así que ese vacío era código inalcanzable y lo que pasaba de verdad era
+           que al filtrar sin resultados desaparecía la sección ENTERA, con los tres selectores
+           adentro. La persona quedaba encerrada, sin forma de deshacer el filtro.
+           Ahora la sección se pinta SIEMPRE y los tres estados (cargando / error / vacío) los
+           distingue app-load-state, que existe justamente para matar el "error === vacío". -->
+      <section class="cg-bandeja">
+        <header class="cg-bandeja-head">
+          <h2 class="fin-h2">Movimientos por confirmar</h2>
+          <span class="fin-dim">{{ textoBandeja() }}</span>
+          <span class="cg-bandeja-sp"></span>
+          <p-select [options]="opcionesVentana" [ngModel]="ventanaDias()" optionLabel="label" optionValue="value"
+                    (ngModelChange)="setVentana($event)" class="cg-sel" [ariaLabel]="'Desde cuándo'"></p-select>
+          <p-select [options]="opcionesSigno" [ngModel]="signoBandeja()" optionLabel="label" optionValue="value"
+                    (ngModelChange)="setSigno($event)" class="cg-sel" [ariaLabel]="'Signo'"></p-select>
+          <p-select [options]="opcionesCaja()" [ngModel]="cajaActiva()" optionLabel="label" optionValue="value"
+                    (ngModelChange)="setCaja($event)" class="cg-sel" [ariaLabel]="'Caja'"></p-select>
+          <p-button [label]="'Confirmar ' + marcadas().length" icon="pi pi-check" size="small"
+                    [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+        </header>
 
+        <!-- El recibo del lote va ARRIBA de la lista y FUERA de ella. Estaba adentro, así que al
+             confirmar el último lote la lista quedaba vacía, la sección se desmontaba y el
+             "12 confirmadas por $X" desaparecía justo en el caso donde más importa leerlo. -->
+        @if (resultado(); as r) {
+          <p-message [severity]="r.rechazados || r.no_confirmables ? 'warn' : 'success'"
+                     class="cg-full">{{ textoResultado(r) }}</p-message>
+        }
+
+        <app-load-state [loading]="cargandoPend()" [error]="errPend()"
+                        [isEmpty]="!pendientes().length" [skeletonRows]="5"
+                        errorTitle="No se pudo leer la bandeja"
+                        emptyIcon="pi-check-circle"
+                        emptyTitle="Nada por confirmar con este filtro"
+                        [emptyHint]="pistaVacio()"
+                        (retry)="cargarPendientes()">
           <table class="cg-tbl">
+            <caption class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</caption>
             <thead>
               <tr>
-                <th class="ta-c"><input type="checkbox" [checked]="todasMarcadas()"
+                <th scope="col" class="ta-c"><input type="checkbox" class="cg-check" [checked]="todasMarcadas()"
                                         (change)="marcarTodas($any($event.target).checked)"
                                         aria-label="Marcar todas las confirmables" /></th>
-                <th>Fecha</th><th></th><th>Contraparte</th><th>Documento</th><th>Cuenta</th>
-                <th class="ta-r">Importe (ERP)</th><th class="ta-r">Contado</th>
+                <th scope="col">Fecha</th>
+                <th scope="col"><span class="sr-only">Entra o sale</span></th>
+                <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
+                <th scope="col" class="ta-r">Importe (ERP)</th><th scope="col" class="ta-r">Contado</th>
               </tr>
             </thead>
             <tbody>
               @for (p of pendientes(); track p.origen_ref) {
                 <tr [class.cg-trabada]="!p.confirmable">
                   <td class="ta-c">
-                    <input type="checkbox" [disabled]="!p.confirmable"
+                    <input type="checkbox" class="cg-check" [disabled]="!p.confirmable"
                            [checked]="estaMarcada(p.origen_ref)"
                            (change)="marcar(p.origen_ref, $any($event.target).checked)"
                            [attr.aria-label]="'Confirmar ' + p.doc_tipo + ' ' + p.folio" />
@@ -227,8 +322,11 @@ import {
                     }
                   </td>
                   <td class="ta-c">
-                    <i [class]="p.tipo === 'ingreso' ? 'pi pi-arrow-down cg-in' : 'pi pi-arrow-up cg-out'"
-                       [attr.aria-label]="p.tipo === 'ingreso' ? 'Entra' : 'Sale'"
+                    <!-- role="img" no es adorno: un aria-label sobre un <i> sin rol NO se expone,
+                         así que la única señal del signo para un lector de pantalla era ninguna. -->
+                    <i role="img"
+                       [class]="p.tipo === 'ingreso' ? 'pi pi-arrow-down cg-in' : 'pi pi-arrow-up cg-out'"
+                       [attr.aria-label]="p.tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja'"
                        [attr.title]="p.tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja'"></i>
                   </td>
                   <td>
@@ -251,27 +349,32 @@ import {
                   </td>
                 </tr>
               }
-              @if (!pendientes().length && !cargandoPend()) {
-                <tr><td colspan="8" class="fin-dim ta-c">Nada por confirmar con este filtro.</td></tr>
-              }
             </tbody>
           </table>
 
-          <!-- Lo que la ventana deja fuera se DICE. Una bandeja acotada que no publica su corte
-               se lee igual que una bandeja vacia, y aca el rezago es de 12 mil movimientos. -->
-          @if (rezago(); as rz) {
+          <!-- La lista viene TOPADA. Sin esto, un movimiento más allá del tope era invisible y
+               nadie lo iba a confirmar nunca: el contador de arriba mentía sobre un conjunto
+               recortado y el bloque de «fuera de ventana» sólo cubre lo anterior por FECHA. -->
+          @if (truncada()) {
             <p class="fin-dim cg-rezago">
-              Quedan <strong>{{ rz.movimientos }}</strong> movimientos anteriores a esta ventana,
-              por {{ money(rz.monto) }}. No son trabajo del día: son lo que el sistema anterior ya
-              registró, y hasta dónde se traen es una decisión aparte.
+              Se muestran las primeras <strong>{{ pendientes().length }}</strong> de esta ventana —
+              hay más. Acotá por signo o por caja, o achicá la ventana, para verlas todas.
             </p>
           }
+        </app-load-state>
 
-          @if (resultado(); as r) {
-            <p-message [severity]="r.rechazados || r.no_confirmables ? 'warn' : 'success'" styleClass="w-full">{{ textoResultado(r) }}</p-message>
-          }
-        </section>
-      }
+        <!-- Lo que la ventana deja fuera se DICE. Una bandeja acotada que no publica su corte
+             se lee igual que una bandeja vacia, y aca el rezago es de 12 mil movimientos.
+             Va FUERA del load-state a propósito: con la bandeja vacía es cuando más hay que
+             poder leer que el trabajo está del otro lado del corte. -->
+        @if (rezago(); as rz) {
+          <p class="fin-dim cg-rezago">
+            Quedan <strong>{{ rz.movimientos }}</strong> movimientos anteriores a esta ventana,
+            por {{ money(rz.monto) }}. No son trabajo del día: son lo que el sistema anterior ya
+            registró, y hasta dónde se traen es una decisión aparte.
+          </p>
+        }
+      </section>
 
       <div class="fin-filters">
         <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
@@ -281,7 +384,15 @@ import {
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()" placeholder="Folio, glosa o beneficiario" />
       </div>
 
-      <p-table [value]="rows()" [loading]="cargando()" size="small" styleClass="p-datatable-sm"
+      <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
+           era redundante además de muerto. El estado lo lleva app-load-state, que distingue el
+           500 del periodo vacío — en una pantalla de dinero eso no puede verse igual. -->
+      <app-load-state [loading]="cargando()" [error]="errLibro()" [isEmpty]="!rows().length"
+                      errorTitle="No se pudo leer el libro de caja"
+                      emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
+                      emptyHint="Probá con otro rango de fechas o quitá el filtro de tipo."
+                      (retry)="cargar()">
+      <p-table [value]="rows()" size="small"
                [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
@@ -293,7 +404,7 @@ import {
           <tr>
             <td class="mono">{{ m.folio }}</td>
             <td>{{ dmy(m.fecha) }}</td>
-            <td><p-tag [value]="m.tipo" [severity]="sevTipo(m.tipo)"></p-tag></td>
+            <td><p-tag [value]="etiquetaTipo(m.tipo)" [severity]="sevTipo(m.tipo)"></p-tag></td>
             <td>
               <span class="mono">{{ m.kepler_cuenta }} / {{ m.kepler_concepto }}</span>
               <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
@@ -314,14 +425,20 @@ import {
           <tr><td colspan="8" class="fin-empty">Sin movimientos en el periodo.</td></tr>
         </ng-template>
       </p-table>
+      </app-load-state>
 
       <h2 class="fin-h2">Cortes</h2>
-      <p-table [value]="cortes()" size="small" styleClass="p-datatable-sm">
+      <app-load-state [loading]="cargandoCortes()" [error]="errCortes()" [isEmpty]="!cortes().length"
+                      [skeletonRows]="3" errorTitle="No se pudieron leer los cortes"
+                      emptyIcon="pi-lock-open" emptyTitle="Sin cortes en el periodo"
+                      emptyHint="Los cortes se listan por el mismo rango de fechas de arriba."
+                      (retry)="cargarCortes()">
+      <p-table [value]="cortes()" size="small">
         <ng-template #header>
           <tr>
-            <th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Estado</th>
-            <th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th>
-            <th>Cerró / Autorizó</th><th></th>
+            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
+            <th scope="col" class="ta-r">Esperado</th><th scope="col" class="ta-r">Contado</th><th scope="col" class="ta-r">Diferencia</th>
+            <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-c>
@@ -329,7 +446,7 @@ import {
             <td class="mono">{{ c.folio }}</td>
             <td>{{ dmy(c.fecha) }}</td>
             <td>{{ c.sucursal }}</td>
-            <td><p-tag [value]="c.estado" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
+            <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
             <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
             <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
             <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
@@ -340,9 +457,14 @@ import {
             </td>
             <td>
               @if (c.estado === 'cerrado') {
-                <p-button label="Autorizar" size="small" severity="secondary"
-                          [disabled]="!gateAutorizar(c).ok" [title]="gateAutorizar(c).texto"
-                          (onClick)="autorizar(c)"></p-button>
+                @if (gateAutorizar(c).ok) {
+                  <p-button label="Autorizar" size="small" severity="secondary"
+                            [disabled]="autorizando()" (onClick)="autorizar(c)"></p-button>
+                } @else {
+                  <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
+                       alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
+                  <small class="fin-hint-warn">{{ gateAutorizar(c).texto }}</small>
+                }
               } @else {
                 <small class="fin-dim">{{ gateAutorizar(c).texto }}</small>
               }
@@ -353,36 +475,45 @@ import {
           <tr><td colspan="9" class="fin-empty">Sin cortes en el periodo.</td></tr>
         </ng-template>
       </p-table>
+      </app-load-state>
     </div>
 
-    <p-dialog [(visible)]="capturaAbierta" [modal]="true" [style]="{ width: '46rem' }"
+    <p-toast position="bottom-right"></p-toast>
+
+    <p-dialog [visible]="capturaAbierta()" (visibleChange)="capturaAbierta.set($event)"
+              [modal]="true" [style]="{ width: '46rem', maxWidth: '96vw' }"
               header="Registrar movimiento de caja" [draggable]="false">
       <div class="fin-form">
         <div class="fin-row">
-          <label>Tipo</label>
-          <p-select [options]="tiposCaptura" [(ngModel)]="f.tipo" optionLabel="label" optionValue="value"
-                    (ngModelChange)="pedirPropuesta()"></p-select>
-          <label>Fecha</label>
-          <input pInputText type="date" [(ngModel)]="f.fecha" />
-          <label>Sucursal</label>
-          <input pInputText [(ngModel)]="f.sucursal" (ngModelChange)="onSucursal()" placeholder="00" />
+          <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
+               pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
+          <label for="cg-tipo">Tipo</label>
+          <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
+                    (ngModelChange)="onTipo($event)"></p-select>
+          <label for="cg-fecha">Fecha</label>
+          <input pInputText id="cg-fecha" type="date" [ngModel]="f().fecha" (ngModelChange)="setF('fecha', $event)" />
+          <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
+               de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
+          <label for="cg-suc">Sucursal</label>
+          <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
+                    (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
         </div>
 
         <!-- ⭐ CG.19 Capa 1 — el ingreso se ELIGE, no se teclea. El monto viaja de Kepler.
              Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP detrás. -->
-        @if (f.tipo === 'ingreso') {
+        @if (f().tipo === 'ingreso') {
           <div class="fin-row fin-row-col">
-            <label>Entrega contra un cobro de Kepler</label>
-            <p-autocomplete [(ngModel)]="cobroSel" [suggestions]="cobros()"
+            <label for="cg-cobro">Entrega contra un cobro de Kepler</label>
+            <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
                             (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
                             (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
-                            [minQueryLength]="0" [showClear]="true" appendTo="body" styleClass="w-full"
+                            [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
                             placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
             @if (cobroElegido(); as c) {
               <small class="fin-hint-ok">
                 Tomado de Kepler: {{ c.doc_tipo }} {{ c.folio }} ·
                 {{ c.beneficiario || c.entidad_code }} · {{ money(c.monto) }}
-                <span *ngIf="c.caja_nombre"> · {{ c.caja_nombre }}</span>.
+                @if (c.caja_nombre) { · {{ c.caja_nombre }} }.
                 El monto no se edita: lo pone el documento.
               </small>
             } @else {
@@ -400,9 +531,9 @@ import {
              hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
              El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
              el dato -- y por eso el bloque lo dice. -->
-        @if (f.tipo === 'gasto' && frecuentes().length) {
+        @if (f().tipo === 'gasto' && frecuentes().length) {
           <div class="fin-row fin-row-col">
-            <label>Lo que más repetís</label>
+            <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
             <div class="cg-chips">
               @for (fr of frecuentes(); track fr.rango) {
                 <button type="button" class="cg-chip" (click)="usarFrecuente(fr)"
@@ -417,37 +548,38 @@ import {
         }
 
         <div class="fin-row">
-          <label>Beneficiario</label>
-          <input pInputText [(ngModel)]="f.beneficiario" (blur)="pedirPropuesta()" class="w-full"
-                 [readonly]="!!cobroElegido()" />
+          <label for="cg-benef">Beneficiario</label>
+          <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
+                 (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
         </div>
 
-        <div class="fin-row">
-          <label>Cuenta y concepto de Kepler</label>
-          <p-autocomplete [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
+        <div class="fin-row fin-row-col">
+          <label for="cg-concepto">Cuenta y concepto de Kepler</label>
+          <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
                           (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
                           optionLabel="label" [delay]="250" [minQueryLength]="2" [showClear]="true"
                           placeholder="Buscá por nombre, cuenta o código" appendTo="body"
-                          styleClass="w-full"></p-autocomplete>
+                          class="cg-full"></p-autocomplete>
           <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
             {{ etiquetaConcepto().texto }}
           </small>
         </div>
 
         <div class="fin-row">
-          <label>Qué pasó</label>
-          <input pInputText [(ngModel)]="f.glosa" (ngModelChange)="pedirPropuestaDebounced()" class="w-full"
+          <label for="cg-glosa">Qué pasó</label>
+          <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
                  placeholder="Contá qué pasó — esto NO es el concepto contable" />
         </div>
 
         <div class="fin-row">
-          <label>Monto</label>
+          <label for="cg-monto">Monto</label>
           <!-- Con el cobro elegido el monto NO se edita. El servidor lo ignora igual y toma el del
                documento; bloquearlo acá es para que nadie teclee una cifra que no va a viajar. -->
-          <p-inputnumber [(ngModel)]="f.monto" mode="currency" currency="MXN" locale="es-MX"
-                         [readonly]="!!cobroElegido()" />
-          <label>Morralla</label>
-          <p-inputnumber [(ngModel)]="f.morralla" mode="currency" currency="MXN" locale="es-MX" />
+          <p-inputnumber inputId="cg-monto" [ngModel]="f().monto" (ngModelChange)="setF('monto', $event)"
+                         mode="currency" currency="MXN" locale="es-MX" [readonly]="!!cobroElegido()" />
+          <label for="cg-morralla">Morralla</label>
+          <p-inputnumber inputId="cg-morralla" [ngModel]="f().morralla" (ngModelChange)="setF('morralla', $event)"
+                         mode="currency" currency="MXN" locale="es-MX" />
         </div>
 
         <details class="fin-details">
@@ -476,41 +608,56 @@ import {
            no tenía ningún botón. Las otras 50 pantallas del repo ya usan #footer.
            SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y lo cierran. -->
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="capturaAbierta = false"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="capturaAbierta.set(false)"></p-button>
         <p-button label="Guardar" icon="pi pi-check" size="small"
                   [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
       </ng-template>
     </p-dialog>
 
-    <p-dialog [(visible)]="aperturaAbierta" [modal]="true" [style]="{ width: '24rem' }"
+    <p-dialog [visible]="aperturaAbierta()" (visibleChange)="aperturaAbierta.set($event)"
+              [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
               header="Abrir corte de caja" [draggable]="false">
       <div class="fin-form">
         <div class="fin-row">
-          <label>Fondo inicial</label>
-          <p-inputnumber [(ngModel)]="fondoInicial" mode="currency" currency="MXN" locale="es-MX" />
+          <label for="cg-fondo">Fondo inicial</label>
+          <p-inputnumber inputId="cg-fondo" [ngModel]="fondoInicial()" (ngModelChange)="fondoInicial.set($event)"
+                         mode="currency" currency="MXN" locale="es-MX" />
         </div>
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="aperturaAbierta = false"></p-button>
-        <p-button label="Abrir" icon="pi pi-check" size="small" (onClick)="abrirCorte()"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="aperturaAbierta.set(false)"></p-button>
+        <!-- Sin bandera de ocupado, el doble clic abría DOS cortes. -->
+        <p-button label="Abrir" icon="pi pi-check" size="small"
+                  [disabled]="abriendo()" (onClick)="abrirCorte()"></p-button>
       </ng-template>
     </p-dialog>
 
-    <p-dialog [(visible)]="cierreAbierto" [modal]="true" [style]="{ width: '40rem' }"
+    <p-dialog [visible]="cierreAbierto()" (visibleChange)="cierreAbierto.set($event)"
+              [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
         <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
              persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
              ve lo que ella misma sumó; el resultado aparece al SELLAR. -->
         @if (revelado(); as r) {
-          <p class="fin-dim">Esperado: <strong>{{ money(r.esperado) }}</strong> ·
-            Contado: <strong>{{ money(r.contado) }}</strong> ·
-            Diferencia: <strong>{{ money(r.diferencia) }}</strong></p>
-          <p-tag [value]="r.veredicto || ''" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
+          <!-- ⛔ ACÁ SE PUBLICABA $0.00 SOBRE UN DATO REDACTADO. "esperado", "diferencia" y
+               "veredicto" son OPCIONALES a propósito: el servidor los recorta para quien no
+               autoriza y avisa con "oculto: true". "oculto" no se leía nunca y money(undefined)
+               devuelve "$0.00", así que el arqueo de un cajero se veía CUADRADO A CERO — que es
+               lo contrario de "este dato no es para vos". -->
+          @if (r.oculto) {
+            <p class="fin-dim">Contado: <strong>{{ money(r.contado) }}</strong></p>
+            <p-message severity="info" class="cg-full">El esperado y la diferencia no se te muestran: el arqueo es ciego y el resultado lo ve quien autoriza. Tu conteo quedó sellado.</p-message>
+          } @else {
+            <p class="fin-dim">Esperado: <strong>{{ money(r.esperado) }}</strong> ·
+              Contado: <strong>{{ money(r.contado) }}</strong> ·
+              Diferencia: <strong [class.fin-neg]="(r.diferencia ?? 0) < 0">{{ money(r.diferencia) }}</strong></p>
+            <p-tag [value]="etiquetaVeredicto(r.veredicto)" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
+          }
         } @else {
           <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
-          <p-message severity="info" styleClass="w-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
+          <p-message severity="info" class="cg-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
         <div class="fin-denoms">
           @for (d of denominaciones; track d) {
@@ -521,20 +668,22 @@ import {
           }
         </div>
         <div class="fin-row">
-          <label>Morralla</label>
-          <p-inputnumber [(ngModel)]="morrallaCorte" mode="currency" currency="MXN" locale="es-MX" />
+          <label for="cg-morralla-corte">Morralla</label>
+          <p-inputnumber inputId="cg-morralla-corte" [ngModel]="morrallaCorte()" (ngModelChange)="morrallaCorte.set($event)"
+                         mode="currency" currency="MXN" locale="es-MX" />
         </div>
         @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
           <div class="fin-row">
-            <label>Motivo del reconteo</label>
-            <input pInputText [(ngModel)]="motivoReconteo" class="w-full"
+            <label for="cg-motivo">Motivo del reconteo</label>
+            <input pInputText id="cg-motivo" [ngModel]="motivoReconteo()" (ngModelChange)="motivoReconteo.set($event)"
+                   class="cg-full"
                    placeholder="Por qué se vuelve a contar — queda guardado junto al primer conteo" />
           </div>
         }
         <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto = false"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto.set(false)"></p-button>
         @if (!revelado()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
@@ -543,10 +692,10 @@ import {
         } @else {
           @if (revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
             <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
-                      [disabled]="motivoReconteo.trim().length < 5 || sellando()" (onClick)="recontar()"></p-button>
+                      [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
           }
           <p-button label="Cerrar corte" icon="pi pi-check" size="small"
-                    [disabled]="!gateCierre().ok" (onClick)="cerrarCorte()"></p-button>
+                    [disabled]="!gateCierre().ok || cerrando()" (onClick)="cerrarCorte()"></p-button>
         }
       </ng-template>
     </p-dialog>
@@ -555,14 +704,30 @@ import {
 export class FinanzasCajaGeneralComponent implements OnInit {
   private svc = inject(CashLedgerService);
   private auth = inject(AuthService);
+  private toast = inject(MessageService);
 
   readonly money = money;
   readonly dmy = dmy;
   readonly denominaciones = DENOMINACIONES;
 
+  readonly GLOSA_MIN = GLOSA_MIN;
+
   rows = signal<MovimientoCaja[]>([]);
   cargando = signal(false);
   guardando = signal(false);
+  /**
+   * ⛔ Los tres errores de lectura, por separado y con TEXTO. Antes no existía ninguno: un 500 se
+   * veía exactamente igual que "no hay datos", que es el anti-patrón que `app-load-state` existe
+   * para matar y el más caro de todos en una pantalla de dinero.
+   */
+  errLibro = signal<string | null>(null);
+  errCortes = signal<string | null>(null);
+  errPend = signal<string | null>(null);
+  cargandoCortes = signal(false);
+  /** Banderas de ocupado: sin ellas el doble clic abría dos cortes y autorizaba dos veces. */
+  abriendo = signal(false);
+  cerrando = signal(false);
+  autorizando = signal(false);
   conceptos = signal<Array<ConceptoKepler & { label: string }>>([]);
   /** CG.19 — los movimientos de Kepler sin aplicar, y cuál se eligió en el diálogo. */
   cobros = signal<Array<MovimientoPendiente & { label: string }>>([]);
@@ -588,8 +753,8 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * se cablean por clave, no por caso, así que aparecen solas el día que se usen— pero arrancar
    * en una caja dormida sería abrir la pantalla vacía.
    */
-  signoBandeja: '' | 'ingreso' | 'gasto' = '';
-  cajaActiva = '0011';
+  signoBandeja = signal<'' | 'ingreso' | 'gasto'>('');
+  cajaActiva = signal('0011');
   readonly opcionesSigno = [
     { label: 'Todo', value: '' },
     { label: 'Entradas', value: 'ingreso' },
@@ -605,14 +770,23 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    *
    * Es un selector y no una constante escondida justamente para que moverlo no sea un deploy.
    */
-  ventanaDias = 1;
+  ventanaDias = signal(1);
   readonly opcionesVentana = [
     { label: 'Desde ayer', value: 1 },
     { label: '3 días', value: 3 },
     { label: '7 días', value: 7 },
-    { label: '45 días', value: 45 },
+    // El 45 se reteclaba acá teniendo la constante a mano. Así es como terminan "cinco familias
+    // de constantes duplicadas" (ADR-056): el día que el rezago se re-mida, esto queda viejo.
+    { label: `${CAJA_VENTANA_DIAS} días`, value: CAJA_VENTANA_DIAS },
     { label: 'Todo', value: 0 },
   ];
+  /**
+   * Lo que el SERVIDOR dijo que acotó. La píldora publicaba el selector local, o sea su propia
+   * intención: si el backend corta distinto (y tiene su propio default), la pantalla mentía.
+   */
+  ventanaSrv = signal<{ desde?: string; dias?: number | null } | null>(null);
+  /** La lista viene topada. Sin decirlo, un movimiento más allá del tope es invisible para siempre. */
+  truncada = signal(false);
   /** Marcadas y lo contado por fila. `Map` y no un campo en la fila: la lista se recarga. */
   private seleccion = signal<Set<string>>(new Set());
   private contado = signal<Map<string, number | null>>(new Map());
@@ -622,16 +796,27 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const posibles = this.pendientes().filter((p) => p.confirmable);
     return posibles.length > 0 && posibles.every((p) => this.seleccion().has(p.origen_ref));
   });
-  cobertura = signal<Array<{ usables: number; filas_origen: number; sin_subcuenta: number }>>([]);
+  /**
+   * El tipo real del endpoint, no uno recortado a mano: la fila TRAE `sucursal` y acá se estaba
+   * tirando, que es justo lo que hacía falta para que la sucursal deje de ser texto libre.
+   */
+  cobertura = signal<CoberturaResponse['catalogo']>([]);
+  /** Medir CERO y NO PODER medir son cosas distintas y se dicen distinto (ADR-056). */
+  coberturaSinMedir = signal(false);
   propuesta = signal<AutofillResponse | null>(null);
   kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number } | null>(null);
 
-  capturaAbierta = false;
-  aperturaAbierta = false;
-  cierreAbierto = false;
-  fondoInicial = 0;
-  morrallaCorte = 0;
-  conteoCorte: DenominacionCapturada[] = [];
+  /**
+   * ⚠️ Señales, no campos planos. La app corre ZONELESS: un callback de HttpClient no agenda
+   * detección de cambios por sí solo, así que cerrar un diálogo desde un `next` dependía de que
+   * alguna señal hermana cambiara en el mismo turno. `abrirCorte()` no tenía ninguna.
+   */
+  capturaAbierta = signal(false);
+  aperturaAbierta = signal(false);
+  cierreAbierto = signal(false);
+  fondoInicial = signal(0);
+  morrallaCorte = signal(0);
+  conteoCorte = signal<DenominacionCapturada[]>([]);
   saldoResp = signal<SaldoResponse | null>(null);
   cortes = signal<CorteCaja[]>([]);
   /**
@@ -642,19 +827,32 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   revelado = signal<TotalesCorte | null>(null);
   puedeRecontar = signal(false);
   sellando = signal(false);
-  motivoReconteo = '';
+  motivoReconteo = signal('');
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
-  from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-  to = new Date().toISOString().slice(0, 10);
+  /** Primer día del mes EN MÉXICO. `toISOString()` lo calculaba en UTC y corría el día. */
+  from = todayMx().slice(0, 8) + '01';
+  to = todayMx();
   tipo: string | null = null;
   search = '';
 
-  f: {
-    tipo: TipoMovimiento; fecha: string; sucursal: string;
-    kepler_cuenta: string | null; kepler_concepto: string | null;
-    glosa: string; beneficiario: string; monto: number | null; morralla: number;
-    denominaciones: DenominacionCapturada[];
-  } = this.formVacio();
+  /**
+   * ⛔⛔ EL DEFECTO MÁS GRAVE DE LA PANTALLA VIVÍA ACÁ, y no se veía.
+   *
+   * Esto era un campo PLANO y `bloqueos` un `computed(() => motivosDeBloqueo(this.f))`. Un
+   * computed de Angular sólo se invalida cuando le avisa un productor reactivo; leyendo un objeto
+   * plano NO TIENE NINGUNO, así que se evaluaba una sola vez —al abrir el diálogo, con el
+   * formulario vacío— y cacheaba ese resultado PARA SIEMPRE.
+   *
+   * Consecuencia medida ejecutando el runtime real de Angular: la persona llenaba todo bien y
+   * `bloqueos()` seguía publicando los motivos del formulario vacío, así que
+   * `[disabled]="bloqueos().length > 0"` dejaba **Guardar inhabilitado de por vida** — y
+   * `guardar()` encima volvía a preguntar lo mismo y salía por el `return`. La acción principal
+   * de la pantalla no funcionaba, y ni el build, ni el typecheck, ni check:templates lo veían.
+   *
+   * Regla que queda: si un `computed` va a depender de algo, ese algo es una SEÑAL. Y el signal
+   * se lee primero e incondicional — un `&&` que corta antes deja al computed sin dependencias.
+   */
+  f = signal<FormularioCajaUI>(this.formVacio());
 
   readonly tiposFiltro = [
     { label: 'Ingresos', value: 'ingreso' }, { label: 'Gastos', value: 'gasto' }, { label: 'Depósitos', value: 'deposito' },
@@ -689,25 +887,77 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     return puedeCerrarUI(this.corteVista(), r.veredicto ?? 'sin_contar');
   });
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
-  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f));
-  etiquetaConcepto = computed(() => etiquetaProcedencia(this.propuesta()?.concepto as never));
+  /** Sin saldo no sabemos si hay corte abierto. No es lo mismo que saber que no hay. */
+  saldoSinMedir = computed(() => this.saldoResp() === null);
+  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f()));
+  /**
+   * De dónde salió el concepto. Ahora depende TAMBIÉN de si se eligió a mano: antes sólo leía
+   * `propuesta()`, así que después de elegir en el buscador seguía diciendo "Propuesto de la
+   * sesión — 12 antecedentes" sobre algo tecleado. La etiqueta existe justamente para separar
+   * propuesto de tecleado; diciendo lo contrario era peor que no estar.
+   */
+  etiquetaConcepto = computed(() => {
+    // El signal se lee PRIMERO e incondicional: un `&&` que corte antes dejaría al computed sin
+    // dependencias, que es la misma familia de bug que tenía `bloqueos`.
+    const manual = this.conceptoManual();
+    if (manual) return etiquetaManual();
+    return etiquetaProcedencia(this.propuesta()?.concepto);
+  });
+  /** `true` en cuanto la persona elige o teclea el concepto ella misma. */
+  conceptoManual = signal(false);
 
+  /** Las sucursales que el propio censo de cobertura ya mide, con sus conceptos usables. */
+  opcionesSucursal = computed(() => {
+    const rows = this.cobertura().filter((r) => r.sucursal);
+    if (!rows.length) return [{ label: '00 · CEDIS', value: '00' }];
+    return rows
+      .slice()
+      .sort((a, b) => String(a.sucursal).localeCompare(String(b.sucursal)))
+      .map((r) => ({
+        label: r.usables ? `${r.sucursal} · ${r.usables} conceptos` : `${r.sucursal} · sin conceptos`,
+        value: r.sucursal,
+      }));
+  });
+
+  /** El renglón de contexto de la bandeja. Dice el corte REAL, el del servidor. */
+  textoBandeja = computed(() => {
+    const total = this.pendientes().length;
+    const ok = this.confirmables();
+    const srv = this.ventanaSrv();
+    const dias = srv?.dias ?? this.ventanaDias();
+    const partes = [`${ok} de ${total} se confirman sin elegir nada`];
+    if (ok < total) partes.push('el resto necesita que su cuenta esté declarada');
+    if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
+    else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
+    return partes.join(' · ');
+  });
+
+  /**
+   * ⛔ Acá se DIBUJABAN CEROS. `String(k?.movimientos ?? 0)` y `money(k?.ingresos ?? 0)` publicaban
+   * "0" y "$0.00" —con animación de count-up— cuando el libro NO se había podido leer, o sea
+   * exactamente igual que un periodo real sin movimiento. Es lo que ADR-056 prohíbe de frente.
+   * `MetricStrip.isText()` ya sabe pintar un texto sin contarlo: sólo había que dejar de mentirle.
+   */
   kpis = computed<MetricStripItem[]>(() => {
     const k = this.kpiRaw();
+    if (!k) {
+      return [
+        { label: 'Movimientos', value: '—', format: 'text' as const, sub: 'sin medir' },
+        { label: 'Ingresos', value: '—', format: 'text' as const, sub: 'sin medir' },
+        { label: 'Gastos', value: '—', format: 'text' as const, sub: 'sin medir' },
+        { label: 'Depósitos', value: '—', format: 'text' as const, sub: 'sin medir' },
+      ];
+    }
     return [
-      { label: 'Movimientos', value: String(k?.movimientos ?? 0) },
-      { label: 'Ingresos', value: money(k?.ingresos ?? 0) },
-      { label: 'Gastos', value: money(k?.gastos ?? 0) },
-      { label: 'Depósitos', value: money(k?.depositos ?? 0) },
+      { label: 'Movimientos', value: String(k.movimientos ?? 0) },
+      { label: 'Ingresos', value: money(k.ingresos) },
+      { label: 'Gastos', value: money(k.gastos) },
+      { label: 'Depósitos', value: money(k.depositos) },
     ];
   });
 
   ngOnInit(): void {
-    this.svc.cobertura().subscribe({
-      next: (c) => this.cobertura.set(c.catalogo ?? []),
-      // Un error de red NO puede verse como "no hay conceptos": se deja sin medir.
-      error: () => this.cobertura.set([]),
-    });
+    this.cargarCobertura();
     this.cargar();
     this.cargarSaldo();
     this.cargarCortes();
@@ -718,14 +968,57 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargarFrecuentes();
   }
 
+  // ── Avisos ───────────────────────────────────────────────────────────────────────────────────
+  //
+  // ⛔ La pantalla NO TENÍA NINGUNO: cero MessageService, cero p-toast en 1,132 líneas. Guardar,
+  // abrir corte, cerrar, autorizar y confirmar el lote fallaban en silencio — la persona hacía
+  // clic y no pasaba nada, indistinguible de un botón muerto. Tres de esas cinco ni siquiera
+  // tenían rama `error`, así que el fallo no llegaba a ningún lado.
+
+  private textoError(e: unknown): string {
+    const err = e as { status?: number; error?: { message?: string } };
+    if (err?.status === 0) return 'No hay conexión con el servidor.';
+    if (err?.status === 403) return 'No tenés permiso para esta acción.';
+    if (err?.status === 409) return err?.error?.message || 'Ese movimiento ya estaba aplicado.';
+    return err?.error?.message || 'El servidor respondió con un error.';
+  }
+
+  private avisarError(e: unknown, titulo: string): void {
+    this.toast.add({ severity: 'error', summary: titulo, detail: this.textoError(e), life: 7000 });
+  }
+
+  private avisarOk(titulo: string, detalle?: string): void {
+    this.toast.add({ severity: 'success', summary: titulo, detail: detalle, life: 4000 });
+  }
+
+  cargarCobertura(): void {
+    this.svc.cobertura().subscribe({
+      next: (c) => { this.cobertura.set(c.catalogo ?? []); this.coberturaSinMedir.set(false); },
+      // Un error de red NO puede verse como "no hay conceptos": se DECLARA sin medir. Antes se
+      // vaciaba la lista, y entonces el subtítulo decía "sin medir" mientras el aviso de abajo
+      // afirmaba "No hay conceptos de Kepler" — dos frases contradictorias sobre el mismo hecho.
+      error: () => { this.cobertura.set([]); this.coberturaSinMedir.set(true); },
+    });
+  }
+
   cargarCortes(): void {
-    this.svc.cortes({ from: this.from, to: this.to, limit: 50 })
-      .subscribe({ next: (r) => this.cortes.set(r.rows ?? []), error: () => this.cortes.set([]) });
+    this.cargandoCortes.set(true);
+    this.svc.cortes({ from: this.from, to: this.to, limit: 50 }).subscribe({
+      next: (r) => { this.cortes.set(r.rows ?? []); this.errCortes.set(null); this.cargandoCortes.set(false); },
+      error: (e) => { this.cortes.set([]); this.errCortes.set(this.textoError(e)); this.cargandoCortes.set(false); },
+    });
   }
 
   sevEstadoCorte(e: string): 'secondary' | 'warn' | 'success' {
     return e === 'borrador' ? 'secondary' : e === 'cerrado' ? 'warn' : 'success';
   }
+
+  // Lo que se PINTA no es el enum de la columna. La pantalla publicaba `deposito`, `borrador` y
+  // `sin_contar` tal cual, en minúscula y con guion bajo, en una pantalla que presume de usar
+  // "los mismos nombres que la gente ya usa".
+  etiquetaTipo(t: string): string { return ETIQUETA_TIPO[t] ?? t; }
+  etiquetaEstadoCorte(e: string): string { return ETIQUETA_ESTADO_CORTE[e] ?? e; }
+  etiquetaVeredicto(v: string | undefined): string { return v ? (ETIQUETA_VEREDICTO[v] ?? v) : '—'; }
 
   /**
    * La doble llave, en el boton. El sub del JWT es el MISMO id que el backend guarda en
@@ -737,29 +1030,46 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   }
 
   autorizar(c: CorteCaja): void {
-    if (!this.gateAutorizar(c).ok) return;
-    this.svc.autorizarCorte(c.id).subscribe({ next: () => this.cargarCortes() });
+    if (!this.gateAutorizar(c).ok || this.autorizando()) return;
+    this.autorizando.set(true);
+    this.svc.autorizarCorte(c.id).subscribe({
+      next: () => { this.autorizando.set(false); this.avisarOk('Corte autorizado', c.folio); this.cargarCortes(); },
+      error: (e) => { this.autorizando.set(false); this.avisarError(e, 'No se pudo autorizar el corte'); },
+    });
   }
 
-  /** Sucursal del corte. Por ahora fija; cuando haya selector, sale de ahí. */
+  /** Sucursal del corte. Por ahora fija; cuando haya selector de corte, sale de ahí. */
   private sucursalActiva = '00';
 
   cargarSaldo(): void {
     this.svc.saldo(this.sucursalActiva).subscribe({
       next: (r) => this.saldoResp.set(r),
-      // Un error de red NO es "saldo 0": se declara como sin medir.
+      // Un error de red NO es "saldo 0": se declara como sin medir. Y la barra de arriba ya NO
+      // pinta "Abrir corte" en ese caso — no sabemos si hay uno abierto.
       error: () => this.saldoResp.set(null),
     });
   }
 
-  abrirApertura(): void { this.fondoInicial = 0; this.aperturaAbierta = true; }
+  abrirApertura(): void { this.fondoInicial.set(0); this.aperturaAbierta.set(true); }
 
   abrirCorte(): void {
+    if (this.abriendo()) return;
+    this.abriendo.set(true);
     this.svc.abrirCorte({
-      fecha: new Date().toISOString().slice(0, 10),
+      // `todayMx()`, no `toISOString()`: después de las 18:00 hora de México el segundo ya
+      // devuelve MAÑANA, y el corte nacía con fecha de mañana.
+      fecha: todayMx(),
       sucursal: this.sucursalActiva,
-      fondo_inicial: this.fondoInicial,
-    }).subscribe({ next: () => { this.aperturaAbierta = false; this.cargarSaldo(); this.cargarCortes(); } });
+      fondo_inicial: this.fondoInicial(),
+    }).subscribe({
+      next: () => {
+        this.abriendo.set(false);
+        this.aperturaAbierta.set(false);
+        this.avisarOk('Corte abierto', `Fondo inicial ${money(this.fondoInicial())}`);
+        this.cargarSaldo(); this.cargarCortes();
+      },
+      error: (e) => { this.abriendo.set(false); this.avisarError(e, 'No se pudo abrir el corte'); },
+    });
   }
 
   /**
@@ -767,14 +1077,14 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
    */
   abrirCierre(): void {
-    this.conteoCorte = []; this.morrallaCorte = 0;
-    this.revelado.set(null); this.motivoReconteo = '';
-    this.cierreAbierto = true;
+    this.conteoCorte.set([]); this.morrallaCorte.set(0);
+    this.revelado.set(null); this.motivoReconteo.set('');
+    this.cierreAbierto.set(true);
   }
 
   /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
   sumaConteo(): number {
-    return sumaDesglose(this.conteoCorte, this.morrallaCorte);
+    return sumaDesglose(this.conteoCorte(), this.morrallaCorte());
   }
 
   /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
@@ -782,31 +1092,37 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const c = this.corteAbierto();
     if (!c || this.sellando()) return;
     this.sellando.set(true);
-    this.svc.contarCorte(c.id, this.conteoCorte, this.morrallaCorte).subscribe({
-      next: (r) => { this.revelado.set(r.totales); this.puedeRecontar.set(r.puede_recontar); this.sellando.set(false); },
-      error: () => this.sellando.set(false),
+    this.svc.contarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+      next: (r) => {
+        this.revelado.set(r.totales); this.puedeRecontar.set(r.puede_recontar); this.sellando.set(false);
+        this.avisarOk('Conteo sellado', r.totales?.oculto ? 'El resultado lo ve quien autoriza.' : undefined);
+      },
+      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo sellar el conteo'); },
     });
   }
 
   /** Segundo y último conteo. El motivo es obligatorio y el primero se conserva en el corte. */
   recontar(): void {
     const c = this.corteAbierto();
-    if (!c || this.motivoReconteo.trim().length < 5 || this.sellando()) return;
+    if (!c || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
     this.sellando.set(true);
-    this.svc.recontarCorte(c.id, this.conteoCorte, this.morrallaCorte, this.motivoReconteo.trim()).subscribe({
-      next: (r) => { this.revelado.set(r.totales); this.puedeRecontar.set(false); this.sellando.set(false); },
-      error: () => this.sellando.set(false),
+    this.svc.recontarCorte(c.id, this.conteoCorte(), this.morrallaCorte(), this.motivoReconteo().trim()).subscribe({
+      next: (r) => {
+        this.revelado.set(r.totales); this.puedeRecontar.set(false); this.sellando.set(false);
+        this.avisarOk('Reconteo guardado');
+      },
+      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo recontar'); },
     });
   }
 
   piezasCorteDe(d: number): number {
-    return this.conteoCorte.find((x) => x.denominacion === d)?.piezas ?? 0;
+    return this.conteoCorte().find((x) => x.denominacion === d)?.piezas ?? 0;
   }
 
   setPiezasCorte(d: number, piezas: number): void {
-    const list = this.conteoCorte.filter((x) => x.denominacion !== d);
+    const list = this.conteoCorte().filter((x) => x.denominacion !== d);
     if (Number(piezas) > 0) list.push({ denominacion: d, piezas: Number(piezas) });
-    this.conteoCorte = list;
+    this.conteoCorte.set(list);
   }
 
   sevVeredicto(v: string): 'success' | 'warn' | 'danger' | 'secondary' {
@@ -815,18 +1131,27 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   cerrarCorte(): void {
     const c = this.corteAbierto();
-    if (!c || !this.gateCierre().ok) return;
-    this.svc.cerrarCorte(c.id, this.conteoCorte, this.morrallaCorte).subscribe({
-      next: () => { this.cierreAbierto = false; this.cargarSaldo(); this.cargar(); this.cargarCortes(); },
+    if (!c || !this.gateCierre().ok || this.cerrando()) return;
+    this.cerrando.set(true);
+    this.svc.cerrarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+      next: () => {
+        this.cerrando.set(false);
+        this.cierreAbierto.set(false);
+        this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
+        this.cargarSaldo(); this.cargar(); this.cargarCortes();
+      },
+      error: (e) => { this.cerrando.set(false); this.avisarError(e, 'No se pudo cerrar el corte'); },
     });
   }
 
-  private formVacio() {
+  private formVacio(): FormularioCajaUI {
     return {
-      tipo: 'gasto' as TipoMovimiento, fecha: new Date().toISOString().slice(0, 10), sucursal: '00',
-      kepler_cuenta: null as string | null, kepler_concepto: null as string | null,
-      glosa: '', beneficiario: '', monto: null as number | null, morralla: 0,
-      denominaciones: [] as DenominacionCapturada[],
+      // `todayMx()`: con `toISOString()` el asiento nacía fechado MAÑANA después de las 18:00
+      // hora de México, y encima el aviso de "fecha posterior a hoy" se apagaba a esa misma hora.
+      tipo: 'gasto' as TipoMovimiento, fecha: todayMx(), sucursal: this.sucursalActiva,
+      kepler_cuenta: null, kepler_concepto: null,
+      glosa: '', beneficiario: '', monto: null, morralla: 0,
+      denominaciones: [],
     };
   }
 
@@ -834,22 +1159,44 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargando.set(true);
     this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined })
       .subscribe({
-        next: (r) => { this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi); this.cargando.set(false); this.cargarCortes(); },
-        error: () => { this.rows.set([]); this.kpiRaw.set(null); this.cargando.set(false); },
+        next: (r) => {
+          this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
+          this.errLibro.set(null); this.cargando.set(false); this.cargarCortes();
+        },
+        // `kpiRaw` a null NO es "todo en cero": la tira de KPIs ahora publica "sin medir".
+        error: (e) => {
+          this.rows.set([]); this.kpiRaw.set(null);
+          this.errLibro.set(this.textoError(e)); this.cargando.set(false);
+        },
       });
   }
 
   abrirCaptura(): void {
-    this.f = this.formVacio();
+    this.f.set(this.formVacio());
     this.conceptoSel = null;
+    this.conceptoManual.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
     // una entrega a otra, que es justo el error que el índice único frena del lado del servidor.
     this.cobroSel = null;
     this.cobroElegido.set(null);
     this.cobros.set([]);
-    this.capturaAbierta = true;
+    this.capturaAbierta.set(true);
+    // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
+    // sucursal seguían siendo los de la 00. Se refrescan al abrir, con la sucursal en curso.
+    this.cargarFrecuentes();
   }
+
+  /**
+   * Escribe UN campo del formulario. Reemplaza el objeto en vez de mutarlo: un signal notifica
+   * por identidad, así que mutar `f().glosa` no despertaría a `bloqueos`.
+   */
+  setF<K extends keyof FormularioCajaUI>(campo: K, valor: FormularioCajaUI[K]): void {
+    this.f.update((v) => ({ ...v, [campo]: valor }));
+  }
+
+  onTipo(v: TipoMovimiento): void { this.setF('tipo', v); this.pedirPropuesta(); }
+  onGlosa(v: string): void { this.setF('glosa', v); this.pedirPropuestaDebounced(); }
 
   conceptoLabel = (c: ConceptoKepler) => `${c.cuenta} / ${c.concepto} — ${c.concepto_nombre}`;
 
@@ -863,16 +1210,17 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.svc.movimientosPendientes({
       // El diálogo propone el documento del MISMO signo que se está capturando: ofrecerle un pago
       // a quien está registrando un ingreso es ruido que además puede terminar mal aplicado.
-      tipo: this.f.tipo === 'gasto' ? 'gasto' : 'ingreso',
-      caja: this.cajaActiva || undefined,
-      sucursal: this.f.sucursal || undefined,
+      tipo: this.f().tipo === 'gasto' ? 'gasto' : 'ingreso',
+      caja: this.cajaActiva() || undefined,
+      sucursal: this.f().sucursal || undefined,
       search: (e.query || '').trim() || undefined,
       limit: 40,
     }).subscribe({
       next: (r) => this.cobros.set((r.rows ?? []).map((c) => ({ ...c, label: this.cobroLabel(c) }))),
-      // Un error de red NO es "no hay cobros pendientes": se deja la lista como estaba y el
-      // capturista puede seguir a mano. Vaciarla diría que el ERP no tiene nada, que es distinto.
-      error: () => this.cobros.set([]),
+      // ⚠️ El comentario que estaba acá decía "se deja la lista como estaba" y el código hacía
+      // exactamente lo contrario: la vaciaba. Ahora sí se conserva, y el fallo se AVISA en vez de
+      // parecer "el ERP no tiene nada pendiente", que es una afirmación distinta.
+      error: (err) => this.avisarError(err, 'No se pudieron buscar cobros de Kepler'),
     });
   }
 
@@ -887,25 +1235,25 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const c = e.value as MovimientoPendiente;
     if (!c) return;
     this.cobroElegido.set(c);
-    this.f = {
-      ...this.f,
+    this.f.update((v) => ({
+      ...v,
       monto: Number(c.monto),
       // La fecha del documento es cuándo Kepler lo registró; la del movimiento es cuándo entró o
       // salió el efectivo. Se propone, no se impone: el capturista puede corregirla.
-      fecha: String(c.fecha_valor).slice(0, 10) || this.f.fecha,
-      beneficiario: c.beneficiario || c.entidad_code || this.f.beneficiario,
-      glosa: this.f.glosa?.trim()
+      fecha: String(c.fecha_valor).slice(0, 10) || v.fecha,
+      beneficiario: c.beneficiario || c.entidad_code || v.beneficiario,
+      glosa: v.glosa?.trim()
         || `${c.doc_tipo} ${c.folio} · ${c.beneficiario || c.entidad_code || 'sin beneficiario'}`.slice(0, 200),
       // El desglose viejo dejaría de cuadrar contra el monto nuevo: se limpia y se vuelve a contar.
       denominaciones: [],
-    };
+    }));
     this.pedirPropuesta();
   }
 
   /** Soltar el cobro devuelve el formulario a captura manual, sin arrastrar el monto del ERP. */
   soltarCobro(): void {
     this.cobroElegido.set(null);
-    this.f = { ...this.f, monto: null, denominaciones: [] };
+    this.f.update((v) => ({ ...v, monto: null, denominaciones: [] }));
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -929,42 +1277,79 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   });
 
   cargarCajas(): void {
-    this.svc.cajas().subscribe({
+    // El conteo de cada caja es "documentos EN LA VENTANA", así que se vuelve a pedir cuando la
+    // ventana cambia. Antes se pedía una sola vez en ngOnInit y los números entre paréntesis
+    // quedaban congelados, contradiciendo a la lista de abajo.
+    this.svc.cajas(this.ventanaDias() || undefined).subscribe({
       next: (r) => this.cajas.set(r.rows ?? []),
       error: () => { /* se conserva lo último conocido; el computed cae a la CAJA GENERAL */ },
     });
   }
 
+  /** Cambiar cualquiera de los tres filtros: limpia el recibo viejo y vuelve a pedir. */
+  setVentana(v: number): void { this.ventanaDias.set(Number(v)); this.cargarCajas(); this.refiltrar(); }
+  setSigno(v: '' | 'ingreso' | 'gasto'): void { this.signoBandeja.set(v); this.refiltrar(); }
+  setCaja(v: string): void { this.cajaActiva.set(v); this.refiltrar(); }
+
+  private refiltrar(): void {
+    // El recibo del lote NO se limpiaba nunca: seguía en pantalla al cambiar de filtro,
+    // publicando el resultado de otra cosa.
+    this.resultado.set(null);
+    this.cargarPendientes();
+  }
+
+  /** Qué decir cuando no hay nada: nombrando el filtro que lo dejó vacío, con salida. */
+  pistaVacio(): string {
+    const partes: string[] = [];
+    const s = this.signoBandeja();
+    if (s) partes.push(s === 'ingreso' ? 'sólo entradas' : 'sólo salidas');
+    const d = this.ventanaSrv()?.dias ?? this.ventanaDias();
+    if (d) partes.push(`últimos ${d} día${d === 1 ? '' : 's'}`);
+    const filtro = partes.length ? ` (${partes.join(', ')})` : '';
+    return `Kepler no registró movimientos de esta caja en el corte elegido${filtro}. Ampliá la ventana o cambiá el signo.`;
+  }
+
   cargarPendientes(): void {
     this.cargandoPend.set(true);
     // `0` = «Todo»: se manda una fecha muy vieja en vez de omitir `from`, porque omitirlo le
-    // devolvería el default del servidor (45 días) y la persona habría pedido otra cosa.
-    const desde = this.ventanaDias === 0
+    // devolvería el default del servidor y la persona habría pedido otra cosa.
+    const dias = this.ventanaDias();
+    const desde = dias === 0
       ? '2000-01-01'
-      : new Date(Date.now() - this.ventanaDias * 86400000).toISOString().slice(0, 10);
+      // El corrimiento se hace sobre el día DE MÉXICO. Con `toISOString()` la ventana corría un
+      // día después de las 18:00 locales.
+      : toMxDateKey(new Date(Date.now() - dias * 86400000));
     this.svc.movimientosPendientes({
-      tipo: this.signoBandeja || undefined,
-      caja: this.cajaActiva || undefined,
+      tipo: this.signoBandeja() || undefined,
+      caja: this.cajaActiva() || undefined,
       from: desde,
       limit: 100,
     }).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
         this.confirmables.set(r.confirmables ?? 0);
+        // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
+        // en la respuesta desde el primer día y no se leía ninguno.
+        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null });
+        this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
         this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
+        this.errPend.set(null);
         this.cargandoPend.set(false);
       },
-      // Un error de red NO es "no hay movimientos": se deja la bandeja como estaba y la persona
-      // puede seguir capturando a mano. Vaciarla diría que el ERP no tiene nada pendiente.
-      error: () => this.cargandoPend.set(false),
+      // Un error de red NO es "no hay movimientos". Antes esto sólo apagaba la bandera, y en la
+      // PRIMERA carga —con la lista vacía— la sección entera no se montaba: sin aviso y sin
+      // reintento. Ahora se declara y app-load-state ofrece Reintentar.
+      error: (e) => { this.errPend.set(this.textoError(e)); this.cargandoPend.set(false); },
     });
   }
 
   /** ¿El documento está fechado después de hoy? Casi siempre es un error de captura en Kepler. */
   esFutura(f: string | null | undefined): boolean {
     if (!f) return false;
-    return String(f).slice(0, 10) > new Date().toISOString().slice(0, 10);
+    // Contra el día de MÉXICO: con `toISOString()` este aviso se apagaba solo a partir de las
+    // 18:00 locales, que es justo cuando se captura el cierre del día.
+    return String(f).slice(0, 10) > todayMx();
   }
 
   estaMarcada(ref: string): boolean { return this.seleccion().has(ref); }
@@ -1003,11 +1388,27 @@ export class FinanzasCajaGeneralComponent implements OnInit {
           this.confirmando.set(false);
           this.seleccion.set(new Set());
           this.contado.set(new Map());
+          if (r.guardados) this.avisarOk(`${r.guardados} confirmadas`, money(r.monto_guardado));
+          if (r.rechazados) this.toast.add({
+            severity: 'warn', summary: `${r.rechazados} rechazadas`,
+            detail: this.motivosRechazo(r), life: 8000,
+          });
           // Se recarga TODO lo que el lote movió: la bandeja, el libro, el saldo y los cortes.
           this.cargarPendientes(); this.cargar(); this.cargarSaldo();
         },
-        error: () => this.confirmando.set(false),
+        error: (e) => { this.confirmando.set(false); this.avisarError(e, 'No se pudo confirmar el lote'); },
       });
+  }
+
+  /**
+   * El porqué de las que NO entraron. `ResumenLote.filas` trae `estado` y `motivo` POR FILA y el
+   * resumen sólo publicaba agregados: "3 rechazadas" sin decir de qué, que obliga a adivinar.
+   */
+  private motivosRechazo(r: ResumenLote): string {
+    const motivos = (r.filas ?? [])
+      .filter((x) => x.estado === 'rechazado' && x.motivo)
+      .map((x) => x.motivo as string);
+    return motivos.length ? [...new Set(motivos)].join(' · ') : 'El servidor no devolvió el motivo.';
   }
 
   /** El resultado se cuenta por estado. "12 confirmadas" a secas esconde las 3 que no entraron. */
@@ -1022,7 +1423,10 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   // ── CG.20 — frecuentes del gasto ──────────────────────────────────────────────────────────────
 
   cargarFrecuentes(): void {
-    this.svc.frecuentes({ tipo: 'gasto', sucursal: this.sucursalActiva, limit: 10 }).subscribe({
+    // ⛔ Iba con `sucursalActiva`, clavada en '00', mientras la sucursal que se captura es
+    // `f().sucursal`. O sea: capturando un gasto de la 03, los chips de un toque llenaban cuenta,
+    // concepto y beneficiario de la 00 — en un catálogo que es POR SUCURSAL.
+    this.svc.frecuentes({ tipo: 'gasto', sucursal: this.f().sucursal, limit: 10 }).subscribe({
       next: (r) => this.frecuentes.set(r.rows ?? []),
       error: () => this.frecuentes.set([]),
     });
@@ -1030,34 +1434,47 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   /** Un toque llena cuenta, concepto, glosa y beneficiario. El importe NUNCA se pre-llena. */
   usarFrecuente(fr: Frecuente): void {
-    this.f = {
-      ...this.f,
+    const suc = this.f().sucursal;
+    this.f.update((v) => ({
+      ...v,
       kepler_cuenta: fr.kepler_cuenta,
       kepler_concepto: fr.kepler_concepto,
-      glosa: fr.glosa || this.f.glosa,
-      beneficiario: fr.beneficiario || this.f.beneficiario,
-    };
+      glosa: fr.glosa || v.glosa,
+      beneficiario: fr.beneficiario || v.beneficiario,
+    }));
     // El buscador de conceptos muestra lo elegido, para que se vea de dónde salió.
-    this.conceptoSel = { cuenta: fr.kepler_cuenta, concepto: fr.kepler_concepto,
-      concepto_nombre: fr.glosa || '', sucursal: this.f.sucursal, cuenta_mayor: '',
-      label: `${fr.kepler_cuenta} / ${fr.kepler_concepto}` } as never;
+    this.conceptoSel = {
+      cuenta: fr.kepler_cuenta, concepto: fr.kepler_concepto,
+      concepto_nombre: fr.glosa || '', sucursal: suc, cuenta_mayor: '',
+      label: `${fr.kepler_cuenta} / ${fr.kepler_concepto}`,
+    };
+    this.conceptoManual.set(true);
   }
 
   buscarConceptos(e: AutoCompleteCompleteEvent): void {
-    this.svc.conceptos(this.f.sucursal || undefined, e.query || '', 30).subscribe({
+    this.svc.conceptos(this.f().sucursal || undefined, e.query || '', 30).subscribe({
       // `label` es lo que el autocomplete pinta: la vista no arma texto en la plantilla.
       next: (r) => this.conceptos.set((r.rows ?? []).map((c) => ({ ...c, label: this.conceptoLabel(c) }))),
-      error: () => this.conceptos.set([]),
+      error: (err) => this.avisarError(err, 'No se pudo buscar el concepto'),
     });
   }
 
   elegirConcepto(e: AutoCompleteSelectEvent): void {
     const c = e.value as ConceptoKepler;
-    this.f.kepler_cuenta = c?.cuenta ?? null;
-    this.f.kepler_concepto = c?.concepto ?? null;
+    this.f.update((v) => ({
+      ...v, kepler_cuenta: c?.cuenta ?? null, kepler_concepto: c?.concepto ?? null,
+    }));
+    this.conceptoManual.set(true);
   }
 
-  onSucursal(): void { this.conceptos.set([]); this.pedirPropuesta(); }
+  onSucursal(v: string): void {
+    this.setF('sucursal', v);
+    this.conceptos.set([]);
+    this.conceptoSel = null;
+    this.pedirPropuesta();
+    // El catálogo de frecuentes es por sucursal: cambiar de plaza cambia los chips.
+    this.cargarFrecuentes();
+  }
 
   private debounce?: ReturnType<typeof setTimeout>;
   pedirPropuestaDebounced(): void {
@@ -1067,17 +1484,28 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   /** Pide una PROPUESTA. Nunca pisa lo que el humano ya eligió a mano. */
   pedirPropuesta(): void {
-    if (!this.f.tipo && !this.f.beneficiario && !this.f.glosa) return;
+    const f = this.f();
+    if (!f.tipo && !f.beneficiario && !f.glosa) return;
     this.svc.autofill({
-      tipo: this.f.tipo, sucursal: this.f.sucursal,
-      glosa: this.f.glosa || undefined, beneficiario: this.f.beneficiario || undefined,
+      tipo: f.tipo, sucursal: f.sucursal,
+      glosa: f.glosa || undefined, beneficiario: f.beneficiario || undefined,
     }).subscribe({
       next: (r) => {
         this.propuesta.set(r);
         const v = r.concepto?.value;
         if (v && !this.conceptoSel) {
-          this.f.kepler_cuenta = v.kepler_cuenta;
-          this.f.kepler_concepto = v.kepler_concepto;
+          this.f.update((x) => ({ ...x, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }));
+          // ⛔ Antes se escribía el par contable y NO se tocaba `conceptoSel`, que es lo que pinta
+          // el buscador: el campo "Cuenta y concepto de Kepler" se veía VACÍO mientras el
+          // formulario ya llevaba una cuenta adentro, y se guardaba un asiento a una cuenta que
+          // la persona nunca vio. Lo propuesto se MUESTRA, con su etiqueta de procedencia.
+          this.conceptoSel = {
+            cuenta: v.kepler_cuenta, concepto: v.kepler_concepto,
+            concepto_nombre: r.concepto?.source ? 'propuesto' : '', sucursal: f.sucursal, cuenta_mayor: '',
+            label: `${v.kepler_cuenta} / ${v.kepler_concepto}`,
+          };
+          // Sigue siendo PROPUESTO, no manual: la etiqueta tiene que poder decirlo.
+          this.conceptoManual.set(false);
         }
       },
       error: () => this.propuesta.set(null),
@@ -1085,17 +1513,18 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   }
 
   piezasDe(d: number): number {
-    return this.f.denominaciones.find((x) => x.denominacion === d)?.piezas ?? 0;
+    return this.f().denominaciones.find((x) => x.denominacion === d)?.piezas ?? 0;
   }
 
   setPiezas(d: number, piezas: number): void {
-    const list = this.f.denominaciones.filter((x) => x.denominacion !== d);
+    const list = this.f().denominaciones.filter((x) => x.denominacion !== d);
     if (Number(piezas) > 0) list.push({ denominacion: d, piezas: Number(piezas) });
-    this.f = { ...this.f, denominaciones: list };
+    this.f.update((v) => ({ ...v, denominaciones: list }));
   }
 
   textoArqueo(): string {
-    const r = estadoArqueo(Number(this.f.monto), this.f.denominaciones, Number(this.f.morralla || 0));
+    const f = this.f();
+    const r = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0));
     if (r.estado === 'sin_desglose') return 'sin contar';
     if (r.estado === 'cuadra') return `cuadra: ${money(r.desglosado)}`;
     return `NO cuadra: ${money(r.desglosado)} (${r.diferencia > 0 ? 'sobran' : 'faltan'} ${money(Math.abs(r.diferencia))})`;
@@ -1108,25 +1537,41 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   }
 
   guardar(): void {
-    if (this.bloqueos().length) return;
+    if (this.bloqueos().length || this.guardando()) return;
     this.guardando.set(true);
     const cobro = this.cobroElegido();
+    const f = this.f();
     this.svc.crear({
-      ...this.f,
-      denominaciones: this.f.denominaciones,
+      ...f,
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
       // descarta el del formulario, y el índice único impide que el mismo cobro entre dos veces.
       origen_tipo: cobro ? 'cobro' : null,
       origen_ref: cobro ? cobro.origen_ref : null,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
-      client_uuid: crypto.randomUUID(),
+      client_uuid: this.nuevoUuid(),
     }).subscribe({
-      next: () => { this.guardando.set(false); this.capturaAbierta = false; this.cargar(); this.cargarSaldo(); },
-      error: () => { this.guardando.set(false); },
+      next: () => {
+        this.guardando.set(false);
+        this.capturaAbierta.set(false);
+        this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
+        this.cargar(); this.cargarSaldo();
+      },
+      error: (e) => { this.guardando.set(false); this.avisarError(e, 'No se pudo guardar el movimiento'); },
     });
   }
 
-  /** Suma visible del desglose, para el pie del bloque. */
-  desglosado = computed(() => sumaDesglose(this.f.denominaciones, this.f.morralla));
+  /**
+   * `crypto.randomUUID` sólo existe en contexto seguro: sobre `http://` en la LAN —que es como se
+   * abre esta pantalla en las sucursales— es `undefined` y `guardar()` reventaba ANTES de emitir
+   * la petición, con el error tragado encima. La llave de idempotencia no puede depender de eso.
+   */
+  private nuevoUuid(): string {
+    const c = globalThis.crypto as Crypto | undefined;
+    if (c?.randomUUID) return c.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+      const r = (Math.random() * 16) | 0;
+      return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
 }

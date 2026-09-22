@@ -51,6 +51,16 @@ const COMPUERTAS = [
   { nombre: 'templates', cmd: 'node scripts/check-template-literals.js', que: 'literales de template enteros, CSS que parsea' },
   { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
+  // `[CG.22]` Las dos que siguen atrapan defectos de UI **mudos**: build verde, typecheck verde,
+  // cero errores en consola, y la pantalla no funciona. La única forma de verlos era abrirla.
+  //   · reactividad: un `computed()` sobre un campo plano queda congelado. Pasó el 14-sep en
+  //     `almacen-analisis-bi` —con spec de la lección incluido— y volvió a pasar el 22-sep en
+  //     `finanzas-caja-general`, donde dejó el botón **Guardar** inhabilitado de por vida.
+  //     Un spec que prueba el principio no revisa el código que se escribe después.
+  //   · primeng: API que la v22 retiró y que Angular deja pasar como atributo HTML muerto.
+  //     `pTemplate="footer"` en un `p-dialog` abre el diálogo SIN BOTONES (GOTCHAS §59).
+  { nombre: 'reactividad', cmd: 'node scripts/check-signal-reactivity.js', que: 'ningún computed() depende de un campo plano mutable' },
+  { nombre: 'primeng', cmd: 'node scripts/check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)' },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
