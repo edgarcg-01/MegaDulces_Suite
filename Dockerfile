@@ -47,8 +47,29 @@ RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/roo
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
+# `[NX.11]` ⛔ ACÁ NO VA `CI=true`. Medido el 2026-09-21 con un 2×2 sobre un target trivial YA
+# CACHEADO (o sea: cero compilación, cero bytes que subir), 3-6 corridas por celda:
+#
+#                    sin CI        CI=true
+#   daemon ON     4.7–7.9 s     75.7–88.6 s
+#   daemon OFF    5.5–6.2 s     50.1–55.7 s
+#   sin Nx Cloud  4.8–8.0 s      4.8–8.0 s
+#
+# El peaje de ~45–80 s POR CORRIDA aparece SÓLO en la intersección `CI=true` × Nx Cloud — ni el
+# uno ni el otro por separado. Y el daemon no es la variable (con `CI` hasta empeora), así que
+# `NX_DAEMON=false` se queda: es la celda más barata (5.5–6.2 s) y evita el proceso residente.
+#
+# Cuadra con prod: el deploy del 2026-09-21 midió 2m 54s en este paso contra `Run duration 1m 41s`
+# que reporta Nx = **73 s fuera de las tareas**, en Railway, otra red y otra máquina. ~63 s de
+# este peaje + ~6 s de grafo + ~1.3 s de `npx`.
+#
+# ⚠️ El MECANISMO es hipótesis (en modo CI el runner de Nx Cloud esperaría la confirmación del run
+# antes de salir); lo MEDIDO es el efecto. Si algún día se quita el token, esto deja de importar.
+#
+# `CI=true` sigue puesto en `deps` y `prod-deps`, que es donde de verdad hace falta (npm no
+# interactivo). Verificado: NADA de nuestro código lee `process.env.CI` — sus únicos consumidores
+# son npm, la CLI de Angular y Nx.
 ENV NX_DAEMON=false \
-    CI=true \
     NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false

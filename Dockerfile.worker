@@ -27,7 +27,10 @@ RUN npm ci --prefer-offline
 # ── Stage 2: compilar SOLO la api (SWC, sin Angular) ────────────────────────
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-ENV NX_DAEMON=false CI=true
+# `[NX.11]` ⛔ SIN `CI=true`: medido, la intersección `CI=true` × Nx Cloud cuesta ~45–80 s por
+# corrida de `nx`, aunque el target ya esté cacheado. Detalle del 2×2 en el `Dockerfile` raíz.
+# `CI=true` se queda en `deps`/`prod-deps`, donde npm sí lo necesita.
+ENV NX_DAEMON=false
 COPY --from=deps /app/node_modules ./node_modules
 # ⛔ `vitest.shared.ts`: lo importan los `vitest.config.ts` de `apps/`+`libs/`, y el plugin
 # `@nx/vitest` los carga para armar el grafo en CUALQUIER comando de Nx. Sin él, "Failed to

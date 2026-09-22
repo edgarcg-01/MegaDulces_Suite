@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### Fixed — `CI=true` × Nx Cloud costaba ~63s por build, y lo habíamos puesto nosotros (`[NX.11]`, 2026-09-21)
+- **La salida expandida del `nx run-many` de prod destapó que la mitad del build no compila nada**:
+  `Run duration 1m 41s` contra **2m 54s** del paso de Docker. Reproducido en local: una corrida
+  con **los 3 targets en caché** (`Run duration 669 ms`) tardaba **86 s de reloj**.
+- **Dos hipótesis propias refutadas con medición** antes de acertar: el `git: not found` que el log
+  imprime 5 veces (construir el grafo tarda igual con git y sin él) y el daemon apagado (con `CI`
+  encendido es **peor**).
+- **El 2×2 que atribuye**, sobre un target trivial ya cacheado: `CI` sin setear → **4.7–7.9 s**;
+  **`CI=true` → 50–88 s**; sin Nx Cloud → 4.8–8.0 s en ambas. **El peaje vive sólo en la
+  intersección `CI=true` × Nx Cloud** y no depende del trabajo.
+- ⚠️ **Lo introdujo `[NX.4]`**: el caché remoto se encendió para no compilar `api:build` dos veces
+  por release (ahorra ~25 s) y costaba ~63 s **en cada uno de los 4 servicios**. Net negativo.
+- **Arreglo:** `CI=true` sale **sólo del stage `builder`** en los 4 Dockerfiles; se queda en
+  `deps`/`prod-deps`, donde npm lo necesita. Verificado que nada de nuestro código lee
+  `process.env.CI`. Probado con `--skip-nx-cache`: `rc=0`, build correcto, **gap 83 s → 5 s**.
+- ⚠️ El mecanismo es hipótesis; el efecto está medido. **No verificado en contenedor** (el motor de
+  Docker Desktop se cayó durante la prueba) — se confirma con el próximo deploy.
+
 ### Added — Ubicaciones: el mapa de la bodega, rack por rack (WMS-REC.10, 2026-09-21)
 - La pantalla pasa a **maestro–detalle**: a la izquierda las ubicaciones (con buscador y chips
   Rack / Tarima / Otra), a la derecha **qué hay adentro** en orden de caducidad. Antes era una

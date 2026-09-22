@@ -597,3 +597,82 @@ qué esa capa no cacheaba es la próxima pregunta, y vale más que los 25s del e
 - **El `npm ci` sin cache mount de portal/vendor.** Cada build de esos dos baja las deps enteras
   de la red. Railway exige `id=s/<service-id>-…` y **no tengo los Service ID** de
   `Portal_MegaDulces` ni `Vendor_MegaDulces`. Acción humana: pasarlos.
+
+---
+
+## 11 · `[NX.11]` — La mitad del build no compilaba nada, y la causa la habíamos puesto nosotros
+
+Disparado por la salida expandida del `nx run-many` de prod, que el deploy del 2026-09-21 mostró
+por primera vez:
+
+```
+✔ shared-scoring:build   0s      Remote Cache Hit
+✔ view:build:production  1m 14s  Cache Miss
+✔ api:build:production   25s     Cache Miss
+Run duration: 1m 41s
+```
+
+…pero el **paso de Docker midió 2m 54s**. **73 segundos fuera de las tareas.**
+
+### Reproducido, y peor en local
+
+| escenario | wall clock | `Run duration` de Nx | hueco |
+|---|---|---|---|
+| prod (Railway) | 2m 54s | 1m 41s | **73 s** |
+| local, build real | 164 s | 81 s | **83 s** |
+| local, **3/3 en caché** | **86 s** | **669 ms** | **85 s** |
+
+La tercera fila es la que define el problema: **sin compilar nada, el comando tarda 86 segundos.**
+
+### Dos hipótesis propias, refutadas
+
+1. **`git: not found`** (el log lo imprime 5 veces; la imagen no trae git). Medido: grafo en
+   5.6–6.0 s con git y 5.8–6.0 s sin él. **Sin diferencia.**
+2. **El daemon apagado.** También falso — y al revés: con `CI=true`, el daemon encendido es peor.
+
+El perfilador (`NX_PERF_LOGGING=true`) sólo daba cuenta de ~5 s (grafo 2.3 s + plugins 1.7 s +
+tareas 0.65 s). Los otros ~81 s no estaban instrumentados.
+
+### El 2×2 que sí lo atribuye
+
+Sobre un target **trivial y ya cacheado** — diseño elegido a propósito para que la corrida dure
+segundos y la contención de la máquina no la contamine (la primera tanda, sobre el build completo,
+salió inservible: 5.6 s / 33 s / 109 s en la misma columna).
+
+| | `CI` sin setear | `CI=true` |
+|---|---|---|
+| daemon ON | 4.7–7.9 s | **75.7–88.6 s** |
+| daemon OFF | 5.5–6.2 s | **50.1–55.7 s** |
+| sin Nx Cloud | 4.8–8.0 s | 4.8–8.0 s |
+
+**El peaje vive SÓLO en la intersección `CI=true` × Nx Cloud**, ~45–80 s por corrida de `nx`, y
+**no depende del trabajo**: el target ya estaba en caché.
+
+⚠️ Esto lo introdujo esta misma fase. Nx Cloud se encendió en `[NX.4]` para que `api:build` no se
+compilara dos veces por release —ahorra ~25 s en el worker— y estaba costando ~63 s **en cada uno
+de los 4 servicios**. Net claramente negativo, y nadie lo habría visto sin el desglose del log.
+
+### El arreglo
+
+`CI=true` estaba en TRES stages por Dockerfile. Se quita **sólo del `builder`** (el único donde
+corre `nx`) en los 4; se queda en `deps` y `prod-deps`, donde npm lo necesita. Verificado que
+**nada de nuestro código lee `process.env.CI`**.
+
+Prueba con el env exacto del stage nuevo y `--skip-nx-cache` (compilación real):
+
+```
+rc=0 · Successfully ran target build for 2 projects · artefactos generados
+wall 69 s vs Run duration 1m 4s → gap de 5 s   (antes 83 s)
+```
+
+### Declarado
+
+- ⚠️ El **mecanismo** es hipótesis (el runner de Nx Cloud esperando la confirmación del run en
+  modo CI); lo **medido** es el efecto.
+- ⚠️ **No verificado en contenedor**: el motor de Docker Desktop de `.249` se cayó (`500` en
+  `_ping`) durante la verificación — misma falla que ya documenta la Fase VL para esa máquina. La
+  prueba se hizo con el env equivalente fuera de Docker. **Se confirma con el próximo deploy.**
+- ⚠️ `npx nx` cuesta **1,342 ms** contra **90 ms** llamando `node node_modules/nx/bin/nx.js`.
+  No se tocó: es ruido al lado de lo anterior, y cambiar el entrypoint tiene su propio riesgo.
+- ⭐ La medición también deja sin argumento el `--parallel=1`: Nx reporta 26.9 s recuperables,
+  contra los ~63 s que valía esto. Sigue en serie por el OOM documentado.

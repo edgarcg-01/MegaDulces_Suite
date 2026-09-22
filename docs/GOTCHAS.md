@@ -3273,3 +3273,62 @@ arreglo que vive en un solo archivo es una nota al pie, no un arreglo. Es la mis
 que la Fase VL dejó en `.249` porque Jet 32-bit no corre en el servidor Linux, y `FeedGuardian`
 es el guardián de los feeds. La ventana molesta se apaga en el `spawn`; apagar la tarea apaga
 ingesta de producción y nadie se entera hasta que falta el dato.
+
+---
+
+## 62. `CI=true` × Nx Cloud: ~45–80 s de peaje POR CORRIDA, aunque no haya nada que compilar
+
+**Medido el 2026-09-21.** El paso `nx run-many` del build de prod tardaba **2m 54s** mientras el
+propio Nx reportaba `Run duration: 1m 41s` → **73 s que no compilan nada**. Reproducido en local:
+una corrida con **los 3 targets en caché** (`Run duration: 669 ms`) tardaba **86 s de reloj**.
+
+### El 2×2 que lo atribuye
+
+Sobre un target trivial **ya cacheado** (cero compilación, cero bytes que subir), 3–6 corridas
+por celda, alternadas para descartar el orden:
+
+| | `CI` sin setear | `CI=true` |
+|---|---|---|
+| daemon **ON** | 4.7–7.9 s | **75.7–88.6 s** |
+| daemon **OFF** | 5.5–6.2 s | **50.1–55.7 s** |
+| **sin Nx Cloud** | 4.8–8.0 s | 4.8–8.0 s |
+
+**El peaje existe SÓLO en la intersección `CI=true` × Nx Cloud.** Ni el uno ni el otro por
+separado. Los conjuntos no se tocan: el peor caso sin la intersección (8.0 s) está muy por debajo
+del mejor caso con ella (36 s en la tanda más ruidosa, 50 s en la limpia).
+
+### Dos hipótesis propias, refutadas por la medición
+
+1. **`git: not found`** — el log del build lo imprime 5 veces (la imagen `node:20-bookworm-slim`
+   no trae git) y parecía obvio que Nx caía a un camino lento. **Falso:** construir el grafo tarda
+   5.6–6.0 s con git en el PATH y 5.8–6.0 s sin él.
+2. **El daemon apagado** — también falso, y al revés de lo esperado: con `CI=true` el daemon
+   encendido es **peor** (75–88 s contra 50–55 s).
+
+### El arreglo, y por qué es seguro
+
+`CI=true` estaba en TRES stages de cada Dockerfile. Sólo se quita del stage **`builder`**, que es
+el único donde corre `nx`; se queda en `deps` y `prod-deps`, donde npm sí lo necesita para no ser
+interactivo. Verificado con grep: **nada de nuestro código lee `process.env.CI`** — sus únicos
+consumidores son npm, la CLI de Angular y Nx.
+
+Prueba de que compila igual, con el env exacto del stage nuevo (`NX_DAEMON=false`, sin `CI`) y
+`--skip-nx-cache` para forzar compilación real:
+
+```
+rc=0 · Successfully ran target build for 2 projects · artefactos generados
+wall 69 s vs Run duration 1m 4s → gap de 5 s  (antes: 83 s)
+```
+
+### Lo que hay que saber
+
+- ⚠️ **El MECANISMO es hipótesis**, el efecto está medido. La sospecha razonable es que en modo CI
+  el runner de Nx Cloud espera la confirmación del run antes de salir, en vez de reportar
+  best-effort. No se verificó y no hace falta para decidir.
+- ⚠️ **Confirmación independiente:** el gap de prod (73 s, Railway, otra red, otra máquina) cuadra
+  con estos ~63 s de peaje + ~6 s de grafo + ~1.3 s de `npx`.
+- ⚠️ `npx nx` cuesta **1,342 ms** contra **90 ms** de `node node_modules/nx/bin/nx.js`. Chico pero
+  gratis, por si alguna vez se persiguen los últimos segundos.
+- ⭐ **Regla general:** cuando un paso de build tarda más que la suma de lo que declara hacer, el
+  hueco se mide, no se atribuye. Acá el hueco era **la mitad del build**, y las dos causas que
+  parecían evidentes eran las dos falsas.
