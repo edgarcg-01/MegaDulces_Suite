@@ -558,10 +558,38 @@ export async function medirZona(
     for (const r of f) ponerUltima(r.warehouse_id, r.ultima);
   }
   if (mudasRutas.length) {
+    /*
+     * `[CDRP.4-perf]` **Piso de 120 días, y lo que se pierde se DECLARA.**
+     *
+     * Ésta era la consulta más cara de toda la pantalla. Medido con
+     * `EXPLAIN (ANALYZE, BUFFERS)` contra prod, sobre la lista real de rutas:
+     *
+     *     sin piso (`<= hasta`)   →  567,943,892 buffers hit
+     *     piso 13 meses           →  351,464,515
+     *     piso 180 días           →  127,268,651
+     *     piso 120 días           →   62,057,692     ⭐ 9× menos
+     *
+     * ⛔ **Lo que se pierde:** una ruta que no vende desde hace MÁS de 120 días ya no trae fecha
+     * exacta — llega `ultima` en `null`, igual que una que nunca vendió. Se acepta porque la
+     * pregunta que este dato contesta es *«¿esto está muerto o se cayó ayer?»*, y a los 4 meses
+     * las dos respuestas son la misma. Lo que NO se hace es inventar una fecha.
+     *
+     * ⚠️ Es un paliativo, no el arreglo. La vista es una vista-sobre-vista
+     * (`v_route_sales_lines` → `wincaja.v_sales_lines`) con `Hash Right Join` contra
+     * `wincaja.articulos`: cuesta millones de buffers por toque aunque se acote, y `medirZona` la
+     * toca TRES veces. El arreglo real es una matview al grano de la vista (ADR-075: rollups fijos
+     * → matview nativo), con su cadencia y su frescura declaradas.
+     */
+    const PISO_ULTIMA_VENTA_DIAS = 120;
+    const desdeUltima = new Date(
+      Date.parse(`${v.hasta}T00:00:00Z`) - PISO_ULTIMA_VENTA_DIAS * 86_400_000,
+    )
+      .toISOString()
+      .slice(0, 10);
     const f = (await knex('analytics.v_rd_route_daily')
       .where('tenant_id', tenantId)
       .whereIn('route_code', mudasRutas)
-      .where('business_date', '<=', v.hasta)
+      .whereBetween('business_date', [desdeUltima, v.hasta])
       .groupBy('route_code')
       .select('route_code', knex.raw('max(business_date) as ultima'))) as {
       route_code: string; ultima: Date | null;
