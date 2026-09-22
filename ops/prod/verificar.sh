@@ -76,7 +76,11 @@ am=$(q "select current_setting('archive_mode')")
 if [ "$am" != "on" ]; then mal "archive_mode = ${am:-?} — SIN recuperación a un punto en el tiempo"
 else
   # `failed_count` es ACUMULATIVO: lo que dice si está roto AHORA es la comparación de fechas.
-  sano=$(q "select (last_archived_time > coalesce(last_failed_time,'-infinity'))::text from pg_stat_archiver")
+  # ⚠️ SIN `::text`. Un booleano casteado a texto da `true`/`false`; sin castear, `psql -At`
+  # imprime `t`/`f`. Con el cast puesto y la comparación contra `t`, esta compuerta daba ROJO
+  # SIEMPRE — medido en su primera corrida real, sobre un archivador que estaba sano.
+  # Una compuerta que grita en falso enseña a ignorar el tablero igual que una muda.
+  sano=$(q "select last_archived_time > coalesce(last_failed_time,'-infinity') from pg_stat_archiver")
   edad=$(q "select round(extract(epoch from (now()-last_archived_time))/60.0,1) from pg_stat_archiver")
   if [ "$sano" = "t" ]; then ok "archivado sano · último hace ${edad:-?} min"
   else mal "el ÚLTIMO intento de archivado FALLÓ — el WAL se acumula en pg_wal hasta llenar el disco"; fi
@@ -96,7 +100,19 @@ case "$h" in
 esac
 suc=$(curl -s -m 20 "$API/api/sucursales" 2>/dev/null | grep -o '"codigo"' | wc -l)
 [ "$suc" -ge 5 ] && ok "/api/sucursales: $suc sucursales" || mal "/api/sucursales: $suc (se esperaban >= 5)"
-prod_n=$(curl -s -m 60 "$API/api/kp/precios-todos" 2>/dev/null | grep -o '"sku"' | wc -l)
+# ⚠️ Se lee el campo `total` que la respuesta YA trae, en vez de contar apariciones de un
+# nombre de campo adivinado. La version anterior contaba `"sku"` y la respuesta usa `"c"`:
+# daba 0 sobre un endpoint que devuelve 9,566 productos. Un verificador que adivina el
+# formato de lo que verifica reporta rojo sobre algo sano — y eso cuesta la confianza del
+# tablero igual que un falso verde.
+# ⛔ SIN tubería a `head`: la respuesta son ~1.8 MB y `head -c` cierra el caño, curl recibe
+# SIGPIPE y la salida queda VACÍA — el conteo daba «Illegal number» sobre un endpoint sano.
+# Se descarga a un archivo y se lee de ahí.
+_tmp=/tmp/verificar-precios.$$
+curl -s -m 60 -o "$_tmp" "$API/api/kp/precios-todos" 2>/dev/null
+prod_n=$(grep -o '"total":[0-9]*' "$_tmp" 2>/dev/null | head -1 | cut -d: -f2)
+rm -f "$_tmp"
+prod_n=${prod_n:-0}
 [ "$prod_n" -ge 5000 ] && ok "/api/kp/precios-todos: $prod_n productos" || mal "/api/kp/precios-todos: $prod_n (se esperaban >= 5000)"
 for par in "portal:8081" "vendor:8082"; do
   n=${par%%:*}; p=${par#*:}

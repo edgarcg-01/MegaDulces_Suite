@@ -159,9 +159,23 @@ psql -h $PGH -p $PGP -U $PGU -d $DB -At -c "
   SELECT 'migraciones aplicadas: '||count(*) FROM public.knex_migrations"
 
 di "levantando la app"
-docker start prod-api prod-worker prod-portal prod-vendor >/dev/null 2>&1
+# ⛔ SIN `>/dev/null 2>&1`, Y SE VERIFICA. Medido el 2026-09-22: este `docker start` falló con
+# «Bind for 0.0.0.0:8080 failed: port is already allocated» —el proxy de Coolify había tomado el
+# puerto mientras el restore tenía la app parada— el error se descartó por el silenciador, y el
+# guion reportó **código 0 con la API caída**. Estuvo abajo 50 minutos y nada lo dijo.
+# No fue «falta un trap en el camino de error»: fue el CAMINO FELIZ reportando éxito.
+docker start prod-api prod-worker prod-portal prod-vendor 2>&1 | sed 's/^/   /'
+caidos=''
+for c in prod-api prod-worker prod-portal prod-vendor; do
+  [ "$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" = running ] || caidos="$caidos $c"
+done
+if [ -n "$caidos" ]; then
+  di "FALLO: la base se restauró bien, pero NO levantaron:$caidos"
+  di "       revisá si otro proceso tomó su puerto:  ss -ltnp | grep -E ':(8080|8081|8082)'"
+  exit 1
+fi
+di "los 4 servicios están arriba"
 
 di "⚠️ El veredicto NO es que los contenedores arranquen. Pedile DATOS:"
-di "     curl -s localhost:8080/api/health"
-di "     curl -s localhost:8080/api/sucursales | head -c 200"
+di "     sh ~/ops/prod/verificar.sh"
 exit 0
