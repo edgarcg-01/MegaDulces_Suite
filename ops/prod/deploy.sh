@@ -82,8 +82,15 @@ subir_compose() {
   ssh_md "mkdir -p ~/ops/prod"
   # El compose y los guiones que corren en el HOST (no dentro de un contenedor). `restaurar.sh`
   # usa `pg_restore` nativo de `md` y para/levanta contenedores: no puede vivir en una imagen.
-  scp -q -o BatchMode=yes "$REPO/ops/prod/docker-compose.yml" "$REPO/ops/prod/restaurar.sh" "$REPO/ops/prod/esperar-y-restaurar.sh" "$SRV:ops/prod/"
-  ssh_md "chmod +x ~/ops/prod/restaurar.sh ~/ops/prod/esperar-y-restaurar.sh"
+  # ⛔ Se copia a un nombre temporal y se MUEVE encima, nunca directo. `sh` lee el guion
+  # POR POSICIÓN mientras lo ejecuta: sobrescribir el mismo inodo de un guion en curso le
+  # hace ejecutar basura desde el byte donde iba. `mv` desenlaza el inodo viejo, y el
+  # proceso que lo está corriendo lo sigue leyendo entero y sano.
+  # No es teórico: `esperar-y-restaurar.sh` puede estar corriendo durante horas.
+  for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh; do
+    scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
+  done
+  ssh_md "cd ~/ops/prod && for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
