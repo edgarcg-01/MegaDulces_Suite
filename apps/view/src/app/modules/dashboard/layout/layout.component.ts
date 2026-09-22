@@ -199,15 +199,47 @@ export class LayoutComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * `[SW.2]` **El tiempo real se enciende sólo donde sus eventos significan algo.**
+   *
+   * `LayoutComponent` es UNA sola y la comparten **13 árboles de rutas** (dashboard, comercial,
+   * finanzas, presupuesto, contabilidad, compras, almacén, tienda, logística, admin, reparto…).
+   * Como `ngOnInit` llamaba a `dataUpdateService.init()` sin mirar dónde está el usuario, **entrar
+   * a cualquiera de las 13 abría una conexión socket.io** con toda su maquinaria de reconexión.
+   *
+   * ⛔ Y lo que ese socket escucha son **eventos de CAPTURA** (`capture:created/synced/deleted`):
+   * auditoría de ruta, o sea el mundo de `/dashboard`. En `/comercial/tickets`, en Finanzas o en
+   * Compras esa conexión no puede traer nada que la pantalla use — es costo sin destinatario.
+   *
+   * Reportado por 0Sistemas mirando la traza de red de `/comercial/tickets`.
+   *
+   * ⚠️ El banner «hay capturas nuevas» **no se pierde**: vive donde viven las capturas. Lo que se
+   * evita es prometerlo —y pagar la conexión— en 12 proyectos que no las tienen.
+   */
+  private tiempoRealAplica(): boolean {
+    return this.router.url.startsWith('/dashboard');
+  }
+
   ngOnInit(): void {
-    this.dataUpdateService.init();
+    // ⛔ La condición va acá y no dentro de `init()`: el servicio es `providedIn: 'root'` y lo
+    // usan otros; el que sabe en qué pantalla está el usuario es la shell, no el servicio.
+    if (this.tiempoRealAplica()) this.dataUpdateService.init();
     this.mobileMql?.addEventListener('change', this.mobileMqlListener);
   }
 
   ngOnDestroy(): void {
+    // `destroy()` se llama igual: es idempotente y no cuesta nada, y así no hay que recordar
+    // en qué rama se encendió. Encender condicional y apagar incondicional es el lado seguro.
     this.dataUpdateService.destroy();
     this.mobileMql?.removeEventListener('change', this.mobileMqlListener);
   }
+
+  /**
+   * `[SW.2]` El punto de «conectado en tiempo real» sólo se pinta donde hay tiempo real. Antes se
+   * mostraba en las 13, y en 12 de ellas decía **rojo permanente** — un indicador que siempre
+   * está en falla enseña a ignorar los indicadores.
+   */
+  readonly muestraTiempoReal = computed(() => this.tiempoRealAplica());
 
   // ── Data Update Methods ────────────────────────────────────────────
   /**
