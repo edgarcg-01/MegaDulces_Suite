@@ -281,6 +281,14 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Promociones',
   'Comercial · Thot',
   'Comercial · Inventario físico',
+  // `[AU.6]` Estas tres FALTABAN y las usan 27 permisos (Compras 23, Almacén 2, Surtido 2).
+  // No era cosmético: `admin-roles-grid` arma sus grupos con `PERMISSION_CATEGORY_ORDER.filter()`
+  // y `.map()`, así que una categoría ausente de esta lista **no se renderiza** — los 23 permisos
+  // del proyecto Compras no aparecían en la vista de roles ni contaban en su cobertura. Lo destapó
+  // el candado nuevo `permission-meta.spec.ts` en su primera corrida.
+  'Almacén',
+  'Almacén · Surtido',
+  'Compras',
   'Catálogo Interno',
   'Telemarketing',
   'Logística',
