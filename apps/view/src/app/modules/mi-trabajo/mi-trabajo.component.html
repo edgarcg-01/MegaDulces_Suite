@@ -547,6 +547,41 @@
                 <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
+              <!--
+                [SN.33] El DESGLOSE: un renglón por fila, cuando la cola sabe nombrarlas.
+
+                Pedido de Edgar (2026-09-22) sobre la bandeja de salud de datos. Un "7" dice
+                cuánto, no QUÉ -- y ahí el qué es toda la información: no es lo mismo que fallen
+                dos réplicas de Wincaja a que falle el reconciliador del ODS.
+
+                ⛔ Los renglones NO llevan enlace propio. La pantalla que los resuelve es UNA
+                (la de la bandeja, arriba): darle ruta a cada uno multiplicaría las puertas de la
+                portada para llevarlas todas al mismo lugar.
+
+                ⛔ `desglose` ausente = esta cola NO se desglosa; no significa "salió vacía". Por
+                eso el @if pregunta por longitud y no se pinta un vacío con cara de "no hay nada".
+              -->
+              @if (p.desglose?.length) {
+                <ul class="mt-desglose">
+                  @for (d of p.desglose; track d.id) {
+                    <li class="mt-dg" [class]="'is-n-' + (d.nivel ?? 'sin')">
+                      <span class="mt-dg-nivel" [title]="nivelMotivo(d)">{{ nivelTexto(d) }}</span>
+                      <span class="mt-dg-txt">
+                        <span class="mt-dg-l">{{ d.label }}</span>
+                        @if (d.nota) { <span class="mt-dg-n">{{ d.nota }}</span> }
+                      </span>
+                      <span class="mt-dg-edad" [title]="d.desde ? 'Desde el ' + d.desde : 'Esta fuente no reportó desde cuándo'">{{ antiguedad({ mas_viejo_at: d.desde }) }}</span>
+                    </li>
+                  }
+                  <!--
+                    Lo recortado se DICE: una lista truncada se lee igual que una completa, y
+                    entonces "eso es todo" y "eso es lo que cabe" se confunden ([SN.21]).
+                  -->
+                  @if (p.desglose_truncado) {
+                    <li class="mt-dg is-mas">+{{ formatoTotal(p.desglose_truncado) }} más — se ven todas en la pantalla</li>
+                  }
+                </ul>
+              }
               }
             }
 

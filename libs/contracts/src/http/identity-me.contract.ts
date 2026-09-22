@@ -265,6 +265,57 @@ export interface MePendiente {
    *                        quienes ven la bandeja de reabasto.
    */
   ambito: 'red' | 'sucursal' | 'red_sin_ficha';
+  /**
+   * `[SN.33]` **Las filas que forman el total, cuando la cola puede nombrarlas.**
+   *
+   * Nace de un pedido de Edgar sobre la bandeja de salud de datos: *«tienes que desglosarlo»*. Un
+   * «7» le dice a Sistemas cuánto, no qué — y en esa cola el QUÉ es toda la información: no es lo
+   * mismo que fallen dos réplicas de Wincaja a que falle el reconciliador del ODS.
+   *
+   * ⛔ **Es opcional a propósito y la mayoría de las colas NO lo trae.** Desglosar 2,409 descuadres
+   * en la portada sería mudar la pantalla entera a la landing — la regla de `[SN.7]` sigue siendo
+   * que acá va el número y el enlace. Sólo se desglosa la cola cuyo total es chico por naturaleza
+   * y cuyas filas tienen nombre propio.
+   *
+   * ⛔ `undefined`/`null` = **esta cola no se desglosa**; NO significa «se desglosó y salió vacía».
+   * Son afirmaciones distintas y la pantalla las trata distinto (ADR-056): sin desglose no pinta
+   * nada, con desglose vacío diría que no hay filas, que sería falso con `total > 0`.
+   */
+  desglose?: readonly MeDesgloseItem[] | null;
+  /**
+   * `[SN.33]` Cuántas filas quedaron FUERA del desglose por el tope. `0` = se muestran todas.
+   *
+   * ⛔ Se declara en vez de recortar en silencio: una lista truncada se lee igual que una lista
+   * completa, y entonces «eso es todo» y «eso es lo que cabe» se confunden — el mismo defecto que
+   * `[SN.21]` corrigió para la lista de colas.
+   */
+  desglose_truncado?: number | null;
+}
+
+/**
+ * `[SN.33]` — Una fila del desglose de una bandeja.
+ *
+ * Deliberadamente pobre: nombre, gravedad, desde cuándo y la nota de la fuente. **No lleva ruta
+ * propia** — el enlace sigue siendo el de la bandeja, porque la pantalla que resuelve es una sola.
+ * Darle ruta a cada fila multiplicaría por siete las puertas de la portada para llevarlas todas al
+ * mismo lugar.
+ */
+export interface MeDesgloseItem {
+  /** Clave estable de la fila en su fuente (`'wincaja_feed'`). Sirve de `track` y de diagnóstico. */
+  id: string;
+  /** Lo que se lee: «Feed Wincaja (venta POS)». */
+  label: string;
+  /**
+   * Gravedad **declarada por la fuente**, no derivada acá.
+   *
+   * ⛔ `null` = la fuente no reporta gravedad. No se rellena con `'warn'`: un default inventado en
+   * una columna de severidad es exactamente lo que hace que un crítico se lea como un aviso.
+   */
+  nivel: 'warn' | 'critical' | null;
+  /** Desde cuándo está así (ISO). `null` = sin fechar, y se dice — nunca se asume «hoy». */
+  desde: string | null;
+  /** La nota de la fuente, tal cual la escribió. `null` cuando no dejó ninguna. */
+  nota: string | null;
 }
 
 /**

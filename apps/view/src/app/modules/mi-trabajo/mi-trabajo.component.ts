@@ -20,6 +20,7 @@ import type {
   MeCanalGrupo,
   MeCiclo,
   MeContext,
+  MeDesgloseItem,
   MePendiente,
   MePeriodo,
   MeTarea,
@@ -269,9 +270,31 @@ export class MiTrabajoComponent {
   readonly declarados = computed(() => this.vis().declared);
   readonly destinos = computed(() => primaryDestinations(this.vis()));
 
-  /** Los espacios ya aplanados, con el texto contra el que busca el filtro. */
+  /**
+   * `[SN.34]` El departamento de esta persona, o `null` mientras `me/context` no contesta.
+   *
+   * ⛔ `null` significa **«todavía no sé»**, no «ninguno»: se usa sólo para NO ocultar. Esconder un
+   * espacio apoyándose en un dato que aún no llegó sería decidir sobre lo que no se midió.
+   */
+  private readonly miDepartamento = computed<string | null>(() => {
+    const c = this.contexto();
+    return c.status === 'ok' ? c.data.department?.code ?? null : null;
+  });
+
+  /**
+   * Los espacios ya aplanados, con el texto contra el que busca el filtro.
+   *
+   * `[SN.34]` Acá se aplica `hideForDepartments`: un recorte de la PORTADA, no de acceso — la ruta
+   * sigue abierta, el sidebar sigue ofreciéndola y `Ctrl K` la sigue encontrando. Ver el motivo y
+   * lo medido en `SuiteSpace.hideForDepartments`.
+   */
   private readonly espaciosTodos = computed<EspacioVisible[]>(() =>
-    this.vis().spaces.map((s) => ({
+    this.vis()
+      .spaces.filter((s) => {
+        const mio = this.miDepartamento();
+        return !mio || !s.space.hideForDepartments?.includes(mio);
+      })
+      .map((s) => ({
       id: s.space.id,
       label: s.space.label,
       icon: s.space.icon,
@@ -1010,6 +1033,25 @@ export class MiTrabajoComponent {
       default:
         return null;
     }
+  }
+
+  /**
+   * `[SN.33]` La gravedad de una fila del desglose, **tal como la declaró su fuente**.
+   *
+   * ⛔ `null` no se pinta como «aviso»: se dice que la fuente no la reporta. Rellenar una columna
+   * de severidad con la opción más benigna es la forma más barata de que un crítico se lea como
+   * un aviso — y esta lista existe justamente para separarlos de un vistazo.
+   */
+  nivelTexto(d: MeDesgloseItem): string {
+    if (d.nivel === 'critical') return 'crítico';
+    if (d.nivel === 'warn') return 'aviso';
+    return 'sin nivel';
+  }
+
+  nivelMotivo(d: MeDesgloseItem): string {
+    if (d.nivel === 'critical') return 'La fuente lo declaró crítico.';
+    if (d.nivel === 'warn') return 'La fuente lo declaró como aviso.';
+    return 'Esta fuente no declaró gravedad. No se asume que sea leve.';
   }
 
   /** El motivo largo del veredicto, para el `title`. Dice contra QUÉ vara se juzgó. */

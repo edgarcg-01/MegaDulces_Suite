@@ -99,6 +99,28 @@ export interface SuiteSpace {
   readonly proposal?: string;
   /** `true` sólo para "Mi trabajo": es la pantalla misma, no una sección con entradas. */
   readonly landing?: boolean;
+  /**
+   * `[SN.34]` **Departamentos para los que este espacio NO se pinta en la portada.**
+   *
+   * Es un recorte de **UX de la landing**, hermano de `SuiteEntry.hideForRoles` y con su mismo
+   * espíritu: *el vendedor no debe ver el back-office aunque tenga la clave*. Acá la pregunta es
+   * de quién es el TRABAJO, y eso lo contesta el departamento, no el rol.
+   *
+   * ⛔ **No es seguridad y no cierra nada.** La ruta sigue abierta, el sidebar sigue ofreciéndola
+   * y el buscador global la sigue encontrando. Lo único que cambia es que deja de ocupar lugar en
+   * la portada de quien no responde de ella.
+   *
+   * ⛔ **Por departamento y NO por rol, y es una medición, no una preferencia.** Medido el
+   * 2026-09-22: `superadmin` lo traen **8 personas**, y **3 son `jefe_zona`** (aaron_alejo,
+   * ivette_cruz, ramon_rodriguez — Gerencia de Zona, entrando a diario). Ocultarlo «para
+   * superadmin» les habría quitado la puerta a ellos también, que no es lo que se pidió. El
+   * departamento separa exactamente a los 5 de Sistemas.
+   *
+   * ⚠️ El departamento llega de `GET /users/me/context`, que es **asíncrono**: hasta que contesta,
+   * el espacio se pinta. Es un parpadeo, y se prefiere a la alternativa —esconderlo mientras no se
+   * sabe— porque ocultar por un dato que todavía no llegó es decidir sobre lo que no se midió.
+   */
+  readonly hideForDepartments?: readonly string[];
   readonly entries: readonly SuiteEntry[];
 }
 
@@ -321,6 +343,17 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     icon: 'pi pi-wallet',
     description: 'Tesorería, bancos, cobranza, pagos, contabilidad y cumplimiento fiscal.',
     status: 'active',
+    /*
+     * `[SN.34]` Pedido de Edgar (2026-09-22): fuera de la portada de Sistemas. Las tres puertas
+     * —Finanzas, Presupuestos y Contabilidad— las abre `superadmin`, pero el dinero no es trabajo
+     * de Sistemas; ocupaban un cuarto del espacio útil de la columna sin que nadie de ahí responda
+     * de ellas.
+     *
+     * ⛔ Sigue ABIERTO: el sidebar la ofrece, la URL entra y el buscador la encuentra. Lo que se
+     * quita es el mosaico de la portada, no el acceso. Medido: 5 personas (`superoot`,
+     * `felipe_galvan`, `jlh_lopez`, `guillermo_lopez`, `david_cisneros`).
+     */
+    hideForDepartments: ['sistemas'],
     entries: [
       {
         id: 'finanzas',
