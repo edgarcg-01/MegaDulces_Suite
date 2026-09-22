@@ -10,6 +10,26 @@
 
 ## [Unreleased]
 
+### Added — pgBackRest: el corte iba a bajar el RPO de minutos a 24 horas (`[VL.9.6]`, 2026-09-22)
+- Salió de la pregunta *"pensemos en un 10×"*. **Medido consultando las dos bases**: Railway
+  corre `archive_mode = on` con `pgbackrest-archive-push-wrapper.sh` — o sea que **prod ya tiene
+  recuperación a un punto en el tiempo** — y la copia de `md` tenía `archive_mode = off`. El
+  corte cambiaba *"puedo volver a cualquier minuto"* por *"tengo la foto de anoche"*, **en
+  silencio y sin figurar en ninguno de los 7 bloqueos**.
+- Es lo único de la lista que **no escala solo**: con 10× (340 GB) el volcado completo pasa de
+  ~75 min a **~12 h** y deja de existir como estrategia.
+- **Verificado en vivo**: `stanza-create` OK, `check` forzó un cambio de WAL y confirmó que el
+  segmento **llegó al repositorio**, y el primer respaldo completo hizo **20.3 GB → 4 GB en 66
+  segundos** — contra ~75 min del `pg_dump` por WAN, porque es local y a nivel de bloque.
+- Dos trampas medidas y escritas: el `chown` del Dockerfile **no aplica sobre un montaje del
+  host** (llega con uid 1000, `postgres` es 999 → el archivado habría fallado siempre; se
+  detectó porque la verificación **intentaba escribir**), y **pgBackRest no comenta con `;`
+  sino con `#`**.
+- Y como esto crea una falla cuyo desenlace es *"el disco se llena y la base se detiene"*, se
+  agregó el sensor `wal_archive` a Salud BD — con el veredicto correcto: **no `failed_count > 0`**
+  (acumulativo, no se reinicia: dejaría el tablero en rojo para siempre) sino
+  `last_failed_time > last_archived_time`.
+
 ### Changed — el respaldo de prod se muda a `md`, y el número que sostenía el plan del corte estaba mal (`[VL.6.4]`, 2026-09-22)
 - El respaldo diario deja de ser una tarea del Programador de Windows y pasa a ser el contenedor
   `prod-backup` del compose (`ops/prod/backup-prod.sh`, **22:00 MX**).
