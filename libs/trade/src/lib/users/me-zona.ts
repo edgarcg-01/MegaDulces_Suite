@@ -105,6 +105,21 @@ export /**
  * ⛔ Los demás consumidores (`commercial-analytics`, `commercial-commissions`) siguen leyendo la
  * VISTA: pueden pedir rangos viejos, y esta matview les devolvería de menos en silencio.
  */
+/**
+ * `[CDRP.4-perf]` **De dónde sale la venta de tiendas.**
+ *
+ * `analytics.sales_daily` está al grano de PRODUCTO (3.0M filas / 1,507 MB) y este bloque pregunta
+ * por ALMACÉN: sumaba **249,389 filas por carga**. El índice cubriente de `20260921210000` ya la
+ * había bajado de 9.7 s a 242 ms, pero el piso lo pone la cantidad de filas, y eso sólo baja
+ * pre-agregando: **1,124,926 filas de 200 días colapsan a 4,447** (253×).
+ *
+ * ⚠️ Mismo trato que las rutas: hasta 30 min de rezago, y la última venta de una tienda muda queda
+ * acotada a 200 días (más viejo llega `null`, nunca una fecha inventada).
+ *
+ * ⛔ `analytics.sales_daily` no se toca: quien necesite grano de producto va a la tabla.
+ */
+const VENTA_TIENDA = 'analytics.mv_sales_daily_wh_200d';
+
 const VENTA_RUTA = 'analytics.mv_rd_route_daily_200d';
 
 const RESPONSABILIDAD_TODAS_LAS_ZONAS = 'comercial.venta_zonas';
@@ -408,7 +423,7 @@ export async function medirZona(
    */
   const [fTiendas, fRutas] = await Promise.all([
     tiendasIds.length
-      ? (knex('analytics.sales_daily')
+      ? (knex(VENTA_TIENDA)
           .where('tenant_id', tenantId)
           .whereIn('warehouse_id', tiendasIds)
           // ⛔ Tope en hoy: hay filas fechadas en el futuro y una fuente adelantada no puede estirar.
@@ -479,7 +494,7 @@ export async function medirZona(
      * zona tarda **4.4 s** (el planificador no empuja el rango de fechas). Resolver los almacenes
      * primero y pasar sus uuid en un `= ANY(...)` baja a **131 ms** con un *index only scan*.
      */
-    const filas = (await knex('analytics.sales_daily')
+    const filas = (await knex(VENTA_TIENDA)
       .where('tenant_id', tenantId)
       .whereIn('warehouse_id', tiendasIds)
       .whereBetween('sale_date', [v.desde_comparado, v.hasta])
@@ -494,10 +509,15 @@ export async function medirZona(
         // `[CDRP.1]` Costo y tickets del tramo ACTUAL. `venta_con_costo` es lo que hace declarable
         // la cobertura: 689 de 109,884 filas del tramo no traen costo ($18,679 de $25.79M).
         knex.raw('sum(cost) filter (where sale_date between ? and ?) as costo', [v.desde, v.hasta]),
-        knex.raw(
-          'sum(revenue) filter (where sale_date between ? and ? and cost is not null) as venta_cc',
-          [v.desde, v.hasta],
-        ),
+        /*
+         * `[CDRP.4-perf]` ⛔ Lee la COLUMNA `revenue_con_costo`, no `revenue ... and cost is not
+         * null`. La condición «trae costo» vive al grano de PRODUCTO y se pierde al agregar por
+         * almacén, así que la matview la trae precomputada. Sin esto habría que elegir entre no
+         * publicar margen o publicarlo sin decir sobre cuánta venta se calculó (ADR-056).
+         */
+        knex.raw('sum(revenue_con_costo) filter (where sale_date between ? and ?) as venta_cc', [
+          v.desde, v.hasta,
+        ]),
         knex.raw('sum(tickets) filter (where sale_date between ? and ?) as tk', [v.desde, v.hasta]),
       )) as {
         warehouse_id: string; mtd: string | null; prev: string | null; ultima: Date | null;
@@ -570,7 +590,7 @@ export async function medirZona(
     medidas.set(k, { ...prev, ultima: iso(u as Date | string | null) });
   };
   if (mudasTiendas.length) {
-    const f = (await knex('analytics.sales_daily')
+    const f = (await knex(VENTA_TIENDA)
       .where('tenant_id', tenantId)
       .whereIn('warehouse_id', mudasTiendas)
       .where('sale_date', '<=', v.hasta)

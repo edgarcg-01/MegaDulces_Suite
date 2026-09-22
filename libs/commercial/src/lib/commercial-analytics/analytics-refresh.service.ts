@@ -53,6 +53,12 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // A 30 min son 48 corridas/día ≈ 13 min de CPU, y el dato de HOY está — que es el punto: una
   // matview nocturna le sacaría el día en curso justo a quien más lo mira.
   { name: 'analytics.mv_rd_route_daily_200d', everyMin: 30 },
+  // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
+  // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
+  // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).
+  // `REFRESH CONCURRENTLY` medido: **2 s** — ocho veces más barato que el de rutas, así que la
+  // cadencia de 30 min le sobra.
+  { name: 'analytics.mv_sales_daily_wh_200d', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
