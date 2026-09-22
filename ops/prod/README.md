@@ -145,11 +145,25 @@ que el rodeo deja de comprar nada. `database/importers/lib/sink.js` ya tiene el 
 `FEEDS_SINK=pg` + `DATABASE_URL_NEW` escribe directo. Es una simplificación que **la mudanza
 se gana sola**. ⚠️ `FEEDS_INGEST_KEY` queda para **rotar**.
 
-**`Megadulces-Logistica` — sin portar, por falta de evidencia.** Corre el MISMO `/Dockerfile`
-que el API pero con **21 variables contra las 70 del API**: tiene `DATABASE_URL` y Cloudinary,
-y **no tiene `JWT_SECRET` ni `DATABASE_URL_NEW`**. Sin `JWT_SECRET` no puede validar una
-sesión. Parece un duplicado histórico. Antes de portarlo **o de apagarlo** hay que medir si
-alguien le pega, y eso se mide en Railway con sus logs de HTTP.
+**`Megadulces-Logistica` — sin portar, y medido: NO es este código.** Está configurado con el
+MISMO `/Dockerfile` que el API pero con **21 variables contra las 70 del API**: tiene
+`DATABASE_URL` y Cloudinary, y **no tiene `JWT_SECRET` ni `DATABASE_URL_NEW`** — sin
+`JWT_SECRET` no puede validar una sesión. Probado en vivo el 2026-09-22:
+
+```text
+https://megadulces-logistica-production.up.railway.app/            -> 200
+                                        .../api/health             -> 404
+título de la página servida:  "Megadulces | Control Logístico"
+```
+
+Y ese título **no es el de ninguna de las tres apps de este repo** (`view` y `portal` dicen
+*Mega Dulces*, `vendor` dice *vendor-MD*). O sea que está sirviendo el bundle de **otro
+código** — casi seguro el logístico standalone que la Fase J.9 portó dentro de `apps/view`,
+congelado en el deploy de entonces. Es una cáscara: sirve HTML y su API no contesta.
+
+⛔ **No se porta y tampoco se apaga desde acá.** Apagar algo que alguien podría tener
+marcado es una decisión del dueño, no una deducción mía. Lo que hay que medir antes está
+en Railway (logs de HTTP del servicio): si nadie le pega, es un servicio menos que pagar.
 
 **`observability`** — es el destino de `OTEL_EXPORTER_OTLP_ENDPOINT`. Apagarlo no rompe la app
 (el exportador de OTEL traga el error), pero tampoco se declara "migrado". Va en su sprint.
