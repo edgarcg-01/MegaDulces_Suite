@@ -114,11 +114,30 @@ export class CashLedgerService {
    * ingreso que sigue capturándose a mano (~40-45% del total, medido), y por eso la pantalla
    * conserva el camino manual en vez de obligar a elegir.
    */
-  ingresosPendientes(f: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number } = {}): Observable<{ rows: IngresoPendiente[]; limit: number; has_more: boolean }> {
+  ingresosPendientes(f: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number } = {}): Observable<PendientesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<{ rows: IngresoPendiente[]; limit: number; has_more: boolean }>(
-      `${this.base}/ingresos-pendientes`, { params: p });
+    return this.http.get<PendientesResponse>(`${this.base}/ingresos-pendientes`, { params: p });
+  }
+
+  /**
+   * CG.20 — **Confirma N entregas de un golpe.** El backend corre cada fila en su propia
+   * transacción: una que falle NO tumba a las demás, y el resultado viene por fila.
+   */
+  confirmarLote(items: Array<{ origen_ref: string; monto_contado?: number }>): Observable<ResumenLote> {
+    return this.http.post<ResumenLote>(`${this.base}/lote`, {
+      // El `client_uuid` va por fila: si la red corta y la persona reintenta, el reintento
+      // devuelve lo que ya se guardó en vez de duplicarlo.
+      items: items.map((i) => ({ ...i, client_uuid: crypto.randomUUID() })),
+    });
+  }
+
+  /** CG.20 — Los pares que ese capturista más repite, para ofrecerlos de un toque. */
+  frecuentes(f: { tipo?: string; sucursal?: string; limit?: number } = {}): Observable<{ rows: Frecuente[]; medido: { pares_con_soporte: number; minimo_usos: number } }> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<{ rows: Frecuente[]; medido: { pares_con_soporte: number; minimo_usos: number } }>(
+      `${this.base}/frecuentes`, { params: p });
   }
 
   detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number }>; arqueo: { desglosado: number; diferencia: number } | null }> {
@@ -226,6 +245,47 @@ export interface IngresoPendiente {
   /** `ruta` | `interno` | `cliente_final`. Se muestra: no todos los cobros son entrega de ruta. */
   tipo_cuenta: string | null;
   forma_pago: string | null;
+  /**
+   * CG.20 — `true` = se puede confirmar sin elegir NADA (la cuenta contable ya viene resuelta del
+   * mapa declarado). `false` viene SIEMPRE con `motivo_texto`: sin el porqué, la pantalla tendría
+   * que adivinar, y adivinar acá es inventar una cuenta contable.
+   */
+  confirmable: boolean;
+  kepler_cuenta: string | null;
+  kepler_concepto: string | null;
+  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto';
+  motivo_texto?: string;
+}
+
+export interface PendientesResponse {
+  rows: IngresoPendiente[];
+  limit: number;
+  has_more: boolean;
+  /** Cuántas de las visibles se pueden confirmar de un clic. Una lista llena de filas trabadas
+   *  no puede leerse igual que una lista lista (ADR-056). */
+  confirmables: number;
+}
+
+/** Resultado del lote: por fila, porque una que falla no tumba a las demás. */
+export interface ResumenLote {
+  filas: Array<{ origen_ref: string; estado: 'guardado' | 'duplicado' | 'rechazado' | 'no_confirmable'; folio?: string; motivo?: string }>;
+  guardados: number;
+  duplicados: number;
+  rechazados: number;
+  no_confirmables: number;
+  /** Suma SÓLO lo guardado. Un total optimista es una mentira. */
+  monto_guardado: number;
+}
+
+/** Un par (cuenta, concepto, beneficiario) que esa persona repite. Un toque lo llena. */
+export interface Frecuente {
+  kepler_cuenta: string;
+  kepler_concepto: string;
+  glosa: string | null;
+  beneficiario: string | null;
+  usos: number;
+  ultimo_uso: string | null;
+  rango: number;
 }
 
 /** Lo que devuelve sellar el conteo: acá SÍ viene revelado — ya no se puede retocar en silencio. */
