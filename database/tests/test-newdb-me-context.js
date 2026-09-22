@@ -833,7 +833,71 @@ const tieneDecoradorPermisos = (tramo) =>
       bloqueS ? 'bloque leído' : 'NO se encontró el bloque salud-datos');
     check('⛔ y su ruta es la pantalla que YA publica esa tabla',
       /ruta: '\/admin\/db-health'/.test(bloqueS));
+
+    /*
+     * ── `[SN.33]` El DESGLOSE: un renglón por fuente ──────────────────────────────────────────
+     *
+     * Pedido de Edgar (2026-09-22): *«tienes que desglosarlo»*. Lo que se vigila acá no es que
+     * exista —eso lo prueban las 5 pruebas de `mi-trabajo.component.spec.ts`, que sí ejercen el
+     * render— sino las DOS formas en que esto se degrada sin que nadie lo note:
+     *
+     *  1. que alguien se lo copie a una cola grande. `cuadre` tiene 2,409 filas: desglosarla
+     *     mudaría su pantalla entera a la portada, que es justo lo que `[SN.7]` regla 1 prohíbe.
+     *  2. que la gravedad se rellene con un default. `status` es lo ÚNICO que dice si es crítico
+     *     o aviso; un `?? 'warn'` hace que un crítico se lea como aviso, en la única lista que
+     *     existe para separarlos de un vistazo.
+     */
+    check('[SN.33] el tope del desglose está declarado y es un número usable',
+      /export const TOPE_DESGLOSE = (\d+);/.test(src)
+        && Number(src.match(/export const TOPE_DESGLOSE = (\d+);/)[1]) >= 1
+        && Number(src.match(/export const TOPE_DESGLOSE = (\d+);/)[1]) <= 50,
+      (src.match(/export const TOPE_DESGLOSE = (\d+);/) || [])[1]);
+
+    const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
+    check('⛔ [SN.33] SÓLO la cola de salud se desglosa (una cola grande mudaría su pantalla a la portada)',
+      conDesglose.length === 1 && conDesglose[0] === 'salud-datos', conDesglose);
+
+    check('⛔ [SN.33] el desglose ordena por GRAVEDAD antes que por fecha',
+      /case when status = 'critical' then 0 else 1 end[\s\S]{0,200}?orderBy\('first_seen_at'/.test(bloqueS));
+
+    check('⛔ [SN.33] la gravedad NO se rellena con un default (sería un crítico con cara de aviso)',
+      !/nivel:[^,\n]*\?\?\s*'(warn|critical)'/.test(bloqueS));
+
+    /*
+     * ⛔ Cuántas quedaron fuera se calcula contra el `total` YA medido, no lo inventa la bandeja:
+     * es el único número que puede decirlo exacto, y recortar sin declararlo hace que «eso es
+     * todo» y «eso es lo que cabe» se lean igual ([SN.21]).
+     */
+    const srcSvc = sinComentarios(
+      fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'), 'utf8'),
+    );
+    check('⛔ [SN.33] lo truncado se deriva del total medido, no de la consulta recortada',
+      /desglose_truncado:\s*Math\.max\(0,\s*total - items\.length\)/.test(srcSvc));
   }
+
+  /*
+   * ── `[SN.34]` El espacio que no le toca a tu departamento ────────────────────────────────────
+   *
+   * Pedido de Edgar: fuera «Administración y Finanzas» de la portada de Sistemas. Lo que este
+   * bloque vigila es que el recorte siga siendo POR DEPARTAMENTO: medido el 2026-09-22, `superadmin`
+   * lo traen 8 personas y 3 son `jefe_zona` entrando a diario — hacerlo por rol les quitaría la
+   * puerta a ellos, que no es lo que se pidió. La conducta la ejercen 3 pruebas del componente.
+   */
+  console.log('\n── 4j. [SN.34] Recorte de portada por departamento ──');
+  const srcMapa = sinComentarios(
+    fs.readFileSync(path.resolve(__dirname, '../../libs/contracts/src/authz/suite-map.ts'), 'utf8'),
+  );
+  check('el espacio de finanzas declara de qué departamento se oculta',
+    /id: 'administracion-y-finanzas'[\s\S]{0,900}?hideForDepartments: \['sistemas'\]/.test(srcMapa));
+  check('⛔ y NO se oculta por ROL (3 de los 8 superadmin son jefes de zona, medido)',
+    !/hideForRoles:[^\n]*superadmin/.test(srcMapa));
+  const srcPortada = sinComentarios(
+    fs.readFileSync(path.resolve(__dirname, '../../apps/view/src/app/modules/mi-trabajo/mi-trabajo.component.ts'), 'utf8'),
+  );
+  check('la portada aplica el recorte con el departamento de me/context',
+    /hideForDepartments\?\.includes\(mio\)/.test(srcPortada));
+  check('⛔ y con el departamento SIN saber todavía, NO oculta nada',
+    /return !mio \|\| !s\.space\.hideForDepartments/.test(srcPortada));
 
   /*
    * El tramo común no se puede leer del fuente con un grep honesto, así que se verifica dónde se

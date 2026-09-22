@@ -1,6 +1,11 @@
 import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
-import type { MeFlujo, MeVeredicto } from '@megadulces/contracts';
+import {
+  CAJA_VENTANA_DIAS,
+  type MeDesgloseItem,
+  type MeFlujo,
+  type MeVeredicto,
+} from '@megadulces/contracts';
 import { branchKeySql } from '@megadulces/platform-core';
 
 /**
@@ -187,7 +192,30 @@ export interface BandejaDef {
    */
   umbral_dias: number;
   medir: (knex: Knex, ctx: MedirCtx) => Promise<MedidaCola>;
+  /**
+   * `[SN.33]` **Opcional: nombrar las filas que forman el total.**
+   *
+   * Sólo se declara donde el QUÉ importa más que el CUÁNTO y el total es chico por naturaleza.
+   * ⛔ No se agrega «porque se puede»: desglosar una cola de miles mudaría su pantalla a la
+   * portada, y la regla de `[SN.7]` es que acá va el número y el enlace.
+   *
+   * Recibe `tope` y devuelve a lo sumo esas filas. **Cuántas quedaron fuera NO se calcula acá**:
+   * lo hace `workFor` restando contra el `total` que `medir` ya midió, que es el único número que
+   * puede decirlo exacto. Recortar sin declararlo haría que «eso es todo» y «eso es lo que cabe»
+   * se lean igual.
+   */
+  desglosar?: (knex: Knex, ctx: MedirCtx, tope: number) => Promise<MeDesgloseItem[]>;
 }
+
+/**
+ * `[SN.33]` Cuántas filas del desglose se pintan antes de resumir con «+N más».
+ *
+ * 8 no es un número redondo: la cola de salud llegó a **7** abiertas el día que se midió y su
+ * régimen de 30 días fueron 764 entradas con 759 salidas, o sea que vive entre 0 y una decena.
+ * Un tope de 8 muestra el caso normal entero y sólo recorta cuando de verdad hay una cascada —
+ * que es justo cuando el detalle importa menos que el hecho de que se cayó todo.
+ */
+export const TOPE_DESGLOSE = 8;
 
 /**
  * Cuenta y fecha la cola en UNA sola pasada (`count(*)` + `min(<fecha>)`). Dos consultas por
@@ -523,10 +551,20 @@ export const BANDEJAS: readonly BandejaDef[] = [
        * tanto documento nuevo fecha Kepler) y `c30` el DRENAJE (cuánto se confirmó): dos lados de
        * la misma cola, y sin el segundo no se puede distinguir una bandeja que crece de una que
        * simplemente es grande.
+       *
+       * ⭐ **La ventana de 45 días no es cosmética.** Medido en prod el 2026-09-22: sin ella esta
+       * bandeja publica **12,160 pendientes con el más viejo en 2025-01-01**, porque
+       * `finance.cash_ledger` está vacío y entonces "sin aplicar" es todo lo que Kepler registró
+       * desde que hay ODS. El número es cierto y la lectura es falsa: diría que la persona lleva
+       * veinte meses de atraso sobre un libro que no existía. Lo anterior a la ventana es una
+       * decisión de migración histórica, no trabajo del día, y se declara en la pantalla
+       * (`fuera_de_ventana`), no acá.
        */
       const r = await knex.raw(`
-        select (select count(*) from finance.v_caja_movimientos_pendientes)                       as n,
-               (select min(fecha_valor) from finance.v_caja_movimientos_pendientes)               as viejo,
+        select (select count(*) from finance.v_caja_movimientos_pendientes
+                 where fecha_valor >= now()::date - ${CAJA_VENTANA_DIAS})                         as n,
+               (select min(fecha_valor) from finance.v_caja_movimientos_pendientes
+                 where fecha_valor >= now()::date - ${CAJA_VENTANA_DIAS})                         as viejo,
                (select count(*) from finance.v_caja_movimientos_pendientes
                  where fecha_valor > now()::date - 7)                                             as e7,
                (select count(*) from finance.v_caja_movimientos_pendientes
@@ -598,6 +636,48 @@ export const BANDEJAS: readonly BandejaDef[] = [
         fecha: 'first_seen_at',
         cierre: 'resolved_at',
       }),
+    /*
+     * `[SN.33]` **Un renglón por fuente, porque acá el QUÉ es la información.**
+     *
+     * Pedido de Edgar (2026-09-22): *«tienes que desglosarlo»*. Un «7» le dice a Sistemas cuánto,
+     * no qué — y no es lo mismo que fallen dos réplicas de Wincaja a que falle el reconciliador
+     * del ODS, que es el que decide si la venta publicada está completa.
+     *
+     * ⛔ **El orden es gravedad y después antigüedad, NO antigüedad sola.** Medido el 22-sep: las
+     * dos más viejas (10 d) son de Wincaja y las dos que nacieron hoy son `cdc_reconcile` y la
+     * foto de inventario — ordenar sólo por fecha manda al fondo lo que se rompió hace una hora.
+     *
+     * ⛔ La gravedad **no se deriva acá**: sale de `status`, que es lo único que esa columna
+     * significa (`warn|critical`). Un `CASE` propio sería una segunda opinión sobre un dato que la
+     * fuente ya emitió — y cuando un CASE mezcla dos preguntas, la precedencia le miente a una
+     * (ADR-057).
+     *
+     * ⚠️ Una consulta MÁS por request, y sólo para esta bandeja. Se paga porque su cola vive entre
+     * 0 y una decena de filas y el índice `idx_db_health_alerts_tenant_open` la cubre; ninguna otra
+     * bandeja declara `desglosar` justamente para que esto no se vuelva N consultas.
+     */
+    desglosar: async (knex, { tenantId }, tope) => {
+      const filas = await knex('analytics.db_health_alerts')
+        .where({ tenant_id: tenantId })
+        .whereNull('resolved_at')
+        .orderByRaw(`case when status = 'critical' then 0 else 1 end`)
+        .orderBy('first_seen_at', 'asc')
+        .limit(tope)
+        .select('source_key', 'source_label', 'status', 'first_seen_at', 'note');
+
+      const items: MeDesgloseItem[] = filas.map((f) => ({
+        id: String(f.source_key),
+        // La etiqueta de la fuente es la que se lee; la clave técnica queda de respaldo, no de
+        // texto por defecto: «wincaja_feed» no le dice nada a nadie fuera de Sistemas.
+        label: String(f.source_label || f.source_key),
+        // ⛔ Sin `?? 'warn'`: si algún día la fuente deja de declarar gravedad, se dice, no se
+        // inventa la más benigna.
+        nivel: f.status === 'critical' || f.status === 'warn' ? f.status : null,
+        desde: f.first_seen_at ? new Date(f.first_seen_at).toISOString() : null,
+        nota: f.note ? String(f.note) : null,
+      }));
+      return items;
+    },
   },
 ];
 

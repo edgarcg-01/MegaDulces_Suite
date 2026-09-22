@@ -443,6 +443,69 @@
   white-space: nowrap;
 }
 
+/* ── `[SN.33]` Desglose de una bandeja: un renglón por fila ─────────────────────────────────
+   Va INDENTADO y con una guía a la izquierda porque pertenece a la fila de arriba. Sin esa
+   pertenencia visual los renglones se leerían como bandejas nuevas y la portada pasaría de 2
+   colas a 8, que es lo contrario de lo que el desglose viene a hacer.
+
+   ⛔ NO son enlaces (`li`, no `a`): la pantalla que los resuelve es la de la bandeja. */
+.mt-desglose {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--border-color);
+  margin-left: 21px; /* alinea la guía bajo el icono de la bandeja */
+}
+.mt-dg {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 3px 0;
+  min-width: 0;
+}
+/* La gravedad es la primera columna y tiene ancho FIJO: es lo que se escanea verticalmente. */
+.mt-dg-nivel {
+  flex: none;
+  width: 4.6rem;
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.mt-dg.is-n-critical .mt-dg-nivel { color: var(--bad-fg); }
+.mt-dg.is-n-warn     .mt-dg-nivel { color: var(--warn-fg); }
+/* `[SN.33]` Sin nivel declarado NO se pinta como aviso: queda en tinta apagada y lo dice. */
+.mt-dg.is-n-sin      .mt-dg-nivel { color: var(--text-faint); font-style: italic; }
+.mt-dg-txt { min-width: 0; flex: 1; }
+.mt-dg-l {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-dg-n {
+  display: block;
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-dg-edad {
+  flex: none;
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.mt-dg.is-mas {
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  padding-left: calc(4.6rem + 9px);
+}
+
 /* `[SN.29]` La declaración de las colas congeladas. Tono neutro: es un hecho, no una alarma. */
 .mt-congeladas {
   display: flex;

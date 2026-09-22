@@ -1339,4 +1339,113 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(t).toContain('+6.0%');
     expect(t).toContain('2026-08-15');
   });
+
+  // ── `[SN.33]` El desglose de una bandeja ──────────────────────────────────
+
+  /** Una cola de salud de datos con tres filas nombradas, como la manda el servidor. */
+  const CON_DESGLOSE: MeWork = {
+    ...SIN_TRABAJO,
+    tiene_responsabilidades: true,
+    pendientes: [
+      bandeja({
+        id: 'salud-datos',
+        label: 'Fuentes de datos con falla',
+        detalle: 'bases, réplicas y feeds que dejaron de actualizarse · sin resolver',
+        ruta: '/admin/db-health',
+        icono: 'pi pi-database',
+        total: 11,
+        umbral_dias: 1,
+        veredicto: 'atrasada',
+        mas_viejo_at: '2026-09-12T02:01:37.780Z',
+        desglose: [
+          { id: 'wincaja_feed', label: 'Feed Wincaja (venta POS)', nivel: 'critical', desde: '2026-09-12T06:01:04.693Z', nota: 'última venta 18/09 · 2 sucursales' },
+          { id: 'wincaja_cedis_stale', label: 'Wincaja — CEDIS Irapuato', nivel: 'warn', desde: '2026-09-19T18:00:15.184Z', nota: null },
+          // ⛔ La fuente NO declaró gravedad. Ver la prueba de abajo.
+          { id: 'mudo', label: 'Fuente sin gravedad declarada', nivel: null, desde: null, nota: null },
+        ],
+        desglose_truncado: 8,
+      }),
+    ],
+  };
+
+  it('`[SN.33]` la bandeja se DESGLOSA: un renglón por fuente, con su gravedad', async () => {
+    await montar({ perms: [Permission.USUARIOS_GESTIONAR], stay: true, work$: of(CON_DESGLOSE) });
+    const filas = q<HTMLElement>('.mt-desglose .mt-dg');
+    // 3 fuentes + el renglón que declara lo recortado.
+    expect(filas.length).toBe(4);
+    const t = html();
+    expect(t).toContain('Feed Wincaja (venta POS)');
+    expect(t).toContain('última venta 18/09 · 2 sucursales');
+    expect(t).toContain('crítico');
+    expect(t).toContain('aviso');
+  });
+
+  it('⛔ `[SN.33]` los renglones del desglose NO son enlaces: la pantalla que resuelve es una sola', async () => {
+    await montar({ perms: [Permission.USUARIOS_GESTIONAR], stay: true, work$: of(CON_DESGLOSE) });
+    // Si fueran <a>, la portada tendría 4 puertas nuevas llevando todas al mismo lugar.
+    expect(q<HTMLElement>('.mt-desglose a').length).toBe(0);
+    // Y el enlace de la bandeja sigue existiendo, uno solo.
+    expect(Array.from(pendientes()).filter((a) => a.getAttribute('href')?.includes('db-health')).length).toBe(1);
+  });
+
+  it('⛔ `[SN.33]` una fuente SIN gravedad declarada no se pinta como «aviso»', async () => {
+    // Rellenar una columna de severidad con la opción más benigna es la forma más barata de que
+    // un crítico se lea como un aviso. Se dice que no hay nivel.
+    await montar({ perms: [Permission.USUARIOS_GESTIONAR], stay: true, work$: of(CON_DESGLOSE) });
+    const niveles = Array.from(q<HTMLElement>('.mt-dg-nivel')).map((n) => n.textContent?.trim());
+    expect(niveles).toContain('sin nivel');
+    expect(niveles.filter((n) => n === 'aviso').length).toBe(1);
+  });
+
+  it('`[SN.33]` lo RECORTADO se declara, no desaparece', async () => {
+    await montar({ perms: [Permission.USUARIOS_GESTIONAR], stay: true, work$: of(CON_DESGLOSE) });
+    // 11 abiertas, 3 pintadas: una lista truncada en silencio se lee igual que una completa.
+    expect(html()).toContain('+8 más');
+  });
+
+  it('⛔ `[SN.33]` PRUEBA NEGATIVA — una bandeja SIN desglose no pinta una lista vacía', async () => {
+    // `desglose` ausente significa «esta cola no se desglosa», no «se desglosó y salió vacía».
+    await montar({ perms: [Permission.RECONCILIATION_VER], stay: true, work$: of(TRABAJO_MIXTO) });
+    expect(q<HTMLElement>('.mt-desglose').length).toBe(0);
+  });
+
+  // ── `[SN.34]` El espacio que no le toca a tu departamento ─────────────────
+
+  it('`[SN.34]` Sistemas NO ve el espacio «Administración y Finanzas» en su portada', async () => {
+    await montar({
+      role: 'superadmin',
+      perms: [Permission.USUARIOS_GESTIONAR],
+      stay: true,
+      ctx$: of({ ...CTX_BASE, role_name: 'superadmin', department: { code: 'sistemas', name: 'Sistemas' }, position: { code: 'sistemas', name: 'Jefatura de Sistemas' } }),
+    });
+    const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
+    expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(false);
+    // ⛔ Y el resto de la portada sigue entero: esto recorta UN espacio, no la columna.
+    expect(titulos.some((t) => t.includes('Comercial'))).toBe(true);
+  });
+
+  it('⛔ `[SN.34]` PRUEBA NEGATIVA — el MISMO superadmin de otro departamento SÍ lo ve', async () => {
+    // Si el recorte fuera por rol, estos 3 jefes de zona con `superadmin` (medido en prod el
+    // 2026-09-22) habrían perdido la puerta sin que nadie lo pidiera.
+    await montar({
+      role: 'superadmin',
+      perms: [Permission.USUARIOS_GESTIONAR],
+      stay: true,
+      ctx$: of({ ...CTX_BASE, role_name: 'superadmin', department: { code: 'direccion_zona', name: 'Dirección de Zona' }, position: { code: 'jefe_zona', name: 'Gerencia de Zona' } }),
+    });
+    const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
+    expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(true);
+  });
+
+  it('⛔ `[SN.34]` mientras no se sabe el departamento, el espacio SE PINTA', async () => {
+    // Esconderlo apoyándose en un dato que todavía no llegó sería decidir sobre lo que no se midió.
+    await montar({
+      role: 'superadmin',
+      perms: [Permission.USUARIOS_GESTIONAR],
+      stay: true,
+      ctx$: of({ ...CTX_BASE, role_name: 'superadmin', department: null, position: null }),
+    });
+    const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
+    expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(true);
+  });
 });

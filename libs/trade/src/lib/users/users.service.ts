@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
-import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
+import { BANDEJAS, TOPE_DESGLOSE, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
 import { CICLOS, puedeVerCiclo } from './me-cycles';
@@ -2600,6 +2600,7 @@ export class UsersService {
             // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
             // es "acotado a lo tuyo".
             ambito: !b.acotablePorSucursal ? 'red' : sucursales ? 'sucursal' : 'red_sin_ficha',
+            ...(await this.desgloseDe(b, ctx, total)),
           });
         }
       } catch (e) {
@@ -2927,6 +2928,40 @@ export class UsersService {
    * que "no responde de nada". El peor caso es que nada se marque como propio, nunca que alguien
    * pierda acceso.
    */
+
+  /**
+   * `[SN.33]` — **Las filas que forman el total, cuando la cola sabe nombrarlas.**
+   *
+   * Devuelve las claves que se esparcen sobre `MePendiente`, o `{}` cuando esta bandeja no
+   * declara `desglosar` (la mayoría: ver el motivo en `BandejaDef.desglosar`).
+   *
+   * ⛔ **Un desglose que falla NO tumba la fila.** El `total` ya está medido y es el número por el
+   * que la fila existe; perder los nombres es una falla estrictamente menor. Mandar la bandeja
+   * entera a `no_medido` por no poder detallarla escondería un conteo que sí se pudo hacer — el
+   * mismo error de categoría que ADR-056 persigue, sólo que al revés.
+   *
+   * ⚠️ Va dentro de `aislado()` por la lección de `[SN.22]`: una consulta que revienta sin savepoint
+   * deja la transacción de la request abortada y mata las mediciones que vienen después.
+   */
+  private async desgloseDe(
+    b: (typeof BANDEJAS)[number],
+    ctx: MedirCtx,
+    total: number,
+  ): Promise<Pick<MePendiente, 'desglose' | 'desglose_truncado'> | Record<string, never>> {
+    if (!b.desglosar) return {};
+    try {
+      const items = await this.aislado(() => b.desglosar!(this.knex, ctx, TOPE_DESGLOSE));
+      return {
+        desglose: items,
+        // Exacto: el tope recorta la consulta, y el resto sale del total que ya se midió.
+        desglose_truncado: Math.max(0, total - items.length),
+      };
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+      this.logger.warn(`me/work: bandeja ${b.id} se contó pero no se pudo desglosar — ${motivo}`);
+      return {};
+    }
+  }
 
   private async responsabilidadesDe(userId: string): Promise<Set<string> | null> {
     try {
