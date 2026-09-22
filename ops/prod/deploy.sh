@@ -82,8 +82,8 @@ subir_compose() {
   ssh_md "mkdir -p ~/ops/prod"
   # El compose y los guiones que corren en el HOST (no dentro de un contenedor). `restaurar.sh`
   # usa `pg_restore` nativo de `md` y para/levanta contenedores: no puede vivir en una imagen.
-  scp -q -o BatchMode=yes "$REPO/ops/prod/docker-compose.yml" "$REPO/ops/prod/restaurar.sh" "$SRV:ops/prod/"
-  ssh_md "chmod +x ~/ops/prod/restaurar.sh"
+  scp -q -o BatchMode=yes "$REPO/ops/prod/docker-compose.yml" "$REPO/ops/prod/restaurar.sh" "$REPO/ops/prod/esperar-y-restaurar.sh" "$SRV:ops/prod/"
+  ssh_md "chmod +x ~/ops/prod/restaurar.sh ~/ops/prod/esperar-y-restaurar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
