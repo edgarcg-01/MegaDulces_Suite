@@ -112,31 +112,50 @@ Por eso el orden es:
 # 1. los roles, ANTES
 docker exec -i pg-prod psql -U postgres -d railway -v ON_ERROR_STOP=1 < ~/secrets/roles.sql
 
-# 2. el archivo ADENTRO del contenedor  ⛔ no por stdin: ver la nota de abajo
-docker cp /tmp/prod-AAAAMMDD.dump pg-prod:/tmp/restore.dump
-
-# 3. el restore, en paralelo
-docker exec pg-prod pg_restore -U postgres -d railway \
-  --no-owner --no-privileges --jobs=4 /tmp/restore.dump
-
-# 4. borrar la copia de adentro (ocupa lo mismo que el dump en la capa del contenedor)
-docker exec pg-prod rm -f /tmp/restore.dump
+# 2. el restore, en paralelo, DESDE EL HOST (md trae pg_restore 18.6 nativo)
+set -a; . ~/secrets/prod-compose.env; set +a
+PGPASSWORD="$PGPROD_SUPERPASS" pg_restore -h 127.0.0.1 -p 5434 -U postgres -d railway \
+  --no-owner --no-privileges --jobs=4 /tmp/prod-AAAAMMDD.dump
 ```
+
+⭐ **Desde el host, no con `docker exec`.** `md` tiene `pg_restore 18.6` instalado (la misma
+versión que el servidor), así que el archivo se lee **donde ya está**. Meterlo al contenedor con
+`docker cp` funcionaría, pero duplica el dump dentro de la capa de escritura del contenedor —
+2 GB hoy, y el del corte va a ser bastante más — y no compra nada.
 
 ⛔ **`pg_restore --jobs` NO puede leer de la entrada estándar** — falla con *"parallel restore
 from standard input is not supported"*, porque para repartir el trabajo necesita **saltar por
 el archivo**, y un tubo no se puede rebobinar. O sea que el `… < archivo.dump` que uno escribe
 por reflejo obliga a restaurar **en un solo hilo**. Sobre 34 GB la diferencia no es cosmética.
 
-⛔ **Y para el CORTE de verdad hace falta un volcado DISTINTO**, que hoy nadie toma:
+⛔ **Y para el CORTE de verdad hace falta un volcado DISTINTO**, que hasta hoy nadie tomaba:
 
 ```sh
-pg_dumpall --globals-only   # roles con su hash de contraseña
-pg_dump --format=custom     # SIN --no-privileges, para que viajen los GRANT
+pg_dumpall --globals-only   # roles con su hash de contraseña   ✅ HECHO (ver abajo)
+pg_dump --format=custom     # SIN --no-privileges, para los GRANT   ⬜ pendiente del corte
 ```
 
 Sin eso, la base cortada arranca con los permisos incompletos y el síntoma llega como
 `permission denied for table …` en runtime, no en el restore.
+
+**La mitad de arriba ya está hecha (2026-09-22).** `md:~/secrets/globals.sql` (`600`) trae los
+3 roles de prod con su **hash SCRAM real**, y ya se aplicó a la copia. Verificado comparando
+`pg_authid` de los dos lados — **coinciden fila por fila**:
+
+```text
+app_runtime         login=t  con contraseña
+fdw_verificador_ro  login=t  SIN contraseña   <- también en prod, no es un defecto de la copia
+postgres            super=t  con contraseña
+```
+
+⚠️ Al aplicarlo salen **3 `ERROR: role … already exists`** y son correctos: los roles ya
+existían por `roles.sql`. Lo que importa son los **6 `ALTER ROLE`** que sí corrieron — son los
+que ponen atributos y hash exactos. Un `ON_ERROR_STOP=1` acá **abortaría en el primer renglón**
+y dejaría los roles a medias: es de los pocos lugares donde parar en el primer error es peor.
+
+⚠️ Y sigue faltando lo de verdad difícil: **los GRANT**. Los globals traen *quién es* cada rol,
+no *qué puede tocar*. Eso viaja en el dump de la base, y sólo si se toma **sin**
+`--no-privileges`.
 
 ---
 
