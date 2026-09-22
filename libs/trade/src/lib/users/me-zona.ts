@@ -321,17 +321,49 @@ export async function medirZona(
     else excluidos.set(k, [x]);
   };
 
+  /*
+   * `[CDRP.4-perf]` **Los dos catálogos van en PARALELO.** Los dos dependen de `zonaIds`, pero NO
+   * entre sí: encadenarlos costaba un viaje de ida y vuelta entero. Con las matviews en su lugar
+   * ninguna consulta de esta función cuesta más que la latencia a la base (~170 ms medidos, todas
+   * casi iguales), así que lo único que queda por bajar es CUÁNTAS van en serie.
+   */
+  const [tiendas, rutas] = await Promise.all([
+    grupos.includes('tienda')
+      ? /* ⚠️ `whereIn` sobre la lista de zonas: **una** consulta para 1 zona o para 6. Repetirla por
+         * zona multiplicaría por N el costo de la portada del director sin traer nada nuevo. */
+        (knex('commercial.warehouses')
+          .where('tenant_id', tenantId)
+          .whereIn('zone_id', zonaIds)
+          .whereNull('deleted_at')
+          .orderBy('code')
+          .select('id', 'code', 'name', 'zone_id') as Promise<
+          { id: string; code: string; name: string; zone_id: string }[]
+        >)
+      : Promise.resolve([] as { id: string; code: string; name: string; zone_id: string }[]),
+    grupos.includes('ruta') || grupos.includes('vecinal')
+      ? /*
+         * `[JZ.6]` La pertenencia sale de `v_route_zone` (registro operativo de Wincaja), no del
+         * catálogo: hace aparecer las vecinales y disolvió las 3 claves «ambiguas».
+         */
+        (knex('analytics.v_route_zone')
+          .where('tenant_id', tenantId)
+          .whereIn('zone_id', zonaIds)
+          .orderBy(['tipo', 'route_code'])
+          .select('route_code', 'route_name', 'tipo', 'historica', 'parent_code', 'zone_id') as Promise<
+          {
+            route_code: string; route_name: string; tipo: MeCanalGrupo; historica: boolean;
+            parent_code: string; zone_id: string;
+          }[]
+        >)
+      : Promise.resolve(
+          [] as {
+            route_code: string; route_name: string; tipo: MeCanalGrupo; historica: boolean;
+            parent_code: string; zone_id: string;
+          }[],
+        ),
+  ]);
+
   if (grupos.includes('tienda')) {
-    /* ⚠️ `whereIn` sobre la lista de zonas: **una** consulta para 1 zona o para 6. Repetirla por
-     * zona multiplicaría por N el costo de la portada del director sin traer nada nuevo. */
-    const tiendas = (await knex('commercial.warehouses')
-      .where('tenant_id', tenantId)
-      .whereIn('zone_id', zonaIds)
-      .whereNull('deleted_at')
-      .orderBy('code')
-      .select('id', 'code', 'name', 'zone_id')) as {
-      id: string; code: string; name: string; zone_id: string;
-    }[];
     for (const t of tiendas) {
       canales.push({
         id: t.code,
@@ -346,19 +378,7 @@ export async function medirZona(
 
   const quiereRutas = grupos.includes('ruta') || grupos.includes('vecinal');
   if (quiereRutas) {
-    /*
-     * `[JZ.6]` La pertenencia sale de `v_route_zone` (registro operativo de Wincaja), no del
-     * catálogo: es lo que hace aparecer las vecinales y lo que disolvió las 3 claves «ambiguas».
-     */
-    const rutas = await knex('analytics.v_route_zone')
-      .where('tenant_id', tenantId)
-      .whereIn('zone_id', zonaIds)
-      .orderBy(['tipo', 'route_code'])
-      .select('route_code', 'route_name', 'tipo', 'historica', 'parent_code', 'zone_id');
-    for (const r of rutas as {
-      route_code: string; route_name: string; tipo: MeCanalGrupo; historica: boolean;
-      parent_code: string; zone_id: string;
-    }[]) {
+    for (const r of rutas) {
       if (!grupos.includes(r.tipo)) continue;
       if (r.historica) {
         /*
