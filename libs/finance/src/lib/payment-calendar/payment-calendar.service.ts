@@ -1,8 +1,17 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable';
+
+/** Renglón de `finance.payment_allocation_items` — sólo los campos que este servicio lee (`[NX.11]`). */
+interface AllocationItemRow {
+  id: string;
+  obligation_source: ObligationSource;
+  obligation_id: string;
+  applied_amount: number | string;
+}
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -60,7 +69,7 @@ export class PaymentCalendarService {
   }
 
   /** Recalcula reserved_amount/paid_amount/status de UNA obligación desde sus items activos. */
-  private async recalcObligation(trx: any, source: ObligationSource, id: string) {
+  private async recalcObligation(trx: Knex.Transaction, source: ObligationSource, id: string) {
     const table = TABLE_BY_SOURCE[source];
     const [agg] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
@@ -80,12 +89,12 @@ export class PaymentCalendarService {
   }
 
   /** Recalcula amount_assigned de UN allocation desde sus items. */
-  private async recalcAllocationTotal(trx: any, allocationId: string) {
+  private async recalcAllocationTotal(trx: Knex.Transaction, allocationId: string) {
     const [{ total }] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).sum({ total: 'applied_amount' });
     await trx('finance.payment_allocations').where({ id: allocationId }).update({ amount_assigned: total ?? 0, updated_at: trx.fn.now() });
   }
 
-  private async getOrCreateLot(trx: any, tenantId: string, date: string) {
+  private async getOrCreateLot(trx: Knex.Transaction, tenantId: string, date: string) {
     let lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
     if (!lot) [lot] = await trx('finance.payment_calendar_lots').insert({ tenant_id: tenantId, lot_date: date }).returning('*');
     return lot;
@@ -393,7 +402,11 @@ export class PaymentCalendarService {
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
-      for (const it of items as any[]) {
+      // `[NX.11]` 2026-09-21 — nota para quien siga acá: era `items as any[]` y
+      // `scripts/lint-boundary-gate.js` lo rechaza en líneas nuevas (ADR-052). Se nombran sólo los
+      // 4 campos que este loop lee; el resto de la fila queda sin declarar a propósito, para no
+      // inventar el esquema de `finance.payment_allocation_items` en un cast.
+      for (const it of items as AllocationItemRow[]) {
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
         // §16.3 (default) — pagar = EJERCER + PAGAR la partida ligada (ADR-066, unificar el gasto).
         // Best-effort con SAVEPOINT: un pago YA en ejecución no se bloquea por una desincronía del
