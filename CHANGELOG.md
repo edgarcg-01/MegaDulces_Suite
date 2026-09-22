@@ -10,6 +10,79 @@
 
 ## [Unreleased]
 
+### Added — la cartera de clientes tiene dueño: Crédito y Cobranza (`[SN.36]`, 2026-09-22)
+- Pedido de Edgar: *«hay que generar el de crédito y cobranza»*. **La pantalla ya existía** (Fase
+  CXC: `/finanzas/cartera` con saldo, aging por vencimiento, límite de crédito y compromisos de
+  pago) **y el permiso ya estaba repartido** — `FINANCE_RECEIVABLES_VER` en `true` para los roles
+  de las tres personas. Faltaba **de quién es ese trabajo**.
+- **Medido en prod**: el puesto `auxiliar_credito_cobranza` (3 personas: `gloria_vera`,
+  `paula_alanis`, `perla_garcia`) no tenía **ni una** responsabilidad repartida → por `[SN.30]` su
+  portada salía **vacía**. Y había trabajo esperando: **680 clientes con saldo vencido** y **269
+  sobre su línea de crédito**, detectados desde el 23-ago, **con 0 triageados en 30 días**. El
+  vencido sobre la vista viva: **$52.7 M en 6,336 documentos de 980 clientes**, el más viejo con
+  vencimiento del 5-jul-2025.
+- Clave nueva `finanzas.cartera` repartida al puesto (mig `20260922210000`, prod **batch 518**) +
+  dos bandejas → `/finanzas/cartera`. **Una sola clave para dos renglones**: cobrar lo vencido y
+  frenar la venta a crédito son dos acciones, pero una sola responsabilidad — partirla haría que
+  `/admin/puestos` ofreciera quitar una y dejar la otra, que no es una decisión que exista.
+- ⭐ **La fuente la decidió la medición, no la comodidad.** El agregado sobre la vista viva de
+  cartera cuesta **1,336 ms / 7,542 páginas** — más que todo el presupuesto de la portada (<1 s), y
+  no hay índice que la salve porque es una vista sobre `kepler_ods.kdue`. Contar los hallazgos que
+  el detector ya calculó **desde esa misma vista** a las 08:30 MX cuesta **10.6 ms** las dos colas
+  y **2.6 ms** el desglose. No son dos verdades: es la misma cuenta, ya pagada.
+- ⚠️ **El corte de $2,000 viaja en la etiqueta**: el detector sólo emite hallazgo sobre ese piso,
+  así que la cola dice 680 donde la vista viva dice 980 clientes con algún documento vencido. Un
+  número sin su corte al lado es el que después nadie puede cuadrar contra la pantalla.
+- `EjesCola.abiertaExtra` (helper compartido): el predicado de frescura pesa **sólo del lado
+  abierto**. `finance.findings` lo **reconfirma a diario** y un hallazgo que deja de aplicar no se
+  cierra — deja de refrescarse (**40 de 680** el día que se midió). ⛔ Ponerlo en la consulta BASE
+  habría roto `cerradas_30d`, porque un hallazgo triageado deja de refrescarse por definición: la
+  cola saldría `congelada` aunque se trabajara a diario. ⛔ Y el ancla es `max(last_seen)` de la
+  propia regla, **no `current_date`**: con la fecha de hoy, el día que el detector no corra la cola
+  publicaría **0** en vez de quedarse quieta (ADR-056).
+- **Dos cosas que sólo aparecieron al ejercerlo contra prod**: el `id` del desglose se repetía —
+  `JUAN PABLO FONSECA` (`C1015`) sale dos veces, $1,079,287 en la sucursal `00` y $1,072,286 en la
+  `01`, que son dos carteras del mismo cliente y la lista los colapsaba; y el reloj de pared decía
+  **1,242 ms** donde `EXPLAIN` dice **7.7 ms** (latencia, no consulta).
+- ⛔ **Un candado que acusaba en falso, corregido**: el lector de guards de la suite sólo sabía leer
+  `permissionGuard(Permission.X)` inline, y `/finanzas/cartera` usa `canActivate: [carteraEntryGuard]`
+  — un guard con nombre que **sí** exige `FINANCE_RECEIVABLES_VER`. Reportaba «la ruta no declara
+  ningún permiso» sobre una ruta gateada. Tercera vez en esta suite que un candado lee lo que no
+  sabe leer; ahora sigue **un** nivel de indirección y se declara que no sigue dos.
+- `[SN.33]` pasa de «sólo `salud-datos` se desglosa» a una **lista que hay que editar a propósito**.
+  No es relajamiento: lo prohibido es copiarlo por inercia a una cola grande. `cartera-vencida`
+  entra porque sus 8 filas por monto **son la decisión** (los dos primeros: $22.1 M de $52.7 M); su
+  hermana `cartera-sobre-limite` **no** se desglosa — la acción ahí nace del mostrador, no de una
+  lista — y esa asimetría es la prueba de que el criterio se aplicó.
+- ⚠️ La bandeja **nace `congelada`** y el desglose ordena por **dinero, no por fecha**. Subir el
+  umbral para que se viera al día sería el `cfg ? classify : 'ok'` de la Fase VP con otro sombrero.
+- Smoke `test-newdb-me-context`: **218 OK / 2 FAIL** (las dos ajenas y preexistentes). Aceptación
+  contra prod replicando `responsabilidadesDe()`: las **3 personas** ven las dos colas **con enlace**.
+
+### Fixed — la foto diaria de cartera llevaba un mes fallando por un GRANT (`[SN.36b]`, 2026-09-22)
+- Apareció buscando de dónde sacar el bloque de cartera. Medido en prod:
+  `analytics.customer_receivable_snapshots` con **0 filas**; `analytics.cron_runs` con
+  `job_key='cxc_snapshot'` → **`status='error'`**, `rows_affected: 0`, `duration_ms: 48682`, y el
+  `INSERT` entero en el campo `error`. El detector de la **misma corrida** sí funciona (680
+  hallazgos con `last_seen` de hoy): no era la consulta ni la conexión, era sólo la escritura.
+- **Causa**: `has_table_privilege('app_runtime', …, 'INSERT')` = **`false`**. La migración que creó
+  la tabla (`20260822120000`, CXC.12) escribió `GRANT SELECT` y nada más, mientras su escritor —el
+  `@Cron` de las 08:30 MX— corre como `app_runtime`. **La tabla nació de sólo lectura para el único
+  proceso que tenía que escribirla.** Misma familia que `GOTCHAS.md` §33: saber de dónde **lee** un
+  proceso no es saber qué **escribe**.
+- ⭐ **Lo que sí funcionó fue el latido.** `[CDRP.4]` le había puesto a este job su renglón en
+  `cron_runs` con la regla dura de que **cero filas fotografiadas es `error`, no éxito silencioso**.
+  Sin él, el `.catch(e => logger.warn(...))` de `scanAll` seguiría tragándoselo y la única señal
+  sería una tabla vacía que nadie mira. La falla llevaba un mes; el latido la hizo legible el mismo
+  día que alguien preguntó.
+- Mig `20260922220000` (prod **batch 519**): `GRANT INSERT, UPDATE` — **no `DELETE`**, el escritor
+  es un UPSERT por `(tenant, día, sucursal)` y no borra nunca; dar de más amplía la superficie de un
+  rol que comparte toda la app (`GOTCHAS` §24). La migración **verifica** el privilegio después de
+  otorgarlo y tira si sigue en `false`.
+- ⛔ **Sin backfill, y dicho**: la vista es de saldos **actuales**, no hay pasado que fotografiar.
+  Estampar el saldo de hoy en fechas viejas fabricaría una tendencia plana. La serie nace con un
+  punto, el de la próxima corrida — que **necesita el redeploy de la API**.
+
 ### Added — la salud de las bases de datos tiene dueño, y por eso aparece en «Mi trabajo» (`[SN.32]`, 2026-09-22)
 - Pedido de Edgar: *«necesito que en mi interfaz "superoot" muestres el estado de las bases de datos
   /admin/db-health»*. **La pantalla ya existía** (`[DBH.1]`: frescura por fuente + bandeja de
