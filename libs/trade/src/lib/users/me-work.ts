@@ -72,7 +72,8 @@ export type ResponsabilidadKey =
   | 'finanzas.caja'
   | 'finanzas.conciliacion_ingresos'
   | 'finanzas.conciliacion_egresos'
-  | 'sistemas.salud_datos';
+  | 'sistemas.salud_datos'
+  | 'finanzas.cartera';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -147,6 +148,29 @@ export interface EjesCola {
    * Elegir «la que suena bien» habría declarado congeladas dos colas sanas.
    */
   cierre: string | null;
+  /**
+   * `[SN.36]` Predicado SQL extra que se exige **sólo del lado ABIERTO**, nunca del cerrado.
+   *
+   * ── Por qué no alcanza con filtrar la consulta base ──────────────────────────────────────
+   * `finance.findings` es una bandeja que un detector **reconfirma cada día**: si un cliente deja
+   * de tener saldo vencido, su hallazgo **no se cierra** — simplemente deja de refrescarse y
+   * queda en `nuevo` para siempre. Medido en prod el 2026-09-22: de las **680** filas en `nuevo`
+   * de `cxc_cliente_vencido`, **40 no las vio el detector hoy** (la más rezagada del 25-ago). Son
+   * casos que ya no existen y que inflarían la cola un 6%.
+   *
+   * ⛔ Poner ese filtro en la consulta BASE rompería `cerradas_30d`: un hallazgo que alguien
+   * triageó deja de refrescarse por definición, así que el filtro lo excluiría y la cola saldría
+   * **`congelada` siempre**, incluso trabajándola a diario. Sería exactamente la mentira que
+   * `[SN.29]` fue a matar, con el signo invertido.
+   *
+   * ⛔ Y tampoco se filtra por «`last_seen` de los últimos N días»: el día que el detector no
+   * corra, **todas** quedan rezagadas y la cola publica **0** — el cero disfrazado de ADR-056.
+   * El predicado correcto ancla en la ÚLTIMA PASADA del propio detector (`max(last_seen)`): si no
+   * corrió, el número se queda quieto en vez de desaparecer.
+   *
+   * `undefined` = sin predicado extra, que es el caso de las nueve bandejas anteriores.
+   */
+  abiertaExtra?: { sql: string; args: readonly (string | number)[] };
 }
 
 export interface BandejaDef {
@@ -224,7 +248,7 @@ export const TOPE_DESGLOSE = 8;
  * fechas es la que le habla a la persona.
  */
 async function medirCola(knex: Knex, q: Knex.QueryBuilder, ejes: EjesCola): Promise<MedidaCola> {
-  const { estadoCol, estadoAbierto, fecha, cierre } = ejes;
+  const { estadoCol, estadoAbierto, fecha, cierre, abiertaExtra } = ejes;
   /*
    * `[SN.29]` Los cinco contadores salen de UNA pasada con `FILTER`. Medido contra prod: la
    * consulta combinada cuesta 157-285 ms **incluyendo los ~154 ms de latencia a Railway**, o sea
@@ -236,11 +260,22 @@ async function medirCola(knex: Knex, q: Knex.QueryBuilder, ejes: EjesCola): Prom
    * lo necesitan. Con `estadoAbierto: null` la pregunta deja de ser «¿el estado es tal?» y pasa a
    * ser «¿la columna de cierre está vacía?» — ver `EjesCola.estadoAbierto`.
    */
-  const ABIERTA = estadoAbierto === null ? '?? is null' : '?? = ?';
+  const BASE_AB = estadoAbierto === null ? '?? is null' : '?? = ?';
   const CERRADA = estadoAbierto === null ? '?? is not null' : '?? <> ?';
   // La comparación va inline (y no contra un `porNulo` precalculado) porque es la que hace que
   // TypeScript estreche `estadoAbierto` a `string` en la rama que sí lo usa como binding.
-  const argsAb: string[] = estadoAbierto === null ? [estadoCol] : [estadoCol, estadoAbierto];
+  const baseAb: string[] = estadoAbierto === null ? [estadoCol] : [estadoCol, estadoAbierto];
+
+  /*
+   * `[SN.36]` El predicado extra se AÑADE al lado abierto y **no toca `CERRADA`**. Ver
+   * `EjesCola.abiertaExtra`: lo que distingue «ya no aplica» de «alguien lo cerró» es
+   * precisamente que el primero sigue en el estado abierto — si el mismo filtro pesara de los dos
+   * lados, `cerradas_30d` daría 0 siempre y la cola se declararía congelada trabajándose a diario.
+   */
+  const ABIERTA = abiertaExtra ? `(${BASE_AB}) and (${abiertaExtra.sql})` : BASE_AB;
+  const argsAb: (string | number)[] = abiertaExtra
+    ? [...baseAb, ...abiertaExtra.args]
+    : baseAb;
 
   const row = await q
     .clearSelect()
@@ -255,7 +290,9 @@ async function medirCola(knex: Knex, q: Knex.QueryBuilder, ejes: EjesCola): Prom
       cierre
         ? knex.raw(
             `count(*) filter (where ${CERRADA} and ?? > now() - interval '30 days') as c30`,
-            [...argsAb, cierre],
+            // ⛔ `baseAb`, NO `argsAb`: `CERRADA` no lleva el predicado extra, así que tampoco
+            // puede llevar sus bindings — con `argsAb` sobrarían y knex tiraría «Expected N».
+            [...baseAb, cierre],
           )
         : // ⛔ `null`, NO `0`: la fuente no puede contestarlo. Son afirmaciones opuestas.
           knex.raw('null::int as c30'),
@@ -679,7 +716,206 @@ export const BANDEJAS: readonly BandejaDef[] = [
       return items;
     },
   },
+
+  // ── `[SN.36]` Crédito y Cobranza ───────────────────────────────────────────────────────────
+  /*
+   * Las dos bandejas leen `finance.findings` y **no la vista viva de cartera**, y eso es una
+   * decisión medida, no una comodidad:
+   *
+   *   · El agregado sobre `analytics.customer_receivables` cuesta **1,336 ms** de `Execution
+   *     Time` (7,542 páginas) sólo para los contadores — más que todo el presupuesto de la
+   *     portada, que la casa fija en **menos de 1 segundo**. Es una vista sobre `kepler_ods.kdue`:
+   *     no hay índice que la salve, se materializa entera cada vez.
+   *   · Contar los hallazgos cuesta **28 ms**.
+   *   · Y no son dos verdades distintas: el detector calcula los hallazgos **desde esa misma
+   *     vista**, a las 08:30 MX. Lo que se lee acá es esa cuenta, ya pagada.
+   *
+   * ⚠️ **El corte de $2,000 viaja en la etiqueta.** El detector sólo emite hallazgo cuando el
+   * vencido del cliente supera `MIN_VENCIDO`, así que esta cola dice **680** donde la vista viva
+   * dice **980 clientes con algún documento vencido**. No es un error: son dos preguntas. Por eso
+   * el `detalle` nombra el piso — un número sin su corte al lado es el que después nadie puede
+   * cuadrar contra la pantalla.
+   *
+   * ⛔ **NO se enlaza a `/finanzas/hallazgos`**, aunque sea la tabla de origen: esa bandeja está
+   * `retirada` por `[SN.18]` con 82 mil filas sin triage, y mandar a Crédito y Cobranza ahí sería
+   * darle la aguja y el pajar. El destino es `/finanzas/cartera`, que es donde se ve el saldo del
+   * cliente, su aging y su teléfono — o sea donde se cobra.
+   */
+  {
+    id: 'cartera-vencida',
+    label: 'Clientes con saldo vencido por cobrar',
+    detalle: 'más de $2,000 vencidos · confirmados en la última corrida del detector',
+    ruta: '/finanzas/cartera',
+    icono: 'pi pi-credit-card',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.cartera',
+    acotablePorSucursal: false,
+    /*
+     * **7 días.** Una cuenta vencida que lleva una semana sin que nadie la toque dejó de ser
+     * gestión de cobranza y pasó a ser riesgo de incobrable.
+     *
+     * ⚠️ La bandeja **nace `congelada`**, y es cierto: medido en prod el 2026-09-22, de los 680
+     * hallazgos abiertos hay **0 triageados en 30 días** y 351 llevan más de un mes. Es lo que
+     * pasa cuando una cola existe y nadie la tiene a cargo — que es justo lo que esta entrega
+     * corrige. Subir el umbral para que se vea al día sería el `cfg ? classify : 'ok'` de la
+     * Fase VP con otro sombrero.
+     */
+    umbral_dias: 7,
+    anyOf: [Permission.FINANCE_RECEIVABLES_VER],
+    /*
+     * ⚠️ `mas_viejo_at` sale de `created_at`, que es **cuándo el detector vio esto por primera
+     * vez**, no cuándo venció la factura. Son fechas distintas y la diferencia es grande: el
+     * detector arrancó el 23-ago-2026, así que ningún hallazgo puede verse más viejo que eso
+     * aunque el documento detrás venza desde 2025. La antigüedad REAL de la deuda viaja por
+     * cliente en el desglose, que es donde se puede decir sin promediar dos cosas distintas.
+     */
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        knex('finance.findings').where({ tenant_id: tenantId, rule_key: 'cxc_cliente_vencido' }),
+        {
+          estadoCol: 'status',
+          estadoAbierto: 'nuevo',
+          fecha: 'created_at',
+          // El triage de `/finanzas/hallazgos` escribe acá al confirmar o descartar.
+          cierre: 'updated_at',
+          abiertaExtra: ultimaPasadaDe(tenantId, 'cxc_cliente_vencido'),
+        },
+      ),
+    desglosar: (knex, { tenantId }, tope) =>
+      desglosarHallazgoCxc(knex, tenantId, 'cxc_cliente_vencido', tope),
+  },
+  {
+    id: 'cartera-sobre-limite',
+    label: 'Clientes que ya pasaron su línea de crédito',
+    detalle: 'su saldo supera el límite de Kepler · revisar antes de venderles a crédito',
+    ruta: '/finanzas/cartera',
+    icono: 'pi pi-ban',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.cartera',
+    acotablePorSucursal: false,
+    /*
+     * **3 días**, más corto que el de vencido a propósito: acá el daño no es el saldo que ya
+     * existe sino el pedido de mañana. Un cliente sobre su línea que sigue comprando agranda el
+     * problema todos los días; uno vencido sólo envejece.
+     */
+    umbral_dias: 3,
+    anyOf: [Permission.FINANCE_RECEIVABLES_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        knex('finance.findings').where({ tenant_id: tenantId, rule_key: 'cxc_sobre_limite' }),
+        {
+          estadoCol: 'status',
+          estadoAbierto: 'nuevo',
+          fecha: 'created_at',
+          cierre: 'updated_at',
+          abiertaExtra: ultimaPasadaDe(tenantId, 'cxc_sobre_limite'),
+        },
+      ),
+    /*
+     * ⛔ **Esta NO se desglosa, y es una decisión.** La de vencido sí, porque ahí el desglose ES
+     * el trabajo: ocho nombres con su monto son la lista de a quién llamar hoy. Acá la acción no
+     * nace de una lista sino del mostrador —«¿le vendo a crédito a éste?»— y ese momento ocurre
+     * en `/finanzas/cartera` con el cliente delante, no leyendo la portada. Un segundo desglose
+     * sumaría ocho renglones a la landing sin cambiar ninguna decisión.
+     */
+  },
 ];
+
+/**
+ * `[SN.36]` El predicado de frescura de una regla de `finance.findings`.
+ *
+ * El ancla es `max(last_seen)` **de la propia regla**, no `current_date`, por la razón que explica
+ * `EjesCola.abiertaExtra`: un hallazgo que el detector dejó de confirmar sigue en `nuevo` para
+ * siempre (40 de 680 el día que se midió), pero si el ancla fuera el día de hoy, **el día que el
+ * detector no corra la cola publicaría 0** en vez de quedarse quieta.
+ */
+function ultimaPasadaDe(tenantId: string, regla: string): EjesCola['abiertaExtra'] {
+  return {
+    sql: `last_seen >= (select max(last_seen)::date from finance.findings
+                         where tenant_id = ? and rule_key = ?)`,
+    args: [tenantId, regla],
+  };
+}
+
+/**
+ * `[SN.36]` Los clientes de arriba, por dinero.
+ *
+ * ⛔ **El orden es el importe, no la fecha.** En cobranza el renglón que importa es el grande:
+ * medido el 22-sep, los dos primeros (`TLMKT Morelia Abastos` y `TLMKT Canindo Abastos`) suman
+ * **$22.1 M de los $52.7 M vencidos** — ordenar por antigüedad los mandaría al fondo detrás de
+ * cuentas de tres cifras. Es la contracara de `salud-datos`, donde el orden sí es la gravedad:
+ * la regla no es «siempre por fecha», es **por lo que decide a quién llamar primero**.
+ *
+ * ⛔ `nivel` sale de `severity`, que el detector ya emitió. No se recalcula acá (ADR-057).
+ *
+ * ⚠️ `desde` se DERIVA: `last_seen - dias_max` es la fecha de vencimiento más vieja del cliente,
+ * tal como el detector la midió. Es una resta sobre dos datos suyos, no una fecha inventada —
+ * pero si `dias_max` no viene, va `null`, **nunca `now()`**, que leería «vencido hoy».
+ */
+async function desglosarHallazgoCxc(
+  knex: Knex,
+  tenantId: string,
+  regla: string,
+  tope: number,
+): Promise<MeDesgloseItem[]> {
+  const filas = await knex('finance.findings')
+    .where({ tenant_id: tenantId, rule_key: regla, status: 'nuevo' })
+    .whereRaw(
+      `last_seen >= (select max(last_seen)::date from finance.findings
+                      where tenant_id = ? and rule_key = ?)`,
+      [tenantId, regla],
+    )
+    .orderBy('importe', 'desc')
+    .limit(tope)
+    .select(
+      'id',
+      'severity',
+      'importe',
+      'last_seen',
+      knex.raw(`entity->>'nombre' as nombre`),
+      knex.raw(`entity->>'cliente_code' as cliente_code`),
+      knex.raw(`entity->>'sucursal' as sucursal`),
+      knex.raw(`(evidencia->>'dias_max')::int as dias_max`),
+    );
+
+  return filas.map((f) => {
+    const dias = f.dias_max == null ? null : Number(f.dias_max);
+    const visto = f.last_seen ? new Date(f.last_seen) : null;
+    const desde =
+      visto && dias != null && Number.isFinite(dias)
+        ? new Date(visto.getTime() - dias * 86400000).toISOString()
+        : null;
+    const monto = f.importe == null ? null : Number(f.importe);
+    return {
+      /*
+       * ⛔ El id lleva la SUCURSAL, no sólo el código de cliente. Medido al ejercerlo contra
+       * prod: `JUAN PABLO FONSECA GUTIÉRREZ` (`C1015`) sale **dos veces** —$1,079,287 en la
+       * sucursal 00 y $1,072,286 en la 01—, que es correcto: son dos carteras distintas del
+       * mismo cliente. Con el código solo, los dos renglones compartirían clave y la lista los
+       * colapsaría en pantalla. El detector ya usa ese par como `dedup_key`.
+       */
+      id: `${f.sucursal ?? '?'}:${f.cliente_code ?? f.id}`,
+      // El código del cliente queda de respaldo, no de texto por defecto: «30-73» no le dice
+      // nada a quien va a llamar por teléfono.
+      label: String(f.nombre || f.cliente_code || f.id),
+      nivel: f.severity === 'critical' || f.severity === 'warn' ? f.severity : null,
+      desde,
+      nota:
+        monto == null
+          ? null
+          : `${PESOS.format(monto)}${f.sucursal ? ` · sucursal ${f.sucursal}` : ''}`,
+    };
+  });
+}
+
+/** Sin decimales: en una lista de ocho renglones los centavos sólo estorban al comparar. */
+const PESOS = new Intl.NumberFormat('es-MX', {
+  style: 'currency',
+  currency: 'MXN',
+  maximumFractionDigits: 0,
+});
 
 /** ¿Esta persona puede abrir esta bandeja? God-mode ve todas; el resto, por clave exacta. */
 export function puedeVerBandeja(
