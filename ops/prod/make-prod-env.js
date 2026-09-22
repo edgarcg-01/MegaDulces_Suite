@@ -136,7 +136,10 @@ for (const k of Object.keys(v).sort()) {
 
 // Lo que el código espera y Railway daba por otro camino.
 lineas.push('# — agregadas por ops/prod/make-prod-env.js —');
-lineas.push('GIT_COMMIT_SHA=${GIT_COMMIT_SHA}');  // lo completa deploy.sh con el commit real
+// ⛔ NO se escribe `GIT_COMMIT_SHA=${GIT_COMMIT_SHA}` acá: el formato `env_file` de Compose NO
+// interpola, y Compose además avisa "variable is not set, defaulting to a blank string" y lo deja
+// VACÍO. Medido el 2026-09-22: `/api/health` devolvía `"commit": ""`, que es justo el dato que
+// dice QUÉ versión está sirviendo. Lo inyecta `deploy.sh` por el entorno del proceso, que sí llega.
 lineas.push('API_UPSTREAM=http://api:10000');     // portal y vendor proxean acá
 lineas.push('NGINX_RESOLVER=127.0.0.11');         // DNS embebido de Docker, no el de Railway
 lineas.push('APP_PUBLIC_URL=http://192.168.0.222:8080'); // el enlace del correo de Salud BD

@@ -195,6 +195,11 @@ services:
       PORT: "10000"
       API_PORT: "3333"
       API_PREFIX: api
+      # Qué versión está sirviendo. Lo pasa `deploy.sh` desde `git rev-parse --short HEAD`.
+      # ⛔ No puede vivir en `prod.env`: ese formato no interpola y Compose lo dejaría vacío
+      # (medido: `/api/health` devolvía `"commit": ""`). El código lo lee como fallback de
+      # `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe.
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
       # ⭐ ACÁ SE CORRIGE UN DEFECTO QUE VIENE DE RAILWAY, Y SE DECLARA EN VEZ DE HEREDARLO.
       # Medido el 2026-09-22: NI `MegaDulces` NI `worker` definen `DISABLE_CRONS`, así que
       # `ScheduleModule` se registra en los DOS y los **48 @Cron corren por duplicado**. Eso
@@ -233,6 +238,7 @@ services:
       NODE_ENV: production
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
       RUN_MIGRATIONS_ON_BOOT: "0"
     # ⚠️ El worker no abre puerto, así que "está arriba" es lo único que Docker puede ver por
     # sí solo — y eso es exactamente el falso verde que VL.6.1 cerró en los carriles. El

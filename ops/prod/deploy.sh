@@ -98,9 +98,13 @@ construir() {
 
 recrear() {
   servicios="$*"
-  echo "── Recreando: $servicios ──"
+  commit=$(cd "$REPO" && git rev-parse --short HEAD)
+  echo "── Recreando: $servicios (commit $commit) ──"
+  # GIT_COMMIT_SHA viaja por el ENTORNO DEL PROCESO, no por prod.env: el formato `env_file` de
+  # Compose no interpola y lo dejaría vacío — medido, `/api/health` devolvía `"commit": ""`. Es el
+  # dato que dice qué versión está sirviendo; sin él el healthcheck miente por omisión.
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a &&
-    docker compose -p prod up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
+    GIT_COMMIT_SHA=$commit docker compose -p prod up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
   echo
   echo "── Salud ──"
   ssh_md "for c in $servicios; do
