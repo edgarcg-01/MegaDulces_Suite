@@ -64,6 +64,7 @@ export type ResponsabilidadKey =
   | 'tienda.caducidades'
   | 'logistica.flota'
   | 'comercial.thot'
+  | 'finanzas.caja'
   | 'finanzas.conciliacion_ingresos'
   | 'finanzas.conciliacion_egresos';
 
@@ -455,6 +456,69 @@ export const BANDEJAS: readonly BandejaDef[] = [
         fecha: 'created_at',
         cierre: 'resolved_at',
       }),
+  },
+  {
+    id: 'caja-por-confirmar',
+    label: 'Movimientos de caja por confirmar',
+    detalle: 'lo que Kepler ya registró en la caja y el libro todavía no aplicó',
+    ruta: '/finanzas/caja-general',
+    icono: 'pi pi-wallet',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.caja',
+    acotablePorSucursal: false,
+    /*
+     * `[CG.21]` **3 días.** Medido sobre 673 movimientos que llevan la fecha del hecho en el
+     * texto: la captura va **4.7 días** detrás del dinero en promedio, sólo el **11 %** entra el
+     * mismo día y el peor caso fueron **34**. El umbral se pone POR DEBAJO del promedio actual a
+     * propósito — la bandeja existe para bajarlo, así que calibrarlo en 5 sería declarar sano
+     * justo el rezago que esta fase vino a eliminar.
+     */
+    umbral_dias: 3,
+    anyOf: [Permission.FINANCE_CAJA_VER],
+    /*
+     * ⛔ **No usa `medirCola`, y no es capricho.** La fuente es una VISTA que por construcción sólo
+     * tiene lo pendiente: no hay columna de estado que filtrar ni fecha de cierre que mirar. Las
+     * salidas se cuentan del otro lado, en el libro.
+     *
+     * ⚠️⚠️ **El guard de tenant es el corazón de este bloque.** `medir` recibe el knex crudo, y
+     * `finance.v_caja_movimientos_pendientes` filtra por `current_tenant_id()`: si la sesión no
+     * trae tenant, la vista devuelve **0 filas sin error** y la bandeja publicaría "al día" sobre
+     * una cola llena. Es exactamente el default disfrazado de ADR-056, y acá saldría con cara de
+     * buena noticia. Preguntarlo primero convierte ese cero mudo en un `no_medido` declarado —
+     * `workFor` atrapa el throw y lo reporta como lo que es: no se pudo medir.
+     */
+    medir: async (knex) => {
+      const g = await knex.raw('select current_tenant_id() as t');
+      if (!g.rows?.[0]?.t) {
+        throw new Error(
+          'La bandeja de caja se mide con RLS y la sesión no trae tenant: contar acá devolvería 0 '
+          + 'sin error, y un 0 falso se lee como "al día".',
+        );
+      }
+      /*
+       * Los cinco contadores en UNA pasada, igual que `medirCola`. `e7`/`e30` son la ENTRADA (qué
+       * tanto documento nuevo fecha Kepler) y `c30` el DRENAJE (cuánto se confirmó): dos lados de
+       * la misma cola, y sin el segundo no se puede distinguir una bandeja que crece de una que
+       * simplemente es grande.
+       */
+      const r = await knex.raw(`
+        select (select count(*) from finance.v_caja_movimientos_pendientes)                       as n,
+               (select min(fecha_valor) from finance.v_caja_movimientos_pendientes)               as viejo,
+               (select count(*) from finance.v_caja_movimientos_pendientes
+                 where fecha_valor > now()::date - 7)                                             as e7,
+               (select count(*) from finance.v_caja_movimientos_pendientes
+                 where fecha_valor > now()::date - 30)                                            as e30,
+               (select count(*) from finance.cash_ledger
+                 where origen_tipo is not null and deleted_at is null and estado <> 'cancelado'
+                   and created_at > now() - interval '30 days')                                   as c30`);
+      const row = r.rows?.[0] ?? {};
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      return {
+        total: Number(row.n ?? 0),
+        mas_viejo_at: row.viejo ? new Date(row.viejo).toISOString() : null,
+        flujo: { entradas_7d: num(row.e7), entradas_30d: num(row.e30), cerradas_30d: num(row.c30) },
+      };
+    },
   },
 ];
 

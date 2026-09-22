@@ -287,8 +287,9 @@ const tieneDecoradorPermisos = (tramo) =>
      */
     ...[...srcZ.matchAll(/RESPONSABILIDAD_TODAS_LAS_ZONAS = '([a-z]+\.[a-z_]+)'/g)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 16, declaradas);
+  // `[CG.21]` +1: entró «Movimientos de caja por confirmar» con su clave `finanzas.caja`.
+  check('cada cola declara su responsabilidad (8 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 17, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);

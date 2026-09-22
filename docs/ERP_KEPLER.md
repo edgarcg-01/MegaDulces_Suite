@@ -516,6 +516,60 @@ y rompería la identidad de todos los documentos históricos.
 
 ---
 
+### 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22)
+
+Es la columna que contesta *"¿este documento tocó la caja o el banco, y cuál?"*. Resuelve contra
+**`kdb1`**, el catálogo de cuentas de tesorería, por `kdb1.c1`:
+
+| `kdb1` | `c1` clave | `c2` nombre | `c3` | `c5` cuenta contable |
+|---|---|---|---|---|
+| caja | `0011` | **CAJA GENERAL** | `EFECTIVO` | `102-0011` |
+| caja | `0010` | CAJA CHICA PADRE HIDALGO | `EFECTIVO` | `102` |
+| caja | `0030` | CAJA CHICA MORELIA ABASTOS | `EFECTIVO` | `102` |
+| caja | `0040` | CAJA CHICA 8 ESQUINAS | `EFECTIVO` | `102-0040` |
+| caja | `0050` | CAJA CHICA CANINDO | `EFECTIVO` | `102` |
+| banco | `1463` | BANAMEX 1463 | `002496700783014636` | `102-1463` |
+| banco | `4885` · `4166` · `2169` … | BBVA / BAJÍO / SANTANDER … | la CLABE | `102-NNNN` |
+| puente | `2103` | FACTORAJE | — | `210` |
+
+⭐ **`c3` es el discriminante caja-vs-banco**: trae la CLABE en las cuentas bancarias y la palabra
+`EFECTIVO` en las de caja. ⛔ **No usar `c5`**: tres de las cinco cajas tienen `102` pelado, igual
+que cualquier subcuenta de banco sin sufijo, así que por ahí no se distinguen. Y **no enumerar
+claves a mano**: `analytics.kepler_bank_movements` lo hacía (`c1 IN ('0010','0011','0040')`) y
+dejaba `0030` y `0050` clasificadas como banco.
+
+`c47` es la cuenta **destino** cuando el documento es un traspaso (`N-A-26`): dos piernas, una por
+cuenta.
+
+**Lo que esto permite, medido (2026-09-22, réplicas `md:5433`, 5 meses cerrados):** la CAJA GENERAL
+del Access `Control` es exactamente `c45='0011'` en Kepler.
+
+| | caja `.mdb` | Kepler `c45='0011'` |
+|---|---|---|
+| egresos abr–ago (`X-D-25/26/60` + `X-A-45`) | $44,108,221.92 | $44,123,427.09 · **Δ 0.03 %** |
+| ingresos julio (`U-A-5`) | $10,452,178.12 | $10,452,158.24 · **Δ $19.88** |
+
+⚠️ **La caja AGRUPA**: ~1.5 cobros de Kepler por renglón del Access (razón 1.49–1.59 de abril a
+julio; 1.08 en agosto). El dinero cuadra, el conteo de renglones no — y no es un error de nadie.
+
+⚠️ **El folio colisiona entre doctypes de egreso.** `0000011`, `0000029`, `0000030`… existen a la
+vez en `X-A-45`, `X-D-26` y `X-D-60`. Con `(sucursal, folio)` no alcanza acá: la llave de un
+movimiento de tesorería es **`(sucursal, doc_tipo, folio, clave_banco)`**.
+
+⛔ **El pago NO dice qué gasto paga.** En los `X-D-26` de la caja, `c37` vale `'0'` en el **100 %**
+y `c39` viene vacío; su póliza sólo mueve `201 (C) / 102 (A)` — el pasivo y el efectivo, nunca la
+cuenta de gasto. Para saber a qué cuenta va un egreso de caja hay que declararlo aparte
+(`finance.caja_classify_rules`), no derivarlo del documento.
+
+⛔ **Cruzar por importe miente.** Control negativo corrido contra una ventana placebo de Kepler
+desplazada 180 días: **23–34 % de "aciertos"** puros por densidad. Cualquier conciliación por monto
+tiene que publicar su piso de ruido o no significa nada.
+
+Lo consume `analytics.kepler_bank_movements` (vista derive-no-copy sobre `kepler_ods.kdm1` ⋈ `kdb1`),
+que ya trae `flujo` entrada/salida/traspaso, `signo`, anti-réplica y exclusión de cancelados.
+
+---
+
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`
 
 Este es el corazón de la integración. **No leemos las DBs de sucursal directo desde la app.**
