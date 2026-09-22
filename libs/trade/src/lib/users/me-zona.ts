@@ -84,7 +84,30 @@ export const RESPONSABILIDAD_CANAL: Readonly<Record<MeCanalGrupo, string>> = {
  * director comercial ve las zonas pero no la bandeja de finanzas»*, que con `superadmin` no se
  * puede decir.
  */
-export const RESPONSABILIDAD_TODAS_LAS_ZONAS = 'comercial.venta_zonas';
+export /**
+ * `[CDRP.4-perf]` **De dónde sale la venta por ruta, y por qué no es la vista.**
+ *
+ * `analytics.v_rd_route_daily` es una vista SOBRE OTRA VISTA (`v_route_sales_lines` →
+ * `wincaja.v_sales_lines`) con `Hash Right Join` contra `wincaja.articulos`: se materializa entera
+ * en cada consulta. Este bloque la tocaba TRES veces y eso era **11.3 de los 12.4 s** que costaba
+ * la portada de Dirección.
+ *
+ * `analytics.mv_rd_route_daily_200d` es la MISMA vista materializada (`SELECT *`, sin lógica
+ * nueva que pueda divergir) recortada a 200 días, que es **todo lo que este archivo pregunta**:
+ * frescura 7 d, ventas ~2 meses, piso de última venta 120 d.
+ *
+ * ⚠️ **Lo que se cede: hasta 30 minutos de rezago** (cadencia del `REFRESH CONCURRENTLY`, 16 s
+ * medidos). No mueve el `corte`, que compara FECHAS: media hora sólo cambiaría el veredicto si la
+ * primera venta del día cayera dentro de esa ventana. Se cede a propósito — la alternativa era
+ * materializar toda la historia, que sólo se puede refrescar de noche y **le sacaría el día en
+ * curso al director**.
+ *
+ * ⛔ Los demás consumidores (`commercial-analytics`, `commercial-commissions`) siguen leyendo la
+ * VISTA: pueden pedir rangos viejos, y esta matview les devolvería de menos en silencio.
+ */
+const VENTA_RUTA = 'analytics.mv_rd_route_daily_200d';
+
+const RESPONSABILIDAD_TODAS_LAS_ZONAS = 'comercial.venta_zonas';
 
 /**
  * La pantalla que muestra el detalle de cada canal, con el permiso que la abre.
@@ -396,7 +419,7 @@ export async function medirZona(
         >)
       : Promise.resolve([] as { channel: string; ultimo: Date | string }[]),
     rutasCodes.length
-      ? (knex('analytics.v_rd_route_daily')
+      ? (knex(VENTA_RUTA)
           .where('tenant_id', tenantId)
           .whereIn('route_code', rutasCodes)
           .whereBetween('business_date', [limiteVivo, hoy])
@@ -502,7 +525,7 @@ export async function medirZona(
      * decidir, y el reloj contra prod tampoco** (la misma consulta se midió en 86 s, 119 s y 41 s
      * según la carga del momento). Acá sólo decide `BUFFERS`.
      */
-    const filas = (await knex('analytics.v_rd_route_daily')
+    const filas = (await knex(VENTA_RUTA)
       .where('tenant_id', tenantId)
       .whereIn('route_code', rutasCodes)
       .whereBetween('business_date', [v.desde_comparado, v.hasta])
@@ -586,7 +609,7 @@ export async function medirZona(
     )
       .toISOString()
       .slice(0, 10);
-    const f = (await knex('analytics.v_rd_route_daily')
+    const f = (await knex(VENTA_RUTA)
       .where('tenant_id', tenantId)
       .whereIn('route_code', mudasRutas)
       .whereBetween('business_date', [desdeUltima, v.hasta])

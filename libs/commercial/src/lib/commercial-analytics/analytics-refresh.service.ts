@@ -44,6 +44,15 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // Regla ⭐ (mig 20260903130000): postings del 102 = matview derive-no-copy sobre kepler_ods.kdc2YYMM
   // (reemplazó import-bank-postings.js). Fan-out mensual = ~1.1 s en REFRESH; lectura indexada = 15 ms.
   { name: 'analytics.bank_postings' },
+  // `[CDRP.4-perf]` (mig 20260921220000) Venta diaria por ruta, ventana de 200 d. La lee el bloque
+  // de zonas de «Mi trabajo»: `v_rd_route_daily` es vista-sobre-vista y sus TRES toques costaban
+  // **11.3 de los 12.4 s** de la portada de Dirección.
+  //
+  // `everyMin: 30` medido, no elegido de oído: el `REFRESH CONCURRENTLY` tarda **16 s** (la ventana
+  // de 200 d cuesta ~127M buffers; la historia completa 568M y sólo habría alcanzado para nocturno).
+  // A 30 min son 48 corridas/día ≈ 13 min de CPU, y el dato de HOY está — que es el punto: una
+  // matview nocturna le sacaría el día en curso justo a quien más lo mira.
+  { name: 'analytics.mv_rd_route_daily_200d', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
