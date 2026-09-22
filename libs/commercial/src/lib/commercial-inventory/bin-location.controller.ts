@@ -59,6 +59,21 @@ export class BinLocationController {
     return this.service.listBins(warehouseId);
   }
 
+  /**
+   * Escaneá el cartel del rack y decime qué tiene adentro.
+   *
+   * **Va declarada ANTES de `bins/:id/contents`**: Nest matchea en orden, y con
+   * `:id` primero la palabra `lookup` se leería como un id y contestaría
+   * "bin_id inválido". Es la misma trampa que ya se documentó en Caducidades con
+   * `resolve` y en el expediente con `no-asociados`.
+   */
+  @Get('bins/lookup')
+  @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Resolver una ubicación por su código escaneado + su contenido' })
+  lookupBin(@Query('code') code?: string, @Query('warehouse_id') warehouseId?: string) {
+    return this.service.lookupBin(code || '', warehouseId);
+  }
+
   @Delete('bins/:id')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
   @ApiOperation({ summary: 'Eliminar un bin (debe estar vacío)' })
