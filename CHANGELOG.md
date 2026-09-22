@@ -10,6 +10,44 @@
 
 ## [Unreleased]
 
+### Added — la caja confirma los DOS signos, y el gasto **sí** estaba en Kepler (`[CG.21]`, 2026-09-22)
+- **Corrige a CG.20**, que declaró que los gastos *"no están en Kepler — acá no hay derivación
+  posible"*. Están enteros. El discriminante es **`kdm1.c45`**, la cuenta por la que se movió el
+  dinero, que el catálogo `kdb1` del propio Kepler nombra `0011 = CAJA GENERAL / EFECTIVO`.
+- **Cobertura medida, 5 meses cerrados** (caja del Access `Control` vs Kepler `c45='0011'`):
+  **$44,108,221.92 contra $44,123,427.09 = 100 %**, Δ 0.03 %. El ingreso de julio cuadra con
+  **Δ $19.88** sobre $10.45 M.
+- **No hubo que decodificar nada nuevo**: `analytics.kepler_bank_movements` ya derivaba de
+  `kepler_ods.kdm1 ⋈ kdb1` y `caja-general.service.ts` ya la consultaba. La bandeja de CG.20 se
+  había ido por otro camino.
+- Bandeja de `/finanzas/caja-general` ahora lista **ingresos y egresos**, con selector de caja y de
+  signo. Se retiran los dos hardcodes (`sucursalActiva='00'` y `tipo_cuenta='ruta'`) que escondían
+  48 movimientos de sucursal y 38 cobros de Morelia.
+- La cuenta del egreso sale de `finance.caja_classify_rules` (existía desde CG.17): primera regla
+  que aplica gana, si ninguna aplica **no propone** y cae a captura manual con motivo.
+- Bandeja registrada en «Mi trabajo» con responsabilidad propia `finanzas.caja`, **derivada** de
+  qué puestos ya tienen `FINANCE_CAJA_GESTIONAR`.
+
+### Fixed — lo contado no llegaba al libro de caja (`[CG.21]`, 2026-09-22)
+- El comentario decía que la entrega con diferencia se guarda con lo contado; el código mandaba
+  `origen_tipo` siempre y `create()` releía el importe del ERP, así que **lo contado sólo llegaba
+  al hallazgo**. La decisión *"acepta el efectivo y levanta un hallazgo"* estaba a medias. El
+  conteo viaja ahora en un campo propio (`monto_contado`).
+- `analytics.kepler_bank_movements.tipo_cuenta` clasificaba **dos de las cinco cajas como banco**
+  (`0030` y `0050`): el CASE enumeraba claves a mano. Pasa a derivarse de `kdb1.c3='EFECTIVO'`.
+- `finance.v_caja_ingreso_cobertura` filtraba `tipo='ingreso'` y habría dejado **invisible** al
+  egreso anclado. La reemplaza `v_caja_cobertura`, con el tipo como dimensión.
+
+### Internal — lo medido que NO se construyó (`[CG.21]`, 2026-09-22)
+- **Cruzar por importe miente**: control negativo contra una ventana placebo desplazada 180 días
+  da **23–34 % de piso de ruido**. Por eso no se casa nada — se ancla por documento.
+- **El folio colisiona** entre `X-A-45`, `X-D-26` y `X-D-60`, así que `origen_ref` lleva el
+  `doc_tipo`. Con `sucursal|folio` a secas, confirmar un anticipo bloquearía un pago distinto.
+- **De las cinco cajas del catálogo, cuatro están muertas** (`0010` 1 doc en 180 d; `0030`/`0040`/
+  `0050` cero). Se cablean por clave y aparecen solas el día que se usen, con su volumen a la vista.
+- ⛔ **Las 3 migraciones NO se aplicaron a ninguna base** y el smoke nuevo **no se corrió**: `.245`
+  rechaza conexiones. Sólo están probados el motor puro y los dos builds.
+
 ### Fixed — el respaldo de prod llevaba **12 días sin producir un archivo**, y el tablero en verde (`[VL.9.0]`, 2026-09-22)
 - `scripts/backup-db.ps1` tenía un **ParserError** en la línea 233 (`"…el piso es $MinTables: no
   parece prod"`: los dos puntos pegados al nombre hacen que PowerShell lea la variable como
