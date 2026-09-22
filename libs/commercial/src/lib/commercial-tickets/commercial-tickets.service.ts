@@ -312,7 +312,7 @@ export class CommercialTicketsService {
       return { termino: '', candidatos: [] as TicketCandidato[], truncado: false };
     }
 
-    return this.tk.run(async (trx) => {
+    const base = await this.tk.run(async (trx) => {
       const out: TicketCandidato[] = [];
       // true si algun universo devolvio mas filas de las que se leen: ahi el listado no solo
       // esta recortado, ademas NO se puede afirmar que sean las mas recientes (ya no hay
@@ -415,6 +415,37 @@ export class CommercialTicketsService {
       const truncado = out.length > MAX_CANDIDATOS || topado;
       return { termino: v.crudo, candidatos: out.slice(0, MAX_CANDIDATOS), truncado };
     });
+
+    /*
+     * `[TK.perf]` ⭐ **Con UN solo candidato, el detalle viaja en esta MISMA respuesta.**
+     *
+     * La pantalla ya abría sola el documento cuando la búsqueda devolvía uno
+     * (`if (r.candidatos.length === 1) this.abrir(...)`), y eso disparaba una SEGUNDA petición
+     * HTTP para algo que el servidor podía resolver de una. Medido contra prod: toda la búsqueda
+     * cuesta ~40 ms de base de datos y el detalle ~5 ms — ese segundo viaje **no costaba
+     * consulta, costaba una ida y vuelta de red entera**, que es donde de verdad se va el tiempo
+     * que el usuario siente.
+     *
+     * Es el caso NORMAL, no el raro: quien teclea la identidad completa (`03UD1001-0018665`)
+     * cae siempre acá.
+     *
+     * ⛔ **Va FUERA del `tk.run` de arriba, no adentro.** `detalle()` abre su propia transacción
+     * (`detalleMostrador`/`Factura`/`Pedido` llaman a `tk.run`), y anidarlas es el antipatrón que
+     * este repo ya pagó: la transacción interna toma otra conexión del pool mientras la externa
+     * sigue abierta. Acá es sólo lectura —no se pierde ningún write— pero la presión sobre el pool
+     * es real y la regla no tiene excepciones cómodas.
+     *
+     * ⛔ Con dos o más NO se adelanta nada: elegir «el primero» sería el dinero de otra tienda, y
+     * traer los N detalles convertiría una búsqueda barata en N consultas de renglones.
+     * ⛔ Y si el detalle falla, **la búsqueda NO falla**: se devuelve sin él y la pantalla lo pide
+     * como siempre. Un atajo de rendimiento no puede romper el camino que ya funcionaba.
+     */
+    const documento =
+      base.candidatos.length === 1
+        ? await this.detalle(base.candidatos[0].id, warehouseCodes).catch(() => null)
+        : null;
+
+    return { ...base, documento };
   }
 
   /**

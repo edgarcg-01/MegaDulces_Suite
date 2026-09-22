@@ -319,7 +319,24 @@ export class ComercialTicketsComponent {
         this.buscando.set(false);
         // Con UN solo candidato no hay ambigüedad que resolver, así que se abre. Con dos o más
         // elige la persona: "el primero" sería el dinero de otra tienda.
-        if (r.candidatos.length === 1) this.abrir(r.candidatos[0]);
+        if (r.candidatos.length === 1) {
+          /*
+           * `[TK.perf]` Si el servidor ya mandó el documento, se usa y **no se pide de nuevo**.
+           * Era una segunda petición HTTP entera —con su latencia— para ~5 ms de consulta que el
+           * backend ya podía resolver en la misma respuesta.
+           *
+           * ⛔ El `else` no es defensivo por las dudas: `documento` viene `null` cuando el
+           * servidor no pudo resolverlo (y ahí pedirlo aparte es justo lo que hay que hacer), y
+           * también mientras la API desplegada sea anterior a este cambio. Quitar esta rama
+           * dejaría la pantalla en blanco contra una API vieja.
+           */
+          if (r.documento) {
+            this.seleccionado.set(r.candidatos[0].id);
+            this.doc.set(r.documento);
+          } else {
+            this.abrir(r.candidatos[0]);
+          }
+        }
       },
       error: () => {
         this.buscando.set(false);
