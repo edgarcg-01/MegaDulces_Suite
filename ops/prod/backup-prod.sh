@@ -112,7 +112,6 @@ q() { psql "$URLK" -At -q -c "$1" 2>/dev/null; }
 # que es justo lo que este latido existe para evitar. Con `-f -` sí interpola, y las
 # variables `-v` siguen citando bien el texto (que trae acentos y `·`).
 latido_ini() {
-  [ "$PRUEBA" = 1 ] && return 0
   psql "$URLK" -q -v t="$TENANT" -v j="$JOB" -v h="$YO" -f - <<'SQL' >/dev/null 2>&1 \
     || di "aviso: el latido de inicio no se pudo escribir"
 INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
@@ -123,7 +122,6 @@ ON CONFLICT (tenant_id, job_key) DO UPDATE
 SQL
 }
 latido_fin() {
-  [ "$PRUEBA" = 1 ] && return 0
   _st="$1"; _detalle="$2"
   if [ "$_st" = ok ]; then _nota="$_detalle"; _err=''; else _nota=''; _err="$_detalle"; fi
   psql "$URLK" -q -v t="$TENANT" -v j="$JOB" -v s="$_st" -v n="$_nota" -v e="$_err" -f - <<'SQL' >/dev/null 2>&1 \
