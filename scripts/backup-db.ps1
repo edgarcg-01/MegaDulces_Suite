@@ -183,8 +183,28 @@ Write-Log "Iniciando dump -> $dumpFile"
 #    -Fc  : custom format (comprimido, restaurable con pg_restore, selectivo)
 #    -Z 6 : nivel de compresion razonable
 #    --no-owner / --no-privileges : portabilidad entre entornos al restaurar
+#
+# ── KEEPALIVES: sin esto, un corte del otro lado CUELGA el dump para siempre ──
+# Medido el 2026-09-22: el proxy de Railway (trolley.proxy.rlwy.net) cerro la conexion a
+# mitad del volcado y pg_dump se quedo esperando en un socket muerto **93 minutos**, con
+# CERO CPU, sin error y sin salir. En prod la conexion ya no figuraba en pg_stat_activity;
+# de este lado el proceso seguia "corriendo". Lo unico que lo termino fue matarlo a mano.
+#
+# Por que no alcanza el ExecutionTimeLimit de la tarea: ese limite mata a PowerShell, y
+# pg_dump es OTRO proceso -- sobrevive huerfano (lo documenta el encabezado de este mismo
+# script). O sea que el cuelgue se come la ventana entera y el respaldo de ese dia no existe.
+#
+# libpq no reintenta ni vence solo: hay que pedirle al SO que sondee el socket. Con estos
+# valores el peer muerto se detecta en ~60 s (30 de inactividad + 3 sondeos cada 10) y
+# pg_dump sale con error -- que el paso siguiente ya sabe manejar (borra el .dump y escribe
+# el latido en 'error'). Es preferible un respaldo que FALLA fuerte a uno que cuelga mudo.
+$sep = if ($databaseUrl -match '?') { '&' } else { '?' }
+$dumpUrl = $databaseUrl
+if ($databaseUrl -notmatch 'keepalives=') {
+    $dumpUrl = "$databaseUrl$sep" + 'keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=15'
+}
 $pgArgs = @(
-    '--dbname', $databaseUrl,
+    '--dbname', $dumpUrl,
     '--format', 'custom',
     '--compress', '6',
     '--no-owner',
