@@ -1476,6 +1476,27 @@ export const routes: Routes = [
             (m) => m.TeleventaQueueComponent,
           ),
       },
+      // [E.12] Cotizaciones de mayoreo. Guard PROPIO y no heredado del shell: el
+      // `televentaGuard` pide COMMERCIAL_TELEVENTA_OPERATE, y cotizar es otra llave
+      // (COMMERCIAL_QUOTES_VER). El RolesGuard es exact-key: no hay herencia entre hermanos.
+      {
+        path: 'cotizaciones',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quotes.component').then(
+            (m) => m.TeleventaQuotesComponent,
+          ),
+      },
+      // [E.12.1] Alta. Va ANTES que cualquier ':id' de cotizaciones y con permiso de GESTIONAR,
+      // no el de ver: entrar al alta es empezar a ofrecer precio.
+      {
+        path: 'cotizaciones/nueva',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_GESTIONAR)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quote-new.component').then(
+            (m) => m.TeleventaQuoteNewComponent,
+          ),
+      },
       {
         path: 'my',
         // Reusa el mismo queue component (muestra Mis reservas activas arriba).
