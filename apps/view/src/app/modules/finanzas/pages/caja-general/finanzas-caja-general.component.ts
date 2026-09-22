@@ -142,7 +142,6 @@ interface FormularioCajaUI {
     .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
-    .cg-sel { min-width:9rem; }
     .cg-tbl { width:100%; border-collapse:collapse; font-size:.82rem; }
     .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
                  border-bottom:1px solid var(--border-color); white-space:nowrap; }
@@ -189,12 +188,23 @@ interface FormularioCajaUI {
        selectores de la bandeja salian truncados y los dos buscadores del dialogo, angostos.
        Se reemplaza por regla propia. El ::ng-deep es para entrar al DOM de PrimeNG y es el
        patron que ya usan las pantallas hermanas (comercial-inventory-aisles). */
-    .cg-full { display:block; width:100%; }
-    :host ::ng-deep .cg-full .p-autocomplete,
-    :host ::ng-deep .cg-full .p-autocomplete-input,
-    :host ::ng-deep .cg-full .p-inputtext { width:100%; }
-    .cg-sel { display:inline-block; min-width:9rem; }
-    :host ::ng-deep .cg-sel .p-select { width:100%; }
+    /* ⛔ SEGUNDO ERROR MIO, EN EL MISMO LUGAR. El primer intento fue
+         .cg-sel  { display:inline-block; min-width:9rem }
+         .cg-full { display:block; width:100% }
+       y eso ROMPIO los controles en vivo: en PrimeNG 22 la clase del componente va en el HOST
+       (host: { '[class]': "cx('root')" }), o sea que .cg-sel Y .p-select son EL MISMO elemento.
+       Dos consecuencias, las dos medidas en node_modules:
+         1. ".cg-sel .p-select" (descendiente) no matchea NADA: no hay tal hijo.
+         2. mi "display" le gana al del componente por especificidad (la encapsulacion le suma
+            un atributo) y le tira el layout interno: .p-select y .p-autocomplete son
+            "inline-flex" y .p-message es "display: grid". Con display:inline-block/block el
+            selector quedaba con la etiqueta cortada a UNA LETRA y el chevron abajo.
+       La regla que queda: sobre un componente de PrimeNG se toca el ANCHO, nunca el "display".
+       Un inline-flex con width:100% ya ocupa todo; un grid tambien. */
+    .cg-full { width:100%; }
+    .cg-sel { min-width:9rem; }
+    /* El input interno del autocomplete SI es un descendiente real, y no estira solo. */
+    :host ::ng-deep .cg-full .p-autocomplete-input { width:100%; }
   `],
   template: `
     <div class="surf-page in">
