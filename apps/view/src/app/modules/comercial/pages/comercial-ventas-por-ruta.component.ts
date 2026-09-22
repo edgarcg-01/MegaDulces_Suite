@@ -233,19 +233,38 @@ const MES: Record<string, string> = {
           <div class="rr-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
         }
         @if (detail(); as d) {
+          <div class="rr-rhythm-head">
+            <div>
+              <span>Ritmo de venta</span>
+              <p>La venta identificada se explica por clientes, artículos y unidades.</p>
+            </div>
+            <small>Venta/cliente = artículos distintos/cliente × valor/artículo = unidades/cliente × valor/unidad</small>
+          </div>
           <div class="rr-dkpis">
-            <div class="rr-dkpi"><span>Venta</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+            <div class="rr-dkpi"><span>Venta total</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Tickets</span><b>{{ d.totals.tickets | number }}</b></div>
-            <div class="rr-dkpi"><span>Unidades</span><b>{{ d.totals.units | number:'1.0-0' }}</b></div>
-            <div class="rr-dkpi"><span>SKUs</span><b>{{ d.totals.skus | number }}</b></div>
             <!-- RR4 — Los promedios van POR CLIENTE (la tiendita), no por ticket. El público
                  no tiene identidad de cliente: queda fuera del promedio y se declara su peso. -->
-            <div class="rr-dkpi"><span>Clientes</span><b>{{ d.per_client.clients | number }}</b>
+            <div class="rr-dkpi"><span>Clientes atendidos</span><b>{{ d.per_client.clients | number }}</b><em>clientes identificados en esta ruta</em>
               @if (d.per_client.public_pct > 0) { <em>+ público sin identificar: {{ d.per_client.public_pct | number:'1.0-1' }}% de la venta</em> }</div>
-            <div class="rr-dkpi"><span>Venta/cliente</span><b>{{ d.per_client.avg_revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b><em>promedio por cliente identificado</em></div>
-            <div class="rr-dkpi"><span>SKUs/cliente</span><b>{{ d.per_client.avg_skus | number:'1.0-1' }}</b><em>productos distintos por cliente</em></div>
-            <div class="rr-dkpi"><span>Tickets/cliente</span><b>{{ d.per_client.avg_tickets | number:'1.0-1' }}</b><em>visitas por cliente</em></div>
-            <div class="rr-dkpi"><span>Unid./renglón</span><b>{{ unitsPerLine(d) | number:'1.0-2' }}</b><em>de cada producto</em></div>
+            <div class="rr-dkpi"><span>Venta promedio/cliente</span>
+              @if (d.per_client.avg_revenue != null) { <b>{{ d.per_client.avg_revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>sólo venta identificada</em></div>
+            <div class="rr-dkpi"><span>Artículos/cliente</span>
+              @if (d.per_client.avg_skus != null) { <b>{{ d.per_client.avg_skus | number:'1.0-2' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>SKU distintos por cliente</em></div>
+            <div class="rr-dkpi"><span>Valor promedio/artículo</span>
+              @if (d.per_client.avg_value_per_article != null) { <b>{{ d.per_client.avg_value_per_article | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>venta identificada ÷ artículos distintos</em></div>
+            <div class="rr-dkpi"><span>Unidades/cliente</span>
+              @if (d.per_client.avg_units != null) { <b>{{ d.per_client.avg_units | number:'1.0-2' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>unidades compradas por cliente</em></div>
+            <div class="rr-dkpi"><span>Valor unidad promedio</span>
+              @if (d.per_client.avg_unit_value != null) { <b>{{ d.per_client.avg_unit_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>venta identificada ÷ unidades</em></div>
+            <div class="rr-dkpi"><span>Visitas/cliente</span>
+              @if (d.per_client.avg_tickets != null) { <b>{{ d.per_client.avg_tickets | number:'1.0-1' }}</b> } @else { <b class="rr-nodata">—</b> }
+              <em>documentos por cliente</em></div>
             <!-- Margen: siempre acompañado de su cobertura. El push de camionetas no trae
                  costo, así que un margen "a secas" mezclaría peras con manzanas. -->
             <div class="rr-dkpi rr-dkpi-wide">
@@ -566,6 +585,14 @@ const MES: Record<string, string> = {
     .rr-dkpi-wide { grid-column:1 / -1; }
     .rr-dkpi em { display:block; font-style:normal; font-size:.62rem; color:var(--text-muted); margin-top:.1rem; }
     .rr-nodata { color:var(--text-muted); }
+    .rr-rhythm-head { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin:.15rem 0 .55rem; }
+    .rr-rhythm-head span { display:block; font-size:.78rem; font-weight:700; color:var(--text-main); }
+    .rr-rhythm-head p, .rr-rhythm-head small { margin:.1rem 0 0; font-size:.65rem; color:var(--text-muted); }
+    .rr-rhythm-head small { max-width:27rem; text-align:right; font-variant-numeric:tabular-nums; }
+    @media (max-width:640px) {
+      .rr-rhythm-head { align-items:flex-start; flex-direction:column; }
+      .rr-rhythm-head small { text-align:left; }
+    }
     .rr-tk-filters { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin-bottom:.6rem; }
     :host ::ng-deep .rr-tk-search input { min-width:11rem; }
     :host ::ng-deep .rr-tk-sel { min-width:8.5rem; }
@@ -857,14 +884,8 @@ export class ComercialVentasPorRutaComponent {
     this.dClient.set(code); this.dClientName.set(name || null); this.applyFacet();
   }
 
-  // ── RR3/RR4 — Promedios. Los de venta/SKUs/tickets vienen POR CLIENTE desde el server
-  // (d.per_client = promedio de los agregados de cada cliente); acá sólo queda la profundidad,
-  // que es por renglón y no depende de ticket ni de cliente. OJO: sin acentos graves en este
-  // archivo fuera de los literales: el compilador de Angular deja de resolver styles (error 1010).
-  /** Profundidad: cuánto se llevan DE CADA producto. */
-  unitsPerLine(d: SalesByRouteDetail): number {
-    return d.totals.lines > 0 ? d.totals.units / d.totals.lines : 0;
-  }
+  // RR3/RR4 — El ritmo por cliente viene calculado por el servidor sobre venta identificada.
+  // La profundidad por renglón de cada ticket sí se deriva acá porque usa un solo documento.
   ticketUnitsPerLine(t: SalesByRouteTicket): number {
     return t.lines > 0 ? t.units / t.lines : 0;
   }
