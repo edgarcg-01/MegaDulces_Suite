@@ -38,6 +38,25 @@ Prod no es "una app". Son **nueve servicios, dos bases, un bucket y un dominio**
 ⚠️ **Los techos suman 11 vCPU y `md` tiene 8 hilos.** No son comparables (un techo no es uso),
 pero conviene saberlo: **el recurso escaso acá es la CPU, no la RAM.**
 
+### ¿Cabe? — medido del lado de la carga, no del techo
+
+Prod, en un momento cualquiera de horario hábil (2026-09-22):
+
+```text
+conexiones 17 · activas 3 · cache hit 88.81 %
+```
+
+Tres consultas activas sobre 8 hilos **no es el problema**. Y el `88.81 %` de aciertos de caché
+—que para una base de este tamaño es **bajo**— tiene una causa estructural que la mudanza
+**mejora**: en Railway el contenedor de la base tiene un tope de **6 GB**, y bajo un cgroup el
+**page cache cuenta contra ese tope**, así que Postgres termina releyendo del disco lo que creía
+cacheado. En `md` le damos 6 GB de `shared_buffers` **más** el page cache del host, y el compose
+**no le pone `mem_limit` a propósito** (ver el comentario en `x-pg`).
+
+⚠️ Esto **no prueba** que vaya a ir más rápido — para eso hay que medir la copia con tráfico
+real. Sí dice que el argumento de "no cabe" hay que hacerlo con números, y los que hay hoy no
+lo sostienen.
+
 ### El fierro, medido — y corrige a `FASE_VL` §6.1
 
 | | El plan decía | Medido el 2026-09-22 |
@@ -93,10 +112,21 @@ Por eso el orden es:
 # 1. los roles, ANTES
 docker exec -i pg-prod psql -U postgres -d railway -v ON_ERROR_STOP=1 < ~/secrets/roles.sql
 
-# 2. el restore
-docker exec -i pg-prod pg_restore -U postgres -d railway --no-owner --no-privileges \
-  --jobs=4 --verbose < /ruta/al/trade_marketing_YYYY-MM-DD_HHMM.dump
+# 2. el archivo ADENTRO del contenedor  ⛔ no por stdin: ver la nota de abajo
+docker cp /tmp/prod-AAAAMMDD.dump pg-prod:/tmp/restore.dump
+
+# 3. el restore, en paralelo
+docker exec pg-prod pg_restore -U postgres -d railway \
+  --no-owner --no-privileges --jobs=4 /tmp/restore.dump
+
+# 4. borrar la copia de adentro (ocupa lo mismo que el dump en la capa del contenedor)
+docker exec pg-prod rm -f /tmp/restore.dump
 ```
+
+⛔ **`pg_restore --jobs` NO puede leer de la entrada estándar** — falla con *"parallel restore
+from standard input is not supported"*, porque para repartir el trabajo necesita **saltar por
+el archivo**, y un tubo no se puede rebobinar. O sea que el `… < archivo.dump` que uno escribe
+por reflejo obliga a restaurar **en un solo hilo**. Sobre 34 GB la diferencia no es cosmética.
 
 ⛔ **Y para el CORTE de verdad hace falta un volcado DISTINTO**, que hoy nadie toma:
 
