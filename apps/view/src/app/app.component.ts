@@ -36,6 +36,40 @@ export class AppComponent implements OnInit {
   private updatePending = false;
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;
   /**
+   * `[SW.1]` **Piso entre dos consultas de actualización, sea cual sea el disparador.**
+   *
+   * ⛔ Medido en una traza de red real (2026-09-22) al buscar un folio en `/comercial/tickets`:
+   * **`ngsw.json` pedido SEIS veces en una sola interacción**, entre **189 y 450 ms cada una**
+   * — cerca de **1.6 s** de espera. La petición de la pantalla, al lado, tardó **224 ms**. O sea
+   * que lo que el usuario sentía como «la búsqueda tarda» no era la búsqueda: era el service
+   * worker revisando si había versión nueva, una y otra vez.
+   *
+   * La culpa es del disparador de `focus`: se revisa en CADA vuelta de foco a la ventana. Hacer
+   * clic en el campo, alt-tab, volver del PDF — cada uno pedía `ngsw.json` completo, y ese
+   * archivo NO se cachea (`ngsw-cache-bust` le pone un query aleatorio a propósito).
+   *
+   * ⚠️ El `focus` NO se quita: es lo que hace que alguien que dejó la pestaña abierta toda la
+   * tarde se entere del deploy al volver. Lo que se quita es revisarlo *seis veces seguidas*.
+   * Con 5 minutos de piso, una ráfaga colapsa a UNA sola consulta y el caso que el `focus` existe
+   * para cubrir —volver después de un rato— sigue funcionando igual.
+   */
+  private static readonly UPDATE_MIN_GAP_MS = 5 * 60 * 1000;
+  private ultimaRevision = 0;
+
+  /**
+   * `[SW.1]` Única puerta a `checkForUpdate()`. Los tres disparadores (boot, foco, intervalo)
+   * pasan por acá; sin esta puerta cada uno pedía por su cuenta y se pisaban entre ellos.
+   *
+   * `force` lo usa el arranque: la primera revisión de la sesión sí tiene que salir siempre —
+   * es justo cuando el usuario acaba de entrar y puede estar con la versión vieja.
+   */
+  private revisarActualizacion(force = false): void {
+    const ahora = Date.now();
+    if (!force && ahora - this.ultimaRevision < AppComponent.UPDATE_MIN_GAP_MS) return;
+    this.ultimaRevision = ahora;
+    this.swUpdate.checkForUpdate().catch(() => {});
+  }
+  /**
    * Cuánto se espera a que el usuario navegue solo antes de ofrecerle el botón.
    * Una pantalla de trabajo (la etiquetera, el monitor de tienda) puede pasar el día entero
    * sin cambiar de ruta: ahí la actualización nunca se aplicaba y el equipo se quedaba con
@@ -130,12 +164,11 @@ export class AppComponent implements OnInit {
         document.location.reload();
       });
 
-    this.swUpdate.checkForUpdate().catch(() => {});
-    window.addEventListener('focus', () => {
-      this.swUpdate.checkForUpdate().catch(() => {});
-    });
-    setInterval(() => {
-      this.swUpdate.checkForUpdate().catch(() => {});
-    }, AppComponent.UPDATE_POLL_MS);
+    // La primera de la sesión sale siempre: el usuario acaba de entrar.
+    this.revisarActualizacion(true);
+    // ⚠️ Las dos de abajo pasan por el piso de `UPDATE_MIN_GAP_MS`. Ver su comentario: sin eso,
+    // una sola interacción disparaba SEIS descargas de `ngsw.json` de hasta 450 ms cada una.
+    window.addEventListener('focus', () => this.revisarActualizacion());
+    setInterval(() => this.revisarActualizacion(), AppComponent.UPDATE_POLL_MS);
   }
 }
