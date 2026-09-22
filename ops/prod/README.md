@@ -226,6 +226,48 @@ viejo que el momento del corte) hay migraciones pendientes que aplicar. La secue
 
 Hacerlo al revés cuesta lo que costó acá: la migración esperando a una vista que tardaba una hora.
 
+
+### 3.2 ⛔ Hay una migración que NO se puede aplicar con `knex migrate:latest`
+
+Medido el 2026-09-22 al poner la copia al día (663 → 825 migraciones). La corrida se detuvo en
+`20260911170000_declared_gaps.js`:
+
+```text
+migration file "20260911170000_declared_gaps.js" failed
+error: DELETE FROM analytics.declared_gaps WHERE clave = '__probe__'
+       - current transaction is aborted, commands ignored until end of transaction block
+```
+
+⚠️ **Ese mensaje es la consecuencia, no la causa.** La migración trae una **prueba negativa dentro
+de sí misma**: inserta a propósito una fila que debe violar un `CHECK`, atrapa el error en
+JavaScript y sigue. Pero en Postgres **una sentencia fallida aborta la transacción entera**, y knex
+corre cada migración en una transacción — así que el `DELETE` siguiente muere, y el `if (!mordio)
+throw` de abajo ni se alcanza.
+
+**El código es correcto; lo incompatible es el envoltorio.** Corriendo el mismo `up()` sin
+transacción, la propia migración imprime *"el CHECK de sólo-lectura **mordió** en la prueba
+negativa"*.
+
+⚠️ **Y lo que esto significa para el corte es más grande que la migración:** prod tiene esa
+migración registrada (sola en el batch 382, 2026-09-11 22:10) con la tabla y el `CHECK` correctos —
+pero **su historia no se puede reproducir desde el repo con el comando estándar**. Un restore que
+haya que poner al día se traba ahí.
+
+**Qué NO hacer:** editar el archivo. La compuerta `npm run check:migrations` lo prohíbe —
+una migración ya aplicada que se edita no se re-corre, así que el arreglo nunca llegaría a prod.
+
+**Qué hacer:** correr ese `up()` fuera de transacción y registrarlo. El arreglo de fondo
+(envolver la inserción deliberada en un `SAVEPOINT`) va en una migración **nueva**, o en el
+próximo archivo que use este patrón — porque el patrón *"prueba negativa dentro de la migración"*
+es bueno y conviene que siga existiendo, bien hecho:
+
+```js
+await knex.raw('SAVEPOINT prueba');
+try { await knex.raw('INSERT … que debe fallar'); }
+catch (e) { mordio = /nombre_del_check/.test(e.message); }
+await knex.raw(mordio ? 'ROLLBACK TO SAVEPOINT prueba' : 'RELEASE SAVEPOINT prueba');
+```
+
 ---
 
 ## 4. Cómo se verifica — el rótulo no es el veredicto
