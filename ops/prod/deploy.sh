@@ -7,6 +7,7 @@
 #   ops/prod/deploy.sh --db            # sólo levanta pg-prod + pg-rag
 #   ops/prod/deploy.sh --recrear api   # sube el compose y recrea, SIN reconstruir imágenes
 #   ops/prod/deploy.sh --volver 4bf36b2 # ROLLBACK: reapunta :latest a esa versión y recrea
+#   ops/prod/deploy.sh --verificar     # ¿está funcionando? con datos, no con rótulos
 #   ops/prod/deploy.sh                 # construye y recrea todo
 #   ops/prod/deploy.sh api worker      # sólo esos servicios
 #
@@ -88,10 +89,10 @@ subir_compose() {
   # hace ejecutar basura desde el byte donde iba. `mv` desenlaza el inodo viejo, y el
   # proceso que lo está corriendo lo sigue leyendo entero y sano.
   # No es teórico: `esperar-y-restaurar.sh` puede estar corriendo durante horas.
-  for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh; do
+  for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh verificar.sh; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
-  ssh_md "cd ~/ops/prod && for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh"
+  ssh_md "cd ~/ops/prod && for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh verificar.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
@@ -191,6 +192,7 @@ case "${1:---todo}" in
   --db)        recrear pg-prod pg-rag ;;
   --recrear)   shift; subir_compose; [ $# -gt 0 ] || set -- $SERVICIOS_DEF; recrear "$@" ;;
   --volver)    shift; volver "$@" ;;
+  --verificar) subir_compose >/dev/null; ssh_md "sh ~/ops/prod/verificar.sh" ;;
   --todo)      verificar_limpio; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,12p' "$0"; exit 2 ;;
   *)           verificar_limpio; enviar; construir; recrear "$@" ;;
