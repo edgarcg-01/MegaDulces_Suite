@@ -247,9 +247,21 @@ const tieneDecoradorPermisos = (tramo) =>
     for (const m of txt.matchAll(/\[\s*'([a-z]+\.[a-z_]+)',\s*'/g)) {
       if (!catalogo.includes(m[1])) catalogo.push(m[1]);
     }
+    /*
+     * ⛔ `[SN.32]` **El lector estaba CIEGO a una segunda forma de declarar la clave**, y no en
+     * teoría: `[CG.21]` la escribió como `const KEY = 'finanzas.caja'` en vez de un array, así que
+     * el catálogo salía en 14 con 15 claves sembradas y las dos aserciones de biyección de abajo
+     * acusaban en falso a una clave que SÍ estaba declarada. Es la misma familia que la advertencia
+     * de la cabecera: **un candado lee CÓDIGO, y sólo el que sabe leer**. Se acepta la segunda
+     * forma en vez de pedirle a la migración que cambie: las dos son declaraciones legítimas.
+     */
+    for (const m of txt.matchAll(/\bKEY\s*=\s*'([a-z]+\.[a-z_]+)'/g)) {
+      if (!catalogo.includes(m[1])) catalogo.push(m[1]);
+    }
   }
+  // `[SN.32]` +1: entró «Salud de las bases de datos» con su clave `sistemas.salud_datos`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 14, catalogo);
+    catalogo.length === 16, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -288,8 +300,9 @@ const tieneDecoradorPermisos = (tramo) =>
     ...[...srcZ.matchAll(/RESPONSABILIDAD_TODAS_LAS_ZONAS = '([a-z]+\.[a-z_]+)'/g)].map((m) => m[1]),
   ];
   // `[CG.21]` +1: entró «Movimientos de caja por confirmar» con su clave `finanzas.caja`.
-  check('cada cola declara su responsabilidad (8 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 17, declaradas);
+  // `[SN.32]` +1: entró «Fuentes de datos con falla» con su clave `sistemas.salud_datos`.
+  check('cada cola declara su responsabilidad (9 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 18, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -787,6 +800,39 @@ const tieneDecoradorPermisos = (tramo) =>
      */
     check('⛔ y va SIN dimensión (con "zone" publicaría la venta de OFICINAS)',
       /'comercial\.venta_zonas',[\s\S]{0,400}?null,/.test(txtD));
+  }
+
+  /*
+   * ── `[SN.32]` La clave de SISTEMAS: la salud de las bases de datos ─────────────────────────
+   *
+   * Mismo hueco que `[JZ.7]`, otro puesto: medido en prod el 2026-09-22, `sistemas` tenía CERO
+   * responsabilidades, así que `superoot` abría «Mi trabajo» y no veía nada — con 6 alertas de
+   * salud abiertas (5 críticas, la más vieja del 12-sep) esperando dueño.
+   *
+   * ⛔ Las tres condiciones son distintas:
+   *   1. que la clave exista y se REPARTA a un puesto (la lección de `[LC.6.2]`: declarar no es
+   *      repartir, y un módulo sin permiso repartido en prod no está entregado),
+   *   2. que la bandeja use la MISMA clave (si no, el catálogo tiene una huérfana y la bandeja
+   *      nunca se le muestra a nadie),
+   *   3. que el estado abierto salga de `resolved_at` y NO de `status` — `status` es la
+   *      GRAVEDAD (`warn|critical`), y usarlo como estado contaría las críticas como abiertas y
+   *      las de aviso como cerradas: un número verosímil y falso.
+   */
+  const migS = fs.readdirSync(dirMig).filter((f) => /responsabilidad_salud_datos/.test(f));
+  check('existe la migración de la clave de Sistemas', migS.length === 1, migS);
+  if (migS.length === 1) {
+    const txtS = fs.readFileSync(path.join(dirMig, migS[0]), 'utf8');
+    check('la migración declara "sistemas.salud_datos"', txtS.includes('sistemas.salud_datos'));
+    check('me-work.ts usa la MISMA clave', src.includes("responsabilidad: 'sistemas.salud_datos'"));
+    check('⛔ la REPARTE al puesto sistemas, no sólo la declara',
+      /position_responsibilities/.test(txtS) && /'sistemas'/.test(txtS));
+    const bloqueS = (bloques.find((b) => b.id === 'salud-datos') || {}).cuerpo || '';
+    check('⛔ el estado abierto sale de resolved_at, NO de status (que es la gravedad)',
+      /estadoCol: 'resolved_at'/.test(bloqueS) && /estadoAbierto: null/.test(bloqueS)
+        && !/estadoCol: 'status'/.test(bloqueS),
+      bloqueS ? 'bloque leído' : 'NO se encontró el bloque salud-datos');
+    check('⛔ y su ruta es la pantalla que YA publica esa tabla',
+      /ruta: '\/admin\/db-health'/.test(bloqueS));
   }
 
   /*
