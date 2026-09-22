@@ -27,6 +27,11 @@ PGP=5434
 PGU=postgres
 DB=railway
 HILOS="${JOBS:-4}"
+# Los pisos son variables para poder ROMPERLOS a propósito y ver el rojo. Una compuerta con
+# el umbral incrustado no se puede probar, y una compuerta sin prueba negativa es una intención.
+PISO_TABLAS="${MIN_TABLES:-400}"
+PISO_ACL="${MIN_ACL:-100}"
+MAX_EDAD_H="${MAX_EDAD_H:-30}"
 
 REVISAR=0
 ARCHIVO=""
@@ -66,7 +71,7 @@ toc=$(pg_restore --list "$ARCHIVO" 2>/dev/null)
 [ -n "$toc" ] || morir "pg_restore --list no devolvió nada: el volcado no abre"
 tablas=$(echo "$toc" | grep -c 'TABLE DATA' || true)
 di "TOC: $tablas tablas con datos"
-[ "$tablas" -ge 400 ] || morir "sólo $tablas tablas con datos (piso 400): esto no es prod"
+[ "$tablas" -ge "$PISO_TABLAS" ] || morir "sólo $tablas tablas con datos (piso $PISO_TABLAS): esto no es prod"
 
 # ── Compuerta 2: ⭐ ¿trae los GRANT? ─────────────────────────────────────────
 # El respaldo de PowerShell usaba `--no-privileges`, y por eso la copia de hoy quedó con la
@@ -74,14 +79,14 @@ di "TOC: $tablas tablas con datos"
 # volcado. Restaurar otra vez sin permisos repetiría exactamente ese día.
 acl=$(echo "$toc" | grep -c 'ACL ' || true)
 di "entradas ACL (permisos) en el volcado: $acl"
-if [ "$acl" -lt 100 ]; then
+if [ "$acl" -lt "$PISO_ACL" ]; then
   morir "el volcado trae $acl entradas ACL: se tomó con --no-privileges. La app va a arrancar y devolver 500 por permisos, en runtime y no en el restore. Usá uno de los que toma prod-backup, que ya los incluye."
 fi
 
 # ── Compuerta 3: frescura ────────────────────────────────────────────────────
 # «restore viejo + migrate» ya se descartó por medición. Un volcado de hace días vuelve a
 # meter la copia en ese camino sin que nadie lo note.
-if [ "$edad_h" -gt 30 ]; then
+if [ "$edad_h" -gt "$MAX_EDAD_H" ]; then
   di "⚠️  el volcado tiene ${edad_h} h. Un volcado viejo NO se arregla migrando hacia adelante"
   di "    (medido: hay migraciones que dependen de datos editados a mano desde la UI)."
   [ "${FORZAR_VIEJO:-0}" = 1 ] || morir "abortado. Si de verdad querés ese volcado: FORZAR_VIEJO=1"
