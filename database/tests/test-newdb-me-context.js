@@ -934,28 +934,40 @@ const tieneDecoradorPermisos = (tramo) =>
   }
 
   /*
-   * ── `[SN.34]` El espacio que no le toca a tu departamento ────────────────────────────────────
+   * ── `[SN.34]` «Tus espacios» NO se recorta por departamento ──────────────────────────────────
    *
-   * Pedido de Edgar: fuera «Administración y Finanzas» de la portada de Sistemas. Lo que este
-   * bloque vigila es que el recorte siga siendo POR DEPARTAMENTO: medido el 2026-09-22, `superadmin`
-   * lo traen 8 personas y 3 son `jefe_zona` entrando a diario — hacerlo por rol les quitaría la
-   * puerta a ellos, que no es lo que se pidió. La conducta la ejercen 3 pruebas del componente.
+   * Este bloque exigía lo contrario —que «Administración y Finanzas» desapareciera de la portada
+   * de Sistemas— y se dio vuelta el mismo día, 2026-09-22, con la corrección de Edgar: *«te dije
+   * que me ocultaras finanzas pero sólo lo de mi trabajo, no el módulo»*.
+   *
+   * ⭐ El error no era el alcance sino la COLUMNA. `/projects` tiene dos: «Tu trabajo» (las colas)
+   * y «Tus espacios» (los mosaicos, que son la navegación a los módulos). El recorte cayó en la
+   * segunda, o sea que le quitó la puerta en vez de la cola.
+   *
+   * ⛔ Y no hizo falta nada en su lugar: «Tu trabajo» de Sistemas **ya no tiene nada de finanzas**
+   * —`[SN.30]` sólo muestra las colas de las que uno responde— y el único resto es un contador
+   * anónimo que nunca nombra un dominio. Lo que se vigila ahora es que el recorte no vuelva.
    */
-  console.log('\n── 4j. [SN.34] Recorte de portada por departamento ──');
+  console.log('\n── 4j. [SN.34] «Tus espacios» no se recorta por departamento ──');
   const srcMapa = sinComentarios(
     fs.readFileSync(path.resolve(__dirname, '../../libs/contracts/src/authz/suite-map.ts'), 'utf8'),
   );
-  check('el espacio de finanzas declara de qué departamento se oculta',
-    /id: 'administracion-y-finanzas'[\s\S]{0,900}?hideForDepartments: \['sistemas'\]/.test(srcMapa));
-  check('⛔ y NO se oculta por ROL (3 de los 8 superadmin son jefes de zona, medido)',
+  check('⛔ el mecanismo de ocultar espacios por departamento se retiró con su único uso',
+    !/hideForDepartments/.test(srcMapa), null);
+  check('⛔ y tampoco se oculta por ROL (3 de los 8 superadmin son jefes de zona, medido)',
     !/hideForRoles:[^\n]*superadmin/.test(srcMapa));
   const srcPortada = sinComentarios(
     fs.readFileSync(path.resolve(__dirname, '../../apps/view/src/app/modules/mi-trabajo/mi-trabajo.component.ts'), 'utf8'),
   );
-  check('la portada aplica el recorte con el departamento de me/context',
-    /hideForDepartments\?\.includes\(mio\)/.test(srcPortada));
-  check('⛔ y con el departamento SIN saber todavía, NO oculta nada',
-    /return !mio \|\| !s\.space\.hideForDepartments/.test(srcPortada));
+  check('⛔ la portada no filtra la lista de espacios por el departamento',
+    !/hideForDepartments/.test(srcPortada), null);
+  /*
+   * ⚠️ El departamento SIGUE leyéndose, y tiene que seguir: `[SN.35]` lo usa para apagar el bloque
+   * «A tu nombre». Sin esta línea, un revert de más se llevaría también ese pedido, que sí está
+   * vigente.
+   */
+  check('⚠️ pero el departamento se sigue leyendo (lo necesita [SN.35])',
+    /miDepartamento = computed/.test(srcPortada));
 
   /*
    * ── `[SN.35]` «A tu nombre», apagado hasta nuevo aviso ───────────────────────────────────────

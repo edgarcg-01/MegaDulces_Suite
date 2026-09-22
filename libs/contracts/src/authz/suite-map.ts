@@ -99,28 +99,19 @@ export interface SuiteSpace {
   readonly proposal?: string;
   /** `true` sólo para "Mi trabajo": es la pantalla misma, no una sección con entradas. */
   readonly landing?: boolean;
-  /**
-   * `[SN.34]` **Departamentos para los que este espacio NO se pinta en la portada.**
+  /*
+   * `[SN.34]` Acá vivió `hideForDepartments?: readonly string[]` — apagar el mosaico de un espacio
+   * por departamento. Se retira con su único uso (ver el bloque de `administracion-y-finanzas`):
+   * el pedido que lo motivó era sobre la OTRA columna de la portada, y sin ese uso esto es un
+   * mecanismo sin dueño que el próximo lee como una función soportada.
    *
-   * Es un recorte de **UX de la landing**, hermano de `SuiteEntry.hideForRoles` y con su mismo
-   * espíritu: *el vendedor no debe ver el back-office aunque tenga la clave*. Acá la pregunta es
-   * de quién es el TRABAJO, y eso lo contesta el departamento, no el rol.
-   *
-   * ⛔ **No es seguridad y no cierra nada.** La ruta sigue abierta, el sidebar sigue ofreciéndola
-   * y el buscador global la sigue encontrando. Lo único que cambia es que deja de ocupar lugar en
-   * la portada de quien no responde de ella.
-   *
-   * ⛔ **Por departamento y NO por rol, y es una medición, no una preferencia.** Medido el
-   * 2026-09-22: `superadmin` lo traen **8 personas**, y **3 son `jefe_zona`** (aaron_alejo,
-   * ivette_cruz, ramon_rodriguez — Gerencia de Zona, entrando a diario). Ocultarlo «para
-   * superadmin» les habría quitado la puerta a ellos también, que no es lo que se pidió. El
-   * departamento separa exactamente a los 5 de Sistemas.
-   *
-   * ⚠️ El departamento llega de `GET /users/me/context`, que es **asíncrono**: hasta que contesta,
-   * el espacio se pinta. Es un parpadeo, y se prefiere a la alternativa —esconderlo mientras no se
-   * sabe— porque ocultar por un dato que todavía no llegó es decidir sobre lo que no se midió.
+   * ⚠️ Si alguna vez hace falta de verdad, lo medido sigue valiendo y evita rehacerlo mal: el
+   * recorte va **por departamento y NO por rol** — `superadmin` lo traen 8 personas y **3 son
+   * `jefe_zona`** (aaron_alejo, ivette_cruz, ramon_rodriguez, entrando a diario), así que cortar
+   * «para superadmin» les quita la puerta a ellos también. Y el departamento llega asíncrono de
+   * `GET /users/me/context`: mientras no se sabe, se PINTA — ocultar por un dato que todavía no
+   * llegó es decidir sobre lo que no se midió.
    */
-  readonly hideForDepartments?: readonly string[];
   readonly entries: readonly SuiteEntry[];
 }
 
@@ -344,16 +335,28 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     description: 'Tesorería, bancos, cobranza, pagos, contabilidad y cumplimiento fiscal.',
     status: 'active',
     /*
-     * `[SN.34]` Pedido de Edgar (2026-09-22): fuera de la portada de Sistemas. Las tres puertas
-     * —Finanzas, Presupuestos y Contabilidad— las abre `superadmin`, pero el dinero no es trabajo
-     * de Sistemas; ocupaban un cuarto del espacio útil de la columna sin que nadie de ahí responda
-     * de ellas.
+     * `[SN.34]` **REVERTIDO el 2026-09-22, el mismo día, por el propio pedido mal leído.**
      *
-     * ⛔ Sigue ABIERTO: el sidebar la ofrece, la URL entra y el buscador la encuentra. Lo que se
-     * quita es el mosaico de la portada, no el acceso. Medido: 5 personas (`superoot`,
-     * `felipe_galvan`, `jlh_lopez`, `guillermo_lopez`, `david_cisneros`).
+     * Acá vivió `hideForDepartments: ['sistemas']`. Edgar había pedido «quitar el de finanzas» y,
+     * al preguntarle cuál era, eligió «El espacio Administración y Finanzas» — así que se recortó
+     * el MOSAICO de este espacio en la portada. Su corrección: *«te dije que me ocultaras finanzas
+     * pero sólo lo de mi trabajo, no el módulo»*.
+     *
+     * ⭐ Lo que estaba mal no era el alcance del recorte sino la COLUMNA. `/projects` tiene dos:
+     * «Tu trabajo» (las colas) y «Tus espacios» (los mosaicos, que son su navegación a los
+     * módulos). El recorte cayó en la segunda, o sea que le quitó la puerta en vez de la cola.
+     *
+     * ⛔ Y no hacía falta ninguna otra cosa en su lugar: medido, «Tu trabajo» de Sistemas **ya no
+     * tiene nada de finanzas** — `[SN.30]` sólo muestra las colas de las que uno responde, y ahí
+     * la única es `sistemas.salud_datos`; lo que queda es un contador anónimo («N colas más que tu
+     * permiso abre no aparecen») que nunca nombra un dominio. La corrección completa es este
+     * revert, no mover el recorte de columna.
+     *
+     * ⚠️ La lección, porque volvería a pasar: cuando se pregunta «¿cuál de estos es?» hay que
+     * ofrecer las opciones EN LOS TÉRMINOS DE LA PANTALLA que la persona mira. «El espacio
+     * Administración y Finanzas» es vocabulario del mapa de la suite; lo que él tenía enfrente
+     * eran dos columnas con título. Con las opciones bien nombradas, la respuesta habría sido otra.
      */
-    hideForDepartments: ['sistemas'],
     entries: [
       {
         id: 'finanzas',

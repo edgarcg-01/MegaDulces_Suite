@@ -1409,9 +1409,18 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(q<HTMLElement>('.mt-desglose').length).toBe(0);
   });
 
-  // ── `[SN.34]` El espacio que no le toca a tu departamento ─────────────────
+  // ── `[SN.34]` «Tus espacios» NO se recorta por departamento ───────────────
 
-  it('`[SN.34]` Sistemas NO ve el espacio «Administración y Finanzas» en su portada', async () => {
+  /*
+   * Acá vivían tres pruebas que exigían lo contrario: que Sistemas NO viera «Administración y
+   * Finanzas». Se dieron vuelta el mismo día, con la corrección de Edgar: *«te dije que me
+   * ocultaras finanzas pero sólo lo de mi trabajo, no el módulo»*. El recorte había caído en la
+   * columna de NAVEGACIÓN en vez de la de trabajo — le quitó la puerta, no la cola.
+   *
+   * ⛔ Queda como prueba de que el revert se sostiene: si alguien vuelve a colgar un recorte por
+   * departamento de esta columna, esto se pone rojo.
+   */
+  it('⛔ `[SN.34]` Sistemas SÍ ve «Administración y Finanzas»: quien tiene la llave ve la puerta', async () => {
     await montar({
       role: 'superadmin',
       perms: [Permission.USUARIOS_GESTIONAR],
@@ -1419,22 +1428,8 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
       ctx$: of({ ...CTX_BASE, role_name: 'superadmin', department: { code: 'sistemas', name: 'Sistemas' }, position: { code: 'sistemas', name: 'Jefatura de Sistemas' } }),
     });
     const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
-    expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(false);
-    // ⛔ Y el resto de la portada sigue entero: esto recorta UN espacio, no la columna.
-    expect(titulos.some((t) => t.includes('Comercial'))).toBe(true);
-  });
-
-  it('⛔ `[SN.34]` PRUEBA NEGATIVA — el MISMO superadmin de otro departamento SÍ lo ve', async () => {
-    // Si el recorte fuera por rol, estos 3 jefes de zona con `superadmin` (medido en prod el
-    // 2026-09-22) habrían perdido la puerta sin que nadie lo pidiera.
-    await montar({
-      role: 'superadmin',
-      perms: [Permission.USUARIOS_GESTIONAR],
-      stay: true,
-      ctx$: of({ ...CTX_BASE, role_name: 'superadmin', department: { code: 'direccion_zona', name: 'Dirección de Zona' }, position: { code: 'jefe_zona', name: 'Gerencia de Zona' } }),
-    });
-    const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
     expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(true);
+    expect(titulos.some((t) => t.includes('Comercial'))).toBe(true);
   });
 
   // ── `[SN.35]` «A tu nombre», apagado hasta nuevo aviso ────────────────────
@@ -1510,8 +1505,9 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(t).not.toContain('oculto por decisión de Dirección');
   });
 
-  it('⛔ `[SN.34]` mientras no se sabe el departamento, el espacio SE PINTA', async () => {
-    // Esconderlo apoyándose en un dato que todavía no llegó sería decidir sobre lo que no se midió.
+  it('⛔ `[SN.34]` sin departamento conocido, los espacios se pintan igual', async () => {
+    // Sigue valiendo tras el revert, y por otra razón: ahora NADA de esta columna depende del
+    // departamento, así que un contexto que todavía no llegó no puede recortar nada.
     await montar({
       role: 'superadmin',
       perms: [Permission.USUARIOS_GESTIONAR],
