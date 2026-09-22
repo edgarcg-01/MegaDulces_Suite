@@ -62,6 +62,12 @@ PISO_ODS="${MIN_ODS_TABLES:-200}"
 PISO_GB="${MIN_FREE_GB:-15}"
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
 JOB="backup_prod"
+# En modo prueba el latido SÍ se escribe, sobre su propia llave. Antes se salteaba "para no
+# pisar el renglón real" — y el efecto era que la prueba quedaba ciega al único camino que
+# nunca se había corrido: el 2026-09-22 el primer volcado REAL descubrió que el latido no se
+# escribía (psql no interpola con `-c`), algo que `--prueba` no podía ver por diseño.
+# La llave aparte da aislamiento; saltear el código da una prueba que no prueba. La fila se
+# borra al terminar, así que no queda basura en el tablero.
 [ "$PRUEBA" = 1 ] && JOB="backup_prod_prueba"
 YO="md-backup"
 
@@ -232,6 +238,23 @@ di "retención: $borrados borrados, quedan $quedan volcados, ${ocupado} GB."
 # ve en el tablero sin abrir un log.
 if [ "$PRUEBA" = 1 ]; then
   rm -f "$archivo" "$errlog"
+  latido_fin ok "prueba de compuertas"
+  # La prueba negativa DEL PROPIO LATIDO: que el comando no haya fallado no significa que la
+  # fila esté. Se comprueba leyéndola, y si no está se sale con error — un respaldo mudo en el
+  # tablero es el modo de falla que este carril existe para cerrar.
+  escrito=$(psql "$URLK" -At -q -v j="$JOB" -f - <<'SQL'
+SELECT count(*) FROM analytics.cron_runs WHERE job_key = :'j';
+SQL
+)
+  psql "$URLK" -q -v j="$JOB" -f - >/dev/null 2>&1 <<'SQL'
+DELETE FROM analytics.cron_runs WHERE job_key = :'j';
+SQL
+  if [ "$escrito" = 1 ]; then
+    di "latido: escrito y verificado sobre la llave de prueba (y borrado)"
+  else
+    di "FALLO: el latido NO se escribió — el respaldo quedaría MUDO en el tablero"
+    exit 1
+  fi
   di "PRUEBA OK — todas las compuertas pasaron. El latido backup_prod NO se tocó."
 else
   latido_fin ok "${mb} MB en ${dt}s · $tablas tablas ($ods_d de kepler_ods) · quedan $quedan, ${ocupado} GB"
