@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { Permission } from '../../core/constants/permissions';
+import { loginUrlTree } from '../../core/auth/login-redirect';
 
 /**
  * Guard del proyecto Reparto. Requiere sesión + permiso de **alguna** de sus pantallas.
@@ -18,18 +19,18 @@ import { Permission } from '../../core/constants/permissions';
  *
  * El guard sólo cuida la PUERTA del proyecto; cada ruta hija sigue con su `permissionGuard`.
  */
-export const repartoGuard: CanActivateFn = () => {
+export const repartoGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
   if (!auth.isAuthenticated) {
-    router.navigateByUrl('/login');
-    return false;
+    return loginUrlTree(router, state.url, 'required');
   }
   const user = auth.user();
   if (user?.role_name === 'customer_b2b') {
-    router.navigateByUrl('/login');
-    return false;
+    // Sin 'returnUrl': la sesión es válida, la app es la equivocada. Volver acá
+    // después de entrar sería un bucle. Mismo criterio que en 'televenta.guard'.
+    return loginUrlTree(router, null, 'required');
   }
   const perms = user?.permissions || {};
   const isAdmin = user?.role_name === 'admin' || user?.role_name === 'superadmin';

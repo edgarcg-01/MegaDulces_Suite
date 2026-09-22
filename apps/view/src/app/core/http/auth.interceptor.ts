@@ -4,6 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { Router } from '@angular/router';
 import { catchError } from 'rxjs/operators';
 import { throwError } from 'rxjs';
+import { loginUrlTree } from '../auth/login-redirect';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
@@ -44,13 +45,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       if (error.status === 401) {
         const from = router.url;
         authService.logout();
-        router.navigate(['/login'], {
-          queryParams: {
-            reason: 'expired',
-            // No tiene sentido volver al propio login ni a una pantalla de error.
-            returnUrl: from && !from.startsWith('/login') && !from.startsWith('/sin-acceso') ? from : null,
-          },
-        });
+        // La regla de "a dónde volver" vive en 'login-redirect', compartida con
+        // los guards. Estaba escrita sólo acá y por eso los guards no la tenían.
+        router.navigateByUrl(loginUrlTree(router, from, 'expired'));
       }
       return throwError(() => error);
     })

@@ -4,6 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { PermissionsService } from '../services/permissions.service';
 import { Permission } from '../constants/permissions';
 import { findProject } from '../constants/suite-map';
+import { loginUrlTree } from '../auth/login-redirect';
 
 /**
  * Redirección a la pantalla de 403 con el contexto necesario para explicarla.
@@ -25,8 +26,7 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
     const router = inject(Router);
 
     if (!authService.isAuthenticated) {
-      router.navigate(['/login']);
-      return false;
+      return loginUrlTree(router, state.url, 'required');
     }
 
     // Gate por CLAVE EXACTA del permiso (espeja al backend, que ya no colapsa
@@ -59,8 +59,7 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
     const router = inject(Router);
 
     if (!authService.isAuthenticated) {
-      router.navigate(['/login']);
-      return false;
+      return loginUrlTree(router, state.url, 'required');
     }
 
     // `[ID.30]` Una sola fuente: `hasAny` ya resuelve god-mode + clave exacta.
@@ -356,14 +355,13 @@ export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> =
   admin: ADMIN_LANDING,
 };
 
-export const colaboradorGuard: CanActivateFn = (route, state) => {
+export const colaboradorGuard: CanActivateFn = (_route, state) => {
   const authService = inject(AuthService);
   const perms = inject(PermissionsService);
   const router = inject(Router);
 
   if (!authService.isAuthenticated) {
-    router.navigate(['/login']);
-    return false;
+    return loginUrlTree(router, state.url, 'required');
   }
 
   // `[ID.30]` Una sola fuente: `hasAny` ya cubre lo que hacía el fallback al

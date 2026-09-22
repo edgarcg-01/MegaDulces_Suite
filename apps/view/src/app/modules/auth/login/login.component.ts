@@ -5,6 +5,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ActivatedRoute, Router } from '@angular/router';
+import { destinoValido } from '../../../core/auth/login-redirect';
 
 @Component({
   selector: 'app-login',
@@ -31,25 +32,33 @@ export class LoginComponent implements OnInit {
   errorMessage: string | null = null;
 
   /**
-   * Por qué estás en el login sin haber pedido salir. Hoy sólo 'expired', que lo
-   * pone el interceptor al recibir un 401.
+   * Por qué estás en el login sin haber pedido salir. Dos motivos, y la
+   * diferencia importa: 'expired' lo pone el interceptor, que PRESENCIÓ el 401;
+   * 'required' lo ponen los guards, que sólo saben que no hay token y por eso no
+   * pueden afirmar que expiró.
    */
   readonly notice = signal<string | null>(null);
 
-  /** A dónde volver después de entrar; lo trae el interceptor en ?returnUrl=. */
+  /** A dónde volver después de entrar; lo traen el interceptor y los guards en ?returnUrl=. */
   private returnUrl: string | null = null;
   isLoading = false;
 
   ngOnInit() {
     // Theme is managed globally by ThemeService
     const q = this.route.snapshot.queryParamMap;
-    this.returnUrl = q.get('returnUrl');
-    if (q.get('reason') === 'expired') {
+    // Se re-valida al LEER, no sólo al escribir: acá el valor llega de la barra
+    // de direcciones y puede venir de cualquier lado.
+    this.returnUrl = destinoValido(q.get('returnUrl'));
+    const reason = q.get('reason');
+    if (reason === 'expired') {
       this.notice.set(
         this.returnUrl
           ? 'Tu sesión expiró. Entrá de nuevo y te devolvemos a donde estabas.'
           : 'Tu sesión expiró. Entrá de nuevo para continuar.',
       );
+    } else if (reason === 'required' && this.returnUrl) {
+      // No se dice "expiró": el guard no lo sabe. Sólo que hace falta entrar.
+      this.notice.set('Entrá para continuar y te llevamos a donde ibas.');
     }
   }
 
