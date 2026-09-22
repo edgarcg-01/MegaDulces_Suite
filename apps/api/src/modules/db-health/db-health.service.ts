@@ -729,6 +729,12 @@ const CRON_JOBS: CronCfg[] = [
   // quien viniera a ver por qué falta el respaldo lo buscaría cinco horas antes y en otra máquina.
   // `maxRunH: 3` aguanta: los cuatro respaldos reales medidos tardaron 68, 69, 89 y 74 min.
   { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 22:00 (md)', warnH: 26, critH: 50, maxRunH: 3 },
+  // [VL.9.10] Respaldo del CLÚSTER con pgBackRest: diferencial a diario 23:30, completo los
+  // domingos. Distinto de `backup_prod`, que es el volcado portátil — éste es el que da
+  // recuperación a un punto en el tiempo. ⚠️ Y es el que hace que el WAL EXPIRE: sin un
+  // respaldo nuevo, el WAL archivado se acumula sin tope (medido: 4 GB → 12 GB en 3 horas).
+  // 26 h de warn porque es diario; 50 h antes de crítico da margen a una noche perdida.
+  { key: 'pgbackrest_backup',   label: 'Respaldo pgBackRest (PITR)', cadence: 'diario 23:30 (md)', warnH: 26, critH: 50, maxRunH: 2 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
   // kepler_catalog_bulk RETIRADO (2026-09-11): el catálogo lo mantienen los repoint-catalog-* del
   // nightly (presence/names/prices/cost, CANON.0.1) — catalog.products fresco 0 h. Su latido llevaba
