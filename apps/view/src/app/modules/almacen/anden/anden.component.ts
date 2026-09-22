@@ -16,6 +16,7 @@ import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './co
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
 import { AndenUbicacionComponent, UbicacionNueva, UbicadoConfirmado } from './components/anden-ubicacion.component';
 import { AndenCartelComponent, CartelUbicacion } from './components/anden-cartel.component';
+import { motivoHttp } from '../shared/http-motivo';
 import { ScanFieldComponent } from './components/scan-field.component';
 import { formatExpiryEcho } from '../shared/expiry-short';
 import { unidadDelVale } from '../shared/unidad-vale';
@@ -942,11 +943,12 @@ export class AndenComponent implements OnInit {
           this.toast.add({
             severity: dup ? 'warn' : 'error',
             summary: dup ? 'Ese código ya existe' : 'No se pudo crear',
-            // Un 403 acá significa que el usuario puede recibir pero no dar de alta
-            // ubicaciones: hay que decirlo, no dejar un botón que no hace nada.
-            detail: e?.status === 403
-              ? 'Tu rol puede recibir mercancía pero no dar de alta ubicaciones. Pedí que te den el permiso de asignar.'
-              : e?.error?.message || 'Error al crear la ubicación',
+            // El motivo REAL y no un genérico: este mismo toast decía "Error al
+            // crear la ubicación" para un 500, para un 403, para la sesión vencida
+            // y para una petición que ni salió — y con eso la falla que se reportó
+            // desde la bodega fue imposible de diagnosticar. `motivoHttp` los
+            // separa y nunca devuelve "Error" pelado.
+            detail: motivoHttp(e, 'crear la ubicación'),
           });
           if (dup) this.cargarBins();
         },

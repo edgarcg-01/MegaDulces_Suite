@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -24,7 +25,7 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
 @Component({
   selector: 'app-comercial-tickets',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule, RouterLink],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -36,6 +37,11 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
           <h1>Tickets de venta</h1>
           <p class="surf-page-sub">Busca cualquier folio y reimprímelo con el descuento desglosado</p>
         </div>
+        <!-- TK.8 — La otra pregunta ("todo lo de un cliente") vive en su propia sección: esta
+             pantalla no cambia. -->
+        <a class="tk-reporte" routerLink="/comercial/tickets/reporte">
+          <i class="pi pi-users" aria-hidden="true"></i>Reporte por cliente
+        </a>
       </header>
 
       <form class="tk-search" (ngSubmit)="buscar()">
@@ -206,6 +212,12 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
     </div>
   `,
   styles: [`
+    .surf-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .tk-reporte { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
+      padding: 9px 14px; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+      background: var(--card-bg); color: var(--text-1); text-decoration: none; white-space: nowrap; }
+    .tk-reporte:hover { background: var(--overlay-hover); }
+
     .tk-search { display:flex; align-items:center; gap:.5rem; position:relative; margin-top:.75rem }
     .tk-search i { position:absolute; left:.7rem; color:var(--text-muted,#78716c); pointer-events:none }
     .tk-search input { flex:1 1 auto; padding:.55rem .75rem .55rem 2.1rem; border:1px solid var(--surface-border,#e7e5e4);
