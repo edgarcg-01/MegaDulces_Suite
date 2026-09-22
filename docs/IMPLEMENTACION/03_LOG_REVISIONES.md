@@ -6047,3 +6047,94 @@ y los counts de `stores` no filtraban `tenant_id` (la conexión legacy es
 
 Reportes QA en `.gstack/qa-reports/`. Deferred: COM-003 (historical FDW "0
 clientes únicos", módulo nuevo en curso), endurecer `isPercent` backend a ≤1.
+
+---
+
+## 2026-09-21 — Checkpoint: el build de prod, de ~5m 17s a ~1m 44s (Fase NX · `[NX.10]` → `[NX.11]`)
+
+Sesión reactiva. Arrancó con *"los tiempos de compilación y build siguen siendo demasiado
+tardados… **en prod**"* y terminó con el build del servicio principal **3× más rápido**, medido en
+tres deploys reales del mismo día. Commits `cc409e05` · `5b8d689a` · `22d87908` · `345f7f2b` ·
+`8f072e4c` · `55d1017e`.
+
+### El resultado, contra el mismo servicio
+
+| paso | 09:03 (base) | 16:10 | **cierre** |
+|---|---|---|---|
+| `nx run-many -t build view,api` | 2m 02s | 2m 58s | **1m 12s** |
+| `COPY --from=prod-deps node_modules` | 1m 30s | 52s | **6s** |
+| `exporting to docker image format` | 1m 13s | 1m 38s | **7s** |
+| `image push` | 633.4 MB / 21s | 428.7 MB | 452.4 MB / **11s** |
+| **build completo** | **≈ 5m 17s** | ≈ 5m 30s | **≈ 1m 44s** |
+
+### Lo que se encontró, en orden
+
+**1. Compilar era el 38%; el 58% era mover `node_modules`.** El desglose del log de Railway lo
+dijo solo. `prod-deps` instalaba desde el `package.json` de la **raíz** (116 deps, con todo el
+stack de Angular adentro) cuando el build **ya emitía** el manifiesto podado de 64
+(`generatePackageJson` en `apps/api/webpack.config.js`) y **nadie lo usaba**. Medido con `npm ci`
+real adentro de Docker: **1,210 MB / 102,821 archivos → 592 MB / 58,914**. Lo que sobraba:
+`@imgly` 184 MB · `@angular` 64 MB · `@zxing` 29 MB · PrimeNG + temas + iconos 26 MB.
+
+**2. `--chown` en un `COPY` entre stages se paga cada build.** Impide a BuildKit reusar los inodos
+del snapshot origen: crea uno nuevo por archivo. Movido al stage origen, que se cachea.
+
+**3. `CI=true` × Nx Cloud: ~45–80 s de peaje POR CORRIDA**, aunque no haya nada que compilar. Es
+el hallazgo grande, y **lo había introducido esta misma fase**: `[NX.4]` encendió el caché remoto
+para no compilar `api:build` dos veces por release (ahorra ~25 s) y costaba ~63 s **en cada uno de
+los 4 servicios**. Net claramente negativo.
+
+### Las hipótesis que se cayeron (tres, todas propias)
+
+Esto es la mitad del valor de la sesión, porque las tres parecían obvias:
+
+- **`git: not found`** — el log lo imprime 5 veces y parecía la respuesta. Medido: el grafo tarda
+  5.6–6.0 s **con** git y 5.8–6.0 s **sin** él. Sin diferencia.
+- **El daemon de Nx apagado** — falso, y al revés: con `CI=true` el daemon **encendido** es peor.
+- **"Menos MB → export más rápido"** y **"un `RUN` de más → export más lento"** — las dos cayeron
+  con una corrida en frío: quitar **860 MB** movió el export **1 segundo**. `exporting` escala con
+  **cuántas capas son NUEVAS**, no con los bytes.
+
+### Lecciones que quedaron como regla
+
+1. **Cuando un paso de build tarda más que la suma de lo que declara hacer, el hueco se MIDE, no
+   se atribuye.** Acá el hueco era la mitad del build.
+2. **Un experimento corto, repetido, le gana a una máquina más quieta.** La primera tanda sobre el
+   build completo salió inservible por contención (5.6 s / 33 s / 109 s en la misma columna). El
+   2×2 sobre un target trivial **ya cacheado** dio conjuntos que no se tocan.
+3. **Un arreglo que vive en un solo archivo es una nota al pie, no un arreglo.** `windowsHide` ya
+   estaba resuelto en `lib/access-adapter.js` con el comentario exacto del problema, y **4 de 7**
+   lanzadores hermanos nunca se actualizaron. Al arreglar un lector/lanzador, auditar los hermanos
+   **en el mismo commit**.
+4. **`--chown` en un `COPY` masivo entre stages**: poné el owner en el stage origen.
+5. **No elegir los números que sostienen la propia historia.** Dos veces hubo que decir "esta
+   medición no sirve" en vez de publicarla.
+
+### Lo que queda abierto, declarado
+
+- ⚠️ **`nx run-many` no quedó DESCOMPUESTO**: bajó 102 s, pero Railway recortó la salida de Nx en
+  el deploy de cierre, así que no se sabe cuántas tareas pegaron caché. Parte puede ser un hit
+  remoto de `view`, no sólo el peaje quitado. Se cierra con la tabla
+  `Status / Task / Duration / Cache Status` de ese paso.
+- ⬜ **El reloj de pared de `portal`/`vendor`** sigue matando su caché. §10 dejó medida la salida:
+  `/build-info.json` en la raíz servida **no cae en ningún `assetGroup`** de ninguno de los dos
+  `ngsw-config.json`, así que el sello se puede escribir post-build sin desfasar `ngsw.json`.
+- ⬜ **El `npm ci` sin cache mount de `portal`/`vendor`** — Railway exige `id=s/<service-id>-…` y
+  **no se tienen esos Service ID**. Acción humana.
+- ⚠️ `check-provenance.js` sigue **rojo y ajeno** por `StoreRhythm` en
+  `apps/view/.../tienda/store-socket.service.ts` (último commit `f40234a9`, `[TDA.P]`).
+- ⚠️ Los dos pushes de cierre **saltaron la branch protection** (`Changes must be made through a
+  pull request`), por pedido explícito de ir directo a `main`.
+
+### Colateral de la sesión
+
+- **`[NX.10]` candado nuevo** `scripts/check-bundle-externals.js`: los `require("…")` literales del
+  bundle son árbitro **independiente** del manifiesto generado. Rompe el **build**, no el boot.
+  En el deploy de cierre reportó **60 externals**, uno más que el día anterior — el código de
+  `[PU.*]` sumó una dependencia y la puerta la vio.
+- **Wincaja**: 4 de 7 lanzadores de PowerShell 32-bit no pasaban `windowsHide` → consolas negras
+  en el escritorio. Arreglados los 7. (No era el origen de la ventana que el usuario veía: ésa
+  resultó ser `cmd.exe` lanzado por `npx`/`nx` de las otras sesiones — atribuido **por PID**.)
+- **`[NX.11]` de rebote**: el `boundary-gate` estaba rojo por 6 `any` nuevos en el ledger de
+  presupuesto (`[PU.11]`/`[PU.12]`, de otra sesión). Se tipó el puerto y los 7 `trx` con
+  `Knex.Transaction`, **cero cambios de lógica**, comentado para esos devs.
