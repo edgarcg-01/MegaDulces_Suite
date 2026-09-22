@@ -30,3 +30,17 @@ SHELL=/bin/sh
 # no más tarde: el carril nocturno de la ingesta arranca a las 03:00 y
 # `contpaqi-cfdis-full` termina cerca de las 05:45 — 22:00→23:15 no pisa a nadie.
 0 22 * * * root /usr/local/bin/backup-prod.sh >> /proc/1/fd/1 2>&1
+
+# ═══ [VL.9.10] LOS RESPALDOS DEL CLÚSTER (pgBackRest) ═══
+# ⚠️ ESTO NO ES OPCIONAL: pgBackRest expira el WAL atado a los RESPALDOS. Con un solo
+# completo, el WAL archivado desde entonces NO SE BORRA NUNCA. Medido el 2026-09-22: el
+# repositorio pasó de 4 GB a 12 GB en tres horas y sin un completo nuevo ese crecimiento
+# no tiene tope — en el mismo disco donde viven los 9 contenedores de la ingesta.
+#
+# 23:30, después del volcado de las 22:00 (que tarda ~75 min y cierra ~23:15). Domingo
+# completo, el resto diferencial: el diferencial guarda sólo lo cambiado desde el último
+# completo, y es lo que permite que la retención expire WAL viejo cada semana.
+# Corre como `postgres` (uid 999) porque necesita leer PGDATA y autenticarse por `peer`
+# en el socket que comparte con `pg-prod`.
+30 23 * * 0 postgres /usr/local/bin/pgbackrest-run.sh full > /proc/1/fd/1 2>&1
+30 23 * * 1-6 postgres /usr/local/bin/pgbackrest-run.sh diff > /proc/1/fd/1 2>&1

@@ -81,6 +81,10 @@ services:
       # pedirle permiso a Docker. Mismo criterio que la carpeta de volcados.
       - "/home/superoot/pgbackrest:/var/lib/pgbackrest"
       - "/home/superoot/pgbackrest-log:/var/log/pgbackrest"
+      # [VL.9.10] El socket en una ruta del HOST para poder compartirlo con `prod-backup`,
+      # que es donde corren los respaldos agendados del clúster. La app se conecta por TCP,
+      # así que esto no cambia nada para ella.
+      - "/home/superoot/pgsock:/var/run/postgresql"
     # ⚠️ 5434, NO 5432 ni 5433. El 5433 es el CONCENTRADOR y confundirlos es el modo de
     # falla más caro que tiene esta máquina: una medición contra la base equivocada se lee
     # perfectamente bien. Ver GOTCHAS §17/§18 y `reference_prod_db_connection_topology`.
@@ -320,6 +324,15 @@ services:
       # sobrevivir a un `docker compose down -v` y poder copiarse fuera de sitio
       # sin pedirle permiso a Docker (VL.8 — hoy NO hay respaldo fuera de sitio).
       - /home/superoot/backups:/backups
+      # ═══ [VL.9.10] para correr los respaldos del CLÚSTER desde acá ═══
+      # pgBackRest necesita leer PGDATA **y** hablar con Postgres, y la conexión sólo
+      # la sabe hacer por socket UNIX local (no acepta un host TCP). En vez de darle a
+      # este contenedor el socket de Docker —que es root en el host— se le comparten
+      # los dos recursos: los datos en SÓLO LECTURA y el directorio del socket.
+      - "pg-prod-data:/var/lib/postgresql:ro"
+      - /home/superoot/pgsock:/var/run/postgresql
+      - /home/superoot/pgbackrest:/var/lib/pgbackrest
+      - /home/superoot/pgbackrest-log:/var/log/pgbackrest
 
   # El portal B2B (clientes). Imagen propia, nginx sirviendo su bundle.
   portal:

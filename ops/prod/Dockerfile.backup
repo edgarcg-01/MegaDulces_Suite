@@ -11,18 +11,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM postgres:18
 
-# `cron` no viene en la imagen. Se instala sólo eso.
+# `cron` para la agenda, y `pgbackrest` porque este contenedor también corre los
+# respaldos del CLÚSTER (ver `ops/prod/pgbackrest-run.sh`): comparte el volumen de
+# datos en SÓLO LECTURA y el directorio del socket de `pg-prod`, en vez de pedir el
+# socket de Docker — que sería root en el host.
+# ⚠️ La versión de pgbackrest se fija igual que en `Dockerfile.pg`: las dos puntas
+# escriben el mismo repositorio y tienen que coincidir.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends cron \
+ && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg12+1 \
  && rm -rf /var/lib/apt/lists/*
 
-COPY ops/prod/backup-prod.sh   /usr/local/bin/backup-prod.sh
-COPY ops/prod/crontab.backup   /etc/cron.d/backup-prod
+COPY ops/prod/backup-prod.sh    /usr/local/bin/backup-prod.sh
+COPY ops/prod/pgbackrest-run.sh /usr/local/bin/pgbackrest-run.sh
+COPY ops/prod/pgbackrest.conf   /etc/pgbackrest/pgbackrest.conf
+COPY ops/prod/crontab.backup    /etc/cron.d/backup-prod
 
 # cron IGNORA un archivo de /etc/cron.d escribible por grupo u otros, y lo hace en
 # silencio. El chmod no es higiene: es la diferencia entre que corra y que no.
-RUN chmod 0755 /usr/local/bin/backup-prod.sh \
- && chmod 0644 /etc/cron.d/backup-prod \
+RUN chmod 0755 /usr/local/bin/backup-prod.sh /usr/local/bin/pgbackrest-run.sh \
+ && chmod 0644 /etc/cron.d/backup-prod /etc/pgbackrest/pgbackrest.conf \
  && chown root:root /etc/cron.d/backup-prod
 
 # ⛔ Hay que ANULAR el entrypoint de la imagen: `docker-entrypoint.sh` de postgres
