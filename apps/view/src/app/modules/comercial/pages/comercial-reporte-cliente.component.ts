@@ -60,11 +60,12 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
                 <span class="rc-cand-nom">{{ c.nombre || c.cliente_code }}</span>
                 <span class="rc-cand-sub">
                   <span class="rc-mono">{{ c.cliente_code }}</span>
-                  · {{ c.sucursal_nombre || c.sucursal }}
+                  @if (c.zona) { · zona {{ c.zona }} }
                   @if (c.ciudad) { · {{ c.ciudad }} }
+                  · en {{ c.plazas }} sucursal{{ c.plazas === 1 ? '' : 'es' }}
                 </span>
                 @if (c.clave_ambigua) {
-                  <span class="rc-amb">Esta clave nombra a otro cliente en otra plaza — elegí la correcta</span>
+                  <span class="rc-amb">⚠ Esta clave trae nombres distintos según la sucursal: puede ser más de un cliente</span>
                 }
               </button>
             </li>
@@ -89,9 +90,12 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
         <b>{{ cliente()!.nombre || cliente()!.cliente_code }}</b>
         <span class="rc-cand-sub">
           <span class="rc-mono">{{ cliente()!.cliente_code }}</span>
-          · {{ cliente()!.sucursal_nombre || cliente()!.sucursal }}
-          @if (cliente()!.vendedor_nombre) { · atiende {{ cliente()!.vendedor_nombre }} }
+          @if (cliente()!.zona) { · zona {{ cliente()!.zona }} }
+          @if (cliente()!.ciudad) { · {{ cliente()!.ciudad }} }
         </span>
+        @if (cliente()!.clave_ambigua) {
+          <span class="rc-amb">⚠ Esta clave trae nombres distintos según la sucursal: el reporte puede estar sumando a más de un cliente</span>
+        }
       </div>
       <button pButton size="small" [text]="true" severity="secondary" (click)="cambiar()">Cambiar cliente</button>
     </section>
@@ -112,6 +116,10 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
         </label>
       </div>
       <div class="rc-fila">
+        <label for="f7">Folio</label>
+        <input id="f7" type="text" [(ngModel)]="f.folio" placeholder="contiene" class="rc-num">
+        <label for="f8">Sucursal</label>
+        <input id="f8" type="text" [(ngModel)]="f.warehouse_codes" placeholder="todas" class="rc-num">
         <label for="f5">Caja</label>
         <input id="f5" type="number" [(ngModel)]="f.caja" placeholder="todas" class="rc-num">
         <label for="f6">Atendió</label>
@@ -130,6 +138,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
         <div class="rc-kpi"><span>Importe</span><b class="rc-mono">{{ r.resumen.importe | currency:'MXN':'symbol-narrow' }}</b></div>
         <div class="rc-kpi"><span>Descuento</span><b class="rc-mono">{{ r.resumen.descuento | currency:'MXN':'symbol-narrow' }}</b></div>
         <div class="rc-kpi"><span>Promedio</span><b class="rc-mono">{{ r.resumen.promedio | currency:'MXN':'symbol-narrow' }}</b></div>
+        <div class="rc-kpi"><span>Sucursales</span><b class="rc-mono">{{ r.resumen.plazas_con_compra }}</b></div>
       </div>
 
       <section class="rc-card rc-tabla">
@@ -151,7 +160,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
                            [attr.aria-label]="'Incluir ' + d.id"></td>
                 <td class="rc-mono">{{ d.id }}</td>
                 <td class="rc-mono">{{ d.fecha ? (d.fecha + 'T12:00:00' | date:'dd/MM/yy') : '—' }}</td>
-                <td>{{ d.sucursal }}@if (d.caja != null) { · caja {{ d.caja }} }</td>
+                <td>{{ d.sucursal_nombre || d.sucursal }}@if (d.caja != null) { · caja {{ d.caja }} }</td>
                 <td><p-tag [value]="d.origen_label" [severity]="sev(d.origen)"></p-tag></td>
                 <td>{{ d.atendio || '—' }}</td>
                 <td class="ta-r rc-mono">{{ d.descuento > 0 ? (d.descuento | currency:'MXN':'symbol-narrow') : '—' }}</td>
@@ -205,7 +214,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
     .rc-check { display: flex; align-items: center; gap: 6px; }
     .rc-sep { width: 1px; height: 22px; background: var(--border-color); }
     .rc-aviso { font-size: 12.5px; line-height: 1.5; padding: 10px 13px; border: 1px solid var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); border-radius: var(--radius-sm); }
-    .rc-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .rc-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
     .rc-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 11px 13px; display: flex; flex-direction: column; gap: 3px; }
     .rc-kpi span { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
     .rc-kpi b { font-size: 20px; font-weight: 600; }
@@ -301,7 +310,7 @@ export class ComercialReporteClienteComponent {
     const c = this.cliente();
     if (!c) return;
     this.cargando.set(true);
-    this.svc.reporte(c.sucursal, c.cliente_code, this.f).subscribe({
+    this.svc.reporte(c.cliente_code, this.f).subscribe({
       next: (r) => {
         this.rep.set(r);
         this.dentro.set(new Set(r.documentos.map((d) => d.id)));
