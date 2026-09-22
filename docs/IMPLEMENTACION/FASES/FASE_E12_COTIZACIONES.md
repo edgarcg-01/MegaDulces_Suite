@@ -185,15 +185,24 @@ módulo roto:
 
 ## 5. Pendientes y riesgos abiertos
 
-- ⚠️ **Sin validación visual.** No se levantó el browser en esta sesión.
-- ⚠️ **Sin verificación HTTP** (ADR-044): el backend se probó contra la base, no por la ruta real
-  con un JWT. Un gate de permiso mal puesto no se ve hasta ese momento.
-- ⚠️ **Los permisos NO tienen migración que los reparta.** Están en el enum y en el árbol, y en
-  `platform_test` aparecen en 5 roles (`superadmin`, `supervisor`, `supervisor_ventas`,
-  `telemarketing`, `direccion` sólo lectura) porque se corrió el UPDATE a mano. **En prod no están.**
-  Lección [LC.6.2]: *un módulo no está entregado hasta que su permiso está REPARTIDO en prod, no
-  sólo declarado en el enum.* Decidir si va por migración o a mano en `/admin/roles`.
-- ⚠️ **Pendiente prod:** 1 migración + redeploy api/view + repartir permisos + **re-login**.
+- ✅ **Validación visual hecha** (2026-09-21): mesa + alta ejercidas en el navegador; COT-2026-00001 creada para C1086 sucursal 01 con las condiciones congeladas, y borrada después.
+- ✅ **Verificación HTTP hecha con ROL MÍNIMO** (`http-quotes-test.js`, **25/25**, en la
+  regresión): dos usuarios efímeros —uno con el rol `telemarketing`, que la migración reparte, y
+  otro **sin** la llave, que recibe **403** en los tres endpoints—. No se probó con un admin a
+  propósito: los roles de plataforma pasan por god-mode y un gate mal puesto —o un permiso que
+  nadie repartió— **sale verde igual**. Fue exactamente la forma de `[LC.6.2]`.
+- ✅ **Permisos repartidos por migración** (`20260921210000_grant_quotes_permissions.js`): VER y
+  GESTIONAR a quien tiene `COMMERCIAL_TELEVENTA_OPERATE = true`. Probada contra un baseline
+  limpio (**0 → 2 roles**: `telemarketing` y `superadmin`) y comprobada idempotente.
+- ⚠️ **Decisión declarada, deliberadamente NO resuelta acá.** El `televentaGuard` del shell exige
+  `COMMERCIAL_TELEVENTA_OPERATE` y **ignora el hermano `_VER`**. Consecuencia medida:
+  `direccion` (1 usuario) tiene `_VER` y **no puede entrar al módulo** — su llave de lectura ya
+  estaba muerta antes de esta fase; `supervisor` (1) y `supervisor_ventas` (3) lo tienen en
+  `false` explícito. Darles cotizaciones sería **una llave que no abre nada**. Abrirles el
+  módulo es decisión de negocio, porque arrastra la cola y la toma de pedido; colarlo en una
+  migración de permisos sería ampliar accesos por la puerta de atrás.
+- ⚠️ **Pendiente prod:** 3 migraciones + redeploy api/view + **re-login** (los permisos viajan
+  en el JWT).
 - 🔍 **Abierto:** que el mismo submódulo sirva desde `apps/vendor` para la visita de ruta
   (`origin='route_visit'` ya existe en el esquema, pero la app del vendedor no lo consume).
 
