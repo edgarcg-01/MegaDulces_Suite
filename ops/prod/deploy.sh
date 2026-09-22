@@ -5,6 +5,7 @@
 #   ops/prod/deploy.sh --estado        # qué corre allá y con qué imagen
 #   ops/prod/deploy.sh --imagenes      # construye las 4 imágenes, no recrea nada
 #   ops/prod/deploy.sh --db            # sólo levanta pg-prod + pg-rag
+#   ops/prod/deploy.sh --recrear api   # sube el compose y recrea, SIN reconstruir imágenes
 #   ops/prod/deploy.sh                 # construye y recrea todo
 #   ops/prod/deploy.sh api worker      # sólo esos servicios
 #
@@ -73,6 +74,16 @@ enviar() {
   ssh_md "du -sh $REMOTO | sed 's/^/   contexto: /'"
 }
 
+# Sube el compose (y NADA más) y lo valida allá. Está aparte de `construir` porque cambiar
+# una línea del compose no tiene por qué costar cuatro builds de ~20 min — y porque la
+# alternativa, un `scp` a mano, se salta la validación y deja el archivo de `md` divergiendo
+# del repo sin que nadie lo note.
+subir_compose() {
+  ssh_md "mkdir -p ~/ops/prod" 
+  scp -q -o BatchMode=yes "$REPO/ops/prod/docker-compose.yml" "$SRV:ops/prod/docker-compose.yml"
+  ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
+}
+
 construir() {
   echo "── Construyendo (esto tarda: son 3 bundles de Angular) ──"
   # En serie a propósito: 4 builds en paralelo sobre 4 núcleos físicos se pelean por CPU y
@@ -93,7 +104,7 @@ construir() {
         echo 'FALLÓ'; tail -25 /tmp/build-\$img.log | sed 's/^/      /'; exit 1
       fi
     done"
-  ssh_md "mkdir -p ~/ops/prod && cp $REMOTO/ops/prod/docker-compose.yml ~/ops/prod/docker-compose.yml && cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
+  subir_compose
 }
 
 recrear() {
@@ -121,6 +132,7 @@ case "${1:---todo}" in
   --estado)    estado ;;
   --imagenes)  verificar_limpio; enviar; construir ;;
   --db)        recrear pg-prod pg-rag ;;
+  --recrear)   shift; subir_compose; [ $# -gt 0 ] || set -- $SERVICIOS_DEF; recrear "$@" ;;
   --todo)      verificar_limpio; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,12p' "$0"; exit 2 ;;
   *)           verificar_limpio; enviar; construir; recrear "$@" ;;

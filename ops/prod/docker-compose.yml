@@ -240,6 +240,22 @@ services:
       ENABLE_WORKER_QUEUE: "true"
       GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
       RUN_MIGRATIONS_ON_BOOT: "0"
+      # ⛔ CRONS APAGADOS MIENTRAS ESTO SEA UNA COPIA — se enciende en el corte, no antes.
+      # No es prudencia genérica: se midió qué harían los 48 @Cron contra la copia y tres
+      # salen del edificio. `fleet_gps` pega al proveedor de GPS con las credenciales reales
+      # (y lo dejaría viendo doble poll); los escáneres de alerta mandan correo; y el entorno
+      # trae `VAPID_*`, o sea que un nudge manda **web-push a los navegadores de gente real**
+      # — desde una base del 10-sep. Un aviso que llega de una copia no se distingue de uno
+      # de verdad: el que lo recibe actúa igual.
+      # Lo que SÍ se verifica con esto encendido: que la imagen del worker ARRANQUE contra
+      # Postgres y tome la cola. Es la única de las cuatro que nunca corrió, y los cuatro
+      # defectos de esta fase (TLS, GRANTs, matvistas, versión) aparecieron sólo al pedirle
+      # datos de verdad, nunca en el build.
+      # ✅ Antes de levantarlo se midió la cola en la copia: 0 trabajos, 0 programaciones,
+      #    sólo `__pgboss__send-it` (mantenimiento interno). No hay nada viejo que ejecutar.
+      # ⚠️ AL CORTAR: quitar esta línea. Si queda, prod se queda SIN NINGÚN cron — el API ya
+      #    los tiene apagados arriba, a propósito.
+      DISABLE_CRONS: "true"
     # ⚠️ El worker no abre puerto, así que "está arriba" es lo único que Docker puede ver por
     # sí solo — y eso es exactamente el falso verde que VL.6.1 cerró en los carriles. El
     # veredicto de VERDAD es la ENTREGA: `analytics.cron_runs` en prod. Queda declarado como
