@@ -43,6 +43,29 @@ export interface QuotesSummary {
   overdue_count: number;
 }
 
+/** Condiciones de un cliente de mayoreo EN UNA SUCURSAL. Difieren entre sucursales. */
+export interface WholesaleBranchTerms {
+  sucursal: string;
+  credit_limit: number | string | null;
+  payment_days: number | null;
+  discount_1_pct: number | string | null;
+  discount_2_pct: number | string | null;
+  zone_code: string | null;
+  group_code: string | null;
+}
+
+export interface WholesaleCustomer {
+  customer_code: string;
+  name: string;
+  phone: string | null;
+  rfc: string | null;
+  address_1: string | null;
+  state: string | null;
+  branches: WholesaleBranchTerms[];
+  /** true = sus condiciones NO son iguales en todas las sucursales. La pantalla lo dice. */
+  terms_vary_by_branch: boolean;
+}
+
 export interface QuotesPage {
   rows: QuoteListRow[];
   total: number;
@@ -81,13 +104,26 @@ export class QuotesService {
     return this.http.get<Record<string, unknown>>(`${this.base}/${id}`);
   }
 
+  /**
+   * Padrón de MAYOREO (`C####`) derivado de `kepler_ods.kdud`.
+   * Cada cliente trae el arreglo de sus sucursales porque sus condiciones difieren entre ellas.
+   */
+  searchWholesaleCustomers(search: string, limit = 20): Observable<WholesaleCustomer[]> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (search) params = params.set('search', search);
+    return this.http.get<WholesaleCustomer[]>(`${this.base}/wholesale-customers`, { params });
+  }
+
   create(payload: {
     customer_id?: string;
+    erp_customer_code?: string;
+    source_branch?: string;
     contact_name?: string;
     contact_phone?: string;
     contact_email?: string;
     origin?: QuoteOrigin;
-    warehouse_id: string;
+    /** Opcional desde [E.12.1]: en mayoreo el ancla es `source_branch`, no la ruta. */
+    warehouse_id?: string;
     price_list_id?: string;
     valid_until?: string;
     customer_request?: string;

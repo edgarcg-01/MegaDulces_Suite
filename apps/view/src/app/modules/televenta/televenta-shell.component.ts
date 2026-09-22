@@ -49,10 +49,15 @@ import { Permission } from '../../core/constants/permissions';
             <i class="pi pi-bookmark" aria-hidden="true"></i>
             <span>Mis activos</span>
           </a>
-          <a routerLink="cotizaciones" routerLinkActive="active">
-            <i class="pi pi-file-edit" aria-hidden="true"></i>
-            <span>Cotizaciones</span>
-          </a>
+          <!-- [E.12] Cotizaciones. Gateada por SU permiso y no por el del shell: cotizar es
+               mover precio, y el guard de la ruta pide COMMERCIAL_QUOTES_VER. Un enlace que
+               lleva a un rechazo del guard es peor que no mostrarlo. -->
+          @if (verCotizaciones()) {
+            <a routerLink="cotizaciones" routerLinkActive="active">
+              <i class="pi pi-calculator" aria-hidden="true"></i>
+              <span>Cotizaciones</span>
+            </a>
+          }
           <!-- La facturación completa vive en su propia pantalla (Operations, tabla densa +
                side-peek + anexo imprimible). Aquí sólo el enlace: duplicar esa UI dentro del
                shell sería una segunda copia de la misma pantalla.
@@ -116,7 +121,7 @@ import { Permission } from '../../core/constants/permissions';
         align-items: center;
         gap: 0.5rem;
         font-weight: 700;
-        color: var(--primary-color);
+        color: var(--primary-color, var(--action));
       }
       .brand i { font-size: 1.25rem; }
       .nav {
@@ -138,12 +143,12 @@ import { Permission } from '../../core/constants/permissions';
       }
       .nav a:hover { background: var(--neutral-100); color: var(--text-color); }
       .nav a.active {
-        background: var(--primary-color);
+        background: var(--primary-color, var(--action));
         color: white;
         font-weight: 600;
       }
       .nav a:focus-visible {
-        outline: 2px solid var(--primary-color);
+        outline: 2px solid var(--primary-color, var(--action));
         outline-offset: 2px;
       }
       .user { display: flex; align-items: center; gap: 0.5rem; }
@@ -160,7 +165,7 @@ import { Permission } from '../../core/constants/permissions';
         text-decoration: none;
       }
       .home:hover { background: var(--neutral-100); color: var(--text-color); }
-      .home:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .home:focus-visible { outline: 2px solid var(--primary-color, var(--action)); outline-offset: 2px; }
       @media (max-width: 640px) { .home span { display: none; } }
       .televenta-main {
         flex: 1;
