@@ -65,13 +65,36 @@ type Severidad = '' | 'distinto' | '5' | '25';
       -->
       <div class="cd-rail">
         <span class="cd-dot" [class.cd-dot-off]="!enVivo()"></span>
-        <span class="cd-rail-l">{{ enVivo() ? 'Al día' : 'Sin conexión' }}</span>
+        <span class="cd-rail-l">{{ enVivo() ? 'Vigilando Kepler' : 'Sin conexión' }}</span>
         <span class="cd-rail-m">
           {{ enVivo()
-            ? 'se actualiza sola en cuanto corrigen algo en Kepler'
+            ? 'te avisa acá cuando alguien corrija un precio o un código'
             : 'los datos son de la última carga; recargá para ver si cambió algo' }}
         </span>
       </div>
+
+      <!--
+        [CAT.8] El aviso NO recarga solo, a propósito. Si la tabla se rehace mientras alguien lee
+        un renglón para ir a corregirlo a Kepler, termina corrigiendo el producto equivocado.
+        Se avisa, y el usuario decide cuándo.
+      -->
+      @if (hayCambios()) {
+        <div class="cd-nuevo" role="status" aria-live="polite">
+          <i class="pi pi-bell" aria-hidden="true"></i>
+          <div class="cd-nuevo-txt">
+            <strong>Cambiaron precios o códigos en Kepler.</strong>
+            <span>
+              @if (horaCambio()) { El último cambio entró a las {{ horaCambio() }}. }
+              Lo que ves abajo es de antes.
+            </span>
+          </div>
+          <button pButton type="button" class="p-button-sm" [loading]="cargando()"
+                  (click)="recargar()">
+            <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
+            <span class="p-button-label">Cargar los nuevos</span>
+          </button>
+        </div>
+      }
 
       <!--
         [CAT.2] El defecto se detecta sin precios. Cuando el contexto de precio no está, se dice —y
@@ -361,6 +384,19 @@ type Severidad = '' | 'distinto' | '5' | '25';
     @media (prefers-reduced-motion: reduce) { .cd-dot { animation: none; } }
     .cd-rail-l { font-size: var(--fs-xs); font-weight: var(--fw-bold); }
     .cd-rail-m { font-size: .72rem; color: var(--c-text-2); }
+    .cd-nuevo {
+      display: flex; gap: .6rem; align-items: center;
+      margin-top: .5rem; padding: .55rem .75rem;
+      border: 1px solid var(--action); border-left-width: 3px;
+      border-radius: 6px; background: var(--c-surface-1);
+      font-size: var(--fs-xs);
+    }
+    .cd-nuevo i { color: var(--action); }
+    .cd-nuevo-txt { flex: 1; min-width: 0; }
+    .cd-nuevo-txt strong { display: block; color: var(--c-text-1); }
+    .cd-nuevo-txt span { color: var(--c-text-2); }
+    @media (max-width: 640px) { .cd-nuevo { flex-wrap: wrap; } }
+
     .cd-r { text-align: right; }
     .cd-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .cd-muted { color: var(--c-text-2); }
@@ -542,7 +578,24 @@ export class ComprasCatalogoCodigosComponent implements OnInit, OnDestroy {
   /** [CAT.7] Cuando corrigen un codigo en Kepler, esta tabla se entera sola. Recarga directo: aca
    *  no hay riesgo de mover algo bajo el cursor, la tabla se lee, no se edita. */
   private readonly alCambiar = effect(() => {
-    if (this.latido.version() > 0) this.recargar();
+    // Leer la señal es lo que suscribe el effect; el aviso se deriva en `hayCambios`.
+    this.latido.version();
+  });
+
+  /**
+   * [CAT.8] La versión del catálogo que corresponde a lo que la tabla muestra AHORA. Se sella al
+   * terminar cada carga; si el latido avanza más allá, cambió algo DESPUÉS de que esta pantalla
+   * leyó, y eso es lo que enciende el aviso.
+   */
+  private readonly versionVista = signal(0);
+
+  /** Hay cambios en Kepler que esta pantalla todavía no cargó. */
+  readonly hayCambios = computed(() => this.latido.version() > this.versionVista());
+
+  /** La hora del último cambio, para que el aviso diga CUÁNDO y no sólo que algo pasó. */
+  readonly horaCambio = computed(() => {
+    const t = this.latido.ultimoCambio();
+    return t ? t.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : null;
   });
 
   recargar(): void {
@@ -554,6 +607,8 @@ export class ComprasCatalogoCodigosComponent implements OnInit, OnDestroy {
         next: (r) => {
           this.sinPrecios.set(!r.precios_disponibles);
           this.todas.set(r.rows);
+          // Sella la versión: lo que se ve corresponde a este latido, así el aviso se apaga.
+          this.versionVista.set(this.latido.version());
           this.cargando.set(false);
         },
         error: (e) => {
