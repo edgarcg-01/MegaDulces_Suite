@@ -15,6 +15,10 @@ import { filter, throttleTime } from 'rxjs/operators';
 import { asyncScheduler } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import {
+  DEPARTAMENTOS_SIN_TRABAJO_NOMINAL,
+  MOTIVO_SIN_TRABAJO_NOMINAL,
+} from '@megadulces/contracts';
 import type {
   MeCanal,
   MeCanalGrupo,
@@ -512,7 +516,24 @@ export class MiTrabajoComponent {
     if (!this.buscando()) return todos;
     return todos.filter((p) => this.casa(normalizar(`${p.label} ${p.detalle}`)));
   });
-  readonly mios = computed(() => this.pendientes().filter((p) => p.alcance === 'mio'));
+  /**
+   * `[SN.35]` **¿A este departamento se le apagó el bloque «A tu nombre»?**
+   *
+   * Pedido de Edgar (2026-09-22): *«eliminemos esas conciliación a nombres de personas hasta nuevo
+   * aviso, solo debe aparecer la base de datos (en mi caso)»*. El motivo, el alcance y por qué NO
+   * es global viven con la política, en `DEPARTAMENTOS_SIN_TRABAJO_NOMINAL`.
+   *
+   * ⛔ `null` (todavía no se sabe el departamento) = **no se oculta**. Mismo criterio que `[SN.34]`.
+   */
+  readonly sinTrabajoNominal = computed(() => {
+    const mio = this.miDepartamento();
+    return !!mio && DEPARTAMENTOS_SIN_TRABAJO_NOMINAL.includes(mio);
+  });
+  readonly motivoSinNominal = MOTIVO_SIN_TRABAJO_NOMINAL;
+
+  readonly mios = computed(() =>
+    this.sinTrabajoNominal() ? [] : this.pendientes().filter((p) => p.alcance === 'mio'),
+  );
   readonly deBandeja = computed(() => this.pendientes().filter((p) => p.alcance === 'bandeja'));
   /**
    * `[SN.13]` El titular de la columna. Medido antes de ponerlo: la columna de trabajo tenía **0**
@@ -546,6 +567,9 @@ export class MiTrabajoComponent {
    * del padrón.
    */
   readonly tareas = computed<readonly MeTarea[]>(() => {
+    // `[SN.35]` Apagado por departamento. Se filtra acá —y no en el servidor— para que volver a
+    // encenderlo sea quitar una cadena de una lista, sin redeploy de API ni migración.
+    if (this.sinTrabajoNominal()) return [];
     const t = this.trabajo();
     const todas = t.status === 'ok' ? t.data.tareas ?? [] : [];
     if (!this.buscando()) return todas;

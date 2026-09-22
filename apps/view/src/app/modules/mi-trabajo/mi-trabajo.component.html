@@ -117,7 +117,23 @@
           Un 0 aca no se esconde -- que nadie te haya asignado nada es el hecho medido, y taparlo
           fue exactamente el error que [SN.11] ya habia corregido para el bloque "A tu nombre".
         -->
-        @if (hayTrabajo() && !buscando()) {
+        <!--
+          [SN.35] «A tu nombre» apagado para este departamento (pedido de Edgar, 2026-09-22).
+          Se DECLARA: una portada recortada en silencio es indistinguible de una portada vacía.
+        -->
+        @if (sinTrabajoNominal() && !buscando()) {
+          <p class="mt-declarado is-nota">
+            <i class="pi pi-eye-slash" aria-hidden="true"></i>
+            <span>{{ motivoSinNominal }}</span>
+          </p>
+        }
+
+        <!--
+          [SN.35] ⛔ El titular se apaga CON el bloque. Publicar «0 pendientes a tu nombre»
+          mientras se ocultan 10 no es un recorte: es una afirmación falsa. Se prefiere no
+          publicar la cifra a publicarla mal (ADR-056).
+        -->
+        @if (hayTrabajo() && !buscando() && !sinTrabajoNominal()) {
           <div class="mt-titular">
             <span class="mt-titular-n" [class.is-cero]="totalPendientes() === 0">{{ formatoTotal(totalPendientes()) }}</span>
             <span class="mt-titular-txt">
@@ -368,6 +384,8 @@
           La regla es de `work/task.contract.ts`: el permiso dice si podés abrirlo, la
           responsabilidad dice si es tuyo, la tarea dice que alguien te lo asignó.
         -->
+        <!-- [SN.35] El grupo entero no se pinta cuando está apagado: ver el aviso de arriba. -->
+        @if (!sinTrabajoNominal()) {
         <div class="mt-grupo">
           <p class="mt-grupo-tag">A tu nombre</p>
 
@@ -489,6 +507,7 @@
             </p>
           }
         </div>
+        }
 
         @if (deBandeja().length) {
           <div class="mt-grupo">
@@ -677,7 +696,11 @@
           —de qué responde cada puesto— y es la que hay que declarar, sin confundirla con la otra.
         -->
         <p class="mt-declara-pie">
-          @if (sinReparto()) {
+          <!-- [SN.35] Con el bloque apagado esta frase describiría algo que no está en pantalla. -->
+          @if (sinTrabajoNominal()) {
+            <b>De las que respondes</b> son colas que te tocan por tu puesto. El trabajo a tu
+            nombre está oculto por ahora — lo dice el aviso de arriba.
+          } @else if (sinReparto()) {
             De qué responde cada puesto todavía no está definido (P-06), así que lo de
             <b>En tus bandejas</b> son colas que abre tu permiso, no trabajo que alguien te repartió.
           } @else {
