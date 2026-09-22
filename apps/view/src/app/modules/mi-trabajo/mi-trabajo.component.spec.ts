@@ -1437,6 +1437,79 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(true);
   });
 
+  // ── `[SN.35]` «A tu nombre», apagado hasta nuevo aviso ────────────────────
+
+  /** Un superadmin de Sistemas con las dos mitades llenas: 2 a su nombre y 1 cola suya. */
+  const CTX_SISTEMAS = {
+    ...CTX_BASE,
+    role_name: 'superadmin',
+    department: { code: 'sistemas', name: 'Sistemas' },
+    position: { code: 'sistemas', name: 'Jefatura de Sistemas' },
+  };
+  const TRABAJO_DE_SISTEMAS: MeWork = {
+    ...SIN_TRABAJO,
+    tiene_responsabilidades: true,
+    tareas: [
+      {
+        fuente: 'finance.recon_tasks',
+        label: 'Conciliaciones a tu nombre',
+        detalle: 'diferencias que Maat te repartió',
+        ruta: '/finanzas/tareas',
+        sin_acceso: null,
+        icono: 'pi pi-inbox',
+        total: 1,
+        mas_viejo_at: '2026-07-24T20:27:55.822Z',
+        vence_at: null,
+        vencidas: null,
+      } as MeTarea,
+    ],
+    pendientes: [
+      bandeja({ id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', ruta: '/tienda/caducidades', total: 4, alcance: 'mio' }),
+      bandeja({ id: 'salud-datos', label: 'Fuentes de datos con falla', ruta: '/admin/db-health', icono: 'pi pi-database', total: 7, umbral_dias: 1, veredicto: 'atrasada' }),
+    ],
+  };
+
+  it('`[SN.35]` a Sistemas le queda SÓLO la cola que responde: lo nominal no se pinta', async () => {
+    await montar({ role: 'superadmin', perms: [Permission.USUARIOS_GESTIONAR], stay: true, ctx$: of(CTX_SISTEMAS), work$: of(TRABAJO_DE_SISTEMAS) });
+    const t = html();
+    expect(t).not.toContain('Conciliaciones a tu nombre');
+    expect(t).not.toContain('Revisiones de caducidad a tu nombre');
+    // Y lo que SÍ responde sigue entero.
+    expect(t).toContain('Fuentes de datos con falla');
+    expect(Array.from(q<HTMLElement>('.mt-grupo-tag')).some((x) => (x.textContent ?? '').includes('A tu nombre'))).toBe(false);
+  });
+
+  it('⛔ `[SN.35]` el titular NO publica «0 a tu nombre» mientras oculta 5', async () => {
+    // Recortar y seguir publicando la cifra no es un recorte: es una afirmación falsa. Se prefiere
+    // no publicarla a publicarla mal (ADR-056).
+    await montar({ role: 'superadmin', perms: [Permission.USUARIOS_GESTIONAR], stay: true, ctx$: of(CTX_SISTEMAS), work$: of(TRABAJO_DE_SISTEMAS) });
+    expect(q<HTMLElement>('.mt-titular').length).toBe(0);
+    expect(html()).not.toContain('pendientes a tu nombre');
+  });
+
+  it('`[SN.35]` y lo oculto se DECLARA, con su motivo', async () => {
+    await montar({ role: 'superadmin', perms: [Permission.USUARIOS_GESTIONAR], stay: true, ctx$: of(CTX_SISTEMAS), work$: of(TRABAJO_DE_SISTEMAS) });
+    const t = html();
+    expect(t).toContain('oculto por decisión de Dirección');
+    // ⛔ Y dice que NO se borró nada: si no, «oculto» se lee como «se perdió».
+    expect(t).toContain('No se borró nada');
+  });
+
+  it('⛔ `[SN.35]` PRUEBA NEGATIVA — a OTRO departamento no se le apaga nada', async () => {
+    // 151 tareas vivas sobre 38 personas: apagarlo global dejaría a 37 sin ver lo que les asignaron.
+    await montar({
+      role: 'superadmin',
+      perms: [Permission.USUARIOS_GESTIONAR],
+      stay: true,
+      ctx$: of({ ...CTX_SISTEMAS, department: { code: 'direccion_zona', name: 'Dirección de Zona' } }),
+      work$: of(TRABAJO_DE_SISTEMAS),
+    });
+    const t = html();
+    expect(t).toContain('Conciliaciones a tu nombre');
+    expect(t).toContain('pendientes a tu nombre');
+    expect(t).not.toContain('oculto por decisión de Dirección');
+  });
+
   it('⛔ `[SN.34]` mientras no se sabe el departamento, el espacio SE PINTA', async () => {
     // Esconderlo apoyándose en un dato que todavía no llegó sería decidir sobre lo que no se midió.
     await montar({

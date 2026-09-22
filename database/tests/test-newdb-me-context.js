@@ -900,6 +900,41 @@ const tieneDecoradorPermisos = (tramo) =>
     /return !mio \|\| !s\.space\.hideForDepartments/.test(srcPortada));
 
   /*
+   * ── `[SN.35]` «A tu nombre», apagado hasta nuevo aviso ───────────────────────────────────────
+   *
+   * Pedido de Edgar (2026-09-22): *«eliminemos esas conciliación a nombres de personas hasta nuevo
+   * aviso, solo debe aparecer la base de datos (en mi caso)»*.
+   *
+   * ⛔ Lo que este bloque vigila NO es que esté apagado —eso lo ejercen 4 pruebas del componente—
+   * sino las dos formas de que el apagado se vuelva una mentira:
+   *   1. que la lista se vacíe o se vuelva global. Medido: 151 tareas vivas sobre 38 de 118
+   *      personas; apagarlo para todos dejaría a 37 sin ver lo que alguien les asignó con nombre.
+   *   2. que se oculte SIN declararlo. Una portada recortada en silencio es indistinguible de una
+   *      portada vacía, y el titular seguiría publicando «0 pendientes a tu nombre» sobre 10
+   *      escondidos — que no es un recorte, es una afirmación falsa.
+   */
+  console.log('\n── 4k. [SN.35] El trabajo nominal, apagado por departamento ──');
+  const srcNominal = sinComentarios(
+    fs.readFileSync(path.resolve(__dirname, '../../libs/contracts/src/work/portada-nominal.contract.ts'), 'utf8'),
+  );
+  const lista = srcNominal.match(/DEPARTAMENTOS_SIN_TRABAJO_NOMINAL: readonly string\[\] = \[([^\]]*)\]/);
+  const depts = lista ? lista[1].split(',').map((s) => s.trim()).filter(Boolean) : [];
+  check('la política declara a QUÉ departamentos se les apaga', !!lista, lista && lista[1]);
+  check('⛔ y es una lista ACOTADA, no un apagado global (151 tareas vivas sobre 38 personas)',
+    depts.length >= 1 && depts.length <= 3, depts);
+  check('el motivo que se imprime vive CON la política, no suelto en la plantilla',
+    /MOTIVO_SIN_TRABAJO_NOMINAL/.test(srcNominal) && /No se borró/.test(srcNominal));
+  check('la portada lo aplica a las tareas y a los borradores propios',
+    /if \(this\.sinTrabajoNominal\(\)\) return \[\];/.test(srcPortada)
+      && /this\.sinTrabajoNominal\(\) \? \[\] : this\.pendientes\(\)/.test(srcPortada));
+  const htmlPortada = fs.readFileSync(
+    path.resolve(__dirname, '../../apps/view/src/app/modules/mi-trabajo/mi-trabajo.component.html'), 'utf8',
+  ).replace(/<!--[\s\S]*?-->/g, '');
+  check('⛔ el TITULAR se apaga con el bloque (si no, publicaría 0 sobre lo escondido)',
+    /hayTrabajo\(\) && !buscando\(\) && !sinTrabajoNominal\(\)/.test(htmlPortada));
+  check('⛔ y lo oculto se DECLARA en pantalla', /motivoSinNominal/.test(htmlPortada));
+
+  /*
    * El tramo común no se puede leer del fuente con un grep honesto, así que se verifica dónde se
    * decide: el ancla (`ventanaComparable(hoy, periodo, masLento.ultimo)`) tiene que calcularse
    * UNA vez, FUERA del bucle que arma las zonas. Si entrara al bucle, cada zona se recortaría sola.
