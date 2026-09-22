@@ -1,0 +1,295 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fase VL.9 — PRODUCCIÓN en el servidor `md` (192.168.0.222).
+#
+# Hermano de `ops/vl/docker-compose.yml`, que es la INGESTA. Conviven en la misma
+# máquina y NO comparten Postgres a propósito (§ "Por qué dos Postgres", abajo).
+#
+#   docker compose -p prod -f ops/prod/docker-compose.yml up -d
+#   docker compose -p prod -f ops/prod/docker-compose.yml --profile tunel up -d
+#
+# ⛔ ESTE ARCHIVO NO CORTA NADA. Levanta prod EN PARALELO a Railway, sin usuarios,
+#    para poder verificarlo. El corte es una decisión aparte y tiene precondición
+#    declarada (VL.8: UPS + respaldo fuera de sitio + enlace). Mientras tanto los
+#    clientes siguen yendo a `*.up.railway.app`.
+#
+# ── Por qué dos Postgres y no uno ───────────────────────────────────────────
+# `md` ya corre `pgvector-md` (:5433) = el CONCENTRADOR: las 8 réplicas lógicas de
+# sucursal + `kepler_consolidado`, con 4 GB de `shared_buffers` y ~45 GB en disco.
+# Meter prod ahí no compra NADA funcional —en Postgres dos *bases* de la misma
+# instancia tampoco se joinean sin FDW— y sí acopla lo que hoy está separado:
+# un reinicio de prod pararía la replicación, un `VACUUM FULL` de la ingesta
+# competiría con el tráfico de la app, y el respaldo de los dos sería el mismo
+# archivo. Instancia propia, volumen propio, ventana de mantenimiento propia.
+#
+# ── Medido en `md` el 2026-09-22 (y corrige a FASE_VL §6.1) ─────────────────
+#   CPU   Ryzen 5 3400G — 4c/8t   (el plan decía 4600G 6c/12t: FALSO)
+#   RAM   28.8 GiB                 (el plan decía 14: la subida ya se hizo)
+#   Disco LV de 500 G con 387 G libres · ~450 G sin asignar en el VG
+#   Prod  34 GB en PG 18.6 · extensiones: vector 0.8.2, postgres_fdw, pg_trgm,
+#         pgcrypto, unaccent, cube, earthdistance, pg_stat_statements, pg_buffercache
+#
+# Por eso la imagen de Postgres es `pgvector/pgvector:pg18` y no `postgres:18`:
+# el `vector` de prod NO está en la imagen oficial, y un restore contra una base
+# sin la extensión falla a mitad, no al principio.
+#
+# ⚠️ EL RECURSO ESCASO SON LOS 8 HILOS, NO LA RAM. Los techos de Railway suman
+# 11 vCPU; acá hay 8. No son comparables (un techo no es uso), pero el build de
+# Angular sí los satura: construir y servir a la vez es lo que hay que evitar.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-app: &app
+  restart: unless-stopped
+  env_file: [/home/superoot/secrets/prod.env]
+  labels: { autoheal: "true" }          # lo cura el `ods-autoheal` que ya corre (VL.6.1)
+  logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+  environment:
+    TZ: America/Mexico_City
+    NODE_ENV: production
+
+x-pg: &pg
+  image: pgvector/pgvector:pg18
+  restart: unless-stopped
+  # ⚠️ /dev/shm de Docker son 64 MB por default y Postgres saca de ahí la memoria de los
+  # parallel workers. Con 64 MB un VACUUM o REINDEX paralelo tira "could not resize shared
+  # memory segment". Misma razón que en ops/vl (VL.2b).
+  shm_size: 1gb
+  # ⛔ El apagado tiene que CABER en la ventana: sin esto Docker da 10 s y después SIGKILL,
+  # y a un Postgres al que se le corta el checkpoint de cierre le toca RECUPERACIÓN DE CAÍDA
+  # al volver. Medido en VL.6.R: con los 60 s, cierre limpio y `ready` 41 ms después del boot.
+  stop_grace_period: 60s
+  # ⛔ SIN `mem_limit` A PROPÓSITO. Con límite, el cgroup cuenta el PAGE CACHE contra el tope
+  # y el kernel lo recupera bajo presión: la base termina releyendo del disco lo que creía
+  # cacheado. Es la única forma real en que Docker perjudica a un Postgres.
+  logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+services:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LA BASE DE PROD
+  # ═══════════════════════════════════════════════════════════════════════════
+  pg-prod:
+    <<: *pg
+    container_name: pg-prod
+    volumes: ["pg-prod-data:/var/lib/postgresql"]
+    # ⚠️ 5434, NO 5432 ni 5433. El 5433 es el CONCENTRADOR y confundirlos es el modo de
+    # falla más caro que tiene esta máquina: una medición contra la base equivocada se lee
+    # perfectamente bien. Ver GOTCHAS §17/§18 y `reference_prod_db_connection_topology`.
+    ports: ["5434:5432"]
+    environment:
+      POSTGRES_PASSWORD: ${PGPROD_SUPERPASS:?falta PGPROD_SUPERPASS en el entorno del compose}
+      POSTGRES_DB: railway          # MISMO nombre que en Railway: las URLs no cambian de base
+      TZ: America/Mexico_City
+    # Presupuesto de memoria sobre 28.8 GiB, con el concentrador ya usando 4 GB de buffers:
+    #   concentrador 4 + prod 6 + rag 0.5 = 10.5 GB de shared_buffers
+    #   quedan ~18 GB para page cache y las apps (que piden ~3 GB entre todas)
+    # Prod son 34 GB, así que NO entra entero en caché — es esperable y no es un defecto:
+    # el conjunto CALIENTE (lo que la app toca) es mucho más chico que el total histórico.
+    # ⚠️ Estos números son un PUNTO DE PARTIDA medido del tamaño, no de la carga real. Se
+    # reajustan con `pg_stat_statements` + `pg_buffercache` (las dos ya están en prod) una
+    # vez que haya tráfico de verdad contra esta instancia.
+    command:
+      - postgres
+      - "-c"
+      - "shared_buffers=6GB"
+      - "-c"
+      - "effective_cache_size=14GB"
+      - "-c"
+      - "maintenance_work_mem=1GB"
+      - "-c"
+      - "work_mem=32MB"
+      - "-c"
+      - "max_wal_size=8GB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "random_page_cost=1.1"        # NVMe: el default 4.0 es de disco giratorio
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "timezone=America/Mexico_City"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d railway"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # La base de embeddings (Fase K). En Railway es el servicio `RAG_PRODUCTS` y la app la
+  # alcanza por `VECTOR_DATABASE_URL`. Es chica y separada a propósito: un `REINDEX` de un
+  # índice HNSW no debe pelear con el tráfico transaccional.
+  pg-rag:
+    <<: *pg
+    container_name: pg-rag
+    volumes: ["pg-rag-data:/var/lib/postgresql"]
+    ports: ["5435:5432"]
+    environment:
+      POSTGRES_PASSWORD: ${PGRAG_SUPERPASS:?falta PGRAG_SUPERPASS en el entorno del compose}
+      POSTGRES_DB: railway
+      TZ: America/Mexico_City
+    command:
+      - postgres
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "timezone=America/Mexico_City"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d railway"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LAS APPS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # El API + el SPA de `view` (nginx adentro de la misma imagen sirve el bundle y
+  # proxea /api). Imagen: `Dockerfile` de la raíz, la MISMA que compila Railway.
+  api:
+    <<: *app
+    image: trade-prod-api:latest
+    container_name: prod-api
+    depends_on:
+      pg-prod: { condition: service_healthy }
+    ports: ["8080:10000"]
+    environment:
+      TZ: America/Mexico_City
+      NODE_ENV: production
+      PORT: "10000"
+      API_PORT: "3333"
+      API_PREFIX: api
+      # ⭐ ACÁ SE CORRIGE UN DEFECTO QUE VIENE DE RAILWAY, Y SE DECLARA EN VEZ DE HEREDARLO.
+      # Medido el 2026-09-22: NI `MegaDulces` NI `worker` definen `DISABLE_CRONS`, así que
+      # `ScheduleModule` se registra en los DOS y los **48 @Cron corren por duplicado**. Eso
+      # anula el propósito declarado del worker-tier (ADR-043: "el API se puede escalar
+      # horizontal sin duplicar los crons") y crea DOS DUEÑOS para cada `job_key` — el mismo
+      # pecado que `ops/README.md` nombra para los carriles ("un carril = UN dueño").
+      # Acá el API sirve HTTP y NADA MÁS; los crons son del worker.
+      # ⚠️ Corolario que hay que saber: con esto, si el worker está abajo, NO corre ningún
+      # cron. Antes el API los cubría por accidente. Por eso el worker lleva healthcheck.
+      DISABLE_CRONS: "true"
+      # ⛔ Las migraciones NO corren en el boot, y acá menos que en ningún lado.
+      # `reference_prod_knex_migrations_table`: en prod hay DOS `knex_migrations` y el
+      # `search_path` lleva a la VACÍA — un `migrate:latest` reaplicaría 600+ migraciones
+      # sobre un esquema que ya las tiene. El restore trae el esquema completo; no hay nada
+      # que migrar. Se corren a mano, una por una, cuando toque.
+      RUN_MIGRATIONS_ON_BOOT: "0"
+    healthcheck:
+      # Mide que el API CONTESTE, no que el proceso exista. `start.sh` ya supervisa a los
+      # dos hijos, pero un nginx vivo sirviendo 502 se ve "arriba" desde afuera.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Mismo binario, modo worker (WORKER=true → `bootstrapWorker`, sin HTTP/WS).
+  # Acá SÍ viven los 48 @Cron y los consumidores de la cola pg-boss.
+  worker:
+    <<: *app
+    image: trade-prod-worker:latest
+    container_name: prod-worker
+    depends_on:
+      pg-prod: { condition: service_healthy }
+    environment:
+      TZ: America/Mexico_City
+      NODE_ENV: production
+      WORKER: "true"
+      ENABLE_WORKER_QUEUE: "true"
+      RUN_MIGRATIONS_ON_BOOT: "0"
+    # ⚠️ El worker no abre puerto, así que "está arriba" es lo único que Docker puede ver por
+    # sí solo — y eso es exactamente el falso verde que VL.6.1 cerró en los carriles. El
+    # veredicto de VERDAD es la ENTREGA: `analytics.cron_runs` en prod. Queda declarado como
+    # pendiente en vez de poner un healthcheck que no mide nada:
+    #   [VL.9.x] healthcheck de entrega para el worker (canario de 2-3 job_key de alta
+    #   frecuencia, mismo patrón que `health-lane.sh` de la ingesta).
+
+  # El portal B2B (clientes). Imagen propia, nginx sirviendo su bundle.
+  portal:
+    <<: *app
+    image: trade-prod-portal:latest
+    container_name: prod-portal
+    ports: ["8081:10000"]
+    environment:
+      TZ: America/Mexico_City
+      PORT: "10000"
+
+  # La app de vendedor (campo).
+  vendor:
+    <<: *app
+    image: trade-prod-vendor:latest
+    container_name: prod-vendor
+    ports: ["8082:10000"]
+    environment:
+      TZ: America/Mexico_City
+      PORT: "10000"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # EXPOSICIÓN — Cloudflare Tunnel (decisión del usuario, 2026-09-22)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Detrás de un perfil porque necesita un token que todavía no existe: hace falta una
+  # cuenta de Cloudflare y que el dominio (o un subdominio delegado) viva en su DNS.
+  # Hoy `megadulces.com.mx` está en HostGator (ns1257/ns1258.websitewelcome.com).
+  #
+  # ⛔ LA BASE NO VA POR EL TÚNEL. El túnel publica HTTP(S) de las apps; `pg-prod` se
+  # alcanza sólo por LAN. Un Postgres expuesto a internet no es una optimización, es un
+  # incidente pendiente.
+  #
+  # ⚠️ El salto de red que este túnel NO elimina: `md` sale por un enlace de Mega Cable
+  # medido en 44 Mbit de SUBIDA, compartido con la oficina Y con los 14 carriles de
+  # ingesta. Railway sirve hoy desde anycast. El túnel resuelve el "cómo entro sin IP
+  # fija"; no resuelve el ancho de banda.
+  cloudflared:
+    profiles: ["tunel"]
+    image: cloudflare/cloudflared:latest
+    container_name: prod-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # ⚠️ `${VAR:-}` y NO `${VAR:?...}`. Compose interpola TODOS los servicios al validar,
+      # perfiles incluidos: con `:?` un `docker compose config` falla aunque este servicio
+      # esté apagado, y eso rompe el candado de validez del deploy. Sin token, `cloudflared`
+      # falla solo y con un mensaje claro — que es lo que queremos.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      TZ: America/Mexico_City
+    depends_on: [api, portal, vendor]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+# ── Lo que NO se porta, y por qué ────────────────────────────────────────────
+#
+# `feeds-ingest` — RETIRADO, no olvidado. Su encabezado declara su única razón de ser:
+#   "el runner on-prem no puede escribir a Postgres barato (el proxy público factura las
+#    respuestas como egress). Este servicio recibe el changeset por HTTPS (ingress = GRATIS)
+#    y lo escribe por red interna."
+#   On-prem los carriles y la base quedan en LA MISMA MÁQUINA, así que el rodeo deja de
+#   comprar nada. `database/importers/lib/sink.js` ya tiene el interruptor: `FEEDS_SINK=pg`
+#   + `DATABASE_URL_NEW` escribe directo. Al cortar, los carriles cambian ese par de
+#   variables y este servicio se apaga. ⚠️ `FEEDS_INGEST_KEY` queda para ROTAR.
+#
+# `Megadulces-Logistica` — NO PORTADO todavía, por falta de evidencia de para qué sirve.
+#   Corre el MISMO `/Dockerfile` que el API pero con 21 variables contra las 70 del API:
+#   tiene `DATABASE_URL` y Cloudinary, y NO tiene `JWT_SECRET` ni `DATABASE_URL_NEW`. Sin
+#   `JWT_SECRET` no puede validar una sesión. Parece un duplicado histórico. Antes de
+#   portarlo o de apagarlo hay que medir si alguien le pega — y eso se mide en Railway, con
+#   sus logs de HTTP, no desde acá.
+#
+# `observability` (grafana/otel-lgtm) — NO PORTADO en esta entrega. Es el destino de
+#   `OTEL_EXPORTER_OTLP_ENDPOINT`. Sin él las trazas se pierden en silencio (el SDK de OTEL
+#   no falla si el colector no responde), así que apagarlo NO rompe la app — pero tampoco
+#   se declara "migrado". Va en su propio sprint.
+
+volumes:
+  pg-prod-data:
+    # ⚠️ Vive en `/` (387 G libres). El plan pedía un LV DEDICADO, y sigue siendo lo
+    # correcto —un `/` lleno se lleva puesta también a la ingesta—, pero crearlo necesita
+    # `sudo`, que en `md` pide contraseña interactiva. Queda declarado:
+    #   [VL.9.x] LV dedicado para `pg-prod-data` sobre los ~450 G sin asignar del VG.
+  pg-rag-data:
