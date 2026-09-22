@@ -5,15 +5,22 @@
 start.sh text eol=lf
 
 # La AGENDA del cron tambien: no termina en .sh, asi que la regla de arriba NO la cubria.
-# 2026-09-11: se edito desde Windows, git la exporto con CRLF y el  quedo pegado al final de
-# cada comando -> `--apply`. Como `argv.includes('--apply')` es EXACTO, los 9 carriles corrieron
+# 2026-09-11: se edito desde Windows, git la exporto con CRLF y el 
+# quedo pegado al final de
+# cada comando -> `--apply
+#`. Como `argv.includes('--apply')` es EXACTO, los 9 carriles corrieron
 # en SECO y salieron con codigo 0: el log decia "ok en 9s" y no se escribia una sola fila.
 # Un fallo disfrazado de exito, que es la peor clase.
-ops/vl/crontab.feeds text eol=lf
+# ⚠️ La regla nombraba UNA ruta (`ops/vl/crontab.feeds`) en vez del patrón, así que la
+# siguiente agenda que se creara volvía a quedar afuera -- verificado el 2026-09-22 con
+# `git check-attr` sobre `ops/prod/crontab.backup`: `eol: unspecified`. Una regla que sólo
+# cubre el caso que ya falló no es una regla, es una anécdota.
+crontab.* text eol=lf
 *.env text eol=lf
 
 # Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
-# CRLF le pegaria un  DENTRO de la credencial. La persona veria 'password
+# CRLF le pegaria un 
+# DENTRO de la credencial. La persona veria 'password
 # authentication failed' con una clave que a la vista es correcta -- el mismo cuadro que
 # el CRON_TENANT_ID invalido del 2026-09-11.
 *.sql text eol=lf

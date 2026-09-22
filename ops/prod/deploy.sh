@@ -32,7 +32,7 @@ set -eu
 SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 REMOTO="~/build-prod"
-SERVICIOS_DEF="pg-prod pg-rag api worker portal vendor"
+SERVICIOS_DEF="pg-prod pg-rag api worker portal vendor backup"
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=15 "$SRV" "$@"; }
 
@@ -41,7 +41,7 @@ estado() {
   ssh_md 'docker ps --filter "label=com.docker.compose.project=prod" --format "{{.Names}}|{{.Status}}|{{.Image}}" | sort | column -t -s"|" || true'
   echo
   echo "── Imágenes de prod ──"
-  ssh_md 'for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor; do
+  ssh_md 'for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
             docker image inspect "$i:latest" --format "  {{.RepoTags}}  creada {{.Created}}" 2>/dev/null || echo "  $i:latest  (no existe)";
           done'
   echo
@@ -94,7 +94,7 @@ construir() {
     for par in 'trade-prod-api:Dockerfile' \
                'trade-prod-worker:Dockerfile.worker' \
                'trade-prod-portal:apps/portal/Dockerfile' \
-               'trade-prod-vendor:apps/vendor/Dockerfile'; do
+               'trade-prod-vendor:apps/vendor/Dockerfile' \n               'trade-prod-backup:ops/prod/Dockerfile.backup'; do
       img=\${par%%:*}; df=\${par#*:}
       printf '   %-22s ' \"\$img\"
       t0=\$(date +%s)
