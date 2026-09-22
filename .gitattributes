@@ -17,9 +17,16 @@ start.sh text eol=lf
 # cubre el caso que ya falló no es una regla, es una anécdota.
 crontab.* text eol=lf
 # Y los Dockerfile, por lo mismo: no terminan en .sh ni en .yml. `git archive` con
-# core.autocrlf=true exporta CRLF lo que no tiene regla, y un `RUN` con  al final
-# rompe el build o -- peor -- pega el  DENTRO de una ruta o un chmod.
+# core.autocrlf=true exporta CRLF lo que no tiene regla, y un `RUN` con 
+ al final
+# rompe el build o -- peor -- pega el 
+ DENTRO de una ruta o un chmod.
 Dockerfile*     text eol=lf
+# Y los archivos de configuración de servicios. Tercera vez en el mismo día que un archivo
+# nuevo queda afuera por no terminar en una extensión ya cubierta: un `` pegado a
+# `repo1-path=` rompe el parser de pgBackRest, y el síntoma no menciona ni CRLF ni git.
+*.conf          text eol=lf
+*.ini           text eol=lf
 ops/**/*.yml    text eol=lf
 *.env text eol=lf
 
