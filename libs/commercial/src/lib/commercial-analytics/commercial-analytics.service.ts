@@ -19,6 +19,7 @@ import type {
 } from '@megadulces/contracts';
 // [GX.9] Familias de egreso: etiqueta y clave de serie en UNA fuente (ADR-056).
 import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/contracts';
+import { calculateRouteSalesPace } from './route-sales-pace';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -177,10 +178,16 @@ export interface SalesByRouteDetail {
    *  `skus / clients` subestimaría el surtido porque los SKUs distintos del periodo se
    *  reparten entre tienditas. El público (cliente NULL/''/'0001' = "Mostrador a bordo")
    *  NO tiene identidad de cliente → queda fuera del promedio y se DECLARA cuánta venta
-   *  representa (`public_revenue`, `public_pct`). `clients` = 0 → promedios en 0. */
+   *  representa (`public_revenue`, `public_pct`). `clients` = 0 → promedios en null. */
   per_client: {
     clients: number; revenue: number; public_revenue: number; public_pct: number;
-    avg_revenue: number; avg_skus: number; avg_tickets: number; avg_lines: number; avg_units: number;
+    avg_revenue: number | null; avg_skus: number | null; avg_tickets: number | null;
+    avg_lines: number | null; avg_units: number | null;
+    /** Dos descomposiciones auditables del ritmo:
+     * venta/cliente = artículos/cliente × valor/artículo
+     * venta/cliente = unidades/cliente × valor/unidad. */
+    avg_value_per_article: number | null;
+    avg_unit_value: number | null;
   };
   products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
@@ -3462,7 +3469,7 @@ export class CommercialAnalyticsService {
     }
 
     // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
-    let rows = Array.from(rowMap.values());
+    const rows = Array.from(rowMap.values());
     if (q.include_zeros && !monthRows) {
       for (const p of products) {
         if (!rowMap.has(p.sku)) {
@@ -5346,23 +5353,18 @@ export class CommercialAnalyticsService {
                   count(distinct sl.sku) skus, count(distinct sl.consecutivo) tickets, count(*) lines
            FROM analytics.v_route_sales_lines sl WHERE ${W} AND ${IDENT}
            GROUP BY sl.cliente)
-         SELECT count(*) clients, sum(revenue) revenue,
-                avg(revenue) avg_revenue, avg(units) avg_units, avg(skus) avg_skus,
-                avg(tickets) avg_tickets, avg(lines) avg_lines
+         SELECT count(*) clients, sum(revenue) revenue, sum(units) units, sum(skus) articles,
+                sum(tickets) tickets, sum(lines) lines
          FROM c`, P)).rows[0];
-      const pcClients = num(pc?.clients);
-      const pcRevenue = num(pc?.revenue);
-      const r2 = (v: any) => Math.round(num(v) * 100) / 100;
-      const perClient = {
-        clients: pcClients, revenue: r2(pcRevenue),
-        public_revenue: r2(totRev - pcRevenue),
-        public_pct: totRev > 0 ? Math.round(((totRev - pcRevenue) / totRev) * 1000) / 10 : 0,
-        avg_revenue: pcClients > 0 ? r2(pc.avg_revenue) : 0,
-        avg_units: pcClients > 0 ? r2(pc.avg_units) : 0,
-        avg_skus: pcClients > 0 ? r2(pc.avg_skus) : 0,
-        avg_tickets: pcClients > 0 ? r2(pc.avg_tickets) : 0,
-        avg_lines: pcClients > 0 ? r2(pc.avg_lines) : 0,
-      };
+      const perClient = calculateRouteSalesPace({
+        totalRevenue: totRev,
+        clients: num(pc?.clients),
+        identifiedRevenue: num(pc?.revenue),
+        units: num(pc?.units),
+        articles: num(pc?.articles),
+        tickets: num(pc?.tickets),
+        lines: num(pc?.lines),
+      });
 
       // `lines` por SKU sale del mismo barrido; `units/lines` dice si el producto se
       // vende de a uno o de a bulto — la señal directa para el tamaño de empaque.
