@@ -13,7 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type IngresoPendiente } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type IngresoPendiente, type ResumenLote, type Frecuente } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
@@ -102,6 +102,32 @@ import {
 
     /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
     .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg, #b54708); font-size:.8rem; }
+
+    /* CG.20 - la bandeja de entregas. Densa, tipo Operations: la persona la recorre marcando. */
+    .cg-bandeja { border:1px solid var(--surface-border, #e5e5e5); border-radius:var(--r-md,8px);
+                  padding:.75rem .9rem; margin:1rem 0; }
+    .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
+    .cg-bandeja-head .fin-h2 { margin:0; }
+    .cg-bandeja-sp { flex:1 1 auto; }
+    .cg-tbl { width:100%; border-collapse:collapse; font-size:.82rem; }
+    .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
+                 border-bottom:1px solid var(--surface-border, #e5e5e5); white-space:nowrap; }
+    .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--surface-border, #f0f0f0);
+                 vertical-align:top; }
+    /* La fila trabada se ve distinta PERO SIGUE VISIBLE: esconderla dejaria a la persona sin
+       saber que esa entrega existe y que alguien tiene que declarar su ruta. */
+    .cg-trabada { opacity:.62; }
+    .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
+
+    /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion. */
+    .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .cg-chip { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
+               border:1px solid var(--surface-border, #e5e5e5); border-radius:999px;
+               background:transparent; color:inherit; font:inherit; font-size:.78rem;
+               padding:.22rem .6rem; }
+    .cg-chip:hover { border-color:var(--action); color:var(--action); }
+    .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:.72rem; }
   `],
   template: `
     <div class="surf-page in">
@@ -120,8 +146,7 @@ import {
       </header>
 
       @if (!hayConceptos() && !cargando()) {
-        <p-message severity="warn" styleClass="w-full"
-          text="No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir."></p-message>
+        <p-message severity="warn" styleClass="w-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir.</p-message>
       }
 
       <div class="fin-corte-bar">
@@ -137,6 +162,70 @@ import {
       </div>
 
       <app-metric-strip [items]="kpis()"></app-metric-strip>
+
+      <!-- CG.20 - Entregas por confirmar. Es la accion PRINCIPAL de la pantalla, no un accesorio:
+           medido, el 90% de los ingresos ya existe como cobro en Kepler, asi que la persona no
+           deberia capturarlos sino confirmarlos. Va arriba de la tabla por eso. -->
+      @if (pendientes().length) {
+        <section class="cg-bandeja">
+          <header class="cg-bandeja-head">
+            <h2 class="fin-h2">Entregas por confirmar</h2>
+            <span class="fin-dim">
+              {{ confirmables() }} de {{ pendientes().length }} se confirman sin elegir nada
+              @if (confirmables() < pendientes().length) {
+                · el resto necesita que su ruta esté declarada
+              }
+            </span>
+            <span class="cg-bandeja-sp"></span>
+            <p-button [label]="'Confirmar ' + marcadas().length" icon="pi pi-check" size="small"
+                      [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+          </header>
+
+          <table class="cg-tbl">
+            <thead>
+              <tr>
+                <th class="ta-c"><input type="checkbox" [checked]="todasMarcadas()"
+                                        (change)="marcarTodas($any($event.target).checked)"
+                                        aria-label="Marcar todas las confirmables" /></th>
+                <th>Fecha</th><th>Ruta / cliente</th><th>Folio</th><th>Cuenta</th>
+                <th class="ta-r">Cobro (ERP)</th><th class="ta-r">Contado</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of pendientes(); track p.origen_ref) {
+                <tr [class.cg-trabada]="!p.confirmable">
+                  <td class="ta-c">
+                    <input type="checkbox" [disabled]="!p.confirmable"
+                           [checked]="estaMarcada(p.origen_ref)"
+                           (change)="marcar(p.origen_ref, $any($event.target).checked)"
+                           [attr.aria-label]="'Confirmar ' + p.folio" />
+                  </td>
+                  <td>{{ dmy(p.cobro_date) }}</td>
+                  <td>
+                    {{ p.cliente_nombre || p.cliente_code || '—' }}
+                    @if (!p.confirmable) { <small class="fin-hint-warn d-block">{{ p.motivo_texto }}</small> }
+                  </td>
+                  <td class="mono">{{ p.folio }}</td>
+                  <td class="mono">{{ p.kepler_cuenta || '—' }}</td>
+                  <td class="ta-r mono">{{ money(p.monto) }}</td>
+                  <td class="ta-r">
+                    <!-- Vacio = se toma el importe del ERP. Solo se escribe si se conto distinto,
+                         y entonces manda lo contado: nunca se rechaza efectivo. -->
+                    <input pInputText type="number" class="cg-contado" [disabled]="!p.confirmable"
+                           [ngModel]="contadoDe(p.origen_ref)"
+                           (ngModelChange)="setContado(p.origen_ref, $event)"
+                           [placeholder]="'igual'" [attr.aria-label]="'Contado de ' + p.folio" />
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          @if (resultado(); as r) {
+            <p-message [severity]="r.rechazados || r.no_confirmables ? 'warn' : 'success'" styleClass="w-full">{{ textoResultado(r) }}</p-message>
+          }
+        </section>
+      }
 
       <div class="fin-filters">
         <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
@@ -259,6 +348,27 @@ import {
           </div>
         }
 
+        <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
+             gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
+             hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
+             El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
+             el dato -- y por eso el bloque lo dice. -->
+        @if (f.tipo === 'gasto' && frecuentes().length) {
+          <div class="fin-row fin-row-col">
+            <label>Lo que más repetís</label>
+            <div class="cg-chips">
+              @for (fr of frecuentes(); track fr.rango) {
+                <button type="button" class="cg-chip" (click)="usarFrecuente(fr)"
+                        [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'">
+                  {{ fr.glosa || fr.kepler_concepto }}
+                  <span class="cg-chip-n">{{ fr.usos }}</span>
+                </button>
+              }
+            </div>
+            <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
+          </div>
+        }
+
         <div class="fin-row">
           <label>Beneficiario</label>
           <input pInputText [(ngModel)]="f.beneficiario" (blur)="pedirPropuesta()" class="w-full"
@@ -353,8 +463,7 @@ import {
           <p-tag [value]="r.veredicto || ''" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
         } @else {
           <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
-          <p-message severity="info" styleClass="w-full"
-            text="Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo."></p-message>
+          <p-message severity="info" styleClass="w-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
         <div class="fin-denoms">
           @for (d of denominaciones; track d) {
@@ -412,6 +521,22 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   cobros = signal<Array<IngresoPendiente & { label: string }>>([]);
   cobroElegido = signal<IngresoPendiente | null>(null);
   cobroSel: (IngresoPendiente & { label: string }) | null = null;
+
+  // ── CG.20 — la bandeja de entregas y los frecuentes del gasto ────────────────────────────────
+  pendientes = signal<IngresoPendiente[]>([]);
+  confirmables = signal(0);
+  frecuentes = signal<Frecuente[]>([]);
+  confirmando = signal(false);
+  resultado = signal<ResumenLote | null>(null);
+  /** Marcadas y lo contado por fila. `Map` y no un campo en la fila: la lista se recarga. */
+  private seleccion = signal<Set<string>>(new Set());
+  private contado = signal<Map<string, number | null>>(new Map());
+
+  marcadas = computed(() => [...this.seleccion()]);
+  todasMarcadas = computed(() => {
+    const posibles = this.pendientes().filter((p) => p.confirmable);
+    return posibles.length > 0 && posibles.every((p) => this.seleccion().has(p.origen_ref));
+  });
   cobertura = signal<Array<{ usables: number; filas_origen: number; sin_subcuenta: number }>>([]);
   propuesta = signal<AutofillResponse | null>(null);
   kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number } | null>(null);
@@ -501,6 +626,10 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargar();
     this.cargarSaldo();
     this.cargarCortes();
+    // CG.20 — la bandeja y los frecuentes se piden al abrir: son la acción principal, no algo
+    // que aparezca después de un clic.
+    this.cargarPendientes();
+    this.cargarFrecuentes();
   }
 
   cargarCortes(): void {
@@ -687,6 +816,93 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   soltarCobro(): void {
     this.cobroElegido.set(null);
     this.f = { ...this.f, monto: null, denominaciones: [] };
+  }
+
+  // ── CG.20 — bandeja de entregas ───────────────────────────────────────────────────────────────
+
+  cargarPendientes(): void {
+    this.svc.ingresosPendientes({ sucursal: this.sucursalActiva, tipo_cuenta: 'ruta', limit: 100 }).subscribe({
+      next: (r) => { this.pendientes.set(r.rows ?? []); this.confirmables.set(r.confirmables ?? 0); },
+      // Un error de red NO es "no hay entregas": se deja la bandeja como estaba y la persona
+      // puede seguir capturando a mano. Vaciarla diría que el ERP no tiene nada pendiente.
+      error: () => { /* se conserva lo último conocido */ },
+    });
+  }
+
+  estaMarcada(ref: string): boolean { return this.seleccion().has(ref); }
+
+  marcar(ref: string, on: boolean): void {
+    const s = new Set(this.seleccion());
+    if (on) s.add(ref); else s.delete(ref);
+    this.seleccion.set(s);
+  }
+
+  /** Marca sólo las CONFIRMABLES: ofrecer marcar una trabada es prometer algo que va a fallar. */
+  marcarTodas(on: boolean): void {
+    this.seleccion.set(on
+      ? new Set(this.pendientes().filter((p) => p.confirmable).map((p) => p.origen_ref))
+      : new Set());
+  }
+
+  contadoDe(ref: string): number | null { return this.contado().get(ref) ?? null; }
+
+  setContado(ref: string, v: number | null): void {
+    const m = new Map(this.contado());
+    if (v == null || !(Number(v) > 0)) m.delete(ref); else m.set(ref, Number(v));
+    this.contado.set(m);
+    // Escribir un conteo implica que esa entrega entra: evita el clic extra de marcarla.
+    if (m.has(ref)) this.marcar(ref, true);
+  }
+
+  confirmarLote(): void {
+    const refs = this.marcadas();
+    if (!refs.length || this.confirmando()) return;
+    this.confirmando.set(true);
+    this.svc.confirmarLote(refs.map((r) => ({ origen_ref: r, monto_contado: this.contadoDe(r) ?? undefined })))
+      .subscribe({
+        next: (r) => {
+          this.resultado.set(r);
+          this.confirmando.set(false);
+          this.seleccion.set(new Set());
+          this.contado.set(new Map());
+          // Se recarga TODO lo que el lote movió: la bandeja, el libro, el saldo y los cortes.
+          this.cargarPendientes(); this.cargar(); this.cargarSaldo();
+        },
+        error: () => this.confirmando.set(false),
+      });
+  }
+
+  /** El resultado se cuenta por estado. "12 confirmadas" a secas esconde las 3 que no entraron. */
+  textoResultado(r: ResumenLote): string {
+    const p = [`${r.guardados} confirmadas por ${money(r.monto_guardado)}`];
+    if (r.duplicados) p.push(`${r.duplicados} ya estaban aplicadas`);
+    if (r.no_confirmables) p.push(`${r.no_confirmables} sin ruta declarada`);
+    if (r.rechazados) p.push(`${r.rechazados} rechazadas`);
+    return p.join(' · ');
+  }
+
+  // ── CG.20 — frecuentes del gasto ──────────────────────────────────────────────────────────────
+
+  cargarFrecuentes(): void {
+    this.svc.frecuentes({ tipo: 'gasto', sucursal: this.sucursalActiva, limit: 10 }).subscribe({
+      next: (r) => this.frecuentes.set(r.rows ?? []),
+      error: () => this.frecuentes.set([]),
+    });
+  }
+
+  /** Un toque llena cuenta, concepto, glosa y beneficiario. El importe NUNCA se pre-llena. */
+  usarFrecuente(fr: Frecuente): void {
+    this.f = {
+      ...this.f,
+      kepler_cuenta: fr.kepler_cuenta,
+      kepler_concepto: fr.kepler_concepto,
+      glosa: fr.glosa || this.f.glosa,
+      beneficiario: fr.beneficiario || this.f.beneficiario,
+    };
+    // El buscador de conceptos muestra lo elegido, para que se vea de dónde salió.
+    this.conceptoSel = { cuenta: fr.kepler_cuenta, concepto: fr.kepler_concepto,
+      concepto_nombre: fr.glosa || '', sucursal: this.f.sucursal, cuenta_mayor: '',
+      label: `${fr.kepler_cuenta} / ${fr.kepler_concepto}` } as never;
   }
 
   buscarConceptos(e: AutoCompleteCompleteEvent): void {

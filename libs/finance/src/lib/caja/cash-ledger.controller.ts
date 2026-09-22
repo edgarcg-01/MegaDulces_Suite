@@ -113,6 +113,31 @@ export class CashLedgerController {
     return this.svc.create(body, this.user(req));
   }
 
+  /**
+   * CG.20 — va ANTES de `@Get(':id')` como el resto; `lote` se comería como un id.
+   */
+  @Post('lote')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.20 — Confirma N entregas de un golpe. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado.' })
+  crearLote(
+    @Body() body: { items: Array<{ origen_ref: string; monto_contado?: number; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.crearLote(body ?? { items: [] }, this.user(req));
+  }
+
+  @Get('frecuentes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.20 — Los pares (cuenta, concepto, beneficiario) que ESE capturista más repite, para ofrecerlos de un toque. Medido: 57% de los gastos cae en un par usado 3+ veces. ⛔ El gasto NO se deriva de Kepler: esto baja los clics, no vuelve auditable el dato.' })
+  frecuentes(
+    @Query('tipo') tipo?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limit') limit?: string,
+    @Req() req?: AuthedRequest,
+  ) {
+    return this.svc.frecuentes({ tipo, sucursal, limit: limit ? Number(limit) : undefined }, this.user(req as AuthedRequest));
+  }
+
   // ⚠️ Estas rutas van ANTES de @Get(':id'): Nest resuelve por orden de declaracion y
   // 'cortes'/'saldo' se comerian como si fueran un id. Misma trampa que en LC.2.
 

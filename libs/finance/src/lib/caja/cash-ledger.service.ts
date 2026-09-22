@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { FINANCE_FINDINGS_SINK_PORT, type FinanceFindingsSinkPort } from '@megadulces/contracts';
 import { buildFolio } from './caja-autofill.engine';
+import {
+  esConfirmable, resumirLote, evaluarDescuadre, rankearFrecuentes,
+  TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
+  type MapaRuta, type FilaLote, type ResumenLote, type Descuadre,
+} from './caja-lote.engine';
 
 /**
  * CG.13 — El libro de caja. La plataforma como FUENTE PRINCIPAL del efectivo (ADR-070).
@@ -59,6 +65,9 @@ export class CashLedgerService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // CG.20 — `@Optional()` a propósito: si Maat está apagado, el descuadre no se registra pero el
+    // efectivo SÍ. Un hallazgo que no se pudo guardar no puede impedir que el dinero entre al libro.
+    @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
   ) {}
 
   /**
@@ -306,7 +315,212 @@ export class CashLedgerService {
         .limit(limit)
         .select('origen_ref', 'sucursal', 'folio', 'cobro_date', 'cliente_code', 'cliente_nombre',
           'concepto', 'monto', 'tipo_cuenta', 'forma_pago');
-      return { rows, limit, has_more: rows.length === limit };
+
+      // ⭐ CG.20 — la CUENTA CONTABLE también viene resuelta, para que no quede ni un campo por
+      // elegir. Sale del mapa DECLARADO (`finance.route_customer_map`), nunca de un regex sobre
+      // el nombre: ese texto llega en dos formas para la misma ruta ("26 Ruta 26", "RUTA 21",
+      // "Ventas PH 26/08 RD 21") y es justo lo que la regla M3 prohíbe usar para mover dinero.
+      const mapa = await this.mapaDeRutas(trx, tenantId, rows.map((r: any) => r.cliente_code));
+      const conCuenta = rows.map((r: any) => {
+        const v = esConfirmable({ origen_ref: r.origen_ref, cliente_code: r.cliente_code, monto: Number(r.monto) },
+          mapa.get(String(r.cliente_code ?? '')) ?? null);
+        return v.ok
+          ? { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }
+          // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
+          // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
+          // cuenta contable.
+          : { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+              motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
+      });
+      return {
+        rows: conCuenta, limit, has_more: rows.length === limit,
+        // Cuántas de las que se ven se pueden confirmar sin tocar nada. Sin este número, una lista
+        // llena de filas no confirmables se lee igual que una lista lista para un clic (ADR-056).
+        confirmables: conCuenta.filter((r: any) => r.confirmable).length,
+      };
+    });
+  }
+
+  /**
+   * El mapa declarado ruta → (cliente, cuenta), indexado por `cliente_code`.
+   *
+   * ⚠️ Se busca por `cliente_code` (el código del ERP) y no por `route_code`, porque es lo que el
+   * cobro trae. La fila del mapa liga los dos; acá sólo se lee.
+   */
+  private async mapaDeRutas(trx: any, tenantId: string, codigos: Array<string | null>) {
+    const lista = [...new Set(codigos.filter(Boolean).map(String))];
+    const m = new Map<string, MapaRuta>();
+    if (!lista.length) return m;
+    const filas = await trx('finance.route_customer_map')
+      .where('tenant_id', tenantId).whereIn('cliente_code', lista)
+      .select('cliente_code', 'confirmed_at', 'kepler_cuenta', 'kepler_concepto');
+    filas.forEach((f: any) => m.set(String(f.cliente_code), f));
+    return m;
+  }
+
+  /**
+   * ⭐ CG.20 — **Confirmar N entregas de un golpe.**
+   *
+   * Es el cambio que pidió Edgar: *"mientras menos clic mejor"*. La persona ya no captura fecha,
+   * cliente, cuenta, concepto ni monto — sólo marca las entregas que llegaron y, si contó distinto
+   * de lo que dice el ERP, escribe lo contado.
+   *
+   * ⛔ **Cada fila va en SU PROPIA transacción, a propósito.** Si todo el lote fuera una sola trx,
+   * confirmar 12 entregas y perderlas porque la tercera ya estaba aplicada convertiría el lote en
+   * un castigo — y la persona volvería a capturar de a una, que es exactamente lo que esta fase
+   * viene a eliminar. `create()` ya es atómico por movimiento (folio + concepto + denominaciones);
+   * acá sólo se envuelve y se reporta por fila.
+   *
+   * ⚠️ El `23505` NO es un error de nadie: es `ux_cash_ledger_origen_vivo` haciendo su trabajo
+   * cuando dos personas confirman el mismo cobro. Se reporta como `duplicado`, separado del
+   * rechazo.
+   */
+  async crearLote(
+    input: { items: Array<{ origen_ref: string; monto_contado?: number; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    user: { id?: string; username?: string },
+  ): Promise<ResumenLote> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!user?.id) throw new BadRequestException('No se pudo identificar al usuario que confirma.');
+    const items = (input?.items ?? []).filter((i) => i && i.origen_ref);
+    if (!items.length) throw new BadRequestException('No se marcó ninguna entrega.');
+
+    const filas: FilaLote[] = [];
+    const montos = new Map<string, number>();
+
+    for (const it of items) {
+      try {
+        const pend = await this.tk.run(async (trx) => trx('finance.v_caja_ingresos_pendientes')
+          .where({ tenant_id: tenantId, origen_ref: it.origen_ref })
+          .first('origen_ref', 'sucursal', 'folio', 'cobro_date', 'cliente_code', 'cliente_nombre', 'concepto', 'monto'));
+
+        if (!pend) {
+          filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',
+            motivo: 'Ese cobro ya no está pendiente: o se aplicó antes, o el ERP ya no lo tiene.' });
+          continue;
+        }
+
+        const mapa = await this.tk.run(async (trx) =>
+          (await this.mapaDeRutas(trx, tenantId, [pend.cliente_code])).get(String(pend.cliente_code ?? '')) ?? null);
+        const v = esConfirmable({ origen_ref: pend.origen_ref, cliente_code: pend.cliente_code, monto: Number(pend.monto) }, mapa);
+        if (!v.ok) {
+          filas.push({ origen_ref: it.origen_ref, estado: 'no_confirmable', motivo: TEXTO_NO_CONFIRMABLE[v.motivo] });
+          continue;
+        }
+
+        // Lo CONTADO manda sobre el documento (decisión de Edgar). `create()` releería el monto del
+        // ERP, así que la entrega con diferencia se registra sin `origen_tipo` y se liga por
+        // `origen_uuid` — el documento queda trazado y el candado del duplicado se aplica igual.
+        const contado = Number(it.monto_contado);
+        const hayConteo = Number.isFinite(contado) && contado > 0;
+        const d = evaluarDescuadre(pend.origen_ref, Number(pend.monto), hayConteo ? contado : Number(pend.monto));
+
+        const mov: any = await this.create({
+          tipo: 'ingreso',
+          fecha: it.fecha || String(pend.cobro_date).slice(0, 10),
+          sucursal: it.sucursal || pend.sucursal,
+          kepler_cuenta: v.kepler_cuenta,
+          kepler_concepto: v.kepler_concepto,
+          glosa: `Entrega ${pend.folio} · ${pend.cliente_nombre || pend.cliente_code || 'ruta'}`.slice(0, 200),
+          beneficiario: pend.cliente_nombre ?? null,
+          monto: hayConteo ? contado : Number(pend.monto),
+          origen_tipo: 'cobro',
+          origen_ref: pend.origen_ref,
+          client_uuid: it.client_uuid,
+        }, user);
+
+        montos.set(it.origen_ref, Number(mov.monto));
+        filas.push({ origen_ref: it.origen_ref, estado: 'guardado', folio: mov.folio });
+
+        if (d.hay) await this.empujarDescuadre(tenantId, pend, d);
+      } catch (e: any) {
+        if (e?.code === '23505') {
+          filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',
+            motivo: 'Otra persona confirmó este mismo cobro. No entra dos veces.' });
+        } else {
+          // Se reporta el mensaje, NO se traga: una fila que falló en silencio se lee como guardada.
+          filas.push({ origen_ref: it.origen_ref, estado: 'rechazado', motivo: String(e?.message ?? e).slice(0, 200) });
+        }
+      }
+    }
+    return resumirLote(filas, montos);
+  }
+
+  /**
+   * La diferencia entre el cobro del ERP y lo contado se levanta como hallazgo.
+   *
+   * ⚠️ Se enchufa por el port (`FINANCE_FINDINGS_SINK_PORT`) y es `@Optional()`: si Maat está
+   * apagado esto es un **no-op** y la captura sigue. Un hallazgo que no se pudo registrar no puede
+   * tumbar el registro del dinero — el efectivo ya entró.
+   */
+  private async empujarDescuadre(tenantId: string, pend: any, d: Descuadre) {
+    if (!this.findingsSink?.pushFindings) return;
+    try {
+      await this.findingsSink.pushFindings(tenantId, [{
+        rule_key: 'caja_entrega_difiere',
+        clase: 'error_captura',
+        // El contrato del port sólo admite info|warn|critical. Un faltante grande es `critical`;
+        // uno chico sigue siendo `warn` y NUNCA `info`: un descuadre de caja no es una nota.
+        severity: Math.abs(d.diferencia) >= 1000 ? 'critical' : 'warn',
+        score: Math.min(1, Math.abs(d.diferencia) / 1000),
+        titulo: `Entrega ${pend.folio}: ${d.diferencia > 0 ? 'sobra' : 'falta'} ${Math.abs(d.diferencia).toFixed(2)}`,
+        resumen: d.resumen,
+        entity: { tipo: 'caja_entrega', origen_ref: pend.origen_ref, sucursal: pend.sucursal },
+        periodo: String(pend.cobro_date ?? '').slice(0, 7) || null,
+        importe: Math.abs(d.diferencia),
+        evidencia: {
+          origen_ref: pend.origen_ref, folio: pend.folio,
+          cliente: pend.cliente_nombre ?? pend.cliente_code,
+          monto_cobro: Number(pend.monto), diferencia: d.diferencia,
+        },
+        dedup_key: d.dedup_key,
+      }], [{
+        rule_key: 'caja_entrega_difiere', clase: 'error_captura',
+        nombre: 'Entrega de caja distinta del cobro de Kepler',
+        descripcion: 'Lo contado al recibir la entrega no coincide con el importe del cobro registrado en el ERP.',
+      }]);
+    } catch { /* el hallazgo nunca rompe a la captura */ }
+  }
+
+  /**
+   * ⭐ CG.20 — **Los gastos que se repiten se ofrecen, no se reescriben.**
+   *
+   * Medido en 30 días: **562 de 978 gastos (57 %)** caen en un par (cuenta, concepto) que ya se usó
+   * 3+ veces — `nom 35 efectivo` 27×, `bot pau` 26×, `recoleccion` 20×. Y `Krmn` tecleó **61 gastos
+   * en una hora**. Un toque en un chip llena cuenta, concepto y beneficiario; sólo queda el importe.
+   *
+   * ⛔ **El gasto NO se deriva de Kepler — no está ahí**, y por eso acá no hay anclaje ni árbitro.
+   * Esto baja los clics; no vuelve auditable el dato. Se dice para que nadie lo lea como lo otro.
+   *
+   * Se aprende del propio libro (`finance.cash_ledger`), que es lo que esa persona ya capturó.
+   */
+  async frecuentes(q: { tipo?: string; sucursal?: string; limit?: number }, user: { id?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 12, 1), 40);
+    return this.tk.run(async (trx) => {
+      let qb = trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, tipo: q.tipo || 'gasto' })
+        .whereNull('deleted_at').whereNot('estado', 'cancelado')
+        .whereNotNull('kepler_cuenta').whereNotNull('kepler_concepto');
+      if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
+      // Sólo lo que ESA persona usa: los chips de otro capturista son ruido, y peor, son una
+      // sugerencia de mandar dinero a una cuenta que no es la suya.
+      if (user?.id) qb = qb.where('created_by', user.id);
+
+      const usos = await qb
+        .groupBy('kepler_cuenta', 'kepler_concepto', 'glosa', 'beneficiario')
+        .select('kepler_cuenta', 'kepler_concepto', 'glosa', 'beneficiario')
+        .count({ usos: '*' })
+        .max({ ultimo_uso: 'fecha' })
+        .orderBy('usos', 'desc')
+        .limit(200);
+
+      const rows = rankearFrecuentes(usos.map((u: any) => ({ ...u, usos: Number(u.usos) })), limit);
+      return {
+        rows, limit,
+        // Cuántos gastos del periodo caen en un par repetido. Sin esto, una lista de 3 chips se lee
+        // igual tanto si la persona repite todo como si nunca repite nada.
+        medido: { pares_con_soporte: rows.length, minimo_usos: FRECUENTE_MIN_USOS },
+      };
     });
   }
 

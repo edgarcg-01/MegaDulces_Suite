@@ -1,0 +1,201 @@
+/**
+ * CG.20 — **Confirmar en lote y capturar por frecuencia**, en funciones PURAS (ADR-070).
+ *
+ * ── Por qué existe ───────────────────────────────────────────────────────────────────────────
+ *
+ * Medido contra la réplica cruda del Control (`md:5433/caja_general`, 30 días):
+ *
+ *   · **338 de 374 ingresos (90 %) YA existen como cobro en Kepler** — $5,336,935 de $6,508,337,
+ *     el **82 % del dinero**. La persona teclea algo que el sistema ya sabe.
+ *   · **El registro va 4.7 días detrás del dinero** (673 movimientos que llevan la fecha del hecho
+ *     en el texto); sólo el **11 %** se captura el mismo día, el peor caso son **34 días**.
+ *   · Del lado del gasto, **562 de 978 (57 %)** repiten el mismo par (cuenta, concepto).
+ *
+ * De ahí salen las dos mitades de este motor: el ingreso se **confirma** (no se teclea) y el gasto
+ * se **repite** (no se reescribe).
+ *
+ * ⛔ **Lo que este archivo NO hace, y es deliberado: casar por importe.** Se intentó y se midió:
+ * cruzar el ingreso de caja contra la VENTA de la ruta acierta el **14 %**, porque la ruta entrega
+ * lo COBRADO en efectivo y su venta trae crédito y tarjeta. Contra el **cobro** acierta el 90 %.
+ * Pero ni siquiera hace falta casar: la fila de caja se **crea desde** el cobro, con `origen_ref`
+ * explícito. (Los **155 cruces ambiguos** que se midieron son una propiedad del pasado — dos
+ * sistemas capturados por separado — no de este diseño.)
+ */
+
+/** Tolerancia del cuadre: un centavo, la misma que el arqueo y el corte. */
+export const LOTE_EPSILON = 0.005;
+
+export type MotivoNoConfirmable =
+  | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
+  | 'sin_confirmar'   // hay propuesta, pero ningún humano la firmó
+  | 'sin_cuenta'      // firmada la identidad, pero sin cuenta contable declarada
+  | 'sin_monto';      // el documento del ERP no trae importe utilizable
+
+export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
+  sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
+  sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confirmala antes de aplicarle dinero.',
+  sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
+  sin_monto: 'El cobro del ERP no trae importe: no hay nada que confirmar.',
+};
+
+/** Lo que la ruta tiene declarado. `null` = no existe fila en el mapa. */
+export interface MapaRuta {
+  cliente_code: string | null;
+  confirmed_at: string | Date | null;
+  kepler_cuenta: string | null;
+  kepler_concepto: string | null;
+}
+
+export interface EntregaPendiente {
+  origen_ref: string;
+  cliente_code: string | null;
+  monto: number;
+}
+
+export type Confirmable =
+  | { ok: true; kepler_cuenta: string; kepler_concepto: string }
+  | { ok: false; motivo: MotivoNoConfirmable };
+
+/**
+ * ¿Se puede confirmar esta entrega **sin que nadie elija nada**?
+ *
+ * ⛔ Los cuatro motivos se separan a propósito. Un solo `false` dejaría a la persona sin saber si
+ * el problema lo arregla ella (confirmar el mapa) o no (la ruta no existe todavía). Y mientras
+ * cualquiera de ellos esté, la entrega **cae a captura manual** — nunca a una cuenta adivinada.
+ */
+export function esConfirmable(e: EntregaPendiente, mapa: MapaRuta | null | undefined): Confirmable {
+  if (!mapa) return { ok: false, motivo: 'sin_mapa' };
+  if (!mapa.confirmed_at || !mapa.cliente_code) return { ok: false, motivo: 'sin_confirmar' };
+  if (!mapa.kepler_cuenta || !mapa.kepler_concepto) return { ok: false, motivo: 'sin_cuenta' };
+  if (!(Number(e.monto) > 0)) return { ok: false, motivo: 'sin_monto' };
+  return { ok: true, kepler_cuenta: mapa.kepler_cuenta, kepler_concepto: mapa.kepler_concepto };
+}
+
+// ── El resultado del lote ──────────────────────────────────────────────────────────────────────
+
+export type EstadoFila = 'guardado' | 'duplicado' | 'rechazado' | 'no_confirmable';
+
+export interface FilaLote {
+  origen_ref: string;
+  estado: EstadoFila;
+  /** Folio del movimiento cuando se guardó. */
+  folio?: string;
+  /** Por qué no entró. Va SIEMPRE que el estado no sea `guardado`. */
+  motivo?: string;
+}
+
+export interface ResumenLote {
+  filas: FilaLote[];
+  guardados: number;
+  duplicados: number;
+  rechazados: number;
+  no_confirmables: number;
+  /** Σ de lo efectivamente guardado. Lo rechazado NO suma: un total optimista es una mentira. */
+  monto_guardado: number;
+}
+
+export function redondea2(v: number): number {
+  return Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Arma el resultado del lote.
+ *
+ * ⛔ **Una fila que falla no tumba a las demás.** Confirmar 12 entregas y perder las 12 porque la
+ * tercera ya estaba aplicada convierte el lote en un castigo, y la persona vuelve a capturar de a
+ * una. El duplicado se separa del rechazo porque **no es un error de nadie**: es el candado
+ * `ux_cash_ledger_origen_vivo` haciendo su trabajo (dos personas confirmaron lo mismo).
+ */
+export function resumirLote(filas: FilaLote[], montos: Map<string, number>): ResumenLote {
+  const cuenta = (e: EstadoFila) => filas.filter((f) => f.estado === e).length;
+  const guardado = filas
+    .filter((f) => f.estado === 'guardado')
+    .reduce((a, f) => a + (Number(montos.get(f.origen_ref)) || 0), 0);
+  return {
+    filas,
+    guardados: cuenta('guardado'),
+    duplicados: cuenta('duplicado'),
+    rechazados: cuenta('rechazado'),
+    no_confirmables: cuenta('no_confirmable'),
+    monto_guardado: redondea2(guardado),
+  };
+}
+
+// ── El descuadre entre lo que dice el ERP y lo que se contó ────────────────────────────────────
+
+export interface Descuadre {
+  hay: boolean;
+  diferencia: number;
+  /** Llave estable del hallazgo: correrlo dos veces no puede crear dos. */
+  dedup_key: string;
+  resumen: string;
+}
+
+/**
+ * Compara el importe del cobro contra lo contado.
+ *
+ * ⭐ **Nunca rechaza efectivo** (decisión de Edgar): el movimiento se guarda con lo CONTADO y la
+ * diferencia se levanta como hallazgo. Lo que queda fuera del libro es peor que lo que queda
+ * marcado — y bloquear empuja a teclear el importe del ERP para poder cerrar, que es exactamente
+ * lo que el arqueo ciego vino a evitar.
+ */
+export function evaluarDescuadre(
+  origenRef: string, montoDocumento: number, montoContado: number,
+): Descuadre {
+  const diferencia = redondea2(Number(montoContado) - Number(montoDocumento));
+  const hay = Math.abs(diferencia) > LOTE_EPSILON;
+  const signo = diferencia > 0 ? 'sobra' : 'falta';
+  return {
+    hay,
+    diferencia,
+    dedup_key: `caja_entrega|${origenRef}`,
+    resumen: hay
+      ? `El cobro dice ${montoDocumento.toFixed(2)} y se contaron ${Number(montoContado).toFixed(2)}: `
+        + `${signo} ${Math.abs(diferencia).toFixed(2)}.`
+      : 'Lo contado coincide con el cobro.',
+  };
+}
+
+// ── Gasto: lo que se repite se ofrece, no se reescribe ────────────────────────────────────────
+
+export interface UsoGasto {
+  kepler_cuenta: string;
+  kepler_concepto: string;
+  glosa: string | null;
+  beneficiario: string | null;
+  usos: number;
+  ultimo_uso: string | Date | null;
+}
+
+export interface Frecuente extends UsoGasto {
+  /** Posición 1..N. Se publica para que la pantalla no reordene por su cuenta. */
+  rango: number;
+}
+
+/** Mínimo de repeticiones para ofrecer algo como frecuente. Menos que esto es una casualidad. */
+export const FRECUENTE_MIN_USOS = 3;
+
+/**
+ * Ordena los pares que se repiten.
+ *
+ * ⚠️ El desempate es **ESTABLE y total** (usos ↓, último uso ↓, cuenta, concepto, glosa): dos
+ * cargas de la misma pantalla tienen que ofrecer los mismos chips en el mismo orden. Un orden que
+ * baila hace que la persona toque el chip equivocado por memoria muscular — y acá eso manda dinero
+ * a otra cuenta contable.
+ *
+ * ⛔ Lo que no llega a `FRECUENTE_MIN_USOS` **no se ofrece**, no se ofrece con menos énfasis. Un
+ * chip es una recomendación: ofrecer una casualidad es peor que no ofrecer nada.
+ */
+export function rankearFrecuentes(usos: UsoGasto[], limite = 12): Frecuente[] {
+  const t = (v: string | Date | null | undefined) => (v ? new Date(v).getTime() : 0);
+  return [...(usos ?? [])]
+    .filter((u) => Number(u.usos) >= FRECUENTE_MIN_USOS && u.kepler_cuenta && u.kepler_concepto)
+    .sort((a, b) =>
+      Number(b.usos) - Number(a.usos)
+      || t(b.ultimo_uso) - t(a.ultimo_uso)
+      || String(a.kepler_cuenta).localeCompare(String(b.kepler_cuenta))
+      || String(a.kepler_concepto).localeCompare(String(b.kepler_concepto))
+      || String(a.glosa ?? '').localeCompare(String(b.glosa ?? '')))
+    .slice(0, Math.max(1, limite))
+    .map((u, i) => ({ ...u, rango: i + 1 }));
+}
