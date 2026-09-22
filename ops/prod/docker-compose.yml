@@ -263,6 +263,36 @@ services:
     #   [VL.9.x] healthcheck de entrega para el worker (canario de 2-3 job_key de alta
     #   frecuencia, mismo patrón que `health-lane.sh` de la ingesta).
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # [VL.6.4] EL RESPALDO DE PRODUCCIÓN — se muda acá desde el Programador de
+  # Windows. Detalle y mediciones en `ops/prod/backup-prod.sh`.
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # ⛔ NO depende de `pg-prod`. Vuelca PRODUCCIÓN (Railway), no la copia local. El
+  # día del corte prod pasa a ser `pg-prod` y ahí sí habrá que agregar la
+  # dependencia — por eso la compuerta que clasifica el destino mira el CONTENIDO
+  # (cuántas tablas de `kepler_ods` trae) y no el nombre del host: una regla por
+  # host se rompería sola justo ese día.
+  #
+  # ⚠️ UN SOLO DUEÑO para `backup_prod`. Mientras la tarea de Windows siga
+  # habilitada habría dos, que es el pecado que `ops/README.md` nombra para los
+  # carriles. Se deshabilita allá antes de que éste corra por primera vez; el
+  # `host` del latido lo dice (`md-backup` vs `SISTEMAS`).
+  backup:
+    image: trade-prod-backup:latest
+    container_name: prod-backup
+    restart: unless-stopped
+    environment:
+      TZ: America/Mexico_City
+    volumes:
+      # El único puntero a prod que ya existe en esta máquina. No se duplica la
+      # credencial en un archivo nuevo: duplicarla multiplica lo que hay que rotar.
+      - /home/superoot/secrets/ingest.env:/secrets/ingest.env:ro
+      # Los volcados viven en el HOST, no en un volumen de Docker: tienen que
+      # sobrevivir a un `docker compose down -v` y poder copiarse fuera de sitio
+      # sin pedirle permiso a Docker (VL.8 — hoy NO hay respaldo fuera de sitio).
+      - /home/superoot/backups:/backups
+
   # El portal B2B (clientes). Imagen propia, nginx sirviendo su bundle.
   portal:
     <<: *app

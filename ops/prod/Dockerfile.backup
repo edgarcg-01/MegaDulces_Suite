@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.6.4] El carril del respaldo de producción.
+#
+# Base `postgres:18` y no Alpine + postgresql-client: un pg_dump 17 NO puede
+# volcar un servidor 18 (se niega, no se degrada), y Alpine no publica el cliente
+# 18 en su repositorio estable. Esta imagen trae pg_dump/pg_restore/psql 18.6 —
+# la MISMA minor que el servidor de prod, verificado contra `select version()`.
+#
+# Pesa ~150 MB más que una Alpine. Es el precio de que el cliente coincida con el
+# servidor en la única herramienta cuyo trabajo es que la copia sea fiel.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM postgres:18
+
+# `cron` no viene en la imagen. Se instala sólo eso.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cron \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY ops/prod/backup-prod.sh   /usr/local/bin/backup-prod.sh
+COPY ops/prod/crontab.backup   /etc/cron.d/backup-prod
+
+# cron IGNORA un archivo de /etc/cron.d escribible por grupo u otros, y lo hace en
+# silencio. El chmod no es higiene: es la diferencia entre que corra y que no.
+RUN chmod 0755 /usr/local/bin/backup-prod.sh \
+ && chmod 0644 /etc/cron.d/backup-prod \
+ && chown root:root /etc/cron.d/backup-prod
+
+# ⛔ Hay que ANULAR el entrypoint de la imagen: `docker-entrypoint.sh` de postgres
+# intenta inicializar un clúster y aborta pidiendo POSTGRES_PASSWORD. Acá el
+# contenedor no es una base, es un cliente.
+ENTRYPOINT []
+CMD ["cron", "-f", "-L", "2"]

@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.6.4] AGENDA DEL RESPALDO DE PRODUCCIÓN — versionada, como la de la ingesta.
+#
+# Formato de /etc/cron.d de Debian: lleva CAMPO DE USUARIO (el 6º). Un crontab de
+# usuario copiado acá sin ese campo NO da error visible — cron descarta el archivo
+# y el respaldo simplemente no corre nunca. Es el mismo modo de falla que este
+# proyecto ya pagó con el Programador de Windows: verde por fuera, nada por dentro.
+#
+# ⚠️ PATH explícito. `cron` de Debian pasa un PATH mínimo (/usr/bin:/bin) y en la
+#    imagen `postgres:18` los binarios viven en /usr/local/bin. Sin esta línea el
+#    job muere con "pg_dump: not found" dentro de un contenedor donde pg_dump SÍ
+#    está — el mismo cuadro que el `cd /app` de `ops/vl/run-feed.sh`: la prueba a
+#    mano no reproduce el entorno de cron.
+#
+# ⚠️ TZ explícita. La imagen es Debian y trae tzdata, pero `cron` no hereda el
+#    `TZ` del entorno del contenedor: hay que declararlo acá. En Alpine el síntoma
+#    es peor todavía (sin tzdata el TZ se ignora EN SILENCIO y todo corre en UTC —
+#    medido el 2026-09-11 en los carriles de la ingesta).
+#
+# ⚠️ El archivo TIENE que terminar en salto de línea y no ser escribible por grupo
+#    ni por otros, o cron lo ignora.
+# ─────────────────────────────────────────────────────────────────────────────
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+TZ=America/Mexico_City
+SHELL=/bin/sh
+
+# 22:00 MX, todos los días. Por qué no a las 17:00 como la tarea de Windows: el
+# volcado son ~75 min saturando el enlace de subida de 44 Mbit que comparten la
+# oficina y los 13 carriles. A las 17:00 todavía hay gente trabajando. Y por qué
+# no más tarde: el carril nocturno de la ingesta arranca a las 03:00 y
+# `contpaqi-cfdis-full` termina cerca de las 05:45 — 22:00→23:15 no pisa a nadie.
+0 22 * * * root /usr/local/bin/backup-prod.sh >> /proc/1/fd/1 2>&1
