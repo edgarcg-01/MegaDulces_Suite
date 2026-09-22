@@ -182,9 +182,11 @@ import {
               @if (confirmables() < pendientes().length) {
                 · el resto necesita que su cuenta esté declarada
               }
-              @if (ventana(); as v) { · últimos {{ v }} días }
+              @if (ventanaDias) { · últimos {{ ventanaDias }} día{{ ventanaDias === 1 ? '' : 's' }} }
             </span>
             <span class="cg-bandeja-sp"></span>
+            <p-select [options]="opcionesVentana" [(ngModel)]="ventanaDias" optionLabel="label" optionValue="value"
+                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Desde cuándo'"></p-select>
             <p-select [options]="opcionesSigno" [(ngModel)]="signoBandeja" optionLabel="label" optionValue="value"
                       (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Signo'"></p-select>
             <p-select [options]="opcionesCaja()" [(ngModel)]="cajaActiva" optionLabel="label" optionValue="value"
@@ -212,7 +214,18 @@ import {
                            (change)="marcar(p.origen_ref, $any($event.target).checked)"
                            [attr.aria-label]="'Confirmar ' + p.doc_tipo + ' ' + p.folio" />
                   </td>
-                  <td>{{ dmy(p.fecha_valor) }}</td>
+                  <td>
+                    {{ dmy(p.fecha_valor) }}
+                    <!-- Un documento fechado ADELANTE del día de hoy casi siempre es un error de
+                         captura en Kepler, no un hecho futuro. Medido el 2026-09-22: los 8 que
+                         hay dicen en su propio concepto "30-01-2026", "28-01-2026", "21-01" -- son
+                         gastos de ENERO con fecha de diciembre. Y como la bandeja ordena por fecha
+                         desc, salen SIEMPRE primero. Se marcan para que nadie los confirme creyendo
+                         que son de hoy. -->
+                    @if (esFutura(p.fecha_valor)) {
+                      <small class="fin-hint-warn d-block">fecha posterior a hoy — revisá el documento</small>
+                    }
+                  </td>
                   <td class="ta-c">
                     <i [class]="p.tipo === 'ingreso' ? 'pi pi-arrow-down cg-in' : 'pi pi-arrow-up cg-out'"
                        [attr.aria-label]="p.tipo === 'ingreso' ? 'Entra' : 'Sale'"
@@ -560,8 +573,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
   cargandoPend = signal(false);
-  /** Ventana en días, y lo que deja fuera. `null` = no hay corte que declarar. */
-  ventana = signal<number | null>(null);
+  /** Lo que la ventana deja fuera. `null` = no hay corte que declarar. */
   rezago = signal<{ movimientos: number; monto: number } | null>(null);
   frecuentes = signal<Frecuente[]>([]);
   confirmando = signal(false);
@@ -582,6 +594,24 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     { label: 'Todo', value: '' },
     { label: 'Entradas', value: 'ingreso' },
     { label: 'Salidas', value: 'gasto' },
+  ];
+
+  /**
+   * ⚠️ **Puesto en 1 día (`desde ayer`) para las PRUEBAS de CG.21**, por pedido de Edgar
+   * (2026-09-22). Antes de operar de verdad tiene que volver a **45**, que es la ventana con
+   * razón medida (`CAJA_VENTANA_DIAS` en `@megadulces/contracts`): el rezago de captura es de
+   * 4.7 días de promedio y el peor caso fueron 34, así que con 1 día la bandeja deja fuera casi
+   * todo el trabajo real y lo manda al bloque de «anteriores a esta ventana».
+   *
+   * Es un selector y no una constante escondida justamente para que moverlo no sea un deploy.
+   */
+  ventanaDias = 1;
+  readonly opcionesVentana = [
+    { label: 'Desde ayer', value: 1 },
+    { label: '3 días', value: 3 },
+    { label: '7 días', value: 7 },
+    { label: '45 días', value: 45 },
+    { label: 'Todo', value: 0 },
   ];
   /** Marcadas y lo contado por fila. `Map` y no un campo en la fila: la lista se recarga. */
   private seleccion = signal<Set<string>>(new Set());
@@ -907,15 +937,20 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   cargarPendientes(): void {
     this.cargandoPend.set(true);
+    // `0` = «Todo»: se manda una fecha muy vieja en vez de omitir `from`, porque omitirlo le
+    // devolvería el default del servidor (45 días) y la persona habría pedido otra cosa.
+    const desde = this.ventanaDias === 0
+      ? '2000-01-01'
+      : new Date(Date.now() - this.ventanaDias * 86400000).toISOString().slice(0, 10);
     this.svc.movimientosPendientes({
       tipo: this.signoBandeja || undefined,
       caja: this.cajaActiva || undefined,
+      from: desde,
       limit: 100,
     }).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
         this.confirmables.set(r.confirmables ?? 0);
-        this.ventana.set(r.ventana_dias ?? null);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
         this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
         this.cargandoPend.set(false);
@@ -924,6 +959,12 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       // puede seguir capturando a mano. Vaciarla diría que el ERP no tiene nada pendiente.
       error: () => this.cargandoPend.set(false),
     });
+  }
+
+  /** ¿El documento está fechado después de hoy? Casi siempre es un error de captura en Kepler. */
+  esFutura(f: string | null | undefined): boolean {
+    if (!f) return false;
+    return String(f).slice(0, 10) > new Date().toISOString().slice(0, 10);
   }
 
   estaMarcada(ref: string): boolean { return this.seleccion().has(ref); }
