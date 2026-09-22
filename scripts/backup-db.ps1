@@ -230,7 +230,16 @@ if (Test-Path $pgRestore) {
         Write-Log "  El destino clasifico como prod pero el contenido no lo parece."
         Write-Log "  No se conserva un respaldo que no puedo afirmar que este completo."
         Remove-Item $dumpFile -Force
-        Hb 'end' 'error' "el dump trae $tablas tablas y el piso es $MinTables: no parece prod"
+        # ⛔ `${MinTables}` con llaves, NO `$MinTables:`. Los dos puntos pegados al nombre
+        # hacen que PowerShell lea la variable como CALIFICADA POR UNIDAD (`$env:X`,
+        # `$global:X`), y `MinTables` no es una unidad -> ParserError. Y un ParserError no
+        # falla esta linea: **el archivo entero no compila**, asi que el script no ejecuta
+        # ni la primera instruccion. Eso es exactamente lo que paso entre el 2026-09-11 y el
+        # 2026-09-22: 11 corridas diarias con LastTaskResult=1, cero dumps, y el tablero en
+        # verde porque el unico latido `backup_prod` que existio lo habia escrito la PRUEBA
+        # de instrumentacion de VL.6.3 -- no una entrega. El commit que le puso el latido al
+        # respaldo fue el que rompio el respaldo.
+        Hb 'end' 'error' "el dump trae $tablas tablas y el piso es ${MinTables}: no parece prod"
         exit 2
     }
 }

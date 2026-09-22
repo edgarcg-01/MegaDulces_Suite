@@ -60,6 +60,11 @@ const COMPUERTAS = [
   // no lo es. Medido el 2026-09-18: así estaba —5 errores, cero de ellos reales— porque a
   // `tsconfig.ts7.json` le faltaban 6 alias y le sobraban 3 de una lib que ya no existe.
   { nombre: 'ts7-paths', cmd: 'node scripts/check-ts7-paths.js', que: 'el mapa de `paths` del typecheck no se desfasó del build' },
+  // Un `.ps1` con ParserError no falla una línea: NO COMPILA ENTERO y el script no ejecuta ni su
+  // primera instrucción. Medido el 2026-09-22: así estuvo `backup-db.ps1` durante 12 días, con la
+  // tarea "corriendo" a diario y cero respaldos de prod. Y hay 26 `.ps1` versionados, varios
+  // desatendidos en cajas de sucursal. Nada de esto lo ve eslint ni el typecheck.
+  { nombre: 'powershell', cmd: 'node scripts/check-powershell.js', que: 'los 26 `.ps1` compilan (un ParserError los deja mudos, no rojos)' },
   // Editar una migración YA APLICADA en prod no la re-corre → el cambio no llega a prod pero sí a
   // un `migrate:latest` fresco. Patrón que ya cobró cuatro veces (#122/#128/#133/#138). Sólo toca
   // la red (prod) si el diff modifica algún archivo de migración; si no, sale verde sin conectar.
