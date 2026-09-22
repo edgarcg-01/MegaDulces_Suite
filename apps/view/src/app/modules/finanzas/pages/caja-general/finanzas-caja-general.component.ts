@@ -308,6 +308,7 @@ interface FormularioCajaUI {
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
                 <th scope="col" class="ta-r">Importe (ERP)</th><th scope="col" class="ta-r">Contado</th>
+                <th scope="col"><span class="sr-only">Capturar a mano</span></th>
               </tr>
             </thead>
             <tbody>
@@ -349,13 +350,29 @@ interface FormularioCajaUI {
                   <td class="ta-r">
                     <!-- Vacio = se toma el importe del ERP. Solo se escribe si se conto distinto,
                          y entonces manda lo contado: nunca se rechaza efectivo.
-                         En el EGRESO nace vacio y se queda vacio: el documento ya dice cuanto
-                         salio. Se deja habilitado igual, porque negarlo obligaria a cancelar y
-                         recapturar a mano justo el caso raro que hay que registrar. -->
-                    <input pInputText type="number" class="cg-contado" [disabled]="!p.confirmable"
+
+                         ⛔ ACA ESTABA "[disabled]=!p.confirmable", y el comentario de arriba decia
+                         literalmente "se deja habilitado igual". El codigo hacia lo contrario que
+                         su propio comentario. Con 0 reglas de gasto y 0 rutas firmadas TODAS las
+                         filas son no-confirmables, asi que el arqueo estaba muerto en la pantalla
+                         entera: no se podia teclear lo contado de un solo movimiento.
+                         Contar es un HECHO FISICO; que su cuenta contable este declarada es una
+                         decision administrativa. Trabar el primero por el segundo mezcla dos cosas
+                         distintas -- y el efectivo ya esta en la caja, se registre o no. -->
+                    <input pInputText type="number" class="cg-contado"
                            [ngModel]="contadoDe(p.origen_ref)"
                            (ngModelChange)="setContado(p.origen_ref, $event)"
                            [placeholder]="'igual'" [attr.aria-label]="'Contado de ' + p.folio" />
+                  </td>
+                  <td>
+                    <!-- La salida de una fila trabada. Sin esto, contar no servia de nada: el lote
+                         la rechaza por no tener cuenta, y no habia forma de llevarla a la captura
+                         manual sin retipear el documento entero. Abre el dialogo ANCLADO a este
+                         documento de Kepler, con lo contado ya puesto. -->
+                    <p-button [label]="p.confirmable ? 'Abrir' : 'Capturar'" size="small"
+                              severity="secondary" [text]="true"
+                              [title]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
+                              (onClick)="capturarDesde(p)"></p-button>
                   </td>
                 </tr>
               }
@@ -509,11 +526,17 @@ interface FormularioCajaUI {
                     (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
         </div>
 
-        <!-- ⭐ CG.19 Capa 1 — el ingreso se ELIGE, no se teclea. El monto viaja de Kepler.
-             Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP detrás. -->
-        @if (f().tipo === 'ingreso') {
+        <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
+             ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
+             detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
+             Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
+             los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
+             escondía, así que para un GASTO no había forma de anclar al documento: había que
+             retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
+             banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
+        @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
           <div class="fin-row fin-row-col">
-            <label for="cg-cobro">Entrega contra un cobro de Kepler</label>
+            <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
             <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
                             (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
                             (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
@@ -524,13 +547,23 @@ interface FormularioCajaUI {
                 Tomado de Kepler: {{ c.doc_tipo }} {{ c.folio }} ·
                 {{ c.beneficiario || c.entidad_code }} · {{ money(c.monto) }}
                 @if (c.caja_nombre) { · {{ c.caja_nombre }} }.
-                El monto no se edita: lo pone el documento.
+                El importe lo pone el documento; si contaste distinto, cambiá el monto.
               </small>
+              <!-- La diferencia se DICE antes de guardar. Que el servidor levante el hallazgo no
+                   sirve si la persona no supo que estaba registrando un descuadre. -->
+              @if (montoContado(); as mc) {
+                <small class="fin-hint-warn">
+                  Contaste {{ money(mc) }} y el documento dice {{ money(c.monto) }}:
+                  <strong>{{ money(mc - c.monto) }}</strong> de diferencia. Se registra lo que
+                  contaste —el efectivo no se rechaza— y queda un hallazgo con la diferencia.
+                </small>
+              }
             } @else {
               <small class="fin-dim">
-                Sin cobro elegido: esto se registra como captura manual. Está bien —
-                cerca de la mitad del ingreso todavía no tiene un documento en el ERP— pero queda
-                marcado así en la cobertura.
+                Sin documento elegido: esto se registra como captura manual y queda marcado así en
+                la cobertura. Está bien — cerca de la mitad del ingreso todavía no tiene documento
+                en el ERP —, pero si el movimiento ya está en Kepler, elegirlo hace que el importe
+                lo ponga el documento y no el teclado.
               </small>
             }
           </div>
@@ -583,10 +616,15 @@ interface FormularioCajaUI {
 
         <div class="fin-row">
           <label for="cg-monto">Monto</label>
-          <!-- Con el cobro elegido el monto NO se edita. El servidor lo ignora igual y toma el del
-               documento; bloquearlo acá es para que nadie teclee una cifra que no va a viajar. -->
-          <p-inputnumber inputId="cg-monto" [ngModel]="f().monto" (ngModelChange)="setF('monto', $event)"
-                         mode="currency" currency="MXN" locale="es-MX" [readonly]="!!cobroElegido()" />
+          <!-- ⛔ Esto era "[readonly]="!!cobroElegido()"" con el motivo "el servidor lo ignora
+               igual y toma el del documento". Eso YA NO ES CIERTO: el backend resuelve el importe
+               con "monto_contado", un campo propio que MANDA sobre el del ERP. Dejarlo de sólo
+               lectura hacía imposible **arquear** un movimiento anclado — que es justo el caso que
+               importa: el documento dice una cifra y en la caja hay otra. Ahora se edita, y la
+               pantalla marca abajo que el importe salió de un conteo y no del documento.
+               No se rechaza efectivo: se acepta lo contado y el servidor levanta el hallazgo. -->
+          <p-inputnumber inputId="cg-monto" [ngModel]="f().monto" (ngModelChange)="onMonto($event)"
+                         mode="currency" currency="MXN" locale="es-MX" />
           <label for="cg-morralla">Morralla</label>
           <p-inputnumber inputId="cg-morralla" [ngModel]="f().morralla" (ngModelChange)="setF('morralla', $event)"
                          mode="currency" currency="MXN" locale="es-MX" />
@@ -743,6 +781,16 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   cobros = signal<Array<MovimientoPendiente & { label: string }>>([]);
   cobroElegido = signal<MovimientoPendiente | null>(null);
   cobroSel: (MovimientoPendiente & { label: string }) | null = null;
+  /**
+   * Lo que se CONTÓ, cuando difiere del documento del ERP.
+   *
+   * Campo propio y explícito, igual que del lado del servidor (`monto_contado`), y por la misma
+   * razón que su comentario da: si se dedujera de que `monto` no coincide con el documento,
+   * "conté distinto" y "el front mandó mal el importe" serían el mismo síntoma, y sólo uno de los
+   * dos se arregla en el código. Cuando viaja, MANDA sobre el importe de Kepler y la diferencia
+   * se levanta como hallazgo — nunca se rechaza el efectivo.
+   */
+  montoContado = signal<number | null>(null);
 
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
@@ -1190,6 +1238,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     // una entrega a otra, que es justo el error que el índice único frena del lado del servidor.
     this.cobroSel = null;
     this.cobroElegido.set(null);
+    this.montoContado.set(null);
     this.cobros.set([]);
     this.capturaAbierta.set(true);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
@@ -1207,6 +1256,24 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   onTipo(v: TipoMovimiento): void { this.setF('tipo', v); this.pedirPropuesta(); }
   onGlosa(v: string): void { this.setF('glosa', v); this.pedirPropuestaDebounced(); }
+
+  /**
+   * El monto, y si eso constituye un CONTEO.
+   *
+   * Con un documento anclado, que la persona cambie el importe ES "conté distinto" por
+   * definición: la cifra del ERP ya se conoce. Por eso acá el conteo se marca EXPLÍCITO en vez de
+   * dejar que el servidor lo deduzca de una diferencia — que es lo que su propio comentario
+   * prohíbe, porque haría indistinguible un arqueo real de un bug del front.
+   */
+  onMonto(v: number | null): void {
+    this.setF('monto', v);
+    const doc = this.cobroElegido();
+    if (!doc) { this.montoContado.set(null); return; }
+    const n = Number(v);
+    if (!(n > 0)) { this.montoContado.set(null); return; }
+    // Medio centavo de tolerancia: teclear el mismo importe no es un descuadre.
+    this.montoContado.set(Math.abs(n - Number(doc.monto)) < 0.005 ? null : n);
+  }
 
   conceptoLabel = (c: ConceptoKepler) => `${c.cuenta} / ${c.concepto} — ${c.concepto_nombre}`;
 
@@ -1244,25 +1311,61 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   elegirCobro(e: AutoCompleteSelectEvent): void {
     const c = e.value as MovimientoPendiente;
     if (!c) return;
+    this.tomarDocumento(c);
+  }
+
+  /**
+   * Toma el documento del ERP: monto, fecha, beneficiario y glosa salen de ahí.
+   *
+   * Sale del cuerpo de `elegirCobro` para que la bandeja pueda usar lo mismo (`capturarDesde`):
+   * anclar un documento es una sola operación, se haya llegado por el buscador o por la fila.
+   */
+  private tomarDocumento(c: MovimientoPendiente, contado?: number | null): void {
     this.cobroElegido.set(c);
+    // El conteo viaja aparte, en su propio campo: es lo que el servidor necesita para distinguir
+    // "conté distinto" de "el front mandó mal el importe".
+    const hayConteo = contado != null && Number(contado) > 0;
+    this.montoContado.set(hayConteo ? Number(contado) : null);
     this.f.update((v) => ({
       ...v,
-      monto: Number(c.monto),
+      // Si la persona ya contó en la bandeja, MANDA lo contado: nunca se rechaza efectivo. Sin
+      // conteo, el importe lo pone el documento. `monto` es siempre el importe RESUELTO, que es
+      // contra el que tiene que cuadrar el desglose por denominación.
+      monto: hayConteo ? Number(contado) : Number(c.monto),
       // La fecha del documento es cuándo Kepler lo registró; la del movimiento es cuándo entró o
       // salió el efectivo. Se propone, no se impone: el capturista puede corregirla.
       fecha: String(c.fecha_valor).slice(0, 10) || v.fecha,
+      sucursal: c.sucursal || v.sucursal,
       beneficiario: c.beneficiario || c.entidad_code || v.beneficiario,
       glosa: v.glosa?.trim()
         || `${c.doc_tipo} ${c.folio} · ${c.beneficiario || c.entidad_code || 'sin beneficiario'}`.slice(0, 200),
+      // Si el ERP ya trae la cuenta resuelta, se propone; si no, queda para que la elija un humano.
+      kepler_cuenta: c.kepler_cuenta ?? v.kepler_cuenta,
+      kepler_concepto: c.kepler_concepto ?? v.kepler_concepto,
       // El desglose viejo dejaría de cuadrar contra el monto nuevo: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
     this.pedirPropuesta();
   }
 
+  /**
+   * Abre la captura ANCLADA a una fila de la bandeja. Es la salida de un movimiento trabado:
+   * el lote lo rechaza porque nadie declaró su cuenta, y sin esto la única alternativa era
+   * retipear el documento entero a mano — justo lo que esta pantalla existe para evitar.
+   */
+  capturarDesde(p: MovimientoPendiente): void {
+    const contado = this.contadoDe(p.origen_ref);
+    this.abrirCaptura();
+    // El tipo sale del SIGNO del documento, no de lo que estuviera elegido antes.
+    this.setF('tipo', (p.tipo === 'ingreso' ? 'ingreso' : 'gasto') as TipoMovimiento);
+    this.cobroSel = { ...p, label: this.cobroLabel(p) };
+    this.tomarDocumento(p, contado);
+  }
+
   /** Soltar el cobro devuelve el formulario a captura manual, sin arrastrar el monto del ERP. */
   soltarCobro(): void {
     this.cobroElegido.set(null);
+    this.montoContado.set(null);
     this.f.update((v) => ({ ...v, monto: null, denominaciones: [] }));
   }
 
@@ -1384,7 +1487,11 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     if (v == null || !(Number(v) > 0)) m.delete(ref); else m.set(ref, Number(v));
     this.contado.set(m);
     // Escribir un conteo implica que ese movimiento entra: evita el clic extra de marcarlo.
-    if (m.has(ref)) this.marcar(ref, true);
+    // ⚠️ Sólo si es CONFIRMABLE. Ahora que se puede contar una fila trabada, marcarla la mandaría
+    // al lote para que el servidor la rechace por no tener cuenta — ruido garantizado. Lo contado
+    // en una fila trabada se usa al abrirla con «Capturar».
+    const fila = this.pendientes().find((p) => p.origen_ref === ref);
+    if (m.has(ref) && fila?.confirmable) this.marcar(ref, true);
   }
 
   confirmarLote(): void {
@@ -1554,9 +1661,19 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.svc.crear({
       ...f,
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
-      // descarta el del formulario, y el índice único impide que el mismo cobro entre dos veces.
-      origen_tipo: cobro ? 'cobro' : null,
+      // descarta el del formulario, y el índice único impide que el mismo documento entre dos veces.
+      // ⛔ Acá estaba clavado en 'cobro'. Con CG.21 el diálogo puede anclar TAMBIÉN un pago, y un
+      // `X-D-26` guardado como 'cobro' es un origen mal etiquetado: el backend decide si relee el
+      // importe del ERP con `ORIGEN_ANCLADO = ['cobro','pago_proveedor']`, y el CHECK admite los
+      // dos. La fila ya trae su propio `origen_tipo` (la vista lo emite por signo) — se usa ése,
+      // igual que hace el lote; el fallback por signo es sólo por si la vista no lo mandara.
+      origen_tipo: cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null,
       origen_ref: cobro ? cobro.origen_ref : null,
+      // ⭐ Lo CONTADO, en su campo propio. Sin esto el servidor relee el importe del documento y
+      // descarta el conteo: la diferencia llegaba al hallazgo pero NO al libro, o sea que la caja
+      // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya
+      // tenía `monto_contado` resuelto; lo que faltaba era que la pantalla lo mandara.
+      monto_contado: this.montoContado() ?? undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: this.nuevoUuid(),

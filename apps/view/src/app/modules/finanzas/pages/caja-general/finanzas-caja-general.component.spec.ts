@@ -27,7 +27,7 @@ import { of, throwError } from 'rxjs';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
-  type PendientesResponse, type Frecuente, type CajaKepler,
+  type PendientesResponse, type Frecuente, type CajaKepler, type MovimientoPendiente,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -65,6 +65,24 @@ const SALDO: SaldoResponse = {
 
 const VACIA: PendientesResponse = {
   rows: [], limit: 100, has_more: false, confirmables: 0, desde: '2026-09-21', ventana_dias: 1,
+};
+
+/** Una fila real de la bandeja: un pago de caja chica SIN cuenta declarada. Es el caso que
+ *  dejaba el arqueo muerto — con 0 reglas de gasto, todas las filas se ven así. */
+const GASTO_TRABADO: MovimientoPendiente = {
+  origen_ref: '00|X-D-26|0001298|0011',
+  tipo: 'gasto', origen_tipo: 'pago_proveedor', clave_banco: '0011',
+  caja_nombre: 'CAJA GENERAL', sucursal: '00', doc_tipo: 'X-D-26', folio: '0001298',
+  fecha_valor: '2026-12-10', entidad_code: 'GG015',
+  beneficiario: 'GASTOS GENERALES CAJA CHICA MORELIA ABASTOS',
+  concepto: null, metodo: null, monto: 1060,
+  confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+  motivo: 'sin_regla', motivo_texto: 'Nadie declaró con qué cuenta contable se registra.',
+};
+
+const CON_GASTO: PendientesResponse = {
+  rows: [GASTO_TRABADO], limit: 100, has_more: false, confirmables: 0,
+  desde: '2026-09-21', ventana_dias: 1,
 };
 
 const FRECUENTE: Frecuente = {
@@ -254,5 +272,114 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar({ cobertura: vi.fn(() => of({ catalogo: [], mapa: [] })) });
     expect(comp.coberturaSinMedir()).toBe(false);
     expect(comp.hayConceptos()).toBe(false);
+  });
+
+  // ── 8 · El ARQUEO: contar un movimiento, aunque su cuenta no esté declarada ───────────────
+  //
+  // Reportado por Edgar sobre la pantalla en vivo: "no me deja ingresar el arqueo de cada
+  // ingreso o egreso". El input de Contado tenía `[disabled]="!p.confirmable"` — y con 0 reglas
+  // de gasto TODAS las filas son no-confirmables, así que el arqueo estaba muerto en toda la
+  // pantalla. Contar es un hecho físico; que su cuenta esté declarada es una decisión
+  // administrativa. El efectivo ya está en la caja, se registre o no.
+
+  it('el input de Contado de una fila TRABADA NO está deshabilitado (rojo con el bug)', async () => {
+    const fixture = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    expect(comp.pendientes()[0].confirmable).toBe(false);
+
+    // ⚠️ DOS cosas que esta prueba tuvo que aprender a la mala:
+    //
+    // 1. La aserción va contra el DOM a propósito. El defecto vivía en el `[disabled]` de la
+    //    plantilla, así que un test que llame a `setContado()` directo pasa igual con el bug
+    //    puesto: hay que preguntarle al control que la persona toca.
+    // 2. Hay que ESPERAR un microtask. `NgModel` aplica el estado deshabilitado dentro de un
+    //    `Promise.resolve().then(...)`, o sea DESPUÉS de `detectChanges()`. Sin este await la
+    //    prueba salía verde con el bug reintroducido — verificado — y no probaba nada.
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const input: HTMLInputElement | null = fixture.nativeElement.querySelector('input.cg-contado');
+    expect(input).not.toBeNull();
+    expect(input!.disabled).toBe(false);
+
+    // Y el checkbox SÍ sigue deshabilitado: confirmar sin cuenta declarada no se puede.
+    const check: HTMLInputElement | null = fixture.nativeElement.querySelector('tbody input.cg-check');
+    expect(check!.disabled).toBe(true);
+  });
+
+  it('se puede contar una fila TRABADA (sin cuenta declarada)', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(1100);
+  });
+
+  it('pero contarla NO la manda al lote: el servidor la rechazaría por no tener cuenta', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+    expect(comp.marcadas()).toEqual([]);
+  });
+
+  it('«Capturar» abre el diálogo ANCLADO al documento y con lo contado puesto', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+    comp.capturarDesde(GASTO_TRABADO);
+
+    expect(comp.capturaAbierta()).toBe(true);
+    expect(comp.cobroElegido()?.origen_ref).toBe(GASTO_TRABADO.origen_ref);
+    expect(comp.f().tipo).toBe('gasto');
+    // Manda lo contado, no lo que dice el ERP: nunca se rechaza efectivo.
+    expect(comp.f().monto).toBe(1100);
+    expect(comp.montoContado()).toBe(1100);
+    expect(comp.f().sucursal).toBe('00');
+  });
+
+  it('sin conteo, el importe lo pone el documento y NO se marca como arqueo', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    expect(comp.f().monto).toBe(1060);
+    expect(comp.montoContado()).toBe(null);
+  });
+
+  it('cambiar el monto con documento anclado ES un conteo; volver al del ERP deja de serlo', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+
+    comp.onMonto(1100);
+    expect(comp.montoContado()).toBe(1100);
+
+    comp.onMonto(1060);           // el mismo del documento
+    expect(comp.montoContado()).toBe(null);
+  });
+
+  it('guardar manda monto_contado y el origen_tipo del DOCUMENTO, no "cobro" clavado', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'gasto de caja chica');
+    comp.onMonto(1100);
+
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    // Un X-D-26 guardado como 'cobro' es un origen mal etiquetado.
+    expect(body['origen_tipo']).toBe('pago_proveedor');
+    expect(body['origen_ref']).toBe(GASTO_TRABADO.origen_ref);
+    // Sin esto el servidor relee el importe del ERP y lo contado no llega al libro.
+    expect(body['monto_contado']).toBe(1100);
+  });
+
+  it('sin documento anclado no viaja monto_contado (no hay contra qué contar)', () => {
+    montar();
+    comp.abrirCaptura();
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'gasto suelto');
+    comp.onMonto(500);
+    comp.guardar();
+
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['monto_contado']).toBeUndefined();
+    expect(body['origen_tipo']).toBe(null);
   });
 });
