@@ -9,7 +9,7 @@ import {
 import { Knex } from 'knex';
 import { StoreGateway } from './store.gateway';
 import { LabelPricesChanged, LiveTicket } from './store.types';
-import { composeFreshness, evalInput, tableAt } from '@megadulces/platform-core';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, tableAt } from '@megadulces/platform-core';
 
 const TENANT = process.env.MEGA_DULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const TZ = 'America/Mexico_City';
@@ -483,11 +483,43 @@ export class StoreService {
   async rhythm(warehouseCodes?: string[] | null): Promise<any> {
     const key = warehouseCodes === null || warehouseCodes === undefined ? 'all' : [...warehouseCodes].sort().join(',');
     const hit = this.rhythmCache.get(key);
-    if (hit && Date.now() - hit.at < StoreService.RHYTHM_TTL_MS) return hit.data;
+    let data = hit && Date.now() - hit.at < StoreService.RHYTHM_TTL_MS ? hit.data : null;
+    if (!data) {
+      data = await this.computeRhythm(warehouseCodes);
+      this.rhythmCache.set(key, { at: Date.now(), data });
+    }
 
-    const data = await this.computeRhythm(warehouseCodes);
-    this.rhythmCache.set(key, { at: Date.now(), data });
-    return data;
+    /**
+     * [VP.2.3] La procedencia se mide FUERA del caché, a propósito. El baseline se cachea 30 min
+     * porque cambia una vez al día; la EDAD del dato no. Servir una frescura de hasta media hora
+     * atrás es justo cómo se dibuja un verde que ya no vale, y `laneAt` lee UNA fila por clave, así
+     * que medirla por request cuesta menos que la mentira que ahorraba.
+     */
+    return { ...data, freshness: await this.rhythmFreshness() };
+  }
+
+  /**
+   * [VP.2.3] De cuándo es el ritmo. La ventana sale de `kepler_ods.kdm1/kdm2`, o sea que el único
+   * eslabón entre el ERP y este número es el carril `ods_live_hot`: si muere, el ODS deja de
+   * recibir tickets y el baseline se calcula sobre días que ya no van a llegar.
+   *
+   * Tolerancia 6 h — el mismo criterio con el que `route-promo.service.ts` juzga este mismo carril:
+   * shipea cada minuto, así que 6 h queda lejos de cualquier hipo y cerca de "algo se rompió anoche".
+   *
+   * ⚠️ NO reemplaza a `days_used`/`coverage_pct`, que es la vista de dominio y es MÁS fina: dice
+   * cuántos días de la ventana se pudieron usar, no sólo si el carril late. Es la misma relación que
+   * `feed` vs `freshness` en `open-cajas` — los dos salen del mismo hecho, uno con detalle de
+   * dominio y el otro en el vocabulario que cualquier consumidor ya entiende (ADR-056).
+   */
+  private async rhythmFreshness(): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('ods_live_hot', 'Tickets del ERP en el ODS', await laneAt(this.knex, 'ods_live_hot'), 6),
+      ]);
+    } catch {
+      // Que no se pueda MEDIR no autoriza a afirmar que está fresco (regla 2 de ADR-056).
+      return FRESHNESS_UNKNOWN;
+    }
   }
 
   private async computeRhythm(warehouseCodes?: string[] | null): Promise<any> {
