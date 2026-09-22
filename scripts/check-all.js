@@ -60,6 +60,10 @@ const COMPUERTAS = [
   // no lo es. Medido el 2026-09-18: así estaba —5 errores, cero de ellos reales— porque a
   // `tsconfig.ts7.json` le faltaban 6 alias y le sobraban 3 de una lib que ya no existe.
   { nombre: 'ts7-paths', cmd: 'node scripts/check-ts7-paths.js', que: 'el mapa de `paths` del typecheck no se desfasó del build' },
+  // Editar una migración YA APLICADA en prod no la re-corre → el cambio no llega a prod pero sí a
+  // un `migrate:latest` fresco. Patrón que ya cobró cuatro veces (#122/#128/#133/#138). Sólo toca
+  // la red (prod) si el diff modifica algún archivo de migración; si no, sale verde sin conectar.
+  { nombre: 'migrations', cmd: 'node database/scripts/check-applied-migrations.js', que: 'no se edita una migración ya aplicada en prod (llega a fresh, no a prod)' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
   // `[NX.7]` `apps/api` compila con SWC, que borra los tipos SIN comprobarlos: `build` no
