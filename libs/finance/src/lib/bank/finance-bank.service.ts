@@ -2551,7 +2551,36 @@ export class FinanceBankService {
           kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null,
           kepler_key: k ? k.key : null, contpaqi_key: c ? c.key : null };
       });
-      const keplerOnly = kepler.filter((x) => !x.used).map((x) => ({ source: 'kepler', key: x.key, doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo }));
+      // CB.45 — Un doc de Kepler que YA está casado contra un movimiento de banco de OTRO mes
+      // no es un huérfano: es un **desfase de corte**. Caso medido: el cobro `U-A-7` 0000213 se
+      // capturó el 12-ago y su depósito entró el 24-JUL; el Cuadre de agosto lo mostraba como
+      // «Kepler lo tiene y el banco no», que es falso — el dinero está, en julio.
+      //
+      // ⚠️ Esta pestaña re-derivaba el pareo por su cuenta y NUNCA leía `bank_recon_matches`,
+      // así que el motor (CB.44) podía casarlo y la pantalla lo seguía reportando como faltante.
+      // Se lee el cruce persistido; el motor decide, la pantalla muestra.
+      //
+      // ⚠️ NO cambia los totales del mes, a propósito: en agosto ese dinero efectivamente no
+      // entró al banco. Cambia la ETIQUETA, no la cifra — explicar el hueco, no taparlo.
+      const sueltos = kepler.filter((x) => !x.used);
+      const cruces = sueltos.length
+        ? await trx('finance.bank_recon_matches as m')
+            .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
+            .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+            .where('m.tenant_id', tenantId).whereNull('bm.deleted_at')
+            .whereIn('m.kepler_doc_tipo', Array.from(new Set(sueltos.map((x: any) => x.doc_tipo))))
+            .whereIn('m.kepler_doc_folio', Array.from(new Set(sueltos.map((x: any) => x.folio))))
+            .select('m.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio', 'st.period',
+              'bm.movement_date as fecha_banco', 'bm.concept as concepto_banco', 'm.matched_by')
+        : [];
+      const cruceIdx = new Map((cruces as any[]).map((c) => [`${c.dt}|${String(c.folio).trim()}`, c]));
+      const keplerOnly = sueltos.map((x) => {
+        const c = cruceIdx.get(`${x.doc_tipo}|${String(x.folio).trim()}`);
+        return { source: 'kepler', key: x.key, doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha,
+          importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo,
+          // null = huérfano de verdad; con valor = el banco lo tiene, en otro periodo.
+          casado_otro_periodo: c ? { period: c.period, fecha_banco: c.fecha_banco, concepto_banco: c.concepto_banco, matched_by: c.matched_by } : null };
+      });
       const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
 
       const sum = (a: any[]) => r2(a.reduce((s, r) => s + r.importe, 0));
@@ -2585,6 +2614,11 @@ export class FinanceBankService {
           // `sin_match` = las excepciones REALES (ni casado, ni traspaso/factoraje, ni fiscal, ni partido).
           sin_match_n: reconTotals['sin_match'].n, sin_match_monto: reconTotals['sin_match'].monto,
           kepler_only_n: keplerOnly.length, kepler_only_monto: sum(keplerOnly),
+          // CB.45 — de los "sólo Kepler", cuántos YA tienen su movimiento de banco en otro mes
+          // (desfase de corte, no faltante). Se declara aparte para no confundir las dos cosas:
+          // el hueco del mes sigue siendo el mismo, pero deja de leerse como dinero perdido.
+          kepler_only_otro_periodo_n: keplerOnly.filter((x: any) => x.casado_otro_periodo).length,
+          kepler_only_otro_periodo_monto: sum(keplerOnly.filter((x: any) => x.casado_otro_periodo)),
           contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
         },
       };
