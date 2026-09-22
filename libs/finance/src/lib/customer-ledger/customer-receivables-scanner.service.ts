@@ -23,6 +23,12 @@ const RULES: FinanceRuleInput[] = [
   { rule_key: 'cxc_factura_duplicada', nombre: 'Embarque facturado dos veces', descripcion: 'Un solo embarque generó facturas por más del doble de lo que salió: la cartera le cobra al cliente algo que no debe.', clase: 'error_captura', params: {} },
   { rule_key: 'cxc_embarque_descuadrado', nombre: 'Embarque y factura no cuadran', descripcion: 'Lo facturado difiere de lo embarcado por encima de la tolerancia de redondeo.', clase: 'error_captura', params: { min_dif: 500 } },
 ];
+/**
+ * `[CDRP.4]` Tenant al que se le escribe el latido. `analytics.cron_runs` es una tabla de
+ * OPERACION, no de negocio: el unico tenant real es Mega Dulces y el sensor de `db-health` lee
+ * por `(tenant_id, job_key)`. Mismo criterio que `stock-snapshot.service.ts`.
+ */
+const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const MIN_VENCIDO = 2000;    // pesos: piso para no ahogar la bandeja
 const CRIT_VENCIDO = 20000;  // pesos: vencido crítico
 const CRIT_DIAS = 60;        // días vencido crítico
@@ -51,15 +57,104 @@ export class CustomerReceivablesScannerService {
   async scanAll(): Promise<{ tenants: number; findings: number }> {
     this.running = true;
     let total = 0;
+    const t0 = Date.now();
+    let filas = 0;
+    // `[CDRP.4]` Las fallas se ACUMULAN en vez de perderse en un `warn`: el latido de abajo
+    // necesita saber que algo se rompió, y hasta hoy un tenant caído era un renglón de log.
+    const fallas: string[] = [];
     try {
       const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
       for (const t of tenants) {
-        await this.snapshotTenant(t.id).catch((e) => this.logger.warn(`snapshot ${t.id}: ${e.message}`));
+        try {
+          filas += await this.snapshotTenant(t.id);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          fallas.push(`snapshot ${t.id}: ${msg}`);
+          this.logger.warn(`snapshot ${t.id}: ${msg}`);
+        }
         if (this.sink) total += await this.scanTenant(t.id);
       }
       this.logger.log(`CxC scan: ${tenants.length} tenants, ${total} hallazgos + snapshots`);
+      await this.latir(tenants.length, filas, total, Date.now() - t0, fallas);
       return { tenants: tenants.length, findings: total };
-    } finally { this.running = false; }
+    } catch (e) {
+      // ⛔ Una falla ARRIBA del bucle (p. ej. `public.tenants` inalcanzable) tambien tiene que
+      // latir: si no, el job se muere entero y el tablero conserva la marca vieja, que se lee
+      // igual que "corrio bien".
+      const msg = e instanceof Error ? e.message : String(e);
+      await this.latir(0, filas, total, Date.now() - t0, [...fallas, msg]);
+      throw e;
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
+   * `[CDRP.4]` **Latido de ENTREGA a `analytics.cron_runs`** (ADR-053), calcado de
+   * `stock_snapshot`.
+   *
+   * ── Por qué hacía falta, medido ─────────────────────────────────────────────────────────
+   * El 2026-09-21, `analytics.customer_receivable_snapshots` tenía **0 filas en producción** y
+   * **ni un solo renglón en `analytics.cron_runs`** que mencionara este job. O sea: la foto
+   * diaria de la cartera no se estaba tomando y **no había forma de enterarse**. La tabla existe
+   * desde CXC.12, el escritor existe, y entre los dos no había nadie mirando.
+   *
+   * Y no era casualidad: `scanAll` hacía `.catch((e) => this.logger.warn(...))` por tenant — un
+   * warn que nadie lee. Es el patrón exacto que la Fase OBS salió a cazar.
+   *
+   * ⛔ **Cero filas fotografiadas es `error`, no éxito silencioso.** Es literalmente el modo de
+   * falla que hay en prod: la consulta corre perfecto contra una vista que no devuelve nada, el
+   * job "termina bien" y no entrega nada. Un `ok` ahí sería la mentira que este latido viene a
+   * impedir.
+   *
+   * ⚠️ Sin su entrada en `CRON_JOBS` (`db-health.service.ts`) este latido no sirve de nada: el
+   * sensor cae en `cfg ? classify : 'ok'` y da **verde incondicional**. Van juntos.
+   */
+  private async latir(
+    tenants: number,
+    filas: number,
+    hallazgos: number,
+    ms: number,
+    fallas: string[],
+  ): Promise<void> {
+    try {
+      const vacio = filas === 0;
+      const error = fallas.length
+        ? fallas.join(' | ').slice(0, 500)
+        : vacio
+          ? 'cero filas fotografiadas: la cartera no devolvio saldos (vista vacia o sin acceso)'
+          : null;
+      await this.knex('analytics.cron_runs')
+        .insert({
+          tenant_id: MEGA,
+          job_key: 'cxc_snapshot',
+          label: 'Foto diaria de cartera (CxC)',
+          last_start: this.knex.fn.now(),
+          last_finish: this.knex.fn.now(),
+          status: error ? 'error' : 'ok',
+          rows_affected: filas,
+          duration_ms: ms,
+          note: error ? null : `${tenants} tenant(s) · ${filas} fila(s) de foto · ${hallazgos} hallazgo(s)`,
+          error,
+          host: 'api',
+          updated_at: this.knex.fn.now(),
+        })
+        .onConflict(['tenant_id', 'job_key'])
+        .merge([
+          'label',
+          'last_start',
+          'last_finish',
+          'status',
+          'rows_affected',
+          'duration_ms',
+          'note',
+          'error',
+          'host',
+          'updated_at',
+        ]);
+    } catch {
+      /* el latido nunca rompe al que late (criterio de `cron-heartbeat.js`) */
+    }
   }
 
   /** CXC.12 — captura el agregado de HOY (tenant × sucursal) para la tendencia. Idempotente por día. */
