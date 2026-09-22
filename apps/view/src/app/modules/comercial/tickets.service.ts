@@ -31,6 +31,15 @@ export interface TicketBusqueda {
   candidatos: TicketCandidato[];
   /** true ⇒ había más de los que caben: hay que afinar el folio, no scrollear. */
   truncado: boolean;
+  /**
+   * `[TK.perf]` El documento YA RESUELTO cuando la búsqueda encontró **uno solo**.
+   *
+   * Existe para ahorrar un viaje de red: con un único candidato la pantalla abre el documento
+   * sola, y pedirlo aparte costaba una ida y vuelta entera para ~5 ms de consulta. Viene `null`
+   * con cero o con dos o más candidatos — y también si el servidor no pudo resolverlo, en cuyo
+   * caso la pantalla lo pide como siempre. **Nunca se asume que está.**
+   */
+  documento?: TicketVenta | null;
 }
 
 @Injectable({ providedIn: 'root' })
