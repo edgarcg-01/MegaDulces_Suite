@@ -616,5 +616,95 @@ sin salto de línea final.
 
 ---
 
+## 9. [VL.9.6] pgBackRest — el corte iba a bajar el RPO de minutos a 24 horas
+
+Medido el 2026-09-22, consultando las dos bases:
+
+| | Railway (prod hoy) | `pg-prod` en `md` (antes de esto) |
+|---|---|---|
+| `archive_mode` | **`on`** | **`off`** |
+| `archive_command` | `pgbackrest-archive-push-wrapper.sh %p` | *(disabled)* |
+
+⛔ **Prod ya corre pgBackRest.** La copia no. O sea que el corte, tal como estaba planeado,
+cambiaba *"puedo volver a cualquier minuto"* por *"tengo la foto de anoche"* — y eso **no
+figuraba en ninguno de los 7 bloqueos** de §6. Esto no es una mejora: es reponer una capacidad
+que se estaba por perder en silencio.
+
+Y es lo único de la lista que **no escala solo**: con 10× (340 GB) el volcado completo pasa de
+~75 min a **~12 h** y deja de existir como estrategia. El archivado continuo de WAL es lo que
+sigue funcionando a esa escala, y montarlo es más caro cuanto más grande está la base.
+
+### Son DOS respaldos, no uno con dos nombres
+
+| | `prod-backup` (`pg_dump`, 22:00) | pgBackRest (continuo) |
+|---|---|---|
+| Qué da | un archivo **portátil** | recuperación a **un punto en el tiempo** |
+| Restaura | otra versión de Postgres, otra máquina, **una sola tabla** | el **mismo clúster**, entero |
+| RPO | 24 h | minutos (`archive_timeout=300`) |
+| Sobrevive a | que se pierda el servidor | que alguien borre una tabla a las 11:40 |
+
+La regla 3-2-1 pide los dos. ⬜ Y por ahora **los dos viven en la misma máquina**: el "fuera de
+sitio" sigue abierto (VL.8).
+
+### Cómo se enciende — el orden importa
+
+⛔ **Encender `archive_mode` con el repositorio sin inicializar hace que `archive_command`
+falle en CADA segmento y el WAL se acumule hasta llenar el disco.** Por eso el interruptor es
+una variable (`PGPROD_ARCHIVE_MODE`, por defecto `off`) y el orden es éste:
+
+```sh
+# 1. la variable y recrear la base
+echo 'PGPROD_ARCHIVE_MODE=on' >> ~/secrets/prod-compose.env
+cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a
+docker compose -p prod up -d pg-prod
+
+# 2. crear el stanza
+docker exec -u postgres pg-prod pgbackrest --stanza=prod stanza-create
+
+# 3. ⭐ LA PRUEBA DE VERDAD: fuerza un cambio de WAL y verifica que LLEGÓ al repositorio
+docker exec -u postgres pg-prod pgbackrest --stanza=prod check
+
+# 4. el primer respaldo completo
+docker exec -u postgres pg-prod pgbackrest --stanza=prod --type=full backup
+```
+
+⚠️ **Sin el paso 4, el WAL archivado no sirve para nada**: una recuperación a un punto en el
+tiempo necesita una base completa desde la cual reproducir.
+
+### Las dos trampas que ya mordieron, para que no muerdan de nuevo
+
+**1. El `chown` de la imagen NO aplica sobre un montaje del host.** El `Dockerfile` hace
+`chown postgres` sobre `/var/lib/pgbackrest`, pero un *bind mount* **reemplaza** ese directorio
+por el del host, que llega con el dueño del host (uid 1000) — y `postgres` adentro es uid **999**.
+Resultado: `archive_command` habría fallado en cada segmento. Se detectó porque la verificación
+**intentaba escribir**, no porque comprobaba que el directorio existiera. El arreglo, sin sudo:
+
+```sh
+docker run --rm -v /home/superoot/pgbackrest:/r alpine:3 \
+  sh -c 'chown -R 999:1000 /r && chmod -R 0750 /r && chmod g+s /r'
+```
+
+Grupo 1000 + `setgid` a propósito: `postgres` escribe, **`superoot` lee** — sin eso, la copia
+fuera de sitio de VL.8 no podría leer su propio repositorio.
+
+**2. pgBackRest NO comenta con `;`.** Su parser no es INI estándar: con `;` aborta con
+*"key/value found outside of section at line 1"* y **ni `stanza-create` ni `check` arrancan**.
+Los comentarios van con `#`. Se descubrió con el archivado **ya encendido**, o sea con el WAL
+acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
+
+### Lo que falta
+
+- ⬜ **Agendar** los respaldos (completo semanal + diferencial diario). Hoy se corren a mano.
+  La decisión pendiente es **desde dónde**: `pgbackrest backup` necesita leer `PGDATA`, así que
+  o corre dentro de este contenedor, o el contenedor `backup` recibe el socket de Docker
+  (privilegio de root en el host), o se monta el modo servidor TLS de pgBackRest. Las tres
+  tienen costo y ninguna es obviamente correcta: se decide, no se deduce.
+- ⬜ **Probar una recuperación de verdad** a un punto en el tiempo. Un respaldo que nunca se
+  restauró es una hipótesis.
+- ⬜ **Fuera de sitio** (VL.8): hoy repositorio y volcados están en el mismo disco de la misma
+  máquina que la base.
+
+---
+
 **Plan de la fase:** [`FASE_VL`](../../docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md) ·
 decisión en **ADR-060** · el ADR propio de VL.9 está **pendiente**.
