@@ -264,15 +264,22 @@
         <!--
           WS indicator: dot semántico via tokens status-ok/status-bad.
           Usa tokens status-ok/status-bad para soporte de dark mode.
+
+          `[SW.2]` Sólo donde HAY tiempo real. Esta shell la comparten 13 árboles de rutas y el
+          socket sólo se abre en `/dashboard` (escucha eventos de captura). En los otros 12 el
+          punto salía en ROJO permanente, informando de una conexión que nadie había pedido —
+          y un indicador que siempre está en falla enseña a ignorar los indicadores.
         -->
-        <div
-          class="hidden sm:flex items-center gap-1.5"
-          [class]="wsConnected() ? 'status-ok' : 'status-bad'"
-          [attr.aria-label]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
-          [title]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
-        >
-          <span class="status-dot" aria-hidden="true"></span>
-        </div>
+        @if (muestraTiempoReal()) {
+          <div
+            class="hidden sm:flex items-center gap-1.5"
+            [class]="wsConnected() ? 'status-ok' : 'status-bad'"
+            [attr.aria-label]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
+            [title]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
+          >
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+        }
 
         <!-- Pending Update Indicator (chip-info para tema-aware) -->
         <button
