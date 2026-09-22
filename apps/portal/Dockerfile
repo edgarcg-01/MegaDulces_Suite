@@ -20,7 +20,10 @@ RUN npm ci
 
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-ENV CI=true NX_DAEMON=false NPM_CONFIG_LOGLEVEL=warn NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+# `[NX.11]` ⛔ SIN `CI=true`: medido, la intersección `CI=true` × Nx Cloud cuesta ~45–80 s por
+# corrida de `nx`, aunque el target ya esté cacheado. Detalle del 2×2 en el `Dockerfile` raíz.
+# `CI=true` se queda en el stage `deps`, donde npm sí lo necesita.
+ENV NX_DAEMON=false NPM_CONFIG_LOGLEVEL=warn NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 # Railway expone el commit en build. Si falta, queda "unknown" (cosmético).
 ARG RAILWAY_GIT_COMMIT_SHA=
 COPY --from=deps /app/node_modules ./node_modules
