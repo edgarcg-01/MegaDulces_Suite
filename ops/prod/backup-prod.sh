@@ -99,31 +99,37 @@ q() { psql "$URLK" -At -q -c "$1" 2>/dev/null; }
 # corrida solo. Va en SQL plano y no en node porque este contenedor no tiene el
 # repo; lo que no puede cambiar es la FORMA, o el tablero lee dos dialectos.
 # Nunca aborta el respaldo: un latido que rompe lo que vigila es peor que no tenerlo.
+# ⚠️ EL SQL VA POR ENTRADA ESTÁNDAR (`-f -`), NO POR `-c`. psql **no interpola sus
+# variables** (`:'t'`) en un `-c`: lo manda tal cual al servidor, que responde
+# `syntax error at or near ":"`. Medido el 2026-09-22 — el primer volcado real avisó
+# «el latido de inicio no se pudo escribir» y el respaldo quedó MUDO en el tablero,
+# que es justo lo que este latido existe para evitar. Con `-f -` sí interpola, y las
+# variables `-v` siguen citando bien el texto (que trae acentos y `·`).
 latido_ini() {
   [ "$PRUEBA" = 1 ] && return 0
-  psql "$URLK" -q \
-    -v t="$TENANT" -v j="$JOB" -v h="$YO" \
-    -c "INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
-        VALUES (:'t', :'j', 'Respaldo diario de prod (pg_dump, desde md)', now(), 'running', :'h', now())
-        ON CONFLICT (tenant_id, job_key) DO UPDATE
-          SET label = EXCLUDED.label, last_start = now(), status = 'running',
-              host = EXCLUDED.host, updated_at = now()" >/dev/null 2>&1 \
+  psql "$URLK" -q -v t="$TENANT" -v j="$JOB" -v h="$YO" -f - <<'SQL' >/dev/null 2>&1 \
     || di "aviso: el latido de inicio no se pudo escribir"
+INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
+VALUES (:'t', :'j', 'Respaldo diario de prod (pg_dump, desde md)', now(), 'running', :'h', now())
+ON CONFLICT (tenant_id, job_key) DO UPDATE
+  SET label = EXCLUDED.label, last_start = now(), status = 'running',
+      host = EXCLUDED.host, updated_at = now();
+SQL
 }
 latido_fin() {
   [ "$PRUEBA" = 1 ] && return 0
   _st="$1"; _detalle="$2"
   if [ "$_st" = ok ]; then _nota="$_detalle"; _err=''; else _nota=''; _err="$_detalle"; fi
-  psql "$URLK" -q \
-    -v t="$TENANT" -v j="$JOB" -v s="$_st" -v n="$_nota" -v e="$_err" \
-    -c "UPDATE analytics.cron_runs
-           SET last_finish = now(), status = :'s',
-               note  = NULLIF(:'n',''), error = NULLIF(:'e',''),
-               duration_ms = CASE WHEN last_start IS NOT NULL
-                                  THEN (EXTRACT(EPOCH FROM (now() - last_start))*1000)::bigint END,
-               updated_at = now()
-         WHERE tenant_id = :'t' AND job_key = :'j'" >/dev/null 2>&1 \
+  psql "$URLK" -q -v t="$TENANT" -v j="$JOB" -v s="$_st" -v n="$_nota" -v e="$_err" -f - <<'SQL' >/dev/null 2>&1 \
     || di "aviso: el latido de fin no se pudo escribir"
+UPDATE analytics.cron_runs
+   SET last_finish = now(), status = :'s',
+       note  = NULLIF(:'n',''), error = NULLIF(:'e',''),
+       duration_ms = CASE WHEN last_start IS NOT NULL
+                          THEN (EXTRACT(EPOCH FROM (now() - last_start))*1000)::bigint END,
+       updated_at = now()
+ WHERE tenant_id = :'t' AND job_key = :'j';
+SQL
 }
 
 if [ "$PRUEBA" = 1 ]; then di "── respaldo de prod desde md (MODO PRUEBA) ──"; else di "── respaldo de prod desde md ──"; fi
