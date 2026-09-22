@@ -163,7 +163,40 @@ const tieneDecoradorPermisos = (tramo) =>
     let finHija = fin;
     for (let i = iHija + 1; i < fin; i++) if (esLineaDePath(i)) { finHija = i; break; }
     const cuerpo = enUnaLinea ? rutas[iHija] : rutas.slice(iHija, finHija).join('\n');
-    return { encontrada: true, perms: [...cuerpo.matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]) };
+    const perms = [...cuerpo.matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]);
+    if (perms.length) return { encontrada: true, perms };
+
+    /*
+     * `[SN.36]` ⛔ **Tercera forma de declarar el gate, y el candado estaba CIEGO a ella.**
+     *
+     * La mayoría de las rutas escribe `permissionGuard(Permission.X)` inline, así que la clave se
+     * lee del propio `app.routes.ts`. Pero `/finanzas/cartera` usa `canActivate: [carteraEntryGuard]`
+     * —un guard con nombre que además redirige a `/finanzas/cobranza` a quien sólo tenga
+     * `FINANCE_COLLECTIONS_VER`— y ahí no hay ni un `Permission.` que leer. El candado reportaba
+     * «la ruta no declara ningún permiso» sobre una ruta que SÍ exige `FINANCE_RECEIVABLES_VER`.
+     *
+     * Es literalmente la lección que este archivo ya tenía escrita dos veces (`const KEY =` en
+     * `[SN.32]`, `@Get(':id')` citado en prosa): **un candado lee CÓDIGO, y sólo el que sabe leer**;
+     * un falso positivo suyo entrena a ignorarlo, que es peor que no tenerlo.
+     *
+     * ⚠️ Sigue UN nivel de indirección, a propósito. Un guard que delegue en otro —o los
+     * `landingRedirectGuard(X_LANDING, …)`, que sacan sus claves de un array aparte— vuelve a salir
+     * vacío y el candado vuelve a acusar. Es el comportamiento correcto: hoy ninguna bandeja apunta
+     * a una landing, y el día que apunte, que se note.
+     */
+    const nombre = cuerpo.match(/canActivate: \[([a-zA-Z0-9_]+)\]/);
+    if (!nombre) return { encontrada: true, perms: [] };
+    const srcGuards = fs.readFileSync(
+      path.resolve(__dirname, '../../apps/view/src/app/core/guards/permission.guard.ts'), 'utf8',
+    );
+    const iG = srcGuards.indexOf(`export const ${nombre[1]}`);
+    if (iG < 0) return { encontrada: true, perms: [] };
+    const sig = srcGuards.indexOf('\nexport const ', iG + 1);
+    const cuerpoG = srcGuards.slice(iG, sig < 0 ? srcGuards.length : sig);
+    return {
+      encontrada: true,
+      perms: [...cuerpoG.matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
+    };
   };
 
   for (const b of bandejas) {
@@ -260,8 +293,9 @@ const tieneDecoradorPermisos = (tramo) =>
     }
   }
   // `[SN.32]` +1: entró «Salud de las bases de datos» con su clave `sistemas.salud_datos`.
+  // `[SN.36]` +1: entró «Cartera de clientes» con su clave `finanzas.cartera`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 16, catalogo);
+    catalogo.length === 17, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -301,8 +335,11 @@ const tieneDecoradorPermisos = (tramo) =>
   ];
   // `[CG.21]` +1: entró «Movimientos de caja por confirmar» con su clave `finanzas.caja`.
   // `[SN.32]` +1: entró «Fuentes de datos con falla» con su clave `sistemas.salud_datos`.
-  check('cada cola declara su responsabilidad (9 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 18, declaradas);
+  // `[SN.36]` +2 COLAS pero +1 CLAVE: «vencido» y «sobre su línea» son dos renglones de la misma
+  // responsabilidad (`finanzas.cartera`), así que `declaradas` sube 2 y `catalogo` sólo 1. Es el
+  // caso que la aserción de conjunto de abajo cubre y la de unicidad (retirada) habría roto.
+  check('cada cola declara su responsabilidad (11 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 20, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -853,9 +890,30 @@ const tieneDecoradorPermisos = (tramo) =>
         && Number(src.match(/export const TOPE_DESGLOSE = (\d+);/)[1]) <= 50,
       (src.match(/export const TOPE_DESGLOSE = (\d+);/) || [])[1]);
 
+    /*
+     * `[SN.36]` El candado pasa de «sólo `salud-datos`» a una LISTA que hay que editar a
+     * propósito. No es un relajamiento: lo que `[SN.33]` prohíbe es que el desglose se copie a
+     * una cola grande **por inercia** (`cuadre` tiene 2,409 filas), y para eso lo que hace falta
+     * es que agregarlo obligue a tocar este archivo y escribir por qué. Las dos entradas de hoy
+     * pasan criterios distintos y los dos son legítimos:
+     *
+     *  · `salud-datos` — el desglose es EXHAUSTIVO: la cola vive entre 0 y una decena, así que
+     *    los 8 renglones son la cola entera.
+     *  · `cartera-vencida` — el desglose es el TRABAJO: son 680 clientes, pero los 8 primeros por
+     *    monto concentran el grueso del dinero (los dos primeros, $22.1 M de $52.7 M) y la lista
+     *    es literalmente a quién llamar hoy. Su hermana `cartera-sobre-limite` NO se desglosa, y
+     *    esa asimetría es la prueba de que el criterio se aplicó y no se copió.
+     *
+     * ⛔ Lo que sigue prohibido es lo de siempre: un desglose sobre una cola cuyas 8 filas no
+     * concentren ni la cola ni la decisión — ahí la portada se vuelve la pantalla (`[SN.7]` r.1).
+     */
+    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida'];
     const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
-    check('⛔ [SN.33] SÓLO la cola de salud se desglosa (una cola grande mudaría su pantalla a la portada)',
-      conDesglose.length === 1 && conDesglose[0] === 'salud-datos', conDesglose);
+    const deMas = conDesglose.filter((id) => !DESGLOSE_PERMITIDO.includes(id));
+    check('⛔ [SN.33] sólo se desglosan las colas declaradas (una cola grande mudaría su pantalla a la portada)',
+      deMas.length === 0, { conDesglose, deMas });
+    check('⛔ [SN.36] y las declaradas siguen ahí (si no, el permiso de arriba no vigila nada)',
+      DESGLOSE_PERMITIDO.every((id) => conDesglose.includes(id)), conDesglose);
 
     check('⛔ [SN.33] el desglose ordena por GRAVEDAD antes que por fecha',
       /case when status = 'critical' then 0 else 1 end[\s\S]{0,200}?orderBy\('first_seen_at'/.test(bloqueS));
@@ -933,6 +991,66 @@ const tieneDecoradorPermisos = (tramo) =>
   check('⛔ el TITULAR se apaga con el bloque (si no, publicaría 0 sobre lo escondido)',
     /hayTrabajo\(\) && !buscando\(\) && !sinTrabajoNominal\(\)/.test(htmlPortada));
   check('⛔ y lo oculto se DECLARA en pantalla', /motivoSinNominal/.test(htmlPortada));
+
+  console.log('\n── 4l. [SN.36] La cartera de Crédito y Cobranza ──');
+  const srcSinCom = sinComentarios(src);
+  const migCartera = fs.readFileSync(
+    path.resolve(dirMig, '20260922210000_responsabilidad_cartera.js'), 'utf8',
+  );
+  check('la migración declara la clave Y la reparte a un puesto que existe',
+    /'finanzas\.cartera'/.test(migCartera)
+      && /PUESTO = 'auxiliar_credito_cobranza'/.test(migCartera)
+      && /position_responsibilities/.test(migCartera), null);
+  check('⛔ y NO otorga permisos (FINANCE_RECEIVABLES_VER ya estaba repartido)',
+    !/role_permissions/.test(migCartera));
+
+  const cartera = [...srcSinCom.matchAll(/id: '(cartera-[a-z-]+)'/g)].map((m) => m[1]);
+  check('son DOS bandejas (cobrar lo vencido y frenar la venta a crédito)',
+    cartera.length === 2, cartera);
+  /*
+   * ⛔ El bloque de cada bandeja se recorta del fuente SIN comentarios: la prosa de arriba cita
+   * `/finanzas/hallazgos` para explicar por qué NO se enlaza ahí, y un grep ingenuo lo tomaría por
+   * la ruta real. Es la cuarta vez en esta suite que un candado lee prosa (ver la cabecera).
+   */
+  for (const id of cartera) {
+    const i = srcSinCom.indexOf(`id: '${id}'`);
+    const bloque = srcSinCom.slice(i, i + 900);
+    check(`${id} enlaza a la pantalla que YA existe (/finanzas/cartera)`,
+      /ruta: '\/finanzas\/cartera'/.test(bloque), bloque.slice(0, 160));
+    check(`${id} gatea con el permiso de esa misma pantalla`,
+      /anyOf: \[Permission\.FINANCE_RECEIVABLES_VER\]/.test(bloque));
+    check(`${id} responde de finanzas.cartera`,
+      /responsabilidad: 'finanzas\.cartera'/.test(bloque));
+  }
+
+  /*
+   * ⛔ **La prueba negativa del predicado nuevo.** `abiertaExtra` narra el lado ABIERTO; si sus
+   * bindings se colaran al contador de cerradas, knex tiraría «Expected N bindings» en runtime —
+   * que es justo lo que el build NO ve. El candado mira que `CERRADA` use `baseAb` y que el
+   * predicado se concatene sólo sobre `BASE_AB`.
+   */
+  check('⛔ el predicado extra pesa SÓLO del lado abierto',
+    /const ABIERTA = abiertaExtra \? `\(\$\{BASE_AB\}\) and \(\$\{abiertaExtra\.sql\}\)` : BASE_AB;/
+      .test(srcSinCom), null);
+  check('⛔ y el contador de cerradas NO lleva sus bindings (si no: «Expected N bindings»)',
+    /\[\.\.\.baseAb, cierre\]/.test(srcSinCom) && !/\[\.\.\.argsAb, cierre\]/.test(srcSinCom));
+
+  /*
+   * ⛔ El ancla del predicado es `max(last_seen)` de la PROPIA regla, no `current_date`: con la
+   * fecha de hoy, el día que el detector no corra la cola publicaría **0** en vez de quedarse
+   * quieta — el cero disfrazado que ADR-056 prohíbe.
+   */
+  check('⛔ la frescura se ancla a la última pasada del detector, no al día de hoy',
+    /last_seen >= \(select max\(last_seen\)::date from finance\.findings/.test(srcSinCom)
+      && !/last_seen >= now\(\)::date/.test(srcSinCom));
+  check('⛔ la cola NO se cuelga de la vista viva de cartera (1,336 ms medidos vs 10.6 ms)',
+    !/customer_receivables/.test(srcSinCom), null);
+  check('el desglose ordena por DINERO (a quién llamar primero), no por fecha',
+    /\.orderBy\('importe', 'desc'\)/.test(srcSinCom));
+  check('⛔ el id del desglose lleva la sucursal (el mismo cliente sale en dos carteras)',
+    /id: `\$\{f\.sucursal \?\? '\?'\}:\$\{f\.cliente_code \?\? f\.id\}`/.test(srcSinCom));
+  check('⛔ la gravedad sale de la fuente, sin default benigno',
+    !/severity \?\? 'warn'/.test(srcSinCom));
 
   /*
    * El tramo común no se puede leer del fuente con un grep honesto, así que se verifica dónde se
