@@ -268,6 +268,36 @@ catch (e) { mordio = /nombre_del_check/.test(e.message); }
 await knex.raw(mordio ? 'ROLLBACK TO SAVEPOINT prueba' : 'RELEASE SAVEPOINT prueba');
 ```
 
+
+### 3.3 ⭐ MEDIDO: «restaurar un dump viejo y migrar hacia adelante» NO reproduce prod
+
+Se probó de verdad el 2026-09-22: restore del dump del 10-sep (663 migraciones) + `knex
+migrate:latest` para llegar a las 825 de prod. **Falló tres veces, por dos causas, y la segunda es
+estructural.**
+
+**Causa 1 — una migración que no corre en transacción.** Es §3.2 de arriba.
+
+**Causa 2 — migraciones que dependen de datos cambiados FUERA de toda migración.** Dos de ellas:
+
+- `20260915130000_jefes_de_zona_y_escalera_operaciones.js` aborta con *"No existe la persona
+  `aaron_alejo`"*. Medido: esa persona **sí existe** en la copia — se llama **`aaronalejo`**, sin
+  guión bajo. Alguien renombró dos usuarios desde la UI de administración entre el 10 y el 15 de
+  septiembre, y una migración posterior **hardcodeó el nombre nuevo**.
+- `20260915140000_historia_puesto_filtro_adentro.js` aborta porque **1 persona no tiene tramo
+  vigente** — otra condición de datos que difiere entre la foto y prod.
+
+⇒ Esa clase de migración **no se puede replayar sobre ningún restore anterior al cambio de datos**,
+y no hay forma de saber cuántas más hay sin llegar a ellas una por una. No es un defecto de una
+migración: es una **propiedad del sistema** — el estado de prod es *esquema + datos editados a
+mano*, y sólo la primera mitad vive en el repo.
+
+**Consecuencia para el corte, sin ambigüedad:** hace falta un **dump FRESCO** (o replicación
+lógica). `restore viejo + migrate` queda **descartado como camino**, no como preferencia.
+
+⚠️ Pero sí sirve, y mucho, para **ejercitar la cadena de migraciones**: en ~60 migraciones encontró
+tres defectos reales que nadie había visto. Vale la pena repetirlo de vez en cuando **a propósito**,
+sabiendo que va a fallar y que eso es el punto.
+
 ---
 
 ## 4. Cómo se verifica — el rótulo no es el veredicto
