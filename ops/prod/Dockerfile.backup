@@ -11,14 +11,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM postgres:18
 
-# `cron` para la agenda, y `pgbackrest` porque este contenedor también corre los
-# respaldos del CLÚSTER (ver `ops/prod/pgbackrest-run.sh`): comparte el volumen de
-# datos en SÓLO LECTURA y el directorio del socket de `pg-prod`, en vez de pedir el
-# socket de Docker — que sería root en el host.
-# ⚠️ La versión de pgbackrest se fija igual que en `Dockerfile.pg`: las dos puntas
-# escriben el mismo repositorio y tienen que coincidir.
+# ⚠️ EL PIN ES `pgdg13`, NO `pgdg12` COMO EN `Dockerfile.pg`. Las dos imágenes escriben el
+# MISMO repositorio de pgBackRest pero están sobre Debian distintas — medido el 2026-09-22:
+# `postgres:18` es **trixie** (Debian 13) y `pgvector/pgvector:pg18` es **bookworm** (12).
+# Lo que tiene que coincidir es la versión de ARRIBA (2.59.1, que define el formato del
+# repositorio); la revisión de Debian es de cada base. Copiar el pin de la otra hace fallar
+# el build con `apt` exit 100, que no menciona ni Debian ni la versión.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg12+1 \
+ && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg13+1 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY ops/prod/backup-prod.sh    /usr/local/bin/backup-prod.sh
