@@ -15,7 +15,17 @@
  * SU transacción; el movimiento del ledger tiene que ocurrir en ESA MISMA trx para ser atómico
  * (comprometer/pagar y actualizar la obligación, todo o nada). Por eso el puerto recibe el `trx` del
  * llamador y NO abre uno nuevo.
+ *
+ * ── `Knex.Transaction`, no `unknown` (`[NX.11]`, 2026-09-21) ─────────────────────────────────
+ * Este puerto nació con `trx: unknown`, y eso obligaba a la implementación a declarar `trx: any`
+ * para poder usarlo — que es justo lo que `scripts/lint-boundary-gate.js` rechaza en líneas
+ * nuevas. `unknown` tampoco protegía nada: el único valor que se pasa acá es la transacción de
+ * `TenantKnexService.run()`, que ES un `Knex.Transaction`, y nombrarla no acopla nada nuevo
+ * (`knex` ya es dependencia de `libs/finance`). Con el tipo real, el puerto y su implementación
+ * quedan sanos de punta a punta y desaparecen los `any`.
  */
+
+import { Knex } from 'knex';
 
 export const BUDGET_LEDGER_PORT = 'BUDGET_LEDGER_PORT';
 
@@ -37,7 +47,7 @@ export interface BudgetLedgerPort {
    * el llamador decide si eso debe bloquear su operación o registrarse como deriva.
    */
   applyInTrx(
-    trx: unknown,
+    trx: Knex.Transaction,
     budgetLineId: string,
     type: BudgetLedgerMovement,
     amount: number,

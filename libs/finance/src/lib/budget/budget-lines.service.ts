@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -47,6 +48,27 @@ export interface MovementOpts {
   note?: string;
   /** compromiso: convertir desde una reserva previa en vez de consumir disponible nuevo. */
   fromReserva?: boolean;
+}
+
+/**
+ * Lo que devuelve un movimiento del ledger. `[NX.11]` 2026-09-21 — **nota para quien siga acá:**
+ * este tipo se agregó porque `scripts/lint-boundary-gate.js` rechazaba `applyMovementInTrx` sin
+ * anotación de retorno (regla `explicit-module-boundary-types`, ADR-052), y el gate corre en LOCAL
+ * mientras el CI siga apagado (ver la cabecera de `CLAUDE.md`).
+ *
+ * Las filas van con **índice `unknown`** a propósito: son filas crudas de knex y acá NO se inventa
+ * el esquema de `budget.budget_lines` / `budget_line_movements`. Se nombran sólo los campos que
+ * este archivo lee de verdad. Verificado antes de tiparlo: **ningún llamador en TS lee campos de
+ * este objeto** — los controllers lo devuelven tal cual a HTTP — así que nombrar de menos no
+ * rompe nada. Si algún día hace falta indexar, el arreglo correcto es tipar la fila, no volver a
+ * `any`.
+ */
+export interface BudgetMovementResult {
+  line: { available_amount: number; [k: string]: unknown };
+  movement: { [k: string]: unknown };
+  /** true si el movimiento ya existía por `(sourceKind, sourceRef, tipo)` y no se volvió a aplicar. */
+  idempotent: boolean;
+  warning: string | null;
 }
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -244,21 +266,21 @@ export class BudgetLinesService {
     });
   }
 
-  private async lockLine(trx: any, tenantId: string, lineId: string) {
+  private async lockLine(trx: Knex.Transaction, tenantId: string, lineId: string) {
     const line = await trx('budget.budget_lines').where({ tenant_id: tenantId, id: lineId }).forUpdate().first();
     if (!line) throw new NotFoundException('Partida no encontrada');
     if (line.status !== 'activa') throw new BadRequestException('La partida está cerrada');
     return line;
   }
 
-  private async assertBudgetAprobado(trx: any, tenantId: string, budgetId: string) {
+  private async assertBudgetAprobado(trx: Knex.Transaction, tenantId: string, budgetId: string) {
     const b = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
     if (!b) throw new NotFoundException('Presupuesto no encontrado');
     if (b.status !== 'aprobado') throw new BadRequestException(`El presupuesto no está vigente (está '${b.status}'); no se pueden mover saldos`);
   }
 
   /** Idempotencia: si ya existe el movimiento (origen, documento, tipo), lo devuelve sin re-aplicar. */
-  private async findIdempotent(trx: any, tenantId: string, lineId: string, type: string, opts: MovementOpts) {
+  private async findIdempotent(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, opts: MovementOpts) {
     if (!opts.sourceRef) return null;
     return trx('budget.line_movements').where({
       tenant_id: tenantId, budget_line_id: lineId, movement_type: type,
@@ -266,7 +288,7 @@ export class BudgetLinesService {
     }).first();
   }
 
-  private async writeMovement(trx: any, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string }, username: string) {
+  private async writeMovement(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string }, username: string) {
     try {
       const [mov] = await trx('budget.line_movements').insert({
         tenant_id: tenantId, budget_line_id: lineId, movement_type: type, amount,
@@ -294,10 +316,10 @@ export class BudgetLinesService {
    * (regla del proyecto). `applyMovement` es el wrapper que abre la trx del request normal.
    */
   async applyMovementInTrx(
-    trx: any,
+    trx: Knex.Transaction,
     lineId: string, type: 'reserva' | 'compromiso' | 'ejercido' | 'pago' | 'ampliacion' | 'reduccion' | 'cancelacion',
     amount: number, opts: MovementOpts, username: string, cancelTarget?: 'reserva' | 'compromiso',
-  ) {
+  ): Promise<BudgetMovementResult> {
     const amt = round2(amount);
     if (!(amt > 0)) throw new BadRequestException('El monto debe ser > 0');
     const tenantId = this.tenantCtx.requireTenantId();
@@ -385,7 +407,7 @@ export class BudgetLinesService {
    * partida — una sola verdad del gasto (ADR-066). Idempotente por (sourceKind, sourceRef, tipo).
    */
   async applyInTrx(
-    trx: any, budgetLineId: string,
+    trx: Knex.Transaction, budgetLineId: string,
     type: 'compromiso' | 'ejercido' | 'pago' | 'cancelacion', amount: number,
     opts: MovementOpts, username: string, cancelTarget?: 'reserva' | 'compromiso',
   ): Promise<void> {
