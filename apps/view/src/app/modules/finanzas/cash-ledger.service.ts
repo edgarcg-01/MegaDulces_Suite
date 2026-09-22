@@ -292,6 +292,16 @@ export interface CajaKepler {
 }
 
 export interface PendientesResponse {
+  /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */
+  desde?: string;
+  ventana_dias?: number | null;
+  /**
+   * Lo que la ventana DEJA FUERA, declarado. Medido en prod al aplicar CG.21: con el libro nuevo
+   * vacío, "pendiente" era todo lo que Kepler registró desde 2025 — 12,160 movimientos. Eso no es
+   * trabajo del día, es una decisión de hasta dónde se migra lo que el Access ya registró; pero
+   * tampoco puede desaparecer de la pantalla.
+   */
+  fuera_de_ventana?: { movimientos: number; monto: number };
   rows: MovimientoPendiente[];
   limit: number;
   has_more: boolean;

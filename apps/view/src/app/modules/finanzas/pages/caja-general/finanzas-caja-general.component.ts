@@ -119,6 +119,7 @@ import {
     .cg-trabada { opacity:.62; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
     .cg-sel { min-width:9rem; }
+    .cg-rezago { margin:.5rem 0 0; font-size:.78rem; }
     /* CG.21 - el signo se lee de un vistazo. La flecha va ADEMAS del color, no en su lugar:
        el color solo deja fuera a quien no lo distingue. */
     .cg-in  { color:var(--p-green-600, #16a34a); }
@@ -181,6 +182,7 @@ import {
               @if (confirmables() < pendientes().length) {
                 · el resto necesita que su cuenta esté declarada
               }
+              @if (ventana(); as v) { · últimos {{ v }} días }
             </span>
             <span class="cg-bandeja-sp"></span>
             <p-select [options]="opcionesSigno" [(ngModel)]="signoBandeja" optionLabel="label" optionValue="value"
@@ -241,6 +243,16 @@ import {
               }
             </tbody>
           </table>
+
+          <!-- Lo que la ventana deja fuera se DICE. Una bandeja acotada que no publica su corte
+               se lee igual que una bandeja vacia, y aca el rezago es de 12 mil movimientos. -->
+          @if (rezago(); as rz) {
+            <p class="fin-dim cg-rezago">
+              Quedan <strong>{{ rz.movimientos }}</strong> movimientos anteriores a esta ventana,
+              por {{ money(rz.monto) }}. No son trabajo del día: son lo que el sistema anterior ya
+              registró, y hasta dónde se traen es una decisión aparte.
+            </p>
+          }
 
           @if (resultado(); as r) {
             <p-message [severity]="r.rechazados || r.no_confirmables ? 'warn' : 'success'" styleClass="w-full">{{ textoResultado(r) }}</p-message>
@@ -548,6 +560,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
   cargandoPend = signal(false);
+  /** Ventana en días, y lo que deja fuera. `null` = no hay corte que declarar. */
+  ventana = signal<number | null>(null);
+  rezago = signal<{ movimientos: number; monto: number } | null>(null);
   frecuentes = signal<Frecuente[]>([]);
   confirmando = signal(false);
   resultado = signal<ResumenLote | null>(null);
@@ -900,6 +915,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
         this.confirmables.set(r.confirmables ?? 0);
+        this.ventana.set(r.ventana_dias ?? null);
+        // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
+        this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
         this.cargandoPend.set(false);
       },
       // Un error de red NO es "no hay movimientos": se deja la bandeja como estaba y la persona

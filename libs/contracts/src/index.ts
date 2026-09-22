@@ -40,6 +40,7 @@ export * from './http/identity-org.contract';
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
 // enumera lo que cada una NO puede contestar. Sólo tipos y constantes: no pega al bundle.
 export * from './work/task.contract';
+export * from './work/caja-window.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).

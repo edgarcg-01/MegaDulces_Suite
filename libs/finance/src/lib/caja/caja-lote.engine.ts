@@ -38,6 +38,13 @@
 /** Tolerancia del cuadre: un centavo, la misma que el arqueo y el corte. */
 export const LOTE_EPSILON = 0.005;
 
+/*
+ * ⭐ `CAJA_VENTANA_DIAS` (cuántos días atrás siguen siendo TRABAJO) **NO vive acá**: vive en
+ * `@megadulces/contracts` (`work/caja-window.contract.ts`), porque lo consumen esta librería y
+ * `libs/trade` —la bandeja de «Mi trabajo»— y no se pueden importar entre sí. Escribirlo dos veces
+ * haría que la pantalla y el tablero contaran colas distintas sin que nadie lo notara.
+ */
+
 export type MotivoNoConfirmable =
   | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
   | 'sin_confirmar'   // hay propuesta, pero ningún humano la firmó
