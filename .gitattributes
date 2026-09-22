@@ -16,6 +16,11 @@ start.sh text eol=lf
 # `git check-attr` sobre `ops/prod/crontab.backup`: `eol: unspecified`. Una regla que sólo
 # cubre el caso que ya falló no es una regla, es una anécdota.
 crontab.* text eol=lf
+# Y los Dockerfile, por lo mismo: no terminan en .sh ni en .yml. `git archive` con
+# core.autocrlf=true exporta CRLF lo que no tiene regla, y un `RUN` con  al final
+# rompe el build o -- peor -- pega el  DENTRO de una ruta o un chmod.
+Dockerfile*     text eol=lf
+ops/**/*.yml    text eol=lf
 *.env text eol=lf
 
 # Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
