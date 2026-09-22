@@ -40,7 +40,8 @@ SHELL=/bin/sh
 # 23:30, después del volcado de las 22:00 (que tarda ~75 min y cierra ~23:15). Domingo
 # completo, el resto diferencial: el diferencial guarda sólo lo cambiado desde el último
 # completo, y es lo que permite que la retención expire WAL viejo cada semana.
-# Corre como `postgres` (uid 999) porque necesita leer PGDATA y autenticarse por `peer`
-# en el socket que comparte con `pg-prod`.
-30 23 * * 0 postgres /usr/local/bin/pgbackrest-run.sh full > /proc/1/fd/1 2>&1
-30 23 * * 1-6 postgres /usr/local/bin/pgbackrest-run.sh diff > /proc/1/fd/1 2>&1
+# Lo lanza cron como ROOT porque el archivo de secretos es de `superoot` y uid 999 no puede
+# leerlo; el guion baja a `postgres` sólo para el comando de respaldo, que es lo que necesita
+# leer PGDATA y autenticarse por `peer` en el socket compartido con `pg-prod`.
+30 23 * * 0 root /usr/local/bin/pgbackrest-run.sh full > /proc/1/fd/1 2>&1
+30 23 * * 1-6 root /usr/local/bin/pgbackrest-run.sh diff > /proc/1/fd/1 2>&1

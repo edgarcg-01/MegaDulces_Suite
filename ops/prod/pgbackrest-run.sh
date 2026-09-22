@@ -23,8 +23,9 @@
 #   · ⭐ COMPARTIR LOS DOS RECURSOS: el volumen de datos montado **de sólo lectura**
 #     y el directorio del socket compartido con `pg-prod`. Cero privilegio nuevo.
 #
-# Corre como `postgres` (uid 999, el mismo de `pg-prod`) para que la autenticación
-# `peer` del socket funcione y para poder leer `PGDATA`.
+# Lo lanza cron como ROOT (para poder leer el archivo de secretos) y baja a `postgres`
+# (uid 999, el mismo de `pg-prod`) sólo para el comando de respaldo: así la autenticación
+# `peer` del socket funciona y puede leer `PGDATA`.
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 
@@ -61,9 +62,16 @@ ON CONFLICT (tenant_id, job_key) DO UPDATE
 SQL
 }
 
+# ⭐ ROOT LEE EL SECRETO, `postgres` HACE EL RESPALDO. Los dos usuarios son necesarios y
+# ninguno alcanza solo:
+#   · `/secrets/ingest.env` es de `superoot` en el host y llega con sus permisos: uid 999
+#     NO puede leerlo (medido — el primer intento murió acá).
+#   · pgBackRest SE NIEGA a correr como root, y además necesita leer PGDATA, que es de 999.
+# Por eso el guion corre como root (así lo lanza cron), carga el entorno, y baja a `postgres`
+# sólo para el comando de respaldo.
 di "── pgbackrest --type=$TIPO ──"
 t0=$(date +%s)
-salida=$(pgbackrest --stanza=prod --type="$TIPO" backup 2>&1)
+salida=$(su -s /bin/sh postgres -c "pgbackrest --stanza=prod --type=$TIPO backup" 2>&1)
 rc=$?
 dt=$(( $(date +%s) - t0 ))
 echo "$salida" | tail -4
@@ -76,7 +84,7 @@ fi
 
 # El latido reporta ENTREGA, no "el comando corrió": cuántos respaldos hay y cuánto pesa el
 # repositorio. Si mañana el repositorio se dispara o el conteo no sube, se ve sin abrir un log.
-n_resp=$(pgbackrest --stanza=prod info 2>/dev/null | grep -cE '^ +(full|diff|incr) backup:')
+n_resp=$(su -s /bin/sh postgres -c "pgbackrest --stanza=prod info" 2>/dev/null | grep -cE '^ +(full|diff|incr) backup:')
 repo=$(du -sh /var/lib/pgbackrest 2>/dev/null | cut -f1)
 di "OK en ${dt}s · $n_resp respaldos en el repositorio · $repo"
 latido ok "$TIPO en ${dt}s · $n_resp respaldos · repositorio $repo" ""
