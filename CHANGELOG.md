@@ -10,6 +10,35 @@
 
 ## [Unreleased]
 
+### Removed — Coolify: instalado, medido y desinstalado el mismo día (`[VL.9.9]`, 2026-09-22)
+- Se instaló como capa de orquestación por decisión del usuario. Se quitó doce horas después,
+  con tres mediciones y un incidente real.
+- **No podía hacer el trabajo**: su enum de tipos de despliegue no incluye ninguno que parta de
+  una **imagen ya construida**, y los cuatro endpoints de creación exigen `git_repository` +
+  `git_branch`. Las dos entradas posibles rompían algo — duplicar el compose en su base (dos
+  dueños de la misma verdad) o desplegar lo *pusheado* en vez de lo probado.
+- ⛔ **Tumbó la API 50 minutos.** Su proxy ata 80, 443 **y 8080**. Cuando `restaurar.sh` paró
+  `prod-api` a las 16:04, el proxy tomó el 8080; a las 16:28 el `docker start` del restore falló
+  con *"port is already allocated"*, **el error estaba silenciado** y el guion reportó código 0.
+- **Y se resucitaba solo**: se paró el proxy y veinte minutos después estaba `Up` otra vez —
+  tiene un lazo de control que lo rearma.
+- Quitado y verificado limpio: 6 contenedores, 2 volúmenes, 1 red, 7 imágenes (~3 GB) y `/data`
+  entero. No dejó units de systemd ni cron. ⚠️ Se conserva a propósito su cambio a
+  `/etc/docker/daemon.json` (rotación de logs, que es una mejora; revertirlo exigiría reiniciar
+  el demonio y rebotar los 9 contenedores de la ingesta).
+- ⭐ **La lección, más allá de Coolify**: un componente sin responsabilidad **no es neutro**.
+  Éste no desplegaba nada y aun así se llevó el puerto del servicio principal.
+
+### Added — el servidor on-prem quedó montado y verificado con datos (`[VL.9.8]`, 2026-09-22)
+- Volcado fresco de prod (2,212 MB, 63 min) → restore → **copia fiel**: 828 migraciones,
+  17 de 17 matvistas pobladas, **2,132 GRANT**, 325 políticas RLS, 240 tablas de `kepler_ods`.
+- `ops/prod/verificar.sh` da el veredicto con **18 comprobaciones contra números medidos de
+  prod**, y lo que no puede medir lo declara `NO MEDIDO` en vez de darlo por bueno.
+- ⚠️ El verificador dio **dos falsos rojos en su primera corrida**, los dos por adivinar en vez
+  de leer: `(a > b)::text` devuelve `true` y se comparaba contra `t`; y contaba apariciones de
+  `"sku"` cuando la respuesta usa `"c"`. Corregidos — *un verificador que grita en falso cuesta
+  la confianza del tablero igual que uno mudo*.
+
 ### Added — pgBackRest: el corte iba a bajar el RPO de minutos a 24 horas (`[VL.9.6]`, 2026-09-22)
 - Salió de la pregunta *"pensemos en un 10×"*. **Medido consultando las dos bases**: Railway
   corre `archive_mode = on` con `pgbackrest-archive-push-wrapper.sh` — o sea que **prod ya tiene

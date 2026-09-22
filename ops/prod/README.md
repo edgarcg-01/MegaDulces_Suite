@@ -733,7 +733,7 @@ acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
 |---|---|---|
 | Volcado de **6.1 h** a 6.22 MB/min → *"un corte por dump/restore no es viable"* | **~30 MB/min, ~75 min** (4 respaldos reales). La tasa vieja se midió **durante el cuelgue del socket muerto** — cronometrando un proceso que no transfería | La ventana del corte es **~2.5 h**. `wal_level=logical` deja de ser obligatorio: pasa a optativo |
 | El enlace es el cuello de botella | **218 MB/min desde `SISTEMAS`, 260 desde `md`** con el mismo comando | El enlace no es el problema. Lo caro del volcado es el **catálogo**: 121 s antes del primer byte |
-| **Coolify orquesta**, `deploy.sh` construye | Coolify 4.3.23 **no tiene el tipo `dockerimage`**; los 5 build packs exigen `git_repository` + `git_branch`. No puede adoptar una imagen ya construida | Decisión del usuario: **Coolify = panel, no dueño**. Los 4 servicios siguen en este compose (§10.4) |
+| **Coolify orquesta**, `deploy.sh` construye | Coolify 4.3.23 **no tiene el tipo `dockerimage`**; los 5 build packs exigen `git_repository` + `git_branch`. No puede adoptar una imagen ya construida. Y su proxy **tumbó la API 50 minutos** al quedarse con el puerto 8080 | **DESINSTALADO el 2026-09-22** (§10.4). Los 4 servicios siguen en este compose |
 | 7 bloqueos del corte | Apareció el **#8** y no estaba en ninguna lista: prod corre pgBackRest y la copia no → el corte **bajaba el RPO de minutos a 24 h** | Cerrado en §9. Es el hallazgo de más valor de la fase |
 | — | **No existe rollback**: las 6 imágenes son `:latest` y las versiones anteriores quedan **sin etiqueta**; un `docker image prune` las borra | Hueco nuevo, §10.3 |
 
@@ -764,26 +764,57 @@ acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
 - ⚠️ **Secretos en texto plano** en varios lanzadores.
 - ⚠️ **3-2-1 incompleto**: repositorio, volcados y base viven en **el mismo disco de la misma máquina**.
 
-### 10.4 Coolify: qué se decidió y por qué
+### 10.4 Coolify: instalado, medido, y DESINSTALADO el mismo día
 
-Medido: **no puede tomar las imágenes ya construidas** — su enum de build packs
-(`nixpacks · railpack · static · dockerfile · dockercompose`) no incluye ninguno que parta de
-una imagen local, y los cuatro endpoints de creación exigen `git_repository` + `git_branch`.
-Las únicas dos formas eran:
+Se instaló por decisión del usuario como capa de orquestación. Se quitó doce horas después,
+con tres mediciones y un incidente.
 
-- un **Service con compose pegado** → el compose quedaría duplicado (repo + su base) y el del
-  repo dejaría de ser la verdad: dos dueños del mismo archivo, que es justo lo que `ops/vl` y
-  `ops/prod` existen para evitar. Además el botón *"Pull latest images"* del panel **rompe** el
-  despliegue (hace `docker compose pull` de tags que no están en ningún registro);
-- una **Application desde git** → despliega lo *pusheado*, no lo probado, y agrega una
-  credencial.
+**1. No podía hacer el trabajo.** Su enum de tipos de despliegue
+(`nixpacks · railpack · static · dockerfile · dockercompose`) **no incluye ninguno que parta de
+una imagen ya construida**, y los cuatro endpoints de creación exigen `git_repository` +
+`git_branch`. Sólo quedaban dos entradas, y las dos rompen algo:
 
-⇒ **Decisión (usuario, 2026-09-22): Coolify queda como panel; los 4 servicios siguen acá.**
-Cuesta 433 MB de 28 GB, o sea que el costo real no es la RAM sino la **superficie**: un panel
-de administración con cuenta propia en la máquina que va a tener los datos de prod.
-⬜ Pendiente de decidir si se **para** hasta que tenga una responsabilidad de verdad.
-⚠️ Y cuando se levante el túnel, el `:8000` **no puede quedar expuesto**.
+- **Service con compose pegado** → el compose vive en su base, duplicando el archivo versionado.
+  Dos dueños de la misma verdad, que es justo lo que `ops/vl` y `ops/prod` existen para evitar.
+  Y su botón *"Pull latest images"* haría `docker compose pull` de tags que no están en ningún
+  registro: rompe el despliegue desde el panel.
+- **Application desde git** → despliega lo *pusheado*, no lo probado, y agrega una credencial.
 
+**2. ⛔ No era pasivo: tumbó la API.** Su proxy (Traefik) ata 80, 443 **y 8080** — el puerto del
+API. Cadena medida el 2026-09-22:
+
+| Hora | Qué pasó |
+|---|---|
+| 16:04 | `restaurar.sh` paró `prod-api` → el 8080 quedó libre |
+| ~16:16 | **el proxy de Coolify tomó el 8080** |
+| 16:28 | el `docker start` del restore falló con *"port is already allocated"* … y el error estaba silenciado con `>/dev/null 2>&1` → el guion reportó **código 0** |
+| 16:28–17:20 | **la API abajo 50 minutos**, y nada lo dijo |
+
+**3. Y se resucitaba solo.** Se paró el proxy; **veinte minutos después estaba `Up` otra vez**.
+Tiene un lazo de control (`ServerManagerJob`) que lo rearma. O sea que apagarlo una vez no
+alcanzaba: mientras viviera, iba a volver a pelear por ese puerto.
+
+**Contra los cuatro marcos** (§10.2 nombra cuáles): GitOps → **negativo** (duplicaría la fuente
+de verdad) · DORA → **nada** (no desplegaba nada) · SRE → nada hoy · seguridad → **negativo**
+(panel con cuenta de administrador y lazo de control propio, en la máquina que va a tener los
+datos de prod). Y **tampoco compra el futuro**: al 10×, si hace falta más de una máquina, lo que
+se necesita es un **planificador** —que decida dónde corre cada cosa y la mueva cuando un nodo
+cae—, y Coolify administra varios servidores pero **despliega a cada uno**: no reprograma ni
+hace failover.
+
+**Qué se quitó**, verificado limpio: 6 contenedores · 2 volúmenes (su base y su redis, o sea la
+cuenta de administrador) · 1 red · 7 imágenes (~3 GB) · `/data` entero (sólo contenía coolify,
+1.5 MB). **No dejó units de systemd ni entradas de cron** — se comprobó antes de borrar.
+
+⚠️ **Queda UN rastro, a propósito**: el instalador reescribió `/etc/docker/daemon.json` con
+rotación de logs (`max-size 10m`, `max-file 3`) y `default-address-pools: 10.0.0.0/8`.
+**No se revierte**, por dos razones: la rotación de logs es una mejora que conviene conservar, y
+deshacerlo exige **reiniciar el demonio de Docker**, o sea rebotar los 9 contenedores de la
+ingesta para desarmar algo que no molesta (las redes existentes conservaron su subred, medido).
+
+⭐ **La lección que deja, más allá de Coolify**: un componente sin responsabilidad no es neutro.
+Éste no desplegaba nada y aun así se llevó el puerto del servicio principal y lo mantuvo caído
+50 minutos. *"Lo dejo por si acaso"* tiene precio, y acá se pagó el mismo día.
 ---
 
 **Plan de la fase:** [`FASE_VL`](../../docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md) ·
