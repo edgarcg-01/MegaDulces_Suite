@@ -3,52 +3,77 @@ import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
- * Fase TK.8 — **Reporte por cliente**: qué le compró un cliente en un periodo, con los
- * documentos que uno elija.
+ * Fase TK.8 — **Reporte por cliente**: se busca un cliente por nombre, se elige, se le abren
+ * sus tickets, y RECIÉN AHÍ se filtran.
  *
  * Vive en su propia sección y en su propio servicio: la pantalla de buscar folio no se toca.
- * Son dos preguntas distintas —"dame ESTE documento" contra "dame TODO lo de este cliente"— y
- * la segunda necesita filtros que a la primera le estorbarían.
  *
- * ── ⚠️ LO PRIMERO, PORQUE DECIDE PARA QUIÉN SIRVE ────────────────────────────────────────
- * **El mostrador es anónimo.** Medido en prod sobre 90 días: de **193,297** tickets de
- * mostrador, **187,530 (97%)** se cobraron a la clave literal `CONTADO`. No son de nadie y no
- * se pueden reportar. El universo real de esta pantalla son los **1,065 clientes con nombre**
- * (más 788 en facturas), y el más activo tiene **119 documentos en 90 días** — o sea que la
- * lista cabe en una pantalla con scroll y no hace falta paginar.
+ * ── ⚠️ EL HALLAZGO QUE DEFINE LA FORMA ──────────────────────────────────────────────────
+ * **El catálogo de clientes está REPLICADO en las nueve sucursales.** Medido en prod: el
+ * término "ABARROTES" casa **5,297 filas** del maestro, que son sólo **685 claves** y **571
+ * nombres**; y de las 2,395 claves del catálogo, **1,862 existen en LAS NUEVE plazas**.
  *
- * ⚠️ **La clave de cliente es POR SUCURSAL.** Medido: **29 de 1,005** claves nombran a un
- * cliente DISTINTO según la plaza. Por eso el reporte es de (sucursal, clave) y nunca de la
- * clave sola: juntarlas sumaría a dos personas en un mismo papel sin que nadie se entere.
+ * O sea que **la clave de cliente es global**, no por sucursal: lo que cambia entre plazas es
+ * dónde compró, no quién es. De ahí la forma de esta pantalla:
+ *   1. el buscador agrupa **por clave** (685 resultados, no 5,297),
+ *   2. al elegir salen sus documentos de **todas las plazas que alcanza quien pregunta**,
+ *   3. y `sucursal` pasa a ser **un filtro más**, junto a fecha, folio, importe y caja.
  *
- * ── EL BUSCADOR SALE DEL MAESTRO, NO DE LOS DOCUMENTOS ──────────────────────────────────
- * `analytics.v_customer_master` (derivada de `kepler_ods.kdud`) es el catálogo de clientes:
- * **301 ms** para un ILIKE. Buscar lo mismo agregando sobre los documentos tardaba
- * **12,203 ms** — y además respondía otra pregunta ("quién compró"), no la que se teclea.
+ * ⚠️ Esto **corrige** el diseño anterior, que trataba al cliente como (sucursal, clave) y
+ * listaba nueve veces lo mismo. El riesgo que aquel diseño quería cubrir sigue existiendo y se
+ * cubre mejor: cuando una MISMA clave trae nombres distintos según la plaza, el candidato sale
+ * marcado (`clave_ambigua`) en vez de partir en nueve la lista de todos los demás.
  *
- * ── LOS FILTROS: LO QUE CUESTA CADA UNO, MEDIDO ─────────────────────────────────────────
- *   sucursal · fechas · importe · cliente   baratos, y sucursal YA se recorta por alcance.
- *   marca                                   423 ms por plaza/mes. 100% del catálogo la tiene.
- *   proveedor                               ⚠️ sólo 9,483 de 11,260 productos (84.2%).
- *   caja                                    ⚠️ SÓLO existe en mostrador.
- *   atendió                                 cajero en mostrador, vendedor en facturas.
+ * ── ⚠️ LO SEGUNDO, PORQUE DECIDE PARA QUIÉN SIRVE ───────────────────────────────────────
+ * **El mostrador es anónimo.** Medido sobre 90 días: de **193,297** tickets de mostrador,
+ * **187,530 (97%)** se cobraron a la clave literal `CONTADO`. No son de nadie y no se pueden
+ * reportar. El universo real son los **1,065 clientes con nombre** que sí compran a su nombre.
+ *
+ * ── EL BUSCADOR: POR NOMBRE, IGNORANDO ACENTOS Y ADMITIENDO ERRORES DE DEDO ─────────────
+ * Sale del MAESTRO (`v_customer_master`, derivada de `kepler_ods.kdud`), no de los documentos:
+ * 301 ms contra 12,203 ms agregando sobre las ventas.
+ *
+ * ⚠️ **`ILIKE` ignora mayúsculas pero NO acentos.** Medido: `'%MARIA%'` devuelve 869 clientes y
+ * `'%MARÍA%'` devuelve **0**. Quien teclea el nombre con acento —o el maestro lo guarda con
+ * acento y se teclea sin— no encontraba a nadie. Se normalizan **los dos lados** con
+ * `unaccent()`.
+ *
+ * Y "o parecidos" es literal: además del `ILIKE` va el operador `%` de `pg_trgm`, así que
+ * `abarotes` encuentra `ABAROTES DAVID` y `ABARROTES 61`. El orden es por `similarity()`, no
+ * alfabético: un tope alfabético sobre 5,297 coincidencias devolvía lo que empezara con A.
+ *
+ * ⚠️ `pg_trgm` 1.6 y `unaccent` 1.1 ya están instaladas en prod: no hace falta migración.
+ *
+ * ⚠️ **El recorte por alcance va DENTRO de la consulta, no después del `LIMIT`.** El defecto
+ * anterior traía 26 filas alfabéticas y recién entonces filtraba por las plazas del usuario:
+ * con las coincidencias repartidas parejo entre nueve sucursales, alguien con acceso a una sola
+ * veía tres resultados o ninguno.
+ *
+ * ── LOS FILTROS, DESPUÉS DE ELEGIR ──────────────────────────────────────────────────────
+ *   fecha · folio · importe              baratos
+ *   sucursal                             ⚠️ NO es un filtro de este servicio: llega resuelto en
+ *                                        `alcance` (ScopeService intersecta lo pedido con lo
+ *                                        permitido). La pantalla manda `?warehouse_codes=`.
+ *   caja                                 ⚠️ SÓLO existe en mostrador
+ *   atendió                              cajero en mostrador, vendedor en facturas
+ *   marca                                423 ms/plaza/mes. 100% del catálogo la tiene.
+ *   proveedor                            ⚠️ sólo 9,483 de 11,260 productos (84.2%)
+ *
+ * ⚠️ **Zona NO es filtro de los tickets**: es un atributo del CLIENTE (17,016 de 18,113 lo
+ * tienen, 6 zonas). Después de elegir un cliente su zona ya está fija y filtrar por ella no
+ * quitaría nada. Viaja en el candidato, para que se vea al elegir.
  *
  * ⚠️ **Marca y proveedor son del PRODUCTO, no del documento.** Se filtra con un `EXISTS` sobre
- * los renglones y **entra el documento COMPLETO**, no sólo sus partidas de esa marca (decisión
- * del usuario, 2026-09-22). El motivo: si sólo entraran las partidas, el total del reporte
- * dejaría de ser un cobro que existió y no cuadraría contra ningún ticket en papel.
+ * los renglones y **entra el documento COMPLETO**: si sólo entraran sus partidas de esa marca,
+ * el total dejaría de ser un cobro que existió y no cuadraría contra ningún ticket en papel.
  *
- * ⚠️ **`caja` y `vendedor` no conviven en ningún documento.** Por eso `atendio` es UN filtro
- * que mira `cajero_code` en mostrador y `vendedor_code` en facturas: quien pregunta no tiene
- * por qué saber de antemano de qué universo salió el documento que busca.
- *
- * ⚠️ Las **notas de crédito** (`U-A-21/25/35`) entran con su importe en NEGATIVO y en su lugar
- * por fecha, para que el total del periodo sea lo que el cliente realmente pagó.
+ * ⚠️ Las **notas de crédito** entran con su importe en NEGATIVO y en su lugar por fecha, para
+ * que el total del periodo sea lo que el cliente realmente pagó.
  *
  * ── POR QUÉ ESTO ES VIABLE RECIÉN AHORA ─────────────────────────────────────────────────
- * Hasta TK.7 (mig 20260921220000) pedir los tickets de un cliente tardaba **17,876 ms**: la
- * vista traía un `DISTINCT ON` que no deduplicaba nada y que impedía empujar cualquier filtro
- * que no fuera la identidad del documento. Hoy son **50 ms**. Sin eso, esta pantalla no existe.
+ * Hasta TK.7/TK.9 las dos vistas traían un `DISTINCT ON` que no deduplicaba nada y que impedía
+ * empujar cualquier filtro que no fuera la identidad del documento: 17,876 ms el mostrador y
+ * 9,889 ms las facturas. Hoy son 50 ms y 1,335 ms. Sin eso, esta pantalla no existe.
  */
 
 export type ReporteOrigen = 'mostrador' | 'telemarketing' | 'credito' | 'abono';
@@ -60,34 +85,34 @@ const ORIGEN_LABEL: Record<ReporteOrigen, string> = {
   abono: 'Nota de crédito',
 };
 
-/** Una fila del buscador de clientes. */
+/** Una fila del buscador: UN cliente, no una por plaza. */
 export interface ClienteCandidato {
-  /** La identidad REAL: la clave sola no basta (29 de 1,005 nombran a otro en otra plaza). */
-  id: string;
-  sucursal: string;
-  sucursal_nombre: string | null;
+  /** La clave de Kepler. Es global: la misma en las nueve sucursales. */
   cliente_code: string;
   nombre: string | null;
   ciudad: string | null;
-  vendedor_nombre: string | null;
+  zona: string | null;
+  /** En cuántas sucursales existe la clave (de las que alcanza quien pregunta). */
+  plazas: number;
   /**
-   * true ⇒ esta MISMA clave existe con otro nombre en otra plaza. La pantalla lo dice y obliga
-   * a elegir; no se juntan, porque serían dos personas en un solo papel.
+   * ⚠️ true ⇒ esta MISMA clave trae nombres DISTINTOS según la plaza. El reporte junta igual
+   * —es lo que se pidió— pero la pantalla lo dice, porque puede estar sumando a dos personas.
    */
   clave_ambigua: boolean;
+  /** 1.000 = el nombre es idéntico a lo tecleado. Ordena la lista. */
+  score: number;
 }
 
-/** Un documento del periodo. */
 export interface ReporteDocumento {
   id: string;
   origen: ReporteOrigen;
   origen_label: string;
   sucursal: string;
+  sucursal_nombre: string | null;
   caja: number | null;
   folio: string;
   fecha: string | null;
   atendio: string | null;
-  renglones: number | null;
   descuento: number;
   /** NEGATIVO en las notas de crédito: el total del periodo es lo que se pagó de verdad. */
   total: number;
@@ -96,7 +121,9 @@ export interface ReporteDocumento {
 export interface ReporteFiltros {
   from?: string;
   to?: string;
-  /** Importe del documento. «cantidad» del pedido original = importe (decidido 2026-09-22). */
+  /** Folio o parte de él. El folio NO identifica: se usa como "contiene". */
+  folio?: string;
+  /** Importe del documento. */
   min?: number;
   max?: number;
   caja?: number;
@@ -114,14 +141,17 @@ export interface ReporteCliente {
     importe: number;
     descuento: number;
     promedio: number;
-    /** Cuántos de los documentos son notas de crédito, para que el neto se pueda explicar. */
     abonos: number;
+    /** En cuántas sucursales compró de verdad, que no es lo mismo que dónde existe la clave. */
+    plazas_con_compra: number;
   };
   /** Lo que los filtros NO dicen por sí solos. `null` = no hay nada que declarar. */
   aviso: string | null;
 }
 
 const LIMITE = 500;
+/** Cuántos clientes devuelve el buscador antes de pedir que se afine. */
+const LIMITE_BUSCADOR = 25;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
 const fecha = (v: unknown) =>
@@ -130,6 +160,9 @@ const fecha = (v: unknown) =>
 /** Clave que el ERP usa para la venta de piso: no es un cliente, es la ausencia de uno. */
 const ANONIMO = 'CONTADO';
 
+/** `%` y `_` son comodines de LIKE: lo tecleado se escapa y se declara el ESCAPE al usarlo. */
+const escLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+
 @Injectable()
 export class CustomerReportService {
   constructor(
@@ -137,64 +170,62 @@ export class CustomerReportService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  private dentro(sucursal: string, alcance: string[] | null) {
-    return !alcance || alcance.includes(sucursal);
-  }
-
   /**
-   * Busca clientes por nombre o clave. Sale del MAESTRO (`kdud`), no de los documentos: 301 ms
-   * contra 12,203 ms, y responde la pregunta que se teclea.
+   * Clientes cuyo nombre se parece a lo tecleado, UNO por clave.
+   *
+   * ⚠️ El alcance de sucursal va DENTRO del `WHERE`, antes del `LIMIT` (ver la cabecera: el
+   * defecto anterior filtraba después y dejaba a media empresa sin resultados).
    */
   async clientes(q: string, alcance: string[] | null): Promise<{ candidatos: ClienteCandidato[]; topado: boolean }> {
     const termino = String(q || '').trim();
     if (termino.length < 2) return { candidatos: [], topado: false };
-    const tenantId = this.tenantCtx.requireTenantId();
-    const like = `%${termino.replace(/[%_]/g, (m) => '\\' + m)}%`;
 
     return this.tk.run(async (trx) => {
-      // ⚠️ El join a `commercial.warehouses` se ve caro y NO lo es. La primera medición dio
-      // 2,158 ms y casi lo saco; repitiéndola en caliente, 316 ms CON join contra 454 ms sin él
-      // (dos viajes en vez de uno). Los 2,158 eran caché fría leyendo `kdud` por primera vez —
-      // un costo que las dos variantes pagan igual. Se queda el join, que es el código simple.
-      const filas = await trx('analytics.v_customer_master as c')
-        .leftJoin('commercial.warehouses as w', function () {
-          this.on('w.code', '=', 'c.fuente_sucursal')
-            .andOn('w.tenant_id', '=', trx.raw('?', [tenantId]))
-            .andOnNull('w.deleted_at');
-        })
-        .select('c.fuente_sucursal as sucursal', 'c.cliente_code', 'c.nombre', 'c.ciudad',
-          'c.vendedor_nombre', 'w.name as sucursal_nombre')
-        // Ni la venta de piso ni las cuentas internas de la propia tienda: no son clientes.
-        .whereNot('c.cliente_code', ANONIMO)
-        .andWhere('c.es_interno', false)
-        .andWhere((b) => b.whereILike('c.nombre', like).orWhereILike('c.cliente_code', like))
-        .orderBy('c.nombre')
-        .limit(LIMITE_BUSCADOR + 1);
+      const { rows } = await trx.raw(
+        `SELECT cliente_code,
+                (array_agg(nombre ORDER BY length(nombre) DESC))[1] AS nombre,
+                (array_agg(ciudad) FILTER (WHERE ciudad IS NOT NULL))[1] AS ciudad,
+                (array_agg(zona_nombre) FILTER (WHERE zona_nombre IS NOT NULL))[1] AS zona,
+                count(DISTINCT fuente_sucursal)::int AS plazas,
+                count(DISTINCT upper(btrim(nombre)))::int AS nombres,
+                max(similarity(unaccent(nombre), unaccent(?)))::float8 AS score
+           FROM analytics.v_customer_master
+          WHERE cliente_code <> ?
+            AND es_interno = false
+            AND nombre IS NOT NULL
+            ${alcance ? 'AND fuente_sucursal = ANY(?)' : ''}
+            -- "o parecidos" es literal: el ILIKE atrapa la subcadena y el % de pg_trgm el
+            -- error de dedo. Los DOS lados van sin acentos: ILIKE ignora mayusculas, no tildes.
+            AND (unaccent(nombre) ILIKE unaccent(?) ESCAPE '\\'
+                 OR unaccent(nombre) % unaccent(?)
+                 OR cliente_code ILIKE ? ESCAPE '\\')
+          GROUP BY cliente_code
+          -- Por parecido, NO alfabetico: un tope alfabetico sobre 5,297 coincidencias devolvia
+          -- lo que empezara con A, no lo que se estaba buscando.
+          ORDER BY score DESC NULLS LAST, nombre
+          LIMIT ?`,
+        [
+          termino,
+          ANONIMO,
+          ...(alcance ? [alcance] : []),
+          `%${escLike(termino)}%`,
+          termino,
+          `%${escLike(termino)}%`,
+          LIMITE_BUSCADOR + 1,
+        ],
+      );
 
-      const visibles = filas.filter((f) => this.dentro(String(f.sucursal), alcance));
-      const topado = visibles.length > LIMITE_BUSCADOR;
-      const corte = visibles.slice(0, LIMITE_BUSCADOR);
-
-      // Una clave es ambigua cuando la MISMA nombra a otro en otra plaza. Se resuelve sobre el
-      // resultado, no con otra consulta: es un dato del propio conjunto.
-      const porClave = new Map<string, Set<string>>();
-      for (const f of corte) {
-        const nom = String(f.nombre ?? '').trim().toUpperCase();
-        if (!porClave.has(f.cliente_code)) porClave.set(f.cliente_code, new Set());
-        if (nom) porClave.get(f.cliente_code)?.add(nom);
-      }
-
+      const topado = rows.length > LIMITE_BUSCADOR;
       return {
         topado,
-        candidatos: corte.map((f) => ({
-          id: `${f.sucursal}:${f.cliente_code}`,
-          sucursal: String(f.sucursal),
-          sucursal_nombre: (f.sucursal_nombre as string) ?? null,
-          cliente_code: String(f.cliente_code),
-          nombre: (f.nombre as string) ?? null,
-          ciudad: (f.ciudad as string) ?? null,
-          vendedor_nombre: (f.vendedor_nombre as string) ?? null,
-          clave_ambigua: (porClave.get(f.cliente_code)?.size ?? 0) > 1,
+        candidatos: rows.slice(0, LIMITE_BUSCADOR).map((f: Record<string, unknown>) => ({
+          cliente_code: String(f['cliente_code']),
+          nombre: (f['nombre'] as string) ?? null,
+          ciudad: (f['ciudad'] as string) ?? null,
+          zona: (f['zona'] as string) ?? null,
+          plazas: Number(f['plazas'] ?? 0),
+          clave_ambigua: Number(f['nombres'] ?? 1) > 1,
+          score: Math.round(Number(f['score'] ?? 0) * 1000) / 1000,
         })),
       };
     });
@@ -226,34 +257,37 @@ export class CustomerReportService {
     return { sql, bindings };
   }
 
-  private comunes(qb: Knex.QueryBuilder, alias: string, f: ReporteFiltros) {
+  /** Lo que aplica a los dos universos por igual. */
+  private comunes(qb: Knex.QueryBuilder, alias: string, f: ReporteFiltros, alcance: string[] | null) {
     if (f.from) qb.where(`${alias}.fecha`, '>=', f.from);
     if (f.to) qb.where(`${alias}.fecha`, '<=', f.to);
     if (f.min != null) qb.where(`${alias}.total`, '>=', f.min);
     if (f.max != null) qb.where(`${alias}.total`, '<=', f.max);
+    // El folio NO identifica un documento (cada plaza y cada caja tienen su contador), así que
+    // se usa como "contiene" y no como igualdad: quien teclea 6440 quiere verlos todos.
+    if (f.folio) qb.whereRaw(`${alias}.folio ILIKE ? ESCAPE '\\'`, [`%${escLike(f.folio)}%`]);
+    // ⚠️ El filtro de SUCURSAL no vive acá: llega ya resuelto en `alcance`. `ScopeService.
+    // readParam()` lee `?warehouse_codes=03` del request y lo INTERSECA con las plazas del
+    // usuario, traduciendo además UUIDs y los 16 alias viejos. Un segundo filtro de sucursal
+    // en este servicio sería una reimplementación más débil de eso mismo, y la que se
+    // desincroniza (ADR-050).
+    if (alcance) qb.whereIn(`${alias}.sucursal`, alcance);
     return qb;
   }
 
-  /** El reporte: los documentos del cliente en el periodo, de los DOS universos. */
+  /** El reporte: los documentos del cliente, de los DOS universos y de todas sus plazas. */
   async reporte(
-    sucursal: string, clienteCode: string, f: ReporteFiltros, alcance: string[] | null,
+    clienteCode: string, f: ReporteFiltros, alcance: string[] | null,
   ): Promise<ReporteCliente> {
     const tenantId = this.tenantCtx.requireTenantId();
-    if (!this.dentro(sucursal, alcance)) {
-      // Mismo criterio que el detalle de un folio: no se distingue "no existe" de "no te toca".
-      return this.vacio(sucursal, clienteCode);
-    }
 
     return this.tk.run(async (trx) => {
       // ── Mostrador ────────────────────────────────────────────────────────────────────
-      // Se salta entero cuando el filtro es de VENDEDOR, porque acá ese campo es el cajero y
-      // la lista de "atendió" ya trae a los dos rotulados.
       const mos = trx('analytics.erp_sale_tickets as t')
-        .where({ 't.tenant_id': tenantId, 't.sucursal': sucursal, 't.cliente_code': clienteCode })
+        .where({ 't.tenant_id': tenantId, 't.cliente_code': clienteCode })
         .select('t.folio_digital as id', 't.sucursal', 't.caja', 't.folio', 't.fecha',
-          't.cajero_nombre as atendio', 't.total', 't.descuento_documento',
-          trx.raw(`'mostrador'::text as origen`));
-      this.comunes(mos, 't', f);
+          't.cajero_nombre as atendio', 't.total', 't.descuento_documento');
+      this.comunes(mos, 't', f, alcance);
       if (f.caja != null) mos.where('t.caja', f.caja);
       if (f.atendio) mos.where('t.cajero_code', f.atendio);
       const exMos = this.existsProducto(tenantId, 'analytics.erp_sale_ticket_lines', 't', f);
@@ -262,27 +296,34 @@ export class CustomerReportService {
       // ── Facturas, crédito y notas de crédito ─────────────────────────────────────────
       // `caja` no existe en este universo: si se filtró por caja, no hay nada que traer.
       const fac = trx('analytics.erp_sales_invoices as i')
-        .where({ 'i.tenant_id': tenantId, 'i.sucursal': sucursal, 'i.cliente_code': clienteCode })
+        .where({ 'i.tenant_id': tenantId, 'i.cliente_code': clienteCode })
         .select('i.folio_digital as id', 'i.sucursal', 'i.folio', 'i.fecha',
           'i.vendedor_nombre as atendio', 'i.total', 'i.doc_tipo', 'i.doc_prefix',
           trx.raw('NULL::int as caja'), trx.raw('0::numeric as descuento_documento'));
-      this.comunes(fac, 'i', f);
+      this.comunes(fac, 'i', f, alcance);
       if (f.atendio) fac.where('i.vendedor_code', f.atendio);
       const exFac = this.existsProducto(tenantId, 'analytics.erp_sales_invoice_lines', 'i', f);
       if (exFac) fac.whereRaw(exFac.sql, exFac.bindings);
 
-      const [filasMos, filasFac] = [
-        await mos.limit(LIMITE),
-        f.caja != null ? [] : await fac.limit(LIMITE),
-      ];
+      // ⚠️ El nombre de la plaza NO sale de las vistas: `erp_sale_tickets` lo trae pero
+      // `erp_sales_invoices` sólo expone `warehouse_id`. Pedirlo allá compila y revienta al
+      // correr. Se resuelve de `commercial.warehouses`, que son diez filas, y sirve a los dos.
+      const plazas = new Map<string, string>(
+        (await trx('commercial.warehouses').where({ tenant_id: tenantId }).whereNull('deleted_at')
+          .select('code', 'name')).map((w) => [String(w.code), String(w.name)]),
+      );
+
+      const filasMos = await mos.limit(LIMITE);
+      const filasFac = f.caja != null ? [] : await fac.limit(LIMITE);
 
       const docs: ReporteDocumento[] = [];
       for (const r of filasMos) {
         docs.push({
           id: String(r.id), origen: 'mostrador', origen_label: ORIGEN_LABEL.mostrador,
-          sucursal: String(r.sucursal), caja: r.caja != null ? Number(r.caja) : null,
+          sucursal: String(r.sucursal), sucursal_nombre: plazas.get(String(r.sucursal)) ?? null,
+          caja: r.caja != null ? Number(r.caja) : null,
           folio: String(r.folio), fecha: fecha(r.fecha), atendio: (r.atendio as string) ?? null,
-          renglones: null, descuento: r2(num(r.descuento_documento)), total: r2(num(r.total)),
+          descuento: r2(num(r.descuento_documento)), total: r2(num(r.total)),
         });
       }
       for (const r of filasFac) {
@@ -292,77 +333,58 @@ export class CustomerReportService {
           : (r.doc_tipo === 'credito' ? 'credito' : 'telemarketing');
         docs.push({
           id: String(r.id), origen, origen_label: ORIGEN_LABEL[origen],
-          sucursal: String(r.sucursal), caja: null, folio: String(r.folio), fecha: fecha(r.fecha),
-          atendio: (r.atendio as string) ?? null, renglones: null,
-          descuento: 0,
+          sucursal: String(r.sucursal), sucursal_nombre: plazas.get(String(r.sucursal)) ?? null,
+          caja: null, folio: String(r.folio), fecha: fecha(r.fecha),
+          atendio: (r.atendio as string) ?? null, descuento: 0,
           // ⭐ El abono RESTA. Sin el signo, el total del periodo diría de más y el papel
           // afirmaría que el cliente pagó mercancía que devolvió.
           total: esAbono ? -Math.abs(r2(num(r.total))) : r2(num(r.total)),
         });
       }
 
-      const conDesc = f.solo_con_descuento ? docs.filter((d) => d.descuento > 0) : docs;
-      // Más reciente primero, y con el folio de desempate: dos documentos del mismo día no
-      // pueden quedar en un orden que cambie entre dos cargas de la misma pantalla.
-      conDesc.sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? '') || b.id.localeCompare(a.id));
+      const sel = f.solo_con_descuento ? docs.filter((d) => d.descuento > 0) : docs;
+      // Más reciente primero, con el folio de desempate: dos documentos del mismo día no pueden
+      // quedar en un orden que cambie entre dos cargas de la misma pantalla.
+      sel.sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? '') || b.id.localeCompare(a.id));
 
-      const importe = r2(conDesc.reduce((s, d) => s + d.total, 0));
-      const descuento = r2(conDesc.reduce((s, d) => s + d.descuento, 0));
-      const abonos = conDesc.filter((d) => d.origen === 'abono').length;
+      const importe = r2(sel.reduce((s, d) => s + d.total, 0));
+      const descuento = r2(sel.reduce((s, d) => s + d.descuento, 0));
 
       return {
-        cliente: await this.identidad(trx, tenantId, sucursal, clienteCode),
-        documentos: conDesc,
+        cliente: await this.identidad(trx, clienteCode, alcance),
+        documentos: sel,
         resumen: {
-          documentos: conDesc.length,
+          documentos: sel.length,
           importe,
           descuento,
-          promedio: conDesc.length ? r2(importe / conDesc.length) : 0,
-          abonos,
+          promedio: sel.length ? r2(importe / sel.length) : 0,
+          abonos: sel.filter((d) => d.origen === 'abono').length,
+          plazas_con_compra: new Set(sel.map((d) => d.sucursal)).size,
         },
-        aviso: this.aviso(f, conDesc.length, filasMos.length + filasFac.length >= LIMITE),
+        aviso: this.aviso(f, sel.length, filasMos.length + filasFac.length >= LIMITE),
       };
     });
   }
 
   /** Quién es el cliente, para que el papel lo diga con su nombre y no con su clave. */
   private async identidad(
-    trx: Knex, tenantId: string, sucursal: string, code: string,
+    trx: Knex, code: string, alcance: string[] | null,
   ): Promise<ClienteCandidato> {
-    const m = await trx('analytics.v_customer_master as c')
-      .leftJoin('commercial.warehouses as w', function () {
-        this.on('w.code', '=', 'c.fuente_sucursal')
-          .andOn('w.tenant_id', '=', trx.raw('?', [tenantId]))
-          .andOnNull('w.deleted_at');
-      })
-      .where({ 'c.fuente_sucursal': sucursal, 'c.cliente_code': code })
-      .select('c.nombre', 'c.ciudad', 'c.vendedor_nombre', 'w.name as sucursal_nombre')
-      .first();
-    const otras = await trx('analytics.v_customer_master')
-      .where('cliente_code', code).whereNot('fuente_sucursal', sucursal)
-      .whereNotNull('nombre').select('nombre');
-    const nom = String(m?.nombre ?? '').trim().toUpperCase();
+    const qb = trx('analytics.v_customer_master').where('cliente_code', code);
+    if (alcance) qb.whereIn('fuente_sucursal', alcance);
+    const filas = await qb.select('nombre', 'ciudad', 'zona_nombre', 'fuente_sucursal');
+    const nombres = new Set(filas.map((f) => String(f.nombre ?? '').trim().toUpperCase()).filter(Boolean));
+    // El más largo: en Kepler la versión corta suele ser la truncada.
+    const nombre = filas.map((f) => f.nombre as string).filter(Boolean)
+      .sort((a, b) => b.length - a.length)[0] ?? null;
     return {
-      id: `${sucursal}:${code}`,
-      sucursal,
-      sucursal_nombre: (m?.sucursal_nombre as string) ?? null,
       cliente_code: code,
-      nombre: (m?.nombre as string) ?? null,
-      ciudad: (m?.ciudad as string) ?? null,
-      vendedor_nombre: (m?.vendedor_nombre as string) ?? null,
-      clave_ambigua: otras.some((o) => String(o.nombre ?? '').trim().toUpperCase() !== nom),
-    };
-  }
-
-  private vacio(sucursal: string, code: string): ReporteCliente {
-    return {
-      cliente: {
-        id: `${sucursal}:${code}`, sucursal, sucursal_nombre: null, cliente_code: code,
-        nombre: null, ciudad: null, vendedor_nombre: null, clave_ambigua: false,
-      },
-      documentos: [],
-      resumen: { documentos: 0, importe: 0, descuento: 0, promedio: 0, abonos: 0 },
-      aviso: null,
+      nombre,
+      ciudad: (filas.find((f) => f.ciudad)?.ciudad as string) ?? null,
+      zona: (filas.find((f) => f.zona_nombre)?.zona_nombre as string) ?? null,
+      plazas: new Set(filas.map((f) => f.fuente_sucursal)).size,
+      clave_ambigua: nombres.size > 1,
+      score: 1,
     };
   }
 
@@ -386,6 +408,3 @@ export class CustomerReportService {
     return partes.length ? partes.join(' ') : null;
   }
 }
-
-/** Cuántos clientes devuelve el buscador antes de pedir que se afine. */
-const LIMITE_BUSCADOR = 25;
