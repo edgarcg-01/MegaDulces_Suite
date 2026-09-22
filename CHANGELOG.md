@@ -10,6 +10,66 @@
 
 ## [Unreleased]
 
+### Fixed — el respaldo de prod llevaba **12 días sin producir un archivo**, y el tablero en verde (`[VL.9.0]`, 2026-09-22)
+- `scripts/backup-db.ps1` tenía un **ParserError** en la línea 233 (`"…el piso es $MinTables: no
+  parece prod"`: los dos puntos pegados al nombre hacen que PowerShell lea la variable como
+  **calificada por unidad**, tipo `$env:X`). **Un ParserError no falla esa línea: hace que el
+  archivo entero no compile** — el script no ejecutaba ni su primera instrucción.
+- **Medido:** último `.dump` el **2026-09-10** · `LastTaskResult = 1` con `NumberOfMissedRuns = 0`
+  (la tarea *corría*) · latido `backup_prod` en **`ok` de hace 256 h**, y su propia nota admite que
+  fue *"prueba de instrumentación VL.6.3"* — **el único latido que existió nunca fue un respaldo
+  real** · alerta en `critical` desde el 13-sep con `last_notified_at` NULL.
+- ⭐ **El commit que le puso el latido al respaldo fue el que rompió el respaldo**, y el `ok` de su
+  propia prueba tapó el agujero 11 días.
+- ⭐ **Y no fue invisible**: la auditoría de bases del **14-sep** ya lo había anotado
+  (*"`backup_prod` sin correr 2.8 d"*) y lo **ruteó a VL.5**, una fase que no había empezado.
+  La detección funcionó tres veces; falló el tramo entre **saber y actuar**.
+- **Added:** `npm run check:powershell` — parsea los **26 `.ps1` versionados** (varios corren
+  **desatendidos en cajas de sucursal**) con **prueba negativa propia**, que en su primera corrida
+  **atrapó un bug real en el propio gate** (`-Command -` hacía que PowerShell leyera las rutas como
+  comandos: habría salido **verde sobre 26 archivos sin mirar ninguno**). Tres salidas:
+  `0` pasan / `1` alguno no compila / `2` **NO MEDIDO** (ADR-056).
+
+### Fixed — la alarma se computaba donde no había canal (`[VL.9.0b]`, 2026-09-22)
+- El scanner de Salud BD corre en el servicio **`worker`**, y `SMTP_*` + `DB_HEALTH_ALERT_EMAILS`
+  estaban **sólo en `MegaDulces`**. El worker arrancaba diciendo *"SMTP sin configurar"*.
+- **Medido en `analytics.db_health_alerts`: 6 alertas abiertas, 0 avisadas, 0 reconocidas y
+  `max(last_notified_at)` NULL en toda la tabla** — nunca se envió un correo.
+- Copiadas las 5 variables al worker (byte a byte, verificado) + redeploy. Ahora **sí intenta**, y
+  falla con un motivo exacto que antes era invisible: `Invalid login: 534-5.7.9
+  Application-specific password required`. ⛔ **Bloqueado en una persona**: hay que generar la
+  contraseña de aplicación de Google.
+
+### Added — el stack de **producción on-prem**, declarado y levantado en paralelo (`[VL.9.1]`, ADR-077, 2026-09-22)
+- [`ops/prod/`](ops/prod/): compose + `deploy.sh` (archiva `HEAD`, no el working tree) +
+  `make-prod-env.js` + `verificar-copia.sh` + [README](ops/prod/README.md) con los **7 bloqueos
+  del corte**, cada uno con quién lo destraba.
+- **`pg-prod` y `pg-rag` arriba y `healthy`**: PostgreSQL **18.6**, la **misma minor** que Railway,
+  con las 9 extensiones que prod usa. Puerto **5434**, nunca 5433 (el 5433 es el **concentrador**).
+- ⛔ **No corta nada.** Levanta en paralelo, sin usuarios. El corte tiene precondición elegida:
+  **VL.8** (UPS + respaldo fuera de sitio + enlace), y hoy no existe ninguna de las tres.
+- **Tres trampas encontradas midiendo**, que el plan no tenía: el respaldo diario corre con
+  `--no-owner --no-privileges` y **prod tiene 613 políticas RLS que nombran `app_runtime`** (un
+  restore sin el rol falla **a mitad**, en 613 sentencias) · **`JWT_SECRET` contiene un salto de
+  línea** y `env_file` de Compose no puede expresarlo, así que recortarlo **equivale a rotarlo** ·
+  el bucket `foldable-pannikin` guarda **513 objetos / 597 MB de comprobantes en PDF** y **no
+  figuraba en el plan** — es un tercer activo a migrar.
+
+### Internal — los 48 `@Cron` corren por duplicado en prod (`[VL.9.0c]`, 2026-09-22)
+- Ni `MegaDulces` ni `worker` definen `DISABLE_CRONS`, así que `ScheduleModule` se registra en los
+  dos. **Verificado en los logs de producción**: el API imprime `Cron in-process ACTIVOS (48
+  @Cron)`. Anula el propósito declarado del worker-tier (**ADR-043**) y crea **dos dueños por
+  `job_key`**. **Corregido en el stack on-prem**; en Railway **no se tocó** — es un cambio de
+  comportamiento de producción que se decide, no se deduce.
+
+### Changed — `FASE_VL` §6.1 afirmaba un CPU que no es (2026-09-22)
+- La tabla decía **"AMD Ryzen 5 4600G, 6 núcleos / 12 hilos (mejor que el 3400G de `.249`)"** desde
+  el 10-sep, y A1 la daba por cerrada con ese dato. Medido con `lscpu`: es un **Ryzen 5 3400G,
+  4c/8t** — el **mismo modelo** que `.249`. La RAM sí subió: **28.8 GiB**, no 14.
+- No cambia VL.0–VL.8; **sí cambia VL.9**: con 8 hilos, el recurso escaso pasa a ser la **CPU**
+  (los techos de los 9 servicios de Railway suman **11 vCPU**).
+
+
 ### Fixed — `CI=true` × Nx Cloud costaba ~63s por build, y lo habíamos puesto nosotros (`[NX.11]`, 2026-09-21)
 - **La salida expandida del `nx run-many` de prod destapó que la mitad del build no compila nada**:
   `Run duration 1m 41s` contra **2m 54s** del paso de Docker. Reproducido en local: una corrida
