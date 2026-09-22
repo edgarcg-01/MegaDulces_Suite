@@ -2310,3 +2310,48 @@ Spike y mediciones en `md:/home/superoot/spike/` (2026-09-21).
 **Hereda:** ADR-056 (lo que no se mide se DECLARA, nunca cero ni verde) · ADR-053 (un umbral registrado, o verde incondicional) · ADR-021 (`manual_lock`: el auto-calibrador no pisa al humano) · ADR-057 (la precedencia vive en un solo lugar) · ADR-061 y `[SN.30]` · `[JZ.6]`.
 
 Plan y mediciones en [`FASE_CDRP_CUADRO_RESULTADOS.md`](FASES/FASE_CDRP_CUADRO_RESULTADOS.md).
+
+---
+
+## ADR-077
+
+**Prod se muda a `md` como el MISMO sustrato que la ingesta (Compose versionado + secretos fuera del repo + despliegue que archiva `HEAD`), se levanta ENTERO en paralelo antes de mover a un solo usuario, y lo que lo bloquea se declara con dueño — no se descubre el día del corte.** *(Fase VL.9 — propuesto 2026-09-22)*
+
+**Contexto.** ADR-060 sacó la **ingesta** de una máquina de escritorio Windows y la puso en el servidor `md` (`192.168.0.222`), con la agenda versionada en el repo y latido de **entrega**. Dejó prod explícitamente para después: *"VL.9 (bajar Railway) pasa a ser fase real con su propio ADR"*. Éste es ese ADR. El encargo del usuario fue textual: **«primero hay que instalar todo antes de migrar, tener primeramente todo instalado y funcionando, luego migrar a los usuarios»**, con exposición por **Cloudflare Tunnel** y **VL.8 (UPS + respaldo fuera de sitio + enlace) como precondición dura**.
+
+**Lo medido, que es lo que obliga a escribir el ADR:**
+
+- **Prod no es «una app».** Son **9 servicios + 2 bases + 1 bucket + el dominio**. La base son **34 GB** (el plan decía 30). El bucket `foldable-pannikin` guarda **513 objetos / 597 MB de comprobantes financieros en PDF** (entradas, pagos, cobranza, gastos, bancos) y **no figura en ninguna parte del plan de VL** — es un tercer activo a migrar que nadie había contado.
+- **El fierro de `md` no es el que la fase afirmaba.** Medido con `lscpu`: **Ryzen 5 3400G, 4c/8t** — no el 4600G de 6c/12t que `FASE_VL` §6.1 daba por cerrado en A1 desde el 10-sep. O sea, **el mismo modelo que `.249`**, no uno mejor. La RAM sí subió: **28.8 GiB**, no 14. Consecuencia: en VL.9 **el recurso escaso es la CPU, no la RAM** (los techos de los 9 servicios suman 11 vCPU contra 8 hilos).
+- **El acoplamiento real es la dirección pública, no los contenedores.** **553 referencias** a `*.up.railway.app` en 33 archivos, incluidos agentes desplegados en **cajas de sucursal** (`store-agent.template.cmd`) y los assets compilados del **APK de vendedor**. Railway es dueño de ese dominio: **no se puede mover**.
+- **El enlace.** `md` sale por Mega Cable con hostname de cliente (`customer-sala-mca-…`), o sea **sin IP fija declarada**, y medido: **44 Mbit de subida / 42 de bajada**, compartidos con la oficina **y con los 14 carriles de ingesta que ya empujan a prod**. Railway sirve hoy desde anycast.
+- **`feeds-ingest` existe sólo por el egress de Railway.** Su propio encabezado lo dice: *"el runner on-prem no puede escribir a Postgres barato… este servicio recibe el changeset por HTTPS (ingress = GRATIS)"*. On-prem los carriles y la base quedan en la misma máquina.
+- **El respaldo diario no sirve para cortar.** Corre con `--no-owner --no-privileges`: **no trae los roles ni los GRANT**, y prod tiene **613 políticas RLS que nombran `app_runtime`**.
+
+**Decisión — cuatro reglas:**
+
+1. **Mismo sustrato que la ingesta, no uno nuevo.** Docker Compose versionado en [`ops/prod/`](../../ops/prod/), secretos en `md:~/secrets/` con `600` y fuera del repo, despliegue que **archiva `HEAD` y no la copia de trabajo** (el índice lo comparten ~10 sesiones). ⛔ **Se rechaza Coolify**, que ADR-060 nombraba: agrega una capa de PaaS con su propia base, su propio modelo de despliegue y su propia superficie de fallas **para orquestar 8 contenedores que Compose ya declara**, y el repo ya tiene el patrón probado en producción desde el 11-sep. La razón de fondo es la misma por la que la ingesta salió del Programador de Windows: *la agenda tiene que verse en un diff*.
+
+2. **Dos Postgres, no uno.** `md` ya corre el **concentrador** (`:5433`, 8 réplicas lógicas, 4 GB de buffers, ~45 GB). Meter prod ahí **no compra nada funcional** —dos *bases* de la misma instancia tampoco se joinean sin FDW— y sí acopla reinicio, respaldo y ventana de mantenimiento de la ingesta con los de la app. Puerto **5434**, nunca 5433: confundirlos es el modo de falla más caro de esta máquina, porque una medición contra la base equivocada **se lee perfectamente bien**.
+
+3. **Se levanta ENTERO y en paralelo, con usuarios cero, antes de mover a nadie.** Y el corte no se agenda hasta que **VL.8** esté verde. Sin eso se cambia una dependencia frágil (una sesión de Windows) por otra peor: hoy un apagón para la ingesta, después del corte **para la empresa y a sus clientes**.
+
+4. **El desacople del dominio va ANTES que el corte, y todavía sobre Railway.** Poner `api/portal/vendor.megadulces.com.mx` delante mientras prod sigue en Railway convierte el corte en **un cambio de DNS: reversible en minutos y sin tocar un solo cliente**. Hacerlo al revés obliga a reescribir y redesplegar agentes de POS, el APK y cada marcador **el mismo día**, sin vuelta atrás.
+
+**Corolario que la mudanza se gana sola:** `feeds-ingest` se **retira** (los carriles pasan a `FEEDS_SINK=pg`, interruptor que `sink.js` ya tiene) y el `api` nace con **`DISABLE_CRONS=true`** — porque medido en los logs de producción, hoy **el API imprime `Cron in-process ACTIVOS (48 @Cron)` y el worker también los corre**: los 48 `@Cron` van por duplicado, lo que anula el propósito declarado del worker-tier (ADR-043) y crea **dos dueños por `job_key`**.
+
+**Se rechaza:**
+- (a) **Coolify** (§1);
+- (b) **mover sólo la base** o **sólo las apps**: separarlas pone el enlace de 44 Mbit en el camino de cada consulta;
+- (c) **cortar y después arreglar el dominio**: es la forma que no tiene rollback;
+- (d) **recortar `JWT_SECRET` en silencio** — su valor en Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo; recortarlo **es rotarlo**, o sea desloguear a todos, y eso se agenda, no se descubre;
+- (e) **declarar migrado un servicio que no se probó**: `Megadulces-Logistica`, `observability` y el bucket quedan **sin portar y con motivo escrito**, no omitidos.
+
+**Consecuencias.**
+- Los 7 bloqueos del corte viven en [`ops/prod/README.md`](../../ops/prod/README.md) §6, cada uno con **quién lo destraba**. Tres no los puede resolver código: UPS, cuenta de Cloudflare y una contraseña de aplicación de Google.
+- ⚠️ **Aunque VL.8 cierre, un solo enlace de 44 Mbit sigue siendo el punto débil.** O se contrata un segundo camino (segundo ISP o respaldo LTE), o la degradación se **declara** — no se supone.
+- ⚠️ Para el corte hace falta un volcado **distinto** del respaldo diario: `pg_dumpall --globals-only` + `pg_dump` **con** privilegios. Si no, el síntoma llega como `permission denied for table …` **en runtime**, no en el restore.
+
+**Hereda:** ADR-060 (la unidad que se muda es fuente + carriles + agenda; migrado = latido verde en prod, no "el contenedor arrancó") · ADR-053 (el latido mide **entrega**) · ADR-056 (lo que no se pudo medir se **declara**; un gate sin prueba negativa es una intención) · ADR-043 (worker-tier: el API no debe correr los crons).
+
+Plan y mediciones en [`FASE_VL_VPS_LOCAL.md`](FASES/FASE_VL_VPS_LOCAL.md) y en [`ops/prod/README.md`](../../ops/prod/README.md).
