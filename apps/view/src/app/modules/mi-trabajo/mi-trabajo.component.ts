@@ -288,17 +288,14 @@ export class MiTrabajoComponent {
   /**
    * Los espacios ya aplanados, con el texto contra el que busca el filtro.
    *
-   * `[SN.34]` Acá se aplica `hideForDepartments`: un recorte de la PORTADA, no de acceso — la ruta
-   * sigue abierta, el sidebar sigue ofreciéndola y `Ctrl K` la sigue encontrando. Ver el motivo y
-   * lo medido en `SuiteSpace.hideForDepartments`.
+   * `[SN.34]` Acá se aplicaba `hideForDepartments`, y se retiró el mismo día: el recorte cayó en
+   * ESTA columna —«Tus espacios», que es la navegación a los módulos— cuando el pedido era sobre
+   * «Tu trabajo». Esta columna **no se recorta por departamento**: quien tiene la llave ve la
+   * puerta. Lo que decide qué colas se muestran es `[SN.30]`, del otro lado.
    */
   private readonly espaciosTodos = computed<EspacioVisible[]>(() =>
     this.vis()
-      .spaces.filter((s) => {
-        const mio = this.miDepartamento();
-        return !mio || !s.space.hideForDepartments?.includes(mio);
-      })
-      .map((s) => ({
+      .spaces.map((s) => ({
       id: s.space.id,
       label: s.space.label,
       icon: s.space.icon,
