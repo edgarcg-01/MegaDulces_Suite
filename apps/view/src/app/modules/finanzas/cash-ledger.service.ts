@@ -114,14 +114,28 @@ export class CashLedgerService {
    * ingreso que sigue capturándose a mano (~40-45% del total, medido), y por eso la pantalla
    * conserva el camino manual en vez de obligar a elegir.
    */
-  ingresosPendientes(f: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number } = {}): Observable<PendientesResponse> {
+  movimientosPendientes(
+    f: { tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number } = {},
+  ): Observable<PendientesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<PendientesResponse>(`${this.base}/ingresos-pendientes`, { params: p });
+    return this.http.get<PendientesResponse>(`${this.base}/movimientos-pendientes`, { params: p });
   }
 
   /**
-   * CG.20 — **Confirma N entregas de un golpe.** El backend corre cada fila en su propia
+   * CG.21 — Las cajas de efectivo del catálogo de Kepler, con su volumen medido.
+   *
+   * Viene del catálogo y no de los movimientos: una caja dormida tiene que poder verse en el
+   * selector, o sería indistinguible de una que no existe.
+   */
+  cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number }> {
+    let p = new HttpParams();
+    if (dias) p = p.set('dias', String(dias));
+    return this.http.get<{ rows: CajaKepler[]; ventana_dias: number }>(`${this.base}/cajas`, { params: p });
+  }
+
+  /**
+   * CG.20/CG.21 — **Confirma N movimientos de un golpe.** El backend corre cada fila en su propia
    * transacción: una que falle NO tumba a las demás, y el resultado viene por fila.
    */
   confirmarLote(items: Array<{ origen_ref: string; monto_contado?: number }>): Observable<ResumenLote> {
@@ -230,35 +244,55 @@ export interface TotalesCorte {
 }
 
 /**
- * Un cobro de Kepler todavía sin aplicar a la caja. `origen_ref` es su identidad —`sucursal|folio`,
- * medida como llave real (2,708 llaves para 2,708 filas)— y es lo que viaja al guardar.
+ * Un movimiento de caja que Kepler ya registró y el libro todavía no aplicó. Los DOS signos.
+ *
+ * `origen_ref` es su identidad: **`sucursal|doc_tipo|folio|clave_banco`**. El `doc_tipo` no es
+ * decorativo — medido, el folio COLISIONA entre `X-A-45`, `X-D-26` y `X-D-60` (los folios
+ * 0000011, 0000029, 0000030… existen en los tres a la vez), así que sin él confirmar un anticipo
+ * bloquearía un pago distinto.
  */
-export interface IngresoPendiente {
+export interface MovimientoPendiente {
   origen_ref: string;
+  /** `ingreso` | `gasto`, derivado del signo del documento en el ERP. */
+  tipo: string;
+  origen_tipo: string;
+  /** Clave de la caja en el catálogo `kdb1`. `0011` = CAJA GENERAL. */
+  clave_banco: string;
+  caja_nombre: string | null;
   sucursal: string;
+  doc_tipo: string;
   folio: string;
-  cobro_date: string;
-  cliente_code: string | null;
-  cliente_nombre: string | null;
+  fecha_valor: string;
+  /** El código de la contraparte en Kepler (`CB013`, `GG015`, `RD 21`, `2-32-321`). */
+  entidad_code: string | null;
+  beneficiario: string | null;
   concepto: string | null;
+  metodo: string | null;
   monto: number;
-  /** `ruta` | `interno` | `cliente_final`. Se muestra: no todos los cobros son entrega de ruta. */
-  tipo_cuenta: string | null;
-  forma_pago: string | null;
   /**
-   * CG.20 — `true` = se puede confirmar sin elegir NADA (la cuenta contable ya viene resuelta del
-   * mapa declarado). `false` viene SIEMPRE con `motivo_texto`: sin el porqué, la pantalla tendría
-   * que adivinar, y adivinar acá es inventar una cuenta contable.
+   * CG.20/CG.21 — `true` = se puede confirmar sin elegir NADA (la cuenta contable ya viene
+   * resuelta: del mapa declarado si es ingreso, de una regla si es egreso). `false` viene SIEMPRE
+   * con `motivo_texto`: sin el porqué, la pantalla tendría que adivinar, y adivinar acá es
+   * inventar una cuenta contable.
    */
   confirmable: boolean;
   kepler_cuenta: string | null;
   kepler_concepto: string | null;
-  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto';
+  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla';
   motivo_texto?: string;
 }
 
+/** Una caja de efectivo del catálogo `kdb1`, con lo que de verdad se movió por ella. */
+export interface CajaKepler {
+  clave: string;
+  nombre: string;
+  cuenta_contable: string | null;
+  /** Documentos en la ventana. `0` acá es un HECHO medido, no una falta de datos. */
+  documentos: number;
+}
+
 export interface PendientesResponse {
-  rows: IngresoPendiente[];
+  rows: MovimientoPendiente[];
   limit: number;
   has_more: boolean;
   /** Cuántas de las visibles se pueden confirmar de un clic. Una lista llena de filas trabadas

@@ -13,7 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type IngresoPendiente, type ResumenLote, type Frecuente } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
@@ -115,9 +115,14 @@ import {
     .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--surface-border, #f0f0f0);
                  vertical-align:top; }
     /* La fila trabada se ve distinta PERO SIGUE VISIBLE: esconderla dejaria a la persona sin
-       saber que esa entrega existe y que alguien tiene que declarar su ruta. */
+       saber que ese movimiento existe y que alguien tiene que declarar su cuenta. */
     .cg-trabada { opacity:.62; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
+    .cg-sel { min-width:9rem; }
+    /* CG.21 - el signo se lee de un vistazo. La flecha va ADEMAS del color, no en su lugar:
+       el color solo deja fuera a quien no lo distingue. */
+    .cg-in  { color:var(--p-green-600, #16a34a); }
+    .cg-out { color:var(--p-orange-600, #ea580c); }
 
     /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion. */
     .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
@@ -163,20 +168,25 @@ import {
 
       <app-metric-strip [items]="kpis()"></app-metric-strip>
 
-      <!-- CG.20 - Entregas por confirmar. Es la accion PRINCIPAL de la pantalla, no un accesorio:
-           medido, el 90% de los ingresos ya existe como cobro en Kepler, asi que la persona no
-           deberia capturarlos sino confirmarlos. Va arriba de la tabla por eso. -->
-      @if (pendientes().length) {
+      <!-- CG.21 - Movimientos por confirmar, los DOS signos. Es la accion PRINCIPAL de la
+           pantalla, no un accesorio: medido sobre 5 meses cerrados, el egreso de la caja cuadra
+           al 100% contra Kepler ($44,108,221.92 vs $44,123,427.09) y el ingreso de julio con
+           $19.88 de diferencia en $10.45M. La persona no deberia capturarlos: confirmarlos. -->
+      @if (pendientes().length || cargandoPend()) {
         <section class="cg-bandeja">
           <header class="cg-bandeja-head">
-            <h2 class="fin-h2">Entregas por confirmar</h2>
+            <h2 class="fin-h2">Movimientos por confirmar</h2>
             <span class="fin-dim">
               {{ confirmables() }} de {{ pendientes().length }} se confirman sin elegir nada
               @if (confirmables() < pendientes().length) {
-                · el resto necesita que su ruta esté declarada
+                · el resto necesita que su cuenta esté declarada
               }
             </span>
             <span class="cg-bandeja-sp"></span>
+            <p-select [options]="opcionesSigno" [(ngModel)]="signoBandeja" optionLabel="label" optionValue="value"
+                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Signo'"></p-select>
+            <p-select [options]="opcionesCaja()" [(ngModel)]="cajaActiva" optionLabel="label" optionValue="value"
+                      (onChange)="cargarPendientes()" styleClass="cg-sel" [ariaLabel]="'Caja'"></p-select>
             <p-button [label]="'Confirmar ' + marcadas().length" icon="pi pi-check" size="small"
                       [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
           </header>
@@ -187,8 +197,8 @@ import {
                 <th class="ta-c"><input type="checkbox" [checked]="todasMarcadas()"
                                         (change)="marcarTodas($any($event.target).checked)"
                                         aria-label="Marcar todas las confirmables" /></th>
-                <th>Fecha</th><th>Ruta / cliente</th><th>Folio</th><th>Cuenta</th>
-                <th class="ta-r">Cobro (ERP)</th><th class="ta-r">Contado</th>
+                <th>Fecha</th><th></th><th>Contraparte</th><th>Documento</th><th>Cuenta</th>
+                <th class="ta-r">Importe (ERP)</th><th class="ta-r">Contado</th>
               </tr>
             </thead>
             <tbody>
@@ -198,25 +208,36 @@ import {
                     <input type="checkbox" [disabled]="!p.confirmable"
                            [checked]="estaMarcada(p.origen_ref)"
                            (change)="marcar(p.origen_ref, $any($event.target).checked)"
-                           [attr.aria-label]="'Confirmar ' + p.folio" />
+                           [attr.aria-label]="'Confirmar ' + p.doc_tipo + ' ' + p.folio" />
                   </td>
-                  <td>{{ dmy(p.cobro_date) }}</td>
+                  <td>{{ dmy(p.fecha_valor) }}</td>
+                  <td class="ta-c">
+                    <i [class]="p.tipo === 'ingreso' ? 'pi pi-arrow-down cg-in' : 'pi pi-arrow-up cg-out'"
+                       [attr.aria-label]="p.tipo === 'ingreso' ? 'Entra' : 'Sale'"
+                       [attr.title]="p.tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja'"></i>
+                  </td>
                   <td>
-                    {{ p.cliente_nombre || p.cliente_code || '—' }}
+                    {{ p.beneficiario || p.entidad_code || '—' }}
                     @if (!p.confirmable) { <small class="fin-hint-warn d-block">{{ p.motivo_texto }}</small> }
                   </td>
-                  <td class="mono">{{ p.folio }}</td>
+                  <td class="mono">{{ p.doc_tipo }} {{ p.folio }}</td>
                   <td class="mono">{{ p.kepler_cuenta || '—' }}</td>
                   <td class="ta-r mono">{{ money(p.monto) }}</td>
                   <td class="ta-r">
                     <!-- Vacio = se toma el importe del ERP. Solo se escribe si se conto distinto,
-                         y entonces manda lo contado: nunca se rechaza efectivo. -->
+                         y entonces manda lo contado: nunca se rechaza efectivo.
+                         En el EGRESO nace vacio y se queda vacio: el documento ya dice cuanto
+                         salio. Se deja habilitado igual, porque negarlo obligaria a cancelar y
+                         recapturar a mano justo el caso raro que hay que registrar. -->
                     <input pInputText type="number" class="cg-contado" [disabled]="!p.confirmable"
                            [ngModel]="contadoDe(p.origen_ref)"
                            (ngModelChange)="setContado(p.origen_ref, $event)"
                            [placeholder]="'igual'" [attr.aria-label]="'Contado de ' + p.folio" />
                   </td>
                 </tr>
+              }
+              @if (!pendientes().length && !cargandoPend()) {
+                <tr><td colspan="8" class="fin-dim ta-c">Nada por confirmar con este filtro.</td></tr>
               }
             </tbody>
           </table>
@@ -334,8 +355,9 @@ import {
                             placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
             @if (cobroElegido(); as c) {
               <small class="fin-hint-ok">
-                Tomado de Kepler: {{ c.folio }} · {{ c.cliente_nombre || c.cliente_code }} ·
-                {{ money(c.monto) }}<span *ngIf="c.tipo_cuenta"> · {{ c.tipo_cuenta }}</span>.
+                Tomado de Kepler: {{ c.doc_tipo }} {{ c.folio }} ·
+                {{ c.beneficiario || c.entidad_code }} · {{ money(c.monto) }}
+                <span *ngIf="c.caja_nombre"> · {{ c.caja_nombre }}</span>.
                 El monto no se edita: lo pone el documento.
               </small>
             } @else {
@@ -517,17 +539,35 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   cargando = signal(false);
   guardando = signal(false);
   conceptos = signal<Array<ConceptoKepler & { label: string }>>([]);
-  /** CG.19 — los cobros de Kepler sin aplicar, y cuál se eligió. */
-  cobros = signal<Array<IngresoPendiente & { label: string }>>([]);
-  cobroElegido = signal<IngresoPendiente | null>(null);
-  cobroSel: (IngresoPendiente & { label: string }) | null = null;
+  /** CG.19 — los movimientos de Kepler sin aplicar, y cuál se eligió en el diálogo. */
+  cobros = signal<Array<MovimientoPendiente & { label: string }>>([]);
+  cobroElegido = signal<MovimientoPendiente | null>(null);
+  cobroSel: (MovimientoPendiente & { label: string }) | null = null;
 
-  // ── CG.20 — la bandeja de entregas y los frecuentes del gasto ────────────────────────────────
-  pendientes = signal<IngresoPendiente[]>([]);
+  // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
+  pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
+  cargandoPend = signal(false);
   frecuentes = signal<Frecuente[]>([]);
   confirmando = signal(false);
   resultado = signal<ResumenLote | null>(null);
+
+  /**
+   * Signo y caja de la bandeja.
+   *
+   * ⚠️ `cajaActiva` arranca en `0011` (CAJA GENERAL) porque es la única con operación: medido a
+   * 180 días, tiene **9,142 documentos / $98,531,597.07**, mientras `0010` Padre Hidalgo lleva
+   * **1 documento** y `0030` / `0040` / `0050` llevan **cero**. Las cinco están en el selector —
+   * se cablean por clave, no por caso, así que aparecen solas el día que se usen— pero arrancar
+   * en una caja dormida sería abrir la pantalla vacía.
+   */
+  signoBandeja: '' | 'ingreso' | 'gasto' = '';
+  cajaActiva = '0011';
+  readonly opcionesSigno = [
+    { label: 'Todo', value: '' },
+    { label: 'Entradas', value: 'ingreso' },
+    { label: 'Salidas', value: 'gasto' },
+  ];
   /** Marcadas y lo contado por fila. `Map` y no un campo en la fila: la lista se recarga. */
   private seleccion = signal<Set<string>>(new Set());
   private contado = signal<Map<string, number | null>>(new Map());
@@ -626,8 +666,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargar();
     this.cargarSaldo();
     this.cargarCortes();
-    // CG.20 — la bandeja y los frecuentes se piden al abrir: son la acción principal, no algo
-    // que aparezca después de un clic.
+    // CG.20/CG.21 — la bandeja y los frecuentes se piden al abrir: son la acción principal, no
+    // algo que aparezca después de un clic.
+    this.cargarCajas();
     this.cargarPendientes();
     this.cargarFrecuentes();
   }
@@ -769,12 +810,16 @@ export class FinanzasCajaGeneralComponent implements OnInit {
 
   // ── CG.19 Capa 1 — elegir el cobro en vez de teclear el monto ──────────────────────────────
 
-  /** Etiqueta del cobro: primero lo que identifica la entrega, después el monto. */
-  cobroLabel = (c: IngresoPendiente) =>
-    `${dmy(c.cobro_date)} · ${c.cliente_nombre || c.cliente_code || 's/cliente'} · ${money(c.monto)} · ${c.folio}`;
+  /** Etiqueta del documento: primero lo que lo identifica, después el monto. */
+  cobroLabel = (c: MovimientoPendiente) =>
+    `${dmy(c.fecha_valor)} · ${c.beneficiario || c.entidad_code || 's/contraparte'} · ${money(c.monto)} · ${c.doc_tipo} ${c.folio}`;
 
   buscarCobros(e: AutoCompleteCompleteEvent): void {
-    this.svc.ingresosPendientes({
+    this.svc.movimientosPendientes({
+      // El diálogo propone el documento del MISMO signo que se está capturando: ofrecerle un pago
+      // a quien está registrando un ingreso es ruido que además puede terminar mal aplicado.
+      tipo: this.f.tipo === 'gasto' ? 'gasto' : 'ingreso',
+      caja: this.cajaActiva || undefined,
       sucursal: this.f.sucursal || undefined,
       search: (e.query || '').trim() || undefined,
       limit: 40,
@@ -794,18 +839,18 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * cifra correcta antes de mandar, y para que la persona vea contra qué está contando.
    */
   elegirCobro(e: AutoCompleteSelectEvent): void {
-    const c = e.value as IngresoPendiente;
+    const c = e.value as MovimientoPendiente;
     if (!c) return;
     this.cobroElegido.set(c);
     this.f = {
       ...this.f,
       monto: Number(c.monto),
-      // La fecha del cobro es cuándo Kepler registró el documento; la del movimiento es cuándo
-      // entró el efectivo. Se propone, no se impone: el capturista puede corregirla.
-      fecha: String(c.cobro_date).slice(0, 10) || this.f.fecha,
-      beneficiario: c.cliente_nombre || c.cliente_code || this.f.beneficiario,
+      // La fecha del documento es cuándo Kepler lo registró; la del movimiento es cuándo entró o
+      // salió el efectivo. Se propone, no se impone: el capturista puede corregirla.
+      fecha: String(c.fecha_valor).slice(0, 10) || this.f.fecha,
+      beneficiario: c.beneficiario || c.entidad_code || this.f.beneficiario,
       glosa: this.f.glosa?.trim()
-        || `Cobro ${c.folio} · ${c.cliente_nombre || c.cliente_code || 'cliente'}`.slice(0, 200),
+        || `${c.doc_tipo} ${c.folio} · ${c.beneficiario || c.entidad_code || 'sin beneficiario'}`.slice(0, 200),
       // El desglose viejo dejaría de cuadrar contra el monto nuevo: se limpia y se vuelve a contar.
       denominaciones: [],
     };
@@ -818,14 +863,48 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.f = { ...this.f, monto: null, denominaciones: [] };
   }
 
-  // ── CG.20 — bandeja de entregas ───────────────────────────────────────────────────────────────
+  // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
+
+  /**
+   * Las cajas del catálogo, para el selector.
+   *
+   * ⚠️ Cada opción dice su volumen medido. Una caja con `0 docs` es un HECHO —`0030`, `0040` y
+   * `0050` no se usaron en 180 días— y tiene que verse como tal, no desaparecer del selector ni
+   * parecerse a una caja activa. Si el catálogo no responde, queda la CAJA GENERAL sola: es la
+   * única con operación medida, y un selector vacío dejaría la bandeja inalcanzable.
+   */
+  cajas = signal<CajaKepler[]>([]);
+  opcionesCaja = computed(() => {
+    const rows = this.cajas();
+    if (!rows.length) return [{ label: 'CAJA GENERAL', value: '0011' }];
+    return rows.map((c) => ({
+      label: c.documentos ? `${c.nombre} (${c.documentos})` : `${c.nombre} · sin movimiento`,
+      value: c.clave,
+    }));
+  });
+
+  cargarCajas(): void {
+    this.svc.cajas().subscribe({
+      next: (r) => this.cajas.set(r.rows ?? []),
+      error: () => { /* se conserva lo último conocido; el computed cae a la CAJA GENERAL */ },
+    });
+  }
 
   cargarPendientes(): void {
-    this.svc.ingresosPendientes({ sucursal: this.sucursalActiva, tipo_cuenta: 'ruta', limit: 100 }).subscribe({
-      next: (r) => { this.pendientes.set(r.rows ?? []); this.confirmables.set(r.confirmables ?? 0); },
-      // Un error de red NO es "no hay entregas": se deja la bandeja como estaba y la persona
+    this.cargandoPend.set(true);
+    this.svc.movimientosPendientes({
+      tipo: this.signoBandeja || undefined,
+      caja: this.cajaActiva || undefined,
+      limit: 100,
+    }).subscribe({
+      next: (r) => {
+        this.pendientes.set(r.rows ?? []);
+        this.confirmables.set(r.confirmables ?? 0);
+        this.cargandoPend.set(false);
+      },
+      // Un error de red NO es "no hay movimientos": se deja la bandeja como estaba y la persona
       // puede seguir capturando a mano. Vaciarla diría que el ERP no tiene nada pendiente.
-      error: () => { /* se conserva lo último conocido */ },
+      error: () => this.cargandoPend.set(false),
     });
   }
 
@@ -850,7 +929,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const m = new Map(this.contado());
     if (v == null || !(Number(v) > 0)) m.delete(ref); else m.set(ref, Number(v));
     this.contado.set(m);
-    // Escribir un conteo implica que esa entrega entra: evita el clic extra de marcarla.
+    // Escribir un conteo implica que ese movimiento entra: evita el clic extra de marcarlo.
     if (m.has(ref)) this.marcar(ref, true);
   }
 

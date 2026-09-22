@@ -82,21 +82,48 @@ export class CashLedgerController {
   }
 
   /**
-   * CG.19 Capa 1 — va ANTES de `@Get(':id')` como el resto: Nest resuelve por orden de
-   * declaración y `ingresos-pendientes` se comería como un id.
+   * CG.21 — va ANTES de `@Get(':id')` como el resto: Nest resuelve por orden de declaración y
+   * `movimientos-pendientes` se comería como un id.
    */
-  @Get('ingresos-pendientes')
+  @Get('movimientos-pendientes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
-  @ApiOperation({ summary: 'CG.19 — Cobros que Kepler YA registró y todavía no se aplicaron a la caja. El capturista ELIGE de acá en vez de teclear monto/fecha/motivo: el valor se toma del ERP y el registro precede al dinero. Filtros: sucursal, tipo_cuenta(ruta|interno|cliente_final), from/to, search.' })
-  ingresosPendientes(
+  @ApiOperation({ summary: 'CG.21 — Movimientos que Kepler YA registró en una caja de efectivo (kdm1.c45 contra el catálogo kdb1) y todavía no se aplicaron al libro, LOS DOS SIGNOS. El capturista CONFIRMA en vez de teclear: el valor se toma del ERP y el registro precede al dinero. Filtros: tipo(ingreso|gasto), caja(clave de kdb1, 0011=CAJA GENERAL), sucursal, from/to, search.' })
+  movimientosPendientes(
+    @Query('tipo') tipo?: string,
+    @Query('caja') caja?: string,
     @Query('sucursal') sucursal?: string,
-    @Query('tipo_cuenta') tipo_cuenta?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.svc.ingresosPendientes({ sucursal, tipo_cuenta, from, to, search, limit: limit ? Number(limit) : undefined });
+    return this.svc.movimientosPendientes({ tipo, caja, sucursal, from, to, search, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('cajas')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.21 — Las cajas de efectivo que Kepler declara en kdb1 (c3=EFECTIVO), con su volumen MEDIDO en la ventana. Sale del catálogo y no de los movimientos: una caja dormida tiene que poder verse, o sería indistinguible de una que no existe.' })
+  cajas(@Query('dias') dias?: string) {
+    return this.svc.cajas({ dias: dias ? Number(dias) : undefined });
+  }
+
+  /**
+   * Ruta anterior, viva para no romper a un front desplegado que todavía la llame. Responde lo
+   * mismo acotado a `tipo=ingreso`. ⚠️ `tipo_cuenta` ya no filtra nada: era el regex sobre el
+   * nombre del cliente que dejaba fuera 38 de 330 cobros de caja (las rutas de Morelia). Se
+   * acepta y se ignora en vez de fallar, porque fallar dejaría la bandeja vacía sin decir por qué.
+   */
+  @Get('ingresos-pendientes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.19 (superseded por movimientos-pendientes) — Cobros de caja pendientes de aplicar.' })
+  ingresosPendientes(
+    @Query('sucursal') sucursal?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.ingresosPendientes({ sucursal, from, to, search, limit: limit ? Number(limit) : undefined });
   }
 
   @Post('autofill')
@@ -118,7 +145,7 @@ export class CashLedgerController {
    */
   @Post('lote')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
-  @ApiOperation({ summary: 'CG.20 — Confirma N entregas de un golpe. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado.' })
+  @ApiOperation({ summary: 'CG.20/CG.21 — Confirma N movimientos de un golpe, entren o salgan. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado. `monto_contado` manda sobre el importe del ERP y levanta un hallazgo: el efectivo nunca se rechaza.' })
   crearLote(
     @Body() body: { items: Array<{ origen_ref: string; monto_contado?: number; fecha?: string; sucursal?: string; client_uuid?: string }> },
     @Req() req: AuthedRequest,
@@ -128,7 +155,7 @@ export class CashLedgerController {
 
   @Get('frecuentes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
-  @ApiOperation({ summary: 'CG.20 — Los pares (cuenta, concepto, beneficiario) que ESE capturista más repite, para ofrecerlos de un toque. Medido: 57% de los gastos cae en un par usado 3+ veces. ⛔ El gasto NO se deriva de Kepler: esto baja los clics, no vuelve auditable el dato.' })
+  @ApiOperation({ summary: 'CG.20 — Los pares (cuenta, concepto, beneficiario) que ESE capturista más repite, para ofrecerlos de un toque. Medido: 57% de los gastos cae en un par usado 3+ veces. ⚠️ Para lo que NO tiene documento en Kepler: desde CG.21 el gasto con documento se confirma desde la bandeja. Esto baja los clics, no vuelve auditable el dato.' })
   frecuentes(
     @Query('tipo') tipo?: string,
     @Query('sucursal') sucursal?: string,

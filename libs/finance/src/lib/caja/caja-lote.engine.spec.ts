@@ -8,9 +8,9 @@
  *     volvería a capturar de a una y toda la fase sería inútil.
  */
 import {
-  esConfirmable, resumirLote, evaluarDescuadre, rankearFrecuentes,
-  TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON,
-  type MapaRuta, type FilaLote, type UsoGasto,
+  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, rankearFrecuentes,
+  TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
+  type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
 
 const ok: MapaRuta = {
@@ -55,6 +55,88 @@ describe('esConfirmable — nada se elige a mano, o no se confirma', () => {
   it('cada motivo tiene un texto propio: un motivo sin frase no le sirve a nadie', () => {
     const motivos = ['sin_mapa', 'sin_confirmar', 'sin_cuenta', 'sin_monto'] as const;
     motivos.forEach((m) => expect(TEXTO_NO_CONFIRMABLE[m].length).toBeGreaterThan(20));
+  });
+});
+
+describe('cuentaPorRegla — CG.21, el egreso resuelve su cuenta o no se confirma', () => {
+  // `id` distinto por regla, como en la base: `finance.caja_classify_rules.id` es un uuid PK, así
+  // que dos reglas NUNCA lo comparten. Un fixture que sí lo compartiera probaría un caso imposible.
+  const r = (p: number, ben: string | null, cuenta: string, concepto = '001', tipo: string | null = 'gasto'): ReglaGasto =>
+    ({ id: `r${p}-${cuenta}`, priority: p, match_tipo: tipo, match_glosa: null, match_beneficiario: ben, kepler_cuenta: cuenta, kepler_concepto: concepto });
+  const mov = (ben: string, monto = 1000) => ({ tipo: 'gasto', glosa: null, beneficiario: ben, monto });
+
+  it('la regla declarada resuelve la cuenta sin que nadie elija', () => {
+    const v = cuentaPorRegla(mov('CB013'), [r(10, '^CB013$', '1005')]);
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.kepler_cuenta).toBe('1005');
+  });
+
+  it('⛔ [negativa] SIN regla que aplique NO se confirma — y NO se inventa una cuenta', () => {
+    const v = cuentaPorRegla(mov('GX999'), [r(10, '^CB013$', '1005')]);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motivo).toBe('sin_regla');
+  });
+
+  it('⛔ [negativa] una lista de reglas VACÍA no propone nada (no hay default)', () => {
+    expect(cuentaPorRegla(mov('CB013'), []).ok).toBe(false);
+    expect(cuentaPorRegla(mov('CB013'), null).ok).toBe(false);
+  });
+
+  it('⛔ [negativa] una regla SIN NINGÚN matcher aplicaría a todo: se descarta', () => {
+    const suelta: ReglaGasto = { id: 'x', priority: 1, match_tipo: null, match_glosa: null,
+      match_beneficiario: null, kepler_cuenta: '9999', kepler_concepto: '001' };
+    const v = cuentaPorRegla(mov('LO QUE SEA'), [suelta]);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motivo).toBe('sin_regla');
+  });
+
+  it('⭐ la PRIMERA por prioridad gana, aunque la otra también aplique', () => {
+    const v = cuentaPorRegla(mov('CB013'), [r(50, 'CB', '9999'), r(10, '^CB013$', '1005')]);
+    if (v.ok) expect(v.kepler_cuenta).toBe('1005');
+  });
+
+  it('⭐ el orden es TOTAL: a igual prioridad desempata el id, no el orden del SELECT', () => {
+    const a = cuentaPorRegla(mov('CB013'), [r(10, 'CB', 'AAA'), r(10, 'CB', 'BBB')]);
+    const b = cuentaPorRegla(mov('CB013'), [r(10, 'CB', 'BBB'), r(10, 'CB', 'AAA')]);
+    // Sin desempate, dos cargas mandarían el dinero a cuentas distintas según cómo viniera la query.
+    expect(a).toEqual(b);
+  });
+
+  it('el eje que no declara matcher es comodín, no un "no aplica"', () => {
+    // match_tipo null = vale para ingreso y gasto; el beneficiario sigue decidiendo.
+    const v = cuentaPorRegla(mov('GN001'), [r(10, '^GN001$', '1010', '001', null)]);
+    expect(v.ok).toBe(true);
+  });
+
+  it('un movimiento sin importe no es confirmable (y lo dice)', () => {
+    const v = cuentaPorRegla(mov('CB013', 0), [r(10, '^CB013$', '1005')]);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motivo).toBe('sin_monto');
+  });
+
+  it('una regla a medias (sin concepto) no se aplica: media cuenta no contabiliza', () => {
+    const rota = { ...r(10, '^CB013$', '1005'), kepler_concepto: '' };
+    expect(cuentaPorRegla(mov('CB013'), [rota]).ok).toBe(false);
+  });
+});
+
+describe('aplicaPatron — el regex viene de la base, no del código', () => {
+  it('sin patrón es comodín; con texto vacío no aplica', () => {
+    expect(aplicaPatron(null, 'lo que sea')).toBe(true);
+    expect(aplicaPatron('^CB', null)).toBe(false);
+  });
+
+  it('⛔ [negativa] un patrón INVÁLIDO no aplica en vez de reventar la clasificación entera', () => {
+    expect(() => aplicaPatron('([a-z', 'abc')).not.toThrow();
+    expect(aplicaPatron('([a-z', 'abc')).toBe(false);
+  });
+
+  it('⛔ [negativa] un patrón más largo que el tope no aplica (corre en NUESTRO proceso)', () => {
+    expect(aplicaPatron('a'.repeat(REGLA_MAX_PATRON + 1), 'aaa')).toBe(false);
+  });
+
+  it('no distingue mayúsculas: el beneficiario del ERP viene en las dos formas', () => {
+    expect(aplicaPatron('^botanas', 'BOTANAS PAU')).toBe(true);
   });
 });
 
@@ -122,6 +204,22 @@ describe('evaluarDescuadre — se guarda lo contado y se levanta el hallazgo', (
   it('la tolerancia es un centavo, la misma del arqueo', () => {
     expect(LOTE_EPSILON).toBe(0.005);
     expect(evaluarDescuadre('00|1', 100, 100.01).hay).toBe(true);
+  });
+
+  it('⛔ [negativa] un EGRESO no puede dedupear contra el ingreso del mismo documento', () => {
+    // Los dos signos comparten `origen_ref` cuando el ERP reusa el folio. Si la clase no entrara en
+    // la llave, el segundo hallazgo se tragaría contra el primero y uno de los dos descuadres
+    // desaparecería sin que nadie lo viera.
+    const ing = evaluarDescuadre('00|X-D-26|0000029|0011', 100, 90, 'caja_entrega');
+    const egr = evaluarDescuadre('00|X-D-26|0000029|0011', 100, 90, 'caja_egreso');
+    expect(ing.dedup_key).not.toBe(egr.dedup_key);
+    expect(egr.dedup_key).toBe('caja_egreso|00|X-D-26|0000029|0011');
+  });
+
+  it('el texto del egreso no habla de "el cobro": no hay cobro que contar', () => {
+    const d = evaluarDescuadre('00|X-D-26|1|0011', 100, 80, 'caja_egreso');
+    expect(d.resumen).toContain('El documento');
+    expect(d.resumen).not.toContain('cobro');
   });
 });
 

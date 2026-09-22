@@ -20,6 +20,19 @@
  * Pero ni siquiera hace falta casar: la fila de caja se **crea desde** el cobro, con `origen_ref`
  * explícito. (Los **155 cruces ambiguos** que se midieron son una propiedad del pasado — dos
  * sistemas capturados por separado — no de este diseño.)
+ *
+ * ── CG.21: el egreso entra por la misma puerta ────────────────────────────────────────────────
+ *
+ * 🔴 **La frase de arriba "el gasto se repite (no se reescribe)" era la respuesta a una pregunta
+ * mal hecha.** CG.20 declaró que el gasto "no está en Kepler"; está entero, y el discriminante es
+ * `kdm1.c45`, la cuenta por la que salió el dinero, que `kdb1` nombra `0011 CAJA GENERAL /
+ * EFECTIVO`. Cobertura medida sobre 5 meses cerrados: **$44,108,221.92 en la caja del Control vs
+ * $44,123,427.09 en Kepler = 100 %, Δ 0.03 %**. El gasto también se **confirma**; los frecuentes
+ * quedan para el 8 % que no tiene documento.
+ *
+ * ⛔ Y el control negativo que justifica no casar nunca: el mismo cruce por importe contra una
+ * ventana placebo desplazada 180 días acierta **23-34 %**. Un tercio de cualquier "match" por
+ * monto es densidad, no verdad.
  */
 
 /** Tolerancia del cuadre: un centavo, la misma que el arqueo y el corte. */
@@ -29,13 +42,15 @@ export type MotivoNoConfirmable =
   | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
   | 'sin_confirmar'   // hay propuesta, pero ningún humano la firmó
   | 'sin_cuenta'      // firmada la identidad, pero sin cuenta contable declarada
-  | 'sin_monto';      // el documento del ERP no trae importe utilizable
+  | 'sin_monto'       // el documento del ERP no trae importe utilizable
+  | 'sin_regla';      // CG.21 · egreso: ninguna regla de `finance.caja_classify_rules` aplica
 
 export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
   sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confirmala antes de aplicarle dinero.',
   sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
-  sin_monto: 'El cobro del ERP no trae importe: no hay nada que confirmar.',
+  sin_monto: 'El documento del ERP no trae importe: no hay nada que confirmar.',
+  sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario. Se captura a mano.',
 };
 
 /** Lo que la ruta tiene declarado. `null` = no existe fila en el mapa. */
@@ -69,6 +84,88 @@ export function esConfirmable(e: EntregaPendiente, mapa: MapaRuta | null | undef
   if (!mapa.kepler_cuenta || !mapa.kepler_concepto) return { ok: false, motivo: 'sin_cuenta' };
   if (!(Number(e.monto) > 0)) return { ok: false, motivo: 'sin_monto' };
   return { ok: true, kepler_cuenta: mapa.kepler_cuenta, kepler_concepto: mapa.kepler_concepto };
+}
+
+// ── CG.21 · Egreso: la cuenta sale de una regla declarada, o no sale ──────────────────────────
+
+/** Una fila viva de `finance.caja_classify_rules`. */
+export interface ReglaGasto {
+  id?: string;
+  priority: number;
+  match_tipo: string | null;
+  match_glosa: string | null;
+  match_beneficiario: string | null;
+  kepler_cuenta: string;
+  kepler_concepto: string;
+}
+
+export interface MovimientoAClasificar {
+  tipo: string;
+  glosa?: string | null;
+  beneficiario?: string | null;
+  monto: number;
+}
+
+/** Tope de tamaño del patrón y del texto. Un regex de la DB corre en NUESTRO proceso. */
+export const REGLA_MAX_PATRON = 200;
+export const REGLA_MAX_TEXTO = 400;
+
+/**
+ * Aplica un patrón guardado en la base contra un texto.
+ *
+ * ⚠️ El patrón lo escribe una persona en `/finanzas/caja` y se evalúa **en JS, nunca en SQL** —
+ * `knex.raw` se come los `?` y un cuantificador en un regex ya costó una columna entera
+ * (`20260819220000`). Acá el patrón viaja como dato y nunca toca el SQL.
+ *
+ * ⚠️ Un regex de la base corre en nuestro proceso: un patrón con anidamiento patológico puede
+ * colgar el event loop (ReDoS). No hay forma de ponerle timeout sin sacarlo a un worker, así que
+ * se acota lo que sí se puede — **el largo del patrón y el del texto** — y un patrón inválido
+ * **no aplica** en vez de reventar la clasificación entera.
+ */
+export function aplicaPatron(patron: string | null | undefined, texto: string | null | undefined): boolean {
+  if (!patron) return true;                       // sin matcher = comodín para ESE eje
+  if (patron.length > REGLA_MAX_PATRON) return false;
+  const t = String(texto ?? '').slice(0, REGLA_MAX_TEXTO);
+  if (!t) return false;
+  try {
+    return new RegExp(patron, 'i').test(t);
+  } catch {
+    return false;                                 // patrón inválido: no aplica, no rompe
+  }
+}
+
+/**
+ * ¿Qué cuenta le toca a este egreso, sin que nadie elija nada?
+ *
+ * ⛔ **La primera regla que aplica GANA, y si ninguna aplica NO se propone nada.** No hay default:
+ * una cuenta por descarte se vería igual que una cuenta declarada, y es exactamente el "default
+ * disfrazado" que el CHECK `caja_rule_matcher_chk` de `20260918160000` ya prohíbe del lado de la
+ * base. El movimiento cae a captura manual con `sin_regla`.
+ *
+ * ⚠️ Una regla sin ningún matcher aplicaría a TODO. La base lo impide con un CHECK; acá se vuelve
+ * a verificar porque este motor también corre contra reglas que todavía no pasaron por la base
+ * (pruebas, previsualización de un sembrado).
+ *
+ * ⚠️ El orden lo decide `priority` y se desempata por `id` — sin desempate total, dos reglas con
+ * la misma prioridad mandarían el dinero a cuentas distintas según cómo viniera ordenado el
+ * SELECT, que es justo el bug que `ordenCanonico` vino a matar en el cuadre.
+ */
+export function cuentaPorRegla(
+  mov: MovimientoAClasificar, reglas: readonly ReglaGasto[] | null | undefined,
+): Confirmable {
+  if (!(Number(mov.monto) > 0)) return { ok: false, motivo: 'sin_monto' };
+  const vivas = [...(reglas ?? [])]
+    .filter((r) => r.match_tipo || r.match_glosa || r.match_beneficiario)
+    .filter((r) => r.kepler_cuenta && r.kepler_concepto)
+    .sort((a, b) => Number(a.priority) - Number(b.priority)
+      || String(a.id ?? '').localeCompare(String(b.id ?? '')));
+  for (const r of vivas) {
+    if (!aplicaPatron(r.match_tipo, mov.tipo)) continue;
+    if (!aplicaPatron(r.match_glosa, mov.glosa)) continue;
+    if (!aplicaPatron(r.match_beneficiario, mov.beneficiario)) continue;
+    return { ok: true, kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto };
+  }
+  return { ok: false, motivo: 'sin_regla' };
 }
 
 // ── El resultado del lote ──────────────────────────────────────────────────────────────────────
@@ -132,6 +229,13 @@ export interface Descuadre {
 }
 
 /**
+ * Prefijo del `dedup_key`. Se separan **a propósito**: un ingreso que no cuadra y un egreso que no
+ * cuadra no son el mismo hallazgo ni los revisa la misma persona, y fundirlos en una sola clase
+ * haría que el segundo dedupe contra el primero cuando comparten `origen_ref`.
+ */
+export type ClaseDescuadre = 'caja_entrega' | 'caja_egreso';
+
+/**
  * Compara el importe del cobro contra lo contado.
  *
  * ⭐ **Nunca rechaza efectivo** (decisión de Edgar): el movimiento se guarda con lo CONTADO y la
@@ -141,18 +245,20 @@ export interface Descuadre {
  */
 export function evaluarDescuadre(
   origenRef: string, montoDocumento: number, montoContado: number,
+  clase: ClaseDescuadre = 'caja_entrega',
 ): Descuadre {
   const diferencia = redondea2(Number(montoContado) - Number(montoDocumento));
   const hay = Math.abs(diferencia) > LOTE_EPSILON;
   const signo = diferencia > 0 ? 'sobra' : 'falta';
+  const doc = clase === 'caja_entrega' ? 'El cobro' : 'El documento';
   return {
     hay,
     diferencia,
-    dedup_key: `caja_entrega|${origenRef}`,
+    dedup_key: `${clase}|${origenRef}`,
     resumen: hay
-      ? `El cobro dice ${montoDocumento.toFixed(2)} y se contaron ${Number(montoContado).toFixed(2)}: `
+      ? `${doc} dice ${montoDocumento.toFixed(2)} y se contaron ${Number(montoContado).toFixed(2)}: `
         + `${signo} ${Math.abs(diferencia).toFixed(2)}.`
-      : 'Lo contado coincide con el cobro.',
+      : `Lo contado coincide con ${clase === 'caja_entrega' ? 'el cobro' : 'el documento'}.`,
   };
 }
 

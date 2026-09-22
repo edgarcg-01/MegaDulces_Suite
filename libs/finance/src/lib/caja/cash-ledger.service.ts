@@ -3,9 +3,10 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { FINANCE_FINDINGS_SINK_PORT, type FinanceFindingsSinkPort } from '@megadulces/contracts';
 import { buildFolio } from './caja-autofill.engine';
 import {
-  esConfirmable, resumirLote, evaluarDescuadre, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
   TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
-  type MapaRuta, type FilaLote, type ResumenLote, type Descuadre,
+  type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
+  type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
 
 /**
@@ -47,6 +48,15 @@ export interface CreateMovementInput {
   beneficiario?: string;
   beneficiario_rfc?: string;
   monto: number;
+  /**
+   * CG.21 — Lo que la persona CONTÓ, cuando difiere del documento del ERP.
+   *
+   * ⭐ Campo propio y explícito a propósito. Si se dedujera de que `monto` no coincide con el
+   * documento, "conté distinto" y "el front mandó mal el importe" serían el mismo síntoma — y sólo
+   * uno de los dos se arregla en el código. Cuando viene, MANDA sobre el importe de Kepler y la
+   * diferencia se levanta como hallazgo; nunca se rechaza el efectivo.
+   */
+  monto_contado?: number;
   morralla?: number;
   denominaciones?: DenominationInput[];
   origen_tipo?: string;
@@ -59,6 +69,19 @@ export interface CreateMovementInput {
 
 /** Tolerancia del cuadre del arqueo: un centavo, por el redondeo de numeric. */
 const ARQUEO_EPSILON = 0.005;
+
+/**
+ * Los `origen_tipo` que anclan a un documento de Kepler y por lo tanto **toman de ahí el importe**.
+ *
+ * ⚠️ Los dos ya los admite `cash_ledger_origen_chk` (`20260918150000:134`), así que el egreso entra
+ * sin cirugía de constraint. Los otros valores del CHECK (`cfdi`, `recepcion`, `banco`, `manual`)
+ * NO anclan: se guardan como vienen porque no hay vista que los resuelva todavía, y tratarlos como
+ * anclados los haría fallar con "no existe en Kepler" sobre un documento que sí existe.
+ */
+const ORIGEN_ANCLADO = ['cobro', 'pago_proveedor'];
+
+/** La clase de hallazgo que le toca a cada signo. Ver `ClaseDescuadre`. */
+const CLASE_DESCUADRE: Record<string, ClaseDescuadre> = { ingreso: 'caja_entrega', gasto: 'caja_egreso' };
 
 @Injectable()
 export class CashLedgerService {
@@ -106,14 +129,24 @@ export class CashLedgerService {
         .select('sucursal', 'filas_origen', 'usables', 'sin_subcuenta', 'sin_codigo', 'sin_nombre')
         .orderBy('sucursal');
       const mapa = await trx('finance.v_caja_concept_map_coverage').select('*');
-      // CG.19 Capa 1 — qué proporción del ingreso descansa en un hecho de Kepler y cuánta en un
-      // teclado. Va SIEMPRE, por el mismo motivo que las otras dos: sin este número, una caja
+      // CG.19 Capa 1 / CG.21 — qué proporción del movimiento descansa en un hecho de Kepler y cuánta
+      // en un teclado. Va SIEMPRE, por el mismo motivo que las otras dos: sin este número, una caja
       // 100% capturada a mano se ve idéntica a una anclada al ERP (ADR-056).
-      const ingreso = await trx('finance.v_caja_ingreso_cobertura')
-        .orderBy([{ column: 'mes', order: 'desc' }, { column: 'sucursal', order: 'asc' }])
-        .limit(24)
+      //
+      // ⚠️ Ahora POR TIPO. La vista vieja (`v_caja_ingreso_cobertura`) filtraba `tipo='ingreso'` y
+      // el egreso anclado le quedaba invisible — o sea, habría publicado "sin cobertura" justo
+      // sobre la mitad que esta fase vino a anclar.
+      const anclaje = await trx('finance.v_caja_cobertura')
+        .orderBy([{ column: 'mes', order: 'desc' }, { column: 'sucursal', order: 'asc' }, { column: 'tipo', order: 'asc' }])
+        .limit(72)
         .select('*');
-      return { catalogo, mapa, ingreso };
+      // `ingreso` se conserva con su forma exacta —incluido el nombre `ingresos` de la columna—
+      // para no romper a la pantalla desplegada mientras el front migra. Renombrar la columna acá
+      // habría dejado el KPI en blanco sin ningún error visible, que es peor que romperlo.
+      const ingreso = anclaje
+        .filter((r: any) => r.tipo === 'ingreso')
+        .map((r: any) => ({ ...r, ingresos: r.movimientos }));
+      return { catalogo, mapa, anclaje, ingreso };
     });
   }
 
@@ -176,26 +209,49 @@ export class CashLedgerService {
    * `ux_cash_ledger_origen_vivo` (23505), que se traduce abajo. El candado es el índice; esto es
    * para que el usuario vea una frase en vez de un error de Postgres.
    */
-  private async resolveCobro(trx: any, tenantId: string, origenRef: string) {
-    const row = await trx('finance.v_caja_ingresos_pendientes')
+  private async resolveMovimiento(trx: any, tenantId: string, origenRef: string) {
+    const row = await trx('finance.v_caja_movimientos_pendientes')
       .where({ tenant_id: tenantId, origen_ref: origenRef })
-      .first('origen_ref', 'folio', 'sucursal', 'cobro_date', 'cliente_code', 'cliente_nombre', 'concepto', 'monto', 'tipo_cuenta');
+      .first('origen_ref', 'folio', 'doc_tipo', 'sucursal', 'clave_banco', 'caja_nombre', 'fecha_valor',
+        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto');
     if (row) return row;
 
+    // ⚠️ Se busca por `origen_ref` SOLO, sin `origen_tipo`: la llave ya lleva el `doc_tipo`, así que
+    // es única de por sí, y preguntar además por el tipo haría que un egreso aplicado se reportara
+    // como "no existe en Kepler" — el mensaje equivocado, que manda a la persona a buscar un
+    // problema de integración donde sólo hay trabajo repetido.
     const aplicado = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId, origen_tipo: 'cobro', origen_ref: origenRef })
+      .where({ tenant_id: tenantId, origen_ref: origenRef })
+      .whereNotNull('origen_tipo')
       .whereNull('deleted_at').whereNot('estado', 'cancelado')
       .first('folio', 'fecha', 'created_by_username');
     if (aplicado) {
       throw new BadRequestException(
-        `Ese cobro de Kepler ya se registró en la caja con el folio ${aplicado.folio}`
+        `Ese documento de Kepler ya se registró en la caja con el folio ${aplicado.folio}`
         + `${aplicado.created_by_username ? ` (lo capturó ${aplicado.created_by_username})` : ''}. `
-        + 'Un mismo cobro no puede entrar dos veces: si el anterior está mal, cancelalo y volvé a registrarlo.',
+        + 'Un mismo documento no puede entrar dos veces: si el anterior está mal, cancelalo y volvé a registrarlo.',
       );
     }
     throw new BadRequestException(
-      `El cobro ${origenRef} no existe en Kepler. No se registra efectivo contra un documento que el ERP no tiene.`,
+      `El documento ${origenRef} no está entre los movimientos de caja de Kepler. `
+      + 'No se registra efectivo contra un documento que el ERP no tiene.',
     );
+  }
+
+  /**
+   * Las reglas vivas de clasificación (`finance.caja_classify_rules`), en orden de prioridad.
+   *
+   * ⭐ Se traen como DATOS y el patrón se evalúa **en JS** (`cuentaPorRegla`), nunca con `~` en
+   * SQL: `knex.raw` se come los `?` y un cuantificador dentro de un regex ya costó una columna
+   * entera en `20260819220000`. Acá el patrón jamás toca el SQL.
+   */
+  private async reglasDeGasto(trx: any, tenantId: string): Promise<ReglaGasto[]> {
+    return trx('finance.caja_classify_rules')
+      .where({ tenant_id: tenantId, active: true })
+      .whereNull('suppressed_at')
+      .orderBy([{ column: 'priority', order: 'asc' }, { column: 'id', order: 'asc' }])
+      .select('id', 'priority', 'match_tipo', 'match_glosa', 'match_beneficiario',
+        'kepler_cuenta', 'kepler_concepto');
   }
 
   /**
@@ -219,11 +275,23 @@ export class CashLedgerService {
         if (prev) return { ...prev, idempotent_replay: true };
       }
 
-      // ⭐ El monto del documento MANDA sobre el del formulario.
-      const anclado = input.origen_tipo === 'cobro' && !!input.origen_ref;
-      const cobro = anclado ? await this.resolveCobro(trx, tenantId, input.origen_ref as string) : null;
-      const monto = cobro ? Number(cobro.monto) : Number(input.monto);
-      const montoDiscrepa = cobro != null && Math.abs(Number(input.monto || 0) - monto) > ARQUEO_EPSILON;
+      // ⭐ El monto del documento MANDA sobre el del formulario…
+      const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
+      const doc = anclado ? await this.resolveMovimiento(trx, tenantId, input.origen_ref as string) : null;
+
+      // …salvo que alguien haya CONTADO. 🔴 Acá había un bug: la decisión de Edigar fue "acepta el
+      // efectivo y levanta un hallazgo", y `crearLote` mandaba lo contado en `monto` — pero esta
+      // línea lo pisaba con el importe del ERP, así que **lo contado nunca llegaba al libro**, sólo
+      // al hallazgo. La caja guardaba lo que decía Kepler y la diferencia se evaporaba.
+      //
+      // El conteo viaja en un campo PROPIO y explícito. No se deduce de que `monto` difiera: eso
+      // volvería indistinguible "conté distinto" de "el front mandó mal el importe", y una de las
+      // dos hay que ir a arreglarla al código.
+      const contado = Number(input.monto_contado);
+      const hayConteo = doc != null && Number.isFinite(contado) && contado > 0;
+      const monto = hayConteo ? contado : (doc ? Number(doc.monto) : Number(input.monto));
+      const montoDiscrepa = doc != null && !hayConteo
+        && Math.abs(Number(input.monto || 0) - monto) > ARQUEO_EPSILON;
 
       // ⚠️ El arqueo se comprueba contra el monto RESUELTO, no contra el que llegó. Si se validara
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
@@ -237,9 +305,9 @@ export class CashLedgerService {
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
 
-      // Con el cobro atado, el capturista no tiene que escribir el motivo: ya está en el documento.
+      // Con el documento atado, el capturista no tiene que escribir el motivo: ya está en el ERP.
       const glosa = input.glosa?.trim()
-        || (cobro ? `Cobro ${cobro.folio} · ${cobro.cliente_nombre || cobro.cliente_code || 'cliente'}`.slice(0, 200) : '');
+        || (doc ? `${doc.doc_tipo} ${doc.folio} · ${doc.beneficiario || doc.entidad_code || 'sin beneficiario'}`.slice(0, 200) : '');
 
       const [mov] = await trx('finance.cash_ledger').insert({
         tenant_id: tenantId,
@@ -255,7 +323,7 @@ export class CashLedgerService {
         kepler_cuenta_nombre: snap.cuenta_nombre,
         kepler_concepto_nombre: snap.concepto_nombre,
         glosa,
-        beneficiario: input.beneficiario ?? (cobro?.cliente_nombre ?? null),
+        beneficiario: input.beneficiario ?? (doc?.beneficiario ?? null),
         beneficiario_rfc: input.beneficiario_rfc ?? null,
         monto,
         morralla: input.morralla ?? 0,
@@ -283,61 +351,137 @@ export class CashLedgerService {
   }
 
   /**
-   * CG.19 Capa 1 — **Ingresos recientes que se pueden entregar y arquear.**
+   * CG.19/CG.21 — **Movimientos recientes de la caja, los DOS signos, listos para confirmar.**
    *
    * Es el cambio de forma que pidió Edgar: en vez de que el capturista teclee fecha, motivo y
-   * monto, se le muestran los cobros que Kepler YA registró y él **elige cuál está entregando**.
-   * El registro precede al dinero, y el valor se toma del ERP.
+   * monto, se le muestran los documentos que Kepler YA registró y él **confirma cuáles pasaron por
+   * la caja**. El registro precede al dinero, y el valor se toma del ERP.
    *
-   * ⚠️ Lo que NO está en esta lista no deja de existir: es justamente el ingreso que todavía se
-   * captura a mano (~40-45% del total, medido). Por eso `coverage()` publica la proporción — una
-   * lista corta no puede leerse como "ya está todo cubierto".
+   * ⭐ La fuente es `finance.v_caja_movimientos_pendientes`, que filtra por `tipo_cuenta='caja'` —
+   * o sea por `kdm1.c45`, la cuenta por la que salió el dinero. Reemplaza al filtro anterior
+   * (`tipo_cuenta='ruta'`, un regex sobre el NOMBRE del cliente), que estaba respondiendo una
+   * pregunta parecida pero distinta: *"¿el cliente parece una ruta?"* en vez de *"¿el dinero entró
+   * a la caja?"*. Medido, esa diferencia costaba **38 de 330 cobros invisibles (11.5 %)** — los de
+   * Morelia (`2-32-321`, `2-32-RV01`), que empiezan con dígito y el regex nunca matcheó.
+   *
+   * ⚠️ Lo que NO está en esta lista no deja de existir: es el movimiento que sí se captura a mano.
+   * Por eso `coverage()` publica la proporción — una lista corta no puede leerse como "ya está
+   * todo cubierto".
    */
-  async ingresosPendientes(q: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number }) {
+  async movimientosPendientes(q: {
+    tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number;
+  }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
     return this.tk.run(async (trx) => {
-      let qb = trx('finance.v_caja_ingresos_pendientes').where('tenant_id', tenantId);
+      let qb = trx('finance.v_caja_movimientos_pendientes').where('tenant_id', tenantId);
+      if (q.tipo) qb = qb.where('tipo', q.tipo);
+      if (q.caja) qb = qb.where('clave_banco', q.caja);
       if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
-      if (q.tipo_cuenta) qb = qb.where('tipo_cuenta', q.tipo_cuenta);
-      if (q.from) qb = qb.where('cobro_date', '>=', q.from);
-      if (q.to) qb = qb.where('cobro_date', '<=', q.to);
+      if (q.from) qb = qb.where('fecha_valor', '>=', q.from);
+      if (q.to) qb = qb.where('fecha_valor', '<=', q.to);
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         qb = qb.where((b: any) => b
-          .whereRaw(`cliente_nombre ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`cliente_code ILIKE ? ESCAPE '\\'`, [s])
+          .whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s]));
       }
       const rows = await qb
-        .orderBy([{ column: 'cobro_date', order: 'desc' }, { column: 'folio', order: 'desc' }])
+        .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'doc_tipo', order: 'asc' },
+          { column: 'folio', order: 'desc' }])
         .limit(limit)
-        .select('origen_ref', 'sucursal', 'folio', 'cobro_date', 'cliente_code', 'cliente_nombre',
-          'concepto', 'monto', 'tipo_cuenta', 'forma_pago');
+        .select('origen_ref', 'tipo', 'origen_tipo', 'clave_banco', 'caja_nombre', 'sucursal',
+          'doc_tipo', 'folio', 'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'metodo', 'monto');
 
-      // ⭐ CG.20 — la CUENTA CONTABLE también viene resuelta, para que no quede ni un campo por
-      // elegir. Sale del mapa DECLARADO (`finance.route_customer_map`), nunca de un regex sobre
-      // el nombre: ese texto llega en dos formas para la misma ruta ("26 Ruta 26", "RUTA 21",
-      // "Ventas PH 26/08 RD 21") y es justo lo que la regla M3 prohíbe usar para mover dinero.
-      const mapa = await this.mapaDeRutas(trx, tenantId, rows.map((r: any) => r.cliente_code));
-      const conCuenta = rows.map((r: any) => {
-        const v = esConfirmable({ origen_ref: r.origen_ref, cliente_code: r.cliente_code, monto: Number(r.monto) },
-          mapa.get(String(r.cliente_code ?? '')) ?? null);
-        return v.ok
-          ? { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }
-          // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
-          // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
-          // cuenta contable.
-          : { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
-              motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
-      });
+      const conCuenta = await this.resolverCuentas(trx, tenantId, rows);
       return {
         rows: conCuenta, limit, has_more: rows.length === limit,
         // Cuántas de las que se ven se pueden confirmar sin tocar nada. Sin este número, una lista
         // llena de filas no confirmables se lee igual que una lista lista para un clic (ADR-056).
         confirmables: conCuenta.filter((r: any) => r.confirmable).length,
       };
+    });
+  }
+
+  /**
+   * Las cajas de efectivo que Kepler declara, **con su volumen medido**.
+   *
+   * ⭐ Sale del catálogo (`analytics.v_kepler_cajas`, `kdb1.c3='EFECTIVO'`) y no de los
+   * movimientos, a propósito: armarla con los movimientos volvería **invisible a la caja
+   * dormida**, y una caja que no se usa no puede verse igual que una que no existe (ADR-056).
+   *
+   * Medido a 180 días: `0011 CAJA GENERAL` 9,142 documentos; `0010 PADRE HIDALGO` 1; y `0030`,
+   * `0040`, `0050` **cero**. Cada una viaja con su cuenta y su conteo para que la pantalla lo diga
+   * en vez de fingir que las cinco operan.
+   */
+  async cajas(q: { dias?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const dias = Math.min(Math.max(Number(q.dias) || 180, 1), 730);
+    return this.tk.run(async (trx) => {
+      const cat = await trx('analytics.v_kepler_cajas')
+        .where('tenant_id', tenantId)
+        .orderBy('clave')
+        .select('clave', 'nombre', 'cuenta_contable');
+      const vol = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).andWhere('tipo_cuenta', 'caja')
+        .andWhereRaw(`fecha_valor >= (now()::date - ${dias})`)
+        .groupBy('clave_banco')
+        .select('clave_banco')
+        .count({ documentos: '*' });
+      const m = new Map(vol.map((v: any) => [String(v.clave_banco), Number(v.documentos)]));
+      return {
+        rows: cat.map((c: any) => ({ ...c, documentos: m.get(String(c.clave)) ?? 0 })),
+        ventana_dias: dias,
+      };
+    });
+  }
+
+  /** Compatibilidad: la ruta vieja `GET /ingresos-pendientes` sigue respondiendo lo mismo. */
+  async ingresosPendientes(q: { sucursal?: string; tipo_cuenta?: string; from?: string; to?: string; search?: string; limit?: number }) {
+    return this.movimientosPendientes({ ...q, tipo: 'ingreso' });
+  }
+
+  /**
+   * ⭐ La cuenta contable, resuelta por el CAMINO QUE LE TOCA A CADA SIGNO.
+   *
+   * · **Ingreso** → `finance.route_customer_map`, llave exacta por `cliente_code`. La ruta es una
+   *   identidad declarada y firmada; no se adivina de un texto que llega en tres formas distintas
+   *   para la misma ruta ("26 Ruta 26", "RUTA 21", "Ventas PH 26/08 RD 21").
+   * · **Egreso** → `finance.caja_classify_rules`. Medido: **229 acreedores distintos** en 180 días,
+   *   de los cuales el top 50 cubre el **86 % de los documentos y el 65 % del dinero**, y el top 80
+   *   el **92 % / 72 %**. Es un sembrado humano de una tarde, no un mapa infinito.
+   *
+   * ⛔ Lo que no resuelve **cae a captura manual con su motivo**, nunca a una cuenta por descarte.
+   * ⚠️ `GG015` (caja chica Morelia) usa varias cuentas distintas — viáticos, limpieza,
+   * mantenimiento — mientras `CB013 BOTANAS PAU` usa siempre la misma. Sólo se declara regla donde
+   * el beneficiario DETERMINA la cuenta; los multi-cuenta se quedan en manual a propósito.
+   */
+  private async resolverCuentas(trx: any, tenantId: string, rows: any[]) {
+    const hayIngreso = rows.some((r) => r.tipo === 'ingreso');
+    const hayGasto = rows.some((r) => r.tipo !== 'ingreso');
+    const mapa = hayIngreso
+      ? await this.mapaDeRutas(trx, tenantId, rows.filter((r) => r.tipo === 'ingreso').map((r) => r.entidad_code))
+      : new Map<string, MapaRuta>();
+    const reglas = hayGasto ? await this.reglasDeGasto(trx, tenantId) : [];
+
+    return rows.map((r: any) => {
+      const v: Confirmable = r.tipo === 'ingreso'
+        ? esConfirmable(
+            { origen_ref: r.origen_ref, cliente_code: r.entidad_code, monto: Number(r.monto) },
+            mapa.get(String(r.entidad_code ?? '')) ?? null)
+        : cuentaPorRegla(
+            { tipo: r.tipo, glosa: r.concepto, beneficiario: r.beneficiario ?? r.entidad_code, monto: Number(r.monto) },
+            reglas);
+      return v.ok
+        ? { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }
+        // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
+        // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
+        // cuenta contable.
+        : { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+            motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
     });
   }
 
@@ -359,11 +503,15 @@ export class CashLedgerService {
   }
 
   /**
-   * ⭐ CG.20 — **Confirmar N entregas de un golpe.**
+   * ⭐ CG.20/CG.21 — **Confirmar N movimientos de un golpe, entren o salgan.**
    *
    * Es el cambio que pidió Edgar: *"mientras menos clic mejor"*. La persona ya no captura fecha,
-   * cliente, cuenta, concepto ni monto — sólo marca las entregas que llegaron y, si contó distinto
-   * de lo que dice el ERP, escribe lo contado.
+   * contraparte, cuenta, concepto ni monto — sólo marca lo que pasó por la caja y, si contó
+   * distinto de lo que dice el ERP, escribe lo contado.
+   *
+   * ⚠️ El arqueo es **asimétrico a propósito**: el ingreso se cuenta (el efectivo está enfrente y
+   * puede no coincidir), el egreso lo manda el documento (ya salió por lo que decía el pago). El
+   * input existe para los dos, pero en el egreso nace vacío — mismo motor, sin rama nueva.
    *
    * ⛔ **Cada fila va en SU PROPIA transacción, a propósito.** Si todo el lote fuera una sola trx,
    * confirmar 12 entregas y perderlas porque la tercera ya estaba aplicada convertiría el lote en
@@ -389,41 +537,45 @@ export class CashLedgerService {
 
     for (const it of items) {
       try {
-        const pend = await this.tk.run(async (trx) => trx('finance.v_caja_ingresos_pendientes')
+        const pend = await this.tk.run(async (trx) => trx('finance.v_caja_movimientos_pendientes')
           .where({ tenant_id: tenantId, origen_ref: it.origen_ref })
-          .first('origen_ref', 'sucursal', 'folio', 'cobro_date', 'cliente_code', 'cliente_nombre', 'concepto', 'monto'));
+          .first('origen_ref', 'tipo', 'origen_tipo', 'sucursal', 'clave_banco', 'doc_tipo', 'folio',
+            'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'monto'));
 
         if (!pend) {
           filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',
-            motivo: 'Ese cobro ya no está pendiente: o se aplicó antes, o el ERP ya no lo tiene.' });
+            motivo: 'Ese documento ya no está pendiente: o se aplicó antes, o el ERP ya no lo tiene.' });
           continue;
         }
 
-        const mapa = await this.tk.run(async (trx) =>
-          (await this.mapaDeRutas(trx, tenantId, [pend.cliente_code])).get(String(pend.cliente_code ?? '')) ?? null);
-        const v = esConfirmable({ origen_ref: pend.origen_ref, cliente_code: pend.cliente_code, monto: Number(pend.monto) }, mapa);
-        if (!v.ok) {
-          filas.push({ origen_ref: it.origen_ref, estado: 'no_confirmable', motivo: TEXTO_NO_CONFIRMABLE[v.motivo] });
+        // La cuenta se resuelve por el camino del signo — el mismo de la bandeja, para que lo que
+        // se ve en pantalla y lo que se guarda no puedan divergir.
+        const [conCuenta] = await this.tk.run(async (trx) => this.resolverCuentas(trx, tenantId, [pend]));
+        if (!conCuenta.confirmable) {
+          filas.push({ origen_ref: it.origen_ref, estado: 'no_confirmable', motivo: conCuenta.motivo_texto });
           continue;
         }
 
-        // Lo CONTADO manda sobre el documento (decisión de Edgar). `create()` releería el monto del
-        // ERP, así que la entrega con diferencia se registra sin `origen_tipo` y se liga por
-        // `origen_uuid` — el documento queda trazado y el candado del duplicado se aplica igual.
+        // ⭐ Lo CONTADO manda sobre el documento (decisión de Edgar): el efectivo NUNCA se rechaza.
+        // Viaja en `monto_contado`, un campo propio — antes se mandaba en `monto` y `create()` lo
+        // pisaba con el importe del ERP, así que lo contado no llegaba al libro.
         const contado = Number(it.monto_contado);
         const hayConteo = Number.isFinite(contado) && contado > 0;
-        const d = evaluarDescuadre(pend.origen_ref, Number(pend.monto), hayConteo ? contado : Number(pend.monto));
+        const clase = CLASE_DESCUADRE[String(pend.tipo)] ?? 'caja_entrega';
+        const d = evaluarDescuadre(pend.origen_ref, Number(pend.monto), hayConteo ? contado : Number(pend.monto), clase);
 
         const mov: any = await this.create({
-          tipo: 'ingreso',
-          fecha: it.fecha || String(pend.cobro_date).slice(0, 10),
+          tipo: pend.tipo,
+          // La fecha del documento, no la de hoy: `fecha_valor` es cuándo Kepler fechó el hecho.
+          fecha: it.fecha || String(pend.fecha_valor).slice(0, 10),
           sucursal: it.sucursal || pend.sucursal,
-          kepler_cuenta: v.kepler_cuenta,
-          kepler_concepto: v.kepler_concepto,
-          glosa: `Entrega ${pend.folio} · ${pend.cliente_nombre || pend.cliente_code || 'ruta'}`.slice(0, 200),
-          beneficiario: pend.cliente_nombre ?? null,
-          monto: hayConteo ? contado : Number(pend.monto),
-          origen_tipo: 'cobro',
+          kepler_cuenta: conCuenta.kepler_cuenta,
+          kepler_concepto: conCuenta.kepler_concepto,
+          glosa: `${pend.doc_tipo} ${pend.folio} · ${pend.beneficiario || pend.entidad_code || 'sin beneficiario'}`.slice(0, 200),
+          beneficiario: pend.beneficiario ?? null,
+          monto: Number(pend.monto),
+          monto_contado: hayConteo ? contado : undefined,
+          origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
         }, user);
@@ -431,11 +583,11 @@ export class CashLedgerService {
         montos.set(it.origen_ref, Number(mov.monto));
         filas.push({ origen_ref: it.origen_ref, estado: 'guardado', folio: mov.folio });
 
-        if (d.hay) await this.empujarDescuadre(tenantId, pend, d);
+        if (d.hay) await this.empujarDescuadre(tenantId, pend, d, clase);
       } catch (e: any) {
         if (e?.code === '23505') {
           filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',
-            motivo: 'Otra persona confirmó este mismo cobro. No entra dos veces.' });
+            motivo: 'Otra persona confirmó este mismo documento. No entra dos veces.' });
         } else {
           // Se reporta el mensaje, NO se traga: una fila que falló en silencio se lee como guardada.
           filas.push({ origen_ref: it.origen_ref, estado: 'rechazado', motivo: String(e?.message ?? e).slice(0, 200) });
@@ -452,31 +604,36 @@ export class CashLedgerService {
    * apagado esto es un **no-op** y la captura sigue. Un hallazgo que no se pudo registrar no puede
    * tumbar el registro del dinero — el efectivo ya entró.
    */
-  private async empujarDescuadre(tenantId: string, pend: any, d: Descuadre) {
+  private async empujarDescuadre(tenantId: string, pend: any, d: Descuadre, clase: ClaseDescuadre = 'caja_entrega') {
     if (!this.findingsSink?.pushFindings) return;
+    const esIngreso = clase === 'caja_entrega';
+    const rule_key = esIngreso ? 'caja_entrega_difiere' : 'caja_egreso_difiere';
     try {
       await this.findingsSink.pushFindings(tenantId, [{
-        rule_key: 'caja_entrega_difiere',
+        rule_key,
         clase: 'error_captura',
         // El contrato del port sólo admite info|warn|critical. Un faltante grande es `critical`;
         // uno chico sigue siendo `warn` y NUNCA `info`: un descuadre de caja no es una nota.
         severity: Math.abs(d.diferencia) >= 1000 ? 'critical' : 'warn',
         score: Math.min(1, Math.abs(d.diferencia) / 1000),
-        titulo: `Entrega ${pend.folio}: ${d.diferencia > 0 ? 'sobra' : 'falta'} ${Math.abs(d.diferencia).toFixed(2)}`,
+        titulo: `${pend.doc_tipo ?? ''} ${pend.folio}: ${d.diferencia > 0 ? 'sobra' : 'falta'} ${Math.abs(d.diferencia).toFixed(2)}`.trim(),
         resumen: d.resumen,
-        entity: { tipo: 'caja_entrega', origen_ref: pend.origen_ref, sucursal: pend.sucursal },
-        periodo: String(pend.cobro_date ?? '').slice(0, 7) || null,
+        entity: { tipo: clase, origen_ref: pend.origen_ref, sucursal: pend.sucursal, caja: pend.clave_banco ?? null },
+        periodo: String(pend.fecha_valor ?? pend.cobro_date ?? '').slice(0, 7) || null,
         importe: Math.abs(d.diferencia),
         evidencia: {
-          origen_ref: pend.origen_ref, folio: pend.folio,
-          cliente: pend.cliente_nombre ?? pend.cliente_code,
-          monto_cobro: Number(pend.monto), diferencia: d.diferencia,
+          origen_ref: pend.origen_ref, folio: pend.folio, doc_tipo: pend.doc_tipo ?? null,
+          contraparte: pend.beneficiario ?? pend.entidad_code ?? null,
+          monto_documento: Number(pend.monto), diferencia: d.diferencia,
         },
         dedup_key: d.dedup_key,
       }], [{
-        rule_key: 'caja_entrega_difiere', clase: 'error_captura',
-        nombre: 'Entrega de caja distinta del cobro de Kepler',
-        descripcion: 'Lo contado al recibir la entrega no coincide con el importe del cobro registrado en el ERP.',
+        rule_key,
+        clase: 'error_captura',
+        nombre: esIngreso ? 'Entrega de caja distinta del cobro de Kepler' : 'Egreso de caja distinto del pago de Kepler',
+        descripcion: esIngreso
+          ? 'Lo contado al recibir la entrega no coincide con el importe del cobro registrado en el ERP.'
+          : 'Lo que salió de la caja no coincide con el importe del pago registrado en el ERP.',
       }]);
     } catch { /* el hallazgo nunca rompe a la captura */ }
   }
@@ -488,8 +645,13 @@ export class CashLedgerService {
    * 3+ veces — `nom 35 efectivo` 27×, `bot pau` 26×, `recoleccion` 20×. Y `Krmn` tecleó **61 gastos
    * en una hora**. Un toque en un chip llena cuenta, concepto y beneficiario; sólo queda el importe.
    *
-   * ⛔ **El gasto NO se deriva de Kepler — no está ahí**, y por eso acá no hay anclaje ni árbitro.
-   * Esto baja los clics; no vuelve auditable el dato. Se dice para que nadie lo lea como lo otro.
+   * 🔴 **CORREGIDO en CG.21.** Acá decía *"el gasto NO se deriva de Kepler — no está ahí"*. Era
+   * falso: está entero, y el discriminante es `kdm1.c45` (la cuenta por la que salió el dinero,
+   * `0011 CAJA GENERAL` en `kdb1`). Cobertura medida sobre 5 meses cerrados: **$44,108,221.92 en
+   * la caja contra $44,123,427.09 en Kepler = 100 %**. El gasto se **confirma** desde la bandeja.
+   *
+   * Estos chips quedan para lo que de verdad no tiene documento, y siguen sin anclaje ni árbitro:
+   * bajan los clics, no vuelven auditable el dato. Se dice para que nadie lo lea como lo otro.
    *
    * Se aprende del propio libro (`finance.cash_ledger`), que es lo que esa persona ya capturó.
    */
