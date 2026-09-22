@@ -222,6 +222,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
       },
       {
+        // TK.8 — Reporte por cliente: SU PROPIA sección, no una pestaña de la de arriba. La
+        // pantalla de buscar folio responde "dame ESTE documento"; ésta responde "dame TODO lo
+        // de este cliente", con filtros que a la otra le estorbarían. Mismo permiso: es la
+        // misma superficie de lectura sobre los mismos documentos.
+        path: 'tickets/reporte',
+        loadComponent: () => import('./modules/comercial/pages/comercial-reporte-cliente.component').then(m => m.ComercialReporteClienteComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
+      },
+      {
         // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
         path: 'documentos',
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
