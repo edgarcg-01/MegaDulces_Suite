@@ -225,7 +225,7 @@ di "retención: $borrados borrados, quedan $quedan volcados, ${ocupado} GB."
 # y cuánto ocupa la carpeta. Si mañana dice "0 tablas" o el tamaño se desploma, se
 # ve en el tablero sin abrir un log.
 if [ "$PRUEBA" = 1 ]; then
-  rm -f "$archivo"
+  rm -f "$archivo" "$errlog"
   di "PRUEBA OK — todas las compuertas pasaron. El latido backup_prod NO se tocó."
 else
   latido_fin ok "${mb} MB en ${dt}s · $tablas tablas ($ods_d de kepler_ods) · quedan $quedan, ${ocupado} GB"
