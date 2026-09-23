@@ -38,6 +38,18 @@ di()  { echo "[$(date '+%F %T %Z')] $*"; }
 mal() { echo "   ✗ $*"; fallas=$((fallas+1)); }
 ok()  { echo "   ✓ $*"; }
 
+# ⛔ AL FALLAR NO SE BORRA NADA. La primera corrida de este ensayo se llevo por delante el
+# directorio restaurado y el log de pgbackrest justo cuando habia algo que mirar -- un
+# ensayo que destruye su propia evidencia obliga a repetir el fallo para poder verlo.
+conservar() {
+  di "la evidencia queda para diagnosticar:"
+  echo "     directorio restaurado : $DESTINO"
+  echo "     log del contenedor    : docker logs $CONT"
+  echo "     log de pgbackrest     : /home/superoot/pgbackrest-log/"
+  echo "     para limpiar a mano   : docker rm -f $CONT && sudo rm -rf $DESTINO"
+  docker exec pg-prod psql -U postgres -d railway -q -c "DROP TABLE IF EXISTS $MARCA" >/dev/null 2>&1
+}
+
 limpiar() {
   docker rm -f "$CONT" >/dev/null 2>&1
   docker run --rm -v /home/superoot:/h alpine:3 sh -c "rm -rf /h/$(basename $DESTINO)" >/dev/null 2>&1
@@ -68,6 +80,14 @@ docker exec pg-prod psql -U postgres -d railway -q -c "SELECT pg_switch_wal()" >
 echo "   objetivo: $OBJ   (A antes, B después)"
 sleep 3
 
+# ⛔ LA RUTA DE LA RESTAURACIÓN TIENE QUE SER LA MISMA QUE LA DE ARRANQUE. pgBackRest
+# escribe el `--pg1-path` que se le pasa acá DENTRO del `restore_command` que deja en
+# `postgresql.auto.conf`. Medido el 2026-09-22: restaurando en `/restore` y arrancando en
+# `/var/lib/postgresql/18/docker`, la recuperación moría con
+#     archive-get ERROR [073]: unable to chdir() to '/restore'
+# y Postgres lo reportaba como «could not locate required checkpoint record» — un mensaje
+# que no nombra ni la ruta ni pgBackRest. Un clúster restaurado en una ruta temporal NO
+# puede recuperar en ninguna otra.
 di "── 2. restaurando a ese instante, en $DESTINO ──"
 mkdir -p "$DESTINO"
 docker run --rm -v "$DESTINO":/d alpine:3 sh -c 'chown 999:1000 /d && chmod 0700 /d'
@@ -75,22 +95,23 @@ t0=$(date +%s)
 docker run --rm -u postgres \
   -v /home/superoot/pgbackrest:/var/lib/pgbackrest \
   -v /home/superoot/pgbackrest-log:/var/log/pgbackrest \
-  -v "$DESTINO":/restore \
+  -v "$DESTINO":/var/lib/postgresql/18/docker \
   --entrypoint pgbackrest trade-prod-backup:latest \
-    --stanza=prod --pg1-path=/restore --type=time --target="$OBJ" \
+    --stanza=prod --pg1-path=/var/lib/postgresql/18/docker --type=time --target="$OBJ" \
     --target-action=promote --log-level-console=warn restore
 rc=$?
 di "   pg_restore de pgBackRest: código $rc en $(( $(date +%s) - t0 ))s"
-[ "$rc" = 0 ] || { mal "la restauración falló"; limpiar; exit 1; }
+[ "$rc" = 0 ] || { mal "la restauración falló"; conservar; exit 1; }
 
 di "── 3. levantando un Postgres temporal en :$PUERTO ──"
 docker run -d --name "$CONT" \
   -v "$DESTINO":/var/lib/postgresql/18/docker \
   -v /home/superoot/pgbackrest:/var/lib/pgbackrest \
+  -v /home/superoot/pgbackrest-log:/var/log/pgbackrest \
   -e PGDATA=/var/lib/postgresql/18/docker \
   -p "$PUERTO":5432 \
   trade-prod-pg:latest \
-  postgres -c archive_mode=off -c hot_standby=on >/dev/null || { mal "no arrancó el contenedor"; limpiar; exit 1; }
+  postgres -c archive_mode=off -c hot_standby=on >/dev/null || { mal "no arrancó el contenedor"; conservar; exit 1; }
 
 # Esperar a que termine la recuperación. Se consulta al propio Postgres en vez de dormir
 # un tiempo fijo: cuánto tarda depende de cuánto WAL haya que reproducir.
@@ -100,7 +121,7 @@ while [ "$i" -lt 60 ]; do
   if docker exec "$CONT" pg_isready -U postgres -q 2>/dev/null; then listo=1; break; fi
   i=$((i+1)); sleep 5
 done
-[ "$listo" = 1 ] || { mal "el clúster restaurado no llegó a aceptar conexiones en 5 min"; docker logs "$CONT" 2>&1 | tail -10; limpiar; exit 1; }
+[ "$listo" = 1 ] || { mal "el clúster restaurado no llegó a aceptar conexiones en 5 min"; docker logs "$CONT" 2>&1 | tail -20; conservar; exit 1; }
 ok "el clúster restaurado acepta conexiones"
 
 di "── 4. EL VEREDICTO: ¿A sí y B no? ──"
