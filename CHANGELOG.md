@@ -26,6 +26,13 @@
 - ⭐ Y `deploy.sh` **no pasaba ningún `--build-arg`**, así que el sello de versión que
   `apps/portal/Dockerfile` y `apps/vendor/Dockerfile` **ya estampaban** decía `unknown` on-prem
   desde el primer día.
+- ⭐⭐ **La prueba negativa encontró que el arreglo estaba a medias.** Hornear el `ARG` no
+  alcanzaba: el compose seguía declarando `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}` y **una variable
+  del servicio pisa el `ENV` de la imagen** — quedaba en cadena vacía y tapaba el valor horneado.
+  Reproduciendo el escenario del día anterior **con el `ARG` ya puesto**: `{"commit": "unknown"}`
+  y `GIT_COMMIT_SHA=[]` dentro del contenedor. ⚠️ **El arreglo a medias se veía igual que el
+  entero** (por `deploy.sh` respondía bien), así que sin la prueba negativa el item se habría
+  cerrado afirmando algo falso. Se retiró del compose y del export de `recrear()`.
 
 ### Fixed — ⛔ `.dockerignore` nunca funcionó en el servidor (`[VL.11.C]`, 2026-09-23)
 - No tenía regla en `.gitattributes`, así que `git archive HEAD` lo exportaba con **CRLF**.

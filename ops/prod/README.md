@@ -1010,6 +1010,33 @@ resolvedor.
 `apps/portal/Dockerfile` y `apps/vendor/Dockerfile` **ya estampaban** en su `index.html` decía
 **`unknown`** on-prem desde el primer día.
 
+#### ⭐⭐ La prueba negativa encontró que el arreglo estaba a medias
+
+Hornear el commit **no alcanzaba**. El compose seguía declarando
+`GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}`, y **una variable del servicio pisa el `ENV` de la
+imagen**: sin nadie que la exportara quedaba en cadena vacía y tapaba el valor horneado.
+Medido reproduciendo el escenario exacto del día anterior —`docker compose up -d cloudflared`
+a mano— **con el `ARG` ya puesto**:
+
+```
+/api/health            →  {"commit": "unknown"}
+dentro del contenedor  →  GIT_COMMIT_SHA=[]
+```
+
+⚠️ **Y ése es el punto: el arreglo a medias se veía igual que el arreglo entero.** `unknown` es
+más honesto que `""`, así que por el camino normal (`deploy.sh`) todo respondía bien. Sin correr
+la prueba negativa, el item se habría cerrado afirmando algo falso.
+
+Se retiró la declaración del compose (`api` + `worker`) y, por la otra punta, el export de
+`recrear()` — dejarlo sería reconstruir el mismo acoplamiento. Verificado después:
+
+| Camino | Resultado |
+|---|---|
+| `docker compose up -d --force-recreate api`, **sin** `deploy.sh` | `67a30bea` |
+| el escenario que falló (`up -d cloudflared api`) | `67a30bea` |
+| `worker` (sin endpoint de salud, se mira la variable) | `GIT_COMMIT_SHA=[67a30bea]` |
+| los 3 hostnames del túnel | HTTP 200 |
+
 ### A — el diseño, y la trampa que no es obvia
 
 ⛔ **No hay atajo con certificado autofirmado.** Las apps mandan
