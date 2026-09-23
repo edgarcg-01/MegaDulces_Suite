@@ -1245,6 +1245,50 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       `http-admin-password-test.js` ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**.
       ⭐ El declarado es el hallazgo: `platform_test` **no admite el kind `dispositivo`**, o sea que
       **contra dev este test no habría atrapado el bug**. Commit `67096a81` · 2026-09-17
+- [x] **[ID.37]** 🧪 **Una sola regla de login: la puerta de atrás dejó de tener reglas propias.**
+      Salió de auditar cómo funcionan los usuarios. Había **dos** logins y cada uno decidía por su
+      cuenta qué es una sesión válida: `/auth/login` (legacy, `@Public`, **montado siempre**) no
+      aplicaba **ninguno** de los cinco frenos/reglas de `/auth-mt/login` — cuenta de servicio
+      (`[ID.17]`), cuenta vencida (`[ID.13]`), unión con los roles complementarios, overrides de la
+      persona (`[ID.21]`) y TTL propio de la cuenta (`[CH.1.3]`). ⭐ **El daño vivo era cero y por
+      suerte de datos, no por una compuerta**: medido en prod, **0 usuarios con `expires_at`** y la
+      única cuenta `kind='servicio'` tiene un hash que no es bcrypt. `autenticarYFirmar` en
+      `libs/platform-core/.../login-core.ts` es ahora **la** regla, y las dos puertas la llaman —
+      el propio `granted-permissions.ts` ya había mudado UNA pieza por esta razón (ADR-056) y quedó
+      a mitad de camino. ⛔ **La puerta legacy NO se retira**: `apps/vendor` es una app Capacitor
+      **instalada en teléfonos** y su `AuthService` todavía la llama — un APK viejo en el campo no
+      se entera de un cambio de endpoint; se deja **medida** (cada uso loguea un warn) para poder
+      retirarla con dato. El legacy ya no recibe tenant, así que lo **deduce**: username único entre
+      tenants activos y, si no, el único tenant activo (hoy **1**, `mega_dulces`); ambiguo →
+      **401 fail-closed**, sin revelar qué tenants existen. **13/13 en vitest, con el rojo
+      ejercido**: se rompieron los dos frenos nuevos a propósito y cayeron exactamente sus dos
+      pruebas, con el control positivo verde. ⚠️ Tres candados de la regresión (`authz-jwt-size`,
+      `kind-dispositivo`, `user-roles`) medían **texto en cada puerta**; se reapuntaron al núcleo y
+      ahora exigen lo que de verdad importa: que ninguna puerta firme ni compare credenciales por su
+      cuenta. 2026-09-23
+- [x] **[ID.38]** 🧪 **La sesión se puede cerrar. Hasta hoy el JWT era irrevocable en la práctica.**
+      Vivía 12 h —hasta **3650 días** en una cuenta de dispositivo— y la única forma de matarlo era
+      `activo = false`, o sea **apagar la cuenta**: inaceptable en las **18 cuentas
+      `kind='dispositivo'`** (8 etiqueteras, 2 checadores, 2 verificadores, 6 de ruta), donde eso es
+      apagar la pantalla. ⭐ Y `password_changed_at` —que el alta y cada reset escriben desde
+      `[AU.28]`— **no la leía nadie**: cambiarle la contraseña a alguien **no cerraba su sesión**. El
+      encabezado de `20260909130000_users_token_ttl_days.js` dejó anotado el candado
+      (`iat < password_changed_at`, «la columna ya existe y nadie la lee todavía») y esto lo pone.
+      `jwt-auth.guard` compara el `iat` contra
+      `GREATEST(password_changed_at, sessions_revoked_at)` (mig `20260923140000`, aditiva, nace en
+      `NULL`), con `POST /users/:id/revoke-sessions` (permiso **`USUARIOS_PASSWORDS`**, el mismo del
+      reset: **no reparte capacidad nueva**) y botón en `/admin/personas`, junto a la contraseña.
+      ⭐ **Impacto del despliegue, medido en prod antes de escribirlo: 0 sesiones vivas se cierran**
+      (17 cuentas activas tienen `password_changed_at`, y **ninguna** entró antes de su último
+      cambio). De paso se corrigió el **fail-open ciego** de `isUserActive`: ante error de DB
+      contestaba «activo», o sea que un hipo de Postgres le devolvía el acceso a alguien recién
+      desactivado; ahora contesta con **el último estado conocido** y marca `medido: false`
+      (ADR-056), y sólo cae al default permisivo si nunca supo nada de esa cuenta. ⚠️ El código
+      tolera la ventana de despliegue (código antes que migración): detecta el `42703`, degrada a
+      `password_changed_at` y sigue — sin eso, el `catch` genérico habría apagado también el chequeo
+      de cuenta desactivada. **Pendiente: aplicar la migración (ventana sin respaldo corriendo,
+      GOTCHAS §38) + correr `http-session-revocation-test.js` contra API viva + validación visual.**
+      2026-09-23
 - [x] **[AU.26]** ✅ Los candados vecinos, puestos al día **con motivo, no bajando la vara**:
       `organigrama` (el diccionario `SIN_JEFE_ACEPTADOS` tenía 9 excusas y **`[AU.23]` las cerró** —
       casi todas eran *«su ancla no existe en el catálogo»*; queda `direccion`, que es la raíz) y

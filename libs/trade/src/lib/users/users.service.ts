@@ -1440,6 +1440,15 @@ export class UsersService {
       );
     }
 
+    // `[ID.38]` Cambiar la contraseña mueve `password_changed_at`, y desde ahora eso
+    // CIERRA las sesiones abiertas de esa cuenta. El guard cachea el estado 30 s: sin
+    // esta invalidación, el token viejo seguiría entrando hasta medio minuto después
+    // de un reset — justo el medio minuto que importa cuando se resetea porque se
+    // filtró la credencial.
+    if (password) {
+      this.permsCache?.invalidateUser?.(id, this.tenantId);
+    }
+
     return { ...user, zona: await this.zoneNameOf(user.zona_id) };
   }
 
@@ -3206,6 +3215,90 @@ export class UsersService {
       overrides: pedidos,
       agregados: cambiados.map(([k]) => k),
       quitados,
+    };
+  }
+
+  /**
+   * `[ID.38]` — Cierra TODAS las sesiones vivas de una cuenta, sin apagarla.
+   *
+   * ── Para qué existe ─────────────────────────────────────────────────────────
+   * Hasta hoy la única forma de matar un token filtrado era `activo = false`, o
+   * sea apagar la cuenta. En las **18 cuentas `kind='dispositivo'`** (etiqueteras,
+   * checadores, verificadores de precio) eso significa apagar la pantalla, que es
+   * justamente lo que `[CH.1.3]` dice que no se puede hacer — y son las cuentas
+   * con el token más largo, o sea las que más lo necesitan.
+   *
+   * Esto escribe el corte (`sessions_revoked_at = now()`) y `jwt-auth.guard`
+   * rechaza todo token con `iat` anterior. La cuenta sigue activa: vuelve a
+   * entrar con su contraseña y sigue trabajando.
+   *
+   * ── Lo que NO hace ──────────────────────────────────────────────────────────
+   * No revoca UN token: corta todas las sesiones de esa cuenta a la vez. Para
+   * cortar sólo un dispositivo haría falta un `jti` por token y una tabla donde
+   * anotarlos — sigue sin existir, y se declara acá en vez de insinuar que está.
+   */
+  async revokeSessions(id: string, requester: RequesterContext, motivo?: string | null) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'nombre', 'kind', 'role_name', 'last_login_at');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    let revocadoEn: string | null = null;
+    try {
+      await this.knex.transaction(async (trx) => {
+      // `identity.users` explícito, no la vista `public.users`: la columna es de
+      // `[ID.38]` y la vista compat no la expone (recrear una vista viva tiene su
+      // propio riesgo — ver el gotcha de los planes cacheados).
+        const [fila] = await trx('identity.users')
+          .where({ id, tenant_id: this.tenantId })
+          .update({ sessions_revoked_at: trx.fn.now() })
+          .returning(['sessions_revoked_at']);
+        revocadoEn = fila?.sessions_revoked_at ?? null;
+
+        await this.recordEvent(
+          trx,
+          id,
+          'sessions_revoked',
+          {
+            motivo: motivo ?? null,
+            kind: user.kind ?? null,
+            role_name: user.role_name ?? null,
+            // Con qué sesión se lo está haciendo: si alguien revoca las suyas, que
+            // quede dicho en la bitácora y no se lea como que lo echó otro.
+            propia: requester.sub === id,
+          },
+          requester,
+        );
+      });
+    } catch (e: any) {
+      // Ventana de despliegue: el código llegó antes que la migración. Un 500 con
+      // "column does not exist" hace que quien lo vea busque el bug en el lugar
+      // equivocado; esto dice qué falta y qué hacer mientras tanto.
+      if (/sessions_revoked_at/i.test(String(e?.message ?? ''))) {
+        throw new BadRequestException(
+          'Falta aplicar la migración [ID.38] (identity.users.sessions_revoked_at) en este ambiente. ' +
+            'Mientras tanto, cambiarle la contraseña también cierra sus sesiones.',
+        );
+      }
+      throw e;
+    }
+
+    // El guard cachea el estado de la cuenta 30s: sin esto el corte tarda medio
+    // minuto en aplicar, que es medio minuto de un token que ya se dio por muerto.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    this.logger.warn(
+      `[ID.38] Sesiones revocadas de "${user.username}" por "${requester.username ?? requester.sub}"` +
+        (motivo ? ` — ${motivo}` : ''),
+    );
+
+    return {
+      user_id: id,
+      username: user.username,
+      sessions_revoked_at: revocadoEn,
+      // Para que la pantalla pueda decir "tenía sesión desde ..." en vez de sólo
+      // confirmar que hizo algo.
+      last_login_at: user.last_login_at ?? null,
     };
   }
 

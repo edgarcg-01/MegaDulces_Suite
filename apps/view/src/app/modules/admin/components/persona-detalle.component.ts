@@ -36,6 +36,8 @@ import {
   generateDevicePassword,
 } from '../../dashboard/admin-users/device-session';
 import { AdminService, EventoDePersona, OpcionCatalogo } from '../admin.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * `[AU.2]` — La ficha de una persona, por las cinco preguntas que se le hacen:
@@ -111,7 +113,12 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
           } @else if (fPassword()) {
             <p class="pd-hint pd-hint-warn">
               <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
-              Al guardar, la contraseña cambia y
+              Al guardar, la contraseña cambia,
+              <!-- [ID.38] La consecuencia nueva: desde que el guard lee el corte de sesión,
+                   cambiar la contraseña SÍ cierra lo que estuviera abierto. Antes se escribía
+                   password_changed_at y no la leía nadie, así que la sesión vieja seguía viva.
+                   (Sin acentos graves acá: esto vive DENTRO de un template literal.) -->
+              <strong>se cierran las sesiones que tenga abiertas</strong> y
               {{ esDispositivo()
                  ? 'la cuenta NO tendrá que cambiarla: es de dispositivo, y forzarlo dejaría la pantalla afuera.'
                  : 'tendrá que cambiarla la primera vez que entre — la elegiste vos, no su dueño.' }}
@@ -121,6 +128,31 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             <p class="pd-hint">
               Sólo se cambia si escribís una. La actual no se puede leer: está hasheada.
             </p>
+          }
+
+          <!-- [ID.38] Cerrar sesiones SIN tocar la cuenta. Va acá, pegado a la contraseña,
+               porque es la misma pregunta ("se filtró una credencial, ¿ahora qué?") y la misma
+               llave (USUARIOS_PASSWORDS). Desactivar la cuenta no sirve para un kiosco: apaga
+               la pantalla. -->
+          @if (persona && puedeCerrarSesiones()) {
+            <div class="pd-sesiones">
+              <p class="pd-hint">
+                @if (persona.last_login_at) {
+                  Último acceso: {{ persona.last_login_at | date: 'dd/MM/yy HH:mm' }}.
+                } @else {
+                  Nunca inició sesión.
+                }
+                Cerrar sesiones invalida los accesos ya emitidos sin desactivar la cuenta:
+                vuelve a entrar con su contraseña de siempre.
+              </p>
+              <button pButton type="button" class="p-button-sm p-button-text p-button-danger"
+                      [disabled]="cerrandoSesiones()" (click)="cerrarSesiones()">
+                <span class="pi pi-sign-out" aria-hidden="true"></span>
+                <span class="p-button-label">
+                  {{ cerrandoSesiones() ? 'Cerrando…' : 'Cerrar sesiones' }}
+                </span>
+              </button>
+            </div>
           }
 
           <label class="pd-lbl" for="pd-puesto">Puesto</label>
@@ -497,6 +529,8 @@ export class PersonaDetalleComponent implements OnChanges {
   /** Lo provee la página: el diálogo vive en su plantilla, no en el drawer. */
   private confirm = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
+  /** `[ID.38]` Para gatear «Cerrar sesiones» con la MISMA clave que exige el backend. */
+  private perms = inject(PermissionsService);
 
   @Input() persona: PersonaFila | null = null;
   @Input() puedeEscribir = false;
@@ -680,6 +714,16 @@ export class PersonaDetalleComponent implements OnChanges {
   readonly esDispositivo = computed(
     () => this.persona?.kind === 'dispositivo' || this.fTtl() != null,
   );
+
+  /**
+   * `[ID.38]` — Cerrar sesiones pide `USUARIOS_PASSWORDS`, la llave de resetear
+   * contraseñas, **no** `USUARIOS_GESTIONAR` (que es editar la ficha). Se gatea
+   * con la misma clave que el backend exige: si el botón se mostrara con otra,
+   * el clic terminaría en un 403 y la pantalla estaría ofreciendo algo que no
+   * puede hacer.
+   */
+  readonly puedeCerrarSesiones = computed(() => this.perms.has(Permission.USUARIOS_PASSWORDS));
+  readonly cerrandoSesiones = signal(false);
 
   readonly puedeGuardar = computed(() => {
     // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta
@@ -909,6 +953,57 @@ export class PersonaDetalleComponent implements OnChanges {
       error: (e) => {
         this.guardando.set(false);
         this.errorGuardado.set(this.mensajeDe(e));
+      },
+    });
+  }
+
+  /**
+   * `[ID.38]` — Cierra todas las sesiones vivas de la cuenta.
+   *
+   * Pide confirmación porque **echa a alguien que puede estar trabajando ahora
+   * mismo**, y el diálogo dice qué pasa después (vuelve a entrar con la misma
+   * contraseña) para que no se confunda con desactivar la cuenta, que es la
+   * acción de al lado y no tiene vuelta tan simple.
+   *
+   * Avisa por `aviso` y NO cierra el cajón: es una acción sobre la cuenta, no
+   * una edición de la ficha que haya que guardar.
+   */
+  cerrarSesiones(): void {
+    const persona = this.persona;
+    if (!persona) return;
+    const quien = persona.nombre || persona.username;
+    this.confirm.confirm({
+      header: 'Cerrar las sesiones abiertas',
+      message:
+        `Los accesos que ${quien} tenga abiertos dejan de valer en el acto — si está usando la ` +
+        `app, se le va a pedir que entre de nuevo. La cuenta NO se desactiva: entra con la misma ` +
+        `contraseña de siempre.`,
+      icon: 'pi pi-sign-out',
+      acceptLabel: 'Sí, cerrar sesiones',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.cerrandoSesiones.set(true);
+        this.api
+          .cerrarSesiones(persona.id)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.cerrandoSesiones.set(false);
+              this.aviso.emit(`Se cerraron las sesiones de ${quien}.`);
+              // La bitácora ya tiene el asiento: se recarga para que se vea sin
+              // volver a abrir la ficha.
+              this.api
+                .eventosDe(persona.id)
+                .pipe(takeUntilDestroyed(this.destroyRef))
+                .subscribe({ next: (e) => this.eventos.set(e), error: () => void 0 });
+            },
+            error: (e) => {
+              this.cerrandoSesiones.set(false);
+              this.errorGuardado.set(this.mensajeDe(e));
+            },
+          });
       },
     });
   }

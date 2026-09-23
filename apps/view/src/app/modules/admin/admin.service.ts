@@ -183,6 +183,24 @@ export class AdminService {
     return this.http.put(`${this.users}/${id}/permissions`, { overrides });
   }
 
+  /**
+   * `[ID.38]` — Cierra todas las sesiones vivas de la cuenta, sin apagarla.
+   *
+   * Es lo que faltaba para poder matar un token filtrado de una etiquetera o un
+   * kiosco sin desactivar la cuenta, que apagaría la pantalla. Exige
+   * `USUARIOS_PASSWORDS`, la misma llave que resetear la contraseña.
+   */
+  cerrarSesiones(
+    id: string,
+    motivo?: string | null,
+  ): Observable<{ username: string; sessions_revoked_at: string | null; last_login_at: string | null }> {
+    return this.http.post<{
+      username: string;
+      sessions_revoked_at: string | null;
+      last_login_at: string | null;
+    }>(`${this.users}/${id}/revoke-sessions`, { motivo: motivo ?? null });
+  }
+
   alcanceDe(id: string): Observable<AlcanceDePersona> {
     return this.http.get<AlcanceDePersona>(`${this.users}/${id}/scope`);
   }
