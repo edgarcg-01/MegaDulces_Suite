@@ -168,8 +168,22 @@ volver() {
 
 recrear() {
   servicios="$*"
-  commit=$(cd "$REPO" && git rev-parse --short HEAD)
-  echo "── Recreando: $servicios (commit $commit) ──"
+  # ⛔ EL COMMIT SALE DE LA IMAGEN, NO DE `git HEAD`. Medido el 2026-09-22: la imagen se
+  # construyó en `673f24fb` y al recrear —minutos después— `/api/health` reportó `07bd08fc`,
+  # porque otra sesión había commiteado en el medio. El índice de git lo comparten ~10
+  # sesiones y HEAD se mueve solo.
+  # Decir una versión que NO es la que corre es exactamente el defecto que `[VL.9.2]` vino a
+  # cerrar («la versión que sirve no se sabía»), disfrazado de dato correcto.
+  # Se resuelve preguntándole a Docker cuál etiqueta de commit comparte ID con `:latest`.
+  commit=$(ssh_md "docker images --format '{{.Tag}} {{.ID}}' trade-prod-api 2>/dev/null \
+    | grep -v '^latest ' \
+    | awk -v v=\"\$(docker images --format '{{.ID}}' trade-prod-api:latest 2>/dev/null | head -1)\" '\$2==v {print \$1; exit}'" 2>/dev/null)
+  if [ -z "$commit" ]; then
+    commit=desconocido
+    echo "   ⚠️ la imagen no tiene etiqueta de commit — /api/health va a decir 'desconocido',"
+    echo "      que es la verdad. Reconstruí con 'deploy.sh --imagenes' para que la tenga."
+  fi
+  echo "── Recreando: $servicios (imagen $commit) ──"
   # GIT_COMMIT_SHA viaja por el ENTORNO DEL PROCESO, no por prod.env: el formato `env_file` de
   # Compose no interpola y lo dejaría vacío — medido, `/api/health` devolvía `"commit": ""`. Es el
   # dato que dice qué versión está sirviendo; sin él el healthcheck miente por omisión.
