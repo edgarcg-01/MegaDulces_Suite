@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { BinLocationService, CreateBinDto, PutAwayDto, MoveLotDto, MoveLotResult } from './bin-location.service';
+import { BinLocationService, CreateBinDto, PutAwayDto, MoveLotDto, MoveLotResult, WarehouseFreeze } from './bin-location.service';
 
 /**
  * Fase WMS-REC (Pieza 3 — Ubicación bin-level, ADR-044).
@@ -108,6 +108,20 @@ export class BinLocationController {
   @ApiOperation({ summary: 'Mover un lote de una ubicación a otra (por id o por código escaneado)' })
   moveLot(@Body() body: MoveLotDto): Promise<MoveLotResult> {
     return this.service.moveLot(body);
+  }
+
+  /**
+   * Si el almacen acepta movimientos ahora, y si no, que folio lo frena.
+   *
+   * Lo consulta el Anden al abrir el vale para avisar ANTES de la captura, en vez
+   * de que el operario se entere al guardar. Es una lectura: no reemplaza a los
+   * guards del servidor, los adelanta.
+   */
+  @Get('warehouse-freeze')
+  @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Saber si un almacen esta congelado por un inventario fisico' })
+  warehouseFreeze(@Query('warehouse_id') warehouseId?: string): Promise<WarehouseFreeze> {
+    return this.service.warehouseFreeze(warehouseId || '');
   }
 
   // Donde esta un producto, para el que lo fue a dejar.

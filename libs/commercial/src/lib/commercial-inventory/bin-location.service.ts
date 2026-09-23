@@ -113,6 +113,22 @@ export interface PutAwayDto {
  * El origen y el destino se pueden dar por id o por el código del cartel: quien
  * mueve tiene la pistola, no los UUID.
  */
+/**
+ * Si el almacén acepta movimientos ahora mismo, y si no, por qué.
+ *
+ * `frozen: false` con `folio: null` es la respuesta normal. Se declara siempre
+ * el campo en vez de devolver 404 o un objeto vacío: quien pregunta necesita
+ * poder distinguir "no está congelado" de "no pude averiguarlo".
+ */
+export interface WarehouseFreeze {
+  warehouse_id: string;
+  frozen: boolean;
+  /** Folio del inventario físico que lo congela. `null` si no hay ninguno. */
+  folio: string | null;
+  count_id: string | null;
+  status: string | null;
+}
+
 /** Lo que deja un movimiento entre ubicaciones. */
 export interface MoveLotResult {
   moved: true;
@@ -428,6 +444,38 @@ export class BinLocationService {
       throw new ConflictException(
         `Almacén con inventario físico en curso (folio ${frozen.folio}); no se puede mover mercancía de lugar hasta cerrar o cancelar el conteo.`,
       );
+  }
+
+  /**
+   * **¿Se puede trabajar en este almacén?** — la pregunta que el Andén hacía
+   * demasiado tarde.
+   *
+   * Hoy el congelamiento por inventario físico se descubre al GUARDAR: el
+   * operario lee la etiqueta, teclea lote, caducidad y cantidad, aprieta, y
+   * recién ahí el backend contesta que hay un conteo abierto. Con seis renglones
+   * capturados, seis veces. El almacén se conoce desde que se identifica el vale,
+   * así que la pregunta se puede hacer antes de que escriba la primera letra.
+   *
+   * Es una LECTURA: no frena nada por sí sola. Los que frenan de verdad siguen
+   * siendo los guards del servidor (`assertNoCount` acá, `assertWarehouseNotFrozen`
+   * en el servicio de inventario) — esto sólo permite decirlo a tiempo. Si esta
+   * consulta fallara, el guard del guardado sigue siendo la red de seguridad.
+   */
+  async warehouseFreeze(warehouseId: string): Promise<WarehouseFreeze> {
+    if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      const frozen = await trx('commercial.inventory_counts')
+        .where({ warehouse_id: warehouseId, freeze_movements: true })
+        .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+        .first('id', 'folio', 'status');
+      return {
+        warehouse_id: warehouseId,
+        frozen: !!frozen,
+        folio: frozen?.folio ?? null,
+        count_id: frozen?.id ?? null,
+        status: frozen?.status ?? null,
+      };
+    });
   }
 
   // ───── reads ─────

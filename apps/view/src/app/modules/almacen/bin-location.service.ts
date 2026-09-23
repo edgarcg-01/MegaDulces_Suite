@@ -120,6 +120,19 @@ export interface MoveLotResult {
   queda_en_origen: number;
 }
 
+/**
+ * Si el almacen acepta movimientos ahora mismo. `frozen: false` con `folio: null`
+ * es la respuesta normal; el campo se declara siempre para poder distinguir
+ * "no esta congelado" de "no se pudo averiguar".
+ */
+export interface WarehouseFreeze {
+  warehouse_id: string;
+  frozen: boolean;
+  folio: string | null;
+  count_id: string | null;
+  status: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BinLocationService {
   private readonly http = inject(HttpClient);
@@ -152,6 +165,15 @@ export class BinLocationService {
     let params = new HttpParams().set('code', code);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<BinLookup>(`${this.base}/bins/lookup`, { params });
+  }
+
+  /**
+   * Saber si un almacen esta congelado por un inventario fisico, ANTES de dejar
+   * capturar. No reemplaza a los guards del servidor: los adelanta.
+   */
+  warehouseFreeze(warehouseId: string): Observable<WarehouseFreeze> {
+    const params = new HttpParams().set('warehouse_id', warehouseId);
+    return this.http.get<WarehouseFreeze>(`${this.base}/warehouse-freeze`, { params });
   }
 
   /**
