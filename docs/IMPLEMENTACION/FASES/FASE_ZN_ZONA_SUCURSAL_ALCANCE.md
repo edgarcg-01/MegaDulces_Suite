@@ -91,7 +91,7 @@ nivel que las separa. El dinero no está mal asignado — está mal **agrupado**
 | Qué | Medido |
 |---|---|
 | Catálogo de sucursales **escrito a mano en el frontend** (`core/constants/store-branches.ts`) | importado por **14 componentes** → todos ofrecen las 9 sucursales a cualquiera |
-| Patrón fail-open en el backend (`user?.warehouse_code \|\| query.warehouse_code`) | **88 ocurrencias** |
+| Controllers que reciben un parámetro de sucursal **sin que su módulo consulte el alcance** | **13** (contra 3 que sí) |
 | Archivos que sí consultan `ScopeService` | **33** |
 | Nombres de zona literales en código | 9 |
 | Tiendas (`trade.stores`) sin zona | **717 de 1,603 (44.7 %)** |
@@ -205,11 +205,71 @@ Queda con nombre: **ZN.2.5**, servir la etiqueta desde el mismo `me/scope` que y
 
 ---
 
-## 6. ZN.3 — Los 88 fail-open pasan por `ScopeService`
+## 6. ZN.3 — Los endpoints que aceptan una sucursal por parámetro
 
-`const effective = user?.warehouse_code || query.warehouse_code` significa **quien no tiene
-sucursal asignada ve la red completa**. Se migran por módulo, empezando por venta y compras, con un
-smoke por módulo que ejerza el caso negativo (una persona con alcance acotado **no** ve lo ajeno).
+### ⚠️ Corrección de una cifra publicada en este mismo documento
+
+Este plan decía **«88 fail-open»**. Era **ruido de grep**: ese conteo agarraba
+`(x.sucursal || '')`, concatenaciones SQL (`m.source_branch || '|' || ...`) y fallbacks de
+etiqueta (`warehouse_name || warehouse_code`). El patrón real
+(`user?.warehouse_code || query.warehouse_code`) aparece **7 veces y las 7 son comentarios que
+documentan que ya se retiró** — `store.controller`, `store-arqueo.controller` y
+`store-analytics.controller` ya lo migraron. El `41 módulos` que cita `scope.service.ts` es de
+`[ID.2]` y también envejeció.
+
+### Lo que SÍ falta, medido
+
+**13 controllers** aceptan `sucursal`/`warehouse_code` por parámetro y ni ellos ni su carpeta
+consultan el alcance; **3** sí. Que no lo consulten **no los hace fail-open por sí solo** — hay
+casos legítimos (el verificador de precios es público por diseño; la contabilidad ContPAQi es
+consolidada y no segmenta por sucursal, ADR-040). Se revisan **uno por uno**, priorizando
+dinero y operación de sucursal:
+
+| Prioridad | Controller |
+|---|---|
+| dinero | `finance/caja/cash-ledger` · `finance/expense-proofs` · `finance/customer-ledger` · `finance/budget/budget-expense` |
+| operación | `commercial-receiving/receiving-session` · `commercial-replenishment` (×2) · `commercial-home-delivery` · `commercial-stockouts` |
+| revisar si aplica | `commercial-labels` (kiosco) · `kp` (público por diseño) · `polizas` · `contabilidad-contpaqi` (consolidada) |
+
+Cada uno migra con un smoke que ejerza el **caso negativo**: una persona con alcance acotado
+pide la sucursal ajena por parámetro y **no la recibe**, con control positivo de que la propia
+sí llega.
+
+⚠️ Sin ZN.3, ZN.2 es **cosmético**: el desplegable muestra 2 sucursales pero la API sigue
+contestando las 9 si alguien las pide a mano.
+
+### ZN.3.1 — Faltantes de piso ✅ (2026-09-23)
+
+`GET /faltantes/sucursal/:code` y `…/codigos-que-fallan` aceptaban **cualquier** código en la ruta.
+Quien trabaja en Padre Hidalgo podía pedir `/sucursal/05` y leer lo reportado en Zamora.
+
+`assertAlcanza()` corta con `ScopeService.canRead` **antes de la consulta**, y devuelve **403, no un
+recorte silencioso**: la persona pidió una sucursal concreta, y contestarle con otra se leería como
+« en Zamora no falta nada ».
+
+Medido antes de encenderlo: las 17 personas con alcance acotado en esta familia son **todas `own` y
+todas tienen `warehouse_code`** en su ficha — el alcance resuelve y nadie pierde su propia sucursal.
+
+`floor-stockouts.scope.spec.ts` **6/6, con el rojo ejercido** (se anuló el `canRead` a propósito →
+cayeron exactamente las 3 del corte y los 3 controles positivos siguieron verdes). El candado
+central no es el 403: es que **`tk.run` no se llame**, o sea que el corte ocurra antes de tocar la
+base.
+
+⚠️ **La ESCRITURA (`POST /faltantes`) queda declarada, no cerrada.** El kiosco de mostrador
+reporta en cinco segundos y con cuenta de dispositivo; poner un `canWrite` sin medir antes qué
+alcance tienen esas cuentas puede matar el flujo de captura, que es la única fuente de este dato.
+Va con su propia medición.
+
+### ZN.3.2+ — Lo que sigue, priorizado por medición
+
+| Controller | Personas con alcance acotado | Nota |
+|---|---|---|
+| `commercial-labels` | 17 | ⛔ **trabajo en vuelo de otra sesión** (`ETQ-CAMBIOS`, 3 commits) — no se toca hasta que baje. El daño ahí es real: la sucursal elige el **precio**, así que se puede imprimir la etiqueta de otra plaza |
+| `commercial-home-delivery` | 9 | reparto |
+| `commercial-replenishment` · `purchase-adjustments` | 6 | compras |
+| `receiving-session` | 0 con `COMMERCIAL_INVENTORY_RECIBIR` | el conteo alto venía de `COMMERCIAL_WAREHOUSES_GESTIONAR`: revisar cuál puerta importa |
+| `expense-proofs` | 46 **con `CAPTURAR`**, 0 con `VER` | la bandeja con montos es corporativa; lo único expuesto es `proof-by-folio`, que devuelve estado, no dinero |
+| `cash-ledger` · `customer-ledger` · `budget-expense` · `polizas` · `contabilidad-contpaqi` | **0** | su público es 100 % corporativo (`all`): encender el filtro no cambia nada hoy. Se hará por higiene, sin prisa |
 
 ⛔ Sin ZN.2 esto es invisible para el usuario; sin ZN.3, ZN.2 es cosmético. Van juntos, módulo por
 módulo.

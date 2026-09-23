@@ -55,7 +55,7 @@ el id — renombrar rompe, y ya pasó (`rename_zone_nacional_to_oficinas`).
 | Qué | Medido |
 |---|---|
 | `apps/view/.../core/constants/store-branches.ts` escrito a mano | **14 componentes** lo importan → todos ofrecen las 9 sucursales a cualquiera |
-| `user?.warehouse_code \|\| query.warehouse_code` (fail-open) | **88** |
+| Controllers con parámetro de sucursal que no consultan el alcance | **13** (contra 3 que sí). ⚠️ En la primera pasada se publicó **88** y era **ruido de grep** — el patrón real aparece 7 veces y las 7 son comentarios de que ya se retiró |
 | Archivos que consultan `ScopeService` | **33** |
 | `trade.stores` sin zona | **717 de 1,603 (44.7 %)** |
 
