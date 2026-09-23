@@ -1,7 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { StoreSocketService, LiveTicket, StoreAlert, StoreBranchKpi, StoreLineLevers, StoreRhythm, StoreRhythmWindow } from './store-socket.service';
 import { AuthService } from '../../core/services/auth.service';
-import { LIVE_MONITOR_BRANCHES, branchName } from '../../core/constants/store-branches';
+import { DataScopeService } from '../../core/services/data-scope.service';
+import { LIVE_MONITOR_BRANCHES, branchName, StoreBranch } from '../../core/constants/store-branches';
 
 /**
  * Estado compartido del apartado Tienda (Monitor / Sucursales / Ritmo).
@@ -13,10 +14,54 @@ import { LIVE_MONITOR_BRANCHES, branchName } from '../../core/constants/store-br
 export class TiendaStateService {
   private readonly svc = inject(StoreSocketService);
   private readonly auth = inject(AuthService);
+  /** `[ZN.2]` De dónde sale ahora la lista de sucursales: del servidor, con el alcance aplicado. */
+  private readonly scope = inject(DataScopeService);
 
   readonly connected = this.svc.connected;
-  readonly branchList = LIVE_MONITOR_BRANCHES;
+
+  /**
+   * `[ZN.2]` — Sucursales que ESTA persona puede elegir en el monitor.
+   *
+   * ── Qué reemplaza ───────────────────────────────────────────────────────────
+   * Era `LIVE_MONITOR_BRANCHES`, un array **escrito a mano en el bundle**: todo
+   * el mundo veía las 9 sucursales de la red en el desplegable, tuviera o no
+   * alcance sobre ellas. El pedido del lead fue exactamente ése — *«que se
+   * respete que el usuario solo vea lo de su zona o sus sucursales asignadas»*.
+   *
+   * ── Por qué es una INTERSECCIÓN y no la lista del alcance a secas ───────────
+   * Las dos listas responden preguntas distintas y las dos mandan:
+   *   · el alcance (`me/scope`, ya filtrado por el backend) dice **qué le toca**;
+   *   · `LIVE_MONITOR_BRANCHES` dice **qué puede mostrar este monitor** — el
+   *     CEDIS no vende al público y las rutas no tienen POS de mostrador, así
+   *     que ofrecerlos sería un filtro que siempre devuelve vacío.
+   * Ofrecer la unión traería sucursales sin datos; ofrecer sólo el alcance
+   * traería el CEDIS. Se ofrece lo que está en las dos.
+   *
+   * ── Mientras no se sabe, no se ofrece ──────────────────────────────────────
+   * `null` = `me/scope` todavía no contestó. En ese estado la lista va **vacía**,
+   * no completa: rellenar con las 9 «por las dudas» es el fail-open que esto
+   * viene a cerrar, y el filtro arranca en «todas» igual, así que nadie queda
+   * mirando una pantalla en blanco mientras carga.
+   */
+  private readonly alcance = signal<string[] | null>(null);
+  readonly branchList = computed<StoreBranch[]>(() => {
+    const permitidas = this.alcance();
+    if (permitidas === null) return [];
+    return LIVE_MONITOR_BRANCHES.filter((b) => permitidas.includes(b.code));
+  });
   readonly branchName = branchName;
+
+  constructor() {
+    // El servicio vive toda la sesión y `me/scope` se cachea con shareReplay:
+    // esto es una sola llamada, no una por pantalla del apartado.
+    this.scope.warehouses().subscribe({
+      next: (opts) => this.alcance.set(opts.map((o) => o.value)),
+      // Si el alcance no contesta, la lista se queda vacía: el backend recorta
+      // igual lo que devuelve el WS, así que el monitor sigue mostrando lo suyo;
+      // lo único que se pierde es poder filtrar a mano.
+      error: () => this.alcance.set([]),
+    });
+  }
 
   readonly ventaHoy = signal(0);
   readonly ticketsHoy = signal(0);

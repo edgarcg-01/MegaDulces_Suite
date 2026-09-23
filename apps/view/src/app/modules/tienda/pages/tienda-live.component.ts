@@ -68,7 +68,7 @@ import { TiendaStateService } from '../tienda-state.service';
             <span class="tda-scope"><i class="pi pi-map-marker"></i>{{ s.branchName(s.scopedWarehouse) }}</span>
           } @else {
             <p-select [ngModel]="s.selectedBranch() || null" (ngModelChange)="s.changeBranch($event || '')"
-                      [options]="s.branchList" optionLabel="name" optionValue="code"
+                      [options]="s.branchList()" optionLabel="name" optionValue="code"
                       placeholder="Todas las sucursales" [showClear]="true" appendTo="body"
                       styleClass="tda-filter-sel" />
           }

@@ -46,7 +46,7 @@ import { TiendaStateService } from '../tienda-state.service';
           @if (s.scopedWarehouse) {
             <span class="tda-scope"><i class="pi pi-map-marker"></i>{{ s.branchName(s.scopedWarehouse) }}</span>
           } @else {
-            <p-select [options]="branchOptions" [ngModel]="s.selectedBranch()" (onChange)="s.changeBranch($event.value)"
+            <p-select [options]="branchOptions()" [ngModel]="s.selectedBranch()" (onChange)="s.changeBranch($event.value)"
               optionLabel="label" optionValue="value" styleClass="tda-filter-sel" [style]="{ minWidth: '12rem' }"
               appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
           }
@@ -118,10 +118,12 @@ import { TiendaStateService } from '../tienda-state.service';
 export class TiendaPaceComponent implements OnInit, OnDestroy {
   readonly s = inject(TiendaStateService);
 
-  readonly branchOptions = [
+  // `[ZN.2]` `computed`, no un array fijo: la lista sale del alcance de la persona
+  // (`me/scope`) y llega **despues** del primer render.
+  readonly branchOptions = computed(() => [
     { label: 'Todas las sucursales', value: '' },
-    ...this.s.branchList.map((b) => ({ label: b.name, value: b.code })),
-  ];
+    ...this.s.branchList().map((b) => ({ label: b.name, value: b.code })),
+  ]);
 
   readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
   readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
