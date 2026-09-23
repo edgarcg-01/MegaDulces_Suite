@@ -23,8 +23,48 @@
  * "operator does not exist: X >= date").
  */
 
-/** Columna de fecha de NEGOCIO por tabla (la que ya estaba en los dos scripts). */
-const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
+/**
+ * Columna de fecha de NEGOCIO por tabla. Una tabla que no esté acá NO tiene red de seguridad por
+ * ventana: o entra en el modo `--chicas` del reconciliador (si es chica), o se queda sin red.
+ *
+ * `[ODS.2]` 2026-09-23 — se suma UNA (`kdfe33m1`). Se evaluaron cinco y CUATRO quedaron afuera con
+ * motivo medido, que es el hallazgo importante de esta ronda:
+ *
+ * ⛔ HAY UN CORRIMIENTO DE 6 HORAS EN LOS TIMESTAMPS DEL ODS, anterior al 2026-09-23.
+ *    Medido comparando la MISMA fila en la rama 08:
+ *
+ *        ODS      2026-09-21 06:00:00 | 06:41:34.99 | 17023 | BTO
+ *        RÉPLICA  2026-09-21 00:00:00 | 06:41:34.99 | 17023 | BTO
+ *
+ *    Seis horas es exactamente `America/Mexico_City` (UTC−6): un `timestamp without time zone`
+ *    tratado como si tuviera zona. El corte es limpio — TODO lo anterior al 09-23 está corrido y
+ *    desde el 09-23 está bien, lo que apunta a la mudanza de prod (Railway `Etc/UTC` → `md`
+ *    `America/Mexico_City`). Afecta a `kdpv_bitacora_precios`, `kdmx_26` y `kdlogmov`; NO afecta a
+ *    `kdm1.c68`, así que no es global.
+ *
+ * ⚠️ POR ESO ESAS CUATRO NO ENTRAN. Con la llave corrida, los dos lados no discrepan en el DATO
+ *    sino en la LLAVE: la misma fila cuenta como ausente Y como sobrante a la vez. Medido en seco,
+ *    `kdpv_bitacora_precios` daba `faltan 38,487 · sobrantes 30,900` — y verificado en SQL puro con
+ *    `::text` (30,900 / 38,365, las mismas cifras), así que no era artefacto del comparador de JS.
+ *    Agregarlas convertiría la red de seguridad en un MOLINO: re-shipear 38k y borrar 30k en cada
+ *    pasada, sin converger nunca. Entran cuando el corrimiento esté resuelto, no antes.
+ *
+ *    · `kdpv_bitacora_precios.c1`  timestamp corrido, Y en la PK
+ *    · `kdlogmov.c2`               timestamp corrido, Y en la PK
+ *    · `orglogtbl_26.k_date`       timestamp en la PK (`'…|INS|Sun Sep 20 2026 13:31:32…|347403'`)
+ *    · `kdmx_26.c9`                la columna de ventana está corrida → cada lado elegiría filas distintas
+ *
+ * ⚠️ Y deja al descubierto un supuesto NO ESCRITO del reconciliador: `keyOf` hace `String(valor)`,
+ *    así que la comparación de llaves sólo es válida si la PK es TEXTO. Las cinco tablas originales
+ *    lo son por casualidad. Con una PK que traiga timestamp, `--delete-sobrantes` borraría filas
+ *    VIVAS. Antes de sumar cualquier tabla acá, verificar el tipo de su PK.
+ *
+ * `kdfe33m1` sí entra: PK 100% texto (sucursal, c1, c2, c3) y `c6` con una sola columna de fecha.
+ */
+const RECENT_COL = {
+  kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10',
+  kdfe33m1: 'c6',
+};
 
 /** Columnas ADICIONALES que amplían la ventana: fecha de CAPTURA, donde se conoce. */
 const RECENT_EXTRA_COLS = { kdm1: ['c68'] };

@@ -69,6 +69,28 @@ const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
 // de slot) como propagador de DELETE. OFF por default: sólo con --delete-sobrantes o env=1.
 const DELETE_SOB = process.argv.includes('--delete-sobrantes') || process.env.ODS_DELETE_SOBRANTES === '1';
 const FULL = process.argv.includes('--full'); // ignora la ventana: barrido único del backlog (solo-DELETE)
+
+// ⭐ `[ODS.2]` MODO TABLA CHICA: sin ventana, y SÍ repone.
+//
+// El comentario de abajo decía "reconciliar una tabla entera por PK sería carísimo" y por eso una
+// tabla sin fecha de negocio se SALTABA. Medido el 2026-09-23, eso es cierto para `kdm2` (1.8M filas)
+// y falso para el resto: de las 17 tablas que estaban perdiendo filas, **14 pesan ≤30 MB** y la
+// mayoría menos de 10. Comparar sus llaves completas cuesta milisegundos.
+//
+// Y sigue siendo "sólo los cambios": se comparan LLAVES, se shipean únicamente las ausentes. Lo que
+// no se hace nunca es traer las filas enteras de la tabla.
+//
+// Se diferencia de `--full`, que ignora la ventana pero NO repone ("sería re-ship masivo" — cierto
+// para las grandes). Acá sí repone, porque el universo es chico por construcción.
+//
+// ⛔ EL FRENO VIVE EN EL CÓDIGO, NO EN QUIEN LO INVOCA. Este modo es válido *porque* las tablas son
+// chicas; si alguien lo apunta a `kdm2` deja de serlo. Por eso se mide el tamaño real en el ODS y se
+// SALTA lo que pase del tope, en vez de confiar en que la lista de tablas esté bien escrita.
+const CHICAS = process.argv.includes('--chicas');
+const CHICAS_MAX_MB = Math.max(1, Number(process.env.ODS_CHICAS_MAX_MB) || 100);
+/** Sin ventana de fecha: compara el universo completo de llaves. Lo comparten `--full` y `--chicas`. */
+const SIN_VENTANA = FULL || CHICAS;
+
 // Freno anti-catástrofe: si una réplica se rompe y devuelve pocas/0 filas, TODO el ODS parece sobrante.
 // Nunca borrar más de esta fracción del ODS de una tabla×rama en una pasada; si se pasa, ABORTA y reporta.
 const MAX_DELETE_FRAC = Math.min(1, Math.max(0.05, Number(process.env.ODS_DELETE_MAX_FRAC) || 0.6));
@@ -132,12 +154,56 @@ async function tableMeta(src, table) {
   return { cols, pk };
 }
 
+// ⛔ `[ODS.2]` ESTA LÍNEA TIENE UN SUPUESTO QUE NO ESTABA ESCRITO: `String(valor)`.
+// Sobre un `timestamp`, el driver de pg devuelve un `Date` de JS y `String()` lo renderiza como
+// `"Sun Sep 20 2026 06:00:00 GMT-0600 (Central Standard Time)"` — dependiente de la zona del
+// proceso y de la representación, no del instante. Sobre un `numeric`, `1.50` y `1.5` son llaves
+// distintas. Las cinco tablas originales tienen PK 100% TEXTO, así que funcionó por casualidad.
+// Con una PK que traiga timestamp, la MISMA fila cuenta como ausente Y como sobrante — y con
+// `--delete-sobrantes` encendido eso BORRA FILAS VIVAS. Por eso `pkComparable()` lo frena abajo.
 const keyOf = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
+
+/**
+ * `[ODS.2]` LA LLAVE LA ARMA POSTGRES, NO `String()` DE JS.
+ *
+ * Cada columna de la PK se lleva a una forma CANÓNICA que los dos lados producen igual:
+ *   · numeric → `trim_scale()` antes de `::text`. El mismo valor puede venir como `1.50` de un
+ *     lado y `1.5` del otro cuando los tipos declarados difieren en escala — y difieren: medido,
+ *     `kdfedir.c1` es `numeric` en el ODS y `numeric(1,0)` en el réplica. `trim_scale` los iguala.
+ *   · el resto → `::text`, que en Postgres es determinista.
+ * `coalesce(...,'\x00')` conserva la semántica del `keyOf` viejo para NULL.
+ *
+ * ⛔ El timestamp queda FUERA aunque `::text` sea determinista, y no por la comparación sino por
+ * los DATOS: el ODS trae los timestamps anteriores al 2026-09-23 corridos 6 h (ver la nota en
+ * `lib/ods-recent-window.js`). Compararlos daría "falta y sobra la misma fila" — un molino.
+ */
+const TIPOS_PK_VETADOS = new Set(['timestamp without time zone', 'timestamp with time zone', 'date']);
+
+function pkKeyExpr(meta) {
+  const tipo = new Map(meta.cols.map((c) => [c.column_name, String(c.data_type || '').toLowerCase()]));
+  return meta.pk.map((k) => {
+    const t = tipo.get(k);
+    const base = t === 'numeric' ? `trim_scale(${qid(k)})::text` : `${qid(k)}::text`;
+    return `coalesce(${base}, chr(1))`;
+  }).join(` || '|' || `);
+}
+
+/**
+ * ¿Se puede comparar la PK de esta tabla? Devuelve null si sí, o el motivo si no.
+ * Es un freno de CORRECCIÓN, no de rendimiento: comparar mal no da error, da un veredicto falso.
+ */
+function pkNoComparable(meta) {
+  const tipo = new Map(meta.cols.map((c) => [c.column_name, c.data_type]));
+  const malas = meta.pk.filter((k) => TIPOS_PK_VETADOS.has(String(tipo.get(k) || '').toLowerCase()));
+  if (!malas.length) return null;
+  return `PK con fecha (${malas.map((k) => `${k}:${tipo.get(k)}`).join(', ')}) — los timestamps del ODS `
+    + 'anteriores al 2026-09-23 estan corridos 6 h; comparar daria falta-y-sobra a la vez';
+}
 
 /** ¿Cuáles de estas llaves SIGUEN existiendo en md.<table> (tabla COMPLETA, sin ventana)? El re-chequeo
  * que separa un DELETE real (ausente de la tabla) de un artefacto de ventana (salió de la ventana por
  * cambio de fecha, pero la fila sigue viva). Sin esto, borrar por "no está en la ventana" borraría vivos. */
-async function existsInReplicaFull(local, table, pk, rows) {
+async function existsInReplicaFull(local, table, pk, rows, keyExpr) {
   const found = new Set();
   const pkList = pk.map(qid).join(', ');
   const B = 800;
@@ -145,8 +211,8 @@ async function existsInReplicaFull(local, table, pk, rows) {
     const chunk = rows.slice(i, i + B);
     const binds = chunk.flatMap((r) => pk.map((k) => r[k]));
     const ph = chunk.map((_, ix) => `(${pk.map((__, j) => `$${ix * pk.length + j + 1}`).join(',')})`).join(',');
-    const res = await local.query(`SELECT ${pkList} FROM md.${qid(table)} WHERE (${pkList}) IN (${ph})`, binds);
-    for (const r of res.rows) found.add(keyOf(pk, r));
+    const res = await local.query(`SELECT ${keyExpr} AS _k FROM md.${qid(table)} WHERE (${pkList}) IN (${ph})`, binds);
+    for (const r of res.rows) found.add(r._k);
   }
   return found;
 }
@@ -161,33 +227,53 @@ async function existsInReplicaFull(local, table, pk, rows) {
 // ⚠️ `prod` ya estaba en el alcance: `pasada()` lo abre y lo pasa. Faltaba pasarlo un nivel
 // mas. Lo mismo hace `replicate-ods-live.js:254`, que por eso si funcionaba.
 async function reconcile(local, prod, code, table) {
-  if (!RECENT_COL[table] && !FULL) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
+  if (!RECENT_COL[table] && !SIN_VENTANA) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
+
+  // ⛔ `[ODS.2]` El freno del modo chicas: se MIDE el tamaño en el ODS, no se confía en la lista.
+  // Una tabla grande acá compararía millones de llaves por rama y por pasada.
+  if (CHICAS) {
+    const mb = (await prod.query(
+      `SELECT coalesce(pg_total_relation_size(to_regclass($1)) / 1048576.0, 0) AS mb`,
+      [`kepler_ods.${table}`])).rows[0].mb;
+    if (Number(mb) > CHICAS_MAX_MB) {
+      return { suc: code, tabla: table, skip: `${Math.round(mb)} MB > ${CHICAS_MAX_MB} MB — NO es tabla chica, usá ventana` };
+    }
+  }
+
   const meta = await tableMeta(local, table);
   if (!meta) return { suc: code, tabla: table, skip: 'no existe en el replica' };
   if (!meta.pk.length) return { suc: code, tabla: table, skip: 'sin PK' };
+  // `[ODS.2]` Antes de comparar NADA: si la PK no es comparable, el veredicto sería falso en las dos
+  // direcciones (falta y sobra la misma fila) y `--delete-sobrantes` borraría vivos.
+  const pkMal = pkNoComparable(meta);
+  if (pkMal) return { suc: code, tabla: table, skip: pkMal };
 
   const pkList = meta.pk.map(qid).join(', ');
   // Misma ventana en los DOS lados (replica y ODS comparten columnas): kdm1 = c9 OR c68.
-  // --full la ignora (barrido de backlog): compara la tabla COMPLETA, sólo para borrar (no repone).
-  const ventana = FULL ? 'TRUE' : recentWindowSql(table, meta.cols, DAYS);
+  // `--full` y `--chicas` la ignoran: comparan la tabla COMPLETA. La diferencia entre los dos es
+  // si REPONEN (ver `faltan` más abajo), no cómo delimitan el universo.
+  const ventana = SIN_VENTANA ? 'TRUE' : recentWindowSql(table, meta.cols, DAYS);
   if (!ventana) return { suc: code, tabla: table, skip: 'columna de fecha no es date/timestamp en el replica' };
-  const wLoc = FULL ? '' : `WHERE ${ventana}`;
-  const wOds = FULL ? '' : `AND ${ventana}`;
+  const wLoc = SIN_VENTANA ? '' : `WHERE ${ventana}`;
+  const wOds = SIN_VENTANA ? '' : `AND ${ventana}`;
 
-  const loc = (await local.query(`SELECT ${pkList} FROM md.${qid(table)} ${wLoc}`)).rows;
+  const keyExpr = pkKeyExpr(meta);
+  const loc = (await local.query(`SELECT ${pkList}, ${keyExpr} AS _k FROM md.${qid(table)} ${wLoc}`)).rows;
   // Freno #1: una réplica que devuelve 0 filas en el scope NO prueba "todo se borró en origen" —
   // prueba réplica rota/vacía. Con el ODS lleno, borrar por esto lo vaciaría. Nunca se borra así.
   if (!loc.length) return { suc: code, tabla: table, local: 0, faltan: 0, ...(DELETE_SOB ? { skip_delete: 'replica 0 filas en scope — NO se borra (posible replica rota)' } : {}) };
 
   // El ODS es multi-sucursal: SIEMPRE filtrar por `sucursal`, o se compara contra las 7 ramas.
   const pro = (await prod.query(
-    `SELECT ${pkList} FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 ${wOds}`, [code])).rows;
-  const presentes = new Set(pro.map((r) => keyOf(meta.pk, r)));
-  const locales = new Set(loc.map((r) => keyOf(meta.pk, r)));
-  const faltan = FULL ? [] : loc.filter((r) => !presentes.has(keyOf(meta.pk, r))); // --full no repone (sería re-ship masivo)
-  const sobran = pro.filter((r) => !locales.has(keyOf(meta.pk, r)));
+    `SELECT ${pkList}, ${keyExpr} AS _k FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 ${wOds}`, [code])).rows;
+  const presentes = new Set(pro.map((r) => r._k));
+  const locales = new Set(loc.map((r) => r._k));
+  // `--full` no repone (sería re-ship masivo sobre tablas de millones). `--chicas` SÍ: su universo
+  // está acotado por el freno de tamaño de arriba, así que reponer es barato y es justo el objetivo.
+  const faltan = FULL ? [] : loc.filter((r) => !presentes.has(r._k));
+  const sobran = pro.filter((r) => !locales.has(r._k));
   const extra = sobran.length
-    ? { sobrantes: sobran.length, ej_sobrantes: sobran.slice(0, 3).map((r) => keyOf(meta.pk, r)).join(' ') }
+    ? { sobrantes: sobran.length, ej_sobrantes: sobran.slice(0, 3).map((r) => r._k).join(' ') }
     : {};
 
   // ── PROPAGACIÓN DE DELETE (OBS.11, gated) — reemplaza al WAL-CDC como propagador de DELETE ──
@@ -195,10 +281,12 @@ async function reconcile(local, prod, code, table) {
   // salió de la ventana por fecha (NO borrado) → no se toca. En --full, `sobran` YA es la comparación
   // completa. Freno #2: nunca borrar más de MAX_DELETE_FRAC del ODS de esa tabla×rama en una pasada.
   if (DELETE_SOB && sobran.length) {
-    const confirmadas = FULL
+    // Sin ventana (`--full` o `--chicas`), `sobran` YA es la comparación completa: no hay artefacto
+    // de ventana que re-confirmar. Con ventana sí, y por eso se re-chequea contra la tabla entera.
+    const confirmadas = SIN_VENTANA
       ? sobran
       : await (async () => {
-        const found = await existsInReplicaFull(local, table, meta.pk, sobran);
+        const found = await existsInReplicaFull(local, table, meta.pk, sobran, keyExpr);
         return sobran.filter((r) => !found.has(keyOf(meta.pk, r)));
       })();
     extra.confirmadas_borrar = confirmadas.length;
@@ -318,14 +406,14 @@ async function latir(destUrl, r, ms) {
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
-      VALUES ($1,'${HB_KEY}',${FULL ? "'Reconciliador ODS --full (backlog)'" : "'Reconciliador ODS (completitud)'"}, now() - ($2::int || ' ms')::interval, now(),
+      VALUES ($1,'${HB_KEY}',${FULL ? "'Reconciliador ODS --full (backlog)'" : CHICAS ? "'Reconciliador ODS --chicas (tablas sin fecha)'" : "'Reconciliador ODS (completitud)'"}, now() - ($2::int || ' ms')::interval, now(),
               $3, $4, $2, $5, $6, $7, now())
       ON CONFLICT (tenant_id, job_key) DO UPDATE SET
         last_start=EXCLUDED.last_start, last_finish=EXCLUDED.last_finish, status=EXCLUDED.status,
         rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
         note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
     [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
-      `ventana ${FULL ? 'FULL' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
+      `ventana ${FULL ? 'FULL' : CHICAS ? 'CHICAS' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
       malo ? [
         sinReponer > 0 ? `${sinReponer} de ${r.huecos} filas ausentes NO se repusieron — el carril esta perdiendo filas` : null,
         r.huecos > ALERTA ? `${r.huecos} huecos en la ventana (se repusieron ${r.repuestas}) — muy por encima del regimen medido (p99=503 sobre 1217 corridas de 14 dias): revisar el carril PRIMARIO, no este` : null,
@@ -342,7 +430,7 @@ async function latir(destUrl, r, ms) {
 (async () => {
   const destUrl = process.env.DATABASE_URL_NEW;
   if (!destUrl) { console.error('Falta DATABASE_URL_NEW (se lee para comparar las llaves del ODS).'); process.exit(2); }
-  console.log(`reconcile-ods-window · ${FULL ? 'FULL (backlog)' : `ventana ${DAYS}d`} · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${DELETE_SOB ? ' · DELETE-SOBRANTES' : ''}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
+  console.log(`reconcile-ods-window · ${FULL ? 'FULL (backlog)' : CHICAS ? `CHICAS (sin ventana, tope ${CHICAS_MAX_MB} MB)` : `ventana ${DAYS}d`} · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${DELETE_SOB ? ' · DELETE-SOBRANTES' : ''}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
 
   if (!WATCH_SEC) {
     const t0 = Date.now();
