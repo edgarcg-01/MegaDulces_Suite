@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule, TableLazyLoadEvent } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -15,7 +15,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in rq-page">
@@ -42,7 +42,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
         <ng-template #body let-r>
           <tr class="rq-row" (click)="open(r)">
-            <td class="rq-mono">{{ r.folio }}</td>
+            <td class="rq-mono"><a class="surf-cell-link" [routerLink]="['/compras/requisiciones', r.id]" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
             <td>{{ r.warehouse_code || '—' }}</td>
             <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
             <td class="rq-r">{{ r.total_lines | number }}</td>

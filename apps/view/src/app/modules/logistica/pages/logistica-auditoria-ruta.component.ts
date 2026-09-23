@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -55,7 +55,7 @@ interface RouteEntry {
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, MultiSelectModule, DatePickerModule, TableModule, TooltipModule, MapComponent, ContextHelpComponent],
+  imports: [RouterLink, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule, TableModule, TooltipModule, MapComponent, ContextHelpComponent],
   template: `
     <div class="surf-page rk-mapfirst">
       <header class="surf-page-head">
@@ -135,7 +135,7 @@ interface RouteEntry {
                 } @else {
                   <p class="rk-muted rk-locsales rk-dim">Sin hora de venta para ubicar (Kepler PH)</p>
                 }
-                <button pButton size="small" (click)="verHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></button>
+                <a pButton size="small" [routerLink]="['/dashboard/routes']" [queryParams]="paramsHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></a>
               </div>
             }
           </aside>
@@ -514,11 +514,12 @@ export class LogisticaAuditoriaRutaComponent {
     }
   }
 
-  /** Botón "Historial de visitas": al Apartado Rutas con la ruta preseleccionada. */
-  verHistorial() {
+  /** "Historial de visitas": al Apartado Rutas con la ruta preseleccionada.
+   *  Es un <a routerLink> para que acepte Ctrl+clic (ADR-078). */
+  readonly paramsHistorial = computed<Record<string, number>>(() => {
     const rn = this.focusedRoute();
-    this.router.navigate(['/dashboard/routes'], { queryParams: rn != null ? { route_number: rn } : {} });
-  }
+    return rn != null ? { route_number: rn } : ({} as Record<string, number>);
+  });
 
   // ── helpers ────────────────────────────────────────────────────────────────
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }

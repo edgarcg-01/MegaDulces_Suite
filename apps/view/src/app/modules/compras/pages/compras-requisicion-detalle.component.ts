@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -19,7 +19,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisicion-detalle',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent],
+  imports: [RouterLink, CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -27,7 +27,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <button pButton type="button" class="p-button-text p-button-sm rd-back" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></button>
+          <a pButton class="p-button-text p-button-sm rd-back" routerLink="/compras/requisiciones"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
           @if (req(); as r) {
             <h1>{{ r.folio }} <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></h1>
             <p class="surf-page-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}</p>
@@ -187,7 +187,6 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   /** Muestra la columna Recibido cuando la requisición ya está en recepción o recibida. */
   showRecibido(): boolean { const e = this.req()?.estado; return e === 'ordered' || e === 'received'; }
 
-  back(): void { this.router.navigate(['/compras/requisiciones']); }
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   basisLabel(b: string) { return ({ min: 'mínimo', reorder: 'reorden', max: 'máximo' } as Record<string, string>)[b] || b; }
   estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', received: 'Recibida', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }

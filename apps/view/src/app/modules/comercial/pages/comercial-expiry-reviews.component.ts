@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -26,7 +26,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
 @Component({
   selector: 'app-comercial-expiry-reviews',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -54,7 +54,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
         </ng-template>
         <ng-template #body let-r>
           <tr class="er-row" (click)="open(r)">
-            <td>{{ fmtDate(r.review_date) }}</td>
+            <td><a class="surf-cell-link" [routerLink]="[r.id]" (click)="$event.stopPropagation()">{{ fmtDate(r.review_date) }}</a></td>
             <td class="er-mono">{{ r.warehouse_code }} · {{ r.warehouse_name }}</td>
             <td>{{ r.responsible_name || '—' }}</td>
             <td class="num">{{ r.line_count }}</td>

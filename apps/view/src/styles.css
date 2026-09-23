@@ -3321,3 +3321,36 @@ td.num, th.num {
   .btn-ghost:active,
   .icon-btn-ghost:active { transform: none !important; }
 }
+
+/* ── Enlace dentro de una celda de tabla ──────────────────────────────────────
+ * El folio/código que abre el detalle, como ENLACE de verdad.
+ *
+ * Por qué es global y no otra clase por módulo: `[MT.1]` midió 14 clases
+ * `*-link` distintas repartidas por los módulos (tw-dlink, rr-link, cap-link,
+ * rp-link, ...) para el mismo trabajo. Es el patrón que ADR-056 llama primitivo
+ * re-inventado; ésta es la versión compartida.
+ *
+ * Por qué importa que sea `<a>` y no un `(click)` en el `<tr>`: un div con
+ * click no tiene Ctrl+clic, ni clic central, ni "Abrir en pestaña nueva", ni
+ * preview de la URL al pasar el mouse. El clic de fila se conserva para el caso
+ * común; esto habilita el otro (ADR-078).
+ *
+ * En reposo se ve como el texto de la celda -- DESIGN.md pide chrome casi
+ * monocromático y una tabla con una columna azul subrayada grita. El color
+ * aparece en hover/focus, que es cuando la afordancia hace falta. */
+.surf-cell-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-sm);
+}
+.surf-cell-link:hover {
+  color: var(--action);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.surf-cell-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

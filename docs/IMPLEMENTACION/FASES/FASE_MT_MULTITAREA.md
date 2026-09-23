@@ -57,7 +57,7 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 |---|---|---|
 | **[SN.31]** | El destino sobrevive al login (precursor: salió de este análisis) | 🧪 2026-09-22 |
 | **[MT.0]** | Poléa sólo mientras la pestaña se ve — el primitivo + sus 9 consumidores | 🧪 2026-09-22 |
-| **[MT.1]** | Los 47 saltos imperativos de escritorio a `<a [routerLink]>` | ⬜ |
+| **[MT.1]** | Los drill-downs de escritorio a `<a [routerLink]>` | 🧪 2026-09-22 |
 | **[MT.2]** | Listener de `storage`: logout y cambio de permisos se propagan | ⬜ |
 | **[MT.3]** | Afordancia «abrir en otra ventana» en los drill-downs donde comparar es el trabajo | ⬜ |
 | **[MT.4]** | Medir en vivo el costo real por pestaña (hoy sólo hay la medición determinista) | ⬜ |
@@ -119,6 +119,49 @@ registra clics, no HTTP). Eso es **[MT.4]** y hasta entonces se declara.
 **no** dispara consultas de más. Si la puesta al día corriera en cada `visibilitychange` sin mirar
 cuánto pasó, trabajar con dos ventanas —el caso que la fase existe para habilitar— pediría *más*
 que el timer ciego. Sin esa prueba el bloque de la medición se pone verde igual.
+
+---
+
+### [MT.1] — los drill-downs son enlaces
+
+⚠️ **Corrección al diagnóstico:** los «47 saltos de escritorio» eran el conteo de navegaciones
+imperativas, **no** el de cosas que deberían ser un enlace. Al leer cada sitio: **16 de las 20 de
+dashboard son rebotes por permiso** (`if (!puede) → /dashboard`), y hay redirecciones después de
+guardar, tras un diálogo de confirmación y el logout. **Eso debe seguir siendo imperativo** — no
+son destinos, son consecuencias. Lo convertible era bastante menos.
+
+**16 convertidos** (11 destinos + 4 «Volver» + la campana):
+
+- **Lista → detalle (6).** Órdenes de compra · requisiciones · pedidos · sesiones de inventario ·
+  embarques · revisiones de caducidad. Un `<tr>` **no se puede envolver en `<a>`**, así que se
+  conserva el clic de fila y la **celda que identifica** (el folio) pasa a ser enlace de verdad,
+  con `stopPropagation` para que la fila no navegue además.
+- **Entre módulos (5)** — los de cotejar: cartera → documento · costo neto → descuentos · pagos →
+  descuentos · solicitudes → gasto · auditoría de ruta → historial.
+- **«Volver» (4)**, con clic central abren la lista al lado sin perder el detalle.
+- **La campana (1)**, que es donde más se nota: ves una alerta y la abrís *junto a* lo que estabas
+  haciendo, no encima.
+
+⭐ Dos hallazgos de paso: **`comercial-inventory-sessions` tenía `[routerLink]` sobre el `<tr>`** —
+navega, pero **no** es un ancla, así que nunca dio Ctrl+clic; parecía resuelto y no lo estaba. Y
+**`finanzas-solicitudes` tenía un `<button class="so-link">`**: ya se llamaba «link» y se pintaba
+como link, sin serlo.
+
+**La clase es compartida.** Había **14 clases `*-link` distintas** por módulo (`tw-dlink`,
+`rr-link`, `cap-link`, `rp-link`…) para el mismo trabajo — otro primitivo re-inventado. Se agregó
+`.surf-cell-link` a la familia `surf-*` de `styles.css`: en reposo se ve como el texto de la celda
+(DESIGN.md pide chrome casi monocromático; una columna azul subrayada grita), y el color aparece
+en hover/focus, que es cuando la afordancia hace falta.
+
+**Cobertura, en dos mitades.** `drilldown-links.spec.ts` (17, con la negativa: revertir un ancla a
+`<button>` lo pone rojo) cuida la **forma**; el **compilador de plantillas** de `nx build view`
+cuida que la URL resuelva y que `RouterLink` esté importado — un standalone con `routerLink` sin
+importarlo no compila. Ninguna de las dos sola alcanza, y por eso se dice.
+
+**Queda sin convertir, con motivo:** los rebotes por permiso, las redirecciones post-guardado, el
+logout, `finanzas-maat-chat` (intercepta enlaces dentro del markdown que genera) y
+`comercial-egresos → goToDetalle` (lo llaman dos métodos, no un clic directo; se puede, es más
+invasivo).
 
 ---
 

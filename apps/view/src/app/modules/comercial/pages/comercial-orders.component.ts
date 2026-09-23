@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
@@ -54,7 +54,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
 @Component({
   selector: 'app-comercial-orders',
   standalone: true,
-  imports: [
+  imports: [RouterLink, 
     CommonModule,
     FormsModule,
     ButtonModule,
@@ -189,7 +189,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                   <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
                     tabindex="0" role="button"
                     [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
-                    <td><code class="comm-code">{{ o.folio }}</code></td>
+                    <td><a class="surf-cell-link" [routerLink]="['/comercial/orders', o.id]" (click)="$event.stopPropagation()"><code class="comm-code">{{ o.folio }}</code></a></td>
                     <td>
                       <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
                       <div class="comm-muted is-small co-cell-meta">

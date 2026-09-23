@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -53,7 +53,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
 @Component({
   selector: 'app-logistica-shipments',
   standalone: true,
-  imports: [
+  imports: [RouterLink, 
     CommonModule, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
@@ -227,7 +227,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   [attr.aria-label]="'Ver embarque ' + s.folio"
                   (keydown.enter)="goDetail(s)"
                   (keydown.space)="$event.preventDefault(); goDetail(s)">
-                  <td><code class="comm-code">{{ s.folio }}</code></td>
+                  <td><a class="surf-cell-link" [routerLink]="['/logistica/shipments', s.id]" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
                   <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                   <td>{{ typeLabel(s.type) }}</td>
                   <td class="comm-cell-strong">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>

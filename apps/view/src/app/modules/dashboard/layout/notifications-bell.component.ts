@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { AlertsSocketService, CommercialAlert } from '../command-center/alerts-socket.service';
 import { FindingsService } from '../../finanzas/findings.service';
@@ -38,7 +38,7 @@ const FINANCE_NOTIF_ENABLED = false;
   selector: 'app-notifications-bell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule],
+  imports: [RouterLink, CommonModule],
   template: `
     <div class="relative">
       <button
@@ -75,28 +75,28 @@ const FINANCE_NOTIF_ENABLED = false;
           <header class="flex items-center justify-between px-4 py-3 border-b border-divider">
             <span class="text-sm font-semibold text-content-main">Notificaciones</span>
             @if (canSeeFinance()) {
-              <button type="button" (click)="goHallazgos()" class="text-xs text-[color:var(--action)] hover:underline">Ver hallazgos</button>
+              <a routerLink="/finanzas/hallazgos" (click)="close()" class="text-xs text-[color:var(--action)] hover:underline">Ver hallazgos</a>
             }
           </header>
 
           @if (canSeeFinance()) {
             <div class="px-2 py-2 border-b border-divider grid grid-cols-1 gap-1">
-              <button type="button" (click)="goHallazgos()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+              <a routerLink="/finanzas/hallazgos" (click)="close()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
                 <i class="pi pi-flag text-base" [style.color]="criticos() > 0 ? 'var(--bad-fg)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
                 <span class="flex-1 min-w-0">
                   <span class="block text-sm text-content-main">{{ criticos() }} crítico(s) · {{ pendientes() }} pendiente(s)</span>
                   <span class="block text-xs text-content-muted">Hallazgos de Maat</span>
                 </span>
                 @if (montoRiesgo() > 0) { <span class="text-xs font-semibold text-content-main tabular-nums">{{ money(montoRiesgo()) }}</span> }
-              </button>
-              <button type="button" (click)="goAcciones()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+              </a>
+              <a routerLink="/finanzas/hallazgos" fragment="acciones" (click)="close()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
                 <i class="pi pi-check-square text-base" [style.color]="accionesPend() > 0 ? 'var(--action)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
                 <span class="flex-1 min-w-0">
                   <span class="block text-sm text-content-main">{{ accionesPend() }} acción(es) por aprobar</span>
                   <span class="block text-xs text-content-muted">Cuentas por Pagar / Tesorería (HITL)</span>
                 </span>
                 <i class="pi pi-angle-right text-content-muted" aria-hidden="true"></i>
-              </button>
+              </a>
             </div>
           }
 
@@ -293,8 +293,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     this.newSince.set(false);
   }
 
-  goHallazgos(): void { this.close(); this.router.navigate(['/finanzas/hallazgos']); }
-  goAcciones(): void { this.close(); this.router.navigate(['/finanzas/hallazgos'], { fragment: 'acciones' }); }
+  // Hallazgos y acciones se abren con <a routerLink>: una alerta de la campana
+  // es justo lo que querés abrir AL LADO de lo que estabas haciendo (ADR-078).
   goFeed(it: FeedItem): void { this.close(); if (it.route) this.router.navigateByUrl(it.route); }
 
   icon(it: FeedItem): string {
