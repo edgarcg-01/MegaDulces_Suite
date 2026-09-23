@@ -47,7 +47,8 @@ ops/**/*.yml    text eol=lf
 # ⭐⭐ [VL.11.A] Y ACÁ SE CORTA EL PATRÓN, EN VEZ DE AGREGAR LA SEXTA REGLA PUNTUAL.
 # En un solo día este archivo sumó reglas para `crontab.*`, `Dockerfile*`, `*.conf`, `*.ini`
 # y `.dockerignore`, todas por el MISMO motivo: un archivo sin extensión conocida queda sin
-# regla, `git archive` con `core.autocrlf=true` lo exporta con CRLF, y el `` rompe algo
+# regla, `git archive` con `core.autocrlf=true` lo exporta con CRLF, y el `
+` rompe algo
 # CALLADO. El sexto caso apareció el mismo día: `ops/prod/Caddyfile`, 64 bytes CR medidos.
 #
 # Medido antes de escribir esta línea: bajo `ops/` hay **57 archivos versionados, ninguno
@@ -60,6 +61,22 @@ ops/**/*.yml    text eol=lf
 # nadie se acuerde de esto.
 # ⚠️ Si algún día entra un binario a `ops/`, hay que exceptuarlo con `-text` explícito.
 ops/**          text eol=lf
+
+# -- [VL.11.B] Los MOLDES de configuracion, y los guiones de Windows ---------
+# ⛔ `*.env` ya tenia regla, pero **`service.env.example` NO la hereda** -- termina en
+# `.example`, no en `.env`. Medido: 19 bytes CR en lo que git entrega. Y es el archivo que
+# la gente COPIA para crear su configuracion real, asi que el CR se propaga a un valor vivo.
+# Es EXACTAMENTE el bug que dejo los 9 carriles corriendo en seco diciendo `ok`: un CR al
+# final volvia invalido el UUID del tenant. Son 7 moldes en el repo; ninguno tenia regla
+# salvo el que cayo bajo `ops/**`.
+*.example       text eol=lf
+
+# ⭐ Y aca al reves, DECLARADO en vez de accidental: un `.cmd` lo ejecuta `cmd.exe` en una
+# caja Windows, asi que CRLF es lo CORRECTO. Hasta ahora quedaba bien POR CASUALIDAD (sin
+# regla + core.autocrlf=true); en una maquina con otra configuracion de git habria salido
+# LF. Que funcione por accidente no es que funcione.
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
 
 # Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
 # CRLF le pegaria un 
