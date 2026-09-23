@@ -100,45 +100,87 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
       <button pButton size="small" [text]="true" severity="secondary" (click)="cambiar()">Cambiar cliente</button>
     </section>
 
-    <section class="rc-card rc-filtros">
-      <div class="rc-fila">
-        <label for="f1">Del</label>
-        <input id="f1" type="date" [(ngModel)]="f.date_from">
-        <label for="f2">al</label>
-        <input id="f2" type="date" [(ngModel)]="f.date_to">
-        <span class="rc-sep"></span>
-        <label for="f3">Importe</label>
-        <input id="f3" type="number" [(ngModel)]="f.min" placeholder="mín" class="rc-num">
-        <span>–</span>
-        <input id="f4" type="number" [(ngModel)]="f.max" placeholder="máx" class="rc-num" aria-label="Importe máximo">
-        <label class="rc-check">
-          <input type="checkbox" [(ngModel)]="f.solo_con_descuento"> Sólo con descuento
-        </label>
-      </div>
-      <div class="rc-fila">
-        <label for="f7">Folio</label>
-        <input id="f7" type="text" [(ngModel)]="f.folio" placeholder="contiene" class="rc-num">
-        <label for="f8">Sucursal</label>
-        <input id="f8" type="text" [(ngModel)]="f.warehouse_codes" placeholder="todas" class="rc-num">
-        <label for="f5">Caja</label>
-        <input id="f5" type="number" [(ngModel)]="f.caja" placeholder="todas" class="rc-num">
-        <label for="f6">Atendió</label>
-        <input id="f6" type="text" [(ngModel)]="f.atendio" placeholder="clave" class="rc-num">
-        <span class="rc-sep"></span>
-        <button pButton size="small" [loading]="cargando()" (click)="cargar()">Aplicar</button>
-        <button pButton size="small" [text]="true" severity="secondary" (click)="limpiar()">Limpiar</button>
-      </div>
-    </section>
+    <!-- UNA fila. Lo que se usa siempre a la vista; el resto detrás de «Más filtros», y lo
+         que está puesto se ve como etiqueta que se quita de un clic: no hay que abrir el panel
+         para saber qué hay activo. -->
+    <div class="rc-barra">
+      <select class="rc-periodo" aria-label="Periodo" [ngModel]="periodo()" (ngModelChange)="elegirPeriodo($event)">
+        @for (p of PERIODOS; track p.id) { <option [value]="p.id">{{ p.label }}</option> }
+      </select>
+
+      <button type="button" class="rc-masf" [class.abierto]="panel()" (click)="panel.set(!panel())"
+              [attr.aria-expanded]="panel()">
+        <i class="pi pi-sliders-h" aria-hidden="true"></i>
+        Más filtros
+        @if (activos().length) { <span class="rc-badge">{{ activos().length }}</span> }
+      </button>
+
+      @for (a of activos(); track a.clave) {
+        <span class="rc-chip">
+          {{ a.texto }}
+          <button type="button" [attr.aria-label]="'Quitar el filtro ' + a.texto" (click)="quitar(a.clave)">
+            <i class="pi pi-times" aria-hidden="true"></i>
+          </button>
+        </span>
+      }
+
+      <span class="rc-flex"></span>
+
+      @if (rep()?.documentos?.length) {
+        <button pButton size="small" [disabled]="!dentro().size" (click)="imprimir()">
+          <span class="p-button-icon p-button-icon-left pi pi-print" aria-hidden="true"></span>Imprimir reporte
+        </button>
+      }
+    </div>
+
+    @if (panel()) {
+      <section class="rc-card rc-panel">
+        <div class="rc-fila">
+          <label for="f1">Del</label>
+          <input id="f1" type="date" [(ngModel)]="f.date_from">
+          <label for="f2">al</label>
+          <input id="f2" type="date" [(ngModel)]="f.date_to">
+          <span class="rc-sep"></span>
+          <label for="f3">Importe</label>
+          <input id="f3" type="number" [(ngModel)]="f.min" placeholder="mín" class="rc-num">
+          <span>–</span>
+          <input id="f4" type="number" [(ngModel)]="f.max" placeholder="máx" class="rc-num" aria-label="Importe máximo">
+          <label class="rc-check">
+            <input type="checkbox" [(ngModel)]="f.solo_con_descuento"> Sólo con descuento
+          </label>
+        </div>
+        <div class="rc-fila">
+          <label for="f7">Folio</label>
+          <input id="f7" type="text" [(ngModel)]="f.folio" placeholder="contiene" class="rc-num">
+          <label for="f8">Sucursal</label>
+          <input id="f8" type="text" [(ngModel)]="f.warehouse_codes" placeholder="todas" class="rc-num">
+          <label for="f5">Caja</label>
+          <input id="f5" type="number" [(ngModel)]="f.caja" placeholder="todas" class="rc-num">
+          <label for="f6">Atendió</label>
+          <input id="f6" type="text" [(ngModel)]="f.atendio" placeholder="clave" class="rc-num">
+          <span class="rc-sep"></span>
+          <button pButton size="small" [loading]="cargando()" (click)="aplicar()">Aplicar</button>
+          <button pButton size="small" [text]="true" severity="secondary" (click)="limpiar()">Limpiar</button>
+        </div>
+      </section>
+    }
 
     @if (rep(); as r) {
+      <!-- El aviso sale SOLO cuando hay algo que declarar: lo decide el backend. -->
       @if (r.aviso) { <div class="rc-aviso">{{ r.aviso }}</div> }
 
-      <div class="rc-kpis">
-        <div class="rc-kpi"><span>Documentos</span><b class="rc-mono">{{ r.resumen.documentos }}</b></div>
-        <div class="rc-kpi"><span>Importe</span><b class="rc-mono">{{ r.resumen.importe | currency:'MXN':'symbol-narrow' }}</b></div>
-        <div class="rc-kpi"><span>Descuento</span><b class="rc-mono">{{ r.resumen.descuento | currency:'MXN':'symbol-narrow' }}</b></div>
-        <div class="rc-kpi"><span>Promedio</span><b class="rc-mono">{{ r.resumen.promedio | currency:'MXN':'symbol-narrow' }}</b></div>
-        <div class="rc-kpi"><span>Sucursales</span><b class="rc-mono">{{ r.resumen.plazas_con_compra }}</b></div>
+      <!-- DOS cifras, no cinco. La pregunta es cuánto compró y en cuántas compras. -->
+      <div class="rc-cifras">
+        <div>
+          <b class="rc-mono rc-total">{{ r.resumen.importe | currency:'MXN':'symbol-narrow' }}</b>
+          <span>en {{ r.resumen.documentos }} compra{{ r.resumen.documentos === 1 ? '' : 's' }}</span>
+        </div>
+        @if (r.resumen.descuento > 0) {
+          <div>
+            <b class="rc-mono rc-desc">{{ r.resumen.descuento | currency:'MXN':'symbol-narrow' }}</b>
+            <span>de descuento</span>
+          </div>
+        }
       </div>
 
       <section class="rc-card rc-tabla">
@@ -147,9 +189,9 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
             <tr>
               <th style="width:38px">
                 <input type="checkbox" [checked]="todosDentro()" (change)="alternarTodos()"
-                       aria-label="Incluir todos los documentos del periodo">
+                       aria-label="Incluir todas las compras">
               </th>
-              <th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Tipo</th><th>Atendió</th>
+              <th>Compra</th><th>Dónde</th>
               <th class="ta-r">Descuento</th><th class="ta-r">Total</th>
             </tr>
           </thead>
@@ -158,33 +200,35 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
               <tr [class.dentro]="dentro().has(d.id)">
                 <td><input type="checkbox" [checked]="dentro().has(d.id)" (change)="alternar(d)"
                            [attr.aria-label]="'Incluir ' + d.id"></td>
-                <td class="rc-mono">{{ d.id }}</td>
-                <td class="rc-mono">{{ d.fecha ? (d.fecha + 'T12:00:00' | date:'dd/MM/yy') : '—' }}</td>
-                <td>{{ d.sucursal_nombre || d.sucursal }}@if (d.caja != null) { · caja {{ d.caja }} }</td>
-                <td><p-tag [value]="d.origen_label" [severity]="sev(d.origen)"></p-tag></td>
-                <td>{{ d.atendio || '—' }}</td>
+                <td>
+                  <!-- La fecha manda: ya elegiste al cliente, nadie busca por folio acá. Y el
+                       tipo se dice con palabras, no sólo con un color. -->
+                  <div class="rc-dia" [class.neg]="d.total < 0">
+                    {{ dia(d.fecha) }}
+                    @if (d.origen !== 'mostrador') { · {{ d.origen_label | lowercase }} }
+                  </div>
+                  <div class="rc-sub rc-mono">{{ d.id }}</div>
+                </td>
+                <td>{{ d.sucursal_nombre || d.sucursal }}@if (d.caja != null) { <i class="rc-caja">· caja {{ d.caja }}</i> }</td>
                 <td class="ta-r rc-mono">{{ d.descuento > 0 ? (d.descuento | currency:'MXN':'symbol-narrow') : '—' }}</td>
                 <td class="ta-r rc-mono" [class.neg]="d.total < 0">{{ d.total | currency:'MXN':'symbol-narrow' }}</td>
               </tr>
             } @empty {
-              <tr><td colspan="8" class="rc-empty">Sin documentos con esos filtros.</td></tr>
+              <tr><td colspan="5" class="rc-empty">Sin compras con esos filtros.</td></tr>
             }
           </tbody>
         </table>
-      </section>
 
-      @if (r.documentos.length) {
-        <section class="rc-card rc-accion">
-          <div class="rc-accion-txt">
-            <b>{{ dentro().size }} de {{ r.documentos.length }} documentos en el reporte</b>
+        @if (r.documentos.length) {
+          <div class="rc-pie">
+            <b>{{ dentro().size }} de {{ r.documentos.length }} compra{{ r.documentos.length === 1 ? '' : 's' }} van al reporte</b>
             <span class="rc-nota">
-              Suman <span class="rc-mono">{{ totalDentro() | currency:'MXN':'symbol-narrow' }}</span>
-              @if (fuera() > 0) { · {{ fuera() }} fuera por decisión de quien lo emite }
+              @if (fuera() > 0) { Suman {{ totalDentro() | currency:'MXN':'symbol-narrow' }} · {{ fuera() }} fuera }
+              @else { Destildá las que no quieras incluir }
             </span>
           </div>
-          <button pButton size="small" [disabled]="!dentro().size" (click)="imprimir()">Imprimir reporte</button>
-        </section>
-      }
+        }
+      </section>
     }
   }
 </div>
@@ -207,27 +251,38 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
     .rc-amb { font-size: 12px; color: var(--warn-soft-fg); }
     .rc-cli { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .rc-cli-txt { display: flex; flex-direction: column; gap: 3px; }
-    .rc-filtros { display: flex; flex-direction: column; gap: 9px; }
+    .rc-barra { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .rc-flex { flex-grow: 1; }
+    .rc-periodo { font: inherit; font-size: 14px; font-weight: 500; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-1); }
+    .rc-masf { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 14px; padding: 9px 13px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-2); cursor: pointer; }
+    .rc-masf:hover, .rc-masf.abierto { background: var(--overlay-hover); color: var(--text-1); }
+    .rc-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--action); color: #fff; }
+    .rc-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 7px 6px 11px; border: 1px solid var(--action); border-radius: 999px; color: var(--action); background: transparent; }
+    .rc-chip button { display: inline-flex; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; line-height: 0; font-size: 11px; }
+    .rc-panel { display: flex; flex-direction: column; gap: 9px; }
+    .rc-cifras { display: flex; align-items: baseline; gap: 36px; padding: 2px; }
+    .rc-cifras > div { display: flex; flex-direction: column; gap: 1px; }
+    .rc-cifras span { font-size: 12.5px; color: var(--text-3); }
+    .rc-total { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
+    .rc-desc { font-size: 19px; font-weight: 600; color: var(--ok-fg); }
+    .rc-dia { font-size: 14px; font-weight: 500; }
+    .rc-sub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+    .rc-caja { font-style: normal; color: var(--text-3); }
+    .rc-pie { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border-color); }
     .rc-fila { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); }
     .rc-fila input[type=date], .rc-fila input[type=text], .rc-fila input[type=number] { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-1); }
     .rc-num { width: 98px; }
     .rc-check { display: flex; align-items: center; gap: 6px; }
     .rc-sep { width: 1px; height: 22px; background: var(--border-color); }
     .rc-aviso { font-size: 12.5px; line-height: 1.5; padding: 10px 13px; border: 1px solid var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); border-radius: var(--radius-sm); }
-    .rc-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-    .rc-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 11px 13px; display: flex; flex-direction: column; gap: 3px; }
-    .rc-kpi span { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
-    .rc-kpi b { font-size: 20px; font-weight: 600; }
     .rc-tabla { padding: 0; overflow: hidden; }
     .rc-tabla table { width: 100%; border-collapse: collapse; }
     .rc-tabla th { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); text-align: left; font-weight: 600; padding: 10px 12px; background: var(--page-bg, transparent); }
-    .rc-tabla td { font-size: 13px; padding: 8px 12px; border-top: 1px solid var(--border-color); }
+    .rc-tabla td { font-size: 14px; padding: 12px; border-top: 1px solid var(--border-color); }
     .rc-tabla tr.dentro td { background: var(--overlay-selected); }
     .ta-r { text-align: right; }
     .neg { color: var(--bad-fg); }
     .rc-empty { text-align: center; color: var(--text-3); padding: 20px; }
-    .rc-accion { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-    .rc-accion-txt { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
     .rc-nota { font-size: 12px; color: var(--text-3); margin: 0; }
     .rc-vacio p { margin: 0 0 6px; font-size: 13px; }
     .rc-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -239,6 +294,21 @@ export class ComercialReporteClienteComponent {
 
   termino = '';
   f: ReporteFiltrosUI = {};
+
+  /**
+   * Los periodos que se piden de verdad. El cuarto abre el panel: un rango a mano es la
+   * excepción, y ponerlo primero obligaba a todos a pensar en fechas para ver un mes.
+   */
+  readonly PERIODOS = [
+    { id: 'mes', label: 'Este mes' },
+    { id: 'mes-1', label: 'Mes pasado' },
+    { id: '90', label: 'Últimos 90 días' },
+    { id: 'todo', label: 'Todo' },
+    { id: 'otro', label: 'Otro periodo…' },
+  ];
+  readonly periodo = signal('mes');
+  /** El panel de filtros arranca CERRADO: la pantalla tiene que poder leerse sin abrirlo. */
+  readonly panel = signal(false);
 
   readonly buscando = signal(false);
   readonly buscado = signal(false);
@@ -261,6 +331,84 @@ export class ComercialReporteClienteComponent {
     const n = this.rep()?.documentos.length ?? 0;
     return n > 0 && this.dentro().size === n;
   });
+
+  /**
+   * Los filtros puestos, como etiquetas que se quitan de un clic.
+   *
+   * ⚠️ El periodo NO entra acá: ya se ve en su propio selector, y repetirlo haría leer dos
+   * filtros donde hay uno. Sólo lo que está escondido detrás del panel necesita decirse.
+   */
+  readonly activos = computed<{ clave: keyof ReporteFiltrosUI; texto: string }[]>(() => {
+    const f = this.fAplicados();
+    const out: { clave: keyof ReporteFiltrosUI; texto: string }[] = [];
+    if (f.folio) out.push({ clave: 'folio', texto: `Folio: ${f.folio}` });
+    if (f.warehouse_codes) out.push({ clave: 'warehouse_codes', texto: `Sucursal: ${f.warehouse_codes}` });
+    if (f.caja) out.push({ clave: 'caja', texto: `Caja ${f.caja}` });
+    if (f.atendio) out.push({ clave: 'atendio', texto: `Atendió: ${f.atendio}` });
+    if (f.min) out.push({ clave: 'min', texto: `Desde $${f.min}` });
+    if (f.max) out.push({ clave: 'max', texto: `Hasta $${f.max}` });
+    if (f.solo_con_descuento) out.push({ clave: 'solo_con_descuento', texto: 'Sólo con descuento' });
+    return out;
+  });
+
+  /** Copia de lo APLICADO, no de lo tecleado: una etiqueta tiene que reflejar lo que se ve. */
+  private readonly fAplicados = signal<ReporteFiltrosUI>({});
+
+  /** Quita un filtro y vuelve a pedir: la etiqueta promete eso, y tiene que cumplirlo. */
+  quitar(clave: keyof ReporteFiltrosUI): void {
+    delete this.f[clave];
+    this.aplicar();
+  }
+
+  /**
+   * El periodo, en fechas. ⚠️ Se arma con `getFullYear/getMonth` y se formatea a mano, NO con
+   * `toISOString()`: eso convierte a UTC y en México adelanta el día, así que «este mes»
+   * arrancaría el último día del mes anterior.
+   */
+  elegirPeriodo(id: string): void {
+    this.periodo.set(id);
+    if (id === 'otro') { this.panel.set(true); return; }
+    const hoy = new Date();
+    const d = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    if (id === 'mes') {
+      this.f.date_from = d(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+      this.f.date_to = d(hoy);
+    } else if (id === 'mes-1') {
+      this.f.date_from = d(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1));
+      this.f.date_to = d(new Date(hoy.getFullYear(), hoy.getMonth(), 0));
+    } else if (id === '90') {
+      this.f.date_from = d(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 90));
+      this.f.date_to = d(hoy);
+    } else {
+      delete this.f.date_from;
+      delete this.f.date_to;
+    }
+    this.aplicar();
+  }
+
+  /** Aplicar cierra el panel: si quedara abierto taparía la respuesta que se acaba de pedir. */
+  aplicar(): void {
+    this.panel.set(false);
+    this.cargar();
+  }
+
+  private readonly MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+    'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+  /**
+   * «18 de septiembre» a partir de 'YYYY-MM-DD'.
+   *
+   * ⚠️ Se PARTE el string, no se construye un `Date`: un `date` de Postgres leído como UTC y
+   * renderizado en hora de México sale con el día ANTERIOR — el primero de mes cae en el mes
+   * pasado. Ya costó una entrega en la Fase LC, y es el mismo criterio que usa el papel.
+   * Además evita depender de que la app registre el locale `es-MX` para el pipe `date`.
+   */
+  dia(iso: string | null): string {
+    if (!iso) return 'sin fecha';
+    const [y, m, d] = iso.split('-');
+    const mes = this.MESES[Number(m) - 1];
+    return y && mes && d ? `${Number(d)} de ${mes}` : iso;
+  }
 
   sev(origen: string): 'info' | 'success' | 'warn' | 'danger' | 'secondary' {
     return origen === 'mostrador' ? 'info'
@@ -291,7 +439,9 @@ export class ComercialReporteClienteComponent {
   elegir(c: ClienteCandidato): void {
     this.cliente.set(c);
     this.candidatos.set([]);
-    this.cargar();
+    // Arranca en el mes en curso, no en «todo»: es lo que se pide el 90% de las veces, y
+    // abrir con el histórico completo es la diferencia entre 40 renglones y varios cientos.
+    this.elegirPeriodo('mes');
   }
 
   cambiar(): void {
@@ -303,13 +453,15 @@ export class ComercialReporteClienteComponent {
 
   limpiar(): void {
     this.f = {};
-    this.cargar();
+    this.periodo.set('todo');
+    this.aplicar();
   }
 
   cargar(): void {
     const c = this.cliente();
     if (!c) return;
     this.cargando.set(true);
+    this.fAplicados.set({ ...this.f });
     this.svc.reporte(c.cliente_code, this.f).subscribe({
       next: (r) => {
         this.rep.set(r);
