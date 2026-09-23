@@ -1,5 +1,5 @@
 /**
- * `[VL.10.C]` De qué build salió este proceso — UNA sola respuesta, para los tres que preguntan.
+ * `[VL.11.C]` De qué build salió este proceso — UNA sola respuesta, para los tres que preguntan.
  *
  * ⛔ **El defecto que cierra.** Había tres lectores del mismo dato y cada uno se comportaba
  * distinto, así que "qué versión está corriendo" tenía tres respuestas simultáneas:

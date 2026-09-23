@@ -80,7 +80,7 @@ lighthouse-*.json
 # Claude / local agent state
 .claude
 
-# ── [VL.10.C] VOLCADOS DE BASE — 551 MB que NO deben entrar al contexto ─────────
+# ── [VL.11.C] VOLCADOS DE BASE — 551 MB que NO deben entrar al contexto ─────────
 # ⚠️ `database/` SÍ viaja a las imágenes (`COPY database ./database` en /Dockerfile:271 y
 # Dockerfile.worker:118) porque knex lee de ahí las migraciones. Lo que no debe viajar son
 # los volcados sueltos: `BACKUP.sql` 228 MB, `backup tienda LPA R 42…sql` 147 MB,

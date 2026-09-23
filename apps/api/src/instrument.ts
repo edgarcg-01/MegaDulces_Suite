@@ -8,7 +8,7 @@
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
-// `[VL.10.C]` Archivo local SIN importaciones a propósito: acá no se puede tocar
+// `[VL.11.C]` Archivo local SIN importaciones a propósito: acá no se puede tocar
 // `@megadulces/platform-core` sin ejecutar media plataforma antes de que Sentry instrumente.
 import { commitDelBuildOpcional } from './build-info';
 import * as Sentry from '@sentry/nestjs';

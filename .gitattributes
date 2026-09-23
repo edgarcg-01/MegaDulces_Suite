@@ -23,13 +23,14 @@ crontab.* text eol=lf
  DENTRO de una ruta o un chmod.
 Dockerfile*     text eol=lf
 # Y los archivos de configuración de servicios. Tercera vez en el mismo día que un archivo
-# nuevo queda afuera por no terminar en una extensión ya cubierta: un `` pegado a
+# nuevo queda afuera por no terminar en una extensión ya cubierta: un `
+` pegado a
 # `repo1-path=` rompe el parser de pgBackRest, y el síntoma no menciona ni CRLF ni git.
 *.conf          text eol=lf
 *.ini           text eol=lf
 ops/**/*.yml    text eol=lf
 *.env text eol=lf
-# ⛔ [VL.10.C] Y `.dockerignore`, que llevaba roto desde siempre sin que nadie lo notara.
+# ⛔ [VL.11.C] Y `.dockerignore`, que llevaba roto desde siempre sin que nadie lo notara.
 # MEDIDO el 2026-09-23 sobre lo que `git archive HEAD` entrega al servidor:
 #     .dockerignore  → 81 bytes CR      ⇒ CRLF
 #     Dockerfile     →  0               ⇒ su regla de acá arriba sí funciona

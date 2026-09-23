@@ -326,7 +326,7 @@ services:
     image: trade-prod-backup:latest
     container_name: prod-backup
     restart: unless-stopped
-    # [VL.10.D] Tope de log EXPLÍCITO. ⚠️ No arregla una falla: se sospechó que este servicio
+    # [VL.11.D] Tope de log EXPLÍCITO. ⚠️ No arregla una falla: se sospechó que este servicio
     # —el único que no usa el ancla `*app`— crecía sin tope, y la medición lo DESMINTIÓ:
     # `/etc/docker/daemon.json` en `md` ya impone `10m × 3` a todo el motor. Pero esa
     # protección vive en un archivo del host que NO está versionado, así que la reproducibilidad
@@ -361,7 +361,7 @@ services:
     container_name: prod-portal
     ports: ["8081:10000"]
     environment:
-      # ⚠️ [VL.10.D] `NODE_ENV` VA EXPLÍCITO ACÁ AUNQUE EL ANCLA `*app` YA LO TENGA.
+      # ⚠️ [VL.11.D] `NODE_ENV` VA EXPLÍCITO ACÁ AUNQUE EL ANCLA `*app` YA LO TENGA.
       # La fusión de YAML (`<<:`) NO es profunda: al redeclarar `environment:` este bloque
       # REEMPLAZA entero el mapa del ancla, no lo completa. Medido el 2026-09-23:
       # `docker exec prod-portal printenv NODE_ENV` → vacío, mientras `prod-api` sí lo traía.
@@ -392,7 +392,7 @@ services:
     container_name: prod-vendor
     ports: ["8082:10000"]
     environment:
-      # ⚠️ [VL.10.D] Explícito por el mismo motivo que en `portal`: `<<:` no fusiona mapas
+      # ⚠️ [VL.11.D] Explícito por el mismo motivo que en `portal`: `<<:` no fusiona mapas
       # anidados, así que redeclarar `environment:` borra el `NODE_ENV` del ancla.
       NODE_ENV: production
       TZ: America/Mexico_City

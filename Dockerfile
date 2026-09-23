@@ -289,7 +289,7 @@ COPY --chown=node:node --chmod=755  start.sh   ./start.sh
 # migrate.sh corre como preDeployCommand de Railway (migraciones fuera del boot).
 COPY --chown=node:node --chmod=755  migrate.sh ./migrate.sh
 
-# ── [VL.10.C] EL COMMIT SE HORNEA EN LA IMAGEN ─────────────────────────────────
+# ── [VL.11.C] EL COMMIT SE HORNEA EN LA IMAGEN ─────────────────────────────────
 # Va acá a propósito, DESPUÉS de todos los COPY pesados: cambiar de commit invalida
 # sólo estas dos capas de bytes, no las ~60k de `node_modules`.
 #

@@ -958,7 +958,7 @@ ingesta para desarmar algo que no molesta (las redes existentes conservaron su s
 50 minutos. *"Lo dejo por si acaso"* tiene precio, y acá se pagó el mismo día.
 ---
 
-## 11. [VL.10] La red interna deja de salir a internet para hablar con el servidor de al lado
+## 11. [VL.11] La red interna deja de salir a internet para hablar con el servidor de al lado
 
 El túnel dejó prod alcanzable, pero midiendo el resultado apareció el costo:
 
@@ -1026,9 +1026,9 @@ no es fija y el dominio está *proxied*, así que HTTP-01 no aplica).
 MikroTik (`192.168.0.254`, RouterOS):
 
 ```
-/ip dns static add name=megadulcessuite.com          address=192.168.0.222 comment="VL.10"
-/ip dns static add name=portal.megadulcessuite.com   address=192.168.0.222 comment="VL.10"
-/ip dns static add name=vendedor.megadulcessuite.com address=192.168.0.222 comment="VL.10"
+/ip dns static add name=megadulcessuite.com          address=192.168.0.222 comment="VL.11"
+/ip dns static add name=portal.megadulcessuite.com   address=192.168.0.222 comment="VL.11"
+/ip dns static add name=vendedor.megadulcessuite.com address=192.168.0.222 comment="VL.11"
 ```
 
 ⚠️ **Tres entradas por NOMBRE EXACTO, y nada de `regexp=`.** La forma con expresión regular se

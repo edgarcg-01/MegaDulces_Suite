@@ -12,7 +12,7 @@
 #   ops/prod/deploy.sh --verificar     # ¿está funcionando? con datos, no con rótulos
 #   ops/prod/deploy.sh --pitr          # ensayo de recuperación a un punto en el tiempo
 #   ops/prod/deploy.sh                 # construye y recrea todo
-#   ops/prod/deploy.sh api worker      # construye y recrea SÓLO esos (desde [VL.10.D])
+#   ops/prod/deploy.sh api worker      # construye y recrea SÓLO esos (desde [VL.11.D])
 #
 # Hermano de `ops/vl/deploy.sh` (la ingesta) y con las mismas dos reglas duras:
 #
@@ -102,7 +102,7 @@ subir_compose() {
 construir() {
   commit=$(cd "$REPO" && git rev-parse --short HEAD)
 
-  # ── [VL.10.D] CONSTRUIR SÓLO LO QUE SE PIDIÓ ────────────────────────────────────
+  # ── [VL.11.D] CONSTRUIR SÓLO LO QUE SE PIDIÓ ────────────────────────────────────
   # Antes `deploy.sh portal` reconstruía LAS SEIS imágenes y recreaba una. Con los dos
   # bundles grandes en serie eso son minutos de CPU regalados, y en una máquina donde
   # construir y servir compiten por los mismos 8 hilos no es gratis.
@@ -141,7 +141,7 @@ construir() {
   # a la versión de ayer es la mitad que falta del control de cambios: la otra mitad (que no
   # entre una mala) la da la CI, que hoy está apagada.
   #
-  # ⭐ [VL.10.C] `--build-arg` DEL COMMIT, A LAS SEIS. Hasta hoy esta línea NO pasaba ningún
+  # ⭐ [VL.11.C] `--build-arg` DEL COMMIT, A LAS SEIS. Hasta hoy esta línea NO pasaba ningún
   # build-arg, y eso tenía dos consecuencias que nadie había atado:
   #   1. `/api/health` sólo sabía su commit por el entorno que le pone `recrear()`, así que
   #      cualquier `docker compose up` a mano lo dejaba en `""`. Pasó dos veces el 2026-09-22.
@@ -252,7 +252,7 @@ case "${1:---todo}" in
   --volver)    shift; volver "$@" ;;
   --verificar) subir_compose >/dev/null; ssh_md "sh ~/ops/prod/verificar.sh" ;;
   --pitr)      subir_compose >/dev/null; ssh_md "sh ~/ops/prod/probar-pitr.sh" ;;
-  # [VL.10.D] El túnel NO está en SERVICIOS_DEF (vive tras el perfil `tunel`), así que hasta
+  # [VL.11.D] El túnel NO está en SERVICIOS_DEF (vive tras el perfil `tunel`), así que hasta
   # hoy NINGÚN camino de despliegue lo levantaba: había que escribir el `docker compose
   # --profile` a mano. ⚠️ Y hacerlo a mano es justo lo que vació `/api/health` el 2026-09-22,
   # porque `cloudflared` declara `depends_on: [api, portal, vendor]` y Compose se los lleva
