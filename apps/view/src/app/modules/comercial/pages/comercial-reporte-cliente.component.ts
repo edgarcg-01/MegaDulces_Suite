@@ -54,7 +54,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
     @if (candidatos().length) {
       <section class="rc-card">
         <ul class="rc-cands">
-          @for (c of candidatos(); track c.id) {
+          @for (c of candidatos(); track c.cliente_code) {
             <li>
               <button type="button" class="rc-cand" (click)="elegir(c)">
                 <span class="rc-cand-nom">{{ c.nombre || c.cliente_code }}</span>
