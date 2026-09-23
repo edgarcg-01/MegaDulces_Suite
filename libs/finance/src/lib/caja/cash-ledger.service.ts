@@ -368,6 +368,26 @@ export class CashLedgerService {
    * Por eso `coverage()` publica la proporción — una lista corta no puede leerse como "ya está
    * todo cubierto".
    */
+  /**
+   * Cuándo se armó la foto que la bandeja está leyendo.
+   *
+   * ⚠️ Va en su propia consulta y con `catch → null` a propósito: en este proyecto el código
+   * desplegado puede ir POR DELANTE de las migraciones, así que seleccionar `refrescado_en` en la
+   * consulta principal tumbaría la bandeja entera en el hueco entre un deploy y su migración.
+   * Sin medición se devuelve `null` — que la pantalla declara como "sin medir", nunca como fresco.
+   */
+  private async frescuraCaja(trx: any): Promise<string | null> {
+    try {
+      const r = await trx
+        .from('analytics.mv_caja_movimientos')
+        .max({ al: 'refrescado_en' })
+        .first();
+      return (r as { al?: string } | undefined)?.al ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async movimientosPendientes(q: {
     tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number;
   }) {
@@ -417,6 +437,11 @@ export class CashLedgerService {
       const conCuenta = await this.resolverCuentas(trx, tenantId, rows);
       return {
         rows: conCuenta, limit, has_more: rows.length === limit,
+        // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
+        // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
+        // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
+        // trabajo pendiente". Por eso la edad viaja CON el dato y la pantalla la declara.
+        datos_al: await this.frescuraCaja(trx),
         // Cuántas de las que se ven se pueden confirmar sin tocar nada. Sin este número, una lista
         // llena de filas no confirmables se lee igual que una lista lista para un clic (ADR-056).
         confirmables: conCuenta.filter((r: any) => r.confirmable).length,

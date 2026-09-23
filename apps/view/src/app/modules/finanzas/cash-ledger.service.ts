@@ -305,6 +305,13 @@ export interface PendientesResponse {
   rows: MovimientoPendiente[];
   limit: number;
   has_more: boolean;
+  /**
+   * CG.22.3 — cuándo se armó la foto que se está leyendo. La lista sale de un matview
+   * (`analytics.mv_caja_movimientos`), materializado por costo: 415 ms → 0.4 ms, medido.
+   * ⚠️ `null` = no se pudo medir, y se DECLARA como tal. Un matview que dejó de refrescarse no da
+   * error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay trabajo".
+   */
+  datos_al?: string | null;
   /** Cuántas de las visibles se pueden confirmar de un clic. Una lista llena de filas trabadas
    *  no puede leerse igual que una lista lista (ADR-056). */
   confirmables: number;

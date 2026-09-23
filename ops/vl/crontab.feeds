@@ -20,6 +20,11 @@
 
 # ── cada minuto ──────────────────────────────────────────────────────────────
 * * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
+# CG.22.3 - el corte de caja materializado. La bandeja de /finanzas/caja-general leia la vista
+# viva y pagaba 415-720 ms por consulta (565k paginas) para devolver 100 filas; materializado
+# cuesta 0.4 ms. El refresh entero son 12,237 filas en ~0.5-2 s, asi que cada minuto es barato.
+# Va cada minuto y no mas seguido a proposito: esa es la frescura real del ODS que lo alimenta.
+* * * * *   /app/ops/vl/run-feed.sh caja-mv   "node /app/database/importers/kepler/refresh-caja-matview.js --apply"
 
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
