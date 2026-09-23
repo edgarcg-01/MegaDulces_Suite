@@ -46,7 +46,7 @@ estado() {
   ssh_md 'docker ps --filter "label=com.docker.compose.project=prod" --format "{{.Names}}|{{.Status}}|{{.Image}}" | sort | column -t -s"|" || true'
   echo
   echo "── Imágenes de prod ──"
-  ssh_md 'for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+  ssh_md 'for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy; do
             docker image inspect "$i:latest" --format "  {{.RepoTags}}  creada {{.Created}}" 2>/dev/null || echo "  $i:latest  (no existe)";
           done'
   echo
@@ -92,10 +92,10 @@ subir_compose() {
   # hace ejecutar basura desde el byte donde iba. `mv` desenlaza el inodo viejo, y el
   # proceso que lo está corriendo lo sigue leyendo entero y sano.
   # No es teórico: `esperar-y-restaurar.sh` puede estar corriendo durante horas.
-  for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do
+  for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
-  ssh_md "cd ~/ops/prod && for a in docker-compose.yml restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh"
+  ssh_md "cd ~/ops/prod && for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
@@ -117,6 +117,7 @@ construir() {
       portal)  filtro="$filtro trade-prod-portal" ;;
       vendor)  filtro="$filtro trade-prod-vendor" ;;
       backup)  filtro="$filtro trade-prod-backup" ;;
+      caddy)   filtro="$filtro trade-prod-caddy" ;;
       # `pg-rag` usa una imagen de terceros sin Dockerfile propio, y `cloudflared`
       # también: no hay nada que construir para ellos, sólo recrear.
       pg-rag|cloudflared) echo "   · $s usa imagen de terceros — no se construye" ;;
@@ -158,7 +159,7 @@ construir() {
                'trade-prod-worker:Dockerfile.worker' \
                'trade-prod-portal:apps/portal/Dockerfile' \
                'trade-prod-vendor:apps/vendor/Dockerfile' \
-               'trade-prod-backup:ops/prod/Dockerfile.backup'; do
+               'trade-prod-backup:ops/prod/Dockerfile.backup'                'trade-prod-caddy:ops/prod/Dockerfile.caddy'; do
       img=\${par%%:*}; df=\${par#*:}
       # Los espacios de los dos lados evitan que 'trade-prod-pg' matchee dentro de otro nombre.
       if [ -n \"\$FILTRO\" ] && ! echo \" \$FILTRO \" | grep -q \" \$img \"; then continue; fi
@@ -180,7 +181,7 @@ construir() {
 # el disco creciendo sin tope. Con 6 imágenes de hasta 2.2 GB, 5 versiones son ~35 GB.
 RETENER_IMG="${RETENER_IMG:-5}"
 podar_imagenes() {
-  ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
+  ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy; do
             docker images --format '{{.Tag}} {{.CreatedAt}}' \"\$i\" \
               | grep -v '^latest ' | sort -k2,3 -r | tail -n +\$(( $RETENER_IMG + 1 )) | awk '{print \$1}' \
               | while read t; do docker rmi \"\$i:\$t\" >/dev/null 2>&1 || true; done
@@ -195,6 +196,14 @@ volver() {
   servicios="${*:-$SERVICIOS_DEF}"
   [ -n "$destino" ] || { echo "uso: deploy.sh --volver <commit-corto> [servicios...]"; exit 2; }
   echo "── Volviendo a $destino ──"
+  # ⛔ [VL.11.A] `trade-prod-caddy` NO ENTRA EN ESTE ROLLBACK, a propósito.
+  # Es el terminador TLS del camino interno: infraestructura de entrada, no código de la
+  # app. Dos motivos, y el segundo es el que duele:
+  #   1. Volver la app a ayer no debería cambiar con qué certificado se sirve.
+  #   2. Si estuviera en esta lista, `--volver <commit anterior al 2026-09-23>` fallaría
+  #      SIEMPRE por una etiqueta que no puede existir — o sea, el rollback quedaría roto
+  #      justo para los commits a los que uno querría volver.
+  # Mismo criterio que `cloudflared`, que tampoco se versiona con la app.
   faltan=$(ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup; do
                      docker image inspect \"\$i:$destino\" >/dev/null 2>&1 || echo \"\$i\"
                    done")
