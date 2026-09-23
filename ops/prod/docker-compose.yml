@@ -227,6 +227,14 @@ services:
       PORT: "10000"
       API_PORT: "3333"
       API_PREFIX: api
+      # ⛔ [VL.9.12] ESTO VUELVE A `true` EL DÍA QUE EL TÚNEL TERMINE TLS ADELANTE.
+      # Con `false`, nginx NO manda `Strict-Transport-Security` ni el
+      # `upgrade-insecure-requests` del CSP. Las dos son correctas detrás de TLS —en
+      # Railway lo termina la plataforma— pero servidas por HTTP plano vuelven la app
+      # INUSABLE en un navegador: el CSP reescribe cada recurso a `https://`, el puerto
+      # no habla TLS, y todo muere con ERR_SSL_PROTOCOL_ERROR. Medido el 2026-09-22.
+      # El default del guion de arranque es `true`, así que Railway no cambia.
+      TLS_TERMINADO: "false"
       # Qué versión está sirviendo. Lo pasa `deploy.sh` desde `git rev-parse --short HEAD`.
       # ⛔ No puede vivir en `prod.env`: ese formato no interpola y Compose lo dejaría vacío
       # (medido: `/api/health` devolvía `"commit": ""`). El código lo lee como fallback de
@@ -343,6 +351,14 @@ services:
     environment:
       TZ: America/Mexico_City
       PORT: "10000"
+      # ⛔ [VL.9.12] ESTO VUELVE A `true` EL DÍA QUE EL TÚNEL TERMINE TLS ADELANTE.
+      # Con `false`, nginx NO manda `Strict-Transport-Security` ni el
+      # `upgrade-insecure-requests` del CSP. Las dos son correctas detrás de TLS —en
+      # Railway lo termina la plataforma— pero servidas por HTTP plano vuelven la app
+      # INUSABLE en un navegador: el CSP reescribe cada recurso a `https://`, el puerto
+      # no habla TLS, y todo muere con ERR_SSL_PROTOCOL_ERROR. Medido el 2026-09-22.
+      # El default del guion de arranque es `true`, así que Railway no cambia.
+      TLS_TERMINADO: "false"
 
   # La app de vendedor (campo).
   vendor:
@@ -353,6 +369,14 @@ services:
     environment:
       TZ: America/Mexico_City
       PORT: "10000"
+      # ⛔ [VL.9.12] ESTO VUELVE A `true` EL DÍA QUE EL TÚNEL TERMINE TLS ADELANTE.
+      # Con `false`, nginx NO manda `Strict-Transport-Security` ni el
+      # `upgrade-insecure-requests` del CSP. Las dos son correctas detrás de TLS —en
+      # Railway lo termina la plataforma— pero servidas por HTTP plano vuelven la app
+      # INUSABLE en un navegador: el CSP reescribe cada recurso a `https://`, el puerto
+      # no habla TLS, y todo muere con ERR_SSL_PROTOCOL_ERROR. Medido el 2026-09-22.
+      # El default del guion de arranque es `true`, así que Railway no cambia.
+      TLS_TERMINADO: "false"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # EXPOSICIÓN — Cloudflare Tunnel (decisión del usuario, 2026-09-22)
