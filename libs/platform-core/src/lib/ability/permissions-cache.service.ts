@@ -27,6 +27,36 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+/**
+ * `[ID.38]` — Lo que el guard necesita saber de la CUENTA en cada request.
+ *
+ * Son dos preguntas distintas que se responden con la misma fila, así que van
+ * juntas: pedirlas por separado eran dos consultas a `identity.users` por
+ * request (la tabla más leída de la app).
+ */
+export interface EstadoCuenta {
+  /** `activo = true` y sin `deleted_at`. */
+  activo: boolean;
+  /**
+   * Corte de sesión en **segundos epoch**, o `null` si la cuenta no tiene
+   * ninguno. Es `GREATEST(password_changed_at, sessions_revoked_at)`: todo token
+   * cuyo `iat` sea ANTERIOR dejó de valer.
+   *
+   * En segundos y truncado hacia abajo a propósito: el `iat` del JWT también
+   * viene en segundos truncados, así que comparar en milisegundos rechazaría un
+   * token recién emitido cuando el corte cae en la misma fracción de segundo.
+   */
+  corteSesionSeg: number | null;
+  /**
+   * ¿Esto se pudo MEDIR contra la DB? `false` = la consulta falló y se está
+   * contestando con lo último que se supo (o con el default permisivo si nunca
+   * se supo nada). ADR-056: el veredicto es ternario, y "no sé" no se disfraza
+   * de "sí". Quien decide cortar accesos tiene derecho a saber que está
+   * decidiendo a ciegas.
+   */
+  medido: boolean;
+}
+
 const TTL_MS = 30_000;
 
 @Injectable()
@@ -37,8 +67,28 @@ export class PermissionsCacheService {
   private rolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
   /** `[ID.21]` Diferencia de permisos de cada persona contra su puesto. */
   private overridesCache = new Map<string, { overrides: Record<string, boolean>; expiresAt: number }>();
-  /** `[AUTHZ-HARD.2]` ¿La cuenta sigue activa? (desactivar = revocar en ≤TTL). */
-  private activeCache = new Map<string, { active: boolean; expiresAt: number }>();
+  /**
+   * `[AUTHZ-HARD.2]` ¿La cuenta sigue activa? (desactivar = revocar en ≤TTL).
+   * `[ID.38]` + desde cuándo dejaron de valer sus tokens.
+   *
+   * ⚠️ La entrada NO se borra al vencer: se conserva para poder contestar con el
+   * último valor conocido si la DB falla (ver `getEstadoCuenta`).
+   */
+  private estadoCache = new Map<string, { estado: EstadoCuenta; expiresAt: number }>();
+
+  /**
+   * `[ID.38]` — ¿Este entorno todavía NO tiene `identity.users.sessions_revoked_at`?
+   *
+   * No es paranoia: en Railway el **código se despliega antes** de que corra la
+   * migración, y en esa ventana la consulta completa falla con `42703`. Sin este
+   * interruptor, ese error caería en el `catch` genérico y el guard pasaría a
+   * contestar con el default permisivo para **todas** las cuentas — o sea que
+   * agregar un candado de revocación habría apagado el de `activo = false`.
+   *
+   * Se detecta una sola vez, se degrada a `password_changed_at` (que ya existe
+   * desde `[ID.8]` y es la mitad útil del candado) y se sigue.
+   */
+  private sinColumnaCorte = false;
 
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
@@ -218,25 +268,91 @@ export class PermissionsCacheService {
    * app por un hipo de la DB). El caso normal —cuenta desactivada— sí se detecta.
    */
   async isUserActive(userId: string | undefined, tenantId: string | undefined): Promise<boolean> {
-    if (!userId || !tenantId) return true; // sin identidad clara, no es acá donde se corta
-    const now = Date.now();
-    const key = `active:${tenantId}:${userId}`;
-    const cached = this.activeCache.get(key);
-    if (cached && cached.expiresAt > now) return cached.active;
+    return (await this.getEstadoCuenta(userId, tenantId)).activo;
+  }
 
-    let active = true;
+  /**
+   * `[AUTHZ-HARD.2]` + `[ID.38]` — Estado de la cuenta para el guard, en UNA
+   * consulta: si sigue activa, y desde cuándo dejaron de valer sus tokens.
+   *
+   * ── El corte de sesión ──────────────────────────────────────────────────────
+   * `GREATEST(password_changed_at, sessions_revoked_at)`. Son dos hechos
+   * distintos con la misma consecuencia: «lo que firmé antes de esto ya no
+   * vale». `password_changed_at` ya se escribía en el alta y en cada reset
+   * (`[AU.28]`) y **nadie la leía** — el candado que el encabezado de
+   * `users_token_ttl_days` dejó anotado y quedó sin hacer.
+   *
+   * ── Por qué stale-if-error y no fail-open a secas ──────────────────────────
+   * Lo anterior era `catch → se asume activo`, lo que significa que **un hipo de
+   * la DB le devolvía el acceso a alguien recién desactivado**. Ahora, ante
+   * error, se contesta con **lo último que se supo de esa cuenta** (aunque haya
+   * vencido el TTL): si ya se sabía que estaba desactivada, sigue afuera.
+   *
+   * Sólo cuando NUNCA se supo nada de esa cuenta se cae al default permisivo, y
+   * eso sigue siendo deliberado: un error de DB no puede dejar afuera a toda la
+   * empresa. La diferencia es que ahora el fail-open es el ÚLTIMO recurso y no
+   * el primero, y va marcado con `medido: false` para que quien lo consuma sepa
+   * que está decidiendo a ciegas.
+   */
+  async getEstadoCuenta(
+    userId: string | undefined,
+    tenantId: string | undefined,
+  ): Promise<EstadoCuenta> {
+    // Sin identidad clara no es acá donde se corta (lo hace JwtAuthGuard).
+    if (!userId || !tenantId) return { activo: true, corteSesionSeg: null, medido: false };
+
+    const now = Date.now();
+    const key = `estado:${tenantId}:${userId}`;
+    const cached = this.estadoCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.estado;
+
+    let estado: EstadoCuenta;
     try {
       const row = await this.knex('identity.users')
         .where({ id: userId, tenant_id: tenantId })
-        .first('activo', 'deleted_at');
-      // Si el usuario ya no existe para ese tenant, tampoco pasa.
-      active = !!row && row.activo === true && row.deleted_at == null;
+        .first(
+          'activo',
+          'deleted_at',
+          this.knex.raw(
+            this.sinColumnaCorte
+              ? `password_changed_at AS corte`
+              : `GREATEST(password_changed_at, sessions_revoked_at) AS corte`,
+          ),
+        );
+      estado = {
+        // Si el usuario ya no existe para ese tenant, tampoco pasa.
+        activo: !!row && row.activo === true && row.deleted_at == null,
+        corteSesionSeg: row?.corte ? Math.floor(new Date(row.corte).getTime() / 1000) : null,
+        medido: true,
+      };
     } catch (e: any) {
-      this.logger.warn(`isUserActive: no se pudo verificar (${e?.message}); se asume activo`);
-      active = true;
+      // Ventana de despliegue: el código llegó antes que la migración `[ID.38]`.
+      // Se degrada a `password_changed_at` y se reintenta UNA vez (el flag ya
+      // quedó en `true`, así que no hay recursión infinita). Lo que NO se hace
+      // es dejar que esto caiga en el fail-open de abajo, que apagaría también
+      // el chequeo de cuenta desactivada.
+      if (!this.sinColumnaCorte && /sessions_revoked_at/i.test(String(e?.message ?? ''))) {
+        this.sinColumnaCorte = true;
+        this.logger.warn(
+          'identity.users.sessions_revoked_at no existe todavía (migración [ID.38] sin correr): ' +
+            'el corte de sesión usa sólo password_changed_at hasta que se aplique.',
+        );
+        return this.getEstadoCuenta(userId, tenantId);
+      }
+      const previo = cached?.estado;
+      this.logger.warn(
+        `getEstadoCuenta: no se pudo verificar (${e?.message}); ` +
+          (previo
+            ? 'se contesta con el último estado conocido de la cuenta'
+            : 'sin estado previo, se asume activa y sin corte'),
+      );
+      estado = previo
+        ? { ...previo, medido: false }
+        : { activo: true, corteSesionSeg: null, medido: false };
     }
-    this.activeCache.set(key, { active, expiresAt: now + TTL_MS });
-    return active;
+
+    this.estadoCache.set(key, { estado, expiresAt: now + TTL_MS });
+    return estado;
   }
 
   /** `[ID.13]` + `[ID.21]` Llamar al cambiar complementos o permisos de un usuario. */
@@ -244,7 +360,7 @@ export class PermissionsCacheService {
     if (tenantId) {
       this.rolesCache.delete(`roles:${tenantId}:${userId}`);
       this.overridesCache.delete(`ovr:${tenantId}:${userId}`);
-      this.activeCache.delete(`active:${tenantId}:${userId}`);
+      this.estadoCache.delete(`estado:${tenantId}:${userId}`);
       return;
     }
     for (const k of Array.from(this.rolesCache.keys())) {
@@ -253,8 +369,8 @@ export class PermissionsCacheService {
     for (const k of Array.from(this.overridesCache.keys())) {
       if (k.endsWith(`:${userId}`)) this.overridesCache.delete(k);
     }
-    for (const k of Array.from(this.activeCache.keys())) {
-      if (k.endsWith(`:${userId}`)) this.activeCache.delete(k);
+    for (const k of Array.from(this.estadoCache.keys())) {
+      if (k.endsWith(`:${userId}`)) this.estadoCache.delete(k);
     }
   }
 
@@ -289,6 +405,6 @@ export class PermissionsCacheService {
     this.cache.clear();
     this.rolesCache.clear();
     this.overridesCache.clear();
-    this.activeCache.clear();
+    this.estadoCache.clear();
   }
 }

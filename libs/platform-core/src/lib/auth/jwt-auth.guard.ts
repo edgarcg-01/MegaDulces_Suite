@@ -82,11 +82,37 @@ export class JwtAuthGuard implements CanActivate {
     // `[AUTHZ-HARD.2]` Desactivar = revocar. El token vive 12h y no es revocable; sin este chequeo
     // un usuario despedido/degradado (o su token robado) seguía entrando hasta que expiraba —
     // god-mode incluido, porque el rol se lee del token. Releemos `identity.users` (cacheado 30s):
-    // si la cuenta está inactiva o borrada, 401. Fail-open ante error de DB (ver isUserActive).
-    const active = await this.permsCache.isUserActive(payload?.sub, payload?.tenant_id);
-    if (!active) {
+    // si la cuenta está inactiva o borrada, 401.
+    //
+    // `[ID.38]` La misma lectura trae el CORTE DE SESIÓN de la cuenta, así que no cuesta una
+    // consulta más. Ante error de DB se contesta con el último estado conocido (`medido: false`),
+    // no con un "asumo que sí" ciego — ver `getEstadoCuenta`.
+    const estado = await this.permsCache.getEstadoCuenta(payload?.sub, payload?.tenant_id);
+    if (!estado.activo) {
       throw new UnauthorizedException('La cuenta está desactivada. Iniciá sesión de nuevo.');
     }
+
+    // ┌─────────────────────────────────────────────────────────────────────┐
+    // │ `[ID.38]` 5. ¿El token es ANTERIOR al corte de sesión de la cuenta?  │
+    // └─────────────────────────────────────────────────────────────────────┘
+    // El candado que `users_token_ttl_days` dejó anotado y nadie había puesto: hasta hoy,
+    // cambiarle la contraseña a alguien **no cerraba su sesión** (se escribía
+    // `password_changed_at` y no la leía nadie), y un token filtrado sólo se mataba apagando la
+    // cuenta entera — inaceptable en las 18 cuentas de dispositivo, donde eso es apagar la
+    // pantalla.
+    //
+    // `iat` viene en segundos y el corte ya llega truncado a segundos: se comparan en la misma
+    // unidad para no rechazar un token emitido en la misma fracción de segundo que el corte.
+    // Estrictamente MENOR: un token firmado justo en el segundo del corte sigue valiendo, que es
+    // el lado correcto del empate (el otro echaría a quien acaba de entrar con la nueva
+    // contraseña).
+    const iat = typeof payload?.iat === 'number' ? payload.iat : null;
+    if (estado.corteSesionSeg !== null && iat !== null && iat < estado.corteSesionSeg) {
+      throw new UnauthorizedException(
+        'Tu sesión se cerró (cambio de contraseña o revocación). Iniciá sesión de nuevo.',
+      );
+    }
+
     return true;
   }
 }

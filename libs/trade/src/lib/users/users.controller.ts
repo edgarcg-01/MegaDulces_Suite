@@ -458,6 +458,34 @@ export class UsersController {
     });
   }
 
+  /**
+   * `[ID.38]` — Cierra todas las sesiones vivas de la cuenta, sin apagarla.
+   *
+   * Permiso: `USUARIOS_PASSWORDS` (el mismo de «Resetear Contraseñas»), no
+   * `USUARIOS_GESTIONAR`. Es deliberado y está medido: son la misma familia de
+   * acción —invalidar la credencial de otro— y esa llave ya vive exactamente en
+   * los roles que corresponden, así que encender esto **no le da la capacidad a
+   * nadie nuevo**. Un permiso nuevo habría que repartirlo, y sin repartir es la
+   * deuda de `[LC.6.2]`: declarado en el enum y concedido por nadie.
+   */
+  @Post(':id/revoke-sessions')
+  @RequirePermissions(Permission.USUARIOS_PASSWORDS)
+  @ApiOperation({
+    summary:
+      'Cierra todas las sesiones de la cuenta (invalida los JWT ya emitidos) sin desactivarla. Queda asentado en identity.user_events.',
+  })
+  revokeSessions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { motivo?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.revokeSessions(
+      id,
+      { sub: user.sub, username: user.username },
+      body?.motivo ?? null,
+    );
+  }
+
   /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
   @Get(':id/events')
   @RequirePermissions(Permission.USUARIOS_VER)

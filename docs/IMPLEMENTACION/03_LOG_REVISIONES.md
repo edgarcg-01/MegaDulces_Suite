@@ -5,6 +5,124 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-23 — `[ID.37]`/`[ID.38]` El login tenía dos reglas, y la sesión no se podía cerrar
+
+**Disparador:** *"analiza cómo funcionan los usuarios en el proyecto"* → de los cinco puntos flojos
+que salieron de esa auditoría, el lead eligió cerrar el 1 y el 5.
+
+### 1. Dos puertas de login con reglas distintas — `[ID.37]`
+
+`/auth/login` (legacy, `@Public`, **montado siempre**) y `/auth-mt/login` decidían **cada uno por su
+cuenta** qué es una sesión válida. Medido contra el código, el legacy no aplicaba **ninguno** de los
+cinco:
+
+| Freno / regla | `/auth-mt/login` | `/auth/login` (legacy) |
+|---|---|---|
+| `kind = 'servicio'` sin acceso interactivo (`[ID.17]`) | sí | **no** |
+| `expires_at` vencido (`[ID.13]`) | sí | **no** |
+| unión con roles complementarios (`[ID.13]`) | sí | **no** |
+| overrides de la persona (`[ID.21]`) | sí | **no** |
+| TTL propio de la cuenta (`[CH.1.3]`) | sí | **no** |
+
+**El daño vivo era cero, y por suerte de datos**: en prod hay **0 usuarios con `expires_at`** y la
+única cuenta `kind='servicio'` tiene un hash que no es bcrypt, así que no hay con qué entrar. Los
+puntos 3 y 4 tampoco eran un agujero de autorización —`RolesGuard` relee los permisos de la DB en
+cada request, el token no autoriza— pero dejaban a la UI con **un menú distinto según por qué puerta
+entraste**.
+
+La regla se mudó entera a `autenticarYFirmar` (`libs/platform-core/.../login-core.ts`) y las dos
+puertas la llaman. ⭐ Esto ya estaba diagnosticado a medias en el repo: `granted-permissions.ts`
+(`[ID.29]`) dice textual *"Hay DOS caminos de login y los dos arman el payload. Un helper copiado a
+mano en dos servicios se desincroniza (ADR-056)"* — y había mudado **una** pieza. Esto termina la
+mudanza.
+
+**Por qué la puerta legacy NO se retiró:** `apps/vendor` es una app **Capacitor instalada en
+teléfonos**, y su `AuthService` todavía tiene el método que pega ahí. Las tres pantallas de login ya
+usan `loginMt`, pero un APK viejo en el campo no se entera de un cambio de endpoint: retirarla deja
+a un vendedor afuera en media ruta. Queda abierta, con la regla unificada y **un warn por cada uso**,
+para poder retirarla con dato en vez de con corazonada. Consumidores nuestros que quedan: 2 importers
+de finanzas y 2 scripts de verificación.
+
+**El tenant que el legacy no recibe** se deduce: username único entre tenants activos → si no, el
+único tenant activo (hoy **1**: `mega_dulces`, 135 usuarios) → si es ambiguo, **401 fail-closed**. El
+segundo paso no es comodidad: la consulta cross-tenant corre contra `identity.users`, que tiene RLS
+**forzado**, y con una conexión que no lo bypasee devolvería 0 filas **siempre**.
+
+### 2. El JWT era irrevocable en la práctica — `[ID.38]`
+
+Vivía 12 h —hasta **3650 días** en una cuenta de dispositivo— y la única forma de matarlo era
+`activo = false`, o sea **apagar la cuenta**. En las **18 cuentas `kind='dispositivo'`** (8
+etiqueteras, 2 checadores, 2 verificadores, 6 de ruta) eso significa apagar la pantalla, que es
+exactamente lo que `[CH.1.3]` dice que no se puede hacer.
+
+⭐ **Y `password_changed_at` no la leía nadie.** El alta y cada reset la escriben desde `[AU.28]`, y
+el encabezado de `20260909130000_users_token_ttl_days.js` había dejado anotado el candado que
+faltaba: *"o, más barato, un candado `iat < password_changed_at` — la columna ya existe y nadie la
+lee todavía"*. O sea: **cambiarle la contraseña a alguien no cerraba su sesión.**
+
+- `jwt-auth.guard` compara el `iat` del token contra
+  `GREATEST(password_changed_at, sessions_revoked_at)`, en **segundos truncados** (el `iat` viene
+  así: comparar en milisegundos rechazaría un token emitido en la misma fracción de segundo).
+- `sessions_revoked_at` (mig `20260923140000`, aditiva, `lock_timeout` por GOTCHAS §38) permite
+  cortar sesiones **sin apagar la cuenta** — el caso del kiosco.
+- `POST /users/:id/revoke-sessions` con **`USUARIOS_PASSWORDS`**, la llave del reset: se eligió a
+  propósito sobre un permiso nuevo porque **no le da capacidad a nadie nuevo**, y un permiso sin
+  repartir es la deuda de `[LC.6.2]`.
+- Botón en `/admin/personas`, pegado a la contraseña: es la misma pregunta («se filtró una
+  credencial, ¿ahora qué?»).
+
+**Impacto del despliegue, medido en prod ANTES de escribirlo:**
+
+| Qué | Cuántos |
+|---|---|
+| cuentas activas con `password_changed_at` | 17 |
+| de ésas, con último login **anterior** al cambio | **0** ← a quién echaría el candado |
+| de ésas, que nunca entraron | 2 (no tienen token) |
+
+O sea **cero sesiones vivas se cierran** por encender esto.
+
+### Dos defectos vecinos que aparecieron al leer el código
+
+1. **`isUserActive` era fail-open ciego**: ante un error de DB contestaba «activo», así que **un hipo
+   de Postgres le devolvía el acceso a alguien recién desactivado**. Ahora contesta con **el último
+   estado conocido** de esa cuenta y marca `medido: false` (ADR-056: el veredicto es ternario); sólo
+   cae al default permisivo si nunca supo nada de ella.
+2. **La ventana de despliegue**: en Railway el código llega antes que la migración. Sin cuidarlo, el
+   `42703` de la columna faltante caía en el `catch` genérico y **habría apagado también el chequeo
+   de cuenta desactivada** — agregar un candado de revocación habría quitado otro. Se detecta una
+   vez, se degrada a `password_changed_at` y sigue.
+
+### Verificación
+
+| Qué | Resultado |
+|---|---|
+| `vitest` de `apps/api` (login) | **13/13**, con el **rojo ejercido**: rotos a propósito los dos frenos nuevos → caen exactamente sus 2 pruebas, control positivo verde |
+| `nx run api:typecheck` | OK |
+| `nx build view` | OK (1.28 MB) |
+| `vitest` de `apps/view` | 686 pasan, 1 archivo skipped |
+| `http-session-revocation-test.js` | **NO MEDIDO** — no hay API viva ni acceso a `platform_test` desde esta máquina |
+
+⚠️ Tres candados de la regresión (`test-authz-jwt-size`, `test-newdb-kind-dispositivo`,
+`test-newdb-user-roles`) verificaban **texto dentro de cada puerta**. Al unificar la regla habrían
+quedado rojos midiendo la ubicación del texto y no la conducta. Se reapuntaron al núcleo **y se
+hicieron más estrictos**: ahora exigen que ninguna puerta **firme** (`signAsync`) ni **compare
+credenciales** (`bcrypt.compare`) por su cuenta — que es la única forma en que la divergencia puede
+volver.
+
+### Pendiente
+
+- Aplicar `20260923140000_users_sessions_revoked_at.js` en prod, **en ventana sin respaldo
+  corriendo** (GOTCHAS §38: un ALTER sobre `identity.users` que espera encola detrás de sí al login
+  entero).
+- Correr el smoke contra una API viva.
+- Validación visual del botón en `/admin/personas`.
+- Declarado **no hecho**: no hay pantalla de *«cambiar mi contraseña»* para el usuario común (el
+  único camino es que un admin lo haga desde `/admin/personas`), así que los **9
+  `must_change_password`** no tienen cómo resolverlo por sí mismos. Es deuda anterior a esto, pero
+  ahora tiene consecuencia visible: quien cambie su **propia** contraseña desde ese panel se cierra
+  su sesión actual y tiene que volver a entrar.
+
+---
 ## 2026-09-23 — `[SB.1]` El corte Wincaja→Kepler deja de ser un literal: Morelia Abastos faltaba en el fact de venta
 
 **Disparador:** *"en /comercial/salidas al imprimir no sale Morelia Abastos"*.
