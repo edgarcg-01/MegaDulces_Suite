@@ -24,13 +24,17 @@
  * ya identificado el almacén se conoce, así que la pregunta se hace al abrir y el
  * paso es `bloqueado` con el folio que lo frena.
  *
- * **R2 · Una sola pasada por caja, pero sólo cuando no cuesta nada.** Al terminar
- * de fechar un renglón, si el lote que quedó **ya tiene rack conocido**
- * (`rackSugerido`, que sale de dónde vive hoy ese SKU), lo siguiente es
- * acomodarlo: la caja está en la mano y es un toque. Si NO hay rack conocido,
- * acomodarlo exige caminar y decidir, y eso con el camión descargando se paga
- * caro — entonces se sigue fechando y el lote queda en la cola. **La pasada única
- * se ofrece donde es gratis, no se impone.**
+ * **R2 · Al fechar se resuelve la ubicación, siempre.** Apenas un renglón queda
+ * fechado, lo siguiente es acomodar ESE lote, con la caja todavía en la mano:
+ *   - si el SKU **ya vive en un rack**, se ofrece ése y es un toque;
+ *   - si **no tiene ubicación**, la pantalla ofrece **crearla ahí mismo** (con su
+ *     cartel), en vez de mandar el lote a una cola.
+ *
+ * Es decisión del negocio (2026-09-23) y reemplaza una versión anterior de esta
+ * regla que sólo ofrecía acomodar cuando el rack ya se conocía, para no hacer
+ * caminar al operario con el camión descargando. Se descartó: un lote que cae a
+ * la cola sin rack es mercancía que nadie encuentra, y `warehouse_bins` arrancó
+ * en cero — crear la ubicación **es** el camino normal, no la excepción.
  *
  * **R3 · Nunca devolver al operario a una lista.** Después de guardar siempre hay
  * un siguiente paso calculado. Las listas quedan para las excepciones (buscar un
@@ -118,9 +122,11 @@ export function siguientePaso(estado: FlujoEstado, recienFechada?: string | null
   const porFechar = estado.lineas.filter((l) => l.faltaFechar > 0);
   const porUbicar = estado.lotes.filter((l) => l.porUbicar > 0);
 
-  // R2 — pasada única SÓLO si es gratis: el lote recién creado y con rack conocido.
+  // R2 — el lote que se acaba de fechar se acomoda ANTES de seguir, tenga o no
+  // rack conocido: cuando no lo tiene, la pantalla de ubicar ofrece crearlo.
+  // `rackSugerido: null` es la señal de "hay que darle ubicación", no un error.
   if (recienFechada) {
-    const suyo = porUbicar.find((l) => l.lineaId === recienFechada && l.rackSugerido);
+    const suyo = porUbicar.find((l) => l.lineaId === recienFechada);
     if (suyo) return { tipo: 'ubicar', clave: suyo.clave, rackSugerido: suyo.rackSugerido };
   }
 

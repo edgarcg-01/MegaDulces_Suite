@@ -48,7 +48,7 @@ describe('R1 — el almacén congelado se sabe ANTES de capturar', () => {
   });
 });
 
-describe('R2 — una sola pasada por caja, pero sólo cuando es gratis', () => {
+describe('R2 — al fechar se resuelve la ubicación, siempre', () => {
   it('recién fechado y CON rack conocido: lo siguiente es acomodar ESE lote', () => {
     const e = estado({
       lineas: [linea('L1', 0), linea('L2', 5)],
@@ -59,14 +59,17 @@ describe('R2 — una sola pasada por caja, pero sólo cuando es gratis', () => {
     });
   });
 
-  it('recién fechado y SIN rack conocido: se sigue fechando, no se manda a caminar', () => {
-    // Con el camión descargando, decidir un rack nuevo cuesta caro. El lote queda
-    // en la cola y se resuelve después, que es el comportamiento actual.
+  it('recién fechado y SIN rack conocido: igual manda a ubicar, para CREARLA', () => {
+    // Decisión del negocio (2026-09-23): un lote que cae a la cola sin rack es
+    // mercancía que nadie encuentra. `rackSugerido: null` es la señal de que la
+    // pantalla tiene que ofrecer crear la ubicación, no un error.
     const e = estado({
       lineas: [linea('L1', 0), linea('L2', 5)],
       lotes: [lote('p1|A|2027-03-31', 12, null, 'L1')],
     });
-    expect(siguientePaso(e, 'L1')).toEqual({ tipo: 'fechar', lineaId: 'L2' });
+    expect(siguientePaso(e, 'L1')).toEqual({
+      tipo: 'ubicar', clave: 'p1|A|2027-03-31', rackSugerido: null,
+    });
   });
 
   it('no arrastra al operario al lote de OTRO renglón', () => {
