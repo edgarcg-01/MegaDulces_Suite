@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # VL.9 — DESPLIEGUE de PRODUCCIÓN al servidor `md` (192.168.0.222).
 #
-#   ops/prod/deploy.sh --estado        # qué corre allá y con qué imagen
+#   ops/prod/deploy.sh --estado        # qué corre allá, QUÉ FALTA subir, y los últimos deploys
 #   ops/prod/deploy.sh --imagenes      # construye las 6 imágenes, no recrea nada
 #   ops/prod/deploy.sh --imagenes api  # …o sólo la de ese servicio
 #   ops/prod/deploy.sh --db            # sólo levanta pg-prod + pg-rag
@@ -13,6 +13,14 @@
 #   ops/prod/deploy.sh --pitr          # ensayo de recuperación a un punto en el tiempo
 #   ops/prod/deploy.sh                 # construye y recrea todo
 #   ops/prod/deploy.sh api worker      # construye y recrea SÓLO esos (desde [VL.11.D])
+#   ops/prod/deploy.sh --sin-migraciones "<motivo>" api   # desarma la compuerta, con motivo
+#
+# ── [VL.15] Las tres cosas que un despliegue ahora hace y antes no ──────────
+#   B. FRENA si HEAD trae migraciones que prod no tiene aplicadas (antes de construir).
+#   D. VERIFICA que `/api/health` sirva el commit que se acaba de levantar, y FALLA si no.
+#   C. ANOTA en `ops.deploys` de prod: commit, servicios, resultado, quién, cuándo.
+# Las tres nacen del mismo día: el 2026-09-23 la imagen viva estaba 63 commits atrás con 6
+# migraciones sin aplicar, y no había forma de saberlo sin ir a mirar a mano.
 #
 # Hermano de `ops/vl/deploy.sh` (la ingesta) y con las mismas dos reglas duras:
 #
@@ -39,7 +47,124 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 REMOTO="~/build-prod"
 SERVICIOS_DEF="pg-prod pg-rag api worker portal vendor backup"
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# `--sin-migraciones` desarma la compuerta de abajo. Existe porque un freno sin escape se
+# termina saltando desactivándolo para siempre; pero pide motivo y lo deja escrito.
+FORZAR_MIG=0
+MOTIVO_FORZAR=""
+
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=15 "$SRV" "$@"; }
+
+# Escapa un valor para SQL: en SQL la comilla simple se duplica.
+sqlq() { printf "%s" "$1" | sed "s/'/''/g"; }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `[VL.15]` LAS MIGRACIONES SON PARTE DEL DESPLIEGUE, aunque no viajen en la imagen.
+#
+# ⛔ QUÉ LO DISPARÓ, medido el 2026-09-23: entre la imagen viva (`67a30bea`) y `HEAD` había
+# **63 commits y 7 migraciones, de las cuales 6 NO estaban aplicadas** en prod. Desplegar
+# habría subido código que espera columnas y vistas que no existen — y eso **no falla en el
+# build, falla en runtime**, en la cara de quien abra la pantalla. Nada avisaba: se encontró
+# mirando a mano.
+#
+# La compuerta compara los archivos de `database/migrations-newdb/` en HEAD contra lo que prod
+# dice tener aplicado, y **se niega a desplegar** `api`/`worker` si falta alguna.
+#
+# ⛔ `public.knex_migrations` VA EXPLÍCITO, y no es prolijidad: en prod hay **DOS** tablas con
+#    ese nombre y el `search_path` empieza por `identity`, que tiene 0-1 filas y `batch` NULL.
+#    La real es `public` (829 nombres, lote 520 al 2026-09-23). Sin calificar el esquema, esta
+#    comprobación diría que están pendientes LAS 829 — y el freno se volvería ruido que alguien
+#    apagaría el primer día. Es el mismo motivo por el que `migrate.latest()` está prohibido acá.
+# ─────────────────────────────────────────────────────────────────────────────
+migraciones_pendientes() {
+  cd "$REPO"
+  # El nombre que registra knex es el BASENAME del archivo, no la ruta.
+  git ls-tree -r --name-only HEAD database/migrations-newdb/ 2>/dev/null \
+    | sed 's#.*/##' | grep -E '\.js$' | sort > "$TMP/mig-repo.txt" || true
+  : > "$TMP/mig-prod.txt"
+  ssh_md "docker exec pg-prod psql -U postgres -At -d railway -c \"SELECT name FROM public.knex_migrations\"" \
+    2>/dev/null | tr -d '\r' | grep -E '\.js$' | sort > "$TMP/mig-prod.txt" || true
+  comm -23 "$TMP/mig-repo.txt" "$TMP/mig-prod.txt"
+}
+
+compuerta_migraciones() {
+  # Sólo frena a los servicios que llevan CÓDIGO de la app. `portal`/`vendor` son bundles
+  # estáticos y `pg-prod`/`backup` no leen el schema de negocio: frenarlos sería ruido.
+  case " $* " in *" api "*|*" worker "*) ;; *) return 0 ;; esac
+
+  pend=$(migraciones_pendientes || true)
+
+  # ⚠️ Si no se pudo LEER prod, eso NO es "todo al día" ni "829 pendientes": es NO MEDIDO, y se
+  # declara (ADR-056). Fallar cerrado, porque el modo de falla contrario —desplegar a ciegas— es
+  # justo el que esta compuerta existe para cerrar.
+  if [ ! -s "$TMP/mig-prod.txt" ]; then
+    echo "⛔ NO SE PUDO LEER \`public.knex_migrations\` en prod — el estado de las migraciones"
+    echo "   quedó SIN MEDIR. No se despliega a ciegas."
+    echo "   Comprobá:  ssh $SRV 'docker exec pg-prod psql -U postgres -c \"select 1\"'"
+    exit 1
+  fi
+
+  if [ -z "$pend" ]; then
+    MIG_PEND_N=0
+    echo "   ✓ migraciones: prod al día con HEAD"
+    return 0
+  fi
+
+  n=$(echo "$pend" | wc -l | tr -d ' ')
+  MIG_PEND_N="$n"   # viaja a la bitácora: un despliegue forzado queda marcado con CUÁNTAS faltaban
+  echo
+  echo "⛔ $n MIGRACIÓN(ES) DE HEAD NO ESTÁN APLICADAS EN PROD:"
+  echo "$pend" | sed 's/^/      /'
+  echo
+  echo "   Desplegar así sube código que espera un schema que no existe. NO falla en el build:"
+  echo "   falla en runtime, en la pantalla de alguien."
+  echo
+  echo "   ⛔ NO uses \`knex migrate:latest\`: el search_path lleva a la tabla VACÍA y reaplicaría"
+  echo "      las 829. Se aplican a mano, una por una, con \`lock_timeout\` — ops/prod/README.md."
+  echo
+  if [ "$FORZAR_MIG" = 1 ]; then
+    echo "   ⚠️ FORZADO con --sin-migraciones: $MOTIVO_FORZAR"
+    echo
+    return 0
+  fi
+  echo "   Si sabés lo que hacés:  deploy.sh --sin-migraciones \"<motivo>\" $*"
+  exit 1
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `[VL.15.C]` LA BITÁCORA. "¿Qué se subió y cuándo?" se contestaba con arqueología sobre la
+# fecha de creación de una imagen de Docker: sin quién, sin por qué, sin resultado, y sin
+# rastro de los despliegues que fallaron a la mitad — que son justo los que uno quiere leer.
+#
+# Vive en prod porque es donde el dato es útil y donde ya hay respaldo (`prod-backup` + PITR).
+# Se auto-crea: un ledger de operación no puede depender de una migración, porque las
+# migraciones son justamente lo que esto vigila.
+#
+# ⚠️ NUNCA hace fallar el despliegue. Una bitácora que tumba lo que registra es peor que no
+# tenerla — es el mismo criterio que el latido de `backup-prod.sh`.
+# ─────────────────────────────────────────────────────────────────────────────
+bitacora() {
+  _commit="$1"; _servicios="$2"; _resultado="$3"; _pend="$4"
+  _quien=$(cd "$REPO" && git config user.name 2>/dev/null || echo desconocido)
+  {
+    echo "CREATE SCHEMA IF NOT EXISTS ops;"
+    echo "CREATE TABLE IF NOT EXISTS ops.deploys ("
+    echo "  id bigserial PRIMARY KEY,"
+    echo "  desplegado_en timestamptz NOT NULL DEFAULT now(),"
+    echo "  commit_sha text NOT NULL,"
+    echo "  servicios text NOT NULL,"
+    echo "  resultado text NOT NULL,"
+    echo "  migraciones_pendientes int NOT NULL DEFAULT 0,"
+    echo "  quien text,"
+    echo "  desde text"
+    echo ");"
+    echo "INSERT INTO ops.deploys (commit_sha, servicios, resultado, migraciones_pendientes, quien, desde)"
+    echo "VALUES ('$(sqlq "$_commit")', '$(sqlq "$_servicios")', '$(sqlq "$_resultado")', $_pend, '$(sqlq "$_quien")', '$(sqlq "$(hostname 2>/dev/null || echo ?)")');"
+  } | ssh_md "docker exec -i pg-prod psql -U postgres -q -d railway -f -" >/dev/null 2>&1 \
+    || echo "   ⚠️ bitácora: no se pudo escribir (el despliegue NO falla por esto)"
+}
 
 estado() {
   echo "── Qué corre en $SRV (proyecto compose: prod) ──"
@@ -52,6 +177,52 @@ estado() {
   echo
   echo "── La INGESTA (proyecto vl) — no se toca desde acá ──"
   ssh_md 'docker ps --format "{{.Names}}|{{.Status}}" | grep -E "pgvector-md|ods-|feeds-|store-" | sort | column -t -s"|" || true'
+
+  # ── [VL.15.A] QUÉ FALTA SUBIR ────────────────────────────────────────────────
+  # Antes esta pantalla decía qué corre, no qué falta. Son preguntas distintas y la segunda
+  # es la que se hace antes de desplegar: el 2026-09-23 hubo que calcular a mano que `api`
+  # estaba 63 commits atrás, y en el camino aparecieron 6 migraciones sin aplicar.
+  echo
+  echo "── Qué FALTA subir ──"
+  cd "$REPO"
+  vivo=$(ssh_md "docker images --format '{{.Tag}} {{.ID}}' trade-prod-api 2>/dev/null \
+    | grep -v '^latest ' \
+    | awk -v v=\"\$(docker images --format '{{.ID}}' trade-prod-api:latest 2>/dev/null | head -1)\" '\$2==v {print \$1; exit}'" 2>/dev/null || true)
+  cabeza=$(git rev-parse --short HEAD)
+  if [ -n "$vivo" ] && git cat-file -e "$vivo^{commit}" 2>/dev/null; then
+    atras=$(git rev-list --count "$vivo..HEAD" 2>/dev/null || echo '?')
+    if git merge-base --is-ancestor "$vivo" HEAD 2>/dev/null; then
+      printf '   api vive en %s · HEAD es %s · %s commit(s) de diferencia\n' "$vivo" "$cabeza" "$atras"
+    else
+      printf '   ⚠️ api vive en %s, que NO es ancestro de HEAD (%s): hay DIVERGENCIA\n' "$vivo" "$cabeza"
+    fi
+  else
+    printf '   api vive en %s (no resoluble en este repo) · HEAD es %s\n' "${vivo:-?}" "$cabeza"
+  fi
+
+  sinpush=$(git rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo '')
+  if [ -n "$sinpush" ] && [ "$sinpush" != 0 ]; then
+    echo "   ⚠️ $sinpush commit(s) LOCALES sin pushear. \`deploy.sh\` archiva tu HEAD, no origin:"
+    echo "      podés subir a prod código que nadie revisó, y que nadie más tiene."
+  fi
+
+  pend=$(migraciones_pendientes || true)
+  if [ ! -s "$TMP/mig-prod.txt" ]; then
+    echo "   ⛔ migraciones: NO MEDIDO (no se pudo leer public.knex_migrations en prod)"
+  elif [ -z "$pend" ]; then
+    echo "   ✓ migraciones: prod al día con HEAD"
+  else
+    echo "   ⛔ $(echo "$pend" | wc -l | tr -d ' ') migración(es) SIN APLICAR — el despliegue de api/worker se va a frenar:"
+    echo "$pend" | sed 's/^/        /'
+  fi
+
+  echo
+  echo "── Últimos despliegues (ops.deploys) ──"
+  ssh_md "docker exec pg-prod psql -U postgres -d railway -c \
+    \"SELECT to_char(desplegado_en AT TIME ZONE 'America/Mexico_City','MM-DD HH24:MI') AS cuando,
+             commit_sha AS commit, servicios, resultado, migraciones_pendientes AS mig_pend, quien
+        FROM ops.deploys ORDER BY id DESC LIMIT 8\"" 2>/dev/null \
+    || echo "   (todavía no hay bitácora: se crea en el próximo despliegue)"
 }
 
 verificar_limpio() {
@@ -253,15 +424,59 @@ recrear() {
             printf '   %-10s %s\n' \"\$c\" \"\$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}} (sin healthcheck){{end}}' \$n)\"
           done"
   echo
+
+  # ── [VL.15.D] LA VERIFICACIÓN ES PARTE DEL DESPLIEGUE ────────────────────────
+  # `--verificar` existía como comando APARTE, o sea que nadie lo corría después de desplegar.
+  # Y el rótulo `healthy` no sirve de veredicto: dice que el contenedor contesta, no que sirva
+  # la versión nueva. El 2026-09-22 `/api/health` devolvió commit VACÍO dos veces y el
+  # despliegue se veía bien. Acá se compara contra lo que se acaba de levantar, y si no
+  # coincide el despliegue FALLA — un despliegue que no cambió nada y dice "listo" es peor
+  # que uno que rompe, porque nadie lo va a ir a buscar.
+  #
+  # Se pregunta por la LAN (127.0.0.1:8080 desde `md`), no por el dominio: el túnel agrega
+  # 225 ms y una capa de caché entre la respuesta y la verdad.
+  case " $servicios " in *" api "*)
+    echo "── Verificación: ¿el API sirve la versión que se levantó? ──"
+    vivo=$(ssh_md "for i in 1 2 3 4 5 6 7 8 9 10; do
+              r=\$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+              c=\$(printf '%s' \"\$r\" | sed -n 's/.*\"commit\":\"\\([^\"]*\\)\".*/\\1/p')
+              [ -n \"\$c\" ] && { printf '%s' \"\$c\"; exit 0; }
+              sleep 3
+            done" 2>/dev/null || true)
+    if [ -z "$vivo" ]; then
+      echo "   ⛔ el API no contestó /api/health en 30 s. El despliegue NO se puede dar por bueno."
+      bitacora "$commit" "$servicios" "api_sin_responder" "${MIG_PEND_N:-0}"
+      exit 1
+    fi
+    if [ "$vivo" != "$commit" ] && [ "$commit" != desconocido ]; then
+      echo "   ⛔ el API sirve '$vivo' y se levantó '$commit'. Algo NO se recreó."
+      echo "      Causa típica: un \`docker compose up\` de otro servicio que arrastró a \`api\`"
+      echo "      por \`depends_on\`, o una imagen \`:latest\` que no se reapuntó."
+      bitacora "$commit" "$servicios" "commit_no_coincide:$vivo" "${MIG_PEND_N:-0}"
+      exit 1
+    fi
+    echo "   ✓ /api/health sirve $vivo — es la versión que se levantó."
+  esac
+
+  bitacora "$commit" "$servicios" "ok" "${MIG_PEND_N:-0}"
+  echo "   ✓ anotado en ops.deploys"
   echo "   ⚠️ El rótulo NO es el veredicto. 'healthy' dice que el contenedor contesta;"
   echo "      que PROD esté bien se comprueba con datos: ver ops/prod/README.md §Verificación."
 }
+
+# [VL.15.B] `--sin-migraciones "<motivo>"` va ADELANTE de todo, como prefijo, para que se lea
+# en el historial del shell junto al comando que desarmó: `deploy.sh --sin-migraciones "…" api`.
+if [ "${1:-}" = "--sin-migraciones" ]; then
+  shift
+  [ $# -gt 0 ] || { echo "⛔ --sin-migraciones exige un motivo entre comillas."; exit 2; }
+  FORZAR_MIG=1; MOTIVO_FORZAR="$1"; shift
+fi
 
 case "${1:---todo}" in
   --estado)    estado ;;
   --imagenes)  shift; verificar_limpio; enviar; construir "$@" ;;
   --db)        recrear pg-prod pg-rag ;;
-  --recrear)   shift; subir_compose; [ $# -gt 0 ] || set -- $SERVICIOS_DEF; recrear "$@" ;;
+  --recrear)   shift; [ $# -gt 0 ] || set -- $SERVICIOS_DEF; compuerta_migraciones "$@"; subir_compose; recrear "$@" ;;
   --volver)    shift; volver "$@" ;;
   --verificar) subir_compose >/dev/null; ssh_md "sh ~/ops/prod/verificar.sh" ;;
   --pitr)      subir_compose >/dev/null; ssh_md "sh ~/ops/prod/probar-pitr.sh" ;;
@@ -271,9 +486,11 @@ case "${1:---todo}" in
   # porque `cloudflared` declara `depends_on: [api, portal, vendor]` y Compose se los lleva
   # puestos. Esta entrada pasa por `recrear()`, que sí exporta el commit.
   --tunel)     subir_compose; recrear cloudflared ;;
-  --todo)      verificar_limpio; enviar; construir; recrear $SERVICIOS_DEF ;;
+  --todo)      verificar_limpio; compuerta_migraciones $SERVICIOS_DEF; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,15p' "$0"; exit 2 ;;
   # Nombres de servicio sueltos: ahora `construir` recibe la lista y construye SÓLO esas
   # imágenes, en vez de las seis.
-  *)           verificar_limpio; enviar; construir "$@"; recrear "$@" ;;
+  # ⛔ La compuerta va ANTES de `enviar`/`construir`: frenar después de 20 min de build es
+  # frenar tarde, y el que espera 20 minutos por un "no" la desactiva la próxima vez.
+  *)           verificar_limpio; compuerta_migraciones "$@"; enviar; construir "$@"; recrear "$@" ;;
 esac
