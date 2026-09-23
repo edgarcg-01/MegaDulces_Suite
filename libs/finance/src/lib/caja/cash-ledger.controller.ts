@@ -153,6 +153,22 @@ export class CashLedgerController {
     return this.svc.crearLote(body ?? { items: [] }, this.user(req));
   }
 
+  /**
+   * CG.22.6 — va ANTES de `@Get(':id')` como el resto. Declara a qué cuenta va un beneficiario,
+   * desde la captura. Medido: `caja_classify_rules` tenía 0 filas en prod y NO existía ninguna
+   * pantalla para cargarlas — el bloqueo de «0 de 8 se confirman» no era falta de trabajo, era
+   * falta de puerta.
+   */
+  @Post('reglas')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.22.6 — Declara que un beneficiario va SIEMPRE a un par (cuenta, concepto) de Kepler, de la mano de quien captura. El patrón se ancla y se escapa: sin anclar, un beneficiario corto clasificaría media bandeja. Valida el par contra el catálogo vivo y es idempotente: declarar dos veces lo mismo no apila reglas.' })
+  declararRegla(
+    @Body() body: { beneficiario?: string; kepler_cuenta?: string; kepler_concepto?: string; sucursal?: string; nota?: string },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.declararCuentaDeBeneficiario(body ?? {}, this.user(req));
+  }
+
   @Get('frecuentes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CG.20 — Los pares (cuenta, concepto, beneficiario) que ESE capturista más repite, para ofrecerlos de un toque. Medido: 57% de los gastos cae en un par usado 3+ veces. ⚠️ Para lo que NO tiene documento en Kepler: desde CG.21 el gasto con documento se confirma desde la bandeja. Esto baja los clics, no vuelve auditable el dato.' })
