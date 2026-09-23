@@ -25,7 +25,7 @@ Prod no es "una app". Son **nueve servicios, dos bases, un bucket y un dominio**
 | Servicio en Railway | Qué es | Techo | ¿Portado a `md`? |
 |---|---|---|---|
 | `MegaDulces` | API NestJS + SPA `view` (nginx adentro) | 2 vCPU / 2 GB | ✅ `api` |
-| `worker` | El mismo binario con `WORKER=true`: 48 `@Cron` + cola pg-boss | 1 / 1 GB | ✅ `worker` |
+| `worker` | El mismo binario con `WORKER=true`: 51 `@Cron` + cola pg-boss | 1 / 1 GB | ✅ `worker` |
 | `BD_CENTRALIZADO` | **La base**: PG 18.6, **34 GB** | 4 / 6 GB | ✅ `pg-prod` |
 | `RAG_PRODUCTS` | Postgres de embeddings (Fase K) | 1 / 1 GB | ✅ `pg-rag` |
 | `Portal_MegaDulces` | Portal B2B (clientes) | 0.5 / 0.5 GB | ✅ `portal` |
@@ -643,13 +643,21 @@ Cosas encontradas midiendo, **anteriores a esta fase** y ajenas a la mudanza:
    Copiadas al worker; ahora sí intenta (y falla por el bloqueo #4 de arriba, que es otra
    cosa y ahora se ve).
 
-3. **Los 48 `@Cron` corren por duplicado.** Ni `MegaDulces` ni `worker` definen
-   `DISABLE_CRONS`, así que `ScheduleModule` se registra en los dos. **Verificado en los logs
-   de producción**: el API imprime `Cron in-process ACTIVOS (48 @Cron)`. Anula el propósito
-   declarado del worker-tier (ADR-043) y crea **dos dueños por `job_key`** — el mismo pecado
-   que `ops/README.md` nombra para los carriles. **Corregido en el stack on-prem** (el `api`
-   lleva `DISABLE_CRONS=true`); **en Railway sigue igual**, porque cambiarlo es un cambio de
-   comportamiento de producción que hay que decidir, no deducir.
+3. ~~**Los 48 `@Cron` corren por duplicado.**~~ ✅ **CERRADO — y por un camino distinto al que
+   este renglón suponía.** Decía que *"en Railway sigue igual"*. Medido el **2026-09-23** con
+   `railway status --json`: el proyecto `balanced-dream` tiene **6 servicios y ni `MegaDulces`
+   ni `worker` están entre ellos** — se eliminaron. La duplicación es cosa juzgada; no hubo que
+   decidir nada.
+
+   ⛔ **Pero el barrido encontró OTRO servicio con los crons encendidos: `Megadulces-Logistica`.**
+   Sin `DISABLE_CRONS` ⇒ `ScheduleModule` se registra y los **51** `@Cron` quedan activos. Tiene
+   `DATABASE_URL` y las credenciales **completas** de Cloudinary, cuenta `dovah7amw` — **la misma
+   que usa la app viva** — y `cleanOldPhotos` (`tasks.service.ts:28`, 02:00 MX) borra imágenes
+   **sin ninguna compuerta de entorno**. Hoy **no dispara** porque su base ya no resuelve
+   (`getaddrinfo ENOTFOUND postgres.railway.internal`, ciclo de arranque fallido): es una **bomba
+   desactivada, no activa**. Repuntarle la base la arma. `[NORM.1]` le puso `DISABLE_CRONS=true`
+   para que no pueda armarse sola. ⚠️ **La prueba negativa no se pudo observar** — el servicio no
+   llega a imprimir el renglón de arranque; lo verificado es el mecanismo en `app.module.ts:439`.
 
    ⚠️ **Y el arreglo del punto 2 lo vuelve visible**: ahora los DOS servicios tienen el canal
    de correo, así que en cuanto la contraseña de aplicación funcione **cada alerta va a llegar

@@ -122,7 +122,7 @@ function assertAuthWiring(): void {
  * prod (`FLEET_DB_URL`), tres variables distintas llamadas `DATABASE_URL*` que
  * apuntan a tres bases distintas (GOTCHAS §17), y en agosto la suite de tests
  * corrió con ese `.env` contra prod y dejó 5 cuentas y 2 tenants de prueba en el
- * padrón real. Con 48 `@Cron` que hasta REP.0.3 corrían incondicionalmente, una
+ * padrón real. Con 51 `@Cron` que hasta REP.0.3 corrían incondicionalmente, una
  * API de dev apuntada a prod no es "una sesión rara": es una segunda instancia
  * borrando fotos de Cloudinary y consumiendo la cola fiscal.
  *
@@ -317,8 +317,12 @@ async function bootstrap() {
   // de que los apagó, y nadie se entera de que se olvidó de apagarlos.
   console.log(
     process.env.DISABLE_CRONS === 'true'
-      ? 'DISABLE_CRONS=true → ScheduleModule NO registrado: los 48 @Cron están inertes en este proceso.'
-      : 'Cron in-process ACTIVOS (48 @Cron). Para apagarlos en dev: DISABLE_CRONS=true.',
+      // [NORM.0] 48 → 51. El número lo verifica `check-schema-conventions.js` contra el código,
+      // porque un conteo escrito en prosa no avisa cuando deja de ser cierto: éste decía 48 con
+      // 51 reales, y el mismo dato estaba mal en otros 8 lugares del repo con TRES cifras
+      // distintas (48, 52, 53).
+      ? 'DISABLE_CRONS=true → ScheduleModule NO registrado: los 51 @Cron están inertes en este proceso.'
+      : 'Cron in-process ACTIVOS (51 @Cron). Para apagarlos en dev: DISABLE_CRONS=true.',
   );
 }
 
@@ -353,13 +357,13 @@ async function bootstrapWorker(): Promise<void> {
   // desde ADR-043, es justamente el que NO los corre. El worker, que es donde los cron
   // viven de verdad, afirmaba "crons + cola pg-boss activos" SIEMPRE, fuera cierto o no.
   // Medido el 2026-09-22: con `DISABLE_CRONS=true` el worker imprimía esa frase igual.
-  // El interruptor existe (`app.module.ts`: sin ScheduleModule los 48 @Cron quedan
+  // El interruptor existe (`app.module.ts`: sin ScheduleModule los 51 @Cron quedan
   // inertes) — lo que faltaba era que el proceso lo dijera. Ahora el renglón LEE la
   // variable en vez de afirmar de memoria.
   const cronsInertes = process.env.DISABLE_CRONS === 'true';
   logger.log(
     cronsInertes
-      ? 'Worker-tier arriba (sin HTTP/WS): cola pg-boss activa. ⛔ DISABLE_CRONS=true → ScheduleModule NO registrado: los 48 @Cron están INERTES en este proceso. Si el API también los tiene apagados, NO corre ningún cron.'
+      ? 'Worker-tier arriba (sin HTTP/WS): cola pg-boss activa. ⛔ DISABLE_CRONS=true → ScheduleModule NO registrado: los 51 @Cron están INERTES en este proceso. Si el API también los tiene apagados, NO corre ningún cron.'
       : 'Worker-tier arriba (sin HTTP/WS): crons + cola pg-boss activos.',
   );
 }

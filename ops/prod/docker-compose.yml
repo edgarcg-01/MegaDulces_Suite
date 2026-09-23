@@ -307,7 +307,7 @@ services:
       # nada que pisar.
       # ⭐ ACÁ SE CORRIGE UN DEFECTO QUE VIENE DE RAILWAY, Y SE DECLARA EN VEZ DE HEREDARLO.
       # Medido el 2026-09-22: NI `MegaDulces` NI `worker` definen `DISABLE_CRONS`, así que
-      # `ScheduleModule` se registra en los DOS y los **48 @Cron corren por duplicado**. Eso
+      # `ScheduleModule` se registra en los DOS y los **51 @Cron corren por duplicado**. Eso
       # anula el propósito declarado del worker-tier (ADR-043: "el API se puede escalar
       # horizontal sin duplicar los crons") y crea DOS DUEÑOS para cada `job_key` — el mismo
       # pecado que `ops/README.md` nombra para los carriles ("un carril = UN dueño").
@@ -331,7 +331,7 @@ services:
       start_period: 90s
 
   # Mismo binario, modo worker (WORKER=true → `bootstrapWorker`, sin HTTP/WS).
-  # Acá SÍ viven los 48 @Cron y los consumidores de la cola pg-boss.
+  # Acá SÍ viven los 51 @Cron y los consumidores de la cola pg-boss.
   worker:
     <<: *app
     image: trade-prod-worker:latest
@@ -351,7 +351,7 @@ services:
       # existía "mientras esto sea una COPIA" y su propio comentario decía: AL CORTAR, quitarla.
       # Ya no es una copia — la ingesta escribe a esta base desde el 2026-09-22.
       #
-      # Lo que obligó a hacerlo, medido el 2026-09-23: los 53 @Cron corrían en RAILWAY, sobre
+      # Lo que obligó a hacerlo, medido el 2026-09-23: los 51 @Cron corrían en RAILWAY, sobre
       # datos CONGELADOS desde el corte, y estaban apagados acá, que es donde están los datos
       # frescos. Ninguna de las dos producciones estaba completa. Atraso real al momento de
       # medirlo: GPS de flota 23.9 h SIN UNA POSICIÓN · hallazgos de Maat 30.3 h · canastas

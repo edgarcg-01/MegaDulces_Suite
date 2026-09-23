@@ -17,7 +17,7 @@
 | | `md` — **el servidor** | `.249` — **la máquina de escritorio** |
 |---|---|---|
 | Qué es | `192.168.0.222` · Ubuntu Server 26.04.1 · **Ryzen 5 3400G 4c/8t** · **28.8 GiB** · NVMe 1 TB ⚠️ *corregido 2026-09-22 con `lscpu`: este renglón decía «4600G 6c/12h · 14 GiB» desde el 10-sep — es el **mismo** modelo que `.249`, no uno mejor, y la RAM ya se había subido* | `SISTEMAS` · Windows 11 · Ryzen 5 3400G · 30 GB |
-| Qué corre | **La ingesta completa**: la fuente + los 14 carriles | Sólo lo que **no puede** correr en Linux, y el respaldo |
+| Qué corre | **La ingesta completa**: la fuente + los 15 carriles | Sólo lo que **no puede** correr en Linux, y el respaldo |
 | Cómo arranca | `systemd` → Docker → `restart: unless-stopped`. **Sin sesión, sin nadie.** | Docker Desktop y 5 de 6 tareas **exigen sesión iniciada** |
 | Verificado | ⭐ **Reinicio real el 2026-09-11**: los 8 contenedores volvieron solos en **39 s**, Postgres sin recuperación de caída, las 8 suscripciones al instante | — |
 
@@ -38,7 +38,7 @@ en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`,
 | `ods-live-hot` | Carril caliente réplica → `kepler_ods` de prod (venta, movimientos, catálogos) | @15 s | `ods_live_hot` |
 | `ods-live-mirror` | Espejo completo de lo que el hot no cubre | @300 s | `ods_live_mirror` |
 | `ods-reconcile` | **La única alarma de COMPLETITUD**: compara llaves y repone el delta | @900 s | `cdc_reconcile` |
-| `feeds-cron` | Los **14 carriles agendados** (§2.2) | ver abajo | uno por carril |
+| `feeds-cron` | Los **15 carriles agendados** (§2.2) | ver abajo | uno por carril |
 | `feeds-livefast` | Venta del día + cajas abiertas. Sub-minuto, por eso **no** va en cron | @60 s | `feed_livefast` |
 | `store-poller` | Tickets en vivo → `/tienda/live` | @25 s | `store_poller` |
 | `ods-autoheal` | **El brazo**: reinicia lo que se declare `unhealthy` | @30 s | — |
@@ -50,7 +50,8 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 
 ```
 * * * * *          contpaqi
-*/2 * * * *        refresh-consolidado
+* * * * *          caja-mv               (refresh-caja-matview; latido `mv_caja_refresh`)
+*/2 * * * *        refresh-consolidado   ⚠️ el ÚNICO sin latido — es mudo (NORM.3)
 */5 * * * *        watchdog
 3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)
 5,20,35,50 * * * * stock
@@ -62,6 +63,7 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 30 4 * * *         receipts              (barrido histórico; era @1 min hasta DB-MEM.2)
 45 5 * * *         contpaqi-cfdis-full   (reconciliador, ~167k CFDIs)
 0 2 * * 6          catalog               (sábado 02:00)
+22 6 * * *         replica-refresh       (kepler-replica-refresh; latido `kepler_replica_refresh`)
 ```
 
 > **[LT.9.2, 2026-09-17]** `fleet-gps` salió de esta agenda: hacía el mismo trabajo que el
