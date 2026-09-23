@@ -463,16 +463,17 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 
 | # | Bloqueo | Estado medido | Quién lo destraba |
 |---|---|---|---|
-| 1 | **El dominio** ⛔ **intentado 2026-09-22 y RECHAZADO** | Todo cuelga de `*.up.railway.app`, que es de Railway y **no se puede mover**. **553 referencias** en 33 archivos, incluidos agentes desplegados en cajas de sucursal (`store-agent.template.cmd`) y los assets compilados del **APK de vendedor**. Al intentar agregar el dominio propio, el CLI devuelve `Unauthorized. Please run railway login again` — **y el mensaje miente**: la sesión es válida (los `railway variables --set` de esta misma sesión funcionaron) y las lecturas también. Falla **sólo** crear dominio, con cualquier nombre → es una restricción de **plan/feature de la cuenta**, no de credenciales | Edgar, desde el **dashboard** de Railway (§6.1) |
-| 2 | **Cloudflare Tunnel** | Elegido como forma de exposición. `cloudflared` ya está declarado en el compose, tras el perfil `tunel` | Hace falta cuenta de Cloudflare + el dominio (o un subdominio delegado) en su DNS, y el `CLOUDFLARE_TUNNEL_TOKEN` |
+| 1 | ~~**El dominio en Railway**~~ ⭐ **SE CAE 2026-09-22 (tarde): no bloquea el corte on-prem** | El `Unauthorized` al crear dominio en Railway es real (restricción de **plan**, no de credenciales: los `railway variables --set` de la misma sesión funcionaron). Pero **ese dominio sólo hacía falta para la vía B**, que existe para que el dominio propio sirva *desde Railway* durante la convivencia. Con la vía **C** (§6.1) el dominio nuevo apunta al túnel **desde el día uno** y Railway nunca necesita un dominio propio. **Y lo que lo vuelve barato está medido:** las 3 apps web usan `apiUrl: '/api'` **relativo** — mismo origen — así que un dominio nuevo **no obliga a recompilar nada**. De las 564 ocurrencias de `up.railway.app` (37 archivos) sólo **13 archivos son código vivo**, y la única URL absoluta de la app es `NATIVE_API_URL`, del APK **que nadie usa** | — (decisión tomada: dominio nuevo en Cloudflare) |
+| 2 | **Cloudflare Tunnel** 🟡 **casi** | `cloudflared` declarado en el compose tras el perfil `tunel`, por token. **Verificado en vivo 2026-09-22**: (a) un túnel efímero sirvió la app entera por HTTPS real desde `md` —login renderizado, 0 errores de consola, `/api/health` respondiendo `067eae72`— y se cerró; (b) desde la red `prod_default` el contenedor del túnel alcanza `http://api:10000`, `http://portal:10000` y `http://vendor:10000`, los tres **HTTP 200** — que es exactamente lo que se carga en el tablero. **No falta código** | Registrar el dominio en la cuenta de Cloudflare y cargar `CLOUDFLARE_TUNNEL_TOKEN` en `~/secrets/prod-compose.env` (§6.2) |
 | 3 | **VL.8 — aguante** | **Sin UPS gestionado** (`nut`/`apcupsd` ausentes), **sin respaldo fuera de sitio**, **un solo enlace** de 44 Mbit de subida compartido con la oficina y con los 14 carriles | Compra de UPS + destino de respaldo externo. Elegido como **precondición dura** |
 | 4 | **La alarma no avisa** | El worker manda el correo (verificado en vivo) pero Gmail lo rechaza: `534-5.7.9 Application-specific password required`. `SMTP_PASS` tiene 11 caracteres; una contraseña de aplicación son 16 | Generar la contraseña de aplicación en la cuenta de Google y ponerla en `SMTP_PASS` de **los dos** servicios |
 | 5 | ~~**El volcado correcto**~~ ✅ **RESUELTO 2026-09-22** | Era que el respaldo diario usaba `--no-privileges`. Desde `[VL.6.4]` el carril de `md` lo toma **con** privilegios, y `restaurar.sh` **aborta** si el volcado trae menos de 100 entradas `ACL` — o sea que el defecto ya no puede volver en silencio | — |
 | 6 | **`JWT_SECRET` cambia** | El valor de Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo. Recortarlo equivale a rotarlo | Decidirlo: rotar una sola vez y avisar que **todos re-loguean** |
 | 7 | **El bucket** | 597 MB de comprobantes (§5) | Decidir MinIO on-prem o seguir en Railway |
+| 9 | **Los agentes en las cajas de sucursal** ⛔ **nuevo, medido 2026-09-22** | Empujan a `https://megadulces.up.railway.app/api/store/live/ingest` — **otro** servicio de Railway, distinto del de la app. Están instalados **en las máquinas de tienda**, no en el repo (`store-agent.template.cmd`, `deploy-wincaja-agent.ps1`), así que apagar Railway les corta la entrega de tickets. El túnel lo resuelve con un hostname `ingest.<dominio>` → `md`, pero **hay que tocar cada caja** | Repuntar la URL en cada sucursal; conviene hacerlo **antes** del corte, apuntando al túnel mientras Railway sigue vivo |
 | 8 | ~~**El RPO**~~ ✅ **RESUELTO 2026-09-22** | ⭐ **No estaba en esta lista y era el peor**: prod corre pgBackRest con `archive_mode=on` y la copia estaba en `off` — el corte bajaba la recuperación de *minutos* a *24 horas*, en silencio. Cerrado en §9 | — |
 
-### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las dos vías
+### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las tres vías
 
 **Lo que NO funciona**, y conviene saberlo antes de perder una tarde: poner un `CNAME` de
 `app.megadulces.com.mx` a `megadulces.up.railway.app` **no sirve**. Railway rutea por el
@@ -480,7 +481,7 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 coincide con ningún dominio registrado y Railway contesta *"Application not found"*. El DNS
 sólo resuelve la IP; no cambia el `Host`.
 
-Por eso el dominio propio tiene que estar **registrado del lado de Railway**. Dos vías:
+Eso vale **si se quiere seguir sirviendo desde Railway** con dominio propio. Tres vías:
 
 **A) Dominio propio en Railway (lo natural).** Settings → Networking → *Custom Domain* en cada
 servicio, y Railway devuelve el `CNAME` a cargar en HostGator. ⛔ **Intentado por CLI el
@@ -504,6 +505,88 @@ el marcador `; wv)` de un WebView) · 2 iOS · **cero sesiones nativas**. Cohere
 host compilado (`trademarketing-production-5084.up.railway.app`) **responda 404** desde hace
 quién sabe cuánto. ⇒ **Reconstruir y redistribuir el APK NO es parte del corte.** Un bloqueo
 que se cae al medirlo.
+
+**C) ⭐ El dominio nuevo apunta al túnel desde el día uno — DECIDIDO 2026-09-22.** Ni dominio
+en Railway ni Worker. Se registra un dominio **nuevo y barato** directamente en Cloudflare
+(`~$10-15 USD/año`), se crea el túnel, y ese dominio sirve `md`. Railway conserva su
+`*.up.railway.app` mientras dure la convivencia, y el corte es *"la URL nueva es ésta"*.
+
+Lo que la vuelve viable está **medido**, no supuesto:
+
+| Hecho | Medido |
+|---|---|
+| Las 3 apps web llaman a `apiUrl: '/api'` **relativo** | `environment.ts` de `view`, `portal` y `vendor` — mismo origen, el `nginx` del contenedor proxya `/api` |
+| ⇒ un dominio nuevo **no obliga a recompilar** ninguna app | por eso `https://<host>/api/health` contestó `067eae72`, el build de `md`, y no datos de Railway |
+| La única URL absoluta de Railway en la app es `NATIVE_API_URL` | y es del **APK que nadie usa** (censo de 30 días: cero sesiones nativas) |
+
+⚠️ **Lo que se pierde frente a la vía B, dicho sin adorno:** la vía B compra que el corte sea
+*reversible sin tocar un equipo*, porque los clientes hablan con el mismo nombre antes y
+después. Con la vía C el regreso es *"vuelvan a la URL vieja"*. Para ~100 personas de la casa
+es un mensaje; para un cliente externo no lo sería. **Se elige C porque el dominio de hoy es
+`*.up.railway.app` y ése no se puede mover: la URL iba a cambiar de todos modos.**
+
+⛔ **Y lo que la vía C NO resuelve** — los agentes de las cajas de sucursal (§6 #9) tienen su
+URL de ingesta clavada en cada máquina. Ésos sí hay que tocarlos uno por uno.
+
+---
+
+### 6.2 El túnel, paso a paso — qué puede hacer el código y qué no
+
+`cloudflared` ya está en el compose tras el perfil `tunel`, y lo que dependía de medir ya se
+midió (§6 #2). **Lo único que falta es lo que un programa no puede hacer**: dar de alta un
+dominio con una tarjeta y autorizar en un navegador.
+
+**Lo humano (una vez, ~10 min).** En el tablero de Cloudflare, con la cuenta de la empresa:
+
+1. **Registrar el dominio.** *Domain Registration → Register Domain*. ⚠️ Registrarlo **ahí
+   dentro** y no en otro lado: así la zona DNS queda en Cloudflare sola, sin tocar
+   nameservers de nada.
+   ⛔ **NO se usa `megadulces.com.mx`**: su DNS vive en HostGator (`ns*.websitewelcome.com`)
+   y sus **MX apuntan a Google Workspace**. Moverlo a Cloudflare exige cambiar los
+   nameservers del dominio **entero** — si un registro no se importa bien, **se cae el correo
+   de la empresa**. No hay ninguna razón para correr ese riesgo: el dominio de hoy tampoco es
+   ése.
+2. **Crear el túnel.** *Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared*.
+   Nombre sugerido: `md-prod`. Copiar el **token**.
+   ⚠️ Puede aparecer un túnel viejo llamado `megadulcesservice`: es de un intento anterior que
+   **nunca pudo funcionar** —su `cloudflared-config.yml` enrutaba a hostnames
+   `*.trycloudflare.com`, que son de Cloudflare y no se pueden reclamar— y su archivo de
+   credenciales apuntaba a una ruta de Windows que ya no existe. Se puede borrar.
+3. **Publicar los tres hostnames** (*Public Hostnames* del mismo túnel). Los destinos están
+   **verificados alcanzables** desde la red `prod_default`:
+
+   | Hostname | Service | Qué es |
+   |---|---|---|
+   | `suite.<dominio>` | `http://api:10000` | la suite (`apps/view`) + la API |
+   | `portal.<dominio>` | `http://portal:10000` | portal B2B |
+   | `vendedor.<dominio>` | `http://vendor:10000` | app de vendedor en campo |
+   | `ingest.<dominio>` | `http://api:10000` | ⚠️ sólo si se van a repuntar los agentes (§6 #9) |
+
+**Lo que hace el código, después.** El token **no se pega en un chat ni se commitea** — va
+directo al archivo de secretos de `md`:
+
+```sh
+# en md, una sola vez (el token nunca pasa por el repo ni por la conversación)
+printf 'CLOUDFLARE_TUNNEL_TOKEN=%s
+' '<pegar aquí>' >> ~/secrets/prod-compose.env
+chmod 600 ~/secrets/prod-compose.env
+
+# levantar el túnel
+cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a   && docker compose -p prod --profile tunel up -d cloudflared
+```
+
+⛔ **Y el paso que se olvida y hace que parezca que no sirvió**: con el túnel adelante, TLS lo
+termina Cloudflare, así que `TLS_TERMINADO` vuelve a **`true`** en los tres servicios web del
+compose. Hoy está en `false` **a propósito** (`[VL.9.12]`, §7) porque `md` se sirve por HTTP
+plano; dejarlo en `false` detrás del túnel significa servir sin `HSTS` ni
+`upgrade-insecure-requests` **teniendo TLS**, que es justo cuando esas dos cabeceras sirven.
+
+**Cómo se comprueba que quedó** — el rótulo no es el veredicto:
+
+```sh
+curl -s https://suite.<dominio>/api/health          # debe decir el commit de md
+curl -s -o /dev/null -D - https://suite.<dominio>/   | grep -iE 'strict-transport|upgrade-insecure'    # con TLS_TERMINADO=true: las dos presentes
+```
 
 ---
 
