@@ -53,6 +53,8 @@ consulta escrita contra una rama **puede no compilar en otra**.
 | **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · **`c2/c3/c4/c5`=género/naturaleza/grupo/tipo** (4 ejes → `kdmm.c1/c2/c3/c4`; ver §3) · `c9`=fecha del documento ⚠️ **puede venir en el FUTURO** (medido: hasta 2026-12-31) · `c10`=forma de pago · **`c68`=fecha de CAPTURA** ← la que sirve para ventanas |
 | **`kdm2`** | Detalle/líneas de documentos (1.26M filas) | `c8`=SKU · `c9`=cantidad · `c32`=fecha (≈ header) |
 | **`kdmm`** | **Catálogo de tipos de documento** (la piedra Rosetta) — PK `(c1,c2,c3,c4)`, 170 filas | **`c1`=género · `c2`=naturaleza · `c3`=grupo · `c4`=tipo** · `c5`=descripción · **`c8`=¿afecta inventario?** · `c19/c20`=cuenta cargo/abono · ⚠️ **NO confundir con la tabla `doctype`** (§3) |
+| **`kdudp`** | **Prospectos del CRM** — gemelo de `kdud` (clientes), 110 cols · ver §3.c | **`c2`=clave (PK)** · `c3`/`c43`=nombre · `c13`=sector→`kduj` · `c14`=zona→`kduk` · `c31`=medio→`kdvmedios` · `c52`=tamaño→`kdvtamano` · `c49`=contacto · `c81`=alta · `c82`=estatus · ⚠️ llave real `(sucursal, c2)`: el catálogo se propaga a las 7 ramas |
+| `kdvcontactos` · `kdvavance` | CRM: contactos del prospecto · **embudo con % de cierre** | `kdvcontactos.c1`=clave del prospecto · `kdvavance` = A1 CONTACTO 10 … A7 CIERRE 100 · A8 RECHAZO 0 — ⛔ `kdvcontactos` **NO está en el ODS**; `kdvavance` **no existe en la rama 01** (§3.c) |
 | `kdid/kdie/kdif/kdig` | Catálogos: unidad / depto / línea / **proveedor** | `kdig` = proveedores (línea de negocio ≈ marca) |
 | `kdij` | Kardex de movimientos con fecha inline (595k) | |
 | `kdc2YYMM` | Pólizas contables por mes | |
@@ -570,6 +572,120 @@ que ya trae `flujo` entrada/salida/traspaso, `signo`, anti-réplica y exclusión
 
 ---
 
+### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
+
+La sucursal **01 Padre Hidalgo** empezó a capturar prospectos y cotizaciones en el módulo CRM de
+Kepler (`crmcatpropag.kpl` = catálogo de prospectos · `crmopecotpag.kpl` = cotización). Es el paso
+previo al cliente, y va a ser el CRM de la Suite.
+
+> ⚠️ **Esto contradice el censo del 2026-09-14**, que clasificó `kdcrm*` y `kdv*` como *"features de
+> Kepler sin usar — 0 filas en las 8 ramas"* y por eso quedaron fuera del ODS. **Ya no están
+> vacías.** Un censo de cobertura caduca cuando el ERP estrena un módulo; la frase "0 filas" es una
+> medición con fecha, no una propiedad de la tabla.
+
+**Medido contra `192.168.10.10:1977/md_01`** (el POS de la rama 01 — dato vivo) y contra
+`192.168.0.245:5432/platform_test` (mirror de dev, ⚠️ `max(kdm1.c68)` de la rama 01 = **2026-09-09**,
+o sea atrasado). **Prod (Railway) NO medido**: esa sesión no tenía la credencial.
+
+#### El prospecto es `kdudp` — el gemelo de `kdud`, no una tabla de CRM
+
+110 columnas, misma forma que el catálogo de clientes. Verificado campo por campo contra la
+pantalla de captura:
+
+| Pantalla | `kdudp` | Resuelve contra | Ejemplo medido |
+|---|---|---|---|
+| Clave | **`c2`** (es la PK, como en `kdud`) | — | `100` |
+| Nombre | `c3` y `c43` | — | ABARROTES ROMO |
+| Dirección · Colonia · Municipio · CP | `c4` `c5` `c6` `c27` | `kdvcolonia` | CALZADA DE LOS INDIOS · SANTA FE · `LAP` · 59330 |
+| Estado · País | `c35` `c36` | — | `MICH` · `MEX` |
+| Tel 1 | `c7` | — | 352999999 |
+| RFC | `c10` | — | ABR260928ASW |
+| Correo · Contacto | `c41` `c49` | — | ROMO@ABARROTESROMO.COM · SERAFINO ROMO |
+| **Sector** | `c13` | **`kduj`** (`c1`→`c2`) | `1M001` = TELEMARKETING LA PIEDAD |
+| **Zona** | `c14` | **`kduk`** (`c1`→`c2`) | `01` = ZONA LA PIEDAD |
+| **Medio publicitario** | `c31` | **`kdvmedios`** (→`kdvtipomedio`) | `001` = WHATS APP (`ELECT`) |
+| **Tamaño** | `c52` | **`kdvtamano`** | `03` = MEDIANA |
+| Fecha de alta · Estatus | `c81` `c82` | — | 2025-11-26 · `A` = Activo |
+
+El **contacto** vive aparte en **`kdvcontactos`**, ligado por `c1` = clave del prospecto
+(`c3` nombre · `c6` título → `kdvtitulos` · `c8` tel · `c12` correo · `c14` puesto).
+
+#### ⭐ `kdvavance` es el embudo, y trae la probabilidad de cierre
+
+| `c1` | `c2` | `c3` (%) |
+|---|---|---|
+| A1 | CONTACTO | 10 |
+| A2 | CITA | 20 |
+| A3 | PRESENTACION | 40 |
+| A4 | COTIZACION | 70 |
+| A5 | NEGOCIACION | 80 |
+| A6 | COTIZACION ACEPTADA | 90 |
+| A7 | CIERRE | 100 |
+| A8 | RECHAZO | 0 |
+
+⚠️ **La tabla `kdvavance` NO EXISTE en la rama 01** (sí en la 00 y la 02): el módulo CRM **no está
+desplegado igual en todas las sucursales**. Un `SELECT` a ciegas por rama revienta, no devuelve
+vacío.
+
+⛔ **La "Etapa" de la pantalla (`Lead`) NO se resolvió.** Apunta a `kdudp.c79='1'`, pero no aparece
+en `kdvavance` ni en ningún catálogo que se haya podido localizar — puede ser una lista fija del
+formulario. **Queda declarado, no supuesto.**
+
+#### La cotización es un documento normal: `U-D-35-1`
+
+No hay tabla de cotizaciones. Entra por el mismo par encabezado/detalle que el resto del ERP, y
+**`kdmm` la rotula** (nunca adivinar el doctype): `U/D/35/1 = "Cotización"`, prefijo `KFUD3501`.
+
+| Pantalla / impreso | `kdm1` | Medido |
+|---|---|---|
+| Serie · folio | `c2='U' c3='D' c4=35 c5=1` · `c6` · `c63` prefijo | `UD3501-0000001` |
+| Fecha · Vencimiento | `c9` · `c18` | 2026-09-22 |
+| **Prospecto** | **`c10`** y `c81` | `100` → `kdudp.c2` |
+| RFC · nombre · dirección (snapshot) | `c22` · `c32` `c33` `c34` | congelados en el documento |
+| Moneda · paridad | `c7` · `c8` | PESOS · 1 |
+| Condiciones · Comentarios | `c30` · `c24` | Pago de contado · PRUEBA PARA LA MEGADUCLES SUITE |
+| Captura (fecha · hora · usuario) | `c68` · `c69` · `c67` | 2026-09-22 · 22:27 · `61` |
+
+Renglones en **`kdm2`** con la llave de siempre `(sucursal, c1, c2, c3, c4, c6)` + `c7` renglón:
+`c8` SKU · `c9` cantidad · `c10` descripción · `c11` unidad (`PAQ`) · `c12` precio · `c13` monto.
+
+⛔ **`kdm1.c10` NO es el cliente en este doctype — es el PROSPECTO.** En una venta `U-D-10` esa
+misma columna trae la clave de `kdud`. Reusar el join de ventas contra `kdud` devuelve vacío, o
+peor: casa con un cliente que existe por casualidad con esa clave.
+
+⛔ **Los IMPORTES de `U-D-35` NO están decodificados, y no se deben suponer.** Las **3**
+cotizaciones que existen en todo el universo (rama 01 folio 1 · ramas 02 y 03 folio 1) están **en
+ceros**: subtotal, descuento, flete, IVA, IEPS y total salen `0.00` en pantalla y en el impreso. El
+decode de importes de `kdm1` está hecho para la **venta**, no para este doctype; y en la misma
+condición quedan `Descuentos` (las 3 casillas), `Plazo`, `Referencia` y `Vendedor` — vacíos en las
+tres. **Se decodifican cuando exista una cotización con precios.**
+
+#### Qué llega al ODS y qué no (medido tabla por tabla, 2026-09-22)
+
+| | tablas |
+|---|---|
+| ✅ **ya replicadas** | `kdudp` (111 cols = las 110 + `sucursal`, **no se pierde ninguna**) · `kdm1` · `kdm2` · `kdmm` · `kduj` · `kduk` · `kdvavance` · `kdvmedios` · `kdvtipomedio` · `kdvtamano` · `kdvtitulos` · `kdvcolonia` · `kdvtipocontacto` · `kdcrmparam` |
+| ⛔ **fuera del ODS** | **`kdvcontactos`** (el contacto del prospecto — hoy **con dato**) · `kdcrmcomen` · `kdcrmdoctos` · `kdcrmcatcomen` · `kdcrmcatcompe` · `kdvcaucierr` · `kdvsegmtoava` · `kdvdoctos` · `kdvzip` · `kdvalrfc40` (estas nueve, todavía en 0 filas) |
+
+⭐ **Consecuencia de diseño: el CRM se deriva, no se importa.** Con `kdudp` + `kdm1`/`kdm2` ya en
+`kepler_ods`, prospectos y cotizaciones salen por **vista `derive-no-copy`**, sin importer y sin
+tabla espejo. El único que hay que sumar a la replicación es `kdvcontactos`.
+
+#### Dos trampas que ya están puestas
+
+1. ⛔ **La llave del prospecto es `(sucursal, clave)`.** `kdudp` aparece **idéntico en las 7 ramas
+   00–06** con la misma clave `100` — el catálogo se propaga entre plazas. Agrupar por `clave` sola
+   multiplica por 7 cualquier conteo de prospectos. Es el mismo principio que §3.x para el folio.
+2. ⛔ **Existe un CLIENTE distinto con el mismo nombre.** `kdud.c2='10256'` = "ABARROTES ROMO"
+   (SAN MARTIN 183, RFC genérico `XAXX010101001`) no es el prospecto `kdudp.c2='100'` (CALZADA DE
+   LOS INDIOS, RFC `ABR260928ASW`). **Cruzar prospecto↔cliente por nombre los funde.**
+
+⚠️ **Hipótesis NO verificada:** `kdudp.c1` (vacío en los 2 prospectos que hay) sería la *Clave de
+cliente* que la pantalla muestra en gris — el enganche prospecto→cliente al convertirlo. No hay
+ningún prospecto convertido con qué probarlo; **no construir la conversión sobre esto sin medirlo.**
+
+---
+
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`
 
 Este es el corazón de la integración. **No leemos las DBs de sucursal directo desde la app.**
@@ -630,6 +746,13 @@ cotizaciones `kdv*`, promos, variantes `kdm3/4/7/9`, `kdpord2/3/4/8`, `webuser`,
 **55 módulos no consumidos** (43 fiscal-CFDI `kdfe*` · 8 RH/nómina `kdrh*` · 4 POS `pos95*`) +
 **7 de período** (`kdc2YYMM` + anuales, los maneja la rotación). El ODS espeja las 236 que cargan
 el dato comercial/inventario/movimientos; lo de afuera es vacío, fuera de alcance, o período.
+
+> ⚠️ **Ese renglón caducó en parte, medido el 2026-09-22.** La rama 01 estrenó el módulo **CRM**:
+> `kdudp` (prospectos) y `U-D-35` (cotización) **tienen dato** y sus catálogos también
+> (`kdvmedios`, `kdvtamano`, `kdvtipomedio`, `kdvcolonia`, `kdvtitulos`, `kdvavance`). Casi todos
+> ya estaban replicados igual, pero **`kdvcontactos` quedó afuera y hoy tiene filas**. Decode
+> completo en **§3.c**. *La lección: «0 filas en las 8 ramas» es una medición con fecha, no una
+> propiedad de la tabla — un censo de cobertura hay que re-correrlo cuando el ERP estrena módulo.*
 
 **Lo que SÍ está abierto en prod** (verificado, no supuesto):
 

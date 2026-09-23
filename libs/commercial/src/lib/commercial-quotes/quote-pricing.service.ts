@@ -1,0 +1,656 @@
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+
+/**
+ * `[COT.1]` — El motor de precio de una cotización.
+ *
+ * ── La regla de negocio que lo gobierna (Dirección, 2026-09-22) ─────────────────────────────
+ * **El vendedor NO puede inventar un descuento.** El precio de un renglón es siempre la
+ * derivación de los mecanismos que el ERP ya autoriza, y lo que no salga de ahí se rechaza —no
+ * se "avisa". Por eso este servicio no acepta un `discount_pct` del request en ningún lado.
+ *
+ * ── ⭐ Las DOS capas, que no son la misma y no se explican entre sí ──────────────────────────
+ * Decodificado en la Fase TK sobre 30,549 tickets (`ERP_KEPLER.md` §3.1) y respetado acá:
+ *
+ *   capa de PRECIO     → vive en el RENGLÓN  (`kdm2.c66` lista vs `c12` cobrado)
+ *   capa de DOCUMENTO  → vive en la CABECERA (`kdm1.c13` importe + `c19` %), sólo telemarketing
+ *                         y crédito — y es donde cae el descuento del CLIENTE
+ *
+ * ⛔ De 609 facturas, sólo 172 cuadran entre una capa y la otra: **435 difieren**. O sea que
+ * **conviven**: no es "el mejor de los dos" ni una explica a la otra. Por eso el descuento del
+ * cliente **NO toca `unit_price`** — se aplica sobre el subtotal, en `recalcTotals`. Meterlo en
+ * el renglón daría un precio unitario que el ERP nunca cobró.
+ *
+ * ── De dónde sale cada número (verificado, no supuesto) ─────────────────────────────────────
+ *   precio de lista y escalera  → `analytics.v_label_prices` (deriva `kdii` + `kdpv_prod_util`,
+ *                                  la MISMA lógica que la etiqueta de anaquel: una sola fuente
+ *                                  y una sola frescura, ~1-2 min del carril del ODS)
+ *   descuento por volumen       → `wholesale_*` de esa misma vista (es `kdpv_prod_util`, el
+ *                                  precio por volumen del propio Kepler)
+ *   promos de producto          → `analytics.v_erp_discount_rules` (los 4 `kdpv_*`, `[COT.1.0]`)
+ *   descuento del cliente       → `quotes.terms_discount_pct`, **congelado al crear** desde
+ *                                  `kdud` por (código, sucursal) — no se vuelve a leer del ERP,
+ *                                  porque una cotización tiene que ser reproducible
+ *
+ * ⛔ **No derivar el precio de lista del catálogo de la Suite.** Ya está refutado y medido:
+ * comparar contra `kdii.c90/c91/c92` da 1.9% de renglones por ENCIMA de lista contra 0.10% con
+ * la fuente del ERP (18× peor). `products.cost_base` tampoco sirve para nada de esto (ADR-051).
+ *
+ * ── Lo que este motor DECLARA en vez de inventar (ADR-056) ──────────────────────────────────
+ *   · Sin precio en el ERP para ese peldaño → `unit_price = NULL` + `unpriced_reason`.
+ *     **Jamás $0**: un cero se lee como "no cuesta nada" en algo que sí cuesta.
+ *   · Los mecanismos por MONTO (`descuento_monto`, `gratis_monto`) **no se aplican**: su umbral
+ *     no tiene testigo (cero reglas vigentes con qué cuadrarlo contra una venta). Se REPORTAN
+ *     como `no_aplicado` con su motivo, para que la pantalla pueda decirlo.
+ *   · El IVA: el precio del ERP **ya trae impuestos** (Σ`kdm2.c13` = `kdm1.c16`, 99.84%), así que
+ *     `unit_price` los incluye y el desglose se hace hacia atrás. La tasa es la del renglón, y
+ *     `tax_basis` dice si fue asumida — el IEPS por producto todavía no tiene resolvedor.
+ */
+
+/** Peldaño de la escalera de unidades. `base` siempre existe; `pack`/`box` sólo si el ERP los declara. */
+export type Rung = 'base' | 'pack' | 'box';
+
+/**
+ * De dónde salió el precio de un renglón.
+ *
+ * ⛔ **El vocabulario NO lo elige este servicio: lo fija un CHECK del esquema**
+ * (`commercial_quote_lines_price_source_valid`). El motor arrancó inventando etiquetas propias
+ * —`lista_base`, `promo_cantidad`— y el INSERT murió con 23514 contra el API real. Si hace falta
+ * un valor nuevo, se agrega **por migración** y recién después se usa acá.
+ */
+export type PriceSource =
+  | 'list'          // precio de lista del peldaño (kdii.c90/c91/c92)
+  | 'customer_terms'// descuento del cliente — capa DOCUMENTO, no se usa en el renglón
+  | 'volume_qty'    // precio por volumen del ERP (kdpv_prod_util)
+  | 'volume_amount'
+  | 'promo_qty'     // promoción por cantidad (kdpv_descuxq)
+  | 'promo_amount'  // promoción por monto (kdpv_descuxm) — hoy nunca se aplica, sin umbral verificado
+  | 'free_goods'
+  | 'manual'
+  | 'unknown';      // sin precio o sin casar: el motivo va en `unpriced_reason` / `availability`
+
+export interface LadderRung {
+  rung: Rung;
+  /** Rótulo del ERP: PAQ, CJA, PZA, KG… */
+  label: string | null;
+  /** Precio del peldaño, con impuestos incluidos. NULL = el ERP no lo declara. */
+  price: number | null;
+  /** Cuántas unidades base entran (1 para la base). */
+  size: number | null;
+  /** Precio por volumen del ERP para ESTE peldaño (`kdpv_prod_util`), si existe. */
+  volume: { min_qty: number; price: number } | null;
+}
+
+export interface PriceStep {
+  step: string;
+  source: string;
+  detail: string;
+  before: number | null;
+  after: number | null;
+}
+
+export interface PricedLine {
+  sku: string;
+  product_id: string | null;
+  name: string | null;
+  branch: string;
+  rung: Rung;
+  unit_label: string | null;
+  quantity: number;
+  list_price: number | null;
+  unit_price: number | null;
+  price_source: PriceSource;
+  line_total: number | null;
+  tax_rate: number;
+  tax_basis: string;
+  availability: string;
+  /** El desglose completo: cada paso, con qué fuente y qué le hizo al precio. */
+  applied: PriceStep[];
+  /** Mecanismos que existían y NO se aplicaron, con el motivo. */
+  not_applied: { mechanism: string; reason: string }[];
+  free_goods: { sku: string; quantity: number; unit_label: string | null; product_id: string | null } | null;
+  unpriced_reason: string | null;
+  warnings: string[];
+}
+
+/** Lo que devuelve agregar un renglón: el conteo y el desglose de cómo se precificó. */
+export interface AddLineResult {
+  quote_id: string;
+  lines: number;
+  priced: PricedLine | null;
+}
+
+/** Lo que devuelve quitar un renglón: cuántas filas se fueron (el renglón + sus regalos). */
+export interface RemoveLineResult {
+  quote_id: string;
+  removed: number;
+}
+
+export interface PriceLineInput {
+  /** Sucursal Kepler desde la que se cotiza. Es parte de la identidad del precio. */
+  branch: string;
+  sku: string;
+  quantity: number;
+  /** Peldaño pedido. Si no viene, se usa la base (la unidad en la que el ERP tiene el precio). */
+  rung?: Rung;
+}
+
+const RUNG_TO_APLICA_A: Record<Rung, string> = { base: 'base', pack: 'unidad2', box: 'unidad3' };
+const DEFAULT_TAX_RATE = 0.16;
+
+@Injectable()
+export class QuotePricingService {
+  private readonly logger = new Logger(QuotePricingService.name);
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // Escalera de precios del producto en esa tienda
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Arma la escalera desde `v_label_prices`. El mapeo NO es inventado: sale de la propia
+   * definición de la vista — `piece_price` es `kdii.c90`, el precio de la unidad BASE (`c11`),
+   * y el volumen de la base viaja en `wholesale_pack_*` cuando esa base es PAQ o CJA (la vista
+   * lo llama `grouped`), o en `wholesale_piece_*` en el resto de los casos.
+   */
+  private async ladder(
+    knex: Knex,
+    branch: string,
+    sku: string,
+  ): Promise<{ name: string | null; unit_base: string | null; rungs: Record<Rung, LadderRung> } | null> {
+    const r = await knex.raw(
+      `SELECT name, piece_price, wholesale_piece_min_qty, wholesale_piece_price,
+              pack_size, pack_price, wholesale_pack_price, wholesale_pack_min_qty,
+              box_size, box_price, unit_base
+         FROM analytics.v_label_prices
+        WHERE sucursal = :branch AND sku = :sku`,
+      { branch, sku },
+    );
+    if (!r.rows.length) return null;
+    const p = r.rows[0];
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    const base = (p.unit_base || '').toUpperCase();
+    const baseIsGrouped = base === 'PAQ' || base === 'CJA';
+
+    const volumeOf = (minQty: unknown, price: unknown) =>
+      minQty !== null && minQty !== undefined && price !== null && price !== undefined
+        ? { min_qty: Number(minQty), price: Number(price) }
+        : null;
+
+    return {
+      name: p.name ?? null,
+      unit_base: p.unit_base ?? null,
+      rungs: {
+        base: {
+          rung: 'base',
+          label: p.unit_base ?? null,
+          price: num(p.piece_price),
+          size: 1,
+          volume: baseIsGrouped
+            ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price)
+            : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
+        },
+        pack: {
+          rung: 'pack',
+          label: p.pack_size ? 'PAQ' : null,
+          price: num(p.pack_price),
+          size: num(p.pack_size),
+          // El volumen de PAQ sólo está publicado aparte cuando la base es PZA.
+          volume: base === 'PZA' ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price) : null,
+        },
+        box: {
+          rung: 'box',
+          label: p.box_size ? 'CJA' : null,
+          price: num(p.box_price),
+          size: num(p.box_size),
+          volume: null,
+        },
+      },
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // El cálculo de un renglón
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  async previewLine(input: PriceLineInput): Promise<PricedLine> {
+    return this.tk.run((knex) => this.priceLine(knex, input));
+  }
+
+  async priceLine(knex: Knex, input: PriceLineInput): Promise<PricedLine> {
+    const branch = (input.branch || '').trim();
+    const sku = (input.sku || '').trim();
+    const quantity = Number(input.quantity);
+    if (!branch) throw new BadRequestException('Falta la sucursal: el precio de un producto no es el mismo en todas.');
+    if (!sku) throw new BadRequestException('Falta el SKU.');
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new BadRequestException('La cantidad tiene que ser mayor que cero.');
+    }
+
+    const applied: PriceStep[] = [];
+    const notApplied: { mechanism: string; reason: string }[] = [];
+    const warnings: string[] = [];
+
+    const prod = await knex.raw(
+      // `catalog.products` es la canónica (la usan replenishment y el resto de commercial) y su
+      // columna es `nombre`, no `name`. El primer intento contra el API real salió 42703: el
+      // build compila igual, porque el nombre de una columna no lo valida TypeScript.
+      `SELECT id, nombre AS name FROM catalog.products
+        WHERE tenant_id = :tenant AND btrim(sku) = :sku AND deleted_at IS NULL
+        LIMIT 1`,
+      { tenant: this.tenantCtx.requireTenantId(), sku },
+    );
+    const productId: string | null = prod.rows.length ? prod.rows[0].id : null;
+
+    const led = await this.ladder(knex, branch, sku);
+    if (!led) {
+      return this.unpriced({
+        sku, productId, name: prod.rows[0]?.name ?? null, branch, quantity,
+        rung: input.rung ?? 'base',
+        reason: `El ERP no publica precio para ${sku} en la sucursal ${branch}.`,
+        availability: productId ? 'unavailable' : 'not_carried',
+        applied, notApplied, warnings,
+      });
+    }
+
+    const rung: Rung = input.rung ?? 'base';
+    const step = led.rungs[rung];
+    if (!step || step.price === null) {
+      return this.unpriced({
+        sku, productId, name: led.name, branch, quantity, rung,
+        reason:
+          rung === 'base'
+            ? `El ERP no publica precio base para ${sku} en la sucursal ${branch}.`
+            : `El producto ${sku} no tiene el peldaño "${rung}" en la sucursal ${branch}: el ERP no declara esa presentación.`,
+        availability: 'unavailable',
+        applied, notApplied, warnings,
+      });
+    }
+
+    const listPrice = step.price;
+    let price = listPrice;
+    let priceSource: PriceSource = 'list';
+    applied.push({
+      step: 'lista',
+      source: 'analytics.v_label_prices (kdii.c90/c91/c92)',
+      detail: `Precio de lista del peldaño ${rung}${step.label ? ` (${step.label})` : ''}`,
+      before: null,
+      after: price,
+    });
+
+    // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
+    // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
+    if (step.volume && quantity >= step.volume.min_qty) {
+      if (step.volume.price < price) {
+        applied.push({
+          step: 'volumen',
+          source: 'kdpv_prod_util (via v_label_prices.wholesale_*)',
+          detail: `Precio por volumen desde ${step.volume.min_qty} ${step.label ?? 'u'}`,
+          before: price,
+          after: step.volume.price,
+        });
+        price = step.volume.price;
+        priceSource = 'volume_qty';
+      } else {
+        // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
+        warnings.push(
+          `El precio por volumen del ERP (${step.volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
+        );
+      }
+    }
+
+    // ── Mecanismos 2b–5: las reglas de descuento de producto ────────────────────────────────
+    const rules = await knex.raw(
+      `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
+              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
+         FROM analytics.v_erp_discount_rules
+        WHERE tienda = :branch AND sku = :sku AND aplica_a = :aplica_a`,
+      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung] },
+    );
+
+    let freeGoods: PricedLine['free_goods'] = null;
+
+    for (const rule of rules.rows) {
+      const umbral = rule.umbral === null ? null : Number(rule.umbral);
+
+      if (!rule.umbral_verificado) {
+        notApplied.push({
+          mechanism: rule.mecanismo,
+          reason:
+            'El umbral por MONTO no está verificado: no hay ninguna regla vigente con qué cuadrarlo contra una venta. Se declara, no se aplica.',
+        });
+        continue;
+      }
+      if (umbral === null || quantity < umbral) {
+        notApplied.push({
+          mechanism: rule.mecanismo,
+          reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} y se están cotizando ${quantity}.`,
+        });
+        continue;
+      }
+      if (Number(rule.reglas_duplicadas) > 1) {
+        warnings.push(
+          `El ERP tiene ${rule.reglas_duplicadas} reglas ${rule.mecanismo} vigentes para este SKU y presentación; se aplicó la de la propia tienda con vigencia más larga.`,
+        );
+      }
+      if (rule.saldo_estado === 'agotada') {
+        warnings.push(`La promoción ${rule.mecanismo} está marcada como AGOTADA en el ERP (saldo 0): el mostrador podría no darla.`);
+      }
+
+      if (rule.mecanismo === 'descuento_cantidad' && rule.pct !== null) {
+        const pct = Number(rule.pct);
+        const after = this.round(price * (1 - pct / 100), 4);
+        applied.push({
+          step: 'promo_cantidad',
+          source: 'kdpv_descuxq (via v_erp_discount_rules)',
+          detail: `${pct}% desde ${umbral} ${step.label ?? 'u'} · vigente hasta ${String(rule.valid_to).slice(0, 10)}`,
+          before: price,
+          after,
+        });
+        price = after;
+        priceSource = 'promo_qty';
+      }
+
+      if (rule.mecanismo === 'gratis_cantidad' && rule.free_sku) {
+        const freeProd = await knex.raw(
+          `SELECT id FROM catalog.products WHERE tenant_id = :tenant AND btrim(sku) = :sku AND deleted_at IS NULL LIMIT 1`,
+          { tenant: this.tenantCtx.requireTenantId(), sku: String(rule.free_sku).trim() },
+        );
+        freeGoods = {
+          sku: String(rule.free_sku).trim(),
+          quantity: rule.free_qty === null ? 0 : Number(rule.free_qty),
+          unit_label: rule.free_unidad ?? null,
+          product_id: freeProd.rows.length ? freeProd.rows[0].id : null,
+        };
+        applied.push({
+          step: 'gratis_cantidad',
+          source: 'kdpv_gratisxq (via v_erp_discount_rules)',
+          detail: `Desde ${umbral} ${step.label ?? 'u'} se regalan ${freeGoods.quantity} de ${freeGoods.sku}`,
+          before: price,
+          after: price,
+        });
+        if (!freeGoods.product_id) {
+          warnings.push(`El producto gratis ${freeGoods.sku} no está en el catálogo de la Suite: el renglón va sin product_id.`);
+        }
+      }
+    }
+
+    const unitPrice = this.round(price, 4);
+    const lineTotal = this.round(unitPrice * quantity, 2);
+
+    return {
+      sku,
+      product_id: productId,
+      name: led.name,
+      branch,
+      rung,
+      unit_label: step.label,
+      quantity,
+      list_price: listPrice,
+      unit_price: unitPrice,
+      price_source: priceSource,
+      line_total: lineTotal,
+      tax_rate: DEFAULT_TAX_RATE,
+      // El precio del ERP ya trae impuestos; la tasa del renglón todavía no tiene resolvedor por
+      // producto (el IEPS vive en el renglón de VENTA, `kdm2.c18`, no en el catálogo).
+      tax_basis: 'iva_16_asumido_precio_con_impuestos',
+      availability: productId ? 'available' : 'unmatched',
+      applied,
+      not_applied: notApplied,
+      free_goods: freeGoods,
+      unpriced_reason: null,
+      warnings,
+    };
+  }
+
+  private unpriced(a: {
+    sku: string; productId: string | null; name: string | null; branch: string; quantity: number;
+    rung: Rung; reason: string; availability: string;
+    applied: PriceStep[]; notApplied: { mechanism: string; reason: string }[]; warnings: string[];
+  }): PricedLine {
+    return {
+      sku: a.sku,
+      product_id: a.productId,
+      name: a.name,
+      branch: a.branch,
+      rung: a.rung,
+      unit_label: null,
+      quantity: a.quantity,
+      list_price: null,
+      // NULL, nunca 0: un cero acá se leería como "no cuesta nada" (ADR-056).
+      unit_price: null,
+      price_source: 'unknown',
+      line_total: null,
+      tax_rate: DEFAULT_TAX_RATE,
+      tax_basis: 'no_aplica_sin_precio',
+      availability: a.availability,
+      applied: a.applied,
+      not_applied: a.notApplied,
+      free_goods: null,
+      unpriced_reason: a.reason,
+      warnings: a.warnings,
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // Renglones de una cotización
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Agrega un renglón cotizado. El precio lo calcula el SERVIDOR: el request dice qué y cuánto,
+   * nunca a cuánto. Si la regla del ERP regala producto, nace también el renglón hijo.
+   */
+  async addLine(
+    quoteId: string,
+    input: { sku?: string | null; requested_text?: string | null; quantity: number; rung?: Rung },
+  ): Promise<AddLineResult> {
+    const userId = this.tenantCtx.get()?.userId ?? null;
+
+    return this.tk.run(async (trx) => {
+      const q = await trx.raw(
+        `SELECT id, status, source_branch FROM commercial.quotes
+          WHERE id = :id AND deleted_at IS NULL`,
+        { id: quoteId },
+      );
+      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      const quote = q.rows[0];
+      if (quote.status !== 'draft') {
+        throw new BadRequestException(
+          `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
+        );
+      }
+
+      const sku = (input.sku || '').trim();
+      let priced: PricedLine | null = null;
+      if (sku) {
+        if (!quote.source_branch) {
+          throw new BadRequestException(
+            'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+          );
+        }
+        priced = await this.priceLine(trx, {
+          branch: quote.source_branch,
+          sku,
+          quantity: input.quantity,
+          rung: input.rung,
+        });
+      } else if (!input.requested_text || !input.requested_text.trim()) {
+        throw new BadRequestException(
+          'Un renglón necesita un SKU o el texto de lo que pidió el cliente. Lo que no casó con el catálogo es información, no basura: se guarda.',
+        );
+      }
+
+      const next = await trx.raw(
+        `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+        { id: quoteId },
+      );
+      let lineNumber = Number(next.rows[0].n);
+
+      await this.insertLine(trx, quoteId, lineNumber, priced, input, userId, null);
+
+      // El regalo es un renglón propio, a precio cero LEGÍTIMO, colgado del que se lo ganó.
+      if (priced?.free_goods && priced.free_goods.quantity > 0) {
+        const parent = lineNumber;
+        lineNumber += 1;
+        await trx.raw(
+          `INSERT INTO commercial.quote_lines
+             (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
+              unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
+              availability, notes, created_by, updated_by)
+           VALUES
+             (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
+              0, 0, 0, 0, 'free_goods', :parent,
+              :availability, :notes, :user_id, :user_id)`,
+          {
+            quote_id: quoteId,
+            line_number: lineNumber,
+            product_id: priced.free_goods.product_id,
+            requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
+            quantity: priced.free_goods.quantity,
+            parent,
+            availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+            notes: `Producto gratis del ERP por el renglón ${parent}`,
+            user_id: userId,
+          },
+        );
+      }
+
+      await this.recalcTotals(trx, quoteId);
+      const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
+        id: quoteId,
+      });
+      return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
+    });
+  }
+
+  private async insertLine(
+    trx: Knex,
+    quoteId: string,
+    lineNumber: number,
+    priced: PricedLine | null,
+    input: { sku?: string | null; requested_text?: string | null; quantity: number },
+    userId: string | null,
+    parent: number | null,
+  ): Promise<void> {
+    const qty = Number(input.quantity);
+    const unit = priced?.unit_price ?? null;
+    const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
+    const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+
+    await trx.raw(
+      `INSERT INTO commercial.quote_lines
+         (tenant_id, quote_id, line_number, product_id, requested_text, requested_quantity, quantity,
+          unit_price, list_price, tax_rate, line_subtotal, line_total, price_source, parent_line_number,
+          availability, notes, created_by, updated_by)
+       VALUES
+         (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :requested_quantity, :quantity,
+          :unit_price, :list_price, :tax_rate, :line_subtotal, :line_total, :price_source, :parent,
+          :availability, :notes, :user_id, :user_id)`,
+      {
+        quote_id: quoteId,
+        line_number: lineNumber,
+        product_id: priced?.product_id ?? null,
+        // Si no casó con el catálogo se guarda lo que el cliente escribió: es demanda que
+        // estamos rechazando, y desaparece si la tabla exige product_id.
+        requested_text: priced?.product_id ? null : (input.requested_text ?? input.sku ?? null),
+        requested_quantity: qty,
+        quantity: qty,
+        unit_price: unit,
+        list_price: priced?.list_price ?? null,
+        tax_rate: DEFAULT_TAX_RATE,
+        line_subtotal: subtotal,
+        line_total: lineTotal,
+        price_source: priced?.price_source ?? 'unknown',
+        parent,
+        availability: priced?.availability ?? 'unmatched',
+        notes: priced?.unpriced_reason ?? null,
+        user_id: userId,
+      },
+    );
+  }
+
+  async removeLine(quoteId: string, lineId: string): Promise<RemoveLineResult> {
+    return this.tk.run(async (trx) => {
+      const q = await trx.raw(`SELECT status FROM commercial.quotes WHERE id = :id AND deleted_at IS NULL`, {
+        id: quoteId,
+      });
+      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      if (q.rows[0].status !== 'draft') {
+        throw new BadRequestException('Sólo se editan renglones de una cotización en borrador.');
+      }
+      const line = await trx.raw(
+        `SELECT line_number FROM commercial.quote_lines WHERE id = :lid AND quote_id = :qid`,
+        { lid: lineId, qid: quoteId },
+      );
+      if (!line.rows.length) throw new NotFoundException('Renglón no encontrado.');
+      const n = Number(line.rows[0].line_number);
+
+      // Se va con sus hijos: un regalo huérfano parece un error de captura.
+      const del = await trx.raw(
+        `DELETE FROM commercial.quote_lines
+          WHERE quote_id = :qid AND (id = :lid OR parent_line_number = :n)`,
+        { qid: quoteId, lid: lineId, n },
+      );
+      await this.recalcTotals(trx, quoteId);
+      return { quote_id: quoteId, removed: del.rowCount ?? 0 };
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // Totales: acá —y sólo acá— entra el descuento del CLIENTE
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Recalcula la cabecera. El descuento del cliente (`terms_discount_pct`) es la **capa
+   * documento** y se aplica sobre el subtotal, nunca sobre el precio unitario (§3.1 de
+   * `ERP_KEPLER.md`): en el ERP son dos números que conviven y no se explican entre sí.
+   *
+   * ⚠️ Un renglón sin precio (`unit_price IS NULL`) aporta **0 al total pero no lo invalida**: la
+   * cotización se puede enviar con renglones declarados como "sin precio", que es justamente lo
+   * que hoy se borra del Excel y nadie vuelve a ver.
+   */
+  async recalcTotals(trx: Knex, quoteId: string): Promise<{ subtotal: number; tax_total: number; total: number }> {
+    const agg = await trx.raw(
+      `SELECT coalesce(sum(line_total), 0) AS bruto
+         FROM commercial.quote_lines
+        WHERE quote_id = :id`,
+      { id: quoteId },
+    );
+    const bruto = Number(agg.rows[0].bruto);
+
+    const q = await trx.raw(
+      `SELECT terms_discount_pct FROM commercial.quotes WHERE id = :id`,
+      { id: quoteId },
+    );
+    // Sin fila (o sin descuento configurado) el porcentaje es NULL, no 0: "nadie configuró un
+    // descuento" y "el descuento es cero" son cosas distintas, y `Number(undefined)` sería NaN
+    // —que se propagaría al total y quedaría escrito en la cotización.
+    const raw = q.rows.length ? q.rows[0].terms_discount_pct : null;
+    const pct = raw === null || raw === undefined ? null : Number(raw);
+    if (pct !== null && !Number.isFinite(pct)) {
+      throw new BadRequestException('El descuento congelado de la cotización no es un número.');
+    }
+
+    const total = pct ? this.round(bruto * (1 - pct / 100), 2) : this.round(bruto, 2);
+    const subtotal = this.round(total / (1 + DEFAULT_TAX_RATE), 2);
+    const tax = this.round(total - subtotal, 2);
+
+    await trx.raw(
+      `UPDATE commercial.quotes
+          SET subtotal = :subtotal, tax_total = :tax, total = :total, updated_at = now()
+        WHERE id = :id`,
+      { id: quoteId, subtotal, tax, total },
+    );
+    return { subtotal, tax_total: tax, total };
+  }
+
+  private round(n: number, decimals: number): number {
+    const f = 10 ** decimals;
+    return Math.round((n + Number.EPSILON) * f) / f;
+  }
+}

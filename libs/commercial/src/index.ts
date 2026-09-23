@@ -47,6 +47,7 @@ export * from './lib/commercial-catalog-search/commercial-catalog-search.service
 export * from './lib/commercial-televenta/commercial-televenta.module';
 export * from './lib/commercial-quotes/commercial-quotes.module';
 export * from './lib/commercial-quotes/commercial-quotes.service';
+export * from './lib/commercial-quotes/quote-pricing.service';
 export * from './lib/commercial-stock-reservation/commercial-stock-reservation.module';
 export * from './lib/commercial-stock-reservation/stock-reservation.service';
 export * from './lib/commercial-trust/commercial-trust.module';
