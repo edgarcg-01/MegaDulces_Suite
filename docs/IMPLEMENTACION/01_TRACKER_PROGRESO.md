@@ -1269,12 +1269,40 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       **4 ok / 0 fallos / 4 declarados** a la espera de la migración — el bloque verde es el testigo
       independiente (el ERP conoce las 3 plazas y **ninguna cuarta**). Hardcode inventariado para los
       sprints siguientes: **`store-branches.ts` escrito a mano e importado por 14 componentes** (todos
-      ofrecen las 9 sucursales a cualquiera) · **88 fail-open** `user?.warehouse_code || query...`
-      contra **33** usos de `ScopeService` · **717 de 1,603 tiendas sin zona**. Plan ZN.0–ZN.5 en
+      ofrecen las 9 sucursales a cualquiera) · **13 controllers** que reciben un parámetro de sucursal sin
+      que su módulo consulte el alcance (contra 3 que sí) — ⚠️ **la cifra de «88 fail-open» que
+      dije primero era ruido de grep**: el patrón real aparece 7 veces y las 7 son comentarios
+      de que YA se retiró · **717 de 1,603 tiendas sin zona**. Plan ZN.0–ZN.5 en
       [`FASE_ZN`](FASES/FASE_ZN_ZONA_SUCURSAL_ALCANCE.md). **Pendiente: aplicar la migración + ZN.1
       (re-apuntar `warehouses.zone_id`, que mueve el tablero de 6 a 3 y necesita aviso a Dirección).**
       **Abierto:** si las vecinales son canal o unidad propia, y el catálogo de sedes de oficina.
       2026-09-23
+- [x] **[ZN.3.1]** 🔨 **El alcance corta por sucursal en Faltantes de piso** — y la prioridad de
+      ZN.3 salió de una medición, no de la intuición. ⚠️ **Primero hubo que corregir una cifra
+      propia: las «88 fail-open» eran ruido de grep** (agarraba `(x.sucursal || '')`,
+      concatenaciones SQL y fallbacks de etiqueta); el patrón real
+      (`user?.warehouse_code || query...`) aparece **7 veces y las 7 son comentarios de que YA se
+      retiró** — `store.controller`, `store-arqueo` y `store-analytics` lo migraron en su momento.
+      Lo que sí falta: **13 controllers** que reciben sucursal por parámetro sin consultar el
+      alcance. ⭐ Y se priorizaron preguntando **a quién le cambiaría algo**: cruzando el permiso que
+      abre cada uno contra el alcance real de quien lo tiene, **5 de los 13 no le cambian nada a
+      nadie hoy** (`cash-ledger`, `customer-ledger`, `budget-expense`, `polizas`,
+      `contabilidad-contpaqi`: su público es 100% corporativo con `all`), y en `expense-proofs` la
+      bandeja con montos tiene **0 personas acotadas** — el conteo grande venía de `CAPTURAR`, que
+      sólo abre `proof-by-folio` (estado, no dinero). El arreglado es **Faltantes**:
+      `GET /faltantes/sucursal/:code` y `…/codigos-que-fallan` aceptaban **cualquier** código, y el
+      permiso que los abre lo tienen **30 personas con alcance acotado** — quien trabaja en Padre
+      Hidalgo leía lo reportado en Zamora. `assertAlcanza()` corta **antes de la consulta** y
+      devuelve **403, no un recorte silencioso** (contestar con otra sucursal se leería como «en
+      Zamora no falta nada»). Medido antes de encender: las 17 personas acotadas de esta familia son
+      **todas `own` y todas con `warehouse_code`** — nadie pierde su propia sucursal.
+      `floor-stockouts.scope.spec.ts` **6/6 con el rojo ejercido** (anulado el `canRead` → cayeron
+      las 3 del corte, los 3 controles positivos verdes); el candado central no es el 403 sino que
+      **`tk.run` no se llame**. `api:typecheck` OK. ⛔ **`commercial-labels` NO se tocó**: tiene
+      trabajo en vuelo de otra sesión (`ETQ-CAMBIOS`, 3 commits) — y ahí el daño es el mayor de
+      todos, porque la sucursal elige el **precio** de la etiqueta. ⚠️ **La ESCRITURA queda
+      declarada, no cerrada**: el kiosco reporta en 5 s con cuenta de dispositivo y un `canWrite`
+      sin medir antes puede matar la única fuente de este dato. 2026-09-23
 - [x] **[ZN.2]** 🔨 **El selector de sucursales sale del servidor, con el alcance aplicado** (apartado
       Tienda; el resto declarado). ⭐ **Se midió antes de encender**, simulando la resolución real
       del alcance sobre las 122 personas activas: 58 verían 1 sucursal · 11 verían 3 · 2 verían 2 ·

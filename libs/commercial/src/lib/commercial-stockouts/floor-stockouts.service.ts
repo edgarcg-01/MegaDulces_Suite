@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, todayMx } from '@megadulces/platform-core';
 
 /**
  * `[FLT.3]` — LISTA DE FALTANTES: la venta que NO ocurrió, reportada desde el piso.
@@ -181,7 +181,42 @@ export class FloorStockoutsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    /**
+     * `[ZN.3]` El alcance de datos (ADR-050). `@Optional()` **no**: acá el alcance
+     * decide si se contesta o no, y un servicio que se instancia sin él tendría
+     * que elegir entre abrirse (fail-open) o romperse. Se exige en el módulo.
+     */
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * `[ZN.3]` — ¿Esta persona alcanza ESTA sucursal?
+   *
+   * ── El defecto que cierra ───────────────────────────────────────────────────
+   * `GET /faltantes/sucursal/:code` aceptaba **cualquier** código en la ruta. El
+   * permiso que la abre (`STORE_STOCKOUT_CAPTURAR`) lo tienen **30 personas con
+   * alcance acotado** —cajeros, auxiliares de tienda, encargados, verificadores—,
+   * así que quien trabaja en Padre Hidalgo podía pedir `/sucursal/05` y leer lo
+   * reportado en Zamora. El gate del permiso decía «puede abrir la pantalla»; lo
+   * que faltaba era **sobre qué filas**, que es el otro eje (ADR-050).
+   *
+   * ── Por qué 403 y no un recorte silencioso ─────────────────────────────────
+   * Pidió una sucursal concreta. Devolverle la lista de OTRA (la suya) sería
+   * contestar una pregunta distinta de la que hizo, y en una pantalla de
+   * inventario eso se lee como «en Zamora no falta nada». Se le dice que no.
+   *
+   * Medido antes de encenderlo: las 17 personas con alcance acotado sobre
+   * etiquetas/faltantes son todas `own` y **todas tienen `warehouse_code` en su
+   * ficha**, así que el alcance resuelve — nadie se queda sin su propia sucursal.
+   */
+  private async assertAlcanza(warehouseCode: string): Promise<void> {
+    const sc = await this.scope.current();
+    if (!this.scope.canRead(sc, 'warehouse', String(warehouseCode || '').trim())) {
+      throw new ForbiddenException(
+        `Tu alcance no incluye la sucursal "${warehouseCode}". Pedile a un administrador que te la asigne si la necesitás.`,
+      );
+    }
+  }
 
   /**
    * Lunes de la semana de una fecha `YYYY-MM-DD`.
@@ -419,6 +454,7 @@ export class FloorStockoutsService {
   /** Lo reportado en una sucursal. Es lo que el encargado revisa. */
   async listarPorSucursal(warehouseCode: string, opts: { semanas?: number } = {}): Promise<FaltanteSalida[]> {
     if (!warehouseCode) throw new BadRequestException('Falta la sucursal');
+    await this.assertAlcanza(warehouseCode);
     const semanas = Math.min(Math.max(Number(opts.semanas) || 4, 1), 26);
     const desde = this.lunesDeLaSemana(todayMx());
 
@@ -454,6 +490,7 @@ export class FloorStockoutsService {
    */
   async codigosQueFallan(warehouseCode: string, limite = 50): Promise<CodigoQueFalla[]> {
     if (!warehouseCode) throw new BadRequestException('Falta la sucursal');
+    await this.assertAlcanza(warehouseCode);
     const lim = Math.min(Math.max(Number(limite) || 50, 1), 200);
 
     return this.tk.run(async (trx) => {
