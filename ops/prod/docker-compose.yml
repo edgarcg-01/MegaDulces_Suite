@@ -239,11 +239,21 @@ services:
       # `http://192.168.0.222:8080` en un NAVEGADOR vuelve a romperse, y es correcto. La
       # entrada es `https://megadulcessuite.com`. Para depurar, `curl` no mira el CSP.
       TLS_TERMINADO: "true"
-      # Qué versión está sirviendo. Lo pasa `deploy.sh` desde `git rev-parse --short HEAD`.
-      # ⛔ No puede vivir en `prod.env`: ese formato no interpola y Compose lo dejaría vacío
-      # (medido: `/api/health` devolvía `"commit": ""`). El código lo lee como fallback de
-      # `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe.
-      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
+      # ⛔⛔ [VL.11.C] ACÁ NO VA `GIT_COMMIT_SHA`, Y CUESTA ENTENDER POR QUÉ HASTA QUE SE MIDE.
+      # Qué versión está sirviendo lo dice ahora la IMAGEN (`ARG GIT_COMMIT_SHA` + `ENV` en
+      # /Dockerfile), que es quien de verdad lo sabe. Declararlo también acá lo ROMPÍA:
+      #
+      #   `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}` pone la variable en CADENA VACÍA cuando nadie
+      #   la exporta, y una variable del servicio **PISA el ENV de la imagen**. O sea que el
+      #   valor horneado quedaba tapado por un vacío.
+      #
+      # Medido el 2026-09-23 con la prueba negativa —`docker compose up -d cloudflared` a mano,
+      # que arrastra `api` por `depends_on`— CON el ARG ya horneado y esta línea todavía
+      # presente: `/api/health` respondió `{"commit": "unknown"}` y dentro del contenedor
+      # `GIT_COMMIT_SHA=[]`. El arreglo a medias se veía igual que el arreglo entero.
+      #
+      # ⚠️ Un `docker compose up` a mano ya NO puede mentir sobre la versión, porque no hay
+      # nada que pisar.
       # ⭐ ACÁ SE CORRIGE UN DEFECTO QUE VIENE DE RAILWAY, Y SE DECLARA EN VEZ DE HEREDARLO.
       # Medido el 2026-09-22: NI `MegaDulces` NI `worker` definen `DISABLE_CRONS`, así que
       # `ScheduleModule` se registra en los DOS y los **48 @Cron corren por duplicado**. Eso
@@ -282,7 +292,9 @@ services:
       NODE_ENV: production
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
-      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
+      # [VL.11.C] Sin `GIT_COMMIT_SHA`: lo hornea la imagen. Mismo motivo que en `api` —
+      # declararlo acá lo pisaba con vacío. El worker no tiene endpoint de salud, así que
+      # acá el dato equivocado ni siquiera se veía.
       RUN_MIGRATIONS_ON_BOOT: "0"
       # ⛔ CRONS APAGADOS MIENTRAS ESTO SEA UNA COPIA — se enciende en el corte, no antes.
       # No es prudencia genérica: se midió qué harían los 48 @Cron contra la copia y tres
