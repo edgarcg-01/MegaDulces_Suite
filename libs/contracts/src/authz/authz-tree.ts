@@ -146,7 +146,6 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'promotions', label: 'Promociones', route: '/comercial/promotions', view: [Permission.COMMERCIAL_PROMOTIONS_VER], manage: [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR] },
           { id: 'erp-promos', label: 'Promos del ERP', route: '/comercial/erp-promos', view: [Permission.COMMERCIAL_ERP_PROMOS_VER], manage: [] },
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
-          { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
           { id: 'intelligence', label: 'Inteligencia (hallazgos / acciones / autonomía)', route: '/comercial/command-center', view: [Permission.COMMERCIAL_INTELLIGENCE_VER], manage: [] },
           { id: 'route-control', label: 'Control de ruta / tickets', route: '/comercial/route-tickets', view: [Permission.ROUTE_CONTROL_VER], manage: [Permission.ROUTE_TICKET_CAPTURE] },
@@ -195,11 +194,14 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // un nodo del árbol que apunta a una ruta inexistente es un candidato de aterrizaje
           // que manda a la nada — SN.4 lo acusa, con razón. Entra junto con su pantalla.
           { id: 'autoabasto', label: 'Autoabasto', route: '/almacen/autoabasto', view: [Permission.AUTOABASTO_VER], manage: [Permission.AUTOABASTO_SOLICITAR] },
-          // Fase CV — absorbido de 0SistemasMD/catalogo-kp. `route` es la que tendría
-          // en apps/view si algún día se le hace pantalla propia; hoy el frontend
-          // sigue siendo el HTML estático del repo standalone (deuda documentada
-          // desde el PR #62, no resuelta en este PR).
-          { id: 'catalogo-interno', label: 'Catálogo interno (mostrador)', route: '/almacen/catalogo-interno', view: [Permission.CATALOGO_INTERNO_VER], manage: [Permission.CATALOGO_INTERNO_COSTOS_VER] },
+          // Fase CV — absorbido de 0SistemasMD/catalogo-kp. SIN `route`, igual que el checador
+          // de `[CH.1.2]`: la pantalla en apps/view no existe (hoy el frontend sigue siendo el
+          // HTML estático del repo standalone, deuda abierta desde el PR #62). Tenía puesta
+          // `/almacen/catalogo-interno` — la que TENDRÍA si algún día se construye — y eso la
+          // volvía candidata de aterrizaje hacia una ruta inexistente: el defecto que el
+          // comentario de Nivelación, tres líneas arriba, ya describe. Acá sigue para que se
+          // vea y se pueda revocar desde /admin/roles; cuando llegue la pantalla, llega la ruta.
+          { id: 'catalogo-interno', label: 'Catálogo interno (mostrador)', view: [Permission.CATALOGO_INTERNO_VER], manage: [Permission.CATALOGO_INTERNO_COSTOS_VER] },
         ],
       },
       {
@@ -293,13 +295,22 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-faltantes', label: 'Faltantes de piso', route: '/compras/faltantes', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
           { id: 'compras-categorias', label: 'Categorías', route: '/compras/categorias', view: [Permission.COMPRAS_CATEGORIAS_VER], manage: [Permission.COMPRAS_CATEGORIAS_GESTIONAR] },
+          // [CAT.1] El catálogo se mudó de Ventas a Compras «porque quien lo mantiene es el
+          // comprador»: la ruta, el menú lateral y el aterrizaje de /compras ya vivían acá — el
+          // nodo del árbol se había quedado listado bajo Ventas, apuntando afuera de su proyecto.
+          { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
-          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          // ⚠️ SIN `route`: TP dejó el backend y su smoke, pero `/compras/obligaciones` no
+          // existe en `app.routes.ts` — y una `route` puesta «para cuando llegue» convierte al
+          // permiso en candidato de aterrizaje hacia la nada.
+          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
           // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
           // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
           // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.
-          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', route: '/compras/cuentas-pago', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          // ⚠️ Ídem: `/compras/cuentas-pago` tampoco existe todavía. Comparte las dos claves con
+          // el nodo de arriba, así que de poco habría servido quitárselas a uno solo.
+          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
         ],
       },
       {
