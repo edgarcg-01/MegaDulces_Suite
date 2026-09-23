@@ -43,25 +43,14 @@ export class TiendaStateService {
    * viene a cerrar, y el filtro arranca en «todas» igual, así que nadie queda
    * mirando una pantalla en blanco mientras carga.
    */
-  private readonly alcance = signal<string[] | null>(null);
+  private readonly alcance = this.scope.misSucursales();
   readonly branchList = computed<StoreBranch[]>(() => {
     const permitidas = this.alcance();
     if (permitidas === null) return [];
-    return LIVE_MONITOR_BRANCHES.filter((b) => permitidas.includes(b.code));
+    const codes = permitidas.map((o) => o.value);
+    return LIVE_MONITOR_BRANCHES.filter((b) => codes.includes(b.code));
   });
   readonly branchName = branchName;
-
-  constructor() {
-    // El servicio vive toda la sesión y `me/scope` se cachea con shareReplay:
-    // esto es una sola llamada, no una por pantalla del apartado.
-    this.scope.warehouses().subscribe({
-      next: (opts) => this.alcance.set(opts.map((o) => o.value)),
-      // Si el alcance no contesta, la lista se queda vacía: el backend recorta
-      // igual lo que devuelve el WS, así que el monitor sigue mostrando lo suyo;
-      // lo único que se pierde es poder filtrar a mano.
-      error: () => this.alcance.set([]),
-    });
-  }
 
   readonly ventaHoy = signal(0);
   readonly ticketsHoy = signal(0);

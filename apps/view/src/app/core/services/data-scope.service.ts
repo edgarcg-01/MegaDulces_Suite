@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Signal, inject, signal } from '@angular/core';
 import { Observable, map, of, shareReplay } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -70,6 +70,45 @@ export class DataScopeService {
     return this.dim('warehouse').pipe(map((d) => d?.options ?? []));
   }
 
+  /**
+   * `[ZN.2]` — Las mismas sucursales, pero como **signal** y con el tercer estado.
+   *
+   * ── Por qué existe además de `warehouses()` ─────────────────────────────────
+   * Los componentes que arman un desplegable no quieren un Observable: quieren un
+   * valor que puedan leer dentro de un `computed`. Sin esto, cada pantalla se
+   * escribe su propio `subscribe` + `signal` — y ya estaba pasando: el apartado
+   * Tienda tenía el suyo, y compras rellenaba con el array del bundle. Un
+   * primitivo copiado a mano en cuatro lugares se desincroniza (ADR-056).
+   *
+   * ── `null` NO es «ninguna» ──────────────────────────────────────────────────
+   * `null` = todavía no contestó `me/scope`. `[]` = contestó y **no te toca
+   * ninguna**. Son cosas distintas y se ven igual en pantalla si se colapsan: es
+   * exactamente el defecto que tenía compras, donde `null` significaba a la vez
+   * «alcance global» y «no cargó», y por las dudas se ofrecían las 9.
+   *
+   * La carga es perezosa y una sola vez por sesión (`mine()` ya cachea con
+   * `shareReplay`), así que llamarlo desde N componentes no son N requests.
+   */
+  private readonly _warehouses = signal<ScopeOption[] | null>(null);
+  private pedidas = false;
+  misSucursales(): Signal<ScopeOption[] | null> {
+    if (!this.pedidas) {
+      this.pedidas = true;
+      this.warehouses().subscribe({
+        next: (o) => this._warehouses.set(o),
+        // Si el alcance no contesta, se declara «ninguna»: el backend recorta
+        // igual lo que devuelve, así que lo único que se pierde es filtrar a
+        // mano. Rellenar con la red completa sería el fail-open que esto cierra.
+        error: () => this._warehouses.set([]),
+      });
+    }
+    return this._warehouses.asReadonly();
+  }
+
   /** Se llama tras un cambio de sesión: el alcance del próximo usuario es otro. */
-  reset(): void { this.cache$ = undefined; }
+  reset(): void {
+    this.cache$ = undefined;
+    this.pedidas = false;
+    this._warehouses.set(null);
+  }
 }

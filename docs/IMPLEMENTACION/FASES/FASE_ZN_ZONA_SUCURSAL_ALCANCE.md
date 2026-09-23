@@ -179,20 +179,29 @@ reparación de las equivalencias de cutover en vez de una lista de nombres.
 ⚠️ **Orden de despliegue: la migración `20260923160000` va ANTES que este front.** Al revés, esas 4
 personas ven el selector vacío.
 
-### 5.4 Lo que falta de ZN.2
+### 5.4 Los 4 que faltaban ✅ (2026-09-23)
 
-De los 14 archivos que importan `store-branches`, **13 usan sólo `branchName`** (traducir código →
-nombre: no es un agujero de alcance) y los que usan la **lista** son 4:
+`NETWORK_BRANCHES` ya no alimenta ningún selector. De paso salió el primitivo que faltaba:
 
-| Archivo | Qué hace hoy |
+**`DataScopeService.misSucursales()`** — las sucursales del alcance como **signal**, con el tercer
+estado. Existe porque cada pantalla se estaba escribiendo su propio `subscribe` + `signal` (el
+apartado Tienda tenía el suyo, compras rellenaba con el bundle), y un primitivo copiado a mano en
+cuatro lugares se desincroniza (ADR-056). `null` = todavía no contestó · `[]` = no te toca ninguna.
+
+| Archivo | Qué cambió |
 |---|---|
-| `compras-entradas.component.ts` | `alcance() ?? NETWORK_BRANCHES` ← fail-open si el alcance no cargó |
-| `compras-entradas-pendientes.component.ts` | idem |
-| `compras-entradas-revision.component.ts` | idem |
-| `admin-users.component.ts` | fallback a las 9 para el alta |
+| `compras-entradas` · `-pendientes` · `-revision` | con alcance acotado manda el reporte; con `all` —o mientras carga— sale de `me/scope`, no del bundle. Antes `null` significaba **dos cosas** («ves todo» y «no cargó») con el mismo resultado en pantalla |
+| `admin-users.component.ts` | **se retira el fallback**: en un ALTA no se filtra lo que uno ve, se decide dónde queda asignada otra persona, y una lista vieja no deja el diálogo «usable» — deja asignar una sucursal equivocada. Vacío es la respuesta honesta |
+| `tienda-state.service.ts` | pasa a usar el primitivo compartido en vez de su `subscribe` propio |
 
-Los tres de compras **ya consultan el alcance**: lo que hay que quitarles es el `??` que rellena con
-la red completa.
+`nx build view` OK (1.28 MB) · `vitest` de view **756 pasan**.
+
+### 5.5 Deuda declarada: `branchName`
+
+Los **13 archivos restantes** que importan `store-branches` usan sólo `branchName` (código →
+nombre). No es un agujero de alcance —una etiqueta equivocada es cosmética— pero **ese mapa también
+se desincroniza**: ya pasó con los cutovers de POS y con la forma de escribir «8 Esquinas» / `8ESQ`.
+Queda con nombre: **ZN.2.5**, servir la etiqueta desde el mismo `me/scope` que ya trae `label`.
 
 ---
 
