@@ -308,6 +308,23 @@ services:
     # tiene que disparar el reinicio es que el ciclo DEJE DE COMPLETARSE, que es el cuelgue.
     environment:
       TZ: America/Mexico_City
+      # ⭐ [VL.11.B] LA VENTA VIVA DEJA DE SALIR A INTERNET. Este poller corre EN `md`, lee las
+      # 8 sucursales por la red interna… y hasta hoy mandaba cada ticket a Railway, o sea que
+      # el dato salía del edificio para volver a entrar. Ahora va a `interno.`, que resuelve a
+      # 192.168.0.222 desde cualquier plaza (sondeado: los 8 routers entregan la IP privada).
+      #
+      # ⛔ VA ACÁ Y NO EN `feeds.env` A PROPÓSITO: ese archivo NO está versionado y no tiene
+      # generador, así que el cambio sería invisible desde el repo y se perdería si alguien
+      # lo regenera. `environment:` tiene precedencia sobre `env_file`, así que esta línea
+      # gana sin tocar el archivo de secretos.
+      #
+      # ⚠️ EL PRECIO, DECIDIDO POR EL USUARIO EL 2026-09-23: mientras esto apunte a `md`,
+      # **Railway —que HOY es producción— deja de recibir la venta viva** y su pantalla de
+      # Tienda Live se congela. Se revierte comentando esta línea y recreando el contenedor.
+      #
+      # ⚠️ El otro contenedor con esta variable (`feeds-livefast`) la hereda de `feeds.env` y
+      # NO la usa: sólo `live-tickets-poller.js` la lee en ejecución (verificado).
+      STORE_INGEST_URL: https://interno.megadulcessuite.com/api/store/live/ingest
       POLL_SECONDS: "25"
       WINDOW_MINUTES: "5"
       ODS_HB_KEY: store_poller
