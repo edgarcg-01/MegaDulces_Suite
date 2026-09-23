@@ -393,16 +393,21 @@ misma red**, que es exactamente lo que `[VL.11.B]` viene a evitar.
 ⇒ El DNS partido se aplica **por plaza**: las mismas tres líneas en cada MikroTik. Buena
 noticia: son idénticas, y siendo la misma flota se pueden aplicar de una.
 
-### ⚠️ Lo que NO está medido y no se da por cierto
+### El sentido inverso: declarado por quien administra la red, no medido desde acá
 
-Está comprobado que **`md` alcanza a las sucursales** (5 de 8 respondieron en 5432; las otras
-usan el puerto 1977). **NO** está comprobado lo inverso: que una sucursal alcance a
-`192.168.0.222`. En una topología radial suele ser simétrico, pero puede haber reglas de
-firewall que no lo sean, y hoy **no existe ni un solo flujo sucursal → `md`** del que sacar
-evidencia: todo lo que hay (las 8 suscripciones lógicas, `store-poller`, los importers) sale
-**desde** `md`.
+Está **medido** que `md` alcanza a las sucursales (5 de 8 respondieron en 5432; las otras usan
+el 1977). El sentido inverso —que una sucursal alcance `192.168.0.222`— lo **confirmó quien
+administra la red el 2026-09-23**, y se registra como tal: es un dato de quien la configuró,
+no una medición de este repo.
 
-⇒ Se prueba desde **una** caja antes de tocar el resto. Es una compuerta, no un trámite.
+⚠️ Se distingue a propósito, porque **desde `md` no se puede comprobar**: hoy no existe ni un
+solo flujo sucursal → `md` del que sacar evidencia. Todo lo que hay —las 8 suscripciones
+lógicas, `store-poller`, los importers— sale **desde** `md`. Que `md` abra una conexión a una
+sucursal y reciba respuesta NO prueba que una sucursal pueda abrir una hacia `md`: un firewall
+puede ser asimétrico sin que nada lo delate.
+
+⇒ La comprobación llega **gratis** con la primera caja que se repunte: si el POST entra, el
+camino existe. Por eso se toca **una** caja antes que el resto.
 
 ⬜ **Abierto:** el gateway de CEDIS (`.9`) y el de Padre Hidalgo (`.10`) no están en `.1` ni
 `.254`. Su direccionamiento es distinto y hay que averiguarlo antes de incluirlas.
