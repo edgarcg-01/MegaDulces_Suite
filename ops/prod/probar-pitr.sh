@@ -104,6 +104,23 @@ di "   pg_restore de pgBackRest: código $rc en $(( $(date +%s) - t0 ))s"
 [ "$rc" = 0 ] || { mal "la restauración falló"; conservar; exit 1; }
 
 di "── 3. levantando un Postgres temporal en :$PUERTO ──"
+# ⛔ CON LOS MISMOS PARÁMETROS DE RECURSOS QUE EL ORIGINAL, Y SE LEEN DE `pg-prod` EN VEZ DE
+# ESCRIBIRLOS A MANO. Postgres se NIEGA a recuperar si el clúster restaurado declara menos
+# recursos que el primario: medido el 2026-09-22,
+#     FATAL: recovery aborted because of insufficient parameter settings
+#     DETAIL: max_connections = 100 is a lower setting than on the primary server (200)
+# Son cinco parámetros y basta que UNO quede corto. Copiarlos a mano acá los dejaría
+# desincronizados el día que alguien cambie el compose — por eso se consultan.
+# ⚠️ Esto no es una rareza del ensayo: es lo que va a pasar en una recuperación DE VERDAD si
+# se restaura sobre una máquina configurada más chica.
+PARAMS=""
+for p in max_connections max_worker_processes max_wal_senders max_prepared_transactions max_locks_per_transaction; do
+  v=$(docker exec pg-prod psql -U postgres -At -c "SELECT setting FROM pg_settings WHERE name = '$p'" 2>/dev/null)
+  [ -n "$v" ] && PARAMS="$PARAMS -c $p=$v"
+done
+echo "   parámetros heredados de pg-prod:$PARAMS"
+
+# shellcheck disable=SC2086
 docker run -d --name "$CONT" \
   -v "$DESTINO":/var/lib/postgresql/18/docker \
   -v /home/superoot/pgbackrest:/var/lib/pgbackrest \
@@ -111,7 +128,7 @@ docker run -d --name "$CONT" \
   -e PGDATA=/var/lib/postgresql/18/docker \
   -p "$PUERTO":5432 \
   trade-prod-pg:latest \
-  postgres -c archive_mode=off -c hot_standby=on >/dev/null || { mal "no arrancó el contenedor"; conservar; exit 1; }
+  postgres -c archive_mode=off -c hot_standby=on $PARAMS >/dev/null || { mal "no arrancó el contenedor"; conservar; exit 1; }
 
 # Esperar a que termine la recuperación. Se consulta al propio Postgres en vez de dormir
 # un tiempo fijo: cuánto tarda depende de cuánto WAL haya que reproducir.
