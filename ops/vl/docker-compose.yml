@@ -39,6 +39,10 @@ x-lane: &lane
   env_file: [/home/superoot/secrets/ingest.env]
   labels: { autoheal: "true" }
   logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+  # [VL.11] Los carriles ahora ESCRIBEN a `pg-prod`, que vive en la red del stack de
+  # produccion. Sin esto no resuelven el nombre. `default` sigue siendo `vl_default`, que es
+  # donde esta `pg-ods` (la fuente).
+  networks: [default, prod]
 
 services:
   # ═══ LA FUENTE ═══ (perfil `db`: NO arranca hasta VL.2b — ver la nota de arriba)
@@ -261,6 +265,7 @@ services:
       retries: 3
     labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+    networks: [default, prod]   # [VL.11] para alcanzar pg-prod
 
   # Sub-minuto: el cron no llega. Loop propio, como el `run-livefast-loop.cmd` que
   # reemplaza (sales-fact → sales_daily + cash-sessions, ventana de 2 días).
@@ -289,6 +294,7 @@ services:
       retries: 3
     labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+    networks: [default, prod]   # [VL.11] para alcanzar pg-prod
 
   # Sub-minuto: tickets en vivo de las 6 sucursales → WS /store de prod. Reemplaza
   # `C:\KeplerPush\store-poller.cmd`, que además era uno de los 2 únicos que corrían
