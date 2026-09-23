@@ -555,12 +555,21 @@ dominio con una tarjeta y autorizar en un navegador.
 3. **Publicar los tres hostnames** (*Public Hostnames* del mismo túnel). Los destinos están
    **verificados alcanzables** desde la red `prod_default`:
 
+   **Dominio registrado el 2026-09-22: `megadulcessuite.com`** (Cloudflare, plan free).
+   Verificado desde fuera, no sólo en el tablero: nameservers `dom.ns.cloudflare.com` /
+   `karina.ns.cloudflare.com`, y los **MX de `megadulces.com.mx` siguen en Google** — el
+   correo de la empresa no se tocó.
+
    | Hostname | Service | Qué es |
    |---|---|---|
-   | `suite.<dominio>` | `http://api:10000` | la suite (`apps/view`) + la API |
-   | `portal.<dominio>` | `http://portal:10000` | portal B2B |
-   | `vendedor.<dominio>` | `http://vendor:10000` | app de vendedor en campo |
-   | `ingest.<dominio>` | `http://api:10000` | ⚠️ sólo si se van a repuntar los agentes (§6 #9) |
+   | `megadulcessuite.com` (apex) | `http://api:10000` | la suite (`apps/view`) + la API |
+   | `portal.megadulcessuite.com` | `http://portal:10000` | portal B2B |
+   | `vendedor.megadulcessuite.com` | `http://vendor:10000` | app de vendedor en campo |
+   | `ingest.megadulcessuite.com` | `http://api:10000` | ⚠️ sólo si se van a repuntar los agentes (§6 #9) |
+
+   ⚠️ El apex sirve para la suite gracias al *CNAME flattening* de Cloudflare; un subdominio
+   sería igual de válido y se cambia en un clic. Se elige el apex porque es la URL que la
+   gente va a teclear.
 
 **Lo que hace el código, después.** El token **no se pega en un chat ni se commitea** — va
 directo al archivo de secretos de `md`:
@@ -584,8 +593,9 @@ plano; dejarlo en `false` detrás del túnel significa servir sin `HSTS` ni
 **Cómo se comprueba que quedó** — el rótulo no es el veredicto:
 
 ```sh
-curl -s https://suite.<dominio>/api/health          # debe decir el commit de md
-curl -s -o /dev/null -D - https://suite.<dominio>/   | grep -iE 'strict-transport|upgrade-insecure'    # con TLS_TERMINADO=true: las dos presentes
+curl -s https://megadulcessuite.com/api/health          # debe decir el commit de md
+# con TLS_TERMINADO=true las DOS cabeceras deben volver (detras del tunel si hay TLS)
+curl -s -o /dev/null -D - https://megadulcessuite.com/ | grep -iE 'strict-transport|upgrade-insecure'
 ```
 
 ---
