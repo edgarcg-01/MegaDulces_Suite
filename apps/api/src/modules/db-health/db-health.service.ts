@@ -709,13 +709,10 @@ export function veredictoSinLatido(
 
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
-  { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50, maxRunH: 3 },
   // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
   { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 2 min',  warnH: 3,  critH: 12 },
-  { key: 'wincaja_live',        label: 'Wincaja live (existencia+ventas+movimientos)', cadence: 'cada 10 min', warnH: 3, critH: 12 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
-  { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384, maxRunH: 3 },
   // [VL.6.3] EL RESPALDO DE PROD. Era invisible: 36 job_key vigilados y ninguno era el
   // respaldo. Lo unico que lo reportaba era `LastTaskResult` del Programador de Windows, que
   // llevaba desde el 2026-09-08 diciendo 267014 (SCHED_S_TASK_TERMINATED) sin que nadie lo
@@ -728,6 +725,23 @@ const CRON_JOBS: CronCfg[] = [
   // se corrige acá porque es lo que el tablero le muestra a una persona: con la hora vieja,
   // quien viniera a ver por qué falta el respaldo lo buscaría cinco horas antes y en otra máquina.
   // `maxRunH: 3` aguanta: los cuatro respaldos reales medidos tardaron 68, 69, 89 y 74 min.
+  // ─── [NORM.3] SEIS LLAVES ZOMBI RETIRADAS, 2026-09-23 ───────────────────────────────────
+  // Una llave sin escritor NO se apaga sola: se queda con su último `status='ok'` ENVEJECIENDO, y
+  // un `ok` de 84 h se lee igual que salud. Las seis se verificaron UNA POR UNA en `.249` antes de
+  // sacarlas, no por lo que dice la prosa del README:
+  //   · wincaja_sync / _live / _concentrada  → `Get-ScheduledTask`: las 3 **Disabled**
+  //   · wincaja_replica_inc / _hash          → `pm2 list`: las 2 **stopped**
+  //   · feed_guardian                        → ⭐ el caso raro, y NO es el que contaba el README.
+  //     Su tarea estaba **Ready** y corriendo (última 16:41, resultado 0), pero su renglón tenía
+  //     **25.9 h** contra un umbral de `critH: 2` — o sea que la llave estaba en **ROJO**, no en
+  //     verde: la tarea corre y su latido NO se escribe. Y lo que vigila es nada: se midió que
+  //     **las 13 tareas de su lista están Disabled**, así que recorría una lista apagada. Alarma
+  //     inútil en las dos direcciones — roja sin motivo y ciega a la vez. Se apagó la tarea y se
+  //     sacó la llave EN EL MISMO CAMBIO, que es la regla que `ops/README.md` ya enunciaba:
+  //     apagar la tarea sin sacar la llave pone la alarma en rojo, y sacar la llave sin apagar la
+  //     tarea deja un carril corriendo sin vigilancia.
+  // ⚠️ Su escritor `run-feed-guardian.ps1` vive en C:/KeplerRunner/, FUERA del repo — por eso un
+  //   grep no lo encontraba y parecía una llave sin dueño.
   { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 22:00 (md)', warnH: 26, critH: 50, maxRunH: 3 },
   // [VL.9.10] Respaldo del CLÚSTER con pgBackRest: diferencial a diario 23:30, completo los
   // domingos. Distinto de `backup_prod`, que es el volcado portátil — éste es el que da
@@ -841,8 +855,6 @@ const CRON_JOBS: CronCfg[] = [
   // checkCronRuns() y se pintaban VERDE INCONDICIONAL por viejos que estuvieran. Un latido sin
   // umbral registrado no es una alarma, es decoración. (wincaja_replica_* justo se pasó 4 días en
   // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
-  { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
-  { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
   // [CG.9e] Los dos carriles de la CAJA GENERAL, hermanos de los de Wincaja: mismo Jet 32-bit,
   // misma máquina (`.249`), mismo motivo para existir. Se registran ACÁ, antes de arrancarlos,
   // porque un latido sin umbral cae en el `cfg ? classify : 'ok'` y se pinta verde incondicional —
@@ -866,7 +878,6 @@ const CRON_JOBS: CronCfg[] = [
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
   // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
   { key: 'contpaqi_add_cfdis_full', label: 'ContPAQi CFDIs (ADD, reconciliador)', cadence: '1×día', warnH: 26, critH: 50 },
-  { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
   // [VL.4b] El poller de tickets de /tienda/live. Era MUDO y su única señal era el mtime de un .log
   // — que se sigue moviendo aunque no llegue un solo ticket. El 2026-09-11, tras mudar la fuente a
   // `md` y dejar las suscripciones viejas en DISABLE, las réplicas de `.249` quedaron congeladas y el
