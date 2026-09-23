@@ -94,6 +94,45 @@ export interface PutAwayDto {
   quantity: number;
 }
 
+/**
+ * Mover mercancia YA acomodada de un rack a otro. El origen y el destino se
+ * pueden dar por codigo escaneado: quien mueve tiene la pistola, no los UUID.
+ */
+export interface MoveLotDto {
+  warehouse_id: string;
+  product_id: string;
+  lot_code?: string;
+  expiry_date?: string;
+  from_bin_id?: string;
+  from_bin_code?: string;
+  to_bin_id?: string;
+  to_bin_code?: string;
+  quantity: number;
+}
+
+export interface MoveLotResult {
+  moved: boolean;
+  from_bin_id: string;
+  to_bin_id: string;
+  lot_code: string;
+  quantity: number;
+  /** Lo que queda del lote en el rack de origen despues del movimiento. */
+  queda_en_origen: number;
+}
+
+/**
+ * Si el almacen acepta movimientos ahora mismo. `frozen: false` con `folio: null`
+ * es la respuesta normal; el campo se declara siempre para poder distinguir
+ * "no esta congelado" de "no se pudo averiguar".
+ */
+export interface WarehouseFreeze {
+  warehouse_id: string;
+  frozen: boolean;
+  folio: string | null;
+  count_id: string | null;
+  status: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BinLocationService {
   private readonly http = inject(HttpClient);
@@ -126,6 +165,23 @@ export class BinLocationService {
     let params = new HttpParams().set('code', code);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<BinLookup>(`${this.base}/bins/lookup`, { params });
+  }
+
+  /**
+   * Saber si un almacen esta congelado por un inventario fisico, ANTES de dejar
+   * capturar. No reemplaza a los guards del servidor: los adelanta.
+   */
+  warehouseFreeze(warehouseId: string): Observable<WarehouseFreeze> {
+    const params = new HttpParams().set('warehouse_id', warehouseId);
+    return this.http.get<WarehouseFreeze>(`${this.base}/warehouse-freeze`, { params });
+  }
+
+  /**
+   * Mover un lote de una ubicacion a otra. **No mueve existencia**: el total del
+   * almacen no cambia, cambia donde esta.
+   */
+  moveLot(dto: MoveLotDto): Observable<MoveLotResult> {
+    return this.http.post<MoveLotResult>(`${this.base}/move-lot`, dto);
   }
 
   putAway(dto: PutAwayDto): Observable<{ located: boolean; bin_id: string; lot_code: string; quantity: number }> {
