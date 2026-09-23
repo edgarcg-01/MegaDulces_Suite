@@ -227,11 +227,15 @@ recrear() {
     echo "      que es la verdad. Reconstruí con 'deploy.sh --imagenes' para que la tenga."
   fi
   echo "── Recreando: $servicios (imagen $commit) ──"
-  # GIT_COMMIT_SHA viaja por el ENTORNO DEL PROCESO, no por prod.env: el formato `env_file` de
-  # Compose no interpola y lo dejaría vacío — medido, `/api/health` devolvía `"commit": ""`. Es el
-  # dato que dice qué versión está sirviendo; sin él el healthcheck miente por omisión.
+  # [VL.11.C] YA NO SE EXPORTA `GIT_COMMIT_SHA`: lo hornea la imagen. El `$commit` de arriba
+  # sobrevive SÓLO para el rótulo —sigue siendo útil saber qué versión se está levantando— pero
+  # el contenedor ya no depende de que alguien acierte a exportarlo.
+  # ⛔ Y no es que sobrara: mientras el compose declaraba `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}`,
+  # un `docker compose up` sin esta variable ponía la cadena VACÍA y **pisaba el valor de la
+  # imagen**. Se quitó la declaración del compose; dejar acá el export sería reconstruir el
+  # mismo acoplamiento por la otra punta.
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a &&
-    GIT_COMMIT_SHA=$commit docker compose -p prod up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
+    docker compose -p prod up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
   echo
   echo "── Salud ──"
   ssh_md "for c in $servicios; do
