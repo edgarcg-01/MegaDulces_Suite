@@ -195,6 +195,41 @@ services:
   # Corre --full UNA vez al arrancar (limpieza + latido inmediato para el healthcheck) y despues
   # cada dia 03:00 MX via crond. Latido PROPIO (cdc_reconcile_full) para no pisar el del carril.
   # ═══════════════════════════════════════════════════════════════════════════
+  # ⭐ [ODS.2] La red de seguridad de las tablas CHICAS — las que no tienen fecha de negocio.
+  #
+  # Antes sólo se reconciliaban 5 tablas (kdm1, kdm2, kdij, kdue, kdpord), porque la ventana se
+  # acota por fecha y el resto no la tiene. Todo lo demás del ODS estaba sin red: medido contra la
+  # réplica el 2026-09-23, 17 tablas perdían filas y 8 publicaban filas ya borradas en el origen.
+  #
+  # `--chicas` compara el universo COMPLETO de llaves, no una ventana, y shipea sólo las ausentes.
+  # Es viable porque el freno de tamaño del propio script (100 MB, medido con
+  # `pg_total_relation_size`) rechaza cualquier tabla que no sea chica — el modo es válido PORQUE
+  # lo son, así que la validación no puede depender de esta lista.
+  #
+  # ⚠️ Cadencia 30 min y no 15: son 16 tablas × 9 ramas y ninguna es de movimiento vivo. Las que
+  # cambian a cada segundo (kdm1/kdm2) las cubre `ods-reconcile`, que sigue con su ventana de 3 d.
+  #
+  # ⛔ DELETE APAGADO a propósito. Al cerrar los faltantes quedaron 259 sobrantes en la rama 08
+  # (kdpv_prod_util 222, kdii 26, …). Propagar ese DELETE es una decisión con evidencia aparte, no
+  # un efecto colateral de encender un carril.
+  ods-reconcile-chicas:
+    <<: *lane
+    container_name: ods-reconcile-chicas
+    depends_on: [ods-live-hot]
+    environment:
+      ODS_HB_KEY: cdc_reconcile_chicas
+      ODS_HB_MAX_MIN: "90"
+      ODS_HB_IGNORE_ERROR: "1"
+      ODS_DELETE_SOBRANTES: "0"
+    command: ["node", "database/importers/kepler/reconcile-ods-window.js", "--chicas", "--apply", "--watch=1800",
+              "--tables=kdfe4imp,kdfedir,kdfe33docprv,kdxe,kdpv_folio_caja,kdpv_prod_util,kdm_m2,kdud,kdudent,kdug,kdm_rutas2,kdxg,kdfe33relprd,kdii,kdm_rutas,kdpv_prov_prod"]
+    healthcheck:
+      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      interval: 120s
+      timeout: 30s
+      start_period: 20m
+      retries: 3
+
   ods-reconcile-full:
     <<: *lane
     container_name: ods-reconcile-full
