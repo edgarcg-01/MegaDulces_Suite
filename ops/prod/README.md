@@ -696,18 +696,66 @@ fuera de sitio de VL.8 no podría leer su propio repositorio.
 Los comentarios van con `#`. Se descubrió con el archivado **ya encendido**, o sea con el WAL
 acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
 
+### ✅ Agendado — y dónde corre, que era la decisión abierta
+
+`ops/prod/pgbackrest-run.sh`, por el cron de `prod-backup`: **completo los domingos 23:30,
+diferencial el resto**. Después del volcado de las 22:00, que cierra ~23:15.
+
+⚠️ **No era opcional**: pgBackRest expira el WAL **atado a los respaldos**. Con un solo completo,
+el WAL archivado desde entonces no se borra nunca — medido, el repositorio pasó de 4 GB a 12 GB
+en tres horas y sin un respaldo nuevo ese crecimiento no tiene tope, en el mismo disco donde
+viven los 9 contenedores de la ingesta.
+
+**Dónde corre.** pgBackRest necesita dos cosas a la vez: leer `PGDATA` **y** hablar con Postgres,
+y la conexión sólo la sabe hacer por **socket UNIX local** — no acepta un host TCP. De las tres
+formas posibles se eligió la tercera:
+
+| | Costo |
+|---|---|
+| dentro de `pg-prod` | su imagen corre postgres como PID 1; meterle un segundo proceso es frágil |
+| `prod-backup` + socket de Docker | **root en el host**, y ese contenedor ya tiene la credencial de la base |
+| ⭐ **compartir los dos recursos** | volumen de datos en **sólo lectura** + directorio del socket. **Cero privilegio nuevo** |
+
+⚠️ Y lo lanza cron como **root**, que baja a `postgres` sólo para el comando: el archivo de
+secretos es de `superoot` y uid 999 no puede leerlo, pero pgBackRest **se niega a correr como
+root**. Los dos usuarios son necesarios y ninguno alcanza solo.
+
+Con latido propio (`pgbackrest_backup`) y umbral registrado en `CRON_JOBS` — sin umbral,
+`db-health` cae en `cfg ? classify : 'ok'` y el latido sería decoración.
+
+### ✅ El ensayo de recuperación — superado, y las tres cosas que sólo aparecen restaurando
+
+`ops/prod/probar-pitr.sh` (o `deploy.sh --pitr`). Escribe dos marcas con un instante en medio
+—**A → T_objetivo → B**— restaura a `T_objetivo` en un directorio aparte, levanta un Postgres
+temporal en el 5436 y exige **A presente y B ausente**. De los tres resultados posibles sólo uno
+prueba algo: si están las dos, el punto en el tiempo no se respetó; si no está ninguna, no
+recuperó nada.
+
+**Resultado 2026-09-22**: restauración en 33 s · `A=1, B=0` · 240 tablas en `kepler_ods` ·
+`pg-prod` intacto. **El respaldo deja de ser una hipótesis.**
+
+⭐ Y falló dos veces antes de pasar, por cosas que `pgbackrest info: status ok` no puede ver:
+
+1. **pgBackRest hornea el `--pg1-path` dentro del `restore_command`.** Restaurando en `/restore`
+   y arrancando en `/var/lib/postgresql/18/docker`, la recuperación moría con
+   `archive-get ERROR [073]: unable to chdir() to '/restore'`, y Postgres lo reportaba como
+   *"could not locate required checkpoint record"* — un mensaje que **no nombra ni la ruta ni
+   pgBackRest**. ⇒ Un clúster restaurado en una ruta temporal **no puede recuperar en ninguna otra**.
+2. **El clúster restaurado necesita los parámetros de recursos del original.** `FATAL: recovery
+   aborted because of insufficient parameter settings — max_connections = 100 is a lower setting
+   than on the primary server (200)`. Son cinco parámetros y basta que **uno** quede corto. El
+   ensayo los **lee de `pg-prod`** en vez de escribirlos a mano, para que no se desincronicen.
+   ⚠️ Eso va a pasar igual en una recuperación de verdad sobre una máquina configurada más chica.
+3. **El ensayo borraba su propia evidencia al fallar.** La primera corrida se llevó el directorio
+   restaurado y los logs justo cuando había algo que mirar, y hubo que reproducir el fallo para
+   poder verlo. Ahora conserva todo y dice dónde está.
+
 ### Lo que falta
 
-- ⬜ **Agendar** los respaldos (completo semanal + diferencial diario). Hoy se corren a mano.
-  La decisión pendiente es **desde dónde**: `pgbackrest backup` necesita leer `PGDATA`, así que
-  o corre dentro de este contenedor, o el contenedor `backup` recibe el socket de Docker
-  (privilegio de root en el host), o se monta el modo servidor TLS de pgBackRest. Las tres
-  tienen costo y ninguna es obviamente correcta: se decide, no se deduce.
-- ⬜ **Probar una recuperación de verdad** a un punto en el tiempo. Un respaldo que nunca se
-  restauró es una hipótesis.
-- ⬜ **Fuera de sitio** (VL.8): hoy repositorio y volcados están en el mismo disco de la misma
-  máquina que la base.
-
+- ⛔ **Fuera de sitio** (VL.8): volcados, repositorio de pgBackRest **y la base** viven en el mismo
+  disco de la misma máquina. Eso es *una* copia, no 3-2-1. Necesita hardware.
+- ⬜ **Automatizar el ensayo**: hoy `--pitr` se corre a mano. Un ensayo que no se repite envejece
+  igual que un respaldo que no se prueba.
 ---
 
 ## 10. El camino: qué está hecho, qué falta, y qué cambió del plan original
@@ -742,9 +790,9 @@ acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
 **Sin depender de nadie:**
 
 1. ⬜ **Verificar el restore de esta noche.** El veredicto es `/api/sucursales` con datos, no que los contenedores arranquen.
-2. ⬜ **Etiquetar las imágenes por commit** (`trade-prod-api:903b5c4` además de `latest`) y conservar las N anteriores. Hoy **no hay a qué volver**: es lo más barato de la lista y lo que peor se siente a las 3 AM.
-3. ⬜ **Agendar los respaldos de pgBackRest** (completo semanal + diferencial diario). La decisión abierta es *desde dónde*: `backup` necesita leer `PGDATA`, así que o corre dentro de `pg-prod`, o el contenedor `backup` recibe el socket de Docker (**privilegio de root en el host**), o se monta el modo servidor TLS. Las tres tienen costo; ninguna es obviamente correcta.
-4. ⬜ **Probar una recuperación a un punto en el tiempo.** *Un respaldo que nunca se restauró es una hipótesis.*
+2. ✅ **Imágenes etiquetadas por commit** + poda a 5 versiones + `deploy.sh --volver <commit>`. Ya hay a qué volver. ⚠️ Y `/api/health` reporta el commit **de la imagen**, no `git HEAD`: con ~10 sesiones commiteando, HEAD se mueve entre construir y desplegar y el campo decía una versión que no era la que corría.
+3. ✅ **Respaldos de pgBackRest agendados** — completo semanal + diferencial diario, corriendo desde `prod-backup` con el volumen de datos en sólo lectura y el socket compartido: **cero privilegio nuevo**. Ver §9.
+4. ✅ **Recuperación a un punto en el tiempo, PROBADA** — `A=1, B=0` sobre un clúster restaurado aparte. Falló dos veces antes de pasar, por cosas que `pgbackrest info` no puede ver (§9).
 5. ⬜ **`verificar-copia.sh` completo** contra prod, una vez que la copia sea fiel.
 
 **Requiere una persona:**
