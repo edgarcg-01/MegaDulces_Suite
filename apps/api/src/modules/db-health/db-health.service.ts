@@ -770,6 +770,18 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_receipts',       label: 'Barrido histórico de recepciones (XA2001)', cadence: 'diario 04:30 MX', warnH: 26, critH: 50, maxRunH: 2 },
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
+  // [NORM.2] Este carril EXISTÍA COMO SCRIPT Y NO ESTABA AGENDADO EN NINGÚN LADO. Llena
+  // `inventory.products`, que es el catálogo de escaneo del conteo físico: medido el 2026-09-23,
+  // llevaba **37 días** sin un `synced_at` nuevo y **147 SKUs** no eran escaneables. Un producto
+  // que el ERP dio de alta y que el contador no puede escanear se cuenta como faltante.
+  // 05:10 = después del nocturno (03:00) que puebla `catalog.products`, y sin chocar con
+  // `receipts` (04:30) ni `contpaqi-cfdis-full` (05:45).
+  { key: 'inventory_products_refresh', label: 'inventory.products ← catalog (escaneo de conteo)', cadence: 'diario 05:10 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [NORM.2] Hermana de la de arriba y con el mismo defecto de origen: escrita, con 9 lectores
+  // vivos (buscador, pricing, portal, extractor de tickets, AI-matcher) y SIN AGENDA. Refresca por
+  // TRUNCATE+INSERT, así que se le agregó un PISO anti-vaciado: si el origen diera menos del 50%
+  // de lo que la tabla tiene, ABORTA y late en rojo en vez de commitear una tabla casi vacía.
+  { key: 'products_active_refresh',    label: 'inventory.products_active ← catalog (9 lectores)',  cadence: 'diario 05:20 MX', warnH: 26, critH: 50, maxRunH: 1 },
   // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
   // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
   // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación

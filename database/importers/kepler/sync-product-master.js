@@ -38,6 +38,26 @@
  *   node database/importers/kepler/sync-product-master.js --apply --force   # ignora el cap de bajas
  *
  * Env: MAX_AGE_MIN (default 60), MAX_DELETE (default 500), CRON_TENANT_ID.
+ *
+ * ── ⛔ [NORM.2] POR QUÉ SIGUE SIN AGENDA, medido el 2026-09-23 ───────────────────────────────
+ * El repo se contradecía: la migración `20260826140000` lo da por *"ya corriendo"* y
+ * `apply-handlers.js:409` lo llama *"el respaldo"*. **Nunca corrió con `--apply`**, y hay prueba:
+ * si lo hubiera hecho, las bajas ya estarían aplicadas. El dry-run contra prod de hoy:
+ *
+ *     paso 1 REACTIVATE     4        paso 3 INSERT           0
+ *     paso 2 UPDATE ident   3        paso 4 SOFT-DELETE  1,158   ⛔ > cap 500 → ABORT
+ *
+ * Los pasos 1-3 son chicos y seguros. El 4 no: **1,158 productos se darían de baja en su primera
+ * corrida**. Es la acumulación del DELETE que el espejo no propaga (`kepler_ods` es UPSERT-only y
+ * el CDC está muerto — Fase OBS): medido aparte, `catalog.products` tiene **1,126 SKUs que el ERP
+ * ya no lista**. Desde acá **no se puede distinguir** si se dieron de baja de verdad o si faltan
+ * en el espejo, y esa diferencia son 1,158 productos.
+ *
+ * ⇒ El cap hizo exactamente su trabajo. **`--force` NO es la salida**: agendarlo exige antes
+ *   resolver los 1,158 (o propagar el DELETE, que es el arreglo de fondo).
+ * ⇒ Y agendarlo **también exige retirar `repoint-catalog-presence` y `repoint-catalog-names`**
+ *   del carril `nightly`: este feed los REEMPLAZA, así que con los tres agendados habría dos
+ *   escritores de la misma identidad — justo la duplicación que [NORM.3] viene a matar.
  */
 const { Client } = require('pg');
 
