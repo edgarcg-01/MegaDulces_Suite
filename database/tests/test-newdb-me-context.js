@@ -294,8 +294,9 @@ const tieneDecoradorPermisos = (tramo) =>
   }
   // `[SN.32]` +1: entró «Salud de las bases de datos» con su clave `sistemas.salud_datos`.
   // `[SN.36]` +1: entró «Cartera de clientes» con su clave `finanzas.cartera`.
+  // `[SN.39]` +1: entró «Comprobantes de entrada de mercancía» con su clave `compras.entradas`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 17, catalogo);
+    catalogo.length === 18, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -338,8 +339,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[SN.36]` +2 COLAS pero +1 CLAVE: «vencido» y «sobre su línea» son dos renglones de la misma
   // responsabilidad (`finanzas.cartera`), así que `declaradas` sube 2 y `catalogo` sólo 1. Es el
   // caso que la aserción de conjunto de abajo cubre y la de unicidad (retirada) habría roto.
-  check('cada cola declara su responsabilidad (11 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 20, declaradas);
+  // `[SN.39]` +1 bandeja y +1 clave: «Entradas de mercancía sin comprobante».
+  check('cada cola declara su responsabilidad (12 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 21, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -907,7 +909,7 @@ const tieneDecoradorPermisos = (tramo) =>
      * ⛔ Lo que sigue prohibido es lo de siempre: un desglose sobre una cola cuyas 8 filas no
      * concentren ni la cola ni la decisión — ahí la portada se vuelve la pantalla (`[SN.7]` r.1).
      */
-    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida'];
+    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante'];
     const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
     const deMas = conDesglose.filter((id) => !DESGLOSE_PERMITIDO.includes(id));
     check('⛔ [SN.33] sólo se desglosan las colas declaradas (una cola grande mudaría su pantalla a la portada)',
@@ -1063,6 +1065,70 @@ const tieneDecoradorPermisos = (tramo) =>
     /id: `\$\{f\.sucursal \?\? '\?'\}:\$\{f\.cliente_code \?\? f\.id\}`/.test(srcSinCom));
   check('⛔ la gravedad sale de la fuente, sin default benigno',
     !/severity \?\? 'warn'/.test(srcSinCom));
+
+  console.log('\n── 4m. [SN.39] El comprobante de las entradas de mercancía ──');
+  const migEnt = fs.readFileSync(
+    path.resolve(dirMig, '20260923120000_responsabilidad_entradas.js'), 'utf8',
+  );
+  check('la migración declara la clave y la reparte a los DOS puestos que suben el comprobante',
+    /'compras\.entradas'/.test(migEnt)
+      && /'auxiliar_compras'/.test(migEnt)
+      && /'analista_abastecimiento_comercial'/.test(migEnt), null);
+  check('⛔ y NO otorga permisos (COMPRAS_ENTRADAS_GESTIONAR ya lo tienen los 5)',
+    !/role_permissions/.test(migEnt));
+  /*
+   * ⚠️ El pedido es «de su sucursal» y hoy NINGUNO de los cinco tiene `warehouse_code`. La
+   * migración lo IMPRIME en su log en vez de dejarlo sólo en un comentario — un aviso que nadie
+   * corre no avisa.
+   */
+  check('⚠️ la migración DECLARA a quién le falta la sucursal en su ficha',
+    /whereNull\('warehouse_code'\)/.test(migEnt) && /de toda la red/.test(migEnt));
+
+  const iEnt = srcSinCom.indexOf(`id: 'entradas-sin-comprobante'`);
+  check('existe la bandeja de entradas', iEnt >= 0, null);
+  /*
+   * ⚠️ 3,400 y no 2,600: con el corte corto el slice terminaba **300 caracteres antes** del
+   * `nivel:`/`nota:` del desglose, y dos candados daban rojo sobre código que sí estaba. Un
+   * candado que lee una ventana fija falla del lado equivocado cuando el bloque crece — se
+   * verifica abajo que la ventana alcanza para el final del bloque, en vez de confiar en el número.
+   */
+  const bEnt = iEnt >= 0 ? srcSinCom.slice(iEnt, iEnt + 3400) : '';
+  check('la ventana del candado llega hasta el final de la bandeja (si no, mide de menos)',
+    /nota:/.test(bEnt), bEnt.length);
+  check('enlaza a la pantalla que YA existe (/compras/entradas)',
+    /ruta: '\/compras\/entradas'/.test(bEnt));
+  /*
+   * ⛔ La ruta la gatea `permissionGuard(COMPRAS_ENTRADAS_GESTIONAR)`, NO un `anyPermissionGuard`.
+   * Con `_VER` acá, `direccion` (que tiene VER true y GESTIONAR false) iría a un rebote — el
+   * defecto exacto que la regla 1 de `me-work.ts` existe para impedir.
+   */
+  check('⛔ gatea con GESTIONAR, no con VER (direccion tiene VER y no GESTIONAR)',
+    /anyOf: \[Permission\.COMPRAS_ENTRADAS_GESTIONAR\]/.test(bEnt));
+  check('⛔ la cola son las que NO tienen comprobante (leftJoin … is null), no todas las entradas',
+    /leftJoin\('finance\.goods_receipt_proofs as p'/.test(bEnt)
+      && /estadoCol: 'p\.folio'/.test(bEnt) && /estadoAbierto: null/.test(bEnt));
+  /*
+   * ⛔ Una entrada no «se cierra»: aparece su comprobante en OTRA tabla. Sin columna de cierre,
+   * `cerradas_30d` tiene que viajar `null` — nunca 0, que diría «nadie la trabaja» justo cuando en
+   * la sucursal 08 subieron el 78%.
+   */
+  check('⛔ declara que no tiene columna de cierre (null, nunca 0)', /cierre: null,/.test(bEnt));
+  check('⭐ el desglose publica el PORCENTAJE por sucursal (es el pedido)',
+    /subidas · \$\{pct\}%/.test(bEnt) && /groupBy\('r\.sucursal'\)/.test(bEnt));
+  /*
+   * ⛔ Sin entradas en la ventana NO hay porcentaje: `null`, no `0%`. «Nadie subió nada» y «no
+   * hubo entradas» son afirmaciones distintas y el 0% las confunde (ADR-056).
+   */
+  check('⛔ sin entradas el porcentaje es null, no 0%',
+    /total > 0 \? Math\.round\(\(con \/ total\) \* 1000\) \/ 10 : null/.test(bEnt));
+  /*
+   * ⛔ `nivel: null` a propósito: no hay meta de cobertura registrada en ningún lado, y pintar un
+   * semáforo exigiría inventar el umbral acá — el `cfg ? classify : 'ok'` de ADR-076 al revés.
+   */
+  check('⛔ no inventa semáforo: sin meta registrada, nivel null', /nivel: null,/.test(bEnt));
+  const tope = Number((src.match(/export const TOPE_DESGLOSE = (\d+);/) || [])[1]);
+  check('⛔ el tope del desglose alcanza para las 9 sucursales (si no, esconde una entera)',
+    tope >= 9, tope);
 
   /*
    * El tramo común no se puede leer del fuente con un grep honesto, así que se verifica dónde se
