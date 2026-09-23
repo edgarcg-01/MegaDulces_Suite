@@ -58,6 +58,13 @@ function hayAnclaA(fuente: string, ruta: string): boolean {
 
 const escapar = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** ¿Ese mismo ancla respeta la preferencia "abrir siempre los detalles aparte"? */
+function respetaPreferencia(fuente: string, ruta: string): boolean {
+  return new RegExp(
+    `<a\\b[^>]*\\[routerLink\\]="\\[${escapar(ruta)}\\]"[^>]*\\[target\\]="multitarea\\.target\\(\\)"`,
+  ).test(fuente);
+}
+
 describe('[MT.1] los drill-downs son enlaces de verdad', () => {
   describe('lista → detalle y saltos entre módulos', () => {
     for (const d of DRILLDOWNS) {
@@ -65,6 +72,35 @@ describe('[MT.1] los drill-downs son enlaces de verdad', () => {
         expect(hayAnclaA(leer(d.archivo), d.ruta)).toBe(true);
       });
     }
+  });
+
+  /**
+   * `[MT.3]` La preferencia vale para TODOS los detalles, o para ninguno.
+   *
+   * Si un drill-down nuevo se agrega sin `[target]`, la preferencia se aplica a
+   * unos sí y a otros no — y eso es peor que no tenerla: el usuario prende
+   * "abrir siempre los detalles aparte", ve que a veces pasa y a veces no, y
+   * deja de confiar en el interruptor. El defecto es INVISIBLE en pantalla y no
+   * lo atrapa ni el compilador ni la prueba renderizada (que monta una sola).
+   */
+  describe('[MT.3] todos respetan la preferencia del header', () => {
+    for (const d of DRILLDOWNS) {
+      it(`${d.que}: lleva [target]`, () => {
+        expect(respetaPreferencia(leer(d.archivo), d.ruta)).toBe(true);
+      });
+    }
+
+    it('NEGATIVA: quitarle el [target] a uno lo pone rojo', () => {
+      const real = leer('compras/pages/compras-ordenes.component.ts');
+      const ruta = "'/compras/ordenes', r.id";
+      expect(respetaPreferencia(real, ruta)).toBe(true);
+      const sinTarget = real.replace(' [target]="multitarea.target()"', '');
+      expect(sinTarget).not.toBe(real); // el sabotaje se aplicó
+      // Sigue siendo un ancla (la otra compuerta no lo nota)...
+      expect(hayAnclaA(sinTarget, ruta)).toBe(true);
+      // ...pero ya no respeta la preferencia.
+      expect(respetaPreferencia(sinTarget, ruta)).toBe(false);
+    });
   });
 
   describe('los "Volver" de las pantallas de detalle', () => {
