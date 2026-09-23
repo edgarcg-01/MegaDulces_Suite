@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { BinLocationService, CreateBinDto, PutAwayDto } from './bin-location.service';
+import { BinLocationService, CreateBinDto, PutAwayDto, MoveLotDto, MoveLotResult } from './bin-location.service';
 
 /**
  * Fase WMS-REC (Pieza 3 — Ubicación bin-level, ADR-044).
@@ -94,6 +94,20 @@ export class BinLocationController {
   @ApiOperation({ summary: 'Ubicar (put-away) cantidad de un lote en un bin (por bin_id o bin_code)' })
   putAway(@Body() body: PutAwayDto) {
     return this.service.putAway(body);
+  }
+
+  /**
+   * Mover mercancía ya acomodada de un rack a otro.
+   *
+   * Gateado igual que crear la ubicación (`ASIGNAR` **o** `RECIBIR`): reacomodar
+   * la bodega es trabajo de quien acomoda, no sólo de quien define el layout. No
+   * mueve existencia — sólo dónde está — así que no pide el permiso de ajustar.
+   */
+  @Post('move-lot')
+  @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_ASIGNAR, Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Mover un lote de una ubicación a otra (por id o por código escaneado)' })
+  moveLot(@Body() body: MoveLotDto): Promise<MoveLotResult> {
+    return this.service.moveLot(body);
   }
 
   // Donde esta un producto, para el que lo fue a dejar.
