@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
+import { ToastModule } from 'primeng/toast';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -37,7 +38,7 @@ const OUTCOMES: OutcomeOption[] = [
 @Component({
   selector: 'app-televenta-lead',
   standalone: true,
-  imports: [
+  imports: [ToastModule, 
     CommonModule,
     RouterModule,
     FormsModule,
@@ -52,11 +53,18 @@ const OUTCOMES: OutcomeOption[] = [
     CheckboxModule,
     ProgressSpinnerModule,
   ],
+  /**
+   * [E.13] Provee su PROPIO MessageService y pinta su PROPIO p-toast. Antes los heredaba del
+   * shell de Telemarketing; al montar el layout comun (que no provee ninguno de los dos, medido)
+   * la pagina tiraria NullInjectorError al abrirse. Es el patron de las otras 105 paginas.
+   */
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast position="top-center"></p-toast>
     @if (!loading() && snapshot(); as snap) {
       <section class="lead">
-        <a routerLink="/televenta/queue" class="back-link">
+        <a routerLink="/telemarketing/queue" class="back-link">
           <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a la cola
         </a>
         <header class="card head">

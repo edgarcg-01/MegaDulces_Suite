@@ -31,9 +31,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <p-toast></p-toast>
     
+    <!-- [E.13] Decía "Telemarketing", que la migaja del layout ya dice DOS veces
+         (Ventas > Telemarketing > Resumen). El encabezado nombra la PÁGINA, no el proyecto.
+         h1 y no h2: bajo el layout común ésta es la cabecera de la página. -->
     <div class="header-row">
       <div>
-        <h2>Telemarketing</h2>
+        <h1>Resumen del canal</h1>
         <p class="muted">Facturación del canal + productividad del día + conversión 7d.</p>
       </div>
       <button pButton severity="secondary" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -196,7 +199,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       <p-card class="queue-preview">
         <div class="card-header-row">
           <h3>Cola priorizada · próximos a llamar</h3>
-          <a pButton routerLink="/televenta/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
+          <a pButton routerLink="/telemarketing/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
         </div>
         <p-table [value]="d.queue_preview" styleClass="p-datatable-sm">
           <ng-template #header>
@@ -227,13 +230,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   styles: [`
     :host { display:block; }
     .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .section-title { margin: 1.5rem 0 .75rem; font-size: .9rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-color-secondary); }
+    .header-row h1 { margin:0 0 .25rem; font-size:1.35rem; font-weight:700; }
+    .muted { color: var(--text-muted); font-size:.85rem; margin:0; }
+    .section-title { margin: 1.5rem 0 .75rem; font-size: .9rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
     code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
 
     .my-stats h3 { margin:0 0 .75rem; font-size:1rem; }
-    .my-stats h3 i { margin-right: .35rem; color: var(--primary-color); }
+    .my-stats h3 i { margin-right: .35rem; color: var(--action); }
     app-metric-strip { display:block; margin-bottom:1.5rem; }
 
     .two-col { display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:1rem; }
@@ -241,19 +244,19 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .num.pos { color: var(--ok-fg); font-weight: 600; }
     /* E.9 — facturación */
-    .sub-title { margin: 1rem 0 .5rem; font-size: .8rem; font-weight: 600; color: var(--text-color-secondary); }
+    .sub-title { margin: 1rem 0 .5rem; font-size: .8rem; font-weight: 600; color: var(--text-muted); }
     .sub-title i { margin-right: .35rem; }
     .section-title .asof { margin-left: .5rem; text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .8; }
-    .num.debe { color: var(--danger, var(--text-color)); font-weight: 600; }
-    .sub { display: inline-block; margin-left: .35rem; font-size: .75rem; color: var(--text-color-secondary); }
-    .sub.bad { color: var(--danger, var(--text-color)); }
+    .num.debe { color: var(--bad-fg); font-weight: 600; }
+    .sub { display: inline-block; margin-left: .35rem; font-size: .75rem; color: var(--text-muted); }
+    .sub.bad { color: var(--bad-fg); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); }
-    .nota { display: flex; gap: .4rem; margin: .75rem 0 0; font-size: .75rem; color: var(--text-color-secondary); }
+    .nota { display: flex; gap: .4rem; margin: .75rem 0 0; font-size: .75rem; color: var(--text-muted); }
     /* Lo que no se pudo medir se declara, no se dibuja como cero (ADR-056) */
     .sin-captura {
       display: flex; gap: .5rem; align-items: flex-start; margin: 0 0 .75rem;
       padding: .625rem .75rem; border-radius: var(--radius-md, 6px);
-      background: var(--warn-bg, rgba(234,179,8,.08));
+      background: var(--warn-soft-bg, rgba(234,179,8,.08));
       border: 1px solid var(--warn-border, rgba(234,179,8,.28));
       font-size: .8rem; line-height: 1.45;
     }

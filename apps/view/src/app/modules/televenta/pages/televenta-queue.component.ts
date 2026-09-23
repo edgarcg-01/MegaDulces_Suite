@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@ang
 
 import { Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import { ToastModule } from 'primeng/toast';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
@@ -31,9 +32,16 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
 @Component({
   selector: 'app-televenta-queue',
   standalone: true,
-  imports: [RouterModule, ButtonModule, TableModule, TagModule, ProgressSpinnerModule],
+  imports: [ToastModule, RouterModule, ButtonModule, TableModule, TagModule, ProgressSpinnerModule],
+  /**
+   * [E.13] Provee su PROPIO MessageService y pinta su PROPIO p-toast. Antes los heredaba del
+   * shell de Telemarketing; al montar el layout comun (que no provee ninguno de los dos, medido)
+   * la pagina tiraria NullInjectorError al abrirse. Es el patron de las otras 105 paginas.
+   */
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast position="top-center"></p-toast>
     <section class="section">
       <header class="section-header">
         <h1>Cola priorizada</h1>

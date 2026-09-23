@@ -1465,10 +1465,23 @@ export const routes: Routes = [
     ]
   },
   {
+    /**
+     * `[E.13]` Monta el layout común, como los otros 13 proyectos. Tenía un shell propio
+     * (header + nav arriba, sin sidebar, sin migaja) y era el ÚNICO que no lo hacía.
+     *
+     * Lo que gana por montar el layout, medido, no son sólo pixeles:
+     *  · el sidebar, la migaja Espacio › Proyecto y la vuelta a "Mi trabajo" dejan de estar
+     *    escritos a mano en un archivo aparte;
+     *  · hereda el outlet `panel` — el bloque del final de este archivo lo deriva de
+     *    `component === LayoutComponent`, así que la pantalla partida nunca le llegó.
+     *
+     * ⚠️ El shell proveía `MessageService` y pintaba el `p-toast` para sus 5 páginas hijas.
+     * El layout NO provee ninguno de los dos (medido): cada página se los da ahora a sí misma,
+     * que es lo que hacen las otras 105 de la app.
+     */
     path: 'telemarketing',
     canActivate: [televentaGuard],
-    loadComponent: () =>
-      import('./modules/televenta/televenta-shell.component').then((m) => m.TeleventaShellComponent),
+    component: LayoutComponent,
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       // E.4 — Dashboard métricas

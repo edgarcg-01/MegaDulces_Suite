@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
@@ -44,9 +45,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 @Component({
   selector: 'app-televenta-quote-new',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, ProgressSpinnerModule, TagModule],
+  imports: [ToastModule, CommonModule, FormsModule, RouterModule, ButtonModule, ProgressSpinnerModule, TagModule],
+  /**
+   * [E.13] Provee su PROPIO MessageService y pinta su PROPIO p-toast. Antes los heredaba del
+   * shell de Telemarketing; al montar el layout comun (que no provee ninguno de los dos, medido)
+   * la pagina tiraria NullInjectorError al abrirse. Es el patron de las otras 105 paginas.
+   */
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast position="top-center"></p-toast>
     <section class="section">
       <a routerLink="/telemarketing/cotizaciones" class="back">
         <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a cotizaciones
