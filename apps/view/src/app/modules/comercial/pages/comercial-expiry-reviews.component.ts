@@ -55,7 +55,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
         </ng-template>
         <ng-template #body let-r>
           <tr class="er-row" (click)="open(r)">
-            <td><a class="surf-cell-link" [routerLink]="[r.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ fmtDate(r.review_date) }}</a></td>
+            <td><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/caducidades', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ fmtDate(r.review_date) }}</a></td>
             <td class="er-mono">{{ r.warehouse_code }} · {{ r.warehouse_name }}</td>
             <td>{{ r.responsible_name || '—' }}</td>
             <td class="num">{{ r.line_count }}</td>

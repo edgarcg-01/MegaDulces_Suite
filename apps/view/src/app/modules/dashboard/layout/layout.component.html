@@ -423,13 +423,59 @@
       </ol>
     </nav>
 
-    <!-- Page Content -->
-    <main
-      class="flex-1 overflow-y-auto overflow-x-hidden w-full h-full bg-surface-layout relative"
-    >
-      <div class="motion-safe:animate-fade-in-up">
-        <router-outlet></router-outlet>
-      </div>
+    <!--
+      Page Content. `[MT.5]` Desde la pantalla partida son DOS columnas, cada
+      una con su propio scroll: el `overflow-y-auto` bajó de `<main>` a cada
+      panel. Sin eso, abrir algo al lado scrollea las dos cosas juntas y la
+      lista se te va de la vista justo cuando la querías quieta.
+    -->
+    <main class="flex-1 min-h-0 flex w-full h-full bg-surface-layout relative overflow-hidden">
+      <section class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative">
+        <div class="motion-safe:animate-fade-in-up">
+          <router-outlet></router-outlet>
+        </div>
+      </section>
+
+      <!--
+        El panel. Se pinta sólo cuando hay algo adentro — `(activate)` del
+        propio outlet, no adivinando desde la URL. Y nunca en kiosco ni en
+        móvil: ahí no hay ancho que partir.
+      -->
+      <aside
+        class="mt-panel"
+        [class.is-open]="panelAbierto() && !isRestricted() && !isMobile()"
+        [attr.aria-hidden]="panelAbierto() ? null : 'true'"
+        [attr.inert]="panelAbierto() ? null : ''"
+        aria-label="Panel lateral"
+      >
+        <header class="mt-panel-head">
+          <span class="mt-panel-title">{{ panelTitulo() }}</span>
+          <!--
+            `[MT.5]` Los 47: dashboard (28) y tienda (19) comparten estado de
+            pantalla entre sus páginas, así que dos paneles de la MISMA familia
+            se pisan los filtros. Se declara acá en vez de bloquearlo — el caso
+            es real y quien lo abre tiene que saber qué está viendo.
+          -->
+          @if (panelMismaFamilia()) {
+            <span class="mt-panel-warn" [title]="'Las dos pantallas comparten sus filtros: cambiar uno mueve el otro'">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> comparten filtros
+            </span>
+          }
+          <a class="mt-panel-btn" [routerLink]="enlacePanelACompleto()" title="Abrir a pantalla completa" aria-label="Abrir a pantalla completa">
+            <i class="pi pi-window-maximize" aria-hidden="true"></i>
+          </a>
+          <a class="mt-panel-btn" [routerLink]="enlaceCerrarPanel()" title="Cerrar el panel" aria-label="Cerrar el panel">
+            <i class="pi pi-times" aria-hidden="true"></i>
+          </a>
+        </header>
+        <div class="mt-panel-body">
+          <router-outlet
+            name="panel"
+            (activate)="panelAbierto.set(true)"
+            (deactivate)="panelAbierto.set(false)"
+          ></router-outlet>
+        </div>
+      </aside>
     </main>
 
     <!--

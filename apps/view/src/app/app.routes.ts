@@ -9,6 +9,7 @@ import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
 import { AnalisisStateService } from './modules/tienda/analisis/analisis-state.service';
+import { rutasDelPanel } from './core/panel/panel-routes';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
@@ -1645,3 +1646,33 @@ export const routes: Routes = [
     ],
   }
 ];
+
+/**
+ * `[MT.5]` — El PANEL de la pantalla partida.
+ *
+ * Cada una de las 12 rutas de área gana un hijo al outlet `panel`. El árbol que
+ * cuelga de ahí es el espejo aplanado de TODAS las áreas (ver `panel-routes`):
+ * eso es lo que permite tener cartera a la izquierda y el documento a la
+ * derecha, que es el caso que la pantalla partida existe para resolver.
+ *
+ * ── Por qué se agrega acá y no escrito en las 12 ─────────────────────────────
+ * Escribirlo a mano son 12 copias que hay que acordarse de poner cuando nazca
+ * el área 13. Este bloque lo deriva de la misma condición que define un área
+ * (`component === LayoutComponent` con hijos), así que el área nueva lo hereda
+ * sin que nadie se acuerde.
+ *
+ * ── Por qué no cuesta nada mientras nadie parta la pantalla ──────────────────
+ * Es UN objeto de ruta por área con `loadChildren`: el espejo no se arma hasta
+ * que el router tiene que resolver un segmento del outlet `panel`, o sea hasta
+ * que alguien abre algo al lado. Y no toca el matching del outlet primario: una
+ * ruta con `outlet` sólo se considera para ESE outlet.
+ */
+const esArea = (r: (typeof routes)[number]) => r.component === LayoutComponent && !!r.children?.length;
+for (const area of routes) {
+  if (!esArea(area) || !area.path) continue;
+  area.children!.push({
+    path: '',
+    outlet: 'panel',
+    loadChildren: () => rutasDelPanel(routes, esArea),
+  });
+}

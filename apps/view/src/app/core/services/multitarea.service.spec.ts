@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { MultitareaService } from './multitarea.service';
+import { provideRouter } from '@angular/router';
 import { alCambiarEnOtraVentana, guardarPreferencia, leerPreferencia } from '../utils/cross-tab';
 
 /**
@@ -27,7 +28,7 @@ function otraVentanaEscribe(clave: string, valor: string | null) {
 describe('Multitarea', () => {
   beforeEach(() => {
     localStorage.removeItem(CLAVE);
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
   });
   afterEach(() => {
     localStorage.removeItem(CLAVE);
@@ -45,26 +46,45 @@ describe('Multitarea', () => {
 
     it('prendida, el enlace lleva target=_blank', () => {
       const mt = TestBed.inject(MultitareaService);
-      mt.alternarDetallesAparte();
+      mt.ponerModo('ventana');
       expect(mt.detallesAparte()).toBe(true);
       expect(mt.target()).toBe('_blank');
     });
 
     it('se recuerda entre recargas', () => {
-      TestBed.inject(MultitareaService).alternarDetallesAparte();
-      expect(leerPreferencia(CLAVE)).toBe('1');
+      TestBed.inject(MultitareaService).ponerModo('ventana');
+      expect(leerPreferencia(CLAVE)).toBe('ventana');
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({});
+      TestBed.configureTestingModule({ providers: [provideRouter([])] });
       expect(TestBed.inject(MultitareaService).detallesAparte()).toBe(true);
     });
 
-    it('se apaga y vuelve a apagarse de verdad (no queda pegada)', () => {
+    it('se apaga de verdad (no queda pegada)', () => {
       const mt = TestBed.inject(MultitareaService);
-      mt.alternarDetallesAparte();
-      mt.alternarDetallesAparte();
+      mt.ponerModo('ventana');
+      mt.ponerModo('aqui');
       expect(mt.detallesAparte()).toBe(false);
       expect(mt.target()).toBeUndefined();
-      expect(leerPreferencia(CLAVE)).toBe('0');
+      expect(leerPreferencia(CLAVE)).toBe('aqui');
+    });
+
+    /**
+     * `[MT.3]` guardaba un booleano ('1'). Si al leerlo se ignorara el formato
+     * viejo, todo el que ya tenía la preferencia prendida la vería apagada tras
+     * el deploy — una preferencia que se pierde sola enseña a no usarla.
+     */
+    it("el '1' que guardó [MT.3] se lee como 'ventana'", () => {
+      guardarPreferencia(CLAVE, '1');
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ providers: [provideRouter([])] });
+      expect(TestBed.inject(MultitareaService).modo()).toBe('ventana');
+    });
+
+    it('un valor basura cae a "aqui", no a un modo inventado', () => {
+      guardarPreferencia(CLAVE, 'ñ');
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ providers: [provideRouter([])] });
+      expect(TestBed.inject(MultitareaService).modo()).toBe('aqui');
     });
   });
 
@@ -72,16 +92,16 @@ describe('Multitarea', () => {
     it('otra ventana la prende → ésta se entera', () => {
       const mt = TestBed.inject(MultitareaService);
       expect(mt.detallesAparte()).toBe(false);
-      otraVentanaEscribe(CLAVE, '1');
-      expect(mt.detallesAparte()).toBe(true);
+      otraVentanaEscribe(CLAVE, 'ventana');
+      expect(mt.modo()).toBe('ventana');
     });
 
     it('otra ventana la apaga → ésta se entera', () => {
-      guardarPreferencia(CLAVE, '1');
+      guardarPreferencia(CLAVE, 'ventana');
       const mt = TestBed.inject(MultitareaService);
-      expect(mt.detallesAparte()).toBe(true);
-      otraVentanaEscribe(CLAVE, '0');
-      expect(mt.detallesAparte()).toBe(false);
+      expect(mt.modo()).toBe('ventana');
+      otraVentanaEscribe(CLAVE, 'aqui');
+      expect(mt.modo()).toBe('aqui');
     });
 
     /**
@@ -93,7 +113,7 @@ describe('Multitarea', () => {
      */
     it('NEGATIVA: el cambio de OTRA clave no la toca', () => {
       const mt = TestBed.inject(MultitareaService);
-      mt.alternarDetallesAparte();
+      mt.ponerModo('ventana');
       expect(mt.detallesAparte()).toBe(true);
       otraVentanaEscribe('tradeMarketingThemeMode', 'false');
       otraVentanaEscribe('auth_token', null);

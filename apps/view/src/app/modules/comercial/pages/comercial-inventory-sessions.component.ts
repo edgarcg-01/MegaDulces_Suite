@@ -59,10 +59,10 @@ import { forkJoin } from 'rxjs';
             role="button"
             tabindex="0"
             [attr.aria-label]="'Abrir folio ' + c.folio"
-            [routerLink]="['/almacen/inventory/sessions', c.id]"
+            [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])"
             (keydown.enter)="goToFolio(c.id)"
             (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
-            <td class="in-mono"><a class="surf-cell-link" [routerLink]="['/almacen/inventory/sessions', c.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
+            <td class="in-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
             <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
             <td>
@@ -73,7 +73,7 @@ import { forkJoin } from 'rxjs';
             </td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
-              <button pButton size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
+              <a pButton size="small" [text]="true" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></a>
             </td>
           </tr>
         </ng-template>

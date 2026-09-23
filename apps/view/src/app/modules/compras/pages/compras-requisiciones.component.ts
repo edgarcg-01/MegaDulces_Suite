@@ -43,7 +43,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
         <ng-template #body let-r>
           <tr class="rq-row" (click)="open(r)">
-            <td class="rq-mono"><a class="surf-cell-link" [routerLink]="['/compras/requisiciones', r.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
+            <td class="rq-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/requisiciones', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
             <td>{{ r.warehouse_code || '—' }}</td>
             <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
             <td class="rq-r">{{ r.total_lines | number }}</td>

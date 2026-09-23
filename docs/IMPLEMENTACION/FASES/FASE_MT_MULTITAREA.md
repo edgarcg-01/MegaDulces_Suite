@@ -1,9 +1,10 @@
 # Fase MT — Multitarea en la Suite
 
-> **Tesis (ADR-078): la multitarea la da el navegador; la Suite la está bloqueando a medias.**
-> No se construye un workspace de pestañas dentro de la app. Se quitan los tres estorbos que
-> impiden usar el gestor de ventanas que el sistema operativo ya trae, y se paga el costo que
-> varias ventanas imponen al API.
+> **Tesis (ADR-078, enmendada 2026-09-23): tres destinos, uno por modo — esta pantalla, el panel
+> de al lado, u otra ventana.** La tesis original decía sólo *"la multitarea la da el navegador"* y
+> se quedaba corta: **el usuario pidió partir la pantalla principal en dos y eso nunca se puso
+> sobre la mesa**. Lo que se rechaza sigue siendo el *tab strip* estilo VS Code (estado desacoplado,
+> `RouteReuseStrategy`); la pantalla partida es otra cosa y no necesita nada de eso. Ver `[MT.5]`.
 
 **Alcance decidido por el usuario (2026-09-22): sólo `apps/view`.** `apps/portal`, `apps/vendor`
 y `apps/tienda` quedan fuera, con su deuda declarada abajo.
@@ -19,7 +20,7 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 | Hecho | Medición |
 |---|---|
 | Sesión compartida entre pestañas | token en `localStorage`, **0 usos de `sessionStorage`** |
-| Angular **zoneless** | `provideZonelessChangeDetection()` — N documentos no comparten costo de detección |
+| Angular **zoneless** | `provideZonelessChangeDetection()` — N cartera | documentos no comparten costo de detección |
 | El estado de pantalla vive en el componente | de **123** servicios `providedIn:'root'`, **21** tienen estado y sólo **3** son estado de pantalla |
 | Precedente de coordinación entre pestañas | `offline-sync.service.ts` ya usa **Web Locks** |
 | Ctrl+clic en el menú y en `/projects` | sidebar y Mi trabajo ya usan `<a [routerLink]>` |
@@ -36,7 +37,20 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 3. **El polling se multiplica.** **14** componentes con `setInterval` y sólo **2** miraban si la
    pestaña se ve. Más **11 gateways** WebSocket sin tope de conexiones por usuario.
 
-### Por qué NO pestañas dentro de la app
+### ⚠️ Enmienda 2026-09-23 — lo que este análisis midió de más
+
+El usuario señaló que **el objetivo incluía partir la pantalla en dos y no se cumplió**. Al volver
+a medir, dos de los tres argumentos de esta sección estaban sobredimensionados:
+
+| Lo que decía | Lo que mide |
+|---|---|
+| «Los 3 servicios de estado compartido son justo los que querrías duplicar» | Afectan **47 de 225 rutas** (`dashboard` 28, `tienda` 19) y **sólo si los dos paneles son de la misma familia**. Los cruces que motivan la pantalla partida —cartera | documento\|documento, existencia | pedido\|pedido— tienen **cero** colisión |
+| «Riesgos de DOM global» | **5 componentes de página** usan `getElementById`/`querySelector`. Acotado y nombrable |
+| «Outlets con nombre son inmanejables con 224 rutas» | Se **espejan por código**: el árbol es un array de datos. ~40 líneas, no 225 duplicaciones |
+
+Lo que sí se sostiene es el rechazo al *tab strip*. **Partir la pantalla no es eso.**
+
+### Por qué NO pestañas dentro de la app (sigue vigente para el *tab strip*)
 
 - **No hay `RouteReuseStrategy`** (0 ocurrencias). Con 224 rutas lazy, outlets con nombre
   (`(a:…//b:…)`) y guards por outlet es inmanejable.
@@ -61,6 +75,7 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 | **[MT.2]** | Listener de `storage`: lo que pasa en una ventana llega a las otras | 🧪 2026-09-22 |
 | **[MT.3]** | El botón del header: una acción y una preferencia, ambas opt-in | 🧪 2026-09-22 |
 | **[MT.3.1]** | La cadena completa, renderizada: `href` real + la preferencia en los 11 | 🧪 2026-09-22 |
+| **[MT.5]** | **Pantalla partida**: el detalle abre en el panel de al lado | 🧪 2026-09-23 |
 | **[MT.4]** | Medir en vivo el costo real por pestaña (hoy sólo hay la medición determinista) | ⬜ |
 
 ### [MT.0] — el primitivo de encuesta
@@ -133,11 +148,11 @@ son destinos, son consecuencias. Lo convertible era bastante menos.
 
 **16 convertidos** (11 destinos + 4 «Volver» + la campana):
 
-- **Lista → detalle (6).** Órdenes de compra · requisiciones · pedidos · sesiones de inventario ·
+- **Lista → detalle (6).** Órdenes de compra · requisiciones · existencia | pedidos · sesiones de inventario ·
   embarques · revisiones de caducidad. Un `<tr>` **no se puede envolver en `<a>`**, así que se
   conserva el clic de fila y la **celda que identifica** (el folio) pasa a ser enlace de verdad,
   con `stopPropagation` para que la fila no navegue además.
-- **Entre módulos (5)** — los de cotejar: cartera → documento · costo neto → descuentos · pagos →
+- **Entre módulos (5)** — los de cotejar: cartera | documento → documento · costo neto → descuentos · pagos →
   descuentos · solicitudes → gasto · auditoría de ruta → historial.
 - **«Volver» (4)**, con clic central abren la lista al lado sin perder el detalle.
 - **La campana (1)**, que es donde más se nota: ves una alerta y la abrís *junto a* lo que estabas
@@ -185,7 +200,7 @@ router, no asumido). Así que toda la preferencia es un `[target]` atado a un si
 interceptores de clic, cero `window.open` propio, cero trabajo por render**. Eso es lo que la hace
 imperceptible.
 
-**Medido, que es lo que el pedido exige:**
+**Medido, que es lo que el existencia | pedido exige:**
 
 | | Antes | Después |
 |---|---|---|
@@ -249,6 +264,58 @@ da Ctrl+clic, ni clic central, ni preview de la URL. Ese defecto estaba **vivo**
   tenerla**: el usuario la prende, ve que a veces pasa y a veces no, y deja de confiar en el
   interruptor. Es invisible en pantalla y no lo atrapa ni el compilador ni la prueba renderizada,
   que monta una sola.
+
+---
+
+### [MT.5] — la pantalla partida
+
+**El objetivo que faltaba.** Hacés clic en un folio y el detalle abre **en el panel derecho**, con
+la lista intacta a la izquierda. El modo se elige en el botón del header: *reemplazar esta
+pantalla* (default) · *abrirlo al lado* · *abrirlo en otra ventana*.
+
+**El obstáculo estructural, medido antes de diseñar:** no hay un `LayoutComponent` con 225 hijos,
+hay **12 — uno por área**. Un `<router-outlet name="panel">` dentro del layout sólo puede hospedar
+hijos de SU área, y **4 de los 11 drill-downs cruzan de área** (cartera | documento→documento,
+pagos→descuentos, auditoría→dashboard, sesiones→almacén), que son justo los de cotejar.
+
+**La solución: el espejo aplanado** (`core/panel/panel-routes.ts`). Cada hijo de área se reescribe
+con el prefijo de su área y se cuelga del outlet `panel` de las 12. Es una copia superficial, así
+que **`canActivate` viaja con ella** — un espejo mal hecho no es un bug de layout, **es un guard
+evadido**, y en pantalla se ve perfecto. Los `loadComponent` se comparten por referencia: mismo
+chunk, otra instancia, **cero bytes de bundle**. Va como `loadChildren`, así que mientras nadie
+parta la pantalla **no se recorre ni el árbol**.
+
+Se deja afuera, con motivo: los `redirectTo` (al aplanar, un redirect relativo apunta a otro lado)
+y el comodín `**` (se tragaría cualquier segmento y el panel mostraría el 404 en vez de no abrir —
+que no abra es la respuesta honesta).
+
+**Los 47 se declaran, no se bloquean.** Cuando los dos lados caen en la misma familia, el
+encabezado del panel dice *«comparten filtros»*. Comparar dos reportes es un caso legítimo; lo que
+no se puede es que el usuario no sepa qué está viendo.
+
+**Dos defectos que sólo la prueba renderizada encontró:**
+
+1. ⛔ **Las barras salían escapadas.** Dentro de un objeto de outlets, un comando de texto es **un
+   solo segmento**: `'/compras/requisiciones'` producía `panel:%2Fcompras%2Frequisiciones`, que no
+   matchea nada — el panel no abría. El candado sobre el fuente jamás lo habría visto, porque en el
+   fuente el enlace se ve perfecto.
+2. **El único enlace relativo** (`[r.id]` en revisiones de caducidad) no resuelve contra el espejo
+   aplanado; pasó a absoluto (`/almacen/inventory/caducidades/:id`).
+
+Y dos más del mismo tipo que `[MT.1]`, en `comercial-inventory-sessions`: `[routerLink]` sobre el
+`<tr>` y sobre un `<button>` — navegan, pero no son anclas.
+
+**Cobertura.** `panel-routes.spec` **12/12** (incluye: los 4 destinos que cruzan de área
+**resuelven** con un router real, no "figuran en una lista"; y que ninguna ruta real perdió su
+guard). La prueba renderizada sube a **7**: el enlace lleva el outlet `panel`, y **sin el layout
+montado cae a la navegación de siempre** en vez de romperse — *un enlace que no navega es peor que
+uno que navega distinto*.
+
+⚠️ Dos veces la prueba se equivocó antes que el código, y las dos quedaron anotadas en el spec:
+indexar por camino daba falsos positivos (`almacen` tiene **dos** hijos con `path: 'anden'` y dos
+con `path: ''`, legal: el router matchea el primero que calza), y buscar
+`almacen/inventory/sessions/:id` como entrada plana fallaba porque cuelga del shell del área, cuyos
+`children` el espejo copia por referencia.
 
 ---
 
