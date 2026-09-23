@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### Changed — Andén de Entrada: una sola pasada por caja, y el mapa de la bodega deja de ser sólo-sumar (`[WMS-REC.12→14]`, 2026-09-23)
+
+Rediseño del Andén pedido por Dirección, con tres cosas que el flujo anterior no hacía.
+
+**La portada separa los dos trabajos.** Acomodar la bodega se hace cualquier día; dar de alta caducidades sólo cuando llega un camión, y los hace gente distinta. Antes el Andén arrancaba pidiendo folio, o sea que asumía siempre el segundo. El botón de ubicaciones lleva a la pantalla que **ya existía** en vez de duplicarla.
+
+**El congelamiento se sabe antes de capturar.** Nuevo `GET /commercial/inventory/warehouse-freeze`: al abrir el vale el Andén pregunta si ese almacén tiene un inventario físico congelando movimientos. Antes el operario tecleaba lote, caducidad y cantidad, apretaba, y recién ahí el backend le contestaba que había un conteo abierto — una vez por renglón. Si la consulta falla **no** bloquea nada: el guard del servidor sigue siendo el que frena.
+
+**La ubicación se resuelve al fechar.** Apenas un renglón queda fechado, el Andén salta a acomodar *ese* lote con la caja todavía en la mano; si el SKU ya vive en un rack lo ofrece de un toque, y si no tiene ninguno, ofrece **crearlo ahí mismo** con su cartel. Antes se fechaban los 30 renglones y después se acomodaban los 30 lotes: la misma caja, dos veces. La decisión vive en un módulo puro (`anden-flujo.ts`) en vez de repartida entre dos `@switch` de plantilla, y por eso ahora se puede probar.
+
+**Y la mercancía puede cambiar de rack.** Faltaba, y no era una comodidad de menos: `commercial.stock_lot_locations` tenía **un solo escritor en todo el repo** y sólo sabía *sumar*. Un lote acomodado quedaba clavado en ese rack para siempre; como el put-away topea en lo ya ubicado, un rack que el sistema creía lleno **rechazaba** mercancía nueva aunque hubiera espacio; y `deleteBin` exigía el bin vacío sin que nada pudiera vaciarlo, así que un rack usado no se podía dar de baja nunca. `POST /move-lot` mueve todo o una parte, en una transacción con lock sobre el origen. **No toca existencia** —el total del almacén no cambia, cambia dónde está— y eso queda probado como invariante. Sí respeta el congelamiento, a diferencia de fechar: fechar mueve una etiqueta y el conteo cuenta por SKU; mover mueve la caja, y el conteo se organiza recorriendo ubicaciones.
+
+**Lo que ya estaba bien no se tocó:** foto + OCR corriendo solo, caducidad en 4 dígitos, semáforo en vivo, cantidad en la unidad del vale, y **varias caducidades por renglón** (las 12 cajas con 6 de una fecha y 6 de otra, cada una con su lote, su cantidad y su propia foto).
+
+Bug que el smoke destapó y el build no podía ver: al vaciar un rack la fila queda en 0 y la FK `ON DELETE RESTRICT` hacía que borrar el bin reventara con `23503` → **500 pelado**. Antes no pasaba porque nada bajaba una fila a cero.
+
+47 candados nuevos (22 del flujo, 13 de `mover-lote`, 12 de `http-motivo`, que no tenía ninguno pese a ser lo que hace diagnosticable una falla); los de fondo vistos en **rojo a propósito** antes de escribir el arreglo. Smoke `http-bin-locations-test` 32/32 por HTTP. **Sin migraciones ni permisos nuevos → sin re-login. Pendiente: validación visual en un handheld real con pistola.**
+
 ### Fixed — `/api/health` decía `""`, y otras dos cosas mentían el mismo dato (`[VL.11.C]`, 2026-09-23)
 - El commit **se hornea en la imagen** (`ARG GIT_COMMIT_SHA` al final de la etapa `runner`, para
   no invalidar las capas pesadas) y `deploy.sh construir()` lo pasa por `--build-arg`. Antes

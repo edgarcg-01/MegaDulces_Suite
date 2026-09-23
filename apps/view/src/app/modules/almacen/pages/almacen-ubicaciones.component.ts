@@ -19,6 +19,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { BinLocationService, WarehouseBin, LotLocation, UnlocatedLot, BinLookup } from '../bin-location.service';
 import { tipoDeUbicacion, TIPOS_UBICACION } from '../shared/tipo-ubicacion';
 import { motivoHttp } from '../shared/http-motivo';
+import { validarMovimiento, Veredicto } from '../shared/mover-lote';
 // El campo de escaneo y el cartel viven en `anden/components/` porque ahí
 // nacieron. Se reusan tal cual en vez de duplicarlos; mudarlos a `shared/`
 // queda como deuda con nombre (lo está editando otra rama y moverlos ahora
@@ -238,6 +239,7 @@ interface UbicacionFila extends WarehouseBin {
                         <th scope="col">Lote</th>
                         <th scope="col">Caduca</th>
                         <th scope="col" class="num">Cant.</th>
+                        <th scope="col"><span class="sr-only">Mover</span></th>
                       </tr>
                     </ng-template>
                     <ng-template #body let-l>
@@ -255,6 +257,17 @@ interface UbicacionFila extends WarehouseBin {
                           }
                         </td>
                         <td class="num ub-strong">{{ l.quantity | number }}</td>
+                        <td>
+                          @if (canReceive()) {
+                            <!-- La bodega se reacomoda: sin esto, un lote quedaba
+                                 clavado en su rack para siempre. -->
+                            <button pButton size="small" [text]="true" severity="secondary"
+                              (click)="abrirMover(b, l)" [attr.aria-label]="'Mover ' + (l.product_name || '')"
+                              title="Mover a otra ubicación">
+                              <span class="pi pi-arrow-right-arrow-left" aria-hidden="true"></span>
+                            </button>
+                          }
+                        </td>
                       </tr>
                     </ng-template>
                   </p-table>
@@ -349,6 +362,60 @@ interface UbicacionFila extends WarehouseBin {
         </div>
       }
 
+      <!-- Mover un lote a otra ubicación -->
+      <p-dialog [visible]="!!mover()" (visibleChange)="!$event && cerrarMover()" [modal]="true"
+        [style]="{ width: '460px' }" header="Mover de ubicación" [dismissableMask]="true">
+        @if (mover(); as m) {
+          <div class="ub-mv">
+            <div class="ub-mv-q">
+              <div class="ub-mv-nm">{{ m.linea.product_name || m.linea.product_id }}</div>
+              <div class="ub-mv-sub">
+                lote <b>{{ m.linea.lot_code }}</b>
+                @if (m.linea.expiry_date) { · caduca {{ m.linea.expiry_date }} }
+                · hay <b>{{ m.linea.quantity | number }}</b> en {{ m.desde.code }}
+              </div>
+            </div>
+
+            <div class="ub-mv-flujo">
+              <div class="ub-mv-bin">
+                <span class="ub-mv-lbl">Desde</span>
+                <strong>{{ m.desde.code }}</strong>
+              </div>
+              <i class="pi pi-arrow-right" aria-hidden="true"></i>
+              <div class="ub-mv-bin ub-mv-bin--on">
+                <span class="ub-mv-lbl">Hasta</span>
+                <strong>{{ destinoCodigo().trim().toUpperCase() || '—' }}</strong>
+              </div>
+            </div>
+
+            <label class="ub-field">
+              <span>Escaneá el rack de destino</span>
+              <input pInputText [ngModel]="destinoCodigo()" (ngModelChange)="destinoCodigo.set($event)"
+                placeholder="R-11" />
+              @if (destinoAviso(); as av) { <small class="ub-hint">{{ av }}</small> }
+            </label>
+
+            <label class="ub-field">
+              <span>Cuánto</span>
+              <input pInputText type="number" min="1" [max]="+m.linea.quantity"
+                [ngModel]="cantidadMover()" (ngModelChange)="cantidadMover.set(+$event)" />
+              <small class="ub-hint">Se puede mover una parte: el resto se queda en {{ m.desde.code }}.</small>
+            </label>
+
+            <p class="ub-hint ub-mv-nota">
+              Mover <b>no cambia la existencia</b> del almacén: sólo dónde está.
+            </p>
+
+            <div class="ub-mv-acts">
+              <button pButton [text]="true" severity="secondary" (click)="cerrarMover()">Cancelar</button>
+              <button pButton [disabled]="!puedeMover()" [loading]="moviendo()" (click)="confirmarMover()">
+                Mover
+              </button>
+            </div>
+          </div>
+        }
+      </p-dialog>
+
       <!-- Cartel para reimprimir (mismo componente y mismo formato que el Andén:
            dos carteles por hoja carta, con su CODE128). -->
       <p-dialog [visible]="!!cartel()" (visibleChange)="!$event && cartel.set(null)" [modal]="true"
@@ -418,6 +485,20 @@ interface UbicacionFila extends WarehouseBin {
     .ub-scan-cand:hover { border-color: var(--action); }
     .ub-scan-cand span { font-size: var(--fs-xs, .72rem); color: var(--text-muted); }
     .ub-det-acts { display: flex; gap: .25rem; align-items: center; }
+    .ub-mv { display: grid; gap: .9rem; }
+    .ub-mv-q { padding: .7rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--card-bg); }
+    .ub-mv-nm { font-weight: 700; font-size: .95rem; }
+    .ub-mv-sub { margin-top: .2rem; font-size: .78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .ub-mv-flujo { display: flex; align-items: center; gap: .6rem; }
+    .ub-mv-bin { flex: 1 1 0; min-width: 0; text-align: center; padding: .6rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--card-bg); }
+    .ub-mv-bin--on { border-color: var(--action); border-width: 2px; }
+    .ub-mv-lbl { display: block; font-size: .66rem; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--text-muted); }
+    .ub-mv-bin strong { display: block; margin-top: .2rem; font-family: var(--font-mono, monospace);
+      font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+    .ub-mv-nota { margin: 0; }
+    .ub-mv-acts { display: flex; justify-content: flex-end; gap: .5rem; }
     :host ::ng-deep .ub-w { width: 100%; min-width: 200px; }
     .ub-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .ub-kpi {
@@ -523,6 +604,35 @@ export class AlmacenUbicacionesComponent implements OnInit {
   readonly refocoScan = signal(0);
   /** Carteles a imprimir (null = diálogo cerrado). */
   readonly cartel = signal<CartelUbicacion[] | null>(null);
+
+  // ── mover un lote de rack ──
+  /** Lote en movimiento (null = diálogo cerrado). */
+  readonly mover = signal<{ desde: UbicacionFila; linea: LotLocation } | null>(null);
+  readonly destinoCodigo = signal('');
+  readonly cantidadMover = signal(0);
+  readonly moviendo = signal(false);
+
+  /**
+   * El veredicto del movimiento, calculado MIENTRAS se teclea.
+   *
+   * La regla vive en `shared/mover-lote.ts` (pura y con candados propios) y no
+   * acá: es la misma que el servidor vuelve a aplicar, y tenerla escrita dos
+   * veces es cómo se desincronizan. La pantalla sólo la muestra.
+   */
+  readonly veredictoMover = computed<Veredicto>(() => {
+    const m = this.mover();
+    if (!m) return { puede: false, aviso: null, esProblema: false };
+    return validarMovimiento({
+      desdeCodigo: m.desde.code,
+      hastaCodigo: this.destinoCodigo(),
+      disponible: Number(m.linea.quantity),
+      cantidad: Number(this.cantidadMover()),
+      conocidas: this.filas(),
+    });
+  });
+
+  readonly destinoAviso = computed(() => this.veredictoMover().aviso);
+  readonly puedeMover = computed(() => !this.moviendo() && this.veredictoMover().puede);
 
   // put-away
   readonly puProductLabel = signal<string>('');
@@ -697,6 +807,57 @@ export class AlmacenUbicacionesComponent implements OnInit {
   /** La cámara no abrió (sin HTTPS o sin permiso): se dice el motivo real. */
   avisoCamara(msg: string): void {
     this.toast.add({ severity: 'warn', summary: 'Cámara no disponible', detail: msg, life: 8000 });
+  }
+
+  /** Abre el movimiento de un lote, con la cantidad completa precargada. */
+  abrirMover(desde: UbicacionFila, linea: LotLocation): void {
+    this.mover.set({ desde, linea });
+    this.destinoCodigo.set('');
+    this.cantidadMover.set(Number(linea.quantity) || 0);
+  }
+
+  cerrarMover(): void {
+    this.mover.set(null);
+    this.destinoCodigo.set('');
+    this.cantidadMover.set(0);
+  }
+
+  confirmarMover(): void {
+    const m = this.mover();
+    if (!m || !this.puedeMover()) return;
+    this.moviendo.set(true);
+    this.svc.moveLot({
+      warehouse_id: this.warehouseId,
+      product_id: m.linea.product_id,
+      lot_code: m.linea.lot_code,
+      expiry_date: m.linea.expiry_date ? String(m.linea.expiry_date).slice(0, 10) : undefined,
+      from_bin_id: m.desde.id,
+      to_bin_code: this.destinoCodigo().trim(),
+      quantity: Number(this.cantidadMover()),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.moviendo.set(false);
+        const destino = this.destinoCodigo().trim().toUpperCase();
+        this.cerrarMover();
+        this.toast.add({
+          severity: 'success', summary: 'Movido',
+          detail: `${r.quantity} a ${destino}` + (r.queda_en_origen > 0
+            ? ` · quedan ${r.queda_en_origen} en ${m.desde.code}`
+            : ` · ${m.desde.code} queda vacío`),
+        });
+        // Se recarga y se vuelve a abrir el rack de origen: el operario está
+        // mirando ESE rack y quiere ver cómo quedó, no volver a la lista.
+        this.reload();
+        this.abrirPorCodigo(m.desde.code);
+      },
+      error: (e) => {
+        this.moviendo.set(false);
+        this.toast.add({
+          severity: 'error', summary: 'No se pudo mover', life: 8000,
+          detail: motivoHttp(e, 'mover la mercancía de ubicación'),
+        });
+      },
+    });
   }
 
   /** Reimprime el cartel de una ubicación ya existente (se despegan, se mojan). */

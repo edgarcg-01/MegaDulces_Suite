@@ -7,7 +7,9 @@ import { MessageService } from 'primeng/api';
 import { firstValueFrom } from 'rxjs';
 import { ErpOrderMatch, ReceivingSessionService } from '../receiving-session.service';
 import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
-import { BinLocationService, WarehouseBin } from '../bin-location.service';
+import { RouterLink } from '@angular/router';
+import { BinLocationService, WarehouseBin, WarehouseFreeze } from '../bin-location.service';
+import { siguientePaso, avance, motivoNoCerrable, FlujoEstado, FlujoAvance } from './anden-flujo';
 import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.state';
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
@@ -51,6 +53,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
   standalone: true,
   imports: [
     DecimalPipe, ButtonModule, ToastModule,
+    RouterLink,
     AndenFolioComponent, AndenSegmentedComponent, AndenCaducidadComponent,
     AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
   ],
@@ -74,12 +77,65 @@ import { Buscable, coincide, normalizar } from './filtro.util';
         </div>
       </header>
 
+      <!-- El avance cuenta LAS DOS mitades del trabajo. Sin esto se llegaba a
+           "todo fechado" con lotes sin rack, y la pantalla no lo decía: así es
+           como la mercancía se queda sin acomodar. -->
+      @if (s.abierto() && !congelado()?.frozen) {
+        <div class="an-prog">
+          <div class="an-prog-bar" role="img"
+            [attr.aria-label]="'Avance: ' + (avanceVale().fraccion * 100 | number: '1.0-0') + ' por ciento'">
+            <span class="an-prog-ok" [style.width.%]="avanceVale().fraccion * 100"></span>
+          </div>
+          <div class="an-prog-tx">
+            <span><b>{{ avanceVale().renglonesListos }}</b> de {{ avanceVale().renglonesTotales }} fechados</span>
+            @if (avanceVale().lotesPorAcomodar) {
+              <span class="an-prog-warn"><b>{{ avanceVale().lotesPorAcomodar }}</b> sin rack</span>
+            } @else if (avanceVale().todoListo) {
+              <span class="an-prog-ok-tx">todo acomodado</span>
+            }
+          </div>
+        </div>
+      }
+
       @if (s.abierto()) {
         <app-anden-segmented [items]="segmentos()" [activa]="s.seccion()" (elegir)="irA($event)" />
       }
 
       <main class="an-bd">
-        @if (carteles().length) {
+        @if (congelado(); as cg) {
+          @if (cg.frozen) {
+            <!-- R1 — se sabe ANTES de capturar. El guard del servidor sigue siendo
+                 la red de seguridad; esto sólo evita que el operario escriba una
+                 captura entera para que el guardado la rechace. -->
+            <div class="an-frio">
+              <div class="an-frio-hd">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="11" width="18" height="10" rx="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <div>
+                  <h2>Este almacén está congelado</h2>
+                  <p>Hay un inventario físico en curso. Mientras se cuenta, nada puede entrar ni fecharse.</p>
+                </div>
+              </div>
+              <div class="an-frio-fol">
+                <span class="an-frio-lbl">Folio que lo frena</span>
+                <strong>{{ cg.folio || 'sin folio' }}</strong>
+              </div>
+              <p class="an-frio-sal">
+                Sólo se destraba <b>conciliando</b> el conteo (se cierra aplicando lo contado) o
+                <b>cancelándolo</b>. Las dos las hace el encargado desde Conteo; el congelamiento no se pausa.
+              </p>
+              <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
+                Salir
+              </button>
+            </div>
+          }
+        }
+        @if (congelado()?.frozen) {
+          <!-- cuerpo bloqueado a propósito -->
+        } @else if (carteles().length) {
           <!-- El cartel manda mientras está arriba: acabar de crear una ubicación y
                no imprimirla es dejarla sin nombre en el mundo físico. -->
           <app-anden-cartel [ubicaciones]="carteles()" (cerrar)="cerrarCartel()" />
@@ -87,7 +143,43 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           @switch (s.seccion()) {
 
             @case ('fechas') {
-              @if (!s.abierto()) {
+              @if (!s.abierto() && modo() === 'inicio') {
+                <!-- Los dos trabajos del almacén, separados en la portada: son
+                     distintos y los hace gente distinta. Acomodar se hace
+                     cualquier día; dar de alta, sólo cuando llega un camión. -->
+                <div class="an-inicio">
+                  <a class="an-card" routerLink="/almacen/inventory/ubicaciones">
+                    <span class="an-card-ic an-card-ic--suave" aria-hidden="true">
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="6" rx="1"></rect>
+                        <rect x="3" y="9" width="18" height="6" rx="1"></rect>
+                        <rect x="3" y="15" width="18" height="6" rx="1"></rect>
+                      </svg>
+                    </span>
+                    <span class="an-card-tx">
+                      <b>Ubicación de mercancía</b>
+                      <small>Cómo está acomodada y en qué rack, con lo que ya está fechado.</small>
+                    </span>
+                  </a>
+
+                  <button type="button" class="an-card an-card--go" (click)="modo.set('alta')">
+                    <span class="an-card-ic" aria-hidden="true">
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="17" rx="2"></rect>
+                        <path d="M16 2v4"></path><path d="M8 2v4"></path>
+                        <path d="M3 10h18"></path><path d="M9 15h6"></path>
+                      </svg>
+                    </span>
+                    <span class="an-card-tx">
+                      <b>Dar de alta caducidades</b>
+                      <small>Del folio del vale a la mercancía fechada y acomodada.</small>
+                    </span>
+                  </button>
+                </div>
+              } @else if (!s.abierto()) {
+                <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
                 <app-anden-folio
                   [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
                   (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
@@ -256,6 +348,53 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       padding-bottom: var(--sp-2);
     }
     .an-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+    /* Avance del vale: las dos mitades del trabajo en una barra. */
+    .an-prog { display: flex; flex-direction: column; gap: var(--sp-1); padding-bottom: var(--sp-2); }
+    .an-prog-bar { height: 6px; border-radius: 999px; background: var(--surface-200, #f0efed); overflow: hidden; }
+    .an-prog-ok { display: block; height: 100%; background: var(--tone-ok, #15803d); transition: width .2s ease; }
+    .an-prog-tx { display: flex; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
+    .an-prog-tx b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .an-prog-warn { color: var(--tone-warn, #b45309); }
+    .an-prog-warn b { color: var(--tone-warn, #b45309); }
+    .an-prog-ok-tx { color: var(--tone-ok, #15803d); }
+
+    /* Almacén congelado: el cuerpo entero se reemplaza, no es un aviso al costado. */
+    .an-frio { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4) 0; }
+    .an-frio-hd { display: flex; gap: var(--sp-3); align-items: flex-start; color: var(--tone-bad, #b42318); }
+    .an-frio-hd svg { flex: 0 0 auto; margin-top: 2px; }
+    .an-frio-hd h2 { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--text-main); line-height: 1.2; }
+    .an-frio-hd p { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
+    .an-frio-fol { padding: var(--sp-3); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .an-frio-lbl { display: block; font-size: var(--fs-xs); font-weight: var(--fw-bold);
+      letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); }
+    .an-frio-fol strong { display: block; margin-top: 4px; font-family: var(--font-mono, monospace);
+      font-size: var(--fs-h3); font-variant-numeric: tabular-nums; }
+    .an-frio-sal { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
+    .an-frio-sal b { color: var(--text-main); }
+
+    /* Portada: los dos trabajos del almacén. */
+    .an-inicio { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); }
+    .an-card {
+      display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+      padding: var(--sp-4); text-align: left; text-decoration: none; cursor: pointer;
+      background: var(--card-bg); border: 1px solid var(--border-color);
+      border-radius: var(--r-lg, 14px); color: var(--text-main); font: inherit;
+    }
+    .an-card--go { border-color: var(--action); border-width: 2px; }
+    .an-card-ic {
+      flex: 0 0 auto; width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+      border-radius: var(--r-md); background: var(--action); color: #fff;
+    }
+    .an-card-ic--suave { background: var(--card-bg); border: 1px solid var(--border-color); color: var(--action); }
+    .an-card-tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .an-card-tx b { font-size: var(--fs-body); font-weight: var(--fw-bold); }
+    .an-card-tx small { font-size: var(--fs-xs); line-height: 1.4; color: var(--text-muted); }
+    .an-volver {
+      align-self: flex-start; min-height: 36px; padding: 0 var(--sp-2); margin-bottom: var(--sp-2);
+      background: none; border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      color: var(--text-muted); font: inherit; font-size: var(--fs-xs); cursor: pointer;
+    }
     .an-fol { font-size: var(--fs-h3); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .an-prov { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
     .an-pills { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: 0 0 auto; }
@@ -349,6 +488,19 @@ export class AndenComponent implements OnInit {
   readonly consulta = signal('');
   /** Se incrementa para devolverle el foco a la barra tras guardar o cerrar panel. */
   readonly refoco = signal(0);
+
+  /**
+   * Portada o alta. Vive en la pantalla y no en la ruta, igual que la sección:
+   * el back del navegador a media captura rompe el flujo.
+   */
+  readonly modo = signal<'inicio' | 'alta'>('inicio');
+
+  /**
+   * Si el almacén del vale está congelado por un inventario físico.
+   * `null` = todavía no se preguntó (o la consulta falló, y ahí NO se bloquea:
+   * el guard del servidor sigue siendo el que frena de verdad).
+   */
+  readonly congelado = signal<WarehouseFreeze | null>(null);
   /** Resolviendo un código que no está en el vale contra el catálogo. */
   readonly resolviendo = signal(false);
 
@@ -539,6 +691,81 @@ export class AndenComponent implements OnInit {
     this.guardarBorrador();
   }
 
+  /**
+   * El estado que la decisión necesita, reducido. Se arma acá y se le pasa a
+   * `anden-flujo`, que es puro y está probado aparte: la pantalla no vuelve a
+   * decidir nada por su cuenta.
+   */
+  private flujo(): FlujoEstado {
+    return {
+      valeAbierto: this.s.abierto(),
+      valeCerrado: this.s.cerrado(),
+      congeladoPorFolio: this.congelado()?.frozen ? (this.congelado()?.folio ?? 'sin folio') : null,
+      lineas: this.s.lineas().map((l) => ({ id: l.id, faltaFechar: l.faltaFechar })),
+      lotes: this.s.lotes().map((l) => ({
+        clave: claveLote(l),
+        lineaId: this.lineaDeLote(l),
+        porUbicar: l.porUbicar,
+        rackSugerido: l.binSugerido,
+      })),
+    };
+  }
+
+  /**
+   * De qué renglón salió un lote. `/unlocated` contesta por producto, no por
+   * renglón, así que se ata por `product_id` — que es lo que hace falta para
+   * saber si el lote es el de la caja que el operario tiene en la mano.
+   */
+  private lineaDeLote(l: AndenLote): string | null {
+    return this.s.lineas().find((x) => x.product_id === l.product_id)?.id ?? null;
+  }
+
+  readonly avanceVale = computed<FlujoAvance>(() => avance({
+    valeAbierto: this.s.abierto(),
+    valeCerrado: this.s.cerrado(),
+    congeladoPorFolio: null,
+    lineas: this.s.lineas().map((l) => ({ id: l.id, faltaFechar: l.faltaFechar })),
+    lotes: this.s.lotes().map((l) => ({
+      clave: claveLote(l), lineaId: null, porUbicar: l.porUbicar, rackSugerido: l.binSugerido,
+    })),
+  }));
+
+  /**
+   * **Qué sigue después de guardar.** Reemplaza a `siguienteFechar()`, que sólo
+   * miraba la cola de fechado: con eso, el lote recién creado se iba a una cola
+   * y la misma caja se tocaba dos veces.
+   *
+   * `recienFechada` es el renglón que se acaba de guardar — es lo que habilita
+   * resolver su ubicación con la caja todavía en la mano.
+   */
+  private avanzar(recienFechada?: string | null): void {
+    const paso = siguientePaso(this.flujo(), recienFechada);
+    switch (paso.tipo) {
+      case 'fechar': {
+        const l = this.s.lineas().find((x) => x.id === paso.lineaId);
+        if (l) this.abrirFechar(l);
+        return;
+      }
+      case 'ubicar': {
+        const lote = this.s.lotes().find((x) => claveLote(x) === paso.clave);
+        if (!lote) return;
+        // Se salta a la sección de ubicación con el lote abierto: el operario no
+        // pasa por ninguna lista. Si el lote no tiene rack conocido, el panel de
+        // ubicación ofrece crear la ubicación ahí mismo.
+        this.s.seccion.set('ubicacion');
+        this.abrirUbicar(lote);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /** Por qué no se puede cerrar todavía. `null` = se puede. */
+  motivoCierre(): string | null {
+    return motivoNoCerrable(this.flujo());
+  }
+
   // ── Identificación del vale ───────────────────────────────────────────────
 
   buscar(): void {
@@ -586,6 +813,7 @@ export class AndenComponent implements OnInit {
       next: (v) => {
         this.s.cargando.set(false);
         this.s.cargarDesdeVale(v);
+        this.consultarCongelamiento();
         this.guardarBorrador();
         tras?.();
       },
@@ -594,6 +822,23 @@ export class AndenComponent implements OnInit {
         // No tragarse la falla: un vale vacío y un 500 se ven igual en pantalla.
         this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el vale' });
       },
+    });
+  }
+
+  /**
+   * ¿Está congelado este almacén? Se pregunta al abrir el vale, no al guardar.
+   *
+   * Si la consulta falla NO se bloquea la pantalla: se deja en `null` y el
+   * operario trabaja como siempre — el guard del servidor sigue rechazando el
+   * guardado si de verdad hay un conteo. Bloquear por una consulta caída sería
+   * frenar el andén por un problema que quizá no existe.
+   */
+  private consultarCongelamiento(): void {
+    const wh = this.s.warehouseId();
+    if (!wh) return;
+    this.binsSvc.warehouseFreeze(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.congelado.set(r),
+      error: () => this.congelado.set(null),
     });
   }
 
@@ -638,6 +883,10 @@ export class AndenComponent implements OnInit {
     setTimeout(() => this.fechar()?.limpiar(), 0);
   }
 
+  /**
+   * Quedó por compatibilidad con el camino viejo (fechado masivo), que resuelve
+   * varios renglones de una y no tiene "el que acabo de tocar" en la mano.
+   */
   private siguienteFechar(): void {
     const l = this.s.siguienteFechar();
     if (l) this.abrirFechar(l);
@@ -732,7 +981,7 @@ export class AndenComponent implements OnInit {
       // "siguiente pendiente" mandaría al operario a otro producto sin que lo
       // pidiera. Sólo se encadena cuando lo que se fechó era del vale, y sólo si
       // no quedó nada a medias que el operario tenga que mirar.
-      if (f.linea.id && !fallas.length) this.siguienteFechar();
+      if (f.linea.id && !fallas.length) this.avanzar(f.linea.id);
     });
   }
 
