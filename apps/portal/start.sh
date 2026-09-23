@@ -32,7 +32,32 @@ echo "[portal] build $(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c
 
 # Solo sustituimos $PORT, $API_UPSTREAM y $NGINX_RESOLVER; las demás ($host,
 # $remote_addr, ...) son variables de runtime de nginx y deben quedar intactas.
-envsubst '$PORT $API_UPSTREAM $NGINX_RESOLVER' < /etc/nginx/sites-available/default > /tmp/nginx.conf
+# ── [VL.9.12] LAS DOS CABECERAS QUE FUERZAN HTTPS, CONDICIONALES ────────────────
+# `Strict-Transport-Security` y el `upgrade-insecure-requests` del CSP son CORRECTAS
+# detrás de TLS: en Railway lo termina la plataforma. Servido por HTTP plano —que es
+# como queda on-prem hasta que exista el tunel— vuelven la app INUSABLE en un
+# navegador: el CSP reescribe cada recurso a https:// y el puerto no habla TLS, asi
+# que todo muere con ERR_SSL_PROTOCOL_ERROR. Medido el 2026-09-22 abriendo
+# http://192.168.0.222:8080.
+#
+# El default es `true` = el comportamiento de SIEMPRE, para que Railway no cambie.
+# Solo el compose on-prem pone `TLS_TERMINADO=false`, y tiene que volver a `true`
+# el dia que el tunel de Cloudflare termine TLS adelante.
+#
+# ⚠️ Y hay un efecto que sobrevive al arreglo: el navegador YA guardo la politica
+# HSTS de ese host y la va a respetar hasta un anio. Se borra en
+# chrome://net-internals/#hsts -> "Delete domain security policies".
+if [ "${TLS_TERMINADO:-true}" = "false" ]; then
+  HSTS_LINE=""
+  CSP_UPGRADE=""
+  echo "[start] TLS_TERMINADO=false -> sin HSTS y sin upgrade-insecure-requests (servido por HTTP plano)"
+else
+  HSTS_LINE='add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+  CSP_UPGRADE="upgrade-insecure-requests"
+fi
+export HSTS_LINE CSP_UPGRADE
+
+envsubst '$PORT $API_UPSTREAM $NGINX_RESOLVER $HSTS_LINE $CSP_UPGRADE' < /etc/nginx/sites-available/default > /tmp/nginx.conf
 mv /tmp/nginx.conf /etc/nginx/sites-available/default
 
 # exec → nginx reemplaza a sh y queda como hijo directo de tini, así recibe
