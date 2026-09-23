@@ -308,10 +308,19 @@ services:
     # tiene que disparar el reinicio es que el ciclo DEJE DE COMPLETARSE, que es el cuelgue.
     environment:
       TZ: America/Mexico_City
-      # ⭐ [VL.11.B] LA VENTA VIVA DEJA DE SALIR A INTERNET. Este poller corre EN `md`, lee las
-      # 8 sucursales por la red interna… y hasta hoy mandaba cada ticket a Railway, o sea que
-      # el dato salía del edificio para volver a entrar. Ahora va a `interno.`, que resuelve a
-      # 192.168.0.222 desde cualquier plaza (sondeado: los 8 routers entregan la IP privada).
+      # ⭐⭐ [VL.11.B2] DIRECTO AL CONTENEDOR DE AL LADO. Este poller corre EN `md` y la API
+      # también, así que mandar el ticket por un nombre público era dar una vuelta absurda:
+      # salía al gateway, volvía a entrar, y pagaba un apretón TLS — para hablar con un proceso
+      # que está en la misma máquina. Lo señaló el usuario y tiene razón.
+      #
+      # Ahora va por la red de Docker (`api:10000`), igual que Caddy. Sin router, sin TLS, sin
+      # DNS público. Para eso este servicio se une también a `prod_default` (bloque `networks:`
+      # del final).
+      #
+      # ⚠️ `http://` acá es correcto y NO contradice que la llave deba viajar cifrada: el tramo
+      # es una red interna de Docker, el mismo criterio con el que Caddy y el túnel hablan en
+      # claro con `api:10000`. El guard que exige `https://` está en `install-service.js`, que
+      # es el INSTALADOR de Windows — no corre en este contenedor.
       #
       # ⛔ VA ACÁ Y NO EN `feeds.env` A PROPÓSITO: ese archivo NO está versionado y no tiene
       # generador, así que el cambio sería invisible desde el repo y se perdería si alguien
@@ -324,7 +333,7 @@ services:
       #
       # ⚠️ El otro contenedor con esta variable (`feeds-livefast`) la hereda de `feeds.env` y
       # NO la usa: sólo `live-tickets-poller.js` la lee en ejecución (verificado).
-      STORE_INGEST_URL: https://interno.megadulcessuite.com/api/store/live/ingest
+      STORE_INGEST_URL: http://api:10000/api/store/live/ingest
       POLL_SECONDS: "25"
       WINDOW_MINUTES: "5"
       ODS_HB_KEY: store_poller
@@ -342,6 +351,10 @@ services:
       retries: 3
     labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+    # [VL.11.B2] `default` es `vl_default` (lo de siempre). `prod` es la red del stack de
+    # producción, declarada externa al final — es lo que le deja resolver `api` por nombre
+    # sin salir de la máquina.
+    networks: [default, prod]
 
   # ═══ EL BRAZO DEL HEALTHCHECK ═══
   # Sin esto el HEALTHCHECK sólo PINTA un rótulo: en Docker standalone
@@ -368,3 +381,13 @@ volumes:
   # VL.2b sea inequívoco: /var/lib/docker/volumes/pgvector-md-data/_data
   pgvector-md-data:
     name: pgvector-md-data
+
+# -- [VL.11.B2] La red del stack de produccion, vista desde aca ---------------
+# ⚠️ `external: true` = Compose NO la crea ni la borra; se engancha a la que `ops/prod` ya
+# levanto. Si prod no esta arriba, este stack falla al arrancar con un mensaje claro -- que es
+# preferible a que cree una red vacia con el mismo nombre y el poller no resuelva `api` sin
+# que nadie entienda por que.
+networks:
+  prod:
+    external: true
+    name: prod_default
