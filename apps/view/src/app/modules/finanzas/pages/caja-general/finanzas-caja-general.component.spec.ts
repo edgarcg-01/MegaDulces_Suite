@@ -124,6 +124,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       autofill: vi.fn(() => of({ concepto: null, provenance: null })),
       conceptos: vi.fn(() => of({ rows: [] })),
       crear: vi.fn(() => of({ id: 'm1' })),
+      declararRegla: vi.fn(() => of({ creada: true, id: 'r1' })),
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
       ...over,
     };
@@ -546,6 +547,76 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     expect(document.activeElement).toBe(disparador);
     disparador.remove();
+  });
+
+  // ── 11 · DECLARAR LA CUENTA: el bloqueo del módulo entero ────────────────────────────────
+  //
+  // Punto 5. La bandeja decía "0 de 8 se confirman · el resto necesita que su cuenta esté
+  // declarada" y NO HABÍA POR DÓNDE DECLARARLA: medido, `caja_classify_rules` tenía 0 filas en
+  // prod y no existía ninguna pantalla para cargarlas. No era falta de trabajo, era falta de
+  // puerta. Se declara desde la captura, donde la persona tiene el beneficiario delante.
+
+  function capturaDeGastoLista() {
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('beneficiario', 'GASTOS GENERALES CAJA CHICA MORELIA ABASTOS');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'VIATICOS');
+    comp.setF('glosa', 'gasto de caja chica');
+    comp.onMonto(250);
+  }
+
+  it('sólo se ofrece declarar donde la regla APLICA: gasto, con beneficiario y par completo', () => {
+    montar();
+    comp.abrirCaptura();
+    expect(comp.puedeDeclararRegla()).toBe(false);
+
+    capturaDeGastoLista();
+    expect(comp.puedeDeclararRegla()).toBe(true);
+
+    // El motor clasifica EGRESOS por beneficiario; ofrecerlo en un ingreso prometería un efecto
+    // que no va a ocurrir.
+    comp.setF('tipo', 'ingreso');
+    expect(comp.puedeDeclararRegla()).toBe(false);
+  });
+
+  it('con el check puesto, guardar DECLARA la cuenta del beneficiario', () => {
+    montar();
+    capturaDeGastoLista();
+    comp.declararRegla.set(true);
+    comp.guardar();
+
+    const body = svc['declararRegla'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body).toBeTruthy();
+    expect(body['beneficiario']).toBe('GASTOS GENERALES CAJA CHICA MORELIA ABASTOS');
+    expect(body['kepler_cuenta']).toBe('601-001');
+    expect(body['kepler_concepto']).toBe('VIATICOS');
+  });
+
+  it('sin el check, NO se declara nada: una regla contable no es un default', () => {
+    montar();
+    capturaDeGastoLista();
+    comp.guardar();
+    expect(svc['declararRegla']).not.toHaveBeenCalled();
+  });
+
+  it('nace apagado en cada captura', () => {
+    montar();
+    capturaDeGastoLista();
+    comp.declararRegla.set(true);
+    comp.abrirCaptura();
+    expect(comp.declararRegla()).toBe(false);
+  });
+
+  it('si declarar falla, el movimiento YA quedó guardado y se avisa', () => {
+    montar({ declararRegla: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    capturaDeGastoLista();
+    comp.declararRegla.set(true);
+
+    expect(() => comp.guardar()).not.toThrow();
+    // El efectivo se registró: `crear` corrió y el diálogo se cerró.
+    expect(svc['crear']).toHaveBeenCalled();
+    expect(comp.capturaAbierta()).toBe(false);
   });
 
   it('sin documento anclado no viaja monto_contado (no hay contra qué contar)', () => {

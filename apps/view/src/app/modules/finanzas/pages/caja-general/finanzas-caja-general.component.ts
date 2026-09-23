@@ -202,6 +202,9 @@ interface FormularioCajaUI {
             selector quedaba con la etiqueta cortada a UNA LETRA y el chevron abajo.
        La regla que queda: sobre un componente de PrimeNG se toca el ANCHO, nunca el "display".
        Un inline-flex con width:100% ya ocupa todo; un grid tambien. */
+    .cg-declara { align-items:flex-start; gap:.6rem; border:1px solid var(--border-color);
+                  border-radius:var(--r-sm,6px); padding:.6rem .75rem; cursor:pointer; }
+    .cg-declara span { font-size:.82rem; }
     .cg-full { width:100%; }
     .cg-sel { min-width:9rem; }
     /* El input interno del autocomplete SI es un descendiente real, y no estira solo. */
@@ -664,6 +667,26 @@ interface FormularioCajaUI {
           </div>
         </details>
 
+        <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
+             2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
+             para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
+             cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
+             la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
+        @if (puedeDeclararRegla()) {
+          <label class="fin-row cg-declara">
+            <input type="checkbox" class="cg-check" [checked]="declararRegla()"
+                   (change)="declararRegla.set($any($event.target).checked)" />
+            <span>
+              De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
+              <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
+              <small class="fin-dim d-block">
+                Los próximos movimientos de este beneficiario se van a poder confirmar de un clic
+                desde la bandeja, sin volver a elegir la cuenta.
+              </small>
+            </span>
+          </label>
+        }
+
         @if (bloqueos().length) {
           <ul class="fin-blocks">
             @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
@@ -1042,6 +1065,24 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   });
   /** `true` en cuanto la persona elige o teclea el concepto ella misma. */
   conceptoManual = signal(false);
+  /**
+   * CG.22.6 - ¿esta cuenta vale para este beneficiario de ahora en adelante?
+   *
+   * Medido: `finance.caja_classify_rules` tenia 0 filas en prod y NO habia ninguna pantalla
+   * para cargarlas. Por eso la bandeja decia "0 de 8 se confirman" y no habia forma de mejorar
+   * ese numero. Nace apagado: declarar una regla contable es una decision, no un default.
+   */
+  declararRegla = signal(false);
+
+  /**
+   * Solo se ofrece donde la regla APLICA: el motor de reglas clasifica EGRESOS por beneficiario
+   * (`cuentaPorRegla`), asi que ofrecerlo en un ingreso o un deposito seria prometer un efecto
+   * que no va a ocurrir. Y sin beneficiario o sin el par completo no hay nada que declarar.
+   */
+  puedeDeclararRegla = computed(() => {
+    const v = this.f();
+    return v.tipo === 'gasto' && !!v.beneficiario?.trim() && !!v.kepler_cuenta && !!v.kepler_concepto;
+  });
 
   /** Las sucursales que el propio censo de cobertura ya mide, con sus conceptos usables. */
   opcionesSucursal = computed(() => {
@@ -1331,6 +1372,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.f.set(this.formVacio());
     this.conceptoSel = null;
     this.conceptoManual.set(false);
+    this.declararRegla.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
     // una entrega a otra, que es justo el error que el índice único frena del lado del servidor.
@@ -1842,6 +1884,8 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.guardando.set(true);
     const cobro = this.cobroElegido();
     const f = this.f();
+    // Se lee ANTES de emitir: el `next` corre despues y para entonces el dialogo ya se cerro.
+    const declarar = this.declararRegla() && this.puedeDeclararRegla();
     this.svc.crear({
       ...f,
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
@@ -1866,6 +1910,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
+        // La regla va DESPUÉS de que el movimiento se guardó, y en su propia petición: si
+        // declararla falla, el registro del efectivo ya está hecho y no se pierde.
+        if (declarar) this.declararCuenta(f);
         this.cargar(); this.cargarSaldo();
       },
       error: (e) => { this.guardando.set(false); this.avisarError(e, 'No se pudo guardar el movimiento'); },
@@ -1877,6 +1924,28 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * abre esta pantalla en las sucursales— es `undefined` y `guardar()` reventaba ANTES de emitir
    * la petición, con el error tragado encima. La llave de idempotencia no puede depender de eso.
    */
+  /**
+   * Declara el beneficiario -> cuenta. Va en su propia peticion y NO tumba nada si falla: el
+   * efectivo ya quedo registrado, y una regla que no se pudo crear se vuelve a ofrecer la
+   * proxima vez. Lo que NO se hace es callarselo.
+   */
+  private declararCuenta(f: FormularioCajaUI): void {
+    this.svc.declararRegla({
+      beneficiario: f.beneficiario, kepler_cuenta: f.kepler_cuenta ?? '',
+      kepler_concepto: f.kepler_concepto ?? '', sucursal: f.sucursal,
+    }).subscribe({
+      next: (r) => {
+        this.avisarOk(
+          r.creada ? 'Cuenta declarada' : 'Ya estaba declarada',
+          f.beneficiario + ' → ' + f.kepler_cuenta + ' / ' + f.kepler_concepto,
+        );
+        // La bandeja cambia: lo que estaba trabado por este beneficiario ya se puede confirmar.
+        this.cargarPendientes();
+      },
+      error: (e) => this.avisarError(e, 'El movimiento se guardo, pero la cuenta no se declaro'),
+    });
+  }
+
   private nuevoUuid(): string {
     const c = globalThis.crypto as Crypto | undefined;
     if (c?.randomUUID) return c.randomUUID();

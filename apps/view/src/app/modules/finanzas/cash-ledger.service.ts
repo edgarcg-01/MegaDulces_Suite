@@ -107,6 +107,23 @@ export class CashLedgerService {
   }
 
   /**
+   * CG.22.6 — **Declara que un beneficiario va siempre a una cuenta.**
+   *
+   * Medido el 2026-09-22: `finance.caja_classify_rules` tenía **0 filas en prod** y no existía
+   * NINGUNA pantalla para cargarlas. Por eso la bandeja decía «0 de 8 se confirman» y no había
+   * forma de mejorar ese número: el bloqueo no era falta de trabajo, era falta de puerta.
+   * Se declara desde la captura, que es donde la persona tiene el beneficiario delante y acaba
+   * de decidir la cuenta.
+   */
+  declararRegla(body: {
+    beneficiario: string; kepler_cuenta: string; kepler_concepto: string; sucursal?: string; nota?: string;
+  }): Observable<{ creada: boolean; motivo?: string; id?: string; patron?: string }> {
+    return this.http.post<{ creada: boolean; motivo?: string; id?: string; patron?: string }>(
+      `${this.base}/reglas`, body,
+    );
+  }
+
+  /**
    * CG.19 Capa 1 — **Los cobros que Kepler ya registró y todavía no se aplicaron.**
    *
    * El capturista ELIGE de acá en vez de teclear monto, fecha y motivo: el valor se toma del ERP

@@ -255,6 +255,79 @@ export class CashLedgerService {
   }
 
   /**
+   * CG.22.6 — **Declara a qué cuenta va un beneficiario, de la mano de quien captura.**
+   *
+   * ⭐ Por qué acá y no en una pantalla de administración: medido el 2026-09-22, `caja_classify_rules`
+   * tiene **0 filas en prod** y `route_customer_map` tampoco tiene ninguna ruta firmada — pero el
+   * problema no era que nadie las hubiera cargado: **NO EXISTÍA NINGUNA PANTALLA para cargarlas**.
+   * Las tablas estaban, el motor las leía, y no había por dónde entrar un solo renglón. Por eso la
+   * bandeja publicaba «0 de 8 se confirman» y no había forma de mejorar ese número.
+   *
+   * La propia migración que creó la tabla ya lo había anticipado: *"Las reglas nacen de CG.17
+   * midiendo contra los 12,253 movimientos ya capturados, **o de la mano de quien captura**"*.
+   * Esto es esa segunda vía: la persona está mirando el movimiento, con el beneficiario delante,
+   * y acaba de elegir la cuenta para ESE documento. Preguntarle si vale de ahora en adelante es
+   * el momento con más contexto que va a haber.
+   *
+   * ⛔ El patrón se ANCLA y se ESCAPA. `aplicaPatron` corre `new RegExp(patron,'i').test(texto)`:
+   * sin anclar, un beneficiario corto como "CAJA" clasificaría media bandeja; sin escapar, un
+   * nombre con paréntesis o `+` sería un regex distinto del que la persona creyó declarar — o uno
+   * inválido, que `aplicaPatron` descarta en silencio.
+   */
+  async declararCuentaDeBeneficiario(
+    input: { beneficiario?: string; kepler_cuenta?: string; kepler_concepto?: string; sucursal?: string; nota?: string },
+    user: { id?: string; username?: string },
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const beneficiario = String(input.beneficiario ?? '').trim();
+    const cuenta = String(input.kepler_cuenta ?? '').trim();
+    const concepto = String(input.kepler_concepto ?? '').trim();
+    if (!beneficiario) throw new BadRequestException('Sin beneficiario no hay a quién declararle una cuenta.');
+    if (!cuenta || !concepto) throw new BadRequestException('El par cuenta/concepto va COMPLETO: media cuenta no contabiliza nada.');
+
+    return this.tk.run(async (trx) => {
+      // El par tiene que existir en el catálogo VIVO, igual que al registrar un movimiento: una
+      // regla que apunta a una cuenta inexistente clasificaría hacia la nada, y en lote.
+      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+
+      const patron = `^${beneficiario.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+
+      const ya = await trx('finance.caja_classify_rules')
+        .where({ tenant_id: tenantId, match_beneficiario: patron, active: true })
+        .whereNull('suppressed_at')
+        .first('id', 'kepler_cuenta', 'kepler_concepto');
+      if (ya) {
+        if (ya.kepler_cuenta === cuenta && ya.kepler_concepto === concepto) {
+          return { creada: false, motivo: 'ya_declarada', id: ya.id };
+        }
+        throw new BadRequestException(
+          `«${beneficiario}» ya está declarado a ${ya.kepler_cuenta} / ${ya.kepler_concepto}. `
+          + 'Cambiar una regla viva es una decisión aparte: se edita la que existe, no se apila otra encima.',
+        );
+      }
+
+      // Se agrega AL FINAL. Como el patrón es exacto por beneficiario, dos reglas no se pisan;
+      // y si alguna vez se siembran patrones amplios, los específicos ya declarados siguen ganando.
+      const top = await trx('finance.caja_classify_rules')
+        .where({ tenant_id: tenantId }).max({ p: 'priority' }).first();
+      const priority = Number(top?.p ?? 0) + 10;
+
+      const [row] = await trx('finance.caja_classify_rules')
+        .insert({
+          tenant_id: tenantId,
+          priority,
+          match_beneficiario: patron,
+          kepler_cuenta: cuenta,
+          kepler_concepto: concepto,
+          note: String(input.nota ?? '').trim() || `Declarada al capturar, por ${user?.username ?? 'sin usuario'}`,
+          created_by: user?.username ?? user?.id ?? null,
+        })
+        .returning(['id', 'priority']);
+      return { creada: true, id: row.id, priority: row.priority, patron };
+    });
+  }
+
+  /**
    * Registra un movimiento. TODO en una transacción: folio, validación del par contable,
    * cabecera y denominaciones. Si algo falla, el consecutivo tampoco avanza.
    */
