@@ -1,3 +1,20 @@
+REM ============================================================================
+REM  [VL.11.B] RETIRADO 2026-09-23 -- WINCAJA YA NO EXISTE.
+REM
+REM  Los tres POS que usaban este agente migraron a Kepler y lo confirman los datos,
+REM  no una nota: en analytics.store_live_tickets los codigos MD-* cortan EXACTAMENTE
+REM  en su fecha de migracion y llevan 0 tickets en 24 h.
+REM
+REM      MD-32  Morelia Madero   ultimo ticket 2026-09-07 19:22  -> Kepler md_07 (08-sep)
+REM      MD-30  Morelia Abastos  ultimo ticket 2026-09-18 20:40  -> Kepler md_08 (18-sep)
+REM      50     Canindo                                          -> Kepler '06'
+REM
+REM  Hoy los tickets de las 8 ramas los lee `store-poller`, que corre EN `md` y no en
+REM  una caja. Este archivo se conserva como historia y por si algun POS volviera a
+REM  Wincaja; su URL quedo apuntando al destino interno correcto.
+REM
+REM  ⚠️ NO es la fuente viva de nada. Antes de usarlo, medir.
+REM ============================================================================
 @echo off
 REM ============================================================================
 REM  AGENTE de tickets en vivo Wincaja — corre EN EL SERVIDOR POS de la tienda.

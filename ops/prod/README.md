@@ -470,7 +470,7 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 | 5 | ~~**El volcado correcto**~~ ✅ **RESUELTO 2026-09-22** | Era que el respaldo diario usaba `--no-privileges`. Desde `[VL.6.4]` el carril de `md` lo toma **con** privilegios, y `restaurar.sh` **aborta** si el volcado trae menos de 100 entradas `ACL` — o sea que el defecto ya no puede volver en silencio | — |
 | 6 | **`JWT_SECRET` cambia** | El valor de Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo. Recortarlo equivale a rotarlo | Decidirlo: rotar una sola vez y avisar que **todos re-loguean** |
 | 7 | **El bucket** | 597 MB de comprobantes (§5) | Decidir MinIO on-prem o seguir en Railway |
-| 9 | **Los agentes en las cajas de sucursal** ⛔ **nuevo, medido 2026-09-22** | Empujan a `https://megadulces.up.railway.app/api/store/live/ingest` — **otro** servicio de Railway, distinto del de la app. Están instalados **en las máquinas de tienda**, no en el repo (`store-agent.template.cmd`, `deploy-wincaja-agent.ps1`), así que apagar Railway les corta la entrega de tickets. ⭐ **Publicar un `ingest.<dominio>` sería un error, y la objeción vino del usuario**: las cajas salen a internet **sólo porque Railway está en la nube**; bajar prod a `md` **elimina** esa dependencia, y publicar el hostname la volvería a fabricar. **Medido**: `md` alcanza las subredes de sucursal por el gateway interno (5 de 8 respondieron en 5432; las otras 3 usan otro puerto), y el enlace de subida son **44 Mbit compartidos** con la oficina y los 14 carriles — el ticket gastaría ese enlace **dos veces** por tráfico que nunca tuvo que salir del edificio. Y `/api/store/live/ingest` es un endpoint de **escritura** | Repuntar cada caja a `http://192.168.0.222:8080/api/store/live/ingest`, **antes** del corte. ⚠️ **Dos cosas SIN verificar**: (a) el sentido inverso (sucursal → `md`) lo **declaró quien administra la red el 2026-09-23**; desde `md` no se puede medir, así que la comprobación llega con la **primera** caja que se repunte; (b) hoy los agentes hablan **HTTPS** con Railway y `http://` plano en la LAN baja eso, con la llave de ingesta viajando ahí — depende de si el enlace entre sucursales va cifrado, pregunta para quien administra la red |
+| 9 | ~~**Los agentes en las cajas de sucursal**~~ ⭐ **SE DESARMA 2026-09-23: no hay cajas que tocar** | Esta fila decía *"están instalados en las máquinas de tienda"* y *"hay que tocar cada caja"*. **Falso hoy.** Wincaja **ya no existe** — sus POS migraron a Kepler (`MD-32`→`md_07` el 08-sep, `MD-30`→`md_08` el 18-sep, Canindo→`'06'`), y los datos lo confirman: los códigos `MD-*` **cortan exactamente en esas fechas** y llevan **0 tickets en 24 h**, mientras `01`–`08` entregan con **0–4 minutos** de rezago. Las 8 ramas las lee **`store-poller`, que corre EN `md`**. ⇒ El único cliente remoto del endpoint son **dos contenedores de `md`** (`store-poller`, `feeds-livefast`): **dos variables, no treinta máquinas**. ⛔ **Y no se tocan hoy**: Railway sigue siendo prod, repuntarlas mandaría la venta viva a la copia | — (pasa a ser un renglón del corte, no un bloqueo) |
 | 8 | ~~**El RPO**~~ ✅ **RESUELTO 2026-09-22** | ⭐ **No estaba en esta lista y era el peor**: prod corre pgBackRest con `archive_mode=on` y la copia estaba en `off` — el corte bajaba la recuperación de *minutos* a *24 horas*, en silencio. Cerrado en §9 | — |
 
 ### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las tres vías
@@ -1173,62 +1173,41 @@ líneas van **en cada MikroTik**.
 ⬜ **Abierto**: los gateways de CEDIS (`.9`) y Padre Hidalgo (`.10`) no están en `.1` ni
 `.254`; hay que averiguar su direccionamiento antes de incluirlas.
 
-### B — cómo se repunta una caja, y cómo se sabe que funcionó
+### B — no hay cajas que repuntar: son dos variables, y van en el corte
 
-**Estado 2026-09-23**: el destino nuevo está **probado**, falta tocar las máquinas.
+⭐ **La fase B era mucho más chica de lo que este documento decía, y lo destapó el usuario**
+al decir *"Wincaja ya no existe"*. Verificado contra los datos el 2026-09-23:
 
-Verificado antes de tocar nada, y sin escribir un solo ticket falso en prod:
+| Almacén | Último ticket | Actividad |
+|---|---|---|
+| `01`–`08` (Kepler) | 2026-09-23, **0–4 min de rezago** | 18–120 tickets en 3 h, los ocho |
+| **`MD-30`** | **2026-09-18 20:40** | **0 en 24 h** |
+| **`MD-32`** | **2026-09-07 19:22** | **0 en 24 h** |
 
-| Prueba | Resultado |
-|---|---|
-| POST desde una PC de oficina con llave **incorrecta** | **401** `bad store ingest key` desde `192.168.0.222` — el camino completo (DNS → TLS → Caddy → API → guard) funciona y **no escribe** |
-| POST con la llave **real** y `{"tickets": []}` | **201** `{"received":0,"inserted":0}` — autentica de verdad |
-| `analytics.store_live_tickets` | **237,585 filas, sin cambio** |
+Los `MD-*` cortan **exactamente** en las fechas de migración que `kepler-branches.js` ya
+documentaba. Wincaja está muerto.
 
-#### En cada caja ya instalada
+⇒ **Nadie postea a `/api/store/live/ingest` desde una tienda.** Las 8 ramas las lee
+`store-poller`, **que corre en `md`**. El único consumidor remoto del endpoint son **dos
+contenedores de la misma máquina** — `store-poller` y `feeds-livefast`—, los dos con
+`STORE_INGEST_URL` apuntando a `https://megadulces.up.railway.app/...`.
 
-El archivo vive **fuera del repo** (lleva la llave). Una sola línea cambia:
+#### ⛔ Y no se cambian hoy
 
-```bat
-REM  C:\WincajaAgent\store-agent.cmd   — reemplazar SOLO esta línea:
-set "STORE_INGEST_URL=https://interno.megadulcessuite.com/api/store/live/ingest"
-```
+Railway **sigue siendo producción**. Repuntar esas dos variables ahora mandaría la venta viva
+de las 8 tiendas a la **copia** de `md` en vez de al sistema real. Es un renglón **del corte**:
+cambiar `STORE_INGEST_URL` a `https://interno.megadulcessuite.com/api/store/live/ingest` en
+[`ops/vl/docker-compose.yml`](../vl/docker-compose.yml) y recrear los dos contenedores.
 
-Y reiniciar la tarea, que corre como **SYSTEM** al arranque:
+El destino ya está **probado**: **401** con llave mala y **201** `{"received":0,"inserted":0}`
+con la llave real, sin escribir un solo ticket, y `analytics.store_live_tickets` sin moverse
+de 237,585 filas.
 
-```bat
-schtasks /End /TN "Tienda\WincajaAgent"
-schtasks /Run /TN "Tienda\WincajaAgent"
-```
-
-⚠️ **No hay que tocar la llave** (`STORE_INGEST_KEY`): es la misma API, sólo cambia por dónde
-se llega.
-
-#### La verificación, que es lo que convierte esto en un hecho
-
-⭐ **La primera caja es la compuerta.** Es la única prueba real de que una sucursal alcanza
-`192.168.0.222` — desde `md` ese sentido **no se puede medir** (todo el tráfico existente sale
-*desde* `md`). Si el POST entra, el camino existe; si no, no se tocan las demás.
-
-Desde la caja, antes de reiniciar la tarea:
-
-```
-nslookup interno.megadulcessuite.com      →  debe dar 192.168.0.222
-```
-
-Y después, desde cualquier lado, que los tickets de **esa** tienda sigan llegando:
-
-```sql
-SELECT warehouse_code, max(created_at), count(*)
-FROM analytics.store_live_tickets
-WHERE created_at > now() - interval '15 minutes'
-GROUP BY 1 ORDER BY 2 DESC;
-```
-
-⚠️ **Y el modo de falla a vigilar no es un error: es el silencio.** El agente corre en un
-bucle con `-Once` cada 45 s y su log vive en `C:\WincajaAgent\store-agent.log`. Si el destino
-no resuelve, el agente **no se cae** — sigue girando sin entregar. Por eso la comprobación es
-que **lleguen filas**, no que el proceso esté vivo.
+⚠️ **Verruga medida que NO es pérdida de datos**: `store-poller` registra ~**32 `timeout
+expired` cada 2 h**, todos de `01 Padre Hidalgo`. Se comprobó contra prod real: esa tienda está
+**2 minutos atrás con 58 tickets en 3 h**, o sea que los reintentos entran. Es un enlace lento,
+no un carril caído — pero el log grita 32 veces cada dos horas, y **una alarma que grita en
+falso enseña a ignorar el tablero**.
 
 ### B — corrección medida a §6 #9
 
