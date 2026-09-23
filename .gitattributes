@@ -44,6 +44,23 @@ ops/**/*.yml    text eol=lf
 # callado. El patrón de la falla ya tiene nombre; lo que faltaba era ESTA línea.
 .dockerignore   text eol=lf
 
+# ⭐⭐ [VL.11.A] Y ACÁ SE CORTA EL PATRÓN, EN VEZ DE AGREGAR LA SEXTA REGLA PUNTUAL.
+# En un solo día este archivo sumó reglas para `crontab.*`, `Dockerfile*`, `*.conf`, `*.ini`
+# y `.dockerignore`, todas por el MISMO motivo: un archivo sin extensión conocida queda sin
+# regla, `git archive` con `core.autocrlf=true` lo exporta con CRLF, y el `` rompe algo
+# CALLADO. El sexto caso apareció el mismo día: `ops/prod/Caddyfile`, 64 bytes CR medidos.
+#
+# Medido antes de escribir esta línea: bajo `ops/` hay **57 archivos versionados, ninguno
+# binario** (`file` describe a los `.sh` como "ASCII text executable", que no es lo mismo),
+# y **12 seguían sin regla** — entre ellos `ops/vl/netplan-md.yaml`, porque la regla vieja
+# cubría `*.yml` y NO `*.yaml`.
+#
+# `ops/` es infraestructura que corre en Linux por definición: no hay un solo archivo ahí
+# que deba tener CRLF. La regla amplia hace que el próximo archivo nazca correcto sin que
+# nadie se acuerde de esto.
+# ⚠️ Si algún día entra un binario a `ops/`, hay que exceptuarlo con `-text` explícito.
+ops/**          text eol=lf
+
 # Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
 # CRLF le pegaria un 
 # DENTRO de la credencial. La persona veria 'password
