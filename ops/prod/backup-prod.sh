@@ -70,6 +70,9 @@ JOB="backup_prod"
 # borra al terminar, así que no queda basura en el tablero.
 [ "$PRUEBA" = 1 ] && JOB="backup_prod_prueba"
 YO="md-backup"
+# Se inicializa acá porque `set -u` está puesto: la compuerta 1-bis sólo la llena
+# cuando NO pudo verificar la identidad del destino, y ese texto viaja al latido.
+SIN_VERIFICAR=""
 
 di() { echo "[$(date '+%F %T %Z')] $*"; }
 morir() { di "FALLO: $*"; latido_fin error "$*"; exit 1; }
@@ -153,6 +156,42 @@ tot=$(q "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnames
 di "destino: $ods tablas en kepler_ods, $tot en total."
 if [ "$ods" -lt "$PISO_ODS" ]; then
   morir "el destino trae $ods tablas de kepler_ods y el piso es $PISO_ODS: NO parece prod. Un respaldo de la base equivocada es peor que no tener respaldo, porque la tarea queda en verde."
+fi
+
+# ── Compuerta 1-bis: ¿es el MISMO clúster que respalda pgBackRest? ───────────
+# ⛔ LA COMPUERTA 1 NO ALCANZA, Y ESTÁ MEDIDO: el 2026-09-23 se descubrió que este
+# guion llevaba un día entero volcando la base VIEJA de Railway —con la tarea en
+# verde y las dos compuertas pasando—. No podía verlo: la compuerta 1 clasifica por
+# FORMA, y `md` es una restauración de Railway, así que las dos bases tienen la
+# misma forma (240 tablas de `kepler_ods` las dos). Lo único que las distingue es
+# la IDENTIDAD. El comentario de arriba decía que una regla por contenido
+# "sobrevive al corte": sobrevivió al corte y no sobrevivió al DÍA DESPUÉS del
+# corte, cuando la base vieja sigue encendida y sigue pareciéndose a prod.
+#
+# ⚠️ CÓMO SE COLÓ, porque la trampa no es obvia y va a repetirse: `ingest.env` se
+#    monta como ARCHIVO y el bind de Docker resuelve por INODO. Al reescribir el
+#    archivo en el host (23-sep 10:24, repuntando de Railway a `pg-prod`) cambió el
+#    inodo; este contenedor llevaba 23 h arriba y se quedó clavado al inodo viejo.
+#    El host decía `pg-prod:5432` y el contenedor leía `trolley.proxy.rlwy.net`.
+#    Sin error, sin aviso. ⇒ Tras editar un secreto montado como archivo, HAY QUE
+#    RECREAR el contenedor; un `restart` no basta.
+#
+# El árbitro es `system_identifier` de `pg_control_system()`: la identidad del
+# clúster, no su forma. El de la URL que se va a volcar tiene que ser el MISMO que
+# el del clúster local —el que pgBackRest respalda por socket y PGDATA— o el
+# respaldo lógico y el físico son de bases distintas, que es justo lo que pasó.
+id_url=$(q "select system_identifier from pg_control_system()")
+id_loc=$(su -s /bin/sh postgres -c \
+  'psql -h /var/run/postgresql -U postgres -d postgres -At -qc "select system_identifier from pg_control_system()"' \
+  2>/dev/null)
+if [ -z "$id_loc" ]; then
+  # No se pudo medir ⇒ se DECLARA en el latido, no se disfraza de verde (ADR-056).
+  di "aviso: no se pudo leer el clúster local por socket — destino NO VERIFICADO"
+  SIN_VERIFICAR=" · ⚠ destino no verificado"
+elif [ "$id_url" != "$id_loc" ]; then
+  morir "el destino del volcado ($id_url) NO es el clúster que respalda pgBackRest ($id_loc): se estaría respaldando OTRA base. Revisar ODS_HB_URL y recrear este contenedor (puede tener un inodo viejo de /secrets/ingest.env)."
+else
+  di "identidad verificada: el volcado y pgBackRest son el mismo clúster ($id_loc)."
 fi
 
 # ── Compuerta 2: espacio ─────────────────────────────────────────────────────
@@ -255,7 +294,7 @@ SQL
   fi
   di "PRUEBA OK — todas las compuertas pasaron. El latido backup_prod NO se tocó."
 else
-  latido_fin ok "${mb} MB en ${dt}s · $tablas tablas ($ods_d de kepler_ods) · quedan $quedan, ${ocupado} GB"
+  latido_fin ok "${mb} MB en ${dt}s · $tablas tablas ($ods_d de kepler_ods) · quedan $quedan, ${ocupado} GB${SIN_VERIFICAR}"
   di "respaldo terminado."
 fi
 exit 0

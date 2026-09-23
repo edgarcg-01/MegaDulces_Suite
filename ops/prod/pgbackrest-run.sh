@@ -70,6 +70,23 @@ SQL
 # Por eso el guion corre como root (así lo lanza cron), carga el entorno, y baja a `postgres`
 # sólo para el comando de respaldo.
 di "── pgbackrest --type=$TIPO ──"
+
+# ⚠️ ¿EL LATIDO CAE EN LA BASE QUE MIRA EL TABLERO? pgBackRest siempre respalda el
+# clúster LOCAL (socket + PGDATA montado), así que el respaldo no puede equivocarse
+# de base. El latido SÍ: viaja por `ODS_HB_URL`, que es un archivo montado y puede
+# quedar desfasado. Pasó el 2026-09-23 — este carril corrió bien seis noches y su
+# latido aterrizaba en la base VIEJA de Railway, así que en el tablero de `md` el
+# renglón `pgbackrest_backup` NO EXISTÍA: el respaldo que da PITR se veía como si
+# nunca hubiera corrido. (Causa: bind de archivo resuelto por inodo; ver la
+# compuerta 1-bis de `backup-prod.sh`.) Se compara la IDENTIDAD del clúster, no su
+# forma: las dos bases son la misma restaurada y por forma son indistinguibles.
+id_loc=$(su -s /bin/sh postgres -c \
+  'psql -h /var/run/postgresql -U postgres -d postgres -At -qc "select system_identifier from pg_control_system()"' 2>/dev/null)
+id_hb=$(psql "$URLK" -At -qc "select system_identifier from pg_control_system()" 2>/dev/null)
+if [ -n "$id_loc" ] && [ -n "$id_hb" ] && [ "$id_loc" != "$id_hb" ]; then
+  di "⚠ AVISO: el latido va a OTRO clúster ($id_hb) distinto del que se respalda ($id_loc) — el tablero de prod NO va a ver este carril. Recrear el contenedor para que relea /secrets/ingest.env."
+fi
+
 t0=$(date +%s)
 salida=$(su -s /bin/sh postgres -c "pgbackrest --stanza=prod --type=$TIPO backup" 2>&1)
 rc=$?
