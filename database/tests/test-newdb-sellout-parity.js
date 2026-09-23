@@ -77,10 +77,24 @@ function fechasPorSucursal(src, sucursales) {
   // proyector del feed. Mientras siga copiado (VP.1.1 lo centraliza), esto es lo que impide que se
   // separen en silencio.
   console.log('1 · LITERALES DE CORTE (mientras el predicado siga copiado)');
-  const COPIAS = [
+  // [SB.1] La centralización que este bloque anticipaba YA ocurrió: el corte vive en
+  // `analytics.v_branch_erp_cutover` (mig 20260923120000) y las vistas lo leen por EXISTS. Desde
+  // entonces comparar los literales de las migraciones HISTÓRICAS es medir un archivo que ya no
+  // describe la vista viva — y saldría ✔ sin probar nada, que es el verde que esta familia de
+  // candados persigue. Se declara y se delega en `test-newdb-branch-cutover.js`, que lee el
+  // resolvedor y además prohíbe que el literal vuelva.
+  const yaCentralizado = (await q(
+    `SELECT 1 FROM pg_class cl JOIN pg_namespace n ON n.oid=cl.relnamespace
+      WHERE n.nspname='analytics' AND cl.relname='v_branch_erp_cutover'`)).length > 0;
+  const COPIAS = yaCentralizado ? [] : [
     ['database/migrations-newdb/20260904100000_v_sellout_daily.js', ['01', '02', '06']],
     ['database/migrations-newdb/20260903130000_v_sales_blended.js', ['01', '02', '06']],
   ];
+  if (yaCentralizado) {
+    noMedido('literales de corte empatan entre las copias',
+      'el corte ya NO está copiado: sale de analytics.v_branch_erp_cutover (SB.1). '
+      + 'Lo vigila test-newdb-branch-cutover.js, que además tiene la prueba negativa del literal');
+  }
   const canon = Object.fromEntries(CUTOVER.map((x) => [x.kepler, x.desde]));
   for (const [rel, sucs] of COPIAS) {
     const src = leer(rel);
@@ -99,7 +113,7 @@ function fechasPorSucursal(src, sucursales) {
 
   // El complemento tiene que ser EXACTO: la fecha con la que Kepler ARRANCA es la misma con la que
   // Wincaja TERMINA. Si una de las dos se mueve sola, aparece el hueco o el doble conteo.
-  const vsd = leer('database/migrations-newdb/20260904100000_v_sellout_daily.js');
+  const vsd = yaCentralizado ? null : leer('database/migrations-newdb/20260904100000_v_sellout_daily.js');
   if (vsd) {
     const win = fechasPorSucursal(vsd, CUTOVER.map((x) => x.wincaja));
     check('el predicado Wincaja usa las MISMAS 3 fechas que el de Kepler (complemento exacto)',

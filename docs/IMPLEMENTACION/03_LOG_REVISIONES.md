@@ -5,6 +5,90 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-23 — `[SB.1]` El corte Wincaja→Kepler deja de ser un literal: Morelia Abastos faltaba en el fact de venta
+
+**Disparador:** *"en /comercial/salidas al imprimir no sale Morelia Abastos"*.
+
+### Lo que se midió antes de tocar nada
+
+`/comercial/salidas` en modo rango (su default de 15 días) deriva el **scope de sucursales** de
+`analytics.mv_sales_blended` (`SALES_FACT`). Ahí la `08` **no existe en ninguna fecha, por ninguna
+de las dos piernas**:
+
+| pierna | filtro vivo | Morelia Abastos |
+|---|---|---|
+| Kepler | `source_branch IN ('01','02','03','04','05','06','07')` + su fecha | **`08` no está** |
+| Wincaja | `wincaja_only = true OR source_branch IN ('10','42','50')` | la `30` tampoco, y `wincaja_only` (= `kepler_code IS NULL`) lo apagó `[RL.10]` |
+
+| Qué | Resultado |
+|---|---|
+| Venta Kepler de la `08` descartada (19–21 sep) | **$1,636,170.10** · 5,725 filas · crece a diario |
+| Histórico Wincaja de Madero `32` en el blend | **también ausente** — se cayó cuando `[RL.10]` le puso el `kepler_code` |
+| `v_sellout_daily` / `mv_sellout_monthly` | la `08` **correcta** (Wincaja ≤ 09-17, Kepler ≥ 09-19) |
+| Archivos que consumen `mv_sales_blended` | **7** (Command Center `network*`, rentabilidad, thot-tools, weekly…) |
+
+**La causa no fue un olvido puntual: el corte vivía copiado en TRES lugares** — `v_sellout_daily`,
+`mv_sales_blended` y la constante `CUTOVER` de `test-newdb-sellout-parity.js` (que seguía en
+`['01','02','06']`, o sea ni siquiera vigilaba `07` ni `08`). El cutover de Abastos (`[RL.10]`,
+2026-09-18) actualizó la primera y no la segunda, y **ningún gate lo vio**: lo destapó un usuario.
+
+### Por qué la fecha se DECLARA y no se deriva
+
+`wincaja.branches` ya tenía media respuesta (`source_branch` ↔ `kepler_code` ↔
+`last_movement_date`). Tentaba `cutover = last_movement_date + 1`, y para tres ramas da exacto.
+**No es regla**, medido contra el dato:
+
+| rama | último Wincaja real | primer Kepler real | corte vigente |
+|---|---|---|---|
+| `10` Padre Hidalgo | 2026-06-26 | 2026-06-27 | 2026-07-01 |
+| `42` Piedad | 2025-10-09 | 2025-01-01 | 2025-10-01 |
+
+En PH el corte va 4 días **después** de que Kepler ya vendía; en Piedad las piernas se traslapan 9
+meses. El cutover es una **decisión** sobre la zona de traslape, no un hecho derivable → dato
+propio, columna propia.
+
+### Lo que se hizo
+
+1. `wincaja.branches.kepler_cutover_date` — la fecha, declarada. Semántica sin ambigüedad:
+   fecha real = corte · `-infinity` = Kepler siempre (`03/04/05`) · `NULL` = la rama no entra al
+   fact (CEDIS `00`, rutas).
+2. `analytics.v_branch_erp_cutover` — resolvedor único.
+3. `v_sellout_daily` (parche sobre el cuerpo vivo, con aborto si el ancla no aparece **exactamente
+   una vez**) y `mv_sales_blended` (recreada) pasan a `EXISTS` contra el resolvedor.
+4. `test-newdb-branch-cutover.js` — el gate que faltaba, en la suite.
+
+**Antes/después medido en una transacción con ROLLBACK contra prod**: la pierna Kepler nueva
+reproduce las 7 sucursales con conteos **idénticos** (17787 · 9158 · 14371 · 4202 · 4834 · 13420 ·
+12252) y suma la `08` con sus **5,725** filas. Ningún corte se movió: el cambio es de forma.
+
+### Dos huecos medidos que NO se tocaron, a propósito
+
+Mover un corte es cambiar alcance de negocio y va en su propio commit con su antes/después:
+
+| dónde | cuándo | monto | por qué |
+|---|---|---|---|
+| Abastos `30` | **2026-09-18** | **$418,721.65** | Wincaja tiene ese día, el corte lo excluye (`< 09-18`) y Kepler arranca el 19 |
+| Padre Hidalgo `01` | **2026-06-27 → 06-30** | **$916,629.73** | Kepler ya vendía y el corte (`>= 07-01`) lo descarta; Wincaja terminó el 06-26 |
+
+Quedan **declarados en el `COMMENT` de la columna**, para que se decidan con dueño y no en silencio.
+
+### Lecciones
+
+- **El candado nuevo no reemplaza al viejo: lo destapa.** El bloque 1 de `sellout-parity` compara
+  los literales de las migraciones **históricas**, que esta migración no toca — habría seguido ✔
+  midiendo un archivo que ya no describe la vista viva. Se le puso la detección del resolvedor
+  para que reporte `NO MEDIDO` y delegue. *Un candado que sobrevive al cambio que lo volvió
+  obsoleto es un verde que no mide nada.*
+- **La prueba negativa necesita su propio control positivo.** El detector de literales se prueba a
+  sí mismo contra una cadena que debe reconocer: un regex que no matchea la forma que prohíbe es
+  un no-op, y un no-op se lee igual que "no hay literales" (misma familia que VP.0).
+- **La prueba que habría gritado** no es "¿está la 08?" sino *"¿toda sucursal Kepler que VENDE
+  tiene corte declarado?"* — esa se dispara sola con la sucursal que venga.
+
+**Pendiente:** aplicar la migración a prod (recrea la matvista + `REFRESH` pesado → **fuera de
+horario hábil**) y redeploy. Sin eso, `/comercial/salidas` sigue sin Morelia Abastos.
+
+---
 ## 2026-09-22 — `[WMS-REC.11]` Ubicaciones: por qué fallaba el alta, y el rack que ya se puede escanear
 
 **Disparador:** *"al crearle una ubicación me arroja que no se puede crear… además genera un código de barras propio para el rack, en donde los escaneamos y nos muestre el catálogo que tiene ese rack"*.
