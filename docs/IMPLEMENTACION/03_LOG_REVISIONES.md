@@ -5,6 +5,46 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-22 — `[CRM.0]` Decode del CRM de Kepler: el prospecto es `kdudp` y la cotización es un doctype, no un módulo
+
+**Disparador:** *"en la base de datos en sucursal 01 generamos esta información que es parte de los prospectos dentro del CRM, estamos creando el módulo de cotizaciones… ¿ubicas esta información?"*, con las pantallas de Kepler (`crmcatpropag.kpl`, `crmopecotpag.kpl`) y el impreso de la cotización.
+
+### Dónde estaba, medido
+
+Contra **`192.168.10.10:1977/md_01`** (el POS de la rama 01, dato vivo) y **`192.168.0.245:5432/platform_test`** (mirror de dev; ⚠️ `max(kdm1.c68)` de la rama 01 = **2026-09-09**, atrasado). **Prod NO medido** — este `.env` no trae su credencial y `ssh` a `md` pide llave.
+
+| Qué se buscaba | Dónde vive |
+|---|---|
+| Prospecto | **`md.kdudp`** — el gemelo de `kdud` (clientes), 110 columnas, PK `c2` |
+| Contacto | `md.kdvcontactos` (`c1` = clave del prospecto) |
+| Sector · Zona · Medio · Tamaño | `kduj` · `kduk` · `kdvmedios` · `kdvtamano` |
+| Cotización | **`kdm1`/`kdm2`, doctype `U-D-35-1`** — `kdmm` la rotula "Cotización", prefijo `KFUD3501` |
+
+**No hay tabla de cotizaciones.** Entra por el mismo par encabezado/detalle que el resto del ERP. Decode campo por campo en [`ERP_KEPLER.md` §3.c](../ERP_KEPLER.md).
+
+### Lo que salió de la medición y no de la pantalla
+
+- ⭐ **`kdudp`, `kdm1`, `kdm2` y casi todos los catálogos `kdv*` YA están en `kepler_ods`** (`kdudp` con las 110 columnas + `sucursal`, sin pérdida). El CRM de la Suite **se deriva por vista, sin importer** — la regla ⭐ se cumple sola. Lo único que hay que sumar a la replicación es **`kdvcontactos`**, que quedó fuera y hoy tiene dato.
+- ⭐ **`kdvavance` es el embudo con probabilidad de cierre** (A1 CONTACTO 10 … A7 CIERRE 100 · A8 RECHAZO 0) — ⚠️ y **no existe en la rama 01**: el módulo CRM no está desplegado igual en todas las sucursales.
+- ⛔ **`kdm1.c10` no es el cliente en este doctype, es el prospecto.** Reusar el join de ventas contra `kdud` devuelve vacío — o casa con un cliente que existe por casualidad con esa clave.
+- ⛔ **La llave del prospecto es `(sucursal, clave)`**: `kdudp` está propagado idéntico en las 7 ramas 00–06 con la misma clave `100`. Agrupar por clave sola multiplica por 7 el conteo. Mismo principio que el folio (§3.x).
+- ⛔ **Trampa de nombre:** existe un **cliente** "ABARROTES ROMO" (`kdud.c2='10256'`, RFC genérico) distinto del **prospecto** (`kdudp.c2='100'`, RFC `ABR260928ASW`). Cruzar por nombre los funde.
+
+### Lo que se DECLARA, no se supone
+
+- **Los importes de `U-D-35` no están decodificados.** Las **3** cotizaciones que existen en todo el universo están **en ceros** (pantalla e impreso): sin una con precios, mapear subtotal/IVA/total sería inventarlo. Igual `Descuentos`, `Plazo`, `Referencia` y `Vendedor`.
+- **La etapa "Lead" no resolvió a ningún catálogo.** Apunta a `kdudp.c79='1'` y no está en `kdvavance`; puede ser una lista fija del formulario.
+- **`kdudp.c1` = clave de cliente al convertir** es **hipótesis** (la pantalla la muestra en gris, vacía). No hay ningún prospecto convertido con qué probarla.
+
+### Corrección de documentación
+
+El censo de cobertura del **2026-09-14** clasificaba `kdcrm*` y `kdv*` como *"features de Kepler sin usar — 0 filas en las 8 ramas"*, y por eso quedaron fuera del ODS. **Dejó de ser cierto.** Anotado en `ERP_KEPLER.md` §4 y en `VERDAD_ABSOLUTA.md` §cobertura. *La lección: «0 filas en las 8 ramas» es una medición con fecha, no una propiedad de la tabla — un censo de cobertura se re-corre cuando el ERP estrena módulo.*
+
+### Pendiente
+
+1. **Medir prod** (`kdudp`, `U-D-35` y los catálogos `kdv*` en el `kepler_ods` de Railway): el mirror de dev está 13 días atrás, así que no dice si el carril de catálogos ya los trae.
+2. **Sumar `kdvcontactos`** a la replicación.
+3. Abrir la fase del **CRM de la Suite** (prospectos + cotizaciones) sobre vistas `derive-no-copy`.
 ## 2026-09-22 — `[COT.1]` El motor de precio de cotizaciones: el vendedor deja de poder inventar descuentos
 
 **Disparador:** *"directo al motor, hoy operado por humano y posteriormente por IA agent"*, después de que Dirección fijara las cinco decisiones de la ruta (`FASE_COT` §5).

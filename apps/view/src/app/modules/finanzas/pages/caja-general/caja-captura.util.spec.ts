@@ -8,22 +8,47 @@
  */
 import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
-  etiquetaProcedencia, textoCobertura, DENOMINACIONES, GLOSA_MIN,
+  etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo,
   type FormularioCaja, type CorteVista,
 } from './caja-captura.util';
+import { BILLETES_MXN } from '@megadulces/contracts';
 
+// Con el desglose obligatorio (CG.23), un formulario "completo" incluye el conteo: el monto
+// SALE de ahí. Antes esto tenía `monto: 100` y ningún desglose — que es justo el estado que
+// ahora frena, y por eso el `formOk` viejo habría dejado la suite verde sobre la regla vieja.
 const formOk = (o: Partial<FormularioCaja> = {}): FormularioCaja => ({
   tipo: 'gasto', fecha: '2026-09-18', sucursal: '00',
   kepler_cuenta: '601-001', kepler_concepto: '001',
-  glosa: 'Compra de papeleria', monto: 100, ...o,
+  glosa: 'Compra de papeleria', monto: 100,
+  denominaciones: [{ denominacion: 100, piezas: 1 }], ...o,
 });
 
-describe('DENOMINACIONES', () => {
-  it('son las 14 de la operación, sin la morralla (que va en su campo)', () => {
-    expect(DENOMINACIONES).toHaveLength(14);
-    expect(DENOMINACIONES[0]).toBe(1000);
-    expect(DENOMINACIONES[DENOMINACIONES.length - 1]).toBe(0.05);
+describe('BILLETES_CAJA — los cinco que la caja cuenta, salidos del catálogo compartido', () => {
+  it('son 500, 200, 100, 50 y 20, del mayor al menor', () => {
+    expect(BILLETES_CAJA.map((b) => b.valor)).toEqual([500, 200, 100, 50, 20]);
+  });
+
+  it('no son una lista propia: cada uno es el objeto del catálogo de @megadulces/contracts', () => {
+    // Identidad, no igualdad: si alguien reconstruyera la lista a mano acá, esto se pondría rojo.
+    for (const b of BILLETES_CAJA) {
+      expect(BILLETES_MXN).toContain(b);
+    }
+  });
+
+  it('la caja NO desglosa monedas: todas son billetes (el metal va en Morralla)', () => {
+    expect(BILLETES_CAJA.every((b) => b.familia === 'billete')).toBe(true);
+  });
+
+  it('[negativa] una llave que el catálogo compartido no tiene revienta al construirse', () => {
+    // El valor de esta compuerta: si mañana alguien renombra una llave en `contracts`, la caja
+    // deja de OFRECER ese billete. Un billete que desaparece de la reja es dinero que no se
+    // puede contar, y eso no puede pasar en silencio.
+    expect(() => seleccionarBilletes(['500', '999'])).toThrow(/999/);
+  });
+
+  it('[negativa] una MONEDA no se puede colar como billete', () => {
+    expect(() => seleccionarBilletes(['20m'])).toThrow(/moneda/);
   });
 });
 
@@ -104,14 +129,33 @@ describe('motivosDeBloqueo — la pantalla frena lo mismo que el servidor', () =
     expect(puedeGuardar(f)).toBe(false);
   });
 
-  it('sin desglose NO frena: el arqueo es opcional, lo que no puede es estar mal', () => {
-    expect(motivosDeBloqueo(formOk({ denominaciones: [] }))).not.toContain('arqueo_no_cuadra');
+  it('[negativa] CG.23 — sin desglose ahora SÍ frena: el arqueo dejó de ser opcional', () => {
+    // Esta prueba decía lo contrario ("sin desglose NO frena: el arqueo es opcional") y era
+    // cierta: el desglose vivía plegado en un <details> rotulado "(opcional)", así que el
+    // camino fácil era registrar efectivo sin contarlo. Decisión de Edgar: no es opcional.
+    const f = formOk({ denominaciones: [], morralla: 0 });
+    expect(motivosDeBloqueo(f)).toContain('falta_desglose');
+    expect(puedeGuardar(f)).toBe(false);
+  });
+
+  it('sólo morralla ya cuenta como desglose: no todo movimiento trae billetes', () => {
+    const f = formOk({ monto: 7.5, denominaciones: [], morralla: 7.5 });
+    expect(motivosDeBloqueo(f)).not.toContain('falta_desglose');
+    expect(puedeGuardar(f)).toBe(true);
+  });
+
+  it('"no contó" y "monto en cero" se dicen UNA vez, con el texto que sirve', () => {
+    // Sin desglose el monto es 0 por construcción, así que publicar los dos motivos sería
+    // decir dos veces lo mismo y ninguno de los dos diría qué hacer.
+    const m = motivosDeBloqueo(formOk({ monto: 0, denominaciones: [], morralla: 0 }));
+    expect(m).toContain('falta_desglose');
+    expect(m).not.toContain('monto_invalido');
   });
 
   it('devuelve TODOS los motivos, no el primero', () => {
     const m = motivosDeBloqueo({ glosa: 'x', monto: 0 });
     expect(m).toEqual(expect.arrayContaining([
-      'falta_tipo', 'falta_fecha', 'falta_sucursal', 'falta_concepto', 'glosa_corta', 'monto_invalido',
+      'falta_tipo', 'falta_fecha', 'falta_sucursal', 'falta_concepto', 'glosa_corta', 'falta_desglose',
     ]));
     expect(m.length).toBeGreaterThanOrEqual(6);
   });

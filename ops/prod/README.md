@@ -470,7 +470,7 @@ pagándole a Railway sólo por el bucket. **Decisión abierta.**
 | 5 | ~~**El volcado correcto**~~ ✅ **RESUELTO 2026-09-22** | Era que el respaldo diario usaba `--no-privileges`. Desde `[VL.6.4]` el carril de `md` lo toma **con** privilegios, y `restaurar.sh` **aborta** si el volcado trae menos de 100 entradas `ACL` — o sea que el defecto ya no puede volver en silencio | — |
 | 6 | **`JWT_SECRET` cambia** | El valor de Railway **contiene un salto de línea** y `env_file` de Compose no puede expresarlo. Recortarlo equivale a rotarlo | Decidirlo: rotar una sola vez y avisar que **todos re-loguean** |
 | 7 | **El bucket** | 597 MB de comprobantes (§5) | Decidir MinIO on-prem o seguir en Railway |
-| 9 | **Los agentes en las cajas de sucursal** ⛔ **nuevo, medido 2026-09-22** | Empujan a `https://megadulces.up.railway.app/api/store/live/ingest` — **otro** servicio de Railway, distinto del de la app. Están instalados **en las máquinas de tienda**, no en el repo (`store-agent.template.cmd`, `deploy-wincaja-agent.ps1`), así que apagar Railway les corta la entrega de tickets. ⭐ **Publicar un `ingest.<dominio>` sería un error, y la objeción vino del usuario**: las cajas salen a internet **sólo porque Railway está en la nube**; bajar prod a `md` **elimina** esa dependencia, y publicar el hostname la volvería a fabricar. **Medido**: `md` alcanza las subredes de sucursal por el gateway interno (5 de 8 respondieron en 5432; las otras 3 usan otro puerto), y el enlace de subida son **44 Mbit compartidos** con la oficina y los 14 carriles — el ticket gastaría ese enlace **dos veces** por tráfico que nunca tuvo que salir del edificio. Y `/api/store/live/ingest` es un endpoint de **escritura** | Repuntar cada caja a `http://192.168.0.222:8080/api/store/live/ingest`, **antes** del corte. ⚠️ **Dos cosas SIN verificar**: (a) se comprobó que `md` alcanza a las sucursales, **no** que las sucursales alcancen a `md` — probar desde **una** caja antes de tocar las 30; (b) hoy los agentes hablan **HTTPS** con Railway y `http://` plano en la LAN baja eso, con la llave de ingesta viajando ahí — depende de si el enlace entre sucursales va cifrado, pregunta para quien administra la red |
+| 9 | ~~**Los agentes en las cajas de sucursal**~~ ⭐ **SE DESARMA 2026-09-23: no hay cajas que tocar** | Esta fila decía *"están instalados en las máquinas de tienda"* y *"hay que tocar cada caja"*. **Falso hoy.** Wincaja **ya no existe** — sus POS migraron a Kepler (`MD-32`→`md_07` el 08-sep, `MD-30`→`md_08` el 18-sep, Canindo→`'06'`), y los datos lo confirman: los códigos `MD-*` **cortan exactamente en esas fechas** y llevan **0 tickets en 24 h**, mientras `01`–`08` entregan con **0–4 minutos** de rezago. Las 8 ramas las lee **`store-poller`, que corre EN `md`**. ⇒ El único cliente remoto del endpoint son **dos contenedores de `md`** (`store-poller`, `feeds-livefast`): **dos variables, no treinta máquinas**. ⛔ **Y no se tocan hoy**: Railway sigue siendo prod, repuntarlas mandaría la venta viva a la copia | — (pasa a ser un renglón del corte, no un bloqueo) |
 | 8 | ~~**El RPO**~~ ✅ **RESUELTO 2026-09-22** | ⭐ **No estaba en esta lista y era el peor**: prod corre pgBackRest con `archive_mode=on` y la copia estaba en `off` — el corte bajaba la recuperación de *minutos* a *24 horas*, en silencio. Cerrado en §9 | — |
 
 ### 6.1 El dominio: por qué no alcanza con apuntar el DNS, y las tres vías
@@ -956,6 +956,317 @@ ingesta para desarmar algo que no molesta (las redes existentes conservaron su s
 ⭐ **La lección que deja, más allá de Coolify**: un componente sin responsabilidad no es neutro.
 Éste no desplegaba nada y aun así se llevó el puerto del servicio principal y lo mantuvo caído
 50 minutos. *"Lo dejo por si acaso"* tiene precio, y acá se pagó el mismo día.
+---
+
+## 11. [VL.11] La red interna deja de salir a internet para hablar con el servidor de al lado
+
+El túnel dejó prod alcanzable, pero midiendo el resultado apareció el costo:
+
+| Camino (desde una máquina de la oficina) | TTFB | total |
+|---|---|---|
+| **LAN directo** a `md` | 5.7 ms | **5.9 ms** |
+| **por el túnel** (`megadulcessuite.com`) | 225 ms | **225–453 ms** |
+
+**38–76× más lento para gente sentada en el mismo edificio que el servidor.** Una pantalla que
+encadena 10 llamadas suma 2.2–4.5 s, o sea que el camino actual **rompe la regla del propio
+proyecto** (*">1 s de carga = no funciona"*). Y el enlace de subida son 44 Mbit **compartidos**
+con la oficina y los 14 carriles, así que el mismo byte se paga dos veces.
+
+⭐ **El hallazgo que unifica el trabajo.** `database/importers/kepler/install-service.js:47`
+**rechaza** una URL de ingesta que no sea `https://`, con el motivo escrito: *"la clave viaja en
+el header"*. O sea que el plan de §6 #9 —apuntar las cajas a `http://192.168.0.222:8080/…`— lo
+**bloquea una compuerta de este mismo repo, y con razón**. La solución correcta de la ingesta
+resulta ser **la misma** que la del DNS: TLS local + resolución interna. Un trabajo, dos
+problemas.
+
+### Estado
+
+| | Qué | Estado |
+|---|---|---|
+| **C** | El commit se **hornea en la imagen** (`ARG GIT_COMMIT_SHA`) + `--build-arg` en `deploy.sh` + un resolvedor único en `apps/api/src/build-info.ts` | ✅ |
+| **D** | `deploy.sh` construye **sólo lo que se le pide**; entrada `--tunel`; `NODE_ENV` explícito en `portal`/`vendor` | ✅ |
+| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en los MikroTik | 🧪 **certificado VIVO y verificado**; faltan las 3 líneas **por plaza** |
+| **B** | La ingesta de las cajas vuelve a la LAN, **sin dejar de ser HTTPS** | ⬜ depende de A |
+| **E** | RAM — **medir antes de afinar** | ⬜ |
+
+### C — por qué el commit se hornea
+
+`/api/health` respondió `{"commit": ""}` **dos veces** el 2026-09-22, la segunda al levantar el
+túnel. Dos causas encadenadas, y las dos están arregladas:
+
+1. `GIT_COMMIT_SHA` viajaba **sólo** como prefijo de entorno en `deploy.sh recrear()`. Cualquier
+   `docker compose up` que no pasara por ahí lo dejaba vacío — y `cloudflared` declara
+   `depends_on: [api, portal, vendor]`, así que levantarlo recrea el API sin la variable.
+2. `app.controller.ts` usaba `??`, que es **nullish**: `"" ?? 'unknown'` devuelve `""`. El
+   respaldo nunca entraba. ⚠️ Un campo con el valor equivocado es peor que uno ausente — nadie
+   lo reporta, porque el endpoint sigue devolviendo 200.
+
+⭐ De paso aparecieron **dos mentiras más del mismo dato**: `otel.ts` e `instrument.ts` leían
+**sólo** `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe → toda traza salía etiquetada `dev` y
+**todo error de producción llegaba a Sentry sin `release`**. Los tres leen ahora el mismo
+resolvedor.
+
+⭐ Y `deploy.sh` **no pasaba ningún `--build-arg`**, así que el sello de versión que
+`apps/portal/Dockerfile` y `apps/vendor/Dockerfile` **ya estampaban** en su `index.html` decía
+**`unknown`** on-prem desde el primer día.
+
+#### ⭐⭐ La prueba negativa encontró que el arreglo estaba a medias
+
+Hornear el commit **no alcanzaba**. El compose seguía declarando
+`GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}`, y **una variable del servicio pisa el `ENV` de la
+imagen**: sin nadie que la exportara quedaba en cadena vacía y tapaba el valor horneado.
+Medido reproduciendo el escenario exacto del día anterior —`docker compose up -d cloudflared`
+a mano— **con el `ARG` ya puesto**:
+
+```
+/api/health            →  {"commit": "unknown"}
+dentro del contenedor  →  GIT_COMMIT_SHA=[]
+```
+
+⚠️ **Y ése es el punto: el arreglo a medias se veía igual que el arreglo entero.** `unknown` es
+más honesto que `""`, así que por el camino normal (`deploy.sh`) todo respondía bien. Sin correr
+la prueba negativa, el item se habría cerrado afirmando algo falso.
+
+Se retiró la declaración del compose (`api` + `worker`) y, por la otra punta, el export de
+`recrear()` — dejarlo sería reconstruir el mismo acoplamiento. Verificado después:
+
+| Camino | Resultado |
+|---|---|
+| `docker compose up -d --force-recreate api`, **sin** `deploy.sh` | `67a30bea` |
+| el escenario que falló (`up -d cloudflared api`) | `67a30bea` |
+| `worker` (sin endpoint de salud, se mira la variable) | `GIT_COMMIT_SHA=[67a30bea]` |
+| los 3 hostnames del túnel | HTTP 200 |
+
+### A — el diseño, y la trampa que no es obvia
+
+⛔ **No hay atajo con certificado autofirmado.** Las apps mandan
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`, así que en cuanto un navegador
+visita el dominio **todos sus subdominios quedan bloqueados por HSTS un año** y un error de
+certificado **deja de ser saltable**: desaparece el "proceder de todos modos". El certificado
+tiene que ser **públicamente confiable** → Let's Encrypt por **DNS-01** (la IP pública de `md`
+no es fija y el dominio está *proxied*, así que HTTP-01 no aplica).
+
+⛔ **Se descarta Traefik**, y no por gusto: es el proxy que Coolify metió y que ató 80, 443 **y
+8080** —el puerto del API— dejando prod caído **50 minutos** (§10.4). El terminador nuevo
+**liga sólo 80 y 443**; medido: ambos libres en `md`.
+
+MikroTik (`192.168.0.254`, RouterOS):
+
+```
+/ip dns static add name=megadulcessuite.com          address=192.168.0.222 comment="VL.11"
+/ip dns static add name=portal.megadulcessuite.com   address=192.168.0.222 comment="VL.11"
+/ip dns static add name=vendedor.megadulcessuite.com address=192.168.0.222 comment="VL.11"
+```
+
+⚠️ **Tres entradas por NOMBRE EXACTO, y nada de `regexp=`.** La forma con expresión regular se
+descartó por dos motivos, los dos capaces de morder callado:
+
+1. **Un regexp amplio tipo `.*\.megadulcessuite\.com` también captura
+   `_acme-challenge.megadulcessuite.com`** y devuelve un registro A donde el ACME espera un TXT
+   → **la renovación del certificado fallaría en silencio dentro de 60 días**, o sea mucho
+   después de que nadie recuerde haber tocado el router.
+2. En RouterOS el `regexp` de DNS estático **no está anclado por defecto**, así que también
+   respondería por `portal.megadulcessuite.com.loquesea.com` — un nombre ajeno resolviendo a
+   nuestro servidor.
+
+Aun así el terminador se configura con resolvedores explícitos (`1.1.1.1`, `8.8.8.8`) para su
+comprobación de propagación del TXT: es defensa en profundidad, no confianza en el router.
+
+⚠️ `md` también resuelve por el MikroTik y hoy resuelve **su propio dominio a Cloudflare**
+(`172.67.155.247`): cualquier llamada del servidor a su URL pública sale a internet y vuelve.
+La entrada estática también cura eso.
+
+⚠️ **Deuda que A no cierra:** el camino interno **no pasa por Cloudflare** — sin WAF, sin
+protección de DDoS, sin Access. Para una LAN es lo deseado, pero queda dicho.
+
+### A — resultado, medido el 2026-09-23
+
+El certificado de Let's Encrypt se obtuvo por **DNS-01** para los tres nombres y Caddy lo
+renueva solo. Verificado **antes** de tocar el router, fijando la IP a mano y **sin `-k`**
+—o sea exigiendo que el certificado valide de verdad—: los tres responden **HTTP 200**.
+
+Comparación limpia, misma URL, mismo momento, **los dos caminos por HTTPS**:
+
+| Camino | TCP | apretón TLS | **TTFB** |
+|---|---|---|---|
+| **Interno** (`md:443`) | 1.5 ms | 10 ms | **13 ms** |
+| **Por el túnel** | 44 ms | 99 ms | **225–302 ms** |
+
+**17–23×.** ⚠️ Y corrige a la baja una medición propia: la primera lectura del camino interno
+dio 150 ms, que era ruido de la primera llamada. Con la conexión reutilizada —lo que hace un
+navegador— baja a **~4 ms**.
+
+⚠️ **Nota de la medición, no un defecto:** pedir `/api/health` cinco veces seguidas devolvió
+`429 ThrottlerException`. Es el limitador de tasa de la app funcionando; la comparación se
+rehízo contra `/`, que es estático.
+
+⭐ **Falta el paso humano, y ahora SÍ es seguro darlo**: las tres entradas del MikroTik. El
+orden importaba —primero el certificado— porque con HSTS encendido apuntar la oficina a `md`
+sin certificado da un error que no se puede saltar. Ese riesgo ya no existe.
+
+#### ⭐⭐ Y después del sondeo: hay un camino que NO toca la red
+
+Antes de pedirle 8 cambios al grupo de redes se sondearon las alternativas. Resultado:
+**existe una forma más simple y está probada**.
+
+`interno.megadulcessuite.com` es un registro **A público** que apunta a **`192.168.0.222`**,
+una IP privada. Suena raro y es perfectamente válido: el DNS público devuelve el número, y
+sólo lo puede *usar* quien esté adentro de la red.
+
+**El riesgo era la protección anti-rebinding** —muchos routers descartan respuestas con
+direcciones privadas—, así que se preguntó **a cada router de plaza**:
+
+| Router | Respuesta | Plaza |
+|---|---|---|
+| `192.168.0.254` · `.42.1` · `.40.1` · `.44.1` · `.54.1` · `.50.1` · `.32.1` · `.30.1` | **`192.168.0.222`** los 8 | oficinas + las 7 plazas |
+
+**Ninguno filtra.** Y verificado de punta a punta desde una máquina de oficina, **sin una sola
+entrada estática**: DNS → `192.168.0.222` · HTTPS **200** con certificado público válido ·
+**TTFB 16 ms** · la API responde.
+
+⭐ De paso resuelve el hueco de **CEDIS (`.9`) y Padre Hidalgo (`.10`)**, cuyos gateways ni
+siquiera se pudieron ubicar: no hace falta ubicarlos.
+
+##### Las dos opciones, con lo que cada una cuesta
+
+| | `interno.` (registro público) | Entradas estáticas por router |
+|---|---|---|
+| Cambios de red | **ninguno** | 3 líneas × 8 routers |
+| Cubre CEDIS y Padre Hidalgo | **sí** | hay que ubicar su gateway primero |
+| Misma URL adentro y afuera | no — son dos nombres | **sí** |
+| Una laptop que sale de la oficina | ese nombre deja de servirle | **sigue funcionando** |
+| ⭐ **Si se cae internet** | deja de resolver al vencer el TTL | **la app interna sigue viva** |
+| Publica una IP privada en DNS público | sí (RFC1918 — riesgo bajo, molesta a auditorías) | no |
+
+⚠️ **El renglón de la caída de internet es el que decide, y no es obvio.** Hoy, con todo
+pasando por el túnel, una caída de internet **ya deja la app inaccesible para todos**. El
+registro público **no empeora eso**. Las entradas estáticas sí lo **mejoran**: con el enlace
+caído, la app —que vive en el mismo edificio— seguiría funcionando adentro.
+
+⇒ **Recomendación**: usar `interno.` **ya**, que desbloquea `[VL.11.B]` hoy y sin depender de
+nadie; y dejar las entradas de router como mejora **posterior y opcional**, que compra la
+misma URL en los dos lados y sobrevivir a una caída del enlace. No son excluyentes.
+
+⚠️ **Nota operativa del terminador**: cambiar el `Caddyfile` **no** recrea el contenedor —es
+un montaje, así que Compose no ve cambio de configuración— y `caddy reload` tampoco sirve
+porque la API de administración está **apagada** a propósito. Para que tome un nombre nuevo:
+`docker restart prod-caddy`. Es el costo aceptado de no dejar abierta una API que puede
+recargar la configuración entera.
+
+#### ⛔ Corrección al diseño: el DNS partido va POR PLAZA, no una vez
+
+El diseño original hablaba de *"la entrada del MikroTik"*, en singular. **Está mal**, y lo
+destapó el usuario al explicar cómo está armada la red. Medido el 2026-09-23 (mapa completo en
+[`ops/README.md` §8bis](../README.md)):
+
+- **El tercer octeto es la plaza**: `.0` oficinas · `.9` CEDIS · `.10` Padre Hidalgo · `.42`
+  La Piedad · `.40` 8 Esquinas · `.44` Yurécuaro · `.54` Zamora · `.50` Canindo · `.32`
+  Morelia Madero · `.30` Morelia Abastos.
+- **Cada plaza tiene su propio gateway y su propio resolvedor** — los 7 identificados
+  contestan en el puerto 53, y **los 8 son MikroTik RouterOS**, o sea una flota.
+
+⇒ Una entrada en el MikroTik **de oficinas** sirve **sólo a oficinas**. Una caja en
+`192.168.30.x` seguiría resolviendo a Cloudflare y **saliendo a internet para hablar con un
+servidor de su misma red** — exactamente lo que `[VL.11.B]` viene a evitar. Las mismas tres
+líneas van **en cada MikroTik**.
+
+⬜ **Abierto**: los gateways de CEDIS (`.9`) y Padre Hidalgo (`.10`) no están en `.1` ni
+`.254`; hay que averiguar su direccionamiento antes de incluirlas.
+
+### B — no hay cajas que repuntar: son dos variables, y van en el corte
+
+⭐ **La fase B era mucho más chica de lo que este documento decía, y lo destapó el usuario**
+al decir *"Wincaja ya no existe"*. Verificado contra los datos el 2026-09-23:
+
+| Almacén | Último ticket | Actividad |
+|---|---|---|
+| `01`–`08` (Kepler) | 2026-09-23, **0–4 min de rezago** | 18–120 tickets en 3 h, los ocho |
+| **`MD-30`** | **2026-09-18 20:40** | **0 en 24 h** |
+| **`MD-32`** | **2026-09-07 19:22** | **0 en 24 h** |
+
+Los `MD-*` cortan **exactamente** en las fechas de migración que `kepler-branches.js` ya
+documentaba. Wincaja está muerto.
+
+⇒ **Nadie postea a `/api/store/live/ingest` desde una tienda.** Las 8 ramas las lee
+`store-poller`, **que corre en `md`**. El único consumidor remoto del endpoint son **dos
+contenedores de la misma máquina** — `store-poller` y `feeds-livefast`—, los dos con
+`STORE_INGEST_URL` apuntando a `https://megadulces.up.railway.app/...`.
+
+#### ✅ EJECUTADO 2026-09-23 — decisión del usuario, con el costo sobre la mesa
+
+`store-poller` ya apunta a `https://interno.megadulcessuite.com/api/store/live/ingest`. La
+línea vive en el **`environment:` del compose versionado**, no en `feeds.env` — ese archivo no
+está versionado ni tiene generador, así que el cambio habría sido invisible desde el repo y se
+perdería al regenerarlo. `environment:` gana sobre `env_file`.
+
+**Verificado antes de desplegar, porque la falla habría sido silenciosa:** se compararon las
+**huellas** de las dos llaves (la del poller en `feeds.env` contra el `STORE_INGEST_KEY` de la
+API de `md`) y **coinciden**. Si no lo hicieran, el poller recibiría 401, **no se caería**, y
+los tickets se perderían sin que nada se pusiera rojo.
+
+**Resultado, medido:**
+
+| | |
+|---|---|
+| `md` | los **8 almacenes** entregando, **1–10 min** de rezago, 19–133 tickets del día cada uno |
+| Railway | **congelado en 15:48:00** — confirmado en dos lecturas separadas 100 s |
+
+⚠️ **El costo, que el usuario aceptó explícitamente**: Railway **hoy sigue siendo producción**,
+así que su pantalla de Tienda Live **ya no se actualiza**. Se revierte comentando esa línea del
+compose y recreando el contenedor:
+
+```sh
+# revertir
+sh ops/vl/deploy.sh store-poller     # con la línea STORE_INGEST_URL comentada
+```
+
+⚠️ **Parpadeo observado y descartado**: durante la verificación, una consulta a la base de
+Railway devolvió `FATAL: the database system is in recovery mode`. Se midió enseguida — 3 de 3
+respuestas normales y **833 minutos de uptime** — así que fue transitorio, no un incidente. Se
+deja escrito porque el primer intento de diagnóstico **sacó la conclusión contraria**: comparó
+una consulta *fallida* (cadena vacía) contra un valor y concluyó *"Railway sigue avanzando"*.
+**Una comparación contra el resultado de algo que falló no es una medición.**
+
+#### Lo que sigue en el corte
+
+Railway **sigue siendo producción**. Repuntar esas dos variables ahora mandaría la venta viva
+de las 8 tiendas a la **copia** de `md` en vez de al sistema real. Es un renglón **del corte**:
+cambiar `STORE_INGEST_URL` a `https://interno.megadulcessuite.com/api/store/live/ingest` en
+[`ops/vl/docker-compose.yml`](../vl/docker-compose.yml) y recrear los dos contenedores.
+
+El destino ya está **probado**: **401** con llave mala y **201** `{"received":0,"inserted":0}`
+con la llave real, sin escribir un solo ticket, y `analytics.store_live_tickets` sin moverse
+de 237,585 filas.
+
+⚠️ **Verruga medida que NO es pérdida de datos**: `store-poller` registra ~**32 `timeout
+expired` cada 2 h**, todos de `01 Padre Hidalgo`. Se comprobó contra prod real: esa tienda está
+**2 minutos atrás con 58 tickets en 3 h**, o sea que los reintentos entran. Es un enlace lento,
+no un carril caído — pero el log grita 32 veces cada dos horas, y **una alarma que grita en
+falso enseña a ignorar el tablero**.
+
+### B — corrección medida a §6 #9
+
+§6 #9 dice *"antes de tocar las 30"*. Los agentes de Wincaja **parametrizados son 2**: `'30'`
+MD-30 Morelia Abastos y `'32'` MD-32 Morelia Madero (`deploy-wincaja-agent.ps1:35-39`; `'50'`
+Canindo está comentado porque migró a Kepler). **El trabajo es mucho menor de lo que decía el
+documento** — pero hay que contar las cajas reales antes de dimensionarlo.
+
+⚠️ **Hallazgo de seguridad colateral**, ajeno a esta fase y encontrado midiéndola:
+`database/importers/lib/kepler-branches.js:31-32` trae **credenciales por defecto en el código**,
+y la llave de ingesta está en texto plano en cada caja. El guard `store-ingest.guard.ts` es un
+secreto compartido en una cabecera: **sin lista blanca de IP, sin mTLS, sin límite de tasa**.
+
+### E — no hay escasez de RAM, y eso corrige el plan
+
+`md` tiene **28 GiB** (no los 14 que dice `FASE_VL`), con **20 disponibles**. `pg-prod` ya está
+afinado: 6 GB `shared_buffers`, 14 GB `effective_cache_size`, `random_page_cost` 1.1,
+`effective_io_concurrency` 200 — correctos para NVMe. Base de prod: `railway`, **21 GB**.
+
+⚠️ **Lo real y sutil:** hay **dos Postgres en la misma caja y cada uno cree que la caché del
+sistema es suya** — `pgvector-md` usa 14.13 GiB y `pg-prod` declara 14 GB de
+`effective_cache_size`. El planificador de prod puede elegir planes contando con caché que no
+tiene. ⇒ **Medir `pg_statio_user_tables` primero.** Cambiarlo a ojo es adivinar.
+
 ---
 
 **Plan de la fase:** [`FASE_VL`](../../docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md) ·

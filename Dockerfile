@@ -289,11 +289,26 @@ COPY --chown=node:node --chmod=755  start.sh   ./start.sh
 # migrate.sh corre como preDeployCommand de Railway (migraciones fuera del boot).
 COPY --chown=node:node --chmod=755  migrate.sh ./migrate.sh
 
+# ── [VL.11.C] EL COMMIT SE HORNEA EN LA IMAGEN ─────────────────────────────────
+# Va acá a propósito, DESPUÉS de todos los COPY pesados: cambiar de commit invalida
+# sólo estas dos capas de bytes, no las ~60k de `node_modules`.
+#
+# ⛔ Antes el commit viajaba SÓLO como prefijo de entorno en `deploy.sh recrear()`, así que
+# cualquier `docker compose up` que no pasara por ahí dejaba `/api/health` diciendo `""`.
+# Pasó DOS VECES el 2026-09-22, la segunda al levantar el túnel: `cloudflared` declara
+# `depends_on: [api, portal, vendor]` y Compose recreó `api` sin la variable.
+# Una imagen sabe de qué commit salió; preguntárselo al entorno era pedirle la verdad a
+# quien la arranca. El entorno sigue pudiendo pisarlo (`recrear()` lo sigue mandando),
+# pero ahora el valor horneado es el piso, no el aire.
+ARG GIT_COMMIT_SHA=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+
 # OCI labels — facilitan tracking en el registry.
 LABEL org.opencontainers.image.title="Trade Marketing" \
       org.opencontainers.image.description="Mega Dulces B2B + trade marketing platform" \
       org.opencontainers.image.licenses="UNLICENSED" \
-      org.opencontainers.image.vendor="Mega Dulces"
+      org.opencontainers.image.vendor="Mega Dulces" \
+      org.opencontainers.image.revision="${GIT_COMMIT_SHA}"
 
 EXPOSE 10000
 

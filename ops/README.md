@@ -354,6 +354,66 @@ alguna vez se dropean allá, **primero `ALTER SUBSCRIPTION … SET (slot_name = 
 
 ---
 
+## 8bis. La red — una subred por plaza, y una flota de MikroTik
+
+> Medido el 2026-09-23 desde `md`. Lo pidió el usuario porque **una decisión de VL.11 se
+> apoyaba en un supuesto falso sobre esto**.
+
+**El tercer octeto ES la plaza.** No es convención suelta: `kepler-branches.js` ya lo dice
+(*"tercer octeto de IP = plaza"*), pero faltaba escrito qué hay en cada una.
+
+| Subred | Plaza | Código | Gateway |
+|---|---|---|---|
+| `192.168.0.x` | **Oficinas** — acá viven `md` (.222) y el MikroTik (.254) | — | `192.168.0.254` |
+| `192.168.9.x` | CEDIS | `00` | ⬜ no está en `.1` ni `.254` |
+| `192.168.10.x` | Padre Hidalgo | `01` | ⬜ no está en `.1` ni `.254` |
+| `192.168.42.x` | La Piedad Abastos | `02` | `192.168.42.1` |
+| `192.168.40.x` | 8 Esquinas | `03` | `192.168.40.1` |
+| `192.168.44.x` | Yurécuaro | `04` | `192.168.44.1` |
+| `192.168.54.x` | Zamora Centro | `05` | `192.168.54.1` |
+| `192.168.50.x` | Canindo | `06` | `192.168.50.1` |
+| `192.168.32.x` | Morelia Madero | `07` | `192.168.32.1` |
+| `192.168.30.x` | Morelia Abastos | `08` | `192.168.30.1` |
+
+**Los 8 gateways identificados son MikroTik RouterOS** (verificado por su página de
+administración). Es una flota, no equipos sueltos: lo que se hace en uno se hace igual en
+todos.
+
+### ⛔ La consecuencia que casi se nos pasa
+
+`md` sólo conoce `192.168.0.0/24` directo; a todo lo demás llega **por el gateway de
+oficinas**. Y **cada plaza tiene su propio resolvedor de DNS** — los 7 gateways contestan en
+el puerto 53.
+
+⇒ **Una entrada estática en el MikroTik de oficinas NO alcanza a las sucursales.** Sirve sólo
+a quien use `192.168.0.254` como resolvedor. Una caja en `192.168.30.x` seguiría resolviendo
+`megadulcessuite.com` a Cloudflare y **saliendo a internet para hablar con un servidor de la
+misma red**, que es exactamente lo que `[VL.11.B]` viene a evitar.
+
+⇒ El DNS partido se aplica **por plaza**: las mismas tres líneas en cada MikroTik. Buena
+noticia: son idénticas, y siendo la misma flota se pueden aplicar de una.
+
+### El sentido inverso: declarado por quien administra la red, no medido desde acá
+
+Está **medido** que `md` alcanza a las sucursales (5 de 8 respondieron en 5432; las otras usan
+el 1977). El sentido inverso —que una sucursal alcance `192.168.0.222`— lo **confirmó quien
+administra la red el 2026-09-23**, y se registra como tal: es un dato de quien la configuró,
+no una medición de este repo.
+
+⚠️ Se distingue a propósito, porque **desde `md` no se puede comprobar**: hoy no existe ni un
+solo flujo sucursal → `md` del que sacar evidencia. Todo lo que hay —las 8 suscripciones
+lógicas, `store-poller`, los importers— sale **desde** `md`. Que `md` abra una conexión a una
+sucursal y reciba respuesta NO prueba que una sucursal pueda abrir una hacia `md`: un firewall
+puede ser asimétrico sin que nada lo delate.
+
+⇒ La comprobación llega **gratis** con la primera caja que se repunte: si el POST entra, el
+camino existe. Por eso se toca **una** caja antes que el resto.
+
+⬜ **Abierto:** el gateway de CEDIS (`.9`) y el de Padre Hidalgo (`.10`) no están en `.1` ni
+`.254`. Su direccionamiento es distinto y hay que averiguarlo antes de incluirlas.
+
+---
+
 ## 8. Lectura de desarrollo
 
 Los devs leen las réplicas de `md` (**no prod**) con un rol por persona, sólo lectura:

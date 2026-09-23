@@ -79,3 +79,20 @@ lighthouse-*.json
 
 # Claude / local agent state
 .claude
+
+# ── [VL.11.C] VOLCADOS DE BASE — 551 MB que NO deben entrar al contexto ─────────
+# ⚠️ `database/` SÍ viaja a las imágenes (`COPY database ./database` en /Dockerfile:271 y
+# Dockerfile.worker:118) porque knex lee de ahí las migraciones. Lo que no debe viajar son
+# los volcados sueltos: `BACKUP.sql` 228 MB, `backup tienda LPA R 42…sql` 147 MB,
+# `R10 19-06-2026.sql` 41 MB, más `database/backups/` 110 MB.
+#
+# Hoy `ops/prod/deploy.sh` se salva de casualidad: manda `git archive HEAD`, y estos archivos
+# no están versionados, así que a `md` llegan 8.5 MB. Pero **cualquier `docker build .`
+# local o de CI empuja ~540 MB** al contexto y los hornea en las DOS imágenes.
+#
+# ⭐ El patrón es el mismo que `.gitignore:88` (`database/*.sql`), o sea una regla que este
+# repo ya validó. Verificado antes de escribirla: **0** archivos `.sql` versionados viven
+# directamente en `database/`; los 53 que sí existen están todos en subcarpetas
+# (`database/importers/…`, `database/scripts/…`) y este patrón NO los alcanza.
+database/*.sql
+database/backups

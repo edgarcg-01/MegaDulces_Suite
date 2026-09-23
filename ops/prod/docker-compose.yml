@@ -239,11 +239,21 @@ services:
       # `http://192.168.0.222:8080` en un NAVEGADOR vuelve a romperse, y es correcto. La
       # entrada es `https://megadulcessuite.com`. Para depurar, `curl` no mira el CSP.
       TLS_TERMINADO: "true"
-      # Qué versión está sirviendo. Lo pasa `deploy.sh` desde `git rev-parse --short HEAD`.
-      # ⛔ No puede vivir en `prod.env`: ese formato no interpola y Compose lo dejaría vacío
-      # (medido: `/api/health` devolvía `"commit": ""`). El código lo lee como fallback de
-      # `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe.
-      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
+      # ⛔⛔ [VL.11.C] ACÁ NO VA `GIT_COMMIT_SHA`, Y CUESTA ENTENDER POR QUÉ HASTA QUE SE MIDE.
+      # Qué versión está sirviendo lo dice ahora la IMAGEN (`ARG GIT_COMMIT_SHA` + `ENV` en
+      # /Dockerfile), que es quien de verdad lo sabe. Declararlo también acá lo ROMPÍA:
+      #
+      #   `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}` pone la variable en CADENA VACÍA cuando nadie
+      #   la exporta, y una variable del servicio **PISA el ENV de la imagen**. O sea que el
+      #   valor horneado quedaba tapado por un vacío.
+      #
+      # Medido el 2026-09-23 con la prueba negativa —`docker compose up -d cloudflared` a mano,
+      # que arrastra `api` por `depends_on`— CON el ARG ya horneado y esta línea todavía
+      # presente: `/api/health` respondió `{"commit": "unknown"}` y dentro del contenedor
+      # `GIT_COMMIT_SHA=[]`. El arreglo a medias se veía igual que el arreglo entero.
+      #
+      # ⚠️ Un `docker compose up` a mano ya NO puede mentir sobre la versión, porque no hay
+      # nada que pisar.
       # ⭐ ACÁ SE CORRIGE UN DEFECTO QUE VIENE DE RAILWAY, Y SE DECLARA EN VEZ DE HEREDARLO.
       # Medido el 2026-09-22: NI `MegaDulces` NI `worker` definen `DISABLE_CRONS`, así que
       # `ScheduleModule` se registra en los DOS y los **48 @Cron corren por duplicado**. Eso
@@ -282,7 +292,9 @@ services:
       NODE_ENV: production
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
-      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}
+      # [VL.11.C] Sin `GIT_COMMIT_SHA`: lo hornea la imagen. Mismo motivo que en `api` —
+      # declararlo acá lo pisaba con vacío. El worker no tiene endpoint de salud, así que
+      # acá el dato equivocado ni siquiera se veía.
       RUN_MIGRATIONS_ON_BOOT: "0"
       # ⛔ CRONS APAGADOS MIENTRAS ESTO SEA UNA COPIA — se enciende en el corte, no antes.
       # No es prudencia genérica: se midió qué harían los 48 @Cron contra la copia y tres
@@ -326,6 +338,14 @@ services:
     image: trade-prod-backup:latest
     container_name: prod-backup
     restart: unless-stopped
+    # [VL.11.D] Tope de log EXPLÍCITO. ⚠️ No arregla una falla: se sospechó que este servicio
+    # —el único que no usa el ancla `*app`— crecía sin tope, y la medición lo DESMINTIÓ:
+    # `/etc/docker/daemon.json` en `md` ya impone `10m × 3` a todo el motor. Pero esa
+    # protección vive en un archivo del host que NO está versionado, así que la reproducibilidad
+    # del stack dependía de algo invisible desde el repo. Ahora no.
+    # (Sigue SIN usar `<<: *app` a propósito: no debe heredar `prod.env` —usa `ingest.env`, que
+    # apunta a otra base— ni el label de `autoheal`.)
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
     environment:
       TZ: America/Mexico_City
     volumes:
@@ -353,6 +373,15 @@ services:
     container_name: prod-portal
     ports: ["8081:10000"]
     environment:
+      # ⚠️ [VL.11.D] `NODE_ENV` VA EXPLÍCITO ACÁ AUNQUE EL ANCLA `*app` YA LO TENGA.
+      # La fusión de YAML (`<<:`) NO es profunda: al redeclarar `environment:` este bloque
+      # REEMPLAZA entero el mapa del ancla, no lo completa. Medido el 2026-09-23:
+      # `docker exec prod-portal printenv NODE_ENV` → vacío, mientras `prod-api` sí lo traía.
+      # Hoy no rompe nada (nadie lo lee en el arranque de estos dos contenedores, verificado),
+      # así que es una trampa LATENTE, no una falla activa: el día que alguien agregue al
+      # `start.sh` una rama `if [ "$NODE_ENV" = production ]`, producción tomaría el camino
+      # de desarrollo en silencio. Lo mismo vale para `vendor`.
+      NODE_ENV: production
       TZ: America/Mexico_City
       PORT: "10000"
       # ✅ [VL.9.12 → VL.9.14] EL DÍA LLEGÓ: 2026-09-22. El túnel de Cloudflare sirve
@@ -375,6 +404,9 @@ services:
     container_name: prod-vendor
     ports: ["8082:10000"]
     environment:
+      # ⚠️ [VL.11.D] Explícito por el mismo motivo que en `portal`: `<<:` no fusiona mapas
+      # anidados, así que redeclarar `environment:` borra el `NODE_ENV` del ancla.
+      NODE_ENV: production
       TZ: America/Mexico_City
       PORT: "10000"
       # ✅ [VL.9.12 → VL.9.14] EL DÍA LLEGÓ: 2026-09-22. El túnel de Cloudflare sirve
@@ -421,6 +453,57 @@ services:
     depends_on: [api, portal, vendor]
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # [VL.11.A] EL CAMINO INTERNO — TLS terminado acá, sin salir del edificio
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # El túnel de arriba resuelve "cómo entro desde afuera". Éste resuelve lo otro:
+  # que la oficina no cruce internet para hablar con el servidor de al lado.
+  # Medido el 2026-09-23 contra la MISMA API, desde una máquina de la oficina:
+  #
+  #     LAN directo   →    5.9 ms
+  #     por el túnel  →  225–453 ms      ⇒ 38–76×
+  #
+  # ⚠️ NO reemplaza al túnel: conviven. Los de afuera siguen entrando por Cloudflare;
+  # los de adentro entran acá **con la misma URL**, gracias a las entradas estáticas del
+  # MikroTik. Una laptop que va y viene no cambia nada.
+  #
+  # ⛔ LIGA SÓLO 80 Y 443. Coolify metió un Traefik que ató también el **8080** —el puerto
+  # del API— y dejó prod caído 50 minutos (README §10.4). Los 8080/8081/8082 siguen siendo
+  # de las apps y este contenedor no los toca.
+  #
+  # ⛔ ORDEN DE ENCENDIDO: primero el certificado, DESPUÉS el DNS del router. Con HSTS ya
+  # encendido, apuntar la oficina a `md` sin certificado da un error que NO se puede saltar.
+  caddy:
+    profiles: ["tls"]
+    image: trade-prod-caddy:latest
+    container_name: prod-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3. Caddy lo ofrece por default y sin el UDP el cliente cae a TCP en silencio
+      # tras un intento fallido — funciona, pero pagando un viaje de más.
+      - "443:443/udp"
+    environment:
+      TZ: America/Mexico_City
+      # ⚠️ `${VAR:-}` y NO `${VAR:?...}`, igual que el token del túnel: Compose interpola
+      # TODOS los servicios al validar, perfiles incluidos. Con `:?` un `docker compose
+      # config` fallaría aunque este servicio esté apagado, y eso rompe el candado de
+      # validez del deploy. Sin token, Caddy falla solo y con un mensaje claro.
+      CLOUDFLARE_DNS_API_TOKEN: ${CLOUDFLARE_DNS_API_TOKEN:-}
+    volumes:
+      # El Caddyfile versionado, montado: cambiar una ruta no exige reconstruir la imagen.
+      - /home/superoot/ops/prod/Caddyfile:/etc/caddy/Caddyfile:ro
+      # ⛔ `caddy-data` GUARDA LOS CERTIFICADOS Y LA CUENTA DE ACME. Sin volumen, cada
+      # recreación del contenedor vuelve a pedir certificados desde cero — y Let's Encrypt
+      # tiene un tope de 5 por dominio cada 7 días. Se agota en una tarde de pruebas y
+      # después hay que esperar, sin poder entrar.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [api, portal, vendor]
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
 # ── Lo que NO se porta, y por qué ────────────────────────────────────────────
 #
 # `feeds-ingest` — RETIRADO, no olvidado. Su encabezado declara su única razón de ser:
@@ -445,6 +528,9 @@ services:
 #   se declara "migrado". Va en su propio sprint.
 
 volumes:
+  # [VL.11.A] Certificados y cuenta de ACME. Ver el aviso del tope de Let's Encrypt arriba.
+  caddy-data:
+  caddy-config:
   pg-prod-data:
     # ⚠️ Vive en `/` (387 G libres). El plan pedía un LV DEDICADO, y sigue siendo lo
     # correcto —un `/` lleno se lleva puesta también a la ingesta—, pero crearlo necesita

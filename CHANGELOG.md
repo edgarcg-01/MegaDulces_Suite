@@ -10,6 +10,57 @@
 
 ## [Unreleased]
 
+### Fixed — `/api/health` decía `""`, y otras dos cosas mentían el mismo dato (`[VL.11.C]`, 2026-09-23)
+- El commit **se hornea en la imagen** (`ARG GIT_COMMIT_SHA` al final de la etapa `runner`, para
+  no invalidar las capas pesadas) y `deploy.sh construir()` lo pasa por `--build-arg`. Antes
+  viajaba **sólo** como prefijo de entorno en `recrear()`, así que cualquier `docker compose up`
+  lo dejaba vacío — y `cloudflared` declara `depends_on: [api, portal, vendor]`, o sea que
+  levantar el túnel recreaba el API sin la variable. Pasó **dos veces** el 2026-09-22.
+- La segunda mitad del defecto: `??` es **nullish**, así que `"" ?? 'unknown'` devuelve `""` y el
+  respaldo nunca entraba. ⚠️ Un campo con el valor **equivocado** es peor que uno ausente: nadie
+  lo reporta, porque el endpoint sigue devolviendo 200.
+- ⭐ Aparecieron **dos mentiras más del mismo dato**: `otel.ts` e `instrument.ts` leían **sólo**
+  `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe → toda traza salía etiquetada `dev` y **todo
+  error de producción llegaba a Sentry sin `release`**. Tres lectores, tres respuestas → un
+  resolvedor único en `apps/api/src/build-info.ts`.
+- ⭐ Y `deploy.sh` **no pasaba ningún `--build-arg`**, así que el sello de versión que
+  `apps/portal/Dockerfile` y `apps/vendor/Dockerfile` **ya estampaban** decía `unknown` on-prem
+  desde el primer día.
+- ⭐⭐ **La prueba negativa encontró que el arreglo estaba a medias.** Hornear el `ARG` no
+  alcanzaba: el compose seguía declarando `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-}` y **una variable
+  del servicio pisa el `ENV` de la imagen** — quedaba en cadena vacía y tapaba el valor horneado.
+  Reproduciendo el escenario del día anterior **con el `ARG` ya puesto**: `{"commit": "unknown"}`
+  y `GIT_COMMIT_SHA=[]` dentro del contenedor. ⚠️ **El arreglo a medias se veía igual que el
+  entero** (por `deploy.sh` respondía bien), así que sin la prueba negativa el item se habría
+  cerrado afirmando algo falso. Se retiró del compose y del export de `recrear()`.
+
+### Fixed — ⛔ `.dockerignore` nunca funcionó en el servidor (`[VL.11.C]`, 2026-09-23)
+- No tenía regla en `.gitattributes`, así que `git archive HEAD` lo exportaba con **CRLF**.
+  Medido en bytes sobre lo que de verdad viaja: `.dockerignore` **81 CR** · `Dockerfile` **0** ·
+  `deploy.sh` **0**. Cada patrón quedaba con un `
+` pegado (`node_modules
+`) y **no matcheaba
+  nada**.
+- No explotó porque `deploy.sh` manda sólo archivos versionados y lo que más pesa no lo está —
+  pero **un `docker build .` local o de CI sí lee el archivo**. Con la regla puesta: **81 → 0**.
+- ⚠️ **Cuarta vez** en este repo que un archivo sin extensión conocida queda fuera de
+  `.gitattributes` y falla callado. El arreglo que lo acompaña (excluir los volcados de
+  `database/`, **551 MB**) **habría sido un no-op** sin esa línea.
+
+### Changed — el despliegue deja de tener efectos colaterales (`[VL.11.D]`, 2026-09-23)
+- `deploy.sh api portal` construye **sólo esas dos** imágenes; antes reconstruía las seis.
+- **`--tunel` nuevo**: hasta hoy **ningún** camino de despliegue levantaba `cloudflared` (vive
+  tras el perfil `tunel` y no está en `SERVICIOS_DEF`), así que había que escribir el
+  `docker compose --profile` a mano — que es justo lo que vació el commit.
+- `NODE_ENV: production` explícito en `portal` y `vendor`: la fusión de YAML **no es profunda**,
+  redeclarar `environment:` **reemplaza** el mapa del ancla. Medido: `printenv NODE_ENV` vacío en
+  los dos, presente en `api`. Hoy nadie lo lee ahí, así que es una trampa **latente** — pero está
+  puesta.
+- ✅ Una sospecha **desmentida por medición**, y se deja escrita: se creía que `backup` crecía sin
+  tope de log por no usar el ancla `*app`. Falso — `/etc/docker/daemon.json` en `md` impone
+  `10m × 3` a todo el motor. Se declara igual en el compose, porque esa protección vivía en un
+  archivo del host que no está versionado.
+
 ### Added — el respaldo deja de ser una hipótesis: recuperación a un punto en el tiempo, probada (`[VL.9.11]`, 2026-09-22)
 - `ops/prod/probar-pitr.sh` escribe dos marcas con un instante en medio —**A → T_objetivo → B**—,
   restaura a `T_objetivo` en un directorio aparte, levanta un Postgres temporal y exige **A

@@ -15,6 +15,8 @@
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
+// `[VL.11.C]` Archivo local sin importaciones — mismo motivo que en `instrument.ts`.
+import { commitDelBuild } from './build-info';
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
@@ -47,8 +49,9 @@ if (endpoint) {
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: serviceName,
-      [ATTR_SERVICE_VERSION]:
-        process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 8) || 'dev',
+      // ⛔ Antes leía SÓLO `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe: TODA traza salía
+      // etiquetada `dev`, o sea que ninguna se podía atribuir a un build.
+      [ATTR_SERVICE_VERSION]: commitDelBuild().slice(0, 8),
     }),
     traceExporter: new OTLPTraceExporter({ url: `${base}/v1/traces` }),
     // Métricas: el reader empuja cada 30s por OTLP. Sin esto NO hay métricas

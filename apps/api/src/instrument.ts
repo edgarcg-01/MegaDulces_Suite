@@ -8,6 +8,9 @@
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
+// `[VL.11.C]` Archivo local SIN importaciones a propósito: acá no se puede tocar
+// `@megadulces/platform-core` sin ejecutar media plataforma antes de que Sentry instrumente.
+import { commitDelBuildOpcional } from './build-info';
 import * as Sentry from '@sentry/nestjs';
 
 const dsn = process.env.SENTRY_DSN;
@@ -19,6 +22,8 @@ if (dsn) {
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
     // No mandar PII (headers/cookies/body) salvo que se active explícito.
     sendDefaultPii: false,
-    release: process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
+    // ⛔ Antes leía SÓLO `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe: todo error de
+    // producción llegaba a Sentry SIN release, o sea imposible de atribuir a un build.
+    release: commitDelBuildOpcional(),
   });
 }

@@ -121,6 +121,16 @@ COPY --from=builder  --chown=node:node /app/database     ./database
 # no en el renglón del `RUN` (`[NX.10.1]`).
 COPY --from=prod-deps /app/node_modules ./node_modules
 
+# ── [VL.11.C] EL COMMIT SE HORNEA EN LA IMAGEN ─────────────────────────────────
+# Mismo motivo y misma ubicación que en `/Dockerfile`: después de los COPY pesados, para
+# que cambiar de commit invalide dos capas de bytes y no las ~60k de `node_modules`.
+# El worker declara `GIT_COMMIT_SHA` en el compose igual que el api, así que sufría el
+# mismo vaciado — con el agravante de que el worker NO tiene endpoint de salud, así que
+# ahí el dato equivocado no lo veía nadie.
+ARG GIT_COMMIT_SHA=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+LABEL org.opencontainers.image.revision="${GIT_COMMIT_SHA}"
+
 STOPSIGNAL SIGTERM
 USER node
 # Modo worker: WORKER=true (env del servicio) → bootstrapWorker() en main.ts.
