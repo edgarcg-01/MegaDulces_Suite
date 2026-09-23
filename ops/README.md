@@ -51,15 +51,15 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 ```
 * * * * *          contpaqi
 * * * * *          caja-mv               (refresh-caja-matview; latido `mv_caja_refresh`)
-*/2 * * * *        refresh-consolidado   ⚠️ el ÚNICO sin latido — es mudo (NORM.3)
+*/2 * * * *        refresh-consolidado   ⭐ [NORM.3] era el ÚNICO mudo — ya late (`consolidado_refresh`)
 */5 * * * *        watchdog
 3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)
 5,20,35,50 * * * * stock
-*/30 * * * *       live
+*/30 * * * *       live                  ⭐ [NORM.3] de 4 pasos a 2: `sales-fact` y `cash-sessions` los hace `livefast` @60 s
 2,32 * * * *       prices
 15 * * * *         intraday
 25 */2 * * *       contpaqi-slow
-0 3 * * *          nightly
+0 3 * * *          nightly               ⭐ [NORM.3] su fact COMPLETO (13 m) late aparte: `kepler_sales_fact_full`
 30 4 * * *         receipts              (barrido histórico; era @1 min hasta DB-MEM.2)
 45 5 * * *         contpaqi-cfdis-full   (reconciliador, ~167k CFDIs)
 10 5 * * *         inventory-products    ⭐ [NORM.2] escaneo del conteo — NO estaba agendado

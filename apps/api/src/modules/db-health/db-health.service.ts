@@ -833,7 +833,27 @@ const CRON_JOBS: CronCfg[] = [
   // respaldo nuevo, el WAL archivado se acumula sin tope (medido: 4 GB → 12 GB en 3 horas).
   // 26 h de warn porque es diario; 50 h antes de crítico da margen a una noche perdida.
   { key: 'pgbackrest_backup',   label: 'Respaldo pgBackRest (PITR)', cadence: 'diario 23:30 (md)', warnH: 26, critH: 50, maxRunH: 2 },
-  { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
+  // ── [NORM.3] EL FACT DE VENTA, AHORA CON UN EMISOR POR LLAVE ────────────────────────────────
+  // Hasta el 2026-09-23 esta llave la escribían DOS carriles con ventanas distintas (`livefast`
+  // @60 s = 2 días · `nightly` @03:00 = 13 meses) y, por la regresión de env de [VL.4], también
+  // `live` @30 min. La PK de `analytics.cron_runs` es `(tenant_id, job_key)` SIN host: se pisaban
+  // el renglón. Consecuencias medidas en prod sobre 7 días:
+  //   · 304 de 6,296 corridas (4.8 %) quedaron en `error` con "la corrida anterior no reportó
+  //     cierre" — errores INVENTADOS por el cruce, no fallas. 16× más que cualquier otra llave.
+  //   · `duration_ms` mentía: se calcula `now() - last_start` y el `last_start` era del otro.
+  //   · y al revés: el emisor de 60 s repintaba la llave en verde, así que el nocturno podía
+  //     estar muerto y el tablero no se enteraba. Ése era el riesgo de fondo.
+  // Ahora `kepler_sales_fact` = SÓLO `livefast` (2 días, cada 60 s), así que el umbral puede ser
+  // honesto: 6 h de warn era el umbral de un intradía de 30 min, no de un loop de un minuto.
+  // Se deja 1 h / 3 h y no 0.5/2 como el carril `feed_livefast`: primero avisa el carril (que no
+  // corrió) y después la entrega (que no llegó) — dos señales del mismo hecho, en ese orden.
+  { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact, 2d)', cadence: 'continuo ~60s', warnH: 1, critH: 3, maxRunH: 1 },
+  // El refresco COMPLETO de 13 meses: es el ÚNICO que toca filas de más de 2 días. Medido sobre 8
+  // días en prod, su régimen normal son 98–852 filas/día ($12k–$86k) más picos de re-derivación
+  // masiva cuando cambia un insumo (45,573 filas / $9.5 M el 17-sep, al moverse la escalera de
+  // unidad). Umbral calcado de `feed_nightly`, que es quien lo corre. ⚠️ Registrarlo no es
+  // cosmético: sin entrada acá el sensor cae en `cfg ? classify : 'ok'` = verde incondicional.
+  { key: 'kepler_sales_fact_full', label: 'Kepler ventas (sales-fact COMPLETO 13m)', cadence: 'diario 03:00 MX', warnH: 30, critH: 50, maxRunH: 2 },
   // kepler_catalog_bulk RETIRADO (2026-09-11): el catálogo lo mantienen los repoint-catalog-* del
   // nightly (presence/names/prices/cost, CANON.0.1) — catalog.products fresco 0 h. Su latido llevaba
   // 26 d muerto y este sensor daba un FALSO crítico. No re-agregar. Fila zombie borrada en mig 20260911120000.
@@ -857,6 +877,15 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
+  // ── [NORM.3] EL CARRIL QUE ERA MUDO ─────────────────────────────────────────────────────────
+  // `refresh-consolidado` era el ÚNICO de los 17 de `ops/vl/crontab.feeds` sin latido, y es el que
+  // está MÁS arriba de todo: refresca `mart.ventas` → `mart.ventas_enriched` → `sales_daily`, o
+  // sea la venta publicada entera. Si se paraba, los carriles de abajo seguían en verde
+  // republicando los números de ayer. Umbral = 15 corridas perdidas para warn, 60 para crítico:
+  // holgado para un carril de 2 min y muy por debajo de la media jornada.
+  // `maxRunH: 1` porque el propio script se autotermina a los 90 s (watchdog duro) — un renglón
+  // en `running` de más de una hora sólo puede significar que el proceso murió sin cerrar.
+  { key: 'consolidado_refresh', label: 'Consolidado Kepler (mart.refresh_si_cambio)', cadence: 'cada 2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
   { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },
   // [DB-MEM.2] Pasó de "cada minuto" a diario 04:30 — y con él, su umbral. NO es un feed: es el
   // BARRIDO HISTÓRICO (`detect-goods-receipt-duplicates.js`, ventana `--from=2026-01-01`), que

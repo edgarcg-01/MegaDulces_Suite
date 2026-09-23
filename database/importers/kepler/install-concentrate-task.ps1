@@ -1,4 +1,23 @@
 <#
+  ⛔⛔ RETIRADO 2026-09-23 [NORM.3] — NO CORRER ESTE SCRIPT. ⛔⛔
+
+  Instala la tarea `KP-Concentrate` en el Programador de Windows, que es justamente el sustrato
+  que ADR-060 sacó de la ecuación: agenda fuera del repo, invisible en un diff y atada a una
+  sesión de usuario. Verificado en `.249` el 2026-09-23: la tarea está **`Disabled`** (igual que
+  `Live`, `Nightly`, `LiveFastLoop`, `LivePoller` y `WincajaLive`). Correr este instalador la
+  revive de un comando, sin que nadie lo vea en el repo.
+
+  ⚠️ CORRECCIÓN AL PLAN DE FASE: este instalador NO es un cuarto emisor de `kepler_sales_fact`
+  —eso vale sólo para `install-live-task.ps1`—. Éste corre `concentrate-kepler.js`, que puebla
+  `KP_CONCENTRADA` en `.245`. Se midió antes de escribirlo.
+
+  ⛔ Y de paso queda declarado el hueco de fondo, que NO se arregla acá: `concentrate-kepler.js`
+  **no escribe ningún latido** (`analytics.cron_runs`), así que hoy no hay forma de saber si
+  `KP_CONCENTRADA` está fresca. Si se decide revivir el concentrador, la regla de [VL.4b] manda:
+  primero se le cablea el latido con su umbral, y recién después se lo agenda — en un carril de
+  `ops/vl/crontab.feeds`, no en una tarea de Windows.
+
+  ── texto original ──────────────────────────────────────────────────────────────────────────
   Instala la tarea programada RESILIENTE del concentrador KP_CONCENTRADA.
 
   Correr COMO ADMINISTRADOR en el host que tenga:
