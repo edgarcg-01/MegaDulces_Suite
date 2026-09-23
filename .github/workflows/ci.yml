@@ -169,9 +169,23 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"
 
   # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
-  # Blast radius acotado: NO revienta por deuda de lint pre-existente en código
-  # ajeno al PR/push. La regression suite (database/run-all-tests.js) NO va acá —
-  # necesita API arriba + multi-DB sembrada; queda como gate local/manual.
+  # La regression suite (database/run-all-tests.js) NO va acá — necesita API arriba
+  # + multi-DB sembrada; queda como gate local/manual.
+  #
+  # ⚠️ Acá decía «Blast radius acotado: NO revienta por deuda de lint pre-existente
+  # en código ajeno al PR/push». Era FALSO, y se midió: `nx affected` selecciona
+  # PROYECTOS, y el lint de un proyecto barre TODOS sus archivos. En la corrida
+  # 35876934497 (PR #146) eso fueron **294 errores y 5,483 warnings** en 11
+  # proyectos, de los cuales SÓLO 2 caían en un archivo del PR y NINGUNO en una
+  # línea que el PR hubiera escrito. Desde que el workflow se reactivó (22-sep),
+  # 24 de 26 corridas en rojo — y el MISMO diff dio rojo como PR y verde como
+  # merge, según qué proyectos calculó `affected`. Una compuerta que se pone verde
+  # por azar enseña a ignorar el tablero (ADR-056).
+  #
+  # Ahora el bloqueante es `scripts/lint-changed.js` (ratchet por LÍNEA, el mismo
+  # mecanismo que TS.0 ya usaba en `lint-boundary-gate.js`), y el barrido por
+  # proyecto se queda como MEDICIÓN no bloqueante: la deuda se declara, no se
+  # esconde — borrar el paso habría hecho desaparecer los 294.
   verify:
     name: Lint & test (affected)
     runs-on: ubuntu-latest
@@ -208,7 +222,17 @@ jobs:
             echo "caché remoto: activo"
           fi
 
-      - name: Lint (affected)
+      # BLOQUEANTE: sólo lo que este cambio escribió. Ratchet por línea — tocar un
+      # archivo con deuda vieja no te obliga a pagarla, pero la imprime declarada.
+      - name: Lint (líneas nuevas del diff)
+        run: node scripts/lint-changed.js
+
+      # MEDICIÓN, no compuerta: el barrido por proyecto sigue corriendo para que la
+      # deuda tenga número y nadie la dé por inexistente. `continue-on-error` es
+      # deliberado — ver el bloque de arriba.
+      - name: Deuda de lint por proyecto (medición, no bloquea)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
         run: npx nx affected -t lint --parallel=3
         env:
           NX_DAEMON: 'false'

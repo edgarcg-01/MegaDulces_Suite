@@ -20,21 +20,13 @@
 'use strict';
 
 const path = require('node:path');
-const { execSync, spawnSync } = require('node:child_process');
-
-function sh(cmd) {
-  return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-}
-
-function resolveBase() {
-  if (process.env.NX_BASE) return process.env.NX_BASE;
-  try { return sh('git merge-base origin/main HEAD'); } catch { /* sin origin/main */ }
-  try { return sh('git rev-parse HEAD~1'); } catch { /* primer commit */ }
-  return 'HEAD';
-}
+const { spawnSync } = require('node:child_process');
+// El calculo del diff (base/head, archivos, lineas nuevas) salio de ACA y ahora
+// vive compartido: `scripts/lint-changed.js` usa el mismo, en vez de copiarlo.
+const { sh, resolveBase, resolveHead, changedLinesByFile } = require('./lib/changed-lines');
 
 const base = resolveBase();
-const head = process.env.NX_HEAD || 'HEAD';
+const head = resolveHead();
 
 // 1) archivos de boundary cambiados
 const isBoundary = (f) => /^(libs|apps)\//.test(f) && /\.(controller|service)\.ts$/.test(f);
@@ -51,22 +43,8 @@ if (targets.length === 0) {
   process.exit(0);
 }
 
-// 2) lineas AGREGADAS/MODIFICADAS (lado nuevo) por archivo, desde unified=0
-function changedLines(file) {
-  const set = new Set();
-  let diff = '';
-  try { diff = sh(`git diff --unified=0 ${base} ${head} -- "${file}"`); } catch { return set; }
-  let newLine = 0;
-  for (const line of diff.split('\n')) {
-    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-    if (m) { newLine = parseInt(m[1], 10); continue; }
-    if (line.startsWith('+++') || line.startsWith('---')) continue;
-    if (line.startsWith('+')) { set.add(newLine); newLine++; }
-    // lineas '-' y headers: no avanzan el lado nuevo
-  }
-  return set;
-}
-const changedByFile = new Map(targets.map((f) => [f, changedLines(f)]));
+// 2) lineas AGREGADAS/MODIFICADAS (lado nuevo) por archivo
+const changedByFile = changedLinesByFile(targets, base, head);
 
 // 3) eslint en JSON con las 2 reglas del gate como error
 const res = spawnSync(
