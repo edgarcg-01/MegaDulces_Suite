@@ -5,6 +5,7 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { forkJoin, of } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
+import { ToastModule } from 'primeng/toast';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TableModule } from 'primeng/table';
@@ -27,7 +28,7 @@ interface CartRow {
 @Component({
   selector: 'app-televenta-take-order',
   standalone: true,
-  imports: [
+  imports: [ToastModule, 
     CommonModule,
     FormsModule,
     RouterModule,
@@ -38,9 +39,16 @@ interface CartRow {
     TagModule,
     ConfirmDialogModule,
   ],
-  providers: [ConfirmationService],
+  /**
+   * [E.13] El MessageService se suma acá: ya proveía el ConfirmationService, y esta página
+   * heredaba el de mensajes del shell de Telemarketing. Al montar el layout común (que no
+   * provee ninguno de los dos, medido) tiraría NullInjectorError al abrirse. Es el patrón de
+   * las otras 105 páginas de la app.
+   */
+  providers: [ConfirmationService, MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast position="top-center"></p-toast>
     <p-confirmdialog></p-confirmdialog>
     
     @if (!loading() && customer()) {

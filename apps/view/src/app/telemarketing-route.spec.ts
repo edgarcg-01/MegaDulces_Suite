@@ -1,7 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter, type Routes } from '@angular/router';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -120,19 +120,44 @@ describe('E.9 · la configuración real de la app tiene esa forma', () => {
     expect(bloque).toContain('queryParams');
   });
 
+  /**
+   * `[E.13]` Este caso **estaba verde con el bug vivo**, y es la lección de la tanda.
+   *
+   * Buscaba `'/televenta/` —con comilla SIMPLE— porque así se escribe una ruta en TypeScript.
+   * Pero en una plantilla se escribe `routerLink="/televenta/queue"`, con comilla DOBLE, y eso
+   * era exactamente lo que tenía el dashboard en la línea 199: el enlace que este caso existe
+   * para prohibir, en uno de los archivos que él mismo enumera, y pasaba.
+   *
+   * Dos cambios: se buscan las dos comillas, y la lista de archivos **se descubre** en vez de
+   * escribirse a mano. Una lista a mano no cubre la página que nazca mañana — ni se entera
+   * cuando un archivo se va, que es lo que pasó con el shell al mudarse al layout común.
+   */
   it('ninguna navegación del código apunta ya a /televenta/', () => {
-    // El shell y las 4 páginas navegan entre sí con rutas absolutas; una sola que quede en
-    // la vieja manda al usuario por el redirect en cada clic (y rompe routerLinkActive).
     const modulo = join(__dirname, 'modules', 'televenta');
     const archivos = [
-      join(modulo, 'televenta-shell.component.ts'),
-      join(modulo, 'pages', 'televenta-dashboard.component.ts'),
-      join(modulo, 'pages', 'televenta-queue.component.ts'),
-      join(modulo, 'pages', 'televenta-lead.component.ts'),
-      join(modulo, 'pages', 'televenta-take-order.component.ts'),
-      join(modulo, 'pages', 'televenta-quotes.component.ts'),
-    ];
-    const culpables = archivos.filter((f) => readFileSync(f, 'utf8').includes("'/televenta/"));
+      ...readdirSync(modulo).map((f) => join(modulo, f)),
+      ...readdirSync(join(modulo, 'pages')).map((f) => join(modulo, 'pages', f)),
+    ].filter((f) => f.endsWith('.ts'));
+
+    // Prueba negativa: si el descubrimiento devolviera vacío, el caso pasaría sin mirar nada.
+    expect(archivos.length).toBeGreaterThan(5);
+
+    const culpables = archivos.filter((f) => {
+      const src = readFileSync(f, 'utf8');
+      return src.includes("'/televenta/") || src.includes('"/televenta/');
+    });
     expect(culpables).toEqual([]);
+  });
+
+  /**
+   * `[E.13]` El proyecto monta el layout común, como los otros 13. Es lo que le da sidebar,
+   * migaja y —derivado de `component === LayoutComponent` al final de `app.routes.ts`— el
+   * outlet `panel` de la pantalla partida, que con el shell propio nunca le llegó.
+   */
+  it('telemarketing monta LayoutComponent, no un shell propio', () => {
+    const i = src.indexOf("path: 'telemarketing',");
+    const bloque = src.slice(i, i + 400);
+    expect(bloque).toContain('component: LayoutComponent');
+    expect(bloque).not.toContain('TeleventaShellComponent');
   });
 });

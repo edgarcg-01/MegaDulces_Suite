@@ -38,9 +38,9 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing';
 
-/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp, televenta) cae al default. */
+/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   trade: 'trademk',
   pdv: 'tienda',
@@ -52,6 +52,10 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   contabilidad: 'contabilidad',
   almacen: 'almacen',
   compras: 'compras',
+  // `[E.13]` El id del árbol es `televenta` (histórico) y la clave interna `telemarketing`,
+  // que es como se llama el canal en el ERP y en la URL. Sin esta entrada el proyecto caía
+  // al default `trademk` y el sidebar le habría mostrado el nav de Trade Marketing.
+  televenta: 'telemarketing',
 };
 
 interface NavItem {
@@ -570,6 +574,33 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
+  /**
+   * `[E.13]` Telemarketing. Los mismos destinos que tenía la barra superior del shell propio,
+   * en el mismo orden — reestructurar es mover, no rediseñar: lo que ya funcionaba no se tira.
+   *
+   * Dos grupos porque son dos oficios distintos: el trabajo del turno (a quién llamo ahora) y
+   * lo que sale del canal (qué se ofreció, qué se facturó). Facturación sale a
+   * `/comercial/documentos`, que es de OTRO proyecto: se ofrece igual porque es el resultado del
+   * canal, y gateada por SU permiso — un enlace que lleva a un rebote es peor que no mostrarlo.
+   */
+  private telemarketingNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Mi turno',
+      items: [
+        { label: 'Resumen', icon: 'pi pi-chart-bar', route: '/telemarketing/dashboard', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+        { label: 'Cola priorizada', icon: 'pi pi-list', route: '/telemarketing/queue', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+        { label: 'Mis activos', icon: 'pi pi-bookmark', route: '/telemarketing/my', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+      ],
+    },
+    {
+      title: 'Lo que sale del canal',
+      items: [
+        { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
+        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+      ],
+    },
+  ];
+
   // Orden alineado a FINANZAS_TABS (finanzas-tabs.ts): mismo orden en sidebar y pestañas.
   private finanzasNavGroups: { title: string; items: NavItem[] }[] = [
     {
@@ -892,6 +923,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'logistica') {
       return this.dedupeByRoute(this.flatOf(this.logisticaNavGroups).filter((i) => this.hasPermFor(i)));
     }
+    // `[E.13]` Telemarketing. El operador entra con `COMMERCIAL_TELEVENTA_OPERATE` y NO tiene
+    // `REPORTES_VER_*`, así que sin este early-return caía en el gate `!fullDashboard` de abajo
+    // y el sidebar le quedaba vacío — el mismo defecto que ya pagaron tienda y compras.
+    if (this.currentProject() === 'telemarketing') {
+      return this.dedupeByRoute(this.flatOf(this.telemarketingNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
     const fullDashboard =
@@ -951,6 +988,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'logistica') {
       return this.mapGroups(this.logisticaNavGroups, true);
+    }
+    if (this.currentProject() === 'telemarketing') {
+      return this.mapGroups(this.telemarketingNavGroups, true);
     }
     if (this.currentProject() === 'admin') {
       // `[SN.4]` §22 de la spec: "Administración" → "Configuración de la suite" cuando se refiere
