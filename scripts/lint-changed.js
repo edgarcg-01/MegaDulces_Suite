@@ -47,6 +47,8 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const { resolveBase, resolveHead, changedFiles, changedLinesByFile } = require('./lib/changed-lines');
 
 /** Lo que eslint sabe mirar acá. `.mjs`/`.cjs` incluidos: hay herramental de raíz en ese formato. */
@@ -76,19 +78,36 @@ if (targets.length === 0) {
   process.exit(0);
 }
 
+// ⚠️ El reporte se pide en un ARCHIVO, no por stdout. Medido en CI (corrida
+// 35910732043): eslint escribió un aviso en amarillo ANTES del JSON y
+// `JSON.parse` reventó — el gate falló cerrado, correcto, pero por la razón
+// equivocada. Con `--output-file` el reporte no comparte canal con nada.
+const salida = path.join(os.tmpdir(), `lint-changed-${process.pid}.json`);
 const res = spawnSync(
   'npx',
-  ['eslint', '--no-error-on-unmatched-pattern', '--no-warn-ignored', '-f', 'json', ...targets],
+  ['eslint', '--no-error-on-unmatched-pattern', '--no-warn-ignored', '-f', 'json',
+   '--output-file', salida, ...targets],
   { encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 },
 );
-if (res.error || !res.stdout || !res.stdout.trim()) {
-  // Fail-closed, igual que el boundary gate: sin reporte no hay veredicto.
-  console.error('[lint-changed] ❌ eslint no produjo reporte JSON:', res.error?.message || res.stderr || '(vacio)');
+
+let crudo = null;
+try { crudo = fs.readFileSync(salida, 'utf8'); } catch { /* no lo escribió; se resuelve abajo */ }
+try { fs.unlinkSync(salida); } catch { /* da igual */ }
+
+if (!crudo || !crudo.trim()) {
+  // Fail-closed, igual que el boundary gate: sin reporte no hay veredicto. Y se
+  // imprime lo que eslint dijo, porque la próxima vez que esto pase hay que poder
+  // leer la causa en vez de adivinarla.
+  console.error('[lint-changed] ❌ eslint no dejó reporte JSON en', salida);
+  if (res.error) console.error('  error:', res.error.message);
+  if (res.stdout && res.stdout.trim()) console.error('  stdout:', res.stdout.slice(0, 2000));
+  if (res.stderr && res.stderr.trim()) console.error('  stderr:', res.stderr.slice(0, 2000));
   process.exit(1);
 }
 let report;
-try { report = JSON.parse(res.stdout); } catch (e) {
-  console.error('[lint-changed] ❌ no pude parsear la salida de eslint:', e.message);
+try { report = JSON.parse(crudo); } catch (e) {
+  console.error('[lint-changed] ❌ no pude parsear el reporte de eslint:', e.message);
+  console.error('  primeros 500 caracteres:', crudo.slice(0, 500));
   process.exit(1);
 }
 
