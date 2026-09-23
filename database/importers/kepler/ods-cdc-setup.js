@@ -25,9 +25,17 @@ const APPLY = process.argv.includes('--apply');
 const TEARDOWN = process.argv.includes('--teardown');
 const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
 const SUB_BASE = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
-const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
+const { replicaDbName: localDbName, BRANCHES: CATALOGO } = require('../lib/kepler-branches');
+// `[ODS.1]` Acá vivía `'01,02,03,04,05,06'` — SEIS ramas y SIN CEDIS (00). Este script está
+// RETIRADO (el CDC por triggers lo reemplazó el WAL-decode de ADR-047, que a su vez se retiró):
+// no corre en ningún contenedor ni cron, verificado el 2026-09-23. Se corrige igual porque es una
+// mina: revivirlo con esta lista dejaría fuera CEDIS y las dos de Morelia, en silencio.
+// ⚠️ Ningún comentario explicaba por qué faltaba la 00, así que se DECLARA el supuesto: se toma
+// como deriva (la misma que dejó a `reconcile-ods-window` en 7 ramas), no como exclusión buscada.
+// Si resultara intencional, el escape es `ODS_LIVE_BRANCHES`.
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || CATALOGO.map((b) => b.code).join(','))
+  .split(',').map((s) => s.trim()).filter(Boolean);
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // Mismas append-only del carril ctid → NO se les pone trigger (alto volumen, ya son CDC barato).
 const CTID_TABLES = new Set(
