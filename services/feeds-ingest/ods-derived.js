@@ -232,6 +232,13 @@ async function normalizeBoxPrice(client, tenantId, skus) {
 const MAX_COSTO = 3;      // p99 real de precio/costo = 2.03x
 const MIN_LINEAS = 5;     // mínimo de líneas de venta para creerle a la moda
 const VENTANA_DIAS = 90;
+/**
+ * `[PERF.2]` A partir de cuántas llaves conviene pre-filtrar kdm2 en su propio CTE.
+ * NO es un número elegido: es el cruce MEDIDO en prod el 2026-09-23 — a 50 llaves las dos
+ * formas del plan empatan (6,782 ms contra 6,785). Abajo gana el índice por SKU, arriba gana
+ * materializar. La tabla completa de la medición está en `salePriceCtes`.
+ */
+const UMBRAL_PREFILTRO_M2 = 50;
 /** Documentos de venta a cliente, del catálogo kdmm (género U, naturaleza D). */
 const DOCS_VENTA = '3,5,6,7,8,9,10,12,13,45';
 
@@ -240,35 +247,78 @@ const DOCS_VENTA = '3,5,6,7,8,9,10,12,13,45';
  * si el respaldo no pasa, el motivo del rechazo. ÚNICA definición del cómputo — la comparten
  * `normalizeSalePrice` (escribe) y el script de auditoría (reporta). No duplicarla en ningún lado.
  */
-function salePriceCtes(scoped) {
+function salePriceCtes(scoped, loteGrande) {
   const f1 = scoped ? 'AND btrim(c1) = ANY($2)' : '';
   const fpv = scoped ? 'AND btrim(c1) = ANY($2)' : '';
   const fm2 = scoped ? 'AND btrim(m2.c8::text) = ANY($2)' : '';
+  const preFiltrarM2 = scoped && loteGrande;
+
+  // Los filtros de linea de venta. Viven en una constante porque segun el camino se aplican en
+  // `m2f` (acotado) o directo en `pos` (barrido completo) -- pero tienen que ser LOS MISMOS.
+  const lineaDeVenta = `m2.c2='U' AND m2.c3='D' AND m2.c4::int IN (${DOCS_VENTA})
+           AND m2.c12::numeric > 0.05 AND m2.c9::numeric > 0 AND m2.c9::numeric < 3
+           AND btrim(m2.sucursal) <> '00'`;
+
+  // [PERF.2] LOTE GRANDE: kdm2 se filtra por SKU en su PROPIO CTE, ANTES de tocar kdm1.
+  //
+  // Medido en prod el 2026-09-23 con los SKUs de MAS VENTA (que son los que de verdad llegan
+  // por el hop-2 de kdm2: un lote de lineas de venta esta sesgado hacia lo que mas se vende).
+  // El planificador manejaba desde `ix_kdm1_venta_fecha` -- o sea TODOS los documentos de 90
+  // dias -- y probaba kdm2 por su PK, en vez de arrancar del indice de SKU de kdm2. Con 1 SKU
+  // elegia bien (1.9 ms); pasado cierto punto se daba vuelta y el costo explotaba.
+  //
+  // ⚠️ NO es gratis para lotes chicos, y por eso va con umbral en vez de siempre. El cruce se
+  // midio, no se estimo -- a 50 llaves las dos formas empatan al milisegundo:
+  //
+  //      llaves      sin m2f     con m2f
+  //          32        2,069       7,311
+  //          50        6,782       6,785    <-- el cruce, de aca sale UMBRAL_PREFILTRO_M2
+  //          80       13,361       8,348
+  //         120       25,919      17,169
+  //         300      >90,000      19,727
+  //         535      345,771      28,650
+  //
+  // El EXISTS de abajo SI conviene siempre (con 32 llaves: 4,870 ms el JOIN contra 2,069 el
+  // EXISTS); el que cuesta con lotes chicos es unicamente este CTE materializado. Con las dos
+  // piezas y el umbral, TODO tamano de lote mejora respecto del codigo anterior.
+  //
+  // Tampoco se aplica al barrido completo (`audit-sale-prices.js`): ahi no hay SKUs con que
+  // acotar y materializar todas las lineas de venta seria peor.
+  const cteM2 = preFiltrarM2 ? `
+      ), m2f AS MATERIALIZED (
+        SELECT m2.sucursal, m2.c1, m2.c2, m2.c3, m2.c4, m2.c5, m2.c6, m2.c8, m2.c11, m2.c12
+          FROM kepler_ods.kdm2 m2
+         WHERE ${lineaDeVenta} ${fm2}` : '';
+
   return `
       WITH base_unit AS (
         SELECT btrim(sucursal) AS suc, btrim(c1) AS sku, btrim(c11::text) AS unidad,
                round(c90::numeric, 2) AS pv
           FROM kepler_ods.kdii
-         WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c11::text,'')) <> '' ${f1}
+         WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c11::text,'')) <> '' ${f1}${cteM2}
       ), pos AS (
         SELECT btrim(m2.c8::text) AS sku,
                mode() WITHIN GROUP (ORDER BY round(m2.c12::numeric,2) DESC) AS precio,
                count(*)::int AS lineas
-          FROM kepler_ods.kdm2 m2
+          FROM ${preFiltrarM2 ? 'm2f m2' : 'kepler_ods.kdm2 m2'}
           -- La llave del documento son las 7 columnas de la PK (sucursal,c1..c6), no (sucursal,c5,c6):
           -- el folio NO es unico entre tipos de documento, asi que unir de menos casa el documento
           -- equivocado (ademas de no poder usar kdm1_pkey y volverse inservible: 66 s por 1 SKU).
           JOIN kepler_ods.kdm1 m1
             ON m1.sucursal=m2.sucursal AND m1.c1=m2.c1 AND m1.c2=m2.c2 AND m1.c3=m2.c3
            AND m1.c4=m2.c4 AND m1.c5=m2.c5 AND m1.c6=m2.c6
-          JOIN base_unit bu
-            ON bu.suc=btrim(m2.sucursal) AND bu.sku=btrim(m2.c8::text)
-           AND bu.unidad=btrim(m2.c11::text)
-         WHERE m1.c9::date >= current_date - ${VENTANA_DIAS}
+         -- [PERF.2] EXISTS, no JOIN. Un CTE no tiene indice, asi que unirlo obligaba a barrerlo
+         -- entero por cada linea de venta: con 32 SKUs calientes eran 83,855 barridos de 288 filas
+         -- y 24,066,385 comparaciones descartadas. Como semi-join el planificador puede hashear.
+         -- Es equivalente SOLO porque (sucursal, sku, unidad) es unico en kdii -- verificado en
+         -- prod: CERO grupos duplicados. Con duplicados el JOIN multiplicaria lineas y moveria
+         -- el mode() y el count(); EXISTS no.
+         WHERE EXISTS (SELECT 1 FROM base_unit bu
+                        WHERE bu.suc=btrim(m2.sucursal) AND bu.sku=btrim(m2.c8::text)
+                          AND bu.unidad=btrim(m2.c11::text))
+           AND m1.c9::date >= current_date - ${VENTANA_DIAS}
            AND btrim(coalesce(m1.c43::text,'N'))='N'
-           AND m2.c2='U' AND m2.c3='D' AND m2.c4::int IN (${DOCS_VENTA})
-           AND m2.c12::numeric > 0.05 AND m2.c9::numeric > 0 AND m2.c9::numeric < 3
-           AND btrim(m2.sucursal) <> '00' ${fm2}
+           ${preFiltrarM2 ? '' : `AND ${lineaDeVenta} ${fm2}`}
          GROUP BY 1 HAVING count(*) >= ${MIN_LINEAS}
       ), cfg AS (
         SELECT sku, mode() WITHIN GROUP (ORDER BY unidad) AS unidad,
@@ -314,7 +364,7 @@ async function normalizeSalePrice(client, tenantId, skus) {
   await client.query('BEGIN');
   try {
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    const up = await client.query(`${salePriceCtes(scoped)}
+    const up = await client.query(`${salePriceCtes(scoped, s.length >= UMBRAL_PREFILTRO_M2)}
       INSERT INTO commercial.product_prices AS t
         (id, tenant_id, price_list_id, product_id, price, tax_rate, min_qty, created_at, updated_at)
       SELECT gen_random_uuid(), $1, '${BASE_LIST}', product_id, precio, iva, 1, now(), now()
