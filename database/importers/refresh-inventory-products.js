@@ -21,6 +21,13 @@
  */
 const { Client } = require('pg');
 const fs = require('fs');
+// [NORM.2] Latido. Este script llenaba una tabla que lee el escaneo del conteo físico y NO ESTABA
+// AGENDADO EN NINGÚN LADO: `inventory.products` llevaba 37 días sin un `synced_at` nuevo y 147 SKUs
+// no eran escaneables. Un carril sin latido es indistinguible de uno sano, así que la agenda y el
+// latido entran en el mismo cambio — que es la lección de `[DB-MEM.19]`.
+const hb = require('./lib/cron-heartbeat');
+const HB_KEY = 'inventory_products_refresh';
+const HB_LABEL = 'inventory.products ← catalog.products (NORM 1.6)';
 const M = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 function prodUrl() {
   const t = fs.readFileSync('C:/KeplerRunner/run-feeds.cmd', 'utf8');
@@ -38,6 +45,9 @@ const NEW_WHERE = `p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''
   AND NOT EXISTS (SELECT 1 FROM inventory.products ip WHERE ip.sku = p.sku)`;
 
 (async () => {
+  // Sólo late lo que ESCRIBE: un dry-run no puede reclamar entrega. Mismo criterio que el resto
+  // de los carriles (`--apply` implica reportar; sin él, el script es una consulta).
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL);
   const c = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false, statement_timeout: 120000 });
   await c.connect();
   try {
@@ -50,8 +60,14 @@ const NEW_WHERE = `p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''
     console.log(`  SKUs nuevos a insertar (en catalog, faltan en inventory): ${nuevos}`);
     console.log(`  → NO se toca ninguna fila existente (subfamilia/categoria/image_* intactos).`);
 
-    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply --prod para escribir.'); return; }
-    if (nuevos === 0) { console.log('\n[APPLY] 0 nuevos — nada que insertar.'); return; }
+    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); return; }
+    // 0 nuevos es ÉXITO, no ausencia: el carril corrió y no había nada que insertar. Late `ok`
+    // para que el tablero no lo lea como "dejó de correr".
+    if (nuevos === 0) {
+      console.log('\n[APPLY] 0 nuevos — nada que insertar.');
+      await hb.end(HB_KEY, { status: 'ok', rows: 0, note: `0 nuevos · inventory.products ${invActual}` });
+      return;
+    }
 
     await c.query('BEGIN');
     const ins = await c.query(`
@@ -63,9 +79,14 @@ const NEW_WHERE = `p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''
     await c.query('COMMIT');
     const invFinal = Number((await c.query(`SELECT count(*)::int n FROM inventory.products`)).rows[0].n);
     console.log(`\n  ✓ insertados: ${ins.rowCount} nuevos. inventory.products: ${invActual}→${invFinal}. Existentes sin tocar.`);
+    await hb.end(HB_KEY, {
+      status: 'ok', rows: ins.rowCount,
+      note: `${ins.rowCount} nuevos escaneables · inventory.products ${invActual}→${invFinal}`,
+    });
   } catch (e) {
     await c.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    if (APPLY) await hb.end(HB_KEY, { status: 'error', error: e.message }).catch(() => {});
     process.exitCode = 1;
   } finally { await c.end(); }
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });

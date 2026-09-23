@@ -90,6 +90,25 @@
 # el dinero contado dos veces sin que nadie se enterara. Si `twins_pairing` deja de latir,
 # esta línea vuelve a `* * * * *` y se investiga.
 30 4 * * *  /app/ops/vl/run-feed.sh receipts "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
+# ─── [NORM.2] EL CARRIL QUE NO EXISTÍA ────────────────────────────────────────────────────
+# `inventory.products` es el catálogo de escaneo del CONTEO FÍSICO, y su refrescador estaba
+# escrito desde agosto SIN AGENDA EN NINGÚN LADO. Medido el 2026-09-23: **37 días** sin un
+# `synced_at` nuevo y **147 SKUs** que el contador no podía escanear — y un producto que no se
+# escanea se cuenta como faltante.
+# ⛔ SIN `--prod`, A PROPÓSITO: ese flag lee `C:/KeplerRunner/run-feeds.cmd` (ruta de Windows)
+#    buscando una URL de **Railway**, que ya no es prod — está muerto y en Linux tiraría. Sin él
+#    usa `DATABASE_URL_NEW`, que en ESTE contenedor es `pg-prod:5432/railway` (verificado).
+# ⛔ El script es INSERT-SOLO-NUEVOS y así debe quedarse: un UPDATE desde `catalog.products`
+#    NULEARÍA `subfamilia`/`categoria`/`image_*` de las 13.8k filas existentes, porque catalog es
+#    una proyección NORMALIZADA y no un superset. Esa regresión ya se vivió el 2026-08-17.
+# 05:10 = después del nocturno (03:00, dura 69–99 min) y sin chocar con receipts ni contpaqi-full.
+10 5 * * *  /app/ops/vl/run-feed.sh inventory-products "node /app/database/importers/refresh-inventory-products.js --apply"
+# 05:20 y NO antes: `products_active` hace LEFT JOIN a `inventory.products` para traer
+# subfamilia/categoria/image_*, así que corre DESPUÉS del carril de arriba o los SKUs recién
+# insertados entrarían sin esos campos.
+# ⛔ SIN `--reactivate`, a propósito: ese flag hace UPDATE de `catalog.products.activo`, que es un
+#    cambio de DATO DE NEGOCIO, no un refresco de caché. Medido hoy: 0 filas de drift. Queda manual.
+20 5 * * *  /app/ops/vl/run-feed.sh products-active "node /app/database/importers/refresh-products-active.js --apply"
 0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
 # [VL.7.1] El RECONCILIADOR de CFDIs (pareja del incremental de arriba): recorre año por año
 # ignorando el watermark, o sea ~167,000 CFDIs. Va a las 05:45 por dos razones medidas: el

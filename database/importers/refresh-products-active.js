@@ -18,6 +18,18 @@
  */
 const { Client } = require('pg');
 const fs = require('fs');
+// [NORM.2] Latido + piso. Este script refresca por TRUNCATE+INSERT una tabla que leen ~9
+// consumidores (buscador, pricing, portal, extractor de tickets, AI-matcher) y NO ESTABA AGENDADO.
+const hb = require('./lib/cron-heartbeat');
+const HB_KEY = 'products_active_refresh';
+const HB_LABEL = 'inventory.products_active ← catalog (NORM 1.6)';
+// PISO ANTI-VACIADO. El TRUNCATE+INSERT va dentro de UNA transacción, así que un fallo del INSERT
+// no puede dejar la tabla vacía — eso ya estaba bien. Lo que NO estaba cubierto es el caso en que
+// el origen devuelve legítimamente MUY POCO (un `catalog.products` a medio poblar tras un fallo
+// aguas arriba): ahí la transacción commitea una tabla casi vacía y los 9 lectores dejan de
+// encontrar productos, sin ningún error. El piso convierte eso en una corrida que ABORTA y late
+// en rojo. Medido el 2026-09-23: 9,772 actuales → 9,920 nuevos, o sea el régimen normal crece.
+const PISO_FRAC = Number(process.env.PRODUCTS_ACTIVE_MIN_FRAC || 0.5);
 const M = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 // OJO: el default DATABASE_URL_NEW (.env) apunta a la copia LOCAL stale (localhost:5433).
 // --prod resuelve la URL Railway desde el runner en runtime (NUNCA imprime credenciales).
@@ -38,6 +50,8 @@ const REACT_WHERE = `p.tenant_id=$1 AND p.source='kepler' AND p.deleted_at IS NU
   AND EXISTS (SELECT 1 FROM kepler_ods.kdii k WHERE btrim(k.c1)=p.sku AND btrim(coalesce(k.c2,'')) <> '')`;
 
 (async () => {
+  // Sólo late lo que ESCRIBE: un dry-run no reclama entrega.
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL);
   const c = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false, statement_timeout: 120000 });
   await c.connect();
   try {
@@ -51,6 +65,21 @@ const REACT_WHERE = `p.tenant_id=$1 AND p.source='kepler' AND p.deleted_at IS NU
     console.log(`  → products_active quedaría con ${REACT ? activos + reactN : activos} filas (activos${REACT ? ' + reactivados' : ''})`);
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
+
+    // El piso corre ANTES de abrir la transacción: abortar es más barato que hacer rollback, y
+    // sobre todo deja el motivo en el latido en vez de en un rollback mudo.
+    const destino = REACT ? activos + reactN : activos;
+    const minimo = Math.floor(paActual * PISO_FRAC);
+    if (paActual > 0 && destino < minimo) {
+      const msg = `PISO: el origen daría ${destino} filas y la tabla tiene ${paActual} `
+        + `(mínimo ${minimo} = ${PISO_FRAC * 100}%). Se ABORTA sin tocar nada — un TRUNCATE con el `
+        + `origen a medio poblar deja sin productos a los 9 lectores, y en silencio. `
+        + `Si la caída es legítima: PRODUCTS_ACTIVE_MIN_FRAC=<frac>.`;
+      console.error(`\n⛔ ${msg}`);
+      await hb.end(HB_KEY, { status: 'error', error: msg.slice(0, 400) });
+      process.exitCode = 1;
+      return;
+    }
 
     await c.query('BEGIN');
     await c.query(`SET LOCAL app.tenant_id = '${M}'`);
@@ -86,9 +115,11 @@ const REACT_WHERE = `p.tenant_id=$1 AND p.source='kepler' AND p.deleted_at IS NU
        WHERE p.tenant_id=$1 AND p.activo AND p.deleted_at IS NULL AND btrim(coalesce(p.sku,''))<>''`, [M]);
     await c.query('COMMIT');
     console.log(`  ✓ products_active refrescada: ${ins.rowCount} filas (desde catalog.products).`);
+    await hb.end(HB_KEY, { status: 'ok', rows: ins.rowCount, note: `${paActual}→${ins.rowCount} filas${REACT ? ` · ${reactN} reactivados` : ''}` });
   } catch (e) {
     await c.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    if (APPLY) await hb.end(HB_KEY, { status: 'error', error: e.message }).catch(() => {});
     process.exitCode = 1;
   } finally { await c.end(); }
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
