@@ -1245,6 +1245,36 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       `http-admin-password-test.js` ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**.
       ⭐ El declarado es el hallazgo: `platform_test` **no admite el kind `dispositivo`**, o sea que
       **contra dev este test no habría atrapado el bug**. Commit `67096a81` · 2026-09-17
+- [x] **[ZN.0]** 🔨 **Zona, sucursal y ruta dejan de ser la misma columna.** Pedido del lead:
+      *«hay que normalizar esto, para que se respete que el usuario solo vea lo de su zona o sus
+      sucursales asignadas; eliminar todo lo que esté hardcodeado y separar por sucursal»*.
+      ⛔ **`trade.zones` mezclaba CUATRO niveles en 9 filas** —zona (`LA PIEDAD RD`, `ZAMORA`),
+      sucursal (`YURECUARO`, `CANINDO`, `MORELIA MADERO`, `MORELIA ABASTOS`), canal (`*_VECINAL`) y
+      una actividad (`OFICINAS`)— y **toda persona apunta ahí**, sea de ruta, de sucursal o de
+      oficina. Medido: **26 personas de TRES sucursales distintas** (PH 10 · 8ESQ 10 · LPA 6)
+      comparten la etiqueta `LA PIEDAD RD`, que es la zona de **ruta**; **17 de 34 de ruta no
+      tienen ruta**; y **31 de 46 de oficina** cargan una zona que no les aplica. En pantalla: el
+      tablero de dirección agrupa por esta tabla y muestra **6 zonas donde el negocio tiene 3**.
+      ⭐ **Las 3 zonas no se inventan**: `kepler_ods.kduk` (ERP) y `warehouses.purchase_zone`
+      coinciden — La Piedad (01,02,03,04) · Zamora (05,06) · Morelia (07,08) · Corporativo (00).
+      ⚠️ **Corrige un diagnóstico propio de hace unas horas**: las rutas `501…505` NO tenían «dos
+      dueños en disputa» — el catálogo decía ZAMORA (la **zona**) y el registro operativo CANINDO
+      (la **sucursal madre**): las dos tenían razón, faltaba el nivel que las separa. El dinero
+      ($2.07M/30 d) no estaba mal asignado, estaba mal **agrupado**. Esta entrega es **aditiva y no
+      mueve ninguna pantalla**: `trade.zones.kind` + `code` (llave estable: el JWT viaja con el
+      NOMBRE y renombrar rompe) + `kind_motivo` fila por fila, la zona **MORELIA** que no existía, y
+      `analytics.v_branch_zone` (vista, derivar-no-copiar) como resolvedor único sucursal → zona,
+      con gate de 3 zonas y cero sucursales huérfanas. Smoke `test-newdb-zn-zonas.js` **read-only de
+      verdad** (`default_transaction_read_only = on`, por eso puede medirse contra prod): hoy
+      **4 ok / 0 fallos / 4 declarados** a la espera de la migración — el bloque verde es el testigo
+      independiente (el ERP conoce las 3 plazas y **ninguna cuarta**). Hardcode inventariado para los
+      sprints siguientes: **`store-branches.ts` escrito a mano e importado por 14 componentes** (todos
+      ofrecen las 9 sucursales a cualquiera) · **88 fail-open** `user?.warehouse_code || query...`
+      contra **33** usos de `ScopeService` · **717 de 1,603 tiendas sin zona**. Plan ZN.0–ZN.5 en
+      [`FASE_ZN`](FASES/FASE_ZN_ZONA_SUCURSAL_ALCANCE.md). **Pendiente: aplicar la migración + ZN.1
+      (re-apuntar `warehouses.zone_id`, que mueve el tablero de 6 a 3 y necesita aviso a Dirección).**
+      **Abierto:** si las vecinales son canal o unidad propia, y el catálogo de sedes de oficina.
+      2026-09-23
 - [x] **[ID.37]** 🧪 **Una sola regla de login: la puerta de atrás dejó de tener reglas propias.**
       Salió de auditar cómo funcionan los usuarios. Había **dos** logins y cada uno decidía por su
       cuenta qué es una sesión válida: `/auth/login` (legacy, `@Public`, **montado siempre**) no
