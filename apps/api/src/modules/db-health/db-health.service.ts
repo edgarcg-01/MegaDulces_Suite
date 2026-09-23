@@ -839,6 +839,11 @@ const CRON_JOBS: CronCfg[] = [
   // `caja_general_ship`: Postgres→Postgres, barato (2ª pasada medida: 127 filas leídas, 0 escritas).
   // Es el que de verdad decide si la pantalla está fresca, así que va con umbral corto.
   { key: 'caja_general_ship',   label: 'Caja general ship (:5433 → caja_general_ods)', cadence: 'continuo ~5 min', warnH: 0.5, critH: 2 },
+  // [CG.22.3] `mv_caja_refresh`: el corte de caja materializado que lee la bandeja de
+  // /finanzas/caja-general. Va con umbral CORTO porque su modo de falla es el peor de todos —
+  // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja
+  // congelada se lee como "no hay trabajo pendiente". Corre cada minuto; warn al saltarse ~6.
+  { key: 'mv_caja_refresh',     label: 'Caja — refresca mv_caja_movimientos', cadence: 'cada minuto', warnH: 0.25, critH: 1 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
   // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste

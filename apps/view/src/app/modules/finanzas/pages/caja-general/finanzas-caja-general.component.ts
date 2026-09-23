@@ -798,6 +798,12 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   cargandoPend = signal(false);
   /** Lo que la ventana deja fuera. `null` = no hay corte que declarar. */
   rezago = signal<{ movimientos: number; monto: number } | null>(null);
+  /**
+   * De cuando es la foto que se esta leyendo. `null` = SIN MEDIR, y se dice asi.
+   * La lista sale de un matview que refresca un carril cada minuto; si ese carril se cae, el
+   * matview sirve datos viejos SIN UN SOLO ERROR y la bandeja se leeria como "no hay trabajo".
+   */
+  datosAl = signal<string | null>(null);
   frecuentes = signal<Frecuente[]>([]);
   confirmando = signal(false);
   resultado = signal<ResumenLote | null>(null);
@@ -987,8 +993,27 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     if (ok < total) partes.push('el resto necesita que su cuenta esté declarada');
     if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
+    // La EDAD del dato, siempre. La lista sale de una foto que refresca un carril cada minuto;
+    // si ese carril se cae, la foto se congela sin dar error y esto es lo único que lo delata.
+    partes.push(this.textoFrescura());
     return partes.join(' · ');
   });
+
+  /**
+   * "hace N min" o "frescura sin medir". Nunca se omite: una cifra sin edad, en una pantalla que
+   * se mira para decidir sobre efectivo, es una cifra que se cree más reciente de lo que es.
+   */
+  textoFrescura(): string {
+    const al = this.datosAl();
+    if (!al) return 'frescura sin medir';
+    const ms = Date.now() - new Date(al).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return 'frescura sin medir';
+    const min = Math.floor(ms / 60000);
+    if (min < 2) return 'al minuto';
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.floor(min / 60);
+    return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
+  }
 
   /**
    * ⛔ Acá se DIBUJABAN CEROS. `String(k?.movimientos ?? 0)` y `money(k?.ingresos ?? 0)` publicaban
@@ -1444,6 +1469,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.
         this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null });
+        this.datosAl.set(r.datos_al ?? null);
         this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
         this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
