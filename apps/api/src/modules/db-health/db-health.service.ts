@@ -800,6 +800,11 @@ const CRON_JOBS: CronCfg[] = [
   // PROPIO (cdc_reconcile_full) para no pisar el del carril continuo. Diario → warn si pasa un día
   // sin correr. Sin esta entrada caía en el `cfg ? classify : 'ok'` = VERDE INCONDICIONAL (la trampa OBS).
   { key: 'cdc_reconcile_full',  label: 'Reconciliador ODS --full (backlog kdpord)', cadence: 'diario 03:00 MX', warnH: 25, critH: 30 },
+  // [ODS.2] La red de las tablas CHICAS (las que no tienen fecha de negocio y por eso quedaban sin
+  // ninguna). 16 tablas × 9 ramas cada 30 min. Umbral holgado a propósito: ninguna es de movimiento
+  // vivo — un atraso de 2 h acá no significa lo mismo que en `cdc_reconcile`, que mira ventas.
+  // ⚠️ Sin este renglón el sensor daría verde INCONDICIONAL (`cfg ? classify : 'ok'`, Fase VP).
+  { key: 'cdc_reconcile_chicas', label: 'Reconciliador ODS --chicas (tablas sin fecha)', cadence: 'continuo ~30 min', warnH: 2, critH: 6 },
   // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
   // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
   // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
