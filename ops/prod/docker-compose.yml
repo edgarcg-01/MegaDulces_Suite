@@ -347,22 +347,27 @@ services:
       # declararlo acá lo pisaba con vacío. El worker no tiene endpoint de salud, así que
       # acá el dato equivocado ni siquiera se veía.
       RUN_MIGRATIONS_ON_BOOT: "0"
-      # ⛔ CRONS APAGADOS MIENTRAS ESTO SEA UNA COPIA — se enciende en el corte, no antes.
-      # No es prudencia genérica: se midió qué harían los 48 @Cron contra la copia y tres
-      # salen del edificio. `fleet_gps` pega al proveedor de GPS con las credenciales reales
-      # (y lo dejaría viendo doble poll); los escáneres de alerta mandan correo; y el entorno
-      # trae `VAPID_*`, o sea que un nudge manda **web-push a los navegadores de gente real**
-      # — desde una base del 10-sep. Un aviso que llega de una copia no se distingue de uno
-      # de verdad: el que lo recibe actúa igual.
-      # Lo que SÍ se verifica con esto encendido: que la imagen del worker ARRANQUE contra
-      # Postgres y tome la cola. Es la única de las cuatro que nunca corrió, y los cuatro
-      # defectos de esta fase (TLS, GRANTs, matvistas, versión) aparecieron sólo al pedirle
-      # datos de verdad, nunca en el build.
-      # ✅ Antes de levantarlo se midió la cola en la copia: 0 trabajos, 0 programaciones,
-      #    sólo `__pgboss__send-it` (mantenimiento interno). No hay nada viejo que ejecutar.
-      # ⚠️ AL CORTAR: quitar esta línea. Si queda, prod se queda SIN NINGÚN cron — el API ya
-      #    los tiene apagados arriba, a propósito.
-      DISABLE_CRONS: "true"
+      # ⭐ [VL.12] ACÁ SE CORTÓ (2026-09-23). La línea `DISABLE_CRONS: "true"` que vivía acá
+      # existía "mientras esto sea una COPIA" y su propio comentario decía: AL CORTAR, quitarla.
+      # Ya no es una copia — la ingesta escribe a esta base desde el 2026-09-22.
+      #
+      # Lo que obligó a hacerlo, medido el 2026-09-23: los 53 @Cron corrían en RAILWAY, sobre
+      # datos CONGELADOS desde el corte, y estaban apagados acá, que es donde están los datos
+      # frescos. Ninguna de las dos producciones estaba completa. Atraso real al momento de
+      # medirlo: GPS de flota 23.9 h SIN UNA POSICIÓN · hallazgos de Maat 30.3 h · canastas
+      # sugeridas 35.4 h.
+      #
+      # ⛔ EL ORDEN NO ES NEGOCIABLE, y es la razón por la que esto no se hizo antes: 20 de los
+      # 53 servicios de cron salen del edificio (correo, web-push al campo, hojas de cálculo,
+      # y `invoice-retry-cron`, que RE-TIMBRA facturas). Con los dos lados encendidos se
+      # disparan DOS VECES y un aviso duplicado no se distingue de uno real. Primero se apagó
+      # el worker de Railway (`railway variable set DISABLE_CRONS=true --service worker`,
+      # reversible con `variable delete`), se verificó que arrancara declarando los crons
+      # INERTES, y recién entonces se quitó esta línea.
+      #
+      # ⚠️ El `api` de arriba CONSERVA `DISABLE_CRONS: "true"` a propósito: sirve HTTP y nada
+      # más. Corolario que hay que saber: si este worker está abajo, NO corre ningún cron.
+      # Por eso lleva healthcheck, y el veredicto real es `analytics.cron_runs`, no el rótulo.
     # ⚠️ El worker no abre puerto, así que "está arriba" es lo único que Docker puede ver por
     # sí solo — y eso es exactamente el falso verde que VL.6.1 cerró en los carriles. El
     # veredicto de VERDAD es la ENTREGA: `analytics.cron_runs` en prod. Queda declarado como
