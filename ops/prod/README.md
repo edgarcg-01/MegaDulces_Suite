@@ -958,5 +958,124 @@ ingesta para desarmar algo que no molesta (las redes existentes conservaron su s
 50 minutos. *"Lo dejo por si acaso"* tiene precio, y acá se pagó el mismo día.
 ---
 
+## 11. [VL.10] La red interna deja de salir a internet para hablar con el servidor de al lado
+
+El túnel dejó prod alcanzable, pero midiendo el resultado apareció el costo:
+
+| Camino (desde una máquina de la oficina) | TTFB | total |
+|---|---|---|
+| **LAN directo** a `md` | 5.7 ms | **5.9 ms** |
+| **por el túnel** (`megadulcessuite.com`) | 225 ms | **225–453 ms** |
+
+**38–76× más lento para gente sentada en el mismo edificio que el servidor.** Una pantalla que
+encadena 10 llamadas suma 2.2–4.5 s, o sea que el camino actual **rompe la regla del propio
+proyecto** (*">1 s de carga = no funciona"*). Y el enlace de subida son 44 Mbit **compartidos**
+con la oficina y los 14 carriles, así que el mismo byte se paga dos veces.
+
+⭐ **El hallazgo que unifica el trabajo.** `database/importers/kepler/install-service.js:47`
+**rechaza** una URL de ingesta que no sea `https://`, con el motivo escrito: *"la clave viaja en
+el header"*. O sea que el plan de §6 #9 —apuntar las cajas a `http://192.168.0.222:8080/…`— lo
+**bloquea una compuerta de este mismo repo, y con razón**. La solución correcta de la ingesta
+resulta ser **la misma** que la del DNS: TLS local + resolución interna. Un trabajo, dos
+problemas.
+
+### Estado
+
+| | Qué | Estado |
+|---|---|---|
+| **C** | El commit se **hornea en la imagen** (`ARG GIT_COMMIT_SHA`) + `--build-arg` en `deploy.sh` + un resolvedor único en `apps/api/src/build-info.ts` | ✅ |
+| **D** | `deploy.sh` construye **sólo lo que se le pide**; entrada `--tunel`; `NODE_ENV` explícito en `portal`/`vendor` | ✅ |
+| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en el MikroTik | ⬜ falta el token de Cloudflare y las 2 líneas del router |
+| **B** | La ingesta de las cajas vuelve a la LAN, **sin dejar de ser HTTPS** | ⬜ depende de A |
+| **E** | RAM — **medir antes de afinar** | ⬜ |
+
+### C — por qué el commit se hornea
+
+`/api/health` respondió `{"commit": ""}` **dos veces** el 2026-09-22, la segunda al levantar el
+túnel. Dos causas encadenadas, y las dos están arregladas:
+
+1. `GIT_COMMIT_SHA` viajaba **sólo** como prefijo de entorno en `deploy.sh recrear()`. Cualquier
+   `docker compose up` que no pasara por ahí lo dejaba vacío — y `cloudflared` declara
+   `depends_on: [api, portal, vendor]`, así que levantarlo recrea el API sin la variable.
+2. `app.controller.ts` usaba `??`, que es **nullish**: `"" ?? 'unknown'` devuelve `""`. El
+   respaldo nunca entraba. ⚠️ Un campo con el valor equivocado es peor que uno ausente — nadie
+   lo reporta, porque el endpoint sigue devolviendo 200.
+
+⭐ De paso aparecieron **dos mentiras más del mismo dato**: `otel.ts` e `instrument.ts` leían
+**sólo** `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe → toda traza salía etiquetada `dev` y
+**todo error de producción llegaba a Sentry sin `release`**. Los tres leen ahora el mismo
+resolvedor.
+
+⭐ Y `deploy.sh` **no pasaba ningún `--build-arg`**, así que el sello de versión que
+`apps/portal/Dockerfile` y `apps/vendor/Dockerfile` **ya estampaban** en su `index.html` decía
+**`unknown`** on-prem desde el primer día.
+
+### A — el diseño, y la trampa que no es obvia
+
+⛔ **No hay atajo con certificado autofirmado.** Las apps mandan
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`, así que en cuanto un navegador
+visita el dominio **todos sus subdominios quedan bloqueados por HSTS un año** y un error de
+certificado **deja de ser saltable**: desaparece el "proceder de todos modos". El certificado
+tiene que ser **públicamente confiable** → Let's Encrypt por **DNS-01** (la IP pública de `md`
+no es fija y el dominio está *proxied*, así que HTTP-01 no aplica).
+
+⛔ **Se descarta Traefik**, y no por gusto: es el proxy que Coolify metió y que ató 80, 443 **y
+8080** —el puerto del API— dejando prod caído **50 minutos** (§10.4). El terminador nuevo
+**liga sólo 80 y 443**; medido: ambos libres en `md`.
+
+MikroTik (`192.168.0.254`, RouterOS):
+
+```
+/ip dns static add name=megadulcessuite.com          address=192.168.0.222 comment="VL.10"
+/ip dns static add name=portal.megadulcessuite.com   address=192.168.0.222 comment="VL.10"
+/ip dns static add name=vendedor.megadulcessuite.com address=192.168.0.222 comment="VL.10"
+```
+
+⚠️ **Tres entradas por NOMBRE EXACTO, y nada de `regexp=`.** La forma con expresión regular se
+descartó por dos motivos, los dos capaces de morder callado:
+
+1. **Un regexp amplio tipo `.*\.megadulcessuite\.com` también captura
+   `_acme-challenge.megadulcessuite.com`** y devuelve un registro A donde el ACME espera un TXT
+   → **la renovación del certificado fallaría en silencio dentro de 60 días**, o sea mucho
+   después de que nadie recuerde haber tocado el router.
+2. En RouterOS el `regexp` de DNS estático **no está anclado por defecto**, así que también
+   respondería por `portal.megadulcessuite.com.loquesea.com` — un nombre ajeno resolviendo a
+   nuestro servidor.
+
+Aun así el terminador se configura con resolvedores explícitos (`1.1.1.1`, `8.8.8.8`) para su
+comprobación de propagación del TXT: es defensa en profundidad, no confianza en el router.
+
+⚠️ `md` también resuelve por el MikroTik y hoy resuelve **su propio dominio a Cloudflare**
+(`172.67.155.247`): cualquier llamada del servidor a su URL pública sale a internet y vuelve.
+La entrada estática también cura eso.
+
+⚠️ **Deuda que A no cierra:** el camino interno **no pasa por Cloudflare** — sin WAF, sin
+protección de DDoS, sin Access. Para una LAN es lo deseado, pero queda dicho.
+
+### B — corrección medida a §6 #9
+
+§6 #9 dice *"antes de tocar las 30"*. Los agentes de Wincaja **parametrizados son 2**: `'30'`
+MD-30 Morelia Abastos y `'32'` MD-32 Morelia Madero (`deploy-wincaja-agent.ps1:35-39`; `'50'`
+Canindo está comentado porque migró a Kepler). **El trabajo es mucho menor de lo que decía el
+documento** — pero hay que contar las cajas reales antes de dimensionarlo.
+
+⚠️ **Hallazgo de seguridad colateral**, ajeno a esta fase y encontrado midiéndola:
+`database/importers/lib/kepler-branches.js:31-32` trae **credenciales por defecto en el código**,
+y la llave de ingesta está en texto plano en cada caja. El guard `store-ingest.guard.ts` es un
+secreto compartido en una cabecera: **sin lista blanca de IP, sin mTLS, sin límite de tasa**.
+
+### E — no hay escasez de RAM, y eso corrige el plan
+
+`md` tiene **28 GiB** (no los 14 que dice `FASE_VL`), con **20 disponibles**. `pg-prod` ya está
+afinado: 6 GB `shared_buffers`, 14 GB `effective_cache_size`, `random_page_cost` 1.1,
+`effective_io_concurrency` 200 — correctos para NVMe. Base de prod: `railway`, **21 GB**.
+
+⚠️ **Lo real y sutil:** hay **dos Postgres en la misma caja y cada uno cree que la caché del
+sistema es suya** — `pgvector-md` usa 14.13 GiB y `pg-prod` declara 14 GB de
+`effective_cache_size`. El planificador de prod puede elegir planes contando con caché que no
+tiene. ⇒ **Medir `pg_statio_user_tables` primero.** Cambiarlo a ojo es adivinar.
+
+---
+
 **Plan de la fase:** [`FASE_VL`](../../docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md) ·
 decisión en **ADR-060** · el ADR propio de VL.9 está **pendiente**.

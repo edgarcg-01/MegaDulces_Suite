@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Public } from '@megadulces/platform-core';
+import { commitDelBuild } from './build-info';
 
 @Controller()
 export class AppController {
@@ -29,7 +30,10 @@ export class AppController {
     return {
       status: 'ok',
       uptime: process.uptime(),
-      commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
+      // ⛔ NO inlinear esto como `env.A ?? env.B ?? 'unknown'`: `??` es nullish y deja pasar
+      // la cadena VACÍA, que es justo lo que produce Compose con una variable sin definir.
+      // El porqué completo, con la medición, está en `build-info.ts`.
+      commit: commitDelBuild(),
     };
   }
 
