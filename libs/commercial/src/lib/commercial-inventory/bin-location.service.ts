@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -106,6 +107,53 @@ export interface PutAwayDto {
   quantity: number;
 }
 
+/**
+ * Mover mercancía YA acomodada de un rack a otro.
+ *
+ * El origen y el destino se pueden dar por id o por el código del cartel: quien
+ * mueve tiene la pistola, no los UUID.
+ */
+/**
+ * Si el almacén acepta movimientos ahora mismo, y si no, por qué.
+ *
+ * `frozen: false` con `folio: null` es la respuesta normal. Se declara siempre
+ * el campo en vez de devolver 404 o un objeto vacío: quien pregunta necesita
+ * poder distinguir "no está congelado" de "no pude averiguarlo".
+ */
+export interface WarehouseFreeze {
+  warehouse_id: string;
+  frozen: boolean;
+  /** Folio del inventario físico que lo congela. `null` si no hay ninguno. */
+  folio: string | null;
+  count_id: string | null;
+  status: string | null;
+}
+
+/** Lo que deja un movimiento entre ubicaciones. */
+export interface MoveLotResult {
+  moved: true;
+  from_bin_id: string;
+  to_bin_id: string;
+  lot_code: string;
+  quantity: number;
+  /** Lo que queda del lote en el rack de origen. */
+  queda_en_origen: number;
+}
+
+export interface MoveLotDto {
+  warehouse_id: string;
+  product_id: string;
+  lot_code?: string;
+  expiry_date?: string; // YYYY-MM-DD
+  /** De dónde sale. Uno de los dos. */
+  from_bin_id?: string;
+  from_bin_code?: string;
+  /** A dónde va. Uno de los dos. */
+  to_bin_id?: string;
+  to_bin_code?: string;
+  quantity: number;
+}
+
 @Injectable()
 export class BinLocationService {
   constructor(
@@ -178,6 +226,17 @@ export class BinLocationService {
     return this.tk.run(async (trx) => {
       const used = await trx('commercial.stock_lot_locations').where({ bin_id: id }).where('quantity', '>', 0).first('id');
       if (used) throw new ConflictException('El bin tiene inventario ubicado; vacialo antes de eliminarlo');
+
+      // Las filas en CERO se limpian acá, en la misma transacción.
+      //
+      // No son inventario —la línea de arriba ya probó que ninguna tiene cantidad—
+      // pero la FK `fk_commercial_stock_lot_loc_bin` es `ON DELETE RESTRICT`, así
+      // que existir alcanza para que el DELETE del bin reviente con 23503 y salga
+      // como **500 pelado**. Antes no pasaba porque nada podía bajar una fila a
+      // cero: `putAway` sólo sumaba. Con `moveLot` un rack se vacía de verdad, y
+      // vaciarlo es justo el paso previo a darlo de baja.
+      await trx('commercial.stock_lot_locations').where({ bin_id: id }).del();
+
       const n = await trx('commercial.warehouse_bins').where({ id }).del();
       if (!n) throw new NotFoundException('Bin no encontrado');
       return { deleted: true };
@@ -247,6 +306,175 @@ export class BinLocationService {
         [dto.warehouse_id, dto.product_id, lot, expiry, binId, dto.quantity, userId],
       );
       return { located: true, bin_id: binId, lot_code: lot, quantity: dto.quantity };
+    });
+  }
+
+  /**
+   * **Mover un lote de un rack a otro.**
+   *
+   * Faltaba, y su ausencia no era una comodidad de menos: `stock_lot_locations`
+   * tenía **un solo escritor en todo el repo** —el `INSERT … quantity = quantity
+   * + EXCLUDED.quantity` de `putAway`— o sea que el mapa de la bodega sólo sabía
+   * SUMAR. Una vez acomodado, un lote quedaba clavado en ese rack para siempre;
+   * la bodega se reacomoda todas las semanas y el mapa se iba quedando viejo sin
+   * que nada lo dijera. Peor: como `putAway` topea en `SUM(ubicado) ≤
+   * lote.quantity`, un rack que el sistema cree lleno **rechaza** mercancía nueva
+   * de ese SKU aunque el espacio esté libre.
+   *
+   * **No toca existencia.** Ni `commercial.stock` ni `commercial.stock_lots`: el
+   * total del almacén no cambia, cambia dónde está. Es la misma tesis de la capa
+   * física — el saldo lo lleva el lote, la posición la lleva esta tabla.
+   *
+   * **Respeta el congelamiento del inventario físico**, a diferencia de fechar.
+   * La distinción no es de gusto: fechar mueve una etiqueta y el conteo cuenta
+   * por SKU, así que no puede alterar lo contado; mover mueve **la caja**, y el
+   * conteo se organiza recorriendo ubicaciones (`inventory_count_items.location`).
+   * Cambiar cajas de lugar a mitad de un recuento es exactamente lo que el
+   * congelamiento existe para impedir.
+   */
+  async moveLot(dto: MoveLotDto): Promise<MoveLotResult> {
+    if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
+    if (!UUID.test(dto.product_id)) throw new BadRequestException('product_id inválido');
+    if (typeof dto.quantity !== 'number' || dto.quantity <= 0)
+      throw new BadRequestException('quantity debe ser > 0');
+    if (dto.expiry_date && !ISO_DATE.test(dto.expiry_date))
+      throw new BadRequestException('expiry_date debe ser YYYY-MM-DD');
+
+    const lot = (dto.lot_code || 'NA').trim() || 'NA';
+    const expiry = dto.expiry_date || null;
+
+    return this.tk.run(async (trx) => {
+      const userId = this.tenantCtx.get()?.userId || null;
+
+      await this.assertNoCount(trx, dto.warehouse_id);
+
+      const origen = await this.resolverBin(trx, dto.warehouse_id, dto.from_bin_id, dto.from_bin_code, 'origen');
+      const destino = await this.resolverBin(trx, dto.warehouse_id, dto.to_bin_id, dto.to_bin_code, 'destino');
+      if (origen === destino)
+        throw new BadRequestException('El origen y el destino son la misma ubicación.');
+
+      // Lo que hay del lote EN EL ORIGEN, bloqueado: sin el lock, dos handhelds
+      // moviendo el mismo lote a la vez podrían sacar más de lo que hay.
+      const fila = await trx('commercial.stock_lot_locations')
+        .where({ warehouse_id: dto.warehouse_id, product_id: dto.product_id, lot_code: lot, bin_id: origen })
+        .where((qb: Knex.QueryBuilder) => (expiry ? qb.where('expiry_date', expiry) : qb.whereNull('expiry_date')))
+        .forUpdate()
+        .first('id', 'quantity');
+
+      const hay = Number(fila?.quantity || 0);
+      if (hay <= 0)
+        throw new ConflictException('En esa ubicación no hay nada de ese lote: revisá el rack de origen.');
+      if (hay < dto.quantity)
+        throw new ConflictException(
+          `En el origen hay ${hay} de ese lote y querés mover ${dto.quantity}.`,
+        );
+
+      // Sale del origen. La fila se deja en 0 en vez de borrarla: es el rastro de
+      // que ese lote estuvo ahí, y un 0 no bloquea borrar el bin (deleteBin sólo
+      // frena con quantity > 0).
+      await trx('commercial.stock_lot_locations')
+        .where({ id: fila.id })
+        .update({ quantity: hay - dto.quantity, updated_at: trx.fn.now(), updated_by: userId });
+
+      // Entra al destino, con el mismo upsert que el put-away.
+      await trx.raw(
+        `INSERT INTO commercial.stock_lot_locations
+           (tenant_id, warehouse_id, product_id, lot_code, expiry_date, bin_id, quantity, updated_by)
+         VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date, bin_id)
+         DO UPDATE SET quantity = commercial.stock_lot_locations.quantity + EXCLUDED.quantity,
+                       updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [dto.warehouse_id, dto.product_id, lot, expiry, destino, dto.quantity, userId],
+      );
+
+      return {
+        moved: true,
+        from_bin_id: origen,
+        to_bin_id: destino,
+        lot_code: lot,
+        quantity: dto.quantity,
+        queda_en_origen: hay - dto.quantity,
+      };
+    });
+  }
+
+  /**
+   * Un bin de ESTE almacén, por id o por el código del cartel. `rol` sólo entra
+   * en el mensaje: "no existe la ubicación de destino" se corrige distinto que
+   * "no existe la de origen".
+   */
+  private async resolverBin(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    binId: string | undefined,
+    binCode: string | undefined,
+    rol: 'origen' | 'destino',
+  ): Promise<string> {
+    if (binId) {
+      if (!UUID.test(binId)) throw new BadRequestException(`bin de ${rol} inválido`);
+      const b = await trx('commercial.warehouse_bins')
+        .where({ id: binId, warehouse_id: warehouseId })
+        .first('id');
+      if (!b) throw new NotFoundException(`La ubicación de ${rol} no es de este almacén.`);
+      return b.id;
+    }
+    const code = normalizeBinCode(binCode);
+    const b = await trx('commercial.warehouse_bins')
+      .where({ warehouse_id: warehouseId })
+      .whereRaw('UPPER(code) = ?', [code])
+      .first('id');
+    if (!b) throw new NotFoundException(`No existe la ubicación de ${rol} '${code}' en este almacén.`);
+    return b.id;
+  }
+
+  /**
+   * Frena si el almacén tiene un inventario físico congelando movimientos.
+   *
+   * Espeja `assertWarehouseNotFrozen` de `CommercialInventoryService` — se repite
+   * la consulta en vez de inyectar ese servicio para no crear una dependencia
+   * circular entre los dos módulos de inventario. Si el criterio cambia, cambia
+   * en los dos lados: está dicho acá y allá.
+   */
+  private async assertNoCount(trx: Knex.Transaction, warehouseId: string): Promise<void> {
+    const frozen = await trx('commercial.inventory_counts')
+      .where({ warehouse_id: warehouseId, freeze_movements: true })
+      .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+      .first('folio');
+    if (frozen)
+      throw new ConflictException(
+        `Almacén con inventario físico en curso (folio ${frozen.folio}); no se puede mover mercancía de lugar hasta cerrar o cancelar el conteo.`,
+      );
+  }
+
+  /**
+   * **¿Se puede trabajar en este almacén?** — la pregunta que el Andén hacía
+   * demasiado tarde.
+   *
+   * Hoy el congelamiento por inventario físico se descubre al GUARDAR: el
+   * operario lee la etiqueta, teclea lote, caducidad y cantidad, aprieta, y
+   * recién ahí el backend contesta que hay un conteo abierto. Con seis renglones
+   * capturados, seis veces. El almacén se conoce desde que se identifica el vale,
+   * así que la pregunta se puede hacer antes de que escriba la primera letra.
+   *
+   * Es una LECTURA: no frena nada por sí sola. Los que frenan de verdad siguen
+   * siendo los guards del servidor (`assertNoCount` acá, `assertWarehouseNotFrozen`
+   * en el servicio de inventario) — esto sólo permite decirlo a tiempo. Si esta
+   * consulta fallara, el guard del guardado sigue siendo la red de seguridad.
+   */
+  async warehouseFreeze(warehouseId: string): Promise<WarehouseFreeze> {
+    if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      const frozen = await trx('commercial.inventory_counts')
+        .where({ warehouse_id: warehouseId, freeze_movements: true })
+        .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+        .first('id', 'folio', 'status');
+      return {
+        warehouse_id: warehouseId,
+        frozen: !!frozen,
+        folio: frozen?.folio ?? null,
+        count_id: frozen?.id ?? null,
+        status: frozen?.status ?? null,
+      };
     });
   }
 
