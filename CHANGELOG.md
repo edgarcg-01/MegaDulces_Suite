@@ -10,6 +10,35 @@
 
 ## [Unreleased]
 
+### Added — los dos últimos puestos donde repartir una clave cambia algo (`[SN.38]`, 2026-09-22)
+- Pedido de Edgar: *«sigue, aunque los vendedores de ruta tienen su propia página»*. Se siguió puesto
+  por puesto y la medición dejó **dos** (mig `20260922234500`, prod **batch 522**).
+- `full_stack_developer` → `sistemas.salud_datos` — `david_cisneros` **reporta a `sistemas`** y quedó
+  fuera de `[SN.32]` por estar fichado en un puesto propio. Mismo departamento, mismo trabajo, y
+  `USUARIOS_GESTIONAR` ya le abre la pantalla. **6 alertas abiertas, 5 críticas.**
+- `aux_caja_general_zona` → `finanzas.caja` — el puesto se llama «Auxiliar de Caja General de Zona»
+  y la cola «Caja: movimientos por confirmar». ⚠️ 0 filas hoy, y se dice.
+- **Cobertura del padrón tras las 4 migraciones del día: 39 de 100 personas con responsabilidad**
+  (32 de las 62 activas en 30 días).
+
+### Changed — lo que se midió y NO es un pendiente de reparto (`[SN.38]`, 2026-09-22)
+- ⛔ **`vendedor_ruta`** (20 personas, 6 activas — el grupo grande que quedaba): decisión de Edgar,
+  *«tienen su propia página»*. Y aunque se quisiera, `comercial.venta_rutas` ancla en la **zona**:
+  le publicaría a cada vendedor la venta de toda su zona en vez de la suya.
+- ⛔ **`comercial.venta_vecinal` ya tiene dueño.** La recomendación previa decía «existe desde la
+  Fase JZ y no la tiene nadie»: **falso, medido** — `jefe_zona` responde de los **tres** canales, y
+  `supervisor_rv` tiene **0 personas**.
+- ⛔ **`almacenista` → `almacen.conteo` sería un no-op**: esa clave vive en `me-tasks.ts` y las
+  **tareas están exentas** de `[SN.30]`. Segunda vez que aparece el patrón (la primera fue
+  `vendedor_piso`): *una clave que sólo mapea a algo exento no se puede «repartir»*.
+- ⛔ **`auxiliar_mkt` (4) y `facturador` (2) son fichas rotas, no huecos de reparto.** Medido: el rol
+  de una «Auxiliar de Mercadotecnia de Zona» abre conciliación bancaria, caja y cartera de
+  clientes; los dos de Facturación traen rol `telemarketing`. Se corrige desde `/admin/personas`.
+- ⛔ **Mercadotecnia y Telemarketing no tienen clave que darles**: `jefe_marketing`, `auxiliar_mkt`,
+  `coordinador_tlmk` y `vendedor_promociones` no abren **ninguna** de las colas que existen. No
+  falta una fila — falta decidir **de qué responden**, y eso es de Dirección.
+- ⛔ **`presupuestos_compras_corp`**: la Fase PU tiene backend y **no tiene bandeja**.
+
 ### Added — tres puestos que ya podían abrir su cola y no sabían que era suya (`[SN.37]`, 2026-09-22)
 - Pedido de Edgar: *«vayamos haciéndolo sin perder la afinidad por cada uno y el detalle»*. **Cero
   código, cero claves nuevas, cero permisos nuevos**: reparte tres claves que ya existen a tres
