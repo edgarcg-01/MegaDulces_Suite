@@ -5,6 +5,82 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-23 — `[ZN.0]` Zona, sucursal y ruta eran la misma columna
+
+**Disparador:** el lead, revisando la auditoría de usuarios — *«un ejemplo claro de mal
+funcionamiento desde la base son las zonas»*, y después el modelo: *«separación de actividades. No
+es lo mismo dar de alta a alguien de ruta, que alguien de tienda o alguien de oficinas»* · *«esas no
+son tiendas, son sucursales; zonas son: La Piedad, Zamora y Morelia»*.
+
+### El colapso de niveles
+
+`trade.zones` tiene 9 filas y mezcla **cuatro** cosas: zona (`LA PIEDAD RD`, `ZAMORA`), sucursal
+(`YURECUARO`, `CANINDO`, `MORELIA MADERO`, `MORELIA ABASTOS`), canal (`*_VECINAL`) y una actividad
+(`OFICINAS`). Y **toda persona apunta ahí**, sea de ruta, de sucursal o de oficina.
+
+| Medición | |
+|---|---|
+| Personas de **tres** sucursales distintas con la misma etiqueta `LA PIEDAD RD` | 26 (PH 10 · 8ESQ 10 · LPA 6) |
+| Gente de ruta **sin ruta asignada** | 17 de 34 |
+| Gente de oficina cargando una zona que no le aplica | 31 de 46 |
+| Agrupaciones que muestra el tablero de dirección | **6**, donde el negocio tiene **3** |
+
+### ⭐ Las 3 zonas ya estaban, en dos fuentes que coinciden
+
+`kepler_ods.kduk` (el catálogo del ERP, replicado en las 9 sucursales) declara `ZONA LA PIEDAD`,
+`ZONA MORELIA`, `ZONA ZAMORA` — y `commercial.warehouses.purchase_zone` agrupa las sucursales
+exactamente igual: La Piedad (01,02,03,04) · Zamora (05,06) · Morelia (07,08) · Corporativo (00).
+O sea que la normalización **declara** lo que las fuentes ya dicen; no inventa un catálogo.
+
+### ⚠️ Corrección de un diagnóstico propio, del mismo día
+
+Unas horas antes se reportó que las rutas `501…505` tenían «dos dueños en disputa» ($2.07M/30 d).
+**No era una contradicción:** el catálogo decía `ZAMORA` (la **zona**) y `v_route_zone` dice
+`CANINDO` (la **sucursal madre**), y Canindo es sucursal *de* la zona Zamora. Las dos fuentes tenían
+razón; lo que no existía era el nivel que las separa. El dinero no estaba mal asignado: estaba mal
+**agrupado**. Lo destapó el vocabulario del negocio, no una consulta más.
+
+### Lo entregado (aditivo, no mueve ninguna pantalla)
+
+Migración `20260923150000`: `trade.zones.kind` + `code` + `kind_motivo` (las 9 filas clasificadas,
+cada una con su porqué en la fila), la zona **MORELIA** que no existía, y `analytics.v_branch_zone`
+como resolvedor único sucursal → zona. Gate: 3 zonas por tenant, cero sucursales huérfanas, CEDIS
+declarado corporativo.
+
+`code` no es cosmético: **la llave de la zona era el nombre**, y el JWT viaja con el nombre, no con
+el id — renombrar rompe, y ya pasó (`rename_zone_nacional_to_oficinas`).
+
+### El hardcode que impide respetar el alcance (inventario para ZN.2/ZN.3)
+
+| Qué | Medido |
+|---|---|
+| `apps/view/.../core/constants/store-branches.ts` escrito a mano | **14 componentes** lo importan → todos ofrecen las 9 sucursales a cualquiera |
+| `user?.warehouse_code \|\| query.warehouse_code` (fail-open) | **88** |
+| Archivos que consultan `ScopeService` | **33** |
+| `trade.stores` sin zona | **717 de 1,603 (44.7 %)** |
+
+⭐ El alcance **ya existe y está poblado** (`role_scopes` 288, `user_scopes` 46, y `me/scope` ya
+devuelve las opciones elegibles). No falta el mecanismo: falta que lo consulten, y que el catálogo
+deje de estar en el bundle del navegador.
+
+### Verificación
+
+`test-newdb-zn-zonas.js` corrido contra **prod, read-only de verdad** (abre la sesión con
+`default_transaction_read_only = on`; por eso puede medir donde está la data): **4 ok / 0 fallos /
+4 declarados** a la espera de la migración. El bloque verde es el testigo independiente — el ERP
+conoce las 3 plazas y **ninguna cuarta sin declarar**.
+
+### Pendiente
+
+- Aplicar la migración (ventana sin respaldo corriendo, GOTCHAS §38).
+- **ZN.1** re-apunta `warehouses.zone_id` y ahí sí cambia lo que ve Dirección (6 → 3): necesita
+  medición del antes/después y aviso.
+- Abierto con el negocio: si las vecinales son **canal** o unidad propia, y el catálogo de **sedes**
+  de oficina (decidido que la gente de oficina registra sede, y que no suma a ninguna zona).
+
+Plan completo en [`FASE_ZN`](FASES/FASE_ZN_ZONA_SUCURSAL_ALCANCE.md).
+
+---
 ## 2026-09-23 — `[ID.37]`/`[ID.38]` El login tenía dos reglas, y la sesión no se podía cerrar
 
 **Disparador:** *"analiza cómo funcionan los usuarios en el proyecto"* → de los cinco puntos flojos
