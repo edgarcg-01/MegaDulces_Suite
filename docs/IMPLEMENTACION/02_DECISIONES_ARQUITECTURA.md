@@ -2355,3 +2355,33 @@ Plan y mediciones en [`FASE_CDRP_CUADRO_RESULTADOS.md`](FASES/FASE_CDRP_CUADRO_R
 **Hereda:** ADR-060 (la unidad que se muda es fuente + carriles + agenda; migrado = latido verde en prod, no "el contenedor arrancó") · ADR-053 (el latido mide **entrega**) · ADR-056 (lo que no se pudo medir se **declara**; un gate sin prueba negativa es una intención) · ADR-043 (worker-tier: el API no debe correr los crons).
 
 Plan y mediciones en [`FASE_VL_VPS_LOCAL.md`](FASES/FASE_VL_VPS_LOCAL.md) y en [`ops/prod/README.md`](../../ops/prod/README.md).
+
+---
+
+## ADR-078
+
+**La multitarea en la Suite la da el NAVEGADOR: se quitan los estorbos que la bloquean, no se construye un workspace de pestañas dentro de la app. Y antes de bendecir varias ventanas se paga lo que le cuestan al API — un poll que no mira si la pestaña se ve multiplica el costo por ventana abierta.** *(Fase MT — propuesto 2026-09-22)*
+
+**Contexto.** El pedido fue analizar si la Suite puede trabajarse "multipestaña o multi-tarea", y después acotado a `apps/view`. La respuesta obvia —una barra de pestañas propia, estilo SAP o VS Code— resultó ser la peor de las dos para ESTE código, y la medición es la que decide.
+
+**Lo medido, que es lo que obliga a escribir el ADR:**
+
+- **`apps/view` está bien parada para el camino nativo.** Token en `localStorage` y **0 usos de `sessionStorage`** (la sesión ya se comparte entre ventanas); **zoneless**, así que N documentos no comparten costo de detección; el estado de pantalla vive en el componente (de **123** servicios `providedIn:'root'`, **21** tienen estado y sólo **3** son estado de pantalla); `offline-sync` **ya** coordina entre pestañas con Web Locks; y el sidebar y `/projects` ya son `<a routerLink>`. No hay `capacitor.config`: es web pura, así que la objeción "en una app nativa no hay pestañas" no aplica acá.
+- **Y está mal parada para el camino interno.** **Cero** `RouteReuseStrategy` en el repo, contra **224** rutas lazy. Los **3** servicios de estado de pantalla son justo los que uno querría duplicar — `FiltersStateService` se documenta a sí mismo como *"compartido entre Dashboard y Reportes"* y `TiendaStateService` como *"una sola conexión WS para las 3 páginas"*: dos pestañas internas de Reportes se pisarían los filtros. Más 6 componentes con `getElementById`/`querySelector`, 7 con Chart.js, 1 con Leaflet e `id=` duros duplicados, que es lo que rompe con dos instancias vivas.
+- **Lo que de verdad bloquea la multitarea es barato**: **129** `router.navigate()` imperativos contra **138** `routerLink` — o sea la mitad de la navegación, y justo los **20** drill-downs a detalle, no tienen Ctrl+clic, ni clic central, ni "Abrir en pestaña nueva". **0** listeners de `storage`, así que cerrar sesión en una ventana deja a las otras pintando una UI viva con token muerto.
+- **El costo lo paga el API y nadie lo estaba mirando**: **14** componentes con `setInterval` y sólo **2** miraban si la pestaña se ve. El caso que manda es `notifications-bell`, que vive en el header del layout — corre en **toda** pantalla de la Suite, **2 peticiones cada 60 s**, en cada ventana abierta la mire alguien o no. Más **11** gateways WebSocket sin tope de conexiones por usuario.
+
+**Decisión.**
+
+1. **Se rechaza el workspace de pestañas interno.** Reimplementa el gestor de ventanas del sistema operativo, toca el router, la shell y 3 singletons con radio sobre 224 rutas, y **no compra nada**: con pestañas nativas cada una ya conserva su estado vivo sin re-consultar y cambiar entre ellas ya es instantáneo.
+2. **Un poll que sale a la red poléa sólo mientras la pestaña se ve**, por un primitivo compartido (`core/utils/poll-visible`), no por un `document.hidden` copiado en cada pantalla.
+3. **Pausar obliga a ponerse al día al volver.** Pausar sin re-consultar deja al usuario mirando datos *más viejos* que antes del cambio. Con la puesta al día, pausar ahorra peticiones **y** devuelve dato más fresco que el timer ciego.
+4. **La puesta al día mira cuánto pasó, no el evento.** Correr en cada `visibilitychange` haría que alternar entre dos ventanas —el caso que la fase existe para habilitar— pida **más** que el timer ciego. Esa es la prueba negativa obligatoria.
+5. **No se pausa lo que no es una lectura.** El vaciado de capturas pendientes de `comercial-inventory-count` sigue corriendo de fondo: primero el dato de alguien, después el ahorro de peticiones. Los relojes de UI tampoco se tocan.
+6. **Lo que se midió es el MECANISMO, no el uso.** No hay telemetría de peticiones ni de cuántas ventanas deja abierta la gente; eso se **declara** hasta medirlo, no se estima.
+
+**Se rechaza además:** tocar `apps/portal`, `apps/vendor` y `apps/tienda` (recorte explícito del usuario), y quitar el redirect de raíz a `/projects` o la auto-entrada de puerta única — medidos, ninguno de los dos estorba cuando la ventana nueva nace con la URL completa; el que perdía el destino era el guard (`[SN.31]`).
+
+**Hereda:** ADR-056 (un primitivo no cierra la fase hasta vivir en un lugar compartido; un gate sin prueba negativa es una intención; lo que no se pudo medir se **declara**) · ADR-061 y `[SN.30]` (la landing es `/projects`, no se multiplica).
+
+Plan y mediciones en [`FASE_MT_MULTITAREA.md`](FASES/FASE_MT_MULTITAREA.md).

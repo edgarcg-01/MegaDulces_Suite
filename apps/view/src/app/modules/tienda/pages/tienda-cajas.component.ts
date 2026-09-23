@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -147,10 +148,14 @@ export class TiendaCajasComponent implements OnInit, OnDestroy {
   readonly data = signal<OpenCajasResponse | null>(null);
   readonly loading = signal(false);
   readonly error = signal(false);
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private readonly zone = inject(NgZone);
 
-  ngOnInit() { this.load(); this.timer = setInterval(() => this.load(), 30000); }
-  ngOnDestroy() { if (this.timer) clearInterval(this.timer); }
+  ngOnInit() {
+    this.load();
+    // Sólo mientras se vea la pestaña: ver 'core/utils/poll-visible'.
+    encuestarVisible(30_000, () => this.load(), { destroyRef: this.destroyRef, zone: this.zone });
+  }
+  ngOnDestroy() { /* la encuesta se corta sola con el DestroyRef */ }
 
   load() {
     this.loading.set(true);

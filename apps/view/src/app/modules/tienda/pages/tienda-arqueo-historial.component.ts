@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
@@ -384,12 +385,9 @@ export class TiendaArqueoHistorialComponent implements OnInit {
 
   ngOnInit() {
     this.load();
-    this.zone.runOutsideAngular(() => {
-      const id = setInterval(() => this.zone.run(() => {
-        if (document.visibilityState === 'visible') this.load();
-      }), 60_000);
-      this.destroyRef.onDestroy(() => clearInterval(id));
-    });
+    // Ya miraba si la pestaña se veia, pero se quedaba esperando al timer al
+    // volver. El primitivo agrega esa puesta al dia.
+    encuestarVisible(60_000, () => this.load(), { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   /**

@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { FormsModule } from '@angular/forms';
@@ -127,9 +128,8 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
     { label: 'Entregadas', value: 'entregado' },
   ];
 
-  private timer: any = null;
-  private posTimer: any = null;
   private tick: any = null;
+  private readonly zone = inject(NgZone);
 
   readonly incidents = computed(() => this.rows().filter((r) => !!r.incident_type).length);
 
@@ -188,8 +188,10 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.load();
     this.loadPositions();
-    this.timer = setInterval(() => this.load(), 30000); // entregas
-    this.posTimer = setInterval(() => this.loadPositions(), 15000); // posiciones repartidor
+    // Los dos que salen a la red pausan con la pestaña oculta; el reloj de
+    // frescura NO -- no cuesta red y pausarlo congelaria el "hace N min".
+    encuestarVisible(30_000, () => this.load(), { destroyRef: this.destroyRef, zone: this.zone }); // entregas
+    encuestarVisible(15_000, () => this.loadPositions(), { destroyRef: this.destroyRef, zone: this.zone }); // posiciones repartidor
     this.tick = setInterval(() => this.now.set(Date.now()), 15000); // frescura
 
     // Vivo por WS (bonus; el poll garantiza el dato aunque el room no aplique).
@@ -205,8 +207,7 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-    if (this.posTimer) clearInterval(this.posTimer);
+    // Las dos encuestas se cortan solas con el DestroyRef; el reloj no.
     if (this.tick) clearInterval(this.tick);
   }
 
