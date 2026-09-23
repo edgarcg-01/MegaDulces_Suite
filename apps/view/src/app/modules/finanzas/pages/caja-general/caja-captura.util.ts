@@ -11,8 +11,63 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-/** Las 14 denominaciones que el arqueo maneja. La morralla suelta va aparte, en su campo. */
-export const DENOMINACIONES = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05] as const;
+import { denomDe, type Denominacion } from '@megadulces/contracts';
+
+/**
+ * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
+ *
+ * ── Qué cambió, y por qué
+ *
+ * Acá había un catálogo PROPIO de 14 valores sueltos
+ * (`[1000, 500, …, 0.2, 0.1, 0.05]`), duplicando el que ya vive en
+ * `libs/contracts/src/money/denominations.ts` y que consumen la pantalla de tienda, la de
+ * almacén y `blind-count.service`. Era la misma deuda que SM.39 cerró allá y que ADR-056
+ * nombra: un primitivo compartido vive en `libs/`, o queda declarado como deuda.
+ *
+ * Y no era sólo duplicación: el catálogo de acá está **indexado por VALOR**, que es
+ * exactamente el defecto que SM.39 arregló — México tiene billete de $20 **y** moneda de
+ * $20, y un número no puede distinguirlos. Acá no muerde porque la caja no desglosa
+ * monedas, pero la forma equivocada invita al bug.
+ *
+ * ── Por qué es una SELECCIÓN y no una lista nueva
+ *
+ * Decisión de Edgar (2026-09-23): *"en valores, existen billetes de 500, 200, 100, 50 y 20.
+ * monedas no es necesario desglosarlo. en morralla queda perfecto"*. Así que la caja cuenta
+ * **cinco** denominaciones y todo el metal cae en el campo Morralla.
+ *
+ * Eso se expresa eligiendo llaves del catálogo compartido, NO escribiendo otra lista: si
+ * mañana `BILLETES_MXN` cambia una llave, esto **revienta al construirse** en vez de dejar
+ * de ofrecer un billete en silencio. Un billete que desaparece de la reja es dinero que no
+ * se puede contar, y ésa es la peor forma de fallar en un arqueo.
+ *
+ * ⚠️ El CHECK de `finance.cash_ledger_denominations` sigue admitiendo las 14; acá se ofrecen
+ * 5. Volver a ofrecer el de $1,000 es agregar su llave a esta lista — sin migración.
+ */
+const CAJA_BILLETES_KEYS = ['500', '200', '100', '50', '20'] as const;
+
+/**
+ * Elige denominaciones del catálogo compartido por llave, y **falla ruidosamente** si alguna
+ * no existe o no es billete. Es una función y no una constante armada inline para que la
+ * prueba negativa pueda ejercerla: un gate sin prueba negativa es una intención.
+ */
+export function seleccionarBilletes(keys: readonly string[]): readonly Denominacion[] {
+  return keys.map((k) => {
+    const d = denomDe(k);
+    if (!d) {
+      throw new Error(
+        'Denominacion "' + k + '" no existe en el catalogo MXN de @megadulces/contracts. ' +
+        'La caja no puede ofrecer un billete que el catalogo compartido no reconoce.',
+      );
+    }
+    if (d.familia !== 'billete') {
+      throw new Error('La denominacion "' + k + '" es ' + d.familia + ', no billete.');
+    }
+    return d;
+  });
+}
+
+/** Los cinco billetes de la caja, del mayor al menor. La morralla va aparte, en su campo. */
+export const BILLETES_CAJA: readonly Denominacion[] = seleccionarBilletes(CAJA_BILLETES_KEYS);
 
 /** Largo mínimo de la glosa. Espejo del CHECK de `finance.cash_ledger`. */
 export const GLOSA_MIN = 5;
@@ -77,7 +132,7 @@ export interface FormularioCaja {
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal'
-  | 'falta_concepto' | 'glosa_corta' | 'monto_invalido' | 'arqueo_no_cuadra';
+  | 'falta_concepto' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra';
 
 /** Texto que ve el capturista. Dice QUÉ falta, no "formulario inválido". */
 export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
@@ -87,6 +142,7 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
   falta_concepto: 'Falta la cuenta y el concepto de Kepler: sin eso el movimiento no se puede contabilizar.',
   glosa_corta: `Contá qué pasó, con al menos ${GLOSA_MIN} caracteres. El concepto dice a qué cuenta va; esto dice qué pasó.`,
   monto_invalido: 'El monto tiene que ser mayor a cero.',
+  falta_desglose: 'Contá el efectivo por denominación: el desglose es obligatorio, y de ahí sale el monto.',
   arqueo_no_cuadra: 'El desglose por denominación no cuadra con el monto.',
 };
 
@@ -102,10 +158,22 @@ export function motivosDeBloqueo(f: FormularioCaja): MotivoBloqueo[] {
   // El par va COMPLETO o no va: media cuenta no contabiliza nada.
   if (!f.kepler_cuenta || !f.kepler_concepto) m.push('falta_concepto');
   if (!f.glosa || f.glosa.trim().length < GLOSA_MIN) m.push('glosa_corta');
-  if (!(Number(f.monto) > 0)) m.push('monto_invalido');
-  if (estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0)).estado === 'difiere') {
-    m.push('arqueo_no_cuadra');
+
+  // CG.23 — El arqueo es OBLIGATORIO, no un detalle plegado. Decisión de Edgar: "el desglose
+  // no es opcional". Antes el desglose era un `<details>` rotulado "(opcional)" y el monto se
+  // tecleaba suelto, así que el caso normal era registrar efectivo SIN contarlo y `sin_desglose`
+  // no frenaba nada. Ahora el monto SALE del conteo, así que "no contó" y "monto en cero" son
+  // la misma situación — y se dice UNA vez, con el texto que sirve ("contá"), no dos.
+  const arqueo = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0));
+  if (arqueo.estado === 'sin_desglose') {
+    m.push('falta_desglose');
+  } else if (!(Number(f.monto) > 0)) {
+    m.push('monto_invalido');
   }
+  // Sigue vivo aunque la pantalla derive el monto del conteo: esta función es el contrato laxo
+  // que consume cualquier llamador, y uno que mande monto y desglose por separado tiene que
+  // chocar acá y no en un 400 del servidor.
+  if (arqueo.estado === 'difiere') m.push('arqueo_no_cuadra');
   return m;
 }
 

@@ -21,8 +21,8 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import {
-  DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
-  textoCobertura, sumaDesglose, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
+  BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
+  textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
 
@@ -125,14 +125,36 @@ interface FormularioCajaUI {
     .fin-hint-ok   { color:var(--ok-fg); font-size:var(--fs-xs); }
     .fin-hint-warn { color:var(--warn-fg); font-size:var(--fs-xs); }
 
-    .fin-details { border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.5rem .75rem; }
-    .fin-details > summary { cursor:pointer; font-size:var(--fs-sm); }
-
-    /* Reja de denominaciones: fija y ancha para que contar sea teclear en orden, no buscar. */
-    .fin-denoms { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr)); gap:.5rem; margin-top:.6rem; }
-    .fin-denom { display:flex; align-items:center; justify-content:space-between; gap:.4rem;
-                 border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.3rem .5rem; }
-    .fin-denom .mono { font-variant-numeric:tabular-nums; font-size:var(--fs-sm); }
+    /* CG.23 - El arqueo. Una TABLA y no la reja de cajitas que habia antes: esto es dato
+       tabular (denominacion x piezas x importe), asi el encabezado de columna existe de
+       verdad para un lector de pantalla en vez de repetir una etiqueta por celda, y sobre
+       todo queda en UNA columna -- que es lo que hace que bajar con la flecha coincida con
+       lo que ve el ojo. Con la reja de "auto-fill" el orden visual dependia del ancho.
+       Se fueron con el cambio ".fin-denoms", ".fin-denom" y ".fin-details": el desglose ya
+       no es un detalle plegable. */
+    .cg-arqueo { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .75rem; }
+    .cg-arqueo-head { display:flex; align-items:baseline; justify-content:space-between;
+                      flex-wrap:wrap; gap:.5rem; margin-bottom:.4rem; font-size:var(--fs-sm); }
+    /* El caption es para el lector de pantalla; en pantalla la cabecera ya lo dice. */
+    .cg-cap { position:absolute; width:1px; height:1px; overflow:hidden;
+              clip-path:inset(50%); white-space:nowrap; }
+    .cg-arqueo-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
+    .cg-arqueo-tbl th, .cg-arqueo-tbl td { padding:.2rem .4rem; text-align:right; }
+    .cg-arqueo-tbl thead th { font-weight:600; color:var(--text-muted); font-size:var(--fs-xs);
+                              border-bottom:1px solid var(--border-color); }
+    .cg-arqueo-tbl thead th:first-child { text-align:left; }
+    .cg-arqueo-tbl tbody th, .cg-arqueo-tbl tfoot th { text-align:left; font-weight:500; }
+    .cg-arqueo-tbl tfoot th, .cg-arqueo-tbl tfoot td { border-top:1px solid var(--border-color);
+                                                       padding-top:.4rem; font-weight:700; }
+    /* Piezas: angosto, a la derecha y tabular. Contar es teclear numeros cortos en columna. */
+    .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte {
+      width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:.2rem .4rem; }
+    .cg-arqueo-tbl input.cg-morralla-in { width:7.5rem; }
+    /* El importe NO se teclea: sale del conteo. Se pinta como dato, no como campo. */
+    .cg-sub { font-variant-numeric:tabular-nums; color:var(--text-muted); }
+    .cg-na { text-align:center; font-size:var(--fs-xs); }
+    .cg-arqueo-tbl input.cg-total { width:7.5rem; text-align:right; padding:.2rem .4rem;
+                                    font-variant-numeric:tabular-nums; font-weight:700; }
 
     /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
     .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg); font-size:var(--fs-sm); }
@@ -570,8 +592,15 @@ interface FormularioCajaUI {
                 Tomado de Kepler: {{ c.doc_tipo }} {{ c.folio }} ·
                 {{ c.beneficiario || c.entidad_code }} · {{ money(c.monto) }}
                 @if (c.caja_nombre) { · {{ c.caja_nombre }} }.
-                El importe lo pone el documento; si contaste distinto, cambiá el monto.
+                Ese es el importe contra el que vas a contar: el monto del movimiento sale del
+                desglose de abajo, no del documento.
               </small>
+              @if (contadoBandeja(); as cb) {
+                <small class="fin-dim">
+                  En la bandeja ya habías contado <span class="mono">{{ money(cb) }}</span>.
+                  Desglosalo abajo por denominación para que quede registrado.
+                </small>
+              }
               <!-- La diferencia se DICE antes de guardar. Que el servidor levante el hallazgo no
                    sirve si la persona no supo que estaba registrando un descuadre. -->
               @if (montoContado(); as mc) {
@@ -638,34 +667,80 @@ interface FormularioCajaUI {
                  placeholder="Contá qué pasó — esto NO es el concepto contable" />
         </div>
 
-        <div class="fin-row">
-          <label for="cg-monto">Monto</label>
-          <!-- ⛔ Esto era "[readonly]="!!cobroElegido()"" con el motivo "el servidor lo ignora
-               igual y toma el del documento". Eso YA NO ES CIERTO: el backend resuelve el importe
-               con "monto_contado", un campo propio que MANDA sobre el del ERP. Dejarlo de sólo
-               lectura hacía imposible **arquear** un movimiento anclado — que es justo el caso que
-               importa: el documento dice una cifra y en la caja hay otra. Ahora se edita, y la
-               pantalla marca abajo que el importe salió de un conteo y no del documento.
-               No se rechaza efectivo: se acepta lo contado y el servidor levanta el hallazgo. -->
-          <p-inputnumber inputId="cg-monto" [ngModel]="f().monto" (ngModelChange)="onMonto($event)"
-                         (keydown.enter)="guardar()"
-                         mode="currency" currency="MXN" locale="es-MX" />
-          <label for="cg-morralla">Morralla</label>
-          <p-inputnumber inputId="cg-morralla" [ngModel]="f().morralla" (ngModelChange)="setF('morralla', $event)"
-                         mode="currency" currency="MXN" locale="es-MX" />
-        </div>
-
-        <details class="fin-details">
-          <summary>Desglose por denominación (opcional) — {{ textoArqueo() }}</summary>
-          <div class="fin-denoms">
-            @for (d of denominaciones; track d) {
-              <label class="fin-denom">
-                <span class="mono">{{ money(d) }}</span>
-                <p-inputnumber [ngModel]="piezasDe(d)" (ngModelChange)="setPiezas(d, $event)" [min]="0" />
-              </label>
+        <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
+             Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
+             Monto que se TECLEABA suelto. O sea: el camino facil era registrar efectivo sin
+             contarlo, y cuando alguien si contaba quedaban DOS cifras que podian discrepar
+             ("arqueo_no_cuadra") y habia que conciliarlas a mano.
+             Decision de Edgar (2026-09-23): el desglose no es opcional.
+             Ahora se cuentan PIEZAS y nada mas. El importe de cada renglon y el monto del
+             movimiento se CALCULAN, y por eso van deshabilitados: un total tecleado al lado de
+             un conteo es una segunda version de la verdad, y la que gana no la decide nadie.
+             Con eso "arqueo_no_cuadra" ya no puede ocurrir por construccion.
+             Billetes de 500 a 20 (los que circulan en la caja); el metal entero va en Morralla,
+             que es lo unico editable de la columna de importes porque es un importe, no piezas. -->
+        <div class="cg-arqueo">
+          <div class="cg-arqueo-head">
+            <strong>Contá el efectivo</strong>
+            @if (cobroElegido(); as c) {
+              <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
             }
           </div>
-        </details>
+          <table class="cg-arqueo-tbl">
+            <caption class="cg-cap">Desglose del efectivo por denominación</caption>
+            <thead>
+              <tr>
+                <th scope="col">Denominación</th>
+                <th scope="col">Piezas</th>
+                <th scope="col">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Enter y las flechas bajan por la columna, que es como se cuenta un fajo. Y en
+                   un input numerico las flechas INCREMENTAN el valor de a uno, asi que
+                   quitarselas es parte del arreglo, no un efecto colateral: en un arqueo eso es
+                   cambiar lo contado sin querer. Mismo motivo por el que aca va un input nativo
+                   y no p-inputnumber, igual que en la bandeja. -->
+              @for (b of billetes; track b.key) {
+                <tr>
+                  <th scope="row" class="mono">{{ b.label }}</th>
+                  <td>
+                    <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                           [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
+                           (keydown.enter)="moverEnReja($event, 1)"
+                           (keydown.arrowdown)="moverEnReja($event, 1)"
+                           (keydown.arrowup)="moverEnReja($event, -1)"
+                           [attr.aria-label]="'Piezas de ' + b.label" />
+                  </td>
+                  <td class="mono cg-sub">{{ money(subtotalDe(b.valor)) }}</td>
+                </tr>
+              }
+              <tr>
+                <th scope="row">Morralla</th>
+                <td class="fin-dim cg-na">—</td>
+                <td>
+                  <input pInputText type="number" class="cg-pieza cg-morralla-in" min="0" step="0.01"
+                         inputmode="decimal"
+                         [ngModel]="f().morralla" (ngModelChange)="setMorralla($event)"
+                         (keydown.enter)="moverEnReja($event, 1)"
+                         (keydown.arrowdown)="moverEnReja($event, 1)"
+                         (keydown.arrowup)="moverEnReja($event, -1)"
+                         aria-label="Importe de morralla, todas las monedas juntas" />
+                </td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Monto del movimiento</th>
+                <td class="fin-dim cg-na">del conteo</td>
+                <td>
+                  <input pInputText id="cg-monto" class="mono cg-total" [value]="money(f().monto)"
+                         disabled tabindex="-1" aria-label="Monto del movimiento, calculado del conteo" />
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
              2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
@@ -752,19 +827,59 @@ interface FormularioCajaUI {
           <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
           <p-message severity="info" class="cg-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
-        <div class="fin-denoms">
-          @for (d of denominaciones; track d) {
-            <label class="fin-denom">
-              <span class="mono">{{ money(d) }}</span>
-              <p-inputnumber [ngModel]="piezasCorteDe(d)" (ngModelChange)="setPiezasCorte(d, $event)" [min]="0" />
-            </label>
-          }
-        </div>
-        <div class="fin-row">
-          <label for="cg-morralla-corte">Morralla</label>
-          <p-inputnumber inputId="cg-morralla-corte" [ngModel]="morrallaCorte()" (ngModelChange)="morrallaCorte.set($event)"
-                         mode="currency" currency="MXN" locale="es-MX" />
-        </div>
+        <!-- CG.23 - La misma reja que la captura, por el mismo motivo: se cuentan piezas, los
+             importes se calculan, y las flechas bajan por la columna en vez de incrementar el
+             valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
+             no puede saltar a los inputs del otro. -->
+        <table class="cg-arqueo-tbl">
+          <caption class="cg-cap">Desglose del efectivo del corte</caption>
+          <thead>
+            <tr>
+              <th scope="col">Denominación</th>
+              <th scope="col">Piezas</th>
+              <th scope="col">Importe</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (b of billetes; track b.key) {
+              <tr>
+                <th scope="row" class="mono">{{ b.label }}</th>
+                <td>
+                  <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
+                         [ngModel]="piezasCorteDe(b.valor)" (ngModelChange)="setPiezasCorte(b.valor, $event)"
+                         (keydown.enter)="moverEnRejaCorte($event, 1)"
+                         (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                         (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                         [attr.aria-label]="'Piezas de ' + b.label" />
+                </td>
+                <td class="mono cg-sub">{{ money(subtotalCorteDe(b.valor)) }}</td>
+              </tr>
+            }
+            <tr>
+              <th scope="row">Morralla</th>
+              <td class="fin-dim cg-na">—</td>
+              <td>
+                <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
+                       inputmode="decimal"
+                       [ngModel]="morrallaCorte()" (ngModelChange)="morrallaCorte.set($event)"
+                       (keydown.enter)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                       aria-label="Importe de morralla, todas las monedas juntas" />
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Contado</th>
+              <td class="fin-dim cg-na">del conteo</td>
+              <td>
+                <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
+                       disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
+              </td>
+            </tr>
+          </tfoot>
+        </table>
         @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
@@ -835,24 +950,47 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * son TRES saltos por fila (casilla → contado → Capturar), o sea 300 tabulaciones para las 100
    * filas que caben — y el cajero tiene el efectivo en la mano.
    */
-  moverEnColumna(ev: Event, dir: 1 | -1): void {
+  /**
+   * Mueve el foco por una columna de inputs. Lo comparten la bandeja y las dos rejas de arqueo:
+   * en las tres, la forma natural de trabajar es bajar de renglón en renglón.
+   *
+   * ⛔ El `preventDefault` va ANTES de saber si hay renglón siguiente, y eso NO es cosmético:
+   * estos son `input type=number`, donde la flecha INCREMENTA el valor de a uno. Con el
+   * `return` temprano que tenía, en el PRIMER y en el ÚLTIMO renglón —justo donde no hay a
+   * dónde ir— la flecha caía al comportamiento nativo y **cambiaba lo contado sin que nadie
+   * lo tecleara**. En un arqueo eso es dinero que aparece o desaparece solo.
+   */
+  private moverFoco(ev: Event, dir: 1 | -1, selector: string): void {
     const e = ev as KeyboardEvent;
     const inputs = Array.from(
-      this.host.nativeElement.querySelectorAll('input.cg-contado'),
+      this.host.nativeElement.querySelectorAll(selector),
     ) as HTMLInputElement[];
     const vivos = inputs.filter((x) => !x.disabled);
     const i = vivos.indexOf(e.target as HTMLInputElement);
     if (i < 0) return;
+    e.preventDefault();
     const sig = vivos[i + dir];
     if (!sig) return;
-    e.preventDefault();
     sig.focus();
     sig.select();
   }
 
+  /** La columna "contado" de la bandeja. */
+  moverEnColumna(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-contado'); }
+
+  /**
+   * La reja de denominaciones de la captura. Selector propio, distinto del corte: los dos
+   * diálogos tienen una reja y el foco de uno no puede saltar a los inputs del otro.
+   */
+  moverEnReja(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza'); }
+
+  /** La reja de denominaciones del corte. */
+  moverEnRejaCorte(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-corte'); }
+
   readonly money = money;
   readonly dmy = dmy;
-  readonly denominaciones = DENOMINACIONES;
+  /** Los cinco billetes de la caja. Salen del catálogo compartido, no de una lista de acá. */
+  readonly billetes = BILLETES_CAJA;
 
   readonly GLOSA_MIN = GLOSA_MIN;
 
@@ -887,6 +1025,11 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    * se levanta como hallazgo — nunca se rechaza el efectivo.
    */
   montoContado = signal<number | null>(null);
+  /**
+   * Lo que la persona ya había tecleado como total en la bandeja, si vino de ahí. NO es el
+   * monto: es una referencia para que no pierda ese trabajo al desglosarlo por denominación.
+   */
+  contadoBandeja = signal<number | null>(null);
 
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
@@ -1316,9 +1459,14 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     return this.conteoCorte().find((x) => x.denominacion === d)?.piezas ?? 0;
   }
 
+  /** Lo que suma ese renglón del corte. Se calcula; no hay dónde teclearlo. */
+  subtotalCorteDe(d: number): number { return redondea(d * this.piezasCorteDe(d)); }
+
   setPiezasCorte(d: number, piezas: number): void {
     const list = this.conteoCorte().filter((x) => x.denominacion !== d);
-    if (Number(piezas) > 0) list.push({ denominacion: d, piezas: Number(piezas) });
+    // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
+    const n = Math.max(0, Math.trunc(Number(piezas) || 0));
+    if (n > 0) list.push({ denominacion: d, piezas: n });
     this.conteoCorte.set(list);
   }
 
@@ -1347,7 +1495,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       // hora de México, y encima el aviso de "fecha posterior a hoy" se apagaba a esa misma hora.
       tipo: 'gasto' as TipoMovimiento, fecha: todayMx(), sucursal: this.sucursalActiva,
       kepler_cuenta: null, kepler_concepto: null,
-      glosa: '', beneficiario: '', monto: null, morralla: 0,
+      // `monto: 0` y no `null`: el monto es el resultado del conteo, y un conteo vacío suma
+      // cero. Un `null` acá se leería como "sin medir", que es otra cosa.
+      glosa: '', beneficiario: '', monto: 0, morralla: 0,
       denominaciones: [],
     };
   }
@@ -1379,6 +1529,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cobroSel = null;
     this.cobroElegido.set(null);
     this.montoContado.set(null);
+    this.contadoBandeja.set(null);
     this.cobros.set([]);
     this.abrirConFoco(this.capturaAbierta);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
@@ -1462,16 +1613,22 @@ export class FinanzasCajaGeneralComponent implements OnInit {
    */
   private tomarDocumento(c: MovimientoPendiente, contado?: number | null): void {
     this.cobroElegido.set(c);
-    // El conteo viaja aparte, en su propio campo: es lo que el servidor necesita para distinguir
-    // "conté distinto" de "el front mandó mal el importe".
-    const hayConteo = contado != null && Number(contado) > 0;
-    this.montoContado.set(hayConteo ? Number(contado) : null);
+    // CG.23 — El importe YA NO SE HEREDA del documento ni del total tecleado en la bandeja.
+    //
+    // Antes esta línea ponía `monto: hayConteo ? contado : c.monto`, o sea que el formulario
+    // nacía con una cifra que nadie había contado todavía. Con el desglose obligatorio eso es
+    // una contradicción: el monto SALE del conteo, y antes de contar el conteo es cero.
+    // Dejarlo en la cifra del ERP haría lo contrario de lo que este módulo existe para hacer —
+    // daría por bueno el importe del documento y el arqueo sería un trámite.
+    //
+    // Lo contado en la bandeja no se tira: se guarda aparte y se muestra como referencia, para
+    // que quien ya contó una vez no pierda ese trabajo al desglosarlo.
+    this.montoContado.set(null);
+    this.contadoBandeja.set(contado != null && Number(contado) > 0 ? Number(contado) : null);
     this.f.update((v) => ({
       ...v,
-      // Si la persona ya contó en la bandeja, MANDA lo contado: nunca se rechaza efectivo. Sin
-      // conteo, el importe lo pone el documento. `monto` es siempre el importe RESUELTO, que es
-      // contra el que tiene que cuadrar el desglose por denominación.
-      monto: hayConteo ? Number(contado) : Number(c.monto),
+      monto: 0,
+      morralla: 0,
       // La fecha del documento es cuándo Kepler lo registró; la del movimiento es cuándo entró o
       // salió el efectivo. Se propone, no se impone: el capturista puede corregirla.
       fecha: String(c.fecha_valor).slice(0, 10) || v.fecha,
@@ -1482,7 +1639,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       // Si el ERP ya trae la cuenta resuelta, se propone; si no, queda para que la elija un humano.
       kepler_cuenta: c.kepler_cuenta ?? v.kepler_cuenta,
       kepler_concepto: c.kepler_concepto ?? v.kepler_concepto,
-      // El desglose viejo dejaría de cuadrar contra el monto nuevo: se limpia y se vuelve a contar.
+      // El desglose de otro documento no es el de éste: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
     this.pedirPropuesta();
@@ -1502,11 +1659,19 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.tomarDocumento(p, contado);
   }
 
-  /** Soltar el cobro devuelve el formulario a captura manual, sin arrastrar el monto del ERP. */
+  /**
+   * Soltar el cobro devuelve el formulario a captura manual.
+   *
+   * ⚠️ El CONTEO se conserva a propósito. Antes acá se hacía `denominaciones: []` porque el
+   * monto venía del documento y el desglose viejo dejaba de cuadrar; ahora el monto ES el
+   * conteo, y el efectivo que la persona ya contó sigue estando sobre la mesa. Borrárselo por
+   * soltar el documento sería hacerle contar dos veces el mismo dinero.
+   */
   soltarCobro(): void {
     this.cobroElegido.set(null);
     this.montoContado.set(null);
-    this.f.update((v) => ({ ...v, monto: null, denominaciones: [] }));
+    this.contadoBandeja.set(null);
+    this.recomputarMonto();
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -1859,18 +2024,38 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     return this.f().denominaciones.find((x) => x.denominacion === d)?.piezas ?? 0;
   }
 
+  /** Lo que suma ese renglón. Se CALCULA: no hay dónde teclearlo, y por eso va deshabilitado. */
+  subtotalDe(d: number): number { return redondea(d * this.piezasDe(d)); }
+
   setPiezas(d: number, piezas: number): void {
     const list = this.f().denominaciones.filter((x) => x.denominacion !== d);
-    if (Number(piezas) > 0) list.push({ denominacion: d, piezas: Number(piezas) });
+    // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
+    const n = Math.max(0, Math.trunc(Number(piezas) || 0));
+    if (n > 0) list.push({ denominacion: d, piezas: n });
     this.f.update((v) => ({ ...v, denominaciones: list }));
+    this.recomputarMonto();
   }
 
-  textoArqueo(): string {
+  setMorralla(v: number | null): void {
+    this.setF('morralla', Math.max(0, Number(v) || 0));
+    this.recomputarMonto();
+  }
+
+  /**
+   * CG.23 — **El monto sale del conteo, siempre.**
+   *
+   * Antes el monto se tecleaba y el desglose era opcional, así que podía haber dos cifras
+   * distintas para el mismo efectivo y `arqueo_no_cuadra` existía para avisar del choque.
+   * Derivándolo, el choque no puede ocurrir.
+   *
+   * Pasa por `onMonto` a propósito y no por `setF('monto')`: ahí vive la decisión de cuándo
+   * lo contado constituye un CONTEO frente al documento del ERP (`monto_contado`), que es lo
+   * que el servidor necesita para distinguir "conté distinto" de "el front mandó mal el
+   * importe". Un solo camino, sin copiar esa regla en dos lados.
+   */
+  private recomputarMonto(): void {
     const f = this.f();
-    const r = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0));
-    if (r.estado === 'sin_desglose') return 'sin contar';
-    if (r.estado === 'cuadra') return `cuadra: ${money(r.desglosado)}`;
-    return `NO cuadra: ${money(r.desglosado)} (${r.diferencia > 0 ? 'sobran' : 'faltan'} ${money(Math.abs(r.diferencia))})`;
+    this.onMonto(sumaDesglose(f.denominaciones, Number(f.morralla || 0)));
   }
 
   textoBloqueo(b: MotivoBloqueo): string { return TEXTO_BLOQUEO[b]; }
