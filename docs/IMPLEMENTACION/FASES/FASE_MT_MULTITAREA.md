@@ -60,6 +60,7 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 | **[MT.1]** | Los drill-downs de escritorio a `<a [routerLink]>` | 🧪 2026-09-22 |
 | **[MT.2]** | Listener de `storage`: lo que pasa en una ventana llega a las otras | 🧪 2026-09-22 |
 | **[MT.3]** | El botón del header: una acción y una preferencia, ambas opt-in | 🧪 2026-09-22 |
+| **[MT.3.1]** | La cadena completa, renderizada: `href` real + la preferencia en los 11 | 🧪 2026-09-22 |
 | **[MT.4]** | Medir en vivo el costo real por pestaña (hoy sólo hay la medición determinista) | ⬜ |
 
 ### [MT.0] — el primitivo de encuesta
@@ -217,6 +218,37 @@ plantillas de Angular. Otra confirmación de que las dos mitades de cobertura so
 del origen, así que un listener sin filtro haría que cambiar el tema, un filtro guardado o el
 contador del verificador le moviera la multitarea a todo el mundo. Ejercida: se quitó el filtro y
 cayó esa prueba, sólo esa.
+
+---
+
+### [MT.3.1] — cerrar el hueco que yo mismo declaré
+
+`[MT.1]` dejó dicho que su compuerta mira la **forma** y no el comportamiento. Faltaba lo único
+que al usuario le importa: **que el ancla renderizada tenga un `href` de verdad** y que la
+preferencia le mueva el `target`. Ni la compuerta de fuente, ni el compilador, ni el spec del
+servicio aislado lo cubrían.
+
+Se monta **de verdad** `compras-requisiciones` (la más barata: 123 líneas, una sola dependencia
+que doblar) y se comprueba sobre el DOM: `href="/compras/requisiciones/{id}"`, sin `target` con la
+preferencia apagada, `target="_blank"` con ella prendida, y que el `href` **no cambia** —la
+preferencia elige *dónde* abre, no *a dónde* va—. La cadena es la misma en las 11.
+
+⭐ **El `href` es el punto.** Un `[routerLink]` sobre un elemento que no es `<a>` navega igual y no
+da Ctrl+clic, ni clic central, ni preview de la URL. Ese defecto estaba **vivo** en
+`comercial-inventory-sessions` y se veía idéntico en pantalla.
+
+**Dos negativas, ejercidas:**
+
+- **`stopPropagation`**: se quitó del fuente real y cayó esa prueba, sólo esa. Sin el freno, un
+  clic en el folio dispara además el manejador de la fila; con la preferencia prendida es peor,
+  porque la fila navega en *esta* ventana mientras el ancla abre otra — terminás con la pantalla
+  cambiada abajo del mouse y una ventana nueva encima. La contraprueba también está: un clic en
+  **otra** celda sí navega, o sea que no se rompió lo que ya andaba.
+- **Consistencia de la preferencia**: los 11 anclas deben llevar `[target]`. Si un drill-down
+  nuevo se agrega sin él, la preferencia se aplica a unos sí y a otros no — y eso es **peor que no
+  tenerla**: el usuario la prende, ve que a veces pasa y a veces no, y deja de confiar en el
+  interruptor. Es invisible en pantalla y no lo atrapa ni el compilador ni la prueba renderizada,
+  que monta una sola.
 
 ---
 
