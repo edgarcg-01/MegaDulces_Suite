@@ -414,11 +414,21 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
       const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
       if (keys.length) {
         for (const norm of cfg.fns) {
+          // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
+          // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
+          const clave = `${table}:${norm.name}`;
+          if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
           // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
           try { const nz = await norm(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
           catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
         }
       }
+    }
+    // [DB-MEM.20] FUERA del `if (cfg…)` a propósito: si `kdm2` deja de embarcar un rato, lo que ya
+    // se juntó igual tiene que salir. Es no-op mientras no le toque la ventana, y nunca tira.
+    if (schema === 'kepler_ods' && pendientes.size) {
+      try { await vaciarCoalescidos(client, tenantId); }
+      catch (e) { console.error(`  [coalesce] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
     }
     return changed;
   } catch (e) {
@@ -702,6 +712,82 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// [DB-MEM.20] COALESCEDOR — para el normalizador que NO cabe en el ciclo del carril.
+//
+// ⭐ EL PRECIO SIGUE SALIENDO DE LA VENTA. Esto no saca a `kdm2` de la ecuación: cambia CADA
+// CUÁNTO se recalcula, de "en cada embarque" a "cada N minutos, con los SKUs juntados y sin
+// repetir". La moda es sobre 90 DÍAS — un lote de 15 segundos no puede moverla.
+//
+// Por qué, medido en prod el 2026-09-23 (el día que `[DB-MEM.18]` encendió el log):
+//   · `normalizeSalePrice` era el 92.8% de TODO el tiempo de consulta de la base.
+//   · 38 ejecuciones movieron 4,850,000 bloques (~37 GB) para devolver 124 filas.
+//     Cero disco, cero temporales: CPU pura.
+//   · Costo cronometrado: 1 SKU = 924 ms · 4 SKUs = 2,433 ms ⇒ ~600 ms POR SKU. O sea
+//     98 SKUs ≈ 60 s y 535 SKUs ≈ 5 min, y se llegaron a ver DOS corridas apiladas.
+//   · Entró el 2026-08-25 (9e42351a). Duele ahora porque `[VL.11]` puso producción y la
+//     ingesta a compartir los mismos 4 núcleos.
+//
+// La forma: ventana + presupuesto. Cada `cadaMs` se vacía lo juntado, en lotes chicos y sin
+// pasarse de `PRESUPUESTO_MS`; lo que sobra espera la siguiente ventana. Eso acota el gasto a
+// ~20 s cada 300 s (6.7% de un núcleo) en vez de los ~75% continuos que se midieron, y —más
+// importante— el ciclo del carril vuelve a cerrar dentro de su umbral de salud.
+//
+// ⚠️ SE DECLARA LO QUE NO CUBRE: lo juntado vive en memoria del proceso. Un reinicio duro
+// pierde los SKUs pendientes; los recupera la próxima venta de ese SKU (que es inminente, por
+// algo estaban en la lista) o el barrido nocturno. Por eso la ventana es de minutos y no de
+// horas, y por eso el rezago se IMPRIME en vez de suponerse.
+// ⚠️ `kdii` y `kdpv_prod_util` NO se coalescen a propósito: ésos son un cambio de precio en
+// Kepler, y `[TDA.1]` exige que llegue a la etiquetera EN VIVO. Lo que se espacia es el
+// camino derivado de la VENTA, que es el caro.
+const COALESCE_SEC = Math.max(0, Number(process.env.ODS_PRICE_COALESCE_SEC || 300));
+const COALESCE_PRESUPUESTO_MS = Math.max(1000, Number(process.env.ODS_PRICE_COALESCE_BUDGET_MS || 20000));
+const COALESCE_LOTE = Math.max(1, Number(process.env.ODS_PRICE_COALESCE_CHUNK || 10));
+/** Qué pares (tabla, normalizador) se juntan en vez de correr al momento. `0` = desactivado. */
+const COALESCIBLES = new Set(COALESCE_SEC > 0 ? ['kdm2:normalizeSalePrice'] : []);
+/** clave → { fn, skus:Set, ultimoVaciado } — estado del proceso, a propósito (ver arriba). */
+const pendientes = new Map();
+
+function acumular(clave, fn, keys) {
+  let st = pendientes.get(clave);
+  if (!st) { st = { fn, skus: new Set(), ultimoVaciado: Date.now() }; pendientes.set(clave, st); }
+  for (const k of keys) st.skus.add(k);
+}
+
+/**
+ * Vacía lo juntado si le tocó la ventana, en lotes y sin pasarse del presupuesto.
+ * NUNCA tira: si un lote falla, sus SKUs vuelven a la bolsa y se reintentan en la ventana
+ * siguiente — igual que el normalizador al momento, que ya trataba su error como "lo toma el barrido".
+ */
+async function vaciarCoalescidos(client, tenantId) {
+  const t0 = Date.now();
+  for (const [clave, st] of pendientes) {
+    if (Date.now() - st.ultimoVaciado < COALESCE_SEC * 1000) continue;
+    if (!st.skus.size) { st.ultimoVaciado = Date.now(); continue; }
+    let filas = 0; let hechos = 0;
+    while (st.skus.size && Date.now() - t0 < COALESCE_PRESUPUESTO_MS) {
+      const lote = [];
+      for (const s of st.skus) { lote.push(s); if (lote.length >= COALESCE_LOTE) break; }
+      try {
+        filas += (await st.fn(client, tenantId, lote)) || 0;
+        hechos += lote.length;
+        for (const s of lote) st.skus.delete(s);   // se sacan RECIÉN al confirmar: un fallo no pierde SKUs
+      } catch (e) {
+        console.error(`  [coalesce:${clave}] ⚠ ${String(e.message).slice(0, 140)} — ${lote.length} SKUs vuelven a la bolsa`);
+        break;
+      }
+    }
+    // El reloj se reinicia sólo cuando la bolsa quedó vacía. Con rezago pendiente se sigue
+    // vaciando en el ciclo siguiente (acotado por el presupuesto), en vez de esperar otra ventana.
+    if (!st.skus.size) st.ultimoVaciado = Date.now();
+    if (hechos) {
+      console.log(`  [coalesce:${clave}] ${filas} filas · ${hechos} SKUs · ${Date.now() - t0}ms`
+        + (st.skus.size ? ` · quedan ${st.skus.size} para la próxima ventana` : ''));
+    }
+  }
+}
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
@@ -732,4 +818,16 @@ const HANDLERS = {
   'cdc-heartbeat': applyCdcHeartbeat,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert, applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE };
+module.exports = {
+  HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE,
+  // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
+  // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se
+  // expone porque la alternativa era probarlo a través de un `applyRawUpsert` con Postgres real,
+  // y entonces la propiedad que hay que garantizar —que un lote fallado DEVUELVE sus SKUs a la
+  // bolsa— sólo se podría comprobar rompiendo la base a propósito.
+  __coalesce: {
+    acumular, vaciarCoalescidos, pendientes, COALESCIBLES,
+    COALESCE_SEC, COALESCE_LOTE, COALESCE_PRESUPUESTO_MS,
+  },
+};
