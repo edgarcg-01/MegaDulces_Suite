@@ -85,6 +85,19 @@ const CON_GASTO: PendientesResponse = {
   desde: '2026-09-21', ventana_dias: 1,
 };
 
+/** Dos filas CONFIRMABLES: contar es recorrer una columna, y con una sola no se prueba nada. */
+const FILA_A: MovimientoPendiente = {
+  ...GASTO_TRABADO, origen_ref: '00|X-D-26|0001294|0011', folio: '0001294', monto: 250,
+  confirmable: true, kepler_cuenta: '601-001', kepler_concepto: 'VIATICOS', motivo: undefined, motivo_texto: undefined,
+};
+const FILA_B: MovimientoPendiente = {
+  ...FILA_A, origen_ref: '00|X-D-26|0001295|0011', folio: '0001295', monto: 3747.66,
+};
+const CON_DOS: PendientesResponse = {
+  rows: [FILA_A, FILA_B], limit: 100, has_more: false, confirmables: 2,
+  desde: '2026-09-21', ventana_dias: 1,
+};
+
 const FRECUENTE: Frecuente = {
   kepler_cuenta: '601-001', kepler_concepto: 'PAPELERIA', glosa: 'hojas',
   beneficiario: 'PAPELERA SA', usos: 9, ultimo_uso: '2026-09-20', rango: 1,
@@ -466,6 +479,73 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     TestBed.resetTestingModule();
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
+  });
+
+  // ── 10 · TECLADO: contar es recorrer una columna ─────────────────────────────────────────
+  //
+  // Punto 3 de la revisión. Medido antes: el archivo no tenía UN SOLO manejo de foco (0 `focus()`,
+  // 0 `keydown`). Con el Tab pelado son TRES saltos por fila —casilla, contado, Capturar—, o sea
+  // 300 tabulaciones para las 100 filas que caben, con el efectivo en la mano.
+
+  const inputsContado = (fx: { nativeElement: HTMLElement }) =>
+    Array.from(fx.nativeElement.querySelectorAll('input.cg-contado')) as HTMLInputElement[];
+
+  it('Enter en un Contado baja al siguiente de la columna', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const ins = inputsContado(fx);
+    expect(ins.length).toBe(2);
+    ins[0].focus();
+    ins[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(document.activeElement).toBe(ins[1]);
+  });
+
+  it('la flecha arriba vuelve al anterior — y NO incrementa el importe', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const ins = inputsContado(fx);
+    ins[1].focus();
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    ins[1].dispatchEvent(ev);
+
+    expect(document.activeElement).toBe(ins[0]);
+    // En un input numérico la flecha SUBE el valor de a uno. En un importe de caja eso es cambiar
+    // lo contado sin querer, así que cancelar el default es parte del arreglo.
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('en la última fila, Enter no rompe nada', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const ins = inputsContado(fx);
+    ins[1].focus();
+    expect(() => ins[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))).not.toThrow();
+    expect(document.activeElement).toBe(ins[1]);
+  });
+
+  it('cerrar un diálogo DEVUELVE el foco a donde estaba (PrimeNG no lo hace)', async () => {
+    const fx = montar();
+    // Verificado en node_modules: p-dialog trae closeOnEscape/focusOnShow/focusTrap, pero CERO
+    // restauración del foco al cerrar. Sin esto, cerrar deja el foco en el <body>.
+    const disparador = document.createElement('button');
+    document.body.appendChild(disparador);
+    disparador.focus();
+    expect(document.activeElement).toBe(disparador);
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+    comp.cerrarConFoco(comp.capturaAbierta);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.activeElement).toBe(disparador);
+    disparador.remove();
   });
 
   it('sin documento anclado no viaja monto_contado (no hay contra qué contar)', () => {

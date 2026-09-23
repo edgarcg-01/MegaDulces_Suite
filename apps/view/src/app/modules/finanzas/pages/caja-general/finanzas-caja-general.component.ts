@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -371,9 +371,17 @@ interface FormularioCajaUI {
                          Contar es un HECHO FISICO; que su cuenta contable este declarada es una
                          decision administrativa. Trabar el primero por el segundo mezcla dos cosas
                          distintas -- y el efectivo ya esta en la caja, se registre o no. -->
+                    <!-- Enter y las flechas bajan por la COLUMNA, que es como se cuenta: con el
+                         Tab pelado son tres saltos por fila (casilla, contado, Capturar) y acá
+                         entran 100 filas. Ademas, en un input numerico las flechas INCREMENTAN el
+                         valor de a uno -- en un importe de caja eso es cambiar lo contado sin
+                         querer, asi que quitarselas es parte del arreglo, no un efecto colateral. -->
                     <input pInputText type="number" class="cg-contado"
                            [ngModel]="contadoDe(p.origen_ref)"
                            (ngModelChange)="setContado(p.origen_ref, $event)"
+                           (keydown.enter)="moverEnColumna($event, 1)"
+                           (keydown.arrowdown)="moverEnColumna($event, 1)"
+                           (keydown.arrowup)="moverEnColumna($event, -1)"
                            [placeholder]="'igual'" [attr.aria-label]="'Contado de ' + p.folio" />
                   </td>
                   <td>
@@ -519,7 +527,7 @@ interface FormularioCajaUI {
 
     <p-toast position="bottom-right"></p-toast>
 
-    <p-dialog [visible]="capturaAbierta()" (visibleChange)="capturaAbierta.set($event)"
+    <p-dialog [visible]="capturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(capturaAbierta)"
               [modal]="true" [style]="{ width: '46rem', maxWidth: '96vw' }"
               header="Registrar movimiento de caja" [draggable]="false">
       <div class="fin-form">
@@ -623,6 +631,7 @@ interface FormularioCajaUI {
         <div class="fin-row">
           <label for="cg-glosa">Qué pasó</label>
           <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
+                 (keydown.enter)="guardar()"
                  placeholder="Contá qué pasó — esto NO es el concepto contable" />
         </div>
 
@@ -636,6 +645,7 @@ interface FormularioCajaUI {
                pantalla marca abajo que el importe salió de un conteo y no del documento.
                No se rechaza efectivo: se acepta lo contado y el servidor levanta el hallazgo. -->
           <p-inputnumber inputId="cg-monto" [ngModel]="f().monto" (ngModelChange)="onMonto($event)"
+                         (keydown.enter)="guardar()"
                          mode="currency" currency="MXN" locale="es-MX" />
           <label for="cg-morralla">Morralla</label>
           <p-inputnumber inputId="cg-morralla" [ngModel]="f().morralla" (ngModelChange)="setF('morralla', $event)"
@@ -668,13 +678,13 @@ interface FormularioCajaUI {
            no tenía ningún botón. Las otras 50 pantallas del repo ya usan #footer.
            SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y lo cierran. -->
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="capturaAbierta.set(false)"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
         <p-button label="Guardar" icon="pi pi-check" size="small"
                   [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
       </ng-template>
     </p-dialog>
 
-    <p-dialog [visible]="aperturaAbierta()" (visibleChange)="aperturaAbierta.set($event)"
+    <p-dialog [visible]="aperturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(aperturaAbierta)"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
               header="Abrir corte de caja" [draggable]="false">
       <div class="fin-form">
@@ -686,14 +696,14 @@ interface FormularioCajaUI {
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="aperturaAbierta.set(false)"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(aperturaAbierta)"></p-button>
         <!-- Sin bandera de ocupado, el doble clic abría DOS cortes. -->
         <p-button label="Abrir" icon="pi pi-check" size="small"
                   [disabled]="abriendo()" (onClick)="abrirCorte()"></p-button>
       </ng-template>
     </p-dialog>
 
-    <p-dialog [visible]="cierreAbierto()" (visibleChange)="cierreAbierto.set($event)"
+    <p-dialog [visible]="cierreAbierto()" (visibleChange)="$event ? null : cerrarConFoco(cierreAbierto)"
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
@@ -743,7 +753,7 @@ interface FormularioCajaUI {
         <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto.set(false)"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(cierreAbierto)"></p-button>
         @if (!revelado()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
@@ -766,6 +776,56 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   private auth = inject(AuthService);
   private toast = inject(MessageService);
   private borrador = inject(CajaBorradorService);
+  private host: ElementRef<HTMLElement> = inject(ElementRef);
+
+  // ── Teclado ─────────────────────────────────────────────────────────────────────────────────
+  //
+  // Medido antes de tocar nada: el archivo no tenía UN SOLO manejo de foco (0 `focus()`,
+  // 0 `keydown`), y de PrimeNG se verificó qué trae de verdad — `closeOnEscape`, `focusOnShow` y
+  // `focusTrap` vienen en `true`, pero **el retorno del foco al cerrar NO existe** (cero
+  // coincidencias de `previousFocus`/`restoreAppFocus` en su runtime). DESIGN.md lo pide y avisa
+  // que "no es gratis: se verifica, no se asume". Se verificó, y había que escribirlo.
+
+  /** Quién tenía el foco antes de abrir un diálogo, para devolvérselo al cerrar. */
+  private focoPrevio: HTMLElement | null = null;
+
+  private abrirConFoco(cual: { set(v: boolean): void }): void {
+    this.focoPrevio = (document.activeElement as HTMLElement) ?? null;
+    cual.set(true);
+  }
+
+  /**
+   * Devuelve el foco a donde estaba. Sin esto, cerrar un diálogo deja el foco en el `<body>` y
+   * quien navega con teclado tiene que recorrer la pantalla entera para volver a donde estaba.
+   */
+  cerrarConFoco(cual: { set(v: boolean): void }): void {
+    cual.set(false);
+    const el = this.focoPrevio;
+    this.focoPrevio = null;
+    if (el && typeof el.focus === 'function') setTimeout(() => el.focus(), 0);
+  }
+
+  /**
+   * Bajar (o subir) por la columna de Contado con Enter y las flechas.
+   *
+   * Es LA motion de esta pantalla: contar es recorrer una columna tecleando. Con el Tab pelado
+   * son TRES saltos por fila (casilla → contado → Capturar), o sea 300 tabulaciones para las 100
+   * filas que caben — y el cajero tiene el efectivo en la mano.
+   */
+  moverEnColumna(ev: Event, dir: 1 | -1): void {
+    const e = ev as KeyboardEvent;
+    const inputs = Array.from(
+      this.host.nativeElement.querySelectorAll('input.cg-contado'),
+    ) as HTMLInputElement[];
+    const vivos = inputs.filter((x) => !x.disabled);
+    const i = vivos.indexOf(e.target as HTMLInputElement);
+    if (i < 0) return;
+    const sig = vivos[i + dir];
+    if (!sig) return;
+    e.preventDefault();
+    sig.focus();
+    sig.select();
+  }
 
   readonly money = money;
   readonly dmy = dmy;
@@ -1146,7 +1206,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     });
   }
 
-  abrirApertura(): void { this.fondoInicial.set(0); this.aperturaAbierta.set(true); }
+  abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }
 
   abrirCorte(): void {
     if (this.abriendo()) return;
@@ -1175,7 +1235,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   abrirCierre(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.revelado.set(null); this.motivoReconteo.set('');
-    this.cierreAbierto.set(true);
+    this.abrirConFoco(this.cierreAbierto);
   }
 
   /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
@@ -1278,7 +1338,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cobroElegido.set(null);
     this.montoContado.set(null);
     this.cobros.set([]);
-    this.capturaAbierta.set(true);
+    this.abrirConFoco(this.capturaAbierta);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
     // sucursal seguían siendo los de la 00. Se refrescan al abrir, con la sucursal en curso.
     this.cargarFrecuentes();
