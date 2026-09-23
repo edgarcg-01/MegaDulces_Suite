@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.11.A] El camino INTERNO: mismos nombres, sin salir del edificio.
+#
+# Una vez que el MikroTik resuelva estos tres nombres a 192.168.0.222, la oficina
+# entra por acá y el resto del mundo sigue entrando por el túnel de Cloudflare.
+# Misma URL en los dos lados, así que una laptop que va y viene no cambia nada.
+#
+# ⚠️ El orden de encendido NO es negociable: primero el certificado, después el DNS.
+# Si la oficina apunta a `md` antes de que exista el certificado, con HSTS ya encendido
+# el navegador da un error IMPOSIBLE DE SALTAR. Ver Dockerfile.caddy.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	# Sin `email`: Caddy funciona igual, sólo que Let's Encrypt no manda avisos de
+	# vencimiento a nadie. Se puede agregar, pero un correo personal acá se vuelve
+	# una dependencia de una persona. El aviso real lo tiene que dar el monitoreo.
+	#
+	# ⚠️ El `admin` se apaga: por default Caddy abre una API de administración en
+	# localhost:2019 que puede recargar la configuración entera. Adentro del contenedor
+	# no la usa nadie.
+	admin off
+}
+
+# ── El bloque de TLS, una vez ───────────────────────────────────────────────
+(tls-dns-cloudflare) {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_DNS_API_TOKEN}
+
+		# ⛔ RESOLVEDORES EXPLÍCITOS, Y NO ES DECORACIÓN. Para validar por DNS-01, Caddy
+		# escribe un TXT en `_acme-challenge.<nombre>` y después CONSULTA que se haya
+		# propagado. Si esa consulta la contesta el MikroTik —que es el resolvedor de `md`
+		# y va a tener entradas estáticas para este dominio— puede devolver un registro A
+		# donde se espera un TXT, y la renovación falla.
+		#
+		# ⚠️ El costo de equivocarse acá NO se ve hoy: el certificado se renueva solo cada
+		# ~60 días, así que el sitio se cae DOS MESES después, cuando ya nadie asocia la
+		# caída con haber tocado el router.
+		#
+		# Por eso además las entradas del MikroTik van por NOMBRE EXACTO y nunca por
+		# `regexp` (un regexp amplio capturaría `_acme-challenge.…`, y el de RouterOS
+		# tampoco está anclado). Son dos defensas para el mismo modo de falla.
+		resolvers 1.1.1.1 8.8.8.8
+	}
+}
+
+# ── Los tres destinos ───────────────────────────────────────────────────────
+# Verificados alcanzables por nombre desde la red `prod_default` (HTTP 200 los tres).
+# El tráfico entre este contenedor y las apps es interno y va en claro a propósito:
+# el TLS lo termina acá, igual que lo termina Cloudflare del otro lado.
+
+megadulcessuite.com {
+	import tls-dns-cloudflare
+	reverse_proxy api:10000
+}
+
+portal.megadulcessuite.com {
+	import tls-dns-cloudflare
+	reverse_proxy portal:10000
+}
+
+vendedor.megadulcessuite.com {
+	import tls-dns-cloudflare
+	reverse_proxy vendor:10000
+}
