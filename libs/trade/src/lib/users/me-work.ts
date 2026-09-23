@@ -73,7 +73,8 @@ export type ResponsabilidadKey =
   | 'finanzas.conciliacion_ingresos'
   | 'finanzas.conciliacion_egresos'
   | 'sistemas.salud_datos'
-  | 'finanzas.cartera';
+  | 'finanzas.cartera'
+  | 'compras.entradas';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -239,7 +240,30 @@ export interface BandejaDef {
  * Un tope de 8 muestra el caso normal entero y sólo recorta cuando de verdad hay una cascada —
  * que es justo cuando el detalle importa menos que el hecho de que se cayó todo.
  */
-export const TOPE_DESGLOSE = 8;
+export const TOPE_DESGLOSE = 10;
+
+/*
+ * `[SN.39]` **Por qué 10 y ya no 8.** El 8 salía de la cola de salud, que vive entre 0 y una
+ * decena — sigue siendo cierto y 10 la cubre mejor. Lo que obligó a moverlo es otra medición: el
+ * desglose de entradas es **una fila por sucursal y hay NUEVE**, así que con tope 8 se caía una —
+ * y al ordenar por lo que falta, la que se caía era `08`, **la que mejor va (78%)**. Un desglose
+ * que existe para que cada auxiliar vea SU porcentaje y le esconde una sucursal entera no cumple
+ * su único trabajo. Dos renglones más no le cuestan nada a las otras dos bandejas.
+ */
+
+/**
+ * `[SN.39]` **Cuántos días atrás se le pide comprobante a una entrada de mercancía.**
+ *
+ * 90 días. El histórico completo son **12,634 entradas desde agosto-2024 con 2.33% de cobertura**:
+ * arrastrarlo entero pondría doce mil renglones en la portada de cinco personas, por papeles que
+ * ya no existen. Noventa días es lo que todavía se puede ir a buscar al archivero — y es la misma
+ * ventana con la que se midió el 78% de `08` y el 37.5% de `01`, o sea la que ya usan.
+ *
+ * ⚠️ Vive ACÁ ARRIBA y no junto a su bandeja: el `detalle` la interpola en un template literal, y
+ * el array `BANDEJAS` se construye al cargar el módulo. Declarada después, sería un `const` en
+ * zona muerta temporal y el import entero reventaría con `ReferenceError`.
+ */
+const ENTRADAS_VENTANA_DIAS = 90;
 
 /**
  * Cuenta y fecha la cola en UNA sola pasada (`count(*)` + `min(<fecha>)`). Dos consultas por
@@ -820,6 +844,131 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * en `/finanzas/cartera` con el cliente delante, no leyendo la portada. Un segundo desglose
      * sumaría ocho renglones a la landing sin cambiar ninguna decisión.
      */
+  },
+
+  // ── `[SN.39]` Compras: el comprobante de las entradas ──────────────────────────────────────
+  {
+    id: 'entradas-sin-comprobante',
+    label: 'Entradas de mercancía sin comprobante',
+    detalle: `órdenes de entrada de los últimos ${ENTRADAS_VENTANA_DIAS} días · falta subir el documento`,
+    ruta: '/compras/entradas',
+    icono: 'pi pi-file-import',
+    alcance: 'bandeja',
+    responsabilidad: 'compras.entradas',
+    acotablePorSucursal: true,
+    /*
+     * **7 días.** La entrada se comprueba con el papel que llegó con la mercancía; si pasó una
+     * semana, el papel ya no está en el mostrador y aparece el reclamo al proveedor sin respaldo.
+     *
+     * ⚠️ Nace `atrasada` en casi toda la red, y es correcto: medido el 2026-09-22, siete de las
+     * nueve sucursales tienen la entrada sin comprobante más vieja desde **junio**.
+     */
+    umbral_dias: 7,
+    /*
+     * ⚠️ `COMPRAS_ENTRADAS_GESTIONAR`, **no `_VER`**: la ruta la gatea con `permissionGuard(
+     * GESTIONAR)`, no con el `anyPermissionGuard` de las pantallas de captura. Poner `_VER` acá
+     * mandaría a `direccion` —que tiene `VER: true` y `GESTIONAR: false`— a un rebote.
+     */
+    anyOf: [Permission.COMPRAS_ENTRADAS_GESTIONAR],
+    /*
+     * ⛔ **La cola es «sin comprobante», no «todas las entradas».** El `LEFT JOIN … IS NULL` es lo
+     * que la hace trabajo pendiente; contar entradas sería contar la operación del ERP, que no es
+     * de nadie.
+     *
+     * ⛔ **Ventana de 90 días, y no es pereza.** El histórico completo son 12,634 entradas desde
+     * agosto-2024 con **2.33%** de cobertura: arrastrar dos años pondría 12 mil en la portada de
+     * cinco personas y ninguno de esos papeles existe ya. Lo que se puede subir hoy es lo reciente.
+     *
+     * ⛔ **No hay columna de cierre y se DECLARA.** Una entrada no «se cierra»: aparece su
+     * comprobante en otra tabla. `cierre: null` hace que `cerradas_30d` viaje `null` —nunca 0—, y
+     * el veredicto se apoya en el ritmo de entrada y la antigüedad, no en un cero inventado que
+     * diría «nadie la trabaja» cuando en `08` subieron el 78%.
+     *
+     * ⛔ El puente a sucursal es por la LLAVE CANÓNICA (`[RE.23]`), igual que reabasto. Acá además
+     * `erp_goods_receipts` YA guarda `sucursal` como código de 2 dígitos, así que el join a
+     * `warehouses` existe sólo para traducir la ficha, que puede decir `'MD-30'`.
+     */
+    medir: (knex, { tenantId, sucursales }) => {
+      const q = knex('analytics.erp_goods_receipts as r')
+        .leftJoin('finance.goods_receipt_proofs as p', function () {
+          this.on('p.tenant_id', '=', 'r.tenant_id')
+            .andOn('p.sucursal', '=', 'r.sucursal')
+            .andOn('p.folio', '=', 'r.folio');
+        })
+        .where({ 'r.tenant_id': tenantId })
+        .whereRaw(`r.receipt_date >= current_date - ${ENTRADAS_VENTANA_DIAS}`);
+      if (sucursales) {
+        q.join('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'r.warehouse_id').andOn('w.tenant_id', '=', 'r.tenant_id');
+        }).whereRaw(
+          `(${branchKeySql('w')}) IN (${sucursales.map(() => '?').join(', ')})`,
+          sucursales,
+        );
+      }
+      return medirCola(knex, q, {
+        // El «estado» es si existe el comprobante: `p.folio IS NULL` = abierta.
+        estadoCol: 'p.folio',
+        estadoAbierto: null,
+        fecha: 'r.receipt_date',
+        cierre: null,
+      });
+    },
+    /*
+     * ⭐ **El desglose ES el pedido.** Edgar (2026-09-22): *«cada auxiliar de compras debe ver el
+     * porcentaje que subió en su sucursal»*. Una fila por sucursal con `subidas de total · %`.
+     *
+     * ⛔ Y es lo que hace la bandeja útil HOY, con las fichas como están: ninguno de los cinco
+     * auxiliares tiene `warehouse_code`, y su rol declara `warehouse: all` (`[ID.8c]`), así que el
+     * conteo NO se acota y la fila dice «de toda la red». Con el desglose por sucursal, cada uno
+     * encuentra la suya igual. Cuando la ficha tenga sucursal, la fila se acota sola y el desglose
+     * queda en un renglón — el suyo.
+     *
+     * ⛔ **`nivel: null` en todas, a propósito.** No hay meta de cobertura registrada en ningún
+     * lado, así que pintar rojo/amarillo exigiría inventar un umbral acá — que es exactamente el
+     * `cfg ? classify : 'ok'` que ADR-076 prohíbe, con el signo invertido. El porcentaje se
+     * publica y habla solo; el semáforo llega cuando haya meta.
+     *
+     * ⚠️ Ordena por lo que FALTA, no por el porcentaje: el renglón que pide trabajo es el que
+     * tiene más papeles pendientes, y `00` sola son 2,509 de los 3,442.
+     */
+    desglosar: async (knex, { tenantId }, tope) => {
+      const filas = await knex('analytics.erp_goods_receipts as r')
+        .leftJoin('finance.goods_receipt_proofs as p', function () {
+          this.on('p.tenant_id', '=', 'r.tenant_id')
+            .andOn('p.sucursal', '=', 'r.sucursal')
+            .andOn('p.folio', '=', 'r.folio');
+        })
+        .where({ 'r.tenant_id': tenantId })
+        .whereRaw(`r.receipt_date >= current_date - ${ENTRADAS_VENTANA_DIAS}`)
+        .groupBy('r.sucursal')
+        .orderByRaw('count(*) filter (where p.folio is null) desc')
+        .limit(tope)
+        .select(
+          'r.sucursal',
+          knex.raw('count(*)::int as total'),
+          knex.raw('count(p.folio)::int as con'),
+          knex.raw('count(*) filter (where p.folio is null)::int as faltan'),
+          knex.raw('min(r.receipt_date) filter (where p.folio is null) as mas_vieja'),
+        );
+
+      return filas.map((f) => {
+        const total = Number(f.total) || 0;
+        const con = Number(f.con) || 0;
+        // ⛔ Sin filas no hay porcentaje: `null`, no 0%. «Nadie subió nada» y «no hubo entradas»
+        // son afirmaciones distintas y el `0%` las confunde.
+        const pct = total > 0 ? Math.round((con / total) * 1000) / 10 : null;
+        return {
+          id: String(f.sucursal),
+          label: `Sucursal ${f.sucursal}`,
+          nivel: null,
+          desde: f.mas_vieja ? new Date(f.mas_vieja).toISOString() : null,
+          nota:
+            pct === null
+              ? 'sin entradas en la ventana'
+              : `${con} de ${total} subidas · ${pct}% · faltan ${f.faltan}`,
+        };
+      });
+    },
   },
 ];
 
