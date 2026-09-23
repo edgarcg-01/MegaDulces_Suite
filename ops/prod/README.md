@@ -1173,6 +1173,63 @@ líneas van **en cada MikroTik**.
 ⬜ **Abierto**: los gateways de CEDIS (`.9`) y Padre Hidalgo (`.10`) no están en `.1` ni
 `.254`; hay que averiguar su direccionamiento antes de incluirlas.
 
+### B — cómo se repunta una caja, y cómo se sabe que funcionó
+
+**Estado 2026-09-23**: el destino nuevo está **probado**, falta tocar las máquinas.
+
+Verificado antes de tocar nada, y sin escribir un solo ticket falso en prod:
+
+| Prueba | Resultado |
+|---|---|
+| POST desde una PC de oficina con llave **incorrecta** | **401** `bad store ingest key` desde `192.168.0.222` — el camino completo (DNS → TLS → Caddy → API → guard) funciona y **no escribe** |
+| POST con la llave **real** y `{"tickets": []}` | **201** `{"received":0,"inserted":0}` — autentica de verdad |
+| `analytics.store_live_tickets` | **237,585 filas, sin cambio** |
+
+#### En cada caja ya instalada
+
+El archivo vive **fuera del repo** (lleva la llave). Una sola línea cambia:
+
+```bat
+REM  C:\WincajaAgent\store-agent.cmd   — reemplazar SOLO esta línea:
+set "STORE_INGEST_URL=https://interno.megadulcessuite.com/api/store/live/ingest"
+```
+
+Y reiniciar la tarea, que corre como **SYSTEM** al arranque:
+
+```bat
+schtasks /End /TN "Tienda\WincajaAgent"
+schtasks /Run /TN "Tienda\WincajaAgent"
+```
+
+⚠️ **No hay que tocar la llave** (`STORE_INGEST_KEY`): es la misma API, sólo cambia por dónde
+se llega.
+
+#### La verificación, que es lo que convierte esto en un hecho
+
+⭐ **La primera caja es la compuerta.** Es la única prueba real de que una sucursal alcanza
+`192.168.0.222` — desde `md` ese sentido **no se puede medir** (todo el tráfico existente sale
+*desde* `md`). Si el POST entra, el camino existe; si no, no se tocan las demás.
+
+Desde la caja, antes de reiniciar la tarea:
+
+```
+nslookup interno.megadulcessuite.com      →  debe dar 192.168.0.222
+```
+
+Y después, desde cualquier lado, que los tickets de **esa** tienda sigan llegando:
+
+```sql
+SELECT warehouse_code, max(created_at), count(*)
+FROM analytics.store_live_tickets
+WHERE created_at > now() - interval '15 minutes'
+GROUP BY 1 ORDER BY 2 DESC;
+```
+
+⚠️ **Y el modo de falla a vigilar no es un error: es el silencio.** El agente corre en un
+bucle con `-Once` cada 45 s y su log vive en `C:\WincajaAgent\store-agent.log`. Si el destino
+no resuelve, el agente **no se cae** — sigue girando sin entregar. Por eso la comprobación es
+que **lleguen filas**, no que el proceso esté vivo.
+
 ### B — corrección medida a §6 #9
 
 §6 #9 dice *"antes de tocar las 30"*. Los agentes de Wincaja **parametrizados son 2**: `'30'`
