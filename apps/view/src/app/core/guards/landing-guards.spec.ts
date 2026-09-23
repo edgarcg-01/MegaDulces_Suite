@@ -44,7 +44,6 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_CARTERA_GESTIONAR, url: '/comercial/cartera', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PRICING_GESTIONAR, url: '/comercial/pricing', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR, url: '/comercial/promotions', motivo: 'manage sin view (la ruta /empuje sí lo acepta, pero el árbol apunta a /promotions)' },
-  { perm: Permission.COMMERCIAL_PRODUCTS_GESTIONAR, url: '/comercial/products', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_THOT_GESTIONAR, url: '/comercial/thot-chat', motivo: 'manage sin view (la ruta /thot-curation sí lo acepta)' },
   { perm: Permission.ROUTE_TICKET_CAPTURE, url: '/comercial/route-tickets', motivo: 'manage sin view: la ruta exige ROUTE_CONTROL_VER' },
   // almacen
@@ -71,6 +70,8 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMPRAS_HALLAZGOS_GESTIONAR, url: '/compras/hallazgos', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_PROVEEDORES_GESTIONAR, url: '/compras/proveedores', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_CATEGORIAS_GESTIONAR, url: '/compras/categorias', motivo: 'manage sin view' },
+  // [CAT.1] El catálogo vive acá desde que se mudó de Ventas; la deuda viajó con él.
+  { perm: Permission.COMMERCIAL_PRODUCTS_GESTIONAR, url: '/compras/catalogo', motivo: 'manage sin view' },
   // logistica
   { perm: Permission.LOGISTICS_CARTAPORTE_VER, url: '/logistica/shipments', motivo: 'el módulo cartaporte apunta a shipments (SHIPMENTS_VER)' },
   { perm: Permission.LOGISTICS_CARTAPORTE_GESTIONAR, url: '/logistica/shipments', motivo: 'ídem' },

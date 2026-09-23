@@ -169,7 +169,6 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER, url: '/comercial/analisis' },
   { perm: Permission.COMMERCIAL_CARTERA_VER, url: '/comercial/cartera' },
   { perm: Permission.COMMERCIAL_PROMOTIONS_VER, url: '/comercial/promotions' },
-  { perm: Permission.COMMERCIAL_PRODUCTS_VER, url: '/comercial/products' },
   { perm: Permission.COMMERCIAL_THOT_VER, url: '/comercial/thot-chat' },
   { perm: Permission.ROUTE_CONTROL_VER, url: '/comercial/route-tickets' },
 ]);
