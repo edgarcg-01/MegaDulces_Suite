@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterModule } from '@angular/router';
@@ -242,7 +243,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                 <td class="ta-r">
                   @if (docAbrible(p)) {
                     <a pButton class="p-button-text p-button-xs"
-                       [routerLink]="['/comercial/documentos']" [queryParams]="{ doc: p.folio_digital }"
+                       [routerLink]="['/comercial/documentos']" [target]="multitarea.target()" [queryParams]="{ doc: p.folio_digital }"
                        (click)="$event.stopPropagation()"
                        [title]="'Abrir el documento ' + p.folio_digital">
                       <i class="pi pi-external-link" aria-hidden="true"></i><span class="sr-only">Abrir documento</span>
@@ -492,6 +493,8 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
 
   // ── `[CXC.SKU.1]` Buscador por producto ─────────────────────────────────────
   readonly buscadorAbierto = signal(false);

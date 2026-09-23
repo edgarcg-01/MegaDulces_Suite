@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -54,7 +55,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
         </ng-template>
         <ng-template #body let-r>
           <tr class="er-row" (click)="open(r)">
-            <td><a class="surf-cell-link" [routerLink]="[r.id]" (click)="$event.stopPropagation()">{{ fmtDate(r.review_date) }}</a></td>
+            <td><a class="surf-cell-link" [routerLink]="[r.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ fmtDate(r.review_date) }}</a></td>
             <td class="er-mono">{{ r.warehouse_code }} · {{ r.warehouse_name }}</td>
             <td>{{ r.responsible_name || '—' }}</td>
             <td class="num">{{ r.line_count }}</td>
@@ -77,6 +78,8 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
   `],
 })
 export class ComercialExpiryReviewsComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   readonly statusOptions = [
     { label: 'Todas', value: '' },
     { label: 'Borrador', value: 'draft' },

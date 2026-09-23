@@ -301,6 +301,41 @@
           }
         </button>
 
+        <!--
+          `[MT.3]` Multitarea. Sólo en escritorio y fuera del modo kiosco: en una
+          caja de tienda o en el teléfono no hay ventanas que administrar, y un
+          botón que no sirve ahí es ruido en la barra más cara de la app.
+
+          Es opt-in por completo: el botón no cambia nada hasta que lo usás, y no
+          corre NADA en reposo — la preferencia es un atributo `target` en los
+          enlaces, no un interceptor de clics (ADR-078).
+        -->
+        @if (!isRestricted() && !isMobile()) {
+          <button
+            type="button"
+            (click)="mtMenuRef.toggle($event)"
+            class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+            [class.text-content-active]="multitarea.detallesAparte()"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="mtMenuOpen()"
+            [title]="multitarea.detallesAparte()
+              ? 'Multitarea · los detalles se abren aparte'
+              : 'Multitarea · abrir esta pantalla en otra ventana'"
+            aria-label="Multitarea"
+          >
+            <i class="pi pi-clone text-lg" aria-hidden="true"></i>
+          </button>
+          <p-menu
+            #mtMenuRef
+            [popup]="true"
+            [model]="mtMenu()"
+            appendTo="body"
+            (onShow)="mtMenuOpen.set(true)"
+            (onHide)="mtMenuOpen.set(false)"
+          ></p-menu>
+        }
+
         <!-- Centro de Notificaciones (CxP): hallazgos críticos + acciones HITL + feed WS -->
         @if (!isRestricted()) {
           <app-notifications-bell />

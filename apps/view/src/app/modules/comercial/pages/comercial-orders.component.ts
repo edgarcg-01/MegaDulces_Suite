@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -189,7 +190,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                   <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
                     tabindex="0" role="button"
                     [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
-                    <td><a class="surf-cell-link" [routerLink]="['/comercial/orders', o.id]" (click)="$event.stopPropagation()"><code class="comm-code">{{ o.folio }}</code></a></td>
+                    <td><a class="surf-cell-link" [routerLink]="['/comercial/orders', o.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()"><code class="comm-code">{{ o.folio }}</code></a></td>
                     <td>
                       <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
                       <div class="comm-muted is-small co-cell-meta">
@@ -321,6 +322,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialOrdersComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComercialService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
