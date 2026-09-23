@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSinkPort } from '@megadulces/contracts';
+import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
@@ -91,7 +92,22 @@ export class CashLedgerService {
     // CG.20 — `@Optional()` a propósito: si Maat está apagado, el descuadre no se registra pero el
     // efectivo SÍ. Un hallazgo que no se pudo guardar no puede impedir que el dinero entre al libro.
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
+    // CG.23.2 — Igual de opcional, y por el mismo motivo: si el canal en vivo no está montado,
+    // las demás pantallas se enteran en su repaso lento. Un aviso que no se pudo emitir no puede
+    // impedir que el efectivo entre al libro.
+    @Optional() private readonly caja?: CajaGateway,
   ) {}
+
+  /**
+   * Avisa a las pantallas abiertas que el libro cambió. Best-effort y sin firma: el aviso del
+   * carril trae la del corte de Kepler, y ésta es la otra mitad —lo que se guardó acá—, que la
+   * pantalla resuelve yendo a buscar. Nunca tira: envolver en try/catch a propósito, porque
+   * este llamado ocurre DESPUÉS de que el dinero ya quedó registrado.
+   */
+  private avisarLibro(tenantId: string): void {
+    try { this.caja?.emitChange(tenantId, { origen: 'libro', filas: null, max_folio: null, max_captura: null, datos_al: null }); }
+    catch { /* el aviso es un extra; el movimiento ya está guardado */ }
+  }
 
   /**
    * Catálogo de conceptos para el selector de la captura. Lee la vista derivada del ODS
@@ -339,7 +355,7 @@ export class CashLedgerService {
     }
     const dens = input.denominaciones ?? [];
 
-    return this.tk.run(async (trx) => {
+    const creado = await this.tk.run(async (trx) => {
       // Idempotencia: el reintento del cliente devuelve el movimiento que ya se guardó,
       // no un 409 ni un duplicado.
       if (input.client_uuid) {
@@ -421,6 +437,11 @@ export class CashLedgerService {
         ? { ...mov, monto_origen: 'kepler', monto_enviado: Number(input.monto), monto_aplicado: monto }
         : mov;
     });
+    // CG.23.2 — Las demás pantallas abiertas se enteran. Va DESPUÉS de la transacción a
+    // propósito: avisar de algo que todavía puede revertirse haría que otro capturista viera
+    // aparecer un movimiento que nunca existió.
+    this.avisarLibro(tenantId);
+    return creado;
   }
 
   /**
@@ -501,8 +522,24 @@ export class CashLedgerService {
           .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s]));
       }
       const rows = await qb
-        .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'doc_tipo', order: 'asc' },
-          { column: 'folio', order: 'desc' }])
+        // ⛔ CG.23.1 — El orden salía INVERSO para lo que la bandeja es: una cola de trabajo.
+        //
+        // Era `fecha_valor DESC, doc_tipo ASC, folio DESC`. Con la ventana en **1 día** TODAS las
+        // filas comparten `fecha_valor`, así que el criterio que mandaba de verdad era el
+        // segundo: `doc_tipo ASC` — un orden **alfabético**, que no tiene nada que ver con el
+        // tiempo. Un movimiento recién llegado no aparecía arriba: caía al fondo de su grupo de
+        // doc_tipo (`U-A-5` ordena antes que `X-D-26`), o sea justo donde nadie está mirando.
+        //
+        // Ahora manda la CAPTURA (`kdm1.c68`: cuándo Kepler lo registró), que es lo más cerca de
+        // "cuándo llegó" que da la fuente — `fecha_valor` es cuándo VALE el dinero, que para una
+        // cola de trabajo es otra pregunta. `doc_tipo` baja a desempate.
+        //
+        // `NULLS LAST`: sin él, un `c68` vacío se iría al tope en DESC y una fila SIN fecha de
+        // captura encabezaría la bandeja como si fuera la más nueva.
+        //
+        // El orden queda TOTAL a propósito (`clave_banco` al final): sin desempate estable no se
+        // puede demostrar que una optimización posterior no movió filas de lugar.
+        .orderByRaw('fecha_captura DESC NULLS LAST, fecha_valor DESC, folio DESC, doc_tipo ASC, clave_banco ASC')
         .limit(limit)
         .select('origen_ref', 'tipo', 'origen_tipo', 'clave_banco', 'caja_nombre', 'sucursal',
           'doc_tipo', 'folio', 'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'metodo', 'monto');
@@ -715,6 +752,9 @@ export class CashLedgerService {
         }
       }
     }
+    // CG.23.2 — Mismo aviso que en la captura suelta: confirmar un lote cambia la bandeja de
+    // todos, y quien la tenga abierta al lado no puede quedarse con filas que ya no están.
+    this.avisarLibro(tenantId);
     return resumirLote(filas, montos);
   }
 
