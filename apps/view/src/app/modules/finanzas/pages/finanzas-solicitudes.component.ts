@@ -239,7 +239,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
                      acciones, que es donde va lo que hay que hacer, no lo que ya pasó. -->
                 <td>
                   @if (r.gasto_folio) {
-                    <a class="so-link num" [routerLink]="['/finanzas/egresos/detalle']" [target]="multitarea.target()" [queryParams]="paramsGasto(r)"
+                    <a class="so-link num" [routerLink]="multitarea.enlaceDetalle(['/finanzas/egresos/detalle'])" [target]="multitarea.target()" [queryParams]="paramsGasto(r)"
                        (click)="$event.stopPropagation()"
                        [attr.aria-label]="'Abrir el gasto ' + r.gasto_folio">{{ r.gasto_folio }}</a>
                     @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }

@@ -44,3 +44,79 @@
 :host .nav-active i {
   color: var(--action);
 }
+
+/* ── [MT.5] Pantalla partida ────────────────────────────────────────────────
+ * El panel de la derecha. Cerrado NO ocupa ancho (no es un `display:none`
+ * suelto: el ancho animado evita que la pantalla de la izquierda salte).
+ *
+ * Su propio scroll: el `overflow-y-auto` bajo de `<main>` a cada columna.
+ * Sin eso, abrir algo al lado scrollea las dos cosas juntas y la lista se te
+ * va de la vista justo cuando la querias quieta. */
+.mt-panel {
+  display: flex;
+  flex-direction: column;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--c-divider, var(--border-color));
+  background: var(--c-surface, var(--card-bg));
+}
+.mt-panel.is-open {
+  /* Mitad y mitad, con un piso para que la pantalla de la derecha siga siendo
+   * usable y un techo para que la de la izquierda no quede de tira. */
+  width: clamp(24rem, 46%, 60rem);
+  min-width: 24rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mt-panel { transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1); }
+}
+
+.mt-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.85rem;
+  min-height: 2.75rem;
+  border-bottom: 1px solid var(--c-divider, var(--border-color));
+  flex-shrink: 0;
+}
+.mt-panel-title {
+  font: 600 0.8rem/1.2 'Hanken Grotesk', sans-serif;
+  color: var(--c-text-2, var(--text-muted));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Los 47: no es decoracion, es la unica senal de que los dos lados se pisan. */
+.mt-panel-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: 600 0.7rem/1 'Hanken Grotesk', sans-serif;
+  color: var(--warn-fg, #b45309);
+  white-space: nowrap;
+}
+.mt-panel-btn {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2, var(--text-muted));
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.mt-panel-btn:hover { background: var(--surface-hover, rgba(0, 0, 0, 0.04)); color: var(--c-text, inherit); }
+.mt-panel-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.mt-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+
+/* Debajo de esto no hay ancho que partir. El `effect` del componente ademas
+ * CIERRA el panel: esconderlo no alcanza, el componente seguiria consultando. */
+@media (max-width: 64rem) {
+  .mt-panel.is-open { width: 0; min-width: 0; }
+}

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ComprasRequisicionesComponent } from './compras-requisiciones.component';
 import { ComprasService } from '../compras.service';
@@ -75,12 +75,12 @@ describe('[MT] el drill-down renderizado', () => {
     expect(a!.getAttribute('href')).toBe(`/compras/requisiciones/${FILA.id}`);
   });
 
-  it('con la preferencia APAGADA no hay target: navega dentro del SPA', () => {
+  it("en modo 'aqui' (el default) no hay target: navega dentro del SPA", () => {
     const a = anclaDelFolio(montar());
     expect(a!.hasAttribute('target')).toBe(false);
   });
 
-  it('con la preferencia PRENDIDA el navegador lo abre aparte', () => {
+  it("en modo 'ventana' el navegador lo abre aparte", () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
@@ -88,13 +88,58 @@ describe('[MT] el drill-down renderizado', () => {
       ],
       imports: [ComprasRequisicionesComponent],
     });
-    TestBed.inject(MultitareaService).alternarDetallesAparte();
+    TestBed.inject(MultitareaService).ponerModo('ventana');
     const fix = TestBed.createComponent(ComprasRequisicionesComponent);
     fix.detectChanges();
     const a = anclaDelFolio(fix);
     expect(a!.getAttribute('target')).toBe('_blank');
     // El href NO cambia: la preferencia elige dónde abre, no a dónde va.
     expect(a!.getAttribute('href')).toBe(`/compras/requisiciones/${FILA.id}`);
+  });
+
+  /**
+   * `[MT.5]` LA prueba de la pantalla partida: el enlace lleva el detalle al
+   * outlet `panel`, o sea AL LADO, dejando intacto lo que hay a la izquierda.
+   * Es lo que separa "hay un panel en el layout" de "el drill-down lo usa".
+   */
+  it("en modo 'lado' el enlace apunta al panel, no reemplaza la pantalla", () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+      ],
+      imports: [ComprasRequisicionesComponent],
+    });
+    const mt = TestBed.inject(MultitareaService);
+    mt.registrarRutaDelArea(TestBed.inject(ActivatedRoute));
+    mt.ponerModo('lado');
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.detectChanges();
+
+    const href = anclaDelFolio(fix)!.getAttribute('href')!;
+    expect(href).toContain('panel:');
+    expect(href).toContain(`compras/requisiciones/${FILA.id}`);
+    // Y NO es la navegación normal, que reemplazaría la pantalla.
+    expect(href).not.toBe(`/compras/requisiciones/${FILA.id}`);
+  });
+
+  /**
+   * Sin la ruta del área registrada (el layout es quien la da), el modo 'lado'
+   * no puede armar el enlace. Cae a la navegación normal en vez de romperse:
+   * **un enlace que no navega es peor que uno que navega distinto**.
+   */
+  it("modo 'lado' SIN el layout montado cae a la navegación de siempre", () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+      ],
+      imports: [ComprasRequisicionesComponent],
+    });
+    TestBed.inject(MultitareaService).ponerModo('lado'); // sin registrarRutaDelArea
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.detectChanges();
+    expect(anclaDelFolio(fix)!.getAttribute('href')).toBe(`/compras/requisiciones/${FILA.id}`);
   });
 
   /**

@@ -12,7 +12,7 @@ import {
   DOCUMENT
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NavigationEnd, Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router, RouterModule } from '@angular/router';
 import { MenuModule } from 'primeng/menu';
 import type { MenuItem } from 'primeng/api';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -30,7 +30,7 @@ import { Permission } from '../../../core/constants/permissions';
 // union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
 import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } from '../../../core/constants/suite-map';
-import { MultitareaService } from '../../../core/services/multitarea.service';
+import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
@@ -97,6 +97,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
   private perms = inject(PermissionsService);
   private router = inject(Router);
+  /** `[MT.5]` La ruta del ÁREA: es el nivel donde vive el outlet `panel`. */
+  private readonly rutaDelArea = inject(ActivatedRoute);
+
   themeService = inject(ThemeService);
   private renderer = inject(Renderer2);
   private document = inject(DOCUMENT);
@@ -224,6 +227,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // `[MT.5]` El outlet `panel` vive en el nivel de ESTA ruta (el área), así que
+    // el servicio necesita esta `ActivatedRoute` para poder armar el enlace que
+    // abre algo al lado. Se registra acá y no en el servicio porque el servicio
+    // es de la app entera y no sabe en qué área está parado el usuario.
+    this.multitarea.registrarRutaDelArea(this.rutaDelArea);
     // ⛔ La condición va acá y no dentro de `init()`: el servicio es `providedIn: 'root'` y lo
     // usan otros; el que sabe en qué pantalla está el usuario es la shell, no el servicio.
     if (this.tiempoRealAplica()) this.dataUpdateService.init();
@@ -1018,7 +1026,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   readonly mtMenuOpen = signal(false);
   readonly mtMenu = computed<MenuItem[]>(() => {
-    const aparte = this.multitarea.detallesAparte();
+    const modo = this.multitarea.modo();
+    /** El modo se dice con el ícono Y con la palabra: un check solo obliga a
+     *  acordarse de qué significaba que estuviera prendido. */
+    const opcion = (m: ModoDetalle, label: string, icono: string): MenuItem => ({
+      label,
+      icon: modo === m ? 'pi pi-check-circle' : icono,
+      styleClass: modo === m ? 'mt-menu-on' : undefined,
+      command: () => this.multitarea.ponerModo(m),
+    });
     return [
       {
         label: 'Abrir esta pantalla en otra ventana',
@@ -1026,14 +1042,67 @@ export class LayoutComponent implements OnInit, OnDestroy {
         command: () => this.multitarea.abrirEstaPantallaAparte(),
       },
       { separator: true },
-      {
-        // El estado se dice con el ícono Y con la palabra: un check solo obliga
-        // a acordarse de qué significaba que estuviera prendido.
-        label: aparte ? 'Los detalles se abren aparte' : 'Abrir siempre los detalles aparte',
-        icon: aparte ? 'pi pi-check-square' : 'pi pi-stop',
-        command: () => this.multitarea.alternarDetallesAparte(),
-      },
+      { label: 'Al abrir un detalle…', disabled: true },
+      opcion('aqui', 'Reemplazar esta pantalla', 'pi pi-stop'),
+      opcion('lado', 'Abrirlo al lado (pantalla partida)', 'pi pi-stop'),
+      opcion('ventana', 'Abrirlo en otra ventana', 'pi pi-stop'),
     ];
+  });
+
+  // ── `[MT.5]` Pantalla partida ──────────────────────────────────────────────
+  /** ¿Hay algo en el panel? Lo dice el propio outlet al activarse, no la URL. */
+  readonly panelAbierto = signal(false);
+
+  /** El camino que vive en el panel, leído de la URL (que es donde vive el split). */
+  private readonly panelUrl = computed<string | null>(() => {
+    const m = /panel:([^)]*)/.exec(this.currentUrl());
+    if (!m) return null;
+    const ruta = m[1].split('//')[0];
+    return ruta ? '/' + ruta : null;
+  });
+
+  readonly panelTitulo = computed(() => {
+    const u = this.panelUrl();
+    if (!u) return '';
+    return resolveProjectForUrl(u)?.label ?? u;
+  });
+
+  /**
+   * `[MT.5]` Los 47 que se declaran en vez de bloquearse.
+   *
+   * `dashboard` (28 rutas) y `tienda` (19) comparten estado de PANTALLA entre
+   * sus páginas — `FiltersStateService`, `TiendaStateService` y
+   * `AnalisisStateService` son `providedIn: 'root'`, o sea uno solo para toda
+   * la app. Dos paneles de la MISMA familia se pisan los filtros.
+   *
+   * Se avisa en vez de impedirlo: comparar dos reportes es un caso legítimo, y
+   * el que lo abre tiene que saber qué está viendo. Medido: 47 de 225 rutas, y
+   * sólo cuando los dos lados caen en la misma familia — los cruces que
+   * motivaron la pantalla partida (cartera|documento, existencia|pedido) no
+   * están afectados.
+   */
+  private static readonly FAMILIAS_QUE_COMPARTEN_ESTADO = ['dashboard', 'tienda'];
+  readonly panelMismaFamilia = computed(() => {
+    const p = this.panelUrl();
+    if (!p) return false;
+    const areaPanel = p.split('/')[1] ?? '';
+    const areaPrimaria = (this.currentUrl().split('/')[1] ?? '').split('(')[0];
+    return areaPanel === areaPrimaria && LayoutComponent.FAMILIAS_QUE_COMPARTEN_ESTADO.includes(areaPanel);
+  });
+
+  /** Vaciar el outlet del panel, sin tocar lo de la izquierda. */
+  readonly enlaceCerrarPanel = computed(() => [{ outlets: { panel: null } }]);
+  /** Llevar lo del panel a pantalla completa: absoluto, así el split se deshace. */
+  readonly enlacePanelACompleto = computed(() => this.panelUrl() ?? '.');
+
+  /**
+   * En kiosco o en móvil no hay ancho que partir. El CSS ya lo esconde, pero
+   * esconder no es cerrar: el componente del panel seguiría vivo consultando.
+   */
+  private readonly cerrarPanelDondeNoCabe = effect(() => {
+    if (!this.panelAbierto()) return;
+    if (!this.isMobile() && !this.isRestricted()) return;
+    void this.router.navigate([{ outlets: { panel: null } }], { relativeTo: this.rutaDelArea });
   });
 
   userMenu = computed<MenuItem[]>(() => {

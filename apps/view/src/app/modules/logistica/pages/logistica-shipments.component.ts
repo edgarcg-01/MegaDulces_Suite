@@ -228,7 +228,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   [attr.aria-label]="'Ver embarque ' + s.folio"
                   (keydown.enter)="goDetail(s)"
                   (keydown.space)="$event.preventDefault(); goDetail(s)">
-                  <td><a class="surf-cell-link" [routerLink]="['/logistica/shipments', s.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
+                  <td><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/logistica/shipments', s.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
                   <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                   <td>{{ typeLabel(s.type) }}</td>
                   <td class="comm-cell-strong">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>

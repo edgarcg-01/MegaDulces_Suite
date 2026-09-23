@@ -136,7 +136,7 @@ interface RouteEntry {
                 } @else {
                   <p class="rk-muted rk-locsales rk-dim">Sin hora de venta para ubicar (Kepler PH)</p>
                 }
-                <a pButton size="small" [routerLink]="['/dashboard/routes']" [target]="multitarea.target()" [queryParams]="paramsHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></a>
+                <a pButton size="small" [routerLink]="multitarea.enlaceDetalle(['/dashboard/routes'])" [target]="multitarea.target()" [queryParams]="paramsHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></a>
               </div>
             }
           </aside>

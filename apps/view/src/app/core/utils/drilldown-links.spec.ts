@@ -32,7 +32,7 @@ const DRILLDOWNS: ReadonlyArray<{ archivo: string; ruta: string; que: string }> 
   { archivo: 'comercial/pages/comercial-orders.component.ts', ruta: "'/comercial/orders', o.id", que: 'pedido' },
   { archivo: 'comercial/pages/comercial-inventory-sessions.component.ts', ruta: "'/almacen/inventory/sessions', c.id", que: 'sesión de inventario' },
   { archivo: 'logistica/pages/logistica-shipments.component.ts', ruta: "'/logistica/shipments', s.id", que: 'embarque' },
-  { archivo: 'comercial/pages/comercial-expiry-reviews.component.ts', ruta: 'r.id', que: 'revisión de caducidad' },
+  { archivo: 'comercial/pages/comercial-expiry-reviews.component.ts', ruta: "'/almacen/inventory/caducidades', r.id", que: 'revisión de caducidad' },
   // entre módulos: lo que se abre al lado para cotejar
   { archivo: 'finanzas/pages/finanzas-cartera.component.ts', ruta: "'/comercial/documentos'", que: 'documento desde cartera' },
   { archivo: 'compras/pages/compras-costo-neto.component.ts', ruta: "'/compras/descuentos'", que: 'descuentos desde costo neto' },
@@ -53,15 +53,23 @@ const leer = (archivo: string) => readFileSync(join(SRC, archivo), 'utf8');
 
 /** ¿Hay un `<a …[routerLink]…>` que apunte a esta ruta? */
 function hayAnclaA(fuente: string, ruta: string): boolean {
-  return new RegExp(`<a\\b[^>]*\\[routerLink\\]="\\[${escapar(ruta)}\\]"`).test(fuente);
+  return new RegExp(
+    `<a\\b[^>]*\\[routerLink\\]="multitarea\\.enlaceDetalle\\(\\[${escapar(ruta)}\\]\\)"`,
+  ).test(fuente);
 }
 
 const escapar = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** ¿Ese mismo ancla respeta la preferencia "abrir siempre los detalles aparte"? */
+/**
+ * ¿Ese mismo ancla respeta el MODO del header?
+ *
+ * Son las dos mitades: `enlaceDetalle()` decide entre reemplazar la pantalla y
+ * abrir en el panel (`[MT.5]`), y `target` decide si además va a otra ventana
+ * (`[MT.3]`). Un ancla con una y sin la otra obedece a medias.
+ */
 function respetaPreferencia(fuente: string, ruta: string): boolean {
   return new RegExp(
-    `<a\\b[^>]*\\[routerLink\\]="\\[${escapar(ruta)}\\]"[^>]*\\[target\\]="multitarea\\.target\\(\\)"`,
+    `<a\\b[^>]*\\[routerLink\\]="multitarea\\.enlaceDetalle\\(\\[${escapar(ruta)}\\]\\)"[^>]*\\[target\\]="multitarea\\.target\\(\\)"`,
   ).test(fuente);
 }
 
@@ -83,9 +91,9 @@ describe('[MT.1] los drill-downs son enlaces de verdad', () => {
    * deja de confiar en el interruptor. El defecto es INVISIBLE en pantalla y no
    * lo atrapa ni el compilador ni la prueba renderizada (que monta una sola).
    */
-  describe('[MT.3] todos respetan la preferencia del header', () => {
+  describe('[MT.3]+[MT.5] todos respetan el modo del header', () => {
     for (const d of DRILLDOWNS) {
-      it(`${d.que}: lleva [target]`, () => {
+      it(`${d.que}: pasa por enlaceDetalle() y lleva [target]`, () => {
         expect(respetaPreferencia(leer(d.archivo), d.ruta)).toBe(true);
       });
     }

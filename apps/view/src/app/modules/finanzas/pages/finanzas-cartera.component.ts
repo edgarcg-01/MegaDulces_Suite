@@ -243,7 +243,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                 <td class="ta-r">
                   @if (docAbrible(p)) {
                     <a pButton class="p-button-text p-button-xs"
-                       [routerLink]="['/comercial/documentos']" [target]="multitarea.target()" [queryParams]="{ doc: p.folio_digital }"
+                       [routerLink]="multitarea.enlaceDetalle(['/comercial/documentos'])" [target]="multitarea.target()" [queryParams]="{ doc: p.folio_digital }"
                        (click)="$event.stopPropagation()"
                        [title]="'Abrir el documento ' + p.folio_digital">
                       <i class="pi pi-external-link" aria-hidden="true"></i><span class="sr-only">Abrir documento</span>
