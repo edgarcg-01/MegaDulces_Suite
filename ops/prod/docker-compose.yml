@@ -93,7 +93,30 @@ services:
       POSTGRES_PASSWORD: ${PGPROD_SUPERPASS:?falta PGPROD_SUPERPASS en el entorno del compose}
       POSTGRES_DB: railway          # MISMO nombre que en Railway: las URLs no cambian de base
       TZ: America/Mexico_City
-    # Presupuesto de memoria sobre 28.8 GiB, con el concentrador ya usando 4 GB de buffers:
+    # ── [VL.11.E] +10 GB A LA BASE, 2026-09-23 — decisión del usuario ──────────────
+    # ⚠️ SE DEJA ESCRITO QUE LA MEDICIÓN NO LO RESPALDA, porque el próximo que lea esto va a
+    # querer saber si sirvió. Medido ANTES del cambio sobre la consulta más cara
+    # (`analytics.v_unit_truth`, 10,547 s de CPU en 268 llamadas, 38.2 s de promedio):
+    #     bloques desde CACHÉ  28,080,868      ⇒ acierto 99.94%
+    #     bloques desde DISCO      17,175
+    #     derrame a temporales          0
+    # O sea: ya vivía entera en RAM, no esperaba disco y no derramaba. Es cómputo puro
+    # (`btrim`, casts, joins sobre ~820 MB por llamada). Más memoria no toca eso.
+    #
+    # La palanca real, medida, es NO RECALCULAR: materializar esa vista convierte
+    # ~760 s de CPU por hora en ~160 s, y la pantalla de Compras deja de tardar 38 s.
+    # Queda propuesto, no hecho — cambia la semántica de frescura del ADR-057.
+    #
+    # Aun así el reparto elegido no es arbitrario: `maintenance_work_mem` 1→4 GB SÍ ataca
+    # algo medido — el `REFRESH` de `mv_rd_route_daily_200d` tarda 18 min y **sí derrama**
+    # (4,099 bloques temporales). Y `work_mem` sube sólo a 64 MB, no más: es por OPERACIÓN
+    # y por conexión, con `max_connections=200` un valor grande se multiplica y vuelve el
+    # tiro por la culata.
+    #
+    # Nuevo presupuesto: prod 12 + concentrador 4 = 16 GB de shared_buffers, quedan ~12 GB
+    # para caché del sistema y los contenedores.
+    #
+    # Presupuesto anterior (6 GB) y su razonamiento:
     #   concentrador 4 + prod 6 + rag 0.5 = 10.5 GB de shared_buffers
     #   quedan ~18 GB para page cache y las apps (que piden ~3 GB entre todas)
     # Prod son 34 GB, así que NO entra entero en caché — es esperable y no es un defecto:
@@ -104,13 +127,13 @@ services:
     command:
       - postgres
       - "-c"
-      - "shared_buffers=6GB"
+      - "shared_buffers=12GB"
       - "-c"
-      - "effective_cache_size=14GB"
+      - "effective_cache_size=16GB"
       - "-c"
-      - "maintenance_work_mem=1GB"
+      - "maintenance_work_mem=4GB"
       - "-c"
-      - "work_mem=32MB"
+      - "work_mem=64MB"
       - "-c"
       - "max_wal_size=8GB"
       - "-c"
