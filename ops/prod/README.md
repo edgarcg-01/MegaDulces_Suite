@@ -1192,7 +1192,42 @@ documentaba. Wincaja está muerto.
 contenedores de la misma máquina** — `store-poller` y `feeds-livefast`—, los dos con
 `STORE_INGEST_URL` apuntando a `https://megadulces.up.railway.app/...`.
 
-#### ⛔ Y no se cambian hoy
+#### ✅ EJECUTADO 2026-09-23 — decisión del usuario, con el costo sobre la mesa
+
+`store-poller` ya apunta a `https://interno.megadulcessuite.com/api/store/live/ingest`. La
+línea vive en el **`environment:` del compose versionado**, no en `feeds.env` — ese archivo no
+está versionado ni tiene generador, así que el cambio habría sido invisible desde el repo y se
+perdería al regenerarlo. `environment:` gana sobre `env_file`.
+
+**Verificado antes de desplegar, porque la falla habría sido silenciosa:** se compararon las
+**huellas** de las dos llaves (la del poller en `feeds.env` contra el `STORE_INGEST_KEY` de la
+API de `md`) y **coinciden**. Si no lo hicieran, el poller recibiría 401, **no se caería**, y
+los tickets se perderían sin que nada se pusiera rojo.
+
+**Resultado, medido:**
+
+| | |
+|---|---|
+| `md` | los **8 almacenes** entregando, **1–10 min** de rezago, 19–133 tickets del día cada uno |
+| Railway | **congelado en 15:48:00** — confirmado en dos lecturas separadas 100 s |
+
+⚠️ **El costo, que el usuario aceptó explícitamente**: Railway **hoy sigue siendo producción**,
+así que su pantalla de Tienda Live **ya no se actualiza**. Se revierte comentando esa línea del
+compose y recreando el contenedor:
+
+```sh
+# revertir
+sh ops/vl/deploy.sh store-poller     # con la línea STORE_INGEST_URL comentada
+```
+
+⚠️ **Parpadeo observado y descartado**: durante la verificación, una consulta a la base de
+Railway devolvió `FATAL: the database system is in recovery mode`. Se midió enseguida — 3 de 3
+respuestas normales y **833 minutos de uptime** — así que fue transitorio, no un incidente. Se
+deja escrito porque el primer intento de diagnóstico **sacó la conclusión contraria**: comparó
+una consulta *fallida* (cadena vacía) contra un valor y concluyó *"Railway sigue avanzando"*.
+**Una comparación contra el resultado de algo que falló no es una medición.**
+
+#### Lo que sigue en el corte
 
 Railway **sigue siendo producción**. Repuntar esas dos variables ahora mandaría la venta viva
 de las 8 tiendas a la **copia** de `md` en vez de al sistema real. Es un renglón **del corte**:
