@@ -985,7 +985,7 @@ problemas.
 |---|---|---|
 | **C** | El commit se **hornea en la imagen** (`ARG GIT_COMMIT_SHA`) + `--build-arg` en `deploy.sh` + un resolvedor único en `apps/api/src/build-info.ts` | ✅ |
 | **D** | `deploy.sh` construye **sólo lo que se le pide**; entrada `--tunel`; `NODE_ENV` explícito en `portal`/`vendor` | ✅ |
-| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en el MikroTik | 🧪 **certificado VIVO y verificado**; faltan las 3 líneas del router |
+| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en los MikroTik | 🧪 **certificado VIVO y verificado**; faltan las 3 líneas **por plaza** |
 | **B** | La ingesta de las cajas vuelve a la LAN, **sin dejar de ser HTTPS** | ⬜ depende de A |
 | **E** | RAM — **medir antes de afinar** | ⬜ |
 
@@ -1100,9 +1100,29 @@ navegador— baja a **~4 ms**.
 `429 ThrottlerException`. Es el limitador de tasa de la app funcionando; la comparación se
 rehízo contra `/`, que es estático.
 
-⭐ **Falta sólo el paso humano, y ahora SÍ es seguro darlo**: las tres entradas del MikroTik.
-El orden importaba —primero el certificado— porque con HSTS encendido apuntar la oficina a
-`md` sin certificado da un error que no se puede saltar. Ese riesgo ya no existe.
+⭐ **Falta el paso humano, y ahora SÍ es seguro darlo**: las tres entradas del MikroTik. El
+orden importaba —primero el certificado— porque con HSTS encendido apuntar la oficina a `md`
+sin certificado da un error que no se puede saltar. Ese riesgo ya no existe.
+
+#### ⛔ Corrección al diseño: el DNS partido va POR PLAZA, no una vez
+
+El diseño original hablaba de *"la entrada del MikroTik"*, en singular. **Está mal**, y lo
+destapó el usuario al explicar cómo está armada la red. Medido el 2026-09-23 (mapa completo en
+[`ops/README.md` §8bis](../README.md)):
+
+- **El tercer octeto es la plaza**: `.0` oficinas · `.9` CEDIS · `.10` Padre Hidalgo · `.42`
+  La Piedad · `.40` 8 Esquinas · `.44` Yurécuaro · `.54` Zamora · `.50` Canindo · `.32`
+  Morelia Madero · `.30` Morelia Abastos.
+- **Cada plaza tiene su propio gateway y su propio resolvedor** — los 7 identificados
+  contestan en el puerto 53, y **los 8 son MikroTik RouterOS**, o sea una flota.
+
+⇒ Una entrada en el MikroTik **de oficinas** sirve **sólo a oficinas**. Una caja en
+`192.168.30.x` seguiría resolviendo a Cloudflare y **saliendo a internet para hablar con un
+servidor de su misma red** — exactamente lo que `[VL.11.B]` viene a evitar. Las mismas tres
+líneas van **en cada MikroTik**.
+
+⬜ **Abierto**: los gateways de CEDIS (`.9`) y Padre Hidalgo (`.10`) no están en `.1` ni
+`.254`; hay que averiguar su direccionamiento antes de incluirlas.
 
 ### B — corrección medida a §6 #9
 
