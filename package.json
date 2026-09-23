@@ -15,6 +15,7 @@
     "lint": "nx run-many -t lint",
     "check": "node scripts/check-all.js",
     "lint:boundary": "node scripts/lint-boundary-gate.js",
+    "lint:changed": "node scripts/lint-changed.js",
     "check:templates": "node scripts/check-template-literals.js",
     "check:provenance": "node scripts/check-provenance.js",
     "check:docker": "node scripts/check-docker-context.js",
