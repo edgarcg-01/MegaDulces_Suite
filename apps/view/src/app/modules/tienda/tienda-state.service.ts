@@ -120,8 +120,15 @@ export class TiendaStateService {
    * calcula con SU mediana, no con la de la red: una tienda chica no es un día roto.
    */
   branchRhythm(code: string): StoreRhythm | null {
-    const b = (this.rhythm() as any)?.by_branch?.[code];
-    return b ? { ...b, generated_at: this.rhythm()!.generated_at } : null;
+    const red = this.rhythm();
+    if (!red) return null;
+    const b = red.by_branch?.[code];
+    if (!b) return null;
+    // [VP.2.3] `freshness` viaja igual que `generated_at`: lo que se mide es el carril del ODS, que
+    // es UNO para toda la red — el ritmo de una sucursal no es más fresco que el feed que lo trae.
+    // Sin esto la vista por tienda publicaría la mitad conveniente (cuándo contesté, no de cuándo
+    // es el dato), que es justo lo que la compuerta existe para impedir.
+    return { ...b, generated_at: red.generated_at, freshness: red.freshness };
   }
 
   /** Nombre del día de la semana de hoy, para rotular la comparación (es-MX). */
