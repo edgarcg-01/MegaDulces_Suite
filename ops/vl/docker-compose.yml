@@ -33,6 +33,13 @@
 #     ✅ Prueba en seco DE VERDAD: sin `--apply` **y sin `--watch`**. Una pasada, no escribe.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ⭐ [ODS.1] La lista de SUCURSALES ya no se declara acá. Vivía copiada en estos tres
+# servicios y en cuatro scripts; una de esas copias se quedó en SIETE ramas y el
+# reconciliador nocturno dejó de mirar Morelia Madero (07) y Morelia Abastos (08) sin
+# ninguna señal — en la 08, `kdpord` publicaba 4,603 filas contra 1,669 reales.
+# Ahora todos los scripts derivan de `database/importers/lib/kepler-branches.js`, que es
+# el catálogo canónico. Una sucursal nueva se agrega AHÍ y llega sola a todos lados.
+# `ODS_LIVE_BRANCHES` sigue funcionando como escape para correr un subconjunto a mano.
 x-lane: &lane
   image: trade-ingest:latest
   restart: unless-stopped
@@ -119,7 +126,6 @@ services:
     environment:
       ODS_HB_KEY: ods_live_hot
       ODS_HB_MAX_MIN: "20"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
       ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
@@ -132,7 +138,6 @@ services:
     environment:
       ODS_HB_KEY: ods_live_mirror
       ODS_HB_MAX_MIN: "45"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       KP_ODS_TABLES: "*"
       # `[ETQ-CAMBIOS.2]` `kdpv_bitacora_precios` SALE de la exclusión: es la única fuente del
       # sistema que guarda el precio ANTERIOR, y sin ella la pantalla de cambios de precio no
@@ -162,7 +167,6 @@ services:
     environment:
       ODS_HB_KEY: cdc_reconcile
       ODS_HB_MAX_MIN: "45"
-      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07,08"
       # ⭐ 50 → 1000 el 2026-09-22, con la medición. Sobre 1,217 corridas de 14 días la
       # distribución de `huecos` es p50=5 · p90=115 · p95=182 · p99=503 · max=14,479: el 50
       # estaba DENTRO del ruido y ponía en rojo 280 corridas (23 %) que habían repuesto TODO.

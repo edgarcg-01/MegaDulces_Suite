@@ -85,11 +85,30 @@ const { RECENT_COL, recentWindowSql } = require('../lib/ods-recent-window');
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
-// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`). Las 7 ramas
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`). Las ramas
 // siguen la misma convención; ver la nota en `replicate-ods-live.js`.
-const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
+const { replicaDbName: localDbName, BRANCHES } = require('../lib/kepler-branches'); // convención única
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
-const BRANCH_CODES = (ONLY_BRANCH ? [ONLY_BRANCH] : (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(','))
+
+// ⛔ [ODS.1] LA LISTA SALE DEL CATÁLOGO CANÓNICO, NO DE UNA CADENA A MANO.
+//
+// Acá vivía `'00,01,02,03,04,05,06'` — SIETE ramas — mientras el resto del pipeline ya usaba
+// las NUEVE. El archivo ya importaba de `kepler-branches`; sólo que para el nombre de la
+// réplica, no para la lista. Y el contenedor `ods-reconcile-full` (el ÚNICO que propaga
+// DELETE) es justo el que no define `ODS_LIVE_BRANCHES`, así que caía a este default.
+//
+// Medido en prod el 2026-09-23: el reconciliador nocturno recorría 00→06 y terminaba. Morelia
+// Madero (07) y Morelia Abastos (08) NUNCA se reconciliaban. Consecuencia en la 08:
+// `kdpord` con 4,603 filas en el ODS contra 1,669 en la réplica — 2,934 borradas en el origen
+// que el ODS seguía publicando. Y no había señal: el reporte decía "filas ausentes: 0" porque
+// las ramas que no mira no pueden faltarle.
+//
+// ⚠️ Es la MISMA clase de falla que dejó a Morelia Abastos fuera de `mv_sales_blended`
+// ($1.64M invisibles, ver `analytics.v_branch_erp_cutover`): una lista de sucursales escrita a
+// mano que no creció con el negocio. Por eso no se corrige el número — se corrige la FUENTE.
+const BRANCH_CODES = (ONLY_BRANCH
+  ? [ONLY_BRANCH]
+  : (process.env.ODS_LIVE_BRANCHES || BRANCHES.map((b) => b.code).join(',')).split(','))
   .map((s) => s.trim()).filter(Boolean);
 
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';

@@ -268,11 +268,16 @@ const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, m
 // Se deja `DATABASE_URL_NEW` como fallback por compatibilidad con los runners que aún no la setean.
 const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
-const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
+const { replicaDbName: localDbName, BRANCHES: CATALOGO } = require('../lib/kepler-branches'); // convención única
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local
 // kepler_md_00 todavía → cycleAll la salta ("no conecta — skip"); al crearla se activa sola.
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06,07,08').split(',').map((s) => s.trim()).filter(Boolean);
+// `[ODS.1]` La lista sale del catálogo canónico, no de una cadena a mano. Acá coincidía con las 9
+// ramas, pero era una COPIA: en `reconcile-ods-window.js` la copia se quedó en 7 y el reconciliador
+// nocturno dejó de mirar Morelia Madero y Abastos durante meses, sin ninguna señal. Una sucursal
+// nueva se agrega en `lib/kepler-branches.js` y llega sola a todos lados.
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || CATALOGO.map((b) => b.code).join(','))
+  .split(',').map((s) => s.trim()).filter(Boolean);
 const BRANCHES = BRANCH_CODES.map((code) => ({ code, url: localUrl(code) }));
 
 function mapType(dt) {

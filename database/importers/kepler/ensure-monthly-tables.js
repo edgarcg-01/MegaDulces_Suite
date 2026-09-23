@@ -43,9 +43,11 @@ const { Client } = require('pg');
 const SUB_BASE = process.env.ODS_SOURCE_BASE
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
-const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
+const { replicaDbName: localDbName, BRANCHES: CATALOGO } = require('../lib/kepler-branches'); // convención única
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06,07,08').split(',').map((s) => s.trim()).filter(Boolean);
+// `[ODS.1]` La lista sale del catálogo canónico — ver la nota en `replicate-ods-live.js`.
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || CATALOGO.map((b) => b.code).join(','))
+  .split(',').map((s) => s.trim()).filter(Boolean);
 
 /** Cuántos períodos por delante se pre-crean. 2 meses de colchón cubre un fin de semana largo. */
 const MESES_ADELANTE = Number(process.env.ODS_MONTHS_AHEAD || 2);
