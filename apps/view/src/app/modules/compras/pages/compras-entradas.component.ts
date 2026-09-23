@@ -45,7 +45,8 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName } from '../../../core/constants/store-branches';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
@@ -1656,6 +1657,9 @@ export class ComprasEntradasComponent {
    * `TS2339: Property 'branchName' does not exist on type 'ComprasEntradasComponent'`.
    */
   readonly branchName = branchName;
+  /** `[ZN.2]` Sucursales que ESTA persona alcanza, del servidor. */
+  private readonly scope = inject(DataScopeService);
+  private readonly misSucursales = this.scope.misSucursales();
   private readonly svc = inject(EntradasService);
   private readonly compras = inject(ComprasService);
   private readonly auth = inject(AuthService);
@@ -2283,15 +2287,27 @@ export class ComprasEntradasComponent {
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
   /**
-   * `[RE.23]` El fallback es `NETWORK_BRANCHES` (9), no `STORE_BRANCHES` (7): con
-   * alcance `all` el server no manda lista y el desplegable se armaba con las
-   * sucursales Kepler nada más, así que Morelia —que sí entra en la lista, 331
-   * recepciones en el carril al día— no se podía aislar. Quien es de Morelia
-   * abría 1,493 renglones de la red entera y sus 410 quedaban enterrados.
+   * `[RE.23]` El problema que resolvió el fallback y que sigue vigente: con alcance
+   * `all` el server no manda lista, y el desplegable se armaba con las sucursales
+   * Kepler nada más, así que Morelia —que sí entra en la lista, 331 recepciones en
+   * el carril al día— no se podía aislar. Quien es de Morelia abría 1,493 renglones
+   * de la red entera y sus 410 quedaban enterrados.
+   *
+   * `[ZN.2]` La lista ya NO sale de un array del bundle: sale de `me/scope`, que
+   * incluye Morelia igual y además está recortado por el alcance de la persona.
+   */
+  /**
+   * `[ZN.2]` Con alcance acotado, la lista la manda el REPORTE. Con alcance `all`
+   * —o mientras el reporte no carga— sale de `me/scope`, **no del array del
+   * bundle**: `NETWORK_BRANCHES` ofrecia las 9 sucursales de la red a cualquiera,
+   * y ademas hacia que `null` significara dos cosas ("ves todo" y "todavia no
+   * se") con el mismo resultado en pantalla. `misSucursales()` distingue: `null`
+   * = no cargo (vacio), `[]` = no te toca ninguna.
    */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
-    return a.map((c) => ({ label: branchName(c) || c, value: c }));
+    const a = this.alcance();
+    if (a) return a.map((c) => ({ label: branchName(c) || c, value: c }));
+    return (this.misSucursales() ?? []).map((o) => ({ label: o.label || branchName(o.value) || o.value, value: o.value }));
   });
   suc(code: string): string { return branchName(code) || code; }
 

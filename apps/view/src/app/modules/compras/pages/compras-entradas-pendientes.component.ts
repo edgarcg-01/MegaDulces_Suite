@@ -28,7 +28,8 @@ import { DocViewerComponent, DocViewerFile } from '../../../shared/components/do
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
-import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName } from '../../../core/constants/store-branches';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
@@ -1070,6 +1071,9 @@ interface Hoja {
   `],
 })
 export class ComprasEntradasPendientesComponent {
+  /** `[ZN.2]` Sucursales que ESTA persona alcanza, del servidor. */
+  private readonly scope = inject(DataScopeService);
+  private readonly misSucursales = this.scope.misSucursales();
   private readonly svc = inject(EntradasService);
   private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly auth = inject(AuthService);
@@ -1235,10 +1239,18 @@ export class ComprasEntradasPendientesComponent {
    * `[RE.23]` Y el catálogo es la RED (9), no las Kepler (7): Morelia corre Wincaja y quedaba
    * fuera del desplegable, que es exactamente el mismo agujero por otra puerta.
    */
+  /**
+   * `[ZN.2]` Con alcance acotado, la lista la manda el REPORTE. Con alcance `all`
+   * —o mientras el reporte no carga— sale de `me/scope`, **no del array del
+   * bundle**: `NETWORK_BRANCHES` ofrecia las 9 sucursales de la red a cualquiera,
+   * y ademas hacia que `null` significara dos cosas ("ves todo" y "todavia no
+   * se") con el mismo resultado en pantalla. `misSucursales()` distingue: `null`
+   * = no cargo (vacio), `[]` = no te toca ninguna.
+   */
   readonly sucursalOpts = computed(() => {
     const a = this.alcance();
-    const codes = a ?? NETWORK_BRANCHES.map((b) => b.code);
-    return codes.map((c) => ({ label: this.suc(c), value: c }));
+    if (a) return a.map((c) => ({ label: this.suc(c), value: c }));
+    return (this.misSucursales() ?? []).map((o) => ({ label: o.label || this.suc(o.value), value: o.value }));
   });
 
   suc(code: string): string { return branchName(code) || code; }

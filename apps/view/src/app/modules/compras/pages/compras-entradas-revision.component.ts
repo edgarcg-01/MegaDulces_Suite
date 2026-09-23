@@ -24,7 +24,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion, type AdjustmentLinesResponse } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
-import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
+import { branchName } from '../../../core/constants/store-branches';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money } from '../../../shared/util';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -894,6 +895,9 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
   `],
 })
 export class ComprasEntradasRevisionComponent {
+  /** `[ZN.2]` Sucursales que ESTA persona alcanza, del servidor. */
+  private readonly scope = inject(DataScopeService);
+  private readonly misSucursales = this.scope.misSucursales();
   private readonly svc = inject(EntradasService);
   private readonly compras = inject(ComprasService);
   private readonly auth = inject(AuthService);
@@ -932,9 +936,18 @@ export class ComprasEntradasRevisionComponent {
    * Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales.
    * `[RE.23]` El catálogo es la RED (9); las 7 Kepler dejaban Morelia sin poder filtrarse.
    */
+  /**
+   * `[ZN.2]` Con alcance acotado, la lista la manda el REPORTE. Con alcance `all`
+   * —o mientras el reporte no carga— sale de `me/scope`, **no del array del
+   * bundle**: `NETWORK_BRANCHES` ofrecia las 9 sucursales de la red a cualquiera,
+   * y ademas hacia que `null` significara dos cosas ("ves todo" y "todavia no
+   * se") con el mismo resultado en pantalla. `misSucursales()` distingue: `null`
+   * = no cargo (vacio), `[]` = no te toca ninguna.
+   */
   readonly sucursalOpts = computed(() => {
-    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
-    return a.map((c) => ({ label: this.suc(c), value: c }));
+    const a = this.alcance();
+    if (a) return a.map((c) => ({ label: this.suc(c), value: c }));
+    return (this.misSucursales() ?? []).map((o) => ({ label: o.label || this.suc(o.value), value: o.value }));
   });
 
   noCuadra(c: EntradaRow): boolean { return !c.monto_match; }

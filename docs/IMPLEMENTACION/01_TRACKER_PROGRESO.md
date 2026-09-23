@@ -1297,9 +1297,18 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       los **14** archivos que importan `store-branches`, **13 usan sólo `branchName`** (etiqueta, no
       alcance) y sólo **4 usan la lista** — los 3 de compras **ya consultan el alcance** y lo único
       que hay que quitarles es el `?? NETWORK_BRANCHES` que rellena con la red completa.
-      `nx build view` OK (1.28 MB). ⚠️ **Orden de despliegue: la migración va ANTES que el front**,
-      o esas 4 personas ven el selector vacío. **Pendiente: aplicar las 2 migs + los 4 archivos que
-      faltan + validación visual.** 2026-09-23
+      **Cerrado el mismo día: `NETWORK_BRANCHES` ya no alimenta ningún selector.** Salió el
+      primitivo que faltaba — `DataScopeService.misSucursales()`, las sucursales del alcance como
+      **signal** y con el tercer estado (`null` = no contestó · `[]` = no te toca ninguna), porque
+      cada pantalla se estaba escribiendo su propio `subscribe` (ADR-056). En `admin-users` **se
+      retiró el fallback**, con motivo: ahí no se filtra lo que uno ve, se decide **dónde queda
+      asignada otra persona**, y una lista vieja no deja el diálogo «usable» — deja asignar una
+      sucursal equivocada, que es justo lo que después hay que cazar (los 4 de `'32'`). Deuda con
+      nombre **[ZN.2.5]**: los 13 archivos que usan `branchName` (etiqueta, no alcance) — ese mapa
+      también se desincroniza, ya pasó con los cutovers y con «8 Esquinas»/`8ESQ`.
+      `nx build view` OK (1.28 MB) · `vitest` view **756 pasan**. ⚠️ **Orden de despliegue: la
+      migración va ANTES que el front**, o esas 4 personas ven el selector vacío.
+      **Pendiente: aplicar las 3 migs + validación visual.** 2026-09-23
 - [x] **[ID.37]** 🧪 **Una sola regla de login: la puerta de atrás dejó de tener reglas propias.**
       Salió de auditar cómo funcionan los usuarios. Había **dos** logins y cada uno decidía por su
       cuenta qué es una sesión válida: `/auth/login` (legacy, `@Public`, **montado siempre**) no
