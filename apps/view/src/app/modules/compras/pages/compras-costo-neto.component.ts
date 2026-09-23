@@ -89,7 +89,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
                 (click)="drillToDescuentos(r)"
                 (keydown.enter)="drillToDescuentos(r)"
                 (keydown.space)="$event.preventDefault(); drillToDescuentos(r)">
-              <td class="cn-prov" [title]="r.proveedor_nombre">{{ r.proveedor_nombre || r.proveedor_code || '—' }} <span class="cn-drillhint" aria-hidden="true">→ descuentos</span></td>
+              <td class="cn-prov" [title]="r.proveedor_nombre"><a class="surf-cell-link" [routerLink]="['/compras/descuentos']" [queryParams]="{ q: r.proveedor_nombre || r.proveedor_code || '' }" (click)="$event.stopPropagation()">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</a> <span class="cn-drillhint" aria-hidden="true">→ descuentos</span></td>
               <td class="ta-r cn-num">{{ money(r.compras) }}</td>
               <td class="ta-r cn-num" [class.cn-pos]="r.descuento > 0">{{ r.descuento > 0 ? '−' + money(r.descuento) : '—' }}</td>
               <td class="ta-r cn-num">

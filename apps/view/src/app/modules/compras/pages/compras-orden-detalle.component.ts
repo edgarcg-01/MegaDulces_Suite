@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -46,7 +46,7 @@ interface RecvLine {
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <button pButton type="button" class="p-button-text p-button-sm od-back" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Órdenes de compra</span></button>
+          <a pButton class="p-button-text p-button-sm od-back" routerLink="/compras/ordenes"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Órdenes de compra</span></a>
           @if (po(); as p) {
             <h1>{{ p.folio }} <p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSev(p.estado)"></p-tag></h1>
             <p class="surf-page-sub">
@@ -166,7 +166,6 @@ interface RecvLine {
 export class ComprasOrdenDetalleComponent implements OnInit {
   private readonly api = inject(ComprasService);
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly perms = inject(PermissionsService);
   private readonly auth = inject(AuthService);
@@ -243,7 +242,6 @@ export class ComprasOrdenDetalleComponent implements OnInit {
     });
   }
 
-  back(): void { this.router.navigate(['/compras/ordenes']); }
   fill(p: PurchaseOrderDetail): number { return Number(p.total_units) > 0 ? Number(p.received_units) / Number(p.total_units) : 0; }
 
   kpiItems(p: PurchaseOrderDetail): MetricStripItem[] {

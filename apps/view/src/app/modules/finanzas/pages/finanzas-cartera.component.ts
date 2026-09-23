@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { RouterLink, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
@@ -28,7 +28,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
@@ -241,10 +241,12 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                 </td>
                 <td class="ta-r">
                   @if (docAbrible(p)) {
-                    <button pButton type="button" class="p-button-text p-button-xs" (click)="abrirDoc(p)"
-                            [title]="'Abrir el documento ' + p.folio_digital">
+                    <a pButton class="p-button-text p-button-xs"
+                       [routerLink]="['/comercial/documentos']" [queryParams]="{ doc: p.folio_digital }"
+                       (click)="$event.stopPropagation()"
+                       [title]="'Abrir el documento ' + p.folio_digital">
                       <i class="pi pi-external-link" aria-hidden="true"></i><span class="sr-only">Abrir documento</span>
-                    </button>
+                    </a>
                   } @else if (sinDetalle(p)) {
                     <i class="pi pi-minus muted ct-nodoc" title="Traspaso/venta agregada: su único renglón es contable, no tiene desglose de producto" aria-hidden="true"></i>
                   }
@@ -656,9 +658,9 @@ export class FinanzasCarteraComponent implements OnInit {
     return this.puedeVerDocs() && /^UD(08|12)/.test(p.doc_code || '');
   }
   sinDetalle(p: Partida): boolean { return /^UD13/.test(p.doc_code || ''); }
-  abrirDoc(p: Partida) {
-    this.router.navigate(['/comercial/documentos'], { queryParams: { doc: p.folio_digital } });
-  }
+  // El documento se abre con un <a routerLink> en la celda: asi acepta Ctrl+clic
+  // y "Abrir en pestana nueva", que es justo lo que hace falta para cotejar la
+  // cartera contra el documento sin perder la lista (ADR-078).
   retryDetalle() {
     const ref = this.detalleRef();
     if (ref) this.fetchDetalle(ref.sucursal, ref.cliente);

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -44,7 +44,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
 @Component({
   selector: 'app-comercial-egreso-detalle',
   standalone: true,
-  imports: [
+  imports: [RouterLink, 
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule,
     InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DrawerModule,
     MetricStripComponent, ContextHelpComponent, LoadStateComponent,
@@ -56,7 +56,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
       <p-toast></p-toast>
 
       <header class="surf-page-head ed-head">
-        <button pButton type="button" class="p-button-text p-button-sm" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
+        <a pButton class="p-button-text p-button-sm" routerLink="/finanzas/egresos"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></a>
         <div class="surf-page-head-text">
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>{{ title() }}</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">{{ subtitle() }}</p>
@@ -66,7 +66,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
 
       <!-- Breadcrumb de restricciones acumuladas -->
       <nav class="ed-crumbs">
-        <button class="ed-crumb-root" (click)="back()"><i class="pi pi-home"></i> Todos los egresos</button>
+        <a class="ed-crumb-root" routerLink="/finanzas/egresos"><i class="pi pi-home"></i> Todos los egresos</a>
         @for (c of chain(); track c.type + '|' + c.key; let i = $index) {
           <i class="pi pi-angle-right ed-crumb-sep"></i>
           <span class="ed-crumb" [class.active]="i === chain().length - 1">

@@ -14,7 +14,7 @@ import { MessageService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
@@ -37,7 +37,7 @@ interface GastoFile {
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -395,7 +395,7 @@ interface GastoFile {
             <div class="cb-adj">
               <div class="cb-adj-head">
                 <span class="cb-adj-title"><i class="pi pi-percentage"></i> Descuentos y notas de crédito del proveedor</span>
-                <button pButton type="button" size="small" text (click)="openDescuentos(v.adjustments?.deep_link_q)" title="Ver en Compras · Descuentos y apoyos"><span class="p-button-label">Ver en Compras</span><span class="p-button-icon p-button-icon-right pi pi-arrow-up-right" aria-hidden="true"></span></button>
+                <a pButton size="small" text [routerLink]="['/compras/descuentos']" [queryParams]="paramsDescuentos(v.adjustments?.deep_link_q)" title="Ver en Compras · Descuentos y apoyos"><span class="p-button-label">Ver en Compras</span><span class="p-button-icon p-button-icon-right pi pi-arrow-up-right" aria-hidden="true"></span></a>
               </div>
               <p class="cb-adj-note">Explican por qué el banco pagó ≠ factura. Registradas en Kepler (X-D-55 / X-D-40) — no cuadre al peso, contexto de RE.10.</p>
               @if (v.adjustments?.total_factura) {
@@ -725,9 +725,10 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   };
   catLabel(c: string | null): string { return c ? (this.CAT_LABEL[c] || c) : 'Sin motivo'; }
 
-  /** Salta a /compras/descuentos filtrando por el proveedor (su lugar de contabilización). */
-  openDescuentos(q?: string | null): void {
-    this.router.navigate(['/compras/descuentos'], { queryParams: q ? { q } : {} });
+  /** El filtro con el que /compras/descuentos (su lugar de contabilizacion) abre
+   *  al proveedor. Va en un <a routerLink> para que acepte Ctrl+clic (ADR-078). */
+  paramsDescuentos(q?: string | null): Record<string, string> {
+    return q ? { q } : {};
   }
 
   setEstado(v: string) { this.estadoSel.set(v); this.load(); }

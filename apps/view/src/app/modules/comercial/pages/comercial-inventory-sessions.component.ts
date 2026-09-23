@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule, Router } from '@angular/router';
+import { Router, RouterLink, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -24,7 +24,7 @@ import { forkJoin } from 'rxjs';
 @Component({
   selector: 'app-comercial-inventory-sessions',
   standalone: true,
-  imports: [
+  imports: [RouterLink, 
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule,
   ],
@@ -61,7 +61,7 @@ import { forkJoin } from 'rxjs';
             [routerLink]="['/almacen/inventory/sessions', c.id]"
             (keydown.enter)="goToFolio(c.id)"
             (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
-            <td class="in-mono">{{ c.folio }}</td>
+            <td class="in-mono"><a class="surf-cell-link" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
             <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
             <td>

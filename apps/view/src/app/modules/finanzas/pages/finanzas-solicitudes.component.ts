@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -59,7 +59,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent, FinanzasCapturasSinFolioComponent],
+  imports: [RouterLink, CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent, FinanzasCapturasSinFolioComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -238,8 +238,9 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
                      acciones, que es donde va lo que hay que hacer, no lo que ya pasó. -->
                 <td>
                   @if (r.gasto_folio) {
-                    <button type="button" class="so-link num" (click)="$event.stopPropagation(); verGasto(r)"
-                            [attr.aria-label]="'Abrir el gasto ' + r.gasto_folio">{{ r.gasto_folio }}</button>
+                    <a class="so-link num" [routerLink]="['/finanzas/egresos/detalle']" [queryParams]="paramsGasto(r)"
+                       (click)="$event.stopPropagation()"
+                       [attr.aria-label]="'Abrir el gasto ' + r.gasto_folio">{{ r.gasto_folio }}</a>
                     @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }
                   } @else { <span class="faint">—</span> }
                 </td>
@@ -886,13 +887,11 @@ export class FinanzasSolicitudesComponent {
 
   leadTexto(d: number): string { return d === 0 ? 'el mismo día' : `en ${d} ${d === 1 ? 'día' : 'días'}`; }
 
-  /** Abre el gasto ligado en el detalle de egresos. */
-  verGasto(r: ExpenseRequestRow) {
-    if (!r.gasto_folio) return;
-    this.router.navigate(['/finanzas/egresos/detalle'], {
-      queryParams: { type: 'beneficiario', key: r.beneficiario || '', label: r.beneficiario || '',
-        doc_sucursal: r.sucursal, doc_tipo: 'XA1001', doc_folio: r.gasto_folio },
-    });
+  /** Los parametros con los que el detalle de egresos abre el gasto ligado.
+   *  Es un <a routerLink> y no un boton para que acepte Ctrl+clic (ADR-078). */
+  paramsGasto(r: ExpenseRequestRow): Record<string, string> {
+    return { type: 'beneficiario', key: r.beneficiario || '', label: r.beneficiario || '',
+      doc_sucursal: r.sucursal, doc_tipo: 'XA1001', doc_folio: r.gasto_folio || '' };
   }
 
 }

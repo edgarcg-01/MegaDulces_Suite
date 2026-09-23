@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
@@ -42,7 +42,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
 @Component({
   selector: 'app-comercial-expiry-review-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent, ProductScanFieldComponent],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent, ProductScanFieldComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -51,7 +51,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       <p-confirmdialog></p-confirmdialog>
 
       <header class="erd-head">
-        <button pButton [text]="true" severity="secondary" size="small" (click)="back()" aria-label="Volver"><span class="p-button-icon pi pi-arrow-left" aria-hidden="true"></span></button>
+        <a pButton [text]="true" severity="secondary" size="small" routerLink=".." aria-label="Volver"><span class="p-button-icon pi pi-arrow-left" aria-hidden="true"></span></a>
         <div class="erd-head-text">
           <h1>Control de Caducidades</h1>
           @if (review(); as r) {
@@ -397,7 +397,6 @@ export class ComercialExpiryReviewDetailComponent {
 
   private readonly svc = inject(ComercialService);
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
   private readonly auth = inject(AuthService);
@@ -723,7 +722,6 @@ export class ComercialExpiryReviewDetailComponent {
       });
   }
 
-  back() { this.router.navigate(['..'], { relativeTo: this.route }); }
 
   // ── Plazo: el sistema lo dice solo, desde la fecha ────────────────────────
 
