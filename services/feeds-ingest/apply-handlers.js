@@ -728,10 +728,17 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
 //   · Entró el 2026-08-25 (9e42351a). Duele ahora porque `[VL.11]` puso producción y la
 //     ingesta a compartir los mismos 4 núcleos.
 //
-// La forma: ventana + presupuesto. Cada `cadaMs` se vacía lo juntado, en lotes chicos y sin
-// pasarse de `PRESUPUESTO_MS`; lo que sobra espera la siguiente ventana. Eso acota el gasto a
-// ~20 s cada 300 s (6.7% de un núcleo) en vez de los ~75% continuos que se midieron, y —más
-// importante— el ciclo del carril vuelve a cerrar dentro de su umbral de salud.
+// La forma: ventana + presupuesto. Cada `COALESCE_SEC` se vacía lo juntado, en lotes chicos y sin
+// pasarse de `PRESUPUESTO_MS`; lo que sobra espera la ventana siguiente. Eso acota el gasto a
+// **10 s cada 60 s (~17% de un núcleo)** en vez de los ~113% continuos que se midieron, y —más
+// importante— el ciclo del carril vuelve a cerrar dentro de su umbral de salud: medido, pasó de
+// **no cerrar nunca (>17 min) a 6.5 segundos**, y los huecos del reconciliador de 1,059 a 77.
+//
+// Los números están elegidos con la medición, no de oído: el catálogo que vende en un día son
+// ~3,164 SKUs y el recálculo sale ~180 ms por SKU en lotes calientes ⇒ una pasada completa cuesta
+// ~570 s de CPU. Con 10 s cada 60 s se recorre el catálogo entero en ~1 hora, que es el "minutos"
+// que se pidió, sin pasar de ~1/6 de un núcleo. Y la ventana corta (60 s en vez de 300) mantiene
+// el vaciado por debajo de 10 s, para no retrasar el embarque de un carril que es de @15 s.
 //
 // ⚠️ SE DECLARA LO QUE NO CUBRE: lo juntado vive en memoria del proceso. Un reinicio duro
 // pierde los SKUs pendientes; los recupera la próxima venta de ese SKU (que es inminente, por
@@ -740,9 +747,9 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
 // ⚠️ `kdii` y `kdpv_prod_util` NO se coalescen a propósito: ésos son un cambio de precio en
 // Kepler, y `[TDA.1]` exige que llegue a la etiquetera EN VIVO. Lo que se espacia es el
 // camino derivado de la VENTA, que es el caro.
-const COALESCE_SEC = Math.max(0, Number(process.env.ODS_PRICE_COALESCE_SEC || 300));
-const COALESCE_PRESUPUESTO_MS = Math.max(1000, Number(process.env.ODS_PRICE_COALESCE_BUDGET_MS || 20000));
-const COALESCE_LOTE = Math.max(1, Number(process.env.ODS_PRICE_COALESCE_CHUNK || 10));
+const COALESCE_SEC = Math.max(0, Number(process.env.ODS_PRICE_COALESCE_SEC || 60));
+const COALESCE_PRESUPUESTO_MS = Math.max(1000, Number(process.env.ODS_PRICE_COALESCE_BUDGET_MS || 10000));
+const COALESCE_LOTE = Math.max(1, Number(process.env.ODS_PRICE_COALESCE_CHUNK || 25));
 /** Qué pares (tabla, normalizador) se juntan en vez de correr al momento. `0` = desactivado. */
 const COALESCIBLES = new Set(COALESCE_SEC > 0 ? ['kdm2:normalizeSalePrice'] : []);
 /** clave → { fn, skus:Set, ultimoVaciado } — estado del proceso, a propósito (ver arriba). */
@@ -777,9 +784,21 @@ async function vaciarCoalescidos(client, tenantId) {
         break;
       }
     }
-    // El reloj se reinicia sólo cuando la bolsa quedó vacía. Con rezago pendiente se sigue
-    // vaciando en el ciclo siguiente (acotado por el presupuesto), en vez de esperar otra ventana.
-    if (!st.skus.size) st.ultimoVaciado = Date.now();
+    // ⛔ EL RELOJ SE REINICIA SIEMPRE, con bolsa vacía o con rezago. La primera versión de esto
+    // lo reiniciaba SÓLO al vaciar del todo, con la idea de "seguir avanzando si quedó algo" — y
+    // estaba mal, medido a los 20 minutos de desplegarlo: `vaciarCoalescidos` se llama una vez
+    // por (rama, tabla), o sea hasta ~170 veces por ciclo, así que con rezago pendiente el
+    // presupuesto NO acotaba nada — se gastaba entero en CADA llamada. El registro lo mostró sin
+    // ambigüedad: `20948ms · quedan 3682`, `20619ms · quedan 3582`, una tras otra.
+    //
+    // ⭐ Y mostró algo más, que es el hallazgo de fondo: el rezago se SATURA en ~3,200-3,800 SKUs,
+    // que es prácticamente todo el catálogo que vende en un día (3,164 medidos). O sea que el
+    // disparador "por SKU que llegó" es una ilusión: en régimen esto es un BARRIDO COMPLETO
+    // continuo. Y produce 0-2 cambios de precio por cada 110 SKUs recalculados.
+    // ⇒ Queda declarado como deuda con nombre: si de todos modos se recorre el catálogo entero,
+    //   la forma barata es UNA consulta sin filtro cada N minutos, no 3,164 búsquedas scoped.
+    //   Mientras eso no se decida, lo que corresponde es ACOTAR el gasto, no acelerarlo.
+    st.ultimoVaciado = Date.now();
     if (hechos) {
       console.log(`  [coalesce:${clave}] ${filas} filas · ${hechos} SKUs · ${Date.now() - t0}ms`
         + (st.skus.size ? ` · quedan ${st.skus.size} para la próxima ventana` : ''));
