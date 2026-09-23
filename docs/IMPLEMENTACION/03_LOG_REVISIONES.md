@@ -6395,3 +6395,119 @@ Esto es la mitad del valor de la sesión, porque las tres parecían obvias:
 - **`[NX.11]` de rebote**: el `boundary-gate` estaba rojo por 6 `any` nuevos en el ledger de
   presupuesto (`[PU.11]`/`[PU.12]`, de otra sesión). Se tipó el puerto y los 7 `trx` con
   `Knex.Transaction`, **cero cambios de lógica**, comentado para esos devs.
+
+---
+
+## 2026-09-23 — La capa de datos de `md`: un carril en ciclo de reinicio y el 92.8% del CPU en un normalizador (`[DB-MEM.18]` → `[DB-MEM.20.1]`)
+
+**Pedido:** *"la capa de datos en md .222 tiene grandes problemas, tanto de rendimiento como
+estructura, revisalos."* Lo que se encontró midiendo fue un **incidente vivo**, no una deuda.
+
+### Lo que estaba pasando, y nadie veía
+
+`ods-live-hot` y `ods-live-mirror` llevaban **3 horas reiniciándose cada 5 minutos** (39 reinicios
+en el día). La cadena, verificada de punta a punta:
+
+1. **`[VL.11]` pasó los carriles a `FEEDS_SINK=pg`** para escribir directo a `pg-prod`.
+2. En `replicate-ods-live.js` el latido estaba atado al sink
+   (`late = (APPLY||WATCH) && sinkMode()==='http'`). `[OBS.1]` lo escribió así el 02-sep, cuando
+   esos carriles **sí** shipeaban por http; ahí la condición era equivalente a "siempre".
+3. ⇒ El latido **se apagó en silencio**. `ods_live_hot` llevaba **22.9 h** sin escribir su renglón
+   (umbral: 20 min), y —lo peor— el renglón **conservaba su `status='ok'` viejo**: el tablero no
+   gritó. Es el falso verde que la Fase OBS existe para eliminar, reintroducido por la mudanza.
+4. ⇒ `health-lane.sh` lo leía vencido → `unhealthy` → `autoheal` reiniciaba → otra vez.
+
+⚠️ **`RestartCount` decía `0`** todo el tiempo: ese contador es de la *política* de reinicio, no
+de los `docker restart` que manda alguien de afuera. El que dice la verdad es el log de `autoheal`.
+
+### El 92.8% del CPU de la base, en una sola consulta
+
+Con el log encendido (`[DB-MEM.18]`) apareció lo que era invisible:
+
+| | Medido el 2026-09-23 |
+|---|---|
+| Share de `normalizeSalePrice` | **92.8% de TODO el tiempo de consulta de `railway`** |
+| Trabajo | 38 ejecuciones → **4,850,000 bloques (~37 GB)** para devolver **124 filas** |
+| Naturaleza | **cero disco, cero temporales** ⇒ CPU pura |
+| Costo | 1 SKU = **924 ms** · 4 SKUs = **2,433 ms** ⇒ **~600 ms POR SKU** |
+| Peor corrida | **134 s**, con **dos apiladas** al mismo tiempo |
+
+Corría en **cada embarque de `kdm2`** (líneas de venta) dentro del carril de @15 s, recalculando
+una moda de precios sobre **90 días**. Entró el 2026-08-25 (`9e42351a`) y duele **ahora** porque
+`[VL.11]` puso producción y la ingesta a compartir los mismos 4 núcleos.
+
+### Qué se hizo
+
+| | |
+|---|---|
+| `[DB-MEM.18]` | `log_min_duration_statement=1000` · `track_io_timing=on` · `log_temp_files=0` · `log_lock_waits=on`. Aplicado con `ALTER SYSTEM` (sin reiniciar prod) y declarado en el compose. **Prueba negativa:** un `pg_sleep(2.5)` apareció en el log con su texto. **Es lo que permitió todo el resto.** |
+| `[DB-MEM.19]` | El latido deja de depender del sink. En one-shot exige `ODS_HB_KEY` explícita para no pisar el renglón del contenedor (un carril = un dueño). |
+| `[DB-MEM.20]` | Coalescedor: `kdm2 → normalizeSalePrice` se junta por ventana en vez de correr en cada embarque. **Decisión del usuario: NO sacar `kdm2` de la ecuación** — el precio sigue saliendo de la venta, con rezago de minutos. `kdii`/`kdpv_prod_util` siguen al momento porque `[TDA.1]` exige que un cambio de precio en Kepler llegue en vivo. |
+| `[DB-MEM.20.1]` | Corrección de mi propio diseño, ver abajo. |
+
+### Resultado medido
+
+| | Antes | Después |
+|---|---|---|
+| Ciclo de `ods_live_hot` | **nunca cerraba** (>17 min) | **6.5 s** |
+| `cdc_reconcile` | `error` · **1,059 huecos** | `ok` · **77 huecos** |
+| `ods_live_mirror` | `unhealthy` | `ok` · 60 s |
+| CPU de `normalizeSalePrice` | **113% de un núcleo, continuo** | acotado a ~10 s cada 60 s por diseño |
+
+### Lecciones
+
+- ⛔ **Un presupuesto que limita UNA llamada no es un presupuesto.** La primera versión del
+  coalescedor reiniciaba el reloj sólo al vaciar del todo. Pero `vaciarCoalescidos` se llama una
+  vez por (rama, tabla) —hasta ~170 veces por ciclo— así que con rezago se gastaba el presupuesto
+  **entero en cada llamada**: `20948ms · quedan 3682`, `20619ms · quedan 3582`, seguidas. **Lo
+  encontró el registro 20 minutos después de desplegarlo, no el test** — y el test **afirmaba la
+  conducta defectuosa**. Un test puede fijar un error igual de bien que una regla.
+- ⭐ **El disparador "por SKU que llegó" era una ilusión.** El rezago se satura en ~3,200-3,800
+  SKUs = prácticamente todo el catálogo que vende en un día (3,164). En régimen esto es un
+  **barrido completo continuo** que produce **0-2 cambios de precio por cada 110 SKUs**. Declarado
+  como deuda con nombre: la forma barata sería una consulta sin filtro cada N minutos. **Se probó
+  cronometrarla y corrió 4 min 52 s sin volver** — o sea que NO es la salida obvia, y por eso se
+  declara en vez de suponerse.
+- ⛔ **`ALTER SYSTEM` es no-op EN SILENCIO** sobre lo que el compose pasa por `-c` (GOTCHAS §65).
+  Todo responde que sí y el valor no se mueve. Y una recarga se verifica en **sesión nueva**.
+- ⚠️ **`ILIKE` con `%base_unit%` me hizo atribuir mal la consulta cara** — el guion bajo es comodín
+  de un carácter. Con el escape (`like '%base\_unit%'`) quedó claro que `v_unit_truth` **no corrió
+  ni una vez** en la ventana. El bloque `[VL.11.E]` del compose atribuye a esa vista los 10,547 s
+  de CPU; esa atribución **no se pudo reproducir**.
+
+### Hallazgos de estructura, medidos y NO tocados
+
+- **Tres Postgres en 4 núcleos**: `shared_buffers` suma **16.5 GB de 28.8** y `effective_cache_size`
+  suma **26 GB** sobre ~9 GB reales de caché ⇒ los tres planificadores cuentan con memoria que no
+  existe, que es justo lo que empuja al *nested loop*. La medición que el README pide desde que se
+  escribió (`pg_statio_user_tables`) **sigue sin hacerse**.
+- **`pg-rag` no tiene ni una tabla** (0 en sus dos bases) y reserva 0.5 GB de `shared_buffers` + 1 GB
+  de `shm`.
+- **663 tablas · 1,776 índices · 356 vistas** en una sola base. **1,489 índices sin una lectura en
+  21 h (3.7 GB)** — ⛔ pero esa cifra **no es accionable**: la mayoría son UNIQUE/PK que sostienen
+  el UPSERT idempotente y el `REFRESH … CONCURRENTLY`, y el repo ya midió que borrarlos *"habría
+  roto el sell-out"*. El candidato limpio es **uno**: `ix_psd_date_cover` (108 MB, no único).
+- **`analytics.sales_daily`: 1,002 MB de índices sobre 537 MB de datos (1.87×)**.
+- **El espejo del ODS: 240 tablas, 194 (81%) leídas menos de 10 veces en 21 h.** Por decisión del
+  usuario **sólo se mide y se propone**, no se toca.
+- ⛔ **Corregido en `ops/prod/README.md`**: decía que el `REFRESH` de las vistas con el defecto de
+  planificador (**>70 min vs 9.7 s**) *"no aparece en ningún cron"*. **Es falso** — los corre el
+  cron nocturno de `analytics-refresh.service.ts` (líneas 132 y 144). O sea que ese defecto **ya
+  está agendado todas las noches**, y `enable_nestloop=off` —la receta medida ahí mismo— **no
+  existe en el código** (grep: 0).
+- **Deriva de documentación**: el README se declara fuente única y afirmaba `6 GB`/`14 GB` de
+  memoria tres días después de que `106041b3` los subiera a `12`/`16` tocando sólo el compose.
+- **Defecto menor**: 4 filas de `analytics.sales_daily` fechadas el 2026-12-06 (74 días adelante),
+  $230.49, canal `wincaja_ruta`.
+
+### Pendiente
+
+- ⬜ `effective_cache_size` a la realidad, **después** de medir `pg_statio_user_tables`.
+- ⬜ `statement_timeout` para el rol `postgres` (el de `app_runtime` ya existe, 120 s). Su valor
+  tiene que caber por encima del `REFRESH` legítimo más largo ⇒ medir esos primero.
+- ⬜ Decidir `pg-rag`: apagarlo o declararle destino con fecha.
+- ⬜ Disco: **33.6 GB recuperables** en Docker y **~450 GB sin asignar** en el VG mientras
+  `pg-prod-data` vive en `/`.
+- ⬜ La poda de índices exige **7 días** de `pg_stat_user_indexes` sin reinicio de `pg-prod`.
+- ⬜ La deuda con nombre del barrido de precio: una consulta sin filtro cada N minutos, en vez de
+  ~3,164 búsquedas scoped. Exige primero hacerla terminar en un tiempo razonable.

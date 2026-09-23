@@ -10,6 +10,37 @@
 
 ## [Unreleased]
 
+### Fixed — el carril del ODS se reiniciaba cada 5 min y un normalizador se comía el 92.8% del CPU de la base (`[DB-MEM.18]`→`[DB-MEM.20.1]`, 2026-09-23)
+- ⛔ **`ods-live-hot`/`ods-live-mirror` llevaban 3 horas en ciclo de reinicio** (39 reinicios en el
+  día). El latido estaba atado al **sink**: `[OBS.1]` lo escribió cuando los carriles shipeaban por
+  http, `[VL.11]` los pasó a `pg`, y con eso **apagó la vigilancia en silencio**. El renglón de
+  `cron_runs` llevaba **22.9 h** sin escribirse **conservando su `status='ok'` viejo**, así que el
+  tablero no gritó — el falso verde que la Fase OBS existe para eliminar, reintroducido por la
+  mudanza. ⚠️ `RestartCount` decía `0` todo el tiempo (es de la *política*, no de los `docker
+  restart` de afuera).
+- ⭐ **`normalizeSalePrice` era el 92.8% de TODO el tiempo de consulta de la base**: 38 ejecuciones
+  movieron **4,850,000 bloques (~37 GB)** para devolver **124 filas**, sin tocar disco. Costo
+  cronometrado: **~600 ms por SKU**; peor corrida **134 s**, con dos apiladas. Corría en **cada
+  embarque de `kdm2`** dentro del carril de @15 s, recalculando una moda de precios de 90 días.
+- **El precio sigue saliendo de la venta** (decisión del usuario: no sacar `kdm2` de la ecuación).
+  Lo que cambia es cada cuánto se recalcula: se juntan los SKUs y se vacían por ventana, acotado a
+  ~10 s cada 60 s. `kdii`/`kdpv_prod_util` siguen **al momento**, porque `[TDA.1]` exige que un
+  cambio de precio en Kepler llegue a la etiquetera en vivo.
+- **Resultado medido:** el ciclo de `ods_live_hot` pasó de **no cerrar nunca (>17 min) a 6.5 s**, y
+  `cdc_reconcile` de `error` con **1,059 huecos** a `ok` con **77**.
+- ⛔ **Un presupuesto que limita UNA llamada no es un presupuesto:** la primera versión del
+  coalescedor lo gastaba entero en cada una de las ~170 llamadas por ciclo. **Lo encontró el
+  registro 20 minutos después de desplegarlo, y el test afirmaba la conducta defectuosa.**
+
+### Added — `pg-prod` no registraba una sola consulta lenta (`[DB-MEM.18]`, 2026-09-23)
+- `log_min_duration_statement=1000` (el gate del propio proyecto), `track_io_timing=on`,
+  `log_temp_files=0` (892 archivos / 17 GB sin dueño conocido) y `log_lock_waits=on`. Antes, la
+  consulta más cara del sistema sólo se veía teniendo un `psql` abierto en el segundo exacto — por
+  eso `[VL.11.E]` tuvo que re-medir a mano. **Es lo que destapó todo lo de arriba.**
+- ⛔ **GOTCHAS §65:** `ALTER SYSTEM` es **no-op en silencio** sobre lo que el compose pasa por `-c`
+  (responde `ALTER SYSTEM`, el reload devuelve `t`, y el valor no se mueve). Y una recarga se
+  verifica en **sesión nueva**.
+
 ### Fixed — `/api/health` decía `""`, y otras dos cosas mentían el mismo dato (`[VL.11.C]`, 2026-09-23)
 - El commit **se hornea en la imagen** (`ARG GIT_COMMIT_SHA` al final de la etapa `runner`, para
   no invalidar las capas pesadas) y `deploy.sh construir()` lo pasa por `--build-arg`. Antes
