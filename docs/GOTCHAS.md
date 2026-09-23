@@ -3386,3 +3386,72 @@ cuerpo, no por el campo) y 1 correcto a propósito (señal de versión deliberad
   acción de punta a punta — si no, se cambia "no hay botón" por "el botón no hace nada".
 - Una pantalla sin una sola prueba no tiene forma de contradecir al build. `/finanzas/caja-general`
   tenía spec de su lógica pura y **cero** de la pantalla; ahí vivían los dos defectos.
+
+---
+
+## 64. Un latido atado al SINK: mudar cómo se embarcan las filas apagó la vigilancia, y el tablero quedó verde
+
+**Medido el 2026-09-23 en `md`.** `ods-live-hot` y `ods-live-mirror` llevaban **3 horas
+reiniciándose cada 5 minutos** (39 reinicios en el día) y la causa no era el contenedor ni la
+carga: era una condición en `replicate-ods-live.js`.
+
+```js
+const late = (APPLY || WATCH_SEC) && sink.sinkMode() === 'http';   // ⛔
+```
+
+`[OBS.1]` (`3375d0d7`, 02-sep) la escribió cuando esos carriles shipeaban por **http**, así que
+atarla al sink era, ese día, equivalente a "siempre". **`[VL.11]` los pasó a escribir directo a
+`pg-prod` (`FEEDS_SINK=pg`) y con eso apagó el latido que OBS.1 acababa de instalar** — sin tocar
+ese archivo y sin que nada avisara.
+
+La cadena completa, verificada de punta a punta:
+
+```
+sink=pg → late=false → no se escribe analytics.cron_runs
+        → el renglón queda con 22.9 h de antigüedad … y con su `status='ok'` VIEJO
+        → health-lane.sh lo lee vencido → unhealthy → autoheal reinicia → otra vez
+```
+
+**Las dos lecciones, que son distintas:**
+
+1. **Un latido no puede depender de CÓMO viaja el dato que vigila.** `latir()` abre su propio
+   cliente contra `ODS_HB_URL` y no toca el sink; la condición nunca tuvo justificación técnica,
+   la tuvo la coincidencia de que ese día las dos cosas iban juntas. Es primo hermano de §18 (*el
+   latido no viaja por el canal que vigila*): acá no viajaba por él, pero **dependía** de él.
+2. ⛔ **Un renglón de latido que deja de escribirse conserva su último `status`.** No se pone en
+   rojo: se queda en `ok` envejeciendo. Por eso el tablero no gritó mientras el carril se moría —
+   el mismo falso verde que la Fase OBS existe para eliminar, reintroducido por la mudanza a
+   on-prem. **Al barrer `cron_runs`, ordená por antigüedad, nunca por `status`** (ya está dicho en
+   `ops/README.md` §5 y volvió a cobrar).
+
+⚠️ **Y `RestartCount` miente acá**: `docker inspect` mostraba `0 reinicios` mientras `autoheal`
+lo reiniciaba cada 5 minutos, porque ese contador es de la *política* de reinicio, no de los
+`docker restart` que manda alguien de afuera. El que dice la verdad es el log de `ods-autoheal`.
+
+---
+
+## 65. `ALTER SYSTEM` no hace nada, en silencio, sobre un parámetro que el compose pasa por `-c`
+
+**Medido el 2026-09-23 en `pg-prod`.** La precedencia de configuración de Postgres en esta
+máquina es: **línea de comandos > `postgresql.auto.conf` > `postgresql.conf`**. Y el modo de
+falla es el peor posible, porque **todo responde que sí**:
+
+```
+ALTER SYSTEM SET work_mem = '64MB';   →  ALTER SYSTEM      (aceptado)
+SELECT pg_reload_conf();              →  t                 (recargado)
+SELECT setting, source FROM pg_settings WHERE name='work_mem';
+                                      →  65536 | command line   ⛔ NO SE MOVIÓ
+```
+
+Los ~15 parámetros del bloque `command:` de `pg-prod` en
+[`ops/prod/docker-compose.yml`](../ops/prod/docker-compose.yml) (`shared_buffers`,
+`effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections`…) **sólo se cambian
+ahí**. Quien intente afinarlos con `ALTER SYSTEM` va a ver tres confirmaciones y cero efecto.
+
+Para lo que **no** está en el compose (por ejemplo `log_min_duration_statement`), `ALTER SYSTEM` +
+`pg_reload_conf()` sí funciona y evita reiniciar producción — que es como se aplicó `[DB-MEM.18]`.
+
+⚠️ **Verificá una recarga en una sesión NUEVA.** `pg_reload_conf()` manda la señal, pero el backend
+que la disparó sigue contestando el valor viejo hasta el próximo límite de comando. Leer
+`pg_settings` en el mismo `psql -c` encadenado hace creer que el cambio no se aplicó — pasó acá, y
+casi manda a buscar un problema que no existía.
