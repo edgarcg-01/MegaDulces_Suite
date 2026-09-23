@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -20,6 +21,8 @@ import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
+import { CajaSocketService } from '../../caja-socket.service';
+import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
@@ -909,11 +912,16 @@ interface FormularioCajaUI {
     </p-dialog>
   `,
 })
-export class FinanzasCajaGeneralComponent implements OnInit {
+export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private svc = inject(CashLedgerService);
   private auth = inject(AuthService);
   private toast = inject(MessageService);
   private borrador = inject(CajaBorradorService);
+  private caja = inject(CajaSocketService);
+  private destroyRef = inject(DestroyRef);
+  // `encuestarVisible` se llama desde `ngOnInit`, que NO es contexto de inyección: si no se le
+  // pasan `destroyRef` y `zone`, su `inject()` interno revienta. Por eso se toman acá.
+  private zone = inject(NgZone);
   private host: ElementRef<HTMLElement> = inject(ElementRef);
 
   // ── Teclado ─────────────────────────────────────────────────────────────────────────────────
@@ -1306,6 +1314,62 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.cargarCajas();
     this.cargarPendientes();
     this.cargarFrecuentes();
+    this.enVivo();
+  }
+
+  ngOnDestroy(): void {
+    this.caja.disconnect();
+  }
+
+  // ── CG.23.2 · Que el movimiento aparezca solo ────────────────────────────────────────────────
+  //
+  // ⛔ Antes de esto, la pantalla NO SE REFRESCABA NUNCA: `cargarPendientes()` corría al entrar y
+  // después de guardar, y nada más. Una caja abierta toda la mañana mostraba la foto del momento
+  // en que se abrió, sin ningún aviso de que estaba vieja — que es exactamente cómo se ve una
+  // bandeja sin trabajo.
+  //
+  // Van DOS caminos, y los dos hacen falta:
+  //   · el rápido — `caja_changed` por WebSocket, que dispara el carril al refrescar el corte;
+  //   · el lento — un repaso mientras la pestaña se ve, que es el que GARANTIZA.
+  //
+  // El lento no sobra: `NOTIFY` no se persiste y un socket caído no deja rastro, así que sin él
+  // una desconexión de tres segundos sería un movimiento que no aparece nunca y nadie se entera.
+
+  /** Firma del corte que la pantalla tiene delante. Si el aviso trae otra, hay que ir a buscar. */
+  private firmaVista: string | null = null;
+
+  private enVivo(): void {
+    // ⛔ El canal en vivo va ENVUELTO, y el repaso queda FUERA del try. Es un extra: si no se
+    // puede abrir —sin sesión, un proxy que bloquea el websocket, el backend sin desplegar— la
+    // pantalla tiene que seguir funcionando. Sin esto, cualquier tropiezo del socket revienta
+    // `ngOnInit` y la caja entera queda en blanco; medido acá mismo, un `AuthService` sin
+    // `token()` tiraba las 46 pruebas del componente de una.
+    try {
+      this.caja.connect();
+      this.suscribirCambios();
+    } catch (e) {
+      console.warn('[caja] sin avisos en vivo; queda el repaso:', e);
+    }
+
+    // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
+    // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
+    // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
+    encuestarVisible(60000, () => this.cargarPendientes(), { destroyRef: this.destroyRef, zone: this.zone });
+  }
+
+  private suscribirCambios(): void {
+    this.caja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      const firma = e.firma ?? `${e.filas}|${e.max_folio}|${e.max_captura}`;
+      // Comparar acá y no en el servidor: quien sabe qué está mostrando es la pantalla. Sin esto,
+      // cada refresh del carril dispararía una consulta por pestaña abierta aunque nada cambiara.
+      //
+      // El aviso del libro (`origen: 'libro'`) viene SIN firma a propósito: lo dispara alguien que
+      // acaba de guardar acá, y ahí sí hay que ir a ver sí o sí.
+      if (e.origen === 'feed' && firma === this.firmaVista) return;
+      this.firmaVista = firma;
+      this.cargarPendientes();
+      this.cargarSaldo();
+    });
   }
 
   // ── Avisos ───────────────────────────────────────────────────────────────────────────────────

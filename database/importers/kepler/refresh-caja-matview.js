@@ -46,6 +46,57 @@ function conexion() {
   });
 }
 
+/**
+ * CG.23.2 — Avisa por `NOTIFY` que el corte de caja cambió, para que la pantalla no tenga que
+ * preguntar cada tanto si pasó algo.
+ *
+ * ── Qué viaja, y qué NO ─────────────────────────────────────────────────────────────────────
+ * Viaja la **firma** del corte, no los movimientos. `NOTIFY` no se persiste: lo que se emite
+ * mientras nadie escucha se pierde, así que un aviso que llevara el dato convertiría un socket
+ * caído tres segundos en un movimiento que no aparece nunca. Con la firma, el peor caso de un
+ * aviso perdido es que la pantalla se entere en su repaso lento — no que pierda el dato.
+ *
+ * La firma incluye la SUMA de importes además del conteo: sólo con `count(*)` un movimiento
+ * corregido (mismo folio, otro monto) no movería nada y la pantalla se quedaría con la cifra
+ * vieja creyendo que está al día.
+ *
+ * Se avisa SIEMPRE tras un refresh exitoso, sin comparar contra la corrida anterior: este script
+ * es un proceso nuevo en cada pasada del cron y no tiene memoria. Quien compara es la pantalla,
+ * que sí tiene delante lo que está mostrando. El costo de avisar de más es un mensaje diminuto;
+ * el de avisar de menos es una caja que miente.
+ *
+ * ⚠️ Un `NOTIFY` viaja al COMMIT. Estas consultas van fuera de una transacción explícita
+ * (autocommit), así que sale al terminar cada `SELECT pg_notify(...)`.
+ */
+async function avisar(c) {
+  const q = await c.query(`
+    SELECT tenant_id::text            AS tenant_id,
+           count(*)::int              AS filas,
+           max(folio)                 AS max_folio,
+           max(fecha_captura)::text   AS max_captura,
+           round(sum(importe), 2)::text AS suma,
+           max(refrescado_en)::text   AS datos_al
+      FROM ${MV}
+     GROUP BY tenant_id`);
+
+  let n = 0;
+  for (const t of q.rows) {
+    const payload = JSON.stringify({
+      tenant_id: t.tenant_id,
+      filas: t.filas,
+      max_folio: t.max_folio,
+      max_captura: t.max_captura,
+      firma: `${t.filas}|${t.max_folio || ''}|${t.max_captura || ''}|${t.suma || ''}`,
+      datos_al: t.datos_al,
+    });
+    // El tope de un payload de NOTIFY son 8000 bytes; esto son ~200. Si algún día creciera,
+    // reventaría acá con un error claro en vez de truncarse en silencio.
+    await c.query(`SELECT pg_notify('caja_movimientos', $1)`, [payload]);
+    n++;
+  }
+  return n;
+}
+
 async function ciclo() {
   const c = conexion();
   await c.connect();
@@ -64,7 +115,9 @@ async function ciclo() {
     const r = await c.query(`SELECT count(*)::int n, max(refrescado_en) AS al FROM ${MV}`);
     const filas = r.rows[0].n;
     if (!filas) throw new Error(`${MV} quedó con 0 filas: eso no es un refresh exitoso`);
-    return { filas, ms, al: r.rows[0].al };
+
+    const avisados = await avisar(c);
+    return { filas, ms, al: r.rows[0].al, avisados };
   } finally {
     await c.end().catch(() => {});
   }
@@ -84,7 +137,7 @@ async function ciclo() {
       await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {});
       return;
     }
-    console.log(`refrescado: ${r.filas} filas en ${r.ms} ms (al ${r.al})`);
+    console.log(`refrescado: ${r.filas} filas en ${r.ms} ms (al ${r.al}) · ${r.avisados} aviso(s) NOTIFY`);
     await hb.end(KEY, { status: 'ok', rows: r.filas }).catch(() => {});
   } catch (e) {
     console.error('falló:', e.message);

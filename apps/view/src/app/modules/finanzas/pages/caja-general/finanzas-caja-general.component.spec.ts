@@ -22,7 +22,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
 import {
@@ -30,6 +30,7 @@ import {
   type PendientesResponse, type Frecuente, type CajaKepler, type MovimientoPendiente,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
 import { todayMx } from '../../../../core/utils/mx-date';
 
 /** jsdom no implementa ResizeObserver y algún componente de PrimeNG lo usa al montar. */
@@ -112,7 +113,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let svc: Record<string, ReturnType<typeof vi.fn>>;
   let comp: FinanzasCajaGeneralComponent;
 
+  /** El canal en vivo, de mentira: las pruebas empujan eventos con `cajaSock.change$.next(...)`. */
+  let cajaSock: { connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>; connected: () => boolean };
+
   function montar(over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
+    cajaSock = { connect: vi.fn(), disconnect: vi.fn(), change$: new Subject<CajaEvent>(), connected: () => false };
     svc = {
       cobertura: vi.fn(() => of(COBERTURA)),
       libro: vi.fn(() => of(LIBRO)),
@@ -135,7 +140,14 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: CashLedgerService, useValue: svc },
-        { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }) } },
+        // `token: () => null` NO es relleno: `CajaSocketService.connect()` lo pide, y sin él
+        // `ngOnInit` reventaba y caían las 46 pruebas de una. Devolver null deja el socket sin
+        // abrir —que es lo que queremos en jsdom— y ejercita el camino "sin canal en vivo".
+        { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
+        // El socket real abriría una conexión de verdad desde jsdom. Acá se reemplaza por un
+        // Subject que las pruebas empujan a mano: así se ejercita lo que la pantalla HACE con
+        // el aviso, que es lo único nuestro en ese camino.
+        { provide: CajaSocketService, useValue: cajaSock },
       ],
     });
 
@@ -788,5 +800,82 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const abajo = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
     ultimo.dispatchEvent(abajo);
     expect(abajo.defaultPrevented).toBe(true);
+  });
+
+  // ── 13 · CG.23.2 · QUE EL MOVIMIENTO APAREZCA SOLO ───────────────────────────────────────
+  //
+  // Pedido de Edgar: "cuando aparezca en kepler y envie un nuevo ingreso o egreso debe mostrarse
+  // al momento en el sistema".
+  //
+  // Medido antes de tocar: la pantalla NO se refrescaba NUNCA. `cargarPendientes()` corría al
+  // entrar y después de guardar, y nada más — una caja abierta toda la mañana mostraba la foto
+  // del momento en que se abrió. No había ni polling ni socket; el repo tampoco tenía un solo
+  // `LISTEN`/`NOTIFY` (grep: cero).
+
+  const evento = (o: Partial<CajaEvent> = {}): CajaEvent => ({
+    origen: 'feed', filas: 10, max_folio: '0001300', max_captura: '2026-09-23',
+    firma: '10|0001300|2026-09-23|1000.00', datos_al: '2026-09-23T15:00:00Z',
+    emitted_at: '2026-09-23T15:00:01Z', ...o,
+  });
+
+  it('se conecta al canal en vivo al entrar y lo suelta al salir', () => {
+    montar();
+    expect(cajaSock.connect).toHaveBeenCalled();
+    comp.ngOnDestroy();
+    expect(cajaSock.disconnect).toHaveBeenCalled();
+  });
+
+  it('un aviso con firma NUEVA va a buscar los movimientos', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    const antes = svc['movimientosPendientes'].mock.calls.length;
+
+    cajaSock.change$.next(evento({ firma: 'otra-firma' }));
+
+    expect(svc['movimientosPendientes'].mock.calls.length).toBeGreaterThan(antes);
+  });
+
+  it('[negativa] el MISMO aviso dos veces NO vuelve a consultar', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    cajaSock.change$.next(evento());
+    const tras1 = svc['movimientosPendientes'].mock.calls.length;
+
+    // El carril refresca cada pasada haya o no novedad; sin esta comparación, cada pasada
+    // dispararía una consulta por pestaña abierta aunque no hubiera cambiado nada.
+    cajaSock.change$.next(evento());
+    expect(svc['movimientosPendientes'].mock.calls.length).toBe(tras1);
+  });
+
+  it('un aviso del LIBRO siempre va a buscar, aunque repita firma', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    cajaSock.change$.next(evento());
+    const tras1 = svc['movimientosPendientes'].mock.calls.length;
+
+    // Lo dispara alguien que acaba de guardar acá: la firma es la del corte de Kepler y no se
+    // movió, pero el libro sí. Si se comparara igual que el feed, la otra pantalla no se entera.
+    cajaSock.change$.next(evento({ origen: 'libro', firma: null }));
+    expect(svc['movimientosPendientes'].mock.calls.length).toBeGreaterThan(tras1);
+  });
+
+  it('[negativa] si el canal en vivo revienta, la pantalla igual carga', () => {
+    // Es un EXTRA, no el mecanismo: sin sesión, con un proxy que bloquea el websocket o con el
+    // backend sin desplegar, la caja tiene que seguir funcionando. Antes de envolverlo, un
+    // `AuthService` sin `token()` tiraba las 46 pruebas del componente de una.
+    expect(() => montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) })).not.toThrow();
+    const romper = { ...cajaSock, connect: () => { throw new Error('sin socket'); } };
+    TestBed.resetTestingModule();
+
+    TestBed.configureTestingModule({
+      imports: [FinanzasCajaGeneralComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        { provide: CashLedgerService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
+        { provide: CajaSocketService, useValue: romper },
+      ],
+    });
+    const fx = TestBed.createComponent(FinanzasCajaGeneralComponent);
+    expect(() => fx.detectChanges()).not.toThrow();
+    expect(fx.componentInstance.pendientes().length).toBe(1);
   });
 });

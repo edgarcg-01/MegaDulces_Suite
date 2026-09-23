@@ -9,6 +9,7 @@ export * from './lib/database/tenant-knex.service';
 export * from './lib/database/vector-database.module';
 export * from './lib/database/neo4j.module';
 export * from './lib/database/kepler-database.module';
+export * from './lib/database/pg-listen.service';
 
 // ── queue (worker-tier, pg-boss) ──
 export * from './lib/queue/queue.module';

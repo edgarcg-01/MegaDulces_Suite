@@ -5,6 +5,7 @@ import { CashLedgerService } from './cash-ledger.service';
 import { CashLedgerController } from './cash-ledger.controller';
 import { CajaAutofillService } from './caja-autofill.service';
 import { CashCutService } from './cash-cut.service';
+import { CajaRealtimeModule } from './caja-realtime.module';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -18,6 +19,8 @@ import { CashCutService } from './cash-cut.service';
  * TenantKnexService/TenantContextService vienen del core global.
  */
 @Module({
+  // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
+  imports: [CajaRealtimeModule],
   controllers: [CajaGeneralController, CashLedgerController],
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService],
