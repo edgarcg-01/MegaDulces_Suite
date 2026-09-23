@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommercialQuotesController } from './commercial-quotes.controller';
 import { CommercialQuotesService } from './commercial-quotes.service';
+import { QuotePricingService } from './quote-pricing.service';
 
 /**
  * `[E.12]` — Submódulo de Telemarketing: cotizaciones de mayoreo.
@@ -11,6 +12,9 @@ import { CommercialQuotesService } from './commercial-quotes.service';
  *   - GET  /api/commercial/quotes/:id
  *   - POST /api/commercial/quotes
  *   - POST /api/commercial/quotes/:id/cancel
+ *   - POST /api/commercial/quotes/price-preview   [COT.1] precio sin guardar, con desglose
+ *   - POST /api/commercial/quotes/:id/lines       [COT.1] agrega renglon (precio del servidor)
+ *   - DELETE /api/commercial/quotes/:id/lines/:lineId
  *
  * ⚠️ `summary` va declarada ANTES de `:id` en el controller: al revés, Nest resolvería
  * `/summary` contra el parámetro y devolvería un 404 de "cotización no encontrada". Es la misma
@@ -21,7 +25,7 @@ import { CommercialQuotesService } from './commercial-quotes.service';
  */
 @Module({
   controllers: [CommercialQuotesController],
-  providers: [CommercialQuotesService],
-  exports: [CommercialQuotesService],
+  providers: [CommercialQuotesService, QuotePricingService],
+  exports: [CommercialQuotesService, QuotePricingService],
 })
 export class CommercialQuotesModule {}
