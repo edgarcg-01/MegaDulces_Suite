@@ -6452,7 +6452,24 @@ una moda de precios sobre **90 días**. Entró el 2026-08-25 (`9e42351a`) y duel
 | Ciclo de `ods_live_hot` | **nunca cerraba** (>17 min) | **6.5 s** |
 | `cdc_reconcile` | `error` · **1,059 huecos** | `ok` · **77 huecos** |
 | `ods_live_mirror` | `unhealthy` | `ok` · 60 s |
-| CPU de `normalizeSalePrice` | **113% de un núcleo, continuo** | acotado a ~10 s cada 60 s por diseño |
+| CPU de `normalizeSalePrice` | **113% de un núcleo, continuo** | **14% de un núcleo** (share 74.8% → 24.1%) |
+
+> ⛔ **LA MEJORA DE CPU NO ES ATRIBUIBLE SÓLO A ESTOS COMMITS, y hay que decirlo.** Otra sesión
+> trabajó **el mismo problema en paralelo** y commiteó **`675c8b7c` (`[PERF.2]`) a las 14:24**,
+> entre `[DB-MEM.18]` (13:50) y `[DB-MEM.19]` (14:29). Optimizó la **consulta** en `ods-derived.js`
+> (`JOIN` sobre un CTE → `EXISTS`, más un CTE `m2f MATERIALIZED` con umbral **medido** en 50
+> llaves): el lote p90 de 535 SKUs bajó de **345,771 ms a 28,650 ms (12×)**. Como
+> `ops/vl/deploy.sh` archiva **`HEAD`**, mi primer despliegue (~14:30) **shipeó su cambio junto con
+> el mío**, y la ventana del "antes" (13:39–14:45) cruza ese commit.
+> ⇒ El **113% → 14%** es el efecto **combinado** de tres cosas: la consulta más barata (`PERF.2`),
+> el fin del ciclo de reinicios (`DB-MEM.19`) y el coalescedor (`DB-MEM.20`). **No se puede
+> separar con los datos que hay**, y se declara en vez de repartirse a ojo.
+> ⭐ Los dos trabajos son **complementarios, no redundantes**: `[PERF.2]` cierra diciendo
+> *"recalcular una moda de 90 días cada vez que llega una línea de venta es caro **aunque la
+> consulta sea rápida** … se declara, no se toca acá"* — que es exactamente lo que `[DB-MEM.20]`
+> tomó. ⚠️ Corolario práctico: mis mediciones de costo por SKU (924 ms / 2,433 ms) son **de antes**
+> de `PERF.2`, así que los parámetros del coalescedor quedaron **conservadores**: en vivo se miden
+> **~73 ms por SKU** (125-150 SKUs en 10-11 s), no los 180 ms con que se dimensionaron.
 
 ### Lecciones
 
