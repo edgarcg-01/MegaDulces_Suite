@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -42,7 +43,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
         <ng-template #body let-r>
           <tr class="rq-row" (click)="open(r)">
-            <td class="rq-mono"><a class="surf-cell-link" [routerLink]="['/compras/requisiciones', r.id]" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
+            <td class="rq-mono"><a class="surf-cell-link" [routerLink]="['/compras/requisiciones', r.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
             <td>{{ r.warehouse_code || '—' }}</td>
             <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
             <td class="rq-r">{{ r.total_lines | number }}</td>
@@ -76,6 +77,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasRequisicionesComponent implements OnInit {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);

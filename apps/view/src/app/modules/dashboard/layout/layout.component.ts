@@ -30,6 +30,7 @@ import { Permission } from '../../../core/constants/permissions';
 // union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
 import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } from '../../../core/constants/suite-map';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
@@ -149,6 +150,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
   userMenuOpen = signal(false);
+  /** `[MT.3]` Multitarea: la accion y la preferencia del boton del header. */
+  readonly multitarea = inject(MultitareaService);
 
   private readonly mobileMql =
     typeof window !== 'undefined'
@@ -1005,6 +1008,34 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * de los botones del footer del sidebar — útil cuando el usuario está
    * restringido (sin sidebar) o en mobile con el menú cerrado.
    */
+  /**
+   * `[MT.3]` El menú de multitarea: una ACCIÓN y una PREFERENCIA, que son dos
+   * cosas distintas y por eso van separadas por una línea.
+   *
+   * La acción no cambia el estado de nada. La preferencia sí, y se sincroniza
+   * con las demás ventanas (`[MT.2]`): una preferencia de multitarea que no
+   * llega a las otras ventanas es una preferencia que miente.
+   */
+  readonly mtMenuOpen = signal(false);
+  readonly mtMenu = computed<MenuItem[]>(() => {
+    const aparte = this.multitarea.detallesAparte();
+    return [
+      {
+        label: 'Abrir esta pantalla en otra ventana',
+        icon: 'pi pi-external-link',
+        command: () => this.multitarea.abrirEstaPantallaAparte(),
+      },
+      { separator: true },
+      {
+        // El estado se dice con el ícono Y con la palabra: un check solo obliga
+        // a acordarse de qué significaba que estuviera prendido.
+        label: aparte ? 'Los detalles se abren aparte' : 'Abrir siempre los detalles aparte',
+        icon: aparte ? 'pi pi-check-square' : 'pi pi-stop',
+        command: () => this.multitarea.alternarDetallesAparte(),
+      },
+    ];
+  });
+
   userMenu = computed<MenuItem[]>(() => {
     const isDark = this.themeService.isMonochrome();
     return [

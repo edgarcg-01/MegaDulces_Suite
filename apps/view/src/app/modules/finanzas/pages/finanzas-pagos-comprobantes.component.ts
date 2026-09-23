@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, OnDestroy, computed, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -395,7 +396,7 @@ interface GastoFile {
             <div class="cb-adj">
               <div class="cb-adj-head">
                 <span class="cb-adj-title"><i class="pi pi-percentage"></i> Descuentos y notas de crédito del proveedor</span>
-                <a pButton size="small" text [routerLink]="['/compras/descuentos']" [queryParams]="paramsDescuentos(v.adjustments?.deep_link_q)" title="Ver en Compras · Descuentos y apoyos"><span class="p-button-label">Ver en Compras</span><span class="p-button-icon p-button-icon-right pi pi-arrow-up-right" aria-hidden="true"></span></a>
+                <a pButton size="small" text [routerLink]="['/compras/descuentos']" [target]="multitarea.target()" [queryParams]="paramsDescuentos(v.adjustments?.deep_link_q)" title="Ver en Compras · Descuentos y apoyos"><span class="p-button-label">Ver en Compras</span><span class="p-button-icon p-button-icon-right pi pi-arrow-up-right" aria-hidden="true"></span></a>
               </div>
               <p class="cb-adj-note">Explican por qué el banco pagó ≠ factura. Registradas en Kepler (X-D-55 / X-D-40) — no cuadre al peso, contexto de RE.10.</p>
               @if (v.adjustments?.total_factura) {
@@ -594,6 +595,8 @@ interface GastoFile {
   `],
 })
 export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(PagosComprobantesService);
   private readonly socket = inject(PagosComprobantesSocketService);
   private readonly auth = inject(AuthService);

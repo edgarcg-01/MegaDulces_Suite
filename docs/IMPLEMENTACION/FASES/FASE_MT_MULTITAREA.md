@@ -58,8 +58,8 @@ Todo sobre `apps/view` (534 clases, 224 rutas lazy, 307 `path:`), el 2026-09-22.
 | **[SN.31]** | El destino sobrevive al login (precursor: salió de este análisis) | 🧪 2026-09-22 |
 | **[MT.0]** | Poléa sólo mientras la pestaña se ve — el primitivo + sus 9 consumidores | 🧪 2026-09-22 |
 | **[MT.1]** | Los drill-downs de escritorio a `<a [routerLink]>` | 🧪 2026-09-22 |
-| **[MT.2]** | Listener de `storage`: logout y cambio de permisos se propagan | ⬜ |
-| **[MT.3]** | Afordancia «abrir en otra ventana» en los drill-downs donde comparar es el trabajo | ⬜ |
+| **[MT.2]** | Listener de `storage`: lo que pasa en una ventana llega a las otras | 🧪 2026-09-22 |
+| **[MT.3]** | El botón del header: una acción y una preferencia, ambas opt-in | 🧪 2026-09-22 |
 | **[MT.4]** | Medir en vivo el costo real por pestaña (hoy sólo hay la medición determinista) | ⬜ |
 
 ### [MT.0] — el primitivo de encuesta
@@ -162,6 +162,61 @@ importarlo no compila. Ninguna de las dos sola alcanza, y por eso se dice.
 logout, `finanzas-maat-chat` (intercepta enlaces dentro del markdown que genera) y
 `comercial-egresos → goToDetalle` (lo llaman dos métodos, no un clic directo; se puede, es más
 invasivo).
+
+---
+
+### [MT.2] + [MT.3] — el botón del header, y que no mienta
+
+**Pedido del usuario (2026-09-22):** *«esto debe ser opcional, debe existir un botón en el header,
+y debe ser casi imperceptible en rendimiento»*. Eligió **las dos** formas —acción y preferencia— y
+confirmó que lo de `[MT.0]`/`[MT.1]` se queda siempre activo.
+
+**Son dos cosas y van separadas en el menú**, porque fallan distinto:
+
+1. **La acción** — «Abrir esta pantalla en otra ventana». No cambia el estado de nada: si no la
+   tocás, la app se comporta igual que siempre. Es opt-in por construcción.
+2. **La preferencia** — «Abrir siempre los detalles aparte». Mientras está prendida, los 11
+   enlaces de drill-down llevan `target="_blank"`.
+
+⭐ **La preferencia es un atributo, no lógica nuestra.** `RouterLink` **ya** deja pasar la
+navegación nativa cuando el `target` es un string distinto de `_self` (verificado en el fuente del
+router, no asumido). Así que toda la preferencia es un `[target]` atado a un signal: **cero
+interceptores de clic, cero `window.open` propio, cero trabajo por render**. Eso es lo que la hace
+imperceptible.
+
+**Medido, que es lo que el pedido exige:**
+
+| | Antes | Después |
+|---|---|---|
+| Transferencia inicial | 267.39 kB | **267.94 kB** (+550 bytes) |
+| Trabajo en reposo | — | **2 listeners de `storage`** (uno global, uno del servicio) y 11 lecturas de signal en detección de cambios |
+
+No hay timers, ni sondeos, ni listeners por enlace.
+
+**`[MT.2]` no es opcional para que esto funcione.** Una preferencia de multitarea que no llega a
+las otras ventanas es una preferencia que **miente**: la prendés en una, mirás la otra y se
+comporta al revés. El primitivo (`core/utils/cross-tab.ts`) es el que faltaba desde el
+diagnóstico: **cero listeners de `storage` en 534 clases**.
+
+Con el mismo mecanismo se cierra el defecto de fondo: **cerrar sesión en una ventana cierra
+todas**. Antes, te ibas en una y la otra seguía pintando una pantalla viva con token muerto hasta
+su próxima petición — y hasta ahí, quien se levantó de la computadora la dejó con la sesión de
+otro a la vista. ⛔ **Sólo el borrado se propaga**: si llega un token *nuevo* (otro usuario entró
+en otra ventana) no se toca nada, porque recargar bajo las manos de alguien que está capturando es
+peor que la incoherencia, y el 401 con su `returnUrl` (`[SN.31]`) ya lo resuelve.
+
+**Dónde NO aparece el botón:** kiosco (`isRestricted()`) y móvil. En una caja de tienda o en el
+teléfono no hay ventanas que administrar, y un botón que no sirve ahí es ruido en la barra más
+cara de la app.
+
+⚠️ **Trampa que costó un build:** el input `target` de `RouterLink` está tipado
+`string | undefined`. Con `null` **`tsc --noEmit` pasa limpio** y revienta el compilador de
+plantillas de Angular. Otra confirmación de que las dos mitades de cobertura son necesarias.
+
+**La prueba negativa** es el filtro de clave: el evento `storage` llega por **todas** las claves
+del origen, así que un listener sin filtro haría que cambiar el tema, un filtro guardado o el
+contador del verificador le moviera la multitarea a todo el mundo. Ejercida: se quitó el filtro y
+cayó esa prueba, sólo esa.
 
 ---
 

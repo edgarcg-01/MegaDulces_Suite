@@ -8,6 +8,8 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { PwaInstallService } from './core/services/pwa-install.service';
 import { StatusBarService } from './core/services/status-bar.service';
 import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
+import { alCambiarEnOtraVentana } from './core/utils/cross-tab';
+import { loginUrlTree } from './core/auth/login-redirect';
 import { AuthService } from './core/services/auth.service';
 import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
 
@@ -107,6 +109,32 @@ export class AppComponent implements OnInit {
     this.auth.refreshAccess();
     this.setupPwaInstall();
     this.setupAutoUpdate();
+    this.setupCierreEnOtraVentana();
+  }
+
+  /**
+   * `[MT.2]` Cerrar sesión en una ventana cierra TODAS.
+   *
+   * Sin esto, la Suite abierta dos veces son dos apps que no se hablan: te vas en
+   * una y la otra sigue pintando una pantalla viva con un token muerto hasta que
+   * su próxima petición dé 401 — y hasta ahí, alguien que se levantó de la
+   * computadora la dejó con la sesión de otro a la vista. Medido antes de MT.2:
+   * **cero** listeners de 'storage' en toda la app.
+   *
+   * Se escucha la clave del token: 'removeItem' también dispara 'storage'.
+   */
+  private setupCierreEnOtraVentana(): void {
+    const dejar = alCambiarEnOtraVentana('auth_token', (valor) => {
+      // Sólo el borrado. Si llega un token NUEVO (otro usuario entró en otra
+      // ventana) no se toca nada: recargar bajo las manos de alguien que está
+      // capturando es peor que la incoherencia, y su próxima petición ya lo
+      // resuelve con el 401 y su `returnUrl` (`[SN.31]`).
+      if (valor !== null) return;
+      if (!this.auth.isAuthenticated) return;
+      this.auth.logout();
+      void this.router.navigateByUrl(loginUrlTree(this.router, this.router.url, 'required'));
+    });
+    this.destroyRef.onDestroy(dejar);
   }
 
   private setupPwaInstall(): void {

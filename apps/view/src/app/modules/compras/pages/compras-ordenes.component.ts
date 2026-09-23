@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -48,7 +49,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
         <ng-template #body let-r>
           <tr [pSelectableRow]="r">
-            <td class="oc-mono"><a class="surf-cell-link" [routerLink]="['/compras/ordenes', r.id]" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
+            <td class="oc-mono"><a class="surf-cell-link" [routerLink]="['/compras/ordenes', r.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
             <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
             <td class="oc-muted">{{ r.source_type === 'branch' ? 'Traspaso' : 'Compra' }}</td>
             <td>{{ r.source_type === 'branch' ? (r.source_code || '—') : (r.supplier_name || '—') }}</td>
@@ -86,6 +87,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasOrdenesComponent implements OnInit {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);

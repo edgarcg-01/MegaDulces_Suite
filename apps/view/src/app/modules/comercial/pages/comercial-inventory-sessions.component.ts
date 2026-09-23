@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -61,7 +62,7 @@ import { forkJoin } from 'rxjs';
             [routerLink]="['/almacen/inventory/sessions', c.id]"
             (keydown.enter)="goToFolio(c.id)"
             (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
-            <td class="in-mono"><a class="surf-cell-link" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
+            <td class="in-mono"><a class="surf-cell-link" [routerLink]="['/almacen/inventory/sessions', c.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
             <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
             <td>
@@ -152,6 +153,8 @@ import { forkJoin } from 'rxjs';
   `],
 })
 export class ComercialInventorySessionsComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

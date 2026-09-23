@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -238,7 +239,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
                      acciones, que es donde va lo que hay que hacer, no lo que ya pasó. -->
                 <td>
                   @if (r.gasto_folio) {
-                    <a class="so-link num" [routerLink]="['/finanzas/egresos/detalle']" [queryParams]="paramsGasto(r)"
+                    <a class="so-link num" [routerLink]="['/finanzas/egresos/detalle']" [target]="multitarea.target()" [queryParams]="paramsGasto(r)"
                        (click)="$event.stopPropagation()"
                        [attr.aria-label]="'Abrir el gasto ' + r.gasto_folio">{{ r.gasto_folio }}</a>
                     @if (r.lead_days != null) { <span class="so-cell-meta tnum">{{ leadTexto(r.lead_days) }}</span> }
@@ -440,6 +441,8 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
   `],
 })
 export class FinanzasSolicitudesComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(ComercialService);
   private readonly comprobaciones = inject(ComprobacionesService);
   private readonly compGastos = inject(ComprobacionGastosService);

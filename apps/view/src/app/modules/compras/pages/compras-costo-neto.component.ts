@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -89,7 +90,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
                 (click)="drillToDescuentos(r)"
                 (keydown.enter)="drillToDescuentos(r)"
                 (keydown.space)="$event.preventDefault(); drillToDescuentos(r)">
-              <td class="cn-prov" [title]="r.proveedor_nombre"><a class="surf-cell-link" [routerLink]="['/compras/descuentos']" [queryParams]="{ q: r.proveedor_nombre || r.proveedor_code || '' }" (click)="$event.stopPropagation()">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</a> <span class="cn-drillhint" aria-hidden="true">→ descuentos</span></td>
+              <td class="cn-prov" [title]="r.proveedor_nombre"><a class="surf-cell-link" [routerLink]="['/compras/descuentos']" [target]="multitarea.target()" [queryParams]="{ q: r.proveedor_nombre || r.proveedor_code || '' }" (click)="$event.stopPropagation()">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</a> <span class="cn-drillhint" aria-hidden="true">→ descuentos</span></td>
               <td class="ta-r cn-num">{{ money(r.compras) }}</td>
               <td class="ta-r cn-num" [class.cn-pos]="r.descuento > 0">{{ r.descuento > 0 ? '−' + money(r.descuento) : '—' }}</td>
               <td class="ta-r cn-num">
@@ -159,6 +160,8 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
   `],
 })
 export class ComprasCostoNetoComponent implements OnInit {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(ComprasService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);

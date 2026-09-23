@@ -27,6 +27,7 @@ import {
 import { todayMx, parseLocalDate } from '../../../core/utils/mx-date';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
+import { MultitareaService } from '../../../core/services/multitarea.service';
 /** Paleta categórica por ruta (encoding de datos). Usa la secuencia tokenizada
  *  `--chart-1..8` (light+dark) en vez de hex fijos → adapta al tema oscuro. */
 const ROUTE_PALETTE = Array.from({ length: 8 }, (_, i) => `var(--chart-${i + 1})`);
@@ -135,7 +136,7 @@ interface RouteEntry {
                 } @else {
                   <p class="rk-muted rk-locsales rk-dim">Sin hora de venta para ubicar (Kepler PH)</p>
                 }
-                <a pButton size="small" [routerLink]="['/dashboard/routes']" [queryParams]="paramsHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></a>
+                <a pButton size="small" [routerLink]="['/dashboard/routes']" [target]="multitarea.target()" [queryParams]="paramsHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></a>
               </div>
             }
           </aside>
@@ -286,6 +287,8 @@ interface RouteEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LogisticaAuditoriaRutaComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly api = inject(LogisticaService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

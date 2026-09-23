@@ -22,6 +22,7 @@ import {
 import { ShipmentFormDialogComponent } from '../components/shipment-form-dialog.component';
 import { ErpTripsPanelComponent } from '../components/erp-trips-panel.component';
 
+import { MultitareaService } from '../../../core/services/multitarea.service';
 const STATUS_OPTIONS: { label: string; value: ShipmentStatus | '' }[] = [
   { label: 'Todos', value: '' },
   { label: 'Programado', value: 'programado' },
@@ -227,7 +228,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   [attr.aria-label]="'Ver embarque ' + s.folio"
                   (keydown.enter)="goDetail(s)"
                   (keydown.space)="$event.preventDefault(); goDetail(s)">
-                  <td><a class="surf-cell-link" [routerLink]="['/logistica/shipments', s.id]" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
+                  <td><a class="surf-cell-link" [routerLink]="['/logistica/shipments', s.id]" [target]="multitarea.target()" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
                   <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                   <td>{{ typeLabel(s.type) }}</td>
                   <td class="comm-cell-strong">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
@@ -503,6 +504,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LogisticaShipmentsComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
   private readonly api = inject(LogisticaService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
