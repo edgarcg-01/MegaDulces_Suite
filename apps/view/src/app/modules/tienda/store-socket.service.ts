@@ -90,7 +90,13 @@ export interface StoreRhythmDow extends StoreRhythmWindow {
 }
 /** Punto de la curva horaria de referencia (promedio de los días utilizables). */
 export interface RhythmHourPoint { hora: number; venta: number; tickets: number; }
-export interface StoreRhythm {
+/**
+ * Las tres ventanas del ritmo, SIN procedencia. Es lo que el servidor arma por sucursal
+ * (`buildWindows`) y tambien el cuerpo del ritmo de la red: una sucursal NO trae
+ * `generated_at` ni `freshness` propios -- los hereda de la red, porque el carril del ODS
+ * que los alimenta es UNO para todas.
+ */
+export interface StoreRhythmWindows {
   week: StoreRhythmWindow;
   month: StoreRhythmWindow;
   dow: StoreRhythmDow;
@@ -100,7 +106,22 @@ export interface StoreRhythm {
    * SIN recorte a la hora actual — se quiere ver también lo que falta del día.
    */
   hourly?: { dow: RhythmHourPoint[] | null; week: RhythmHourPoint[] | null; month: RhythmHourPoint[] | null };
+}
+export interface StoreRhythm extends StoreRhythmWindows {
+  /**
+   * El mismo ritmo por sucursal, tecleado por `warehouse_code`. Lo manda el servidor desde
+   * siempre y NO estaba declarado: la unica forma de leerlo era un `as any`, que es justo lo
+   * que el boundary gate no admite (ADR-052).
+   */
+  by_branch?: Record<string, StoreRhythmWindows>;
   generated_at: string;
+  /**
+   * [VP.2.3] De cuándo es el dato, no cuándo contesté. Mide el carril `ods_live_hot`, el único
+   * eslabón entre los tickets del ERP y esta ventana. `coverage_pct`/`days_used` de cada ventana
+   * siguen siendo la vista fina —cuántos días se pudieron usar— y son las que apagan el delta;
+   * esto es el mismo hecho en el vocabulario común, legible sin conocer el dominio (ADR-056).
+   */
+  freshness: Freshness;
 }
 export interface OpenCaja {
   rank: number;
