@@ -1275,6 +1275,31 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       (re-apuntar `warehouses.zone_id`, que mueve el tablero de 6 a 3 y necesita aviso a Dirección).**
       **Abierto:** si las vecinales son canal o unidad propia, y el catálogo de sedes de oficina.
       2026-09-23
+- [x] **[ZN.2]** 🔨 **El selector de sucursales sale del servidor, con el alcance aplicado** (apartado
+      Tienda; el resto declarado). ⭐ **Se midió antes de encender**, simulando la resolución real
+      del alcance sobre las 122 personas activas: 58 verían 1 sucursal · 11 verían 3 · 2 verían 2 ·
+      47 toda la red · y **4 nada, las 4 correctamente** (3 `externo` del portal B2B + 1 `sistemas`
+      con `none` explícito). **Ninguna de tienda, cajas, ruta o almacén se queda ciega** → se puede
+      encender. ⛔ **Pero apareció un dato roto que el fail-open venía tapando**: `options` se
+      intersecta con el universo vigente, y ahí saltaron **4 personas de ruta de Morelia Madero**
+      (`humberto_placencia`, `rdmad322`, `rvmad01`, `rvmad02`) con alcance `'32'` —la llave Wincaja
+      que dejó de existir cuando Madero migró su POS a Kepler como `'07'` y `MD-32` quedó
+      soft-deleted—, o sea `options: []`. Hoy no se nota **porque el front ignora el alcance**.
+      Migración `20260923160000` **[ZN.2.0]**: agrega `'07'` **sin quitar `'32'`** (las dos llaves
+      son la misma sucursal en dos eras y los feeds viejos siguen emitiendo la vieja), derivando la
+      reparación de las equivalencias de cutover en vez de una lista de nombres, con gate que
+      **rompe la corrida** si queda alguien sin alcance resoluble. Frontend: `tienda-state.service`
+      deja de leer el array del bundle y `branchList` pasa a ser **alcance ∩ monitor** —el alcance
+      dice *qué le toca*, `LIVE_MONITOR_BRANCHES` dice *qué puede mostrar esta pantalla* (el CEDIS
+      no vende al público)—; mientras `me/scope` no contesta la lista va **vacía, no completa**
+      (rellenar «por las dudas» es el fail-open que esto cierra). Los 3 selectores del apartado
+      (`live`/`branches`/`pace`) pasan a `computed`. ⭐ Hallazgo que achica el resto del trabajo: de
+      los **14** archivos que importan `store-branches`, **13 usan sólo `branchName`** (etiqueta, no
+      alcance) y sólo **4 usan la lista** — los 3 de compras **ya consultan el alcance** y lo único
+      que hay que quitarles es el `?? NETWORK_BRANCHES` que rellena con la red completa.
+      `nx build view` OK (1.28 MB). ⚠️ **Orden de despliegue: la migración va ANTES que el front**,
+      o esas 4 personas ven el selector vacío. **Pendiente: aplicar las 2 migs + los 4 archivos que
+      faltan + validación visual.** 2026-09-23
 - [x] **[ID.37]** 🧪 **Una sola regla de login: la puerta de atrás dejó de tener reglas propias.**
       Salió de auditar cómo funcionan los usuarios. Había **dos** logins y cada uno decidía por su
       cuenta qué es una sesión válida: `/auth/login` (legacy, `@Public`, **montado siempre**) no

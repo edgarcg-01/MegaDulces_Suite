@@ -138,10 +138,61 @@ Orden obligatorio: ZN.0 aplicado → medición → ZN.1.
 
 ## 5. ZN.2 — El selector de sucursales sale del servidor, con el alcance aplicado
 
-- Retirar `apps/view/src/app/core/constants/store-branches.ts` (14 componentes) y servir la lista
-  desde `GET /users/me/scope`, que **ya** devuelve las opciones que la persona puede elegir.
-- Efecto directo del pedido: quien tenga 2 sucursales asignadas ve 2 en el desplegable, no 9.
-- El mismo endpoint sirve zona y ruta, así que el selector de zona deja de ser un literal.
+🔨 **En código (2026-09-23): el apartado Tienda.** El resto, pendiente.
+
+### 5.1 Se midió antes de encender, y el riesgo que se temía no existe
+
+Simulando la resolución real del alcance sobre las 122 personas activas:
+
+| Qué vería si el selector respetara el alcance | Personas |
+|---|---|
+| 1 sucursal | 58 |
+| 3 sucursales | 11 |
+| 2 sucursales | 2 |
+| Toda la red | 47 |
+| **Nada** | **4** — 3 `externo` (portal B2B) + 1 `sistemas` con `none` explícito, o sea correctamente |
+
+Ninguna persona de tienda, cajas, ruta o almacén se queda sin sucursal. **Se puede encender.**
+
+### 5.2 ⛔ Pero apareció un dato roto que el fail-open venía tapando
+
+`options` se intersecta con el universo vigente, y ahí saltaron **4 personas de ruta de Morelia
+Madero** (`humberto_placencia`, `rdmad322`, `rvmad01`, `rvmad02`) con alcance `'32'` — la llave
+**Wincaja** de Madero, que dejó de existir cuando migró su POS a Kepler como `'07'` y su almacén
+`MD-32` quedó soft-deleted. Para ellas `me/scope` devuelve `options: []`.
+
+Hoy no se nota **porque el front ignora el alcance**. El día que obedezca, se quedan sin su
+sucursal. `store-branches.ts` ya había declarado el caso y lo dejó pendiente; la migración
+`20260923160000` lo cierra por el lado del dato: **agrega `'07'` sin quitar `'32'`** (las dos llaves
+son la misma sucursal en dos eras, y los feeds viejos siguen emitiendo la vieja), derivando la
+reparación de las equivalencias de cutover en vez de una lista de nombres.
+
+### 5.3 Lo hecho
+
+- `tienda-state.service.ts`: `branchList` deja de ser el array del bundle y pasa a ser
+  **alcance ∩ monitor** — el alcance dice *qué le toca*, `LIVE_MONITOR_BRANCHES` dice *qué puede
+  mostrar esta pantalla* (el CEDIS no vende al público). Mientras `me/scope` no contesta la lista va
+  **vacía**, no completa: rellenar «por las dudas» es el fail-open que esto cierra.
+- Los 3 selectores del apartado (`live`, `branches`, `pace`) pasan a `computed`.
+- Candado en el smoke: **ninguna persona activa con alcance que no resuelva**.
+
+⚠️ **Orden de despliegue: la migración `20260923160000` va ANTES que este front.** Al revés, esas 4
+personas ven el selector vacío.
+
+### 5.4 Lo que falta de ZN.2
+
+De los 14 archivos que importan `store-branches`, **13 usan sólo `branchName`** (traducir código →
+nombre: no es un agujero de alcance) y los que usan la **lista** son 4:
+
+| Archivo | Qué hace hoy |
+|---|---|
+| `compras-entradas.component.ts` | `alcance() ?? NETWORK_BRANCHES` ← fail-open si el alcance no cargó |
+| `compras-entradas-pendientes.component.ts` | idem |
+| `compras-entradas-revision.component.ts` | idem |
+| `admin-users.component.ts` | fallback a las 9 para el alta |
+
+Los tres de compras **ya consultan el alcance**: lo que hay que quitarles es el `??` que rellena con
+la red completa.
 
 ---
 
