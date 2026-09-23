@@ -132,6 +132,15 @@ async function existsInReplicaFull(local, table, pk, rows) {
   return found;
 }
 
+// ⛔ [VL.11] `client: prod` EN LOS DOS `ship()` — sin eso este carril no puede escribir
+// cuando el sink es `pg`. Medido el 2026-09-23 al mover la ingesta a `md`:
+//     sink(pg): feed 'raw-upsert' requiere un Client de pg conectado
+//     huecos 0 · repuestas 0 · errores 38
+// `sink.ship()` en modo `pg` aplica EN PROCESO y necesita el Client del importer; en modo
+// `http` no, porque manda el changeset por la red. Este archivo nacio con el sink `http`
+// (Railway cobraba egress por el proxy publico) y nunca ejercito la otra rama.
+// ⚠️ `prod` ya estaba en el alcance: `pasada()` lo abre y lo pasa. Faltaba pasarlo un nivel
+// mas. Lo mismo hace `replicate-ods-live.js:254`, que por eso si funcionaba.
 async function reconcile(local, prod, code, table) {
   if (!RECENT_COL[table] && !FULL) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
   const meta = await tableMeta(local, table);
@@ -181,7 +190,7 @@ async function reconcile(local, prod, code, table) {
       let borrados = 0;
       for (let i = 0; i < confirmadas.length; i += SHIP_BATCH) {
         const chunk = confirmadas.slice(i, i + SHIP_BATCH).map((r) => { const o = { sucursal: code }; for (const k of meta.pk) o[k] = r[k]; return o; });
-        await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: delMeta });
+        await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: delMeta, client: prod });
         borrados += chunk.length;
       }
       extra.borrados = borrados;
@@ -203,7 +212,7 @@ async function reconcile(local, prod, code, table) {
     const ph = `(${pkList}) IN (${chunk.map((_, ix) => `(${meta.pk.map((__, j) => `$${ix * meta.pk.length + j + 1}`).join(',')})`).join(',')})`;
     const full = (await local.query(`SELECT ${selList} FROM md.${qid(table)} WHERE ${ph}`, binds)).rows;
     const rows = full.map((row) => { const o = { sucursal: code }; for (const c of meta.cols) o[c.column_name] = row[c.column_name]; return o; });
-    if (rows.length) { await sink.ship('raw-upsert', { rows, tenantId: TENANT, meta: shipMeta }); enviadas += rows.length; }
+    if (rows.length) { await sink.ship('raw-upsert', { rows, tenantId: TENANT, meta: shipMeta, client: prod }); enviadas += rows.length; }
   }
   return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, enviadas, ...extra };
 }
