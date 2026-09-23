@@ -29,6 +29,19 @@ Dockerfile*     text eol=lf
 *.ini           text eol=lf
 ops/**/*.yml    text eol=lf
 *.env text eol=lf
+# ⛔ [VL.10.C] Y `.dockerignore`, que llevaba roto desde siempre sin que nadie lo notara.
+# MEDIDO el 2026-09-23 sobre lo que `git archive HEAD` entrega al servidor:
+#     .dockerignore  → 81 bytes CR      ⇒ CRLF
+#     Dockerfile     →  0               ⇒ su regla de acá arriba sí funciona
+#     deploy.sh      →  0
+# Cada patrón quedaba con un `\r` pegado (`node_modules\r`), así que **no matcheaba nada**:
+# el `.dockerignore` era decorativo en `md`. No explotó porque `deploy.sh` manda
+# `git archive HEAD`, o sea sólo archivos versionados —y lo que más pesa (`node_modules`,
+# `.nx`, `.angular`, los volcados) no está versionado—, pero **un `docker build .` local o
+# de CI sí lee el archivo** y ahí el no-op cuesta cientos de MB.
+# ⚠️ Cuarta vez en este repo que un archivo sin extensión conocida queda fuera y falla
+# callado. El patrón de la falla ya tiene nombre; lo que faltaba era ESTA línea.
+.dockerignore   text eol=lf
 
 # Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
 # CRLF le pegaria un 
