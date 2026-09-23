@@ -2,7 +2,8 @@
 
 > **Ruta a seguir, no implementación.** Escrita el 2026-09-22 a pedido de Dirección, sobre el
 > cimiento ya construido en `[E.12.0]` y el decode del CRM de Kepler de `[CRM.0]`.
-> Estado: **📋 RUTA PROPUESTA** — nada de COT.1 en adelante está construido.
+> Estado: **📋 RUTA CON DECISIONES FIJADAS** (§5, Dirección 2026-09-22) — nada de COT.1 en adelante
+> está construido. Arranque acordado: **COT.0 → COT.1**.
 
 ---
 
@@ -76,6 +77,33 @@ w30 6,134**, y 150,445 en el histórico `h70`.
 3. ⚠️ **`w30` y `w32` se congelan por migración a Kepler, no por abandono** (sus POS migraron el
    18-sep y el 08-sep). Leer esa caída como "dejaron de cotizar" sería un error de lectura.
 
+### 2.2 ⭐⭐ Qué significa ese 52.7 % — la lectura del negocio corrige la del dato
+
+Dirección, sobre el mismo histórico (2026-09-22):
+
+> *"Las cotizaciones tienen muy poca efectividad, sobre 50 %, lo cual termina la mayoría de veces
+> haciendo una nueva captura por cambios de precio y vigencia de las mismas. Sólo es un protocolo
+> que siguen muchos mayoristas que cotizan, como práctica."*
+
+**Eso reordena la fase.** Un 52.7 % no es una tasa mala que haya que subir a fuerza de perseguir:
+es **el rendimiento normal de un protocolo de compra** — el mayorista pide precio a varios, por
+costumbre, y la mitad no termina en nada. Perseguir esa mitad es empujar contra el proceso del
+cliente.
+
+⭐ **El desperdicio no está en la cotización perdida: está en la GANADA que hay que capturar dos
+veces.** Cuando el cliente vuelve —días después, con el precio ya movido o la vigencia vencida— hoy
+se captura **de nuevo, desde cero**. Ése es el trabajo que se puede borrar entero, y no depende de
+convencer a nadie.
+
+**Consecuencias, que cambian el orden de la ruta:**
+
+| | |
+|---|---|
+| **La métrica principal NO es la conversión** | Es **cuántas cotizaciones se re-capturaron a mano**. La conversión se publica igual (contra el 52.7 % de §2.1), pero como contexto, no como meta |
+| **Re-precio ≻ persecución** | Volver a precificar una cotización existente en un clic pasa de adorno a **núcleo** (COT.5). Recotizar no es copiar: es **la misma cotización, versión nueva**, conservando el linaje |
+| **La vigencia deja de ser un adorno legal** | Es el disparador: vencida ⇒ *"recotizar"*, no *"capturar otra"* |
+| **Y da el corpus de entrenamiento gratis** | Cada re-cotización es el mismo cliente pidiendo lo mismo. Es el mejor dato posible para el bot de COT.8 — pares pedido→cotización ya validados por un humano |
+
 ---
 
 ## 3. La ruta
@@ -106,10 +134,35 @@ real, con clave, sector, zona, tamaño y el medio por el que llegó.
 Es `[E.12.1]`, y **nada de lo demás sirve sin esto**: un módulo que no sabe poner precio obliga al
 vendedor a hacer justo lo que la fase viene a evitar.
 
-- Deriva: condiciones del cliente **por sucursal** (`kdud.c15/c16/c17`) + la escalera de descuentos
-  vigente (`kdpv_descuxq` y sus tres hermanas), con las **cuatro trampas ya medidas** en
-  `FASE_E12` §3.2 — sólo 0.7 % de las reglas vigente · tres mecanismos hoy en cero · el descuento es
-  **por unidad**, no por producto · reglas triplicadas que un JOIN sin deduplicar multiplica.
+#### ⛔ El contrato: sólo se cotiza con lo que el ERP autoriza — son CINCO mecanismos, y no hay un sexto
+
+Decidido por Dirección el 2026-09-22, y es un **candado, no una guía**:
+
+| # | Mecanismo | Fuente | Estado en el ODS |
+|---|---|---|---|
+| 1 | **Descuento del cliente** | `kdud.c17` (y `c18` el segundo) | ✅ replicada · ⚠️ **es por sucursal**: 57 clientes lo tienen distinto entre plazas (§3.1 de `FASE_E12`) |
+| 2 | **Descuento por volumen / por piezas** | `kdpv_descuxq` | ✅ 13 cols · **396 reglas vigentes de 56,995** |
+| 3 | **Descuento por monto por artículo** | `kdpv_descuxm` | ✅ 13 cols · **0 vigentes hoy** |
+| 4 | **Producto gratis por piezas** | `kdpv_gratisxq` | ✅ 16 cols · **0 vigentes hoy** |
+| 5 | **Producto gratis por monto** | `kdpv_gratisxm` | ✅ 16 cols · **0 vigentes hoy** |
+
+**El vendedor no puede inventar un descuento.** El precio de una cotización es siempre la derivación
+de esos cinco, y lo que quede fuera **la pantalla lo rechaza** — no lo "avisa". Eso simplifica la
+fase: el descuento deja de ser una facultad discrecional y pasa a ser un cálculo auditable.
+
+⚠️ **Que tres de los cinco estén hoy en cero se DECLARA, no se interpreta** (ADR-056): no significa
+que no se usen, significa que hoy no hay ninguna regla activa. El motor los lee igual, porque el día
+que alguien cargue una promoción tiene que aplicarse sola.
+
+⭐ **Y no se arranca de cero:** `analytics.erp_promotions` **ya es una VISTA** sobre los cuatro
+`kdpv_*` (tipo · umbral · beneficio · producto gratis · vigencia · almacén), y
+`analytics.v_label_promotions` ya resolvió el caso difícil —vigencia, tienda y **presentación**— con
+su `pct` **verificado contra ventas (113 vs 2)**. El motor **extiende ese resolvedor**; no escribe
+uno nuevo. ⛔ Y se deriva por vista: nada de importer que materialice precios (regla ⭐ del proyecto).
+
+- Las **cuatro trampas ya medidas** en `FASE_E12` §3.2 siguen en pie: sólo 0.7 % de las reglas
+  vigente · el descuento es **por unidad**, no por producto · los centinelas de fecha
+  (`1800-01-01` / `2106-02-28`) · y reglas triplicadas que un JOIN sin deduplicar multiplica.
 - Cada renglón declara **`price_source`**: de dónde salió ese precio. Un precio bajo tiene que ser
   *explicable*, no *sospechoso*.
 - ⭐ **Y muestra el margen con el costo arbitrado** (ADR-059/051), no con `cost_base`. Es la defensa
@@ -137,13 +190,14 @@ llegó** (texto pegado, archivo, foto), su canal, quién lo mandó y en qué est
 | Word (`.docx`) | falta una librería (`mammoth`) | ⬜ 1 dependencia |
 | **WhatsApp automático** | **BSP sin decidir (ADR-006), Fase F ⏸️** | ⛔ **bloqueado** |
 
-⚠️ **El WhatsApp automático no se promete.** Mientras no haya BSP, el flujo real es *reenviar o
-pegar* — y eso **ya resuelve el grueso del dolor**, porque el vendedor deja de transcribir. Prometer
-el bot antes de tener proveedor es la forma de que la fase se lea como incompleta cuando en realidad
-entregó lo que importaba.
+⚠️ **WhatsApp: cascarón ahora, cimiento para el bot** (decidido el 2026-09-22). El canal se registra
+como tal (`channel='whatsapp'`, el remitente, el texto crudo) pero **entra a mano** —reenviado o
+pegado— hasta que haya BSP. La tabla y el flujo **no cambian** cuando el bot llegue: lo único que
+cambia es quién deposita el mensaje. Prometer el bot antes de tener proveedor es la forma de que la
+fase se lea como incompleta cuando en realidad entregó lo que importaba.
 
 **Entrega:** el insumo del cliente entra al sistema sin que nadie lo transcriba, y **queda guardado
-el original** — para poder auditar después qué se pidió de verdad.
+el original** — para poder auditar después qué se pidió de verdad, y para entrenar (COT.8).
 
 ---
 
@@ -184,12 +238,24 @@ lo hace hoy, en Wincaja). Lo que falta es que termine en la Suite.
 
 ---
 
-### COT.5 — Entregarla y perseguirla ⬜
+### COT.5 — Entregarla, y sobre todo **RE-COTIZARLA** ⬜ ⭐ el ahorro más grande
 
 `[E.12.3]` + `[E.12.5]`. El PDF reusa el Chromium de `AnexoVentaService`. Vigencia real: hoy una
 cotización vencida **sigue diciendo `sent`** — la mesa lo declara, pero nadie la cierra sola.
 
-**Entrega:** el cliente recibe un documento, y la cotización no se pierde por olvido.
+⭐ **Y acá vive el ahorro que §2.2 identificó.** Una cotización vencida o con el precio movido **no
+se captura de nuevo: se re-precifica**.
+
+- **Versión, no copia.** `quotes.version` + `superseded_by`: misma cotización, precio nuevo, linaje
+  completo. Lo que el cliente pidió no se vuelve a teclear **nunca**.
+- **Re-precio en un clic**: se vuelven a correr los cinco mecanismos de COT.1 sobre los mismos
+  renglones, y la pantalla muestra **qué se movió** (este SKU subió 4 %, éste perdió la promoción,
+  éste ya no lo manejamos).
+- **Un renglón puede morir entre versiones** — se descontinuó, o la promo venció. Eso se muestra,
+  no se borra en silencio.
+
+**Entrega:** el cliente recibe un documento; y cuando vuelve tres semanas después, nadie vuelve a
+capturar su lista.
 
 ---
 
@@ -221,16 +287,33 @@ logística.
 
 ---
 
-### COT.8 — El vendedor asistido (IA en el borde) ⬜
+### COT.8 — El bot que cotiza, y el vendedor que valida ⬜
 
-Sólo **después** de que COT.1–COT.3 estén medidos:
+**El destino declarado por Dirección** (2026-09-22): *"que posteriormente un bot con machine learning
+haga esa actividad completa; el vendedor sólo validaría y asistiría en el machine learning"*.
+
+⭐ **Por eso el colector se construye ANTES que el aprendiz** (ADR-021, `ship-collector-before-learner`
+— la lección de Horus.L). El bot de mañana **no se puede entrenar con datos que hoy no se guardan**,
+y ningún backfill los inventa. Desde COT.3, cada cotización deja escrito:
+
+| Se guarda desde el día 1 | Para qué sirve después |
+|---|---|
+| El **texto crudo** del cliente (COT.2) | La entrada del modelo |
+| Lo que la IA **propuso**: SKU, cantidad, unidad, confianza | La predicción |
+| Lo que el humano **dejó, cambió o descartó** | ⭐ **La etiqueta** — la corrección es el dato de oro |
+| El **desenlace** (COT.6) y la **re-cotización** (COT.5) | Si la propuesta además vendió |
+
+Sin esa tabla de correcciones, dentro de un año hay que empezar de cero. Con ella, el bot se entrena
+con el trabajo que los vendedores ya hicieron igual.
+
+Y mientras el bot no existe, el mismo colector ya paga solo:
 
 - **Lo que le falta al carrito**: la canasta recomendada de Thot (`[D.4]`) ya calcula base / foco /
   exploración / innovación por cliente.
 - **Aviso de margen** antes de enviar (con el costo arbitrado, no el del catálogo).
 - **Redactar la respuesta** al cliente en su canal, para que el vendedor edite y mande.
 
-Cada una con aprobación humana. Ninguna decide sola.
+Cada una con aprobación humana. Ninguna decide sola — y esa aprobación **es** el dato de entrenamiento.
 
 ---
 
@@ -254,15 +337,24 @@ pendiente declarado en `FASE_E12` §5 (`direccion` tiene `_VER` y no puede entra
 
 ---
 
-## 5. ⛔ Cinco decisiones que necesitan respuesta antes de construir
+## 5. ✅ Las cinco decisiones — RESUELTAS por Dirección (2026-09-22)
 
-| # | Decisión | Por qué bloquea |
-|---|---|---|
-| 1 | **¿`/cotizaciones` como proyecto propio?** | Define superficie, guard y nav. Es barato ahora y caro después (§4). |
-| 2 | **¿La cotización se captura TAMBIÉN en Kepler (`U-D-35`)?** | Nosotros **no escribimos al ERP** (regla dura). Si el representante necesita verla ahí, hoy la única salida es doble captura — y eso se dice antes, no se descubre en producción. |
-| 3 | **El alta de prospectos, ¿en Kepler o en la Suite?** | Leerlos de `kdudp` ya funciona. **Darlos de alta desde la Suite exige tabla propia** — y entonces hay dos padrones de prospectos que se van a separar. |
-| 4 | **WhatsApp: ¿esperamos BSP o arrancamos con pegar/reenviar?** | Define si COT.2 se entrega en semanas o queda detrás de ADR-006, que no tiene proveedor decidido. |
-| 5 | **¿Quién puede cotizar abajo de qué margen?** | Sin umbral y sin aprobación, COT.1 entrega la facultad de regalar margen a todo el que tenga la llave. El molde ya existe: `finance.proposed_actions` y el par preparar≠autorizar de `[TP.6]`. |
+| # | Decisión | Qué se decidió | Consecuencia directa |
+|---|---|---|---|
+| 1 | Superficie | **`/cotizaciones`**, como lo nombró Dirección | Proyecto propio (§4); Telemarketing enlaza. ⚠️ arrastra el `televentaGuard` que hoy lo tapa |
+| 2 | ¿También en Kepler? | **NO. La captura vive en la Suite.** *"El módulo de cotizaciones del ERP está en modo fábrica, no se ha tocado; hay deuda técnica de adaptación, que sería lo mismo que trabajarlo desde aquí"* | Cierra el riesgo de doble captura, y **la Suite es la única fuente de la cotización**. El `U-D-35` de Kepler queda como lo que es: un módulo de fábrica sin configurar |
+| 3 | Alta de prospectos | **En el ERP** — *"la tabla ya existe"* | La Suite **lee** `kdudp` por vista (COT.0) y **no** crea un segundo padrón. Nada de tabla propia de prospectos |
+| 4 | WhatsApp | **Cascarón ahora, cimiento para el bot** | COT.2 se entrega ya, sin esperar el BSP; el canal queda modelado y la tabla no cambia cuando llegue (§COT.2) |
+| 5 | Descuentos | **Sólo los 5 mecanismos que autoriza el ERP** — cliente · volumen/piezas · monto por artículo · gratis por piezas · gratis por monto | **No hace falta umbral de margen ni flujo de aprobación**: el vendedor no puede inventar un descuento. Lo que no deriva de los cinco, la pantalla lo **rechaza** (§COT.1) |
+
+⭐ **La decisión 5 es la que más simplifica la fase.** Se había planteado como *"¿quién autoriza
+cotizar bajo margen?"* — con umbral, bandeja y aprobación, calcando `[TP.6]`. **No se necesita nada
+de eso**: el descuento no es una facultad discrecional, es una derivación de reglas que ya viven en
+el ERP. Se cambia un flujo de aprobación completo por **un candado y un cálculo auditable**.
+
+⚠️ Lo que la decisión 2 **no** elimina: si alguna vez alguien captura una cotización en el Kepler de
+fábrica, va a existir en un lugar que la Suite no mira. Eso se resuelve con un acuerdo de operación
+—nadie cotiza en el ERP—, no con código.
 
 ---
 
@@ -272,7 +364,13 @@ pendiente declarado en `FASE_E12` §5 (`direccion` tiene `_VER` y no puede entra
   corre con listas de verdad **antes** de publicar un número. Precedente: `[HV.0]`.
 - **Si `kdvcontactos` alcanza** para el contacto del prospecto — hoy tiene **1 fila** en la rama 01.
 - **Los importes del `U-D-35` de Kepler** siguen sin decodificar: las 3 cotizaciones que existen en
-  el ERP están en ceros (`ERP_KEPLER.md` §3.c). Sólo importa si se decide el punto 2 de §5.
+  el ERP están en ceros (`ERP_KEPLER.md` §3.c). ✅ **Dejó de importar** con la decisión 2 de §5 — la
+  captura vive en la Suite. El decode queda anotado por si algún día se lee ese módulo de fábrica.
+- **Cuántas cotizaciones se re-capturan hoy a mano** (§2.2): Dirección lo reporta como *"la mayoría
+  de las veces"*, pero **no está medido**. `MaestroCotizaciones` no tiene un campo de "esta es la
+  segunda vuelta de aquélla" — habría que inferirlo por (cliente + canasta parecida + ventana de
+  días), y eso es un cruce por parecido, con su piso de ruido. **Es la línea base del ahorro que
+  COT.5 promete**, así que conviene medirla antes de construirlo, no después.
 - **La etapa comercial del prospecto ("Lead")** no resuelve a ningún catálogo, y `kdvavance` —que sí
   es el embudo, con probabilidad de cierre— **no existe en la rama 01**.
 - **El contenido de `wincaja.cotizaciones` en prod** (19,621 filas según `ESQUEMA_BD_PROD.md`): en
