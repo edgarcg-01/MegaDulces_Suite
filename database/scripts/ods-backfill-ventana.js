@@ -40,7 +40,7 @@
  */
 const { Client } = require('pg');
 const sink = require('../importers/lib/sink');
-const { replicaDbName } = require('../importers/lib/kepler-branches');
+const { replicaDbName, BRANCHES: CATALOGO } = require('../importers/lib/kepler-branches');
 
 const arg = (n) => (process.argv.find((a) => a.startsWith('--' + n + '=')) || '').split('=')[1] || null;
 const APPLY = process.argv.includes('--apply');
@@ -61,7 +61,10 @@ if (!DESDE && (!Number.isFinite(DIAS) || DIAS < 0)) { console.error('x --dias de
 const BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW;
 if (!BASE) { console.error('x falta ODS_SOURCE_BASE (base del contenedor de replicas)'); process.exit(2); }
 
-const CODES = (ONLY_BRANCH ? [ONLY_BRANCH] : (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06,07,08').split(','))
+// `[ODS.1]` La lista sale del catálogo canónico — ver la nota en `replicate-ods-live.js`.
+const CODES = (ONLY_BRANCH
+  ? [ONLY_BRANCH]
+  : (process.env.ODS_LIVE_BRANCHES || CATALOGO.map((b) => b.code).join(',')).split(','))
   .map((s) => s.trim()).filter(Boolean);
 const CONN = { ssl: false, connectionTimeoutMillis: 15000, statement_timeout: 600000, query_timeout: 600000, keepAlive: true };
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
