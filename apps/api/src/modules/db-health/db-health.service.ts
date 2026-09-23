@@ -29,6 +29,17 @@ interface SourceCfg {
   // (rollback por ECONNRESET) → updated_at se ve fresco pero el dato está congelado.
   // Debe devolver { last_update } y opcionalmente { note_extra }.
   sql?: string;
+  // ⛔ SONDA RETIRADA — el sujeto que vigila dejó de existir (fecha ISO del corte + por qué).
+  //
+  // No se borra la entrada, y la diferencia importa: una sonda borrada no deja rastro de que
+  // alguna vez existió, y el día que alguien pregunte "¿y Wincaja quién la miraba?" no hay
+  // respuesta. Retirada = sigue en la lista, DECLARA su fecha de corte, y sale de la alarma.
+  //
+  // ⭐ Y no queda ciega: si la fuente vuelve a recibir datos POSTERIORES a `retiredOn`, la sonda
+  // pasa a `warn`. Retirar algo no puede significar "dejar de mirarlo para siempre" — significa
+  // "callate salvo que me sorprendas". Sin eso, reactivar un sistema retirado sería invisible.
+  retiredOn?: string;
+  retiredWhy?: string;
 }
 
 /** Fuente externa: se conecta a OTRA DB (por env) y evalúa una señal de frescura. */
@@ -325,6 +336,12 @@ const APP_SOURCES: SourceCfg[] = [
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
   {
     key: 'wincaja_feed', label: 'Feed Wincaja (venta POS)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    // ⛔ RETIRADA. Wincaja dejó de vender el 2026-09-19. El corte, medido día por día:
+    //   09-18: Wincaja 30/32 = 4,334 líneas · Kepler 07/08 =   565 docs
+    //   09-19: Wincaja 30/32 =     0       · Kepler 07/08 = 1,336 docs   ← la migración
+    // y de ahí en adelante Wincaja en CERO todos los días. El CEDIS paró el 09-18.
+    retiredOn: '2026-09-19',
+    retiredWhy: 'Morelia (30/32) y el CEDIS migraron a Kepler; los carriles de réplica se detuvieron el 09-22 tras medir read 0 · wrote 0',
     // OJO: hay tickets con fecha FUTURA (errores de captura del POS) → ventana [hoy-30, hoy]
     // (acota el scan a rango indexable ~2s Y descarta la basura futura; si el feed lleva >30 días
     // muerto, no hay filas → last_update null → critical, que es lo correcto).
@@ -373,6 +390,11 @@ const APP_SOURCES: SourceCfg[] = [
   //      alimentar salta aunque los otros estén frescos.
   {
     key: 'wincaja_branch_stale', label: 'Wincaja — almacén rezagado', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    // ⛔ RETIRADA con el resto de Wincaja (ver `wincaja_feed`). Esta sonda hizo bien su trabajo
+    // hasta el final: fue la que marcó el rezago de Madero y después el de Abastos. Lo que ya no
+    // tiene sentido es medir el rezago de un sistema apagado — siempre va a crecer.
+    retiredOn: '2026-09-19',
+    retiredWhy: 'Wincaja se apagó; la venta de esas plazas la mide ahora el sensor de Kepler',
     // La lista de sucursales NO va hardcodeada: se deriva de `wincaja.branches` con el mismo
     // predicado que usa la vista de recepciones (`kepler_code IS NULL` = sigue en Wincaja).
     // Estaba fijo en ('30','32','50') y Canindo (50) migró a Kepler (kepler_code='06') el
@@ -394,6 +416,12 @@ const APP_SOURCES: SourceCfg[] = [
   //      (last_update viejo fuerza el estado; se auto-resuelve al hacer backfill).
   {
     key: 'wincaja_month_coverage', label: 'Wincaja — cobertura mes cerrado (hueco de feed)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    // ⛔ RETIRADA con el resto de Wincaja (ver `wincaja_feed`). ⚠️ OJO al retirarla: septiembre-2026
+    // es un mes PARTIDO (Wincaja hasta el 18, Kepler desde el 19), así que la cobertura del mes
+    // cerrado va a dar un hueco REAL y permanente para ese mes. No es un feed roto: es la frontera.
+    // Quien compare septiembre tiene que cruzar las dos fuentes, no una.
+    retiredOn: '2026-09-19',
+    retiredWhy: 'Wincaja se apagó el 09-19; septiembre-2026 queda partido entre Wincaja (1-18) y Kepler (19-30)',
     sql: `WITH lm AS (
             SELECT date_trunc('month', CURRENT_DATE - interval '1 month')::date AS m_start,
                    (date_trunc('month', CURRENT_DATE) - interval '1 day')::date AS m_end,
@@ -431,6 +459,10 @@ const APP_SOURCES: SourceCfg[] = [
   //      puede mostrar el sábado (~48 h) → warn a 60 h para no flapear, crítico a 96 h.
   {
     key: 'wincaja_cedis_stale', label: 'Wincaja — CEDIS Irapuato (surte la red)', table: 'wincaja.maestro_mov_almacen', tsCandidates: [],
+    // ⛔ RETIRADA. Último movimiento REAL del CEDIS en Wincaja: 2026-09-18 (el `max(fecha)` crudo
+    // dice 2029-08-02, que es basura de captura del POS y por eso acá se filtra `fecha <= now()`).
+    retiredOn: '2026-09-19',
+    retiredWhy: 'el CEDIS dejó de moverse en Wincaja el 09-18; el abasto de la red se sigue por Kepler',
     // `[W4.3]` Acá el `::timestamp` **SE QUEDA, y es load-bearing** — es el contraejemplo que hizo
     // que este barrido se midiera sensor por sensor en vez de aplicar un sed. `fecha` es
     // `timestamptz` (como en los dos sensores que sí se corrigieron), pero **no guarda un instante:
@@ -498,6 +530,12 @@ const APP_SOURCES: SourceCfg[] = [
   // El candado que impide que vuelva: `database/tests/test-db-health-tz-bias.js`.
   {
     key: 'wincaja_existencias_entrega',
+    // ⛔ RETIRADA con el resto de Wincaja (ver `wincaja_feed`). El comentario de abajo ya venía
+    // persiguiendo este apagón rama por rama ("Madero '32' migró a Kepler el 09-08"): lo que
+    // parecía una lista de ramas que envejecía mal era, en realidad, un sistema muriéndose por
+    // partes. El 09-19 murió la última.
+    retiredOn: '2026-09-19',
+    retiredWhy: 'Wincaja se apagó; la existencia de esas plazas vive en Kepler (kdik) desde el 09-19',
     label: 'Wincaja — existencia ENTREGADA (imported_at, no fecha de negocio)',
     table: 'wincaja.existencias', tsCandidates: [],
     // ⛔ La lista de ramas ya NO va hardcodeada, por la misma razón que en `wincaja_branch_stale`
@@ -665,6 +703,11 @@ const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 }
  */
 interface CronCfg {
   key: string; label: string; cadence: string; warnH: number; critH: number;
+  // NOTA (2026-09-23): un carril retirado se saca de esta lista — así lo hizo `[NORM.3]` con las
+  // seis llaves zombi. NO hay un `retiredOn` acá a propósito: `SourceCfg` sí lo tiene porque una
+  // SONDA no se puede borrar sin perder la pregunta que hacía, y un CARRIL sí (el latido deja de
+  // escribirse y la llave sin dueño cae sola en `unknown`). Dos mecanismos para lo mismo sería la
+  // duplicación que ADR-056 prohíbe.
   /**
    * Horas que una corrida puede tardar antes de considerarla COLGADA. Presupuesto de
    * DURACIÓN, distinto del de frescura (`critH`).
@@ -705,6 +748,47 @@ export function veredictoSinLatido(
       'escrito ni un latido. O no está desplegado, o no corre, o corre y no late. ' +
       'No se puede saber cuál sin mirarlo.',
   };
+}
+
+/**
+ * Veredicto de una sonda RETIRADA, o `null` si no lo está (y entonces manda `classify`).
+ *
+ * ⛔ POR QUÉ EXISTE, medido el 2026-09-23: las cinco sondas de Wincaja llevaban días en
+ * `critical` vigilando un sistema **que ya no existe**. Wincaja se apagó el 2026-09-19 —el corte
+ * es nítido: la venta de las sucursales 30/32 pasa de 4,334 líneas a CERO y Kepler 07/08 salta de
+ * ~500 a ~1,300 documentos el mismo día—. Nadie tocó las sondas, así que el tablero mandaba
+ * "12 crítica(s)" por carriles jubilados a propósito.
+ *
+ * Y eso no es cosmético: ese ruido es lo que tapó DOS fallas reales encontradas el mismo día —el
+ * respaldo diario volcando la base vieja de Railway y `caja-general-ship` perdiendo dato de
+ * producción—. Una alarma que grita por lo que ya no importa enseña a ignorar el tablero, y
+ * entonces la que sí importa llega a un tablero que nadie mira.
+ *
+ * Cae en `unknown`, que el escáner **ya** excluye de las alertas a propósito ("solo cuentan
+ * fallas reales: warn|critical"). No se inventa un quinto estado: `unknown` significa "no se
+ * puede juzgar", y de un sistema apagado no hay frescura que juzgar. El motivo va en la nota,
+ * visible en pantalla.
+ *
+ * ⭐ Y NO queda ciega. Si la fuente vuelve a recibir datos POSTERIORES al corte, pasa a `warn`.
+ * Retirar no es "dejar de mirar para siempre", es "callate salvo que me sorprendas" — sin esto,
+ * reactivar una sucursal en el sistema viejo sería invisible, que es el modo de falla opuesto y
+ * tan malo como el que se está cerrando.
+ */
+export function veredictoRetirada(
+  s: { retiredOn?: string; retiredWhy?: string } | undefined,
+  last: Date | null,
+): { status: Status; note: string } | null {
+  if (!s?.retiredOn) return null;
+  // Fin del día del corte en hora de México: un dato del MISMO día del apagón no es una sorpresa.
+  const corte = new Date(`${s.retiredOn}T23:59:59-06:00`);
+  if (last && last.getTime() > corte.getTime()) {
+    return {
+      status: 'warn',
+      note: `⚠ sonda RETIRADA el ${s.retiredOn} y la fuente VOLVIÓ a recibir datos `
+        + `(${last.toISOString().slice(0, 10)}) — revisar si el sistema se reactivó`,
+    };
+  }
+  return { status: 'unknown', note: `retirada el ${s.retiredOn} · ${s.retiredWhy ?? 'sin motivo escrito'}` };
 }
 
 const CRON_JOBS: CronCfg[] = [
@@ -1056,6 +1140,7 @@ export class DbHealthService {
     return 'ok';
   }
 
+
   /**
    * Clasifica una MAGNITUD (no una edad). Deliberadamente separada de `classify()`: aquella asume
    * que el valor son segundos y que más viejo es peor; acá el valor puede ser un porcentaje, un
@@ -1099,10 +1184,11 @@ export class DbHealthService {
           const { rows } = await this.knex!.raw(s.sql);
           const last = rows[0]?.last_update ? new Date(rows[0].last_update) : null;
           const ageSec = this.ageOf(last);
+          const ret = veredictoRetirada(s, last);
           out.push({
             ...base, ts_col: 'dato', last_update: last ? last.toISOString() : null,
-            age_seconds: ageSec, status: this.classify(ageSec, s.warnH, s.critH),
-            note: rows[0]?.note_extra as string | undefined,
+            age_seconds: ageSec, status: ret ? ret.status : this.classify(ageSec, s.warnH, s.critH),
+            note: ret ? ret.note : (rows[0]?.note_extra as string | undefined),
           });
           continue;
         }
@@ -1125,11 +1211,12 @@ export class DbHealthService {
         const last = rows[0]?.last_update ? new Date(rows[0].last_update) : null;
         const ageSec = this.ageOf(last);
         const conteo = await this.contarBarato(s.table);
+        const ret = veredictoRetirada(s, last);
         out.push({
           ...base, ts_col: tsCol, last_update: last ? last.toISOString() : null,
-          age_seconds: ageSec, status: this.classify(ageSec, s.warnH, s.critH),
+          age_seconds: ageSec, status: ret ? ret.status : this.classify(ageSec, s.warnH, s.critH),
           rows: conteo.rows,
-          note: conteo.nota ?? base.note,
+          note: ret ? ret.note : (conteo.nota ?? base.note),
         });
       } catch (e) {
         this.logger.warn(`db-health app ${s.table}: ${(e as Error).message}`);
