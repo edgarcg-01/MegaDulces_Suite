@@ -985,7 +985,7 @@ problemas.
 |---|---|---|
 | **C** | El commit se **hornea en la imagen** (`ARG GIT_COMMIT_SHA`) + `--build-arg` en `deploy.sh` + un resolvedor único en `apps/api/src/build-info.ts` | ✅ |
 | **D** | `deploy.sh` construye **sólo lo que se le pide**; entrada `--tunel`; `NODE_ENV` explícito en `portal`/`vendor` | ✅ |
-| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en el MikroTik | ⬜ falta el token de Cloudflare y las 2 líneas del router |
+| **A** | **TLS local en `md`** (Caddy + Let's Encrypt por DNS-01) + **DNS partido** en el MikroTik | 🧪 **certificado VIVO y verificado**; faltan las 3 líneas del router |
 | **B** | La ingesta de las cajas vuelve a la LAN, **sin dejar de ser HTTPS** | ⬜ depende de A |
 | **E** | RAM — **medir antes de afinar** | ⬜ |
 
@@ -1078,6 +1078,31 @@ La entrada estática también cura eso.
 
 ⚠️ **Deuda que A no cierra:** el camino interno **no pasa por Cloudflare** — sin WAF, sin
 protección de DDoS, sin Access. Para una LAN es lo deseado, pero queda dicho.
+
+### A — resultado, medido el 2026-09-23
+
+El certificado de Let's Encrypt se obtuvo por **DNS-01** para los tres nombres y Caddy lo
+renueva solo. Verificado **antes** de tocar el router, fijando la IP a mano y **sin `-k`**
+—o sea exigiendo que el certificado valide de verdad—: los tres responden **HTTP 200**.
+
+Comparación limpia, misma URL, mismo momento, **los dos caminos por HTTPS**:
+
+| Camino | TCP | apretón TLS | **TTFB** |
+|---|---|---|---|
+| **Interno** (`md:443`) | 1.5 ms | 10 ms | **13 ms** |
+| **Por el túnel** | 44 ms | 99 ms | **225–302 ms** |
+
+**17–23×.** ⚠️ Y corrige a la baja una medición propia: la primera lectura del camino interno
+dio 150 ms, que era ruido de la primera llamada. Con la conexión reutilizada —lo que hace un
+navegador— baja a **~4 ms**.
+
+⚠️ **Nota de la medición, no un defecto:** pedir `/api/health` cinco veces seguidas devolvió
+`429 ThrottlerException`. Es el limitador de tasa de la app funcionando; la comparación se
+rehízo contra `/`, que es estático.
+
+⭐ **Falta sólo el paso humano, y ahora SÍ es seguro darlo**: las tres entradas del MikroTik.
+El orden importaba —primero el certificado— porque con HSTS encendido apuntar la oficina a
+`md` sin certificado da un error que no se puede saltar. Ese riesgo ya no existe.
 
 ### B — corrección medida a §6 #9
 
