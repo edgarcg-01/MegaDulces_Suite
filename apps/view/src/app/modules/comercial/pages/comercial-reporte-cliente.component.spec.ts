@@ -124,6 +124,130 @@ describe('ComercialReporteClienteComponent', () => {
     });
   });
 
+  describe('la barra simplificada', () => {
+    /** El panel arranca CERRADO: la pantalla tiene que poder leerse sin abrirlo. */
+    it('el panel de filtros arranca cerrado', () => {
+      expect(c.panel()).toBe(false);
+    });
+
+    it('elegir un cliente abre el MES EN CURSO, no todo el historico', () => {
+      c.elegir(C);
+      const req = http.expectOne((r) => r.url.includes('/clientes/10448/reporte'));
+      const hoy = new Date();
+      const uno = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-01`;
+      expect(req.request.params.get('date_from')).toBe(uno);
+      expect(c.periodo()).toBe('mes');
+      req.flush(REP([]));
+    });
+
+    /**
+     * ⚠️ El peor caso de la fecha: `toISOString()` convierte a UTC y en México adelanta el día,
+     * así que «este mes» arrancaría el último día del mes anterior. Se arma a mano.
+     */
+    it('«este mes» arranca el dia 1, nunca el ultimo del mes anterior', () => {
+      c.cliente.set(C);
+      c.elegirPeriodo('mes');
+      const req = http.expectOne((r) => r.url.includes('/reporte'));
+      expect(req.request.params.get('date_from')).toMatch(/-01$/);
+      req.flush(REP([]));
+    });
+
+    it('«mes pasado» termina el ultimo dia de ese mes, no el 1 del actual', () => {
+      c.cliente.set(C);
+      c.elegirPeriodo('mes-1');
+      const req = http.expectOne((r) => r.url.includes('/reporte'));
+      const hoy = new Date();
+      const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+      expect(req.request.params.get('date_to')).toBe(
+        `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}-${String(fin.getDate()).padStart(2, '0')}`);
+      req.flush(REP([]));
+    });
+
+    it('«todo» quita las fechas en vez de mandar un rango enorme', () => {
+      c.cliente.set(C);
+      c.elegirPeriodo('todo');
+      const req = http.expectOne((r) => r.url.includes('/reporte'));
+      expect(req.request.params.get('date_from')).toBeNull();
+      expect(req.request.params.get('date_to')).toBeNull();
+      req.flush(REP([]));
+    });
+
+    /** «Otro periodo» abre el panel y NO pide nada: todavía no hay qué pedir. */
+    it('«otro periodo» abre el panel sin consultar', () => {
+      c.cliente.set(C);
+      c.elegirPeriodo('otro');
+      expect(c.panel()).toBe(true);
+      http.expectNone(() => true);
+    });
+
+    /** La fecha del renglón se arma partiendo el string, no con `new Date()`. */
+    it('el dia se lee en palabras y NO se corre al mes anterior', () => {
+      expect(c.dia('2026-09-18')).toBe('18 de septiembre');
+      expect(c.dia('2026-09-01')).toBe('1 de septiembre');
+      expect(c.dia('2026-01-01')).toBe('1 de enero');
+      expect(c.dia(null)).toBe('sin fecha');
+    });
+  });
+
+  describe('las etiquetas de filtro activo', () => {
+    beforeEach(() => { c.cliente.set(C); });
+
+    /** Sin filtros escondidos no hay etiquetas: no se decora una pantalla limpia. */
+    it('sin filtros, ninguna etiqueta', () => {
+      c.f = {};
+      c.aplicar();
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+      expect(c.activos()).toEqual([]);
+    });
+
+    it('cada filtro escondido se vuelve una etiqueta legible', () => {
+      c.f = { folio: '6440', warehouse_codes: '05', caja: '5', solo_con_descuento: true };
+      c.aplicar();
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+      expect(c.activos().map((a) => a.texto)).toEqual([
+        'Folio: 6440', 'Sucursal: 05', 'Caja 5', 'Sólo con descuento',
+      ]);
+    });
+
+    /**
+     * ⚠️ El periodo NO es una etiqueta: ya se ve en su selector. Repetirlo haría leer dos
+     * filtros donde hay uno.
+     */
+    it('el periodo no se duplica como etiqueta', () => {
+      c.f = { date_from: '2026-09-01', date_to: '2026-09-30' };
+      c.aplicar();
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+      expect(c.activos()).toEqual([]);
+    });
+
+    /** ⚠️ Las etiquetas reflejan lo APLICADO, no lo tecleado: si no, prometen lo que no se ve. */
+    it('teclear sin aplicar NO cambia las etiquetas', () => {
+      c.f = { folio: '6440' };
+      c.aplicar();
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+      c.f.caja = '9';
+      expect(c.activos().map((a) => a.clave)).toEqual(['folio']);
+    });
+
+    it('quitar una etiqueta quita el filtro y vuelve a pedir', () => {
+      c.f = { folio: '6440', caja: '5' };
+      c.aplicar();
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+      c.quitar('caja');
+      const req = http.expectOne((r) => r.url.includes('/reporte'));
+      expect(req.request.params.get('caja')).toBeNull();
+      expect(req.request.params.get('folio')).toBe('6440');
+      req.flush(REP([]));
+    });
+
+    it('aplicar cierra el panel: si quedara abierto taparia la respuesta', () => {
+      c.panel.set(true);
+      c.aplicar();
+      expect(c.panel()).toBe(false);
+      http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
+    });
+  });
+
   describe('la selección', () => {
     beforeEach(() => {
       c.cliente.set(C);

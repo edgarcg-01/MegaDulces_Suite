@@ -44,7 +44,6 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_CARTERA_GESTIONAR, url: '/comercial/cartera', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PRICING_GESTIONAR, url: '/comercial/pricing', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR, url: '/comercial/promotions', motivo: 'manage sin view (la ruta /empuje sí lo acepta, pero el árbol apunta a /promotions)' },
-  { perm: Permission.COMMERCIAL_PRODUCTS_GESTIONAR, url: '/comercial/products', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_THOT_GESTIONAR, url: '/comercial/thot-chat', motivo: 'manage sin view (la ruta /thot-curation sí lo acepta)' },
   { perm: Permission.ROUTE_TICKET_CAPTURE, url: '/comercial/route-tickets', motivo: 'manage sin view: la ruta exige ROUTE_CONTROL_VER' },
   // almacen
@@ -71,6 +70,8 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMPRAS_HALLAZGOS_GESTIONAR, url: '/compras/hallazgos', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_PROVEEDORES_GESTIONAR, url: '/compras/proveedores', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_CATEGORIAS_GESTIONAR, url: '/compras/categorias', motivo: 'manage sin view' },
+  // [CAT.1] El catálogo vive acá desde que se mudó de Ventas; la deuda viajó con él.
+  { perm: Permission.COMMERCIAL_PRODUCTS_GESTIONAR, url: '/compras/catalogo', motivo: 'manage sin view' },
   // logistica
   { perm: Permission.LOGISTICS_CARTAPORTE_VER, url: '/logistica/shipments', motivo: 'el módulo cartaporte apunta a shipments (SHIPMENTS_VER)' },
   { perm: Permission.LOGISTICS_CARTAPORTE_GESTIONAR, url: '/logistica/shipments', motivo: 'ídem' },
@@ -84,6 +85,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.FINANCE_BANK_GESTIONAR, url: '/finanzas/bancos', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_COLLECTIONS_GESTIONAR, url: '/finanzas/cobranza', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_PAYMENTS_GESTIONAR, url: '/finanzas/pagos-comprobantes', motivo: 'manage sin view' },
+  // TP.6 — autorizar el lote es un permiso PROPIO, deliberadamente fuera de todo MODULE_GROUP
+  // para que no se otorgue de paquete; la pantalla, en cambio, la abre FINANCE_PAYMENTS_VER.
+  // Mismo caso que los 20 «manage sin view» de arriba: quien sólo autoriza no tiene la vista.
+  { perm: Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR, url: '/finanzas/calendario-pagos', motivo: 'autorizar sin view: la ruta exige FINANCE_PAYMENTS_VER' },
   { perm: Permission.FINANCE_RECON_ASIGNAR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER' },
   { perm: Permission.FINANCE_RECON_RECIBIR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER (es un marcador para repartir tareas, no un permiso de pantalla)' },
   { perm: Permission.FINANCE_EXPENSES_VER_ALL, url: '/finanzas/gastos', motivo: 'la ruta exige EXPENSES_VER' },
@@ -137,7 +142,17 @@ describe('SN.4 · la puerta que la landing abre no rebota en el índice del proy
   const proyectos = Object.keys(LANDINGS_BY_PROJECT);
 
   it('hay landing dinámico para cada proyecto con entrada primaria en el mapa (salvo los que tienen guard propio)', () => {
-    const conGuardPropio = new Set(['pdv', 'trade', 'televenta', 'reparto']); // storeEntryRedirect, colaboradorGuard, televentaGuard, repartoGuard
+    /**
+     * Proyectos que NO necesitan landing dinámico, por dos motivos distintos:
+     *
+     *  · **guard propio** — `pdv` (storeEntryRedirect), `trade` (colaboradorGuard),
+     *    `televenta` (televentaGuard) y `reparto` (repartoGuard) deciden su entrada ellos.
+     *  · **una sola página, en la raíz del proyecto** — `presupuestos` vive entero en
+     *    `/presupuesto`; no hay dónde elegir, así que un landing dinámico no tendría qué
+     *    resolver. ⚠️ Y no podría: el candado de abajo exige que todo candidato empiece con
+     *    `<ruta del proyecto>/`, y acá la única página ES la ruta del proyecto.
+     */
+    const conGuardPropio = new Set(['pdv', 'trade', 'televenta', 'reparto', 'presupuestos']);
     const primarios = SUITE_SPACES.flatMap((s) => s.entries)
       .filter((e) => e.kind === 'project' && !e.crossLink)
       .map((e) => e.project);
