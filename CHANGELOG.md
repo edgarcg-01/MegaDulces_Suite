@@ -10,6 +10,43 @@
 
 ## [Unreleased]
 
+### Added — el respaldo deja de ser una hipótesis: recuperación a un punto en el tiempo, probada (`[VL.9.11]`, 2026-09-22)
+- `ops/prod/probar-pitr.sh` escribe dos marcas con un instante en medio —**A → T_objetivo → B**—,
+  restaura a `T_objetivo` en un directorio aparte, levanta un Postgres temporal y exige **A
+  presente y B ausente**. De los tres resultados posibles sólo uno prueba algo.
+- **Resultado**: restauración en 33 s · `A=1, B=0` · 240 tablas en `kepler_ods` · `pg-prod` intacto.
+- ⭐ Falló **dos veces** antes de pasar, por cosas que `pgbackrest info: status ok` no puede ver:
+  pgBackRest **hornea el `--pg1-path` dentro del `restore_command`** (un clúster restaurado en una
+  ruta temporal no recupera en ninguna otra, y el síntoma no nombra ni la ruta ni pgBackRest), y
+  **el clúster restaurado necesita los parámetros de recursos del original** (`max_connections`
+  100 < 200 y la recuperación se niega a arrancar). Lo segundo va a pasar igual en una
+  recuperación de verdad sobre una máquina más chica.
+- Y el ensayo **borraba su propia evidencia al fallar**; ahora la conserva y dice dónde está.
+
+### Added — los respaldos del clúster, agendados (`[VL.9.10]`, 2026-09-22)
+- ⚠️ No era opcional: pgBackRest expira el WAL **atado a los respaldos**. Con un solo completo el
+  WAL no se borra nunca — medido, el repositorio pasó de **4 GB a 12 GB en tres horas**.
+- Completo los domingos 23:30, diferencial el resto. ⭐ **Dónde corre** era la decisión abierta:
+  pgBackRest necesita leer `PGDATA` **y** hablar con Postgres, y sólo sabe conectarse por socket
+  UNIX local. De las tres formas se eligió compartir el **volumen de datos en sólo lectura** y el
+  **directorio del socket** — en vez de darle a `prod-backup` el socket de Docker, que es root en
+  el host. Cero privilegio nuevo.
+
+### Fixed — `main` no compilaba, y nadie se enteró en 4 horas (`[TK.8]`, 2026-09-22)
+- `apps/view` no construye desde `edde8468` (PR #144): `track c.id` sobre `ClienteCandidato`, un
+  tipo cuya llave es `cliente_code`. Verificado que esa clave sirve como identidad antes de
+  usarla (la consulta hace `GROUP BY cliente_code`), porque una clave repetida daría error de
+  Angular en ejecución — no alcanzaba con que compilara.
+- ⭐ **Es exactamente lo que atraparía la CI.** Está apagada desde el 25-ago y `main` no tiene
+  ningún *required status check*, así que un cambio que no compila entra y se descubre cuando
+  alguien intenta desplegar.
+
+### Fixed — `/api/health` decía un commit que no era el de la imagen (`[VL.9.7]`, 2026-09-22)
+- La imagen se construyó en `673f24fb` y al recrear —minutos después— reportó `07bd08fc`: otra
+  sesión había commiteado en el medio. El índice de git lo comparten ~10 sesiones.
+- Ahora el commit sale de la **imagen** (qué etiqueta comparte ID con `:latest`), no de `git HEAD`.
+  Un campo poblado con el valor equivocado es peor que uno vacío: no se nota.
+
 ### Added — los dos últimos puestos donde repartir una clave cambia algo (`[SN.38]`, 2026-09-22)
 - Pedido de Edgar: *«sigue, aunque los vendedores de ruta tienen su propia página»*. Se siguió puesto
   por puesto y la medición dejó **dos** (mig `20260922234500`, prod **batch 522**).
