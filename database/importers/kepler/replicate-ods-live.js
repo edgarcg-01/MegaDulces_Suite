@@ -566,7 +566,24 @@ async function cycleAll({ apply, full }) {
   // Preflight del vigilante. En watch (desatendido, bajo supervisor) se ABORTA antes que correr a
   // ciegas: sin destino de latido, un carril muerto es indistinguible de uno sano y el tablero queda
   // verde — que es exactamente cómo se perdieron 6 días. En one-shot solo se avisa fuerte.
-  const late = (APPLY || WATCH_SEC) && sink.sinkMode() === 'http';
+  // ⛔⛔ [DB-MEM.19] EL LATIDO NO DEPENDE DE CÓMO SE EMBARCAN LAS FILAS. Acá decía
+  // `&& sink.sinkMode() === 'http'`, y eso tuvo sentido UN día: `[OBS.1]` (3375d0d7, 02-sep) lo
+  // escribió cuando estos carriles shipeaban por http, así que atarlo al sink era equivalente a
+  // "siempre". `[VL.11]` los pasó a escribir DIRECTO a `pg-prod` (`FEEDS_SINK=pg`) y con eso
+  // APAGÓ EN SILENCIO el latido que OBS.1 acababa de instalar — sin tocar este archivo.
+  //
+  // Medido el 2026-09-23, y no es teórico: `ods_live_hot` llevaba 22.9 h sin escribir su renglón
+  // (umbral 20 min), `health-lane.sh` lo leía vencido, y `autoheal` reinició los dos carriles
+  // **39 veces en un día**, cada 5 minutos, para siempre. Nadie más escribe esa llave (verificado
+  // por grep). Y el renglón viejo se queda con su `status='ok'`, así que el tablero no grita:
+  // es EXACTAMENTE el falso verde que la Fase OBS existe para eliminar, reintroducido por la
+  // mudanza. `latir()` abre su propio Client contra `ODS_HB_URL` (prod) — no toca el sink ni lo
+  // necesita; ya se protege sola con `if (!HB_URL) return`.
+  //
+  // ⚠️ El one-shot exige llave EXPLÍCITA: `HB_KEY` cae por defecto a `ods_live_hot`/`ods_live_mirror`,
+  // así que una corrida manual `--apply` sin `ODS_HB_KEY` pisaría el renglón del contenedor. Un
+  // carril = UN dueño (ops/README §3.2). En `--watch` (los contenedores supervisados) es obligatorio.
+  const late = WATCH_SEC > 0 || (APPLY && !!process.env.ODS_HB_KEY);
   if (late && !HB_URL) {
     const msg = 'falta ODS_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril.';
     if (WATCH_SEC) { console.error(`✖ ${msg}\n  El ecosystem la pasa explícita. Abortando.`); process.exit(1); }
