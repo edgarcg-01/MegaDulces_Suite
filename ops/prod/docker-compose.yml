@@ -148,6 +148,34 @@ services:
       - "shared_preload_libraries=pg_stat_statements"
       - "-c"
       - "timezone=America/Mexico_City"
+      # ═══ [DB-MEM.18] LO QUE ESTUVO LENTO TIENE QUE QUEDAR ESCRITO ═══
+      # Medido el 2026-09-23: `log_min_duration_statement` estaba en -1 y `track_io_timing` en
+      # off, o sea que en esta instancia **ninguna consulta lenta dejaba rastro**. La más cara del
+      # sistema corría 45 s de promedio y la única forma de verla era tener un `psql` abierto en
+      # el momento exacto. Un tablero que no puede decir QUÉ estuvo lento obliga a re-medir a mano
+      # cada vez, que es justo lo que pasó con `[VL.11.E]`.
+      #   · 1000 ms = el gate del propio proyecto (">1 s de carga = no funciona"), no un número suelto.
+      #   · log_temp_files=0 registra TODO derrame: se midieron 892 archivos / 17 GB y no se sabe de quién.
+      #   · log_lock_waits porque ya hubo un incidente de cola FIFO (`README.md:255-259`) donde un
+      #     `REFRESH` frenó un `ALTER TABLE` y ése frenó a todo lo que venía detrás.
+      #
+      # ⛔⛔ TRAMPA MEDIDA HOY, vale para TODO este bloque `command`: la LÍNEA DE COMANDOS GANA
+      # sobre `ALTER SYSTEM`. Se comprobó poniendo `ALTER SYSTEM SET work_mem` al mismo valor y
+      # `pg_settings.source` siguió diciendo `command line`. O sea que **afinar `pg-prod` con
+      # `ALTER SYSTEM` no hace nada, EN SILENCIO, para cualquier parámetro declarado acá**: el
+      # comando responde `ALTER SYSTEM`, el reload devuelve `t`, y el valor no se mueve. Este
+      # archivo es el único lever. (Los 4 de abajo se aplicaron además con `ALTER SYSTEM` para que
+      # tomaran efecto sin reiniciar; al próximo reinicio manda esta línea, con el mismo valor.)
+      # ⚠️ Y una recarga se verifica en una sesión NUEVA: `pg_reload_conf()` manda la señal, pero
+      # el backend que la disparó todavía contesta con el valor viejo.
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "track_io_timing=on"
+      - "-c"
+      - "log_temp_files=0"
+      - "-c"
+      - "log_lock_waits=on"
       # ⭐ TLS. NO es paranoia de red — es que LA APP LO EXIGE.
       # Medido el 2026-09-22 al levantar el stack contra la copia: `GET /api/sucursales` daba
       # `500: The server does not support SSL connections`, y `pg-boss` arrancaba inerte por lo
