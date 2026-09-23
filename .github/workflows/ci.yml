@@ -247,7 +247,11 @@ jobs:
           # Se cuenta sin quitar los códigos de color: el paréntesis no los lleva adentro.
           ERR=$(grep -oE '\([0-9]+ errors?,' lint-debt.log | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
           WARN=$(grep -oE '[0-9]+ warnings?\)' lint-debt.log | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
-          PROJ=$(grep -cE '[0-9]+ problems \([0-9]+ error' lint-debt.log)
+          # ⚠️ `|| true`: `grep -c` sale con 1 cuando NO encuentra nada, y con `set -e`
+          # eso mata el paso justo en el caso «sin hallazgos» — o sea que el estado que
+          # más importa declarar era el único que no se alcanzaba a imprimir. Medido en
+          # la corrida 35911764690: el paso murió acá y NO publicó ninguna anotación.
+          PROJ=$(grep -cE '[0-9]+ problems \([0-9]+ error' lint-debt.log || true)
           if [ "$PROJ" -eq 0 ]; then
             # ⚠️ Cero proyectos CON hallazgos no es lo mismo que cero proyectos MIRADOS.
             if grep -q 'Successfully ran target lint' lint-debt.log; then
