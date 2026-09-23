@@ -5,6 +5,50 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-23 — `[WMS-REC.12→14]` Rediseño del Andén: una sola pasada por caja
+
+**Disparador:** *"quiero que me muestres un re-diseño en donde todo sea más óptimo"* → el Andén. Después, dos correcciones del negocio sobre la marcha: *"también pueden cambiar de ubicación los productos… referido al rack"* y *"cuando le vayan a dar caducidad a una mercancía, buscá si ya tiene ubicación; si no, para que cree una"*.
+
+### Lo que el flujo anterior hacía mal (leído en el código, no supuesto)
+
+| # | Hallazgo | Por qué duele |
+|---|---|---|
+| 1 | Dos secciones recorridas **enteras**: fechar los 30 renglones, después acomodar los 30 lotes | La misma caja se toca dos veces. El orden tiene una razón real —un lote no existe hasta que se fecha— pero es de **datos**, no de bodega |
+| 2 | El congelamiento por inventario físico se descubría **al guardar** | El operario capturaba lote, fecha y cantidad, apretaba, y recién ahí el 409. Una vez por renglón |
+| 3 | El avance sólo contaba el fechado | Se llegaba a "✓ Todo fechado" con lotes en el piso sin rack, y la pantalla no lo decía |
+| 4 | El botón de cerrar se ofrecía siempre | El backend contesta 409 si quedan pendientes: un botón que falla |
+| 5 | **`commercial.stock_lot_locations` tenía UN SOLO escritor y sólo sumaba** | Un lote quedaba clavado en su rack para siempre; un rack que el sistema creía lleno rechazaba mercancía nueva; y un rack usado no se podía borrar nunca |
+
+El 5 lo destapó el comentario del negocio sobre cambiar de rack — no estaba en mi diagnóstico inicial.
+
+### Las decisiones, y la que corregí
+
+La decisión de qué hacer después de cada guardado se extrajo a **`anden-flujo.ts`**, puro y sin Angular; antes vivía repartida entre `siguienteFechar()`, `siguienteUbicar()` y dos `@switch` de plantilla, y por eso no se podía probar.
+
+**R2 se escribió mal la primera vez y el negocio la corrigió.** Yo propuse ofrecer acomodar *sólo cuando el rack ya se conocía*, con el argumento de que con el camión descargando caminar a decidir un rack nuevo se paga caro. Ese argumento era **mío, no medido**. Pesa más lo otro: un lote que cae a la cola sin rack es mercancía que nadie encuentra, y `warehouse_bins` arrancó en cero — **crear la ubicación es el camino normal, no la excepción**. Ahora al fechar se resuelve siempre, y cuando no hay rack el panel ofrece crearlo.
+
+**Mover sí respeta el congelamiento; fechar no debería.** No es una preferencia: `inventory_count_items` tiene una fila **por SKU**, sin lote ni ubicación, así que fechar —que sólo reparte el mismo total entre el lote `NA` y uno fechado— **no puede alterar lo que el conteo mide**. Mover, en cambio, mueve la caja, y el conteo se organiza recorriendo ubicaciones. Queda declarado en los dos lados.
+
+### Verificación
+
+- **47 candados nuevos**: 22 de `anden-flujo`, 13 de `mover-lote`, 12 de `http-motivo` (que no tenía ninguno, siendo justamente lo que hace diagnosticable una falla).
+- **Prueba negativa en los tres bloques**: se rompieron a propósito R1 y R2 (3 tests en rojo), el mismo-rack y el tope de cantidad del movimiento, y el 500 volviendo a escupir *"Internal server error"*. Un candado que nunca se vio fallar no prueba nada.
+- Smoke `http-bin-locations-test` **32/32** contra API y DB reales, con las negativas del mismo rack, destino inexistente y mover de más.
+- Suite `almacen` **161/161**; suite `view` **700 pasan / 7 fallan**, las 7 de `landing-guards.spec` (SN.4) medidas idénticas en `origin/main` limpio.
+- Builds api + view verdes · `check:templates` 334/334 · `lint:boundary` verde · eslint 0 errores.
+
+### Lo que el smoke encontró y el build no podía ver
+
+Al vaciar un rack con un movimiento, la fila queda en 0 y la FK `ON DELETE RESTRICT` hacía que borrar el bin reventara con `23503` → **500 pelado**. Antes no pasaba porque nada podía bajar una fila a cero: `putAway` sólo sumaba. `deleteBin` ahora limpia las filas en cero en la misma transacción — ya probó que ninguna tiene cantidad.
+
+### Pendiente
+
+- **Validación visual en un handheld real con pistola.** Compila y los tests pasan, pero en esta misma fase ya hubo dos defectos que sólo se vieron corriendo.
+- Decisión abierta: en "crear ubicación", hoy el sistema **propone** el código (`R-12` de tipo + número) y deja de proponerlo cuando la persona lo escribe. Falta confirmar si se prefiere que siempre lo teclee el operario leyendo el rack.
+- Maqueta del proceso y de las 9 pantallas, para revisar el diseño antes de tocar más UI.
+
+---
+
 ## 2026-09-22 — `[WMS-REC.11]` Ubicaciones: por qué fallaba el alta, y el rack que ya se puede escanear
 
 **Disparador:** *"al crearle una ubicación me arroja que no se puede crear… además genera un código de barras propio para el rack, en donde los escaneamos y nos muestre el catálogo que tiene ese rack"*.
