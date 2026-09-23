@@ -1,4 +1,4 @@
-import { veredictoSinLatido } from './db-health.service';
+import { veredictoRetirada, veredictoSinLatido } from './db-health.service';
 
 /**
  * `[DBH.5]` — **Un job declarado que nunca reportó no puede leerse como sano.**
@@ -47,5 +47,56 @@ describe('[DBH.5] veredictoSinLatido', () => {
     // acá. Un rojo por eso enseñaría a ignorar el tablero; el warn se apaga solo con el primer
     // latido.
     expect(veredictoSinLatido({ cadence: 'cada 30 min' }).status).not.toBe('critical');
+  });
+});
+
+/**
+ * `[VL.14]` **Una sonda RETIRADA calla — salvo que su fuente reviva.**
+ *
+ * Nace de un incidente medido el 2026-09-23: las cinco sondas de Wincaja llevaban días en
+ * `critical` vigilando un sistema apagado el 2026-09-19, y ese ruido tapó DOS fallas reales del
+ * mismo día (el respaldo volcando la base vieja y `caja-general-ship` perdiendo dato de prod).
+ *
+ * ⚠️ El riesgo de retirar es el opuesto: quedarse ciego. Por eso el caso que MÁS importa acá es el
+ * tercero — si la fuente vuelve a escribir después del corte, la sonda tiene que gritar. Sin esa
+ * rama, "retirar" sería un `catch` vacío con nombre elegante.
+ */
+describe('[VL.14] veredictoRetirada', () => {
+  it('una sonda NO retirada devuelve null — manda classify(), no esto', () => {
+    expect(veredictoRetirada({}, new Date('2026-09-01'))).toBeNull();
+    expect(veredictoRetirada(undefined, new Date('2026-09-01'))).toBeNull();
+  });
+
+  it('retirada y sin datos nuevos: sale de la alarma con el motivo a la vista', () => {
+    const v = veredictoRetirada(
+      { retiredOn: '2026-09-19', retiredWhy: 'Morelia migró a Kepler' },
+      new Date('2026-09-18T20:00:00-06:00'),
+    );
+    // `unknown` y no `ok`: de un sistema apagado no hay frescura que juzgar. Y el escáner
+    // excluye `unknown` de las alertas a propósito — por eso este valor exacto importa.
+    expect(v?.status).toBe('unknown');
+    expect(v?.note).toContain('2026-09-19');
+    expect(v?.note).toContain('Morelia migró a Kepler');
+  });
+
+  it('⭐ LA PRUEBA NEGATIVA: si la fuente revive después del corte, vuelve a alarmar', () => {
+    const v = veredictoRetirada(
+      { retiredOn: '2026-09-19', retiredWhy: 'Wincaja se apagó' },
+      new Date('2026-09-22T10:00:00-06:00'),
+    );
+    expect(v?.status).toBe('warn');
+    expect(v?.note).toContain('VOLVIÓ');
+  });
+
+  it('un dato del MISMO día del corte no cuenta como resurrección', () => {
+    // El apagón ocurre en algún momento de ese día; lo escrito antes del cierre es el último
+    // suspiro, no una reactivación. Sin esta tolerancia, retirar cualquier cosa daría `warn`
+    // el mismo día y la compuerta nacería gritando.
+    const v = veredictoRetirada({ retiredOn: '2026-09-19' }, new Date('2026-09-19T18:30:00-06:00'));
+    expect(v?.status).toBe('unknown');
+  });
+
+  it('sin motivo escrito lo DECLARA, no lo inventa', () => {
+    expect(veredictoRetirada({ retiredOn: '2026-09-19' }, null)?.note).toContain('sin motivo escrito');
   });
 });
