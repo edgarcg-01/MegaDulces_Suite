@@ -131,6 +131,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     return fixture;
   }
 
+  // localStorage persiste entre pruebas en jsdom: un borrador de la prueba anterior haria
+  // pasar (o fallar) a la siguiente por el motivo equivocado.
+  beforeEach(() => { try { localStorage.clear(); } catch { /* sin storage */ } });
   afterEach(() => TestBed.resetTestingModule());
 
   // ── 1 · El defecto que rompía la pantalla ────────────────────────────────────────────────
@@ -367,6 +370,102 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(body['origen_ref']).toBe(GASTO_TRABADO.origen_ref);
     // Sin esto el servidor relee el importe del ERP y lo contado no llega al libro.
     expect(body['monto_contado']).toBe(1100);
+  });
+
+  // ── 9 · PERSISTENCIA: lo tecleado sobrevive a un F5 ──────────────────────────────────────
+  //
+  // Punto 2 de la revisión de Edgar. Medido antes: la pantalla NO persistía nada — `contado` y
+  // `seleccion` eran señales en memoria, así que un refresh borraba todo. Con hasta 100 filas
+  // por pantalla y 12,207 pendientes, eso es mucho conteo tirado por una tecla.
+
+  it('lo contado sobrevive a remontar la pantalla', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+
+    // Se tira el componente y se vuelve a entrar, como un F5.
+    TestBed.resetTestingModule();
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(1100);
+    expect(comp.restaurado()?.conteos).toBe(1);
+  });
+
+  it('NO revive un conteo cuya fila ya no está pendiente — y lo dice', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+
+    // Otra persona lo confirmó: al volver, esa fila ya no está en la bandeja.
+    TestBed.resetTestingModule();
+    montar({ movimientosPendientes: vi.fn(() => of(VACIA)) });
+
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
+    expect(comp.marcadas()).toEqual([]);
+    expect(comp.restaurado()?.descartados).toBe(1);
+  });
+
+  it('la clave lleva el USUARIO: en un navegador compartido no se cruzan los conteos', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+
+    // Entra otro cajero en el MISMO navegador.
+    TestBed.resetTestingModule();
+    svc = {
+      cobertura: vi.fn(() => of(COBERTURA)), libro: vi.fn(() => of(LIBRO)), saldo: vi.fn(() => of(SALDO)),
+      cortes: vi.fn(() => of({ rows: [] })), cajas: vi.fn(() => of({ rows: CAJAS, ventana_dias: 1 })),
+      movimientosPendientes: vi.fn(() => of(CON_GASTO)), frecuentes: vi.fn(() => of({ rows: [FRECUENTE] })),
+      autofill: vi.fn(() => of({ concepto: null, provenance: null })), conceptos: vi.fn(() => of({ rows: [] })),
+      crear: vi.fn(() => of({ id: 'm1' })),
+      confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
+    };
+    TestBed.configureTestingModule({
+      imports: [FinanzasCajaGeneralComponent],
+      providers: [
+        provideZonelessChangeDetection(), provideRouter([]),
+        { provide: CashLedgerService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ sub: 'OTRO-CAJERO' }) } },
+      ],
+    });
+    const f2 = TestBed.createComponent(FinanzasCajaGeneralComponent);
+    f2.detectChanges();
+
+    // Un conteo ajeno firmado con tu nombre no es un bug de comodidad.
+    expect(f2.componentInstance.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
+    expect(f2.componentInstance.restaurado()).toBe(null);
+  });
+
+  it('confirmar el lote retira el borrador (ya está en el libro)', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+    comp.marcar(GASTO_TRABADO.origen_ref, true);
+    comp.confirmarLote();
+
+    TestBed.resetTestingModule();
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
+  });
+
+  it('un localStorage que revienta NO tumba la bandeja', () => {
+    const real = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => { throw new Error('QuotaExceeded'); };
+    try {
+      montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+      // El borrador es una red, no una dependencia: contar tiene que seguir funcionando.
+      expect(() => comp.setContado(GASTO_TRABADO.origen_ref, 1100)).not.toThrow();
+      expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(1100);
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+  });
+
+  it('descartar el borrador deja la bandeja limpia', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.setContado(GASTO_TRABADO.origen_ref, 1100);
+    comp.descartarBorrador();
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
+
+    TestBed.resetTestingModule();
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    expect(comp.contadoDe(GASTO_TRABADO.origen_ref)).toBe(null);
   });
 
   it('sin documento anclado no viaja monto_contado (no hay contra qué contar)', () => {

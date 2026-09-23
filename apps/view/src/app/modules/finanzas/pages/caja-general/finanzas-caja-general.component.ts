@@ -19,6 +19,7 @@ import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { CajaBorradorService } from './caja-borrador.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
@@ -288,6 +289,17 @@ interface FormularioCajaUI {
         @if (resultado(); as r) {
           <p-message [severity]="r.rechazados || r.no_confirmables ? 'warn' : 'success'"
                      class="cg-full">{{ textoResultado(r) }}</p-message>
+        }
+
+        <!-- Lo tecleado que sobrevivio a un refresh. Se DICE que se restauro y se puede tirar: un
+             conteo que reaparece sin avisar es un conteo que nadie recuerda haber hecho. -->
+        @if (restaurado(); as b) {
+          <p-message [severity]="b.conteos ? 'info' : 'warn'" class="cg-full">
+            {{ textoRestaurado(b) }}
+            @if (b.conteos) {
+              <button type="button" class="cg-chip" (click)="descartarBorrador()">Descartar</button>
+            }
+          </p-message>
         }
 
         <app-load-state [loading]="cargandoPend()" [error]="errPend()"
@@ -753,6 +765,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   private svc = inject(CashLedgerService);
   private auth = inject(AuthService);
   private toast = inject(MessageService);
+  private borrador = inject(CajaBorradorService);
 
   readonly money = money;
   readonly dmy = dmy;
@@ -1475,6 +1488,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
         this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
         this.errPend.set(null);
         this.cargandoPend.set(false);
+        // Lo tecleado que sobrevivio a un refresh. Va DESPUES de tener las filas: sin ellas no
+        // se puede saber que conteos siguen aplicando.
+        this.restaurarBorrador();
       },
       // Un error de red NO es "no hay movimientos". Antes esto sólo apagaba la bandera, y en la
       // PRIMERA carga —con la lista vacía— la sección entera no se montaba: sin aviso y sin
@@ -1497,6 +1513,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     const s = new Set(this.seleccion());
     if (on) s.add(ref); else s.delete(ref);
     this.seleccion.set(s);
+    this.persistir();
   }
 
   /** Marca sólo las CONFIRMABLES: ofrecer marcar una trabada es prometer algo que va a fallar. */
@@ -1504,9 +1521,86 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     this.seleccion.set(on
       ? new Set(this.pendientes().filter((p) => p.confirmable).map((p) => p.origen_ref))
       : new Set());
+    this.persistir();
   }
 
   contadoDe(ref: string): number | null { return this.contado().get(ref) ?? null; }
+
+  /** Usuario para la clave del borrador. Sin él no se persiste: un conteo ajeno es peor que ninguno. */
+  private get usuarioBorrador(): string {
+    return String(this.auth.user()?.sub ?? '');
+  }
+
+  /** Se restaura UNA vez por visita: después, mandar lo que la persona tiene en pantalla. */
+  private borradorRestaurado = false;
+  /** Lo que se recuperó de un borrador, para poder DECIRLO. `null` = no había nada. */
+  restaurado = signal<{ conteos: number; descartados: number; hace: string } | null>(null);
+
+  /**
+   * Recupera lo tecleado que sobrevivió a un refresh.
+   *
+   * ⚠️ Sólo se restaura lo que SIGUE pendiente. Un conteo cuya fila ya no está en la bandeja es
+   * casi siempre un movimiento que otra persona confirmó mientras tanto; revivirlo en silencio
+   * lo mandaría al lote para que el servidor lo rechace, o peor, lo aplicaría con un importe que
+   * ya nadie está mirando. Lo que se descarta se DICE, no desaparece.
+   */
+  private restaurarBorrador(): void {
+    if (this.borradorRestaurado) return;
+    this.borradorRestaurado = true;
+    const b = this.borrador.leer(this.usuarioBorrador);
+    if (!b) return;
+
+    const vivos = new Set(this.pendientes().map((p) => p.origen_ref));
+    const m = new Map<string, number | null>();
+    let descartados = 0;
+    for (const [ref, v] of b.contado) {
+      if (vivos.has(ref)) m.set(ref, v); else descartados++;
+    }
+    const s = new Set(b.marcadas.filter((r) => vivos.has(r)));
+    // ⚠️ Acá había un `return` temprano cuando no quedaba nada que restaurar, y se comía el aviso
+    // justo en el caso donde más importa: la persona contó, se fue, alguien confirmó, y al volver
+    // su conteo ya no está. Callarse eso le deja creer que nunca lo tecleó. Lo encontró la prueba.
+    if (!m.size && !s.size && !descartados) { this.borrador.borrar(this.usuarioBorrador); return; }
+    if (!m.size && !s.size) this.borrador.borrar(this.usuarioBorrador);
+
+    this.contado.set(m);
+    this.seleccion.set(s);
+    const min = Math.max(0, Math.floor((Date.now() - b.guardadoEn) / 60000));
+    this.restaurado.set({
+      conteos: m.size,
+      descartados,
+      hace: min < 2 ? 'recién' : min < 60 ? `hace ${min} min` : `hace ${Math.floor(min / 60)} h`,
+    });
+  }
+
+  /**
+   * Qué pasó con lo que estaba tecleado. Los dos casos se leen distinto a propósito:
+   * recuperar es una buena noticia; que un conteo tuyo ya no aplique es un aviso.
+   */
+  textoRestaurado(b: { conteos: number; descartados: number; hace: string }): string {
+    const n = (k: number, s: string) => `${k} ${s}${k === 1 ? '' : 's'}`;
+    if (!b.conteos) {
+      return `Tenías ${n(b.descartados, 'conteo')} sin confirmar (${b.hace}) y ya no aplican: `
+        + 'esos movimientos salieron de la bandeja, casi siempre porque alguien más los confirmó.';
+    }
+    const base = `Se recuperaron ${n(b.conteos, 'conteo')} que tenías sin confirmar (${b.hace}).`;
+    return b.descartados
+      ? `${base} Otros ${n(b.descartados, 'conteo')} ya no aplican: esos movimientos salieron de la bandeja.`
+      : base;
+  }
+
+  /** Tirar el borrador a propósito. Lo tecleado es de la persona: se descarta cuando ella quiere. */
+  descartarBorrador(): void {
+    this.contado.set(new Map());
+    this.seleccion.set(new Set());
+    this.borrador.borrar(this.usuarioBorrador);
+    this.restaurado.set(null);
+  }
+
+  /** Persiste lo tecleado. Se llama en CADA cambio: perder el conteo es el defecto que esto arregla. */
+  private persistir(): void {
+    this.borrador.guardar(this.usuarioBorrador, this.contado(), this.seleccion());
+  }
 
   setContado(ref: string, v: number | null): void {
     const m = new Map(this.contado());
@@ -1518,6 +1612,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
     // en una fila trabada se usa al abrirla con «Capturar».
     const fila = this.pendientes().find((p) => p.origen_ref === ref);
     if (m.has(ref) && fila?.confirmable) this.marcar(ref, true);
+    this.persistir();
   }
 
   confirmarLote(): void {
@@ -1531,6 +1626,9 @@ export class FinanzasCajaGeneralComponent implements OnInit {
           this.confirmando.set(false);
           this.seleccion.set(new Set());
           this.contado.set(new Map());
+          // Lo confirmado ya esta en el libro: el borrador cumplio y se retira.
+          this.borrador.borrar(this.usuarioBorrador);
+          this.restaurado.set(null);
           if (r.guardados) this.avisarOk(`${r.guardados} confirmadas`, money(r.monto_guardado));
           if (r.rechazados) this.toast.add({
             severity: 'warn', summary: `${r.rechazados} rechazadas`,
