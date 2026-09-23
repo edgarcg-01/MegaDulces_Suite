@@ -1,44 +1,49 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_CONNECTION, soloConcedidos } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  autenticarYFirmar,
+  resolverTenantDeUsuario,
+} from '@megadulces/platform-core';
 import { Knex } from 'knex';
-import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
 
 /**
- * El JWT carga:
- *   - Identidad estable (sub, username, role_name, zona) — usada por el
- *     backend para identificar al usuario.
- *   - `permissions` — usado SOLO por el frontend para gating de UI (el backend relee de DB)
- *     (esconder/mostrar menús). El backend las IGNORA: el `RolesGuard` lee
- *     permisos frescos de `role_permissions` en cada request (via cache TTL
- *     30s + invalidación en update). Así los cambios de permisos se aplican
- *     al instante para autorización aunque la UI tarde hasta el próximo
- *     login en reflejarlos.
+ * Puerta de login **legacy** (`POST /auth/login`): sin `tenant_slug`.
  *
- * Por qué siguen en el JWT (y no solo en el response): cuando el usuario
- * recarga la página, el frontend restaura sesión desde la cookie. Sin
- * `permissions` en el JWT, la UI se quedaría sin menú hasta hacer una request
- * adicional a /auth/me. Mantenerlas en el JWT es un hint de UI cómodo,
- * no una source-of-truth de seguridad.
+ * ── `[ID.37]` Qué cambió acá y por qué ───────────────────────────────────────
+ * Este servicio tenía su PROPIA versión de qué es una sesión válida, y estaba
+ * atrasada respecto de `/auth-mt/login`. Medido, no le aplicaba **ninguno** de
+ * estos cinco frenos/reglas que la puerta principal sí aplica:
  *
- * `[ID.29]` — pero viajan **sólo las claves concedidas**. El mapa que guarda
- * `/admin/roles` trae las 175 del enum, la mayoría en `false`, y eso iba en el
- * header `Authorization` de cada request: `almacenista`, con DOS permisos,
- * cargaba 7,746 B de los 8,192 que nginx acepta por default. Los `false` no
- * los mira ningún consumidor (`soloConcedidos` lo documenta con la medición).
+ *   1. `kind = 'servicio'` → sin acceso interactivo (`[ID.17]`).
+ *   2. `expires_at` vencido → la cuenta dejó de existir para acceder (`[ID.13]`).
+ *   3. `identity.user_roles` → la unión con los roles complementarios (`[ID.13]`).
+ *   4. `identity.user_permissions` → los overrides de la persona (`[ID.21]`).
+ *   5. `token_ttl_days` → la vida del token que declara la cuenta (`[CH.1.3]`).
+ *
+ * Los puntos 3 y 4 no eran un agujero de autorización —`RolesGuard` relee los
+ * permisos de la DB en cada request, el token no autoriza— pero sí dejaban a la
+ * UI con un menú distinto según por qué puerta hubieras entrado. Los puntos 1, 2
+ * y 5 sí eran compuertas ausentes. Hoy no hay daño vivo (**0 usuarios con
+ * `expires_at`** en prod y la única cuenta de servicio no tiene hash bcrypt
+ * válido), pero eso es suerte de datos, no una compuerta.
+ *
+ * Ahora las dos puertas llaman a `autenticarYFirmar`, así que la regla es una
+ * sola y se cambia en un solo lugar.
+ *
+ * ── Por qué esta puerta sigue abierta ────────────────────────────────────────
+ * Porque `apps/vendor` es una app **Capacitor instalada en teléfonos** y su
+ * `AuthService` todavía trae el método que pega acá: un APK viejo en el campo no
+ * se entera de un cambio de endpoint. Las pantallas de login de las tres apps ya
+ * usan `loginMt` — los únicos consumidores nuestros que quedan son dos importers
+ * de finanzas y dos scripts de verificación. Se retira cuando el APK del campo
+ * esté confirmado; hasta entonces se deja medida: cada uso queda logueado.
  */
-interface JwtPayload {
-  sub: string;
-  username: string;
-  zona: string;
-  role_name: string;
-  tenant_id?: string;
-  permissions?: Record<string, boolean>;
-}
-
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly jwtService: JwtService,
@@ -46,60 +51,29 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const { username, password } = loginDto;
-    const normalizedUsername = username?.toLowerCase().trim();
 
-    const user = await this.knex('users as u')
-      .leftJoin('zones as z', 'u.zona_id', 'z.id')
-      .where({ 'u.username': normalizedUsername, 'u.activo': true })
-      .select('u.*', 'z.name as zona')
-      .first();
-
-    if (!user) {
+    // El cliente legacy no manda tenant. Se deduce (ver `resolverTenantDeUsuario`:
+    // por username único, y si no, el único tenant activo). Sin decisión posible
+    // → el mismo mensaje genérico de siempre, sin revelar qué tenants existen.
+    const tenant = await resolverTenantDeUsuario(this.knex, username);
+    if (!tenant) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // `[ID.31]` Sin hash no hay con qué comparar, y `bcrypt.compare(x, null)`
-    // **LANZA** → 500 en vez de 401. Desde esta etapa `password_hash` es
-    // nullable (una cuenta `invited` es un estado legítimo), así que el guard va
-    // antes. Mismo mensaje genérico: no se revela qué cuentas están invitadas.
-    const isPasswordValid = !!user.password_hash && (await bcrypt.compare(password, user.password_hash));
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
+    const sesion = await autenticarYFirmar(
+      { knex: this.knex, jwt: this.jwtService },
+      tenant,
+      { username, password },
+    );
 
-    // Obtener los permisos del rol del usuario
-    // Case-insensitive: users.role_name puede diferir en mayúsculas de
-    // role_permissions.role_name (data legacy) → match exacto daba 0 permisos.
-    const rolePermissions = await this.knex('role_permissions')
-        .whereRaw('LOWER(role_name) = ?', [String(user.role_name ?? '').toLowerCase()])
-        .first();
+    // Deprecación MEDIDA, no anunciada: sin esto, el día que haya que retirar la
+    // puerta nadie va a poder decir quién la estaba usando (ADR-056 — lo que no
+    // se mide se declara, no se supone).
+    this.logger.warn(
+      `[ID.37] Login por la puerta legacy /auth/login (usuario "${sesion.user['username']}"). ` +
+        `La puerta vigente es /auth-mt/login con tenant_slug.`,
+    );
 
-    // `[ID.29]` Sólo las claves CONCEDIDAS. `/admin/roles` guarda el JSONB
-    // completo (175 claves, la mayoría en `false`) y ese mapa viaja en el
-    // header de cada request. El helper vive en `libs/` y no copiado acá
-    // porque hay DOS caminos de login que arman el payload.
-    const permissions = soloConcedidos(rolePermissions ? rolePermissions.permissions : {});
-
-    const payload: JwtPayload = {
-      sub: user.id,
-      username: user.username,
-      zona: user.zona,
-      role_name: user.role_name,
-      tenant_id: user.tenant_id,
-      // Snapshot para UI gating (no para autorización backend).
-      permissions: permissions,
-    };
-
-    return {
-      access_token: await this.jwtService.signAsync(payload),
-      user: {
-        id: user.id,
-        username: user.username,
-        nombre: user.nombre,
-        zona: user.zona,
-        role_name: user.role_name,
-        permissions: permissions,
-      },
-    };
+    return sesion;
   }
 }

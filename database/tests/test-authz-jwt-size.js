@@ -62,14 +62,28 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url').length;
     console.log('\n[1] El filtro está en los DOS caminos de login');
     // Hay dos: `/auth/login` (legacy) y `/auth-mt/login`. Que uno lo tenga y el
     // otro no es peor que no tenerlo: el peso vuelve por la puerta que nadie mira.
+    //
+    // `[ID.37]` Desde que la regla de login es UNA (`autenticarYFirmar` en
+    // `login-core.ts`), preguntarle a cada puerta si contiene `soloConcedidos(`
+    // mediría dónde está escrito el texto, no qué hace la puerta. El invariante
+    // que de verdad hay que sostener es más fuerte y más simple: **las dos
+    // delegan en el mismo núcleo, y ninguna arma su propio payload**. Si mañana
+    // una vuelve a firmar por su cuenta, esto se pone rojo.
     const LOGINS = [
       'apps/api/src/modules/auth/auth.service.ts',
       'apps/api/src/modules/auth-mt/auth-mt.service.ts',
     ];
     for (const f of LOGINS) {
       const src = fs.readFileSync(path.join(REPO, f), 'utf8');
-      check(/soloConcedidos\s*\(/.test(src), `${f.split('/').pop()} filtra con soloConcedidos()`);
+      check(/autenticarYFirmar\s*\(/.test(src), `${f.split('/').pop()} delega en el núcleo de login`);
+      check(
+        !/signAsync\s*\(/.test(src),
+        `${f.split('/').pop()} NO firma por su cuenta (si firma, puede saltearse el filtro)`,
+      );
     }
+    const NUCLEO = 'libs/platform-core/src/lib/auth/login-core.ts';
+    const nucleoSrc = fs.readFileSync(path.join(REPO, NUCLEO), 'utf8');
+    check(/soloConcedidos\s*\(/.test(nucleoSrc), 'el núcleo filtra con soloConcedidos()');
     // Y que el primitivo viva en libs/, no copiado (ADR-056).
     const helper = 'libs/platform-core/src/lib/ability/granted-permissions.ts';
     check(fs.existsSync(path.join(REPO, helper)), `el primitivo vive en ${helper}, no copiado en cada login`);

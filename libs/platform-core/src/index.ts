@@ -41,6 +41,9 @@ export * from './lib/auth/jwt-auth.guard';
 export * from './lib/auth/public.decorator';
 export * from './lib/auth/jwt-secret';
 export * from './lib/auth/token-ttl';
+// `[ID.37]` LA regla de login, una sola para las dos puertas (`/auth/login` y
+// `/auth-mt/login`). Vive en libs porque copiada en dos servicios se desincronizó.
+export * from './lib/auth/login-core';
 
 // ── guards ──
 export * from './lib/guards/require-auth.guard';
