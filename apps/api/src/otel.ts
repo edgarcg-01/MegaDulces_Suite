@@ -15,7 +15,7 @@
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
-// `[VL.10.C]` Archivo local sin importaciones — mismo motivo que en `instrument.ts`.
+// `[VL.11.C]` Archivo local sin importaciones — mismo motivo que en `instrument.ts`.
 import { commitDelBuild } from './build-info';
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
