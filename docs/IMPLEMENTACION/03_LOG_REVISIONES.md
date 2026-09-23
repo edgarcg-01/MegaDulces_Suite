@@ -45,6 +45,67 @@ El censo de cobertura del **2026-09-14** clasificaba `kdcrm*` y `kdv*` como *"fe
 1. **Medir prod** (`kdudp`, `U-D-35` y los catálogos `kdv*` en el `kepler_ods` de Railway): el mirror de dev está 13 días atrás, así que no dice si el carril de catálogos ya los trae.
 2. **Sumar `kdvcontactos`** a la replicación.
 3. Abrir la fase del **CRM de la Suite** (prospectos + cotizaciones) sobre vistas `derive-no-copy`.
+## 2026-09-22 — `[COT.1]` El motor de precio de cotizaciones: el vendedor deja de poder inventar descuentos
+
+**Disparador:** *"directo al motor, hoy operado por humano y posteriormente por IA agent"*, después de que Dirección fijara las cinco decisiones de la ruta (`FASE_COT` §5).
+
+### La regla de negocio, y lo que simplificó
+
+*"Sólo lo autorizado: descuento del cliente, descuento por volumen, promociones por descuento en compra de piezas, descuento por monto por artículo, y productos gratis por piezas o por monto — son la estructura de descuentos autorizados por el ERP."*
+
+Eso **borró un flujo entero**. La ruta planteaba *"¿quién autoriza cotizar bajo margen?"* con umbral, bandeja y aprobación calcando `[TP.6]`. No hace falta: si el descuento no es una facultad discrecional sino una derivación de reglas que ya viven en el ERP, alcanza con **un candado y un cálculo auditable**.
+
+### Lo medido antes de escribir código
+
+| Qué | Resultado |
+|---|---|
+| ¿Sirve `analytics.erp_promotions`? | **No para cotizar**: filtra `sucursal = '03'` hardcodeada (y el tenant). Se dejó intacta —tiene sus consumidores— y se construyó otra |
+| ¿Y `v_label_promotions`? | Resuelve bien el caso difícil (vigencia, tienda, **presentación**, `pct` verificado 113 vs 2) pero cubre **1 de los 4** mecanismos. Se **calcó su técnica** y se extendió |
+| Decode de los 4 `kdpv_*` | `c1`=tienda (⚠️ **no** la rama del ODS) · `c2`=SKU · `c3`=unidad · `c5`=umbral (cantidad o monto) · `c6`=**% en `descu*`, SKU regalado en `gratis*`** · `c7/c8`=vigencia · `c11/c12`=cantidad y unidad del regalo. Verificado con filas reales, no por analogía |
+| Descuento del cliente | `kdud.c17`, **text**, 449 de 8,286 filas, rango 0–5 (%). C1086: 3% en la sucursal 01 y **nada** en las otras cinco |
+| Precio base | `analytics.v_label_prices` ya trae la escalera completa (base/pack/box + el volumen de `kdpv_prod_util`) con la misma lógica que la etiqueta de anaquel |
+
+### ⭐ El hallazgo que decidió la arquitectura
+
+`ERP_KEPLER.md` §3.1 ya tenía medido que **el descuento de una venta son DOS capas que conviven**: la de precio vive en el renglón (`kdm2.c66`) y la del documento en la cabecera (`kdm1.c13/c19`), y **de 609 facturas sólo 172 cuadran entre una y otra**.
+
+Por eso el descuento del cliente **no toca `unit_price`**: entra en `recalcTotals`, sobre el subtotal. Componerlos en el renglón habría dado un precio unitario que el ERP nunca cobró. El smoke afirma **las dos mitades** — el unitario no lo trae, el total sí — así que si alguien "simplifica", se pone rojo.
+
+### Lo construido
+
+`analytics.v_erp_discount_rules` (mig `20260923140000`): los 4 mecanismos, **todas las tiendas**, con unidad resuelta contra la escalera del producto, dedupe por `DISTINCT ON` y `saldo_estado` publicado, no filtrado. Medido al correr: **392 reglas vigentes en 4 tiendas**, **79** apuntando a una presentación que el producto no tiene, **0** duplicados emitidos.
+
+`QuotePricingService` + 3 endpoints (`price-preview`, `POST :id/lines`, `DELETE :id/lines/:lineId`). Ninguno acepta precio ni descuento del request — y ése es el mismo contrato que va a consumir el agente de COT.8.
+
+`price_source` ganó `promo_qty` y `promo_amount` (mig `20260923150000`, aditiva): `volume_qty` es **otro precio** por volumen, `promo_qty` es un **% con vigencia**. Fundirlos haría imposible contestar *"¿se abarató porque compró más, o porque había una promo que ya venció?"* — que es justo la pregunta al recotizar.
+
+### Lo que el motor DECLARA en vez de inventar
+
+- `descuento_monto` y `gratis_monto` **no se aplican**: su umbral **no tiene testigo** (cero reglas vigentes con qué cuadrarlo contra una venta). Se reportan en `not_applied` con el motivo.
+- Sin precio → `unit_price` **NULL, nunca 0** (ADR-056), con `unpriced_reason`.
+- IVA al 16 % asumido, con `tax_basis` que lo dice: el IEPS por producto todavía no tiene resolvedor.
+- La disponibilidad del renglón todavía no consulta existencia.
+
+### ⛔ Dos defectos que el build no vio y el API real sí
+
+1. **`catalog.products` no tiene columna `name`** (es `nombre`) → `42703`.
+2. **`price_source` tiene vocabulario cerrado por CHECK** → el motor inventó `lista_base` / `promo_cantidad` y murió con `23514`.
+
+*Compilar no es funcionar: TypeScript no valida el nombre de una columna ni el dominio de un CHECK.* Es la misma lección de `[CV.7]` (los bindings de `knex.raw`) y la razón de ADR-044.
+
+Y una tercera, del propio test: con el 500 de fondo, la aserción *"el precio ignora lo que mandó el cliente"* salió **verde comparando `undefined` contra `undefined`**. Ahora exige que el precio exista. **Una aserción que no dice contra qué comparó puede pasar sin medir nada.**
+
+### Verificación
+
+`database/tests/http-quote-pricing-test.js` — **38 ✓ / 0 ✗** contra el ERP real, con rol mínimo (`telemarketing`) y su prueba negativa (`almacenista` → 403 en los 3 endpoints). No se probó con admin a propósito: god-mode los pinta verdes. Registrado en la regresión (`needsApi: true`).
+
+⚠️ **Las cifras del precio no están quemadas en el test**: cada aserción compara contra lo que `v_label_prices` dice en ese momento. Si mañana cambia el precio, el test sigue siendo cierto.
+
+### Pendiente
+
+1. **Aplicar las 2 migraciones a prod** + redeploy. Sin re-login: no hay permisos nuevos.
+2. **Validación visual**: la pantalla todavía no consume `price-preview` — hoy el motor sólo existe por API.
+3. COT.0 (el prospecto como destinatario) y COT.5 (re-precio por versión), que son los que siguen.
 
 ---
 

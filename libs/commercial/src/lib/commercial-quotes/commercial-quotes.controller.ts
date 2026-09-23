@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
@@ -8,6 +8,13 @@ import {
   WholesaleCustomerRow,
   CreatedQuote,
 } from './commercial-quotes.service';
+import {
+  QuotePricingService,
+  PricedLine,
+  Rung,
+  AddLineResult,
+  RemoveLineResult,
+} from './quote-pricing.service';
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -22,7 +29,10 @@ import {
 @UseGuards(RolesGuard)
 @Controller('commercial/quotes')
 export class CommercialQuotesController {
-  constructor(private readonly service: CommercialQuotesService) {}
+  constructor(
+    private readonly service: CommercialQuotesService,
+    private readonly pricing: QuotePricingService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
@@ -119,5 +129,48 @@ export class CommercialQuotesController {
   })
   cancel(@Param('id') id: string, @Body() body: { reason: string }) {
     return this.service.cancel(id, body?.reason);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  // `[COT.1]` El motor de precio
+  //
+  // ⛔ Ninguno de estos endpoints acepta un precio ni un descuento del request. El cliente dice
+  // QUÉ y CUÁNTO; el precio lo deriva el servidor de los mecanismos que el ERP autoriza. Un
+  // `unit_price` en el body sería la puerta trasera para regalar margen sin que nadie lo vea.
+  // Y es lo que deja el módulo listo para que mañana lo opere un agente: la misma llamada.
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+
+  @Post('price-preview')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      'Cotiza un renglón SIN guardarlo: devuelve el precio y el desglose completo de cómo se llegó a él (lista → volumen → promo), más lo que NO se aplicó y por qué. Es lo que la pantalla usa para mostrar el precio antes de agregar, y lo que consumirá el agente.',
+  })
+  pricePreview(
+    @Body() body: { branch: string; sku: string; quantity: number; rung?: Rung },
+  ): Promise<PricedLine> {
+    return this.pricing.previewLine(body);
+  }
+
+  @Post(':id/lines')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Agrega un renglón a una cotización en borrador. El precio lo calcula el servidor. Si el ERP regala producto por esa cantidad, nace también el renglón hijo a precio cero. Un SKU que no casa con el catálogo se guarda como texto: es demanda que estamos rechazando, no basura.',
+  })
+  addLine(
+    @Param('id') id: string,
+    @Body() body: { sku?: string; requested_text?: string; quantity: number; rung?: Rung },
+  ): Promise<AddLineResult> {
+    return this.pricing.addLine(id, body);
+  }
+
+  @Delete(':id/lines/:lineId')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary: 'Quita un renglón de una cotización en borrador. Se lleva a sus renglones de regalo.',
+  })
+  removeLine(@Param('id') id: string, @Param('lineId') lineId: string): Promise<RemoveLineResult> {
+    return this.pricing.removeLine(id, lineId);
   }
 }
