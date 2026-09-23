@@ -84,6 +84,35 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase SB — El corte Wincaja→Kepler como DATO, no como literal · 2026-09-23 · ADR-056
+
+Disparado por *"en /comercial/salidas al imprimir no sale Morelia Abastos"*. Medido en prod: la
+sucursal `08` **no existía en `analytics.mv_sales_blended` en ninguna fecha, por ninguna de sus dos
+piernas** — y esa matvista es de donde la pantalla saca el scope de sucursales en modo rango.
+**$1,636,170.10** de venta Kepler descartada (19–21 sep) y creciendo, más todo el histórico Wincaja
+de Madero `32`. El corte vivía copiado en **TRES** lugares y los tres divergieron; ningún gate lo
+vio (lo destapó un usuario). Detalle en [`03_LOG_REVISIONES`](03_LOG_REVISIONES.md#2026-09-23).
+
+- [x] **[SB.1]** 🧪 `wincaja.branches.kepler_cutover_date` + resolvedor `analytics.v_branch_erp_cutover`
+      + `v_sellout_daily` y `mv_sales_blended` leen el resolvedor por `EXISTS` (mig `20260923120000`).
+      La fecha se **declara**, no se deriva de `last_movement_date`: medido, en PH el corte va 4 días
+      después del primer día Kepler y en Piedad las piernas se traslapan 9 meses.
+      Antes/después en transacción con ROLLBACK contra prod: 7 sucursales con conteos **idénticos**
+      + la `08` con sus 5,725 filas. Ningún corte se movió.
+- [x] **[SB.2]** 🧪 Candado `test-newdb-branch-cutover.js` en la suite: *"toda sucursal Kepler que
+      VENDE tiene corte declarado"* (la prueba que habría gritado el 09-18) + prueba negativa del
+      literal **con control positivo del propio detector** + traslape y hueco por corte + el fact
+      contiene cada sucursal declarada. Verificado en rojo contra prod antes de la migración.
+- [x] **[SB.3]** 🧪 `test-newdb-sellout-parity.js` deja de comparar literales de migraciones
+      históricas cuando el resolvedor existe → `NO MEDIDO` + delega. *Un candado que sobrevive al
+      cambio que lo volvió obsoleto es un verde que no mide nada.*
+- [ ] **[SB.4]** ⬜ **Aplicar a prod** — recrea la matvista + `REFRESH` pesado ⇒ **fuera de horario
+      hábil**. Sin esto `/comercial/salidas` sigue sin Morelia Abastos. Después: redeploy.
+- [ ] **[SB.5]** ⬜ ⚠️ **Dos huecos DECLARADOS, sin dueño** (mover un corte = cambio de alcance, va
+      en su propio commit con antes/después): rama `30` el **2026-09-18** ($418,721.65 en Wincaja,
+      excluido por `< 09-18`, Kepler arranca el 19) y rama `10` del **2026-06-27 al 06-30**
+      ($916,629.73 en Kepler, excluido por `>= 07-01`). Quedan en el `COMMENT` de la columna.
+
 ### Fase TDA.A — Análisis de ventas de tienda: cuatro secciones y una cascada · 2026-09-19
 
 Pedido de Dirección sobre `/tienda/analisis-semanal`: partir el análisis en **cuatro secciones**
