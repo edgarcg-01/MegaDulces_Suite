@@ -1104,6 +1104,55 @@ rehízo contra `/`, que es estático.
 orden importaba —primero el certificado— porque con HSTS encendido apuntar la oficina a `md`
 sin certificado da un error que no se puede saltar. Ese riesgo ya no existe.
 
+#### ⭐⭐ Y después del sondeo: hay un camino que NO toca la red
+
+Antes de pedirle 8 cambios al grupo de redes se sondearon las alternativas. Resultado:
+**existe una forma más simple y está probada**.
+
+`interno.megadulcessuite.com` es un registro **A público** que apunta a **`192.168.0.222`**,
+una IP privada. Suena raro y es perfectamente válido: el DNS público devuelve el número, y
+sólo lo puede *usar* quien esté adentro de la red.
+
+**El riesgo era la protección anti-rebinding** —muchos routers descartan respuestas con
+direcciones privadas—, así que se preguntó **a cada router de plaza**:
+
+| Router | Respuesta | Plaza |
+|---|---|---|
+| `192.168.0.254` · `.42.1` · `.40.1` · `.44.1` · `.54.1` · `.50.1` · `.32.1` · `.30.1` | **`192.168.0.222`** los 8 | oficinas + las 7 plazas |
+
+**Ninguno filtra.** Y verificado de punta a punta desde una máquina de oficina, **sin una sola
+entrada estática**: DNS → `192.168.0.222` · HTTPS **200** con certificado público válido ·
+**TTFB 16 ms** · la API responde.
+
+⭐ De paso resuelve el hueco de **CEDIS (`.9`) y Padre Hidalgo (`.10`)**, cuyos gateways ni
+siquiera se pudieron ubicar: no hace falta ubicarlos.
+
+##### Las dos opciones, con lo que cada una cuesta
+
+| | `interno.` (registro público) | Entradas estáticas por router |
+|---|---|---|
+| Cambios de red | **ninguno** | 3 líneas × 8 routers |
+| Cubre CEDIS y Padre Hidalgo | **sí** | hay que ubicar su gateway primero |
+| Misma URL adentro y afuera | no — son dos nombres | **sí** |
+| Una laptop que sale de la oficina | ese nombre deja de servirle | **sigue funcionando** |
+| ⭐ **Si se cae internet** | deja de resolver al vencer el TTL | **la app interna sigue viva** |
+| Publica una IP privada en DNS público | sí (RFC1918 — riesgo bajo, molesta a auditorías) | no |
+
+⚠️ **El renglón de la caída de internet es el que decide, y no es obvio.** Hoy, con todo
+pasando por el túnel, una caída de internet **ya deja la app inaccesible para todos**. El
+registro público **no empeora eso**. Las entradas estáticas sí lo **mejoran**: con el enlace
+caído, la app —que vive en el mismo edificio— seguiría funcionando adentro.
+
+⇒ **Recomendación**: usar `interno.` **ya**, que desbloquea `[VL.11.B]` hoy y sin depender de
+nadie; y dejar las entradas de router como mejora **posterior y opcional**, que compra la
+misma URL en los dos lados y sobrevivir a una caída del enlace. No son excluyentes.
+
+⚠️ **Nota operativa del terminador**: cambiar el `Caddyfile` **no** recrea el contenedor —es
+un montaje, así que Compose no ve cambio de configuración— y `caddy reload` tampoco sirve
+porque la API de administración está **apagada** a propósito. Para que tome un nombre nuevo:
+`docker restart prod-caddy`. Es el costo aceptado de no dejar abierta una API que puede
+recargar la configuración entera.
+
 #### ⛔ Corrección al diseño: el DNS partido va POR PLAZA, no una vez
 
 El diseño original hablaba de *"la entrada del MikroTik"*, en singular. **Está mal**, y lo

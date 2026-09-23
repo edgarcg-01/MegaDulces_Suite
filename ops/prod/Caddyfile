@@ -53,6 +53,26 @@ megadulcessuite.com {
 	reverse_proxy api:10000
 }
 
+# ⭐ [VL.11.A2] El nombre que NO necesita tocar un solo router.
+#
+# `interno.megadulcessuite.com` tiene un registro A **público** que apunta a 192.168.0.222
+# (una IP privada). Suena raro y es completamente válido: el DNS público devuelve el número,
+# y sólo lo puede USAR quien esté adentro de la red.
+#
+# Sondeado el 2026-09-23 preguntándole a CADA router de plaza: los **8** devuelven
+# `192.168.0.222` sin filtrar — o sea que ninguno tiene protección anti-rebinding activa.
+# ⇒ Funciona en oficinas y en las 9 plazas **sin una sola entrada estática**, incluidas CEDIS
+# y Padre Hidalgo, cuyos gateways ni siquiera pudimos ubicar.
+#
+# ⚠️ Lo que NO reemplaza: este nombre sólo sirve ADENTRO. Una laptop que se va de la oficina
+# deja de resolverlo a algo alcanzable. Por eso es el nombre de las MÁQUINAS (los agentes de
+# las cajas, que nunca salen), no el de las personas. Para que la gente use la MISMA URL
+# adentro y afuera siguen haciendo falta las entradas estáticas en los routers.
+interno.megadulcessuite.com {
+	import tls-dns-cloudflare
+	reverse_proxy api:10000
+}
+
 portal.megadulcessuite.com {
 	import tls-dns-cloudflare
 	reverse_proxy portal:10000
