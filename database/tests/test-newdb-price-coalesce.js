@@ -122,7 +122,15 @@ const vencer = (st) => { st.ultimoVaciado = 0; };
   }
 
   // ── 5. El presupuesto acota el ciclo; lo que sobra ESPERA (no se tira) ──
-  console.log('\n5) El presupuesto acota el gasto por ciclo, y el sobrante NO se pierde');
+  //
+  // ⛔ ESTE BLOQUE AFIRMABA LO CONTRARIO Y ESTABA MAL. La primera versión reiniciaba el reloj
+  // SÓLO al vaciar del todo ("si quedó algo, seguí"), y el test lo daba por bueno. Se midió en
+  // prod a los 20 minutos de desplegarlo: `vaciarCoalescidos` se llama una vez por (rama, tabla)
+  // —hasta ~170 veces por ciclo— así que con rezago el presupuesto NO acotaba NADA; se gastaba
+  // entero en cada llamada (`20948ms · quedan 3682`, `20619ms · quedan 3582`, seguidas).
+  // Un presupuesto que sólo limita UNA llamada, en un lazo que llama muchas veces, no es un
+  // presupuesto. El reloj se reinicia SIEMPRE, y eso es lo que se prueba acá.
+  console.log('\n5) El presupuesto acota el gasto POR VENTANA (no por llamada), y el sobrante NO se pierde');
   {
     const c = cargar({ ODS_PRICE_COALESCE_SEC: 300, ODS_PRICE_COALESCE_CHUNK: 1, ODS_PRICE_COALESCE_BUDGET_MS: 1000 });
     c.pendientes.clear();
@@ -131,12 +139,19 @@ const vencer = (st) => { st.ultimoVaciado = 0; };
     const st = c.pendientes.get('kdm2:normalizeSalePrice');
     vencer(st);
     await c.vaciarCoalescidos({}, 'tnt');
-    chk(lotes.length > 0 && lotes.length < 8, 'se cortó por presupuesto antes de procesar los 8',
-      `lotes=${lotes.length}`);
-    chk(st.skus.size === 8 - lotes.length, 'el resto quedó en la bolsa para la próxima ventana',
-      `quedan=${st.skus.size} procesados=${lotes.length}`);
-    chk(st.ultimoVaciado === 0, 'NEGATIVA: con sobrante el reloj NO se reinicia (sigue en el ciclo próximo)',
+    const tras1 = lotes.length;
+    chk(tras1 > 0 && tras1 < 8, 'se cortó por presupuesto antes de procesar los 8', `lotes=${tras1}`);
+    chk(st.skus.size === 8 - tras1, 'el resto quedó en la bolsa para la próxima ventana',
+      `quedan=${st.skus.size} procesados=${tras1}`);
+    chk(st.ultimoVaciado > 0, 'el reloj SÍ se reinicia aunque haya sobrante (así el gasto queda acotado)',
       `ultimoVaciado=${st.ultimoVaciado}`);
+    // ⭐ La negativa que prueba que el presupuesto es REAL: una segunda llamada dentro de la misma
+    // ventana no puede gastar otro presupuesto entero. Sin esto, el defecto medido en prod pasaba
+    // el test sin despeinarse.
+    await c.vaciarCoalescidos({}, 'tnt');
+    chk(lotes.length === tras1,
+      'NEGATIVA: una 2ª llamada DENTRO de la ventana no procesa nada más (el lazo llama ~170 veces por ciclo)',
+      `antes=${tras1} después=${lotes.length}`);
   }
 
   // ── 6. ⭐ LA QUE MÁS IMPORTA: un lote que falla DEVUELVE sus SKUs ──
