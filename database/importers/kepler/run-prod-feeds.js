@@ -54,9 +54,51 @@ const STEPS = {
   // (consolidado local, que ya incluye las camionetas ruta_NN vía el push) → NO
   // toca las 6 sucursales, así que es barato para correr seguido.
   live: [
-    path.join(K, 'import-sales-fact.js'),  // mart.ventas_enriched → analytics.sales_daily (Command Center)
+    // ─── [NORM.3] `import-sales-fact.js` SALIÓ DE ACÁ. No se silenció una alarma: se quitó
+    // TRABAJO DUPLICADO, y de paso se corrigió una regresión que entró con la mudanza al VPS.
+    //
+    // 1. DUPLICACIÓN. `livefast` corre este MISMO importer cada 60 s (abajo). Este carril lo
+    //    repetía cada 30 min, o sea 30 veces menos seguido sobre el mismo destino.
+    //
+    // 2. LA REGRESIÓN. Cuatro fuentes independientes dicen que el carril `live` debe pasar
+    //    `SALES_FACT_DAYS=2`: `install-live-task.ps1` ("el env lo setea run-feeds.cmd cuando el
+    //    modo es live"), `orchestrator/schedules.js:26`, `Jenkinsfile.feeds:88` y el encabezado
+    //    del propio importer ("Default = 13 meses (nightly, refresco completo); el feed LIVE pasa
+    //    SALES_FACT_DAYS=N"). [VL.4] mudó el carril de `run-feeds.cmd` —que seteaba el env POR
+    //    MODO— a `crontab.feeds` + `run-feed.sh`, que carga un `feeds.env` PLANO sin env por
+    //    carril. La variable se perdió en la mudanza y nadie lo notó.
+    //    Verificado en `md` el 2026-09-23: `feeds-cron` la tiene VACÍA, `feeds-livefast` la tiene
+    //    en "2" → desde el 11-sep este carril re-derivaba **13 MESES cada 30 minutos**.
+    //
+    // 3. EL COSTO, MEDIDO en `kepler_consolidado`: la ventana de 13 meses son **845,233** filas
+    //    de origen contra **23,334** de la de 2 días = **36×**. Son DOS agregados sobre
+    //    `mart.ventas_enriched` (uno de unidades, otro de folios), traídos a Node y subidos a una
+    //    temp de prod en lotes de 2,000 (~423 viajes) — 48 veces al día.
+    //    ⚠️ Pasó desapercibido JUSTAMENTE por el VPS: prod y el consolidado ahora viven en la
+    //    misma caja, así que esos 845k viajan por loopback. Contra Railway habría dolido el día 1.
+    //
+    // 4. LO QUE SE PIERDE, DECLARADO: el refresco completo es el único que toca filas de más de
+    //    2 días. Medido sobre 8 días en prod, su régimen normal son **98–852 filas/día
+    //    ($12k–$86k)**, con picos de re-derivación masiva (45,573 filas / $9.5 M el 17-sep) cuando
+    //    cambia un insumo (markup, escalera de unidad). Eso ahora llega con el nocturno, o sea
+    //    hasta 24 h después en vez de hasta 30 min. Es el contrato que el código ya declaraba.
+    //    ⛔ Depende de que `feed_nightly` corra: el 23-sep NO corrió (ver más abajo).
+    //
+    // 5. Y ES LA CAUSA DE LOS ERRORES FALSOS: dos emisores sobre la llave `kepler_sales_fact`
+    //    (cuya PK es `(tenant_id, job_key)`, sin host) se pisaban el renglón. `hb.begin()` cierra
+    //    como ERROR toda corrida que encuentre en `running` — así que cada cruce fabricaba un
+    //    "la corrida anterior no reportó cierre". Medido: **304 de 6,296 corridas en 7 días
+    //    (4.8 %)**, 16× más que la siguiente llave. Alarma inventada y, a la vez, un `live` muerto
+    //    se habría visto verde porque `livefast` repintaba la llave 30 veces por medio.
+    //
+    // ⛔ `import-cash-sessions.js` salió por lo mismo: `livefast` ya lo corre cada 60 s, sin
+    //    ventana ni argumento que los distinga. Era la misma corrida, 30 veces menos seguido.
+    //
+    // Lo que queda acá son los DOS pasos que sólo este carril hace, y ambos leen `sales_daily`,
+    // que `livefast` mantiene a 60 s — o sea MÁS fresco de lo que este carril se daba a sí mismo.
     path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
-    path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking) — tras sales-fact
+    // [NORM.3] decía "— tras sales-fact" y ya no lo es: el fact lo mantiene `livefast` a 60 s.
+    path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking)
     // [DB-MEM.10] `import-replenishment-plan.js` SE RETIRÓ DE ACÁ (sigue en `stock` y `nightly`).
     //
     // Es la consulta #1 de toda la base: `CREATE TEMP TABLE stg_rplan` mide **157 s por corrida**
@@ -77,7 +119,10 @@ const STEPS = {
     // ⚠️ El rezago que esto introduce está ACOTADO A 5 MINUTOS, no a 30: `stock` corre a los
     // 5,20,35,50 y `live` a los 0,30 — o sea que después de cada `live` hay un `stock` cinco
     // minutos más tarde que vuelve a computar el plan con la demanda nueva.
-    path.join(K, 'import-cash-sessions.js'), // SM.10 — cajas ABIERTAS ahora (kp.kdpv_folio_caja, source=kp por default) → /tienda/cajas
+    //
+    // [NORM.3] `import-cash-sessions.js` SE RETIRÓ de acá — ver el bloque de arriba: `livefast`
+    // lo corre cada 60 s con exactamente los mismos argumentos y el mismo entorno (verificado en
+    // `md`: ninguna de las variables propias de `feeds-livefast` la lee este script).
   ],
   // LIVEFAST (loop continuo ~60s): la capa COCINADA display-crítica al momento — venta del día
   // (sales_daily → Command Center) + cajas abiertas (/tienda). Subset barato del 'live': lee el
@@ -460,7 +505,9 @@ function sweepStaleOrphans(steps) {
     const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
     const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
       '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
-      { encoding: 'utf8', timeout: 30000 });
+      // windowsHide: el default de Node es FALSE y esto abriría una consola en el escritorio
+      // cada vez que el orquestador arranca. Mismo criterio que `lib/access-adapter.js`.
+      { encoding: 'utf8', timeout: 30000, windowsHide: true });
     const out = (r.stdout || '').trim();
     if (out) console.log('🧹 huérfanos previos:\n   ' + out.replace(/\n/g, '\n   '));
   } catch (e) { console.error('sweep huérfanos (no fatal): ' + e.message.slice(0, 100)); }

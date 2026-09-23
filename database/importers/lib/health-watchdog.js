@@ -42,13 +42,29 @@ const DB_URL = process.env.WATCHDOG_DB_URL || process.env.DATABASE_URL_NEW;
 const WEBHOOK = process.env.WATCHDOG_WEBHOOK_URL || null;
 
 // Jobs vigilados. `canary` = si ÉSTE está stale, el scanner del API está caído.
+//
+// ⛔ [NORM.3] DEUDA DECLARADA: esta lista es un SEGUNDO REGISTRO de umbrales, hecho a mano, que
+// duplica el `CRON_JOBS` de `apps/api/src/modules/db-health/db-health.service.ts`. Dos registros
+// de la misma verdad divergen, y ya divergieron: al retirar las llaves zombi de Wincaja (commit
+// `a583cc0a`) se sacaron de `CRON_JOBS` y se borraron sus filas de `analytics.cron_runs`, pero
+// acá quedaron — así que este vigilante venía reportando `2/6 con falla` de forma permanente
+// (medido en `md` el 2026-09-23: "✗ wincaja_live sin dato · ✗ wincaja_sync sin dato"). Una alarma
+// de respaldo que grita siempre no es respaldo de nada. El arreglo de fondo es que las dos lean
+// UNA fuente compartida; mientras tanto, tocar una obliga a tocar la otra en el MISMO commit.
 const JOBS = [
   { key: 'db_health_scan',    label: 'Scanner Salud BD (API)',       maxMin: 30, canary: true },
   { key: 'analytics_refresh', label: 'Refresh MVs analytics (API)',  maxMin: 60 },
   { key: 'kepler_stock',      label: 'Kepler stock vivo',            maxMin: 30 },
-  { key: 'wincaja_live',      label: 'Wincaja live (exist+ventas+mov)', maxMin: 45 },
-  { key: 'kepler_sales_fact', label: 'Kepler ventas (sales-fact)',   maxMin: 90 },
-  { key: 'wincaja_sync',      label: 'Wincaja sync diario',          maxMin: 30 * 60 },
+  // [NORM.3] 15 min y no 90: la llave dejó de tener dos emisores y ahora la escribe SÓLO el
+  // carril `livefast`, que cicla cada 60 s — 90 min era 90× su cadencia. 15 min sigue siendo
+  // holgado para un vigilante de respaldo y detecta una parada real dentro del cuarto de hora.
+  { key: 'kepler_sales_fact', label: 'Kepler ventas (sales-fact, 2d)', maxMin: 15 },
+  // El refresco COMPLETO de 13 meses, que hace el nocturno con llave propia desde [NORM.3].
+  { key: 'kepler_sales_fact_full', label: 'Kepler ventas (COMPLETO 13m)', maxMin: 30 * 60 },
+  // ⛔ `wincaja_live` y `wincaja_sync` SALIERON acá junto con `CRON_JOBS` (ver la nota de arriba).
+  //   No es que dejen de importar: sus 3 carriles siguen en `.249` esperando la decisión de VL.5,
+  //   y se verificó en la máquina que sus tareas están `Disabled` antes de retirar las llaves.
+  //   Cuando VL.5 los reviva —donde sea que corran—, vuelven acá Y a `CRON_JOBS`, en un commit.
 ];
 
 function postWebhook(text) {

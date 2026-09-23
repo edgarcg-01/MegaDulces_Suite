@@ -44,6 +44,19 @@ const MONTHS = 13;
 // los últimos N días → UPSERT acotado, barato. Los días viejos ya cargados no se tocan.
 const DAYS = process.env.SALES_FACT_DAYS ? parseInt(process.env.SALES_FACT_DAYS, 10) : (WATCH_SEC ? 2 : null);
 const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - interval '${MONTHS} months'`;
+// [NORM.3] LA LLAVE DE LATIDO ES PARAMETRIZABLE — y no es un capricho: este importer lo corren
+// DOS carriles con ventanas distintas (`livefast` @60 s = 2 días · `nightly` @03:00 = 13 meses).
+// La PK de `analytics.cron_runs` es `(tenant_id, job_key)` SIN host, así que dos emisores sobre
+// una sola llave se pisan el renglón y pasan tres cosas, las tres malas:
+//   · `hb.begin()` cierra como ERROR toda corrida que encuentre en `running` → cada cruce fabrica
+//     un "la corrida anterior no reportó cierre". Medido en prod: 304 falsos en 7 días (4.8 %).
+//   · `duration_ms` se calcula `now() - last_start`, y el `last_start` puede ser del OTRO → la
+//     duración publicada no es de nadie.
+//   · el emisor más frecuente repinta la llave en verde y tapa al que murió.
+// Mismo patrón, misma razón, que `CONTPAQI_HB_KEY` (incremental vs reconciliador de CFDIs).
+const HB_KEY = process.env.SALES_FACT_HB_KEY || 'kepler_sales_fact';
+const HB_LABEL = process.env.SALES_FACT_HB_LABEL
+  || `Kepler ventas (sales-fact, ${DAYS ? DAYS + 'd' : MONTHS + 'm'})`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Sub-almacenes de RUTA de PH: Kepler los emite como '01-NNN' (empieza ~2026-06-29),
@@ -260,7 +273,7 @@ async function runCycle(src, db) {
       cycle++;
       if (WATCH_SEC) console.log(`\n──── ciclo ${cycle} @ ${new Date().toLocaleTimeString()} ────`);
       let stat = { status: 'ok', rows: 0 };
-      if (APPLY) await hb.begin('kepler_sales_fact', 'Kepler ventas (sales-fact)').catch(() => {});
+      if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch(() => {});
       try {
         stat = await runCycle(src, db);
       } catch (e) {
@@ -269,7 +282,7 @@ async function runCycle(src, db) {
         stat = { status: 'error', error: e.message };
         if (!WATCH_SEC) process.exitCode = 1;
       }
-      if (APPLY) await hb.end('kepler_sales_fact', stat).catch(() => {});
+      if (APPLY) await hb.end(HB_KEY, stat).catch(() => {});
       if (WATCH_SEC) await sleep(WATCH_SEC * 1000);
     } while (WATCH_SEC);
   } finally {

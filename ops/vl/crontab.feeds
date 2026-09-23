@@ -68,7 +68,14 @@
 25 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
 
 # ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
-0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
+# [NORM.3] `SALES_FACT_HB_KEY` — el nocturno es el ÚNICO que hace el refresco COMPLETO del fact
+# de venta (13 meses; el carril `livefast` hace 2 días cada 60 s), así que late con llave propia.
+# Sin esto los dos escriben `kepler_sales_fact`, cuya PK no incluye el host: se pisan el renglón,
+# `hb.begin()` cierra como ERROR la corrida del otro que encuentra en `running` (304 falsos en 7
+# días, medido) y el emisor de 60 s repinta la llave en verde aunque el nocturno haya muerto.
+# ⚠️ La variable la lee `import-sales-fact.js`; le llega porque `run-prod-feeds.js` lanza sus
+#    pasos con `spawn(..., {stdio})` SIN `env`, o sea que heredan `process.env` (verificado).
+0 3 * * *   /app/ops/vl/run-feed.sh nightly "SALES_FACT_HB_KEY=kepler_sales_fact_full node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
 # [DB-MEM.2] ⭐ RECEIPTS — estaba en "cada minuto" y era el BARRIDO HISTÓRICO, no un feed.
 #
 # Su único paso es `detect-goods-receipt-duplicates.js`, cuyo propio encabezado dice: "en

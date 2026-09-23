@@ -1,5 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+// [NORM.3] Sin `Cron`: este servicio ya no agenda nada. Su último @Cron (`poll`) se retiró
+// porque duplicaba el carril `refresh-consolidado` del cron de feeds — ver la nota sobre el
+// método. Los demás métodos son feeds que se retiraron antes, por la misma razón.
 import { Knex } from 'knex';
 import { KNEX_KEPLER_CONSOLIDADO } from './kepler-consolidado.constants';
 
@@ -40,8 +42,20 @@ export class KeplerConsolidadoService {
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
   ) {}
 
-  // Cada 2 min en el segundo :30 (desfasado para no chocar con otros crons en :00).
-  @Cron('30 */2 * * * *')
+  // RETIRADO 2026-09-23 [NORM.3]: duplicaba exacto el carril `refresh-consolidado` del cron de
+  // feeds (`ops/vl/crontab.feeds`, cada 2 min), que ES el camino de producción — y que existe
+  // JUSTAMENTE porque este @Cron no era confiable (su propio encabezado lo dice: vivía dentro del
+  // `nx serve api` y "si se cerraba esa terminal, el consolidado dejaba de refrescar EN SILENCIO").
+  //
+  // Medido en `md` el 2026-09-23, antes de tocar nada: hoy este @Cron es INERTE por partida doble
+  // — `prod-api` trae `DISABLE_CRONS=true` y `prod-worker` (que sí corre los @Cron) NO tiene
+  // `DATABASE_URL_KEPLER_CONSOLIDADO`, así que cae en el `if (!this.db) return`.
+  //
+  // ⛔ Pero inerte por env que falta NO es lo mismo que retirado: ahora que el consolidado vive en
+  // la MISMA caja que el worker (`pgvector-md:5432`), basta con que alguien agregue esa variable
+  // —que es lo natural— para que dos agendas empiecen a llamar `refresh_si_cambio` sobre la misma
+  // base sin que ninguna sepa de la otra. Es el mismo patrón de "bomba desactivada, no activa" de
+  // [NORM.1]. Se saca el decorador; el método queda invocable a mano y por el endpoint manual.
   async poll(): Promise<void> {
     if (!this.db) return; // env no seteado → inerte
     if (this.running) {
