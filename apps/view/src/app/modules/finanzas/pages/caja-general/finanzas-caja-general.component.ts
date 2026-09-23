@@ -104,8 +104,8 @@ interface FormularioCajaUI {
     .fin-filters { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:1rem 0 .75rem; }
     .fin-filters input, .fin-filters p-select { min-width:11rem; }
 
-    .fin-h2 { font-size:1rem; font-weight:700; margin:1.5rem 0 .5rem; }
-    .fin-dim { color:var(--text-muted); font-size:.78rem; }
+    .fin-h2 { font-size:var(--fs-h3); font-weight:700; margin:1.5rem 0 .5rem; }
+    .fin-dim { color:var(--text-muted); font-size:var(--fs-xs); }
     .fin-empty { text-align:center; color:var(--text-muted); padding:1.25rem 0; }
     /* ⚠️ Acá decía "var(--danger-fg, #b42318)" y --danger-fg NO EXISTE en tokens.css: ganaba
        siempre el hex de fallback, que es un rojo de tema claro. O sea que en modo oscuro un
@@ -117,25 +117,25 @@ interface FormularioCajaUI {
        debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
     .fin-form { display:flex; flex-direction:column; gap:.85rem; }
     .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
-    .fin-row > label { min-width:6.5rem; font-size:.8rem; color:var(--text-muted); }
+    .fin-row > label { min-width:6.5rem; font-size:var(--fs-sm); color:var(--text-muted); }
     .fin-row-col { flex-direction:column; align-items:stretch; gap:.35rem; }
     .fin-row-col > label { min-width:0; }
     .w-full { width:100%; }
 
-    .fin-hint-ok   { color:var(--ok-fg); font-size:.78rem; }
-    .fin-hint-warn { color:var(--warn-fg); font-size:.78rem; }
+    .fin-hint-ok   { color:var(--ok-fg); font-size:var(--fs-xs); }
+    .fin-hint-warn { color:var(--warn-fg); font-size:var(--fs-xs); }
 
     .fin-details { border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.5rem .75rem; }
-    .fin-details > summary { cursor:pointer; font-size:.82rem; }
+    .fin-details > summary { cursor:pointer; font-size:var(--fs-sm); }
 
     /* Reja de denominaciones: fija y ancha para que contar sea teclear en orden, no buscar. */
     .fin-denoms { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr)); gap:.5rem; margin-top:.6rem; }
     .fin-denom { display:flex; align-items:center; justify-content:space-between; gap:.4rem;
                  border:1px solid var(--border-color); border-radius:var(--r-sm,6px); padding:.3rem .5rem; }
-    .fin-denom .mono { font-variant-numeric:tabular-nums; font-size:.8rem; }
+    .fin-denom .mono { font-variant-numeric:tabular-nums; font-size:var(--fs-sm); }
 
     /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
-    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg); font-size:.8rem; }
+    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg); font-size:var(--fs-sm); }
 
     /* CG.20 - la bandeja de entregas. Densa, tipo Operations: la persona la recorre marcando. */
     .cg-bandeja { border:1px solid var(--border-color); border-radius:var(--r-md,8px);
@@ -143,7 +143,7 @@ interface FormularioCajaUI {
     .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
-    .cg-tbl { width:100%; border-collapse:collapse; font-size:.82rem; }
+    .cg-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
     .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
                  border-bottom:1px solid var(--border-color); white-space:nowrap; }
     .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--border-color);
@@ -155,7 +155,7 @@ interface FormularioCajaUI {
     .cg-trabada { opacity:.78; }
     .cg-trabada .fin-hint-warn { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
-    .cg-rezago { margin:.5rem 0 0; font-size:.78rem; }
+    .cg-rezago { margin:.5rem 0 0; font-size:var(--fs-xs); }
     /* El control principal de la bandeja es marcar fila por fila: un checkbox de 13px es el
        objetivo mas chico de la pantalla y el que mas se usa. */
     .cg-check { width:1.05rem; height:1.05rem; cursor:pointer; accent-color:var(--action); }
@@ -170,11 +170,11 @@ interface FormularioCajaUI {
     .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .cg-chip { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
                border:1px solid var(--border-color); border-radius:999px;
-               background:transparent; color:inherit; font:inherit; font-size:.78rem;
+               background:transparent; color:inherit; font:inherit; font-size:var(--fs-xs);
                padding:.3rem .7rem; min-height:2rem; }
     .cg-chip:hover { border-color:var(--action); color:var(--action); }
     .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
-    .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:.72rem; }
+    .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); }
 
     /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
     @media (pointer: coarse) {
@@ -204,7 +204,7 @@ interface FormularioCajaUI {
        Un inline-flex con width:100% ya ocupa todo; un grid tambien. */
     .cg-declara { align-items:flex-start; gap:.6rem; border:1px solid var(--border-color);
                   border-radius:var(--r-sm,6px); padding:.6rem .75rem; cursor:pointer; }
-    .cg-declara span { font-size:.82rem; }
+    .cg-declara span { font-size:var(--fs-sm); }
     .cg-full { width:100%; }
     .cg-sel { min-width:9rem; }
     /* El input interno del autocomplete SI es un descendiente real, y no estira solo. */
