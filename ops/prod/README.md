@@ -50,8 +50,9 @@ Tres consultas activas sobre 8 hilos **no es el problema**. Y el `88.81 %` de ac
 —que para una base de este tamaño es **bajo**— tiene una causa estructural que la mudanza
 **mejora**: en Railway el contenedor de la base tiene un tope de **6 GB**, y bajo un cgroup el
 **page cache cuenta contra ese tope**, así que Postgres termina releyendo del disco lo que creía
-cacheado. En `md` le damos 6 GB de `shared_buffers` **más** el page cache del host, y el compose
-**no le pone `mem_limit` a propósito** (ver el comentario en `x-pg`).
+cacheado. En `md` le damos **12 GB** de `shared_buffers` (6 hasta el 2026-09-23; los subió
+`[VL.11.E]`) **más** el page cache del host, y el compose **no le pone `mem_limit` a propósito**
+(ver el comentario en `x-pg`).
 
 ⚠️ Esto **no prueba** que vaya a ir más rápido — para eso hay que medir la copia con tráfico
 real. Sí dice que el argumento de "no cabe" hay que hacerlo con números, y los que hay hoy no
@@ -236,14 +237,25 @@ psql … -c "SET enable_nestloop = off;" -c "REFRESH MATERIALIZED VIEW analytics
 Son **~140×** en la grande y **>430×** en la chica, con una sola línea de `SET`.
 
 ⚠️ **Esto no es un defecto de la copia: es de prod.** Misma definición, mismas estadísticas, mismo
-plan. Lo que lo mantiene invisible es que `REFRESH` de estas vistas **no aparece en ningún cron ni
-importador** — sólo en migraciones y scripts sueltos. O sea que la próxima migración que cambie una
-de estas definiciones se va a colgar en producción, y nadie lo tiene anotado.
+plan.
+
+> ⛔ **CORREGIDO el 2026-09-23.** Acá decía que *"`REFRESH` de estas vistas **no aparece en ningún
+> cron ni importador** — sólo en migraciones y scripts sueltos"*. **Es falso, y de la forma más
+> cara:** las corre el cron nocturno de
+> [`analytics-refresh.service.ts`](../../libs/commercial/src/lib/commercial-analytics/analytics-refresh.service.ts)
+> — `mv_kepler_sales_daily` en la línea 132 y `mv_kepler_sold_rung` en la 144 — y se comprueba sin
+> leer código, mirando `analytics.cron_runs`: ahí están `analytics_refresh_kepler` y
+> `analytics_refresh_sold_rung` con su umbral registrado. O sea que **el defecto de planificador
+> no espera a una migración futura: ya está agendado todas las noches**, y las dos vistas que
+> tardan `>70 min` contra `9.7 s` corren dentro de un `for` secuencial. `enable_nestloop=off` —la
+> receta medida acá mismo, de 140× y 430×— **no existe en ninguna parte del código** (grep sobre
+> `libs/`, `apps/` y `database/`: cero). Quedó escrita en este README y nunca se cableó donde corre.
 
 ⚠️ **Tres hipótesis se probaron y se cayeron antes de dar con ésta**, y se dejan escritas para que
 nadie las repita: *no* eran estadísticas faltantes (todas las tablas grandes con `reltuples` exacto
-y `analizada = t`), *no* era configuración pobre (la copia tiene **más** que prod: `shared_buffers`
-6 GB vs 1.5, `work_mem` 32 MB vs 16, `maintenance_work_mem` 1 GB vs 256 MB), y *no* eran los índices
+y `analizada = t`), *no* era configuración pobre (la copia tenía **más** que prod: `shared_buffers`
+6 GB vs 1.5, `work_mem` 32 MB vs 16, `maintenance_work_mem` 1 GB vs 256 MB — cifras **de esa
+medición**; hoy son 12 GB / 64 MB / 4 GB), y *no* eran los índices
 que faltaban (los 2 ausentes son parciales sobre `c2='U' AND c3='A'` — abonos — y estas vistas
 filtran por `c3='D'`).
 
@@ -1259,13 +1271,30 @@ secreto compartido en una cabecera: **sin lista blanca de IP, sin mTLS, sin lím
 ### E — no hay escasez de RAM, y eso corrige el plan
 
 `md` tiene **28 GiB** (no los 14 que dice `FASE_VL`), con **20 disponibles**. `pg-prod` ya está
-afinado: 6 GB `shared_buffers`, 14 GB `effective_cache_size`, `random_page_cost` 1.1,
+afinado: **12 GB** `shared_buffers`, **16 GB** `effective_cache_size`, `random_page_cost` 1.1,
 `effective_io_concurrency` 200 — correctos para NVMe. Base de prod: `railway`, **21 GB**.
 
-⚠️ **Lo real y sutil:** hay **dos Postgres en la misma caja y cada uno cree que la caché del
-sistema es suya** — `pgvector-md` usa 14.13 GiB y `pg-prod` declara 14 GB de
-`effective_cache_size`. El planificador de prod puede elegir planes contando con caché que no
-tiene. ⇒ **Medir `pg_statio_user_tables` primero.** Cambiarlo a ojo es adivinar.
+> ⚠️ **Estos dos números decían `6 GB` y `14 GB` hasta el 2026-09-23.** Los subió el commit
+> `106041b3` (`[VL.11.E]`, +10 GB), que tocó **sólo el compose** — y este README, que se declara
+> fuente única en su línea 4, siguió tres días afirmando el presupuesto viejo. Corregido acá y en
+> las líneas 53 y 246. **Un número de configuración citado en prosa caduca en silencio:** si
+> sostiene una decisión, va junto al valor o va en una prueba que se ponga roja.
+
+⚠️ **Lo real y sutil, y ahora peor:** hay **TRES Postgres en la misma caja y cada uno cree que la
+caché del sistema es suya**. Medido el 2026-09-23:
+
+| | `pg-prod` | `pgvector-md` | `pg-rag` | Suma |
+|---|---|---|---|---|
+| `shared_buffers` | 12 GB | 4 GB | 0.5 GB | **16.5 GB de 28.8** |
+| `effective_cache_size` | 16 GB | 9 GB | 1 GB | **26 GB** |
+
+Descontando los 16.5 GB de `shared_buffers` y los ~3 GB de las apps, la caché real del sistema es
+de **~9 GB, no 26**: los tres planificadores están contando con memoria que no existe, y
+`effective_cache_size` es justo el parámetro que los empuja al *nested loop* — el mismo plan que
+en §"defecto de planificador" tarda **>70 min contra 9.7 s**. ⇒ **Medir `pg_statio_user_tables`
+primero**, que es lo que este renglón pide desde que se escribió y sigue sin hacerse. Cambiarlo a
+ojo es adivinar. ⚠️ Y `pg-rag` **no tiene ni una tabla** (0 en las dos bases): reserva memoria y
+`shm` para nada — decidir si se apaga o se le pone destino con fecha.
 
 ---
 
