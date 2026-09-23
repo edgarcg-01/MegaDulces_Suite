@@ -2,8 +2,8 @@
 
 > **Ruta a seguir, no implementación.** Escrita el 2026-09-22 a pedido de Dirección, sobre el
 > cimiento ya construido en `[E.12.0]` y el decode del CRM de Kepler de `[CRM.0]`.
-> Estado: **📋 RUTA CON DECISIONES FIJADAS** (§5, Dirección 2026-09-22) — nada de COT.1 en adelante
-> está construido. Arranque acordado: **COT.0 → COT.1**.
+> Estado: **🧪 COT.1 EN CÓDIGO** (2026-09-22, 38 ✓ / 0 ✗ por HTTP) · decisiones fijadas en §5
+> (Dirección, 2026-09-22). COT.0 y COT.2 en adelante siguen sin construir.
 
 ---
 
@@ -129,7 +129,7 @@ real, con clave, sector, zona, tamaño y el medio por el que llegó.
 
 ---
 
-### COT.1 — El motor de precio ⬜ ⛔ RUTA CRÍTICA
+### COT.1 — El motor de precio 🧪 **EN CÓDIGO (2026-09-22)** · ⛔ era la ruta crítica
 
 Es `[E.12.1]`, y **nada de lo demás sirve sin esto**: un módulo que no sabe poner precio obliga al
 vendedor a hacer justo lo que la fase viene a evitar.
@@ -163,6 +163,38 @@ uno nuevo. ⛔ Y se deriva por vista: nada de importer que materialice precios (
 - Las **cuatro trampas ya medidas** en `FASE_E12` §3.2 siguen en pie: sólo 0.7 % de las reglas
   vigente · el descuento es **por unidad**, no por producto · los centinelas de fecha
   (`1800-01-01` / `2106-02-28`) · y reglas triplicadas que un JOIN sin deduplicar multiplica.
+
+#### Lo construido (2026-09-22) — **38 ✓ / 0 ✗** por HTTP contra el ERP real
+
+| Pieza | Dónde |
+|---|---|
+| `analytics.v_erp_discount_rules` — los 4 `kdpv_*` en una vista `derive-no-copy`, **todas las tiendas**, con unidad, vigencia y dedupe | mig `20260923140000` |
+| `QuotePricingService` — escalera, volumen, promo, regalo y totales | `libs/commercial/.../quote-pricing.service.ts` |
+| `POST /commercial/quotes/price-preview` · `POST /:id/lines` · `DELETE /:id/lines/:lineId` | controller de quotes |
+| `price_source` con dos valores nuevos (`promo_qty`, `promo_amount`) | mig `20260923150000` |
+| Smoke HTTP con rol mínimo y 4 pruebas negativas | `database/tests/http-quote-pricing-test.js`, en la regresión |
+
+**Medido al correrlo:** 392 reglas vigentes en **4 tiendas** · **79** apuntan a una presentación
+que el producto no tiene (no se pueden aplicar, y se declara) · 0 duplicados emitidos.
+
+⭐ **Las dos capas quedaron separadas en código, con prueba**: el renglón lleva la capa de
+precio y el descuento del cliente entra **sólo** en `recalcTotals`, sobre el subtotal. El smoke
+afirma las dos mitades — el `unit_price` NO trae el % del cliente, el total SÍ — así que si
+alguien "simplifica" componiéndolos, se pone rojo.
+
+⚠️ **Tres cosas que el motor DECLARA y no resuelve**, escritas en el propio servicio:
+`descuento_monto` y `gratis_monto` **no se aplican** (su umbral no tiene testigo: cero reglas
+vigentes con qué cuadrarlo) · el IVA va al 16 % asumido con `tax_basis` que lo dice, porque el
+IEPS por producto todavía no tiene resolvedor · la **disponibilidad** del renglón no consulta
+existencia todavía.
+
+⛔ **Dos defectos reales que sólo aparecieron contra el API de verdad**, y que el build había
+dejado pasar: `catalog.products` no tiene columna `name` (es `nombre`) → `42703`; y
+`price_source` tiene **vocabulario cerrado por CHECK** → el motor inventó `lista_base` /
+`promo_cantidad` y murió con `23514`. *Compilar no es funcionar: TypeScript no valida el nombre
+de una columna ni el dominio de un CHECK.* Y el propio smoke enseñó lo suyo: con el 500 de
+fondo, la aserción "el precio ignora lo que mandó el cliente" salió **verde comparando
+`undefined` contra `undefined`** — ahora exige además que el precio exista.
 - Cada renglón declara **`price_source`**: de dónde salió ese precio. Un precio bajo tiene que ser
   *explicable*, no *sospechoso*.
 - ⭐ **Y muestra el margen con el costo arbitrado** (ADR-059/051), no con `cost_base`. Es la defensa
