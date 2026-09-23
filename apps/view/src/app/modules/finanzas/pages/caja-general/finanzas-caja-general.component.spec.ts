@@ -150,6 +150,17 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   beforeEach(() => { try { localStorage.clear(); } catch { /* sin storage */ } });
   afterEach(() => TestBed.resetTestingModule());
 
+  /**
+   * CG.23 — Cuenta efectivo como lo hace la persona: piezas por denominación.
+   *
+   * El monto SALE del conteo, así que una prueba que lo teclee con `setF('monto', …)` o
+   * con `onMonto(…)` arma un formulario que la pantalla real **ya no puede producir** — y se
+   * pondría verde sobre un estado inexistente. Todas las pruebas de acá cuentan.
+   */
+  const contar = (piezas: Record<number, number>): void => {
+    for (const [den, n] of Object.entries(piezas)) comp.setPiezas(Number(den), n);
+  };
+
   // ── 1 · El defecto que rompía la pantalla ────────────────────────────────────────────────
 
   it('Guardar se HABILITA cuando el formulario queda completo (rojo con el computed congelado)', () => {
@@ -163,9 +174,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
-    comp.setF('monto', 1500);
+    contar({ 500: 3 });
 
     expect(comp.bloqueos()).toEqual([]);
+    // El monto no se tecleó: salió del conteo.
+    expect(comp.f().monto).toBe(1500);
   });
 
   it('y al vaciar un campo vuelve a bloquear (no es que quedó abierto para siempre)', () => {
@@ -174,11 +187,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
-    comp.setF('monto', 1500);
+    contar({ 500: 3 });
     expect(comp.bloqueos()).toEqual([]);
 
-    comp.setF('monto', null);
-    expect(comp.bloqueos()).toContain('monto_invalido');
+    // Deshacer el conteo devuelve el monto a cero y vuelve a frenar.
+    contar({ 500: 0 });
+    expect(comp.f().monto).toBe(0);
+    expect(comp.bloqueos()).toContain('falta_desglose');
   });
 
   // ── 2 · La bandeja no se desmonta ────────────────────────────────────────────────────────
@@ -335,7 +350,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.marcadas()).toEqual([]);
   });
 
-  it('«Capturar» abre el diálogo ANCLADO al documento y con lo contado puesto', () => {
+  it('«Capturar» abre el diálogo ANCLADO al documento, y el importe NACE EN CERO', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     comp.setContado(GASTO_TRABADO.origen_ref, 1100);
     comp.capturarDesde(GASTO_TRABADO);
@@ -343,27 +358,39 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.capturaAbierta()).toBe(true);
     expect(comp.cobroElegido()?.origen_ref).toBe(GASTO_TRABADO.origen_ref);
     expect(comp.f().tipo).toBe('gasto');
-    // Manda lo contado, no lo que dice el ERP: nunca se rechaza efectivo.
+    expect(comp.f().sucursal).toBe('00');
+
+    // CG.23 — Esta prueba decía "y con lo contado puesto" (monto 1100). Ahora el monto SALE del
+    // desglose, y antes de contar el desglose está vacío: heredar una cifra que nadie contó es
+    // exactamente lo que el arqueo obligatorio elimina.
+    expect(comp.f().monto).toBe(0);
+    expect(comp.montoContado()).toBe(null);
+    // Pero el total tecleado en la bandeja NO se tira: queda a la vista para desglosarlo.
+    expect(comp.contadoBandeja()).toBe(1100);
+    expect(comp.bloqueos()).toContain('falta_desglose');
+  });
+
+  it('sin conteo, el importe NO lo hereda del documento: hay que contar', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    // Antes esto esperaba 1060 (el importe del ERP). Dar por bueno el importe del documento
+    // vuelve el arqueo un trámite: se guardaba la cifra de Kepler sin haber contado nada.
+    expect(comp.f().monto).toBe(0);
+    expect(comp.montoContado()).toBe(null);
+    expect(comp.contadoBandeja()).toBe(null);
+  });
+
+  it('contar distinto del documento ES un arqueo; contar lo mismo deja de serlo', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);     // el documento dice 1060
+
+    contar({ 500: 2, 100: 1 });            // 1100
     expect(comp.f().monto).toBe(1100);
     expect(comp.montoContado()).toBe(1100);
-    expect(comp.f().sucursal).toBe('00');
-  });
 
-  it('sin conteo, el importe lo pone el documento y NO se marca como arqueo', () => {
-    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
-    comp.capturarDesde(GASTO_TRABADO);
+    contar({ 500: 2, 100: 0, 50: 1, 20: 0 });
+    comp.setMorralla(10);                  // 1000 + 50 + 10 = 1060, el mismo del documento
     expect(comp.f().monto).toBe(1060);
-    expect(comp.montoContado()).toBe(null);
-  });
-
-  it('cambiar el monto con documento anclado ES un conteo; volver al del ERP deja de serlo', () => {
-    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
-    comp.capturarDesde(GASTO_TRABADO);
-
-    comp.onMonto(1100);
-    expect(comp.montoContado()).toBe(1100);
-
-    comp.onMonto(1060);           // el mismo del documento
     expect(comp.montoContado()).toBe(null);
   });
 
@@ -373,7 +400,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto de caja chica');
-    comp.onMonto(1100);
+    contar({ 500: 2, 100: 1 });        // 1100, contra un documento que dice 1060
 
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
@@ -563,7 +590,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'VIATICOS');
     comp.setF('glosa', 'gasto de caja chica');
-    comp.onMonto(250);
+    contar({ 200: 1, 50: 1 });         // 250 — el monto sale del conteo, no del teclado
   }
 
   it('sólo se ofrece declarar donde la regla APLICA: gasto, con beneficiario y par completo', () => {
@@ -625,11 +652,141 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto suelto');
-    comp.onMonto(500);
+    contar({ 500: 1 });
     comp.guardar();
 
     const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(body['monto_contado']).toBeUndefined();
     expect(body['origen_tipo']).toBe(null);
+  });
+
+  // ── 12 · CG.23 · EL ARQUEO ───────────────────────────────────────────────────────────────
+  //
+  // Pedido de Edgar (2026-09-23) sobre la pantalla ya construida: "el desglose no es opcional.
+  // ademas, no esta bien diseñada la interfaz, no tiene para moverte con las flechas del
+  // teclado, los valores tienen que ser disable, en valores, existen billetes de 500, 200,
+  // 100, 50 y 20. monedas no es necesario desglosarlo. en morralla queda perfecto".
+  //
+  // Las aserciones van contra el DOM y no contra los métodos: los cuatro defectos vivían en la
+  // PLANTILLA (un <details> plegado, un p-inputnumber que se come las flechas, un total
+  // editable), y un test que llame al método pasa igual con todos ellos puestos.
+
+  async function capturaEnPantalla() {
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+    return fx;
+  }
+
+  const inputsPieza = (fx: { nativeElement: HTMLElement }) =>
+    Array.from(fx.nativeElement.querySelectorAll('input.cg-pieza')) as HTMLInputElement[];
+
+  it('[negativa] la reja se ve SIEMPRE: ya no está plegada ni rotulada "(opcional)"', async () => {
+    const fx = await capturaEnPantalla();
+    expect(fx.nativeElement.querySelector('.cg-arqueo')).toBeTruthy();
+    // El <details> era el problema: plegado, el camino fácil era no contar.
+    expect(fx.nativeElement.querySelectorAll('details').length).toBe(0);
+    expect((fx.nativeElement.innerHTML as string)).not.toContain('(opcional)');
+  });
+
+  it('son cinco billetes —500, 200, 100, 50, 20— más Morralla, y ninguna moneda suelta', async () => {
+    const fx = await capturaEnPantalla();
+    // 5 renglones de billete + 1 de morralla.
+    expect(inputsPieza(fx).length).toBe(6);
+
+    // Acotado AL BLOQUE del arqueo: sobre el innerHTML de la página entera, "$1,000" aparece
+    // en la tira de KPIs y la prueba fallaba por un importe que no tiene nada que ver.
+    const reja: string = fx.nativeElement.querySelector('.cg-arqueo').innerHTML;
+    for (const b of ['$500', '$200', '$100', '$50', '$20']) expect(reja).toContain(b);
+    expect(reja).toContain('Morralla');
+    // El metal no se desglosa: si apareciera un renglón de 50¢ —o el billete de $1,000, que
+    // esta caja no maneja— esto se pone rojo.
+    expect(reja).not.toContain('50¢');
+    expect(reja).not.toContain('$1,000');
+  });
+
+  it('[negativa] el MONTO no se puede teclear: sale del conteo y va deshabilitado', async () => {
+    const fx = await capturaEnPantalla();
+    const monto: HTMLInputElement | null = fx.nativeElement.querySelector('input#cg-monto');
+    expect(monto).not.toBeNull();
+    expect(monto!.disabled).toBe(true);
+  });
+
+  it('contar llena el monto y el importe del renglón, sin tocar el teclado del total', async () => {
+    const fx = await capturaEnPantalla();
+    contar({ 500: 2, 20: 3 });
+    fx.detectChanges();
+
+    expect(comp.subtotalDe(500)).toBe(1000);
+    expect(comp.subtotalDe(20)).toBe(60);
+    expect(comp.f().monto).toBe(1060);
+
+    const monto: HTMLInputElement = fx.nativeElement.querySelector('input#cg-monto');
+    expect(monto.value).toContain('1,060');
+  });
+
+  it('la morralla suma al monto sin desglosarse: "en morralla queda perfecto"', async () => {
+    await capturaEnPantalla();
+    contar({ 100: 1 });
+    comp.setMorralla(7.5);
+    expect(comp.f().monto).toBe(107.5);
+  });
+
+  it('las piezas son ENTERAS y no negativas: medio billete no existe', async () => {
+    await capturaEnPantalla();
+    comp.setPiezas(100, 3.7);
+    expect(comp.piezasDe(100)).toBe(3);
+    comp.setPiezas(100, -2);
+    expect(comp.piezasDe(100)).toBe(0);
+  });
+
+  it('Enter y la flecha abajo bajan por la reja, como se cuenta un fajo', async () => {
+    const fx = await capturaEnPantalla();
+    const ins = inputsPieza(fx);
+
+    ins[0].focus();
+    ins[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(document.activeElement).toBe(ins[1]);
+
+    ins[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(ins[2]);
+  });
+
+  it('la flecha arriba sube, y baja hasta Morralla: el conteo termina donde termina el dinero', async () => {
+    const fx = await capturaEnPantalla();
+    const ins = inputsPieza(fx);
+
+    ins[2].focus();
+    ins[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(ins[1]);
+
+    // El último salto cae en Morralla, que está en la misma columna a propósito.
+    ins[4].focus();
+    ins[4].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(ins[5]);
+    expect(ins[5].classList.contains('cg-morralla-in')).toBe(true);
+  });
+
+  it('[negativa] en el BORDE de la reja la flecha no incrementa lo contado', async () => {
+    // El defecto real que encontró esta prueba: `moverFoco` hacía `return` antes de
+    // `preventDefault()` cuando no había renglón siguiente. En el primero y en el último —que
+    // es donde más se teclea— la flecha caía al comportamiento nativo del input numérico y
+    // SUMABA UNO a las piezas. En un arqueo, dinero que aparece solo.
+    const fx = await capturaEnPantalla();
+    const ins = inputsPieza(fx);
+
+    ins[0].focus();
+    const arriba = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    ins[0].dispatchEvent(arriba);
+    expect(arriba.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(ins[0]);
+
+    const ultimo = ins[ins.length - 1];
+    ultimo.focus();
+    const abajo = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    ultimo.dispatchEvent(abajo);
+    expect(abajo.defaultPrevented).toBe(true);
   });
 });
