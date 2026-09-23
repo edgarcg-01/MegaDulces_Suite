@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { encuestarVisible, PararEncuesta } from '../../../core/utils/poll-visible';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -310,7 +311,9 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
   readonly filter = signal<HealthStatus | null>(null);
   /** Auto-refresco cada 60s (pantalla viva). */
   readonly auto = signal(true);
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private pararAuto: PararEncuesta | null = null;
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   /** Conteo por severidad sobre TODAS las fuentes (crons + app + orígenes). */
   readonly counts = computed(() => {
@@ -341,9 +344,13 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
 
   private startAuto(): void {
     this.stopAuto();
-    if (this.auto()) this.timer = setInterval(() => this.silentLoad(), 60_000);
+    if (this.auto()) {
+      // Sólo con la pestaña a la vista: ver 'core/utils/poll-visible'.
+      this.pararAuto = encuestarVisible(60_000, () => this.silentLoad(),
+        { destroyRef: this.destroyRef, zone: this.zone });
+    }
   }
-  private stopAuto(): void { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  private stopAuto(): void { if (this.pararAuto) { this.pararAuto(); this.pararAuto = null; } }
   toggleAuto(): void { this.auto.update((v) => !v); this.startAuto(); }
   setFilter(s: HealthStatus | null): void { this.filter.update((cur) => (cur === s ? null : s)); }
 

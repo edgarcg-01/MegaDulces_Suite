@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -357,17 +358,18 @@ export class ErpTripsPanelComponent implements OnInit, OnDestroy {
     return d.recorrido.map((p: any) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
   });
 
-  private timer: any = null;
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   ngOnInit() {
     this.reload();
     this.loadKpis();
     this.refreshLive();
     // El GPS entra cada minuto (FleetPoller); refrescar más seguido sería pedirle a la
-    // pantalla lo que la fuente no tiene.
-    this.timer = setInterval(() => this.refreshLive(), 60_000);
+    // pantalla lo que la fuente no tiene. Y sólo mientras se vea la pestaña.
+    encuestarVisible(60_000, () => this.refreshLive(), { destroyRef: this.destroyRef, zone: this.zone });
   }
-  ngOnDestroy() { if (this.timer) clearInterval(this.timer); }
+  ngOnDestroy() { /* la encuesta se corta sola con el DestroyRef */ }
 
   money(v: any) {
     const n = Number(v || 0);

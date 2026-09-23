@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -9,6 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { DataScopeService } from '../../../core/services/data-scope.service';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -199,14 +200,19 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   readonly hasNew = computed(() => this.newSince());
 
   private sub?: Subscription;
-  private timer?: any;
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   ngOnInit(): void {
     this.socket.connect();
     this.sub = this.socket.alert$.subscribe((a) => this.onAlert(a));
     if (this.canSeeFinance()) {
       this.refresh();
-      this.timer = setInterval(() => this.refresh(), 60_000);
+      // Esta campana vive en el header del layout, o sea corre en TODA pantalla
+      // de la Suite. Con 'setInterval' pelado, cada ventana abierta sumaba 2
+      // peticiones por minuto aunque nadie la estuviera mirando. Ver
+      // 'core/utils/poll-visible'.
+      encuestarVisible(60_000, () => this.refresh(), { destroyRef: this.destroyRef, zone: this.zone });
     }
     // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
     // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
@@ -223,7 +229,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
-    if (this.timer) clearInterval(this.timer);
+    // La encuesta se corta sola con el DestroyRef.
     // el socket lo administra HealthAlertToast (hermano de layout) — no desconectar aquí.
   }
 

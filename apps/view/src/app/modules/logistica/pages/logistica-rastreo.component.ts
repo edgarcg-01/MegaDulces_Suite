@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  NgZone,
   ViewChild,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
@@ -338,7 +340,7 @@ export class LogisticaRastreoComponent {
 
   readonly alerts = signal<FleetAlertRow[]>([]);
 
-  private timer: any = null;
+  private readonly zone = inject(NgZone);
 
   constructor() {
     this.refresh();
@@ -347,8 +349,9 @@ export class LogisticaRastreoComponent {
     this.socket.connect();
     this.socket.live$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((p) => this.applyLive(p));
     // Poll de respaldo (si el WS se cae): más lento cuando el socket está vivo.
-    this.timer = setInterval(() => { if (!this.liveWs()) this.refresh(); }, 30_000);
-    this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); this.socket.disconnect(); });
+    encuestarVisible(30_000, () => { if (!this.liveWs()) this.refresh(); },
+      { destroyRef: this.destroyRef, zone: this.zone });
+    this.destroyRef.onDestroy(() => this.socket.disconnect());
   }
 
   /**

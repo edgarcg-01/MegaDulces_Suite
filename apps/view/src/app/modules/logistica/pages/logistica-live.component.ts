@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -97,14 +98,13 @@ export class LogisticaLiveComponent implements OnDestroy {
     })),
   );
 
-  private timer: any = null;
-
   constructor() {
     this.refresh();
-    this.timer = setInterval(() => this.refresh(), 30_000);
+    // Sólo mientras se vea la pestaña: ver 'core/utils/poll-visible'.
+    encuestarVisible(30_000, () => this.refresh());
   }
 
-  ngOnDestroy() { if (this.timer) clearInterval(this.timer); }
+  ngOnDestroy() { /* la encuesta se corta sola con el DestroyRef */ }
 
   refresh() {
     this.loading.set(true);

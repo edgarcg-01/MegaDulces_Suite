@@ -1,6 +1,8 @@
 import {
   AfterViewInit,
   Component,
+  DestroyRef,
+  NgZone,
   OnDestroy,
   ViewChild,
   computed,
@@ -8,6 +10,7 @@ import {
   signal,
   ChangeDetectionStrategy
 } from '@angular/core';
+import { encuestarVisible, PararEncuesta } from '../../../core/utils/poll-visible';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -328,8 +331,10 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   private fleetLiveSub: { unsubscribe(): void } | null = null;
   readonly today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
-  private watchTimer: any = null;
-  private fleetTimer: any = null;
+  private pararWatch: PararEncuesta | null = null;
+  private pararFleet: PararEncuesta | null = null;
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
   private onResize = () => this.map?.invalidate();
   private alertSub: { unsubscribe(): void } | null = null;
   protected selected = signal<string | null>(null);
@@ -470,7 +475,9 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     this.fleetLiveSub = this.fleetSocket.live$.subscribe((p) => {
       this.vehicles.set((p?.trackers || []).filter((u) => u.route_number != null));
     });
-    this.fleetTimer = setInterval(() => { if (!this.fleetSocket.connected()) this.loadFleet(); }, 30_000);
+    // Respaldo del WS, y sólo con la pestaña a la vista: ver 'core/utils/poll-visible'.
+    this.pararFleet = encuestarVisible(30_000, () => { if (!this.fleetSocket.connected()) this.loadFleet(); },
+      { destroyRef: this.destroyRef, zone: this.zone });
     // Alertas en vivo: upsert por (usuario, tipo); el TTL las purga vía activeAlerts().
     this.alertSub = this.ws.fieldAlert.subscribe((a) => {
       const key = (x: FieldAlert) => `${x.userId}:${x.type}`;
@@ -553,9 +560,10 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     this.selVeh.set(null);
     this.selected.set(id);
     this.svc.watch(id ? [id] : []);
-    if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+    if (this.pararWatch) { this.pararWatch(); this.pararWatch = null; }
     if (id) {
-      this.watchTimer = setInterval(() => this.svc.watch([id]), 60_000);
+      this.pararWatch = encuestarVisible(60_000, () => this.svc.watch([id]),
+        { destroyRef: this.destroyRef, zone: this.zone });
       this.loadTrail(id);
       if (this.mobileTab() !== 'map') { this.setTab('map'); setTimeout(() => this.map?.panTo(p.lat, p.lng), 0); }
       else this.map?.panTo(p.lat, p.lng);
@@ -568,7 +576,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     if (!open && this.selected()) {
       this.selected.set(null);
       this.svc.watch([]);
-      if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+      this.pararWatch?.(); this.pararWatch = null;
       this.clearTrail();
     }
   }
@@ -708,8 +716,8 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener('resize', this.onResize);
-    if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
-    if (this.fleetTimer) { clearInterval(this.fleetTimer); this.fleetTimer = null; }
+    this.pararWatch?.(); this.pararWatch = null;
+    this.pararFleet?.(); this.pararFleet = null;
     this.fleetLiveSub?.unsubscribe();
     this.fleetSocket.disconnect();
     this.alertSub?.unsubscribe();
