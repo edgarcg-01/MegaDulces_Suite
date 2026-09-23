@@ -261,15 +261,26 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
     // 401. Con la columna nullable eso deja de ser hipotético.
     const fs = require('fs');
     const REPO = path.resolve(__dirname, '..', '..');
+    /*
+     * `[ID.37]` Las dos puertas (`/auth/login` y `/auth-mt/login`) dejaron de
+     * tener su propia copia de esto: comparan credenciales en UN solo lugar,
+     * `login-core.ts`. Así que el guard se busca ahí, y lo que se le exige a
+     * cada puerta es que **no vuelva a llamar a bcrypt por su cuenta** — que es
+     * la única forma de que reaparezca una versión sin el guard.
+     */
+    const NUCLEO = 'libs/platform-core/src/lib/auth/login-core.ts';
+    const nucleoSrc = fs.readFileSync(path.join(REPO, NUCLEO), 'utf8');
+    // El guard tiene que estar en la MISMA expresión que el compare, no en un
+    // `if` anterior que alguien pueda mover.
+    check(/!!\s*\w+\.password_hash\s*&&\s*\(?await bcrypt\.compare/.test(nucleoSrc),
+      'login-core corta antes de bcrypt.compare cuando el hash es nulo');
     for (const f of [
       'apps/api/src/modules/auth/auth.service.ts',
       'apps/api/src/modules/auth-mt/auth-mt.service.ts',
     ]) {
       const src = fs.readFileSync(path.join(REPO, f), 'utf8');
-      // El guard tiene que estar en la MISMA expresión que el compare, no en un
-      // `if` anterior que alguien pueda mover.
-      check(/!!\s*\w+\.password_hash\s*&&\s*\(?await bcrypt\.compare/.test(src),
-        `${f.split('/').pop()} corta antes de bcrypt.compare cuando el hash es nulo`);
+      check(!/bcrypt\.compare/.test(src),
+        `${f.split('/').pop()} no compara credenciales por su cuenta: delega en el núcleo`);
     }
 
     console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.31] sujeto declarado: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);

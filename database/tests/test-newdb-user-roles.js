@@ -476,14 +476,30 @@ const enTrx = async (fn) => {
       // el chequeo por `kind` del login se cayera, ninguna contraseña matchea.
       assert(!/^\$2/.test(svc.password_hash ?? ''), 'su hash NO es un bcrypt válido: ninguna contraseña puede matchear');
     }
-    // El login la rechaza por `kind` — se verifica en la fuente, igual que el
-    // test del DTO lee los decoradores reales.
-    const authSrc = fs.readFileSync(
-      path.resolve(__dirname, '../../apps/api/src/modules/auth-mt/auth-mt.service.ts'),
-      'utf8',
-    );
-    assert(/kind === 'servicio'/.test(authSrc), 'auth-mt corta el login de las cuentas de servicio');
-    assert(/expires_at/.test(authSrc), 'auth-mt corta el login de las cuentas vencidas');
+    /*
+     * El login la rechaza por `kind` — se verifica en la fuente, igual que el
+     * test del DTO lee los decoradores reales.
+     *
+     * `[ID.37]` El freno vive en `login-core.ts`, no en cada puerta: antes
+     * `/auth/login` (legacy, `@Public`, montado siempre) **no lo tenía**, así que
+     * una cuenta de servicio o vencida entraba por atrás. Ahora las dos puertas
+     * pasan por el mismo núcleo, y eso es lo que se comprueba: el freno en el
+     * núcleo, y que las dos puertas lo usen.
+     */
+    const NUCLEO = path.resolve(__dirname, '../../libs/platform-core/src/lib/auth/login-core.ts');
+    const authSrc = fs.readFileSync(NUCLEO, 'utf8');
+    assert(/kind === 'servicio'/.test(authSrc), 'el núcleo de login corta las cuentas de servicio');
+    assert(/expires_at/.test(authSrc), 'el núcleo de login corta las cuentas vencidas');
+    for (const puerta of [
+      '../../apps/api/src/modules/auth/auth.service.ts',
+      '../../apps/api/src/modules/auth-mt/auth-mt.service.ts',
+    ]) {
+      const src = fs.readFileSync(path.resolve(__dirname, puerta), 'utf8');
+      assert(
+        /autenticarYFirmar\s*\(/.test(src),
+        `${puerta.split('/').pop()} pasa por el núcleo (y por lo tanto por esos dos frenos)`,
+      );
+    }
 
     // Invariante nuevo: nadie puede tener una TAREA como perfil base. Es lo que
     // pasaba con los 22 de `captura_gastos`, y a diferencia de "todo rol tiene
