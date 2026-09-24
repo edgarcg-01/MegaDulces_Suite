@@ -210,7 +210,14 @@ export async function tableAt(trx: any, tabla: string, col = 'updated_at'): Prom
       try {
         await trx.raw(`SET LOCAL statement_timeout = '2s'`);
         at = (await trx.raw(`SELECT max(${col}) AS dato_al FROM ${tabla}`))?.rows?.[0]?.dato_al ?? null;
-        await trx.raw(`SET LOCAL statement_timeout = ?`, [previo]);
+        // ⛔ `set_config(...)`, NO `SET LOCAL x = ?`. Postgres no acepta parámetros ligados en
+        // `SET`: knex convierte el `?` en `$1` y devuelve `42601`. Acá el daño era PEOR que un
+        // 500 — la excepción caía en el `catch` de abajo, que pone `at = null` y reporta "no se
+        // pudo medir". O sea: la medición de procedencia se declaraba ciega **por un defecto
+        // propio**, no por el dato. Es exactamente la mentira que esta fase existe para cerrar.
+        // Encontrado el 2026-09-23 barriendo el repo tras el mismo bug en `login-core.ts`, que
+        // ahí sí tumbó el login de producción entero.
+        await trx.raw(`SELECT set_config('statement_timeout', ?, true)`, [previo]);
         await trx.raw('RELEASE SAVEPOINT vp_freshness');
       } catch {
         // El rollback revierte el `SET LOCAL` de los 2 s por sí solo (es transaccional), así que acá

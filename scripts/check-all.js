@@ -84,6 +84,12 @@ const COMPUERTAS = [
   // que no mira no puede faltarle nada. Ya cobró dos veces (Morelia fuera de `mv_sales_blended`
   // por $1.64M; y el reconciliador nocturno sin mirar 07/08, con 2,987 pedidos fantasma en el ODS).
   { nombre: 'sucursales', cmd: 'node scripts/check-branch-catalog.js', que: 'la lista de sucursales sale del catálogo canónico, no de una cadena a mano' },
+  // [VL.16] Postgres rechaza parámetros ligados en `SET` (42601). El 2026-09-23 esa forma en
+  // `login-core.ts` dejó el login de PROD devolviendo 500 a todo el mundo y hubo que volver la
+  // versión anterior en caliente. El mismo defecto en `freshness.ts` era peor: caía en un `catch`
+  // que reporta "no se pudo medir", o sea un bug disfrazado de dato ausente. El repo YA lo tenía
+  // escrito en un comentario de `store.service.ts` — un comentario no frena nada.
+  { nombre: 'set-bind', cmd: 'node scripts/check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
   // `[NX.7]` `apps/api` compila con SWC, que borra los tipos SIN comprobarlos: `build` no

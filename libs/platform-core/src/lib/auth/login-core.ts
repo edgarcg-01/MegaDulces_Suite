@@ -171,7 +171,13 @@ export async function autenticarYFirmar(
   // `user: null` y la excepción se lanza afuera, con la trx ya cerrada limpia.
   const { user, rolePermissions, zonaName, extraPermissions, overrides } = await knex.transaction(
     async (trx) => {
-      await trx.raw('SET LOCAL app.tenant_id = ?', [tenant.id]);
+      // ⛔ `set_config(...)`, NO `SET LOCAL x = ?`. Postgres **no acepta parámetros ligados en
+      // `SET`**: knex convierte el `?` en `$1` y el servidor responde `42601 syntax error at or
+      // near "$1"`. Medido en PROD el 2026-09-23: con esa forma **el login devolvía 500 a TODO
+      // el mundo** y hubo que volver la versión anterior. `set_config(clave, valor, true)` es la
+      // misma semántica (`true` = LOCAL, se revierte al cerrar la tx) y SÍ acepta el parámetro.
+      // ⚠️ El repo ya lo tenía escrito en `store.service.ts` — se perdió al reescribir el login.
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenant.id]);
 
       const u = await trx('users').where({ username, activo: true }).first();
       if (!u) {
@@ -254,7 +260,13 @@ export async function autenticarYFirmar(
   const ua = meta?.userAgent ? String(meta.userAgent).slice(0, 1024) : null;
   void knex
     .transaction(async (trx) => {
-      await trx.raw('SET LOCAL app.tenant_id = ?', [tenant.id]);
+      // ⛔ `set_config(...)`, NO `SET LOCAL x = ?`. Postgres **no acepta parámetros ligados en
+      // `SET`**: knex convierte el `?` en `$1` y el servidor responde `42601 syntax error at or
+      // near "$1"`. Medido en PROD el 2026-09-23: con esa forma **el login devolvía 500 a TODO
+      // el mundo** y hubo que volver la versión anterior. `set_config(clave, valor, true)` es la
+      // misma semántica (`true` = LOCAL, se revierte al cerrar la tx) y SÍ acepta el parámetro.
+      // ⚠️ El repo ya lo tenía escrito en `store.service.ts` — se perdió al reescribir el login.
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenant.id]);
       await trx('users')
         .where({ id: user.id })
         .update({ last_login_at: trx.fn.now(), last_login_ip: ip, last_login_user_agent: ua });
