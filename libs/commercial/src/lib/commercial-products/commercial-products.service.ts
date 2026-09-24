@@ -3,7 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
+import {
+  PRICE_REPORT_LABEL_COLUMNS,
+  PriceReportQuery,
+  buildPriceReportMeta,
+  resolvePriceReportParams,
+} from './price-report';
+
+export type { PriceReportQuery } from './price-report';
 
 export interface ListProductsQuery {
   page?: number;
@@ -200,6 +209,130 @@ export class CommercialProductsService {
         .select('s.id', 's.name', trx.raw('COUNT(p.id)::int AS product_count'))
         .orderBy('s.name', 'asc'),
     );
+  }
+
+  /**
+   * `[CAT.7]` **Reporte de precios por proveedor** — la lista imprimible que el comprador se lleva
+   * a la negociación.
+   *
+   * ── De dónde sale, y por qué de ahí ─────────────────────────────────────────
+   * De `commercial.product_label_prices`, que es la MISMA fila que imprime la etiqueta del anaquel
+   * y que lee el verificador del mostrador: precio de la unidad base (`kdii.c90`), su mayoreo,
+   * paquete (`c91`/`c81`), su mayoreo, y caja (`c92`/`c84`). No se arma una segunda materialización
+   * de "los precios" — sería la copia que la regla principal del proyecto prohíbe.
+   *
+   * ⚠️ **No se mezcla la lista `BASE-MXN`** (el `price_customer` que muestra la pestaña Catálogo).
+   * Esa la llena un importer desde la DB legacy, no tiene sucursal y llega con semanas de rezago;
+   * meterla en la misma hoja que el precio por plaza haría una tabla con dos verdades y ninguna
+   * etiqueta que las distinga.
+   *
+   * ── La sucursal ────────────────────────────────────────────────────────────
+   * El precio de Kepler es POR PLAZA (`[NORM.3]`). Con `sucursal` se lee la tabla filtrada; sin
+   * ella, la vista consolidada `v_product_label_prices` — que NO es un promedio: es la fila de la
+   * plaza que representa a la red. El modo viaja en `meta.consolidado` para que la hoja impresa lo
+   * diga; un precio de papel sin plaza es el que termina cobrándose mal en el mostrador.
+   *
+   * ── Lo que NO se calcula acá ───────────────────────────────────────────────
+   * Ni descuentos ni "ahorro": eso es `tiersDeFila` del verificador, con sus cuatro guardas. Este
+   * reporte publica el DATO como está en el ERP (y `null` donde no hay, nunca 0), porque su lector
+   * es el comprador comparando contra la lista del proveedor, no el cliente del mostrador.
+   */
+  async priceReport(query: PriceReportQuery) {
+    // Las dos decisiones que la hoja después AFIRMA —de qué plaza es el precio y qué huecos
+    // tiene— viven en `price-report.ts`, probadas sin base. Acá queda sólo la consulta.
+    const params = resolvePriceReportParams(query);
+    const { supplierIds, sucursal, fuente, search, limit } = params;
+
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        let q = trx('catalog.products as p')
+          .leftJoin('catalog.suppliers as s', function () {
+            this.on('s.id', '=', 'p.supplier_id').andOn('s.tenant_id', '=', 'p.tenant_id');
+          })
+          .leftJoin('catalog.brands as b', function () {
+            this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
+          })
+          .leftJoin(`${fuente} as l`, function () {
+            this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
+            if (sucursal) this.andOnVal('l.sucursal', '=', sucursal);
+          })
+          .whereNull('p.deleted_at');
+
+        if (supplierIds.length) q = q.whereIn('p.supplier_id', supplierIds);
+        if (params.onlyActive) q = q.where('p.activo', true);
+        // "Sólo los que tienen precio": el comprador que arma una lista de venta no quiere renglones
+        // vacíos. Es opt-in — por default los sin precio SE MUESTRAN, porque ese hueco es el que
+        // manda a capturar el precio en Kepler.
+        if (params.onlyWithPrice) q = q.whereNotNull('l.piece_price');
+        if (search) {
+          const term = `%${search}%`;
+          q = q.where((w) =>
+            w.where('p.nombre', 'ilike', term)
+              .orWhere('p.sku', 'ilike', term)
+              .orWhere('l.barcode', 'ilike', term),
+          );
+        }
+        return q;
+      };
+
+      const [{ total }] = await base().count<{ total: string }[]>('p.id as total');
+
+      const rows = await base()
+        .select(
+          'p.id as product_id',
+          trx.raw(`btrim(coalesce(p.sku, '')) AS sku`),
+          'p.nombre',
+          'p.activo',
+          'p.cost_base',
+          'p.supplier_id',
+          's.name as supplier_name',
+          'b.nombre as brand_name',
+          // Una sola lista, compartida con el smoke que la contrasta contra el catálogo de la DB.
+          ...PRICE_REPORT_LABEL_COLUMNS.map((c) => `l.${c}`),
+        )
+        .orderBy([
+          { column: 's.name', order: 'asc' },
+          { column: 'p.nombre', order: 'asc' },
+        ])
+        .limit(limit);
+
+      const nombrePlaza = sucursal ? await this.nombreDePlaza(trx, sucursal) : null;
+      return { rows, meta: buildPriceReportMeta(rows, Number(total), params, nombrePlaza) };
+    });
+  }
+
+  /**
+   * `[CAT.7]` Las plazas que TIENEN precio cargado, no las que existen en el catálogo de almacenes.
+   *
+   * Sale de `product_label_prices` y no de `commercial.warehouses` a propósito: ofrecer una plaza
+   * sin fila de precio daría un reporte entero en blanco y parecería un error de la pantalla. El
+   * nombre se resuelve contra `warehouses` por `kepler_code`, y cuando no hay cruce se muestra el
+   * código — medido en staging, el CEDIS `00` no tiene `kepler_code` asignado.
+   */
+  async priceReportBranches() {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(`
+        SELECT l.sucursal,
+               coalesce(w.name, 'Sucursal ' || l.sucursal) AS nombre,
+               count(*)::int AS productos,
+               max(l.computed_at) AS computed_at
+          FROM commercial.product_label_prices l
+          LEFT JOIN commercial.warehouses w
+                 ON w.kepler_code = l.sucursal AND w.tenant_id = l.tenant_id AND w.deleted_at IS NULL
+         GROUP BY 1, 2
+         ORDER BY 1`);
+      return rows;
+    });
+  }
+
+  /** Nombre de la plaza para la carátula de la hoja. Sin cruce, el código: no se inventa un nombre. */
+  private async nombreDePlaza(trx: Knex.Transaction, sucursal: string): Promise<string> {
+    const { rows } = await trx.raw(
+      `SELECT name FROM commercial.warehouses
+        WHERE kepler_code = ? AND deleted_at IS NULL LIMIT 1`,
+      [sucursal],
+    );
+    return rows?.[0]?.name || `Sucursal ${sucursal}`;
   }
 
   /**
