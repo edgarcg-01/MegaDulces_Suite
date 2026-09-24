@@ -1130,7 +1130,43 @@ export class CommercialReplenishmentService {
         --
         -- ⚠️ No cuesta empuje de predicados: TODOS los filtros (tenant, proveedor, almacenes,
         -- stock) ya viven DENTRO del CTE. No hay nada que empujar hacia adentro.
-        WITH base AS MATERIALIZED (
+        -- ⛔ LAS DOS VISTAS SE MATERIALIZAN ANTES DE USARLAS. Sin esto la pantalla devuelve 500.
+        --
+        -- Medido en PROD el 2026-09-24 con EXPLAIN ANALYZE de la consulta REAL:
+        --
+        --     Rows Removed by Join Filter:  131,923,236          ← 131 MILLONES
+        --     Hash Left Join  (rows=180,224  loops=732)          ← v_warehouse_box_factor
+        --     Hash Right Join (rows=  9,633  loops=732)          ← v_supplier_cost_ladder
+        --     Sort            (rows= 86,473  loops=732)
+        --                                            total: 4 min 18 s
+        --
+        -- Las dos vistas se recalculaban UNA VEZ POR CADA FILA del CTE (732): 180,224 x 732 son
+        -- exactamente los 131.9 M de filas que el Join Filter descarta. Cada una sola cuesta poco
+        -- --1.0 s y 47 ms medidos-- pero pagarlas 732 veces es lo que revienta el timeout de 120 s.
+        --
+        -- ⚠️ MATERIALIZAR \`base\` NO ALCANZO, y el intento quedo escrito abajo a proposito: el
+        -- nested loop no estaba ENTRE base y lo de arriba, estaba ADENTRO de base. Materializar el
+        -- consumidor no arregla que el productor se re-ejecute; hay que materializar LA VISTA.
+        --
+        -- Se seleccionan SOLO las columnas que se usan (\`u1_label\`, \`base_label\`): materializar
+        -- una vista ancha copia columnas que nadie lee.
+        -- ⚠️ Y SE ACOTAN AL MISMO UNIVERSO QUE LA CONSULTA. Materializarlas enteras baja de
+        -- 4m18s a 20 s, pero el nested loop SIGUE: CTE Scan on vbf con rows=180,224 y loops=732
+        -- --ya no recalcula la vista, pero recorre 180 k filas 732 veces igual--. Con el mismo
+        -- filtro de productos que usa el CTE base, vbf pasa de 180,224 filas a 4,864: las que de
+        -- verdad se cruzan. Se materializa lo que se USA, no el catálogo entero.
+        -- Medido: 20 s → 2.73 s, y el Join Filter de 131,923,236 filas baja a 3,559,716.
+        -- ⚠️ SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS y lo
+        -- TERMINA. Es la séptima vez que este repo lo paga.
+        WITH lad AS MATERIALIZED (
+          SELECT l.sku, l.u1_label FROM analytics.v_supplier_cost_ladder l
+           WHERE EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.sku = l.sku AND ${where})
+        ), vbf AS MATERIALIZED (
+          SELECT v.tenant_id, v.warehouse_id, v.product_id, v.base_label
+            FROM analytics.v_warehouse_box_factor v
+           WHERE v.tenant_id = :t
+             AND EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.id = v.product_id AND ${where})
+        ), base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
                  COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
@@ -1169,8 +1205,8 @@ export class CommercialReplenishmentService {
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
-            LEFT JOIN analytics.v_supplier_cost_ladder lad ON lad.sku = pr.sku
-            LEFT JOIN analytics.v_warehouse_box_factor vbf
+            LEFT JOIN lad ON lad.sku = pr.sku
+            LEFT JOIN vbf
                    ON vbf.tenant_id = rp.tenant_id AND vbf.warehouse_id = rp.warehouse_id
                   AND vbf.product_id = rp.product_id
             ${stockJoin}
