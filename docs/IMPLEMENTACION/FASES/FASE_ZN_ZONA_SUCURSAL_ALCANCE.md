@@ -300,13 +300,77 @@ vigila.
 Specs **11/11** (`floor-stockouts` 6 + `home-dispatch` 5), los dos con el **rojo ejercido**.
 `libs/commercial` completo: **143 pasan**. `api:typecheck` OK.
 
+### ZN.3.3 — Compras / reabastecimiento ✅ (2026-09-24)
+
+`commit d000103a` · 6 encargadas de tienda con alcance acotado tienen `COMPRAS_PEDIDO_VER`.
+
+**El defecto.** Los 8 reportes de `/compras/pedido` —existencia crítica, sugerido, traspasos,
+sobrestock, workbook, worklist, stock muerto y los KPIs— recortaban por almacén así:
+
+```ts
+const whIds = this.whIds(q);              // SÓLO parseaba el query param
+if (whIds.length) b.whereIn('rp.warehouse_id', whIds);
+```
+
+O sea: **quien no mandaba el parámetro veía la red completa.** El permiso decía «puede abrir la
+pantalla»; faltaba el otro eje, sobre qué filas (ADR-050).
+
+**El puente que faltaba, y que ya estaba escrito.** El alcance de `warehouse` es un código de dos
+dígitos, pero estas tablas guardan el **uuid** del almacén. Esa traducción ya existía **a mano** en
+`commercial-bi-almacen.resolveWarehouseIds()` — correcta, bien comentada y sin dueño. Por ADR-056
+(un primitivo copiado diverge), al aparecer el segundo consumidor sube a `libs/`:
+`ScopeService.warehouseIds()`. `bi-almacen` ahora delega, así que no queda una segunda copia que
+pueda desincronizarse. Escribirla de nuevo habría sido repetir exactamente el error de
+`[ZN.2.0]` con el mapa de cutover.
+
+**Los tres estados, y el del medio es el que siempre se pierde.**
+
+| valor | significa | en SQL |
+|---|---|---|
+| `null` | no filtrar (alcance `all` y nadie pidió nada) | sin `WHERE` de almacén |
+| `[...]` | esas sucursales | `IN (…)` |
+| `[]` | **ninguna** | `whereIn(col, [])` · en crudo, `AND false` |
+
+El patrón viejo colapsaba `[]` contra `null`: un alcance resuelto a cero almacenes se leía como
+«todas». Por eso las llamadas quedaron `if (whIds)` y **no** `if (whIds.length)`, y en SQL crudo el
+equivalente es un `false` explícito — un `IN ()` vacío no compila.
+
+**El selector también recorta.** `/compras/filters` ofrecía las nueve sucursales. Al elegir una
+ajena, el reporte —ya filtrado— devolvía vacío: una pantalla que ofrece una sucursal y después la
+muestra en cero se lee como *«ahí no falta nada»*, que es peor que no ofrecerla.
+
+**Se retira el último mapa escrito a mano de la pantalla.** Los atajos por zona de Existencia
+Crítica estaban clavados en el bundle (`Bajío 01-04` · `Morelia MD-30,MD-32` · `Zamora 05,06` ·
+`CEDIS 00`) y tenían los dos defectos de esta fase a la vez: **contradecían el modelo** (el negocio
+tiene TRES zonas y el CEDIS no es una de ellas, `[ZN.0]`; «Bajío» no existe en ninguna fuente) y
+**no respetaban el alcance** — un botón «Zamora» para quien sólo alcanza La Piedad. Ahora se
+derivan de `w.purchase_zone`, que viaja en la misma respuesta que el backend ya recortó. Sin zona
+declarada no se agrupa: la lista queda vacía a propósito en vez de inventar una agrupación.
+
+**Prueba.** `replenishment.scope.spec.ts` 5/5 con el **rojo ejercido**: al restaurar
+`if (whIds.length)` falla exactamente la aserción del alcance vacío y ninguna otra. Incluye el
+**control negativo del control** (con `null` no debe filtrar), sin el cual «filtrar siempre»
+pasaría las otras dos pruebas y dejaría ciego al comprador de red, que es quien más usa la
+pantalla.
+
+**⚠️ Lo que NO se midió, y por qué.**
+
+* **El smoke HTTP contra API viva.** El spec corre con dobles y por lo tanto **no valida SQL**
+  (`GOTCHAS §67`). Es la misma clase de hueco que en `[ID.37]` resultó ser justo donde estaba el
+  defecto, así que se declara en vez de darlo por cubierto.
+* **La re-medición de cuánta gente con alcance acotado tiene el permiso.** El `pg_hba.conf` de
+  `.245` no admite a esta máquina (`no hay una línea … para «192.168.0.243»`). La cifra de 6 viene
+  de la medición del 2026-09-23, no de hoy.
+
+---
+
 ### ZN.3.3+ — Lo que sigue, priorizado por medición
 
 | Controller | Personas con alcance acotado | Nota |
 |---|---|---|
 | `commercial-labels` | 17 | ⛔ **trabajo en vuelo de otra sesión** (`ETQ-CAMBIOS`, 3 commits) — no se toca hasta que baje. El daño ahí es real: la sucursal elige el **precio**, así que se puede imprimir la etiqueta de otra plaza |
 | `commercial-home-delivery` | 9 | reparto |
-| `commercial-replenishment` · `purchase-adjustments` | 6 | compras |
+| ~~`commercial-replenishment` · `purchase-adjustments`~~ | 6 | ✅ `[ZN.3.2]` + `[ZN.3.3]` |
 | `receiving-session` | 0 con `COMMERCIAL_INVENTORY_RECIBIR` | el conteo alto venía de `COMMERCIAL_WAREHOUSES_GESTIONAR`: revisar cuál puerta importa |
 | `expense-proofs` | 46 **con `CAPTURAR`**, 0 con `VER` | la bandeja con montos es corporativa; lo único expuesto es `proof-by-folio`, que devuelve estado, no dinero |
 | `cash-ledger` · `customer-ledger` · `budget-expense` · `polizas` · `contabilidad-contpaqi` | **0** | su público es 100 % corporativo (`all`): encender el filtro no cambia nada hoy. Se hará por higiene, sin prisa |

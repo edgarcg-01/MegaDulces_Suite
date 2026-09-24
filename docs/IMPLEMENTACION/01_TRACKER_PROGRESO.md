@@ -1385,6 +1385,36 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       (re-apuntar `warehouses.zone_id`, que mueve el tablero de 6 a 3 y necesita aviso a Dirección).**
       **Abierto:** si las vecinales son canal o unidad propia, y el catálogo de sedes de oficina.
       2026-09-23
+- [x] **[ZN.3.3]** 🔨 **Compras filtraba por alcance sólo si mandabas el parámetro.** Los 8
+      reportes de `/compras/pedido` (existencia crítica, sugerido, traspasos, sobrestock, workbook,
+      worklist, stock muerto, KPIs) recortaban con `const whIds = this.whIds(q); if (whIds.length)
+      …`, donde `whIds` **sólo parseaba el query param** — o sea que **quien no filtraba veía la red
+      completa**. `COMPRAS_PEDIDO_VER` lo tienen **6 encargadas de tienda con alcance acotado**
+      (medido el 23-sep): leían el inventario y el sugerido de las nueve sucursales. ⭐ **El puente
+      que faltaba ya estaba escrito a mano en otro módulo**: el alcance es un código de 2 dígitos
+      (ADR-050) y estas tablas guardan el **uuid** del almacén; `commercial-bi-almacen` tenía su
+      `resolveWarehouseIds()` correcta y sin dueño → por ADR-056 sube a `libs/` como
+      **`ScopeService.warehouseIds()`** y `bi-almacen` delega, así que no queda una segunda copia
+      que pueda divergir (escribirla de nuevo era repetir el error del mapa de cutover de
+      `[ZN.2.0]`). ⚠️ **Tres estados y el del medio es el que siempre se pierde**: `null` = no
+      filtrar · `[...]` = esas sucursales · **`[]` = ninguna, y TIENE que llegar al `WHERE`** — el
+      patrón viejo lo colapsaba contra `null` y lo leía como «todas»; por eso las llamadas quedaron
+      `if (whIds)` y en SQL crudo el equivalente es **`AND false`** (un `IN ()` vacío no compila).
+      **`/compras/filters` también recorta**: ofrecía las nueve y, al elegir una ajena, el reporte
+      —ya filtrado— devolvía vacío, que se lee como «ahí no falta nada». ⭐ **Y se retira el último
+      mapa escrito a mano de la pantalla**: los atajos por zona (`Bajío 01-04` · `Morelia
+      MD-30,MD-32` · `Zamora 05,06` · `CEDIS 00`) tenían los dos defectos de la fase juntos —
+      **contradecían el modelo** (son TRES zonas y el CEDIS no es una; «Bajío» no existe en ninguna
+      fuente, `[ZN.0]`) y **no respetaban el alcance**; ahora se derivan de `w.purchase_zone`, y sin
+      zona declarada **no se agrupa nada** en vez de inventar una agrupación.
+      `replenishment.scope.spec.ts` **5/5 con el rojo ejercido** (restaurado `if (whIds.length)`,
+      falla exactamente la aserción del alcance vacío y ninguna otra), incluido el **control
+      negativo del control** — sin él, «filtrar siempre» pasaría y dejaría ciego al comprador de
+      red. `nx build api` + `nx build view` OK · `nx test commercial` 14 archivos / 170 pruebas.
+      ⚠️ **NO MEDIDO y declarado**: el smoke HTTP contra API viva (el spec usa dobles y **no valida
+      SQL**, `GOTCHAS §67` — la misma clase de hueco que en `[ID.37]` resultó ser justo donde estaba
+      el defecto), y la **re-medición** de quién tiene el permiso: el `pg_hba` de `.245` no admite a
+      esta máquina, así que el «6» es del 23-sep, no de hoy. 2026-09-24
 - [x] **[ZN.3.1]** 🔨 **El alcance corta por sucursal en Faltantes de piso** — y la prioridad de
       ZN.3 salió de una medición, no de la intuición. ⚠️ **Primero hubo que corregir una cifra
       propia: las «88 fail-open» eran ruido de grep** (agarraba `(x.sucursal || '')`,
