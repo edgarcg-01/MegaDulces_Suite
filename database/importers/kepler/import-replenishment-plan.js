@@ -423,20 +423,37 @@ const cte = (hist, tr, lead) => `
           ON c.tenant_id=$1 AND c.deleted_at IS NULL AND c.source_warehouse_id = t.des
        WHERE t.depth < 5   -- guarda anti-ciclo (el árbol real tiene profundidad 2)
     ) SELECT DISTINCT anc, des FROM t),
-  tr_sub AS (   -- demanda del subárbol de cada almacén, por producto
-    SELECT wt.anc, d.product_id, sum(d.daily_pieces) AS sub_dem
-      FROM whtree wt JOIN dem d ON d.warehouse_id = wt.des
-     GROUP BY 1,2),
-  tr_eff AS (   -- tránsito EFECTIVO por almacén: lo propio + su parte de lo que baja de sus padres
-    SELECT wt.des AS warehouse_id, tr.product_id,
-           sum(tr.t * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
-                           WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS t,
-           sum(tr.te * CASE WHEN s.sub_dem > 0 THEN COALESCE(d.daily_pieces, 0) / s.sub_dem
-                            WHEN wt.anc = wt.des THEN 1 ELSE 0 END) AS te
+  -- [RA-PERF.1] El denominador del reparto sale por VENTANA, no por un LEFT JOIN contra un
+  -- agregado. Antes habia un CTE tr_sub (sin MATERIALIZED y referenciado UNA vez) que el
+  -- planner inlineaba como lado INTERNO de un Nested Loop, porque estimaba el lado externo en
+  -- 1 fila cuando trae 13,532 -- la cadena Kepler-ODS de tr no es estimable. Medido en prod:
+  -- el HashAggregate de tr_sub re-escaneado 13,532 veces y 171,538,214 filas tiradas por el
+  -- Join Filter = 100.3 s de los 153.9 s de la corrida (67%).
+  --
+  -- EQUIVALENCIA, y no es una aproximacion: tr ya viene agrupado por (warehouse_id, product_id)
+  -- -- ver su propio GROUP BY 1,2 -- y whtree es DISTINCT (anc, des), asi que para cada fila de
+  -- tr la particion (tr.warehouse_id, tr.product_id) cubre EXACTAMENTE el mismo subarbol que
+  -- sumaba tr_sub. Un sub_dem NULL (subarbol sin demanda) y un 0 son indistintos acá: el CASE
+  -- pregunta > 0, y NULL > 0 tampoco entra -- cae al mismo WHEN de abajo.
+  --
+  -- ⛔ ESTE PARCHE CUELGA DE QUE tr SEA UNICO POR (warehouse_id, product_id). Si alguna vez
+  -- deja de serlo, la ventana cuenta el denominador de mas y el transito se SUB-ACREDITA ~6.7%
+  -- EN SILENCIO (medido con un tr duplicado a proposito). Por eso el invariante se asera en
+  -- cada corrida mas abajo, en vez de confiarle el contrato a este comentario.
+  tr_x AS (
+    SELECT wt.des AS warehouse_id, tr.product_id, tr.t, tr.te,
+           (wt.anc = wt.des) AS es_propio,
+           COALESCE(d.daily_pieces, 0) AS dp,
+           sum(COALESCE(d.daily_pieces, 0))
+             OVER (PARTITION BY tr.warehouse_id, tr.product_id) AS sub_dem
       FROM tr
       JOIN whtree wt ON wt.anc = tr.warehouse_id
-      LEFT JOIN tr_sub s ON s.anc = tr.warehouse_id AND s.product_id = tr.product_id
-      LEFT JOIN dem d ON d.warehouse_id = wt.des AND d.product_id = tr.product_id
+      LEFT JOIN dem d ON d.warehouse_id = wt.des AND d.product_id = tr.product_id),
+  tr_eff AS (   -- tránsito EFECTIVO por almacén: lo propio + su parte de lo que baja de sus padres
+    SELECT warehouse_id, product_id,
+           sum(t  * CASE WHEN sub_dem > 0 THEN dp / sub_dem WHEN es_propio THEN 1 ELSE 0 END) AS t,
+           sum(te * CASE WHEN sub_dem > 0 THEN dp / sub_dem WHEN es_propio THEN 1 ELSE 0 END) AS te
+      FROM tr_x
      GROUP BY 1,2),
   whs AS (SELECT w.id, w.source_warehouse_id,
                  -- hub REAL = tiene sucursales que surte (source_warehouse_id NULL solo no basta:
@@ -572,6 +589,28 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     // el número viejo y nadie se enteraría. Ahora reporta lo que de verdad quedó en la tabla.
     const t0 = Date.now();
     await db.query('BEGIN');
+    // [RA-PERF.2] JIT APAGADO A PROPOSITO, Y MEDIDO. El plan de este CTAS cuesta 1,798,852 -- 3.6x
+    // por encima de `jit_inline_above_cost` y `jit_optimize_above_cost` (500,000, los dos en
+    // default en este prod, verificado en pg_settings con source=default) -- asi que LLVM entra en
+    // su tier mas caro y compila 2,860 funciones:
+    //     Generation 320 + Inlining 1,333 + Optimization 23,867 + Emission 16,649 = 42,170 ms
+    // de PURO COMPILAR, sin tocar un solo dato.
+    //
+    // Y el costo que dispara ese tier esta INFLADO por otra mala estimacion: el CTE `slvl` se
+    // planea en 2,400,000 filas y devuelve 32,680 (73x). O sea que el planner compra el JIT mas
+    // caro que hay para una consulta que nunca crece a ese tamano.
+    //
+    // Medido en prod, MISMO plan y practicamente los MISMOS buffers (1,744,443 vs 1,746,290,
+    // +0.1%): 153,890 -> 99,443 ms. Lo que desaparece es CPU de compilacion, no lecturas.
+    //
+    // `SET LOCAL` muere con el COMMIT/ROLLBACK: no se filtra a la sesion ni a otro carril. Cubre
+    // tambien el UPSERT (cost 2,010) y el DELETE (cost 7,485) de esta misma transaccion, que
+    // estan muy por debajo de `jit_above_cost` y no lo usaban igual.
+    //
+    // ⚠️ DEUDA CON NOMBRE: esto ENMASCARA la mala estimacion, no la arregla. Con el parche de
+    // `tr_eff` puesto el plan sigue costando 1,823,493 porque `slvl` se sigue planeando 73x de
+    // mas. El dia que alguien saque este SET LOCAL, vuelven los 30-42 s de compilacion.
+    await db.query('SET LOCAL jit = off');
     await db.query(`CREATE TEMP TABLE stg_rplan ON COMMIT DROP AS ${CTE} ${PROJECT}`, [M]);
 
     // ── Controles de cordura (RA-PRO.41, "que no se nos pase nada") — se imprimen en CADA corrida.
