@@ -133,25 +133,32 @@ export class AnalyticsRefreshService {
       // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
       ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
-      // ⛔ ESTE NO CABE EN LA VENTANA NOCTURNA, Y ESTÁ MEDIDO (2026-09-23/24):
-      //     · `REFRESH` PLANO (no concurrente) ............ 6 h 15 min  (20:23 → 02:38)
-      //     · `REFRESH CONCURRENTLY` ..................... >2 h 45 min sin terminar (se canceló)
-      //   CONCURRENTLY es estrictamente más caro: computa la versión nueva **y** la diferencia
-      //   contra la vieja. Arranca 06:20 y se mete de lleno en el horario hábil.
+      // ⚠️ EL POBLADO INICIAL DE ESTA MV CUESTA 6 h 15 min. El refresco diario NO.
       //
-      //   Se ve en el tablero como `analytics_refresh_blended` envejeciendo: llegó a **37.3 h**
-      //   sin una corrida buena, o sea que llevaba días arrancando cada noche y no cerrando
-      //   ninguna. Nadie lo leyó como "no termina" porque un latido viejo se lee igual que un
-      //   feed lento.
+      // Medido el 2026-09-23/24, y la distinción importa porque yo mismo la confundí primero y
+      // dejé escrita acá la conclusión equivocada ("no cabe en la ventana nocturna"):
       //
-      // ⭐ DÓNDE ESTÁ EL COSTO, medido: el `LEFT JOIN` por CINCO columnas contra
-      //   `analytics.v_kepler_ticket_count`, que **no es matvista sino VISTA** — se recalcula
-      //   entera, leyendo el ODS crudo con operadores de expresión regular (`~`, `~~*`), contra
-      //   las 791,548 filas de `mv_kepler_sales_daily`.
+      //   · `REFRESH` PLANO desde VACÍA ... **6 h 15 min** (20:23 → 02:38), 4,584,247 filas.
+      //     Es el camino que toma el loop cuando `relispopulated` es falso, o sea después de un
+      //     `CREATE MATERIALIZED VIEW … WITH NO DATA`. Se paga UNA vez.
+      //   · `REFRESH CONCURRENTLY` nocturno ... cierra `ok`. El historial de
+      //     `analytics.cron_run_log` lo tiene bien los días 13, 14, 16, 17, 18, 19, 20, 21, 22
+      //     y 24 de septiembre. **Faltó UNO: el 23** — el día del corte de producción a `md`.
       //
-      // ⚠️ NO se arregla ordenando ni subiendo el `statement_timeout`: hay que materializar
-      //   `v_kepler_ticket_count` o sacar ese join. Es cambio de diseño del fact de venta y va
-      //   en su propio commit, con su antes/después. Queda DECLARADO, no disfrazado.
+      // ⛔ Lo que parecía una espiral de fallos era un solo día perdido. Un latido de 37 h se
+      //   lee igual que "lleva días sin cerrar", y no es lo mismo.
+      //
+      // ⚠️ Y NO SE SABE cuánto tarda el nocturno: el latido escribe `started_at` y `finished_at`
+      //   con el MISMO `now()` al terminar, así que `cron_run_log` muestra `0.0 min` para todas
+      //   las corridas. Eso no es una medición de cero, es la AUSENCIA de medición — y hace
+      //   invisible que un refresco se esté degradando. Deuda con nombre: el latido tiene que
+      //   marcar el inicio al arrancar, no al cerrar.
+      //
+      // Dónde está el costo del poblado, para cuando haya que tocarlo: el `LEFT JOIN` por CINCO
+      // columnas contra `analytics.v_kepler_ticket_count`, que **no es matvista sino VISTA** —
+      // se recalcula entera leyendo el ODS crudo con operadores de expresión regular, contra las
+      // 791,548 filas de `mv_kepler_sales_daily`. Y la MV guarda TODA la historia (4.58 M filas,
+      // 2025 + 2026), de la que sólo el **1.14 %** cambia en una semana.
       ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       // [KX.5] El PELDAÑO COBRADO por sucursal × SKU (max `kdm2.c58`, ventana 365 d). No deriva de
