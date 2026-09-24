@@ -98,6 +98,28 @@ const MAX_DELETE_FRAC = Math.min(1, Math.max(0.05, Number(process.env.ODS_DELETE
 // setea ODS_RECONCILE_HB_KEY para NO pisar ese latido (un carril = un dueño del renglón de cron_runs).
 const HB_KEY = (process.env.ODS_RECONCILE_HB_KEY || 'cdc_reconcile').replace(/[^a-z0-9_]/gi, '') || 'cdc_reconcile';
 
+// ⛔ UN MODO DISTINTO NO PUEDE HEREDAR EL LATIDO DEL CARRIL BASE.
+//
+// Medido el 2026-09-24: `ods-reconcile-chicas` se levantó con `ODS_HB_KEY` —el nombre que usan
+// los OTROS servicios de `ops/vl/docker-compose.yml`— en vez de `ODS_RECONCILE_HB_KEY`, que es el
+// que lee este archivo. El default de arriba lo mandó a `'cdc_reconcile'` y estuvo **pisando el
+// renglón del reconciliador con ventana**, que este mismo script llama "la única alarma de
+// COMPLETITUD". Dos carriles escribiendo la MISMA fila: el tablero mostraba al último que corriera.
+//
+// ⚠️ Eso es PEOR que un carril mudo. Uno mudo deja un renglón envejeciendo, y envejecer se ve; éste
+// mantenía el renglón AJENO fresco y verde con SUS propios números — el modo de falla que no deja
+// rastro. Un default silencioso convirtió un nombre de variable mal puesto en datos corruptos.
+//
+// Con `--full` o `--chicas` la llave se exige EXPLÍCITA. Una corrida a mano (sin `--watch`) no late
+// —ya estaba así de antes— y por eso sólo se frena el modo continuo, que es el que escribe.
+if ((FULL || CHICAS) && WATCH_SEC && !process.env.ODS_RECONCILE_HB_KEY) {
+  console.error(
+    `FALLO: el modo ${FULL ? '--full' : '--chicas'} en continuo necesita ODS_RECONCILE_HB_KEY propia.\n`
+    + `       Sin ella latiría como '${HB_KEY}' y pisaría el renglón de OTRO carril en cron_runs.\n`
+    + `       ⚠️ La variable es ODS_RECONCILE_HB_KEY, no ODS_HB_KEY (ése lo leen los shippers).`);
+  process.exit(1);
+}
+
 // Ventana por tabla: fecha de NEGOCIO, y en kdm1 también la de CAPTURA (`c68`). Vive en
 // ../lib/ods-recent-window.js, compartida con la red de seguridad de replicate-ods-live.js.
 // 2026-09-09: con sólo `c9` este reconciliador NO veía los pagos capturados con fecha valor atrasada
