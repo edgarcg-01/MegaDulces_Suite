@@ -9,6 +9,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
+import { unidadLegible } from '@megadulces/contracts';
 import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[ETQ-PLAZA.1]` El catálogo de plazas y su frescura de ODS. Se reusa el del verificador en vez
@@ -970,24 +971,21 @@ export class TiendaEtiquetasComponent {
   });
 
   // Secciones visibles de la etiqueta (multiselect). Default: todas.
+  // `[ETQ-PRES.4]` Dos ejes, no cinco cajones. Eran "Mayoreo por pieza · Paquete · Mayoreo por
+  // paquete · Caja · Granel", nombres de ranuras fijas que dejaron de existir cuando la etiqueta
+  // pasó a imprimir la LISTA: no hay "el paquete", hay las presentaciones que el ERP publique.
   sectionOptions = [
-    { label: 'Mayoreo por pieza', value: 'mayoreoPza' },
-    { label: 'Paquete', value: 'paquete' },
-    { label: 'Mayoreo por paquete', value: 'mayoreoPaq' },
-    { label: 'Caja', value: 'caja' },
+    { label: 'Otras presentaciones', value: 'presentaciones' },
+    { label: 'Peldaños de mayoreo', value: 'mayoreo' },
     { label: 'Código de barras', value: 'barcode' },
-    { label: 'Granel: kg y porción', value: 'granel' },
   ];
-  sections = signal<string[]>(['mayoreoPza', 'paquete', 'mayoreoPaq', 'caja', 'barcode', 'granel']);
+  sections = signal<string[]>(['presentaciones', 'mayoreo', 'barcode']);
   showMap = computed<LabelSections>(() => {
     const s = this.sections();
     return {
-      mayoreoPza: s.includes('mayoreoPza'),
-      paquete: s.includes('paquete'),
-      mayoreoPaq: s.includes('mayoreoPaq'),
-      caja: s.includes('caja'),
+      presentaciones: s.includes('presentaciones'),
+      mayoreo: s.includes('mayoreo'),
       barcode: s.includes('barcode'),
-      granel: s.includes('granel'),
     };
   });
 
@@ -1193,56 +1191,46 @@ export class TiendaEtiquetasComponent {
    * que casualmente esté cargado en `catalog.product_barcodes`.
    */
   private defaultHero(m: LabelModel): HeroKey {
-    const su = (m.scanned_unit || '').toUpperCase();
-    const base = (m.unit_base || '').toUpperCase();
+    const ps = (m.presentaciones ?? []).filter((p) => this.n(p.precio_lista) > 0);
+    if (!ps.length) return '';
+    // Lo que se escaneó manda: el código de la caja imprime la caja.
+    const su = (m.scanned_unit || '').trim().toUpperCase();
     if (su) {
-      if (su === 'CJA' && this.n(m.box_price) > 0) return 'caja';
-      if (su === 'PAQ' && base !== 'PAQ' && this.n(m.pack_price) > 0) return 'paquete';
+      const hit = ps.find((p) => String(p.unidad).toUpperCase() === su);
+      if (hit) return String(hit.unidad);
     }
-    if (this.granelGrams(m) > 0 && this.n(m.piece_price) > 0) return 'kg';
-    if (this.n(m.piece_price) > 0) return 'pieza';
-    if (this.n(m.pack_price) > 0) return 'paquete';
-    if (this.n(m.box_price) > 0) return 'caja';
-    return 'pieza';
+    // El granel se anuncia por kilo — es la convención del anaquel, no una deducción.
+    if (m.sold_by_kg) {
+      const kg = ps.find((p) => String(p.unidad).toUpperCase() === 'KG');
+      if (kg) return String(kg.unidad);
+    }
+    return String((ps.find((p) => p.origen === 'base') ?? ps[0]).unidad);
   }
 
-  /** Granel: gramos de la porción base (KG=1000, "500"/"250"/…). 0 = no granel.
-   *  Solo si sold_by_kg (base KG o tier KG en Kepler) — bolsas/palitos numéricos no son granel. */
-  private granelGrams(m: LabelModel): number {
-    if (!m.sold_by_kg) return 0;
-    const ub = (m.unit_base || '').toUpperCase();
-    if (ub === 'KG') return 1000;
-    return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0;
-  }
-
-  /** Palabra de la unidad base (piece_price = c90) según Kepler unit_base: Paquete/Caja/Pieza. */
-  private baseWord(m: LabelModel): string {
-    const ub = (m.unit_base || '').toUpperCase();
-    if (ub === 'PAQ') return 'Paquete';
-    if (ub === 'CJA') return 'Caja';
-    return 'Pieza';
-  }
-
-  /** Opciones de precio grande para el selector del ticket — solo las que tienen precio. */
+  /**
+   * `[ETQ-PRES.4]` Opciones de precio grande — **una por presentación que el ERP publique**.
+   *
+   * ⛔ Esto armaba como mucho TRES opciones leyendo `piece_price` / `pack_price` / `box_price`.
+   * Medido en el `18022` (plaza 01): el ERP tiene cargadas la bolsa de 500 g a $57.88, el kilo a
+   * $115.74 y la cubeta de 25 kg a $2,339.76, y el selector ofrecía **una sola** —"Pieza
+   * $57.88"—, porque las otras dos no caben en ninguno de los tres cajones. No era que faltara
+   * el dato: era que no había dónde ponerlo.
+   *
+   * La etiqueta del `18022` sale ahora con sus tres unidades, y el "25 kg" queda pegado a los
+   * $2,339.76 de la cubeta, que es de quien era ese peso desde el principio.
+   */
   heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
-    const opts: { value: HeroKey; label: string }[] = [];
     const fmt = (v: number) => '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const g = this.granelGrams(m);
-    const piece = this.n(m.piece_price);
-    if (piece > 0) {
-      if (g > 0 && g < 1000) {
-        // Granel de porción < 1 kg → ofrece AMBAS: la porción y el kilo.
-        opts.push({ value: 'pieza', label: `${g} g ${fmt(piece)}` });
-        opts.push({ value: 'kg', label: `1 kg ${fmt(piece * 1000 / g)}` });
-      } else if (g >= 1000) {
-        opts.push({ value: 'kg', label: `1 kg ${fmt(piece)}` });
-      } else {
-        opts.push({ value: 'pieza', label: `${this.baseWord(m)} ${fmt(piece)}` });
-      }
-    }
-    if (this.n(m.pack_price) > 0) opts.push({ value: 'paquete', label: `Paquete ${fmt(this.n(m.pack_price))}` });
-    if (this.n(m.box_price) > 0) opts.push({ value: 'caja', label: `Caja ${fmt(this.n(m.box_price))}` });
-    return opts;
+    return (m.presentaciones ?? [])
+      .filter((p) => this.n(p.precio_lista) > 0)
+      .map((p) => {
+        const leg = unidadLegible(p.unidad);
+        const nombre = leg.singular.charAt(0).toUpperCase() + leg.singular.slice(1);
+        // El contenido va en la opción porque es lo que distingue dos unidades del mismo
+        // producto: "Caja" y "Cubeta" se parecen; "Caja 12 kg" y "Cubeta 25 kg" no.
+        const cont = p.contenido ? ` · ${p.contenido}` : '';
+        return { value: String(p.unidad) as HeroKey, label: `${nombre}${cont} ${fmt(this.n(p.precio_lista))}` };
+      });
   }
 
   setHero(i: number, hero: HeroKey): void {
