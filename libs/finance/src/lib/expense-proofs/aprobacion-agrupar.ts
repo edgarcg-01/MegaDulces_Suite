@@ -58,11 +58,24 @@ export interface AgrupadoAprobacion {
   por_departamento: GrupoAprobacion[];
 }
 
-/** La fecha con la que se agrupa: la del gasto, y si falta, la de captura. */
+/**
+ * La fecha con la que se agrupa: la del gasto, y si falta, la de captura.
+ *
+ * ⚠️ **Las DOS se validan, no sólo la primera.** La versión anterior comprobaba el
+ * formato de `fecha_gasto` y después usaba `created_at` a ciegas — y `pg` devuelve las
+ * fechas como objeto `Date`, así que `String(...).slice(0,10)` daba **«Thu Sep 24»**.
+ * Medido corriendo la pantalla en local: los 9 expedientes se agrupaban en «Thu Sep 24» y
+ * «Mon Sep 14», o sea por día de CAPTURA y con el nombre del día como etiqueta.
+ *
+ * El arreglo de fondo es que la consulta ya devuelva `YYYY-MM-DD` (`to_char`); esto es el
+ * cinturón: lo que no tenga forma de fecha se declara `sin_fecha` en vez de inventar una.
+ */
 export function fechaDeAgrupacion(e: ExpedientePendiente): string {
-  const f = (e.fecha_gasto ?? '').slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
-  return String(e.created_at ?? '').slice(0, 10) || 'sin_fecha';
+  const dia = (v: unknown): string | null => {
+    const t = String(v ?? '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null;
+  };
+  return dia(e.fecha_gasto) ?? dia(e.created_at) ?? 'sin_fecha';
 }
 
 /**
