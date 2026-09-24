@@ -664,7 +664,7 @@ export interface RenglonEtiqueta {
         <div class="etq-left">
           @if (!enPromo) {
             <div class="etq-meta" #meta>
-              @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
+              @if (contenidoDelHero; as ch) { <span>{{ ch }}</span><span class="sep">|</span> }
               <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
             </div>
           }
@@ -733,7 +733,10 @@ export interface RenglonEtiqueta {
                 @if (r.mayoreo) {
                   <div class="txt">Mayoreo <span class="etq-red">{{ r.desde }}+</span> {{ r.unidadPlural }}</div>
                 } @else {
-                  <div class="txt">{{ r.unidad }}@if (r.contenido) { <span class="etq-red">{{ r.contenido }}</span>}</div>
+                  <!-- El espacio va como &nbsp; y NO como un espacio suelto: Angular compila con
+                       preserveWhitespaces en false y se come el que abre un bloque @if. Salia
+                       "KG1 KG" y "CUBETA25 KG" pegados, en todos los renglones con contenido. -->
+                  <div class="txt">{{ r.unidad }}@if (r.contenido) {&nbsp;<span class="etq-red">{{ r.contenido }}</span>}</div>
                 }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ r.precio | number:'1.2-2' }}</span>@if (r.mayoreo) {<span class="unit">c/u</span>}</div>
               </div>
@@ -744,7 +747,7 @@ export interface RenglonEtiqueta {
                lo que la barra de ahorro necesita para no achicar el precio. -->
           @if (enPromo) {
             <div class="etq-meta" #meta>
-              @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
+              @if (contenidoDelHero; as ch) { <span>{{ ch }}</span><span class="sep">|</span> }
               <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
             </div>
           }
@@ -829,6 +832,12 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
       const hit = conPrecio.find((p) => String(p.unidad).toUpperCase() === pedido);
       if (hit) return hit;
     }
+    // ⚠️ `sold_by_kg` es MÁS ESTRECHO de lo que su nombre sugiere, y lo medí después de escribir
+    // esto: `label-compute.js` hace `soldByKg = bp === 'KG'`, o sea que sólo es cierto cuando la
+    // unidad BASE es el kilo. En los **1,027 pares con base de gramaje** (`500`/`250`/`400`) llega
+    // en **0 de 1,027**, así que esta rama NO se dispara para las bolsas de medio kilo — el hero
+    // de esas queda en su porción, que es la unidad en la que el ERP las cotiza. Anunciarlas por
+    // kilo sería una decisión de negocio, no una corrección: se DECLARA y no se hace sola.
     if (this.model?.sold_by_kg) {
       const kg = conPrecio.find((p) => String(p.unidad).toUpperCase() === 'KG');
       if (kg) return kg;
@@ -838,6 +847,28 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   /** El rótulo del ERP que va en grande. `null` cuando no hay lista. */
   get heroUnidad(): string | null { return this.heroPres ? String(this.heroPres.unidad) : null; }
+
+  /**
+   * ⭐⭐ `[ETQ-PRES.4c]` EL CONTENIDO DE LA META ES EL DE LA PRESENTACIÓN QUE VA EN GRANDE.
+   *
+   * ⛔ Acá seguía vivo el defecto de los 50×, en el único renglón que no se había migrado.
+   * `model.content` es `v_label_prices.content`, que sale de un **regex sobre el nombre del
+   * producto** — el mismo `parseGramaje` de siempre. Y el nombre describe el BULTO.
+   *
+   * Medido en prod (2026-09-24): en **8,716 pares (sku, plaza)** ese contenido del nombre NO
+   * coincide con el contenido derivado de la unidad base. El caso que lo destapó es el `18022`:
+   * la etiqueta imprimía **"25 kg | Código: 18022"** arriba de un **$57.88 que es de 500 g**.
+   * Los renglones ya decían la verdad —"Cubeta 25 kg · $2,339.76"— y la meta seguía mintiendo,
+   * en el mismo papel, a dos centímetros.
+   *
+   * Se cae a `model.content` SÓLO cuando no hay lista (253 pares, todos con `kdii.c11` vacío):
+   * ahí el contenido del nombre es lo único que hay, y es mejor que nada.
+   */
+  get contenidoDelHero(): string | null {
+    const h = this.heroPres;
+    if (h) return h.contenido ?? null;
+    return this.presentaciones.length ? null : (this.model?.content ?? null);
+  }
 
   /**
    * ⭐⭐ Los renglones de la columna derecha, uno por presentación.
