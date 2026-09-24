@@ -270,24 +270,49 @@ function salePriceCtes(scoped, loteGrande) {
   // ⚠️ NO es gratis para lotes chicos, y por eso va con umbral en vez de siempre. El cruce se
   // midio, no se estimo -- a 50 llaves las dos formas empatan al milisegundo:
   //
-  //      llaves      sin m2f     con m2f
-  //          32        2,069       7,311
-  //          50        6,782       6,785    <-- el cruce, de aca sale UMBRAL_PREFILTRO_M2
-  //          80       13,361       8,348
-  //         120       25,919      17,169
-  //         300      >90,000      19,727
+  //      llaves      sin m2f     con m2f     <-- OBSOLETA desde [PERF.3] (2026-09-24): la columna
+  //          32        2,069       7,311         "con m2f" media la forma VIEJA, en la que kdm1 se
+  //          50        6,782       6,785         probaba de a una desde `pos`. Sirve SOLO para
+  //          80       13,361       8,348         justificar de donde salio UMBRAL_PREFILTRO_M2.
+  //         120       25,919      17,169         El costo de HOY esta en la tabla de [PERF.3],
+  //         300      >90,000      19,727         mas abajo, y esta en BUFFERS.
   //         535      345,771      28,650
   //
   // El EXISTS de abajo SI conviene siempre (con 32 llaves: 4,870 ms el JOIN contra 2,069 el
-  // EXISTS); el que cuesta con lotes chicos es unicamente este CTE materializado. Con las dos
-  // piezas y el umbral, TODO tamano de lote mejora respecto del codigo anterior.
+  // EXISTS); el que cuesta con lotes chicos es unicamente este CTE materializado.
+  // ⚠️ La frase "con las dos piezas y el umbral, TODO tamano de lote mejora" quedo VENCIDA:
+  // desde [PERF.3] son TRES piezas, y el piso del lote frio esta medido mas abajo.
   //
   // Tampoco se aplica al barrido completo (`audit-sale-prices.js`): ahi no hay SKUs con que
   // acotar y materializar todas las lineas de venta seria peor.
+  // [PERF.3] (2026-09-24) EL FILTRO DE 90 DIAS BAJA A `docs`, ANTES DE MATERIALIZAR kdm2.
+  //
+  // La ventana vivia SOLO del lado de kdm1, asi que `m2f` materializaba 1,323,725 lineas de las
+  // que apenas 290,883 (22%) caian dentro — y las otras se descartaban DE A UNA, con 1,261,009
+  // descensos en `kdm1_pkey` que costaban 5,043,954 buffers: el 96% de toda la consulta, para
+  // escribir 19 filas de precio. El tuplestore de 10 columnas tampoco cabia en work_mem y
+  // derramaba 71 MB a disco por llamada.
+  //
+  // El dato que da vuelta el problema: el lado de kdm1 es MINUSCULO. Los documentos de venta
+  // vigentes de 90 dias son 18,937 filas (145 ms, 1.3 MB) por `ix_kdm1_venta_fecha`. Se estaban
+  // haciendo 1.26 M de busquedas sobre una tabla de 493 MB para buscar adentro de un conjunto
+  // que cabe en un hash.
+  //
+  // `m2f` baja de 10 columnas a 4 porque c1..c6 se consumen aca adentro — y eso es lo que saca
+  // el tuplestore del disco.
   const cteM2 = preFiltrarM2 ? `
+      ), docs AS MATERIALIZED (
+        SELECT m1.sucursal, m1.c1, m1.c2, m1.c3, m1.c4, m1.c5, m1.c6
+          FROM kepler_ods.kdm1 m1
+         WHERE m1.c2='U' AND m1.c3='D'
+           AND m1.c9::date >= current_date - ${VENTANA_DIAS}
+           AND btrim(coalesce(m1.c43::text,'N'))='N'
       ), m2f AS MATERIALIZED (
-        SELECT m2.sucursal, m2.c1, m2.c2, m2.c3, m2.c4, m2.c5, m2.c6, m2.c8, m2.c11, m2.c12
+        SELECT m2.sucursal, m2.c8, m2.c11, m2.c12
           FROM kepler_ods.kdm2 m2
+          JOIN docs m1
+            ON m1.sucursal=m2.sucursal AND m1.c1=m2.c1 AND m1.c2=m2.c2 AND m1.c3=m2.c3
+           AND m1.c4=m2.c4 AND m1.c5=m2.c5 AND m1.c6=m2.c6
          WHERE ${lineaDeVenta} ${fm2}` : '';
 
   return `
@@ -300,25 +325,54 @@ function salePriceCtes(scoped, loteGrande) {
         SELECT btrim(m2.c8::text) AS sku,
                mode() WITHIN GROUP (ORDER BY round(m2.c12::numeric,2) DESC) AS precio,
                count(*)::int AS lineas
-          FROM ${preFiltrarM2 ? 'm2f m2' : 'kepler_ods.kdm2 m2'}
+          FROM ${preFiltrarM2 ? 'm2f m2' : 'kepler_ods.kdm2 m2'}${preFiltrarM2 ? '' : `
           -- La llave del documento son las 7 columnas de la PK (sucursal,c1..c6), no (sucursal,c5,c6):
           -- el folio NO es unico entre tipos de documento, asi que unir de menos casa el documento
           -- equivocado (ademas de no poder usar kdm1_pkey y volverse inservible: 66 s por 1 SKU).
           JOIN kepler_ods.kdm1 m1
             ON m1.sucursal=m2.sucursal AND m1.c1=m2.c1 AND m1.c2=m2.c2 AND m1.c3=m2.c3
-           AND m1.c4=m2.c4 AND m1.c5=m2.c5 AND m1.c6=m2.c6
+           AND m1.c4=m2.c4 AND m1.c5=m2.c5 AND m1.c6=m2.c6`}
          -- [PERF.2] EXISTS, no JOIN. Un CTE no tiene indice, asi que unirlo obligaba a barrerlo
          -- entero por cada linea de venta: con 32 SKUs calientes eran 83,855 barridos de 288 filas
          -- y 24,066,385 comparaciones descartadas. Como semi-join el planificador puede hashear.
          -- Es equivalente SOLO porque (sucursal, sku, unidad) es unico en kdii -- verificado en
          -- prod: CERO grupos duplicados. Con duplicados el JOIN multiplicaria lineas y moveria
          -- el mode() y el count(); EXISTS no.
+         --
+         -- [PERF.3] LOTE GRANDE: kdm1 ya no se une aca -- se acoto antes, en el CTE docs, que
+         -- maneja el join desde su lado. NO es una restriccion nueva: es EL MISMO join, movido,
+         -- y bajar una seleccion al lado interno de un inner join conserva la multiplicidad
+         -- (haya o no duplicados; que kdm1_pkey sea UNIQUE es cierto pero irrelevante, porque
+         -- la forma vieja hacia exactamente ese mismo join). Lo unico que hay que justificar es
+         -- el c2='U' AND c3='D' que docs agrega, y esta IMPLICADO: el join trae m1.c2=m2.c2 y
+         -- lineaDeVenta ya fija m2.c2='U'. Vale porque c2 y c3 son text en LAS DOS tablas --
+         -- con un char(n) de un lado habria que probar la transitividad por el padding.
+         --
+         -- Medido en prod el 2026-09-24, cada forma DOS veces, EXPLAIN (ANALYZE, BUFFERS):
+         --
+         --    llaves    buffers antes    buffers despues    ms antes     ms despues
+         --        50        2,162,931            206,436     9.3-11.9       2.5-2.9
+         --        80        2,701,541            206,973     9.8-11.3       2.2-2.5
+         --       300        5,250,561            209,430    17.8-18.0       2.7-2.7
+         --
+         -- (pg_stat_statements de prod da 5,237,064 buffers y 7,852 bloques temp por llamada en
+         --  1,899 llamadas = 12.85 h de base en 20.5 h. La medicion a 300 coincide al 0.3%.)
+         --
+         -- El derrame a disco DESAPARECE: m2f pasa de 10 columnas a 4 y de 1.32 M de filas a
+         -- 291,606 = 17.7 MB en memoria. Techo absoluto SIN filtro de SKU: 663,366 filas = 39 MB,
+         -- debajo de work_mem=64MB, asi que no puede volver por tamano de lote.
+         --
+         -- ⚠️ EL COSTO ES PLANO, TAMBIEN CUANDO NO SIRVE: docs mas los ~19,000 descensos por
+         -- documento se pagan aunque el lote no case NADA. Lote FRIO de 300 SKUs sin ventas:
+         -- 205,940 buffers contra 191,694 de la forma vieja, +7.4%. No es regresion -- la forma
+         -- vieja ahi tampoco era barata -- pero el piso existe, y por eso esto va detras del
+         -- MISMO umbral que m2f y no siempre. A 25 SKUs esta forma es PEOR: 3,769 contra 2,190 ms.
          WHERE EXISTS (SELECT 1 FROM base_unit bu
                         WHERE bu.suc=btrim(m2.sucursal) AND bu.sku=btrim(m2.c8::text)
                           AND bu.unidad=btrim(m2.c11::text))
-           AND m1.c9::date >= current_date - ${VENTANA_DIAS}
+           ${preFiltrarM2 ? '' : `AND m1.c9::date >= current_date - ${VENTANA_DIAS}
            AND btrim(coalesce(m1.c43::text,'N'))='N'
-           ${preFiltrarM2 ? '' : `AND ${lineaDeVenta} ${fm2}`}
+           AND ${lineaDeVenta} ${fm2}`}
          GROUP BY 1 HAVING count(*) >= ${MIN_LINEAS}
       ), cfg AS (
         SELECT sku, mode() WITHIN GROUP (ORDER BY unidad) AS unidad,
