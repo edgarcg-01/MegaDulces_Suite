@@ -170,8 +170,14 @@ trabajar los 206 reales"). **No verificado todavía** que `c13` sea el discrimin
 La pantalla lo dice arriba y una sola vez, porque un módulo a medias que no lo dice se lee como un
 módulo roto:
 
-- **E.12.1 — El editor de renglones + el motor de precio.** Es el corazón: derivar el precio de
-  §3.1 + §3.2, con sus cuatro trampas resueltas. Ruta crítica.
+- ~~**E.12.1 — El editor de renglones + el motor de precio.**~~ ✅ **HECHO, en dos tramos y con
+  otro nombre**: el motor es `[COT.1]` (2026-09-22) y la pantalla `[COT.1b]` (2026-09-23), los dos
+  en [`FASE_COT`](FASE_COT_COTIZACIONES.md). ⚠️ **Dos nombres para un sprint**: si buscás
+  "E.12.1" en el código no lo vas a encontrar — los commits dicen `[COT.1]` y `[COT.1b]`.
+- ⚠️ **La superficie NO se movió.** `FASE_COT` §5 había fijado `/cotizaciones` como proyecto
+  propio por decisión de Dirección (2026-09-22); Edgar lo **revirtió el 2026-09-23** y la pantalla
+  se queda en `/telemarketing/cotizaciones`. El diagnóstico que sostenía la mudanza sigue vivo y
+  está en §4 de ese doc.
 - **E.12.2 — Pegar la lista del cliente.** Que el operador pegue el correo/WhatsApp y el sistema
   intente casar cada renglón (reusar el match AI de Fase K), dejando en `unmatched` lo que no casó.
 - **E.12.3 — Enviar y PDF.** El documento que ve el cliente. Reusa el patrón de `AnexoVentaService`

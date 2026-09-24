@@ -213,8 +213,16 @@ export class CommercialQuotesService {
         LEFT JOIN commercial.orders    o ON o.tenant_id = q.tenant_id AND o.id = q.order_id
         LEFT JOIN identity.users       u ON u.tenant_id = q.tenant_id AND u.id = q.user_id
         LEFT JOIN LATERAL (
+          -- [COT.1b] "Sin casar" estaba definido DOS veces y coincidían por casualidad: el motor
+          -- escribe availability='unmatched' (quote-pricing.service.ts) y acá se contaba por
+          -- product_id IS NULL. Manda la COLUMNA, que es la que el motor afirma; el
+          -- product_id IS NULL queda como red por si un renglón viejo nació antes de que el motor
+          -- existiera. Una sola pregunta, un solo lugar donde cambiarla.
+          -- (Sin acentos graves: esto vive dentro de un template literal.)
           SELECT count(*) AS line_count,
-                 count(*) FILTER (WHERE ql.product_id IS NULL) AS unmatched_count
+                 count(*) FILTER (
+                   WHERE ql.availability = 'unmatched' OR ql.product_id IS NULL
+                 ) AS unmatched_count
           FROM commercial.quote_lines ql
           WHERE ql.tenant_id = q.tenant_id AND ql.quote_id = q.id
         ) l ON TRUE

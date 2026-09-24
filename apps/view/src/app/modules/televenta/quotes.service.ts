@@ -71,6 +71,109 @@ export interface QuotesPage {
   total: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[COT.1b]` Renglones. El motor vive en el servidor desde COT.1 y NINGUNA pantalla lo llamaba.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Peldaño de la escalera del ERP. `base` es la unidad en la que el ERP publica el precio. */
+export type Rung = 'base' | 'pack' | 'box';
+
+/** Un paso del cálculo: qué le hizo al precio y con qué fuente. Es lo que lo vuelve explicable. */
+export interface PriceStep {
+  step: string;
+  source: string;
+  detail: string;
+  before: number | null;
+  after: number | null;
+}
+
+/**
+ * Lo que devuelve el motor por un renglón.
+ *
+ * ⛔ El precio SIEMPRE lo pone el servidor. La pantalla manda qué y cuánto, nunca a cuánto:
+ * el vendedor no puede inventar un descuento (decisión de Dirección, 2026-09-22), y los
+ * endpoints ni siquiera aceptan `unit_price` en el body.
+ */
+export interface PricedLine {
+  sku: string;
+  product_id: string | null;
+  name: string | null;
+  branch: string;
+  rung: Rung;
+  unit_label: string | null;
+  /** Unidades base por peldaño. `null` en la base o cuando no se pudo resolver — nunca 1 de relleno. */
+  unit_factor: number | null;
+  quantity: number;
+  list_price: number | null;
+  /** `null` = no se pudo cotizar. **Nunca 0**: un cero se leería como "no cuesta nada" (ADR-056). */
+  unit_price: number | null;
+  price_source: string;
+  line_total: number | null;
+  tax_rate: number;
+  tax_basis: string;
+  availability: string;
+  applied: PriceStep[];
+  not_applied: { mechanism: string; reason: string }[];
+  free_goods: { sku: string; quantity: number; unit_label: string | null; product_id: string | null } | null;
+  unpriced_reason: string | null;
+  warnings: string[];
+}
+
+export interface AddLineResult {
+  quote_id: string;
+  lines: number;
+  priced: PricedLine | null;
+}
+
+/** Un renglón tal como lo devuelve `getOne`. `ql.*` más el nombre y el descuento derivado. */
+export interface QuoteLine {
+  id: string;
+  line_number: number;
+  product_id: string | null;
+  product_name: string | null;
+  requested_text: string | null;
+  quantity: number | string;
+  unit_price: number | string | null;
+  list_price: number | string | null;
+  line_total: number | string;
+  price_source: string;
+  availability: string;
+  parent_line_number: number | null;
+  discount_pct: number | string | null;
+  notes: string | null;
+  /** `[COT.1b]` El peldaño en que se cotizó. `null` = no se registró (renglón viejo). NO es pieza. */
+  qty_unit: string | null;
+  qty_factor: number | string | null;
+  qty_factor_source: string | null;
+}
+
+export interface QuoteDetail {
+  id: string;
+  code: string;
+  status: QuoteStatus;
+  origin: QuoteOrigin;
+  recipient_name: string;
+  customer_code: string | null;
+  erp_customer_code: string | null;
+  source_branch: string | null;
+  terms_source: string;
+  terms_discount_pct: number | string | null;
+  terms_credit_limit: number | string | null;
+  terms_payment_days: number | null;
+  quote_date: string;
+  valid_until: string;
+  days_to_expiry: number;
+  subtotal: number | string;
+  tax_total: number | string;
+  total: number | string;
+  currency: string;
+  customer_request: string | null;
+  notes: string | null;
+  order_code: string | null;
+  created_by_username: string | null;
+  lines: QuoteLine[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class QuotesService {
   private readonly http = inject(HttpClient);
@@ -100,8 +203,42 @@ export class QuotesService {
     return this.http.get<QuotesSummary>(`${this.base}/summary`, { params });
   }
 
-  getOne(id: string): Observable<Record<string, unknown>> {
-    return this.http.get<Record<string, unknown>>(`${this.base}/${id}`);
+  getOne(id: string): Observable<QuoteDetail> {
+    return this.http.get<QuoteDetail>(`${this.base}/${id}`);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // `[COT.1b]` Renglones
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Cotiza un renglón SIN guardarlo. Es lo que deja ver el precio —y por qué— antes de
+   * ensuciar la cotización. No exige `GESTIONAR`: mirar un precio no es ofrecerlo.
+   */
+  pricePreview(input: { branch: string; sku: string; quantity: number; rung?: Rung }): Observable<PricedLine> {
+    return this.http.post<PricedLine>(`${this.base}/price-preview`, input);
+  }
+
+  /** Agrega un renglón. Con `sku` se cotiza; con `requested_text` se guarda lo que el cliente pidió y no casó. */
+  addLine(
+    quoteId: string,
+    input: { sku?: string; requested_text?: string; quantity: number; rung?: Rung },
+  ): Observable<AddLineResult> {
+    return this.http.post<AddLineResult>(`${this.base}/${quoteId}/lines`, input);
+  }
+
+  /**
+   * Corrige la cantidad conservando el LUGAR del renglón en la lista.
+   * ⭐ Re-tarifica: subir la cantidad puede cruzar el umbral de volumen o activar una promo del
+   * ERP, y el precio nuevo es justo lo que hay que ver. (El PATCH de pedidos NO hace esto.)
+   */
+  updateLine(quoteId: string, lineId: string, input: { quantity: number; rung?: Rung }): Observable<AddLineResult> {
+    return this.http.patch<AddLineResult>(`${this.base}/${quoteId}/lines/${lineId}`, input);
+  }
+
+  /** Quita un renglón. Se lleva sus renglones de regalo: un regalo huérfano parece un error. */
+  removeLine(quoteId: string, lineId: string): Observable<{ quote_id: string; removed: number }> {
+    return this.http.delete<{ quote_id: string; removed: number }>(`${this.base}/${quoteId}/lines/${lineId}`);
   }
 
   /**

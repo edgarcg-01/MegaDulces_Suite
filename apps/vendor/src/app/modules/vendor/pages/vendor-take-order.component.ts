@@ -39,7 +39,10 @@ import {
   factorDe,
   rotuloCrudo,
   subirEscalon,
-} from '../../../core/order/qty-units';
+  // `[COT.1b]` Se mudó a `libs/ui-web` (con su spec) para que la pantalla de cotizaciones
+  // pueda usar la MISMA aritmética: una app Nx no importa de otra app. Acá no cambia nada
+  // de comportamiento — es la misma función, en una casa donde dos apps la alcanzan.
+} from '@megadulces/ui-web';
 
 /** Normaliza para búsqueda tipo Google: minúsculas + sin acentos/diacríticos. */
 const foldText = (s: string | null | undefined): string =>
@@ -2440,7 +2443,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
   // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
   //
-  // La aritmética vive en core/order/qty-units.ts, con sus candados y sus pruebas
+  // La aritmética vive en libs/ui-web (order/qty-units.ts), con sus candados y sus pruebas
   // negativas. La invariante que sostiene todo: lo que la fila MUESTRA, por el
   // factor, es exactamente lo que el pedido PIDE. Cuando no se puede cumplir, la
   // fila lo declara en unidad base en vez de redondear (ADR-056).

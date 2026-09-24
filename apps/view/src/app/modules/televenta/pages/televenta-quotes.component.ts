@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { TableModule } from 'primeng/table';
@@ -206,7 +206,11 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                 </tr>
               </ng-template>
               <ng-template #body let-q>
-                <tr>
+                <!-- [COT.1b] La fila abre el detalle. Hasta ahora la mesa era un callejón sin
+                     salida: se creaba una cotización y no se podía volver a abrir. -->
+                <tr class="fila" [routerLink]="['/telemarketing/cotizaciones', q.id]" tabindex="0"
+                    (keydown.enter)="abrir(q.id)" (keydown.space)="abrir(q.id)"
+                    [attr.aria-label]="'Abrir la cotización ' + q.code">
                   <td class="mono">
                     {{ q.code }}
                     @if (q.order_code) {
@@ -316,6 +320,12 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .muted { color: var(--text-color-secondary); font-size: 0.8125rem; }
       .table-foot { margin: 0; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--text-color-secondary); border-top: 1px solid var(--border-color); }
 
+      /* [COT.1b] La fila es navegable: cursor, hover y foco visible. Sin el :focus-visible,
+         quien navega con teclado tiene una fila clickeable que no puede ver que tiene el foco. */
+      .fila { cursor: pointer; }
+      .fila:hover { background: var(--hover-bg); }
+      .fila:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+
       .empty { padding: 2.5rem 1rem; text-align: center; }
       .empty-title { margin: 0 0 0.35rem; font-weight: 600; }
       .empty-hint { margin: 0; font-size: 0.8125rem; color: var(--text-color-secondary); }
@@ -326,6 +336,7 @@ export class TeleventaQuotesComponent implements OnInit {
   private readonly svc = inject(QuotesService);
   private readonly toast = inject(MessageService);
   private readonly perms = inject(PermissionsService);
+  private readonly router = inject(Router);
 
   readonly filters = FILTERS;
 
@@ -377,6 +388,11 @@ export class TeleventaQuotesComponent implements OnInit {
           detail: err?.status === 403 ? 'Sin permiso para el resumen.' : 'No se pudo calcular.',
         }),
     });
+  }
+
+  /** `[COT.1b]` Enter/Espacio abren la fila: `routerLink` solo responde al clic del ratón. */
+  abrir(id: string): void {
+    void this.router.navigate(['/telemarketing/cotizaciones', id]);
   }
 
   statusLabel(s: QuoteStatus): string {
