@@ -145,6 +145,50 @@ export interface ResumenSolicitante {
 /** Detalle + señal de si el bucket está configurado (para no confundir "sin adjunto" con "no lo puedo servir"). */
 export interface ExpenseProofDetail extends ExpenseProof { storage_ok?: boolean; requiere_evidencia?: boolean; }
 
+/** `[GX.15]` Un gasto de Kepler ya aplicado y todavía sin comprobación. */
+export interface ListoParaComprobar {
+  sucursal: string;
+  folio_gasto: string;
+  fecha_gasto: string | null;
+  beneficiario: string | null;
+  concepto: string | null;
+  area: string | null;
+  solicitud_folio: string;
+  solicitud_estado: string | null;
+  solicitante: string | null;
+  importe: number;
+  solicitud_importe: number | null;
+  /** `null` = no hay solicitud contra la cual cuadrar, que NO es lo mismo que «no cuadra». */
+  cuadra_con_solicitud: boolean | null;
+}
+
+/**
+ * `[GX.15]` Respuesta de «lo que ya se puede comprobar».
+ *
+ * `medido: false` no es una lista vacía: es «no hay cómo saber cuáles son tuyas». Un vacío
+ * a secas se lee como «no tenés nada pendiente», que es otra afirmación.
+ */
+export interface ListasParaComprobar {
+  medido: boolean;
+  motivo: string | null;
+  /** La ventana es sobre la fecha de la SOLICITUD, no la del gasto. */
+  ventana_dias: number;
+  rows: ListoParaComprobar[];
+}
+
+/** `[GX.15]` El expediente completo: los cuatro eslabones + en qué etapa va el trámite. */
+export interface ExpedienteGasto {
+  sucursal: string;
+  folio_solicitud: string;
+  solicitud: Record<string, any> | null;
+  expediente: Record<string, any> | null;
+  /** Pueden ser VARIOS: 177 solicitudes en prod tienen más de un gasto aplicado. */
+  gastos: Record<string, any>[];
+  comprobaciones: Record<string, any>[];
+  tramite: { etapa: string; label: string; falta: string[] };
+  generado_at: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprobacionesService {
   private readonly http = inject(HttpClient);
@@ -226,5 +270,28 @@ export class ComprobacionesService {
   /** (C) folio_solicitud → estado, para el indicador en Solicitudes. */
   /** Estado + ID del último comprobante por folio de solicitud. El ID permite validar o
    *  rechazar desde donde se esté viendo, sin saltar a otra pantalla a buscarlo. */
+  /** `[GX.15]` El expediente completo de una solicitud (los cuatro eslabones). */
+  expediente(sucursal: string, folio: string): Observable<ExpedienteGasto> {
+    return this.http.get<ExpedienteGasto>(`${environment.apiUrl}/finance/expenses/expediente/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
+  }
+
+  /**
+   * `[GX.15]` El expediente en PDF.
+   *
+   * Se pide como **blob**, no con un `<a href>`: la ruta exige el token y un enlace
+   * directo lo manda sin cabecera de autorización — el navegador abriría un 401 en una
+   * pestaña en blanco, que se ve como «el PDF no sirve».
+   */
+  expedientePdf(sucursal: string, folio: string): Observable<Blob> {
+    return this.http.get(`${environment.apiUrl}/finance/expenses/expediente/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/pdf`,
+      { responseType: 'blob' });
+  }
+
+  /** `[GX.15]` Gastos ya aplicados en Kepler y sin comprobación, dentro del alcance. */
+  listasParaComprobar(dias = 90, limit = 200): Observable<ListasParaComprobar> {
+    return this.http.get<ListasParaComprobar>(`${environment.apiUrl}/finance/expenses/expediente/listas-para-comprobar`,
+      { params: new HttpParams().set('dias', String(dias)).set('limit', String(limit)) });
+  }
+
   statusByFolio(): Observable<Record<string, ProofByFolio>> { return this.http.get<Record<string, ProofByFolio>>(`${this.base}/status-by-folio`); }
 }

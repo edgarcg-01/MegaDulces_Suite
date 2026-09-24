@@ -419,6 +419,23 @@ Bug que el smoke destapó y el build no podía ver: al vaciar un rack la fila qu
   `['clave', 'Etiqueta', …]`, y `[CG.21]` declaró la suya como `const KEY = 'finanzas.caja'` → el
   catálogo salía en 14 con 15 claves sembradas y dos aserciones de biyección acusaban en falso a
   una clave que **sí** estaba declarada.
+### Added — el expediente del gasto, y su PDF (`[GX.15]`, 2026-09-24)
+- **Los cuatro eslabones en un solo lugar**: solicitud `XA1501` (Kepler) + expediente propio
+  + gasto aplicado `XA1001` (Kepler) + comprobación, con la etapa del trámite derivada y qué
+  falta. `GET /finance/expenses/expediente/:sucursal/:folio` y `…/pdf`.
+- **La comprobación queda lista sola**: `…/listas-para-comprobar` devuelve los gastos que
+  Kepler ya aplicó y todavía no tienen comprobación. No hace falta avisar ni correr un
+  proceso — aparece en cuanto el `XA1001` entra al ODS.
+- ⭐ **No hubo que decodificar nada**: los **9,073 gastos aplicados traen el folio de su
+  solicitud (`c39`) — el 100%**.
+- ⚠️ **Un gasto no es uno solo**: 177 solicitudes tienen 2, 3 o 4 gastos aplicados, así que el
+  expediente los lista y el cuadre se juzga contra la **suma**.
+- ⚠️ **El JOIN entre las dos vistas del ODS no termina** (>90 s, cancelado por timeout);
+  separado en dos viajes son **1.2 s**. Y el orden importa: arrancando por los gastos, a quien
+  sólo ve lo suyo le faltarían filas en silencio.
+- 📊 Medido al pasar: **3,146 gastos de los últimos 90 días esperan comprobación**.
+- Sin migración y sin permisos nuevos → **no hace falta re-login**.
+
 ### Added — cómo se pagó, y la foto tomada en vivo (`[GX.14]`, 2026-09-24)
 - **Dos cosas que quien gasta aporta antes de que su solicitud llegue a revisión**, y que
   Kepler no pide. Medido en prod (2026-09-23): `forma_pago` **vacía en 5,410 de 10,082

@@ -1745,6 +1745,90 @@ identificador dentro de un comentario HTML del `template`.
 
 ---
 
+## GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código)
+
+La historia de un gasto vivía repartida en cuatro lugares y había que cruzar tres pantallas
+para armarla. Ahora se pide por `(sucursal, folio)` y sale entera, con su PDF.
+
+| # | Eslabón | Dónde vive | De quién es |
+|---|---|---|---|
+| 1 | La solicitud `XA1501` | `analytics.expense_requests` | Kepler |
+| 2 | El expediente (forma de pago + fotos) | `finance.expense_proofs` | nuestro (GX.7–GX.14) |
+| 3 | El gasto aplicado `XA1001` | `analytics.expense_documents` | Kepler |
+| 4 | La comprobación | `finance.expense_comprobaciones` | nuestro (GX.8) |
+
+- [x] **[GX.15.1]** `GET /finance/expenses/expediente/:sucursal/:folio` — la cadena completa
+      con la **etapa del trámite derivada** y qué falta. ⭐ **No hizo falta decodificar nada ni
+      inventar una tabla puente**: la asociación ya estaba en Kepler y es limpia — medido, los
+      **9,073 gastos aplicados traen el folio de su solicitud en `c39`: el 100%**.
+- [x] **[GX.15.2]** `GET …/:sucursal/:folio/pdf` — el expediente imprimible. Dice en el pie
+      lo que **no** es: respaldo interno, **no comprobante fiscal ni póliza**.
+- [x] **[GX.15.3]** `GET …/listas-para-comprobar` — «cuando en Kepler se lo autoricen, tenerle
+      lista su comprobación». No hace falta que nadie avise ni que corra un proceso: en cuanto
+      el `XA1001` aparece en el ODS, la fila aparece con todo resuelto (folio del gasto,
+      importe, beneficiario, y si cuadra contra lo pedido).
+      Sin alcance devuelve **`medido:false` con el motivo, nunca una lista vacía**: un vacío a
+      secas se lee como «no tenés nada pendiente», que es otra afirmación (ADR-056).
+- [x] **[GX.15.4]** Frontend: sección **Listas para comprobar** en la pantalla de quien gasta
+      + botón de expediente. El PDF se baja como **blob**, no con `<a href>`: la ruta exige el
+      token y un enlace directo abriría un 401 en una pestaña en blanco.
+- [x] **[GX.15.5]** `libs/finance/src/lib/shared/chromium-pdf.ts` — el singleton de Chromium
+      sube a un solo lugar. Ya estaba escrito **dos veces** a mano (`AnexoVentaService` en
+      `libs/commercial`, `PaymentCalendarDocumentService` en `libs/finance`); hacer la tercera
+      copia era el defecto que ADR-056 midió ocho veces.
+
+### ⚠️ Los tres hallazgos que cambiaron el diseño
+
+1. **Un gasto no es uno solo.** Medido: **8,705 solicitudes tienen 1 gasto, 165 tienen 2, 10
+   tienen 3 y 2 tienen 4**. Modelarlo 1:1 —la tentación, porque el 96% lo es— habría hecho que
+   esas **177** mostraran un gasto arbitrario y escondieran el resto **sin un solo error en el
+   log**. Por eso `gastos` es una lista y el cuadre se juzga contra la **suma**.
+2. **El JOIN entre las dos vistas del ODS no termina.** Cruzar `expense_documents` con
+   `expense_requests` sobre 90 días **se pasó de 90 s y lo canceló el timeout**; sobre toda la
+   historia pasó de **5 minutos sin devolver**. Separado en dos viajes: **1.2 s**. El pegado se
+   hace en memoria, sobre cientos de filas.
+3. **El orden de los dos viajes también importa.** Arrancando por los gastos hay que topar el
+   primer viaje (medido: **3,000 filas en 90 días, tope alcanzado**) y el recorte por persona
+   ocurre después → a quien sólo ve lo suyo **le faltarían filas sin que nada lo avise**.
+   Arrancando por las solicitudes el universo ya viene recortado y completo: **606 ms** para
+   una persona, **1,278 ms** para toda la empresa.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.27 MB).
+- **16 pruebas unitarias nuevas** sobre la función pura `derivarEtapa` (`finance` 129 → **145**).
+  **Prueba negativa corrida**: moví la pregunta de `cancelada` al final a propósito → la suite
+  se puso **roja** en el caso exacto, y verde otra vez al restaurar.
+- Las tres consultas del servicio, medidas contra **prod** (lectura): cadena de un folio
+  **287 ms**, gastos de una solicitud **269 ms**, listas-para-comprobar **606 ms / 1,278 ms**.
+- Corregida una aserción **vacua** que yo mismo escribí: `.not.toContain(expect.stringContaining(…))`
+  no compara con el matcher dentro de un arreglo — no podía fallar nunca.
+
+### 📊 Lo que la medición dejó a la vista
+
+**3,146 gastos ya aplicados en los últimos 90 días esperan comprobación** (de 3,254
+solicitudes). Es coherente con que `finance.expense_comprobaciones` tenga **1 fila** en prod:
+el módulo existe desde GX.8 y no se usa.
+
+### ⬜ Pendiente / declarado
+
+- **Sin migración y sin permisos nuevos** → no hace falta re-login. Sí redeploy api + view.
+- **Validación visual y prueba del PDF en vivo**: `puppeteer` no se ejerció en esta sesión.
+  Es lo primero a probar; en Railway puede hacer falta `PUPPETEER_EXECUTABLE_PATH`.
+- **Las evidencias NO viajan embebidas en el PDF**, a propósito: el archivo pesaría decenas de
+  MB y convertiría una URL firmada temporal en una copia permanente que circula sin control.
+  Se listan con su rol y su sello de captura.
+- ⬜ **Deuda con nombre:** `PaymentCalendarDocumentService` sigue con su copia del singleton de
+  Chromium y debe migrar a `shared/chromium-pdf.ts`. No se migró acá a propósito: ya está en
+  prod y cambiarle el motor en el mismo commit que estrena una fase mezcla dos riesgos.
+- ⬜ El botón de expediente **sólo está en la pantalla de quien gasta**; falta en el tablero de
+  revisión (`finanzas-solicitudes.component.ts`, 898 líneas — se dejó fuera por alcance).
+- ⚠️ La ventana de `listas-para-comprobar` es sobre la fecha de la **solicitud**, no la del
+  gasto (en los datos suelen ser el mismo día). Un gasto aplicado tarde sobre una solicitud
+  vieja cae fuera de la ventana.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.

@@ -12,7 +12,7 @@ import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
-import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia } from '../comprobaciones.service';
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia, type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
@@ -223,6 +223,47 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               <div class="cap-state ok"><i class="pi pi-check-circle" aria-hidden="true"></i>
                 Esta solicitud ya está <strong>validada / cerrada</strong>. No hay nada que capturar.</div>
             }
+          }
+        }
+      </div>
+
+      <!-- [GX.15] Lo que Kepler ya autorizo y aplico: la comprobacion queda lista sola. -->
+      <div class="cap-mine">
+        <div class="cap-mine-h">
+          <h2>Listas para comprobar</h2>
+          <button type="button" class="cap-link" (click)="loadListas()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button>
+        </div>
+        @if (listasLoading()) { <div class="cap-muted">Cargando…</div> }
+        @else if (listas(); as lp) {
+          @if (!lp.medido) {
+            <div class="cap-muted">No se puede saber cuáles son tuyas: {{ lp.motivo }}</div>
+          } @else if (!lp.rows.length) {
+            <div class="cap-muted">Nada por comprobar en los últimos {{ lp.ventana_dias }} días.</div>
+          } @else {
+            <p class="cap-muted">{{ lp.rows.length }} gasto(s) ya aplicados en Kepler, esperando su comprobación.</p>
+            <div class="cap-list">
+              @for (g of lp.rows; track g.folio_gasto) {
+                <div class="cap-item">
+                  <div class="cap-it-main">
+                    <strong>{{ g.concepto || g.beneficiario || "—" }}</strong>
+                    <span class="cap-it-prov">gasto {{ g.folio_gasto }} · solicitud {{ g.solicitud_folio }}</span>
+                    <span class="cap-it-date">{{ g.fecha_gasto | date: "dd/MM/yy" }}</span>
+                  </div>
+                  <div class="cap-it-side">
+                    <span class="cap-it-imp">{{ moneyFull(g.importe) }}</span>
+                    @if (g.cuadra_con_solicitud === false) {
+                      <span class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        no cuadra con lo solicitado ({{ moneyFull(g.solicitud_importe) }})</span>
+                    }
+                    <button type="button" class="cap-link" [disabled]="pdfCargando() === g.solicitud_folio"
+                            (click)="verExpediente(g.sucursal, g.solicitud_folio)">
+                      <i class="pi pi-file-pdf" aria-hidden="true"></i>
+                      {{ pdfCargando() === g.solicitud_folio ? "armando…" : "expediente" }}
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
           }
         }
       </div>
@@ -489,10 +530,16 @@ export class FinanzasCapturarGastoComponent {
   /** Drag propio de la zona de la solicitud firmada (para no encender ambas zonas a la vez). */
   readonly dragSol = signal(false);
 
+  /** `[GX.15]` Lo que ya se puede comprobar (Kepler autorizó y aplicó el gasto). */
+  readonly listas = signal<ListasParaComprobar | null>(null);
+  readonly listasLoading = signal(false);
+  /** Folio cuyo PDF se está armando, para no dejar el botón mudo mientras tarda. */
+  readonly pdfCargando = signal<string | null>(null);
+
   readonly mine = signal<ExpenseProof[]>([]);
   readonly mineLoading = signal(false);
 
-  constructor() { this.loadMine(); }
+  constructor() { this.loadMine(); this.loadListas(); }
 
   /** Último término buscado, para poder explicar un resultado vacío. */
   private readonly ultimo = signal('');
@@ -687,6 +734,41 @@ export class FinanzasCapturarGastoComponent {
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Evidencia enviada', detail: `Solicitud ${g.folio} · ${r.status === 'validada' ? 'validada' : 'en revisión'}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la evidencia.'); },
+    });
+  }
+
+  loadListas() {
+    this.listasLoading.set(true);
+    this.svc.listasParaComprobar().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.listas.set(r); this.listasLoading.set(false); this.cdr.markForCheck(); },
+      // Un error NO se pinta como lista vacía: eso diría «no tenés nada», que es otra cosa.
+      error: () => { this.listas.set({ medido: false, motivo: "no se pudo consultar; reintentá", ventana_dias: 0, rows: [] }); this.listasLoading.set(false); this.cdr.markForCheck(); },
+    });
+  }
+
+  /**
+   * `[GX.15]` Abre el expediente en PDF.
+   *
+   * Se baja como blob y se abre con una URL de objeto: la ruta exige el token, y un
+   * `<a href>` directo lo manda sin cabecera de autorización — se vería como un PDF roto.
+   */
+  verExpediente(sucursal: string, folio: string) {
+    if (this.pdfCargando()) return; // doble clic: armar el PDF tarda, no se encolan dos
+    this.pdfCargando.set(folio);
+    this.svc.expedientePdf(sucursal, folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        // Se revoca después: revocarla de inmediato deja la pestaña sin nada que mostrar.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        this.pdfCargando.set(null);
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.pdfCargando.set(null);
+        this.toast.add({ severity: "error", summary: "No se pudo armar el expediente", detail: `Solicitud ${folio}` });
+        this.cdr.markForCheck();
+      },
     });
   }
 

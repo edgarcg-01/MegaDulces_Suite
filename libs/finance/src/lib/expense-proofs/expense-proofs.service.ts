@@ -647,10 +647,13 @@ export class ExpenseProofsService {
    * — justo el defecto que ADR-056 mide. Las `claves` son los nombres normalizados
    * (áreas asignadas + el propio) contra los que se compara `expense_requests.solicitante`.
    *
+   * PÚBLICO desde `[GX.15]`: lo consume también `ExpedienteGastoService`, porque el recorte
+   * por áreas es la regla que decide quién abre el gasto ajeno y dos copias se separan.
+   *
    * `veTodo=false` y `claves=[]` NO significa «todo»: significa que quien llama tiene que
    * exigir folio exacto o devolver vacío. Cada llamador lo decide y lo dice.
    */
-  private async alcanceDelUsuario(
+  async alcanceDelUsuario(
     trx: any,
     user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
   ): Promise<{ veTodo: boolean; claves: string[] }> {

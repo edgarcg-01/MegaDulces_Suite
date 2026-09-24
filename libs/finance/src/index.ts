@@ -11,6 +11,9 @@ export * from './lib/maat/maat-findings-sink.service';
 export * from './lib/expense-proofs/finance-expense-proofs.module';
 export * from './lib/expense-proofs/expense-proofs.service';
 export * from './lib/expense-comprobaciones/finance-expense-comprobaciones.module';
+// [GX.15] El expediente del gasto: los cuatro eslabones juntos + su PDF.
+export * from './lib/expense-dossier/finance-expediente-gasto.module';
+export * from './lib/expense-dossier/expediente-gasto.service';
 export * from './lib/expense-comprobaciones/expense-comprobaciones.service';
 export * from './lib/collection-deposits/finance-collection-deposits.module';
 export * from './lib/collection-deposits/collection-deposits.service';
