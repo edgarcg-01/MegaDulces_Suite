@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### Changed — Andén: el primer paso es la sucursal, no el folio (WMS-REC.15, 2026-09-24)
+- La pantalla abre con un **menú de sucursales** que dice a dónde entra la mercancía y cuántos
+  vales quedan sin abrir en cada una; se elige la plaza y después el vale. Los datos salen del
+  espejo de Kepler, acotados al alcance de almacén del usuario.
+- **Sólo los vales con fecha de hoy** (hora de México). No se amplía a días pasados.
+- El campo de folio **sigue existiendo como respaldo**: el papel puede llegar antes que Kepler.
+- Cuando el día sale vacío la pantalla lo explica, ofrece el folio a mano y da la referencia de
+  un día normal, en vez de quedar muda.
+
+### Fixed — El día se medía en UTC y habría cambiado a las 7 de la noche (WMS-REC.15, 2026-09-24)
+- La sesión de la base corre en `Etc/UTC`: con `CURRENT_DATE` pelado, a las 7 PM de México el
+  andén mostraría los vales de mañana y escondería los del turno. Medido: a esa hora devuelve
+  4 vales del día siguiente, contra 0 reales. Ahora filtra con `AT TIME ZONE 'America/Mexico_City'`.
+
+
 ### Fixed — el carril del ODS se reiniciaba cada 5 min y un normalizador se comía el 92.8% del CPU de la base (`[DB-MEM.18]`→`[DB-MEM.20.1]`, 2026-09-23)
 - ⛔ **`ods-live-hot`/`ods-live-mirror` llevaban 3 horas en ciclo de reinicio** (39 reinicios en el
   día). El latido estaba atado al **sink**: `[OBS.1]` lo escribió cuando los carriles shipeaban por

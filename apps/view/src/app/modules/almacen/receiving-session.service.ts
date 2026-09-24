@@ -189,6 +189,31 @@ export interface SucursalMapEntry {
 }
 
 /** Una coincidencia de la búsqueda por folio: trae TODO lo que llena el vale. */
+/**
+ * Una sucursal del menu del Anden: a donde entra la mercancia y cuantos vales de
+ * HOY quedan sin abrir ahi.
+ */
+export interface ErpPendingBranch {
+  sucursal: string;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  pendientes: number;
+  ultimo: string | null;
+  /** Sin mapa sucursal->almacen no se puede abrir el vale: la pantalla lo avisa antes. */
+  sin_almacen: boolean;
+}
+
+/**
+ * El menu completo. El MODO del alcance viaja con el: la pantalla avisa "estas
+ * viendo todas porque tu usuario no tiene una asignada" y eso tiene que salir
+ * del alcance, no de contar filas.
+ */
+export interface ErpPendingMenu {
+  alcance: 'all' | 'none' | 'own' | 'listed';
+  sucursales: ErpPendingBranch[];
+}
+
 export interface ErpOrderMatch {
   sucursal: string;
   folio: string;
@@ -221,6 +246,17 @@ export class ReceivingSessionService {
   searchErpOrders(folio: string): Observable<ErpOrderMatch[]> {
     const params = new HttpParams().set('folio', folio);
     return this.http.get<ErpOrderMatch[]>(`${this.base}/erp-search`, { params });
+  }
+
+  /** El menu del Anden: sucursales con vales de HOY sin abrir, dentro del alcance. */
+  pendingErpBranches(): Observable<ErpPendingMenu> {
+    return this.http.get<ErpPendingMenu>(`${this.base}/erp-pending-branches`);
+  }
+
+  /** Los vales de HOY de una sucursal. Misma forma que la busqueda por folio. */
+  pendingErpOrders(sucursal: string): Observable<ErpOrderMatch[]> {
+    const params = new HttpParams().set('sucursal', sucursal);
+    return this.http.get<ErpOrderMatch[]>(`${this.base}/erp-pending`, { params });
   }
 
   lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {
