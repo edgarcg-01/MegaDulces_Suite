@@ -134,9 +134,21 @@ export interface CobroCandidate {
   sucursal: string; folio: string; cobro_date: string | null; cliente_code: string | null;
   cliente_nombre: string | null; forma_pago: string | null; monto: number;
 }
+/**
+ * `[CC.12]` Combinaciones de cobros que suman el depósito. Sólo se calculan cuando el abono
+ * tiene cliente declarado (`[CC.11]`): sin dueño, 4 de cada 10 sumas que cuadran son casualidad.
+ */
+export interface SumaCandidatos {
+  disponible: boolean;
+  motivo: string | null;
+  detalle: string;
+  cobros_libres?: number;
+  opciones?: { total: number; cobros: CobroCandidate[] }[];
+}
 export interface BankCandidates {
-  movimiento: { id: string; amount_in: number; movement_date: string };
+  movimiento: { id: string; amount_in: number; movement_date: string; customer_code?: string | null };
   cobros: CobroCandidate[];
+  suma?: SumaCandidatos;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -190,6 +202,16 @@ export class CobranzaService {
   /** Liga un abono a un cobro elegido (bank-first). */
   linkBank(movementId: string, sucursal: string, folio: string): Observable<any> {
     return this.http.post(`${this.base}/bank/${movementId}/link`, { sucursal, folio });
+  }
+
+  /**
+   * `[CC.12]` Liga el abono a VARIOS cobros en una sola operación — el caso de un pago que
+   * cubre varias pólizas. Atómico: o entran todos o no entra ninguno.
+   */
+  linkBankMany(movementId: string, cobros: { sucursal: string; folio: string }[]):
+  Observable<{ ok: boolean; cobros: number; suma: number; amount_in: number; match_type: string }> {
+    return this.http.post<{ ok: boolean; cobros: number; suma: number; amount_in: number; match_type: string }>(
+      `${this.base}/bank/${movementId}/link-many`, { cobros });
   }
 
   /**

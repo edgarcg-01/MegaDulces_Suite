@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — Un pago que cubre varias pólizas ya se puede ligar de una vez (CC.12, 2026-09-24)
+- El caso: **el cliente abona $50,000 contra tres pólizas en un solo pago**. Buscar «el cobro
+  que cuadra» no podía funcionar ahí, y esos depósitos se quedaban para siempre como «sin cobro».
+- Ahora, cuando el depósito **tiene dueño declarado**, la pantalla propone las **combinaciones de
+  sus cobros que suman el depósito** y las liga con un botón, todas juntas.
+- ⛔ **Sin dueño declarado no se proponen combinaciones, a propósito.** Se midió: buscarlas
+  contra todos los clientes acierta el 28.3% de las veces, pero **acertaría el 11.7% por pura
+  casualidad**. Declarar el cliente es lo que vuelve la sugerencia confiable.
+- ⚠️ **Se corrigió una cifra que habíamos publicado.** Veníamos diciendo que este caso pesaba
+  **$55.6M (11.9% del dinero cobrado)**. Estaba mal contado: se mezclaban embarques con cobros
+  porque comparten número de folio. Lo real es **$11.08M (2.5%)**, con un pago que llega a cubrir
+  **45 facturas**. El caso pesa menos, pero sigue existiendo.
+
 ### Added — Cobranza puede decir de quién es un depósito que Kepler todavía no registró (CC.11, 2026-09-24)
 - **Para 5,229 depósitos no hay a qué ligar**: el dinero entró al banco y no existe el cobro. Ahí
   se acababa el camino. Ahora cualquiera de cobranza puede dejar dicho **de qué cliente es**, con

@@ -17,6 +17,10 @@ const TOLERANCIA = 1.0; // pesos: |ocr_monto - cobro_monto| <= 1 → cuadra (red
 const BANK_TOL = 1.0;   // pesos: |monto ficha - abono banco| para casar el movimiento
 const BANK_DAYS_BEFORE = 1; // el abono puede postearse el día del depósito o 1 antes (fecha valor)
 const BANK_DAYS_AFTER = 6;  // …o hasta unos días después (efectivo en ventanilla)
+// `[CC.12]` Topes de la enumeración de combinaciones (un pago que cubre varias pólizas).
+// 18 cobros = 262,143 subconjuntos, ~10 ms. Por encima la respuesta deja de ser una sugerencia.
+const COMBO_MAX_COBROS = 18;
+const COMBO_MAX_OPCIONES = 5;
 
 export interface DepositFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -785,7 +789,7 @@ export class CollectionDepositsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const mov = await trx('finance.bank_movements').where({ id: bankMovementId, tenant_id: tenantId })
-        .first('id', trx.raw('amount_in::numeric AS amount_in'), 'movement_date');
+        .first('id', trx.raw('amount_in::numeric AS amount_in'), 'movement_date', 'customer_code');
       if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
       const target = Number(mov.amount_in);
       const cobros = await trx('analytics.erp_collections as ec')
@@ -797,8 +801,108 @@ export class CollectionDepositsService {
         .select('ec.sucursal', 'ec.folio', 'ec.cobro_date', 'ec.cliente_code', 'ec.cliente_nombre',
           'ec.forma_pago', trx.raw('ec.monto::numeric AS monto'))
         .orderBy('ec.cobro_date', 'desc').limit(15);
-      return { movimiento: { id: mov.id, amount_in: target, movement_date: mov.movement_date }, cobros: cobros.map((c: any) => ({ ...c, monto: Number(c.monto) })) };
+      // [CC.12] La combinacion: SOLO si alguien ya declaro de quien es el deposito.
+      const combos = mov.customer_code
+        ? await this.combinaciones(trx, tenantId, String(mov.customer_code), target, mov.movement_date)
+        : null;
+
+      return {
+        movimiento: {
+          id: mov.id, amount_in: target, movement_date: mov.movement_date,
+          customer_code: mov.customer_code || null,
+        },
+        cobros: cobros.map((c: any) => ({ ...c, monto: Number(c.monto) })),
+        suma: combos ?? {
+          disponible: false,
+          motivo: 'sin_cliente_declarado',
+          detalle: 'Sin dueno declarado no se ofrecen combinaciones: contra todos los clientes, '
+            + '4 de cada 10 sumas que cuadran son casualidad (28.3% contra 11.7% de placebo). '
+            + 'Declara el cliente y la combinacion se busca solo entre SUS cobros.',
+        },
+      };
     });
+  }
+
+  /**
+   * `[CC.12]` **Las combinaciones de cobros que suman el deposito — de UN cliente declarado.**
+   *
+   * El caso que motiva esto: *un abono de $50,000 que paga tres polizas*. El pareo 1:1 no puede
+   * funcionar ahi **por construccion**. Medido contra prod el 2026-09-24 sobre las aplicaciones
+   * del ERP (`kepler_ods.kdm5` filtrado a `U-A-5`): **293 cobros por $11,083,196.14 aplican a 2
+   * o mas facturas — el 2.5% del dinero cobrado**, y uno de ellos a **45**.
+   *
+   * ⚠️ Esta cifra estuvo **inflada a 12.0% / $56.1M / 186 facturas** en la primera medicion,
+   * por agrupar `kdm5` sin filtrar el doctype: el folio **no es unico entre doctypes** y se
+   * mezclaban los `U-A-7` (embarques) con los cobros. Es la misma trampa que ya cobro en
+   * `[CC ext]` con las ordenes de entrada. El total cuadra: $440,145,499.57 de un solo
+   * documento + $11,083,196.14 de varios = $451.2M, el universo cobrado.
+   *
+   * ⛔ **La combinacion NO se ofrece a ciegas.** Buscar que subconjunto suma, contra todos los
+   * clientes, se midio: explica el **28.3%** de los huerfanos grandes contra un **placebo del
+   * 11.7%** (las mismas fechas corridas +90 dias, dentro del rango poblado). Margen 16.7 pp, o
+   * sea **4 de cada 10 aciertos serian casualidad** — inservible para proponerselo a una
+   * persona. Contra el 1:1, que da 78.0% sobre 7.6% de ruido.
+   *
+   * Lo que cambia el resultado es **el cliente declarado** (`[CC.11]`): restringe el universo de
+   * 2,269 grupos a los de una sola cuenta, donde un grupo tipico tiene 2 a 4 cobros (≤16
+   * combinaciones). Por eso esto **depende** de que alguien haya puesto el dueno, y si no lo
+   * hay **se declara el motivo**, no se ofrece una lista debil.
+   *
+   * La enumeracion va en JS y no en SQL a proposito: subset-sum en SQL exige una recursiva que
+   * el planificador no puede acotar. Aca el universo ya viene recortado a un cliente y una
+   * ventana, y se mide: 600 depositos contra 2,269 grupos tardaron 424 ms.
+   */
+  private async combinaciones(
+    trx: any, tenantId: string, customerCode: string, target: number, movementDate: any,
+  ) {
+    const libres = await trx('analytics.erp_collections as ec')
+      .where('ec.tenant_id', tenantId)
+      .whereRaw('btrim(ec.cliente_code) = ?', [customerCode.trim()])
+      .whereRaw(
+        `ec.cobro_date BETWEEN ?::date - INTERVAL '${BANK_DAYS_AFTER} days'
+                           AND ?::date + INTERVAL '${BANK_DAYS_BEFORE} days'`,
+        [movementDate, movementDate])
+      .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r')
+        .whereRaw("r.tenant_id = ec.tenant_id AND r.kepler_doc_tipo='UA0501' AND r.kepler_doc_folio = ec.folio"))
+      .select('ec.sucursal', 'ec.folio', 'ec.cobro_date', 'ec.cliente_nombre', 'ec.forma_pago',
+        trx.raw('ec.monto::numeric AS monto'))
+      .orderBy('ec.cobro_date', 'desc')
+      .limit(COMBO_MAX_COBROS + 1);
+
+    const items = libres.map((c: any) => ({ ...c, monto: Number(c.monto) }));
+    if (items.length < 2) {
+      return { disponible: false, motivo: 'sin_cobros_libres', cobros_libres: items.length,
+        detalle: 'Ese cliente no tiene 2 o mas cobros sin ligar en la ventana.' };
+    }
+    // El tope no se esconde: por encima de el la enumeracion se vuelve 2^n y la respuesta
+    // dejaria de ser una sugerencia para ser una lista de todo lo posible.
+    if (items.length > COMBO_MAX_COBROS) {
+      return { disponible: false, motivo: 'demasiados_cobros', cobros_libres: items.length,
+        detalle: `Ese cliente tiene ${items.length} cobros sin ligar en la ventana (tope `
+          + `${COMBO_MAX_COBROS}). Conviene ligar de a uno los que si casan y volver.` };
+    }
+
+    const n = items.length;
+    const opciones: { total: number; cobros: any[] }[] = [];
+    for (let mask = 1; mask < (1 << n) && opciones.length < COMBO_MAX_OPCIONES; mask++) {
+      let suma = 0; let cuantos = 0;
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) { suma += items[i].monto; cuantos++; }
+      if (cuantos < 2) continue;  // el de 1 ya lo ofrece la lista individual
+      if (Math.abs(suma - target) > BANK_TOL) continue;
+      const elegidos = items.filter((_: any, i: number) => mask & (1 << i));
+      opciones.push({ total: Number(suma.toFixed(2)), cobros: elegidos });
+    }
+    opciones.sort((a, b) => a.cobros.length - b.cobros.length);
+    return {
+      disponible: opciones.length > 0,
+      motivo: opciones.length ? null : 'ninguna_suma_cuadra',
+      cobros_libres: n,
+      opciones,
+      detalle: opciones.length
+        ? 'Cada opcion liga VARIOS cobros a este abono. Revisala antes de confirmar: cuadrar '
+          + 'por monto no prueba que sean estos.'
+        : 'Ninguna combinacion de sus cobros sin ligar suma este deposito.',
+    };
   }
 
   /** Liga (bank-first) un abono a un cobro elegido. GESTIONAR. */
@@ -815,6 +919,78 @@ export class CollectionDepositsService {
     }).then((res: any) => {
       const { _ws, ...out } = res;
       this.emit('bank_matched', { sucursal, folio, monto: _ws.monto, actor: actor || null });
+      return out;
+    });
+  }
+
+  /**
+   * `[CC.12]` **Liga UN abono a VARIOS cobros, en una sola transacción.**
+   *
+   * Es el caso del pedido: *un pago de $50,000 que cubre tres pólizas*. No hace falta tocar el
+   * schema — la UNIQUE de `bank_recon_matches` es `(tenant, movimiento, tipo, folio)`, o sea que
+   * 1:N ya cabía y **ya se usa en prod** (hay abonos con 2, 3 y hasta 5 documentos). Lo que
+   * faltaba era que las N filas entraran **juntas**: ligarlas de a una desde la pantalla deja
+   * medio abono conciliado si la segunda falla.
+   *
+   * ⚠️ `match_type` se decide contra la **suma**, no contra cada cobro: cada pieza por separado
+   * es menor que el depósito y se marcaría `manual` (confianza 0.5) aunque el grupo cuadre
+   * exacto. Juzgar la parte con la vara del todo era describir mal un cruce bueno.
+   */
+  async linkBankToCobros(
+    bankMovementId: string, items: { sucursal: string; folio: string }[], actor?: string,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!bankMovementId) throw new BadRequestException('bank_movement_id requerido');
+    const lista = (items || []).filter((i) => i?.sucursal && i?.folio);
+    if (!lista.length) throw new BadRequestException('hay que elegir al menos un cobro');
+
+    return this.tk.run(async (trx) => {
+      const mov = await trx('finance.bank_movements')
+        .where({ id: bankMovementId, tenant_id: tenantId }).whereNull('deleted_at')
+        .first('id', trx.raw('amount_in::numeric AS amount_in'));
+      if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+
+      const cobros: any[] = [];
+      for (const it of lista) {
+        const c = await trx('analytics.erp_collections')
+          .where({ tenant_id: tenantId, sucursal: it.sucursal, folio: it.folio })
+          .first(trx.raw('monto::numeric AS monto'));
+        if (!c) throw new BadRequestException(`cobro ${it.sucursal}/${it.folio} no existe en Kepler`);
+        cobros.push({ ...it, monto: Number(c.monto) || 0 });
+      }
+      const suma = cobros.reduce((a, c) => a + c.monto, 0);
+      const exacto = Math.abs(Number(mov.amount_in) - suma) <= BANK_TOL;
+
+      for (const c of cobros) {
+        await trx('finance.bank_recon_matches').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          bank_movement_id: bankMovementId,
+          kepler_sucursal: c.sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: c.folio,
+          kepler_cuenta: '102', kepler_amount: c.monto,
+          match_type: exacto ? 'exact' : 'manual',
+          match_confidence: exacto ? 1 : 0.5,
+          matched_by: actor || null,
+        })
+        .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
+        .merge({ kepler_amount: c.monto, match_type: exacto ? 'exact' : 'manual',
+                 matched_by: actor || null });
+      }
+      await trx('finance.bank_movements').where({ id: bankMovementId })
+        .update({ recon_status: 'matched', updated_at: trx.fn.now() });
+
+      this.logger.log(
+        `abono ${bankMovementId} conciliado con ${cobros.length} cobros (suma ${suma.toFixed(2)} `
+        + `vs ${Number(mov.amount_in).toFixed(2)}, ${exacto ? 'exact' : 'manual'}) por ${actor || '?'}`);
+      return {
+        ok: true, bank_movement_id: bankMovementId, cobros: cobros.length,
+        suma: Number(suma.toFixed(2)), amount_in: Number(mov.amount_in),
+        match_type: exacto ? 'exact' : 'manual',
+        _ws: { monto: suma },
+      };
+    }).then((res: any) => {
+      const { _ws, ...out } = res;
+      this.emit('bank_matched', { sucursal: '00', folio: `mov:${bankMovementId}`,
+        monto: _ws.monto, actor: actor || null });
       return out;
     });
   }

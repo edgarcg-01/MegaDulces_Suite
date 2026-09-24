@@ -96,6 +96,23 @@ export class CollectionDepositsController {
     return this.svc.linkBankToCobro(movementId, body?.sucursal || '', body?.folio || '', req?.user?.full_name || req?.user?.username);
   }
 
+  /**
+   * `[CC.12]` Liga el abono a VARIOS cobros de una vez. Va **antes** de `:sucursal/:folio`
+   * como el resto del bloque `bank/`, por el mismo motivo de siempre: una ruta con parámetros
+   * declarada después se la come la genérica.
+   */
+  @Post('bank/:movementId/link-many')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Liga un abono a varios cobros (un pago que cubre varias pólizas).' })
+  linkBankMany(
+    @Param('movementId') movementId: string,
+    @Body() body: { cobros?: { sucursal: string; folio: string }[] },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.linkBankToCobros(
+      movementId, body?.cobros || [], req?.user?.full_name || req?.user?.username);
+  }
+
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   @ApiOperation({ summary: 'Detalle del cobro + sus fichas adjuntas.' })
