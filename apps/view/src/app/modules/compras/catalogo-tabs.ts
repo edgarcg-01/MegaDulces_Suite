@@ -40,4 +40,13 @@ export const CATALOGO_TABS: PageTab[] = [
     icon: 'pi pi-sliders-h',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
+  {
+    // [CAT.7] La lista imprimible por proveedor. Es una VISTA del mismo catalogo —no un modulo
+    // aparte— y por eso pide el mismo permiso: quien puede ver el precio en pantalla puede
+    // imprimirlo. Con un permiso propio la barra se le ocultaria a quien ya ve las otras tres.
+    label: 'Reporte de precios',
+    route: '/compras/catalogo/reporte',
+    icon: 'pi pi-print',
+    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+  },
 ];

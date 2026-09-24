@@ -60,6 +60,27 @@
   andén mostraría los vales de mañana y escondería los del turno. Medido: a esa hora devuelve
   4 vales del día siguiente, contra 0 reales. Ahora filtra con `AT TIME ZONE 'America/Mexico_City'`.
 
+### Added — el catálogo imprime un reporte de precios por proveedor (`[CAT.7]`, 2026-09-24)
+- **`/compras/catalogo/reporte`**, 4ª pestaña del catálogo: se eligen **proveedores**, **plaza**,
+  qué **productos** entran y qué **apartados de precio** salen impresos (unidad · mayoreo de unidad
+  · paquete · mayoreo de paquete · caja, más SKU / código de barras / marca / gramaje / unidad
+  base / costo). Impresión con el diálogo del navegador ("Guardar como PDF"), mismo patrón que
+  `/tienda/etiquetas` y la hoja de caducidades.
+- **Sale de `commercial.product_label_prices`**, la misma fila que imprime la etiqueta de anaquel y
+  que lee el verificador del mostrador: **no se materializa una segunda copia** de los precios.
+  Endpoints nuevos `GET /commercial/products/price-report` y `.../price-report/sucursales`, ambos
+  con el permiso que el catálogo ya pedía (`COMMERCIAL_PRODUCTS_VER`) — **sin migraciones ni
+  permisos nuevos, o sea sin re-login**.
+- **La hoja declara tres cosas que en papel no se pueden deducir:** de qué plaza es el precio (sin
+  plaza, la forma consolidada — que no es un promedio), de cuándo es (sin fecha se imprime *"sin
+  fecha declarada"*, nunca "hoy") y qué falta (los renglones sin precio salen con guion, **jamás
+  con `$0.00`**). Medido en staging: **994 productos** tienen precio de pieza distinto entre
+  plazas. El **costo no viene tildado por default**.
+- **Pruebas:** 59 unitarias nuevas (22 backend · 37 frontend) + smoke `test-newdb-price-report.js`
+  16/16 contra `platform_test`, con prueba negativa del filtro de plaza. ⛔ Dos defectos reales que
+  `tsc` no ve y las compuertas sí: `resource.value()` **lanza** en error (un corte de red reventaba
+  el render en vez de mostrar el banner) y los selectores `p-tableCheckbox`/`p-tableHeaderCheckbox`
+  no existen en PrimeNG 22.
 
 ### Fixed — el carril del ODS se reiniciaba cada 5 min y un normalizador se comía el 92.8% del CPU de la base (`[DB-MEM.18]`→`[DB-MEM.20.1]`, 2026-09-23)
 - ⛔ **`ods-live-hot`/`ods-live-mirror` llevaban 3 horas en ciclo de reinicio** (39 reinicios en el

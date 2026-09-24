@@ -2,6 +2,11 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// [WMS-REC.15] La forma del menu del Anden y del vale del ERP vive en el contrato
+// compartido (ADR-052): el backend devuelve ESTE tipo. Se re-exporta para que los
+// componentes sigan importando desde este servicio, que es donde ya lo buscan.
+import type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
+export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -186,51 +191,6 @@ export interface SucursalMapEntry {
   warehouse_id: string;
   warehouse_code?: string | null;
   warehouse_name?: string | null;
-}
-
-/** Una coincidencia de la búsqueda por folio: trae TODO lo que llena el vale. */
-/**
- * Una sucursal del menu del Anden: a donde entra la mercancia y cuantos vales de
- * HOY quedan sin abrir ahi.
- */
-export interface ErpPendingBranch {
-  sucursal: string;
-  warehouse_id: string | null;
-  warehouse_code: string | null;
-  warehouse_name: string | null;
-  pendientes: number;
-  ultimo: string | null;
-  /** Sin mapa sucursal->almacen no se puede abrir el vale: la pantalla lo avisa antes. */
-  sin_almacen: boolean;
-}
-
-/**
- * El menu completo. El MODO del alcance viaja con el: la pantalla avisa "estas
- * viendo todas porque tu usuario no tiene una asignada" y eso tiene que salir
- * del alcance, no de contar filas.
- */
-export interface ErpPendingMenu {
-  alcance: 'all' | 'none' | 'own' | 'listed';
-  sucursales: ErpPendingBranch[];
-}
-
-export interface ErpOrderMatch {
-  sucursal: string;
-  folio: string;
-  receipt_date?: string | null;
-  proveedor_code?: string | null;
-  proveedor_nombre?: string | null;
-  proveedor_rfc?: string | null;
-  oc_folio?: string | null;
-  vale_folio?: string | null;
-  concepto?: string | null;
-  monto: number;
-  warehouse_id?: string | null;
-  warehouse_code?: string | null;
-  warehouse_name?: string | null;
-  line_count: number;
-  service_count: number;
-  tipo: 'compra' | 'traspaso';
 }
 
 @Injectable({ providedIn: 'root' })

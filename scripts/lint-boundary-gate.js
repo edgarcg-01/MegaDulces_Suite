@@ -23,28 +23,37 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 // El calculo del diff (base/head, archivos, lineas nuevas) salio de ACA y ahora
 // vive compartido: `scripts/lint-changed.js` usa el mismo, en vez de copiarlo.
-const { sh, resolveBase, resolveHead, changedLinesByFile } = require('./lib/changed-lines');
+const { resolveBase, resolveHead, changedFiles, changedLinesByFile } = require('./lib/changed-lines');
 
 const base = resolveBase();
 const head = resolveHead();
 
 // 1) archivos de boundary cambiados
 const isBoundary = (f) => /^(libs|apps)\//.test(f) && /\.(controller|service)\.ts$/.test(f);
-let targets = [];
-try {
-  targets = sh(`git diff --name-only --diff-filter=ACMR ${base} ${head}`)
-    .split('\n').map((f) => f.trim()).filter(Boolean).filter(isBoundary);
-} catch (e) {
-  console.warn('[boundary-gate] no pude calcular el diff, se omite el gate:', e.message);
-  process.exit(0);
+// En CI base/head son commits y alcanza con el diff commiteado. En LOCAL quien corre
+// esto todavia no commiteo: sin mirar el arbol de trabajo el gate contesta "sin archivos
+// de boundary cambiados - OK" SIN HABER MIRADO NADA. Es el mismo criterio -y el mismo
+// helper- que `lint-changed.js`; aca faltaba, asi que daba verde justo cuando un dev lo
+// corria antes de subir. Medido el 2026-09-24 sobre un arbol con 7 violaciones reales.
+const enCI = !!(process.env.CI || process.env.NX_BASE);
+const opts = { workingTree: !enCI };
+
+const todos = changedFiles(base, head, opts);
+if (todos === null) {
+  // NO es "no hay nada que revisar": es "no pude medir". Fail-CLOSED (ADR-056). Antes
+  // esto era `process.exit(0)` con un warning, y un gate que no puede medir diciendo OK
+  // se lee igual que "no hay violaciones".
+  console.error('[boundary-gate] no pude calcular el diff - el gate NO corrio.');
+  process.exit(1);
 }
+const targets = todos.filter(isBoundary);
 if (targets.length === 0) {
-  console.log('[boundary-gate] sin archivos de boundary cambiados — OK.');
+  console.log(`[boundary-gate] sin archivos de boundary en el diff (${base.slice(0, 9)}..${opts.workingTree ? 'arbol de trabajo' : head.slice(0, 9)}) - OK.`);
   process.exit(0);
 }
 
 // 2) lineas AGREGADAS/MODIFICADAS (lado nuevo) por archivo
-const changedByFile = changedLinesByFile(targets, base, head);
+const changedByFile = changedLinesByFile(targets, base, head, opts);
 
 // 3) eslint en JSON con las 2 reglas del gate como error
 const res = spawnSync(

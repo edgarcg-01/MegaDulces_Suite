@@ -215,7 +215,7 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
     .surf-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
     .tk-reporte { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
       padding: 9px 14px; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
-      background: var(--card-bg); color: var(--text-1); text-decoration: none; white-space: nowrap; }
+      background: var(--card-bg); color: var(--text); text-decoration: none; white-space: nowrap; }
     .tk-reporte:hover { background: var(--overlay-hover); }
 
     .tk-search { display:flex; align-items:center; gap:.5rem; position:relative; margin-top:.75rem }

@@ -668,6 +668,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
+        // [CAT.7] El reporte imprimible de precios por proveedor. Mismo permiso que el resto del
+        // catálogo: es el mismo dato, mirado para llevárselo en papel a la negociación.
+        path: 'catalogo/reporte',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-reporte.component').then(m => m.ComprasCatalogoReporteComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
         path: 'proveedores',
         loadComponent: () => import('./modules/compras/pages/compras-proveedores.component').then(m => m.ComprasProveedoresComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]

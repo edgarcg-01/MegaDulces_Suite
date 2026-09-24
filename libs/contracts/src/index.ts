@@ -47,6 +47,8 @@ export * from './work/caja-window.contract';
 export * from './work/portada-nominal.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
+// [WMS-REC.15] Menu del Anden: la forma que el backend devuelve y el front consume.
+export * from './http/anden-menu.contract';
 // Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).
 // Dato chico: no pega al bundle inicial.
 export * from './http/warehouse-order.contract';
