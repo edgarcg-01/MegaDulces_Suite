@@ -402,6 +402,30 @@ export class ExistenciaService {
                   pg.sin_costo_erp, tw.per_warehouse
          ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, pg.sku`;
 
+      // ⭐ [EX-PERF.1] JIT APAGADO PARA ESTA CONSULTA, y no es cautela: está medido.
+      //
+      // El plan de prod compila **821 funciones** de JIT para una consulta que devuelve 50 filas.
+      // A ese volumen la compilación no se amortiza: se paga entera antes de empezar a trabajar.
+      // Medido contra prod el 2026-09-24, tres pasadas seguidas sobre la MISMA consulta (la real,
+      // sacada del log de Postgres con sus parámetros, no una parecida):
+      //
+      //     jit on ....... 5,812 ms
+      //     jit off ...... 4,757 ms   ·  segunda pasada 4,285 ms     ≈ 20 %
+      //
+      // Mismo remedio y mismo motivo que `[RA-PERF]` en `import-replenishment-plan.js`.
+      //
+      // ⛔ NO alcanza, y conviene decirlo acá para que nadie crea que esto cerró el tema: la
+      // pantalla tardaba **27 s de LCP** y el grueso no es el JIT sino los buffers. El plan toca
+      // **939,977 páginas (~7.5 GB) para 50 filas**, y el 100 % de eso vive dentro del CTE `src`:
+      //     vista de existencia (base) ........... 226,674
+      //     + replenishment_plan y reorder_policy . 431,569
+      //     + v_warehouse_box_factor (vbf) ........ 194,173   ← el join más caro
+      //     + costo de Kepler (kc) ................  87,557
+      // `vbf` y `kc` son VISTAS que se calculan ENTERAS en cada carga para armar el hash (`vbf`
+      // tiene 180,272 llaves en este tenant, medido). Materializarlas es legítimo por costo
+      // (GOTCHAS §19) pero es un cambio con su propia verificación — queda DECLARADO con su
+      // número, no escondido.
+      await trx.raw('SET LOCAL jit = off');
       const rows = (await trx.raw(sql, binds)).rows;
       const agg: any = rows[0] || {};
 
