@@ -172,6 +172,35 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         compuerta de 5 casos de la propia migración. Es `[CV.7]` con otra cara → todos los
         cuantificadores se escriben **`{0,1}`**, nunca `?`.
       · Candado `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
+- [x] **[CC.8]** 🧪 ⭐ **El cruce banco↔cobro miraba el 30% del dinero.** `listUnmatchedBank` y
+      `cobroCandidates` buscaban candidatos **sólo** entre `forma_pago IN (deposito,
+      transferencia, tarjeta)`. Pero `forma_pago` es un **regex sobre el concepto capturado a
+      mano** (`kdm1.c24`) y su cajón `'otro'` —el ELSE, o sea *«el texto no trajo la palabra»*—
+      se lleva **17,677 cobros por $318,563,684.39: el 70.1%** del dinero cobrado. **No
+      significa "sin ficha": filtrar por eso es inferir de un silencio.** Medido en el prod real
+      con placebo (+90 d dentro del rango poblado):
+
+      | universo | casan | ruido | margen |
+      |---|---|---|---|
+      | `CON_FICHA` (lo que había) | 18.6% | 7.6% | 16.4 pp |
+      | **sin el filtro** | **74.8%** | 7.6% | **67.2 pp** |
+
+      Huérfanos: **20,791 abonos → 5,248 (25.2%)**. `CON_FICHA` **se conserva** en el listado de
+      fichas, donde sí corresponde. ⚠️ Con 7.6% de ruido **~1 de cada 13 candidatos es azar**:
+      la pantalla **propone**, nunca liga sola, y ahora **lo dice en pantalla**. Además, la
+      consulta anterior **no filtraba `deleted_at`**.
+- [x] **[CC.9]** 🧪 **La pantalla no terminaba.** El `EXISTS` correlacionado se evaluaba **por
+      fila** sobre las 20,791 del universo: **>5 min sin terminar**, también contra la base en
+      la LAN (o sea que no era el proxy). Causa medida con `EXPLAIN`: el planificador estima la
+      CTE de cobros en **`rows=1` cuando trae 24 mil** y elige *Nested Loop Anti Join* — la
+      misma mala estimación que documentó `[PERF.4b]`. Arreglo: el anti-join de folios ya
+      ligados sale a su **propia CTE materializada**, y el cruce pasa a **cubetas de monto**
+      (`round()`), expandiendo cada cobro a sus 3 cubetas vecinas para que sea una **igualdad**
+      y Postgres pueda hacer hash join. **>5 min → 361 ms**, con KPIs idénticos a la forma lenta
+      (que sí terminó, en 109 s: 20,791 abonos · $413,458,814.64 · 5,248 huérfanos).
+      · Candado `test-newdb-cobranza-match-universo.js`, **8 ✔ contra el prod real**. Atrapó un
+        falso positivo propio: la aserción miraba el texto del SQL y se ponía roja con el
+        comentario que explicaba por qué NO filtra — ahora mira las **líneas de código**.
 - [ ] **[CXC.21]** ⬜ **DEUDA CON NOMBRE — la pirámide.** Los 4.2 s son la vista, no la consulta:
       `EXPLAIN` da 3.2 s de CPU con **todos** los buffers en `shared hit` (no es I/O). El arreglo es
       el que `[PERF.4b]` ya aplicó a `erp_sales_invoices`: resolver la cartera **por documento** con
