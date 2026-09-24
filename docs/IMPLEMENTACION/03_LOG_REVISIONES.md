@@ -141,6 +141,113 @@ sobre «el mismo periodo», el periodo tiene que ser **la misma columna**, y si 
 diferencia se **declara**.
 
 ---
+## 2026-09-24 — `[CXC.25]` El 46% de la cartera no son clientes, y por eso contabilidad decía otra cifra
+
+**Cómo se llegó:** *«ayudame a que contabilidad le saque provecho a esta vista… dime qué tanto
+podemos ofrecerles a crédito y cobranza»*. La investigación arrancó buscando cómo cruzar pólizas
+de ContPAQi contra Kepler, y **terminó en otro lado**: el problema no era el cruce, era qué hay
+adentro del número que la pantalla ya publica.
+
+⚠️ El usuario objetó el primer plan con un caso que lo tiró abajo: *«¿qué pasa si el cliente hizo
+un abono de 50 mil a su deuda de 3 pólizas, pero su abono es un solo pago? No se pueden casar»*.
+Tenía razón, y medirlo cambió el orden de todo (ver **Lo que se descartó**, al final).
+
+### El hallazgo
+
+| | |
+|---|---|
+| Lo que `/finanzas/cartera` publicaba | **$57,780,190.86** |
+| De eso, **ocho cuentas** entre plazas propias | **$26,583,657.82 — 46.0%** |
+| Rutas | $2,838,971.03 — 4.9% |
+| **Cliente real** | **$28,357,562.01 — 49.1%** |
+| Lo que la balanza de ContPAQi dice que valen los clientes (ago-2026) | **$9,144,402.36** |
+
+`30-73 TLMKT Morelia Abastos` · `50-75 TLMKT Canindo Abastos` · `10-00 P.V. Padre Hidalgo Piso` ·
+`32-00 P.V. Morelia Madero`… **Crédito y cobranza estaba mirando, en su mayoría, deuda entre
+plazas propias** — que no se cobra por teléfono. Y la balanza de contabilidad no está equivocada:
+excluye eso. **No estaban en desacuerdo, contaban cosas distintas.**
+
+Del lado de los cobros pasa lo mismo: de los **$452M** cobrados en 2026, **$392.7M (86.8%) son
+cuentas internas** y sólo **$11.2M (2.5%)** es cliente final.
+
+### La lógica ya existía, enterrada
+
+`analytics.erp_collections` clasificaba desde la mig `20260819220000` (`tipo_cuenta`), pero sólo
+para sus propias filas de cobro y sin forma de que nadie más la usara. Sube a resolvedor:
+`analytics.v_customer_account_kind` + 4 funciones (`20260924180000`, **Railway batch 528**).
+
+### ⭐ El patrón del código no alcanza solo
+
+Contra el nombre que el propio Kepler le puso en `kdud` (el árbitro independiente que pide
+ADR-059), **discrepaban 8 cuentas por $1,047,338.95 — y el que tenía razón cambiaba**:
+
+| | el código | el nombre | quién acierta |
+|---|---|---|---|
+| `2-32-RV01` | calla | `R.V. MORELIA MADERO 01` | **el nombre** |
+| `RUTA 505` | afirma ruta | `TAMPORAL` | **el código** |
+
+De ahí la precedencia, que resuelve los 8 sin excepciones a mano:
+
+> **el CÓDIGO afirma → el NOMBRE rescata cuando el código calla → `cliente_final`**
+
+⭐ La clave: **`cliente_final` NO es una afirmación, es el `ELSE`**. Nadie dijo que lo sea; es lo
+que queda cuando ninguna señal habló. Por eso no puede ganarle a una señal positiva, y por eso
+`kind_source` (`codigo|nombre|ninguno`) viaja al lado del veredicto. El nombre rescata **3 cuentas
+por $868,281.75**. `disputed` marca la pelea entre señales: hoy **0**, la compuerta va igual.
+
+### Dos decisiones de las que casi me equivoco
+
+**1. Iba a abrir la pantalla filtrada en «Cliente».** Es más útil para cobranza… y habría
+repetido exacto el bug que `[CXC.20.3]` acababa de arreglar: **abrir escondiendo dinero**. Abre
+en «Todas», con el total **repartido a la vista** en tres barras que filtran con un clic.
+
+**2. La primera versión costaba 11,331 ms** (contra 4,191 del baseline). El planificador empujaba
+la vista dentro del join y la re-evaluaba por fila. `cuenta AS MATERIALIZED` + mover
+`kind_source` a la salida —1,300 filas ya agrupadas en vez de las 52 mil de `doc`— lo dejó en
+**4,579 ms**, o sea +388 ms, que es lo que cuesta la vista sola.
+
+### ⛔ La trampa que casi publica una clasificación falsa
+
+**`knex.raw()` trata el `?` de un regex como placeholder de binding.** Los cuantificadores `\.?` y
+`\s?` llegaron mutilados a Postgres — y **`CREATE FUNCTION` no falla**: la función quedó creada,
+clasificando mal, en silencio. La atrapó la **compuerta de 5 casos de la propia migración**, que
+devolvió `cliente_final` para `2-32-RV01`.
+
+Es `[CV.7]` (`pgRaw`) con otra cara. Regla: en SQL que pase por `knex.raw`, el cuantificador se
+escribe **`{0,1}`**, nunca `?`.
+
+### El candado
+
+`database/tests/test-newdb-cartera-tipo-cuenta.js`, **14 ✔ / 0 ✘ contra prod**, en la regresión.
+Lee el SQL del servicio, no una copia. La prueba negativa que más vale: **con UNA sola señal los
+dos casos que se contradicen se van los dos a `cliente_final`** — o sea que la precedencia no es
+decorativa, y si alguien la simplifica, el test se pone rojo.
+
+### Lo que se descartó, y por qué — medido
+
+- **Cruzar pólizas de ContPAQi contra Kepler por cliente: imposible.** La contabilidad lleva
+  clientes por *sucursal × régimen de IVA* (14 cuentas: `CLIENTES 0% MORELIA`, `CLIENTES C/IVA
+  ZAMORA`…), nunca por cliente. Y no hay CFDIs emitidos: `fiscal.cfdis` tiene 168,245 filas y
+  **las 168,245 son `recibidas`**.
+- **Parear el depósito del banco con el cobro: sirve, pero no para el caso del usuario.** El
+  cruce 1:1 casa **78.0%** con **7.6%** de ruido (placebo dentro del rango poblado). Pero
+  **1,893 abonos por $55,597,061.51 (11.9%) son UN pago contra VARIAS pólizas** — uno toca
+  **186** — y ésos no casan por construcción. Agrupar por (cliente + día) tampoco: casa **7.1%**.
+- ⚠️ **Y un placebo mío estaba mal**: desplacé las fechas +180 días y caí en meses vacíos → el
+  ruido salió 1.1%. Con el desplazamiento dentro del rango poblado es **7.6%**, 7× más.
+- **El «total de lo que falta por registrar» NO se puede publicar hoy.** El banco mezcla
+  depósitos de venta de tienda ($3.6M→$27.7M/mes) y Kepler mezcla cobros internos; la brecha da
+  **+$15.3M o −$74,227,354.51** según dónde cortes. **La indefinición es mayor que lo que se
+  quiere medir.** Eso se declara, no se dibuja.
+
+### Lección
+
+El pedido era cruzar dos sistemas. La respuesta estaba **dentro de uno solo**: el número ya
+publicado tenía adentro dos poblaciones que nadie había separado, y esa mezcla explicaba sola la
+diferencia con contabilidad que se venía a investigar. Antes de construir un puente entre dos
+cifras, conviene preguntarse qué hay adentro de cada una.
+
+---
 ## 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo
 
 **Cómo se llegó:** *"analiza /finanzas/cartera"* → siete hallazgos → *"hay que resolver los 7

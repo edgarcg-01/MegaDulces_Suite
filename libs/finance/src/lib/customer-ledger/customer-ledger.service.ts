@@ -45,6 +45,8 @@ export interface CarteraQuery {
   vendedor?: string;
   grupo?: string;   // kdud.c13 (ej '1M001' TELEMARKETING LA PIEDAD)
   zona?: string;    // kdud.c14
+  /** `[CXC.25]` A quién le cobrás: `cliente_final` | `interno` | `ruta`. Ver `CuentaKind`. */
+  cuenta?: string;
   from?: string;
   to?: string;
   incluir_saldados?: string; // '1' = incluir clientes con saldo 0
@@ -81,6 +83,22 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
  * lo que no se puede repartir se declara, no se esconde ni se reparte a dedo).
  */
 export interface Sindocumento { monto: number; clientes: number }
+
+/**
+ * `[CXC.25]` **A quién le estás cobrando.** No es una etiqueta cosmética: de los
+ * $57,780,190.86 que la pantalla publica, **$26,583,657.82 (46.0%) son ocho cuentas que no son
+ * clientes** — `30-73 TLMKT Morelia Abastos`, `10-00 P.V. Padre Hidalgo Piso`… Plaza contra
+ * plaza. Eso no se cobra por teléfono, y contabilidad no lo reconoce como cartera (su balanza
+ * dice $9.1M). Resolvedor: `analytics.v_customer_account_kind` (mig `20260924180000`).
+ */
+export type CuentaKind = 'cliente_final' | 'interno' | 'ruta';
+export const CUENTA_KINDS: CuentaKind[] = ['cliente_final', 'interno', 'ruta'];
+export type PorTipoCuenta = Record<CuentaKind, { saldo: number; vencido: number; clientes: number }>;
+const emptyPorTipo = (): PorTipoCuenta => ({
+  cliente_final: { saldo: 0, vencido: 0, clientes: 0 },
+  interno: { saldo: 0, vencido: 0, clientes: 0 },
+  ruta: { saldo: 0, vencido: 0, clientes: 0 },
+});
 
 @Injectable()
 export class CustomerLedgerService {
@@ -159,6 +177,7 @@ export class CustomerLedgerService {
     if (q.vendedor) add(`NULLIF(btrim(d.vendedor), '') = ?`, q.vendedor);
     if (q.grupo) add('d.grupo = ?', q.grupo);
     if (q.zona) add('d.zona = ?', q.zona);
+    if (q.cuenta) add('d.cuenta_kind = ?', q.cuenta);
     if (q.cliente) add('d.cliente_code = ?', q.cliente);
     if (q.from) add('d.fecha >= ?::date', q.from);
     if (q.to) add('d.fecha <= ?::date', q.to);
@@ -175,16 +194,34 @@ export class CustomerLedgerService {
 
     const sql = `
       WITH h AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+      -- [CXC.25] MATERIALIZED a propósito: son 2,427 filas y se leen contra las 52 mil de doc.
+      -- Sin esto el planificador empuja la vista adentro del join y la re-evalúa por fila —
+      -- medido: la consulta entera pasaba de 4.2 s a 11.3 s. Con el CTE materializado vuelve.
+      cuenta AS MATERIALIZED (
+        SELECT cliente_code, kind, kind_source FROM analytics.v_customer_account_kind
+      ),
       doc AS MATERIALIZED (
         SELECT r.sucursal, r.cliente_code,
                NULLIF(btrim(r.vendedor), '') AS vendedor,
                r.grupo, r.zona, r.telefono, r.limite_credito, r.dias_credito,
                r.saldo_cliente, r.dias_pago, r.importe, r.fecha, r.vencimiento,
                GREATEST(COALESCE(r.saldo_ajustado, 0), 0) AS res,
-               c.name AS cliente_nombre, c.rfc AS rfc
+               c.name AS cliente_nombre, c.rfc AS rfc,
+               -- [CXC.25] A quién le estás cobrando. El COALESCE con la función NO es defensivo
+               -- de más: un código que esté en la cartera y NO en el catálogo de Kepler llega
+               -- NULL por el LEFT JOIN, y NULL se leería como cliente_final. Con la función,
+               -- la señal del código sigue valiendo aunque el catálogo no tenga la fila.
+               --
+               -- ⚠️ Acá va SÓLO el veredicto, porque acá es donde FILTRA. La fuente
+               -- (codigo|nombre|ninguno) se agrega al final, sobre las ~1,300 filas ya
+               -- agrupadas: arrastrar una segunda columna de texto por las 52 mil de doc
+               -- costaba ~0.9 s medidos, y no la necesita nadie hasta la salida.
+               COALESCE(k.kind, analytics.customer_account_kind(r.cliente_code, NULL))
+                 AS cuenta_kind
           FROM analytics.customer_receivables r
           LEFT JOIN analytics.erp_customers c
                  ON c.tenant_id = r.tenant_id AND c.erp_code = r.cliente_code
+          LEFT JOIN cuenta k ON k.cliente_code = btrim(r.cliente_code)
          WHERE r.tenant_id = ? AND r.cargo_abono = 'C'
       ),
       -- El vendedor se identifica por (sucursal, código), NUNCA por código solo: medido en prod,
@@ -203,6 +240,7 @@ export class CustomerLedgerService {
           max(d.grupo) AS grupo, max(d.zona) AS zona, max(d.telefono) AS telefono,
           max(d.limite_credito) AS limite_credito, max(d.dias_credito) AS dias_credito,
           max(d.saldo_cliente) AS saldo_cliente,
+          max(d.cuenta_kind) AS cuenta_kind,
           -- El de la factura MÁS RECIENTE, no uno al azar: es "quién lo atiende hoy".
           (array_agg(d.vendedor ORDER BY d.fecha DESC NULLS LAST)
              FILTER (WHERE d.vendedor IS NOT NULL))[1] AS vendedor,
@@ -239,7 +277,13 @@ export class CustomerLedgerService {
           FROM sel d CROSS JOIN h GROUP BY 1
       )
       SELECT (SELECT d FROM h)::text AS hoy,
-        COALESCE((SELECT jsonb_agg(to_jsonb(c)) FROM cli c), '[]'::jsonb) AS clientes,
+        COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM (
+            SELECT c.*,
+                   COALESCE(k.kind_source,
+                            analytics.customer_account_kind_source(c.cliente_code, NULL))
+                     AS cuenta_kind_source
+              FROM cli c LEFT JOIN cuenta k ON k.cliente_code = btrim(c.cliente_code)) x),
+          '[]'::jsonb) AS clientes,
         -- Comportamiento de pago REAL (días entre factura y su último cobro), sobre las partidas
         -- ya saldadas. El DSO dice cuánto tarda la cartera; esto, cuánto tardan los que SÍ pagan.
         -- La mediana es percentile_cont, no el elemento del medio de un arreglo ordenado: con
@@ -263,6 +307,7 @@ export class CustomerLedgerService {
           'sucursales', COALESCE((SELECT jsonb_agg(DISTINCT d.sucursal) FROM doc d WHERE d.sucursal IS NOT NULL), '[]'::jsonb),
           'grupos',     COALESCE((SELECT jsonb_agg(DISTINCT d.grupo)    FROM doc d WHERE d.grupo    IS NOT NULL), '[]'::jsonb),
           'zonas',      COALESCE((SELECT jsonb_agg(DISTINCT d.zona)     FROM doc d WHERE d.zona     IS NOT NULL), '[]'::jsonb),
+          'cuentas',    COALESCE((SELECT jsonb_agg(DISTINCT d.cuenta_kind) FROM doc d WHERE d.cuenta_kind IS NOT NULL), '[]'::jsonb),
           'vendedores', COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
                             'sucursal', d.sucursal, 'code', d.vendedor, 'nombre', n.nombre))
                           FROM doc d LEFT JOIN vnd n ON n.suc = d.sucursal AND n.code = d.vendedor
@@ -304,6 +349,8 @@ export class CustomerLedgerService {
         total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0,
         total_a_favor: 0, n_a_favor: 0, aging: emptyBucket(),
         sin_documento: { monto: 0, clientes: 0 } as Sindocumento,
+        // `[CXC.25]` El total partido por a quién le cobrás. Suma EXACTO `total_saldo`.
+        por_tipo: emptyPorTipo(),
       };
       const porCliente: { cliente_code: string; saldo: number }[] = [];
       let ventas90 = 0;
@@ -329,9 +376,12 @@ export class CustomerLedgerService {
 
         const limite = M2(g.limite_credito) > 0 ? M2(g.limite_credito) : null;
         const sobre_linea = limite != null && saldo > limite + 0.005;
+        // Un `kind` que llegue vacío NO se asume cliente: se cuenta aparte y se declara.
+        const kind: CuentaKind = CUENTA_KINDS.includes(g.cuenta_kind) ? g.cuenta_kind : 'cliente_final';
         clientes.push({
           sucursal: g.sucursal, cliente_code: g.cliente_code,
           cliente_nombre: g.cliente_nombre || g.cliente_code,
+          cuenta_kind: kind, cuenta_kind_source: g.cuenta_kind_source || 'ninguno',
           rfc: g.rfc || null, vendedor: g.vendedor || null, vendedor_nombre: null,
           grupo: g.grupo || null, zona: g.zona || null, telefono: g.telefono || null,
           limite_credito: limite, dias_credito: g.dias_credito != null ? Number(g.dias_credito) : null,
@@ -347,6 +397,9 @@ export class CustomerLedgerService {
         });
 
         kpi.total_saldo += saldo; kpi.total_vencido += r2(g.vencido);
+        kpi.por_tipo[kind].saldo += saldo;
+        kpi.por_tipo[kind].vencido += r2(g.vencido);
+        kpi.por_tipo[kind].clientes += 1;
         kpi.n_clientes += 1; kpi.n_partidas += Number(g.n_partidas) || 0;
         if (sobre_linea) kpi.n_sobre_linea += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
@@ -370,6 +423,10 @@ export class CustomerLedgerService {
       kpi.total_vencido = r2(kpi.total_vencido);
       kpi.total_a_favor = r2(kpi.total_a_favor);
       kpi.sin_documento.monto = r2(kpi.sin_documento.monto);
+      for (const k of CUENTA_KINDS) {
+        kpi.por_tipo[k].saldo = r2(kpi.por_tipo[k].saldo);
+        kpi.por_tipo[k].vencido = r2(kpi.por_tipo[k].vencido);
+      }
       (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = r2(kpi.aging[k]); });
 
       const topCli = porCliente.sort((x, y) => y.saldo - x.saldo);
@@ -473,11 +530,22 @@ export class CustomerLedgerService {
       }))
       .sort((x, y) => x.label.localeCompare(y.label));
 
+    // `[CXC.25]` Las opciones del filtro salen del dato, igual que las sucursales: si mañana
+    // no hay ninguna cuenta interna, el filtro no la ofrece.
+    const ETIQUETA: Record<string, string> = {
+      cliente_final: 'Cliente', interno: 'Cuenta interna (plaza)', ruta: 'Ruta',
+    };
+    const cuentas = ((a.opciones?.cuentas as string[]) || [])
+      .filter((k) => CUENTA_KINDS.includes(k as CuentaKind))
+      .sort((x, y) => CUENTA_KINDS.indexOf(x as CuentaKind) - CUENTA_KINDS.indexOf(y as CuentaKind))
+      .map((k) => ({ code: k, label: ETIQUETA[k] || k }));
+
     return {
       sucursales,
       grupos: ((a.opciones?.grupos as string[]) || []).slice().sort(),
       zonas: ((a.opciones?.zonas as string[]) || []).slice().sort(),
       vendedores,
+      cuentas,
     };
   }
 
@@ -494,7 +562,7 @@ export class CustomerLedgerService {
    *
    * El endpoint sigue vivo para quien ya lo consuma; la pantalla dejó de llamarlo.
    */
-  async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; search?: string } = {}) {
+  async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; cuenta?: string; search?: string } = {}) {
     const { resumen } = await this.cartera({ ...q, limit: 1 });
     return resumen;
   }

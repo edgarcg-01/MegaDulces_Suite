@@ -138,6 +138,34 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       verde mientras el servicio hace otra cosa, que es exactamente cómo la contradicción de
       `[CXC.20.1]` sobrevivió a una suite de 12 archivos. Las tres afirmaciones centrales llevan
       **prueba negativa** ejercida de verdad, y sin datos reporta **NO MEDIDO**, nunca ✔.
+- [x] **[CXC.25]** 🚀 ⭐ **A quién le estás cobrando.** La pantalla publicaba **$57,780,190.86**
+      como si fueran clientes. Medido: **$26,583,657.82 (46.0%) son OCHO cuentas entre plazas
+      propias** (`30-73 TLMKT Morelia Abastos`, `50-75 TLMKT Canindo`, `10-00 P.V. Padre Hidalgo
+      Piso`…) y $2,838,971.03 son rutas; **cliente real, $28,357,562.01**. Por eso la balanza de
+      contabilidad dice **$9,144,402.36** y no estaban en desacuerdo: contaban cosas distintas.
+      Del lado de los cobros pasa lo mismo — de los $452M de 2026, **$392.7M (86.8%) son
+      internos** y sólo **$11.2M (2.5%) cliente final**.
+      · La lógica ya existía **enterrada** en `analytics.erp_collections` (`tipo_cuenta`), sin
+        forma de que nadie más la usara. Sube a resolvedor: `analytics.v_customer_account_kind`
+        + 4 funciones (mig `20260924180000`, **aplicada a Railway batch 528**).
+      · ⭐ **El patrón del código no alcanza solo** (ADR-059): contra el nombre de `kdud`
+        discrepaban 8 cuentas por $1,047,338.95 y **el que tenía razón cambiaba**. Precedencia:
+        **el código AFIRMA → el nombre RESCATA cuando el código calla → `cliente_final` es el
+        ELSE**, que no es una afirmación y por eso no puede ganarle a una señal positiva. El
+        nombre rescata 3 cuentas por **$868,281.75**; `kind_source` viaja al lado del veredicto.
+      · `disputed` marca cuando las dos señales se contradicen. **Hoy 0** — la compuerta va igual.
+      · ⛔ **No cambia ningún total**: reparte. La suma de los tres da $57,780,190.86 al centavo.
+      · Abre en **«Todas»**, no filtrado en «Cliente»: eso habría repetido el bug de `[CXC.20.3]`
+        —abrir escondiendo dinero—. El reparto se ve siempre y cada barra filtra con un clic.
+      · Perf: **4,191 → 4,579 ms** (+388 ms = el costo de la vista). La primera versión costaba
+        **11,331 ms**: el planificador empujaba la vista dentro del join y la re-evaluaba por
+        fila. `cuenta AS MATERIALIZED` + mover `kind_source` a la salida (1,300 filas en vez de
+        52 mil) lo devolvió.
+      · ⛔ **`knex.raw()` trata el `?` del regex como placeholder de binding** y `CREATE FUNCTION`
+        **no falla**: la función quedó creada clasificando mal, en silencio. La atrapó la
+        compuerta de 5 casos de la propia migración. Es `[CV.7]` con otra cara → todos los
+        cuantificadores se escriben **`{0,1}`**, nunca `?`.
+      · Candado `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
 - [ ] **[CXC.21]** ⬜ **DEUDA CON NOMBRE — la pirámide.** Los 4.2 s son la vista, no la consulta:
       `EXPLAIN` da 3.2 s de CPU con **todos** los buffers en `shared hit` (no es I/O). El arreglo es
       el que `[PERF.4b]` ya aplicó a `erp_sales_invoices`: resolver la cartera **por documento** con

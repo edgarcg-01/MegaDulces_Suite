@@ -38,6 +38,8 @@ export class CustomerLedgerController {
     @Query('vendedor') vendedor?: string,
     @Query('grupo') grupo?: string,
     @Query('zona') zona?: string,
+    /** `[CXC.25]` cliente_final | interno | ruta — a quién le estás cobrando. */
+    @Query('cuenta') cuenta?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('incluir_saldados') incluir_saldados?: string,
@@ -45,7 +47,7 @@ export class CustomerLedgerController {
     @Query('sort') sort?: 'saldo' | 'vencido',
     @Query('limit') limit?: string,
   ) {
-    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined };
+    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, cuenta, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined };
     return this.svc.cartera(q);
   }
 
@@ -60,9 +62,9 @@ export class CustomerLedgerController {
   @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, proyección de cobranza, por vendedor/zona.' })
   resumen(
     @Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string,
-    @Query('vendedor') vendedor?: string, @Query('search') search?: string,
+    @Query('vendedor') vendedor?: string, @Query('cuenta') cuenta?: string, @Query('search') search?: string,
   ) {
-    return this.svc.resumen({ sucursal, grupo, zona, vendedor, search });
+    return this.svc.resumen({ sucursal, grupo, zona, vendedor, cuenta, search });
   }
 
   @Get('tendencia')
