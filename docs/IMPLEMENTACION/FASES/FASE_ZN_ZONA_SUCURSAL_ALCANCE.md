@@ -260,7 +260,38 @@ reporta en cinco segundos y con cuenta de dispositivo; poner un `canWrite` sin m
 alcance tienen esas cuentas puede matar el flujo de captura, que es la única fuente de este dato.
 Va con su propia medición.
 
-### ZN.3.2+ — Lo que sigue, priorizado por medición
+### ZN.3.2 — Reparto y Compras 360 ✅ (2026-09-23)
+
+Salió el primitivo que faltaba: **`ScopeService.assertCanRead`**, el hermano de lectura de
+`assertCanWrite`. Resolver el alcance, preguntar y lanzar el 403 con un mensaje útil eran tres
+líneas a punto de copiarse en cuatro servicios — y el mensaje es lo primero que se degrada.
+
+**Dos defectos distintos, dos primitivos distintos:**
+
+| Caso | Primitivo | Por qué |
+|---|---|---|
+| pidió una sucursal concreta y no le toca | `assertCanRead` → **403** | contestarle con otra sería responder algo que no preguntó |
+| **no pidió ninguna** | `intersect` → **lo suyo** | era el agujero de reparto: sin parámetro no se filtraba **nada** |
+
+- **Reparto** (`listRiders`, `listDispatched`): filtraban sólo si venía el parámetro, así que la
+  encargada de La Piedad Abastos veía los repartidores y despachos de **las nueve**.
+- **Compras 360 / ajustes** (5 entradas): lo que se lee ahí es el **costo de compra** por sucursal
+  — lo pagado al proveedor, los ajustes y las pólizas — y `COMPRAS_360_VER` lo tienen las **6
+  encargadas de tienda** con alcance `own`.
+- ⭐ En el constructor de consultas compartido, el alcance se aplica **incluso con
+  `skipDim = 'sucursal'`**: ese parámetro existe para que un dropdown cuente las opciones de su
+  propia dimensión sin filtrarse a sí mismo — omite el filtro del **usuario**, no el del alcance.
+  Si se saltara, el desplegable listaría sucursales ajenas y al elegir una daría 403: ofrecer lo
+  que no se puede abrir es el mismo defecto que ZN.2 cerró en el frontend.
+
+`[]` **no es** `null`: `null` = alcance global (no se filtra) · `[]` = no le toca ninguna, y ese
+vacío tiene que llegar al WHERE. Un `if (lista.length)` mal escrito ahí es fail-open, y el spec lo
+vigila.
+
+Specs **11/11** (`floor-stockouts` 6 + `home-dispatch` 5), los dos con el **rojo ejercido**.
+`libs/commercial` completo: **143 pasan**. `api:typecheck` OK.
+
+### ZN.3.3+ — Lo que sigue, priorizado por medición
 
 | Controller | Personas con alcance acotado | Nota |
 |---|---|---|
