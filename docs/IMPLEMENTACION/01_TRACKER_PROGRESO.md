@@ -138,6 +138,69 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       verde mientras el servicio hace otra cosa, que es exactamente cómo la contradicción de
       `[CXC.20.1]` sobrevivió a una suite de 12 archivos. Las tres afirmaciones centrales llevan
       **prueba negativa** ejercida de verdad, y sin datos reporta **NO MEDIDO**, nunca ✔.
+- [x] **[CXC.25]** 🚀 ⭐ **A quién le estás cobrando.** La pantalla publicaba **$59,382,522.23**
+      como si fueran clientes. Medido contra el prod real (`md`/`pg-prod`, 2026-09-24 15:30 MX;
+      la base es viva, los centavos se mueven): **$25,702,051.63 (43.3%) son OCHO cuentas entre
+      plazas propias** (`30-73 TLMKT Morelia Abastos`, `50-75 TLMKT Canindo`, `10-00 P.V. Padre
+      Hidalgo Piso`…) y $2,992,639.38 son rutas; **cliente real, $30,687,831.22 (51.7%)**. Por eso
+      la balanza de contabilidad dice **$9,144,402.36** y no estaban en desacuerdo: contaban cosas
+      distintas. Del lado de los cobros pasa lo mismo — de los $452M de 2026, **$392.7M (86.8%)
+      son internos** y sólo **$11.2M (2.5%) cliente final**.
+      · La lógica ya existía **enterrada** en `analytics.erp_collections` (`tipo_cuenta`), sin
+        forma de que nadie más la usara. Sube a resolvedor: `analytics.v_customer_account_kind`
+        + 4 funciones (mig `20260924180000`, **aplicada al prod real, batch 531**, con el candado
+        de identidad de `apply-one-migration-prod.js`).
+      · ⛔ **Esta fase se midió medio día contra la base EQUIVOCADA.** `FLEET_DB_URL` sigue
+        diciendo Railway y prod se mudó a `md` el 22-sep: las primeras cifras publicadas
+        ($57.78M / 46.0%) eran de la prod vieja, congelada. Detalle y lección en
+        [`03_LOG_REVISIONES`](03_LOG_REVISIONES.md#2026-09-24--la-base-equivocada).
+      · ⭐ **El patrón del código no alcanza solo** (ADR-059): contra el nombre de `kdud`
+        discrepaban 8 cuentas por $1,047,338.95 y **el que tenía razón cambiaba**. Precedencia:
+        **el código AFIRMA → el nombre RESCATA cuando el código calla → `cliente_final` es el
+        ELSE**, que no es una afirmación y por eso no puede ganarle a una señal positiva. El
+        nombre rescata 3 cuentas por **$868,281.75**; `kind_source` viaja al lado del veredicto.
+      · `disputed` marca cuando las dos señales se contradicen. **Hoy 0** — la compuerta va igual.
+      · ⛔ **No cambia ningún total**: reparte. La suma de los tres da $57,780,190.86 al centavo.
+      · Abre en **«Todas»**, no filtrado en «Cliente»: eso habría repetido el bug de `[CXC.20.3]`
+        —abrir escondiendo dinero—. El reparto se ve siempre y cada barra filtra con un clic.
+      · Perf: **4,191 → 4,579 ms** (+388 ms = el costo de la vista). La primera versión costaba
+        **11,331 ms**: el planificador empujaba la vista dentro del join y la re-evaluaba por
+        fila. `cuenta AS MATERIALIZED` + mover `kind_source` a la salida (1,300 filas en vez de
+        52 mil) lo devolvió.
+      · ⛔ **`knex.raw()` trata el `?` del regex como placeholder de binding** y `CREATE FUNCTION`
+        **no falla**: la función quedó creada clasificando mal, en silencio. La atrapó la
+        compuerta de 5 casos de la propia migración. Es `[CV.7]` con otra cara → todos los
+        cuantificadores se escriben **`{0,1}`**, nunca `?`.
+      · Candado `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
+- [x] **[CC.8]** 🧪 ⭐ **El cruce banco↔cobro miraba el 30% del dinero.** `listUnmatchedBank` y
+      `cobroCandidates` buscaban candidatos **sólo** entre `forma_pago IN (deposito,
+      transferencia, tarjeta)`. Pero `forma_pago` es un **regex sobre el concepto capturado a
+      mano** (`kdm1.c24`) y su cajón `'otro'` —el ELSE, o sea *«el texto no trajo la palabra»*—
+      se lleva **17,677 cobros por $318,563,684.39: el 70.1%** del dinero cobrado. **No
+      significa "sin ficha": filtrar por eso es inferir de un silencio.** Medido en el prod real
+      con placebo (+90 d dentro del rango poblado):
+
+      | universo | casan | ruido | margen |
+      |---|---|---|---|
+      | `CON_FICHA` (lo que había) | 18.6% | 7.6% | 16.4 pp |
+      | **sin el filtro** | **74.8%** | 7.6% | **67.2 pp** |
+
+      Huérfanos: **20,791 abonos → 5,248 (25.2%)**. `CON_FICHA` **se conserva** en el listado de
+      fichas, donde sí corresponde. ⚠️ Con 7.6% de ruido **~1 de cada 13 candidatos es azar**:
+      la pantalla **propone**, nunca liga sola, y ahora **lo dice en pantalla**. Además, la
+      consulta anterior **no filtraba `deleted_at`**.
+- [x] **[CC.9]** 🧪 **La pantalla no terminaba.** El `EXISTS` correlacionado se evaluaba **por
+      fila** sobre las 20,791 del universo: **>5 min sin terminar**, también contra la base en
+      la LAN (o sea que no era el proxy). Causa medida con `EXPLAIN`: el planificador estima la
+      CTE de cobros en **`rows=1` cuando trae 24 mil** y elige *Nested Loop Anti Join* — la
+      misma mala estimación que documentó `[PERF.4b]`. Arreglo: el anti-join de folios ya
+      ligados sale a su **propia CTE materializada**, y el cruce pasa a **cubetas de monto**
+      (`round()`), expandiendo cada cobro a sus 3 cubetas vecinas para que sea una **igualdad**
+      y Postgres pueda hacer hash join. **>5 min → 361 ms**, con KPIs idénticos a la forma lenta
+      (que sí terminó, en 109 s: 20,791 abonos · $413,458,814.64 · 5,248 huérfanos).
+      · Candado `test-newdb-cobranza-match-universo.js`, **8 ✔ contra el prod real**. Atrapó un
+        falso positivo propio: la aserción miraba el texto del SQL y se ponía roja con el
+        comentario que explicaba por qué NO filtra — ahora mira las **líneas de código**.
 - [ ] **[CXC.21]** ⬜ **DEUDA CON NOMBRE — la pirámide.** Los 4.2 s son la vista, no la consulta:
       `EXPLAIN` da 3.2 s de CPU con **todos** los buffers en `shared hit` (no es I/O). El arreglo es
       el que `[PERF.4b]` ya aplicó a `erp_sales_invoices`: resolver la cartera **por documento** con
@@ -1351,6 +1414,36 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       (re-apuntar `warehouses.zone_id`, que mueve el tablero de 6 a 3 y necesita aviso a Dirección).**
       **Abierto:** si las vecinales son canal o unidad propia, y el catálogo de sedes de oficina.
       2026-09-23
+- [x] **[ZN.3.3]** 🔨 **Compras filtraba por alcance sólo si mandabas el parámetro.** Los 8
+      reportes de `/compras/pedido` (existencia crítica, sugerido, traspasos, sobrestock, workbook,
+      worklist, stock muerto, KPIs) recortaban con `const whIds = this.whIds(q); if (whIds.length)
+      …`, donde `whIds` **sólo parseaba el query param** — o sea que **quien no filtraba veía la red
+      completa**. `COMPRAS_PEDIDO_VER` lo tienen **6 encargadas de tienda con alcance acotado**
+      (medido el 23-sep): leían el inventario y el sugerido de las nueve sucursales. ⭐ **El puente
+      que faltaba ya estaba escrito a mano en otro módulo**: el alcance es un código de 2 dígitos
+      (ADR-050) y estas tablas guardan el **uuid** del almacén; `commercial-bi-almacen` tenía su
+      `resolveWarehouseIds()` correcta y sin dueño → por ADR-056 sube a `libs/` como
+      **`ScopeService.warehouseIds()`** y `bi-almacen` delega, así que no queda una segunda copia
+      que pueda divergir (escribirla de nuevo era repetir el error del mapa de cutover de
+      `[ZN.2.0]`). ⚠️ **Tres estados y el del medio es el que siempre se pierde**: `null` = no
+      filtrar · `[...]` = esas sucursales · **`[]` = ninguna, y TIENE que llegar al `WHERE`** — el
+      patrón viejo lo colapsaba contra `null` y lo leía como «todas»; por eso las llamadas quedaron
+      `if (whIds)` y en SQL crudo el equivalente es **`AND false`** (un `IN ()` vacío no compila).
+      **`/compras/filters` también recorta**: ofrecía las nueve y, al elegir una ajena, el reporte
+      —ya filtrado— devolvía vacío, que se lee como «ahí no falta nada». ⭐ **Y se retira el último
+      mapa escrito a mano de la pantalla**: los atajos por zona (`Bajío 01-04` · `Morelia
+      MD-30,MD-32` · `Zamora 05,06` · `CEDIS 00`) tenían los dos defectos de la fase juntos —
+      **contradecían el modelo** (son TRES zonas y el CEDIS no es una; «Bajío» no existe en ninguna
+      fuente, `[ZN.0]`) y **no respetaban el alcance**; ahora se derivan de `w.purchase_zone`, y sin
+      zona declarada **no se agrupa nada** en vez de inventar una agrupación.
+      `replenishment.scope.spec.ts` **5/5 con el rojo ejercido** (restaurado `if (whIds.length)`,
+      falla exactamente la aserción del alcance vacío y ninguna otra), incluido el **control
+      negativo del control** — sin él, «filtrar siempre» pasaría y dejaría ciego al comprador de
+      red. `nx build api` + `nx build view` OK · `nx test commercial` 14 archivos / 170 pruebas.
+      ⚠️ **NO MEDIDO y declarado**: el smoke HTTP contra API viva (el spec usa dobles y **no valida
+      SQL**, `GOTCHAS §67` — la misma clase de hueco que en `[ID.37]` resultó ser justo donde estaba
+      el defecto), y la **re-medición** de quién tiene el permiso: el `pg_hba` de `.245` no admite a
+      esta máquina, así que el «6» es del 23-sep, no de hoy. 2026-09-24
 - [x] **[ZN.3.1]** 🔨 **El alcance corta por sucursal en Faltantes de piso** — y la prioridad de
       ZN.3 salió de una medición, no de la intuición. ⚠️ **Primero hubo que corregir una cifra
       propia: las «88 fail-open» eran ruido de grep** (agarraba `(x.sucursal || '')`,
@@ -2047,79 +2140,6 @@ los que sostienen una decisión van en un test que se pone rojo.
 
 ---
 
-## GX.17 — La sección de gastos se parte en dos: capturar y aprobar 🧪 2026-09-24 (en código)
-
-Pedido del usuario. Hasta ahora `/finanzas/gastos` elegía **una de dos superficies según el
-permiso** (`[GX.10]`): tablero para quien tenía `FINANCE_EXPENSES_VER`, captura para quien
-sólo tenía `_CAPTURAR`. Ahora son rutas distintas, con públicos distintos:
-
-| Ruta | Para qué | Quién entra |
-|---|---|---|
-| `/finanzas/gastos` | Capturar: pegar el folio de Kepler, declarar cómo se pagó, subir la foto | **Todos** (sólo `authGuard`) |
-| `/finanzas/aprobacion-gastos` | Dar luz verde | `FINANCE_EXPENSES_COMPROBAR` |
-| `/finanzas/gastos-tablero` | El tablero de GX.10, intacto | `FINANCE_EXPENSES_VER` |
-
-- [x] **[GX.17.1]** ⛔ **No se creó un permiso nuevo.** `FINANCE_EXPENSES_COMPROBAR` ya
-      existía y ya gateaba `approve`/`validate`/`reject` desde GX.7. Inventar
-      `FINANCE_EXPENSES_APROBAR` habría dejado dos llaves para la misma puerta.
-- [x] **[GX.17.2]** Migración `20260924120000` — el permiso para **Jesús**, por PERSONA.
-      ⚠️ Medido antes de escribirla: de las 4 personas que el usuario nombró, **3 ya podían**
-      (`superuser` y `guillermo_lopez` son `superadmin` → god-mode; `maria_gutierrez` es
-      `tesoreria`, el **único** rol con el permiso y que tiene **exactamente 1 persona**).
-      Sólo faltaba Jesús — y su rol `finanzas_operativo` lo comparten **6 personas**, así que
-      dárselo al rol le habría dado la firma a **5 que nadie nombró**. Va como override en
-      `identity.user_permissions`, el mecanismo que el propio repo señala para este caso.
-- [x] **[GX.17.3]** `GET /finance/expenses/proofs/por-aprobar` + `aprobacion-agrupar.ts`
-      (función pura): lo pendiente agrupado **por fecha y por departamento**.
-      ⚠️ El departamento **no siempre es un departamento**: cuando quien capturó no puso uno,
-      `create()` guarda `Sucursal NN` —una plaza— y el respaldo es el área de la solicitud de
-      Kepler. Cada grupo **declara de dónde salió su etiqueta** (`capturado` / `solicitud` /
-      `sin_clasificar`); juntarlas sin decirlo haría convivir «Sucursal 00» con «LOGISTICA»
-      como si fueran lo mismo.
-- [x] **[GX.17.4]** Pantalla `/finanzas/aprobacion-gastos`: grupos a la izquierda, expedientes
-      a la derecha, con la forma de pago y si la foto trae **sello de cámara** (GX.14) a la
-      vista. ⛔ **Aprobar es de a uno**: no hay «aprobar el grupo entero». Agrupar es para
-      leer, no para firmar en bloque — un botón que autoriza 40 gastos de un clic convierte
-      la revisión en un trámite. Rechazar **exige motivo**.
-
-### Sobre abrir `/finanzas/gastos` a todos
-
-Medido: **156 usuarios activos**, de los cuales 96 tenían `_CAPTURAR` y 25 `_VER`. La ruta
-pasa a no exigir permiso.
-
-⛔ **Abrir la ruta NO abre el dato.** El backend sigue acotando por áreas de gasto, y quien
-no tiene ninguna necesita el folio **exacto** para encontrar una solicitud
-(`searchSolicitudes`, decisión de GX.8: «subí lo que te dieron, sin pasear por el gasto
-ajeno»). El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión,
-no el público.
-
-### Lo verificado
-
-- `nx typecheck api` verde · `nx build view` verde (1.28 MB) · **`nx test view` 778/778**.
-- **14 pruebas unitarias nuevas** sobre la agrupación (`finance` 159 → **173**).
-- Migración aplicada a **`platform_test`**, idempotente (2ª pasada: 0 filas), con la
-  **prueba negativa medida**: los otros **5** de `finanzas_operativo` NO recibieron el permiso.
-- ⭐ `landing-guards.spec.ts` **se puso rojo y tenía razón**: tres permisos figuraban como
-  DEUDA porque `/finanzas/gastos` los rebotaba, y al quitarle el guard dejaron de rebotar.
-  Una deuda que ya no aplica es ruido que enseña a ignorar la lista. Saldadas.
-
-### ⚠️ Un error mío que conviene que quede escrito
-
-El primer commit de esta fase **arrastró 12 archivos de otra sesión** (borrados de un
-reporte de precios que yo nunca toqué). La causa: hice `git add -- <mis rutas>` y después
-`git commit`, que toma el **índice entero** — y ese índice lo comparten ~10 sesiones. Lo
-destapó el `cherry-pick` a la rama limpia, que chocó en archivos que no eran míos.
-La forma correcta, que el propio `CLAUDE.md` ya marcaba: **`git commit -- <rutas>`**.
-También había que rehacer `CHANGELOG.md`, el tracker y `app.routes.ts` desde `main`: mis
-versiones eran anteriores y habrían **borrado** entradas y una ruta (`catalogo/reporte`) de
-otras sesiones.
-
-### ⬜ Pendiente
-
-- Migración a producción (`pg-prod` en `md`) + **re-login de Jesús** (el permiso viaja en el JWT).
-- **Validación visual** de las dos pantallas.
-- El tablero cambió de dirección (`/finanzas/gastos-tablero`): hay que avisarle a las 25
-  personas que lo usan, o dejar un enlace desde la landing.
 
 ---
 

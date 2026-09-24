@@ -49,7 +49,7 @@ const hb = require('../lib/cron-heartbeat');
 // escribían el MISMO `job_key`, y `analytics.cron_runs` tiene PRIMARY KEY (tenant_id, job_key) SIN
 // host: uno le presta el pulso al otro. Es la falla exacta que documenta
 // `kepler/ecosystem.cdc.config.js` (un carril colgado 15 h salía `healthy` porque otro dueño
-// latía por él). Mismo patrón que `ODS_HB_KEY` en `ops/ingest/docker-compose.yml`: la clave la
+// latía por él). Mismo patrón que `ODS_HB_KEY` en `ops/vl/docker-compose.yml`: la clave la
 // decide quien arranca el proceso, no el script. El default conserva la clave histórica para que
 // el carril incremental siga cayendo en su umbral ya declarado en `CRON_JOBS`.
 const FEED_KEY = process.env.CONTPAQI_HB_KEY || 'contpaqi_add_cfdis';

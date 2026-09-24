@@ -89,7 +89,7 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/ingest/docker-compose.yml`,
+  // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/vl/docker-compose.yml`,
   // servicios ods-live-hot @15s + ods-live-mirror @300s), que lee los réplicas lógicos locales del
   // :5433 y empuja a kepler_ods.* por feeds-ingest. `last_push_at` la escribe el handler en cada batch
   // (raw-upsert Y raw-delete) → detecta si el pipe se detuvo. Umbral realtime.

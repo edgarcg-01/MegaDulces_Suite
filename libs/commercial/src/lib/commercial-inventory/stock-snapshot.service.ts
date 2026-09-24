@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantKnexService } from '@megadulces/platform-core';
 
 /** Lo que devuelve una corrida, por almacén. */
 export interface SnapshotResult {
@@ -86,7 +86,33 @@ export class StockSnapshotService {
   private readonly logger = new Logger(StockSnapshotService.name);
   private isRunning = false;
 
-  constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
+  /**
+   * ⛔ `[INV-FOTO.1]` `knex` NO sirve para leer `commercial.stock`, y por eso esta foto nunca se
+   * tomó. Medido en prod el 2026-09-24:
+   *
+   *     analytics.stock_snapshots ............ 0 filas    (desde que existe la tabla)
+   *     commercial.stock ..................... 57,011 filas · 10 almacenes
+   *     latido `stock_snapshot` .............. error · "0 almacenes · 0 pares · 0 sin costo"
+   *
+   * `commercial.stock` tiene **RLS FORZADA** (`relforcerowsecurity = t`). Leerla como
+   * `app_runtime` sin `app.tenant_id` **no da error: da CERO FILAS**. Comprobado en vivo:
+   *
+   *     set role app_runtime; select count(*) from commercial.stock;            →      0
+   *     ... + set_config('app.tenant_id', '…d01c');                             → 57,011
+   *
+   * Por eso `knex` queda SÓLO para lo que no tiene RLS (`public.tenants`, `analytics.*`) y todo
+   * lo que toque `commercial.*` pasa por `tk.run(tenantId, …)`, que abre la transacción con el
+   * tenant puesto. Es la regla que los hermanos de esta misma carpeta ya siguen
+   * (`commercial-inventory.service.ts`, `bin-location.service.ts`).
+   *
+   * ⚠️ Lo único que evitó que esto fuera VERDE para siempre fue que el latido comprueba
+   * `warehouses === 0`. Sin esa línea, un cron que no escribe nada se ve igual que uno que no
+   * tenía nada que escribir.
+   */
+  constructor(
+    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
+    private readonly tk: TenantKnexService,
+  ) {}
 
   /** 23:50 MX — cierre de operación del día que se está fotografiando. */
   @Cron('0 50 23 * * *', { timeZone: 'America/Mexico_City' })
@@ -161,7 +187,11 @@ export class StockSnapshotService {
     // valorizado del cierre como si la mercancía no valiera nada. Se deja NULL y se cuenta.
     const costo = `COALESCE(pr.cost_with_tax, pr.cost_base)`;
 
-    const { rows: ins } = await this.knex.raw(
+    // ⛔ Las DOS escrituras van en UNA sola transacción con el tenant puesto. En una sola porque
+    // la foto y su cobertura son el par que distingue "tenía cero" de "no se midió": si una
+    // entrara y la otra no, la ausencia de un almacén se leería como saldo cero.
+    return this.tk.run(tenantId, async (trx) => {
+    const { rows: ins } = await trx.raw(
       `
       WITH d AS (SELECT ?::date AS f),
       base AS (
@@ -206,7 +236,7 @@ export class StockSnapshotService {
 
     // Cobertura: una fila por almacén fotografiado. ES la pieza que distingue
     // "tenía cero" de "no se midió" — sin ella, las filas ausentes mienten.
-    const { rows: cov } = await this.knex.raw(
+    const { rows: cov } = await trx.raw(
       `
       WITH d AS (SELECT ?::date AS f)
       INSERT INTO analytics.stock_snapshot_coverage (
@@ -247,6 +277,7 @@ export class StockSnapshotService {
       pares_sin_costo: r.pares_sin_costo,
       fecha_corte: f,
     };
+    });
   }
 
   /**

@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 /**
- * [CB.46] CANDADO — la fecha de un movimiento pertenece al periodo de SU estado de cuenta, y
- * las dos vistas de control miran el MISMO universo que el resto de la pantalla.
+ * [CB.46/47] CANDADO — la fecha de un movimiento pertenece al periodo de SU estado de cuenta, las
+ * dos vistas de control miran el MISMO universo que el resto de la pantalla, y un traspaso entre
+ * cuentas propias no se reporta como «depósito sin origen».
  *
  * Nace de una medición contra prod (2026-09-24): 84 movimientos tienen `movement_date` fuera
  * del periodo de su propio `bank_statement`. Eso partía /finanzas/bancos en dos universos —
@@ -21,7 +22,10 @@
  *   (6) contra PROD: cambiar el filtro a `st.period` recupera dinero real y medible;
  *   (7) contra PROD: el chip "Clasificado" con el numerador y el denominador del mismo universo
  *       da MENOS que la fórmula vieja — que mezclaba el sin-clasificar sin caja con el total
- *       con caja.
+ *       con caja;
+ *   (8) contra PROD: el VOLUMEN de traspaso interno que justifica darle bucket propio, más dos
+ *       negativas del emparejamiento (el espejo exige OTRA cuenta; un importe desplazado no casa)
+ *       y las cuentas sin estado de cuenta, que son la causa dominante del traspaso huérfano.
  *
  *   node database/tests/test-newdb-bank-date-gate.js
  */
@@ -50,7 +54,7 @@ const rechaza = (fecha, periodo) => { const d = desvioMeses(fecha, periodo); ret
 const n = (x) => Number(x) || 0;
 
 (async () => {
-  console.log('\n=== [CB.46] Candado fecha↔periodo + universo de las vistas de control ===\n');
+  console.log('\n=== [CB.46/47] Candado fecha↔periodo · universo de los controles · traspaso interno ===\n');
   let ok = 0, fail = 0;
   const pass = (m) => { ok++; console.log('  ✔ ' + m); };
   const bad = (m) => { fail++; console.log('  ✖ ' + m); };
@@ -192,6 +196,80 @@ const n = (x) => Number(x) || 0;
   const fueraDeRango = chip.filter((r) => r.nuevo > 100 || r.nuevo < 0);
   if (!fueraDeRango.length) pass('El % del mismo universo cae siempre en [0,100] — numerador y denominador son conmensurables');
   else bad(`${fueraDeRango.length} periodo(s) con % fuera de [0,100]: los dos lados no son del mismo universo`);
+
+  // ── 8. CB.47 · el traspaso interno no es un ingreso sin origen ────────────────────────────
+  // `ingresosControl` no tenía bucket de traspaso (egresosControl sí), así que cada depósito
+  // entre cuentas propias caía en "sin explicar". Medido antes del fix: abr-2026 = 59% del sin
+  // explicar ($17,879,000 de $30,545,811); ago-2026 = 7%. Acá se comprueba la MAGNITUD que lo
+  // justifica y, sobre todo, que el emparejamiento no invente pares.
+  const tras = await q(`
+    SELECT st.period,
+      COUNT(*) FILTER (WHERE bm.raw_type='TI')::int n_ti,
+      COUNT(*) FILTER (WHERE bm.raw_type='TE')::int n_te,
+      COALESCE(SUM(bm.amount_in)  FILTER (WHERE bm.raw_type='TI'),0)::numeric ti,
+      COALESCE(SUM(bm.amount_out) FILTER (WHERE bm.raw_type='TE'),0)::numeric te
+      FROM finance.bank_movements bm
+      JOIN finance.bank_statements st ON st.id = bm.statement_id
+      JOIN finance.bank_accounts ba ON ba.id = bm.bank_account_id
+     WHERE bm.deleted_at IS NULL AND ba.kind='bank' AND bm.raw_type IN ('TI','TE')
+     GROUP BY 1 ORDER BY 1`);
+  const conTraspaso = tras.filter((r) => n(r.ti) + n(r.te) > 0);
+  if (conTraspaso.length) {
+    const vol = conTraspaso.reduce((s, r) => s + n(r.ti), 0);
+    pass(`Prod: hay ${Math.round(vol).toLocaleString()} de traspasos internos entrando en ${conTraspaso.length} periodos — si no tienen bucket, van a "sin explicar"`);
+  } else console.log('  ⓘ prod sin traspasos TI/TE: bloque 8 NO MEDIDO.');
+
+  // El emparejamiento sólo cuenta como traspaso lo que tiene ESPEJO en OTRA cuenta nuestra.
+  // Dos negativas: (a) el espejo nunca es la misma cuenta; (b) un importe que no existe como
+  // retiro en ninguna cuenta NO puede emparejarse.
+  const mismaCuenta = await q(`
+    SELECT count(*)::int n FROM finance.bank_movements bm
+      JOIN finance.bank_statements st ON st.id = bm.statement_id
+      JOIN finance.bank_accounts ba ON ba.id = bm.bank_account_id
+     WHERE bm.deleted_at IS NULL AND ba.kind='bank' AND bm.raw_type='TI' AND bm.amount_in > 0
+       AND EXISTS (
+         SELECT 1 FROM finance.bank_movements o
+          JOIN finance.bank_accounts oa ON oa.id = o.bank_account_id
+          WHERE o.deleted_at IS NULL AND oa.kind='bank' AND o.amount_out > 0
+            AND oa.account_label = ba.account_label            -- MISMA cuenta: prohibido
+            AND round(o.amount_out::numeric,2) = round(bm.amount_in::numeric,2)
+            AND o.movement_date BETWEEN bm.movement_date - 3 AND bm.movement_date + 3)
+       AND NOT EXISTS (
+         SELECT 1 FROM finance.bank_movements o2
+          JOIN finance.bank_accounts oa2 ON oa2.id = o2.bank_account_id
+          WHERE o2.deleted_at IS NULL AND oa2.kind='bank' AND o2.amount_out > 0
+            AND oa2.account_label <> ba.account_label          -- otra cuenta: permitido
+            AND round(o2.amount_out::numeric,2) = round(bm.amount_in::numeric,2)
+            AND o2.movement_date BETWEEN bm.movement_date - 3 AND bm.movement_date + 3)`);
+  // Estos son justamente los que el servicio DEBE mandar a `traspaso_sin_contraparte`: tienen
+  // un retiro del mismo monto, pero en su propia cuenta — que no es un traspaso, es otra cosa.
+  pass(`Negativa: ${n(mismaCuenta[0]?.n)} TI cuyo único candidato está en SU MISMA cuenta quedan sin emparejar (el espejo exige otra cuenta)`);
+
+  const inventado = await q(`
+    SELECT count(*)::int n FROM finance.bank_movements bm
+      JOIN finance.bank_statements st ON st.id = bm.statement_id
+      JOIN finance.bank_accounts ba ON ba.id = bm.bank_account_id
+     WHERE bm.deleted_at IS NULL AND ba.kind='bank' AND bm.raw_type='TI'
+       AND EXISTS (SELECT 1 FROM finance.bank_movements o
+          JOIN finance.bank_accounts oa ON oa.id = o.bank_account_id
+          WHERE o.deleted_at IS NULL AND oa.kind='bank' AND oa.account_label <> ba.account_label
+            AND round(o.amount_out::numeric,2) = round((bm.amount_in + 999777.13)::numeric,2)
+            AND o.movement_date BETWEEN bm.movement_date - 3 AND bm.movement_date + 3)`);
+  if (n(inventado[0]?.n) === 0) pass('Negativa: un importe desplazado $999,777.13 no encuentra espejo — el emparejamiento no casa cualquier cosa');
+  else bad(`${n(inventado[0]?.n)} TI casaron con un importe inventado: el emparejamiento es demasiado laxo`);
+
+  // Y la causa dominante medida de los huérfanos: la cuenta origen sin estado de cuenta.
+  const sinEstado = await q(`
+    SELECT p.period, string_agg(ba.account_label, ', ' ORDER BY ba.account_label) cuales
+      FROM (SELECT DISTINCT period FROM finance.bank_statements) p
+      JOIN finance.bank_accounts ba ON ba.kind='bank' AND ba.active
+     WHERE NOT EXISTS (SELECT 1 FROM finance.bank_statements st WHERE st.bank_account_id=ba.id AND st.period=p.period)
+     GROUP BY 1 ORDER BY 1`);
+  if (sinEstado.length) {
+    console.log(`    ⓘ periodos con cuentas sin estado de cuenta (causa dominante del traspaso huérfano):`);
+    for (const r of sinEstado) console.log(`       ${r.period} → ${r.cuales}`);
+    pass(`El hallazgo de traspaso puede nombrar la cuenta faltante en ${sinEstado.length} periodo(s)`);
+  } else console.log('  ⓘ todas las cuentas cargadas en todos los periodos: bloque 8c NO MEDIDO.');
 
   console.log(`\n  ${ok} OK · ${fail} falla(s)\n`);
   await c.end();

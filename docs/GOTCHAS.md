@@ -1415,7 +1415,7 @@ seguido**. Si a alguno se le alarga una pasada silenciosa, le pasa lo mismo.
 **3. `HEALTHCHECK` de Docker no reinicia nada.** En Docker standalone `restart: unless-stopped`
 reacciona a que el proceso **muera**; `unhealthy` es sólo un rótulo (reiniciar por salud lo hace
 Swarm). El `Dockerfile` afirmaba lo contrario y esa creencia costó las 15 h: el diagnóstico funcionó,
-faltaba el brazo. Ahora `ops/ingest/docker-compose.yml` trae el servicio `autoheal`, **acotado por
+faltaba el brazo. Ahora `ops/vl/docker-compose.yml` trae el servicio `autoheal`, **acotado por
 etiqueta** (`AUTOHEAL_CONTAINER_LABEL=autoheal`) para que no toque `pgvector-md`, `api` ni `view`.
 
 **Y el gatillo del cuelgue:** `pg` **no trae timeout de conexión por default**. `latir()` y
@@ -1434,7 +1434,7 @@ POS Kepler (LAN privada, 6 hosts)          publicación `ods_pub`
         │  replicación lógica (pull)
         ▼
 :5433  kepler_md_00,01,02,03,04,05,06                ← schema `md`, contenedor `pgvector-md`
-        │  shipper HTTP (feeds-ingest) — ops/ingest/docker-compose.yml
+        │  shipper HTTP (feeds-ingest) — ops/vl/docker-compose.yml
         ▼
 Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucursal`)
 ```

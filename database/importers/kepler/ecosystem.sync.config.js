@@ -7,7 +7,7 @@
  *
  * Verificado renglón por renglón el 2026-09-05:
  *   · sync-product → `replicate-ods-live.js --tables=kdii` == el contenedor `ods-live-hot`
- *     (`ops/ingest/docker-compose.yml`), que ya trae kdii en KP_ODS_TABLES y ODS_HASH_TABLES.
+ *     (`ops/vl/docker-compose.yml`), que ya trae kdii en KP_ODS_TABLES y ODS_HASH_TABLES.
  *     Mismo script, mismo `ods.ctl`/`ods.shadow`, mismo latido `ods_live_hot`.
  *   · sync-stock   → `import-branch-stock-live.js` ya corre dentro de `run-prod-feeds.js`
  *     (tarea `\Kepler\Stock`, latido `feed_stock`).
@@ -52,6 +52,23 @@ const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
 // FEEDS_SINK=http forzado; el resto de las vars se heredan del entorno (secretos NO acá).
 const env = { ...process.env, FEEDS_SINK: 'http' };
 const base = { cwd: REPO, env, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true };
+
+// ⛔⛔ [CT.2 2026-09-24] EL FRENO, QUE FALTABA.
+//
+// Este archivo se declaraba RETIRADO desde el 2026-09-05 **en un comentario**, y exportaba los
+// cuatro apps con toda normalidad. Un comentario no frena a `pm2 start`: levantaba un SEGUNDO
+// `replicate-ods-live.js --tables=kdii` peleando el `ods.ctl`/`ods.shadow` con `ods-live-hot` y
+// escribiendo su mismo renglón de `analytics.cron_runs` — el falso verde que este mismo
+// encabezado describe. Y no es hipotético: `PM2 Resurrect ODS` ya revivió una vez los carriles
+// de ContPAQi tras un reinicio de Windows, y corrieron duplicados y mudos.
+//
+// El hermano `ecosystem.cdc.config.js` sí frenaba. Éste no. Ahora los dos fallan igual.
+throw new Error(
+  'ecosystem.sync.config.js está RETIRADO (2026-09-05). Sus cuatro carriles YA tienen dueño: ' +
+  'sync-product → contenedor `ods-live-hot` · sync-stock → línea `stock` de ops/vl/crontab.feeds · ' +
+  'sync-sales → líneas `live`/`nightly` de ops/vl/crontab.feeds · ods-cdc → retirado en OBS.8. ' +
+  'Arrancarlo acá crea un SEGUNDO dueño del watermark y del latido: un carril = UN dueño.',
+);
 
 module.exports = {
   apps: [

@@ -5,6 +5,148 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[CB.48]` El dato que dimos por inexistente llevaba meses en la base
+
+**Cómo se llegó:** Edgar mandó una **foto de la pantalla de Kepler** — la ventana «Recepción de
+pagos SAT» del cobro `UA0701-0000214` — con el comentario *"es oro para conciliar"*. Lo era.
+
+### Lo que la foto mostraba
+
+**Fecha de pago: 31/07/2026 16:52.** La póliza de ese mismo documento está fechada **12/08/2026**.
+Doce días de diferencia, y el conciliador usaba la de la póliza.
+
+### Lo que se cae
+
+La Fase CB.44 había concluido, con medición y todo:
+
+> *"La causa RAÍZ es de captura, no de código: en la suc. 01 `fecha valor` = `fecha captura` = el
+> día que se tecleó. Mientras no se retrofeche, ningún motor puede conciliar por fecha:
+> **$6,858,008.40** de cobranza 2026."*
+
+**Falso.** La fecha real sí se captura — en `kepler_ods.kdfe33pagm1.c7`, el complemento de pago
+SAT. El motor leía el campo equivocado. Y el monto coincide **al peso** con los cobros de la suc 01
+que tienen complemento ($6,858,008): el dinero declarado irreconciliable es exactamente el que
+traía su fecha guardada.
+
+No hacía falta cambiar cómo captura nadie.
+
+### El decode, anclado a un hecho
+
+Las columnas `cN` de Kepler no están documentadas, así que el decode se verificó **contra la
+propia pantalla**, campo por campo — siete coincidencias independientes:
+
+| Col | Valor | En pantalla |
+|---|---|---|
+| `c7` | `2026-07-31T16:52:00` | Fecha de pago 31/07/2026 16:52 |
+| `c8` | `01` | Método: Efectivo |
+| `c9` / `c11` | `MXN` / `1.000000` | PESOS / 1.000000 |
+| `c12` | `6784.00` | Monto 6,784.00 |
+| `c13` | `0000214` | Número de operación |
+| `c19` / `c20` | RFC banco / CLABE | Cuenta ordenante |
+
+### Magnitud
+
+| Sucursal | Mueven la fecha | Días prom. | Monto |
+|---|---|---|---|
+| 01 | **530 / 542 (97.8 %)** | 6.8 | $6.79 M |
+| 06 | **101 / 101 (100 %)** | 7.1 | $1.71 M |
+
+**$8,472,420** que la póliza fechaba mal y ahora tienen candidato.
+
+### Lo que se entregó
+
+Vista `analytics.v_kepler_payment_complement` (derive-no-copy, 2,583 filas tras descartar 787
+réplicas) + su `_coverage`, y `runMatchTreasury` toma la fecha del complemento cuando existe —
+incluido el cálculo de `dentro`, para que un cobro tecleado en agosto cuyo pago fue el 31-jul
+entre en los pases de **julio**. El resultado expone `complemento_sat {usados, dias_promedio,
+disponibles}`.
+
+### Lo que NO es, para no venderlo de más
+
+El complemento **sólo existe para `U-A-7`**. El grueso de la cobranza es `U-A-5` del CEDIS —
+29,127 cobros / $452M, cero complementos, porque el SAT sólo lo exige en pago diferido. Cubre el
+**~2 % del dinero** y el **100 % del problema**.
+
+Y la CLABE **no rescata cobertura**: el feed ya deriva `account_label` de `c45` en el 100 % de los
+U-A-7. Su valor es de **árbitro** — coincide en 201 de 202, y el que no coincide quedó declarado
+(suc 01 folio 0000018: el feed dice 6721, la CLABE dice 5712).
+
+### Lección
+
+**Antes de declarar que un dato no existe, hay que buscar dónde más podría estar.** CB.44 midió
+bien (`fecha_valor == fecha_captura` era cierto), razonó bien desde ahí, y llegó a una conclusión
+equivocada porque nunca preguntó *"¿y el SAT no obliga a guardar la fecha real en algún lado?"*.
+El dato llevaba meses a un `SELECT` de distancia, en una tabla del mismo ODS que ya leíamos.
+
+Corolario del método: la foto de una pantalla es un **árbitro de primera** para decodificar un
+ERP sin documentación — siete campos visibles convirtieron un `cN` anónimo en un decode
+defendible y en un test que se pone rojo si alguien lo mueve.
+
+---
+## 2026-09-24 — `[CB.47]` El traspaso interno se reportaba como «depósito sin origen»
+
+**Cómo se llegó:** reporte de Edgar — *"traspasos internos no se consideran y eso hace que
+desconcilie el sistema"*. Medido contra **prod (Railway/`railway`)**, sólo lectura. **Confirmado.**
+
+### El defecto
+
+`egresosControl` tenía bucket `traspaso`. **`ingresosControl` —el que lleva meses en prod— no.**
+Sus buckets eran tesorería / cobranza / caja / sin_explicar, así que **todo depósito entre cuentas
+propias caía en «sin explicar»** salvo que Kepler lo trajera por casualidad.
+
+| Periodo | Sin explicar | De eso, traspaso | Real |
+|---|---|---|---|
+| **2026-04** | $30,545,811 | **$17,879,000 (59 %)** | $12,666,811 |
+| 2026-08 | $11,832,620 | $843,000 (7 %) | $10,989,620 |
+
+Volumen total de traspaso interno: **$216,097,722 en 9 meses**, ~30 % del movimiento bancario.
+La diferencia entre meses **no es ruido**: depende de si la cuenta origen está cargada.
+
+### La causa de fondo es de COBERTURA, no de captura
+
+Los TI/TE no netean en **7 de 9 meses**. Peor abril: **146 TI contra 104 TE, Δ $8,727,000**; marzo
+Δ $4,503,000. Enero y febrero netean exacto. El conteo lo explica: faltan estados de cuenta.
+
+- mar y may: **1604, 1621, 2169, 4885, 5565** sin cargar
+- feb: 4885 · abr, jun, sep: 3660
+- **la 1604 no tiene un solo movimiento en mar/abr/may**, aunque en abril sí tiene `bank_statement`
+
+Si la cuenta origen no está, el retiro espejo no existe y el depósito parece caído del cielo.
+
+### Código muerto, con un comentario que afirmaba lo contrario
+
+En `reconciliation()` había un `EXCLUDE = {traspaso, factoraje}` que sumaba `bankIn/bankOut` sin
+ellos… y **treinta líneas después los pisaba** con los totales del estado de cuenta, que sí los
+traen. El comentario del método decía *"banco (excl. traspasos internos Y factoraje)"*. Se retiró.
+
+Y la medición dejó la razón de fondo escrita, porque el arreglo intuitivo es el equivocado: **el
+lado Kepler TAMBIÉN trae los traspasos**. Excluirlos sólo del banco mueve el Δ de enero de
+**+$5.4M a −$20.0M** y el de marzo de **−$2.2M a −$32.3M**. No había que excluirlos: había que
+**emparejarlos**.
+
+### Lo que se hizo
+
+`ingresosControl` empareja contra el **retiro espejo en OTRA cuenta nuestra** (±$1, ±3d) y estrena
+`via_traspaso` + `via_factoraje`; `egresosControl` gana el mismo trato para `TI`/`TE` (antes sólo
+miraba `group_key`). Lo que **no** tiene espejo va a `traspaso_sin_contraparte` — ni «explicado»
+ni «sin explicar»: se declara, porque la acción es *cargar el estado de cuenta que falta*, no
+*investigar este depósito*.
+
+El hallazgo del Cierre decía «falta el otro lado de un traspaso» sin decir cuál — inservible con
+42 patas entre 5,221 movimientos. Ahora lista los huérfanos mayores y **nombra la cuenta cuyo
+estado de cuenta falta**. Candado extendido a **14/14**, con dos negativas del emparejamiento:
+el espejo exige **otra** cuenta, y un importe desplazado $999,777.13 no casa con nada.
+
+### Lección
+
+**Un bucket que falta no se ve como un error: se ve como un hallazgo.** La bandeja no estaba
+rota — estaba llena, y llena de cosas correctas mal etiquetadas. En abril, seis de cada diez
+pesos «sin explicar» eran dinero nuestro cambiando de cuenta. Ese es el modo de falla que hay
+que buscar en toda bandeja de excepciones: no que esté vacía cuando debería tener algo, sino que
+esté llena de lo que ya estaba explicado. **Una bandeja con 59 % de falsos se deja de mirar**, y
+entonces el 41 % real tampoco se atiende.
+
+---
 ## 2026-09-24 — `[CB.46]` `/finanzas/bancos`: tres indicadores que apuntaban al verde, y dos universos
 
 **Cómo se llegó:** *"analiza /finanzas/bancos"* → siete hallazgos → *"arreglemos lo que está en
@@ -77,7 +219,205 @@ sobre «el mismo periodo», el periodo tiene que ser **la misma columna**, y si 
 diferencia se **declara**.
 
 ---
+<a id="2026-09-24--la-base-equivocada"></a>
+## 2026-09-24 — La base equivocada: medí medio día contra una prod que dejó de serlo hace dos
+
+**Cómo se llegó:** *"¿tenés algo pendiente?"*. Al re-verificar un «incidente de ingesta» que yo
+mismo había reportado, `docker ps` en `md` devolvió `pg-prod`, `prod-api`, `prod-caddy`… y ahí se
+cayó todo.
+
+### El hecho
+
+**Producción se mudó a `md` el 2026-09-22.** `FLEET_DB_URL` en el `.env` sigue diciendo
+`trolley.proxy.rlwy.net`. Medido con `pg_control_system()`:
+
+```
+Railway (FLEET_DB_URL) : 7644730674938200108   ← prod VIEJA, sin escrituras desde el 23-sep
+md / pg-prod :5434     : 7688376744939610156   ← prod REAL, 2,592 docs de kdm1 de HOY
+```
+
+**Misma base `railway`, mismas tablas, mismos datos de hace dos días.** `md` es una restauración
+de Railway: clasificar por forma no puede distinguirlas.
+
+### Lo que costó
+
+1. **Una auditoría entera de `/finanzas/cartera` medida contra la base vieja.** Las cifras
+   publicadas en `[CXC.20]` y `[CXC.25]` estaban ~1.5 días atrasadas.
+2. **Una migración aplicada al lugar equivocado** (batch 528 en Railway). En el prod real decía
+   `NO APLICADA` — y el código ya commiteado la consume: un redeploy habría tirado la pantalla.
+3. ⛔ **Un incidente inventado.** Reporté *«la ingesta lleva 22 h parada»* y *«5,888 documentos
+   represados»*. **Nada de eso existía**: los carriles escriben al prod real y estaban perfectos,
+   con las 9 réplicas avanzando al segundo. Lo que vi muerto era la base que ya nadie alimenta.
+
+### Por qué no lo vi antes
+
+Tres avisos que estaban escritos y no leí a tiempo:
+
+- El commit `06f299a7` (`[VL.18]`), del **mismo día**, dice literalmente: *«un destino equivocado
+  no falla: triunfa en el lugar equivocado»*, y trae `apply-one-migration-prod.js` con candado de
+  identidad — hecho exactamente para esto. No lo usé.
+- `ops/README.md` ya registraba dos casos de la misma familia: `[VL.13]` (el respaldo de prod
+  volcando Railway **durante días**) y `[VL.14]` (la Caja General escribiendo a la prod vieja).
+- Mi propia memoria de topología decía «PROD = Railway = `FLEET_DB_URL`» y advertía, en el
+  párrafo siguiente, que *«el NOMBRE de la variable miente»* y que una auditoría ya había
+  reportado un incidente inexistente por medir la base equivocada. **Hice las dos cosas.**
+
+### Las cifras corregidas
+
+Medidas contra el prod real el 2026-09-24 ~15:30 MX (base viva, los centavos se mueven):
+
+| | Railway (lo publicado primero) | **prod real** |
+|---|---|---|
+| Saldo total | $57,780,190.86 | **$59,389,516.95** |
+| Vencido | $51,815,537.36 (89.7%) | **$51,469,593.97 (86.7%)** |
+| Cliente real | $28,357,562.01 · 49.1% | **$30,687,831.22 · 51.7%** |
+| **Cuenta interna (8 cuentas)** | $26,583,657.82 · 46.0% | **$25,702,051.63 · 43.3%** |
+| Ruta | $2,838,971.03 | $2,992,639.38 |
+| Hueco «sin documento» | $771,712.64 · 12 clientes | **$462,557.11 · 12 clientes** |
+| Lo que escondía la lista vieja 01-06 | $45,392,532.22 · 78.6% | **$47,274,011.32 · 79.6%** |
+
+**Ninguna conclusión cambia.** Las ocho cuentas internas siguen siendo el 43% del saldo, el hueco
+sigue existiendo, las tres sucursales seguían sin filtro. Lo que cambió son los pesos, y el
+tracker y el CHANGELOG ya los llevan corregidos.
+
+### Lo que se hizo
+
+Migración aplicada al prod real (**batch 531**) con el script del candado, por el camino que no
+mueve secretos: `docker cp` a `prod-api` y `docker exec` adentro. Los dos candados re-corridos
+**ahí mismo**: `[CXC.20]` **15 ✔** y `[CXC.25]` **14 ✔**. ⭐ Bonus medido: corriendo dentro del
+contenedor la consulta baja de **4,579 a 2,625 ms** — la base está en la LAN, no al otro lado de
+un proxy.
+
+### Lección
+
+**El nombre de una variable no es un hecho; el `system_identifier` sí.** Toda medición contra
+«prod» tiene que declarar contra qué clúster corrió, y toda escritura tiene que verificarlo antes
+de la primera fila. La forma —el nombre de la base, las tablas, hasta los datos— es idéntica en
+una restauración; lo único que no se puede falsificar es la identidad.
+
+⚠️ Y una segunda, más incómoda: **el aviso existía tres veces y no alcanzó**. Estaba en un commit
+del mismo día, en `ops/README.md` y en mi propia memoria. Un aviso que hay que acordarse de leer
+no es una compuerta. La compuerta es el candado del script — que fue lo único que, cuando por fin
+lo usé, no me dejó equivocarme.
+
+---
+## 2026-09-24 — `[CXC.25]` El 46% de la cartera no son clientes, y por eso contabilidad decía otra cifra
+
+> ⚠️ **Las cifras de esta entrada son de la base VIEJA** (Railway). Las corregidas están en la
+> entrada de arriba, «La base equivocada». La tesis no cambia: 8 cuentas internas = **43.3%** del
+> saldo (no 46.0%), sobre un total de **$59,382,522.23** (no $57,780,190.86).
+
+**Cómo se llegó:** *«ayudame a que contabilidad le saque provecho a esta vista… dime qué tanto
+podemos ofrecerles a crédito y cobranza»*. La investigación arrancó buscando cómo cruzar pólizas
+de ContPAQi contra Kepler, y **terminó en otro lado**: el problema no era el cruce, era qué hay
+adentro del número que la pantalla ya publica.
+
+⚠️ El usuario objetó el primer plan con un caso que lo tiró abajo: *«¿qué pasa si el cliente hizo
+un abono de 50 mil a su deuda de 3 pólizas, pero su abono es un solo pago? No se pueden casar»*.
+Tenía razón, y medirlo cambió el orden de todo (ver **Lo que se descartó**, al final).
+
+### El hallazgo
+
+| | |
+|---|---|
+| Lo que `/finanzas/cartera` publicaba | **$57,780,190.86** |
+| De eso, **ocho cuentas** entre plazas propias | **$26,583,657.82 — 46.0%** |
+| Rutas | $2,838,971.03 — 4.9% |
+| **Cliente real** | **$28,357,562.01 — 49.1%** |
+| Lo que la balanza de ContPAQi dice que valen los clientes (ago-2026) | **$9,144,402.36** |
+
+`30-73 TLMKT Morelia Abastos` · `50-75 TLMKT Canindo Abastos` · `10-00 P.V. Padre Hidalgo Piso` ·
+`32-00 P.V. Morelia Madero`… **Crédito y cobranza estaba mirando, en su mayoría, deuda entre
+plazas propias** — que no se cobra por teléfono. Y la balanza de contabilidad no está equivocada:
+excluye eso. **No estaban en desacuerdo, contaban cosas distintas.**
+
+Del lado de los cobros pasa lo mismo: de los **$452M** cobrados en 2026, **$392.7M (86.8%) son
+cuentas internas** y sólo **$11.2M (2.5%)** es cliente final.
+
+### La lógica ya existía, enterrada
+
+`analytics.erp_collections` clasificaba desde la mig `20260819220000` (`tipo_cuenta`), pero sólo
+para sus propias filas de cobro y sin forma de que nadie más la usara. Sube a resolvedor:
+`analytics.v_customer_account_kind` + 4 funciones (`20260924180000`, **Railway batch 528**).
+
+### ⭐ El patrón del código no alcanza solo
+
+Contra el nombre que el propio Kepler le puso en `kdud` (el árbitro independiente que pide
+ADR-059), **discrepaban 8 cuentas por $1,047,338.95 — y el que tenía razón cambiaba**:
+
+| | el código | el nombre | quién acierta |
+|---|---|---|---|
+| `2-32-RV01` | calla | `R.V. MORELIA MADERO 01` | **el nombre** |
+| `RUTA 505` | afirma ruta | `TAMPORAL` | **el código** |
+
+De ahí la precedencia, que resuelve los 8 sin excepciones a mano:
+
+> **el CÓDIGO afirma → el NOMBRE rescata cuando el código calla → `cliente_final`**
+
+⭐ La clave: **`cliente_final` NO es una afirmación, es el `ELSE`**. Nadie dijo que lo sea; es lo
+que queda cuando ninguna señal habló. Por eso no puede ganarle a una señal positiva, y por eso
+`kind_source` (`codigo|nombre|ninguno`) viaja al lado del veredicto. El nombre rescata **3 cuentas
+por $868,281.75**. `disputed` marca la pelea entre señales: hoy **0**, la compuerta va igual.
+
+### Dos decisiones de las que casi me equivoco
+
+**1. Iba a abrir la pantalla filtrada en «Cliente».** Es más útil para cobranza… y habría
+repetido exacto el bug que `[CXC.20.3]` acababa de arreglar: **abrir escondiendo dinero**. Abre
+en «Todas», con el total **repartido a la vista** en tres barras que filtran con un clic.
+
+**2. La primera versión costaba 11,331 ms** (contra 4,191 del baseline). El planificador empujaba
+la vista dentro del join y la re-evaluaba por fila. `cuenta AS MATERIALIZED` + mover
+`kind_source` a la salida —1,300 filas ya agrupadas en vez de las 52 mil de `doc`— lo dejó en
+**4,579 ms**, o sea +388 ms, que es lo que cuesta la vista sola.
+
+### ⛔ La trampa que casi publica una clasificación falsa
+
+**`knex.raw()` trata el `?` de un regex como placeholder de binding.** Los cuantificadores `\.?` y
+`\s?` llegaron mutilados a Postgres — y **`CREATE FUNCTION` no falla**: la función quedó creada,
+clasificando mal, en silencio. La atrapó la **compuerta de 5 casos de la propia migración**, que
+devolvió `cliente_final` para `2-32-RV01`.
+
+Es `[CV.7]` (`pgRaw`) con otra cara. Regla: en SQL que pase por `knex.raw`, el cuantificador se
+escribe **`{0,1}`**, nunca `?`.
+
+### El candado
+
+`database/tests/test-newdb-cartera-tipo-cuenta.js`, **14 ✔ / 0 ✘ contra prod**, en la regresión.
+Lee el SQL del servicio, no una copia. La prueba negativa que más vale: **con UNA sola señal los
+dos casos que se contradicen se van los dos a `cliente_final`** — o sea que la precedencia no es
+decorativa, y si alguien la simplifica, el test se pone rojo.
+
+### Lo que se descartó, y por qué — medido
+
+- **Cruzar pólizas de ContPAQi contra Kepler por cliente: imposible.** La contabilidad lleva
+  clientes por *sucursal × régimen de IVA* (14 cuentas: `CLIENTES 0% MORELIA`, `CLIENTES C/IVA
+  ZAMORA`…), nunca por cliente. Y no hay CFDIs emitidos: `fiscal.cfdis` tiene 168,245 filas y
+  **las 168,245 son `recibidas`**.
+- **Parear el depósito del banco con el cobro: sirve, pero no para el caso del usuario.** El
+  cruce 1:1 casa **78.0%** con **7.6%** de ruido (placebo dentro del rango poblado). Pero
+  **1,893 abonos por $55,597,061.51 (11.9%) son UN pago contra VARIAS pólizas** — uno toca
+  **186** — y ésos no casan por construcción. Agrupar por (cliente + día) tampoco: casa **7.1%**.
+- ⚠️ **Y un placebo mío estaba mal**: desplacé las fechas +180 días y caí en meses vacíos → el
+  ruido salió 1.1%. Con el desplazamiento dentro del rango poblado es **7.6%**, 7× más.
+- **El «total de lo que falta por registrar» NO se puede publicar hoy.** El banco mezcla
+  depósitos de venta de tienda ($3.6M→$27.7M/mes) y Kepler mezcla cobros internos; la brecha da
+  **+$15.3M o −$74,227,354.51** según dónde cortes. **La indefinición es mayor que lo que se
+  quiere medir.** Eso se declara, no se dibuja.
+
+### Lección
+
+El pedido era cruzar dos sistemas. La respuesta estaba **dentro de uno solo**: el número ya
+publicado tenía adentro dos poblaciones que nadie había separado, y esa mezcla explicaba sola la
+diferencia con contabilidad que se venía a investigar. Antes de construir un puente entre dos
+cifras, conviene preguntarse qué hay adentro de cada una.
+
+---
 ## 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo
+
+> ⚠️ **Las cifras de esta entrada son de la base VIEJA** (Railway; ver «La base equivocada»,
+> arriba). Contra el prod real: saldo **$59,389,516.95**, vencido **$51,469,593.97 (86.7%)**,
+> hueco sin documento **$462,557.11**, y lo que escondía la lista 01-06 son **$47,274,011.32 =
+> 79.6%**. Los dos defectos y sus pruebas negativas son idénticos.
 
 **Cómo se llegó:** *"analiza /finanzas/cartera"* → siete hallazgos → *"hay que resolver los 7
 hallazgos, pero no hardcodear las sucursales, ver por qué no salen y arreglarlo con el protocolo

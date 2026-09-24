@@ -7,8 +7,22 @@ import { environment } from '../../../environments/environment';
 /** CXC (ADR-048) — cliente de Cartera de clientes / Partidas vivas (CxC). */
 
 export interface AgingBucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number }
+
+/**
+ * ⭐ `[CXC.25]` **A quién le estás cobrando.** De los $57,780,190.86 que la pantalla publica,
+ * **$26,583,657.82 (46.0%) son ocho cuentas que no son clientes** — `30-73 TLMKT Morelia
+ * Abastos`, `10-00 P.V. Padre Hidalgo Piso`… Plaza contra plaza. Eso no se cobra por teléfono, y
+ * contabilidad no lo reconoce como cartera: su balanza dice $9.1M.
+ */
+export type CuentaKind = 'cliente_final' | 'interno' | 'ruta';
+/** Qué señal decidió: el código lo afirmó, el nombre lo rescató, o nadie dijo nada. */
+export type CuentaKindSource = 'codigo' | 'nombre' | 'ninguno';
+export interface CuentaOpt { code: CuentaKind; label: string }
+export type PorTipoCuenta = Record<CuentaKind, { saldo: number; vencido: number; clientes: number }>;
+
 export interface CarteraCliente {
   sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null;
+  cuenta_kind: CuentaKind; cuenta_kind_source: CuentaKindSource;
   /** `[CXC.20]` Nombre del vendedor resuelto por (sucursal, código) contra `kduv`. */
   vendedor_nombre: string | null;
   grupo: string | null; zona: string | null; telefono: string | null;
@@ -34,7 +48,7 @@ export interface SucursalOpt {
   sin_catalogo: boolean;
 }
 export interface VendedorOpt { code: string; sucursal: string; label: string }
-export interface CarteraFiltros { sucursales: SucursalOpt[]; grupos: string[]; zonas: string[]; vendedores: VendedorOpt[] }
+export interface CarteraFiltros { sucursales: SucursalOpt[]; grupos: string[]; zonas: string[]; vendedores: VendedorOpt[]; cuentas: CuentaOpt[] }
 
 /** Lo que el desglose por documento no alcanza a explicar. Ver `CarteraResumen.sin_documento`. */
 export interface SinDocumento { monto: number; clientes: number }
@@ -59,6 +73,8 @@ export interface CarteraResp {
     total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number;
     n_sobre_linea: number; total_a_favor: number; n_a_favor: number; aging: AgingBucket;
     sin_documento: SinDocumento;
+    /** `[CXC.25]` El total partido por a quién le cobrás. Suma EXACTO `total_saldo`. */
+    por_tipo: PorTipoCuenta;
   };
   clientes: CarteraCliente[]; total_clientes: number;
   /** `[CXC.20]` Viajan en la MISMA respuesta: una sola pasada, imposible que se contradigan. */
@@ -91,7 +107,7 @@ export interface CarteraDetalle {
 export interface Compromiso { id: string; monto_prometido: number; fecha_promesa: string; estado: string; nota: string | null; created_by: string | null; created_at: string }
 
 export interface CarteraQuery {
-  sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; from?: string; to?: string;
+  sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; cuenta?: string; from?: string; to?: string;
   incluir_saldados?: string; search?: string; sort?: 'saldo' | 'vencido'; limit?: number;
 }
 
