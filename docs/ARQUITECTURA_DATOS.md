@@ -295,7 +295,7 @@ flowchart LR
   **tres saltos** — POS en LAN → replicación lógica → réplicas `:5433/kepler_md_XX` (schema `md`) →
   shipper HTTP a prod. El tercer salto **no puede** ser replicación nativa (es *pull* y los POS no
   tienen IP pública; y hace *fan-in* de 7 fuentes a una tabla): por eso hay un proceso.
-  Ese proceso vive **sólo en Docker** (`ops/ingest/docker-compose.yml`: `ods-live-hot` @15 s,
+  Ese proceso vive **sólo en Docker** (`ops/vl/docker-compose.yml`: `ods-live-hot` @15 s,
   `ods-live-mirror` @300 s, `ods-reconcile` @15 min, más `autoheal`). **Un carril = UN dueño**: ni
   Task Scheduler ni PM2 vuelven a levantar un shipper del ODS — tenerlo por triplicado dejó un carril
   15 h colgado en verde el 2026-09-04. Topología, convención de nombres (ojo: la rama **03** vive en

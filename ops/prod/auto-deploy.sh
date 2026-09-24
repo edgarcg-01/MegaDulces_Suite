@@ -169,9 +169,44 @@ fi
 di "migraciones: prod al día"
 
 # ── Construir y recrear ─────────────────────────────────────────────────────
+# ⚠️ Las funciones se DEFINEN antes de usarlas: en `sh` no hay izado. Estaba declarada 50
+# lineas mas abajo y el 2026-09-24 la corrida real imprimio `guardar_anteriores: not found` y
+# siguio como si nada (`set -u` cubre variables, no comandos) — o sea que el despliegue corria
+# **con la reversion desarmada**, que es justo el defecto que esta funcion existe para cerrar.
+# ── ⛔ CADA SERVICIO VUELVE A **SU** IMAGEN ANTERIOR, NO A LA DEL API ────────────────────────
+# La primera versión re-etiquetaba `$img:$ANTERIOR` para los dos, y `$ANTERIOR` es el commit que
+# servía **el API**. Medido el 2026-09-24: `trade-prod-worker:a2052fa1` NO EXISTÍA (el worker no
+# se reconstruye en cada despliegue; el suyo era `022a2604`, de 18 h antes), así que el
+# `docker image inspect` fallaba, el `&&` saltaba el re-etiquetado en silencio, y
+# `trade-prod-worker:latest` **se quedaba apuntando al build NUEVO que acababa de fallar**. O sea
+# que la reversión devolvía el API a lo bueno y **dejaba el worker en lo roto** — quedó en bucle
+# de reinicio, y el log decía `revertido.` igual.
+#
+# Ahora se guarda el ID de imagen de cada servicio ANTES de construir, que es la única forma de
+# saber a qué volver: la etiqueta de commit puede no existir para ese servicio, pero el ID que
+# estaba corriendo siempre existe.
+guardar_anteriores() {
+  for s in $SERVICIOS; do
+    case "$s" in api) img=trade-prod-api; c=prod-api ;; worker) img=trade-prod-worker; c=prod-worker ;; *) continue ;; esac
+    _id=$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null)
+    [ -n "$_id" ] && eval "PREV_$s=\$_id"
+  done
+}
+
 ANTERIOR="$VIVO"
 # ⛔ ANTES de construir. El `docker build -t …:latest` PISA la etiqueta `latest`, así que después
 # del build ya no hay forma de saber qué imagen estaba sirviendo cada servicio.
+#
+# ⛔ Y se comprueba que la función EXISTA. `sh` no falla ante un comando inexistente: escribe
+# `not found` por stderr y SIGUE. Como la salida del carril va a un log que nadie mira en vivo,
+# eso permite que el despliegue corra **con la reversión desarmada** — es lo que pasó a las 14:20
+# del 2026-09-24, con la función declarada 50 líneas más abajo (en `sh` no hay izado). `sh -n`
+# tampoco lo ve: es sintácticamente válido. La única forma de que se note es preguntar.
+command -v guardar_anteriores >/dev/null 2>&1 || {
+  di "FALLO: guardar_anteriores no está definida — la reversión quedaría sin a qué volver. No se despliega."
+  latir error "auto-deploy roto: guardar_anteriores no definida"
+  exit 1
+}
 guardar_anteriores
 cd "$REPO_DIR" || exit 1
 for s in $SERVICIOS; do
@@ -210,26 +245,6 @@ for i in $(seq 1 24); do
   [ -n "$vivo_ahora" ] && break
   sleep 5
 done
-
-# ── ⛔ CADA SERVICIO VUELVE A **SU** IMAGEN ANTERIOR, NO A LA DEL API ────────────────────────
-# La primera versión re-etiquetaba `$img:$ANTERIOR` para los dos, y `$ANTERIOR` es el commit que
-# servía **el API**. Medido el 2026-09-24: `trade-prod-worker:a2052fa1` NO EXISTÍA (el worker no
-# se reconstruye en cada despliegue; el suyo era `022a2604`, de 18 h antes), así que el
-# `docker image inspect` fallaba, el `&&` saltaba el re-etiquetado en silencio, y
-# `trade-prod-worker:latest` **se quedaba apuntando al build NUEVO que acababa de fallar**. O sea
-# que la reversión devolvía el API a lo bueno y **dejaba el worker en lo roto** — quedó en bucle
-# de reinicio, y el log decía `revertido.` igual.
-#
-# Ahora se guarda el ID de imagen de cada servicio ANTES de construir, que es la única forma de
-# saber a qué volver: la etiqueta de commit puede no existir para ese servicio, pero el ID que
-# estaba corriendo siempre existe.
-guardar_anteriores() {
-  for s in $SERVICIOS; do
-    case "$s" in api) img=trade-prod-api; c=prod-api ;; worker) img=trade-prod-worker; c=prod-worker ;; *) continue ;; esac
-    _id=$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null)
-    [ -n "$_id" ] && eval "PREV_$s=\$_id"
-  done
-}
 
 revertir() {
   di "REVIRTIENDO"

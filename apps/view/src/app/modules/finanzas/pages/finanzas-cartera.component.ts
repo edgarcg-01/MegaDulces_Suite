@@ -13,7 +13,7 @@ import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -57,6 +57,9 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
       <app-cartera-segments />
 
       <div class="ct-filters">
+        <!-- [CXC.25] A quién le cobrás. Va PRIMERO porque es el filtro que más cambia lo que ves:
+             46% del saldo son ocho cuentas entre plazas propias, no clientes. -->
+        <p-select [options]="cuentaOpts()" [(ngModel)]="cuenta" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Tipo de cuenta" styleClass="ct-sel" ariaLabel="Tipo de cuenta" />
         <p-select [options]="sucursalOpts()" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
         <p-select [options]="grupoOpts()" [(ngModel)]="grupo" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Grupo" [showClear]="true" styleClass="ct-sel" ariaLabel="Grupo" />
         <p-select [options]="zonaOpts()" [(ngModel)]="zona" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Zona" [showClear]="true" styleClass="ct-sel" ariaLabel="Zona" />
@@ -94,6 +97,25 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
 
       @if (data(); as d) {
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de cartera" />
+
+        <!-- [CXC.25] El total, REPARTIDO por a quién le cobrás. No es una decoración: sin esta
+             tira, «$57.78M de cartera» se lee como $57.78M de clientes, y 46% son plazas
+             propias. Las tres barras suman el KPI de arriba, exacto. -->
+        @if (kpiPorTipo(d).length > 1) {
+          <section class="ct-tipos" aria-label="Cartera por tipo de cuenta">
+            @for (t of kpiPorTipo(d); track t.key) {
+              <button type="button" class="ct-tipo" [class.on]="cuenta === t.key"
+                      [attr.aria-pressed]="cuenta === t.key"
+                      [title]="'Filtrar por ' + t.label + ' (' + t.clientes + ' cuentas)'"
+                      (click)="filtrarTipo(t.key)">
+                <span class="ct-tipo-h">{{ t.label }} <span class="muted">{{ t.pct }}%</span></span>
+                <span class="ct-tipo-n">{{ money(t.saldo) }}</span>
+                <span class="ct-tipo-sub muted">{{ t.clientes }} cuentas · {{ money(t.vencido) }} vencido</span>
+                <span class="ct-tipo-bar"><span [class]="'ct-tipo-fill ct-tipo-' + t.key" [style.width.%]="t.pct"></span></span>
+              </button>
+            }
+          </section>
+        }
 
         @if (showResumen() && resumen(); as rs) {
           <section class="card-premium card-flat ct-resumen">
@@ -214,6 +236,8 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
             <thead>
               <tr>
                 <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
+                <!-- La columna existe sólo cuando hay más de un tipo a la vista: filtrada a
+                     «Cliente» repetiría la misma palabra 1,186 veces. -->
                 <th class="ta-r">Paga a</th>
                 <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th><span class="sr-only">Acciones</span></th>
               </tr>
@@ -221,7 +245,13 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
             <tbody>
               @for (c of d.clientes; track c.sucursal + c.cliente_code) {
                 <tr (click)="openDetalle(c)" class="ct-row" [class.ct-row-venc]="c.vencido > 0">
-                  <td><b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span></td>
+                  <td>
+                    <b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span>
+                    @if (!cuenta && c.cuenta_kind !== 'cliente_final') {
+                      <span class="ct-kind" [class]="'ct-kind-' + c.cuenta_kind"
+                            [title]="kindTitle(c)">{{ kindLabel(c.cuenta_kind) }}</span>
+                    }
+                  </td>
                   <td>{{ c.sucursal }}</td>
                   <td>{{ c.zona || '—' }}</td>
                   <td [title]="c.vendedor || ''">{{ c.vendedor_nombre || c.vendedor || '—' }}</td>
@@ -474,6 +504,26 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
       color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
       border: 1px solid color-mix(in srgb, var(--warn-fg) 24%, transparent);
       border-radius: var(--r-md, 8px); padding: .5rem .75rem; margin: 0 0 1rem; }
+    /* [CXC.25] El total repartido. Botones y no tarjetas: cada uno filtra. */
+    .ct-tipos { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .6rem; margin: 0 0 1rem; }
+    .ct-tipo { display: flex; flex-direction: column; gap: .15rem; text-align: left; cursor: pointer;
+      background: var(--surface-1, #fff); border: 1px solid var(--border, #e5e2dc);
+      border-radius: var(--r-md, 8px); padding: .6rem .75rem; font: inherit; color: inherit; }
+    .ct-tipo:hover { border-color: var(--action, #c2410c); }
+    .ct-tipo.on { border-color: var(--action, #c2410c); box-shadow: inset 0 0 0 1px var(--action, #c2410c); }
+    .ct-tipo-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; }
+    .ct-tipo-n { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .ct-tipo-sub { font-size: .7rem; }
+    .ct-tipo-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-2, #f0efec); margin-top: .35rem; overflow: hidden; }
+    .ct-tipo-fill { display: block; height: 100%; }
+    .ct-tipo-cliente_final { background: #6b8f71; }
+    .ct-tipo-interno { background: #7c6f9f; }
+    .ct-tipo-ruta { background: #c9a227; }
+    /* La etiqueta en la fila: sólo aparece cuando NO es un cliente, que es la excepción. */
+    .ct-kind { display: inline-block; margin-left: .4rem; font-size: .65rem; padding: .05rem .35rem;
+      border-radius: var(--r-pill, 999px); border: 1px solid currentColor; cursor: help; white-space: nowrap; }
+    .ct-kind-interno { color: #7c6f9f; }
+    .ct-kind-ruta { color: #9a7b10; }
     .ct-error { color: var(--danger, #b42318); display: flex; gap: .5rem; align-items: center; padding: .75rem 0; }
     .ct-card-title { display: flex; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .6rem; }
     .ct-aging { padding: 1rem; margin-bottom: 1rem; }
@@ -637,6 +687,16 @@ export class FinanzasCarteraComponent implements OnInit {
   grupo: string | null = null;
   zona: string | null = null;
   vendedor: string | null = null;
+  /**
+   * ⭐ `[CXC.25]` Arranca en **«Todas»**, igual que la sucursal — y por el mismo motivo.
+   *
+   * La tentación era abrir filtrado en «Cliente», porque de los $57,780,190.86 que la pantalla
+   * publica **$26,583,657.82 (46.0%) son ocho cuentas entre plazas propias** (`30-73 TLMKT
+   * Morelia Abastos`, `10-00 P.V. Padre Hidalgo Piso`…) que nadie va a cobrar por teléfono.
+   * Pero eso sería repetir el bug que `[CXC.20.3]` acaba de arreglar: **abrir escondiendo
+   * dinero**. La pantalla muestra el total completo y lo REPARTE a la vista; filtrar es un clic.
+   */
+  cuenta: string | null = null;
   search = '';
   incluirSaldados = false;
   sort: 'saldo' | 'vencido' = 'saldo';
@@ -653,6 +713,10 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly zonaOpts = computed(() => (this.filtros()?.zonas || []).map((z) => ({ label: z, value: z })));
   readonly vendedorOpts = computed(() =>
     (this.filtros()?.vendedores || []).map((v) => ({ label: v.label, value: v.code })));
+  readonly cuentaOpts = computed(() => [
+    { label: 'Todas las cuentas', value: null as string | null },
+    ...(this.filtros()?.cuentas || []).map((k) => ({ label: k.label, value: k.code as string | null })),
+  ]);
   /** El resumen gerencial YA viene en la respuesta de la tabla: es el mismo cálculo. */
   readonly resumen = computed<CarteraResumen | null>(() => this.data()?.resumen ?? null);
   readonly showResumen = signal(false);
@@ -685,6 +749,7 @@ export class FinanzasCarteraComponent implements OnInit {
       grupo: this.grupo || undefined,
       zona: this.zona || undefined,
       vendedor: this.vendedor || undefined,
+      cuenta: this.cuenta || undefined,
       search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
       sort: this.sort,
@@ -830,6 +895,43 @@ export class FinanzasCarteraComponent implements OnInit {
       segs.push({ key: 'sin_documento', label: 'Sin documento', val: k.sin_documento.monto });
     }
     return segs;
+  }
+
+  /**
+   * `[CXC.25]` El total repartido por tipo de cuenta. Sólo se pintan los tipos que existen en lo
+   * que estás viendo — y `@if (length > 1)` en el template evita la tira de una sola barra al
+   * 100%, que no informa nada.
+   */
+  kpiPorTipo(d: CarteraResp) {
+    const t = d.kpi.por_tipo;
+    const total = d.kpi.total_saldo || 1;
+    return (['cliente_final', 'interno', 'ruta'] as CuentaKind[])
+      .map((key) => ({
+        key,
+        label: this.kindLabel(key),
+        saldo: t[key].saldo, vencido: t[key].vencido, clientes: t[key].clientes,
+        pct: Math.round((t[key].saldo / total) * 1000) / 10,
+      }))
+      .filter((x) => x.clientes > 0);
+  }
+
+  kindLabel(k: CuentaKind): string {
+    return ({ cliente_final: 'Cliente', interno: 'Cuenta interna', ruta: 'Ruta' } as Record<CuentaKind, string>)[k] || k;
+  }
+
+  /**
+   * Qué señal decidió el tipo. Va en el tooltip porque un veredicto sin su fuente es una
+   * afirmación sin respaldo (ADR-059) — y acá el respaldo cambia: `interno` lo dice el código
+   * de la cuenta, y hay 3 rutas que sólo el NOMBRE de Kepler delató.
+   */
+  kindTitle(c: CarteraCliente): string {
+    const por = ({ codigo: 'por el código de la cuenta', nombre: 'por el nombre en Kepler', ninguno: 'por descarte (ninguna señal lo afirmó)' } as Record<string, string>)[c.cuenta_kind_source] || c.cuenta_kind_source;
+    return `${this.kindLabel(c.cuenta_kind)} — ${por}. No es un cliente al que se le cobre por teléfono.`;
+  }
+
+  filtrarTipo(k: CuentaKind) {
+    this.cuenta = this.cuenta === k ? null : k;
+    this.load();
   }
 
   /** Qué eslabón de la ingesta está viejo, por nombre: «hay rezago» no es accionable. */

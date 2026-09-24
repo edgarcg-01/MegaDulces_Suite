@@ -10,17 +10,7 @@
 
 ## [Unreleased]
 
-### Changed — la sección de gastos se parte en dos (`[GX.17]`, 2026-09-24)
-- `/finanzas/gastos` es ahora **sólo capturar** (folio de Kepler + forma de pago + foto) y
-  **no exige permiso**: entra cualquiera con sesión. Abrir la ruta no abre el dato — el
-  backend sigue acotando por áreas y sin ellas hace falta el folio exacto.
-- `/finanzas/aprobacion-gastos` es nueva: lo pendiente **agrupado por fecha y por
-  departamento**, gateado con `FINANCE_EXPENSES_COMPROBAR`. Aprobar es de a uno, a propósito.
-- `/finanzas/gastos-tablero` conserva el tablero de GX.10 con su `_VER` de siempre.
-- ⚠️ El permiso para Jesús va **por persona**, no por rol: `finanzas_operativo` lo comparten
-  6 y sólo él fue nombrado. Los otros 3 de la lista ya podían (2 por god-mode, 1 por rol).
-- ⚠️ El «departamento» de un expediente a veces es una plaza (`Sucursal NN`); cada grupo
-  declara de dónde salió su etiqueta en vez de mezclarlas en silencio.
+
 
 ### Fixed — Crédito de clientes mostraba el 11% de la cartera y dos saldos distintos (CXC.20, 2026-09-24)
 - ⛔ **La pantalla publicaba DOS saldos del mismo universo, a la vez y con los mismos filtros**: el
