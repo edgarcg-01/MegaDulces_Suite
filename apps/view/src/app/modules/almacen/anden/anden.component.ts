@@ -5,7 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { firstValueFrom } from 'rxjs';
-import { ErpOrderMatch, ReceivingSessionService } from '../receiving-session.service';
+import { ErpOrderMatch, ErpPendingBranch, ReceivingSessionService } from '../receiving-session.service';
 import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
 import { RouterLink } from '@angular/router';
 import { BinLocationService, WarehouseBin, WarehouseFreeze } from '../bin-location.service';
@@ -13,6 +13,8 @@ import { siguientePaso, avance, motivoNoCerrable, FlujoEstado, FlujoAvance } fro
 import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.state';
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
+import { AndenSucursalesComponent } from './components/anden-sucursales.component';
+import { AndenValesComponent } from './components/anden-vales.component';
 import { AndenSegmentedComponent, SegItem } from './components/anden-segmented.component';
 import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './components/anden-caducidad.component';
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
@@ -54,7 +56,8 @@ import { Buscable, coincide, normalizar } from './filtro.util';
   imports: [
     DecimalPipe, ButtonModule, ToastModule,
     RouterLink,
-    AndenFolioComponent, AndenSegmentedComponent, AndenCaducidadComponent,
+    AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent,
+    AndenSegmentedComponent, AndenCaducidadComponent,
     AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
   ],
   providers: [MessageService],
@@ -163,7 +166,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
                     </span>
                   </a>
 
-                  <button type="button" class="an-card an-card--go" (click)="modo.set('alta')">
+                  <button type="button" class="an-card an-card--go" (click)="irAAlta()">
                     <span class="an-card-ic" aria-hidden="true">
                       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -178,8 +181,23 @@ import { Buscable, coincide, normalizar } from './filtro.util';
                     </span>
                   </button>
                 </div>
-              } @else if (!s.abierto()) {
+              } @else if (!s.abierto() && modo() === 'alta') {
+                <!-- Paso 0: a qué sucursal entra la mercancía. Antes acá se
+                     tecleaba el folio del papel; ahora el folio es el respaldo. -->
                 <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
+                <app-anden-sucursales
+                  [sucursales]="sucursales()" [cargando]="cargandoMenu()" [error]="errorMenu()"
+                  [alcanceAbierto]="alcanceAbierto()"
+                  (elegir)="elegirSucursal($event)" (verFolio)="modo.set('folio')"
+                  (reintentar)="cargarSucursales()" />
+              } @else if (!s.abierto() && modo() === 'vales') {
+                <app-anden-vales
+                  [sucursal]="sucursalElegida()!" [vales]="valesDelDia()"
+                  [cargando]="cargandoVales()" [abriendo]="s.cargando()" [error]="errorVales()"
+                  (abrir)="abrirVale($event)" (volver)="volverASucursales()"
+                  (reintentar)="elegirSucursal(sucursalElegida()!)" />
+              } @else if (!s.abierto()) {
+                <button type="button" class="an-volver" (click)="volverASucursales()">← Sucursales</button>
                 <app-anden-folio
                   [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
                   (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
@@ -493,7 +511,27 @@ export class AndenComponent implements OnInit {
    * Portada o alta. Vive en la pantalla y no en la ruta, igual que la sección:
    * el back del navegador a media captura rompe el flujo.
    */
-  readonly modo = signal<'inicio' | 'alta'>('inicio');
+  /**
+   * Dónde está parado el operario antes de tener un vale abierto.
+   *
+   * `alta` ya no es el campo de folio: es el MENÚ de sucursales. El folio pasó a
+   * ser `folio`, un respaldo al que se llega a propósito — sigue existiendo
+   * porque el papel puede llegar antes que Kepler, y porque con la regla de
+   * sólo-hoy hay días en que el menú sale vacío.
+   */
+  readonly modo = signal<'inicio' | 'alta' | 'vales' | 'folio'>('inicio');
+
+  // ── El menú de sucursales (paso 0) ───────────────────────────────────────
+  readonly sucursales = signal<ErpPendingBranch[]>([]);
+  readonly cargandoMenu = signal(false);
+  readonly errorMenu = signal<string | null>(null);
+  /** El alcance del usuario no acota nada: la pantalla lo dice en vez de fingirlo. */
+  readonly alcanceAbierto = signal(false);
+
+  readonly sucursalElegida = signal<ErpPendingBranch | null>(null);
+  readonly valesDelDia = signal<ErpOrderMatch[]>([]);
+  readonly cargandoVales = signal(false);
+  readonly errorVales = signal<string | null>(null);
 
   /**
    * Si el almacén del vale está congelado por un inventario físico.
@@ -1295,6 +1333,65 @@ export class AndenComponent implements OnInit {
     });
   }
 
+  /** Entra al alta: el menú de sucursales, ya cargado. */
+  irAAlta(): void {
+    this.modo.set('alta');
+    this.cargarSucursales();
+  }
+
+  /**
+   * El menú: a qué sucursal entra la mercancía, con los vales de HOY sin abrir.
+   *
+   * Se pide cada vez que se entra, y no se cachea: entre un camión y el
+   * siguiente pasan minutos y otra persona pudo abrir vales desde otro equipo.
+   */
+  cargarSucursales(): void {
+    this.cargandoMenu.set(true);
+    this.errorMenu.set(null);
+    this.sessions.pendingErpBranches().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.cargandoMenu.set(false);
+        this.sucursales.set(r?.sucursales ?? []);
+        this.alcanceAbierto.set(r?.alcance === 'all');
+      },
+      error: (e) => {
+        this.cargandoMenu.set(false);
+        // Un error NO se muestra como "hoy no hay vales": son cosas distintas y
+        // confundirlas manda al bodeguero a buscar un camión que sí llegó.
+        this.errorMenu.set(
+          e?.status === 403
+            ? 'Tu rol no tiene permiso para ver los vales de entrada.'
+            : e?.error?.message || 'No se pudo leer el tablero de hoy.',
+        );
+      },
+    });
+  }
+
+  elegirSucursal(b: ErpPendingBranch): void {
+    if (!b || b.sin_almacen) return;
+    this.sucursalElegida.set(b);
+    this.valesDelDia.set([]);
+    this.errorVales.set(null);
+    this.cargandoVales.set(true);
+    this.modo.set('vales');
+    this.sessions.pendingErpOrders(b.sucursal).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.cargandoVales.set(false); this.valesDelDia.set(r || []); },
+      error: (e) => {
+        this.cargandoVales.set(false);
+        this.errorVales.set(e?.error?.message || 'No se pudieron leer los vales de esa sucursal.');
+      },
+    });
+  }
+
+  /** Vuelve al menú y lo recarga: lo que se abrió ya no debe seguir contado. */
+  volverASucursales(): void {
+    this.sucursalElegida.set(null);
+    this.valesDelDia.set([]);
+    this.errorVales.set(null);
+    this.modo.set('alta');
+    this.cargarSucursales();
+  }
+
   otroCamion(): void {
     const v = this.s.vale();
     if (v) this.drafts.borrar(v.id);
@@ -1305,5 +1402,6 @@ export class AndenComponent implements OnInit {
     this.masiva.set(false);
     this.avance.set(null);
     this.s.reset();
+    this.volverASucursales();
   }
 }

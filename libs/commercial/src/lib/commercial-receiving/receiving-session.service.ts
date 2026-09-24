@@ -4,8 +4,9 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
@@ -53,6 +54,27 @@ export interface ScanDto {
   qty?: number; // default 1
 }
 
+/**
+ * **El dia de hoy, en hora de MEXICO.**
+ *
+ * `CURRENT_DATE` pelado NO sirve: la sesion de la base corre en `Etc/UTC`
+ * (medido en prod), asi que a las 7 de la noche de Mexico ya devuelve el dia
+ * siguiente. Con la regla "solo los vales de hoy", eso le cambiaria el dia al
+ * bodeguero a media tarde: le esconderia los vales del turno y le mostraria los
+ * de manana. Es el mismo `AT TIME ZONE` que ya usa `commercial-analytics`.
+ *
+ * ⚠️ **Regla de negocio, decidida por Edgar el 2026-09-24: SOLO el dia de hoy,
+ * los pasados no.** Se aplica literal y NO se amplia sola cuando el resultado es
+ * cero — ampliar en silencio seria decidir por el, y el dato dice que el cero va
+ * a pasar seguido. Medido ese dia: hoy 0 vales, ayer 1, mientras un dia habil
+ * normal trae entre 22 y 55. `receipt_date` es la fecha del DOCUMENTO de Kepler,
+ * no la del camion: se adelanta (4 vales de THE KLASS por $333,434 fechados al
+ * dia siguiente), se atrasa y a veces trae un dedazo (uno al 29/12). Cuando el
+ * dia sale vacio, la pantalla lo dice y ofrece el folio a mano, que es la salida
+ * que quedo a proposito.
+ */
+const HOY_MX = "r.receipt_date = (now() AT TIME ZONE 'America/Mexico_City')::date";
+
 @Injectable()
 export class ReceivingSessionService {
   private readonly logger = new Logger(ReceivingSessionService.name);
@@ -62,6 +84,7 @@ export class ReceivingSessionService {
     private readonly tenantCtx: TenantContextService,
     private readonly inventory: CommercialInventoryService,
     private readonly claims: ReceivingClaimsService,
+    private readonly scope: ScopeService,
   ) {}
 
   /**
@@ -296,6 +319,145 @@ export class ReceivingSessionService {
    * Todo lo que necesita el vale sale de acá: no hace falta preguntar sucursal ni
    * almacén — se derivan de la orden elegida.
    */
+  /**
+   * **El menu del Anden: a que sucursal entra la mercancia.**
+   *
+   * Reemplaza al "tecleá el folio" como primer paso. El bodeguero ya no tiene que
+   * leer el papel para empezar: ve las plazas que le tocan y cuanto falta por
+   * recibir en cada una.
+   *
+   * **Pendiente = el vale existe en el espejo de Kepler y NADIE lo abrio todavia**
+   * (no hay `receiving_sessions.source_ref = sucursal/folio`). Se deriva, no se
+   * guarda: una bandera "ya recibido" se desincroniza en cuanto alguien cancela
+   * una sesion.
+   *
+   * **El alcance se filtra por el ALMACEN, no por la sucursal**, y la diferencia
+   * es real: la sucursal `30` entra al almacen `08`, la `50` al `06` y la `32` a
+   * `MD-32`. Filtrar por el codigo de sucursal le escondería al bodeguero de
+   * Morelia justo los vales que le llegan por la sucursal 30.
+   *
+   * **El almacen se resuelve igual que en `open()`**: crosswalk y, si no hay
+   * fila, el `warehouse_id` que el propio espejo trae. Tiene que ser la MISMA
+   * cascada o el menu ofreceria vales que despues rebotan con 400. Medido en
+   * prod: `erp_sucursal_warehouse` no tiene fila para las sucursales `06` ni
+   * `07`, y aun asi las dos resuelven almacen por el respaldo — por eso se
+   * copia la cascada entera y no solo el crosswalk.
+   *
+   * Si alguna vez NO resuelve, la fila sale marcada (`sin_almacen`) en vez de
+   * esconderse: `open()` la rechazaria con un 400, y es mejor decirlo antes del
+   * toque que dejar al operario sin entender por que su vale no aparece.
+   */
+  async pendingErpBranches() {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const alcance = await this.scope.current();
+    const dim = alcance.dims.warehouse;
+    // El MODO viaja con la respuesta: la pantalla avisa "estas viendo todas
+    // porque tu usuario no tiene una asignada" y eso tiene que ser un hecho
+    // leido del alcance, no una suposicion por la cantidad de filas (un usuario
+    // legitimamente asignado a tres plazas veria el mismo aviso, y seria falso).
+    if (dim.mode === 'none') return { alcance: dim.mode, sucursales: [] };
+
+    return this.tk.run(async (trx) => {
+      const q = trx('analytics.erp_goods_receipts as r')
+        .where({ 'r.tenant_id': tenantId })
+        .whereNull('r.dup_of_folio')
+        .whereRaw(HOY_MX)
+        .whereNotExists(function (this: any) {
+          this.select(trx.raw('1'))
+            .from('commercial.receiving_sessions as s')
+            .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
+            .andWhere('s.tenant_id', tenantId);
+        })
+        .leftJoin('commercial.erp_sucursal_warehouse as m', function () {
+          this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'r.tenant_id').andOn('w.id', '=', trx.raw('COALESCE(m.warehouse_id, r.warehouse_id)'));
+        })
+        .groupBy('r.sucursal', 'w.id', 'w.code', 'w.name')
+        .orderBy('w.code')
+        .select(
+          'r.sucursal',
+          'w.id as warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          trx.raw('COUNT(*)::int as pendientes'),
+          trx.raw('MAX(r.receipt_date)::date as ultimo'),
+        );
+
+      // `all` no enumera; `listed`/`own` traen CODIGOS de almacen.
+      if (dim.mode !== 'all' && dim.values.length) q.whereIn('w.code', dim.values);
+      if (dim.mode !== 'all' && !dim.values.length) return { alcance: dim.mode, sucursales: [] };
+      const filas = await q;
+      return {
+        alcance: dim.mode,
+        sucursales: filas.map((f: any) => ({
+          ...f,
+          pendientes: Number(f.pendientes) || 0,
+          // Sin mapa no se puede abrir el vale: la pantalla lo dice antes del toque.
+          sin_almacen: !f.warehouse_id,
+        })),
+      };
+    });
+  }
+
+  /**
+   * Los vales pendientes de UNA sucursal, en la misma forma que devuelve la
+   * busqueda por folio — asi la pantalla reusa el mismo tipo y el mismo camino
+   * de apertura.
+   */
+  async pendingErpOrders(sucursal: string, limit = 100) {
+    const suc = String(sucursal || '').trim();
+    if (!suc) throw new BadRequestException('sucursal requerida');
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+
+    return this.tk.run(async (trx) => {
+      // El alcance se valida contra el ALMACEN al que entra esa sucursal, no
+      // contra el codigo de sucursal (30 -> 08, 50 -> 06, 32 -> MD-32).
+      const destino = await trx('commercial.erp_sucursal_warehouse as m')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
+        })
+        .where({ 'm.tenant_id': tenantId, 'm.sucursal': suc })
+        .first('w.code as code');
+      const alcance = await this.scope.current();
+      if (destino?.code && !this.scope.canRead(alcance, 'warehouse', destino.code))
+        throw new ForbiddenException('Esa sucursal no está en tu alcance');
+
+      return trx('analytics.erp_goods_receipts as r')
+        .where({ 'r.tenant_id': tenantId, 'r.sucursal': suc })
+        .whereNull('r.dup_of_folio')
+        .whereRaw(HOY_MX)
+        .whereNotExists(function (this: any) {
+          this.select(trx.raw('1'))
+            .from('commercial.receiving_sessions as s')
+            .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
+            .andWhere('s.tenant_id', tenantId);
+        })
+        .leftJoin('commercial.erp_sucursal_warehouse as m', function () {
+          this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'r.tenant_id').andOn('w.id', '=', trx.raw('COALESCE(m.warehouse_id, r.warehouse_id)'));
+        })
+        .orderBy('r.receipt_date', 'desc')
+        .orderBy('r.folio', 'desc')
+        .limit(Math.min(200, Math.max(1, Number(limit) || 100)))
+        .select(
+          'r.sucursal', 'r.folio', 'r.receipt_date',
+          'r.proveedor_code', 'r.proveedor_nombre', 'r.proveedor_rfc',
+          'r.oc_folio', 'r.vale_folio', 'r.concepto', 'r.monto',
+          'w.id as warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
+          trx.raw(`(SELECT COUNT(*) FROM analytics.erp_goods_receipt_lines l
+                     WHERE l.tenant_id = r.tenant_id AND l.sucursal = r.sucursal
+                       AND l.folio = r.folio AND COALESCE(TRIM(l.unidad),'') <> 'SER')::int AS line_count`),
+          trx.raw(`(SELECT COUNT(*) FROM analytics.erp_goods_receipt_lines l
+                     WHERE l.tenant_id = r.tenant_id AND l.sucursal = r.sucursal
+                       AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
+        );
+    });
+  }
+
   async searchErpOrders(folio: string, limit = 20) {
     const f = String(folio || '').trim();
     if (!/^\d{1,}$/.test(f)) throw new BadRequestException('Escribí el folio (solo dígitos)');
