@@ -1056,6 +1056,24 @@ const CRON_JOBS: CronCfg[] = [
   // y en silencio. Su `note` declara ademas si tiene canal externo, que hoy NO tiene.
   { key: 'health_watchdog',     label: 'Watchdog Salud BD (on-prem)', cadence: 'cada 5 min',     warnH: 0.5, critH: 2 },
 
+  // ── [SEG.3] EL TÚNEL, QUE ERA LA ÚNICA PIEZA SIN VIGILANCIA ───────────────────────────────
+  // Por `prod-cloudflared` entra TODO el tráfico de usuarios, y el 2026-09-24 estuvo **33 min
+  // muerto** con el contenedor en `Up`: última línea 14:32:44, siguiente `Starting tunnel` tras
+  // el reinicio manual. En esa misma ventana `ods-live-hot` escribió 441 líneas y `prod-api` 15
+  // — el host estaba sano, sólo el túnel no. Por dentro todo respondía y por fuera daba 1033.
+  //
+  // No lo vio nadie porque no había con qué: la imagen es *distroless* (sin `sh`, sin `curl`),
+  // así que no admite `HEALTHCHECK` de Docker, y por eso tampoco lo cubría `ods-autoheal`, que
+  // se guía por el estado de salud. El único detector fue una persona.
+  //
+  // Lo que late acá NO es "el contenedor corre" — es `readyConnections` de su `/ready`: las
+  // conexiones REGISTRADAS contra el borde de Cloudflare. Cero conexiones con el contenedor
+  // arriba es exactamente el estado del incidente, y es el que `Up` no distingue (ADR-053).
+  //
+  // Umbrales de carril de 1 min. `critH: 1` porque acá "viejo" significa que el sitio lleva una
+  // hora sin entrar — no hay degradación elegante: o hay túnel o no hay sitio.
+  { key: 'tunel_cloudflared',   label: 'Túnel Cloudflare (entrada de usuarios)', cadence: 'cada 1 min (md)', warnH: 0.25, critH: 1 },
+
   // ── [VL.17] EL DESPLIEGUE AUTOMÁTICO, QUE ES UN CARRIL COMO CUALQUIER OTRO ─────────────────
   // Late en CADA pasada, no sólo cuando despliega: `ok` con "al día en <commit>" si no hay nada
   // que hacer, y `error` con el motivo cuando la compuerta de migraciones frena. Esa distinción
