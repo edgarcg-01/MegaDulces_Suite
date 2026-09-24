@@ -46,16 +46,43 @@ function sinCargar(rs: Routes): Routes {
   });
 }
 
-/** Un router con el espejo real montado en el outlet `panel`. */
+/**
+ * Un router con el espejo montado **COMO EN PRODUCCION**, y eso es el punto.
+ *
+ * ⛔ La primera version de este helper colgaba el espejo de la RAIZ. Pasaba en
+ * verde y el codigo estaba roto: en produccion el espejo cuelga de un aux route
+ * (`{ path: '', outlet: 'panel', loadChildren }`) dentro del area, y en esa
+ * posicion las rutas NO deben llevar outlet propio. El 2026-09-24 la pantalla
+ * salio vacia en produccion con este test verde.
+ *
+ * Misma leccion que `[VL.4]`: la prueba tiene que reproducir el ENTORNO, no
+ * solo la logica. Un cableado distinto es otro entorno.
+ */
 function routerConElEspejo(): Router {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
-    providers: [provideRouter([{ path: '', component: Vacio }, ...sinCargar(espejarParaPanel(routes, esLayout))])],
+    providers: [provideRouter([
+      {
+        path: 'area',
+        component: Anfitrion,
+        children: [
+          { path: 'algo', component: Vacio },
+          { path: '', outlet: 'panel', loadChildren: async () => sinCargar(espejarParaPanel(routes, esLayout)) },
+        ],
+      },
+    ])],
   });
-  const fix = TestBed.createComponent(Anfitrion);
+  const fix = TestBed.createComponent(Vacio);
   fix.detectChanges();
   return TestBed.inject(Router);
 }
+
+/**
+ * ⚠️ La sintaxis del outlet auxiliar es `padre/(primario//aux:segmentos)`.
+ * Escribirla como `padre/hijo(aux:...)` la cuelga del HIJO y no matchea —
+ * costo: un diagnostico entero persiguiendo un defecto que no estaba ahi.
+ */
+const conPanel = (destino: string) => `/area/(algo//panel:${destino})`;
 
 describe('[MT.5] el espejo de rutas del panel', () => {
   afterEach(() => olvidarEspejo());
@@ -94,8 +121,33 @@ describe('[MT.5] el espejo de rutas del panel', () => {
       expect(espejo().some((r) => r.path === 'compras')).toBe(true);
     });
 
-    it('todas salen al outlet del panel', () => {
-      expect(espejo().every((r) => r.outlet === 'panel')).toBe(true);
+    /**
+     * ⛔ Al reves de lo que este test decia antes.
+     *
+     * La version original afirmaba `every(r => r.outlet === 'panel')` y eso
+     * CONSAGRO el defecto que tumbo la pantalla el 2026-09-24. El outlet lo
+     * declara el aux route PADRE; estas son sus hijas y viajan por dentro de el.
+     * Con outlet propio, Angular busca un `<router-outlet name="panel">` dentro
+     * del componente del padre —que es componentless— y no matchea NADA.
+     */
+    it('NINGUNA lleva outlet propio: lo declara el aux route padre', () => {
+      expect(espejo().filter((r) => r.outlet).map((r) => r.path)).toEqual([]);
+    });
+
+    /**
+     * El aux route del panel que `app.routes` empuja a cada area es, el mismo,
+     * un hijo del area — y sin este freno el espejo se incluye a si mismo
+     * (medido: 14 de 200 entradas) y queda recursivo.
+     */
+    it('no se espeja a si mismo (lo que ya vive en un outlet queda fuera)', () => {
+      const conAux: Routes = [
+        { path: 'compras', component: { name: 'LayoutComponent' } as never, children: [
+          { path: 'ordenes', loadComponent: cargar },
+          { path: '', outlet: 'panel', loadChildren: () => Promise.resolve([]) },
+        ] },
+      ];
+      const r = espejarParaPanel(conAux, (x) => /LayoutComponent/.test(String((x.component as never as { name: string })?.name)));
+      expect(r.map((x) => x.path)).toEqual(['compras/ordenes']);
     });
 
     /** El que importa: si esto se rompe, el panel es una puerta trasera. */
@@ -150,7 +202,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
         'dashboard/routes',
         'almacen/inventory/sessions/abc-123',
       ]) {
-        const llego = await router.navigateByUrl(`/(panel:${destino})`);
+        const llego = await router.navigateByUrl(conPanel(destino));
         expect([destino, llego]).toEqual([destino, true]);
       }
     });
@@ -190,6 +242,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
         if (!esLayout(area) || !area.path) continue;
         for (const h of area.children!) {
           if (h.redirectTo !== undefined || h.path === '**') continue;
+          if (h.outlet) continue; // el propio aux route del panel no se espeja
           if (!(h.loadComponent || h.component || h.loadChildren || h.children)) continue;
           originales.push(h.canActivate);
         }
@@ -198,6 +251,60 @@ describe('[MT.5] el espejo de rutas del panel', () => {
       expect(copiadas.length).toBe(originales.length);
       const distintas = copiadas.filter((g, i) => g !== originales[i]).length;
       expect(distintas).toBe(0);
+    });
+  });
+
+  /**
+   * ⭐ EL TEST DEL INCIDENTE (2026-09-24, "la pagina sale vacia y no se puede
+   * cerrar"). Los otros bloques usan un arbol sintetico; este usa el `routes`
+   * REAL **con los aux routes que `app.routes` ya le empujo**, que es la unica
+   * forma en que el defecto aparecia: el espejo cuelga del aux route, sus hijos
+   * llevaban `outlet` propio, ningun hijo matcheaba y fallaba LA NAVEGACION
+   * ENTERA (`NG04002 ... URL Segment: 'compras'`) -- no solo el panel. De ahi la
+   * pantalla vacia; y con la navegacion abortada, cerrar tampoco resolvia.
+   */
+  describe('el arbol REAL cableado como en produccion', () => {
+    /** Calca el cableado de `app.routes`, con los cargadores doblados. */
+    function comoEnProduccion(rs: Routes): Routes {
+      return rs.map((r) => {
+        const hijos = r.children ? comoEnProduccion(r.children) : undefined;
+        return {
+          path: r.path,
+          pathMatch: r.pathMatch,
+          outlet: r.outlet,
+          loadChildren: r.loadChildren
+            ? async () => comoEnProduccion(await (r.loadChildren as () => Promise<Routes>)())
+            : undefined,
+          component: r.loadChildren ? undefined : hijos ? (r.component ? Anfitrion : undefined) : Vacio,
+          children: hijos,
+        } as Route;
+      });
+    }
+
+    function routerReal(): Router {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ providers: [provideRouter(comoEnProduccion(routes))] });
+      const fix = TestBed.createComponent(Vacio);
+      fix.detectChanges();
+      return TestBed.inject(Router);
+    }
+
+    it('la navegacion NORMAL no se toca (el aux route no estorba al primario)', async () => {
+      const r = routerReal();
+      expect(await r.navigateByUrl('/compras/requisiciones')).toBe(true);
+    });
+
+    it('abrir algo AL LADO navega de verdad, y deja el primario intacto', async () => {
+      const r = routerReal();
+      const llego = await r.navigateByUrl('/compras/(requisiciones//panel:finanzas/bancos)');
+      expect([llego, r.url]).toEqual([true, '/compras/(requisiciones//panel:finanzas/bancos)']);
+    });
+
+    it('CERRAR el panel vuelve al primario, sin tirar la pantalla', async () => {
+      const r = routerReal();
+      await r.navigateByUrl('/compras/(requisiciones//panel:finanzas/bancos)');
+      const cerro = await r.navigateByUrl('/compras/requisiciones');
+      expect([cerro, r.url]).toEqual([true, '/compras/requisiciones']);
     });
   });
 
