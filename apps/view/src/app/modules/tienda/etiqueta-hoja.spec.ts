@@ -435,8 +435,9 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     const min = Number(/const MAYOREO_MIN_DESC = ([\d.]+)/.exec(LABEL)![1]);
     expect(min).toBeGreaterThan(0);
     expect(min).toBeLessThanOrEqual(0.05);
-    // ⭐ Una sola aparición: eran dos getters y cada uno elegía su base con una cascada distinta.
-    expect((LABEL.match(/MAYOREO_MIN_DESC/g) || []).length).toBe(2); // la constante + su uso
+    // ⭐ Se USA en un solo lugar: eran dos getters y cada uno elegía su base con una cascada
+    // distinta. Se cuentan las COMPARACIONES, no las menciones — los comentarios la nombran.
+    expect((LABEL.match(/>= MAYOREO_MIN_DESC/g) || []).length).toBe(1);
   });
 
   it('el brote salió de la caja del precio', () => {

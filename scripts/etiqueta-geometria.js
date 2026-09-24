@@ -86,6 +86,9 @@ const K = {
   BARCODE_MAX_MM: num(/const BARCODE_MAX_MM = ([\d.]+)/, null),
   MAYOREO_MIN_DESC: num(/const MAYOREO_MIN_DESC = ([\d.]+)/, null),
   UNIDAD_MM: num(/const UNIDAD_MM = ([\d.]+)/, null),
+  // `[ETQ-PRES.4]` Sin ella el arnés mide cinco renglones donde la app imprime cuatro. Se extrae
+  // en vez de copiarse por lo mismo que las otras siete: un número a mano se separa de su fuente.
+  MAX_RENGLONES: num(/const MAX_RENGLONES = ([\d.]+)/, null),
 };
 
 /**
@@ -108,51 +111,91 @@ const n = (v) => (typeof v === 'number' && isFinite(v) ? v : Number(v) || 0);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const dinero = (v) => '$' + n(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-/** Réplica de los getters del componente, con el hero por default. */
+/**
+ * ⭐ `[ETQ-PRES.4]` El DICCIONARIO se lee del contrato, no se copia.
+ *
+ * Es un `.ts` y esto es un script de Node suelto, así que se extraen las entradas con una
+ * expresión — feo, pero **copiarlas sería peor**: el arnés terminaría rotulando "cubeta" cuando
+ * la etiqueta ya diga otra cosa, y su veredicto de geometría mediría un texto que no se imprime.
+ * Si el contrato cambia de forma y la extracción falla, se ABORTA: un diccionario vacío haría
+ * que todo saliera crudo y el arnés daría verde midiendo renglones más cortos que los reales.
+ */
+const CONTRATO = path.join(RAIZ, 'libs/contracts/src/http/price-presentation.contract.ts');
+const DICC = (() => {
+  const src = fs.readFileSync(CONTRATO, 'utf8');
+  const bloque = /UNIDADES_CONOCIDAS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(src);
+  if (!bloque) throw new Error('etiqueta-geometria: no se pudo leer UNIDADES_CONOCIDAS del contrato');
+  const d = {};
+  for (const m of bloque[1].matchAll(/(\w+):\s*\{\s*singular:\s*'([^']+)',\s*plural:\s*'([^']+)'/g)) {
+    d[m[1]] = { singular: m[2], plural: m[3] };
+  }
+  if (Object.keys(d).length < 6) throw new Error(`etiqueta-geometria: diccionario incompleto (${Object.keys(d).length})`);
+  return d;
+})();
+const legible = (u) => {
+  const k = String(u ?? '').trim().toUpperCase();
+  if (!k) return { singular: '', plural: '' };
+  if (DICC[k]) return DICC[k];
+  if (/^[0-9]+$/.test(k)) return { singular: `${k} g`, plural: `${k} g` };
+  return { singular: k, plural: k };
+};
+const capit = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * Réplica de `heroPres` + `renglones` del componente, con el hero por default.
+ *
+ * ⚠️ Sigue siendo una RÉPLICA —la advertencia de la cabecera no cambia— pero ahora replica la
+ * regla que existe: una fila por presentación, el peldaño sólo con veredicto `ok` y umbral real,
+ * y la palabra salida del diccionario del contrato. Antes replicaba los cuatro cajones fijos, o
+ * sea que desde `[ETQ-PRES.4]` estaba midiendo una etiqueta que ya nadie imprime.
+ */
 function vista(m) {
-  const ub = String(m.unit_base || '').toUpperCase();
-  const agrupada = ub === 'PAQ' || ub === 'CJA';
-  const gramos = m.sold_by_kg ? (ub === 'KG' ? 1000 : (/^\d+$/.test(ub) ? parseInt(ub, 10) : 0)) : 0;
-  const granel = gramos > 0;
-  const base = n(m.piece_price);
-  const porKg = granel ? base * 1000 / gramos : 0;
-
-  let heroWord, heroVal;
-  if (granel && (base > 0 || porKg > 0)) { heroWord = 'kg'; heroVal = porKg; }
-  else if (base > 0) { heroWord = agrupada ? (ub === 'PAQ' ? 'paquete' : 'caja') : 'pieza'; heroVal = base; }
-  else if (n(m.pack_price) > 0) { heroWord = 'paquete'; heroVal = n(m.pack_price); }
-  else if (n(m.box_price) > 0) { heroWord = 'caja'; heroVal = n(m.box_price); }
-  else { heroWord = granel ? 'kg' : 'pieza'; heroVal = 0; }
-
-  // Umbral del mayoreo por pieza: con MAYOREO_MIN_DESC en el fuente ya no se inventa el 3.
-  const minPza = K.MAYOREO_MIN_DESC != null
-    ? (n(m.wholesale_piece_min_qty) > 1 ? n(m.wholesale_piece_min_qty) : null)
-    : (m.wholesale_piece_min_qty || 3);
-  const minPaq = n(m.wholesale_pack_min_qty) > 1 ? n(m.wholesale_pack_min_qty) : null;
-
-  const wPza = n(m.wholesale_piece_price);
-  const wPaq = n(m.wholesale_pack_price);
-  const desc = (w) => (base > 0 && w > 0 ? (base - w) / base : 0);
-  const realce = (w) => (K.MAYOREO_MIN_DESC == null ? true : desc(w) >= K.MAYOREO_MIN_DESC);
+  const ps = (Array.isArray(m.presentaciones) ? m.presentaciones : []).filter((p) => p && p.unidad);
+  const conPrecio = ps.filter((p) => n(p.precio_lista) > 0);
+  const hero = conPrecio.find((p) => m.sold_by_kg && String(p.unidad).toUpperCase() === 'KG')
+    || conPrecio.find((p) => p.origen === 'base')
+    || conPrecio[0]
+    || null;
+  const heroWord = hero ? legible(hero.unidad).singular : legible(m.unit_base).singular || 'pieza';
+  const heroVal = hero ? n(hero.precio_lista) : n(m.piece_price);
+  const heroU = hero ? String(hero.unidad).toUpperCase() : '';
 
   const tiers = [];
-  if (granel && gramos < 1000 && base > 0) {
-    tiers.push({ txt: heroWord === 'kg' ? `Por ${gramos} g` : 'Por 1 kg',
-      amt: heroWord === 'kg' ? base : porKg });
+  for (const p of ps) {
+    const u = String(p.unidad).toUpperCase();
+    const leg = legible(p.unidad);
+    const lista = n(p.precio_lista);
+    const may = n(p.mayoreo_precio);
+    const desde = p.mayoreo_desde == null ? null : Number(p.mayoreo_desde);
+    if (u !== heroU && lista > 0) {
+      tiers.push({ txt: `${esc(capit(leg.singular))}${p.contenido ? ` <span class="etq-red">${esc(p.contenido)}</span>` : ''}`, amt: lista });
+    }
+    if (p.mayoreo_veredicto === 'ok' && may > 0 && desde !== null && desde > 1) {
+      tiers.push({
+        txt: `Mayoreo <span class="etq-red">${desde}+</span> ${esc(leg.plural)}`,
+        amt: may, cu: true, esMay: true,
+        desc: lista > 0 ? (lista - may) / lista : 0,
+        factor: Number(p.factor) || 0,
+        may: K.MAYOREO_MIN_DESC == null ? true : (lista > 0 && (lista - may) / lista >= K.MAYOREO_MIN_DESC),
+      });
+    }
   }
-  if (!agrupada && wPza > 0 && (base <= 0 || wPza < base) && (K.MAYOREO_MIN_DESC == null || minPza !== null)) {
-    tiers.push({ txt: `Mayoreo <span class="etq-red">${minPza ?? ''}+</span> pzas`, amt: wPza,
-      cu: true, may: realce(wPza) });
-  }
-  if (n(m.pack_price) > 0 && n(m.pack_size) > 0) {
-    tiers.push({ txt: `Paquete <span class="etq-red">${m.pack_size}</span> pzas`, amt: n(m.pack_price) });
-  }
-  if (agrupada && base > 0 && wPaq > 0 && wPaq < base && (K.MAYOREO_MIN_DESC == null || minPaq !== null)) {
-    tiers.push({ txt: minPaq ? `Mayoreo <span class="etq-red">${minPaq}+</span> paquetes` : 'Mayoreo',
-      amt: wPaq, cu: true, may: realce(wPaq) });
-  }
-  if (n(m.box_price) > 0 && n(m.box_size) > 0) {
-    tiers.push({ txt: `Caja <span class="etq-red">${m.box_size}</span> paquetes`, amt: n(m.box_price) });
+  // `[ETQ-PRES.4]` El MISMO recorte que `recortar()` en el componente. Sin esto el arnés mide una
+  // etiqueta de cinco renglones que la app ya no imprime, y su veredicto no vale para el papel.
+  // ⚠️ `MAX_RENGLONES` se extrae del fuente (ver K): si el componente lo cambia, el arnés lo sigue.
+  if (K.MAX_RENGLONES && tiers.length > K.MAX_RENGLONES) {
+    const fuera = new Set();
+    const orden = (a, b) => a.i - b.i;
+    const idx = tiers.map((t, i) => ({ ...t, i }));
+    for (const t of idx.filter((t) => t.esMay).sort((a, b) => a.desc - b.desc)) {
+      if (tiers.length - fuera.size <= K.MAX_RENGLONES) break;
+      fuera.add(t.i);
+    }
+    for (const t of idx.filter((t) => !t.esMay).sort((a, b) => a.factor - b.factor || orden(a, b))) {
+      if (tiers.length - fuera.size <= K.MAX_RENGLONES) break;
+      fuera.add(t.i);
+    }
+    for (let i = tiers.length - 1; i >= 0; i--) if (fuera.has(i)) tiers.splice(i, 1);
   }
   const nombre = String(m.name || '').replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g|gr|grs|ml|l)\s*\/?\s*\d*\s*$/i, '').trim() || m.name;
   // Los dígitos legibles bajo las barras — espejo de `barcodeDigits` en label.component.ts.
@@ -355,6 +398,11 @@ function html(v) {
         monto_mm: finales.length ? Math.min(...finales) : null,
         montos_uniformes: finales.length <= 1 || new Set(finales).size === 1,
         aire_tiers_mm: aire,
+        // `[ETQ-PRES.4]` Cuánto SOBRA cuando el bloque no entra. `aire_tiers_mm` no sirve para
+        // esto: se calcula DESPUÉS de repartirle el sobrante al código de barras, así que en un
+        // recorte queda en 0 y el rojo no dice de cuánto es. Sin el milímetro, la decisión de qué
+        // renglón sacrificar se toma a ojo.
+        falta_mm: MM(Math.max(0, extension() - tb.clientHeight)),
         barcode_mm: +bc.toFixed(2),
         realces: lab.querySelectorAll('.etq-tier.is-mayoreo').length,
         // banderas de no-regresión: todas tienen que ser 0
@@ -428,6 +476,22 @@ function html(v) {
   console.log(`  ${'jerarquía violada'.padEnd(22)} ${nj}${nj ? '   sku: ' + culpables((f) => !f.jerarquia_ok) : ''}   (monto > 70% del precio)`);
   console.log(`\nobservaciones: precio solapa el brote en ${cuenta((f) => f.precio_toca_brote)} filas`
     + ` · realces de mayoreo ${filas.reduce((a, f) => a + f.realces, 0)}`);
+
+  // `[ETQ-PRES.4]` Cuando algo se recorta, POR CUÁNTO y con cuántos renglones. Un invariante en
+  // rojo sin el milímetro obliga a decidir a ojo qué renglón sacrificar.
+  const cortados = filas.filter((f) => f.tiers_recortado).sort((a, b) => b.falta_mm - a.falta_mm);
+  if (cortados.length) {
+    console.log('\nrecortes, por cuánto:');
+    for (const f of cortados.slice(0, 12)) {
+      console.log(`  ${f.sku}  ${f.renglones} renglones · faltan ${f.falta_mm.toFixed(2)} mm · monto al piso ${f.monto_mm} mm`);
+    }
+    const porN = new Map();
+    for (const f of cortados) porN.set(f.renglones, (porN.get(f.renglones) || 0) + 1);
+    const tot = new Map();
+    for (const f of filas) tot.set(f.renglones, (tot.get(f.renglones) || 0) + 1);
+    console.log('  recortados por cantidad de renglones: '
+      + [...porN.keys()].sort().map((k) => `${k} renglones ${porN.get(k)}/${tot.get(k)}`).join(' · '));
+  }
 
   // Rojo SÓLO por lo que no está declarado. Un sku conocido se reporta y no cuenta.
   const falla = (f) => inv.some((k) => f[k]) || !f.montos_uniformes || !f.jerarquia_ok;
