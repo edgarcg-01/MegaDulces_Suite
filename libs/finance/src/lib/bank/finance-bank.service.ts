@@ -1226,10 +1226,41 @@ export class FinanceBankService {
     }
     // 4. Traspasos internos que no netean (TI=TE).
     if (Math.abs(bal.traspasos.delta) >= 1000) {
+      // CB.47 — el hallazgo decía «falta el otro lado» sin decir CUÁL, así que no era accionable:
+      // en abr-2026 son 42 patas por $8.7M y nadie iba a encontrarlas a mano entre 5,221
+      // movimientos. Ahora nombra los huérfanos más grandes y, sobre todo, la causa dominante
+      // medida: el estado de cuenta de la cuenta ORIGEN no está cargado ese mes.
+      const huerfanos = await this.tk.run(async (trx) => trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('st.period', period).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
+        .whereIn('bm.raw_type', ['TI', 'TE'])
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.bank_movements as o')
+            .join('finance.bank_accounts as oa', 'oa.id', 'o.bank_account_id')
+            .whereNull('o.deleted_at').andWhere('oa.kind', 'bank')
+            .whereRaw('oa.account_label <> ba.account_label')
+            // El espejo de una entrada es una salida del mismo importe, y al revés.
+            .whereRaw('round((CASE WHEN bm.amount_in > 0 THEN o.amount_out ELSE o.amount_in END)::numeric, 2) = round((bm.amount_in + bm.amount_out)::numeric, 2)')
+            .whereRaw(`o.movement_date BETWEEN bm.movement_date - interval '3 days' AND bm.movement_date + interval '3 days'`);
+        })
+        .select('bm.movement_date', 'bm.concept', 'ba.account_label',
+          trx.raw('(bm.amount_in + bm.amount_out)::numeric AS importe'),
+          trx.raw(`CASE WHEN bm.amount_in > 0 THEN 'entró' ELSE 'salió' END AS sentido`))
+        .orderByRaw('(bm.amount_in + bm.amount_out) DESC').limit(6)).catch(() => []);
+      // Las cuentas sin estado de cuenta ya están calculadas arriba: si hay alguna, es la
+      // explicación más probable y conviene decirla en la acción, no dejarla para adivinar.
+      const faltantes = (cuentasSinEstado as any[]).map((a) => a.account_label).filter(Boolean);
       items.push({ tipo: 'traspaso_descuadre', severidad: 'warn', importe: Math.abs(bal.traspasos.delta),
         titulo: 'Los traspasos internos no netean',
-        detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales.`,
-        accion: 'Falta el otro lado de un traspaso (la cuenta destino o la de origen). Revisa los movimientos tipo TI/TE.' });
+        detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales: lo que sale de una cuenta nuestra entra en otra.`,
+        evidencia: (huerfanos as any[]).map((h) => ({
+          label: `${this.dm(h.movement_date)} · ${h.account_label} · ${h.sentido} · ${(h.concept || '—').slice(0, 34)}`,
+          monto: n(h.importe),
+        })),
+        accion: faltantes.length
+          ? `Los de arriba no tienen contraparte en ninguna cuenta cargada. Este periodo falta el estado de cuenta de ${faltantes.join(', ')} — cárgalo y vuelve a revisar: es la causa más común de que un traspaso quede con una sola pata.`
+          : 'Los de arriba no tienen contraparte. Todas las cuentas tienen su estado de cuenta cargado, así que el otro lado falta DENTRO del archivo: busca el movimiento por monto y fecha en la cuenta que menciona el concepto.' });
     }
     // 5. Diferencias vs Kepler (P&L) — solo si hay balanza. Dirección + causa concreta.
     if (recon?.accounts?.length) {
@@ -2035,23 +2066,25 @@ export class FinanceBankService {
       const bookBy: Record<string, { cargos: number; abonos: number }> = {};
       for (const r of book as any[]) bookBy[r.cuenta_mayor] = { cargos: n(r.cargos), abonos: n(r.abonos) };
 
-      // CAJA: banco (excl. traspasos internos Y factoraje) vs 102 de almacén 00. ESTA es la
-      // conciliación contra Kepler. El detalle exacto (¿qué pago casa con qué póliza?) vive en
-      // el matching por-transacción (runMatch). CB.17 — factoraje EXCLUIDO del cuadre Egresos↔102:
-      // es financiamiento, no un pago normal del 102. El CF (compra con factoraje) ni siquiera es
-      // salida de banco (paga el factor); el PF (pago al factor) sí sale de banco pero Kepler NO lo
-      // asienta como abono al 102 con el nombre del factor (verificado: no hay cuenta de factor).
-      // Se muestra como línea propia "Financiamiento (factoraje)", igual que los traspasos.
+      // CAJA: banco vs el 102 de Kepler. ESTA es la conciliación contra Kepler; el detalle exacto
+      // (¿qué pago casa con qué póliza?) vive en el matching por-transacción (runMatch).
       // CB.21 — CAJA GENERAL (kind='cash') NO ES FISCAL → fuera del cuadre contra el 102.
       // El CONCENTRADO de contabilidad tampoco la incluye (verificado: los tipos I/C/G/TI/TE
       // de solo-bancos cuadran al peso con la hoja). Es efectivo que no pasa por el mayor 102.
       // Se muestra como memo aparte "Caja general (no fiscal)".
-      const EXCLUDE = new Set(['traspaso', 'factoraje']);
-      let bankIn = 0, bankOut = 0, cajaIn = 0, cajaOut = 0;
+      //
+      // CB.47 — acá vivía un `EXCLUDE = {traspaso, factoraje}` que sumaba `bankIn/bankOut` sin
+      // ellos… y treinta líneas más abajo los dos se PISABAN con los totales del estado de
+      // cuenta, que sí los traen. O sea: código muerto con un comentario que afirmaba lo
+      // contrario de lo que el método hacía. Se retira, y la razón de fondo queda escrita:
+      // **el lado Kepler (tesorería) TAMBIÉN trae los traspasos**, así que quitarlos de un solo
+      // lado desbalancea. Medido en prod: excluirlos sólo del banco mueve el Δ de conciliación
+      // de +$5.4M a −$20.0M en ene-2026 y de −$2.2M a −$32.3M en marzo. Banco-con-traspasos
+      // contra Kepler-con-traspasos es lo correcto; lo que faltaba no era excluirlos, era
+      // EMPAREJARLOS (eso vive en ingresosControl/egresosControl).
+      let cajaIn = 0, cajaOut = 0;
       for (const r of bank as any[]) {
-        if (r.kind === 'cash') { cajaIn += n(r.deposits); cajaOut += n(r.withdrawals); continue; }
-        if (EXCLUDE.has(r.group_key)) continue;
-        bankIn += n(r.deposits); bankOut += n(r.withdrawals);
+        if (r.kind === 'cash') { cajaIn += n(r.deposits); cajaOut += n(r.withdrawals); }
       }
       // Kepler = TESORERÍA (kepler_bank_movements, por banco) — MISMA fuente y query que el
       // Cuadre (threeWay), para que ambas vistas den el mismo número de Kepler. La balanza 102
@@ -2073,15 +2106,15 @@ export class FinanceBankService {
       const keplerSource = tesHas ? 'tesoreria' : 'contable';
 
       // Armonización con el Cuadre (2026-08-13): el lado banco = TOTALES del estado de cuenta
-      // de cuentas kind='bank' (misma fuente que contpaqiCompare/threeWay), NO la suma de
-      // movimientos con exclusiones de traspaso/factoraje. Así "Excel (banco)" de Conciliación
-      // == "Workbook" del Cuadre para el mismo periodo. (caja kind='cash' sigue como memo.)
+      // de cuentas kind='bank' (misma fuente que contpaqiCompare/threeWay). Así "Excel (banco)"
+      // de Conciliación == "Workbook" del Cuadre para el mismo periodo. (caja kind='cash' sigue
+      // como memo.) Incluye traspasos y factoraje, igual que el lado Kepler — ver CB.47 arriba.
       const stmtBank: any = await trx('finance.bank_statements as st')
         .join('finance.bank_accounts as ba', 'ba.id', 'st.bank_account_id')
         .where('st.period', period).andWhere('ba.kind', 'bank')
         .select(trx.raw('COALESCE(SUM(st.total_in),0) AS tin'), trx.raw('COALESCE(SUM(st.total_out),0) AS tout')).first();
-      bankIn = n(stmtBank?.tin);
-      bankOut = n(stmtBank?.tout);
+      const bankIn = n(stmtBank?.tin);
+      const bankOut = n(stmtBank?.tout);
 
       const cash = {
         bank_in: bankIn, kepler_102_cargos: k102.cargos, delta_in: bankIn - k102.cargos,
@@ -2166,11 +2199,31 @@ export class FinanceBankService {
       const deps = await trx('finance.bank_movements as bm')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
         .andWhere('bm.amount_in', '>', 0).andWhere('st.period', period)
         .select('bm.id', 'bm.movement_date as date', 'bm.amount_in as amt', 'bm.concept', 'ba.bank', 'ba.account_label',
+          'bm.raw_type',
+          trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
           trx.raw(MESES_DE_DESVIO))
         .orderBy('bm.amount_in', 'desc');
+
+      // CB.47 — Espejo de un traspaso interno recibido: el RETIRO en otra de nuestras cuentas.
+      // Sin esto, cada depósito de traspaso caía en "sin explicar" salvo que Kepler lo trajera
+      // por casualidad. Medido en prod: en abr-2026 eso era el **59% del sin explicar**
+      // ($17,879,000 de $30,545,811); en ago-2026 el 7%. La diferencia entre meses no es ruido:
+      // depende de si la cuenta ORIGEN tiene su estado de cuenta cargado (ver más abajo).
+      const espejos = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
+        .andWhere('bm.amount_out', '>', 0)
+        .andWhere('bm.movement_date', '>=', addDays(ini, -3)).andWhere('bm.movement_date', '<', addDays(fin, 3))
+        .select('bm.movement_date as date', 'bm.amount_out as amt', 'ba.account_label');
+      const espIdx = new Map<number, any[]>();
+      for (const m of espejos as any[]) {
+        const k = peso(m.amt);
+        (espIdx.get(k) || espIdx.set(k, []).get(k))!.push({ date: m.date, account_label: m.account_label, used: false });
+      }
 
       // Pool tesorería Kepler (entradas, con account_label), ventana ±7d.
       const tes = await trx('analytics.kepler_bank_movements')
@@ -2207,14 +2260,20 @@ export class FinanceBankService {
       for (const c of caja) { (cajaIdx.get(peso(c.amt)) || cajaIdx.set(peso(c.amt), []).get(peso(c.amt)))!.push(c); }
 
       // ±$1: revisa los buckets k-1,k,k+1 y toma el candidato de fecha más cercana no usado.
-      const pick = (idx: Map<number, any[]>, k: number, date: any, win: number) => {
+      const pick = (idx: Map<number, any[]>, k: number, date: any, win: number, skip?: (o: any) => boolean) => {
         let best: any = null, bd = Infinity;
-        for (let d = -1; d <= 1; d++) for (const o of idx.get(k + d) || []) { if (o.used) continue; const diff = dd(o.date, date); if (diff <= win && diff < bd) { best = o; bd = diff; } }
+        for (let d = -1; d <= 1; d++) for (const o of idx.get(k + d) || []) { if (o.used || (skip && skip(o))) continue; const diff = dd(o.date, date); if (diff <= win && diff < bd) { best = o; bd = diff; } }
         if (best) best.used = true;
         return best;
       };
 
+      // CB.47 — `traspaso` y `factoraje` son ESPEJO de los que ya tenía egresosControl. Que
+      // faltaran acá no era una omisión cosmética: un traspaso interno no es dinero que entra al
+      // negocio, es dinero nuestro cambiando de cuenta, y reportarlo como «depósito sin origen»
+      // llena la bandeja de falsos — que es la forma más rápida de que se deje de mirar.
+      const esTraspaso = (d: any) => d.group_key === 'traspaso' || d.raw_type === 'TI' || d.raw_type === 'TE';
       const buckets = { tesoreria: [] as any[], cobranza: [] as any[], caja: [] as any[],
+        traspaso: [] as any[], traspaso_sin_contraparte: [] as any[], factoraje: [] as any[],
         fecha_invalida: [] as any[], sin_explicar: [] as any[] };
       for (const dep of deps as any[]) {
         // Con la fecha rota ninguna ventana de ±3/5/7 días puede casar, así que iría a
@@ -2223,8 +2282,23 @@ export class FinanceBankService {
         // el Excel, y para que el dinero no desaparezca del total (ver MESES_DE_DESVIO).
         if (fechaFueraDePeriodo(dep)) { buckets.fecha_invalida.push(dep); continue; }
         const k = peso(dep.amt);
+        if (dep.group_key === 'factoraje') { buckets.factoraje.push(dep); continue; }
         const inner = tesIdx.get(String(dep.account_label));
         if (inner && pick(inner, k, dep.date, 7)) { buckets.tesoreria.push(dep); continue; }
+        if (esTraspaso(dep)) {
+          // El espejo nunca puede ser la MISMA cuenta en la que entró. Va ANTES que cobranza y
+          // caja por el mismo motivo que en egresosControl: el consumo es greedy y el espejo es
+          // la evidencia más específica, así que un traspaso coincidente de monto se comería un
+          // cobro o un depósito de tienda que otro depósito necesitaba.
+          if (pick(espIdx, k, dep.date, 3, (m) => m.account_label === dep.account_label)) { buckets.traspaso.push(dep); continue; }
+          // Está marcado como traspaso y NO hay retiro espejo en ninguna cuenta nuestra. No es
+          // un ingreso sin origen: es que falta el otro lado. Medido en prod, la causa dominante
+          // es de COBERTURA — mar y may no tienen cargadas 5 cuentas (1604, 1621, 2169, 4885,
+          // 5565) y la 1604 no tiene un solo movimiento en mar/abr/may pese a tener statement en
+          // abril. Se declara aparte para que el hallazgo diga «carga el estado de cuenta que
+          // falta» y no «este depósito no tiene origen».
+          buckets.traspaso_sin_contraparte.push(dep); continue;
+        }
         if (pick(cobIdx, k, dep.date, 5)) { buckets.cobranza.push(dep); continue; }
         if (pick(cajaIdx, k, dep.date, 3)) { buckets.caja.push(dep); continue; }
         buckets.sin_explicar.push(dep);
@@ -2243,7 +2317,7 @@ export class FinanceBankService {
       const accInit = (d: any) => {
         const lbl = String(d.account_label || d.bank || '—');
         let r = acctMap.get(lbl);
-        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0, fecha_invalida: 0 }; acctMap.set(lbl, r); }
+        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0, fecha_invalida: 0, via_traspaso: 0, traspaso_sin_contraparte: 0, via_factoraje: 0 }; acctMap.set(lbl, r); }
         return r;
       };
       const accAdd = (arr: any[], key: string) => { for (const d of arr) { const r = accInit(d); const v = Number(d.amt) || 0; r[key] += v; r.bank_total += v; r.n++; } };
@@ -2252,10 +2326,15 @@ export class FinanceBankService {
       accAdd(buckets.caja, 'via_caja');
       accAdd(buckets.sin_explicar, 'sin_explicar');
       accAdd(buckets.fecha_invalida, 'fecha_invalida');
+      accAdd(buckets.traspaso, 'via_traspaso');
+      accAdd(buckets.traspaso_sin_contraparte, 'traspaso_sin_contraparte');
+      accAdd(buckets.factoraje, 'via_factoraje');
       const por_cuenta = Array.from(acctMap.values()).map((r) => ({
         account_label: r.account_label, bank: r.bank, bank_total: r2(r.bank_total), n: r.n,
         via_tesoreria: r2(r.via_tesoreria), via_cobranza: r2(r.via_cobranza), via_caja: r2(r.via_caja),
         sin_explicar: r2(r.sin_explicar), fecha_invalida: r2(r.fecha_invalida),
+        via_traspaso: r2(r.via_traspaso), traspaso_sin_contraparte: r2(r.traspaso_sin_contraparte),
+        via_factoraje: r2(r.via_factoraje),
         kepler: r2(r.via_tesoreria + r.via_cobranza), retail: r2(r.via_caja),
       })).sort((a, b) => b.bank_total - a.bank_total);
 
@@ -2265,6 +2344,19 @@ export class FinanceBankService {
         via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
         via_cobranza: { n: buckets.cobranza.length, monto: sum(buckets.cobranza) },
         via_caja: { n: buckets.caja.length, monto: sum(buckets.caja) },
+        // CB.47 — dinero nuestro cambiando de cuenta, con su retiro espejo localizado. Explicado,
+        // pero NO es ingreso del negocio: va en su propia línea para que nadie lo sume a ventas.
+        via_traspaso: { n: buckets.traspaso.length, monto: sum(buckets.traspaso) },
+        via_factoraje: { n: buckets.factoraje.length, monto: sum(buckets.factoraje) },
+        // CB.47 — marcado como traspaso y sin retiro espejo en ninguna cuenta nuestra. La acción
+        // no es «investigar este depósito» sino «carga el estado de cuenta de la cuenta origen».
+        traspaso_sin_contraparte: {
+          n: buckets.traspaso_sin_contraparte.length, monto: sum(buckets.traspaso_sin_contraparte),
+          items: buckets.traspaso_sin_contraparte.slice(0, 50).map((d) => ({
+            id: d.id, fecha: d.date, bank: d.bank, account_label: d.account_label,
+            monto: Number(d.amt), concept: d.concept, raw_type: d.raw_type,
+          })),
+        },
         // No entra a `explicado` ni a `sin_explicar`: no se pudo medir su origen porque la
         // fecha está mal capturada. Se DECLARA aparte (ADR-056) en vez de contarlo como
         // faltante del ERP, que sería acusar de un hueco que no existe.
@@ -2276,7 +2368,10 @@ export class FinanceBankService {
           })),
         },
         sin_explicar: { n: buckets.sin_explicar.length, monto: sinExpl },
-        explicado: Math.round((bankTotal - sinExpl - sum(buckets.fecha_invalida)) * 100) / 100,
+        // Lo declarado (fecha rota, traspaso sin contraparte) NO cuenta como explicado: no se
+        // sabe su origen, sólo se sabe POR QUÉ no se sabe. Meterlo en `explicado` sería dibujar.
+        explicado: Math.round((bankTotal - sinExpl - sum(buckets.fecha_invalida)
+          - sum(buckets.traspaso_sin_contraparte)) * 100) / 100,
         cuadra: sinExpl <= TOL,
         exceptions: buckets.sin_explicar.slice(0, 100).map((d) => ({
           id: d.id, fecha: d.date, bank: d.bank, account_label: d.account_label, monto: Number(d.amt), concept: d.concept,
@@ -2339,7 +2434,7 @@ export class FinanceBankService {
         .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
         .andWhere('bm.amount_out', '>', 0).andWhere('st.period', period)
         .select('bm.id', 'bm.movement_date as date', 'bm.amount_out as amt', 'bm.concept',
-          'ba.bank', 'ba.account_label',
+          'ba.bank', 'ba.account_label', 'bm.raw_type',
           trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
           trx.raw(`COALESCE(mc.name,'(sin categoría)') AS categoria`),
           trx.raw(MESES_DE_DESVIO))
@@ -2394,7 +2489,8 @@ export class FinanceBankService {
       };
 
       const buckets = { tesoreria: [] as any[], pago_erp: [] as any[], traspaso: [] as any[],
-        factoraje: [] as any[], fecha_invalida: [] as any[], sin_respaldo: [] as any[] };
+        traspaso_sin_contraparte: [] as any[], factoraje: [] as any[],
+        fecha_invalida: [] as any[], sin_respaldo: [] as any[] };
       for (const o of outs as any[]) {
         const k = peso(o.amt);
         // Fecha mal capturada: ninguna ventana puede casar, así que no se acusa al ERP (ver
@@ -2409,8 +2505,12 @@ export class FinanceBankService {
         // ADEMÁS quemaba ese pago, dejando sin respaldo al retiro real que sí lo necesitaba.
         // Su espejo es más específico (exige un depósito real en OTRA cuenta nuestra), así que
         // va primero. El espejo nunca puede ser la MISMA cuenta de la que salió.
-        if (o.group_key === 'traspaso' && pick(mirIdx, k, o.date, 3, (m) => m.account_label === o.account_label)) {
-          buckets.traspaso.push(o); continue;
+        if (o.group_key === 'traspaso' || o.raw_type === 'TI' || o.raw_type === 'TE') {
+          if (pick(mirIdx, k, o.date, 3, (m) => m.account_label === o.account_label)) { buckets.traspaso.push(o); continue; }
+          // CB.47 — simétrico a ingresosControl: salió marcado como traspaso y no entró en
+          // ninguna cuenta nuestra. La acción es cargar el estado de cuenta destino, no buscar
+          // el pago en el ERP; mandarlo a `sin_respaldo` acusaría al ERP de un hueco ajeno.
+          buckets.traspaso_sin_contraparte.push(o); continue;
         }
         const pago = pick(pagIdx, k, o.date, 5);
         if (pago) { buckets.pago_erp.push({ ...o, erp_folio: pago.folio, erp_proveedor: pago.proveedor_nombre }); continue; }
@@ -2447,6 +2547,15 @@ export class FinanceBankService {
         via_pago_erp: { n: buckets.pago_erp.length, monto: sum(buckets.pago_erp) },
         via_traspaso: { n: buckets.traspaso.length, monto: sum(buckets.traspaso) },
         via_factoraje: { n: buckets.factoraje.length, monto: sum(buckets.factoraje) },
+        // CB.47 — salió como traspaso y no entró en ninguna cuenta nuestra: falta el estado de
+        // cuenta destino. Declarado, fuera de `respaldado` y de `sin_respaldo`.
+        traspaso_sin_contraparte: {
+          n: buckets.traspaso_sin_contraparte.length, monto: sum(buckets.traspaso_sin_contraparte),
+          items: buckets.traspaso_sin_contraparte.slice(0, 50).map((o) => ({
+            id: o.id, fecha: o.date, bank: o.bank, account_label: o.account_label,
+            monto: Number(o.amt), concept: o.concept, raw_type: o.raw_type,
+          })),
+        },
         // Se DECLARA aparte, fuera de `respaldado` y de `sin_respaldo` (ADR-056): no es que el
         // ERP no lo registre, es que no se pudo buscar con esa fecha.
         fecha_invalida: {
@@ -2458,7 +2567,7 @@ export class FinanceBankService {
           })),
         },
         sin_respaldo: { n: buckets.sin_respaldo.length, monto: sinResp },
-        respaldado: r2(bankTotal - sinResp - sum(buckets.fecha_invalida)),
+        respaldado: r2(bankTotal - sinResp - sum(buckets.fecha_invalida) - sum(buckets.traspaso_sin_contraparte)),
         cuadra: sinResp <= TOL,
         por_categoria, por_cuenta,
         // La bandeja: lo que salió del banco y el ERP no registró, de mayor a menor.

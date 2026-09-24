@@ -58,11 +58,27 @@ export interface IngresosControlCuenta {
   account_label: string | null; bank: string | null; bank_total: number; n: number;
   via_tesoreria: number; via_cobranza: number; via_caja: number; sin_explicar: number;
   kepler: number; retail: number;
+  /** CB.47 — traspaso entre cuentas propias: dinero nuestro moviéndose, NO ingreso del negocio. */
+  via_traspaso?: number; traspaso_sin_contraparte?: number; via_factoraje?: number;
+  /** CB.46 — la fecha está fuera del periodo de su estado de cuenta; no se pudo buscar el origen. */
+  fecha_invalida?: number;
+}
+/**
+ * CB.46/47 — lo que NO se pudo medir se declara en su propio bucket, fuera de `explicado` y de
+ * `sin_explicar`: un depósito con la fecha rota o un traspaso al que le falta la pata contraria
+ * no es «un ingreso sin origen», y contarlo como tal llena la bandeja de falsos.
+ */
+export interface IngresosDeclarado {
+  n: number; monto: number;
+  items: { id: string; fecha: string; bank: string; account_label: string; monto: number; concept: string;
+    raw_type?: string | null; desvio_meses?: number }[];
 }
 export interface IngresosControl {
   period: string; bank_total: number; bank_n: number;
   por_cuenta: IngresosControlCuenta[];
   via_tesoreria: IngresosControlBucket; via_cobranza: IngresosControlBucket; via_caja: IngresosControlBucket;
+  via_traspaso?: IngresosControlBucket; via_factoraje?: IngresosControlBucket;
+  traspaso_sin_contraparte?: IngresosDeclarado; fecha_invalida?: IngresosDeclarado;
   sin_explicar: IngresosControlBucket; explicado: number; cuadra: boolean; tol: number;
   exceptions: IngresosException[];
   fuga: { n: number; monto: number; items: { fecha: string; almacen: string; banco: string; monto: number }[] };
