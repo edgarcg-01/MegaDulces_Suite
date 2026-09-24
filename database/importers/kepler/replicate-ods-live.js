@@ -672,6 +672,18 @@ if (require.main === module) {
       const destStr = DEST_URL || process.env.DATABASE_URL_NEW || SUB_BASE;
       DEST = new Client({ connectionString: destStr, ssl: false, ...CONN });
       await DEST.connect();
+    // ⛔⛔ [NORM.3c] LA ZONA HORARIA DE LA SESION DECIDE QUE FILA SE ESCRIBE.
+    // El ODS guarda las columnas de fecha como `timestamptz` y la fuente las tiene como `timestamp`
+    // INGENUO. Postgres interpreta ese valor ingenuo con la TZ DE LA SESION del que escribe: la
+    // misma fila de origen shipeada desde una sesion en UTC y desde otra en hora de Mexico produce
+    // DOS instantes distintos separados 6 h. Y en `kdpv_bitacora_precios` la PK incluye esa fecha
+    // -> no se pisan, se DUPLICAN.
+    // Medido en prod el 2026-09-24: 89,099 filas duplicadas a exactamente 6 h de su gemela, con
+    // CERO pares asi en las replicas. La convencion mayoritaria (y la correcta, porque leida en
+    // hora de Mexico coincide con el valor ingenuo del origen) es America/Mexico_City.
+    // Se fija explicitamente y NO se hereda del contenedor: Alpine no trae tzdata, asi que `TZ` se
+    // ignora en silencio y la sesion cae en UTC (la leccion de [VL.4]).
+    await DEST.query("SET TIME ZONE 'America/Mexico_City'");
       // [NORM.3b] La identidad viaja SIN credenciales: host:puerto/base y nada más.
       DEST_IDENT = `${new URL(destStr).host}${new URL(destStr).pathname}`;
       console.log(`  destino pg: ${DEST_IDENT}`);
