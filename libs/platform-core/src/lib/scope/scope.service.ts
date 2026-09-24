@@ -466,6 +466,65 @@ export class ScopeService {
     return canonicos.concat(traducidos).filter((v, i, a) => a.indexOf(v) === i);
   }
 
+  /**
+   * `[ZN.3.3]` — El alcance, en la llave que la TABLA usa: `warehouse_id` (uuid).
+   *
+   * ── Por qué vive acá y no en cada servicio ─────────────────────────────────
+   * El alcance de `warehouse` es un código canónico de 2 dígitos (ADR-050), pero
+   * media plataforma no guarda el código: guarda el uuid del almacén
+   * (`analytics.replenishment_plan.warehouse_id`, `commercial.stock.warehouse_id`,
+   * `inventory_health`…). O sea que entre el alcance y el `WHERE` hay una
+   * traducción, y esa traducción tiene tres decisiones finas que nadie quiere
+   * volver a tomar bien por segunda vez:
+   *
+   *   1. `null` ≠ `[]`. `null` = no filtrar (alcance `all` sin recorte pedido).
+   *      `[]` = **cero** almacenes, y ese `[]` TIENE que llegar al `WHERE` — el
+   *      patrón `if (ids.length) qb.whereIn(...)` lo convierte en "todos", que es
+   *      exactamente el fail-open que ADR-050 vino a retirar.
+   *   2. La llave sale de `branchKeySql()`, no de `w.code`: Morelia la guarda
+   *      prefijada (`MD-30`) y filtrar por `code` la deja fuera (`[RE.23]`).
+   *   3. Un almacén borrado no resuelve. Es correcto —el universo lo excluye—
+   *      pero convierte un alcance viejo en `[]`, así que se DECLARA en el log
+   *      en vez de devolver un vacío mudo (es el caso de `[ZN.2.0]`: cuatro
+   *      personas con alcance `'32'`, la llave Wincaja de una sucursal que migró).
+   *
+   * Esta función ya estaba escrita **a mano** en `commercial-bi-almacen`
+   * (`resolveWarehouseIds`), correcta y sin dueño. ADR-056: un primitivo copiado
+   * diverge — al segundo consumidor (`commercial-replenishment`) sube a `libs/`.
+   *
+   * `ruta` es sólo para el aviso de deprecación de los alias de query param.
+   */
+  async warehouseIds(
+    query: Record<string, unknown> | undefined,
+    ruta?: string,
+  ): Promise<string[] | null> {
+    const codes = await this.readParam(query, 'warehouse', ruta);
+    if (codes === null) return null;
+    if (!codes.length) return [];
+
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { rows } = await this.knex.raw(
+      `SELECT w.id::text AS id, ${branchKeySql('w')} AS code
+         FROM commercial.warehouses w
+        WHERE w.tenant_id = ? AND w.deleted_at IS NULL
+          AND (${branchKeySql('w')}) = ANY(?)`,
+      [tenantId, codes],
+    );
+
+    // Un código del alcance que no trae almacén vivo no es un error de quien
+    // consulta: es un dato viejo. Se nombra, y el recorte sigue siendo el que
+    // corresponde (los que sí resolvieron) — nunca "todos".
+    const resueltos = new Set(rows.map((r: { code: string }) => r.code));
+    const sinAlmacen = codes.filter((c) => !resueltos.has(c));
+    if (sinAlmacen.length) {
+      this.logger.warn(
+        `warehouse: ${sinAlmacen.length} código(s) del alcance no tienen almacén vigente y no filtran nada: ` +
+          `${sinAlmacen.join(', ')}${ruta ? ` (${ruta})` : ''}`,
+      );
+    }
+    return rows.map((r: { id: string }) => r.id);
+  }
+
   // ───────────────────────── enumeración (UI) ─────────────────────────
 
   /**

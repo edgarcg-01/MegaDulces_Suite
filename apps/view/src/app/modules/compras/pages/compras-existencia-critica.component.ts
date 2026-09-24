@@ -97,7 +97,7 @@ interface DraftLine {
           <div class="ec-atajos">
             <span class="ec-atajos-lbl">Atajos:</span>
             <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
-            @for (t of territories; track t.label) {
+            @for (t of territories(); track t.label) {
               <button type="button" class="ec-atajo" [class.on]="isTerr(t.codes)" (click)="applyTerr(t.codes)">{{ t.label }}</button>
             }
           </div>
@@ -493,12 +493,23 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   warehouseOpts = signal<{ label: string; value: string; code: string }[]>([]);
   supplierOpts = signal<{ label: string; value: string }[]>([]);
   categoryOpts = signal<{ label: string; value: string }[]>([]);
-  territories = [
-    { label: 'Bajío', codes: ['01', '02', '03', '04'] },
-    { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
-    { label: 'Zamora', codes: ['05', '06'] },
-    { label: 'CEDIS', codes: ['00'] },
-  ];
+  /**
+   * `[ZN.3.3]` Atajos por zona, DERIVADOS de `purchase_zone` de cada almacen.
+   *
+   * Antes eran cuatro grupos escritos a mano aca (`Bajio 01-04`, `Morelia MD-30/MD-32`, `Zamora
+   * 05/06`, `CEDIS 00`). Dos problemas, y el segundo es el que duele:
+   *
+   *   1. **Contradecian el modelo.** El negocio tiene TRES zonas (La Piedad, Zamora, Morelia) y
+   *      el CEDIS es corporativo, no una zona (`[ZN.0]`). "Bajio" no existe en ningun lado.
+   *   2. **No respetaban el alcance.** Un boton que dice "Zamora" a alguien que solo alcanza La
+   *      Piedad ofrece algo que la consulta ya no va a devolver.
+   *
+   * Ahora salen de la misma respuesta que puebla el selector, que el backend YA recorta al
+   * alcance: si una zona no tiene ni un almacen alcanzable, su boton no se dibuja. Y si ningun
+   * almacen trae zona, la lista queda VACIA a proposito -- se declara con "Todos" y nada mas,
+   * en vez de inventar una agrupacion.
+   */
+  territories = signal<{ label: string; codes: string[] }[]>([]);
   private warehouseNames = new Map<string, string>();
 
   fWarehouses: string[] = [];
@@ -574,6 +585,15 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
       this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
       f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
+      // `[ZN.3.3]` La zona la manda la TABLA (`purchase_zone`), no un mapa en el bundle. El orden
+      // es el de la lista, que ya viene en el orden canonico de la red (no alfabetico).
+      const porZona = new Map<string, string[]>();
+      for (const w of f.warehouses) {
+        const zona = (w.purchase_zone || '').trim();
+        if (!zona) continue;               // sin zona declarada NO se agrupa: se declara, no se adivina
+        porZona.set(zona, [...(porZona.get(zona) ?? []), w.code]);
+      }
+      this.territories.set([...porZona].map(([label, codes]) => ({ label, codes })));
       this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.id })));
       this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.name} · ${c.n_suppliers} prov`, value: c.id })));
     });
