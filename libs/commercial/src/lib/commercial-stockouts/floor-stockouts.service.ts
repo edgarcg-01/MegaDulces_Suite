@@ -210,12 +210,9 @@ export class FloorStockoutsService {
    * ficha**, así que el alcance resuelve — nadie se queda sin su propia sucursal.
    */
   private async assertAlcanza(warehouseCode: string): Promise<void> {
-    const sc = await this.scope.current();
-    if (!this.scope.canRead(sc, 'warehouse', String(warehouseCode || '').trim())) {
-      throw new ForbiddenException(
-        `Tu alcance no incluye la sucursal "${warehouseCode}". Pedile a un administrador que te la asigne si la necesitás.`,
-      );
-    }
+    // El corte vive en `ScopeService.assertCanRead` y no acá: lo necesitan cuatro
+    // servicios y un primitivo copiado a mano se desincroniza (ADR-056).
+    await this.scope.assertCanRead('warehouse', warehouseCode);
   }
 
   /**

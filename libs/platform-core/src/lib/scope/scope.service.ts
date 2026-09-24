@@ -357,6 +357,33 @@ export class ScopeService {
   }
 
   /**
+   * `[ZN.3]` — El hermano de lectura de `assertCanWrite`, que faltaba.
+   *
+   * ── Por qué hace falta un método y no basta con `canRead` ───────────────────
+   * Un endpoint que recibe la sucursal **por parámetro** (`/sucursal/:code`,
+   * `?warehouse_code=`) tiene que cortar ANTES de consultar, y eso es tres
+   * líneas que se estaban por copiar en cuatro servicios: resolver el alcance,
+   * preguntar, lanzar el 403 con un mensaje útil. Un primitivo copiado a mano se
+   * desincroniza (ADR-056) — y el mensaje es justo lo que se degrada primero.
+   *
+   * ── 403, no recorte silencioso ─────────────────────────────────────────────
+   * `intersect()` existe para lo otro: recortar una lista que el usuario pidió
+   * de más. Acá pidió **un** valor concreto, y devolverle los datos de OTRO sería
+   * contestar una pregunta distinta de la que hizo. En una pantalla de inventario
+   * eso se lee como «ahí no falta nada», que es peor que un error.
+   */
+  async assertCanRead(dim: ScopeDimension, valor: string): Promise<void> {
+    const v = String(valor ?? '').trim();
+    const scope = await this.current();
+    if (!this.canRead(scope, dim, v)) {
+      throw new ForbiddenException(
+        `Tu alcance no incluye ${UNIVERSO_SQL[dim].label.toLowerCase()} "${v}". ` +
+          `Pedile a un administrador que te la asigne si la necesitás.`,
+      );
+    }
+  }
+
+  /**
    * Reduce lo que pidió el usuario por query param a lo que puede ver. Es el
    * puente para migrar un endpoint sin romperlo: si no pidió nada, devuelve su
    * alcance; si pidió de más, se le recorta en silencio (no 403).

@@ -20,21 +20,25 @@ import { FloorStockoutsService } from './floor-stockouts.service';
  * El smoke HTTP del módulo sigue siendo el que prueba la consulta, y queda declarado.
  */
 
-/** Doble del alcance resuelto, con la forma mínima que usa el servicio. */
+/**
+ * Doble del alcance, con la forma que usa el servicio.
+ *
+ * `assertCanRead` es el primitivo compartido de `ScopeService` (`[ZN.3]`), así que el doble
+ * reproduce **su contrato** —resolver, preguntar, lanzar 403— y no una copia de la regla: lo que
+ * este spec vigila es que el servicio LO LLAME antes de consultar, no cómo decide adentro.
+ */
 const scopeDoble = (modo: 'all' | 'none' | 'listed', values: string[] = []) => {
   const llamadas = { current: 0 };
+  const puede = (valor: string) =>
+    modo === 'all' ? true : modo === 'none' ? false : values.includes(String(valor));
   return {
     llamadas,
     servicio: {
-      current: async () => {
+      assertCanRead: async (_dim: string, valor: string) => {
         llamadas.current++;
-        return { dims: { warehouse: { mode: modo, values } } };
-      },
-      canRead: (sc: any, dim: string, valor: string) => {
-        const d = sc.dims[dim];
-        if (d.mode === 'all') return true;
-        if (d.mode === 'none') return false;
-        return d.values.includes(String(valor));
+        if (!puede(String(valor ?? '').trim())) {
+          throw new ForbiddenException(`Tu alcance no incluye la sucursal "${valor}".`);
+        }
       },
     },
   };
