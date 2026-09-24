@@ -113,9 +113,20 @@ export interface AttachDeposit {
 export interface UnmatchedBankRow {
   id: string; movement_date: string; amount_in: number; concept: string | null;
   bank: string; account_label: string; tiene_candidato: boolean;
+  /**
+   * `[CC.11]` De quién es, **declarado por una persona**. Ninguna fuente lo trae: el banco no
+   * dice quién pagó, ContPAQi lleva clientes por sucursal × régimen de IVA y no hay CFDIs
+   * emitidos. ⛔ No es el cobro ni lo sustituye.
+   */
+  customer_code: string | null;
+  customer_nombre: string | null;
+  customer_nota: string | null;
+  customer_declared_by: string | null;
+  customer_declared_at: string | null;
 }
 export interface UnmatchedBankReport {
-  kpis: { abonos: number; monto: number; huerfanos: number };
+  /** `con_cliente` = de los huérfanos, cuántos ya tienen dueño declarado. */
+  kpis: { abonos: number; monto: number; huerfanos: number; con_cliente: number };
   rows: UnmatchedBankRow[];
 }
 /** Un cobro candidato para ligar a un abono huérfano. */
@@ -179,5 +190,15 @@ export class CobranzaService {
   /** Liga un abono a un cobro elegido (bank-first). */
   linkBank(movementId: string, sucursal: string, folio: string): Observable<any> {
     return this.http.post(`${this.base}/bank/${movementId}/link`, { sucursal, folio });
+  }
+
+  /**
+   * `[CC.11]` Declara de qué cliente es un abono que Kepler todavía no registró. Mandar
+   * `customer_code` vacío borra la declaración.
+   */
+  declararCliente(movementId: string, customer_code: string, nota?: string):
+  Observable<{ ok: boolean; customer_code: string | null; customer_nombre?: string | null }> {
+    return this.http.post<{ ok: boolean; customer_code: string | null; customer_nombre?: string | null }>(
+      `${this.base}/bank/${movementId}/customer`, { customer_code, nota });
   }
 }

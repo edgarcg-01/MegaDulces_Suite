@@ -619,7 +619,9 @@ export class CollectionDepositsService {
         ),
         mov AS MATERIALIZED (
           SELECT m.id, m.movement_date, m.amount_in::numeric AS amount_in, m.concept,
-                 a.bank, a.account_label, round(m.amount_in)::bigint AS cubeta
+                 a.bank, a.account_label, round(m.amount_in)::bigint AS cubeta,
+                 m.customer_code, m.customer_nota, m.customer_declared_by,
+                 m.customer_declared_at
             FROM finance.bank_movements m
             JOIN finance.bank_accounts a ON a.id = m.bank_account_id
             JOIN finance.movement_categories c ON c.id = m.category_id
@@ -662,21 +664,112 @@ export class CollectionDepositsService {
           (SELECT jsonb_build_object(
               'abonos', count(*)::int,
               'monto', COALESCE(sum(amount_in), 0)::numeric,
-              'huerfanos', count(*) FILTER (WHERE NOT tiene_candidato)::int)
+              'huerfanos', count(*) FILTER (WHERE NOT tiene_candidato)::int,
+              -- [CC.11] De los que no tienen cobro, cuantos YA tienen duenio declarado: es la
+              -- parte del callejon sin salida que alguien ya desatoro.
+              'con_cliente', count(*) FILTER (
+                 WHERE NOT tiene_candidato AND customer_code IS NOT NULL)::int)
              FROM marcado) AS kpis,
+          -- [CC.11] El nombre del cliente declarado se resuelve DESPUES del LIMIT, sobre las
+          -- ${limit} filas que se devuelven y no sobre las ~20 mil del universo. Resolverlo
+          -- arriba costaba 20,386 ms contra 361: el LATERAL contra kdud (18 mil filas, sin
+          -- indice por btrim(c2)) se planifica por fila aunque el ON sea falso.
+          -- Si el codigo ya no existe en el catalogo, viaja el codigo pelado y NO se esconde:
+          -- es la senal de que esa declaracion hay que revisarla.
           COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.movement_date DESC) FROM (
-              SELECT id, movement_date, amount_in, concept, bank, account_label, tiene_candidato
-                FROM marcado
-               WHERE ${q.solo_huerfanos === '1' ? 'NOT tiene_candidato' : 'true'}
-               ORDER BY movement_date DESC
-               LIMIT ${limit}) x), '[]'::jsonb) AS rows`;
+              SELECT p.*, n.cliente_nombre AS customer_nombre
+                FROM (
+                  SELECT id, movement_date, amount_in, concept, bank, account_label,
+                         tiene_candidato, customer_code, customer_nota,
+                         customer_declared_by, customer_declared_at
+                    FROM marcado
+                   WHERE ${q.solo_huerfanos === '1' ? 'NOT tiene_candidato' : 'true'}
+                   ORDER BY movement_date DESC
+                   LIMIT ${limit}
+                ) p
+                LEFT JOIN LATERAL (
+                  SELECT NULLIF(btrim(u.c3), '') AS cliente_nombre
+                    FROM kepler_ods.kdud u
+                   WHERE btrim(u.c2) = btrim(p.customer_code) LIMIT 1
+                ) n ON p.customer_code IS NOT NULL
+              ) x), '[]'::jsonb) AS rows`;
 
       const r = await trx.raw(sql, [tenantId, tenantId, ...filtros, tenantId]);
       const out = r.rows[0];
       const k = out.kpis || { abonos: 0, monto: 0, huerfanos: 0 };
       return {
-        kpis: { abonos: Number(k.abonos), monto: Number(k.monto), huerfanos: Number(k.huerfanos) },
+        kpis: {
+          abonos: Number(k.abonos), monto: Number(k.monto), huerfanos: Number(k.huerfanos),
+          con_cliente: Number(k.con_cliente) || 0,
+        },
         rows: ((out.rows as any[]) || []).map((x) => ({ ...x, amount_in: Number(x.amount_in) })),
+      };
+    });
+  }
+
+  /**
+   * `[CC.11]` **Declara de quién es un depósito que Kepler todavía no registró.**
+   *
+   * Para los **5,240 abonos por $118.9M** que ningún cobro explica, «Ligar» no tiene a qué
+   * ligar: se acaba el camino. Y el dato **no existe en ninguna fuente** —el banco no dice quién
+   * pagó, ContPAQi lleva clientes por sucursal × régimen de IVA, no hay CFDIs emitidos—, así que
+   * **lo pone una persona o no se sabe**.
+   *
+   * ⛔ **Esto NO es el cobro y no lo sustituye.** No escribe a Kepler, no salda nada, no toca la
+   * cartera. Dice *«este depósito es de tal cliente y Kepler aún no lo tiene»*, que es lo que
+   * cobranza necesita para dejar de llamar a quien ya pagó, y la pista para que alguien capture
+   * el cobro. Cuando el cobro aparezca, se liga por el camino que ya existe (`linkBankToCobro`).
+   *
+   * ⚠️ El código de cliente **se valida contra el catálogo de Kepler**: una declaración con un
+   * código inventado sería peor que ninguna, porque se vería igual de firme.
+   */
+  async declararCliente(
+    bankMovementId: string,
+    dto: { customer_code?: string | null; nota?: string | null },
+    actor?: string,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!bankMovementId) throw new BadRequestException('bank_movement_id requerido');
+    const code = (dto?.customer_code ?? '').trim();
+
+    return this.tk.run(async (trx) => {
+      const mov = await trx('finance.bank_movements')
+        .where({ id: bankMovementId, tenant_id: tenantId })
+        .whereNull('deleted_at')
+        .first('id', 'amount_in', 'movement_date');
+      if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+
+      // Quitar la declaración es legítimo (alguien se equivocó): código vacío la borra entera,
+      // incluido el autor — una firma sin afirmación no dice nada.
+      if (!code) {
+        await trx('finance.bank_movements').where({ id: bankMovementId }).update({
+          customer_code: null, customer_nota: null,
+          customer_declared_by: null, customer_declared_at: null,
+          updated_at: trx.fn.now(),
+        });
+        return { ok: true, bank_movement_id: bankMovementId, customer_code: null };
+      }
+
+      const cli = (await trx.raw(
+        `SELECT NULLIF(btrim(u.c3), '') AS nombre FROM kepler_ods.kdud u
+          WHERE btrim(u.c2) = ? LIMIT 1`, [code])).rows[0];
+      if (!cli) {
+        throw new BadRequestException(
+          `el cliente "${code}" no existe en el catálogo de Kepler. Una declaración con un `
+          + 'código inventado se ve igual de firme que una buena.');
+      }
+
+      await trx('finance.bank_movements').where({ id: bankMovementId }).update({
+        customer_code: code,
+        customer_nota: (dto?.nota ?? '').trim() || null,
+        customer_declared_by: actor || null,
+        customer_declared_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+      });
+      this.emit('bank_matched', { sucursal: '00', folio: `mov:${bankMovementId}` });
+      return {
+        ok: true, bank_movement_id: bankMovementId,
+        customer_code: code, customer_nombre: cli.nombre || null,
       };
     });
   }

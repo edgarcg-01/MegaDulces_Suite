@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — Cobranza puede decir de quién es un depósito que Kepler todavía no registró (CC.11, 2026-09-24)
+- **Para 5,229 depósitos no hay a qué ligar**: el dinero entró al banco y no existe el cobro. Ahí
+  se acababa el camino. Ahora cualquiera de cobranza puede dejar dicho **de qué cliente es**, con
+  su nombre y la fecha — el banco no lo dice, la contabilidad tampoco, así que lo pone una
+  persona o no se sabe.
+- Sirve para dos cosas: **dejar de llamarle a quien ya pagó**, y darle la pista a quien captura
+  el cobro en Kepler. ⛔ **No registra el cobro ni salda nada** — eso sigue siendo de Kepler.
+- El código de cliente **se valida contra el catálogo**: una declaración con un código inventado
+  se vería igual de firme que una buena. Y se puede quitar si alguien se equivocó.
+- **El re-import del Excel de bancos no la borra** (misma protección que ya tenía la
+  clasificación manual de movimientos).
+
 ### Added — Los depósitos sin ligar aparecen en «Mi trabajo» (CC.10, 2026-09-24)
 - **La pestaña «Abonos sin cobro» sólo se veía si alguien se acordaba de abrirla**: sin aviso,
   sin conteo en la portada, sin nadie a cargo. Ahora es una bandeja de **Mi trabajo** para

@@ -30,6 +30,24 @@ export class CollectionDepositsController {
    * tocar `analytics.cron_runs`, y quedaba imposible distinguir «el job está roto» de «alguien
    * lo disparó a mano» sin abrir la base.
    */
+  /**
+   * `[CC.11]` Declara de quién es un depósito que Kepler todavía no registró. Mandar
+   * `customer_code` vacío borra la declaración.
+   *
+   * **GESTIONAR**, no VER: es una afirmación con autor que después alguien va a usar para
+   * capturar un cobro. Adjuntar evidencia es capturar; afirmar de quién es el dinero, decidir.
+   */
+  @Post('bank/:movementId/customer')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Declara (o borra) de qué cliente es un abono sin cobro en Kepler.' })
+  declararCliente(
+    @Param('movementId') movementId: string,
+    @Body() body: { customer_code?: string | null; nota?: string | null },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.declararCliente(movementId, body, req?.user?.full_name || req?.user?.username);
+  }
+
   @Post('gap/scan-now')
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   @ApiOperation({ summary: 'Mide la brecha banco↔cobro ahora y deja latido en analytics.cron_runs.' })
