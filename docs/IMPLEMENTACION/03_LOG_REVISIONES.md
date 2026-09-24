@@ -5,6 +5,101 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[WMS-REC.15]` El Andén arranca por la sucursal, y el día se mide en hora de México
+
+**Cómo se llegó:** *"hay forma de que quitemos la sección de crear/agregar un
+folio, y jalar automáticamente cada que den de alta un vale de entrada, hay que
+jalarlo desde Kepler que esté asociado a cada sucursal que se le haya agregado al
+usuario"*. Después, viendo la maqueta: *"los quiero activos sólo por día, de la
+misma fecha del día, pasados no"*.
+
+### Lo que la medición cambió del pedido
+
+**1. "La sucursal que se le haya agregado al usuario" no está agregada.** Medido
+en prod: el rol `almacenista` tiene alcance `warehouse: all`, y de los 4
+bodegueros sólo `luis_espino` tiene sucursal (`01`); los otros tres la tienen en
+`null` y ninguno tiene regla en `identity.user_scopes`. El mecanismo
+multi-sucursal existe y está bien hecho — lo que falta es que alguien cargue el
+dato, y eso es trabajo de administración.
+
+Por eso la pantalla **no finge un filtro que la configuración no respalda**: usa
+`ScopeService`, y cuando el alcance es `all` lo dice en pantalla. El modo del
+alcance **viaja en la respuesta** en vez de inferirse contando filas — un usuario
+legítimamente asignado a tres plazas vería el mismo aviso y sería falso.
+
+**2. Una advertencia mía anterior era falsa.** Había dicho que las sucursales
+`06` y `07` eran un callejón sin salida por no tener fila en el crosswalk. No lo
+son: `resolveWarehouse()` cae a `erp_goods_receipts.warehouse_id`, y las 9
+resuelven almacén. El menú copia **la cascada entera**, no sólo el crosswalk —
+si copiara la mitad ofrecería vales que después rebotan con 400.
+
+**3. El contador mentía y lo corregí antes de que lo vieras.** A 30 días el CEDIS
+marcaba **521 pendientes**, pero la app tiene 22 sesiones en total: "sin sesión" a
+30 días es casi el histórico entero de Kepler, no trabajo del día.
+
+### La regla del día, y lo que se midió contra ella
+
+Edgar pidió **sólo la fecha de hoy, los pasados no**. Medí y le dije que eso deja
+la pantalla vacía: hoy **0 vales**, ayer **1**, mientras un día hábil normal trae
+entre **22 y 55** (los domingos dan 1 y el 16/09 feriado dio 2, así que la serie
+es sana). Y los 4 vales grandes de THE KLASS por **$333,434** están fechados **al
+día siguiente**: `receipt_date` es la fecha del DOCUMENTO de Kepler, no la del
+camión — se adelanta, se atrasa y a veces trae un dedazo (uno al 29/12).
+
+Reafirmó la regla, así que se aplica **literal**: no hay parámetro de ventana en
+ninguno de los dos endpoints, y el día vacío **no se amplía solo**. Lo que sí se
+hizo es tratar el vacío como pantalla de primera clase — explica el motivo, empuja
+el folio a mano y da la referencia de un día normal, para que quien lo mire sepa
+si es un día flojo o si algo se rompió.
+
+### El bug latente que la regla destapó
+
+La sesión de la base corre en **`Etc/UTC`** (medido con `SHOW TimeZone`). Con
+`CURRENT_DATE` pelado, **a las 7 PM de México el andén cambiaría de día**: le
+mostraría los vales de mañana y le escondería los del turno. Medido: a esa hora
+`CURRENT_DATE` devuelve **4 vales** —los del 25, el día equivocado— y la hora de
+México devuelve **0**, que es la verdad. Queda con
+`AT TIME ZONE 'America/Mexico_City'`, el mismo patrón que ya usa
+`commercial-analytics`. Sin eso, la regla fallaba justo en el turno de la tarde.
+
+### Lo que se construyó
+
+`GET /erp-pending-branches` (el menú, con el modo del alcance) y
+`GET /erp-pending?sucursal=` (los vales de esa plaza). "Pendiente" se **deriva**:
+el vale existe en el espejo y no hay `receiving_sessions.source_ref =
+sucursal/folio` — una bandera "ya recibido" se desincroniza en cuanto alguien
+cancela una sesión. El alcance se filtra por **código de almacén, no por
+sucursal**: la `30` entra al `08`, la `50` al `06` y la `32` a `MD-32`.
+
+En pantalla, `modo` pasa de `inicio | alta` a `inicio | alta | vales | folio`:
+`alta` ya no es el campo de folio sino el menú, y el folio queda como respaldo al
+que se llega a propósito.
+
+**El folio a mano se conservó por decisión de Edgar**, y la medición le dio la
+razón: con sólo-hoy hay días en que el menú sale vacío, y sin esa salida el
+bodeguero se queda con el papel en la mano.
+
+### Dos errores propios, los dos encontrados rompiendo a propósito
+
+- **Backticks dentro del template literal.** Quinta vez en este repo. El error que
+  sale habla de comas, no de comentarios.
+- **El candado del backtick no podía ver el backtick.** Su extractor cortaba el
+  bloque en el próximo acento grave, así que el acento de más terminaba el bloque
+  y el candado pasaba en verde con el archivo roto. Se vio al sabotearlo. Ahora
+  corta en el cierre del decorador, y hay un candado extra que comprueba que el
+  extractor devuelve bloques de verdad y no cadenas vacías.
+
+**Verificación:** `ngc` y `tsc` de la API **0 errores** · `anden-menu.spec` **9
+candados**, con los tres de fondo **vistos en ROJO a propósito** (volver a
+`CURRENT_DATE` · inyectar un backtick · el extractor vacío) · suite `view`
+**778 pasan**, `commercial` **143/143**. Las 7 fallas de `landing-guards` (SN.4)
+que arrastrábamos ya no existen: se arreglaron en `main`.
+
+**Pendiente:** validación visual + redeploy de `api` y `view`. **Sin migración y
+sin re-login.** Y sigue abierto `INV-2026-00009`: aunque el menú funcione, Padre
+Hidalgo no va a poder fechar hasta que se cancele ese conteo.
+
+---
 ## 2026-09-23 — `[ZN.0]` Zona, sucursal y ruta eran la misma columna
 
 **Disparador:** el lead, revisando la auditoría de usuarios — *«un ejemplo claro de mal

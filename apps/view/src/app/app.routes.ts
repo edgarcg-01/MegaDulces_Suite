@@ -1421,6 +1421,25 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
       },
       {
+        /*
+         * `[GX.16]` Áreas de gasto: con cuál nombre de «solicitante» de Kepler se le
+         * reconocen sus gastos a cada persona.
+         *
+         * Existe porque el selector por usuario no alcanzaba: medido el 2026-09-24,
+         * **0 de 76** personas que capturan o revisan gastos tenían un área asignada, y
+         * asignarlas era abrir 76 diálogos. El efecto no se veía como error — la persona
+         * abría su bandeja y encontraba una lista vacía.
+         *
+         * `USUARIOS_GESTIONAR` y no un permiso nuevo: lo que se escribe es un campo de
+         * `users`, y quien administra usuarios ya podía hacer esto mismo diálogo por
+         * diálogo. Un permiso nuevo exigiría migración y re-login sin dar nada que no
+         * se tuviera ya.
+         */
+        path: 'areas-gasto',
+        loadComponent: () => import('./modules/dashboard/admin-users/areas-gasto.component').then(m => m.AreasGastoComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      {
         // `[AU.3]` El catálogo de puestos y la cadena de mando. Hasta ahora sólo
         // se administraba por migración.
         path: 'puestos',

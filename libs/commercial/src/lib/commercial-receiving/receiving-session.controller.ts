@@ -58,6 +58,27 @@ export class ReceivingSessionController {
     });
   }
 
+  /**
+   * El MENU del Anden: a que sucursal entra la mercancia y cuanto falta por
+   * recibir en cada una. Acotado al alcance de almacen del usuario.
+   */
+  @Get('erp-pending-branches')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Menu del Anden: sucursales con vales de entrada de HOY (fecha de Mexico) que nadie abrio. Acotado al alcance de almacen del usuario; marca las que no tienen mapa sucursal->almacen.',
+  })
+  erpPendingBranches() {
+    return this.service.pendingErpBranches();
+  }
+
+  @Get('erp-pending')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({ summary: 'Vales de entrada de HOY de UNA sucursal, sin abrir, listos para el Anden.' })
+  erpPending(@Query('sucursal') sucursal: string, @Query('limit') limit?: string) {
+    return this.service.pendingErpOrders(sucursal, limit ? Number(limit) : undefined);
+  }
+
   @Get('erp-search')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({

@@ -1660,6 +1660,262 @@ build en este repo (CLAUDE.md ya lo marcaba a la cuarta). Pasó al documentar un
 
 ---
 
+## GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código)
+
+Dos cosas que quien gasta tiene que aportar **antes** de que su solicitud llegue a revisión, y
+que Kepler no pide. Las dos salen de una medición sobre prod del 2026-09-23:
+
+- **`forma_pago` vacía en 5,410 de 10,082 solicitudes (54%) = $20,283,721.89.** El campo existe
+  en el ERP (`kdm1.c90` → `analytics.expense_requests.forma_pago`) y nadie lo llena porque nada
+  se lo pide. Para un solicitante concreto (LEONARDO CAZARES, 1,513 folios / $4.8 M en 12 meses)
+  está declarada en **5**. O sea 0.3%.
+- **`finance.expense_proofs` tenía 9 filas** contra esas 10,082 solicitudes (**0.09%**). La
+  tubería de evidencia de GX.7–GX.13 está construida y prácticamente sin uso.
+
+- [x] **[GX.14.1]** El catálogo de formas de pago y **la compuerta** suben a `libs/contracts`
+      (`finance/forma-pago.contract.ts` + `finance/aporte-solicitante.contract.ts`). No es
+      adorno: la MISMA función `faltaParaMandar()` enciende el botón del frontend y arma el
+      `400` del backend. Escrita dos veces se separa — el defecto que **ADR-056 midió ocho
+      veces**. Cada forma lleva el **código con el que Kepler/SAT la guardan** (01/02/03/04/07/99),
+      así lo declarado es conmensurable con lo que el ERP ya tiene.
+      ⚠️ **Lo que se deja fuera se declara:** en prod existen además `06` (9) y `98` (13) =
+      22 de 10,082 (0.2%); `98` ni siquiera es del catálogo SAT. Quien tenga uno elige `otro`
+      y lo escribe, en vez de recibir un código falso.
+- [x] **[GX.14.2]** Migración `20260923120000` — `finance.expense_proofs.forma_pago` +
+      `forma_pago_detalle` + CHECK del catálogo cerrado. Idempotente (verificado corriendo
+      `up()` **tres veces**: 2 columnas, no 6). **Prueba negativa corrida:** un `INSERT` con
+      `forma_pago='bitcoin'` es rechazado por el CHECK.
+      Los 9 expedientes viejos quedan en NULL **a propósito**: nadie se lo preguntó, y eso es
+      distinto de «no lo declaró».
+      ⚠️ Columna en español (`forma_pago`, no `payment_method`) porque la hermana de
+      `analytics.expense_requests` ya se llama así y el objetivo es que sean conmensurables;
+      la tabla además es español de punta a punta.
+- [x] **[GX.14.3]** **La foto sólo se toma en vivo.** Nace `CapturaEnVivoComponent`
+      (`getUserMedia` → `<video>` → `<canvas>` → JPEG). Se retiran el `<input type="file">` y el
+      arrastrar-y-soltar del comprobante, en la captura **y** en la subida post-aprobación:
+      dejar la segunda puerta abierta volvía decorativa a la primera.
+      El `capture="environment"` que había era una **sugerencia** — en escritorio abría el
+      explorador y en móvil la galería seguía disponible.
+      ⛔ **Si el navegador niega la cámara NO se cae a subir archivo.** Muestra el motivo
+      (permiso / sin cámara / conexión no segura) y sugiere el celular. Es decisión, no olvido.
+- [x] **[GX.14.4]** El archivo viaja con su **sello** (`live` + `captured_at`) y el sello se
+      borra junto con el archivo. `sellos` va aparte de `names` porque son dos preguntas
+      distintas: «hay archivo» y «se tomó en el momento».
+- [x] **[GX.14.5]** `GET /finance/expenses/proofs/resumen` — lo que pidió **esta** persona:
+      totales, mes a mes, en qué quedaron, a quién le pidió más, y las dos coberturas
+      (forma de pago declarada / con expediente).
+      Sin alcance devuelve **`medido: false` con el motivo, nunca ceros** (ADR-056): un 0 se
+      lee como «no pediste nada», que no es lo mismo que «no puedo saberlo».
+- [x] **[GX.14.6]** El buscador abarca **concepto y cuenta** además de beneficiario, y el
+      **monto** — pero el monto **sólo dentro del alcance**. El folio numérico sigue abierto
+      sin áreas a propósito («subí lo que te dieron»); abrir el monto con la misma manga
+      dejaría pescar el gasto ajeno tecleando cifras hasta que caiga algo.
+      El alcance se extrajo a `alcanceDelUsuario()` para que la búsqueda y el resumen usen
+      **el mismo recorte** en vez de dos copias.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.27 MB, dentro del presupuesto).
+- **32 pruebas unitarias nuevas, corridas y verdes**: 20 del contrato (`contracts` 115 → 135)
+  + 12 del componente de cámara (`view` 29/30 archivos; los 7 rojos de `landing-guards.spec.ts`
+  son **preexistentes** — sus dos entradas, `app.routes.ts` y `suite-map.ts`, están intactas en
+  el árbol de trabajo).
+- Migración aplicada y con prueba negativa **contra la DB local**, no contra `platform_test`:
+  ⚠️ **`.245` estaba caído** (`ETIMEDOUT`) al momento de cerrar. Hay que repetirlo ahí.
+
+### ⬜ Pendiente
+
+- Migración a `platform_test` (cuando vuelva) y después a Railway.
+- **Validación visual**: la cámara no se puede ejercer sin `getUserMedia` real (exige HTTPS o
+  `localhost`) ni el cuadre sin `ANTHROPIC_API_KEY` y bucket.
+- Redeploy api + view. Sin permisos nuevos → **no hace falta re-login**.
+- Los **9 expedientes** que ya existen quedan sin forma de pago. Decisión de negocio: se les
+  pide hacia atrás, o se declara el corte y se arranca limpio desde una fecha.
+
+### ⚠️ El límite, escrito y no escondido
+
+`live` lo pone el cliente. **No es una prueba de que la foto es de hoy**: es que la interfaz no
+ofrece otro camino y que el archivo llega diciendo de dónde salió. Volverlo demostrable del
+lado del servidor exige otra cosa (canal de cámara con sesión, o EXIF contra la hora de
+captura) y **no está hecho**.
+
+⚠️ **Sexta vez** que un acento grave dentro de un comentario del template literal rompe el
+build acá (GX.13 lo marcó a la quinta). Pasó dos veces en la misma sesión, las dos al citar un
+identificador dentro de un comentario HTML del `template`.
+
+---
+
+## GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código)
+
+La historia de un gasto vivía repartida en cuatro lugares y había que cruzar tres pantallas
+para armarla. Ahora se pide por `(sucursal, folio)` y sale entera, con su PDF.
+
+| # | Eslabón | Dónde vive | De quién es |
+|---|---|---|---|
+| 1 | La solicitud `XA1501` | `analytics.expense_requests` | Kepler |
+| 2 | El expediente (forma de pago + fotos) | `finance.expense_proofs` | nuestro (GX.7–GX.14) |
+| 3 | El gasto aplicado `XA1001` | `analytics.expense_documents` | Kepler |
+| 4 | La comprobación | `finance.expense_comprobaciones` | nuestro (GX.8) |
+
+- [x] **[GX.15.1]** `GET /finance/expenses/expediente/:sucursal/:folio` — la cadena completa
+      con la **etapa del trámite derivada** y qué falta. ⭐ **No hizo falta decodificar nada ni
+      inventar una tabla puente**: la asociación ya estaba en Kepler y es limpia — medido, los
+      **9,073 gastos aplicados traen el folio de su solicitud en `c39`: el 100%**.
+- [x] **[GX.15.2]** `GET …/:sucursal/:folio/pdf` — el expediente imprimible. Dice en el pie
+      lo que **no** es: respaldo interno, **no comprobante fiscal ni póliza**.
+- [x] **[GX.15.3]** `GET …/listas-para-comprobar` — «cuando en Kepler se lo autoricen, tenerle
+      lista su comprobación». No hace falta que nadie avise ni que corra un proceso: en cuanto
+      el `XA1001` aparece en el ODS, la fila aparece con todo resuelto (folio del gasto,
+      importe, beneficiario, y si cuadra contra lo pedido).
+      Sin alcance devuelve **`medido:false` con el motivo, nunca una lista vacía**: un vacío a
+      secas se lee como «no tenés nada pendiente», que es otra afirmación (ADR-056).
+- [x] **[GX.15.4]** Frontend: sección **Listas para comprobar** en la pantalla de quien gasta
+      + botón de expediente. El PDF se baja como **blob**, no con `<a href>`: la ruta exige el
+      token y un enlace directo abriría un 401 en una pestaña en blanco.
+- [x] **[GX.15.5]** `libs/finance/src/lib/shared/chromium-pdf.ts` — el singleton de Chromium
+      sube a un solo lugar. Ya estaba escrito **dos veces** a mano (`AnexoVentaService` en
+      `libs/commercial`, `PaymentCalendarDocumentService` en `libs/finance`); hacer la tercera
+      copia era el defecto que ADR-056 midió ocho veces.
+
+### ⚠️ Los tres hallazgos que cambiaron el diseño
+
+1. **Un gasto no es uno solo.** Medido: **8,705 solicitudes tienen 1 gasto, 165 tienen 2, 10
+   tienen 3 y 2 tienen 4**. Modelarlo 1:1 —la tentación, porque el 96% lo es— habría hecho que
+   esas **177** mostraran un gasto arbitrario y escondieran el resto **sin un solo error en el
+   log**. Por eso `gastos` es una lista y el cuadre se juzga contra la **suma**.
+2. **El JOIN entre las dos vistas del ODS no termina.** Cruzar `expense_documents` con
+   `expense_requests` sobre 90 días **se pasó de 90 s y lo canceló el timeout**; sobre toda la
+   historia pasó de **5 minutos sin devolver**. Separado en dos viajes: **1.2 s**. El pegado se
+   hace en memoria, sobre cientos de filas.
+3. **El orden de los dos viajes también importa.** Arrancando por los gastos hay que topar el
+   primer viaje (medido: **3,000 filas en 90 días, tope alcanzado**) y el recorte por persona
+   ocurre después → a quien sólo ve lo suyo **le faltarían filas sin que nada lo avise**.
+   Arrancando por las solicitudes el universo ya viene recortado y completo: **606 ms** para
+   una persona, **1,278 ms** para toda la empresa.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.27 MB).
+- **16 pruebas unitarias nuevas** sobre la función pura `derivarEtapa` (`finance` 129 → **145**).
+  **Prueba negativa corrida**: moví la pregunta de `cancelada` al final a propósito → la suite
+  se puso **roja** en el caso exacto, y verde otra vez al restaurar.
+- Las tres consultas del servicio, medidas contra **prod** (lectura): cadena de un folio
+  **287 ms**, gastos de una solicitud **269 ms**, listas-para-comprobar **606 ms / 1,278 ms**.
+- Corregida una aserción **vacua** que yo mismo escribí: `.not.toContain(expect.stringContaining(…))`
+  no compara con el matcher dentro de un arreglo — no podía fallar nunca.
+
+### 📊 Lo que la medición dejó a la vista
+
+**3,146 gastos ya aplicados en los últimos 90 días esperan comprobación** (de 3,254
+solicitudes). Es coherente con que `finance.expense_comprobaciones` tenga **1 fila** en prod:
+el módulo existe desde GX.8 y no se usa.
+
+La cadena completa, medida sobre **toda la historia** (la consulta que tardó ~2 h en
+devolver — el mismo JOIN que el servicio evita a propósito):
+
+| | |
+|---|---|
+| Solicitudes | **10,206** |
+| …con gasto aplicado en Kepler | 8,900 |
+| …con **expediente propio** | **9** |
+| …con **comprobación propia** | **1** |
+| Autorizadas o aplicadas | 8,999 |
+| Autorizadas (`A`) todavía sin gasto | 284 · $733,639.05 |
+
+⚠️ **Y el cuadre gasto↔solicitud, que nadie estaba mirando:** de los 8,899 gastos con
+solicitud ligada, **8,310 cuadran** (desvío acumulado de **$11.88** en total — es decir,
+exacto) y **589 difieren, con un desvío acumulado de $5,713,694.89**. No es un error de
+nuestro lado: es lo que Kepler aplicó contra lo que se había pedido. El expediente ahora lo
+declara folio por folio (`lo aplicado no cuadra con lo solicitado`), pero **explicar esos
+589 casos es trabajo de negocio, no de software** — pueden ser ajustes legítimos, gastos
+parciales o captura. ⬜ Sin dueño asignado.
+
+### ⬜ Pendiente / declarado
+
+- **Sin migración y sin permisos nuevos** → no hace falta re-login. Sí redeploy api + view.
+- **Validación visual y prueba del PDF en vivo**: `puppeteer` no se ejerció en esta sesión.
+  Es lo primero a probar; en Railway puede hacer falta `PUPPETEER_EXECUTABLE_PATH`.
+- **Las evidencias NO viajan embebidas en el PDF**, a propósito: el archivo pesaría decenas de
+  MB y convertiría una URL firmada temporal en una copia permanente que circula sin control.
+  Se listan con su rol y su sello de captura.
+- ⬜ **Deuda con nombre:** `PaymentCalendarDocumentService` sigue con su copia del singleton de
+  Chromium y debe migrar a `shared/chromium-pdf.ts`. No se migró acá a propósito: ya está en
+  prod y cambiarle el motor en el mismo commit que estrena una fase mezcla dos riesgos.
+- ⬜ El botón de expediente **sólo está en la pantalla de quien gasta**; falta en el tablero de
+  revisión (`finanzas-solicitudes.component.ts`, 898 líneas — se dejó fuera por alcance).
+- ⚠️ La ventana de `listas-para-comprobar` es sobre la fecha de la **solicitud**, no la del
+  gasto (en los datos suelen ser el mismo día). Un gasto aplicado tarde sobre una solicitud
+  vieja cae fuera de la ventana.
+
+---
+
+## GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código)
+
+⛔ **Esta fase nació de un error mío, y conviene que quede escrito.** Al revisar por qué
+nadie veía sus gastos concluí que faltaba construir el selector de áreas. **Era falso: ya
+existía** en `/admin/usuarios` desde GX.8. Llegué ahí por grepear `formControlName` en el
+`.ts` del componente, cuando la plantilla vive en un `.html` aparte. Alcancé a agregar un
+campo duplicado y una prueba montada sobre esa premisa; **lo destapó la prueba negativa**
+(rompí el binding esperando rojo y siguió verde, porque había dos ocurrencias). Revertido.
+
+Lo que sí era cierto, medido el 2026-09-24: de **76 personas** que capturan o revisan
+gastos, **0 tenían un área asignada**. No es un hueco de software — es que asignarlas
+significaba abrir 76 diálogos de uno en uno. Y el efecto no se veía como error: la persona
+abría su bandeja y encontraba una lista vacía, que se lee «no tenés nada pendiente».
+
+- [x] **[GX.16.1]** `area-match.ts` — función pura que propone. **La regla es
+      deliberadamente estricta**: el nombre del área tiene que estar contenido ENTERO en el
+      de la persona, con dos palabras propias como mínimo.
+      ⚠️ **Asignar un área da visibilidad sobre el gasto de otro**, así que una propuesta
+      mal hecha confirmada en lote es una fuga, no un detalle. El primer matcher (tokens en
+      común) proponía, sobre datos reales: `Miriam Jazmin Carrillo Contreras` →
+      `JUAN JESUS CARRILLO CONTRERAS` (otra persona, mismos apellidos), `Maria del Pilar
+      Nava Tafoya` → `MARIA DEL CARMEN RODRIGUEZ VERA`, y `JOSE LUIS MUÑOZ MOTA` → `LUIS F`.
+      Los tres son casos de prueba hoy.
+- [x] **[GX.16.2]** `GET/POST /finance/expenses/areas/asignacion` — estado + propuestas, y
+      aplicar lo confirmado. Valida que **todo id exista en el catálogo del tenant** antes
+      de escribir: un id inventado quedaría guardado y el alcance lo ignoraría en silencio,
+      dejando a la persona creyendo que tiene acceso.
+- [x] **[GX.16.3]** `/admin/areas-gasto` — las 76 juntas, con la propuesta y su evidencia
+      (cuántas solicitudes trae cada área) al lado, y confirmación en lote.
+      «Poner todas las propuestas» **llena la pantalla pero no guarda**: guardar es un acto
+      aparte, a propósito.
+
+### Lo que la regla estricta rinde, medido
+
+| | |
+|---|---|
+| Personas que capturan o revisan gastos | **76** |
+| Ya casan exacto por nombre (funcionan hoy) | 17 |
+| Reciben una propuesta única | 10 |
+| Reciben varias (variantes del mismo nombre) | 2 |
+| **Sin propuesta — quedan a mano** | **47** |
+
+⭐ Los 2 «ambiguos» resultaron ser el mismo nombre escrito de tres formas en el catálogo
+(`ANGEL MEJÍA` · `ANGEL MEJIA` · `ANGEL VAZQUEZ MEJIA`), así que se proponen **las tres**:
+el campo del usuario es una lista justamente para eso.
+
+⚠️ Los 47 sin propuesta **se declaran, no se rellenan**. Bajar el umbral para que «no quede
+nadie fuera» es exactamente cómo se cuela el caso `Miriam → JUAN JESUS`. La pantalla los
+lista igual con su buscador: el problema era que estaban invisibles.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.27 MB) · `nx test view` sin
+  regresiones (los 7 rojos de `landing-guards.spec.ts` son preexistentes y están intactos).
+- **14 pruebas unitarias nuevas** sobre la función pura (`finance` 145 → **159**), incluidos
+  los tres falsos positivos como casos negativos.
+
+### ⬜ Pendiente
+
+- **Sin migración y sin permisos nuevos** (reusa `USUARIOS_GESTIONAR`) → no hace falta
+  re-login. Sí redeploy api + view.
+- **Validación visual**: la pantalla no se ejerció en un navegador.
+- La asignación en sí **sigue siendo una decisión humana**: esto la hace posible en una
+  sentada, no la hace sola.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
