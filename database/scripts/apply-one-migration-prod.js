@@ -1,26 +1,103 @@
+/* eslint-disable no-console */
 /**
  * Aplica UNA migración de `migrations-newdb` a PROD, por nombre de archivo.
  *
- * POR QUÉ existe: `npx knex migrate:latest --knexfile database/knexfile-newdb.js` apunta a
- * `DATABASE_URL_NEW`, que en `.env` es una COPIA LOCAL vieja — no prod (prod es `FLEET_DB_URL`,
- * ver reference_prod_db_connection_topology). Y `migrate:latest` aplicaría también las migraciones
- * pendientes de OTROS devs, que no me toca aplicar. Esto corre exactamente una, la mía.
+ *   node database/scripts/apply-one-migration-prod.js --list
+ *   node database/scripts/apply-one-migration-prod.js 20260903170000_algo.js
  *
- *   node database/scripts/apply-one-migration-prod.js 20260903170000_algo.js [--list]
+ * ── ⛔ LEER ESTO ANTES DE CORRERLO: EL `.env` APUNTA A LA BASE EQUIVOCADA ────────────────────
+ *
+ * Este script leía `FLEET_DB_URL` a secas. Medido el 2026-09-24, esa variable en el `.env` de
+ * esta máquina sigue diciendo **`trolley.proxy.rlwy.net` (Railway)** aunque prod se mudó a
+ * **`md` (192.168.0.222)** el 2026-09-22. O sea que el camino documentado para migrar prod
+ * llevaba, en silencio, a un clúster que ya no es prod — y una migración aplicada allá se ve
+ * exactamente igual de exitosa que una aplicada acá.
+ *
+ * No es hipotético: es la misma clase de error que dejó al respaldo de prod volcando Railway
+ * durante días (ver `ops/prod/backup-prod.sh`, «Compuerta 1-bis»). Un destino equivocado no
+ * falla: **triunfa en el lugar equivocado**, y eso no deja rastro que alguien vaya a mirar.
+ *
+ * Por eso este script ahora **verifica la IDENTIDAD del clúster** (`pg_control_system()`) antes
+ * de escribir una sola fila, y se niega si no es la de prod. La identidad no se puede confundir
+ * con la forma: una restauración de prod tiene las mismas tablas y los mismos datos, y otro
+ * identificador.
+ *
+ * ── Cómo apuntarlo bien ─────────────────────────────────────────────────────────────────────
+ * Define `PROD_DB_URL` en tu `.env` apuntando a `192.168.0.222:5434` (el puerto está abierto en
+ * la LAN; la credencial vive en `~/secrets/prod-compose.env` DE `md`, no en este repo).
+ *
+ * ── O el camino que no mueve ningún secreto, y es el que se usó el 2026-09-24 ───────────────
+ * Correrlo DENTRO del contenedor de prod, que ya tiene knex, las migraciones y la URL buena:
+ *
+ *     scp database/migrations-newdb/<archivo>.js superoot@192.168.0.222:/tmp/
+ *     scp database/scripts/apply-one-migration-prod.js superoot@192.168.0.222:/tmp/
+ *     ssh superoot@192.168.0.222 'docker cp /tmp/<archivo>.js prod-api:/app/database/migrations-newdb/ \
+ *       && docker cp /tmp/apply-one-migration-prod.js prod-api:/app/database/scripts/ \
+ *       && docker exec prod-api node /app/database/scripts/apply-one-migration-prod.js <archivo>.js'
+ *
+ * ⚠️ Va a `/app/database/scripts/`, NO a `/app/`: el directorio de migraciones se resuelve
+ *    relativo a este archivo (`__dirname/../migrations-newdb`). Puesto en `/app` busca en
+ *    `/migrations-newdb` y falla con ENOENT — después de haber pasado el candado de identidad,
+ *    o sea que el mensaje no se parece en nada a la causa.
+ *
+ * ⚠️ Knex compara `knex_migrations` contra el DIRECTORIO y aborta con «migration directory is
+ *    corrupt» si falta un archivo que la tabla ya registra. En el contenedor eso pasa seguido:
+ *    su imagen es de un commit viejo y otras sesiones aplicaron migraciones que todavía no están
+ *    pusheadas. Hay que copiarle TAMBIÉN esos archivos (el error los nombra uno por uno). Son
+ *    migraciones ya aplicadas: knex no las vuelve a correr, sólo necesita verlas.
+ *
+ * ── Y por qué una por una y no `migrate:latest` ─────────────────────────────────────────────
+ * ⛔ En prod hay **DOS** `knex_migrations` y el `search_path` lleva a la vacía: `migrate:latest`
+ *    contra la tabla equivocada reaplicaría 800 migraciones. Acá `schemaName` es explícito.
+ * ⛔ Y aplicaría además lo pendiente de OTRAS sesiones, que no te toca aplicar.
  *
  * NUNCA imprime la cadena de conexión.
  */
 'use strict';
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
-const url = process.env.FLEET_DB_URL;
-if (!url) { console.error('Falta FLEET_DB_URL en .env'); process.exit(1); }
+// Dentro del contenedor de prod no hay `.env` del repo ni `dotenv`: ahí la URL ya viene del
+// entorno. Por eso el require es tolerante — si falla, se sigue con `process.env` tal cual.
+try {
+  require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+} catch { /* sin dotenv (p. ej. corriendo dentro del contenedor): se usa el entorno */ }
+
+/**
+ * La identidad del clúster de PROD, medida el 2026-09-24 con
+ * `select system_identifier from pg_control_system()` contra `pg-prod` en `md`.
+ *
+ * ⚠️ Este número cambia si prod se restaura desde cero en otro clúster. Cuando eso pase hay que
+ * actualizarlo A MANO y decir por qué — que es justamente el punto: un destino nuevo tiene que
+ * ser una decisión escrita, no algo que ocurra porque una variable de entorno cambió sola.
+ */
+const PROD_CLUSTER_ID = process.env.PROD_CLUSTER_ID || '7688376744939610156';
+
+// Orden a propósito: primero la URL que el contenedor de prod ya tiene bien, después la explícita
+// del `.env`, y `FLEET_DB_URL` **última** porque es la que quedó vieja. Cualquiera de las tres
+// pasa igual por el candado de identidad — la lista no decide nada, sólo ahorra escribir.
+const url = process.env.DATABASE_URL_NEW_PROD || process.env.PROD_DB_URL
+  || (process.env.DATABASE_URL_NEW && process.env.NODE_ENV === 'production' ? process.env.DATABASE_URL_NEW : null)
+  || process.env.FLEET_DB_URL;
+if (!url) {
+  console.error('Falta la URL de prod. Define PROD_DB_URL en .env, o corré esto dentro de `prod-api` (ver la cabecera).');
+  process.exit(1);
+}
 
 const knex = require('knex')({
   client: 'pg',
-  connection: { connectionString: url, ssl: { rejectUnauthorized: false } },
-  pool: { min: 0, max: 2 },
+  connection: /rlwy\.net|railway\.app/.test(url)
+    ? { connectionString: url, ssl: { rejectUnauthorized: false } }
+    : { connectionString: url },
+  pool: {
+    min: 0,
+    max: 2,
+    // `lock_timeout` es la red de seguridad: si una migración no consigue su lock en 15 s, falla
+    // ELLA en vez de hacer cola delante de todo el tráfico de prod. `statement_timeout` en 0
+    // porque un `CREATE INDEX CONCURRENTLY` puede tardar y cortarlo a mitad deja el índice
+    // INVÁLIDO — que el planificador ignora, o sea lento y en silencio.
+    afterCreate: (conn, done) =>
+      conn.query("SET lock_timeout='15s'; SET statement_timeout=0;", (e) => done(e, conn)),
+  },
   migrations: {
     directory: path.resolve(__dirname, '..', 'migrations-newdb'),
     tableName: 'knex_migrations',
@@ -29,24 +106,42 @@ const knex = require('knex')({
 });
 
 (async () => {
+  // ── Compuerta de IDENTIDAD, antes de cualquier escritura ──────────────────────────────────
+  const { rows: [id] } = await knex.raw(
+    'select (select system_identifier from pg_control_system())::text as id, current_database() as db',
+  );
+  if (id.id !== PROD_CLUSTER_ID) {
+    throw new Error(
+      `DESTINO EQUIVOCADO — no se escribe nada.\n` +
+      `  clúster conectado : ${id.id} (base "${id.db}")\n` +
+      `  clúster de prod   : ${PROD_CLUSTER_ID}\n` +
+      `Casi seguro estás apuntando a Railway por el FLEET_DB_URL viejo del .env, o a una copia. ` +
+      `Ver la cabecera de este archivo.`,
+    );
+  }
+  console.log(`  identidad de prod verificada: ${id.id} · base "${id.db}"`);
+
   const arg = process.argv[2];
+  const [done, pending] = await knex.migrate.list();
+  const names = pending.map((p) => p.file || p);
   if (!arg || arg === '--list') {
-    const [done, pending] = await knex.migrate.list();
     console.log(`aplicadas: ${done.length} · pendientes: ${pending.length}`);
-    console.log('\nPENDIENTES:');
-    pending.forEach((p) => console.log('  ·', p.file || p));
+    if (names.length) { console.log('\nPENDIENTES:'); names.forEach((p) => console.log('  ·', p)); }
     await knex.destroy();
     return;
   }
-  const [, pendingBefore] = await knex.migrate.list();
-  const names = pendingBefore.map((p) => p.file || p);
   if (!names.includes(arg)) {
     console.error(`"${arg}" NO está pendiente. Pendientes:\n  ${names.join('\n  ') || '(ninguna)'}`);
     await knex.destroy();
     process.exit(2);
   }
+  const t0 = Date.now();
   console.log(`aplicando ${arg} …`);
   const res = await knex.migrate.up({ name: arg });
-  console.log('OK →', JSON.stringify(res));
+  console.log(`OK → ${JSON.stringify(res)} · ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   await knex.destroy();
-})().catch(async (e) => { console.error('FALLA:', e.message); try { await knex.destroy(); } catch { /* noop */ } process.exit(1); });
+})().catch(async (e) => {
+  console.error('FALLA:', e.message);
+  try { await knex.destroy(); } catch { /* noop */ }
+  process.exit(1);
+});
