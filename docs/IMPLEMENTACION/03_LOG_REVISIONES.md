@@ -319,6 +319,73 @@ que arrastrábamos ya no existen: se arreglaron en `main`.
 **Pendiente:** validación visual + redeploy de `api` y `view`. **Sin migración y
 sin re-login.** Y sigue abierto `INV-2026-00009`: aunque el menú funcione, Padre
 Hidalgo no va a poder fechar hasta que se cancele ese conteo.
+## 2026-09-24 — `[CAT.7]` El catálogo imprime: reporte de precios por proveedor
+
+**Disparador:** pedido directo — *«en la sección de catálogo, agrega un apartado para imprimir un
+reporte, con las opciones de proveedores, poder seleccionar los productos de esos proveedores,
+además de poder elegir qué apartados de los precios agregar»*.
+
+### De dónde sale el dato (y de dónde NO)
+
+La matriz de precios que el pedido describe —unidad, mayoreo, caja, paquete— **ya existía**:
+`commercial.product_label_prices`, la fila que imprime la etiqueta de anaquel y que lee el
+verificador del mostrador (`kdii.c90/c91/c92` + `kdpv_prod_util`). No se construyó una segunda
+materialización: el reporte **lee esa tabla**, con su vista consolidada `v_product_label_prices`
+para los lectores que no distinguen plaza.
+
+⚠️ **Lo que se dejó afuera a propósito:** la lista `BASE-MXN` (el `price_customer` que muestra la
+pestaña Catálogo). No tiene sucursal, la llena un importer desde la DB legacy y llega con semanas
+de rezago; en la misma hoja serían dos verdades sin etiqueta que las distinga.
+
+### Lo que la hoja tiene que declarar
+
+Un reporte impreso pierde el contexto que la pantalla da gratis, así que la carátula lleva:
+
+1. **De qué plaza es el precio.** Kepler lo guarda por sucursal (`[NORM.3]`). Sin plaza elegida sale
+   la forma consolidada, que **no es un promedio**: es la fila de la plaza que representa a la red,
+   y así se imprime, con esas palabras. **Medido en `platform_test`: 994 productos tienen precio de
+   pieza distinto entre plazas** — la carátula no es decorativa.
+2. **De cuándo es.** `meta.precios_al`; si no se pudo medir, la hoja dice *"sin fecha declarada"* y
+   la pantalla lo marca en ámbar. `null` no es "hoy" (ADR-056).
+3. **Qué falta.** Los renglones sin precio se cuentan arriba de la tabla y salen con guion —
+   **nunca `$0.00`**, que en una hoja de negociación es un precio y se defiende como tal.
+
+Y dos decisiones de producto: el **costo no viene tildado por default** (es la cifra que no puede
+terminar por descuido frente al proveedor), y un mayoreo **con precio y sin umbral** se imprime
+*"sin mínimo declarado"* en vez de inventarle un "desde 3" — misma guarda que la etiquetera, por el
+mismo motivo: *un mayoreo cuya condición no se conoce fabrica una discusión en el mostrador*.
+
+### Qué se probó, y qué destapó
+
+- `price-report.spec.ts` (22) — la elección de fuente y los huecos, **sin base**. La lógica se
+  extrajo a `price-report.ts` justamente para que se pudiera probar sin Postgres.
+- `catalogo-reporte-columnas.spec.ts` (18) — cómo se escribe cada celda de dinero.
+- `compras-catalogo-reporte.component.spec.ts` (19) — el componente **montado**.
+- `test-newdb-price-report.js` (16/16 contra `platform_test`, read-only) — lo único que sólo una
+  base contesta: que las 15 columnas existan en las **dos** fuentes (la lista se lee del `.ts` de
+  producción), que la vista consolidada **no abanique** (si abanicara, cada producto saldría
+  impreso 7 veces) con su contrapunto de que la tabla base sí tiene grano por sucursal, y la
+  **prueba negativa**: con una plaza inexistente salen los productos y **ninguno** con precio — o
+  sea que el filtro está en el `ON` y no en el `WHERE`, que son dos formas silenciosas de estar mal.
+
+**Tres defectos reales, ninguno visible para `tsc`:**
+
+1. ⛔ **`resource.value()` lanza en estado de error.** Con `value() ?? []` un corte de red no
+   mostraba el banner: reventaba el render y la pantalla quedaba en blanco. Lo destapó el spec que
+   **monta** el componente. Se corrigió con `hasValue()`. ⚠️ El mismo patrón sigue vivo en
+   `compras-catalogo.component.ts` y no se tocó en este PR (no es su alcance), pero queda anotado.
+2. ⛔ **`p-tableCheckbox`/`p-tableHeaderCheckbox` no existen en PrimeNG 22** (son
+   `p-table-checkbox`/`p-table-header-checkbox`). **Vitest pasó igual**; lo atrapó `nx build`. Y
+   `styleClass` en `p-select`/`p-multiselect`/`p-table` es un atributo muerto en v22: la clase va
+   en el host, y el spec **comprueba que llegó al DOM** en vez de suponerlo.
+3. ⚠️ **Un acento grave en un comentario CSS cierra el template literal.** Quinta vez en el repo.
+
+**Hallazgo ajeno, pre-existente:** `scripts/check-primeng-api.js` ya estaba en rojo en `main`
+(`styleClass p-table` 284 sobre techo 283, `p-multiselect` 40 sobre 39). Verificado que no viene de
+esta rama — se declara, no se arregla acá.
+
+**Pendiente:** validación visual en navegador (incluida la vista de impresión) y redeploy api+view.
+Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
 ## 2026-09-23 — `[ZN.0]` Zona, sucursal y ruta eran la misma columna

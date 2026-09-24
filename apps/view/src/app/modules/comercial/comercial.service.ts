@@ -165,6 +165,72 @@ export interface ProductSupplierOption {
   product_count: number;
 }
 
+/**
+ * `[CAT.7]` Un renglón del **reporte de precios por proveedor**.
+ *
+ * Sale de `commercial.product_label_prices` — la misma fila que imprime la etiqueta del anaquel y
+ * que lee el verificador del mostrador. Los `numeric` de Postgres llegan como **texto**: formatear
+ * siempre con los helpers de `catalogo-reporte-columnas.ts`, nunca concatenando.
+ *
+ * ⚠️ `piece_price` es el precio de la unidad BASE (`unit_base`), que no siempre es la pieza: en los
+ * SKUs con base `PAQ` ya es el paquete.
+ */
+export interface PriceReportRow {
+  product_id: string;
+  sku: string | null;
+  nombre: string;
+  activo: boolean;
+  cost_base: string | number | null;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  brand_name: string | null;
+  /** Plaza de la que salió el precio. En modo consolidado puede diferir entre renglones. */
+  sucursal: string | null;
+  unit_base: string | null;
+  content: string | null;
+  barcode: string | null;
+  sold_by_kg: boolean | null;
+  piece_price: string | number | null;
+  wholesale_piece_min_qty: number | null;
+  wholesale_piece_price: string | number | null;
+  pack_size: number | null;
+  pack_price: string | number | null;
+  wholesale_pack_min_qty: number | null;
+  wholesale_pack_price: string | number | null;
+  box_size: number | null;
+  box_price: string | number | null;
+  computed_at: string | null;
+}
+
+/** Lo que la hoja impresa tiene que DECIR sobre sí misma: de qué plaza es y qué le falta. */
+export interface PriceReportMeta {
+  total: number;
+  mostrados: number;
+  /** La lista se cortó en `limite`. Un recorte mudo se lee como "el proveedor no tiene más". */
+  truncado: boolean;
+  limite: number;
+  sucursal: string | null;
+  sucursal_nombre: string | null;
+  /** `true` = precio consolidado (la plaza que representa a la red), NO el de una sucursal. */
+  consolidado: boolean;
+  sin_precio: number;
+  /** Cuándo se computaron estos precios. `null` = no se pudo medir, que NO es "hoy". */
+  precios_al: string | null;
+}
+
+export interface PriceReportResponse {
+  rows: PriceReportRow[];
+  meta: PriceReportMeta;
+}
+
+/** Una plaza con precio cargado (las únicas que sirven para el reporte). */
+export interface PriceReportBranch {
+  sucursal: string;
+  nombre: string;
+  productos: number;
+  computed_at: string | null;
+}
+
 export interface ProductStats {
   total: number;
   active: number;
@@ -977,6 +1043,33 @@ export class ComercialService {
   productSuppliers() {
     return this.http.get<ProductSupplierOption[]>(`${this.base}/products/suppliers`);
   }
+  /**
+   * `[CAT.7]` Reporte imprimible de precios por proveedor (matriz unidad/mayoreo/paquete/caja).
+   *
+   * `sucursal` vacío = forma consolidada. La respuesta dice en `meta.consolidado` cuál de las dos
+   * es, y la hoja lo imprime: un precio de papel sin plaza es el que se cobra mal en el mostrador.
+   */
+  priceReport(opts: {
+    supplier_ids?: string[];
+    sucursal?: string | null;
+    search?: string;
+    only_with_price?: boolean;
+    limit?: number;
+  } = {}) {
+    let params = new HttpParams();
+    if (opts.supplier_ids?.length) params = params.set('supplier_ids', opts.supplier_ids.join(','));
+    if (opts.sucursal) params = params.set('sucursal', opts.sucursal);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.only_with_price) params = params.set('only_with_price', 'true');
+    if (opts.limit != null) params = params.set('limit', opts.limit);
+    return this.http.get<PriceReportResponse>(`${this.base}/products/price-report`, { params });
+  }
+
+  /** Plazas CON precio cargado. No se ofrece una plaza sin datos: daría una hoja en blanco. */
+  priceReportBranches() {
+    return this.http.get<PriceReportBranch[]>(`${this.base}/products/price-report/sucursales`);
+  }
+
   productStats(search?: string) {
     let params = new HttpParams();
     if (search?.trim()) params = params.set('search', search.trim());

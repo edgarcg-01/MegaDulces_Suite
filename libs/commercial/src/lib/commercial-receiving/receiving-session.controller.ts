@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import type { ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
 import {
   ReceivingSessionService,
   OpenSessionDto,
@@ -68,14 +69,14 @@ export class ReceivingSessionController {
     summary:
       'Menu del Anden: sucursales con vales de entrada de HOY (fecha de Mexico) que nadie abrio. Acotado al alcance de almacen del usuario; marca las que no tienen mapa sucursal->almacen.',
   })
-  erpPendingBranches() {
+  erpPendingBranches(): Promise<ErpPendingMenu> {
     return this.service.pendingErpBranches();
   }
 
   @Get('erp-pending')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({ summary: 'Vales de entrada de HOY de UNA sucursal, sin abrir, listos para el Anden.' })
-  erpPending(@Query('sucursal') sucursal: string, @Query('limit') limit?: string) {
+  erpPending(@Query('sucursal') sucursal: string, @Query('limit') limit?: string): Promise<ErpOrderMatch[]> {
     return this.service.pendingErpOrders(sucursal, limit ? Number(limit) : undefined);
   }
 
