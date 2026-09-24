@@ -50,7 +50,12 @@ interface Cashflow {
   saldo_minimo_proyectado: number | null;
   buckets: CashBucket[];
   alerts: { week: string; saldo_proyectado: number | null; tipo: string }[];
-  sources: { cobros: { source: string; as_of: string | null } };
+  sources: { cobros: { source: string; as_of: string | null; base?: string } };
+  /** `[CXC.22]` Qué porción de la cartera cobrable dibuja esta curva, y qué queda fuera. */
+  cobranza_cobertura?: {
+    en_ventana: number; vencido_fuera: number; posterior: number;
+    sin_vencimiento: number; total: number; pct_en_ventana: number | null;
+  };
   freshness: Freshness; coverage: Coverage;
 }
 
@@ -555,6 +560,22 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <p class="pres-nodata"><span class="pi pi-info-circle"></span> Sin saldo inicial de bancos ({{ cf.opening_balance.reason || 'Fase CB' }}): el saldo proyectado y la alerta de insuficiencia se declaran (—). El neto por semana sí es real.</p>
             } @else if (cf.alerts.length) {
               <div class="pres-alert"><span class="pi pi-exclamation-triangle"></span> {{ cf.alerts.length }} semana(s) con posible falta de liquidez (saldo proyectado &lt; 0).</div>
+            }
+
+            <!-- [CXC.22] La curva agenda por fecha de vencimiento. Con la cartera 89.7% vencida,
+                 publicarla muda se lee como "esto es toda la cobranza que viene". -->
+            @if (cf.cobranza_cobertura; as cc) {
+              @if (cc.vencido_fuera > 0) {
+                <p class="pres-nodata">
+                  <span class="pi pi-info-circle"></span>
+                  Esta curva dibuja
+                  <strong>{{ cc.pct_en_ventana != null ? cc.pct_en_ventana + '%' : 'una parte' }}</strong>
+                  de la cartera cobrable ({{ money(cc.en_ventana) }} de {{ money(cc.total) }}).
+                  Quedan fuera <strong>{{ money(cc.vencido_fuera) }}</strong> que <b>ya vencieron</b>:
+                  son exigibles hoy y no tienen fecha comprometida, así que no se pueden agendar
+                  en una semana sin inventarles una.
+                </p>
+              }
             }
 
             <p-table [value]="cf.buckets" styleClass="p-datatable-sm surf-table pres-table">

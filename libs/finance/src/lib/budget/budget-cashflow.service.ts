@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
 import type { Coverage } from '@megadulces/contracts';
+import { cobranzaPrevista } from '../customer-ledger/cobranza-prevista';
 
 /**
  * Fase PU.3 — Presupuestos: flujo de efectivo previsto (ADR-066 / ADR-056).
@@ -62,14 +63,12 @@ export class BudgetCashflowService {
       }
 
       // ── Cobros previstos (cartera CXC) por semana ─────────────────────────────
-      const cobros = await trx('analytics.customer_receivables')
-        .where({ tenant_id: tenantId })
-        .andWhere('saldo_documento', '>', 0)
-        .whereBetween('vencimiento', [from, to])
-        .groupByRaw("date_trunc('week', vencimiento)")
-        .select(trx.raw("date_trunc('week', vencimiento)::date AS bucket"), trx.raw('coalesce(sum(saldo_documento),0) AS monto'));
-      const [cobrosMeta] = await trx('analytics.customer_receivables').where({ tenant_id: tenantId })
-        .select(trx.raw('max(computed_at) AS as_of'));
+      // [CXC.22] Un solo resolvedor, compartido con `budget-capacity`. Suma `saldo_ajustado`
+      // (no `saldo_documento`, que cuenta dos veces los abonos ya entrados) y devuelve la
+      // COBERTURA: la ventana hacia adelante ve el 13.5% de la cartera cobrable.
+      const prevista = await cobranzaPrevista(trx, tenantId, from, to);
+      const cobros = prevista.porSemana.map((b) => ({ bucket: b.bucket, monto: b.monto }));
+      const cobrosMeta = { as_of: prevista.as_of };
 
       // ── Pagos previstos (3 obligaciones) por semana ───────────────────────────
       const pagoSql = (table: string) => trx(table)
@@ -124,10 +123,30 @@ export class BudgetCashflowService {
           evalInput('cartera_cxc', 'Cartera / cobranza (kdue, CXC)', cobrosMeta?.as_of ?? null, 30),
           evalInput('bancos_cb', 'Bancos (Fase CB)', bank?.as_of ?? null, 30),
         ]),
-        coverage: { measured: opening.available, pct: null,
-          note: opening.available ? 'Saldo inicial de bancos disponible.' : 'Sin saldo inicial de bancos (Fase CB): el saldo proyectado va en null; el neto por semana sí es real.' } as Coverage,
+        // [CXC.22] La cobertura ya no mide sólo si hay saldo inicial: mide **qué porción de la
+        // cartera cobrable dibuja esta curva**. Con 86.5% de la cartera ya vencida, una curva
+        // muda se lee como "esto es toda la cobranza que viene".
+        coverage: {
+          measured: opening.available && prevista.cobertura.pct_en_ventana != null,
+          pct: prevista.cobertura.pct_en_ventana,
+          note: [
+            opening.available ? 'Saldo inicial de bancos disponible.'
+              : 'Sin saldo inicial de bancos (Fase CB): el saldo proyectado va en null; el neto por semana sí es real.',
+            prevista.cobertura.pct_en_ventana == null
+              ? 'Sin cartera cobrable: la cobertura queda SIN MEDIR, no en cero.'
+              : `La curva dibuja ${prevista.cobertura.pct_en_ventana}% de la cartera cobrable `
+                + `($${prevista.cobertura.en_ventana.toLocaleString('en-US')} de `
+                + `$${prevista.cobertura.total.toLocaleString('en-US')}). Quedan fuera `
+                + `$${prevista.cobertura.vencido_fuera.toLocaleString('en-US')} ya vencidos: son `
+                + 'exigibles HOY y no tienen fecha comprometida, por eso no se agendan en una semana.',
+          ].join(' '),
+        } as Coverage,
+        // [CXC.22] Lo vencido viaja APARTE, con su monto. Meterlo en la primera semana
+        // afirmaría que se cobra completo el lunes, que es inventar una fecha.
+        cobranza_cobertura: prevista.cobertura,
         sources: {
-          cobros: { source: 'analytics.customer_receivables', as_of: cobrosMeta?.as_of ?? null },
+          cobros: { source: 'analytics.customer_receivables', base: prevista.base,
+            as_of: cobrosMeta?.as_of ?? null },
           pagos: { source: 'budget.expense_obligations + commercial.supplier_payment_obligations + finance.financial_commitments' },
           saldo_inicial: opening,
         },
@@ -136,6 +155,12 @@ export class BudgetCashflowService {
             ? 'saldo_proyectado = saldo_inicial + Σ(cobros − pagos) acumulado.'
             : 'Sin saldo inicial de bancos (Fase CB): el saldo_proyectado y la alerta de insuficiencia van en null. El NETO por semana sí es real.',
           no_doble_conteo: 'Pagos = pendiente (original − pagado) de la obligación, NO las allocations del Calendario (evita doble-conteo).',
+          cobros_base: 'Cobros = `saldo_ajustado` (lo que hay que SALIR a cobrar), no '
+            + '`saldo_documento`: ése incluye $3.06M de abonos que ya entraron y ningún '
+            + 'documento absorbió, o sea dinero que ya está en el banco.',
+          cobranza_fuera_de_ventana: 'La curva agenda por fecha de vencimiento. Lo que ya venció '
+            + 'no cabe en una semana futura sin inventarle fecha, así que va en '
+            + '`cobranza_cobertura.vencido_fuera`.',
         },
       };
     });
