@@ -7,6 +7,8 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import type { ErpPendingMenu, ErpPendingBranch, ErpOrderMatch } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
@@ -74,6 +76,29 @@ export interface ScanDto {
  * que quedo a proposito.
  */
 const HOY_MX = "r.receipt_date = (now() AT TIME ZONE 'America/Mexico_City')::date";
+
+/**
+ * La fila CRUDA que devuelve el select del menu, con los alias tal como los renombra la
+ * consulta (`w.id as warehouse_id`, `COUNT(*)::int as pendientes`...).
+ *
+ * Vive ACA y no en `libs/contracts` a proposito: es un detalle de implementacion de esta
+ * consulta, no lo que sale por HTTP (eso es `ErpPendingBranch`, ya mapeado). Publicarla
+ * convertiria cualquier retoque del `select` en un cambio de paquete compartido.
+ *
+ * ⚠️ Tipar la fila NO verifica que el SQL traiga estas columnas: knex entrega las filas sin
+ * tipo y TypeScript no lee la consulta. Lo que ataja es el typo al LEERLA y que el objeto
+ * mapeado se compare contra `ErpPendingBranch`. Si el `select` renombrara `warehouse_id`,
+ * `sin_almacen` saldria `true` en todas las filas y el Anden quedaria inusable sin un solo
+ * error: eso lo tiene que cubrir una asercion, no el tipo.
+ */
+interface FilaMenuAnden {
+  sucursal: string;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  pendientes: number | string;
+  ultimo: string | null;
+}
 
 @Injectable()
 export class ReceivingSessionService {
@@ -347,7 +372,32 @@ export class ReceivingSessionService {
    * esconderse: `open()` la rechazaria con un 400, y es mejor decirlo antes del
    * toque que dejar al operario sin entender por que su vale no aparece.
    */
-  async pendingErpBranches() {
+  /**
+   * La fila cruda del ERP -> el vale que la pantalla consume.
+   *
+   * Existe porque `erp-search` y `erp-pending` DEBEN devolver la misma forma (el Anden usa
+   * el mismo componente y el mismo camino de apertura para las dos). Estaba inline en la
+   * busqueda, asi que `erp-pending` devolvia la fila cruda: sin `tipo`, sin `origin` y con
+   * `monto` como string —Postgres entrega `numeric` asi—. El tipo del front lo declaraba
+   * obligatorio igual, de modo que un traspaso llegado por el menu se habria leido como
+   * compra. Hoy nadie lo pinta desde ese camino, pero la forma ya mentia.
+   */
+  private aErpOrderMatch(r: Record<string, unknown>): ErpOrderMatch {
+    // Una sola definición de "de dónde viene" (receiving-origin.ts), acá y en
+    // el detalle del vale, para que al ABRIR el vale la pantalla siga sabiendo
+    // si era traspaso o compra — justo cuando el operario lo necesita para
+    // saber a quién reclamar.
+    const origin = classifyReceivingOrigin(r['proveedor_code'] as string | null, r['proveedor_nombre'] as string | null);
+    return {
+      ...(r as unknown as ErpOrderMatch),
+      monto: Number(r['monto']) || 0,
+      origin,
+      // `tipo` se conserva por compatibilidad con lo que ya lo consume.
+      tipo: origin.kind === 'transfer' ? 'traspaso' : 'compra',
+    };
+  }
+
+  async pendingErpBranches(): Promise<ErpPendingMenu> {
     const tenantId = this.tenantCtx.get()?.tenantId || null;
     const alcance = await this.scope.current();
     const dim = alcance.dims.warehouse;
@@ -362,7 +412,7 @@ export class ReceivingSessionService {
         .where({ 'r.tenant_id': tenantId })
         .whereNull('r.dup_of_folio')
         .whereRaw(HOY_MX)
-        .whereNotExists(function (this: any) {
+        .whereNotExists(function (this: Knex.QueryBuilder) {
           this.select(trx.raw('1'))
             .from('commercial.receiving_sessions as s')
             .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
@@ -391,7 +441,7 @@ export class ReceivingSessionService {
       const filas = await q;
       return {
         alcance: dim.mode,
-        sucursales: filas.map((f: any) => ({
+        sucursales: filas.map((f: FilaMenuAnden): ErpPendingBranch => ({
           ...f,
           pendientes: Number(f.pendientes) || 0,
           // Sin mapa no se puede abrir el vale: la pantalla lo dice antes del toque.
@@ -406,7 +456,7 @@ export class ReceivingSessionService {
    * busqueda por folio — asi la pantalla reusa el mismo tipo y el mismo camino
    * de apertura.
    */
-  async pendingErpOrders(sucursal: string, limit = 100) {
+  async pendingErpOrders(sucursal: string, limit = 100): Promise<ErpOrderMatch[]> {
     const suc = String(sucursal || '').trim();
     if (!suc) throw new BadRequestException('sucursal requerida');
     const tenantId = this.tenantCtx.get()?.tenantId || null;
@@ -424,11 +474,11 @@ export class ReceivingSessionService {
       if (destino?.code && !this.scope.canRead(alcance, 'warehouse', destino.code))
         throw new ForbiddenException('Esa sucursal no está en tu alcance');
 
-      return trx('analytics.erp_goods_receipts as r')
+      const filas = await trx('analytics.erp_goods_receipts as r')
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': suc })
         .whereNull('r.dup_of_folio')
         .whereRaw(HOY_MX)
-        .whereNotExists(function (this: any) {
+        .whereNotExists(function (this: Knex.QueryBuilder) {
           this.select(trx.raw('1'))
             .from('commercial.receiving_sessions as s')
             .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
@@ -455,6 +505,9 @@ export class ReceivingSessionService {
                      WHERE l.tenant_id = r.tenant_id AND l.sucursal = r.sucursal
                        AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
         );
+
+      // Misma forma que `erp-search`: la pantalla usa el mismo componente para las dos.
+      return filas.map((r) => this.aErpOrderMatch(r));
     });
   }
 
@@ -491,20 +544,7 @@ export class ReceivingSessionService {
                        AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
         );
 
-      return rows.map((r: any) => {
-        // Una sola definición de "de dónde viene" (receiving-origin.ts), acá y en
-        // el detalle del vale. Antes vivía inline sólo en esta búsqueda, así que
-        // al ABRIR el vale la pantalla ya no sabía si era traspaso o compra —
-        // justo cuando el operario lo necesita para saber a quién reclamar.
-        const origin = classifyReceivingOrigin(r.proveedor_code, r.proveedor_nombre);
-        return {
-          ...r,
-          monto: Number(r.monto) || 0,
-          origin,
-          // `tipo` se conserva por compatibilidad con lo que ya lo consume.
-          tipo: origin.kind === 'transfer' ? 'traspaso' : 'compra',
-        };
-      });
+      return rows.map((r) => this.aErpOrderMatch(r));
     });
   }
 
