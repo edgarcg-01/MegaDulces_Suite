@@ -4,6 +4,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import JsBarcode from 'jsbarcode';
+import type { PresentacionPrecio } from '@megadulces/contracts';
 
 export interface LabelSections {
   mayoreoPza: boolean;
@@ -315,6 +316,20 @@ export interface LabelModel {
   promo_min_qty?: number | null;
   promo_hasta?: string | null;
   promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
+  /**
+   * `[ETQ-PRES.2]` LA LISTA DE PRESENTACIONES — cada precio con SU unidad.
+   *
+   * Los campos `piece_*` / `pack_*` / `box_*` de arriba son el modelo VIEJO: tres cajones con
+   * nombre fijo sobre los que se apoyaba todo, y la causa unica de los cinco defectos medidos el
+   * 2026-09-24 (1,980 ranuras perdidas por elegir el cajon comparando el NOMBRE contra 'PAQ' y
+   * 'CJA', 6,826 SKUs sin el peldano de caja, 61 con el mayoreo en otra escala, 111 con el
+   * contenido 50x equivocado). Quedan mientras el componente termina de migrar; despues se
+   * retiran. Ver `libs/contracts/src/http/price-presentation.contract.ts`.
+   *
+   * Vacia sin plaza, y la pantalla lo DECLARA: el precio de Kepler es por tienda, asi que sin
+   * saber cual no hay lista que sea verdad.
+   */
+  presentaciones?: PresentacionPrecio[];
 }
 
 /**
