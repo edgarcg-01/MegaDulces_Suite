@@ -40,6 +40,7 @@ function sinCargar(rs: Routes): Routes {
       path: r.path,
       pathMatch: r.pathMatch,
       outlet: r.outlet,
+      matcher: r.matcher,
       component: hijos ? undefined : Vacio,
       children: hijos,
     } as Route;
@@ -67,7 +68,7 @@ function routerConElEspejo(): Router {
         component: Anfitrion,
         children: [
           { path: 'algo', component: Vacio },
-          { path: '', outlet: 'panel', loadChildren: async () => sinCargar(espejarParaPanel(routes, esLayout)) },
+          { matcher: (segs) => (segs.length ? { consumed: [] } : null), outlet: 'panel', loadChildren: async () => sinCargar(espejarParaPanel(routes, esLayout)) },
         ],
       },
     ])],
@@ -83,6 +84,13 @@ function routerConElEspejo(): Router {
  * costo: un diagnostico entero persiguiendo un defecto que no estaba ahi.
  */
 const conPanel = (destino: string) => `/area/(algo//panel:${destino})`;
+
+/**
+ * El espejo sin su COLA. `espejarParaPanel` termina con una ruta de `matcher`
+ * que atrapa lo que no existe (ver `NO_EXISTE` en `panel-routes.ts`); no es una
+ * ruta espejada, asi que las afirmaciones sobre el aplanado la dejan afuera.
+ */
+const sinCola = (rs: Routes) => rs.filter((r) => !r.matcher);
 
 describe('[MT.5] el espejo de rutas del panel', () => {
   afterEach(() => olvidarEspejo());
@@ -113,7 +121,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
     const espejo = () => espejarParaPanel(juguete, (r) => /LayoutComponent/.test(String((r.component as never as { name: string })?.name)));
 
     it('aplana el área adentro del camino', () => {
-      expect(espejo().map((r) => r.path)).toEqual(['compras', 'compras/ordenes', 'compras/ordenes/:id', 'finanzas/bancos']);
+      expect(sinCola(espejo()).map((r) => r.path)).toEqual(['compras', 'compras/ordenes', 'compras/ordenes/:id', 'finanzas/bancos']);
     });
 
     it('el hijo índice queda como el área pelada, no como "compras/"', () => {
@@ -131,7 +139,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
      * del componente del padre —que es componentless— y no matchea NADA.
      */
     it('NINGUNA lleva outlet propio: lo declara el aux route padre', () => {
-      expect(espejo().filter((r) => r.outlet).map((r) => r.path)).toEqual([]);
+      expect(sinCola(espejo()).filter((r) => r.outlet).map((r) => r.path)).toEqual([]);
     });
 
     /**
@@ -147,7 +155,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
         ] },
       ];
       const r = espejarParaPanel(conAux, (x) => /LayoutComponent/.test(String((x.component as never as { name: string })?.name)));
-      expect(r.map((x) => x.path)).toEqual(['compras/ordenes']);
+      expect(sinCola(r).map((x) => x.path)).toEqual(['compras/ordenes']);
     });
 
     /** El que importa: si esto se rompe, el panel es una puerta trasera. */
@@ -159,7 +167,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
     });
 
     it('el cargador se comparte por referencia — el panel no agrega bundle', () => {
-      expect(espejo().every((r) => r.loadComponent === cargar)).toBe(true);
+      expect(sinCola(espejo()).every((r) => r.loadComponent === cargar)).toBe(true);
     });
 
     it('no espeja redirects ni el comodín', () => {
@@ -239,7 +247,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
     it('ninguna ruta real espejada perdió su guard', () => {
       const originales: unknown[] = [];
       for (const area of routes) {
-        if (!esLayout(area) || !area.path) continue;
+        if (!esLayout(area) || !area.path || area.path === '**') continue; // el 404 no es un area
         for (const h of area.children!) {
           if (h.redirectTo !== undefined || h.path === '**') continue;
           if (h.outlet) continue; // el propio aux route del panel no se espeja
@@ -247,7 +255,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
           originales.push(h.canActivate);
         }
       }
-      const copiadas = espejo().map((r) => r.canActivate);
+      const copiadas = sinCola(espejo()).map((r) => r.canActivate);
       expect(copiadas.length).toBe(originales.length);
       const distintas = copiadas.filter((g, i) => g !== originales[i]).length;
       expect(distintas).toBe(0);
@@ -272,6 +280,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
           path: r.path,
           pathMatch: r.pathMatch,
           outlet: r.outlet,
+          matcher: r.matcher,
           loadChildren: r.loadChildren
             ? async () => comoEnProduccion(await (r.loadChildren as () => Promise<Routes>)())
             : undefined,

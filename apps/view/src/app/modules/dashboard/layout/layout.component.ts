@@ -12,7 +12,7 @@ import {
   DOCUMENT
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, NavigationEnd, Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router, RouterModule, UrlTree } from '@angular/router';
 import { MenuModule } from 'primeng/menu';
 import type { MenuItem } from 'primeng/api';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -1132,8 +1132,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   /** Vaciar el outlet del panel, sin tocar lo de la izquierda. */
   readonly enlaceCerrarPanel = computed(() => [{ outlets: { panel: null } }]);
-  /** Llevar lo del panel a pantalla completa: absoluto, así el split se deshace. */
-  readonly enlacePanelACompleto = computed(() => this.panelUrl() ?? '.');
+  /**
+   * Llevar lo del panel a pantalla completa.
+   *
+   * ⚠️ Un camino absoluto NO alcanza, y esto se midió: `createUrlTree` conserva
+   * los outlets que los comandos no nombran, así que `/finanzas/bancos` daba
+   * `/compras/(finanzas/bancos//panel:finanzas/bancos)` — la misma pantalla dos
+   * veces y el split intacto. Un `UrlTree` parseado del camino es el árbol
+   * COMPLETO, sin outlets heredados: es la única forma de que maximizar deshaga
+   * la partición.
+   */
+  readonly enlacePanelACompleto = computed<UrlTree | string>(() => {
+    const u = this.panelUrl();
+    return u ? this.router.parseUrl(u) : '.';
+  });
 
   /**
    * En kiosco o en móvil no hay ancho que partir. El CSS ya lo esconde, pero

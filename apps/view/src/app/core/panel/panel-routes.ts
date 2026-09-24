@@ -63,6 +63,13 @@ export function espejarParaPanel(raiz: Routes, esLayout: (r: Route) => boolean):
     if (!esLayout(area) || !area.children?.length) continue;
     const prefijo = area.path;
     if (!prefijo) continue; // un área sin camino no se puede prefijar
+    // ⛔ El 404 de la app TAMBIÉN es `LayoutComponent` con hijos, así que pasa
+    // el filtro de "área" y se espejaba con `path: '**'`. Ese comodín matchea
+    // **incluso con cero segmentos**, así que el aux route del panel —que es de
+    // camino vacío— encontraba hijo SIEMPRE: el panel se abría solo, en todas
+    // las pantallas, con el 404 adentro, y la X no tenía nada que quitar de la
+    // URL (medido en producción el 2026-09-24 sobre `176dee6e`).
+    if (prefijo === '**') continue;
     for (const hijo of area.children) {
       if (!espejable(hijo)) continue;
       // ⛔ SIN `outlet`. El outlet lo declara el aux route PADRE que carga este
@@ -78,8 +85,29 @@ export function espejarParaPanel(raiz: Routes, esLayout: (r: Route) => boolean):
       salida.push({ ...hijo, path: unir(prefijo, hijo.path) });
     }
   }
+  salida.push(NO_EXISTE);
   return salida;
 }
+
+/**
+ * La red de contención del panel: **un comodín que NO matchea el vacío**.
+ *
+ * Son dos requisitos que pelean entre sí y por eso no se puede usar `'**'`:
+ *
+ *  1. Si una dirección de panel inventada no matchea NADA, **falla la
+ *     navegación entera** y la app queda en blanco — el incidente original.
+ *  2. Si matchea también con cero segmentos, el aux route del panel (que es de
+ *     camino vacío) tiene hijo SIEMPRE y el panel se abre solo en todas las
+ *     pantallas — el incidente que lo siguió.
+ *
+ * `'**'` cumple (1) y viola (2): en Angular el comodín matchea la lista vacía.
+ * Un `matcher` propio es la única forma declarativa de exigir **al menos un
+ * segmento**, y es lo que deja las dos cosas ciertas a la vez.
+ */
+const NO_EXISTE: Route = {
+  matcher: (segmentos) => (segmentos.length > 0 ? { consumed: [...segmentos] } : null),
+  loadComponent: () => import('./panel-no-existe.component').then((m) => m.PanelNoExisteComponent),
+};
 
 /**
  * El espejo se arma UNA vez y sólo cuando alguien abre el panel.
