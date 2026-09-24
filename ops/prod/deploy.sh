@@ -456,6 +456,35 @@ recrear() {
       exit 1
     fi
     echo "   ✓ /api/health sirve $vivo — es la versión que se levantó."
+
+    # ── [VL.16.D2] QUE LA VERSIÓN SEA LA CORRECTA NO ES QUE FUNCIONE ──────────
+    # ⛔ Medido el 2026-09-23, 13 minutos después de escribir la comprobación de arriba: el
+    # despliegue `325323b3` pasó su verificación, se anotó `ok` en `ops.deploys`… y el login
+    # devolvía **500 a todo el mundo** (`42601`, parámetro ligado en un `SET`). La comprobación
+    # del commit sólo prueba que se levantó el binario correcto — no que sirva.
+    #
+    # Es exactamente la distinción de ADR-053: el latido mide ENTREGA, no "el proceso corre".
+    # Acá la entrega mínima de una app con sesiones es que la puerta conteste.
+    #
+    # ⭐ Se golpea el login con credenciales A PROPÓSITO inválidas y se exige **401**:
+    #   · 401 = la ruta llegó hasta validar → la transacción con RLS se ejecutó bien.
+    #   · 500 = exactamente el incidente, y aborta el despliegue.
+    #   · 429 = lo frenó el throttler; no dice nada del login, así que NO se cuenta como falla.
+    # Nunca se usan credenciales reales: un smoke que necesita un secreto no se corre.
+    echo "── Humo: ¿la puerta contesta? (login con credenciales inválidas → debe dar 401) ──"
+    codigo=$(ssh_md "curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+      -X POST http://127.0.0.1:8080/api/auth-mt/login \
+      -H 'Content-Type: application/json' \
+      -d '{\"username\":\"zz_humo_deploy\",\"password\":\"zz\"}'" 2>/dev/null || echo 000)
+    case "$codigo" in
+      401|403) echo "   ✓ el login responde $codigo — la ruta llega a validar." ;;
+      429)     echo "   ⚠️ $codigo: lo frenó el throttler. NO se pudo medir el login (se declara, no se aprueba)." ;;
+      *)
+        echo "   ⛔ el login respondió $codigo (se esperaba 401). El binario es el correcto pero la"
+        echo "      aplicación NO sirve. Revisá: docker logs prod-api --tail 50"
+        bitacora "$commit" "$servicios" "humo_login:$codigo" "${MIG_PEND_N:-0}"
+        exit 1 ;;
+    esac
   esac
 
   bitacora "$commit" "$servicios" "ok" "${MIG_PEND_N:-0}"
