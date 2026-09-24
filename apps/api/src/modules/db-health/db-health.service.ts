@@ -1053,6 +1053,16 @@ const CRON_JOBS: CronCfg[] = [
   // y en silencio. Su `note` declara ademas si tiene canal externo, que hoy NO tiene.
   { key: 'health_watchdog',     label: 'Watchdog Salud BD (on-prem)', cadence: 'cada 5 min',     warnH: 0.5, critH: 2 },
 
+  // ── [VL.17] EL DESPLIEGUE AUTOMÁTICO, QUE ES UN CARRIL COMO CUALQUIER OTRO ─────────────────
+  // Late en CADA pasada, no sólo cuando despliega: `ok` con "al día en <commit>" si no hay nada
+  // que hacer, y `error` con el motivo cuando la compuerta de migraciones frena. Esa distinción
+  // es el punto — sin ella, "no hay cambios que subir" y "el carril está muerto" se ven idénticos,
+  // que es exactamente cómo estuvo el 2026-09-24: script instalado, llave funcionando, corrida a
+  // mano perfecta… y `no crontab for superoot`. Nadie lo disparaba y nada lo decía.
+  // Umbrales de carril de 5 min, con holgura para una construcción larga: una pasada que
+  // construye las dos imágenes tarda varios minutos y `flock -n` saltea la siguiente.
+  { key: 'auto_deploy',         label: 'Despliegue automático (origin/main)', cadence: 'cada 5 min (md)', warnH: 1, critH: 6, maxRunH: 1 },
+
 ];
 
 export interface SourceHealth {

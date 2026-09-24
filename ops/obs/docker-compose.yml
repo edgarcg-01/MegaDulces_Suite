@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# `[OBS.7]` OBSERVABILIDAD DE `md` — lo que Railway daba y on-prem no existía.
+#
+# Medido el 2026-09-24 en `md`: CERO. Ni logs centralizados ni métricas. Para ver por qué un
+# contenedor se cayó había que entrar por ssh y leer `docker logs` uno por uno — que es
+# exactamente lo que se hizo todo el día de hoy, a mano, cuatro veces.
+#
+# ⛔ SE ELIGE LIVIANO A PROPÓSITO, y el número manda: al montarlo la máquina tenía **8.4 GB de
+# RAM disponibles de 28.8** y carga ~4 sobre 8 hilos, con TRES Postgres encima (17 bases, 82 GB).
+# Un Prometheus + Grafana + cAdvisor + exporters son 4-5 contenedores y ~500 MB para mirar una
+# máquina que ya va apretada: el monitoreo se comería lo que vino a vigilar.
+#
+#   · `dozzle`  — logs en vivo de TODOS los contenedores, buscables, en una pantalla. ~15 MB.
+#   · `netdata` — CPU/RAM/disco/red por contenedor y del host, más los tres Postgres. ~200 MB.
+#
+# ⚠️ AMBOS SON SÓLO LAN. No van por el túnel de Cloudflare ni tienen ruta en Caddy, a propósito:
+#    un visor de logs es un lector de todo lo que la aplicación imprime, y publicar eso a
+#    internet es publicar lo que se filtre en un stack trace. Se llega por `192.168.0.222:<puerto>`
+#    igual que al Postgres del 5434, que es la frontera de confianza que esta red ya usa.
+#
+# ⚠️ DEUDA DECLARADA, no resuelta: sin autenticación. Cualquiera en la LAN que sepa el puerto los
+#    abre. Para los logs eso importa — un error puede imprimir datos de negocio. Ponerle auth a
+#    Dozzle exige un archivo de usuarios con hash bcrypt; queda pendiente con nombre.
+#
+#   despliegue:  scp ops/obs/docker-compose.yml superoot@192.168.0.222:~/ops/obs/
+#                ssh superoot@192.168.0.222 'cd ~/ops/obs && docker compose -p obs up -d'
+#                (no hay `deploy.sh` acá a propósito: son dos contenedores sin construcción,
+#                 sin secretos y sin orden de arranque — un script sería una capa que ocultar)
+#   logs:        http://192.168.0.222:8085
+#   métricas:    http://192.168.0.222:19999
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── LOS LOGS ────────────────────────────────────────────────────────────────
+  # Lee el socket de Docker en SÓLO LECTURA: no puede arrancar, parar ni crear nada — sólo leer
+  # la lista de contenedores y sus flujos de log. Es el mismo socket que el `ods-autoheal` ya usa.
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: obs-dozzle
+    restart: unless-stopped
+    environment:
+      TZ: America/Mexico_City
+      # Sin esto el visor arranca en el primer contenedor alfabético y hay que buscar el que importa.
+      DOZZLE_ENABLE_ACTIONS: "false"     # nada de reiniciar contenedores desde la web
+      DOZZLE_NO_ANALYTICS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8085:8080"
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }
+    mem_limit: 128m
+
+  # ── LAS MÉTRICAS ────────────────────────────────────────────────────────────
+  # ⚠️ Los montajes de `/proc`, `/sys` y `/etc/os-release` NO son opcionales: sin ellos Netdata
+  # mide el CONTENEDOR, no la máquina, y reporta una caja de 200 MB perfectamente sana mientras
+  # el host está al borde del swap. Es la misma clase de mentira que este proyecto persigue todo
+  # el día — un rótulo verde sobre el sujeto equivocado.
+  netdata:
+    image: netdata/netdata:stable
+    container_name: obs-netdata
+    restart: unless-stopped
+    hostname: md
+    pid: host
+    cap_add: [SYS_PTRACE, SYS_ADMIN]
+    security_opt: [apparmor:unconfined]
+    environment:
+      TZ: America/Mexico_City
+      # Retención corta: esto es para VER qué está pasando, no un almacén histórico. La serie
+      # larga, si algún día hace falta, va a Prometheus — y entonces se paga lo que cuesta.
+      NETDATA_EXTRA_DEB_PACKAGES: ""
+      DO_NOT_TRACK: "1"
+    volumes:
+      - netdata-config:/etc/netdata
+      - netdata-lib:/var/lib/netdata
+      - netdata-cache:/var/cache/netdata
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/log:/host/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "19999:19999"
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }
+    mem_limit: 400m
+
+volumes:
+  netdata-config:
+  netdata-lib:
+  netdata-cache:
