@@ -199,6 +199,42 @@ const HB_LABEL = ALL_MODE ? 'ODS espejo completo (replica→prod)' : 'ODS carril
 // Docker reportando `healthy`. `HB_CONN` le pone reloj a las dos conexiones de telemetría.
 const HB_CONN = { ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000, statement_timeout: 30000, query_timeout: 30000 };
 
+/**
+ * ⛔ `[ODS.2]` CERRAR UNA CONEXIÓN TAMBIÉN SE CUELGA — y a este archivo la lección no le llegó.
+ *
+ * `client.end()` de node-postgres NO tiene timeout: manda el mensaje 'X' y espera a que el peer
+ * cierre. Si el peer se fue sin completar el cierre (un firewall/NAT en el camino, cosa habitual
+ * con 9 sucursales detrás de VPN), el socket queda en FIN_WAIT1 y el `await` **no vuelve nunca**.
+ *
+ * Medido el 2026-09-24 en `md`, dos veces seguidas y en el MISMO punto: una reparación `--full`
+ * terminó la rama 01, entró al `finally` que cierra su conexión, y ahí murió. La primera corrida
+ * quedó **13 h 14 min** con el log mudo, CPU 0.00%, 360 MB de memoria, el contenedor `healthy` y
+ * ninguna consulta activa en la base. Las réplicas respondían en 20-30 ms: el problema no era la
+ * rama siguiente, era el cierre de la anterior. La segunda corrida se colgó igual, en la misma
+ * transición, lo que descartó la casualidad.
+ *
+ * ⚠️ El arreglo ya existía en el repo desde el 2026-09-11 — `live-tickets-poller.js:65` lo trae
+ * con su comentario, tras el mismo cuelgue en ese carril. Nunca se portó acá, al carril que
+ * alimenta prod. Es la forma exacta de deuda que ADR-056 nombra: *un mecanismo que hay que
+ * acordarse de aplicar se cumple tanto como la revisión alcance a mirar.* Por eso ahora es una
+ * función y **los seis** cierres del archivo pasan por ella, no sólo el que falló.
+ *
+ * Perder un cierre ordenado no cuesta nada: el peer recoge el socket igual. Colgar el carril
+ * cuesta todo, y lo cuesta EN SILENCIO — que es lo caro.
+ */
+async function cerrar(c) {
+  if (!c) return;
+  let t;
+  try {
+    await Promise.race([
+      c.end(),
+      new Promise((_, rej) => { t = setTimeout(() => rej(new Error('end() no volvió en 5s')), 5000); }),
+    ]);
+  } catch {
+    try { c.connection?.stream?.destroy(); } catch { /* ya no hay socket que matar */ }
+  } finally { clearTimeout(t); }
+}
+
 /** Latido DIRECTO a prod. Nunca tira: un latido que rompe el feed es peor que no tenerlo. */
 async function latir(fase, { status, rows, note, error, ms } = {}) {
   if (!HB_URL) return;
@@ -226,7 +262,7 @@ async function latir(fase, { status, rows, note, error, ms } = {}) {
       [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
     }
   } catch (e) { console.error(`  latido (${fase}) falló: ${e.message.slice(0, 70)}`); }
-  finally { await c.end().catch(() => {}); }
+  finally { await cerrar(c); }
 }
 
 /**
@@ -265,7 +301,7 @@ async function marcarRamas(marcas) {
       [TENANT, HB_KEY, m.suc, m.tablas || 0, m.filas || 0, m.error || null, m.error || null]);
     }
   } catch (e) { console.error(`  marca por rama falló: ${e.message.slice(0, 70)}`); }
-  finally { await c.end().catch(() => {}); }
+  finally { await cerrar(c); }
 }
 
 // Destino. En FEEDS_SINK=http (prod) el ship va por HTTP y no se usa cliente. En FEEDS_SINK=pg
@@ -554,7 +590,7 @@ async function primeCtid() {
            ON CONFLICT (table_name) DO UPDATE SET last_ctid=EXCLUDED.last_ctid, last_run_at=now()`, [table, wm]);
         console.log(`  ⚑ ${b.code}/${table}: watermark → ${wm}`);
       }
-    } finally { await p.end().catch(() => {}); }
+    } finally { await cerrar(p); }
   }
 }
 
@@ -603,7 +639,7 @@ async function cycleAll({ apply, full }) {
       // Falló ANTES de poder recorrer las tablas (ctl, listado): la rama no se revisó.
       marcas.push({ suc: b.code, tablas, filas, error: e.message.slice(0, 120) });
       fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
-    } finally { await p.end().catch(() => {}); }
+    } finally { await cerrar(p); }
   }
   return summary;
 }
@@ -713,12 +749,12 @@ if (require.main === module) {
         console.log('\n=== Resumen ===');
         console.table(summary.slice(0, 200));
         console.log('DRY-RUN — nada cambió. Corré con --apply.');
-        if (DEST) await DEST.end().catch(() => {});
+        if (DEST) await cerrar(DEST);
         return;
       }
       await ciclarConLatido({ full: FULL });
       console.log('APPLY hecho.');
-      if (DEST) await DEST.end().catch(() => {});
+      if (DEST) await cerrar(DEST);
       return;
     }
 
