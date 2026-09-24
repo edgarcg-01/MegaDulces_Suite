@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { Router, Routes } from '@angular/router';
+import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
@@ -1701,11 +1701,36 @@ export const routes: Routes = [
  * que alguien abre algo al lado. Y no toca el matching del outlet primario: una
  * ruta con `outlet` sólo se considera para ESE outlet.
  */
-const esArea = (r: (typeof routes)[number]) => r.component === LayoutComponent && !!r.children?.length;
+/**
+ * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
+ *
+ * ⛔ Acá estaba el defecto de fondo, y está una capa más abajo de donde parecía.
+ * Esto era `path: ''`, y a una ruta de outlet NOMBRADO con hijos y sin
+ * componente Angular le pone `ɵEmptyOutletComponent` por su cuenta
+ * (`standardizeConfig`). O sea que el camino vacío matcheaba SIEMPRE, el outlet
+ * `panel` emitía `(activate)` en **todas** las pantallas de la Suite, y el
+ * layout —que escucha justamente ese evento para saber si hay panel— abría 960
+ * px de columna que nadie pidió. La X entonces "no hacía nada": sacaba el panel
+ * de la URL (eso funcionaba) pero el outlet se volvía a activar solo.
+ *
+ * Medido en producción sobre `176dee6e`: `/comercial/command-center`, una URL
+ * sin nada de panel, abría el panel con el 404 de la app adentro.
+ *
+ * `consumed: []` no consume segmentos: deja que los hijos —el espejo— matcheen
+ * el camino completo. Lo único que agrega es la condición que faltaba.
+ */
+const soloSiPidenPanel: UrlMatcher = (segmentos) => (segmentos.length > 0 ? { consumed: [] } : null);
+
+// ⛔ `r.path !== '**'`: el 404 de la app vive DENTRO del layout (para salir por
+// el sidebar), así que cumple las otras dos condiciones y se colaba como área.
+// Espejarlo mete un comodín en el panel; recibir el aux route le pone un panel
+// al propio 404. Un comodín no es un área: no tiene camino propio que prefijar.
+const esArea = (r: (typeof routes)[number]) =>
+  r.component === LayoutComponent && !!r.children?.length && !!r.path && r.path !== '**';
 for (const area of routes) {
   if (!esArea(area) || !area.path) continue;
   area.children!.push({
-    path: '',
+    matcher: soloSiPidenPanel,
     outlet: 'panel',
     loadChildren: () => rutasDelPanel(routes, esArea),
   });
