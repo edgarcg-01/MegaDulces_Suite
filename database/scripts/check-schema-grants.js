@@ -26,10 +26,36 @@ const IGNORAR = new Set(['pg_catalog', 'information_schema', 'pg_toast']);
 
 (async () => {
   const prod = process.argv.includes('--prod');
-  const url = prod ? process.env.FLEET_DB_URL : process.env.DATABASE_URL_NEW;
-  if (!url) { console.error(`Falta ${prod ? 'FLEET_DB_URL' : 'DATABASE_URL_NEW'} en .env`); process.exit(1); }
-  const c = new Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
+  // ⛔ [CT.7 2026-09-24] `--prod` leía `FLEET_DB_URL`, y en el `.env` de una máquina de desarrollo
+  // esa variable apunta a **Railway** — la prod vieja, de la que nos mudamos el 22-sep. O sea que
+  // auditaba los permisos del clúster equivocado y contestaba en verde. Mismo defecto que había en
+  // `check-applied-migrations.js` y que `[VL.18]` ya había corregido en `apply-one-migration-prod`.
+  //
+  // ⚠️ La trampa fina: en `md` (`~/secrets/feeds.env`) `FLEET_DB_URL` SÍ apunta a `pg-prod`. Un
+  // mismo nombre con dos valores según dónde corras — por eso no alcanza con mirar el nombre de la
+  // variable: hay que verificar la IDENTIDAD del clúster antes de creerle una fila.
+  const url = prod
+    ? (process.env.DATABASE_URL_NEW_PROD || process.env.PROD_DB_URL || process.env.FLEET_DB_URL)
+    : process.env.DATABASE_URL_NEW;
+  if (!url) { console.error(`Falta ${prod ? 'PROD_DB_URL' : 'DATABASE_URL_NEW'} en .env`); process.exit(1); }
+  const local = /localhost|127\.0\.0\.1|192\.168\.|pg-prod/.test(url);
+  const c = new Client({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false } });
   await c.connect();
+  if (prod) {
+    const PROD_CLUSTER_ID = process.env.PROD_CLUSTER_ID || '7688376744939610156';
+    const { rows: [id] } = await c.query(
+      'select (select system_identifier from pg_control_system())::text as id, current_database() as db',
+    );
+    if (id.id !== PROD_CLUSTER_ID) {
+      console.error('\n⛔ DESTINO EQUIVOCADO — no se audita nada, y NO se reporta verde.');
+      console.error(`   clúster conectado : ${id.id} (base "${id.db}")`);
+      console.error(`   clúster de prod   : ${PROD_CLUSTER_ID}`);
+      console.error('   Definí PROD_DB_URL en tu .env (192.168.0.222:5434/railway).');
+      await c.end();
+      process.exit(1);
+    }
+    console.log(`  identidad de prod verificada: ${id.id} · base "${id.db}"`);
+  }
   try {
     const { rows } = await c.query(`
       SELECT n.nspname AS schema,
