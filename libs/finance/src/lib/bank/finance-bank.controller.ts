@@ -102,6 +102,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Control de ingresos: cada depósito vs tesorería/cobranza/caja; excepciones sin explicar + fuga.' })
   ingresosControl(@Query('period') period?: string) { return this.svc.ingresosControl(period); }
 
+  @Get('egresos-control')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Control de egresos: cada retiro vs tesorería/pago-proveedor/traspaso; lo que salió del banco y el ERP no registró.' })
+  egresosControl(@Query('period') period?: string) { return this.svc.egresosControl(period); }
+
   @Get('balances')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Cuadre de saldos por cuenta (inicial + depósitos − retiros == final) + check TI=TE.' })

@@ -121,10 +121,24 @@ export interface DiagnosticoItem {
   titulo: string; detalle: string; accion: string;
   evidencia?: DiagnosticoEvidencia[];
 }
+/**
+ * CB.46 — Estado PERSISTIDO de la conciliación, para que el encabezado pueda decir en qué va
+ * sin obligar a re-disparar el POST. `stale` = el estado de cuenta se re-importó después del
+ * último match, así que el porcentaje describe un universo que ya cambió: se declara, no se
+ * pinta de verde ni se omite.
+ */
+export interface ReconEstado {
+  matched_amount: number; bank_amount: number; pct: number;
+  last_match_at: string | null; last_import_at: string | null; stale: boolean;
+}
 export interface Diagnostico {
   period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
   cuadra: boolean; cuentas_ok: number; cuentas_total: number; total_descuadre: number;
   tiene_balanza_kepler: boolean; items: DiagnosticoItem[];
+  /** Sin clasificar del MISMO universo que `movimientos` (incluye la caja general). */
+  sin_clasificar_n?: number; sin_clasificar_monto?: number;
+  /** `null` = la conciliación nunca corrió en este periodo. */
+  recon_estado?: ReconEstado | null;
 }
 
 /** CB.15.2 — Flujo de un movimiento (de dónde viene). */

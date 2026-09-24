@@ -5,6 +5,78 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[CB.46]` `/finanzas/bancos`: tres indicadores que apuntaban al verde, y dos universos
+
+**Cómo se llegó:** *"analiza /finanzas/bancos"* → siete hallazgos → *"arreglemos lo que está en
+nuestras manos"*.
+
+Todo medido contra **prod (Railway/`railway`)**, sólo lectura, el 2026-09-24. No hubo validación
+visual ni medición HTTP end-to-end: no había dev server levantado.
+
+### Lo que estaba mal, con su número
+
+| # | Qué | Medido |
+|---|---|---|
+| 1 | El chip **«Conciliado»** decía *sin correr* al abrir la pantalla, siempre | ago-2026 tiene **1,467 movimientos casados** en prod |
+| 2 | El match guardado describe un universo viejo y nada lo decía | **los 9 periodos** se re-importaron después de su último match (último: **18-ago**) |
+| 3 | El chip **«Clasificado»** inflaba, todos los meses | **5 a 13 pp**; mayo decía **99%**, real **86%** |
+| 4 | La pantalla tenía **dos universos** (`st.period` vs `movement_date`) | **84 movimientos**; ago-2026 dejaba **$722,950 + $706,842** fuera de la bandeja de control |
+| 5 | El importer aceptaba cualquier año | **23 movimientos / $1,579,507** ya en prod con el año mal |
+
+Los tres primeros son la misma familia: **cuando no se podía medir, se dibujaba el lado bueno**.
+El chip de clasificación llevaba literalmente `(classifiedPct() ?? 100) < 100` — sin dato, no avisa.
+
+### Lo que la medición corrigió de mi propia lectura, dos veces
+
+- Los 84 movimientos fuera de periodo **no son todos typos**: **61 son legítimos** (cierre de mes
+  que el banco liquida en el corte siguiente). Por eso el umbral quedó en **±1 mes** y no en
+  «distinto del periodo» — que habría rechazado archivos buenos.
+- La primera aserción del candado decía *«los tolerados son todos el último día del mes»*. La
+  **población completa la refutó**: 13 caen en el último día **hábil** (30-may-2026 fue sábado).
+  Salía de una muestra con `limit 20`. **Una aserción inventada sobre una muestra se pone verde
+  por suerte**; se reescribió a la propiedad que sí define al grupo — *no cambia de año*.
+
+### Lo que se hizo
+
+`diagnostico` devuelve `recon_estado` (con `stale`) y `sin_clasificar_n` del mismo universo que
+`movimientos`; los dos chips leen de ahí. `ingresosControl`/`egresosControl` pasan a `st.period`
+(**$2,264,247 recuperados en 6 periodos**, 185 ms vs 194 ms, 389 páginas — sin regresión). Lo que
+no se puede casar por fecha rota va a un bucket **`fecha_invalida`** propio, fuera de `explicado`
+y de `sin_explicar`: acusar al ERP de un hueco que no existe enseña a ignorar la bandeja.
+Compuerta en `excelDate` con **ROLLBACK** (el import ya corría en transacción → todo o nada).
+Y el reorden de buckets de CB.43: `traspaso` antes que `pago_erp`, porque el consumo es greedy y
+un traspaso coincidente se llevaba el pago que otro retiro necesitaba.
+
+Candado `test-newdb-bank-date-gate.js` **10/10**, en la regresión. Ejerce la función **real** del
+importer — una copia de la regla en el test se pone verde sola — con cuatro negativas y tercer
+estado **NO MEDIDO** donde no hay filas con qué comprobarse.
+
+### Lo que NO se tocó, y por qué
+
+Los 23 movimientos con el año mal **ya en prod**, re-correr «Conciliar» en los 9 periodos, y las
+reglas de clasificación: **las tres son escrituras a prod en horario hábil**. Van con ventana y
+autorización. La compuerta evita que entren **nuevos**; no arregla los viejos.
+
+### Hallazgos que quedan abiertos
+
+- **Humano:** 14 movimientos de CAJA GENERAL ($43,285) fechados el 19-ago dentro del corte de
+  sep-2026 y **sin concepto**. No son corte ni typo; ningún umbral lo decide solo.
+- **Clasificación, por PESOS y no por filas (R6):** por filas el problema es la caja (29.2% en
+  sep); por pesos es **abril, cuenta 4166 — $15.7M en 24 movimientos** (`PREPAGO LEM` /
+  `disposición crédito`), una línea de crédito que ninguna de las 36 reglas toca. 24 filas, una regla.
+- **Ajeno a la fase, medido de paso:** `analytics.kepler_bank_movements` hace *Parallel Seq Scan*
+  sobre `kdm1` — **612,087 filas escaneadas para devolver 452**, 61,308 páginas, **7.0 s**. No es
+  latencia ni caché fría: es el plan. La pestaña **Cuadre** lo consume contra un gate de 1 s.
+
+### Lección
+
+**La misma pantalla puede contar dos universos distintos sin que nada truene.** Acá convivieron
+`st.period` y `movement_date` en pestañas vecinas durante meses, y el síntoma no fue un error:
+fue un veredicto **verde** calculado sobre menos dinero del que había. Cuando dos vistas responden
+sobre «el mismo periodo», el periodo tiene que ser **la misma columna**, y si no puede serlo, la
+diferencia se **declara**.
+
+---
 ## 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo
 
 **Cómo se llegó:** *"analiza /finanzas/cartera"* → siete hallazgos → *"hay que resolver los 7
