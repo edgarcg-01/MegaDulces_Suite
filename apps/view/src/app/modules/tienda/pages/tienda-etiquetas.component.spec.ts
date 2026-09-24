@@ -6,6 +6,8 @@ import { of } from 'rxjs';
 import type { Freshness } from '@megadulces/contracts';
 import { LabelModel } from '../components/label.component';
 import { EtiquetasService, ResolveResult } from '../etiquetas.service';
+import { VerificadorService } from '../verificador.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { TiendaEtiquetasComponent } from './tienda-etiquetas.component';
 
 // `p-table` (scrollable) observa su tamaño con ResizeObserver, que jsdom no trae.
@@ -35,8 +37,21 @@ const modelo = (sku: string): LabelModel => ({
 
 class EtiquetasStub {
   proximo: ResolveResult = { labels: [], not_found: [], freshness: FRESH };
+  /** `[ETQ-PLAZA.1]` Con qué plaza se pidió cada resolución. Es lo que el gate tiene que probar. */
+  plazas: (string | null | undefined)[] = [];
   search() { return of([]); }
-  resolve() { return of(this.proximo); }
+  resolve(_codes: string[], sucursal?: string | null) { this.plazas.push(sucursal); return of(this.proximo); }
+}
+
+/** `[ETQ-PLAZA.1]` Sólo se usa el catálogo de plazas; lo demás del verificador no se toca acá. */
+class VerificadorStub {
+  sucursales() {
+    return of([
+      { codigo: '00', nombre: 'OFICINAS', direccion: '', ciudad: '', almacenes: [], datos_al: null },
+      { codigo: '01', nombre: 'PADRE HIDALGO', direccion: '', ciudad: '', almacenes: [], datos_al: null },
+      { codigo: '03', nombre: '8 ESQUINAS', direccion: '', ciudad: '', almacenes: [], datos_al: null },
+    ]);
+  }
 }
 
 describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => {
@@ -57,6 +72,10 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
       providers: [
         provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
         { provide: EtiquetasService, useValue: svc },
+        { provide: VerificadorService, useValue: new VerificadorStub() },
+        // `[ETQ-PLAZA.1]` Operador de tienda: trae su plaza y no elige. Sin esto la pantalla
+        // ya no resuelve nada — ver el bloque de abajo, que es la prueba de que el gate muerde.
+        { provide: AuthService, useValue: { user: () => ({ warehouse_code: '01', username: 'qa' }), token: () => null } },
       ],
     }).compileComponents();
     fix = TestBed.createComponent(TiendaEtiquetasComponent);
@@ -182,5 +201,65 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
     await cmp.print();
     // [asentadas, totales]: las tres, y no antes.
     expect(vistas).toEqual([3, 3]);
+  });
+
+  it('⭐ la plaza del usuario VIAJA en cada resolución — sin ella se imprimía la moda de la red', async () => {
+    await escanear('10001', FRESH);
+    cmp.bulk.set('20001');
+    cmp.addBulk();
+    await tick();
+    // Escaneo y lote: los dos con la plaza. Un camino que la olvide vuelve a traer el defecto.
+    expect(svc.plazas).toEqual(['01', '01']);
+  });
+});
+
+/**
+ * `[ETQ-PLAZA.1]` LA PRUEBA NEGATIVA — la razón de ser del gate.
+ *
+ * Medido en prod el 2026-09-24: **13 de 31 usuarios con permiso de etiquetas no tienen
+ * `warehouse_code`** (superadmin, compras, supervisión, dirección) y hasta hoy imprimían la MODA
+ * de las nueve plazas sin que nada lo dijera. En PH eso son 95 productos con precio equivocado,
+ * el peor **−94 %** ($90.82 real contra $5.86 impreso).
+ *
+ * Este bloque existe para que la pantalla no pueda volver a resolver sin tienda. Se rompió a
+ * propósito (quitando el `if (!suc) return` de `plazaOAviso`) y sólo este bloque se puso rojo.
+ */
+describe('TiendaEtiquetasComponent · sin plaza no se etiqueta', () => {
+  it('⛔ el usuario de oficina no resuelve NADA hasta elegir tienda, y se le dice', async () => {
+    const svc = new EtiquetasStub();
+    await TestBed.configureTestingModule({
+      imports: [TiendaEtiquetasComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+        { provide: EtiquetasService, useValue: svc },
+        { provide: VerificadorService, useValue: new VerificadorStub() },
+        { provide: AuthService, useValue: { user: () => ({ username: 'oficina' }), token: () => null } }, // sin warehouse_code
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(TiendaEtiquetasComponent);
+    const cmp = fix.componentInstance;
+    fix.detectChanges();
+    await fix.whenStable();
+    fix.detectChanges();
+
+    svc.proximo = { labels: [modelo('10001')], not_found: [], freshness: FRESH };
+    cmp.onScan('10001');
+    await fix.whenStable();
+    fix.detectChanges();
+
+    // Lo que importa: NO se preguntó el precio, y la cola quedó vacía.
+    expect(svc.plazas).toEqual([]);
+    expect(cmp.queue().length).toBe(0);
+    expect((fix.nativeElement as HTMLElement).textContent).toContain('Elige primero la tienda');
+
+    // Y la 00 (Oficinas) no está entre las opciones: no tiene anaquel al público.
+    expect(cmp.opcionesSucursal().map((o) => o.value)).toEqual(['01', '03']);
+
+    // Al elegir tienda, el mismo escaneo sí resuelve — con esa plaza.
+    cmp.cambiarSucursal('03');
+    cmp.onScan('10001');
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(svc.plazas).toEqual(['03']);
   });
 });

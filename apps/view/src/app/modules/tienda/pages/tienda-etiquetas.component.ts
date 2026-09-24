@@ -11,6 +11,10 @@ import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
+// `[ETQ-PLAZA.1]` El catálogo de plazas y su frescura de ODS. Se reusa el del verificador en vez
+// de escribir un segundo camino: si las dos pantallas de mostrador listaran sucursales distinto,
+// la que se equivoque imprime en papel.
+import { VerificadorService, type SucursalVerificador } from '../verificador.service';
 // `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -88,6 +92,13 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-diag.bad{ color: var(--bad-soft-fg); background: var(--bad-soft-bg); font-weight:700;
       padding:1px .4rem; border-radius: var(--r-sm); }
     .etqp-head .p-multiselect{ min-width: 15rem; }
+    /* [ETQ-PLAZA.1] De qué tienda es el precio. Con plaza fija es un rótulo (no hay qué
+       decidir); sin elegir, el selector se marca — un control neutro al lado de un botón de
+       imprimir se lee como "opcional", y acá no lo es. */
+    .etqp-plaza.fija{ display:inline-flex; align-items:center; gap:.35rem; font-size: var(--fs-sm,.85rem);
+      font-weight:600; color: var(--text-muted); padding:.25rem .5rem; border-radius: var(--r-sm);
+      background: var(--surface-sunken, transparent); }
+    .etqp-plaza-pide{ outline:2px solid var(--warn-soft-fg); outline-offset:1px; border-radius: var(--r-sm); }
 
     /* ── Mensaje / banner ──────────────────────────────────── */
     .etqp-msg{ display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius: var(--r-sm);
@@ -292,6 +303,18 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             }
           </p>
         </div>
+        <!-- [ETQ-PLAZA.1] De qué tienda es el precio. Va ARRIBA y al lado del botón de imprimir,
+             no escondido en un panel: es el dato que decide si el papel sale bien o mal. -->
+        @if (sucursalFija()) {
+          <span class="etqp-plaza fija" [title]="'Se imprimen los precios de tu tienda (' + sucursal() + '). El precio de Kepler es por sucursal.'">
+            <i class="pi pi-shop"></i> {{ sucursal() }} · {{ sucursalNombre() }}
+          </span>
+        } @else {
+          <p-select [options]="opcionesSucursal()" [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
+            optionLabel="label" optionValue="value" placeholder="Elige la tienda"
+            ariaLabel="Tienda para la que se imprimen las etiquetas"
+            [class.etqp-plaza-pide]="!sucursal()" [style]="{ minWidth: '14rem' }"></p-select>
+        }
         <p-multiselect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
           optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
           placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones"
@@ -522,16 +545,88 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
 })
 export class TiendaEtiquetasComponent {
   private readonly svc = inject(EtiquetasService);
+  private readonly verificador = inject(VerificadorService);
   private readonly socket = inject(StoreSocketService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
 
   /**
-   * `[NORM.3]` La tienda para la que se imprime. Sale del alcance del usuario, el mismo mecanismo
-   * que ya usa el verificador (`sucursalUsuario`): quien está scopeado a una sucursal imprime la
-   * suya. Un rol global va sin plaza y el backend responde la forma consolidada de siempre.
+   * `[ETQ-PLAZA.1]` LA TIENDA PARA LA QUE SE IMPRIME — y por qué dejó de ser opcional.
+   *
+   * ── El defecto medido (2026-09-24) ──────────────────────────────────────────────────────────
+   * Esto era `auth.user()?.warehouse_code || null` y punto: quien tenía plaza imprimía la suya, y
+   * **quien no la tenía imprimía la MODA de la red sin que nada lo dijera**. Medido en prod: 13 de
+   * 31 usuarios con permiso de etiquetas no tienen `warehouse_code` (los 7 superadmin, los 4 de
+   * compras, supervisión y dirección) — justo los de oficina, que son los que imprimen para varias
+   * tiendas. Y la moda se aparta del precio real de la plaza en **95 productos sólo en PH**:
+   *
+   *     95136 PIRULIN COLORADO /32   real $90.82  imprimía $5.86   −94 %
+   *     96021 RIFA ECONOMICA /30     real $68.99  imprimía $5.89   −91 %
+   *     95784 ENCENDEDOR GALAXY /25  real $10.41  imprimía $77.22  +642 %
+   *
+   * Las primeras se venden a un décimo; las últimas espantan al cliente en el anaquel. Y el papel
+   * ya salió de la impresora cuando alguien se entera.
+   *
+   * ── Por qué elegir plaza y no arreglar la vista ─────────────────────────────────────────────
+   * Porque la vista consolidada **no está rota**: `commercial.v_product_label_prices` colapsa a una
+   * fila por producto a propósito, para los seis lectores agregados que no distinguen tienda
+   * (`[NORM.3]`). Estructuralmente no puede dar el precio de PH. El dato correcto ya existe y ya
+   * está fresco — `analytics.v_label_prices` trae las 9 plazas derivadas del ODS, medido hoy:
+   * 9,331-9,377 filas por sucursal, **todas con precio**. Lo que faltaba era decir cuál tienda.
+   *
+   * ⛔ Por eso **sin plaza no se resuelve nada**. Antes caía a la moda en silencio; ahora la
+   * pantalla lo pide. Imprimir el número de otra tienda es peor que no imprimir (ADR-056: lo que
+   * no se puede medir se declara, no se dibuja) — y acá ni siquiera hace falta declararlo, porque
+   * el dato existe: basta preguntar de qué tienda.
    */
-  private readonly sucursalUsuario = this.auth.user()?.warehouse_code || null;
+  private readonly sucursalUsuario = this.auth.user()?.warehouse_code || '';
+
+  /** La plaza activa. Arranca en la del usuario; si no tiene, la elige a mano. */
+  readonly sucursal = signal<string | null>(this.auth.user()?.warehouse_code || null);
+
+  /** Con plaza propia no se ofrece elegir otra: se imprime la de uno. */
+  readonly sucursalFija = computed(() => !!this.sucursalUsuario);
+
+  readonly sucursales = signal<SucursalVerificador[]>([]);
+
+  readonly opcionesSucursal = computed(() =>
+    this.sucursales().map((s) => ({ label: `${s.codigo} · ${s.nombre}`, value: s.codigo })));
+
+  readonly sucursalNombre = computed(() => {
+    const c = this.sucursal();
+    if (!c) return 'Sin sucursal';
+    return this.sucursales().find((x) => x.codigo === c)?.nombre || c;
+  });
+
+  cambiarSucursal(codigo: string): void {
+    if (codigo === this.sucursal()) return;
+    this.sucursal.set(codigo);
+    // ⚠️ La cola se vacía a propósito. Sus etiquetas traen el precio de la plaza anterior
+    // **congelado en el modelo**: dejarlas sería exactamente el defecto que esta pantalla acaba de
+    // cerrar, pero con la plaza escrita en pantalla dando falsa confianza.
+    if (this.queue().length) {
+      this.queue.set([]);
+      this.notFound.set([]);
+      this.msg.set({ text: `Cola vaciada: los precios eran de otra tienda. Vuelve a agregar para ${codigo}.`, kind: 'info' });
+    } else {
+      this.msg.set(null);
+    }
+  }
+
+  /**
+   * El único portón: devuelve la plaza o corta con un mensaje. Los cuatro caminos que resuelven
+   * (escáner, buscador, lote y refresco) pasan por acá — una compuerta que se puede rodear por un
+   * quinto camino no es una compuerta.
+   */
+  private plazaOAviso(): string | null {
+    const suc = this.sucursal();
+    if (suc) return suc;
+    this.msg.set({
+      text: 'Elige primero la tienda: el precio de Kepler es por sucursal y la etiqueta se imprime en papel.',
+      kind: 'warn',
+    });
+    return null;
+  }
 
   /** `[ETQ-CAMBIOS.1]` El selector entre esta pantalla y "Cambios de precio". */
   readonly etiquetasTabs = ETIQUETAS_TABS;
@@ -603,8 +698,10 @@ export class TiendaEtiquetasComponent {
       this.msg.set({ text: 'No se puede refrescar: estas filas no traen con qué volver a buscarlas.', kind: 'warn' });
       return;
     }
+    const suc = this.plazaOAviso();
+    if (!suc) return;
     this.refrescando.set(true);
-    this.svc.resolve(codes, this.sucursalUsuario).subscribe({
+    this.svc.resolve(codes, suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const porId = new Map((r.labels || []).map((l) => [l.product_id, l]));
@@ -777,6 +874,29 @@ export class TiendaEtiquetasComponent {
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
 
+    // `[ETQ-PLAZA.1]` El catálogo de plazas, sólo para quien tiene que elegir. Pedirlo también
+    // con plaza fija sería una llamada por cada carga de la etiquetera que nadie mira.
+    if (!this.sucursalFija()) {
+      this.verificador.sucursales().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (list) => {
+          // CEDIS (00) no tiene anaquel al público: no se etiqueta.
+          this.sucursales.set(list.filter((s) => s.codigo !== '00'));
+          // Con una sola plaza no hay nada que elegir, y obligar a elegir de una lista de uno es
+          // fricción sin información.
+          if (!this.sucursal() && this.sucursales().length === 1) {
+            this.sucursal.set(this.sucursales()[0].codigo);
+          }
+        },
+        // ⚠️ Fail-CLOSED, al revés que el verificador. Allá un catálogo caído degrada a consultar
+        // con el respaldo local; acá la consecuencia es papel impreso con el precio de otra
+        // tienda, así que sin lista no se habilita nada.
+        error: (e) => this.msg.set({
+          text: this.httpMsg('Catálogo de sucursales', e) + ' Sin la lista no se puede elegir tienda, y sin tienda no se etiqueta.',
+          kind: 'error',
+        }),
+      });
+    }
+
     // `[ETQ-CAMBIOS.1]` Puerta de entrada desde «Cambios de precio». Los códigos llegan por
     // ESTADO del router (no por query param: "imprimir todas" pueden ser cientos y la URL tiene
     // tope) y se cargan con el MISMO camino que la carga masiva — mismo `resolve`, mismo tope de
@@ -930,7 +1050,9 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     const code = h.sku || h.barcode;
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }
-    this.svc.resolve([code], this.sucursalUsuario).subscribe({
+    const suc = this.plazaOAviso();
+    if (!suc) return;
+    this.svc.resolve([code], suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
@@ -957,7 +1079,9 @@ export class TiendaEtiquetasComponent {
     const code = (raw || '').trim();
     if (!code) { this.focusScan(); return; }
     this.msg.set(null);
-    this.svc.resolve([code], this.sucursalUsuario).subscribe({
+    const suc = this.plazaOAviso();
+    if (!suc) { this.focusScan(); return; }
+    this.svc.resolve([code], suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
@@ -983,9 +1107,11 @@ export class TiendaEtiquetasComponent {
   addBulk(): void {
     const codes = this.bulk().split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
     if (!codes.length) return;
+    const suc = this.plazaOAviso();
+    if (!suc) return;
     this.loading.set(true);
     this.msg.set(null);
-    this.svc.resolve(codes, this.sucursalUsuario).subscribe({
+    this.svc.resolve(codes, suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
