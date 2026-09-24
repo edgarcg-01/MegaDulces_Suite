@@ -405,6 +405,48 @@ export class CommercialReplenishmentService {
       END, rp.max_stock)`;
   }
 
+  /**
+   * [RA-PERF.2] Los filtros de Existencia Crítica, en UN solo lugar.
+   *
+   * Existe para que el CONTEO y el LISTADO no puedan divergir. El listado se arma sobre 13
+   * relaciones (las necesita para ordenar y decorar); el conteo, sólo sobre las que los filtros
+   * nombran. Si cada uno aplicara su propio WHERE, el total mentiría sobre la tabla el día que
+   * alguien agregue un filtro y se olvide del otro lado -- el mismo defecto contra el que ya
+   * advierte base() unas líneas más arriba, para list() y kpis().
+   *
+   * Devuelve si el filtro ABC está activo, que es el ÚNICO que obliga a sumar una relación
+   * (abc_classification) al conteo. Todos los demás viven en rp, s o pr.
+   *
+   * ⚠️ Al agregar un filtro acá: si nombra una relación que el conteo no tiene, hay que sumarla
+   * allá o el conteo revienta con "missing FROM-clause entry". Revienta, no miente -- que es
+   * justamente lo que se quiere.
+   */
+  private criticalFilters(b: any, q: CriticalStockQuery, tenantId: string): boolean {
+    const oh = this.onHand();
+    b.where('rp.tenant_id', tenantId)
+      .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
+
+    const whIds = this.whIds(q);
+    if (whIds.length) b.whereIn('rp.warehouse_id', whIds);
+    if (q.supplier_id && UUID_RX.test(q.supplier_id)) b.andWhere('pr.supplier_id', q.supplier_id);
+    if (q.category_id && UUID_RX.test(q.category_id)) b.andWhere('pr.category_id', q.category_id);
+    if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) b.andWhere('rp.source', q.source);
+    const abcPedido = !!(q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase()));
+    if (abcPedido) b.andWhere((w: any) => w.where('abc.abc_class', q.abc!.toUpperCase()).orWhere('rp.abc_class', q.abc!.toUpperCase()));
+    if (q.xyz && ['X', 'Y', 'Z'].includes(q.xyz.toUpperCase())) b.andWhere('rp.xyz_class', q.xyz.toUpperCase());
+    if (q.search && q.search.trim()) {
+      const s = `%${q.search.trim()}%`;
+      b.andWhere((w: any) => w.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
+    }
+    // Filtro por bucket / scope
+    if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
+      b.andWhereRaw(`${this.bucketExpr()} = ?`, [q.bucket]);
+    } else if (q.scope !== 'all') {
+      b.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
+    }
+    return abcPedido;
+  }
+
   // ── Reporte Existencia Crítica ────────────────────────────────────────
   async criticalStock(q: CriticalStockQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -485,29 +527,41 @@ export class CommercialReplenishmentService {
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
-        .leftJoin(rankSub, (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'))
-        .where('rp.tenant_id', tenantId)
-        .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
+        .leftJoin(rankSub, (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'));
 
-      const whIds = this.whIds(q);
-      if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
-      if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
-      if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
-      if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) base.andWhere('rp.source', q.source);
-      if (q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase())) base.andWhere((b) => b.where('abc.abc_class', q.abc!.toUpperCase()).orWhere('rp.abc_class', q.abc!.toUpperCase()));
-      if (q.xyz && ['X', 'Y', 'Z'].includes(q.xyz.toUpperCase())) base.andWhere('rp.xyz_class', q.xyz.toUpperCase());
-      if (q.search && q.search.trim()) {
-        const s = `%${q.search.trim()}%`;
-        base.andWhere((b) => b.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
-      }
-      // Filtro por bucket / scope
-      if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
-        base.andWhereRaw(`${this.bucketExpr()} = ?`, [q.bucket]);
-      } else if (q.scope !== 'all') {
-        base.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
-      }
+      const abcPedido = this.criticalFilters(base, q, tenantId);
 
-      const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
+      // ⭐ [RA-PERF.2] El CONTEO se arma con las relaciones que los filtros TOCAN, y nada más.
+      //
+      // Antes salía de base.clone(), así que el count(*) arrastraba los MISMOS 13 joins que el
+      // listado -- incluidos los dos agregados caros: `sbp` (un GROUP BY sobre reorder_policy x
+      // stock de TODO el tenant) y `sr` (un DENSE_RANK sobre todo inventory_health). Su WHERE
+      // sólo toca rp, s, pr y -- si se filtra por ABC -- abc. Las otras diez relaciones no las
+      // nombra ningún filtro: se pagaban enteras para devolver un entero.
+      //
+      // Medido en prod el 2026-09-24, almacén 00 (5,856 políticas), filtro por defecto:
+      //     con los 13 joins .... 5,709 filas en 2,364 ms
+      //     con las 3 que usa ... 5,709 filas en    16 ms      148x
+      // La CIFRA ES LA MISMA, y no por suerte: cada LEFT JOIN retirado se midió 1:1 sobre su
+      // llave (stock, abc_classification, replenishment_plan, inventory_health,
+      // replenishment_channel, v_erp_unit_cost, v_warehouse_box_factor: max 1 fila por llave,
+      // 0 llaves duplicadas). Un LEFT JOIN que multiplicara filas SÍ movería el conteo -- y si
+      // alguna vez alguno empieza a duplicar, el listado de hoy ya estaría mostrando repetidos.
+      // El candado que lo vigila es database/tests/test-newdb-critical-stock-count.js.
+      //
+      // ⛔ El LISTADO sí necesita los 13: ordena por sr.sales_rank, sbp.surplus_total, sup.name
+      // y por el factor de caja de vbf. Esto NO es "quitarle joins a la pantalla".
+      const conteo = trx('commercial.reorder_policy as rp')
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'));
+      if (abcPedido) {
+        conteo.leftJoin('commercial.abc_classification as abc', (j) =>
+          j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
+      }
+      this.criticalFilters(conteo, q, tenantId);
+
+      const totalRow: any = await conteo.count('* as c').first();
       const total = Number(totalRow?.c || 0);
 
       // [EC.U] Las MISMAS cantidades, sin dividir — en la unidad NATIVA del almacén.
