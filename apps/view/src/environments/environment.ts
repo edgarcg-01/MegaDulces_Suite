@@ -1,9 +1,24 @@
 // Detectar ambiente automáticamente
 // - Local (localhost): conexión directa al backend
-// - Producción (Railway u otro): usa ruta relativa /api (Nginx hace proxy)
+// - Producción (on-prem `md`, tras Caddy/nginx): ruta relativa /api
 
 const isLocalDev = window.location.hostname === 'localhost';
-const isProduction = window.location.hostname.includes('railway.app') || window.location.hostname.includes('up.railway.app');
+/**
+ * ⛔ `[CT.8]` Esto preguntaba **sólo** por `railway.app`. Producción se mudó a on-prem el
+ * 2026-09-22 y se sirve desde `megadulcessuite.com`, así que desde ese día **la app principal
+ * —la que usan los 75 usuarios activos— se declaraba `preview`, no `production`**.
+ *
+ * No es cosmético: `envName` viaja a la telemetría y al reporte de errores, así que todo lo que
+ * esta app reportó desde el corte quedó rotulado como entorno de prueba — y lo que se lee como
+ * prueba es lo que nadie mira. Es la misma familia que el resto de los hallazgos de hoy: algo
+ * que responde, no falla, y dice lo que no es.
+ *
+ * `endsWith` y no `includes`: con `includes`, un host como `megadulcessuite.com.algo-ajeno.net`
+ * se haría pasar por producción. Se conserva `railway.app` mientras quede algo sirviendo ahí.
+ */
+const isProduction =
+  window.location.hostname.endsWith('megadulcessuite.com') ||
+  window.location.hostname.includes('railway.app');
 
 export const environment = {
   production: isProduction,
