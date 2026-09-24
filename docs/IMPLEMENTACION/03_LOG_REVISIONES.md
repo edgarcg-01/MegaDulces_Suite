@@ -5,6 +5,84 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[CB.48]` El dato que dimos por inexistente llevaba meses en la base
+
+**Cómo se llegó:** Edgar mandó una **foto de la pantalla de Kepler** — la ventana «Recepción de
+pagos SAT» del cobro `UA0701-0000214` — con el comentario *"es oro para conciliar"*. Lo era.
+
+### Lo que la foto mostraba
+
+**Fecha de pago: 31/07/2026 16:52.** La póliza de ese mismo documento está fechada **12/08/2026**.
+Doce días de diferencia, y el conciliador usaba la de la póliza.
+
+### Lo que se cae
+
+La Fase CB.44 había concluido, con medición y todo:
+
+> *"La causa RAÍZ es de captura, no de código: en la suc. 01 `fecha valor` = `fecha captura` = el
+> día que se tecleó. Mientras no se retrofeche, ningún motor puede conciliar por fecha:
+> **$6,858,008.40** de cobranza 2026."*
+
+**Falso.** La fecha real sí se captura — en `kepler_ods.kdfe33pagm1.c7`, el complemento de pago
+SAT. El motor leía el campo equivocado. Y el monto coincide **al peso** con los cobros de la suc 01
+que tienen complemento ($6,858,008): el dinero declarado irreconciliable es exactamente el que
+traía su fecha guardada.
+
+No hacía falta cambiar cómo captura nadie.
+
+### El decode, anclado a un hecho
+
+Las columnas `cN` de Kepler no están documentadas, así que el decode se verificó **contra la
+propia pantalla**, campo por campo — siete coincidencias independientes:
+
+| Col | Valor | En pantalla |
+|---|---|---|
+| `c7` | `2026-07-31T16:52:00` | Fecha de pago 31/07/2026 16:52 |
+| `c8` | `01` | Método: Efectivo |
+| `c9` / `c11` | `MXN` / `1.000000` | PESOS / 1.000000 |
+| `c12` | `6784.00` | Monto 6,784.00 |
+| `c13` | `0000214` | Número de operación |
+| `c19` / `c20` | RFC banco / CLABE | Cuenta ordenante |
+
+### Magnitud
+
+| Sucursal | Mueven la fecha | Días prom. | Monto |
+|---|---|---|---|
+| 01 | **530 / 542 (97.8 %)** | 6.8 | $6.79 M |
+| 06 | **101 / 101 (100 %)** | 7.1 | $1.71 M |
+
+**$8,472,420** que la póliza fechaba mal y ahora tienen candidato.
+
+### Lo que se entregó
+
+Vista `analytics.v_kepler_payment_complement` (derive-no-copy, 2,583 filas tras descartar 787
+réplicas) + su `_coverage`, y `runMatchTreasury` toma la fecha del complemento cuando existe —
+incluido el cálculo de `dentro`, para que un cobro tecleado en agosto cuyo pago fue el 31-jul
+entre en los pases de **julio**. El resultado expone `complemento_sat {usados, dias_promedio,
+disponibles}`.
+
+### Lo que NO es, para no venderlo de más
+
+El complemento **sólo existe para `U-A-7`**. El grueso de la cobranza es `U-A-5` del CEDIS —
+29,127 cobros / $452M, cero complementos, porque el SAT sólo lo exige en pago diferido. Cubre el
+**~2 % del dinero** y el **100 % del problema**.
+
+Y la CLABE **no rescata cobertura**: el feed ya deriva `account_label` de `c45` en el 100 % de los
+U-A-7. Su valor es de **árbitro** — coincide en 201 de 202, y el que no coincide quedó declarado
+(suc 01 folio 0000018: el feed dice 6721, la CLABE dice 5712).
+
+### Lección
+
+**Antes de declarar que un dato no existe, hay que buscar dónde más podría estar.** CB.44 midió
+bien (`fecha_valor == fecha_captura` era cierto), razonó bien desde ahí, y llegó a una conclusión
+equivocada porque nunca preguntó *"¿y el SAT no obliga a guardar la fecha real en algún lado?"*.
+El dato llevaba meses a un `SELECT` de distancia, en una tabla del mismo ODS que ya leíamos.
+
+Corolario del método: la foto de una pantalla es un **árbitro de primera** para decodificar un
+ERP sin documentación — siete campos visibles convirtieron un `cN` anónimo en un decode
+defendible y en un test que se pone rojo si alguien lo mueve.
+
+---
 ## 2026-09-24 — `[CB.47]` El traspaso interno se reportaba como «depósito sin origen»
 
 **Cómo se llegó:** reporte de Edgar — *"traspasos internos no se consideran y eso hace que
