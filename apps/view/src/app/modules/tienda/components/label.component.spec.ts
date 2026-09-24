@@ -215,15 +215,21 @@ describe('LabelComponent · lo que sale impreso', () => {
           .filter((n) => (n.textContent ?? '').includes(monto))
           .every((n) => n.classList.contains('is-mayoreo'));
 
-      await render(conVeredictoCJA('ok'));
-      expect(realceDe('225.00')).toBe(true);                               // 225/250 = 10%
-      await render({
+      // ⚠️ El fixture deja UN solo peldaño (el de la caja). Con los tres de `BASE` la etiqueta
+      // llega a cinco renglones y el recorte se lleva justo el de menor descuento — que es el
+      // que este caso quiere mirar. Un fixture que dispara otra regla no prueba la que dice.
+      const soloCaja = (precio: number): LabelModel => ({
         ...BASE,
         presentaciones: (BASE.presentaciones ?? []).map((p) =>
-          p.unidad === 'CJA' ? { ...p, mayoreo_precio: 249, mayoreo_desde: 3, mayoreo_veredicto: 'ok' as const } : p),
+          p.unidad === 'CJA'
+            ? { ...p, mayoreo_precio: precio, mayoreo_desde: 3, mayoreo_veredicto: 'ok' as const }
+            : { ...p, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' as const }),
       });
+      await render(soloCaja(225));
+      expect(realceDe('225.00')).toBe(true);                               // 225/250 = 10%
+      await render(soloCaja(249));
       expect(texto()).toContain('249.00');
-      expect(realceDe('249.00')).toBe(false);
+      expect(realceDe('249.00')).toBe(false);                              // 249/250 = 0.4%
     });
   });
 
@@ -245,6 +251,60 @@ describe('LabelComponent · lo que sale impreso', () => {
     });
     expect(texto()).toContain('SER');
     expect(texto()).toContain('110.00');
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-PRES.4]` LO QUE NO ENTRA EN EL PAPEL.
+   *
+   * Con la lista, la cantidad de renglones dejó de ser fija. El arnés de geometría lo midió sobre
+   * el papel: con 4 renglones no se recorta ninguno; con **5 se recortan 9 de 16**, y les faltan
+   * 1.29–1.69 mm con el monto ya en su piso de legibilidad (2.6 mm) y el código de barras en su
+   * mínimo. No hay de dónde sacar ese milímetro y medio.
+   *
+   * Imprimir un renglón cortado es peor que no imprimirlo: se ve que falta algo y no se lee qué.
+   * Así que la etiqueta elige — y elige con una medición: en las 1,733 etiquetas de cinco
+   * renglones de prod hay 5,199 peldaños y **3,047 (58.6%) descuentan menos del 3%**.
+   */
+  describe('⭐⭐ cuando no entran todos, cede el peldaño que menos descuenta', () => {
+    const tiers = (): string[] =>
+      [...el().querySelectorAll('.etq-tier')].map((n) => n.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    /** 3 presentaciones con precio + 3 peldaños ok = 5 renglones. El caso real del 18022. */
+    const CINCO: LabelModel = {
+      ...BASE, sku: '18022', unit_base: '500', sold_by_kg: true,
+      presentaciones: [
+        { unidad: '500', factor: 1, origen: 'base', contenido: '500 g', precio_lista: 57.88, mayoreo_precio: 57.30, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+        { unidad: 'KG', factor: 2, origen: 'ranura', contenido: '1 kg', precio_lista: 115.74, mayoreo_precio: 107.48, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+        { unidad: 'CUB', factor: 50, origen: 'ranura', contenido: '25 kg', precio_lista: 2339.76, mayoreo_precio: 2232.28, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+      ],
+    };
+
+    it('se imprimen 4 renglones y el que sale es el peldaño de menor descuento', async () => {
+      await render(CINCO);
+      expect(tiers().length).toBe(4);
+      // El de 500 g descuenta 1.0% ($57.88 → $57.30); los otros dos, 7.1% y 4.6%.
+      expect(tiers().some((t) => t.includes('57.30'))).toBe(false);
+      // ⛔ Y NINGUNA presentación desaparece: las tres siguen con su precio de lista.
+      expect(tiers().some((t) => t.includes('57.88'))).toBe(true);
+      expect(tiers().some((t) => t.includes('2,339.76'))).toBe(true);
+      expect(tiers().some((t) => t.includes('2,232.28'))).toBe(true);
+    });
+
+    it('⭐ lo que no entra se DECLARA, no desaparece en silencio', async () => {
+      await render(CINCO);
+      expect(fix.componentInstance.renglonesOcultos).toBe(1);
+      // …y con cuatro o menos no hay nada que declarar: el 97.9% de las etiquetas.
+      await render(BASE);
+      expect(fix.componentInstance.renglonesOcultos).toBe(0);
+    });
+
+    it('⛔ NEGATIVA: el precio de lista de una presentación NO cede antes que un peldaño', async () => {
+      // Aunque el peldaño de la cubeta descuente mucho más que el de la porción, lo que se saca
+      // sigue siendo un peldaño: borrar un precio de lista haría desaparecer una UNIDAD del
+      // papel, que es el defecto que esta fase cierra.
+      await render(CINCO);
+      const conLista = tiers().filter((t) => !t.includes('Mayoreo'));
+      expect(conLista.length).toBe(2);                    // las dos que no son el hero
+    });
   });
 
   /**

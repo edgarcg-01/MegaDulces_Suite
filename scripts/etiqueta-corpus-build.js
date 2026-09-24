@@ -16,17 +16,31 @@ require('dotenv').config({ quiet: true });
 
 const URL = process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
 
-/** Los que tienen que estar aunque el muestreo por estrato no los pesque. */
-const TESTIGOS = ['78148', '20186', '70031', '70500', '70079', '70043'];
+/**
+ * Los que tienen que estar aunque el muestreo por estrato no los pesque.
+ *
+ * `[ETQ-PRES.4]` Se suman los cuatro que motivaron la migración: `18022` (tres presentaciones,
+ * y el "25 kg" que colgaba del precio de la porción), `95717` (la caja con su peldaño real) y
+ * `44228`/`83112` (mayoreo incoherente, que no se publica). Si la geometría se rompe, se tiene
+ * que romper visiblemente en ellos.
+ */
+const TESTIGOS = ['78148', '20186', '70031', '70500', '70079', '70043',
+  '18022', '95717', '44228', '83112'];
 
 /**
- * `renglones` replica los getters del componente con el hero por default:
- *   hasMayoreoPza = base suelta  && wpza > 0 && (base <= 0 || wpza < base)
- *   hasMayoreoPaq = base agrupada && base > 0 && wpaq > 0 && wpaq < base
- *   hasPaquete    = pack_price > 0 && pack_size > 0
- *   hasCaja       = box_price  > 0 && box_size  > 0
- * Contar columnas de la tabla en vez de esto sobreestima: da 73.7% con 2 renglones
- * cuando lo que se imprime de verdad es 78.4%.
+ * ⭐ `[ETQ-PRES.4]` EL CORPUS SALE DEL ODS, NO DE LA COPIA.
+ *
+ * Hasta acá la población se leía de `commercial.product_label_prices`, que es la tabla que
+ * mantiene un importer cada 30 min — la misma copia que el servicio dejó de leer en
+ * `[ETQ-ODS.1]`. O sea que el arnés certificaba la geometría de una etiqueta armada con
+ * precios que podían estar hasta media hora atrás de los que se imprimen.
+ *
+ * Ahora sale de `analytics.v_label_prices` + `analytics.v_label_presentations`, las dos
+ * derivadas de `kepler_ods` sin tabla intermedia: la misma frontera que lee la pantalla.
+ *
+ * Y `renglones` deja de replicar los cuatro getters del modelo de cajones —que ya no
+ * existen— para contar lo que el componente IMPRIME: el precio de lista de cada presentación
+ * que no es la del hero, más el peldaño de las que tienen veredicto `ok` con umbral real.
  */
 /**
  * ⭐ El BARCODE sale de `catalog.products`, NO de `commercial.product_label_prices`.
@@ -59,28 +73,49 @@ const CTE_L = `
          lp.piece_price, lp.wholesale_piece_min_qty, lp.wholesale_piece_price,
          lp.pack_size, lp.pack_price, lp.wholesale_pack_price, lp.wholesale_pack_min_qty,
          lp.box_size, lp.box_price, lp.unit_base, lp.sold_by_kg,
-         least(length(trim(to_char(lp.piece_price,'999999'))), 4) AS digitos,
-         least(
-           CASE WHEN NOT (upper(btrim(coalesce(lp.unit_base,''))) IN ('PAQ','CJA'))
-                     AND coalesce(lp.wholesale_piece_price,0) > 0
-                     AND (coalesce(lp.piece_price,0) <= 0 OR lp.wholesale_piece_price < lp.piece_price)
-                THEN 1 ELSE 0 END
-         + CASE WHEN (upper(btrim(coalesce(lp.unit_base,''))) IN ('PAQ','CJA'))
-                     AND coalesce(lp.piece_price,0) > 0 AND coalesce(lp.wholesale_pack_price,0) > 0
-                     AND lp.wholesale_pack_price < lp.piece_price
-                THEN 1 ELSE 0 END
-         + CASE WHEN coalesce(lp.pack_price,0) > 0 AND coalesce(lp.pack_size,0) > 0 THEN 1 ELSE 0 END
-         + CASE WHEN coalesce(lp.box_price,0) > 0 AND coalesce(lp.box_size,0) > 0 THEN 1 ELSE 0 END, 3) AS renglones,
-         -- el mayoreo con menos de 1% de descuento: hoy imprime chip de oferta sin serlo
-         (upper(btrim(coalesce(lp.unit_base,''))) IN ('PAQ','CJA')
-           AND coalesce(lp.piece_price,0) > 0 AND coalesce(lp.wholesale_pack_price,0) > 0
-           AND lp.wholesale_pack_price < lp.piece_price
-           AND (1 - lp.wholesale_pack_price/lp.piece_price) * 100 < 1) AS realce_sin_descuento,
-         (coalesce(lp.wholesale_pack_price,0) > 0 AND coalesce(lp.wholesale_pack_min_qty,0) <= 1) AS sin_umbral
-  FROM commercial.product_label_prices lp
-  JOIN catalog.products p ON p.id = lp.product_id
+         pres.lista AS presentaciones,
+         least(length(trim(to_char(coalesce(
+           CASE WHEN lp.sold_by_kg THEN pres.precio_kg END,
+           pres.precio_base, pres.precio_primero, lp.piece_price),'999999'))), 4) AS digitos,
+         -- \`[ETQ-PRES.4]\` Los renglones que el componente IMPRIME, con su misma regla: el precio
+         -- de lista de cada presentación que no es la del hero, más el peldaño de las que tienen
+         -- veredicto \`ok\`. Contar los tres cajones acá daría un corpus de una etiqueta que ya no
+         -- existe, y el arnés mediría el alto de renglones que nadie va a imprimir.
+         coalesce(pres.renglones, 0) AS renglones,
+         coalesce(pres.realce_flojo, false) AS realce_sin_descuento,
+         coalesce(pres.sin_umbral, false)   AS sin_umbral
+  FROM analytics.v_label_prices lp
+  JOIN catalog.products p ON btrim(p.sku) = lp.sku AND p.deleted_at IS NULL
+  -- ⚠️ Esto era un LEFT JOIN **LATERAL** y no se podía correr: el planificador ejecuta la vista
+  -- una vez por fila, o sea 84,219 veces, y la consulta moría en el \`statement_timeout\` de 180 s.
+  -- Por separado las dos vistas tardan 4.4 s y 7.2 s. Agrupar PRIMERO y unir después deja UNA
+  -- pasada por cada lado. El precio de la lateral no estaba en la vista: estaba en la forma.
+  LEFT JOIN (
+    SELECT v.sucursal, v.sku,
+           jsonb_agg(jsonb_build_object(
+             'unidad', v.unidad, 'factor', v.factor, 'origen', v.origen,
+             'contenido', v.contenido, 'precio_lista', v.precio_lista,
+             'mayoreo_precio', v.mayoreo_precio, 'mayoreo_desde', v.mayoreo_desde,
+             'mayoreo_veredicto', v.mayoreo_veredicto)
+             ORDER BY v.factor NULLS LAST) AS lista,
+           -- Las tres piezas del hero. Cuál gana lo decide el consumidor, que es el único que
+           -- sabe si el producto se vende por kilo — igual que \`heroPres\` en el componente.
+           min(v.precio_lista) FILTER (WHERE v.unidad = 'KG'   AND v.precio_lista > 0) AS precio_kg,
+           min(v.precio_lista) FILTER (WHERE v.origen = 'base' AND v.precio_lista > 0) AS precio_base,
+           (array_agg(v.precio_lista ORDER BY v.factor) FILTER (WHERE v.precio_lista > 0))[1] AS precio_primero,
+           -- ⭐ Los renglones NO necesitan saber cuál es el hero: sea cual sea, es exactamente UNA
+           -- de las que tienen precio. Contar "las que tienen precio menos una" es correcto para
+           -- los tres caminos de la cascada, y no se puede desincronizar con ella.
+           greatest(count(*) FILTER (WHERE v.precio_lista > 0) - 1, 0)
+           + count(*) FILTER (WHERE v.mayoreo_veredicto = 'ok' AND coalesce(v.mayoreo_desde,0) > 1) AS renglones,
+           bool_or(v.mayoreo_veredicto = 'ok' AND v.precio_lista > 0
+                   AND (1 - v.mayoreo_precio / v.precio_lista) * 100 < 1) AS realce_flojo,
+           bool_or(v.mayoreo_precio > 0 AND coalesce(v.mayoreo_desde,0) <= 1) AS sin_umbral
+      FROM analytics.v_label_presentations v
+     GROUP BY v.sucursal, v.sku) pres
+    ON pres.sucursal = lp.sucursal AND pres.sku = lp.sku
   WHERE coalesce(lp.piece_price,0) > 0
-  -- [NORM.3] la tabla paso a tener grano por PLAZA: sin esto cada producto entraría 9 veces.
+  -- [NORM.3] el precio de Kepler es por PLAZA: sin esto cada producto entraría 9 veces.
   -- Se conserva una plaza por SKU (la primera) para que el corpus siga siendo una muestra de
   -- FORMAS de etiqueta, que es lo que la geometría mide.
   ORDER BY p.sku, lp.sucursal`;
@@ -149,9 +184,13 @@ UNION ALL SELECT *, 0 FROM (
 
   process.stdout.write(JSON.stringify({
     generado: new Date().toISOString().slice(0, 10),
-    fuente: 'commercial.product_label_prices + catalog.products (PROD)',
+    fuente: 'analytics.v_label_prices + analytics.v_label_presentations + catalog.products (PROD, derivadas del ODS)',
     nota: 'CONGELADO a proposito: el antes y el despues se miden sobre las MISMAS filas. '
-        + 'Regenerar obliga a re-medir el antes.',
+        + 'Regenerar obliga a re-medir el antes. '
+        + '[ETQ-PRES.4] Regenerado el 2026-09-24 al migrar la etiqueta a la LISTA de '
+        + 'presentaciones: el corpus anterior salia de commercial.product_label_prices (la COPIA '
+        + 'que mantiene un importer) y contaba renglones con el modelo de tres cajones, o sea '
+        + 'que media una etiqueta que ya no se imprime. El "antes" que conservaba dejo de existir.',
     pesos_catalogo_pct: pesos,
     filas: corpus.length,
     corpus,

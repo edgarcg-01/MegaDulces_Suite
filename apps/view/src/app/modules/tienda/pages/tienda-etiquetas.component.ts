@@ -10,7 +10,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { unidadLegible } from '@megadulces/contracts';
-import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
+import { LabelComponent, LabelModel, LabelSections, HeroKey, MAX_RENGLONES, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[ETQ-PLAZA.1]` El catálogo de plazas y su frescura de ODS. Se reusa el del verificador en vez
 // de escribir un segundo camino: si las dos pantallas de mostrador listaran sucursales distinto,
@@ -192,6 +192,11 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-num{ font-variant-numeric: tabular-nums; }
     /* Selector de precio grande por ticket (hero dinámico) — p-select. */
     .etqp-hero-sel{ width:100%; max-width: 12rem; }
+    /* [ETQ-PRES.4] Aviso de presentaciones que no entran en el papel. Tono de advertencia, no de
+       error: la etiqueta esta bien, lo que hay es mas dato del que cabe en 82x35 mm. */
+    .etqp-ocultos{ display:inline-flex; align-items:center; gap:.25rem; margin-top:.25rem;
+      font-size:.72rem; line-height:1.1; color: var(--warn-fg, #92400e); cursor:help; }
+    .etqp-ocultos .pi{ font-size:.7rem; }
     td.etqp-cnum, th.etqp-cnum{ text-align:right; white-space:nowrap; }
     td.etqp-cact, th.etqp-cact{ text-align:right; width:2.5rem; }
 
@@ -488,6 +493,16 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
                     <p-select [options]="heroOptions(it.model)" [ngModel]="it.hero" (onChange)="setHero(i, $event.value)"
                       optionLabel="label" optionValue="value" appendTo="body" styleClass="etqp-hero-sel"
                       [ariaLabel]="'Precio grande de ' + it.model.name"></p-select>
+                    <!-- [ETQ-PRES.4] Lo que no cupo en el papel se DICE. Medido: pasa en el 2.06%
+                         de las etiquetas (las de cinco renglones), y callarlo seria repetir en
+                         chico el defecto que esta fase cierra: una unidad que desaparece sin que
+                         nadie se entere. Con esto el operador sabe que existe y la puede poner en
+                         grande, que es lo que la deja impresa. -->
+                    @if (ocultos(it.model, it.hero); as n) {
+                      <span class="etqp-ocultos" [title]="'El papel no da para todas las presentaciones. Pone en grande la que te falte y se imprime.'">
+                        <i class="pi pi-exclamation-triangle"></i> {{ n }} no {{ n === 1 ? 'entra' : 'entran' }}
+                      </span>
+                    }
                   </td>
                   <td class="etqp-cnum">
                     <p-inputnumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
@@ -1219,6 +1234,33 @@ export class TiendaEtiquetasComponent {
    * La etiqueta del `18022` sale ahora con sus tres unidades, y el "25 kg" queda pegado a los
    * $2,339.76 de la cubeta, que es de quien era ese peso desde el principio.
    */
+  /**
+   * `[ETQ-PRES.4]` Cuántas presentaciones NO caben en el papel con este hero.
+   *
+   * Replica `renglones` + `recortar` del componente — ⚠️ y eso es una segunda implementación de
+   * la misma regla, que es como se separan. Se acepta acá porque la cola NO renderiza la etiqueta
+   * (no tiene de dónde preguntárselo) y porque el candado de `label.component.spec.ts` mide el
+   * DOM: si las dos se separan, el conteo miente pero el papel sigue bien. La alternativa —
+   * renderizar 500 etiquetas ocultas para contar renglones— cuesta más de lo que vale.
+   */
+  ocultos(m: LabelModel, hero: HeroKey): number {
+    const ps = (m.presentaciones ?? []).filter((p) => !!p?.unidad);
+    if (!ps.length) return 0;
+    const conPrecio = ps.filter((p) => this.n(p.precio_lista) > 0);
+    const h = String(hero ?? '').trim().toUpperCase();
+    const elegida = conPrecio.find((p) => String(p.unidad).toUpperCase() === h)
+      || (m.sold_by_kg ? conPrecio.find((p) => String(p.unidad).toUpperCase() === 'KG') : undefined)
+      || conPrecio.find((p) => p.origen === 'base')
+      || conPrecio[0];
+    const heroU = elegida ? String(elegida.unidad).toUpperCase() : '';
+    let n = 0;
+    for (const p of ps) {
+      if (String(p.unidad).toUpperCase() !== heroU && this.n(p.precio_lista) > 0) n++;
+      if (p.mayoreo_veredicto === 'ok' && this.n(p.mayoreo_precio) > 0 && Number(p.mayoreo_desde) > 1) n++;
+    }
+    return Math.max(0, n - MAX_RENGLONES);
+  }
+
   heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
     const fmt = (v: number) => '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (m.presentaciones ?? [])

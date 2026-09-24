@@ -131,8 +131,43 @@ const ZONA_MUDA: Record<string, [number, number]> = { EAN13: [11, 7], UPC: [9, 9
 /** Píxeles por módulo con que JsBarcode dibuja; la zona muda se expresa en múltiplos de esto. */
 const BARCODE_MODULE_PX = 2;
 
-/** Descuento mínimo para que un mayoreo se REALCE como oferta. Ver `realceMayoreo*`. */
+/** Descuento mínimo para que un mayoreo se REALCE como oferta. Ver `renglones`. */
 const MAYOREO_MIN_DESC = 0.01;
+
+/**
+ * ⭐⭐ `[ETQ-PRES.4]` CUÁNTOS RENGLONES ENTRAN EN EL PAPEL — medido, no elegido.
+ *
+ * Con la etiqueta imprimiendo la lista, la cantidad de renglones dejó de ser fija. Medido en prod
+ * sobre los 84,219 pares (sku, plaza):
+ *
+ *   0 renglones ..  1,278 (1.52%)     3 renglones .. 64,923 (77.32%)
+ *   1 renglón ....  8,869 (10.56%)    4 renglones ..  1,707 (2.03%)
+ *   2 renglones ..  5,456 (6.50%)     5 renglones ..  1,733 (2.06%)
+ *
+ * Y el arnés de geometría lo midió sobre el papel: con **4 renglones no se recorta ninguno**; con
+ * **5 se recortan 9 de las 16** del corpus, y les faltan **1.29–1.69 mm** con el monto ya en su
+ * piso de legibilidad (2.6 mm) y el código de barras ya en su mínimo. O sea que el quinto renglón
+ * no entra, y no es cuestión de achicar: no hay de dónde sacar el milímetro y medio.
+ *
+ * ⛔ Imprimir un renglón cortado es peor que no imprimirlo: se ve que falta algo y no se puede
+ * leer qué. Así que a partir de acá la etiqueta **elige**, y elige con una medición:
+ *
+ * ── Qué cede primero, y por qué ──────────────────────────────────────────────────────────────
+ * El PELDAÑO con menor descuento. En las 1,733 etiquetas de cinco renglones hay 5,199 peldaños y
+ * **3,047 (58.6%) descuentan menos del 3%** (media 4.85%, mínimo 0.00%): es justo el renglón que
+ * menos agrega, y es el mismo criterio con el que `MAYOREO_MIN_DESC` ya le quita el chip amarillo
+ * a un "descuento" que no lo es.
+ *
+ * ⛔ **Nunca cede el precio de lista de una presentación.** Ése es la respuesta a "¿a cómo la
+ * caja?", y borrarlo haría desaparecer una unidad del papel — que es exactamente el defecto que
+ * esta fase vino a cerrar. Sólo si después de sacar TODOS los peldaños siguen sobrando renglones
+ * se recorta por precio de lista, y entonces cede el de menor factor: el más parecido al que ya
+ * va en grande.
+ *
+ * ⚠️ Lo que se saca NO se pierde en silencio: `renglonesOcultos` lo cuenta y la etiquetera lo
+ * muestra en la cola, para que el operador sepa que esa unidad existe y pueda ponerla en grande.
+ */
+export const MAX_RENGLONES = 4;
 
 /**
  * Las familias de las que depende el TAMAÑO medido, exportadas para que la pantalla declare
@@ -389,6 +424,10 @@ export interface RenglonEtiqueta {
   desde: number | null;
   /** El chip amarillo. Exige un descuento real contra el precio de lista de SU MISMA unidad. */
   realce: boolean;
+  /** Fracción de descuento del peldaño contra SU lista (0 en los renglones de lista). Decide qué cede cuando no entra. */
+  descuento: number;
+  /** Factor de la presentación. Desempata el recorte cuando ya no quedan peldaños que sacar. */
+  factor: number;
 }
 
 /**
@@ -842,6 +881,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
           unidadPlural: leg.plural,
           contenido: p.contenido ?? null,
           precio: lista, mayoreo: false, desde: null, realce: false,
+          descuento: 0, factor: Number(p.factor) || 0,
         });
       }
       // `mayoreoPublicable` del contrato es `veredicto === 'ok'`; se comprueba acá para que el
@@ -854,12 +894,58 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
             unidadPlural: leg.plural,
             contenido: p.contenido ?? null,
             precio: may, mayoreo: true, desde,
+            descuento: lista > 0 ? (lista - may) / lista : 0,
+            factor: Number(p.factor) || 0,
             realce: lista > 0 && (lista - may) / lista >= MAYOREO_MIN_DESC,
           });
         }
       }
     }
-    return out;
+    return this.recortar(out);
+  }
+
+  /**
+   * `[ETQ-PRES.4]` Deja los que entran en el papel. Ver `MAX_RENGLONES` para la medición.
+   *
+   * Devuelve los renglones en su orden original — se saca del medio, no se reordena: un anaquel
+   * donde las unidades cambian de lugar según cuántas haya es más difícil de leer que uno con
+   * una unidad menos.
+   */
+  private recortar(rs: RenglonEtiqueta[]): RenglonEtiqueta[] {
+    if (rs.length <= MAX_RENGLONES) return rs;
+    const fuera = new Set<string>();
+    // 1) Los peldaños, del descuento más chico al más grande.
+    const peldanos = rs.filter((r) => r.mayoreo).sort((a, b) => a.descuento - b.descuento);
+    for (const p of peldanos) {
+      if (rs.length - fuera.size <= MAX_RENGLONES) break;
+      fuera.add(p.clave);
+    }
+    // 2) Sólo si todavía sobran: el precio de lista de menor factor (el más cercano al hero).
+    const listas = rs.filter((r) => !r.mayoreo).sort((a, b) => a.factor - b.factor);
+    for (const l of listas) {
+      if (rs.length - fuera.size <= MAX_RENGLONES) break;
+      fuera.add(l.clave);
+    }
+    return rs.filter((r) => !fuera.has(r.clave));
+  }
+
+  /**
+   * Cuántas presentaciones NO entraron en el papel. **Cero en el 97.9% de las etiquetas** (medido:
+   * sólo el 2.06% llega a cinco renglones). La etiquetera lo muestra en la cola: lo que no cabe se
+   * DECLARA, no desaparece.
+   */
+  get renglonesOcultos(): number {
+    const ps = this.presentaciones;
+    if (!ps.length) return 0;
+    const heroU = String(this.heroUnidad ?? '').toUpperCase();
+    let todos = 0;
+    for (const p of ps) {
+      const esHero = !!heroU && String(p.unidad).toUpperCase() === heroU;
+      if (!esHero && this.num(p.precio_lista) > 0 && this.show.presentaciones) todos++;
+      if (this.show.mayoreo && p.mayoreo_veredicto === 'ok'
+          && this.num(p.mayoreo_precio) > 0 && Number(p.mayoreo_desde) > 1) todos++;
+    }
+    return Math.max(0, todos - this.renglones.length);
   }
 
   /**
