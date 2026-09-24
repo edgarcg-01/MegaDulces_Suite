@@ -147,8 +147,29 @@ const _lastSafety = new Map();
 // arranca vacío en cada pasada y el resync se dispararía SIEMPRE (cada 15 s), justo el egress que
 // esto evita. Con la tabla, el intervalo se respeta entre procesos.
 const HASH_RESYNC_SEC = Number(process.env.ODS_HASH_RESYNC_SEC || 3600);
+// ⭐ [NORM.3b] ENTRA `kdii`, Y LA RAZÓN ES QUE LA PREMISA DE ARRIBA CADUCÓ.
+// El párrafo anterior excluye a kdii textualmente "para NO pagar egress de re-shipear catálogos
+// grandes (kdii 37MB)". Eso era correcto cuando el destino era Railway y cada re-ship cruzaba
+// internet. Desde [VL.11] el destino es `pg-prod` en la MISMA máquina que las réplicas: el egress
+// que justificaba la exclusión es hoy loopback.
+// Y el costo de NO tenerla está medido, el 2026-09-23: 460 filas de kdii en las 9 ramas publicaban
+// un precio que la sucursal ya no cobra —329 de ellas MÁS BARATO que el real, una en $0.00— y el
+// carril decía `0 candidatas` en las nueve. No era rezago: estaban ATASCADAS, y el único motivo
+// por el que kdil/kdik NO lo estaban es que son las dos únicas que sí tenían esta red.
+// ⛔ `kdc2*` sigue afuera a propósito: son las pólizas por mes, crecen sin techo y no publican precio.
 const HASH_RESYNC_TABLES = new Set(
-  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik').split(',').map((s) => s.trim()).filter(Boolean));
+  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik,kdii').split(',').map((s) => s.trim()).filter(Boolean));
+
+// ── [NORM.3b] EL SHADOW NO SABÍA A DÓNDE HABÍA MANDADO ───────────────────────────────────────
+// `ods.shadow` es (table_name, pk_text, h): estado POR RÉPLICA, sin una sola columna que diga a qué
+// destino se shipeó. Mientras hubo un solo destino eso fue invisible. Cuando prod se mudó de Railway
+// a `pg-prod` (2026-09-22/23), el shadow siguió contestando "esa fila ya la mandé" — y era CIERTO:
+// la había mandado al destino viejo. El carril quedó convencido de no tener nada pendiente contra un
+// destino que nunca vio esas filas, y no hay reintento posible: sólo se corrige si el dato cambia solo.
+// Acá se guarda la identidad del destino (host/base, JAMÁS la credencial) al lado del shadow; si
+// cambia, el carril hash hace UNA pasada ignorando el shadow, que es exactamente `--full`.
+const DEST_CAMBIO = new Map(); // code → true cuando este replica detectó destino nuevo
+let DEST_IDENT = null;         // 'host:puerto/base' del destino, sin credenciales
 
 const CONN = { connectionTimeoutMillis: 15000, statement_timeout: 300000, query_timeout: 300000, keepAlive: true };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -298,7 +319,7 @@ function mapType(dt) {
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 
 /** Estado co-locado en el replica: watermark ctid + shadow de hashes. */
-async function ensureLocalCtl(p) {
+async function ensureLocalCtl(p, code, apply) {
   await p.query('CREATE SCHEMA IF NOT EXISTS ods');
   await p.query(`CREATE TABLE IF NOT EXISTS ods.ctl (
       table_name  text PRIMARY KEY,
@@ -315,6 +336,46 @@ async function ensureLocalCtl(p) {
   await p.query(`CREATE TABLE IF NOT EXISTS ods.hash_resync (
       table_name text PRIMARY KEY,
       last_at    timestamptz NOT NULL DEFAULT now())`);
+  // [NORM.3b] Identidad del DESTINO al que este replica viene shipeando (ver el bloque de arriba).
+  await p.query(`CREATE TABLE IF NOT EXISTS ods.sink_ident (
+      id     int PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      dest   text NOT NULL,
+      set_at timestamptz NOT NULL DEFAULT now())`);
+  // ⛔ Sin `code` no hay a quién marcarle el cambio; sin `DEST_IDENT` no hay con qué comparar. Lo
+  // segundo sólo pasa si el sink no publicó su identidad, y eso se AVISA en vez de quedar mudo:
+  // un mecanismo anti-divergencia apagado en silencio se lee igual que uno que dice "todo bien".
+  if (!code) return;
+  if (!DEST_IDENT) {
+    if (!ensureLocalCtl._aviso) { ensureLocalCtl._aviso = true;
+      console.log('  ⚠ el sink no publicó su identidad → el candado de "destino nuevo" queda INERTE en esta corrida.'); }
+    return;
+  }
+  const actual = await p.query('SELECT dest FROM ods.sink_ident WHERE id = 1');
+  if (!actual.rowCount) {
+    // PRIMERA VEZ: se SIEMBRA y NO se resincroniza. A propósito — si el estreno de este código
+    // disparara un full de todo el carril hash en las 9 réplicas a la vez, el arreglo sería peor
+    // que el problema (en `ods-live-mirror` el carril hash es "todo menos la whitelist ctid", y ahí
+    // adentro hay tablas de cientos de miles de filas). El destino de hoy ya quedó verificado a mano.
+    await p.query('INSERT INTO ods.sink_ident (id, dest) VALUES (1, $1) ON CONFLICT (id) DO NOTHING', [DEST_IDENT]);
+    return;
+  }
+  if (actual.rows[0].dest === DEST_IDENT) return;
+  // Claim ATÓMICO, mismo patrón que ods.hash_resync: si hay dos procesos, sólo uno se lleva el full.
+  // ⛔ SÓLO CON --apply, misma razón que `ods.hash_resync`: si una corrida en seco se llevara el
+  // claim, la corrida real siguiente creería que el destino no cambió y NO resincronizaría — el
+  // dry-run habría consumido en silencio justo la señal que existe para no perder filas.
+  if (!apply) {
+    console.log(`  ⚠ ${code}: DESTINO NUEVO (${actual.rows[0].dest} → ${DEST_IDENT}); en seco no se marca.`);
+    return;
+  }
+  const cambio = await p.query(
+    `UPDATE ods.sink_ident SET dest = $1, set_at = now() WHERE id = 1 AND dest IS DISTINCT FROM $1 RETURNING dest`,
+    [DEST_IDENT]);
+  if (cambio.rowCount) {
+    DEST_CAMBIO.set(code, true);
+    console.log(`  ⛑ ${code}: DESTINO NUEVO (${actual.rows[0].dest} → ${DEST_IDENT}). El shadow de este `
+      + `replica no sabe nada de él → una pasada del carril hash ignorando el shadow.`);
+  }
 }
 
 /** Columnas + PK de md.<table> en este replica. */
@@ -422,7 +483,7 @@ async function syncHash(p, code, table, meta, { apply, full }) {
          WHERE ods.hash_resync.last_at < now() - ($2 || ' seconds')::interval
        RETURNING table_name`, [table, String(HASH_RESYNC_SEC)])).rowCount > 0;
   }
-  const ignoreShadow = full || dueResync;
+  const ignoreShadow = full || dueResync || DEST_CAMBIO.get(code) === true;
   // full = ignora shadow (re-shipea todo y reconstruye shadow); útil primera pasada / resync.
   const joinCond = ignoreShadow
     ? `FALSE`
@@ -522,7 +583,7 @@ async function cycleAll({ apply, full }) {
     }
     let tablas = 0, filas = 0, errTablas = 0;
     try {
-      await ensureLocalCtl(p);
+      await ensureLocalCtl(p, b.code, apply);
       const tables = await tablesFor(p);
       for (const table of tables) {
         try {
@@ -547,118 +608,139 @@ async function cycleAll({ apply, full }) {
   return summary;
 }
 
-(async () => {
-  console.log(`\n=== replicate-ods-LIVE — replicas locales → kepler_ods (${APPLY || WATCH_SEC ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
-  console.log(`  sink: ${sink.sinkMode()}  ·  ramas: ${BRANCH_CODES.join(',')}  ·  tablas: ${ALL_MODE ? 'TODAS (espejo completo md.*)' : TABLES.length}`);
-  console.log(ALL_MODE ? `  carril ctid (whitelist): ${[...CTID_TABLES].join(',')} · resto → hash` : `  carril hash: ${[...HASH_TABLES].join(',')}`);
+// ─── [NORM.3b] EJECUTAR SÓLO COMO SCRIPT ────────────────────────────────────────────────────
+// Sin esta guarda el archivo no se puede `require` sin arrancar la ingesta entera, y por eso el
+// candado de "destino nuevo" nació sin prueba negativa. Mismo patrón que `lib/cron-heartbeat.js`.
+// Invocado como script (que es como lo invocan el cron y el compose) el comportamiento es idéntico.
+if (require.main === module) {
+  (async () => {
+    console.log(`\n=== replicate-ods-LIVE — replicas locales → kepler_ods (${APPLY || WATCH_SEC ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
+    console.log(`  sink: ${sink.sinkMode()}  ·  ramas: ${BRANCH_CODES.join(',')}  ·  tablas: ${ALL_MODE ? 'TODAS (espejo completo md.*)' : TABLES.length}`);
+    console.log(ALL_MODE ? `  carril ctid (whitelist): ${[...CTID_TABLES].join(',')} · resto → hash` : `  carril hash: ${[...HASH_TABLES].join(',')}`);
 
-  if (PRIME) {
-    console.log(`  PRIME — fijando watermark ctid al máximo actual (sin shipear)…`);
-    await primeCtid();
-    console.log('PRIME hecho. Ahora corré --apply --watch para shipear solo lo nuevo (ctid) + catálogos.');
-    return;
-  }
-
-  // Modo pg (on-prem/test): abre el cliente destino. DESTINO ≠ FUENTE — el default sale de
-  // DATABASE_URL_NEW (la base de la app), no de ODS_SOURCE_BASE (el contenedor de replicas).
-  if (sink.sinkMode() === 'pg') {
-    const destStr = DEST_URL || process.env.DATABASE_URL_NEW || SUB_BASE;
-    DEST = new Client({ connectionString: destStr, ssl: false, ...CONN });
-    await DEST.connect();
-    console.log(`  destino pg: ${new URL(destStr).host}${new URL(destStr).pathname}`);
-  }
-
-  // Preflight del vigilante. En watch (desatendido, bajo supervisor) se ABORTA antes que correr a
-  // ciegas: sin destino de latido, un carril muerto es indistinguible de uno sano y el tablero queda
-  // verde — que es exactamente cómo se perdieron 6 días. En one-shot solo se avisa fuerte.
-  // ⛔⛔ [DB-MEM.19] EL LATIDO NO DEPENDE DE CÓMO SE EMBARCAN LAS FILAS. Acá decía
-  // `&& sink.sinkMode() === 'http'`, y eso tuvo sentido UN día: `[OBS.1]` (3375d0d7, 02-sep) lo
-  // escribió cuando estos carriles shipeaban por http, así que atarlo al sink era equivalente a
-  // "siempre". `[VL.11]` los pasó a escribir DIRECTO a `pg-prod` (`FEEDS_SINK=pg`) y con eso
-  // APAGÓ EN SILENCIO el latido que OBS.1 acababa de instalar — sin tocar este archivo.
-  //
-  // Medido el 2026-09-23, y no es teórico: `ods_live_hot` llevaba 22.9 h sin escribir su renglón
-  // (umbral 20 min), `health-lane.sh` lo leía vencido, y `autoheal` reinició los dos carriles
-  // **39 veces en un día**, cada 5 minutos, para siempre. Nadie más escribe esa llave (verificado
-  // por grep). Y el renglón viejo se queda con su `status='ok'`, así que el tablero no grita:
-  // es EXACTAMENTE el falso verde que la Fase OBS existe para eliminar, reintroducido por la
-  // mudanza. `latir()` abre su propio Client contra `ODS_HB_URL` (prod) — no toca el sink ni lo
-  // necesita; ya se protege sola con `if (!HB_URL) return`.
-  //
-  // ⚠️ El one-shot exige llave EXPLÍCITA: `HB_KEY` cae por defecto a `ods_live_hot`/`ods_live_mirror`,
-  // así que una corrida manual `--apply` sin `ODS_HB_KEY` pisaría el renglón del contenedor. Un
-  // carril = UN dueño (ops/README §3.2). En `--watch` (los contenedores supervisados) es obligatorio.
-  const late = WATCH_SEC > 0 || (APPLY && !!process.env.ODS_HB_KEY);
-  if (late && !HB_URL) {
-    const msg = 'falta ODS_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril.';
-    if (WATCH_SEC) { console.error(`✖ ${msg}\n  El ecosystem la pasa explícita. Abortando.`); process.exit(1); }
-    console.warn(`⚠ ${msg}`);
-  }
-  // El latido NO debe viajar por el canal que vigila (GOTCHAS §18): si apunta al mismo lugar que la
-  // FUENTE, no es prod y no sirve de nada.
-  if (HB_URL && new URL(HB_URL).host === new URL(SUB_BASE).host) {
-    console.error(`✖ ODS_HB_URL apunta a la FUENTE (${new URL(SUB_BASE).host}), no a prod — el latido sería invisible.`);
-    if (WATCH_SEC) process.exit(1);
-  }
-
-  /** Un ciclo con latido: begin → cycleAll → end(ok|error). Reporta ENTREGA, no "el proceso corre". */
-  const ciclarConLatido = async ({ full }) => {
-    const t0 = Date.now();
-    if (late) await latir('begin');
-    try {
-      const summary = await cycleAll({ apply: true, full });
-      const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
-      const errs = summary.filter((r) => r.error).length;
-      const fallas = summary.fallas || [];
-      // Una rama ilegible o una tabla en error es un ERROR del carril, aunque el proceso siga vivo.
-      const malo = fallas.length > 0 || errs > 0;
-      // [OBS.3.2] La marca por rama va ANTES del latido agregado: si el proceso muere entre las
-      // dos, es preferible tener el detalle por sucursal y que falte el resumen que al revés.
-      if (late) await marcarRamas(summary.marcas || []);
-      if (late) {
-        await latir('end', {
-          status: malo ? 'error' : 'ok',
-          rows: wrote,
-          ms: Date.now() - t0,
-          note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error`,
-          error: malo
-            ? [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
-              errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ')
-            : null,
-        });
-      }
-      return { wrote, ms: Date.now() - t0 };
-    } catch (e) {
-      if (late) await latir('end', { status: 'error', ms: Date.now() - t0, error: e.message });
-      throw e;
+    if (PRIME) {
+      console.log(`  PRIME — fijando watermark ctid al máximo actual (sin shipear)…`);
+      await primeCtid();
+      console.log('PRIME hecho. Ahora corré --apply --watch para shipear solo lo nuevo (ctid) + catálogos.');
+      return;
     }
-  };
 
-  if (!WATCH_SEC) {
-    if (!APPLY) {
-      const summary = await cycleAll({ apply: false, full: FULL });
-      console.log('\n=== Resumen ===');
-      console.table(summary.slice(0, 200));
-      console.log('DRY-RUN — nada cambió. Corré con --apply.');
+    // Modo pg (on-prem/test): abre el cliente destino. DESTINO ≠ FUENTE — el default sale de
+    // DATABASE_URL_NEW (la base de la app), no de ODS_SOURCE_BASE (el contenedor de replicas).
+    // [NORM.3b] El sink HTTP también publica su identidad: si no, al volver a ese modo el candado
+    // quedaría inerte y volveríamos al punto de partida (un cambio de destino invisible).
+    if (sink.sinkMode() === 'http' && process.env.FEEDS_INGEST_URL) {
+      try { const u = new URL(process.env.FEEDS_INGEST_URL); DEST_IDENT = `${u.host}${u.pathname}`; } catch { /* url inválida: queda null y se avisa */ }
+    }
+    if (sink.sinkMode() === 'pg') {
+      const destStr = DEST_URL || process.env.DATABASE_URL_NEW || SUB_BASE;
+      DEST = new Client({ connectionString: destStr, ssl: false, ...CONN });
+      await DEST.connect();
+      // [NORM.3b] La identidad viaja SIN credenciales: host:puerto/base y nada más.
+      DEST_IDENT = `${new URL(destStr).host}${new URL(destStr).pathname}`;
+      console.log(`  destino pg: ${DEST_IDENT}`);
+    }
+
+    // Preflight del vigilante. En watch (desatendido, bajo supervisor) se ABORTA antes que correr a
+    // ciegas: sin destino de latido, un carril muerto es indistinguible de uno sano y el tablero queda
+    // verde — que es exactamente cómo se perdieron 6 días. En one-shot solo se avisa fuerte.
+    // ⛔⛔ [DB-MEM.19] EL LATIDO NO DEPENDE DE CÓMO SE EMBARCAN LAS FILAS. Acá decía
+    // `&& sink.sinkMode() === 'http'`, y eso tuvo sentido UN día: `[OBS.1]` (3375d0d7, 02-sep) lo
+    // escribió cuando estos carriles shipeaban por http, así que atarlo al sink era equivalente a
+    // "siempre". `[VL.11]` los pasó a escribir DIRECTO a `pg-prod` (`FEEDS_SINK=pg`) y con eso
+    // APAGÓ EN SILENCIO el latido que OBS.1 acababa de instalar — sin tocar este archivo.
+    //
+    // Medido el 2026-09-23, y no es teórico: `ods_live_hot` llevaba 22.9 h sin escribir su renglón
+    // (umbral 20 min), `health-lane.sh` lo leía vencido, y `autoheal` reinició los dos carriles
+    // **39 veces en un día**, cada 5 minutos, para siempre. Nadie más escribe esa llave (verificado
+    // por grep). Y el renglón viejo se queda con su `status='ok'`, así que el tablero no grita:
+    // es EXACTAMENTE el falso verde que la Fase OBS existe para eliminar, reintroducido por la
+    // mudanza. `latir()` abre su propio Client contra `ODS_HB_URL` (prod) — no toca el sink ni lo
+    // necesita; ya se protege sola con `if (!HB_URL) return`.
+    //
+    // ⚠️ El one-shot exige llave EXPLÍCITA: `HB_KEY` cae por defecto a `ods_live_hot`/`ods_live_mirror`,
+    // así que una corrida manual `--apply` sin `ODS_HB_KEY` pisaría el renglón del contenedor. Un
+    // carril = UN dueño (ops/README §3.2). En `--watch` (los contenedores supervisados) es obligatorio.
+    const late = WATCH_SEC > 0 || (APPLY && !!process.env.ODS_HB_KEY);
+    if (late && !HB_URL) {
+      const msg = 'falta ODS_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril.';
+      if (WATCH_SEC) { console.error(`✖ ${msg}\n  El ecosystem la pasa explícita. Abortando.`); process.exit(1); }
+      console.warn(`⚠ ${msg}`);
+    }
+    // El latido NO debe viajar por el canal que vigila (GOTCHAS §18): si apunta al mismo lugar que la
+    // FUENTE, no es prod y no sirve de nada.
+    if (HB_URL && new URL(HB_URL).host === new URL(SUB_BASE).host) {
+      console.error(`✖ ODS_HB_URL apunta a la FUENTE (${new URL(SUB_BASE).host}), no a prod — el latido sería invisible.`);
+      if (WATCH_SEC) process.exit(1);
+    }
+
+    /** Un ciclo con latido: begin → cycleAll → end(ok|error). Reporta ENTREGA, no "el proceso corre". */
+    const ciclarConLatido = async ({ full }) => {
+      const t0 = Date.now();
+      if (late) await latir('begin');
+      try {
+        const summary = await cycleAll({ apply: true, full });
+        const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
+        const errs = summary.filter((r) => r.error).length;
+        const fallas = summary.fallas || [];
+        // Una rama ilegible o una tabla en error es un ERROR del carril, aunque el proceso siga vivo.
+        const malo = fallas.length > 0 || errs > 0;
+        // [OBS.3.2] La marca por rama va ANTES del latido agregado: si el proceso muere entre las
+        // dos, es preferible tener el detalle por sucursal y que falte el resumen que al revés.
+        if (late) await marcarRamas(summary.marcas || []);
+        if (late) {
+          await latir('end', {
+            status: malo ? 'error' : 'ok',
+            rows: wrote,
+            ms: Date.now() - t0,
+            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error`,
+            error: malo
+              ? [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
+                errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ')
+              : null,
+          });
+        }
+        return { wrote, ms: Date.now() - t0 };
+      } catch (e) {
+        if (late) await latir('end', { status: 'error', ms: Date.now() - t0, error: e.message });
+        throw e;
+      }
+    };
+
+    if (!WATCH_SEC) {
+      if (!APPLY) {
+        const summary = await cycleAll({ apply: false, full: FULL });
+        console.log('\n=== Resumen ===');
+        console.table(summary.slice(0, 200));
+        console.log('DRY-RUN — nada cambió. Corré con --apply.');
+        if (DEST) await DEST.end().catch(() => {});
+        return;
+      }
+      await ciclarConLatido({ full: FULL });
+      console.log('APPLY hecho.');
       if (DEST) await DEST.end().catch(() => {});
       return;
     }
-    await ciclarConLatido({ full: FULL });
-    console.log('APPLY hecho.');
-    if (DEST) await DEST.end().catch(() => {});
-    return;
-  }
 
-  console.log(`  watch activo (latido → ${HB_KEY}) — Ctrl+C para salir.`);
-  let cycle = 0;
-  for (;;) {
-    cycle++;
-    try {
-      const { wrote, ms } = await ciclarConLatido({ full: FULL && cycle === 1 });
-      if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${ms}ms) ──`);
-    } catch (e) {
-      console.error(`  ✗ ciclo ${cycle}: ${e.message.slice(0, 120)}`);
+    console.log(`  watch activo (latido → ${HB_KEY}) — Ctrl+C para salir.`);
+    let cycle = 0;
+    for (;;) {
+      cycle++;
+      try {
+        const { wrote, ms } = await ciclarConLatido({ full: FULL && cycle === 1 });
+        if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${ms}ms) ──`);
+      } catch (e) {
+        console.error(`  ✗ ciclo ${cycle}: ${e.message.slice(0, 120)}`);
+      }
+      await sleep(WATCH_SEC * 1000);
     }
-    await sleep(WATCH_SEC * 1000);
-  }
-})().catch((e) => { console.error('\nERROR:', e.message); process.exit(1); });
+  })().catch((e) => { console.error('\nERROR:', e.message); process.exit(1); });
+}
+
+// Sólo para la prueba negativa de `database/tests/test-ods-dest-fingerprint.js`. No es API pública.
+module.exports.__test = {
+  ensureLocalCtl,
+  DEST_CAMBIO,
+  fijarDestIdent: (v) => { DEST_IDENT = v; },
+  reiniciarAviso: () => { delete ensureLocalCtl._aviso; },
+};
