@@ -242,6 +242,51 @@ se ve idéntico a uno que corre y no encuentra nada que hacer.
 
 ---
 
+## 4.2 Control de acceso — quién puede tocar producción (`[SEG.1]`, 2026-09-24)
+
+**Medido antes de cambiar nada**, porque la sospecha inicial apuntaba al lugar equivocado.
+
+| Superficie | Estado medido | Veredicto |
+|---|---|---|
+| Servidor `md` | **1 sola llave SSH**, 1 usuario con shell (`superoot`) | cerrado… **sin atribución** |
+| Llave de despliegue de GitHub | `read_only = true` | ✅ correcto |
+| `main` en GitHub | exige PR + 1 review de CODEOWNERS, sin force-push | ✅ |
+| Colaboradores | 4 con `write` — **no** pueden saltarse esa protección | ✅ sus commits entran por PR |
+| Repositorio | era **PÚBLICO**, con 157 archivos con IPs internas | ⛔ **corregido: privado** |
+
+⭐ **El hallazgo que dio vuelta la premisa:** de los últimos 25 commits en `main`, **21 entraron
+por push directo del lead** (cuenta admin, y `enforce_admins` está en `false`, que es lo que la
+deja saltarse el PR) y **4 por PR de los devs**. Quitarles el push a los devs no habría cerrado
+nada y habría frenado justo a quienes sí siguen el proceso.
+
+### Quién entró a `md`
+
+`sshd` ya registra la **huella de la llave** en cada acceso con su nivel de log por defecto, y
+`superoot` está en el grupo `adm`, así que puede leer `/var/log/auth.log` **sin sudo**. La
+atribución ya existía en el sistema: lo único que faltaba era que cada huella fuera de UNA persona.
+
+```sh
+ssh superoot@192.168.0.222 'sh ~/ops/prod/ssh-llaves.sh listar'      # llaves, dueño y último uso
+ssh superoot@192.168.0.222 'sh ~/ops/prod/ssh-llaves.sh quien 20'    # últimos accesos, con NOMBRE
+ssh superoot@192.168.0.222 'sh ~/ops/prod/ssh-llaves.sh agregar /tmp/fulano.pub fulano@megadulces'
+```
+
+Para dar de alta a alguien, que mande la salida de `cat ~/.ssh/id_ed25519.pub` desde SU máquina
+(la pública; **la privada no se comparte nunca**). Si no tiene, `ssh-keygen -t ed25519`.
+
+⛔ **`quitar` se niega a dejar `authorized_keys` vacío**: `md` no tiene IPMI y recuperarla sería
+caminar hasta el equipo, con producción adentro.
+
+⚠️ **Lo que esto NO resuelve, declarado:** todos siguen entrando como `superoot`, que está en
+`docker` y en `sudo` — o sea **root de facto**. Esto atribuye el ACCESO, no la acción.
+
+⚠️ **Y lo que quedó abierto por decisión:** `enforce_admins` sigue en `false` (la cuenta admin
+puede empujar a `main` sin PR — la vía por la que entró el commit que no arrancaba), y **las 2
+credenciales por defecto que estuvieron en código público desde abril no se rotaron**. Pasar el
+repo a privado reduce la exposición futura; no deshace la pasada.
+
+---
+
 ## 5. Cómo se sabe si está sano
 
 **El rótulo no es el veredicto.** Un contenedor `healthy` con el latido viejo ya pasó — por eso
