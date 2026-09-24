@@ -120,6 +120,42 @@ export class CommercialProductsController {
     return this.service.stats(search);
   }
 
+  // ⚠️ Las dos rutas de `price-report` van ANTES de `@Get(':id')`: Nest resuelve por orden de
+  // declaración y `price-report` entraría como un `id` que no es UUID.
+  @Get('price-report/sucursales')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT.7]` Plazas CON precio cargado (las que sirven para el reporte), con su fecha de cómputo.',
+  })
+  priceReportBranches() {
+    return this.service.priceReportBranches();
+  }
+
+  @Get('price-report')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT.7]` Reporte imprimible de precios por proveedor: la matriz unidad / mayoreo / '
+      + 'paquete / caja tal como está en Kepler. `meta.consolidado` dice si el precio es de UNA '
+      + 'plaza o la forma consolidada; `meta.truncado` y `meta.sin_precio` declaran los huecos.',
+  })
+  priceReport(
+    @Query('supplier_ids') supplierIds?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('search') search?: string,
+    @Query('only_active') onlyActive?: string,
+    @Query('only_with_price') onlyWithPrice?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.priceReport({
+      supplier_ids: supplierIds ? supplierIds.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      sucursal,
+      search,
+      only_active: onlyActive === undefined ? undefined : onlyActive !== 'false',
+      only_with_price: onlyWithPrice === 'true',
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
