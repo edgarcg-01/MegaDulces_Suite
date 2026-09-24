@@ -356,7 +356,33 @@ export const routes: Routes = [
         // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
         path: 'gastos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+        // `[GX.17]` SIN permiso: la sección se partió en dos y ésta es la de CAPTURAR —
+        // pegar el folio de Kepler, declarar cómo se pagó y subir la foto. Decisión del
+        // usuario: «para este tendrán acceso todos».
+        //
+        // ⛔ Abrir la RUTA no abre el dato: el backend sigue acotando por áreas, y quien no
+        // tiene ninguna necesita el folio EXACTO para encontrar una solicitud
+        // (`searchSolicitudes`). O sea que nadie puede pasearse por el gasto ajeno.
+        // El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión.
+        canActivate: []
+      },
+      {
+        // `[GX.17]` La otra mitad: dar luz verde. Sólo quien puede firmar.
+        // `FINANCE_EXPENSES_COMPROBAR` ya existía y ya gateaba approve/validate/reject
+        // desde GX.7 — no se inventó un permiso nuevo para la misma puerta.
+        // Hoy lo tienen: `tesoreria` (María) + `superadmin` por god-mode (Luis Francisco,
+        // Guillermo) + Jesús por override de persona (mig 20260924120000).
+        path: 'aprobacion-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-aprobacion-gastos.component').then(m => m.FinanzasAprobacionGastosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.17]` El tablero de GX.10 NO se borra: 25 personas con `FINANCE_EXPENSES_VER`
+        // lo usan para revisar y buscar. Deja de ser lo que sirve `/finanzas/gastos` (que
+        // ahora es sólo captura) y pasa a tener ruta propia.
+        path: 'gastos-tablero',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       // Las tres rutas viejas quedan como redirect: hay enlaces internos, marcadores del
       // equipo y links compartidos apuntando ahí. `solicitudes` conserva sus query params
