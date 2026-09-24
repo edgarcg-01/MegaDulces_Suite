@@ -564,48 +564,130 @@ export class CollectionDepositsService {
    * CASO B — bandeja de abonos que ENTRARON como cobranza pero NO están ligados a
    * ningún cobro de Kepler. Bank-first (lo inverso al three-way): banco → cobro.
    * `tiene_candidato=false` = abono huérfano de verdad (ingreso sin origen → investigar).
+   *
+   * ── `[CC.8]` EL FILTRO QUE MIRABA EL 30% DEL DINERO ──────────────────────────────────────
+   * Acá se buscaban candidatos **sólo** entre los cobros con `forma_pago IN (deposito,
+   * transferencia, tarjeta)` (`CON_FICHA`). Pero `forma_pago` es un **regex sobre el concepto
+   * capturado a mano** (`kdm1.c24`, ver `analytics.erp_collections`), y medido contra prod el
+   * 2026-09-24 el cajón `'otro'` —el ELSE, o sea *"el texto no trajo la palabra"*— se lleva
+   * **17,675 cobros y $318,562,566.39: el 70.1% del dinero cobrado en 2026**.
+   *
+   * `'otro'` NO significa "sin ficha". Filtrar por eso es **inferir de un silencio**, y el
+   * efecto se midió con el mismo cruce cambiando sólo el universo de candidatos (17,662 abonos
+   * sin ligar, feb–ago 2026), cada uno contra su placebo —las mismas fechas corridas +90 días,
+   * dentro del rango poblado— porque un cruce por importe sin piso de ruido no dice nada:
+   *
+   *     universo                      casan            ruido      margen
+   *     CON_FICHA (lo que había) .... 18.7%  (3,303)    2.2%      16.5 pp
+   *     sin el filtro ............... 78.0% (13,772)    7.6%      70.4 pp
+   *
+   * Quitarlo recupera **10,469 abonos por $192,631,803.14** y baja los huérfanos de **14,359 a
+   * 3,890** ($284,995,182.13 → $92,363,378.99). `CON_FICHA` **se conserva** donde sí
+   * corresponde: en el listado de fichas (`listar`), porque la ficha de depósito sólo existe
+   * para esas formas de pago. Acá no se buscaba una ficha, se buscaba un cobro.
+   *
+   * ⚠️ **Con 7.6% de ruido, 1 de cada 10 «candidatos» puede ser casualidad.** Por eso esto
+   * **propone** y nunca liga: el cruce marca `tiene_candidato` y el humano elige en
+   * `cobroCandidates()` + `linkBankToCobro()`. Cero auto-ligado.
+   *
+   * ⚠️ Además: la consulta anterior **no filtraba `deleted_at`**, así que los movimientos
+   * borrados entraban al conteo. Ahora sí.
    */
   async listUnmatchedBank(q: { from?: string; to?: string; search?: string; solo_huerfanos?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
     return this.tk.run(async (trx) => {
-      const candSql = `EXISTS (
-        SELECT 1 FROM analytics.erp_collections ec
-         WHERE ec.tenant_id = m.tenant_id
-           AND ec.forma_pago IN ('deposito','transferencia','tarjeta')
-           AND ec.monto BETWEEN m.amount_in - ${BANK_TOL} AND m.amount_in + ${BANK_TOL}
-           AND ec.cobro_date BETWEEN m.movement_date - INTERVAL '${BANK_DAYS_AFTER} days' AND m.movement_date + INTERVAL '${BANK_DAYS_BEFORE} days'
-           AND NOT EXISTS (SELECT 1 FROM finance.bank_recon_matches r2
-                            WHERE r2.tenant_id = m.tenant_id AND r2.kepler_doc_tipo='UA0501' AND r2.kepler_doc_folio = ec.folio)
-      )`;
-      const base = () => {
-        const b = trx('finance.bank_movements as m')
-          .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
-          .join('finance.movement_categories as c', 'c.id', 'm.category_id')
-          .where('m.tenant_id', tenantId).where('c.code', 'cobranza').where('m.amount_in', '>', 0)
-          .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r').whereRaw('r.bank_movement_id = m.id'));
-        if (q.from) b.where('m.movement_date', '>=', q.from);
-        if (q.to) b.where('m.movement_date', '<=', q.to);
-        if (q.search) b.whereRaw('m.concept ILIKE ?', [`%${q.search}%`]);
-        return b;
-      };
-      const rowsQ = base()
-        .select('m.id', 'm.movement_date', trx.raw('m.amount_in::numeric AS amount_in'), 'm.concept',
-          'a.bank', 'a.account_label', trx.raw(`${candSql} AS tiene_candidato`))
-        .orderBy('m.movement_date', 'desc').limit(limit);
-      if (q.solo_huerfanos === '1') rowsQ.whereRaw(`NOT ${candSql}`);
-      const rows = (await rowsQ).map((r: any) => ({ ...r, amount_in: Number(r.amount_in) }));
+      // ⚠️ Los filtros del usuario van DENTRO de `mov`, que es el segundo `?` de la consulta.
+      // El orden de los bindings lo fija el TEXTO del SQL (ligados → mov → filtros → cobx), no
+      // el orden en que uno los piensa; por eso se arma explícito abajo y no acumulando.
+      const cond: string[] = [];
+      const filtros: any[] = [];
+      if (q.from) { cond.push('AND m.movement_date >= ?'); filtros.push(q.from); }
+      if (q.to) { cond.push('AND m.movement_date <= ?'); filtros.push(q.to); }
+      if (q.search) { cond.push('AND m.concept ILIKE ?'); filtros.push(`%${q.search}%`); }
 
-      const [k] = await base().select(
-        trx.raw('COUNT(*)::int AS abonos'),
-        trx.raw('COALESCE(SUM(m.amount_in),0)::numeric AS monto'),
-        trx.raw(`COUNT(*) FILTER (WHERE NOT ${candSql})::int AS huerfanos`),
-      );
-      return { kpis: { abonos: Number(k.abonos), monto: Number(k.monto), huerfanos: Number(k.huerfanos) }, rows };
+      const sql = `
+        -- [CC.9] Los folios YA ligados, aparte y materializados. Meter este NOT EXISTS dentro
+        -- de "cob" era lo que mataba la consulta: el planificador estima esa CTE en rows=1
+        -- cuando trae ~24,000, elige Nested Loop Anti Join y recorre bank_recon_matches por
+        -- cada cobro. Es la misma mala estimacion que documento [PERF.4b] para
+        -- erp_sales_invoices, y aca costaba lo mismo: >5 min sin terminar.
+        WITH ligados AS MATERIALIZED (
+          SELECT DISTINCT kepler_doc_folio AS folio
+            FROM finance.bank_recon_matches
+           WHERE tenant_id = ? AND kepler_doc_tipo = 'UA0501'
+        ),
+        mov AS MATERIALIZED (
+          SELECT m.id, m.movement_date, m.amount_in::numeric AS amount_in, m.concept,
+                 a.bank, a.account_label, round(m.amount_in)::bigint AS cubeta
+            FROM finance.bank_movements m
+            JOIN finance.bank_accounts a ON a.id = m.bank_account_id
+            JOIN finance.movement_categories c ON c.id = m.category_id
+           WHERE m.tenant_id = ? AND c.code = 'cobranza' AND m.amount_in > 0
+             AND m.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM finance.bank_recon_matches r
+                              WHERE r.bank_movement_id = m.id)
+             ${cond.join(' ')}
+        ),
+        -- [CC.8] Los cobros de Kepler que TODAVIA no estan ligados a ningun abono.
+        -- NO se filtra por forma_pago. El porque, con sus numeros, en el JSDoc del metodo.
+        --
+        -- [CC.9] Cada cobro se expande a SUS TRES CUBETAS de monto. Con tolerancia de
+        -- ${BANK_TOL} peso, un cobro que case esta a lo sumo una cubeta de distancia, asi que
+        -- tres filas por cobro convierten el cruce en una IGUALDAD -- y por igualdad Postgres
+        -- hace hash join. Se expande este lado (24k -> 72k) y no el de los abonos porque es
+        -- el que despues se sondea.
+        cobx AS MATERIALIZED (
+          SELECT ec.cobro_date, ec.monto, b.cubeta
+            FROM analytics.erp_collections ec
+            LEFT JOIN ligados l ON l.folio = ec.folio
+            CROSS JOIN LATERAL (VALUES (round(ec.monto)::bigint - 1),
+                                       (round(ec.monto)::bigint),
+                                       (round(ec.monto)::bigint + 1)) AS b(cubeta)
+           WHERE ec.tenant_id = ? AND l.folio IS NULL
+        ),
+        cand AS (
+          SELECT DISTINCT m.id
+            FROM mov m
+            JOIN cobx k ON k.cubeta = m.cubeta
+           WHERE abs(k.monto - m.amount_in) <= ${BANK_TOL}
+             AND k.cobro_date BETWEEN m.movement_date - INTERVAL '${BANK_DAYS_AFTER} days'
+                                  AND m.movement_date + INTERVAL '${BANK_DAYS_BEFORE} days'
+        ),
+        marcado AS (
+          SELECT m.*, (c.id IS NOT NULL) AS tiene_candidato
+            FROM mov m LEFT JOIN cand c ON c.id = m.id
+        )
+        SELECT
+          (SELECT jsonb_build_object(
+              'abonos', count(*)::int,
+              'monto', COALESCE(sum(amount_in), 0)::numeric,
+              'huerfanos', count(*) FILTER (WHERE NOT tiene_candidato)::int)
+             FROM marcado) AS kpis,
+          COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.movement_date DESC) FROM (
+              SELECT id, movement_date, amount_in, concept, bank, account_label, tiene_candidato
+                FROM marcado
+               WHERE ${q.solo_huerfanos === '1' ? 'NOT tiene_candidato' : 'true'}
+               ORDER BY movement_date DESC
+               LIMIT ${limit}) x), '[]'::jsonb) AS rows`;
+
+      const r = await trx.raw(sql, [tenantId, tenantId, ...filtros, tenantId]);
+      const out = r.rows[0];
+      const k = out.kpis || { abonos: 0, monto: 0, huerfanos: 0 };
+      return {
+        kpis: { abonos: Number(k.abonos), monto: Number(k.monto), huerfanos: Number(k.huerfanos) },
+        rows: ((out.rows as any[]) || []).map((x) => ({ ...x, amount_in: Number(x.amount_in) })),
+      };
     });
   }
 
-  /** Cobros candidatos para un abono huérfano (mismo monto ±$1, fecha cercana, sin ligar). */
+  /**
+   * Cobros candidatos para un abono (mismo monto ±$1, fecha cercana, sin ligar).
+   *
+   * `[CC.8]` Sin el filtro de `forma_pago` — mismo motivo que en `listUnmatchedBank`: dejaba
+   * fuera el 70.1% del dinero cobrado. Se expone `forma_pago` en cada candidato para que el
+   * revisor lo vea, que es distinto de usarlo como compuerta.
+   */
   async cobroCandidates(bankMovementId: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -615,7 +697,6 @@ export class CollectionDepositsService {
       const target = Number(mov.amount_in);
       const cobros = await trx('analytics.erp_collections as ec')
         .where('ec.tenant_id', tenantId)
-        .whereIn('ec.forma_pago', CON_FICHA)
         .whereRaw('ec.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
         .whereRaw(`ec.cobro_date BETWEEN ?::date - INTERVAL '${BANK_DAYS_AFTER} days' AND ?::date + INTERVAL '${BANK_DAYS_BEFORE} days'`, [mov.movement_date, mov.movement_date])
         .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r')

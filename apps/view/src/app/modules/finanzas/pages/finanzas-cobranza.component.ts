@@ -127,6 +127,16 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
             <input pInputText [(ngModel)]="searchB" placeholder="Concepto del abono…" (keyup.enter)="loadBanco()" (blur)="queueBanco()" /></div>
         </div>
         @if (bancoReport(); as r) { <app-metric-strip [items]="bancoKpis(r)" ariaLabel="Resumen abonos" /> }
+        <!-- [CC.8] El ruido se DECLARA. El cruce por monto y fecha casa el 74.8% contra un piso
+             de azar del 7.6% (medido con placebo en prod): es señal buena, pero alrededor de 1
+             de cada 13 «candidatos» puede ser coincidencia. Por eso acá se propone y liga una
+             persona — publicar el número sin su piso de ruido sería venderlo como certeza. -->
+        <p class="cb-ruido muted">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          «Hay cobro candidato» significa que existe un cobro del mismo importe y fecha cercana —
+          <b>no</b> que sea ése. Medido contra su placebo, ~1 de cada 13 coincide por azar: revisá
+          antes de ligar.
+        </p>
         @if (errorB()) {
           <app-load-state [error]="errorB()" (retry)="loadBanco()"></app-load-state>
         } @else {
@@ -440,6 +450,8 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     @keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     @media (prefers-reduced-motion: reduce) { .cb-live-dot { animation: none; } }
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
+    /* [CC.8] El piso de ruido del cruce, dicho donde se decide. */
+    .cb-ruido { display: flex; gap: .4rem; align-items: baseline; font-size: .78rem; margin: .1rem 0 .9rem; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }

@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Fixed — Cobranza: «Abonos sin cobro» buscaba en el 30% del dinero y no terminaba de cargar (CC.8+CC.9, 2026-09-24)
+- ⭐ **El cruce banco↔cobro sólo miraba los cobros cuyo concepto trae la palabra «depósito»,
+  «transferencia» o «tarjeta».** El resto —**17,677 cobros por $318,563,684.39, el 70.1% del
+  dinero cobrado**— quedaba fuera, no por no tener ficha sino porque el texto que alguien
+  capturó a mano no traía la palabra. Con el universo completo, los abonos que sí tienen un
+  cobro que los explique pasan de **18.6% a 74.8%**, y los que quedan sin explicación bajan de
+  **16,900 a 5,248**.
+- **La pantalla no cargaba**: la consulta tardaba **más de 5 minutos** (medido también contra la
+  base local, o sea que no era la red). Ahora responde en **361 ms**, con los mismos números.
+- **El aviso que faltaba**: «Hay cobro candidato» ahora dice en pantalla que es un candidato por
+  importe y fecha, no una certeza — medido, **~1 de cada 13 coincide por azar**. Se propone; liga
+  una persona.
+
 ### Added — Crédito de clientes: el 43% de la cartera no son clientes (CXC.25, 2026-09-24)
 - ⭐ **La pantalla publicaba $59,382,522.23 como si fueran clientes.** Medido: **$25,702,051.63
   (43.3%) son ocho cuentas entre plazas propias** —`30-73 TLMKT Morelia Abastos`, `10-00 P.V.
