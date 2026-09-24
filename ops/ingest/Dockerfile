@@ -65,7 +65,13 @@ RUN sed -i 's/\r$//' ./ops/ingest/health-lane.sh && chmod +x ./ops/ingest/health
 # trae la agenda de los feeds (crontab + wrapper), que a partir de VL.4 vive en el
 # repo y no en el Programador de Windows.
 COPY database/scripts ./database/scripts
-COPY ops/vl/run-feed.sh ops/vl/crontab.feeds ./ops/vl/
+# ⚠️ [CT.4] Los crontab se COPIAN uno por uno, no por carpeta. Al sacar la agenda de
+# `ods-reconcile-full` del `command:` del compose a un archivo, hubo que sumarla acá — y la
+# aserción de CR de más abajo fue la que lo atrapó: sin esta línea el `sed -i` reventaba el
+# build por archivo inexistente, en vez de hornear una imagen cuyo contenedor arrancaría con
+# `crontab: can't open '/app/ops/vl/crontab.reconcile-full'` y se quedaría sin agenda.
+# Si agregás otro crontab, va acá Y en el bloque de limpieza/aserción.
+COPY ops/vl/run-feed.sh ops/vl/crontab.feeds ops/vl/crontab.reconcile-full ./ops/vl/
 # ⛔ NORMALIZAR CRLF NO ES PARANOIA — es la frontera donde el texto escrito en Windows entra a
 # Linux, y ya cobró tres veces el mismo día (2026-09-11): el `feeds.env` con 25 retornos de carro
 # que volvió inválido el UUID del tenant; y después este `crontab.feeds`, que NO termina en `.sh` y
