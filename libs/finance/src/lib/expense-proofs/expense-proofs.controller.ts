@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery } from './expense-proofs.service';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar } from './expense-proofs.service';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
@@ -69,7 +69,7 @@ export class ExpenseProofsController {
   @Get('por-aprobar')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[GX.17] Lo que espera luz verde, agrupado por fecha y por departamento. Mismo permiso que aprobar/validar/rechazar: quien no puede firmar tampoco necesita la bandeja.' })
-  porAprobar(@Query('limit') limit?: string) {
+  porAprobar(@Query('limit') limit?: string): Promise<RespuestaPorAprobar> {
     return this.svc.porAprobar(limit ? Number(limit) : undefined);
   }
 

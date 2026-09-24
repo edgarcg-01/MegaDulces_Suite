@@ -6,7 +6,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 import { esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
-import { agruparParaAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
+import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -78,6 +78,23 @@ export interface ProofFile {
  */
 export function proofKey(sucursal: string | null | undefined, folio: string | null | undefined): string {
   return `${(sucursal ?? '').trim()}|${(folio ?? '').trim()}`;
+}
+
+/**
+ * `[GX.17]` Lo que devuelve `porAprobar()`: los grupos + las filas con sus archivos ya
+ * firmados. Se declara en vez de inferirse porque cruza el boundary REST (ADR-052) y es
+ * lo que el frontend de Aprobación tipa del otro lado.
+ */
+export interface ExpedienteParaAprobar extends ExpedientePendiente {
+  concepto: string | null;
+  forma_pago_detalle: string | null;
+  comentarios: string | null;
+  created_by: string | null;
+  files: ProofFile[];
+}
+
+export interface RespuestaPorAprobar extends AgrupadoAprobacion {
+  filas: ExpedienteParaAprobar[];
 }
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
@@ -852,12 +869,23 @@ export class ExpenseProofsService {
    * una). Y va en un SEGUNDO viaje, no en un JOIN: `expense_requests` es una vista sobre el
    * ODS y unirla contra una tabla nuestra es lo que la Fase GX.15 midió pasarse de 90 s.
    */
-  async porAprobar(limit = 500) {
+  async porAprobar(limit = 500): Promise<RespuestaPorAprobar> {
     const tenantId = this.tenantCtx.requireTenantId();
     const lim = Math.min(2000, Math.max(1, Number(limit) || 500));
 
     return this.tk.run(async (trx) => {
-      const filas: any[] = await trx('finance.expense_proofs')
+      // La forma que devuelve el SELECT de abajo. Tipada a mano y no con `any`: el gate
+      // del boundary lo prohíbe, y con razón — `any` acá dejaría pasar un campo renombrado
+      // sin que nada se queje hasta que la pantalla muestre `undefined`.
+      interface FilaCruda {
+        id: string; folio_solicitud: string; sucursal: string | null;
+        fecha_gasto: string | Date | null; created_at: string | Date;
+        departamento: string | null; proveedor: string | null; clasificacion: string | null;
+        forma_pago: string | null; forma_pago_detalle: string | null;
+        files: string | ProofFile[] | null; comentarios: string | null;
+        created_by: string | null; importe: string | number;
+      }
+      const filas: FilaCruda[] = await trx('finance.expense_proofs')
         .where({ tenant_id: tenantId, status: 'recibida' })
         .orderBy('created_at', 'desc')
         .limit(lim)
@@ -876,7 +904,9 @@ export class ExpenseProofsService {
         if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
         porSucursal.get(suc)!.add(String(f.folio_solicitud));
       }
-      const sol = new Map<string, any>();
+      /** Lo que se necesita de la solicitud de Kepler: el área y el concepto. */
+      interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null; estado: string | null }
+      const sol = new Map<string, SolicitudMinima>();
       for (const [suc, folios] of porSucursal) {
         if (!suc) continue; // sin sucursal no hay llave: se queda sin area, y se declara
         const rows = await trx('analytics.expense_requests')
@@ -887,7 +917,7 @@ export class ExpenseProofsService {
       }
 
       const pendientes: ExpedientePendiente[] = filas.map((f) => {
-        const arch = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files || []);
+        const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
         const s = sol.get(`${f.sucursal}|${f.folio_solicitud}`);
         return {
           id: f.id,
@@ -902,7 +932,7 @@ export class ExpenseProofsService {
           clasificacion: f.clasificacion,
           forma_pago: f.forma_pago ?? null,
           // [GX.14] Que exista una foto no basta: lo que distingue es el sello de camara.
-          evidencia_en_vivo: (arch as any[]).some((a) => String(a?.role || '').startsWith('comprobante') && a?.live === true),
+          evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
         };
       });
 
@@ -914,7 +944,10 @@ export class ExpenseProofsService {
         forma_pago_detalle: f.forma_pago_detalle ?? null,
         comentarios: f.comentarios ?? null,
         created_by: f.created_by ?? null,
-        files: await this.storage.signFiles(typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files || []), 1800),
+        // Se tipa ANTES de firmar: `signFiles` es generico y preserva lo que recibe, asi
+        // que un `JSON.parse` sin tipo le haria perder `role` y `live` en el camino.
+        files: await this.storage.signFiles(
+          (typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? [])) as ProofFile[], 1800),
       })));
 
       return { ...agrupado, filas: detalladas };
