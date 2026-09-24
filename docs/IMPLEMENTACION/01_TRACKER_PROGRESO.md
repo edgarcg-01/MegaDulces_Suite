@@ -1990,6 +1990,63 @@ lista igual con su buscador: el problema era que estaban invisibles.
 
 ---
 
+## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
+
+> Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del
+> antes/después**, y la medición se hace sobre **la consulta REAL del servicio**, no sobre una
+> parecida. Ya cobró: el primer intento de `[PERF.4]` midió `canal='telemarketing'` en vez de
+> `doc_tipo` y dio "14 ms vs 14 ms, no hay problema" — con la consulta real eran **72 segundos**.
+
+- [x] **[PERF.3]** ✅ `services/feeds-ingest/ods-derived.js` — CTE `docs`/`m2f` `AS MATERIALIZED`
+  para pre-filtrar `kdm2` por los documentos de la ventana. Era el **34% de toda la base**.
+  Medido en prod: **24,237 → 3-6 ms** (2026-09-24).
+- [x] **[PERF.4]** ✅ `analytics.erp_receivable_doc()` + `LEFT JOIN LATERAL` en
+  `analytics.erp_sales_invoices`, más el índice de expresión `ix_kdm5_aplicacion_factura`
+  (migs `20260924160000`/`20260924160100`, batches 528 y 529). La cartera se resolvía por
+  documento con un barrido; ahora entra por índice. Medido con la consulta real de
+  `/comercial/documentos`: **72,426 → 263 ms** (275×, 1,038 filas, 27,842 páginas) (2026-09-24).
+- [x] **[PERF.5]** ✅ Índice cubriente `(c1) INCLUDE (sucursal, c2, c4, c7)` sobre
+  `kepler_ods.kdpv_prod_util` + autovacuum agresivo (`scale_factor=0.01`, `threshold=1000`)
+  (migs `20260924170000`/`20260924170100`, batch 525). Medido: **44,694 → 534 páginas** (83.7×).
+- [x] **[RA-PERF.1]** ✅ `import-replenishment-plan.js` — el reparto de tránsito sale por **ventana**
+  (`sum(...) OVER (PARTITION BY ...)`) en vez de un `LEFT JOIN` contra un CTE agregado que el
+  planner inlineaba como lado interno de un Nested Loop. Medido en prod: **153,890 → 25,332 ms**
+  (6.08×) con los buffers **sin moverse** (+0.05%) — lo que desaparece es CPU, no lecturas.
+  Candado con prueba negativa: `test-newdb-rplan-transito-ventana.js` 10/10.
+- [x] **[RA-PERF.2]** 🧪 `criticalStock()` — el `count(*)` de `/compras/existencia` salía de
+  `base.clone()` y arrastraba los **13 joins** del listado (incluidos dos agregados caros) para
+  devolver un entero, cuando su `WHERE` sólo nombra `rp`, `s`, `pr` y —con filtro ABC— `abc`.
+  Los filtros se mudan a `criticalFilters()`, un solo lugar, para que conteo y listado no puedan
+  divergir. Medido en prod, cinco combinaciones, **misma cifra en las cinco**: **3,184 → 46 ms**
+  (69×) en el filtro por defecto y hasta **294×** sin bucket. Candado con prueba negativa:
+  `test-newdb-critical-stock-count.js` 15/15 contra prod. Commit `d74e7ee7`.
+  🚫 **Falta desplegarlo** — ver el bloqueo de `[CG.22.4]`.
+- [x] **[OBS.7]** ✅ `ops/prod/backup-prod.sh` — `timeout` POSIX-safe con sonda de `strftime`
+  (el `awk` de la imagen puede no tenerlo) y brazo propio para `rc=124/137`. El respaldo **rompe a
+  los 45 min** en vez de reportar OK después de 4h43m. ⚠️ `pg_dump` hace `SET statement_timeout = 0`
+  en `setup_connection()`: `PGOPTIONS` **no** lo topa, por eso el corte va afuera.
+- [x] **[CG.22.4]** 🧪 El matview de caja se reescribía **entero cada minuto**. `REFRESH ...
+  CONCURRENTLY` compara la **fila completa** con `(y.*) IS DISTINCT FROM (x.*)`, y el matview
+  cargaba **dos columnas de reloj** (`computed_at`, heredada por un `SELECT k.*`, y `refrescado_en`)
+  que cambian en cada pasada por construcción → el 100% parecía distinto. Medido: el diff veía
+  **12,294 filas cambiadas y cambiaban de verdad CERO**, sobre un contenido que crece **58-74 filas
+  por día**. El precio: **12,294 DELETE + 12,294 INSERT por minuto**, **8.72 MB de WAL por refresh =
+  12.3 GB por día**, 854 autovacuums, y los índices al 54.6× y 417× de su tamaño reconstruido.
+  El importer y `cash-ledger.service.ts` ya no leen la columna (la edad del dato sale de
+  `analytics.cron_run_log`); la migración `20260924180000` la retira.
+  🚫 **BLOQUEADO: el orden de entrega no es negociable — primero el API, después la migración.**
+  Prod corre `a2052fa1`, que todavía lee `refrescado_en` (verificado en el bundle desplegado);
+  aplicar la migración antes rompe la bandeja de caja en el siguiente request. El auto-deploy está
+  frenado por un fallo de arranque ajeno (`[GX.15]`, ya corregido en `origin/main`).
+
+**Lección transversal de la fase:** tres de los cuatro comentarios que describían el costo de estos
+carriles estaban **equivocados y nadie se enteró** — decían "12,237 filas en 0.5-2 s" cuando eran
+12,294 en 4,582 ms de media sobre 951 corridas, y uno **nombraba mal la llave de latido**. Un
+comentario no avisa cuando deja de ser cierto; por eso los números de acá van **con su fecha**, y
+los que sostienen una decisión van en un test que se pone rojo.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
