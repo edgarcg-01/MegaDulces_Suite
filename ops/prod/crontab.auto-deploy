@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# `[VL.17]` LA AGENDA DEL DESPLIEGUE AUTOMÁTICO — versionada acá, no sólo dentro del servidor.
+#
+# ⛔ ESTO ES LO QUE FALTABA, y es todo lo que faltaba. El 2026-09-24 `auto-deploy.sh` ya estaba
+# instalado en `md`, la llave de despliegue ya autenticaba contra GitHub (`git ls-remote` devolvía
+# el commit) y una corrida a mano funcionaba — pero `crontab -l` contestaba
+# `no crontab for superoot`. **Nadie lo disparaba.** Un carril que nadie dispara se ve idéntico a
+# uno que corre y no encuentra nada que hacer: en los dos casos no pasa nada.
+#
+# Es la misma lección que ADR-060 dejó escrita para la ingesta y que acá se volvió a pagar: el
+# script no es el carril; el carril es script + agenda + latido. Faltaba el del medio.
+#
+# ── Por qué cron de usuario y no una unidad de systemd ───────────────────────
+# Se intentó systemd primero (mejor: `journalctl`, `Persistent=true`, tope de tiempo por unidad) y
+# **no se pudo**: `superoot` no tiene `sudo` sin contraseña en `md`, y esta sesión no puede
+# escribir una. Cron de usuario no necesita sudo y **sí sobrevive al reinicio** (el demonio `cron`
+# es del sistema y no depende de que haya una sesión abierta — que era el defecto de `.249`).
+# Si algún día hay sudo a mano, una unidad + timer es mejor; hasta entonces esto es lo real.
+#
+# ── Las dos protecciones de la línea ─────────────────────────────────────────
+#   · `flock -n` — construir las dos imágenes tarda varios minutos y la agenda dispara cada 5.
+#     Sin el candado dos pasadas se pisarían sobre el mismo `docker compose up`. `-n` (no esperar)
+#     a propósito: si la anterior sigue corriendo, ésta se saltea; encolarlas sólo acumula.
+#   · El diario se recorta solo dentro del script (`recortar_diario`), porque acá no hay logrotate
+#     sin sudo y un log sin tope es cómo el contenedor `backup` se comió el disco.
+#
+#   instalar (como superoot, en md):
+#     crontab -l 2>/dev/null | grep -v auto-deploy.sh > /tmp/ct; cat ops/prod/crontab.auto-deploy >> /tmp/ct; crontab /tmp/ct
+#   ver:
+#     crontab -l
+#     tail -n 40 ~/ops/prod/auto-deploy.log
+#     # y el veredicto de verdad, en Salud BD: analytics.cron_runs job_key='auto_deploy'
+# ─────────────────────────────────────────────────────────────────────────────
+*/5 * * * * flock -n /tmp/auto-deploy.lock /bin/sh $HOME/ops/prod/auto-deploy.sh >> $HOME/ops/prod/auto-deploy.log 2>&1
