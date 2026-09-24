@@ -4766,6 +4766,44 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   representa como `null`/“—”. Incluye prueba de las dos identidades del cálculo (2026-09-22).
 
 ---
+
+## Fase CAT — Catálogo de productos (proyecto Compras)
+
+- [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
+  4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
+  llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran
+  y qué **apartados de precio** se imprimen (unidad · mayoreo de unidad · paquete · mayoreo de
+  paquete · caja, más SKU / código de barras / marca / gramaje / unidad base / costo). Sale de
+  `commercial.product_label_prices` —la MISMA fila que imprime la etiqueta de anaquel y que lee el
+  verificador del mostrador—, así que no se materializa una segunda copia de "los precios"
+  (2026-09-24).
+  - **Tres cosas que la hoja declara, porque en papel no se pueden deducir:** de qué plaza es el
+    precio (sin plaza elegida sale la forma consolidada de `v_product_label_prices`, que **no es un
+    promedio** sino la fila de la plaza que representa a la red — `[NORM.3]`); de cuándo es
+    (`meta.precios_al`; `null` se imprime como *"sin fecha declarada"*, nunca como hoy); y qué
+    falta (los renglones sin precio se cuentan y salen con guion, **jamás con `$0.00`**).
+  - **El costo NO viene tildado por default:** es la cifra que no puede terminar por descuido en la
+    hoja que se le muestra al proveedor.
+  - **NO mezcla la lista `BASE-MXN`** que muestra la pestaña Catálogo: no tiene sucursal y llega con
+    semanas de rezago — en la misma hoja serían dos verdades sin etiqueta que las distinga.
+  - **Medido en `platform_test`:** 994 productos tienen precio de pieza distinto entre plazas, o sea
+    que la carátula que declara la sucursal no es decorativa.
+  - **Pruebas:** `price-report.spec.ts` 22 (fuente/tope/400/meta, sin base) · 
+    `catalogo-reporte-columnas.spec.ts` 18 (cómo se escribe cada celda de dinero) ·
+    `compras-catalogo-reporte.component.spec.ts` 19 (montado: columnas→tabla y hoja, lo declarado,
+    error de red) · `test-newdb-price-report.js` 16/16 contra `platform_test`, con **prueba
+    negativa** (plaza inexistente ⇒ salen los productos y **ninguno** con precio: el filtro está en
+    el `ON`, no en el `WHERE`).
+  - ⛔ **Dos defectos reales que sólo aparecieron por correr las compuertas**, los dos invisibles
+    para `tsc`: (1) `resource.value()` **lanza** en estado de error — con `value() ?? []` un corte
+    de red no mostraba el banner, reventaba el render entero (lo destapó el spec que **monta** el
+    componente); (2) `p-tableCheckbox`/`p-tableHeaderCheckbox` son selectores de PrimeNG ≤19: en
+    v22 son `p-table-checkbox`/`p-table-header-checkbox` (lo destapó `nx build`, **no** vitest).
+    Y un tercero ya conocido: un **acento grave en un comentario CSS** cierra el template literal.
+  - **Pendiente:** validación visual en navegador (incluida la vista de impresión) y redeploy de
+    api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
+
+---
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
