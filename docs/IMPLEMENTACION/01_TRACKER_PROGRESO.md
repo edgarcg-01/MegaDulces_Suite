@@ -315,13 +315,43 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       paridad de `[AX.9]` (`test-newdb-receivable-core-parity.js`) y eso es un cambio medible
       aparte. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
       drill** y la lista paga en cada request. El drill por cliente sigue en ~3.6 s por lo mismo.
-- [ ] **[CXC.22]** ⬜ **El saldo de la red se publica con TRES cifras distintas.** Medido:
-      `$57,780,190.86` (canónico, `saldo_cliente`) · `$57,008,478.22` (`saldo_ajustado`, que usan
-      la antigüedad y `cash-cut.engine.ts`) · **`$59,164,130.01`** (`saldo_documento`, que usa
-      `budget-cashflow.service.ts` para los cobros previstos). Un spread de **$2.16M**. Dentro de
-      `/finanzas/cartera` ya hay una sola verdad; fuera, no. Requiere decidir cuál corresponde a
-      cada uso (una proyección de flujo necesita vencimiento, así que puede que `saldo_documento`
-      esté bien ahí) y **declararlo**, no unificarlo a ciegas.
+- [x] **[CXC.22]** 🧪 ⭐ **Las TRES cifras del saldo no eran rivales: eran tres preguntas — y el
+      puente cierra al centavo.** El item nació como *"un spread de $2.16M sin explicar"*. Medido
+      contra el prod real (las cifras anteriores salían de Railway, la base equivocada), el
+      spread **se descompone entero**:
+      ```
+      saldo_documento   62,354,181.28   ¿cuánto hay abierto en documentos?
+       − remanente       3,045,527.87   abonos que YA entraron y ningún documento absorbió
+       + sin documento     462,557.11   12 clientes que deben sin documento abierto
+       = positivos      59,771,210.52
+       − a favor         1,656,827.97   176 clientes con saldo a SU favor
+       = saldo_cliente  58,114,382.55   ¿cuánto nos deben en neto?
+      saldo_ajustado    59,308,653.41 = positivos − sin documento  ¿cuánto hay que SALIR a cobrar?
+      ```
+      Los **tres brazos cierran al centavo** contra prod y eso es lo que el candado afirma — la
+      identidad, no el monto, que se mueve solo porque la vista es viva sobre el ODS.
+      · ⭐ **La misma consulta estaba COPIADA a mano en dos servicios** (`budget-cashflow` y
+        `budget-capacity`), idéntica hasta el `date_trunc`: el primitivo inventado dos veces que
+        ADR-056 manda subir a `libs/`. Ahora hay **un solo resolvedor**,
+        `libs/finance/…/customer-ledger/cobranza-prevista.ts`.
+      · **Corregido: proyectar con `saldo_documento` cuenta dos veces los abonos que ya están en
+        el banco.** Antes/después medido y **chico, y hay que decirlo así: $27,272.85 sobre
+        $8.01M en 12 semanas (0.3%)** — el remanente cae sobre los documentos MÁS VIEJOS, no
+        sobre los que vencen mañana. Se corrige porque es correcto por definición, no porque
+        mueva la aguja.
+      · ⭐⭐ **Y ahí apareció lo grande: la curva de flujo ve el 13.5% de la cartera.** Agendar por
+        `vencimiento BETWEEN hoy AND to` deja fuera **$51,295,140.89 en 6,109 documentos
+        (86.5%)** que ya vencieron. En una cartera 89.7% vencida, una curva muda se lee como
+        *"esto es toda la cobranza que viene"* y da por no-cobrable justo lo que se cobra todos
+        los días. ⛔ **NO se mete lo vencido en la primera semana** — eso afirmaría que se cobra
+        completo el lunes, que es inventarle fecha. Va **aparte, con su monto**, en la respuesta
+        (`cobranza_cobertura`) y en la pantalla de Flujo.
+      · `cash-cut.engine.ts` **no era consumidor**: ya tenía refutado con medición usar la
+        cartera como `esperado` del corte de caja (las dos cifras se mueven en direcciones
+        opuestas). Se verificó antes de contarlo.
+      · Candado `test-newdb-cartera-tres-saldos.js`: **6 ✔ de código + 5 ✔ contra prod, 0 ✘**.
+        `pct_en_ventana` va en `null` —no en 0%— sin cartera, y un archivo fuente ausente
+        reporta `NO MEDIDO`, no rojo.
 - [ ] **[CXC.23]** ⬜ **El catálogo llama «CEDIS BPIRAPUATO» a la sucursal `00`**, que según
       [`ERP_KEPLER`](../ERP_KEPLER.md) §2.3 es **OFICINAS**, no el CEDIS. Es el 76.8% de la cartera:
       quien filtre va a leer mal el bucket más grande. El nombre sale del catálogo **a propósito**

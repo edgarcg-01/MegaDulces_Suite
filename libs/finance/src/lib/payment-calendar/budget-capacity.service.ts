@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { cobranzaPrevista } from '../customer-ledger/cobranza-prevista';
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -90,12 +91,10 @@ export class BudgetCapacityService {
       if (!Number(cxc.n)) {
         return { available: false, from, to, basis: 'cobranza_esperada', reason: 'Sin cartera CXC (analytics.customer_receivables) para este tenant', as_of: null, items: [] as CapacityProposalItem[] };
       }
-      const cobros = await trx('analytics.customer_receivables')
-        .where({ tenant_id: tenantId }).andWhere('saldo_documento', '>', 0)
-        .whereBetween('vencimiento', [from, to])
-        .groupByRaw("date_trunc('week', vencimiento)")
-        .select(trx.raw("date_trunc('week', vencimiento)::date AS bucket"), trx.raw('coalesce(sum(saldo_documento),0) AS monto'));
-      const cobMap = new Map<string, number>((cobros as Array<{ bucket: unknown; monto: unknown }>).map((r) => [this.iso(r.bucket), Number(r.monto)]));
+      // [CXC.22] Mismo resolvedor que `budget-cashflow`: esta consulta estaba COPIADA a mano
+      // en los dos servicios. Suma `saldo_ajustado` y trae la cobertura de la ventana.
+      const prevista = await cobranzaPrevista(trx, tenantId, from, to);
+      const cobMap = new Map<string, number>(prevista.porSemana.map((r) => [r.bucket, r.monto]));
 
       // días hábiles (lun-vie) del rango, agrupados por su semana (lunes)
       const bizByWeek = new Map<string, string[]>();
@@ -116,6 +115,11 @@ export class BudgetCapacityService {
       return {
         available: true, from, to, basis: 'cobranza_esperada_repartida_en_dias_habiles', as_of: cxc.as_of,
         note: 'Propuesto = cobranza esperada (CXC) de cada semana ÷ sus días hábiles. NO incluye el saldo en banco; súbelo si querés autorizar contra el saldo disponible.',
+        // [CXC.22] La propuesta se arma con lo que vence DENTRO del rango. Lo ya vencido es
+        // exigible hoy y no tiene fecha comprometida: viaja declarado para que quien autoriza
+        // sepa que la propuesta es conservadora, no que no haya más por cobrar.
+        cobranza_cobertura: prevista.cobertura,
+        base: prevista.base,
         items,
       };
     });

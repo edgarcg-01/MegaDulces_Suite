@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Fixed — El flujo de efectivo ahora dice qué parte de la cobranza NO está dibujando (CXC.22, 2026-09-24)
+- La curva de cobros agenda por **fecha de vencimiento**. Como el 86.5% de la cartera **ya
+  venció**, la curva sólo mostraba **$8.01M de $59.31M (13.5%)** — y no lo decía. Se leía como
+  «esto es toda la cobranza que viene», cuando quedaban **$51.3M fuera**, que son exigibles hoy.
+- Ahora la pantalla de Flujo lo declara con su monto. ⛔ **No se metieron los vencidos dentro de
+  la primera semana**: eso afirmaría que se cobran completos el lunes, que es inventar una fecha.
+- Los cobros previstos se calculan con **lo que hay que salir a cobrar**, no con el saldo de los
+  documentos — ese último incluye $3.05M de abonos **que ya entraron al banco**. El ajuste mueve
+  la proyección **$27,272.85 (0.3%)**: se corrige porque es lo correcto, no porque cambie mucho.
+- Las tres cifras de saldo que publica la cartera (documento / neto / a cobrar) **no eran
+  contradictorias**: responden preguntas distintas, y ahora hay una prueba que verifica que el
+  puente entre ellas cierra **al centavo**.
+
 ### Added — Un pago que cubre varias pólizas ya se puede ligar de una vez (CC.12, 2026-09-24)
 - El caso: **el cliente abona $50,000 contra tres pólizas en un solo pago**. Buscar «el cobro
   que cuadra» no podía funcionar ahí, y esos depósitos se quedaban para siempre como «sin cobro».
