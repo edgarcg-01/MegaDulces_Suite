@@ -8,7 +8,7 @@ carpeta equivocada = corre contra la DB equivocada (o no corre). Mapa (medido 20
 
 | carpeta | knexfile | DB destino | env | estado |
 |---|---|---|---|---|
-| **`migrations-newdb/`** | `knexfile-newdb.js` | `postgres_platform` (**PROD, plataforma multi-tenant**) | `DATABASE_URL_NEW` / `FLEET_DB_URL` | **🟢 ACTIVO — el principal.** Toda migración de la plataforma va ACÁ. |
+| **`migrations-newdb/`** | `knexfile-newdb.js` | `postgres_platform` (**PROD, plataforma multi-tenant**) | `DATABASE_URL_NEW` (dev) / `PROD_DB_URL` (prod) | **🟢 ACTIVO — el principal.** Toda migración de la plataforma va ACÁ. |
 | `migrations-hr/` | `knexfile-hr.js` | `hr` (checadores / asistencia) | `DATABASE_URL_HR` | 🟢 ACTIVO pero **DB aparte**. Sólo para trabajo de RH/checadores. No mezclar con la plataforma. |
 | `migrations/` | `knexfile.js` | `megadulces_logistica` (app legacy single-tenant) | `DATABASE_URL` | 🟡 DORMIDO (última mig 2026-06-19). La app corre en la plataforma; esta DB quedó en paralelo. No agregar salvo que trabajes esa DB legacy. |
 | `migrations-products/` | `knexfile-products.js` | `trade_marketing` | `DATABASE_URL` | 🔴 ABANDONADO (1 mig, 2026-04-29). |
