@@ -72,12 +72,20 @@ export class CustomerLedgerController {
     return this.svc.tendencia({ sucursal, dias: dias ? Number(dias) : undefined });
   }
 
+  /**
+   * `[CXC.20]` Corre por el MISMO camino que el cron (`scanAll`), no por `snapshotTenant` suelto.
+   *
+   * Así era antes y por eso una corrida manual **no dejaba latido**: la foto entraba a la tabla y
+   * `analytics.cron_runs` se quedaba con el estado de la corrida anterior. Medido en prod el
+   * 2026-09-24: 9 fotos del 23-sep contra un latido en `error` del 22-sep — imposible saber, sin
+   * abrir la base, si el trabajo estaba roto o si alguien lo había disparado a mano.
+   */
   @Post('snapshot-now')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
-  @ApiOperation({ summary: 'Captura el snapshot de cartera de hoy (para la tendencia).' })
+  @ApiOperation({ summary: 'Captura el snapshot de cartera de hoy (para la tendencia) y deja latido.' })
   async snapshotNow() {
-    const rows = await this.scanner.snapshotTenant(this.tenantCtx.requireTenantId());
-    return { rows };
+    const { tenants, findings } = await this.scanner.scanAll();
+    return { tenants, findings };
   }
 
   // Compromisos de pago (CXC.13). 'promise/:id/resolve' declarado antes que ':sucursal/:cliente'.

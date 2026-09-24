@@ -10,6 +10,42 @@
 
 ## [Unreleased]
 
+### Fixed — Crédito de clientes mostraba el 11% de la cartera y dos saldos distintos (CXC.20, 2026-09-24)
+- ⛔ **La pantalla publicaba DOS saldos del mismo universo, a la vez y con los mismos filtros**: el
+  KPI y la tabla daban **$57,780,190.86** (de `kdue`, la cifra que cuadra con Kepler) y la barra de
+  antigüedad y el resumen gerencial sumaban **$57,008,478.22**. La diferencia — **$771,712.64 sobre
+  12 clientes** — ahora es un segmento con nombre («Sin documento»), así que la barra suma exacto el
+  KPI en vez de valer $771 mil menos que el número que tiene encima.
+- ⭐ **El desplegable de sucursales ofrecía 6 de 9 y dejaba $45,392,532.22 (78.6% de la cartera, 683
+  clientes) sin forma de filtrarla**: faltaban la `00` ($44.38M, 95.8% vencido), la `07` y la `08`.
+  No era que el dato faltara — el servidor ya mandaba las nueve y la pantalla tiraba la respuesta
+  para usar una lista escrita a mano. Ahora **qué** sucursales se ofrecen lo pone el dato y **cómo**
+  se llaman sale de `commercial.warehouses`: una plaza nueva aparece sola.
+- **Abre en «Todas»**, no en Padre Hidalgo. El default escondía $51M y mostraba un 77.6% de vencido
+  donde la red tiene 89.7%.
+- **Cartera por vendedor nombra gente** en vez de listar `1`, `2`, `10001`. La identidad es
+  **(sucursal, código)**: 11 de 81 códigos de Kepler nombran a personas distintas según la plaza, y
+  agrupar por el código pelado fundía dos carteras en una fila.
+- **La pantalla dice qué tan viejo es el dato** (edad real de los carriles del ERP), en vez de
+  fechar los saldos con el reloj del servidor. El día de la medición los carriles llevaban ~26 h
+  sin avanzar y la pantalla decía «saldos al 24 de septiembre».
+- La tendencia dejó de decir «aparecerá al acumular días» cuando el trabajo que la alimenta está
+  caído, y una captura manual de la foto diaria ahora **deja registro**.
+- Nuevo filtro por **vendedor** (la API lo soportaba desde el inicio y la pantalla no lo ofrecía).
+
+### Changed — Crédito de clientes se resuelve en una consulta, no en cuatro (CXC.20, 2026-09-24)
+- Abrir la pantalla costaba **17.3 segundos** de base de datos repartidos en tres llamadas que
+  reconstruían lo mismo (6.0 s la tabla + 11.3 s las opciones de filtro + 3.7 s el resumen). Ahora
+  es **una sola consulta de 4.2 s** que trae todo. Además del tiempo, el efecto es que el resumen y
+  la tabla salen del mismo cálculo y **ya no pueden contradecirse**.
+- ⚠️ **Sigue sin cumplir el objetivo de 1 segundo.** Lo que queda es la vista de cartera, que se
+  reconstruye entera en cada consulta; el arreglo está planeado aparte (`[CXC.21]`).
+
+### Internal — Candado de la cartera (CXC.20, 2026-09-24)
+- `test-newdb-cartera-una-pasada.js` en la regresión, **15 ✔ contra producción**. Lee el SQL del
+  servicio real en vez de copiarlo, y las tres afirmaciones centrales llevan prueba negativa
+  ejercida. Sin datos reporta **NO MEDIDO**, nunca ✔.
+
 ### Changed — Andén: el primer paso es la sucursal, no el folio (WMS-REC.15, 2026-09-24)
 - La pantalla abre con un **menú de sucursales** que dice a dónde entra la mercancía y cuántos
   vales quedan sin abrir en cada una; se elige la plaza y después el vale. Los datos salen del

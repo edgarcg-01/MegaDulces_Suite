@@ -5,6 +5,155 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo
+
+**Cómo se llegó:** *"analiza /finanzas/cartera"* → siete hallazgos → *"hay que resolver los 7
+hallazgos, pero no hardcodear las sucursales, ver por qué no salen y arreglarlo con el protocolo
+correcto"*.
+
+Todo lo de abajo está medido contra **prod (Railway/`railway`)**, sólo lectura, el 2026-09-24.
+
+### Lo que la medición cambió del pedido
+
+**«Por qué no salen» no era que el dato faltara.** La hipótesis obvia —el backend no devuelve las
+sucursales— es falsa: `GET /finance/receivables/filtros` ya devolvía **las nueve**, le costaba
+2.8 s hacerlo, y el componente **tiraba esa respuesta** para usar un arreglo escrito a mano con
+seis. O sea que el sistema pagaba por el dato correcto y después lo descartaba. Es el patrón que
+ADR-056 persigue: un primitivo correcto, re-declarado a mano en una rebanada, que se congela sin
+que nada falle.
+
+Por eso el arreglo **no fue agregarle `00`, `07` y `08` a la lista** —eso la vuelve a congelar el
+día que abra una plaza— sino que no haya lista:
+
+| | de dónde sale ahora |
+|---|---|
+| **qué** sucursales se ofrecen | las que el dato tiene (`DISTINCT sucursal` de la misma pasada) |
+| **cómo** se llaman | `commercial.warehouses` (`name` + `display_order`) |
+| una sin alta en el catálogo | se muestra **como código**, no se esconde — ocultarla es cómo desapareció dinero la primera vez |
+
+Lo que escondía la lista vieja, medido: **$45,392,532.22 = 78.6% de la cartera, 683 clientes**
+(`00` $44.38M con 95.8% vencido · `07` $392k · `08` $593k).
+
+### El hallazgo de fondo: la pantalla publicaba DOS saldos
+
+No estaba en el pedido y es el peor de los siete. El KPI y la tabla usaban `max(saldo_cliente,0)`
+—de `kdue`, la fórmula verificada al peso contra el PDF de Kepler— y **la barra de antigüedad y el
+resumen gerencial sumaban `Σ saldo_ajustado`**:
+
+```
+KPI / tabla ............ $57,780,190.86
+Antigüedad + resumen ... $57,008,478.22
+diferencia .............    $771,712.64   (1.34%, 12 clientes)
+```
+
+Mismos filtros, misma pantalla, mismo instante. El comentario del código lo justificaba con *"5
+clientes, $41k"* — una medición vieja **18× más chica** que nadie volvió a correr, y encima la
+barra llevaba `aria-label="Aging total $57.78M"` sobre segmentos que valían $771 mil menos.
+
+**No se arregla eligiendo una de las dos.** Se publica la canónica y el hueco pasa a ser un
+**segmento con nombre** («Sin documento», rayado, para que no se lea como un sexto nivel de
+morosidad). Así la barra suma exacto el KPI y el dinero que ningún documento explica deja de ser
+una diferencia invisible para ser una fila que alguien puede ir a investigar.
+
+### Una pasada en vez de cuatro
+
+`analytics.customer_receivables` es una pirámide de CTEs **sin pushdown**: se construye entera en
+cada consulta (filtrar por sucursal bajaba de 6.0 s a 3.0 s, no a un noveno). Abrir la pantalla
+disparaba cuatro barridos de la misma pirámide, y tocar «Resumen» un quinto:
+
+| | antes | ahora |
+|---|---|---|
+| `cartera()` (tabla + KPIs) | 6,011 ms · 17,271 filas al navegador | — |
+| `filtros()` | **11,294 ms** (4 `distinct`; 2 para controles inexistentes) | — |
+| `resumen()` | 3,678 ms | — |
+| **abrir la pantalla** | **17,305 ms** | **4,191 ms** (todo en una consulta) |
+
+`doc AS MATERIALIZED` obliga a evaluar la pirámide una vez aunque se lea cuatro veces, y la
+agregación baja a SQL. El efecto de fondo **no es la velocidad**: el resumen y la tabla ahora salen
+del mismo `SELECT`, así que no pueden volver a separarse.
+
+⚠️ Los filtros se aplican en `sel`, no en `doc`: si se filtrara antes, elegir una sucursal
+**borraría las otras ocho del desplegable**. Hay un candado que lo comprueba.
+
+### Los otros cuatro
+
+**El default era `'01'`.** La pantalla abría mostrando **$6.41M de $57.78M — el 11%**, con su
+propio 77.6% de vencido contra el 89.7% de la red, y ningún aviso. Ahora abre en «Todas».
+
+**El latido mentía al revés.** `customer_receivable_snapshots` tenía 9 filas, todas del 23-sep, así
+que la tendencia nunca se dibujaba y el empty-state decía *"aparecerá al acumular días"* — que
+tranquiliza sobre algo roto. Y `analytics.cron_runs.cxc_snapshot` estaba en `error` desde el
+**22-sep** mientras esas 9 fotos tienen `computed_at 2026-09-23 14:30:00`, o sea que el cron corrió
+y funcionó. El `catch {}` mudo de `latir()` ahora **loguea**: un medidor que se calla cuando falla
+es el mismo modo de falla que la Fase OBS vino a cerrar, una capa más arriba. Y `POST /snapshot-now`
+pasa por `scanAll`, así que una corrida manual **deja latido** — antes no, y por eso era imposible
+distinguir «roto» de «alguien lo disparó a mano» sin abrir la base.
+
+**«Cartera por vendedor» no nombraba a nadie** (`1`, `2`, `10001`, `1V001`): el join a
+`kepler_ods.kduv` existe en el ODS y nadie lo hacía. ⚠️ **El arreglo obvio era un bug**: medido,
+**11 de 81 códigos nombran a personas distintas según la plaza**, así que la identidad es
+**(sucursal, código)** — agrupar por el código pelado colapsaría 71 filas en 51, cada una con el
+nombre de uno de los dos. El filtro por vendedor, que la API soportaba desde CXC y la pantalla no
+ofrecía, estrena control.
+
+**Sin procedencia.** Rotulaba *"saldos al {hoy}"* con el reloj de Postgres. Ahora declara la edad
+del **dato** con el primitivo compartido (`ods_live_hot` 6 h + `ods_live_mirror` 26 h) y dice
+«no se pudo medir» cuando no se puede, en vez de pintarlo fresco. No es decorativo: el día de la
+medición los dos carriles llevaban **~26 h sin latir** —`kdm1` tenía 4,023 documentos el 22-sep,
+784 el 23 y **cero el 24**— y la pantalla igual fechaba los saldos al día de hoy.
+
+### El candado
+
+`database/tests/test-newdb-cartera-una-pasada.js`, **15 ✔ / 0 ✘ contra prod**, en la regresión.
+
+⛔ **Lee el SQL del servicio real, no una copia.** Un test que copia el SQL se pone verde mientras
+el servicio hace otra cosa — que es exactamente cómo la contradicción de los dos saldos sobrevivió
+a una suite de 12 archivos.
+
+Las tres afirmaciones centrales llevan **prueba negativa ejercida**, no declarada: sin el segmento
+la barra vale $771,712.64 menos; la lista vieja escondía $45.4M; agrupar por código pelado colapsa
+71 filas en 51. Y sin datos el archivo reporta **NO MEDIDO**, nunca ✔ — una base vacía pone verde
+cualquier aserción sobre sumas.
+
+### Lo que queda declarado, no hecho
+
+- **`[CXC.21]`** — los 4.2 s son la pirámide, no la consulta (`EXPLAIN`: 3.2 s de CPU con **todos**
+  los buffers en `shared hit`; no es I/O). El arreglo es el que `[PERF.4b]` ya aplicó a
+  `erp_sales_invoices`: la cartera resuelta **por documento** con función inlineable + `LATERAL`.
+  Re-abre el contrato de paridad de `[AX.9]`, así que es un cambio medible aparte. Lo más caro de
+  la pirámide es el `jsonb_agg` de `aplicaciones`, **que sólo usa el drill** y la lista paga en cada
+  request. El drill por cliente sigue en ~3.6 s por lo mismo. **El gate de 1 s no se cumple.**
+- **`[CXC.22]`** — el saldo de la red se publica con **TRES** cifras: `$57,780,190.86` (canónico),
+  `$57,008,478.22` (`saldo_ajustado`: antigüedad y `cash-cut.engine.ts`) y **`$59,164,130.01`**
+  (`saldo_documento`: `budget-cashflow.service.ts`). Spread **$2.16M**. Dentro de esta pantalla ya
+  hay una sola verdad; fuera, no. Requiere decidir cuál corresponde a cada uso y **declararlo** —
+  una proyección de flujo necesita vencimiento, así que puede que ahí `saldo_documento` esté bien.
+- **`[CXC.23]`** — `commercial.warehouses` llama **«CEDIS BPIRAPUATO»** a la sucursal `00`, que
+  según [`ERP_KEPLER`](../ERP_KEPLER.md) §2.3 es **OFICINAS**. Es el 76.8% de la cartera. El nombre
+  sale del catálogo **a propósito** (ése es el protocolo), así que el arreglo es el catálogo, no un
+  parche en la pantalla — y toca a todos los módulos que lo leen.
+- **Validación visual pendiente** (no automatizable desde CLI).
+
+### Fuera de esta pantalla, encontrado al medir
+
+**Ningún `@Cron` del API ha disparado desde el 2026-09-23 ~20:53 UTC** y los carriles del ODS
+(`ods_live_hot`, `ods_live_mirror`, `store_poller`) están en `running` desde las 16:16 UTC de ese
+día. No es de esta fase, pero es lo que hace que la procedencia de `[CXC.20.7]` no sea decorativa.
+
+### Lección
+
+Los siete hallazgos comparten una forma: **el sistema tenía el dato correcto y lo descartaba**. Las
+nueve sucursales llegaban y se tiraban; el nombre del vendedor estaba en `kduv` y no se leía; el
+saldo canónico se calculaba y la barra usaba el otro; el latido se escribía y se perdía en un
+`catch` mudo. Ninguno era un dato que faltara — todos eran un dato que llegaba y nadie usaba. Eso no
+se detecta leyendo el código de a un archivo: se detecta comparando lo que la pantalla muestra
+contra lo que la fuente dice, que es lo único que hizo falta acá.
+
+⚠️ Quinta vez que **un acento grave en un comentario rompe el build** en este repo, dos veces en
+esta misma sesión (una en el SQL del servicio, otra en el template de Angular). Los dos archivos
+tienen su cuerpo dentro de template literals.
+
+---
 ## 2026-09-24 — `[WMS-REC.15]` El Andén arranca por la sucursal, y el día se mide en hora de México
 
 **Cómo se llegó:** *"hay forma de que quitemos la sección de crear/agregar un
