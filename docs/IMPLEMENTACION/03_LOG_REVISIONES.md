@@ -394,9 +394,16 @@ decorativa, y si alguien la simplifica, el test se pone rojo.
   ZAMORA`…), nunca por cliente. Y no hay CFDIs emitidos: `fiscal.cfdis` tiene 168,245 filas y
   **las 168,245 son `recibidas`**.
 - **Parear el depósito del banco con el cobro: sirve, pero no para el caso del usuario.** El
-  cruce 1:1 casa **78.0%** con **7.6%** de ruido (placebo dentro del rango poblado). Pero
-  **1,893 abonos por $55,597,061.51 (11.9%) son UN pago contra VARIAS pólizas** — uno toca
-  **186** — y ésos no casan por construcción. Agrupar por (cliente + día) tampoco: casa **7.1%**.
+  cruce 1:1 casa **78.0%** con **7.6%** de ruido (placebo dentro del rango poblado). Pero hay
+  cobros que son **UN pago contra VARIAS pólizas**, y ésos no casan por construcción.
+  ⚠️ **La cifra de este renglón estaba inflada 4.8×** y se corrigió el 2026-09-24 al construir
+  el candado de `[CC.12]`: decía *1,893 abonos por $55,597,061.51 (11.9%), uno toca 186*. Salía
+  de agrupar `kepler_ods.kdm5` **sin filtrar el doctype**, y como el folio **no es único entre
+  doctypes** entraban los `U-A-7` (embarques) junto a los cobros `U-A-5` — la misma trampa que
+  ya había cobrado en `[CC ext]` con las órdenes de entrada. Con el filtro puesto son **293
+  cobros por $11,083,196.14 (2.5%), uno toca 45**, y el universo cuadra: $440,145,499.57 de un
+  solo documento + $11,083,196.14 de varios = **$451.2M**, el total cobrado.
+  El caso **sigue existiendo y sigue sin poder parearse 1:1** — pesa menos, no desaparece.
 - ⚠️ **Y un placebo mío estaba mal**: desplacé las fechas +180 días y caí en meses vacíos → el
   ruido salió 1.1%. Con el desplazamiento dentro del rango poblado es **7.6%**, 7× más.
 - **El «total de lo que falta por registrar» NO se puede publicar hoy.** El banco mezcla

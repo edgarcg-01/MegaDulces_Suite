@@ -259,6 +259,42 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         remitentes dados de alta, los 106 con `customer_code`**— la ven **todos** los roles de
         cobranza… y tiene **CERO filas**. No es un hueco de código: es de adopción. Lo que
         faltaba de verdad era el callejón sin salida de arriba, que es lo que se construyó.
+- [x] **[CC.12]** 🧪 ⭐ **Un pago que cubre varias pólizas: se declara, y sólo con dueño se
+      ofrece.** Cierra la objeción del usuario — *«el cliente abonó 50 mil contra 3 pólizas en un
+      solo pago, no se pueden casar»*. Es correcta: el 1:1 no puede cubrirlo **por
+      construcción**. `cobroCandidates()` devuelve ahora un bloque `suma` con las combinaciones
+      de cobros que cuadran, y `linkBankToCobros()` + `POST bank/:id/link-many` las liga **en una
+      sola transacción**; en la pantalla, un panel «Varias pólizas en un solo pago» con botón
+      «Ligar los N». **Sin migración: la UNIQUE de `bank_recon_matches` ya lleva el folio junto
+      al movimiento, así que 1:N cabía — y ya se usa en prod (27 abonos con varios documentos,
+      uno con 7).**
+      · ⛔ **La combinación NO se ofrece a ciegas, y eso se midió.** Buscar qué subconjunto suma,
+        contra **todos** los clientes, explica el **28.3%** de los huérfanos grandes con un
+        **placebo del 11.7%** (mismas fechas +90 días, dentro del rango poblado): margen 16.8 pp,
+        o sea **4 de cada 10 aciertos serían casualidad**. Contra el 1:1, que da 78.0% sobre
+        7.6%. Por eso `combinaciones()` **exige cliente declarado** (`[CC.11]`) — restringe el
+        universo de 2,269 grupos a los de una cuenta, donde la mediana es **3 cobros** — y sin
+        dueño devuelve `disponible:false` **con el motivo**, no una lista débil.
+      · ⚠️ **`match_type` se juzga contra la SUMA, no contra cada pieza.** Cada cobro suelto es
+        menor que el depósito: con la vara vieja un grupo exacto se marcaba `manual` (confianza
+        0.5). Juzgar la parte con la vara del todo era describir mal un cruce bueno.
+      · ⭐ **Se corrigió una cifra propia, inflada 4.8×.** El plan y el log decían *1,893 abonos /
+        $55,597,061.51 / 11.9% / hasta 186 facturas*. Salía de agrupar `kepler_ods.kdm5` **sin
+        filtrar el doctype**, y el folio **no es único entre doctypes**: entraban los `U-A-7`
+        (embarques) junto a los cobros `U-A-5`. Es la **misma trampa que ya había cobrado en
+        `[CC ext]`** con las órdenes de entrada. Medido bien: **293 cobros por $11,083,196.14 =
+        2.5% del dinero, uno toca 45 facturas**; y el universo cuadra
+        ($440,145,499.57 + $11,083,196.14 = **$451.2M**). El caso **pesa menos, no desaparece**.
+      · ⛔ **Refutado y no construido:** marcar cada huérfano con un tercer estado «suma
+        plausible» en la lista. Cuesta **108 s** (contra los 316 ms del endpoint) **y el
+        predicado es casi siempre cierto**: marcaba 3,795 abonos por **$115.1M, el 96.9% del
+        dinero huérfano**. No es un hallazgo, es un artefacto — publicarlo sería el cruce por
+        importe sin placebo que la regla prohíbe.
+      · Candado `test-newdb-cobranza-suma-multipoliza.js` a **6 ✔ / 0 ✘ contra el prod real**,
+        con el **rango tolerado** de la cifra estructural: si se mueve, se pone rojo (una
+        medición con fecha es código que caduca). ⭐ Las afirmaciones que leen el **código**
+        corren **antes** de conectar: si la base no está, declaran `NO MEDIDO` en vez de tumbar
+        el test entero — antes un `pg_hba` ajeno silenciaba 3 aserciones que sí se podían medir.
 - [ ] **[CC.11.1]** ⬜ **La captura de fichas existe y nadie la usa** (`bank_capture_inbox`, 0
       filas contra 106 remitentes configurados). Averiguar si es que el canal de WhatsApp nunca
       se encendió (Fase F ⏸️), si nadie sabe que el botón «Subir ficha» existe en

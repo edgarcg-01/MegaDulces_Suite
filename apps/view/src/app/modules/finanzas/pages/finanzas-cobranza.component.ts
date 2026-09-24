@@ -17,7 +17,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate } from '../cobranza.service';
+import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate, SumaCandidatos } from '../cobranza.service';
 import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socket.service';
 
 /**
@@ -212,6 +212,38 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
               </div>
               <button pButton type="button" size="small" [loading]="linkingFolio() === c.folio" (click)="doLink(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Ligar</span></button>
             </div>
+          }
+
+          <!-- [CC.12] Un pago que cubre varias pólizas. Solo con dueño declarado. -->
+          @if (linkSuma(); as sm) {
+            <div class="cb-fields-head">
+              Varias pólizas en un solo pago
+              <em class="cb-auto">combinaciones de sus cobros que suman este depósito</em>
+            </div>
+            @if (sm.disponible && sm.opciones?.length) {
+              @for (op of sm.opciones; track $index) {
+                <div class="cb-combo">
+                  <div class="cb-combo-head">
+                    <strong>{{ op.cobros.length }} cobros</strong>
+                    <span class="cb-monto">{{ money(op.total) }}</span>
+                    <button pButton type="button" size="small" [loading]="linkingCombo() === $index" (click)="doLinkCombo(op, $index)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Ligar los {{ op.cobros.length }}</span></button>
+                  </div>
+                  @for (c of op.cobros; track c.folio) {
+                    <div class="cb-combo-line">
+                      <span class="mono">{{ c.sucursal }}/{{ c.folio }}</span>
+                      <span class="cb-sub">{{ c.cobro_date | date:'dd/MM/yy' }}</span>
+                      <span class="ta-r">{{ money(c.monto) }}</span>
+                    </div>
+                  }
+                </div>
+              }
+              <p class="cb-combo-aviso">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                {{ sm.detalle }}
+              </p>
+            } @else {
+              <p class="muted">{{ sm.detalle }}</p>
+            }
           }
         </div>
         <ng-template #footer>
@@ -549,6 +581,11 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-orig.ok { color: var(--ok-fg); }
     .cb-orig.bad { color: var(--bad-fg); }
     .cb-orig i { font-size: .8rem; }
+    .cb-combo { border: 1px solid var(--surface-border); border-radius: .5rem; padding: .5rem .625rem; margin-bottom: .5rem; background: var(--surface-50); }
+    .cb-combo-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .375rem; }
+    .cb-combo-head .cb-monto { margin-left: auto; font-weight: 700; }
+    .cb-combo-line { display: grid; grid-template-columns: 1fr auto 8rem; gap: .5rem; font-size: .8125rem; padding: .125rem 0; border-top: 1px dashed var(--surface-border); }
+    .cb-combo-aviso { font-size: .75rem; color: var(--text-color-secondary); display: flex; gap: .375rem; align-items: flex-start; margin: .25rem 0 0; }
     .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; cursor: pointer; transition: border-color .12s; }
     .cb-cand:hover { border-color: var(--action); }
     .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
@@ -777,11 +814,38 @@ export class FinanzasCobranzaComponent {
   }
 
   openLink(m: UnmatchedBankRow) {
-    this.linkMov.set(m); this.linkCands.set([]); this.linkLoading.set(true); this.showLink.set(true);
+    this.linkMov.set(m); this.linkCands.set([]); this.linkSuma.set(null);
+    this.linkLoading.set(true); this.showLink.set(true);
     this.svc.bankCandidates(m.id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.linkCands.set(r.cobros); this.linkLoading.set(false); },
+        next: (r) => { this.linkCands.set(r.cobros); this.linkSuma.set(r.suma ?? null); this.linkLoading.set(false); },
         error: () => { this.linkLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudieron cargar candidatos' }); },
+      });
+  }
+
+  /**
+   * `[CC.12]` Liga de una vez los cobros de una combinación. Atómico del lado del servidor: la
+   * alternativa —N llamadas desde acá— deja el abono a medio conciliar si la segunda falla.
+   */
+  readonly linkSuma = signal<SumaCandidatos | null>(null);
+  readonly linkingCombo = signal<number | null>(null);
+  doLinkCombo(op: { total: number; cobros: CobroCandidate[] }, i: number) {
+    const m = this.linkMov();
+    if (!m || this.linkingCombo() !== null) return;
+    this.linkingCombo.set(i);
+    this.svc.linkBankMany(m.id, op.cobros.map((c) => ({ sucursal: c.sucursal, folio: c.folio })))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.linkingCombo.set(null); this.showLink.set(false);
+          this.toast.add({ severity: 'success', summary: 'Conciliado',
+            detail: `Abono ligado a ${r.cobros} cobros por ${this.money(r.suma)}` });
+          this.loadBanco();
+        },
+        error: (e) => {
+          this.linkingCombo.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo ligar', detail: e?.error?.message });
+        },
       });
   }
   doLink(c: CobroCandidate) {
