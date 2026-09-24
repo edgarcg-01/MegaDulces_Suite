@@ -352,11 +352,23 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · Candado `test-newdb-cartera-tres-saldos.js`: **6 ✔ de código + 5 ✔ contra prod, 0 ✘**.
         `pct_en_ventana` va en `null` —no en 0%— sin cartera, y un archivo fuente ausente
         reporta `NO MEDIDO`, no rojo.
-- [ ] **[CXC.23]** ⬜ **El catálogo llama «CEDIS BPIRAPUATO» a la sucursal `00`**, que según
-      [`ERP_KEPLER`](../ERP_KEPLER.md) §2.3 es **OFICINAS**, no el CEDIS. Es el 76.8% de la cartera:
-      quien filtre va a leer mal el bucket más grande. El nombre sale del catálogo **a propósito**
-      (ése es el protocolo), así que el arreglo es `commercial.warehouses.name`, no un parche en la
-      pantalla — y toca a todos los módulos que lo leen. Decisión de Edgar.
+- [ ] **[CXC.23]** ⬜ ⚠️ **DECISIÓN DE EDGAR, con la evidencia ya reunida (2026-09-24): el
+      catálogo llama «CEDIS BPIRAPUATO» a la sucursal `00`, que no es el CEDIS.**
+      Es el **76.8% de la cartera**: quien filtre por ese nombre lee mal el bucket más grande.
+      · **Verificado contra prod y contra la doc del propio repo**, no supuesto:
+        `commercial.warehouses` tiene `code='00'`, `name='CEDIS BPIRAPUATO'`; y
+        [`ERP_KEPLER`](../ERP_KEPLER.md) §2.3 dice que la `00` es **OFICINAS** — *"centraliza
+        compra, tránsito y contabilidad"*, con **cero líneas de mostrador `U-D-10` en 30 días**,
+        mientras las que venden son la `01`–`06`.
+      · **De dónde salió el nombre:** es el del archivo Wincaja `0 BPIRAPUATO MOV.MDB` (Fase WR).
+        Se copió un nombre de archivo a un catálogo de negocio.
+      · **El arreglo es una fila del catálogo, no un parche de pantalla** — la cartera lee el
+        nombre de ahí **a propósito** (`[CXC.20]` quitó la lista de sucursales hardcodeada). Una
+        línea: `UPDATE commercial.warehouses SET name = 'Oficinas' WHERE code = '00'`.
+      · ⛔ **Por qué no se ejecutó sin preguntar:** ese nombre lo leen todos los módulos que
+        muestran almacén, y `ERP_KEPLER` §2.3 ya avisa que hay **~11 importers con comentarios
+        del tipo «CEDIS '00'»** que en realidad hablan de oficinas — renombrar sin revisarlos
+        deja la mitad del repo diciendo una cosa y la pantalla otra.
 
 ### Fase SB — El corte Wincaja→Kepler como DATO, no como literal · 2026-09-23 · ADR-056
 
