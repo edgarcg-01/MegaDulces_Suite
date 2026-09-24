@@ -133,6 +133,25 @@ export class AnalyticsRefreshService {
       // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
       ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      // ⛔ ESTE NO CABE EN LA VENTANA NOCTURNA, Y ESTÁ MEDIDO (2026-09-23/24):
+      //     · `REFRESH` PLANO (no concurrente) ............ 6 h 15 min  (20:23 → 02:38)
+      //     · `REFRESH CONCURRENTLY` ..................... >2 h 45 min sin terminar (se canceló)
+      //   CONCURRENTLY es estrictamente más caro: computa la versión nueva **y** la diferencia
+      //   contra la vieja. Arranca 06:20 y se mete de lleno en el horario hábil.
+      //
+      //   Se ve en el tablero como `analytics_refresh_blended` envejeciendo: llegó a **37.3 h**
+      //   sin una corrida buena, o sea que llevaba días arrancando cada noche y no cerrando
+      //   ninguna. Nadie lo leyó como "no termina" porque un latido viejo se lee igual que un
+      //   feed lento.
+      //
+      // ⭐ DÓNDE ESTÁ EL COSTO, medido: el `LEFT JOIN` por CINCO columnas contra
+      //   `analytics.v_kepler_ticket_count`, que **no es matvista sino VISTA** — se recalcula
+      //   entera, leyendo el ODS crudo con operadores de expresión regular (`~`, `~~*`), contra
+      //   las 791,548 filas de `mv_kepler_sales_daily`.
+      //
+      // ⚠️ NO se arregla ordenando ni subiendo el `statement_timeout`: hay que materializar
+      //   `v_kepler_ticket_count` o sacar ese join. Es cambio de diseño del fact de venta y va
+      //   en su propio commit, con su antes/después. Queda DECLARADO, no disfrazado.
       ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       // [KX.5] El PELDAÑO COBRADO por sucursal × SKU (max `kdm2.c58`, ventana 365 d). No deriva de
