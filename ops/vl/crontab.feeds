@@ -22,7 +22,11 @@
 * * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
 # CG.22.3 - el corte de caja materializado. La bandeja de /finanzas/caja-general leia la vista
 # viva y pagaba 415-720 ms por consulta (565k paginas) para devolver 100 filas; materializado
-# cuesta 0.4 ms. El refresh entero son 12,237 filas en ~0.5-2 s, asi que cada minuto es barato.
+# cuesta 0.4 ms.
+# ⚠️ [CG.22.4] Acá decía "12,237 filas en ~0.5-2 s, asi que cada minuto es barato". MEDIDO el
+# 2026-09-24 sobre 951 corridas: son 12,294 filas y **4,582 ms de media** (max 16,521). No era
+# barato: el matview llevaba dos columnas de reloj, así que REFRESH CONCURRENTLY reescribía la
+# tabla ENTERA cada minuto -- 12,294 DELETE+INSERT para 0 cambios reales, 12.3 GB de WAL por día.
 # Va cada minuto y no mas seguido a proposito: esa es la frescura real del ODS que lo alimenta.
 * * * * *   /app/ops/vl/run-feed.sh caja-mv   "node /app/database/importers/kepler/refresh-caja-matview.js --apply"
 

@@ -472,9 +472,30 @@ export class CashLedgerService {
    */
   private async frescuraCaja(trx: any): Promise<string | null> {
     try {
-      const r = await trx
-        .from('analytics.mv_caja_movimientos')
-        .max({ al: 'refrescado_en' })
+      // [CG.22.4] La edad sale del LATIDO, no de una columna del matview.
+      //
+      // Antes se leía `max(refrescado_en)` de `analytics.mv_caja_movimientos`, y esa columna tuvo
+      // que retirarse: al cambiar en cada pasada hacía que `REFRESH ... CONCURRENTLY` viera el
+      // 100 % de las filas como distintas y reescribiera la tabla entera cada minuto — 12,294
+      // DELETE+INSERT para 0 cambios reales y 12.3 GB de WAL por día.
+      //
+      // `analytics.cron_run_log` es la fuente correcta y no un reemplazo de apuro: es append-only,
+      // la escribe el trigger `trg_cron_run_log`, y **sólo registra estados terminales** (su propio
+      // comentario: "'running' es un estado, no un hecho consumado"). Verificado en prod: 1,411
+      // filas para `mv_caja_refresh`, todas `ok`; sin RLS; `app_runtime` puede leerla; y el índice
+      // `ix_crl_job (tenant_id, job_key, finished_at DESC)` la resuelve en 4 páginas / 0.045 ms.
+      //
+      // ⭐ Y da una respuesta MEJOR que la columna: si el refresh falla una hora, devuelve el
+      // último cierre bueno — o sea "estos datos son de hace 1 h", que es información. La columna
+      // habría devuelto la hora del último refresh exitoso también, pero sólo mientras el matview
+      // existiera; acá ni siquiera hace falta que exista.
+      const r = await trx('analytics.cron_run_log')
+        .where({
+          tenant_id: this.tenantCtx.requireTenantId(),
+          job_key: 'mv_caja_refresh',
+          status: 'ok',
+        })
+        .max({ al: 'finished_at' })
         .first();
       return (r as { al?: string } | undefined)?.al ?? null;
     } catch {

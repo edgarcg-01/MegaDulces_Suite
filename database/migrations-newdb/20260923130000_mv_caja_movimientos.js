@@ -79,9 +79,14 @@ exports.up = async function (knex) {
   await knex.raw(`GRANT SELECT ON analytics.mv_caja_movimientos TO app_runtime`);
   await knex.raw(`COMMENT ON MATERIALIZED VIEW analytics.mv_caja_movimientos IS
     'CG.22.3 - corte de caja de analytics.kepler_bank_movements, materializado por COSTO (GOTCHAS 19). '
-    'Medido: la vista tardaba 624-720 ms por request tocando ~572k paginas; armarla entera cuesta 507 ms. '
-    'La refresca el carril cada minuto (job_key mv_caja_movimientos en analytics.cron_runs). '
-    'refrescado_en viaja en cada fila: un matview que dejo de refrescarse sirve datos viejos sin error.'`);
+    'Medido: la vista tardaba 624-720 ms por request tocando ~572k paginas. '
+    '[CG.22.4 2026-09-24] Los 507 ms de armarla NO se reproducen: medido 3 veces da 2,289-3,279 ms, '
+    'y el refresh entero 4,582 ms de media sobre 951 corridas (no los 0.5-2 s que decia el carril). '
+    'La refresca el carril cada minuto, y su job_key es mv_caja_refresh -- NO mv_caja_movimientos, '
+    'como decia esta linea: la llave real esta en refresh-caja-matview.js y en CRON_JOBS. '
+    'refrescado_en SE RETIRA en 20260924180000: hacia que REFRESH CONCURRENTLY reescribiera la '
+    'tabla entera cada minuto (12,294 filas, 0 cambios reales, 12.3 GB de WAL por dia). La edad '
+    'del dato sale ahora de analytics.cron_run_log.'`);
 
   // ── 2. La bandeja pasa a leer del materializado ───────────────────────────────────────────
   //
