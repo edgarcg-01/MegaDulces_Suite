@@ -14,6 +14,7 @@ import {
   QuotesService,
   QuoteDetail,
   QuoteLine,
+  QuoteCatalogRow,
   PricedLine,
   Rung,
 } from '../quotes.service';
@@ -157,14 +158,14 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           <div class="alta">
             <div class="alta-row">
               <label class="f f-sku">
-                <span>SKU o codigo</span>
+                <span>Producto</span>
                 <input
                   type="search"
                   class="input"
-                  [(ngModel)]="sku"
-                  (ngModelChange)="onSku($event)"
-                  placeholder="Tecleá el SKU..."
-                  autocapitalize="characters"
+                  [(ngModel)]="termino"
+                  (ngModelChange)="onTermino($event)"
+                  (focus)="onFoco()"
+                  placeholder="Nombre, SKU o codigo de barras..."
                   autocorrect="off"
                   spellcheck="false"
                   [disabled]="guardando()"
@@ -199,6 +200,56 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 </div>
               </div>
             </div>
+
+            <!-- El catalogo de la sucursal. Solo sale lo que ESA plaza puede cotizar: si saliera
+                 el catalogo entero, el operador elegiria un producto y recien despues se comeria
+                 un "el ERP no publica precio aca". -->
+            @if (buscando()) {
+              <p class="hint"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando en la sucursal {{ cot()?.source_branch }}...</p>
+            } @else if (catalogoAbierto() && resultados().length > 0) {
+              <ul class="cat" role="listbox" aria-label="Productos de la sucursal">
+                @for (p of resultados(); track p.sku) {
+                  <li>
+                    <button
+                      type="button"
+                      class="cat-row"
+                      role="option"
+                      [attr.aria-selected]="elegido()?.sku === p.sku"
+                      [class.cat-row-active]="elegido()?.sku === p.sku"
+                      (click)="elegir(p)"
+                    >
+                      <span class="cat-nom">
+                        {{ p.name || p.sku }}
+                        @if (p.content) { <span class="cat-cont">{{ p.content }}</span> }
+                      </span>
+                      <span class="cat-meta">
+                        <span class="cat-sku">{{ p.sku }}</span>
+                        @if (p.barcode) { <span class="cat-bc">{{ p.barcode }}</span> }
+                        @if (p.unit_base) { <span class="cat-un">{{ p.unit_base }}</span> }
+                      </span>
+                      <!-- Precio de LISTA, para reconocer el producto. El que vale es el de la
+                           previa, que ya trae cantidad, peldano y descuentos. -->
+                      <span class="cat-precio">{{ dinero(p.piece_price) }}</span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else if (catalogoAbierto() && termino.trim().length > 0) {
+              <p class="hint">
+                Ningun producto de la sucursal {{ cot()?.source_branch }} casa con
+                <strong>{{ termino }}</strong>. Si el cliente lo pidio igual, guardalo como no casado:
+                queda como demanda, no se pierde.
+              </p>
+            }
+
+            @if (elegido(); as e) {
+              <p class="elegido">
+                <i class="pi pi-check-circle" aria-hidden="true"></i>
+                <strong>{{ e.name || e.sku }}</strong>
+                <span class="cat-sku">{{ e.sku }}</span>
+                <button type="button" class="linkish" (click)="limpiarEleccion()">cambiar</button>
+              </p>
+            }
 
             <!-- El precio ANTES de agregar, con su desglose. Es lo que evita que el operador
                  tenga que confiar en un numero sin origen. -->
@@ -240,7 +291,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <p class="p-why p-why-muted">{{ na.mechanism }}: {{ na.reason }}</p>
                 }
               </div>
-            } @else if (sku.trim().length > 0 && !cotizando()) {
+            } @else if (elegido() && !cotizando()) {
               <p class="hint">Sin previa todavia.</p>
             }
 
@@ -253,7 +304,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 pButton
                 severity="secondary"
                 [outlined]="true"
-                [disabled]="!sku.trim() || guardando()"
+                [disabled]="!termino.trim() || guardando()"
                 (click)="agregarSinCasar()"
               >
                 <span class="p-button-label">Guardar como no casado</span>
@@ -423,6 +474,31 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .input.num { text-align: right; font-variant-numeric: tabular-nums; }
       .qty-inline { width: 6rem; min-height: 30px; padding: 0.2rem 0.4rem; }
 
+      /* [COT.1c] El catalogo de la sucursal. Lista densa (superficie Operations): lo que
+         importa es barrerla rapido, no que cada renglon sea una tarjeta.
+         NO poner acentos graves aca: cierran el template literal y rompen el build. */
+      .cat { list-style: none; margin: 0.6rem 0 0; padding: 0; max-height: 17rem; overflow-y: auto;
+             border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); }
+      .cat li + li { border-top: 1px solid var(--border-color); }
+      .cat-row { width: 100%; display: flex; align-items: baseline; gap: 0.75rem; text-align: left;
+                 padding: 0.45rem 0.7rem; background: none; border: 0; cursor: pointer;
+                 color: var(--text-main); font-size: 0.8125rem; }
+      .cat-row:hover { background: var(--hover-bg); }
+      .cat-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+      .cat-row-active { background: var(--hover-bg); }
+      .cat-nom { flex: 1 1 auto; min-width: 0; }
+      .cat-cont { margin-left: 0.4rem; color: var(--text-muted); }
+      .cat-meta { flex: 0 0 auto; display: flex; gap: 0.5rem; color: var(--text-muted); font-size: 0.75rem; }
+      .cat-sku { font-family: var(--font-mono, monospace); }
+      .cat-bc { font-variant-numeric: tabular-nums; }
+      .cat-un { text-transform: uppercase; letter-spacing: 0.04em; }
+      .cat-precio { flex: 0 0 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+
+      .elegido { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0; font-size: 0.8125rem; }
+      .linkish { background: none; border: 0; padding: 0; color: var(--action); cursor: pointer;
+                 font-size: 0.8125rem; text-decoration: underline; }
+      .linkish:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
       .chips { display: flex; gap: 0.3rem; }
       .chip { border: 1px solid var(--border-color); background: var(--card-bg); border-radius: 9999px;
               padding: 0.35rem 0.8rem; font-size: 0.8125rem; cursor: pointer; color: var(--text-muted); min-height: 36px; }
@@ -495,11 +571,20 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly previa = signal<PricedLine | null>(null);
   readonly rung = signal<Rung>('base');
 
-  sku = '';
+  /** `[COT.1c]` El catalogo de la sucursal. */
+  readonly resultados = signal<QuoteCatalogRow[]>([]);
+  readonly buscando = signal(false);
+  readonly catalogoAbierto = signal(false);
+  /** El producto ELEGIDO. La previa cuelga de esto, no del texto tecleado. */
+  readonly elegido = signal<QuoteCatalogRow | null>(null);
+
+  /** Lo que el operador teclea. Si no casa con nada, es el `requested_text` del renglon suelto. */
+  termino = '';
   cantidad = 1;
 
   private id = '';
   private readonly previa$ = new Subject<void>();
+  private readonly buscar$ = new Subject<void>();
 
   /** Sólo un borrador se edita. Una cotización enviada que cambia es otra versión, no la misma. */
   readonly editable = computed(() => this.cot()?.status === 'draft');
@@ -514,7 +599,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         debounceTime(300),
         switchMap(() => {
           const q = this.cot();
-          const sku = this.sku.trim();
+          const sku = this.elegido()?.sku ?? '';
           const qty = Number(this.cantidad);
           if (!q?.source_branch || !sku || !Number.isFinite(qty) || qty <= 0) {
             this.cotizando.set(false);
@@ -543,6 +628,45 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.cotizando.set(false);
       });
 
+    // `[COT.1c]` El buscador del catalogo. `switchMap` y no `mergeMap`: al teclear rapido, la
+    // respuesta de un termino viejo llegando tarde pisaria la lista del termino actual.
+    this.buscar$
+      .pipe(
+        debounceTime(250),
+        switchMap(() => {
+          const branch = this.cot()?.source_branch;
+          if (!branch) {
+            this.buscando.set(false);
+            return of([] as QuoteCatalogRow[]);
+          }
+          this.buscando.set(true);
+          return this.svc.searchCatalog(branch, this.termino.trim()).pipe(
+            catchError((err) => {
+              this.toast.add({
+                severity: err?.status === 403 ? 'warn' : 'error',
+                summary: err?.status === 403 ? 'Sin permiso' : 'No se pudo buscar',
+                detail: err?.error?.message || 'El catalogo de la sucursal no respondio.',
+              });
+              return of([] as QuoteCatalogRow[]);
+            }),
+          );
+        }),
+      )
+      .subscribe((rows) => {
+        this.resultados.set(rows);
+        this.buscando.set(false);
+        this.catalogoAbierto.set(true);
+
+        // Lector de codigo de barras: manda el EAN completo y espera no tener que clickear.
+        // ⛔ Solo auto-elige si la respuesta es UNA sola fila Y el termino es exactamente su SKU
+        // o su codigo. Con dos candidatos elige el humano: resolver por "sku O barcode" a ciegas
+        // es justo la ambiguedad que ya nos costo antes.
+        const t = this.termino.trim();
+        if (rows.length === 1 && t && (rows[0].sku.toUpperCase() === t.toUpperCase() || rows[0].barcode === t)) {
+          this.elegir(rows[0]);
+        }
+      });
+
     this.recargar();
   }
 
@@ -565,7 +689,34 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     });
   }
 
-  onSku(_v: string): void { this.previa$.next(); }
+  /**
+   * Teclear busca en el catalogo; NO cotiza. La previa cuelga del producto elegido, porque
+   * cotizar un texto a medio escribir seria pedirle precio a algo que todavia no es un producto.
+   */
+  onTermino(_v: string): void {
+    this.elegido.set(null);
+    this.previa.set(null);
+    this.buscar$.next();
+  }
+
+  /** Entrar al campo sin escribir nada muestra los primeros N: el operador tambien hojea. */
+  onFoco(): void {
+    this.catalogoAbierto.set(true);
+    if (this.resultados().length === 0) this.buscar$.next();
+  }
+
+  elegir(p: QuoteCatalogRow): void {
+    this.elegido.set(p);
+    this.catalogoAbierto.set(false);
+    this.previa$.next();
+  }
+
+  limpiarEleccion(): void {
+    this.elegido.set(null);
+    this.previa.set(null);
+    this.catalogoAbierto.set(true);
+  }
+
   onCantidad(): void { this.previa$.next(); }
   setRung(r: Rung): void { this.rung.set(r); this.previa$.next(); }
 
@@ -573,7 +724,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     if (this.guardando()) return;
     this.guardando.set(true);
     this.svc
-      .addLine(this.id, { sku: this.sku.trim(), quantity: Number(this.cantidad), rung: this.rung() })
+      .addLine(this.id, { sku: this.elegido()!.sku, quantity: Number(this.cantidad), rung: this.rung() })
       .subscribe({
         next: () => {
           this.limpiarAlta();
@@ -592,7 +743,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     if (this.guardando()) return;
     this.guardando.set(true);
     this.svc
-      .addLine(this.id, { requested_text: this.sku.trim(), quantity: Number(this.cantidad) })
+      .addLine(this.id, { requested_text: this.termino.trim(), quantity: Number(this.cantidad) })
       .subscribe({
         next: () => {
           this.limpiarAlta();
@@ -644,9 +795,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   private limpiarAlta(): void {
-    this.sku = '';
+    this.termino = '';
     this.cantidad = 1;
     this.previa.set(null);
+    this.elegido.set(null);
+    this.resultados.set([]);
+    this.catalogoAbierto.set(false);
   }
 
   private falla(err: { status?: number; error?: { message?: string } }, summary: string): void {

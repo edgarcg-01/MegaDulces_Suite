@@ -94,6 +94,25 @@ export interface PriceStep {
  * el vendedor no puede inventar un descuento (decisión de Dirección, 2026-09-22), y los
  * endpoints ni siquiera aceptan `unit_price` en el body.
  */
+
+/**
+ * Un producto cotizable en la sucursal de la cotización, derivado de la MISMA vista que preci­a
+ * (`analytics.v_label_prices`). El `piece_price` que trae es de referencia para reconocer el
+ * producto en la lista — el precio que vale es el que devuelve `pricePreview` con la cantidad
+ * y el peldaño puestos.
+ */
+export interface QuoteCatalogRow {
+  sku: string;
+  name: string | null;
+  content: string | null;
+  barcode: string | null;
+  unit_base: string | null;
+  piece_price: number | null;
+  pack_size: number | null;
+  box_size: number | null;
+  sold_by_kg: boolean;
+}
+
 export interface PricedLine {
   sku: string;
   product_id: string | null;
@@ -205,6 +224,18 @@ export class QuotesService {
 
   getOne(id: string): Observable<QuoteDetail> {
     return this.http.get<QuoteDetail>(`${this.base}/${id}`);
+  }
+
+  /**
+   * `[COT.1c]` Qué se puede cotizar en esa sucursal. La sucursal es obligatoria: el precio vive
+   * por `(sucursal, sku)`, así que un catálogo sin plaza ofrecería cosas que no se pueden preciar.
+   */
+  searchCatalog(branch: string, search: string, limit = 30): Observable<QuoteCatalogRow[]> {
+    const params = new HttpParams()
+      .set('branch', branch)
+      .set('search', search)
+      .set('limit', String(limit));
+    return this.http.get<QuoteCatalogRow[]>(`${this.base}/catalog`, { params });
   }
 
   // ───────────────────────────────────────────────────────────────────────────────────────────

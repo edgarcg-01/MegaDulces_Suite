@@ -92,6 +92,30 @@ export interface WholesaleCustomerRow {
   terms_vary_by_branch: boolean;
 }
 
+/**
+ * Un producto **cotizable en esa sucursal**, tal como lo ve el motor de precio.
+ *
+ * ⛔ La fuente es `analytics.v_label_prices`, NO `catalog.products`, y no es un detalle: el motor
+ * de cotizaciones preci­a por `(sucursal, sku)` contra esa vista. Un buscador que leyera el
+ * catálogo de la Suite ofrecería productos que la previa no puede preciar, y el operador se
+ * comería un "el ERP no publica precio para X en la sucursal Y" DESPUÉS de elegirlo. Acá sólo
+ * sale lo que se puede cotizar.
+ */
+export interface QuoteCatalogRow {
+  sku: string;
+  name: string | null;
+  /** Gramaje parseado del nombre (`500 g`), cuando la etiqueta lo trae. */
+  content: string | null;
+  barcode: string | null;
+  /** Unidad BASE del ERP en esa sucursal: `PZA`, `PAQ`, `CJA`, `KG`. */
+  unit_base: string | null;
+  /** Precio de la unidad base. NULL = el ERP no lo publica; **nunca 0** (ADR-056). */
+  piece_price: number | null;
+  pack_size: number | null;
+  box_size: number | null;
+  sold_by_kg: boolean;
+}
+
 /** Cabecera + renglones. Las columnas se devuelven tal cual salen del SELECT. */
 export interface QuoteDetail extends Record<string, unknown> {
   id: string;
@@ -413,6 +437,71 @@ export class CommercialQuotesService {
         { term, like: `%${term}%`, lim: n },
       );
       return res.rows;
+    });
+  }
+
+  /**
+   * `[COT.1c]` — El catálogo de la cotización: qué se puede cotizar en ESA sucursal.
+   *
+   * Sin esto el editor exige que el operador se sepa el SKU de memoria — que era el estado real
+   * hasta acá, y por eso el buscador no es cosmético: es la diferencia entre poder cotizar y no.
+   *
+   * ⛔ **La sucursal es obligatoria.** Un producto no es "cotizable" en abstracto: `v_label_prices`
+   * publica precio por `(sucursal, sku)`, y hay SKUs con precio en una plaza y sin precio en otra.
+   * Buscar sin sucursal devolvería un catálogo que después no se puede preciar.
+   *
+   * Tres formas de llegar al renglón, en este orden de confianza:
+   *   · el SKU exacto (lo que el operador ya sabía)     → primero
+   *   · el código de barras completo (viene del lector) → después
+   *   · el prefijo del SKU, y el nombre                 → al final
+   *
+   * ⚠️ El orden está **desempatado hasta el final** (`name`, `sku`): sin desempate, dos corridas
+   * con los mismos datos pueden devolver filas distintas y no hay forma de demostrar que un
+   * cambio no movió nada.
+   */
+  async searchCatalog(branch: string, search: string, limit = 30): Promise<QuoteCatalogRow[]> {
+    const suc = (branch || '').trim();
+    if (!suc) throw new BadRequestException('Falta la sucursal: un producto sólo es cotizable en una plaza concreta.');
+
+    const term = (search || '').trim();
+    const n = Math.min(Math.max(Number(limit) || 30, 1), 50);
+
+    return this.tk.run(async (knex) => {
+      const res = await knex.raw(
+        `
+        SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size, sold_by_kg
+          FROM analytics.v_label_prices
+         WHERE sucursal = :branch
+           AND (:term = ''
+                OR sku ILIKE :pre
+                OR barcode = :term
+                OR name ILIKE :like)
+         ORDER BY
+           CASE WHEN upper(sku) = upper(:term) THEN 0
+                WHEN barcode = :term          THEN 1
+                WHEN sku ILIKE :pre           THEN 2
+                ELSE 3 END,
+           name NULLS LAST,
+           sku
+         LIMIT :lim
+        `,
+        { branch: suc, term, pre: `${term}%`, like: `%${term}%`, lim: n },
+      );
+
+      // Los `numeric` de Postgres llegan como STRING por JSON (GOTCHAS §6): el tipo TS miente
+      // si no se convierten acá. Y un ausente se queda NULL, nunca 0 (ADR-056).
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      return (res.rows as Record<string, unknown>[]).map((r) => ({
+        sku: String(r['sku']),
+        name: (r['name'] as string) ?? null,
+        content: (r['content'] as string) ?? null,
+        barcode: (r['barcode'] as string) ?? null,
+        unit_base: (r['unit_base'] as string) ?? null,
+        piece_price: num(r['piece_price']),
+        pack_size: num(r['pack_size']),
+        box_size: num(r['box_size']),
+        sold_by_kg: r['sold_by_kg'] === true,
+      }));
     });
   }
 

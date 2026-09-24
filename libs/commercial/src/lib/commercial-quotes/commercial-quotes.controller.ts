@@ -6,6 +6,7 @@ import {
   ListQuotesQuery,
   QuoteOrigin,
   WholesaleCustomerRow,
+  QuoteCatalogRow,
   CreatedQuote,
 } from './commercial-quotes.service';
 import {
@@ -73,6 +74,28 @@ export class CommercialQuotesController {
     @Query('limit') limit?: string,
   ): Promise<WholesaleCustomerRow[]> {
     return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20);
+  }
+
+  /**
+   * ⚠️ Va **antes** de `@Get(':id')`. Nest resuelve por orden de declaración: abajo de la ruta
+   * paramétrica, `catalog` entraría como si fuera un id de cotización y devolvería 404/500.
+   */
+  @Get('catalog')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      'Qué se puede cotizar en una sucursal: SKU, nombre, gramaje, código de barras y unidad base, ' +
+      'derivado de analytics.v_label_prices — la MISMA fuente con la que se preci­a.',
+  })
+  @ApiQuery({ name: 'branch', required: true, description: 'Sucursal Kepler. Sin ella no hay precio.' })
+  @ApiQuery({ name: 'search', required: false, description: 'SKU, código de barras o nombre. Vacío = primeros N.' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  searchCatalog(
+    @Query('branch') branch: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ): Promise<QuoteCatalogRow[]> {
+    return this.service.searchCatalog(branch, search ?? '', limit ? Number(limit) : 30);
   }
 
   @Get('summary')

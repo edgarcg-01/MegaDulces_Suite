@@ -282,6 +282,47 @@ async function login(username) {
       );
     }
 
+    // ── 8. ⭐ El catálogo sólo ofrece lo que esa plaza SÍ puede cotizar ─────────────────────
+    console.log('\n8 — ⭐ [COT.1c] el buscador de producto y su contrato');
+
+    // El orden de las rutas: `catalog` está declarado ARRIBA de `@Get(':id')`. Si alguien lo
+    // mueve, Nest lo toma como un id de cotización y esto deja de ser un arreglo.
+    const cat = await req('GET', `/commercial/quotes/catalog?branch=${BRANCH}&search=${F ? F.sku : ''}`, op.token);
+    check('GET /catalog → 200', cat.status === 200, `status ${cat.status}`);
+    check('devuelve un arreglo, o sea no cayó en @Get(":id")', Array.isArray(cat.body),
+      `body=${JSON.stringify(cat.body).slice(0, 120)}`);
+
+    if (F && Array.isArray(cat.body)) {
+      const hit = cat.body.find((r) => r.sku === F.sku);
+      check(`buscando el SKU exacto ${F.sku} aparece`, !!hit);
+      check('y sale PRIMERO: la coincidencia exacta gana al resto', cat.body[0]?.sku === F.sku,
+        `primero=${cat.body[0]?.sku}`);
+      if (hit) {
+        check('trae la unidad base del ERP', hit.unit_base === F.unit_base,
+          `catalogo=${hit.unit_base} erp=${F.unit_base}`);
+        check('el precio de lista llega como NÚMERO, no como string (GOTCHAS §6)',
+          hit.piece_price === null || typeof hit.piece_price === 'number', `typeof=${typeof hit.piece_price}`);
+      }
+
+      // ⭐ La aserción que justifica la decisión de fuente: TODO lo que el catálogo ofrece
+      // tiene que ser preciable. Si esto se pone rojo, alguien lo repuntó a `catalog.products`
+      // y el operador va a elegir productos que la previa no puede cotizar.
+      const prev = await req('POST', '/commercial/quotes/price-preview', op.token,
+        { branch: BRANCH, sku: cat.body[0].sku, quantity: 1 });
+      check('lo primero que ofrece el catálogo SE PUEDE cotizar', prev.status === 200 && prev.body?.unit_price !== null,
+        `status ${prev.status} unit_price=${prev.body?.unit_price} motivo=${prev.body?.unpriced_reason}`);
+    } else {
+      declarar('el contenido del catálogo', `no hay fila de v_label_prices en la sucursal ${BRANCH} con qué comparar`);
+    }
+
+    // Sin sucursal no hay precio, así que tampoco hay catálogo: es 400, no una lista global.
+    const sinSuc = await req('GET', '/commercial/quotes/catalog?search=x', op.token);
+    check('GET /catalog sin sucursal → 400', sinSuc.status === 400, `status ${sinSuc.status}`);
+
+    // Prueba negativa de permiso, con el rol pelado (nunca con admin: god-mode pinta verde).
+    const c403 = await req('GET', `/commercial/quotes/catalog?branch=${BRANCH}`, sin.token);
+    check('GET /catalog sin COMMERCIAL_QUOTES_VER → 403', c403.status === 403, `status ${c403.status}`);
+
     // ── 7. Borrar se lleva a los hijos ─────────────────────────────────────────────────────
     console.log('\n7 — quitar un renglón se lleva sus regalos');
     if (LID) {
