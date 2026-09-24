@@ -3567,3 +3567,61 @@ donde estaba el defecto.
 **La regla:** un cambio en la forma de una consulta —no en su lógica— **no lo cubre un test con
 dobles**. Si se toca SQL, hay que ejercerlo contra Postgres antes de decir que está verificado
 (ADR-044, y acá el precio fue el login entero).
+
+---
+
+## 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el proceso
+
+**Medido el 2026-09-24, con producción caída de por medio.** El commit `4cebb6aa` (PR #151) dejó
+`FinanceExpedienteGastoModule` sin importar `CloudinaryModule`, que es quien exporta
+`ObjectStorageService`. Nest aborta el proceso entero:
+
+```
+UnknownDependenciesException: Nest can't resolve dependencies of the ExpedienteGastoService
+(TenantKnexService, TenantContextService, ?, ExpenseProofsService).
+ObjectStorageService at index [2] is not available in FinanceExpedienteGastoModule
+```
+
+### ⭐ Lo que hace a este caso distinto de un bug cualquiera
+
+**Todo estaba verde.** `nx build api`, `nx typecheck`, `nx lint` y las **159 pruebas de
+`libs/finance`** pasaron. El tipo de `ObjectStorageService` está perfectamente escrito e
+importado; lo que está mal es el **grafo de módulos**, y eso Nest lo arma **en arranque**.
+
+O sea: es una clase de defecto que **ninguna herramienta estática ve** y que **ningún test
+unitario ve** (los tests instancian el servicio a mano, con dobles — nunca piden el módulo real).
+El primer proceso que lo levanta es el que se entera. Ese día, el primero fue producción.
+
+### Por qué llegó hasta ahí
+
+- La suite de `libs/finance` construye `ExpedienteGastoService` directamente, no por el módulo.
+- El CI de GitHub está **apagado** desde el 2026-08-25 y `main` **no exige ningún check**.
+- El despliegue automático fue lo único que lo detectó… desplegándolo.
+
+### La regla
+
+**Antes de pushear, correr `npm run check`**, que desde `[VL.19]` incluye la compuerta `boot`
+(`scripts/check-boot.js`): levanta `dist/apps/api/main.js`, espera a que escuche y clasifica el
+resultado. **Cuesta ~4 s** con el compilado fresco.
+
+Tres detalles que costaron una iteración cada uno y que conviene conocer antes de tocarla:
+
+1. ⛔ **La compuerta le pasa un `JWT_SECRET` descartable.** Su primera corrida real salió roja por
+   el freno `[AUTHZ-HARD]`, que aborta si el secreto es el default público del repo. El freno está
+   bien — pero lo dispara el `.env` local de cada quien, no un defecto que se arregle en un commit.
+   **Una compuerta que se pone roja por algo que el código no controla enseña a ignorarla.**
+2. ⚠️ **Un `dist` rancio mide el código viejo y sale verde.** Por eso compara la fecha del
+   compilado contra el `.ts` más nuevo y reconstruye si hace falta.
+3. ⚠️ **Sin base de desarrollo alcanzable el arranque se cuelga por una razón ajena al código** →
+   reporta `NO MEDIDO` y sale con 0, nunca verde (ADR-056).
+
+### La prueba negativa, que acá es la mitad del valor
+
+`node scripts/check-boot.js --probar-negativo` levanta un **Nest real** con el mismo defecto
+(un servicio que inyecta un proveedor que su módulo no tiene) y exige el rojo, más el clasificador
+contra el texto literal del incidente. Y se verificó además **contra el módulo real**: quitándole
+el import, la compuerta lo caza en **3.5 s** con el mensaje exacto y sale con 1.
+
+⚠️ **Lo que sigue abierto:** con el CI apagado, la compuerta **sólo corre si alguien la escribe**.
+Existe, pero nada la obliga. Runbook completo en
+[`ops/prod/RUNBOOK-despliegue.md`](../ops/prod/RUNBOOK-despliegue.md).

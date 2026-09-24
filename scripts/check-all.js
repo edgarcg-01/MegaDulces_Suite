@@ -100,6 +100,16 @@ const COMPUERTAS = [
   // infiere el plugin `@nx/vitest` de ese archivo — si no hay config, no hay target que correr.
   { nombre: 'test', cmd: nx('test'), que: 'las suites del workspace (vitest)' },
   { nombre: 'build', cmd: nx('build'), que: 'compila' },
+  // `[VL.19]` LA ÚLTIMA, y la que faltaba: **compilar no es arrancar**.
+  //
+  // Va DESPUÉS de `build` porque necesita el compilado (si está rancio lo rehace solo). El
+  // 2026-09-24 un commit llegó a `main` y a producción sin arrancar: `nx build api`, `typecheck`,
+  // `lint` y las 159 pruebas de `libs/finance` en verde, y el proceso muriendo en el arranque
+  // porque un módulo no importaba al que exporta uno de sus proveedores. El grafo de inyección lo
+  // resuelve Nest al LEVANTAR, y nadie levantaba nada antes de producción.
+  //
+  // Cuesta ~4 s cuando el compilado está fresco. La caída costó dos ventanas y una reversión.
+  { nombre: 'boot', cmd: 'node scripts/check-boot.js', que: 'el API ARRANCA (build verde ≠ proceso vivo)' },
 ];
 
 console.log(`\n=== npm run check · ${alcance} ===\n`);

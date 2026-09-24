@@ -1,0 +1,65 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# `[VL.19]` LO ÚNICO QUE HOY PUEDE IMPEDIR QUE `main` QUEDE SIN ARRANCAR.
+#
+# ── Por qué existe ──────────────────────────────────────────────────────────────────────────
+# El 2026-09-24 un commit llegó a `main` y a producción **sin arrancar** (un módulo sin importar
+# al que exporta uno de sus proveedores). Pasó porque:
+#   · `nx build`, `typecheck`, `lint` y 159 pruebas estaban en VERDE — el grafo de inyección lo
+#     resuelve Nest al levantar el proceso, no al compilar (GOTCHAS §68);
+#   · el CI de GitHub está **apagado** desde el 2026-08-25 y `main` **no exige ningún check**;
+#   · y `npm run check` sólo corre si alguien se acuerda.
+# O sea que entre un commit roto y producción no había absolutamente nada. Esto es ese algo.
+#
+# ── Qué corre, y por qué SÓLO eso ───────────────────────────────────────────────────────────
+# Corre **una** compuerta: `check-boot`, ~4 s con el compilado fresco. No corre `npm run check`
+# entero a propósito — un hook que tarda dos minutos se desactiva el primer día, y un hook
+# desactivado protege menos que ninguno. Ésta cubre la clase de defecto que **tumba producción
+# entera**, que es la que justifica frenar un push.
+#
+# ── Cómo instalarlo (una vez por clon) ──────────────────────────────────────────────────────
+#     git config core.hooksPath ops/githooks
+#
+# ⚠️ Es **por clon**, no viaja con el repo: git no permite hooks automáticos por seguridad. O sea
+#    que esto es voluntario hasta que el CI vuelva, y **eso se declara** en vez de suponer que
+#    todos lo tienen.
+#
+# ── Cómo saltarlo cuando de verdad hace falta ───────────────────────────────────────────────
+#     git push --no-verify
+# Legítimo para una rama de trabajo o un `.md`. ⛔ No para `main`.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+set -u
+
+RAIZ=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$RAIZ/scripts/check-boot.js" ] || exit 0
+
+# ── Sólo si el push toca código que puede romper el arranque ────────────────────────────────
+# Un push de `.md`, de `ops/` o de una migración no cambia el grafo de inyección, y cobrarle 4 s
+# a cada uno es cómo se gana el `--no-verify` por costumbre.
+BASE=$(git rev-parse --verify --quiet origin/main 2>/dev/null || echo '')
+if [ -n "$BASE" ]; then
+  TOCADOS=$(git diff --name-only "$BASE"...HEAD 2>/dev/null | grep -E '^(apps/api|libs)/.*\.ts$' | head -1)
+  if [ -z "$TOCADOS" ]; then
+    echo "pre-push: sin cambios en apps/api ni libs — la compuerta de arranque no aplica."
+    exit 0
+  fi
+fi
+
+echo "pre-push: comprobando que el API ARRANQUE (build verde no alcanza — GOTCHAS §68)…"
+if node "$RAIZ/scripts/check-boot.js"; then
+  exit 0
+fi
+
+cat <<'FIN'
+
+⛔ PUSH FRENADO — el API no arranca con este código.
+
+   Esto tumba producción apenas el despliegue automático lo tome de origin/main, y `nx build`
+   no lo ve. Arreglalo y volvé a intentar.
+
+   Para ver el detalle:      node scripts/check-boot.js
+   Runbook:                  ops/prod/RUNBOOK-despliegue.md
+   Si sabés lo que hacés:    git push --no-verify   (⛔ no contra main)
+
+FIN
+exit 1
