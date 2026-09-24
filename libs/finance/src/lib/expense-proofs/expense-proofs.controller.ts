@@ -66,6 +66,13 @@ export class ExpenseProofsController {
     return this.svc.resumenDelSolicitante(periodo === 'mes' ? 'mes' : '12m', req?.user);
   }
 
+  @Get('por-aprobar')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.17] Lo que espera luz verde, agrupado por fecha y por departamento. Mismo permiso que aprobar/validar/rechazar: quien no puede firmar tampoco necesita la bandeja.' })
+  porAprobar(@Query('limit') limit?: string) {
+    return this.svc.porAprobar(limit ? Number(limit) : undefined);
+  }
+
   @Get('status-by-folio')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: '(C) Mapa folio_solicitud → estado, para el indicador en Solicitudes.' })

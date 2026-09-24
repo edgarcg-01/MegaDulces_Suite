@@ -2047,6 +2047,82 @@ los que sostienen una decisión van en un test que se pone rojo.
 
 ---
 
+## GX.17 — La sección de gastos se parte en dos: capturar y aprobar 🧪 2026-09-24 (en código)
+
+Pedido del usuario. Hasta ahora `/finanzas/gastos` elegía **una de dos superficies según el
+permiso** (`[GX.10]`): tablero para quien tenía `FINANCE_EXPENSES_VER`, captura para quien
+sólo tenía `_CAPTURAR`. Ahora son rutas distintas, con públicos distintos:
+
+| Ruta | Para qué | Quién entra |
+|---|---|---|
+| `/finanzas/gastos` | Capturar: pegar el folio de Kepler, declarar cómo se pagó, subir la foto | **Todos** (sólo `authGuard`) |
+| `/finanzas/aprobacion-gastos` | Dar luz verde | `FINANCE_EXPENSES_COMPROBAR` |
+| `/finanzas/gastos-tablero` | El tablero de GX.10, intacto | `FINANCE_EXPENSES_VER` |
+
+- [x] **[GX.17.1]** ⛔ **No se creó un permiso nuevo.** `FINANCE_EXPENSES_COMPROBAR` ya
+      existía y ya gateaba `approve`/`validate`/`reject` desde GX.7. Inventar
+      `FINANCE_EXPENSES_APROBAR` habría dejado dos llaves para la misma puerta.
+- [x] **[GX.17.2]** Migración `20260924120000` — el permiso para **Jesús**, por PERSONA.
+      ⚠️ Medido antes de escribirla: de las 4 personas que el usuario nombró, **3 ya podían**
+      (`superuser` y `guillermo_lopez` son `superadmin` → god-mode; `maria_gutierrez` es
+      `tesoreria`, el **único** rol con el permiso y que tiene **exactamente 1 persona**).
+      Sólo faltaba Jesús — y su rol `finanzas_operativo` lo comparten **6 personas**, así que
+      dárselo al rol le habría dado la firma a **5 que nadie nombró**. Va como override en
+      `identity.user_permissions`, el mecanismo que el propio repo señala para este caso.
+- [x] **[GX.17.3]** `GET /finance/expenses/proofs/por-aprobar` + `aprobacion-agrupar.ts`
+      (función pura): lo pendiente agrupado **por fecha y por departamento**.
+      ⚠️ El departamento **no siempre es un departamento**: cuando quien capturó no puso uno,
+      `create()` guarda `Sucursal NN` —una plaza— y el respaldo es el área de la solicitud de
+      Kepler. Cada grupo **declara de dónde salió su etiqueta** (`capturado` / `solicitud` /
+      `sin_clasificar`); juntarlas sin decirlo haría convivir «Sucursal 00» con «LOGISTICA»
+      como si fueran lo mismo.
+- [x] **[GX.17.4]** Pantalla `/finanzas/aprobacion-gastos`: grupos a la izquierda, expedientes
+      a la derecha, con la forma de pago y si la foto trae **sello de cámara** (GX.14) a la
+      vista. ⛔ **Aprobar es de a uno**: no hay «aprobar el grupo entero». Agrupar es para
+      leer, no para firmar en bloque — un botón que autoriza 40 gastos de un clic convierte
+      la revisión en un trámite. Rechazar **exige motivo**.
+
+### Sobre abrir `/finanzas/gastos` a todos
+
+Medido: **156 usuarios activos**, de los cuales 96 tenían `_CAPTURAR` y 25 `_VER`. La ruta
+pasa a no exigir permiso.
+
+⛔ **Abrir la ruta NO abre el dato.** El backend sigue acotando por áreas de gasto, y quien
+no tiene ninguna necesita el folio **exacto** para encontrar una solicitud
+(`searchSolicitudes`, decisión de GX.8: «subí lo que te dieron, sin pasear por el gasto
+ajeno»). El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión,
+no el público.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.28 MB) · **`nx test view` 778/778**.
+- **14 pruebas unitarias nuevas** sobre la agrupación (`finance` 159 → **173**).
+- Migración aplicada a **`platform_test`**, idempotente (2ª pasada: 0 filas), con la
+  **prueba negativa medida**: los otros **5** de `finanzas_operativo` NO recibieron el permiso.
+- ⭐ `landing-guards.spec.ts` **se puso rojo y tenía razón**: tres permisos figuraban como
+  DEUDA porque `/finanzas/gastos` los rebotaba, y al quitarle el guard dejaron de rebotar.
+  Una deuda que ya no aplica es ruido que enseña a ignorar la lista. Saldadas.
+
+### ⚠️ Un error mío que conviene que quede escrito
+
+El primer commit de esta fase **arrastró 12 archivos de otra sesión** (borrados de un
+reporte de precios que yo nunca toqué). La causa: hice `git add -- <mis rutas>` y después
+`git commit`, que toma el **índice entero** — y ese índice lo comparten ~10 sesiones. Lo
+destapó el `cherry-pick` a la rama limpia, que chocó en archivos que no eran míos.
+La forma correcta, que el propio `CLAUDE.md` ya marcaba: **`git commit -- <rutas>`**.
+También había que rehacer `CHANGELOG.md`, el tracker y `app.routes.ts` desde `main`: mis
+versiones eran anteriores y habrían **borrado** entradas y una ruta (`catalogo/reporte`) de
+otras sesiones.
+
+### ⬜ Pendiente
+
+- Migración a producción (`pg-prod` en `md`) + **re-login de Jesús** (el permiso viaja en el JWT).
+- **Validación visual** de las dos pantallas.
+- El tablero cambió de dirección (`/finanzas/gastos-tablero`): hay que avisarle a las 25
+  personas que lo usan, o dejar un enlace desde la landing.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
