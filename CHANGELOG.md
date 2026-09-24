@@ -419,6 +419,55 @@ Bug que el smoke destapó y el build no podía ver: al vaciar un rack la fila qu
   `['clave', 'Etiqueta', …]`, y `[CG.21]` declaró la suya como `const KEY = 'finanzas.caja'` → el
   catálogo salía en 14 con 15 claves sembradas y dos aserciones de biyección acusaban en falso a
   una clave que **sí** estaba declarada.
+### Added — áreas de gasto: el motor propone, la persona confirma (`[GX.16]`, 2026-09-24)
+- **0 de 76** personas que capturan o revisan gastos tenían un área asignada, así que no
+  veían **ninguna** solicitud suya — y no como error, sino como lista vacía. El selector por
+  usuario existía desde GX.8; asignarlas era abrir 76 diálogos.
+- Nueva pantalla `/admin/areas-gasto`: las 76 juntas, con la propuesta y su evidencia, y
+  confirmación en lote. Reusa `USUARIOS_GESTIONAR` → **sin migración ni re-login**.
+- ⚠️ **La propuesta es estricta a propósito**: asignar un área da visibilidad sobre el gasto
+  de otro. El matcher por tokens en común proponía `Miriam … Carrillo Contreras` →
+  `JUAN JESUS CARRILLO CONTRERAS` (otra persona, mismos apellidos). La regla que quedó exige
+  que el nombre del área esté contenido entero en el de la persona.
+- Rinde **12 de 76** (10 únicas + 2 con variantes del mismo nombre) sobre 17 que ya casaban.
+  Los **47 restantes se declaran**, no se rellenan bajando el umbral.
+
+### Added — el expediente del gasto, y su PDF (`[GX.15]`, 2026-09-24)
+- **Los cuatro eslabones en un solo lugar**: solicitud `XA1501` (Kepler) + expediente propio
+  + gasto aplicado `XA1001` (Kepler) + comprobación, con la etapa del trámite derivada y qué
+  falta. `GET /finance/expenses/expediente/:sucursal/:folio` y `…/pdf`.
+- **La comprobación queda lista sola**: `…/listas-para-comprobar` devuelve los gastos que
+  Kepler ya aplicó y todavía no tienen comprobación. No hace falta avisar ni correr un
+  proceso — aparece en cuanto el `XA1001` entra al ODS.
+- ⭐ **No hubo que decodificar nada**: los **9,073 gastos aplicados traen el folio de su
+  solicitud (`c39`) — el 100%**.
+- ⚠️ **Un gasto no es uno solo**: 177 solicitudes tienen 2, 3 o 4 gastos aplicados, así que el
+  expediente los lista y el cuadre se juzga contra la **suma**.
+- ⚠️ **El JOIN entre las dos vistas del ODS no termina** (>90 s, cancelado por timeout);
+  separado en dos viajes son **1.2 s**. Y el orden importa: arrancando por los gastos, a quien
+  sólo ve lo suyo le faltarían filas en silencio.
+- 📊 Medido al pasar: **3,146 gastos de los últimos 90 días esperan comprobación**.
+- Sin migración y sin permisos nuevos → **no hace falta re-login**.
+
+### Added — cómo se pagó, y la foto tomada en vivo (`[GX.14]`, 2026-09-24)
+- **Dos cosas que quien gasta aporta antes de que su solicitud llegue a revisión**, y que
+  Kepler no pide. Medido en prod (2026-09-23): `forma_pago` **vacía en 5,410 de 10,082
+  solicitudes (54 %) = $20,283,721.89**, y `finance.expense_proofs` con **9 filas** contra esas
+  10,082 (**0.09 %**).
+- **La regla vive una sola vez**: `faltaParaMandar()` en `libs/contracts/src/finance/` enciende
+  el botón del frontend *y* arma el `400` del backend. El catálogo de formas de pago lleva el
+  **código con el que Kepler/SAT las guardan** (01/02/03/04/07/99).
+- **La foto sólo se toma en vivo**: nace `CapturaEnVivoComponent` y se retiran el input de
+  archivo y el arrastrar-y-soltar del comprobante, en la captura **y** en la subida
+  post-aprobación. El `capture="environment"` anterior era una sugerencia que nadie honraba.
+- **Resumen del solicitante** (`GET /finance/expenses/proofs/resumen`): sin alcance devuelve
+  `medido: false` con el motivo, **nunca ceros**.
+- El buscador abarca concepto, cuenta y **monto** — el monto sólo dentro del alcance.
+- Migración `20260923120000` (idempotente, CHECK con prueba negativa corrida). Sin permisos
+  nuevos → **no hace falta re-login**.
+- ⚠️ **El límite queda escrito**: `live` lo pone el cliente, así que no prueba que la foto sea
+  de hoy — logra que la interfaz no ofrezca otro camino y que el archivo diga de dónde salió.
+
 
 ### Added — la caja confirma los DOS signos, y el gasto **sí** estaba en Kepler (`[CG.21]`, 2026-09-22)
 - **Corrige a CG.20**, que declaró que los gastos *"no están en Kepler — acá no hay derivación
