@@ -1810,6 +1810,26 @@ para armarla. Ahora se pide por `(sucursal, folio)` y sale entera, con su PDF.
 solicitudes). Es coherente con que `finance.expense_comprobaciones` tenga **1 fila** en prod:
 el módulo existe desde GX.8 y no se usa.
 
+La cadena completa, medida sobre **toda la historia** (la consulta que tardó ~2 h en
+devolver — el mismo JOIN que el servicio evita a propósito):
+
+| | |
+|---|---|
+| Solicitudes | **10,206** |
+| …con gasto aplicado en Kepler | 8,900 |
+| …con **expediente propio** | **9** |
+| …con **comprobación propia** | **1** |
+| Autorizadas o aplicadas | 8,999 |
+| Autorizadas (`A`) todavía sin gasto | 284 · $733,639.05 |
+
+⚠️ **Y el cuadre gasto↔solicitud, que nadie estaba mirando:** de los 8,899 gastos con
+solicitud ligada, **8,310 cuadran** (desvío acumulado de **$11.88** en total — es decir,
+exacto) y **589 difieren, con un desvío acumulado de $5,713,694.89**. No es un error de
+nuestro lado: es lo que Kepler aplicó contra lo que se había pedido. El expediente ahora lo
+declara folio por folio (`lo aplicado no cuadra con lo solicitado`), pero **explicar esos
+589 casos es trabajo de negocio, no de software** — pueden ser ajustes legítimos, gastos
+parciales o captura. ⬜ Sin dueño asignado.
+
 ### ⬜ Pendiente / declarado
 
 - **Sin migración y sin permisos nuevos** → no hace falta re-login. Sí redeploy api + view.
