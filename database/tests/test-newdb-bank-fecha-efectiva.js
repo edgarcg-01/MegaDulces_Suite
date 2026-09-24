@@ -77,7 +77,7 @@ const n = (x) => Number(x) || 0;
   const tiene = await q(`select count(*)::int n from information_schema.columns
      where table_schema='analytics' and table_name='kepler_bank_movements' and column_name in ('fecha_efectiva','fecha_pago_sat')`);
   if (n(tiene[0].n) !== 2) {
-    console.log('\n  ⓘ la vista todavía no tiene las columnas (migración 20260924220000 sin aplicar).');
+    console.log('\n  ⓘ la vista todavía no tiene las columnas (migración 20260924230000 sin aplicar).');
     console.log('    NO MEDIDO — los bloques de base se saltan; esto no es un ✔.');
     console.log(`\n  ${ok} OK · ${fail} falla(s)\n`);
     await c.end();
