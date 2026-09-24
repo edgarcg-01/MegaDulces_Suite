@@ -1521,6 +1521,26 @@ export const routes: Routes = [
           ),
       },
       {
+        /**
+         * `[COT.1b]` El detalle: es donde se le cargan los renglones. Hasta ahora NO existía, así
+         * que la mesa era un callejón sin salida — se podía crear una cotización y después no se
+         * podía abrir, aunque `getOne` y `cancel` ya estuvieran en el servicio.
+         *
+         * ⚠️ Va DESPUÉS de `cotizaciones/nueva`: un `:id` declarado antes se comería la palabra
+         * "nueva" como si fuera un identificador.
+         *
+         * Permiso de VER y no de GESTIONAR: mirar lo que se cotizó no es ofrecer precio. La
+         * pantalla esconde sola los controles de edición cuando falta la llave o la cotización
+         * ya no es borrador.
+         */
+        path: 'cotizaciones/:id',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quote-detail.component').then(
+            (m) => m.TeleventaQuoteDetailComponent,
+          ),
+      },
+      {
         path: 'my',
         // Reusa el mismo queue component (muestra Mis reservas activas arriba).
         loadComponent: () =>
@@ -1543,14 +1563,15 @@ export const routes: Routes = [
           ),
       },
       // E.12 — Cotizaciones de mayoreo
-      {
-        path: 'cotizaciones',
-        loadComponent: () =>
-          import('./modules/televenta/pages/televenta-quotes.component').then(
-            (m) => m.TeleventaQuotesComponent,
-          ),
-        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_QUOTES_VER, Permission.COMMERCIAL_TELEVENTA_OPERATE)],
-      },
+      /**
+       * `[COT.1b]` Acá vivía una SEGUNDA declaración de `path: 'cotizaciones'` en este mismo
+       * `children`. Angular toma la primera, así que era código muerto — y era la **más
+       * permisiva**: su `anyPermissionGuard(QUOTES_VER, TELEVENTA_OPERATE)` habría vuelto
+       * decorativo el permiso nuevo (cualquiera que opere telemarketing entraría sin la llave
+       * de cotizar). Se borró: dos guards que dicen proteger la misma URL, y el que alguien lee
+       * segundo es el que nunca corre. Queda el `permissionGuard(COMMERCIAL_QUOTES_VER)` exacto
+       * de arriba. La fase lo había anotado en `FASE_E12` §6 y seguía vivo.
+       */
     ],
   },
   {

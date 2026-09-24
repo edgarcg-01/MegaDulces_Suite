@@ -97,6 +97,13 @@ export interface PricedLine {
   branch: string;
   rung: Rung;
   unit_label: string | null;
+  /**
+   * `[COT.1b]` Cuántas unidades BASE trae el peldaño cotizado. Es el `qty_factor` que se
+   * persiste al lado de la cantidad: sin él, un `10` guardado no dice si eran 10 piezas o
+   * 10 cajas. `null` en la base (no hubo conversión) y cuando no se pudo resolver — nunca 1
+   * por relleno, que sería afirmar lo que no se sabe (VU.0).
+   */
+  unit_factor: number | null;
   quantity: number;
   list_price: number | null;
   unit_price: number | null;
@@ -390,6 +397,10 @@ export class QuotePricingService {
       branch,
       rung,
       unit_label: step.label,
+      // `[COT.1b]` El factor SÓLO cuando el peldaño no es la base: en la base no hubo conversión
+      // y un `1` acá se leería como afirmación. `step.size` sale de v_label_prices, o sea de las
+      // dos ranuras de unidad de kdii — por eso la fuente se rotula `kepler_ladder`, no `kepler_c84`.
+      unit_factor: rung === 'base' ? null : (Number(step.size) > 0 ? Number(step.size) : null),
       quantity,
       list_price: listPrice,
       unit_price: unitPrice,
@@ -420,6 +431,8 @@ export class QuotePricingService {
       branch: a.branch,
       rung: a.rung,
       unit_label: null,
+      // Sin precio no hay peldaño resuelto: el factor se DECLARA ausente, no se asume 1.
+      unit_factor: null,
       quantity: a.quantity,
       list_price: null,
       // NULL, nunca 0: un cero acá se leería como "no cuesta nada" (ADR-056).
@@ -485,6 +498,17 @@ export class QuotePricingService {
         );
       }
 
+      /**
+       * `[COT.1b]` El `max+1` iba SIN candado: dos `addLine` a la vez sobre la misma cotización
+       * leían el mismo número y el segundo moría contra
+       * `commercial_quote_lines_quote_linenum_unique`. No es teórico — la pantalla nueva agrega
+       * renglones de a uno y rápido.
+       *
+       * El `FOR UPDATE` va sobre la fila de la COTIZACIÓN (que ya está en esta transacción), no
+       * sobre los renglones: bloquear renglones no impide que otro inserte el primero. Serializa
+       * los `addLine` de una misma cotización y no toca a las demás.
+       */
+      await trx.raw(`SELECT id FROM commercial.quotes WHERE id = :id FOR UPDATE`, { id: quoteId });
       const next = await trx.raw(
         `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
         { id: quoteId },
@@ -498,14 +522,17 @@ export class QuotePricingService {
         const parent = lineNumber;
         lineNumber += 1;
         await trx.raw(
+          // `[COT.1b]` El regalo lleva su rótulo pero NO factor: la regla del ERP dice qué unidad
+          // se regala (`kdpv_gratisxq.c12`) y no cuántas bases trae. Se guarda lo que se sabe y
+          // se declara ausente lo que no — rellenar con 1 sería inventar la conversión.
           `INSERT INTO commercial.quote_lines
              (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
               unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-              availability, notes, created_by, updated_by)
+              availability, notes, qty_unit, created_by, updated_by)
            VALUES
              (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
               0, 0, 0, 0, 'free_goods', :parent,
-              :availability, :notes, :user_id, :user_id)`,
+              :availability, :notes, :qty_unit, :user_id, :user_id)`,
           {
             quote_id: quoteId,
             line_number: lineNumber,
@@ -515,6 +542,7 @@ export class QuotePricingService {
             parent,
             availability: priced.free_goods.product_id ? 'available' : 'unmatched',
             notes: `Producto gratis del ERP por el renglón ${parent}`,
+            qty_unit: priced.free_goods.unit_label ?? null,
             user_id: userId,
           },
         );
@@ -543,14 +571,17 @@ export class QuotePricingService {
     const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
 
     await trx.raw(
+      // `[COT.1b]` El sello de unidad (`qty_unit`/`qty_factor`/`qty_factor_source`) entra al
+      // INSERT. Antes el `rung` se usaba para PRECIAR y se tiraba: la fila guardada no decía si
+      // el 10 eran 10 piezas o 10 cajas. Mismas tres columnas que `commercial.order_lines`.
       `INSERT INTO commercial.quote_lines
          (tenant_id, quote_id, line_number, product_id, requested_text, requested_quantity, quantity,
           unit_price, list_price, tax_rate, line_subtotal, line_total, price_source, parent_line_number,
-          availability, notes, created_by, updated_by)
+          availability, notes, qty_unit, qty_factor, qty_factor_source, created_by, updated_by)
        VALUES
          (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :requested_quantity, :quantity,
           :unit_price, :list_price, :tax_rate, :line_subtotal, :line_total, :price_source, :parent,
-          :availability, :notes, :user_id, :user_id)`,
+          :availability, :notes, :qty_unit, :qty_factor, :qty_factor_source, :user_id, :user_id)`,
       {
         quote_id: quoteId,
         line_number: lineNumber,
@@ -569,9 +600,217 @@ export class QuotePricingService {
         parent,
         availability: priced?.availability ?? 'unmatched',
         notes: priced?.unpriced_reason ?? null,
+        // `[COT.1b]` El peldaño cotizado, tal como el ERP lo rotula. Los tres van juntos o no van:
+        // un rótulo sin factor, o un factor sin de-dónde-salió, es media afirmación.
+        qty_unit: priced?.unit_label ?? null,
+        qty_factor: priced?.unit_factor ?? null,
+        qty_factor_source: priced?.unit_factor != null ? 'kepler_ladder' : null,
         user_id: userId,
       },
     );
+  }
+
+  /**
+   * `[COT.1b]` Cambia la cantidad (y opcionalmente el peldaño) de un renglón ya cotizado.
+   *
+   * ── Por qué hacía falta un verbo propio ─────────────────────────────────────────────────────
+   *
+   * Sin esto, corregir un "10" por un "12" obligaba a borrar y volver a agregar. Y
+   * `line_number` es `max+1` y **nunca se reusa**, así que el renglón corregido se iba al final:
+   * la cotización dejaba de estar en el orden de la lista que mandó el cliente — que es
+   * exactamente lo que este módulo existe para conservar.
+   *
+   * ── ⭐ Y acá cotizaciones DIFIERE de pedidos, a propósito ────────────────────────────────────
+   *
+   * `OrdersService.updateLine` **no re-tarifica** (`commercial-orders.service.ts:842`): conserva
+   * el `unit_price` del snapshot. Por eso en `/vendor/take-order` el `+` del stepper nunca
+   * dispara el precio de mayoreo, aunque la fila diga "Faltan N para mayoreo" — el PATCH pasa por
+   * ahí y el precio se queda quieto.
+   *
+   * En una cotización ese comportamiento sería un defecto: el precio **es** el producto. Subir la
+   * cantidad puede cruzar el umbral de volumen o activar una promo del ERP, y el operador tiene
+   * que ver el precio nuevo antes de mandarlo. Así que esto **vuelve a correr el motor entero** y
+   * devuelve el desglose.
+   *
+   * Los renglones de regalo se recalculan con él: la regla que los engendró depende de la
+   * cantidad, así que cambiarla puede darlos de alta, de baja o cambiarles el número.
+   */
+  async updateLine(
+    quoteId: string,
+    lineId: string,
+    input: { quantity: number; rung?: Rung },
+  ): Promise<AddLineResult> {
+    const userId = this.tenantCtx.get()?.userId ?? null;
+
+    return this.tk.run(async (trx) => {
+      const q = await trx.raw(
+        `SELECT id, status, source_branch FROM commercial.quotes
+          WHERE id = :id AND deleted_at IS NULL
+          FOR UPDATE`,
+        { id: quoteId },
+      );
+      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      const quote = q.rows[0];
+      if (quote.status !== 'draft') {
+        throw new BadRequestException(
+          `Sólo se editan renglones de una cotización en borrador (ésta está "${quote.status}").`,
+        );
+      }
+
+      const cur = await trx.raw(
+        `SELECT id, line_number, product_id, requested_text, parent_line_number, qty_unit
+           FROM commercial.quote_lines
+          WHERE id = :lid AND quote_id = :qid`,
+        { lid: lineId, qid: quoteId },
+      );
+      if (!cur.rows.length) throw new NotFoundException('Renglón no encontrado.');
+      const line = cur.rows[0];
+
+      // Un regalo no se edita: lo pone y lo quita la regla del ERP sobre el renglón padre.
+      // Dejar cambiarlo a mano convertiría un beneficio derivado en un dato inventado.
+      if (line.parent_line_number !== null) {
+        throw new BadRequestException(
+          'Ese renglón es un producto gratis que puso la regla del ERP. Se cambia editando el renglón que se lo ganó, no él.',
+        );
+      }
+
+      const qty = Number(input.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usá borrar el renglón.');
+      }
+
+      // El SKU sale del renglón, no del request: editar una cantidad no puede cambiar el producto.
+      const sku = await this.skuDelRenglon(trx, line);
+      let priced: PricedLine | null = null;
+      if (sku) {
+        if (!quote.source_branch) {
+          throw new BadRequestException(
+            'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+          );
+        }
+        priced = await this.priceLine(trx, {
+          branch: quote.source_branch,
+          sku,
+          quantity: qty,
+          // Sin peldaño explícito se conserva el que ya tenía el renglón: una edición de cantidad
+          // no debe mover la unidad en silencio.
+          rung: input.rung ?? this.rungDeRotulo(line.qty_unit),
+        });
+      }
+
+      const n = Number(line.line_number);
+      // Los regalos viejos se van: la regla se vuelve a evaluar con la cantidad nueva.
+      await trx.raw(`DELETE FROM commercial.quote_lines WHERE quote_id = :qid AND parent_line_number = :n`, {
+        qid: quoteId,
+        n,
+      });
+
+      const unit = priced?.unit_price ?? null;
+      const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
+      const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+
+      await trx.raw(
+        `UPDATE commercial.quote_lines
+            SET quantity = :quantity,
+                unit_price = :unit_price,
+                list_price = :list_price,
+                line_subtotal = :line_subtotal,
+                line_total = :line_total,
+                price_source = :price_source,
+                availability = :availability,
+                notes = :notes,
+                qty_unit = :qty_unit,
+                qty_factor = :qty_factor,
+                qty_factor_source = :qty_factor_source,
+                updated_at = now(),
+                updated_by = :user_id
+          WHERE id = :lid AND quote_id = :qid`,
+        {
+          lid: lineId,
+          qid: quoteId,
+          quantity: qty,
+          unit_price: unit,
+          list_price: priced?.list_price ?? null,
+          line_subtotal: subtotal,
+          line_total: lineTotal,
+          price_source: priced?.price_source ?? 'unknown',
+          availability: priced?.availability ?? 'unmatched',
+          notes: priced?.unpriced_reason ?? null,
+          qty_unit: priced?.unit_label ?? null,
+          qty_factor: priced?.unit_factor ?? null,
+          qty_factor_source: priced?.unit_factor != null ? 'kepler_ladder' : null,
+          user_id: userId,
+        },
+      );
+
+      // ⚠️ `requested_quantity` NO se toca: es lo que el cliente PIDIÓ, y la corrección del
+      // operador no reescribe el pedido original. Es la misma distinción que `order_lines`.
+
+      if (priced?.free_goods && priced.free_goods.quantity > 0) {
+        const nextN = await trx.raw(
+          `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+          { id: quoteId },
+        );
+        await trx.raw(
+          `INSERT INTO commercial.quote_lines
+             (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
+              unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
+              availability, notes, qty_unit, created_by, updated_by)
+           VALUES
+             (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
+              0, 0, 0, 0, 'free_goods', :parent,
+              :availability, :notes, :qty_unit, :user_id, :user_id)`,
+          {
+            quote_id: quoteId,
+            line_number: Number(nextN.rows[0].n),
+            product_id: priced.free_goods.product_id,
+            requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
+            quantity: priced.free_goods.quantity,
+            parent: n,
+            availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+            notes: `Producto gratis del ERP por el renglón ${n}`,
+            qty_unit: priced.free_goods.unit_label ?? null,
+            user_id: userId,
+          },
+        );
+      }
+
+      await this.recalcTotals(trx, quoteId);
+      const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
+        id: quoteId,
+      });
+      return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
+    });
+  }
+
+  /**
+   * El SKU con el que se precia un renglón ya guardado. Sale del catálogo si casó, y del texto
+   * crudo si no — que es el mismo orden que usa `addLine`. `null` = no hay con qué precia, y el
+   * renglón se queda declarado sin precio (no es un error: es demanda que no manejamos).
+   */
+  private async skuDelRenglon(
+    trx: Knex,
+    line: { product_id: string | null; requested_text: string | null },
+  ): Promise<string | null> {
+    if (line.product_id) {
+      const p = await trx.raw(`SELECT btrim(sku) AS sku FROM catalog.products WHERE id = :id`, {
+        id: line.product_id,
+      });
+      return p.rows.length ? (p.rows[0].sku || null) : null;
+    }
+    return (line.requested_text || '').trim() || null;
+  }
+
+  /**
+   * De vuelta del rótulo guardado al peldaño, para no mover la unidad cuando sólo se corrige la
+   * cantidad. ⚠️ Es un mapeo por rótulo y el rótulo lo pone el ERP: lo que no reconoce cae a
+   * `base`, que es el peldaño donde el ERP siempre tiene precio. No se adivina un intermedio.
+   */
+  private rungDeRotulo(label: string | null): Rung {
+    const l = (label || '').trim().toUpperCase();
+    if (l === 'CJA' || l === 'CAJA') return 'box';
+    if (l === 'PAQ') return 'pack';
+    return 'base';
   }
 
   async removeLine(quoteId: string, lineId: string): Promise<RemoveLineResult> {

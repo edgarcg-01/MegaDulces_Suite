@@ -57,6 +57,20 @@ export type QtyFactorSource =
   | 'override_no_dato'
   /** `kdii.c84` vía `analytics.product_box_factor`. */
   | 'kepler_c84'
+  /**
+   * `[COT.1b]` La ESCALERA DE PRECIO que el propio ERP publica, vía `analytics.v_label_prices`.
+   *
+   * No es `kepler_c84` y la diferencia está medida, no supuesta: `v_label_prices` deriva
+   * `pack_size`/`box_size` de **las dos ranuras de unidad de `kdii`** —`c83`/`c84` y, si esa no
+   * trae el rótulo, `c80`/`c81`— así que rotular todo como `kepler_c84` afirmaría una procedencia
+   * que en la rama `c81` es falsa.
+   *
+   * Lo usa el motor de cotizaciones, que precia con un resolvedor DISTINTO del de pedidos
+   * (`v_label_prices` + `v_erp_discount_rules`, no `product_prices` + `product_volume_tiers`).
+   * Dos procedencias distintas se rotulan distinto: colapsarlas es perder justo lo que esta
+   * columna existe para conservar.
+   */
+  | 'kepler_ladder'
   /** `commercial.product_label_prices.box_size` (la etiquetera). */
   | 'etiquetera'
   /** `catalog.products.factor_sale`. */

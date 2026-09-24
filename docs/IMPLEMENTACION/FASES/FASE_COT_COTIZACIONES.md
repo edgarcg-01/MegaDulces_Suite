@@ -129,6 +129,45 @@ real, con clave, sector, zona, tamaño y el medio por el que llegó.
 
 ---
 
+### COT.1b — El editor de renglones (el frontend del motor) 🧪 **EN CÓDIGO (2026-09-23)**
+
+COT.1 entregó el motor **y ninguna pantalla lo llamaba**: `quotes.service.ts` no tenía
+`pricePreview`/`addLine`/`removeLine` y **no existía ruta `cotizaciones/:id`**, así que se podía
+crear una cotización y después no se podía abrir. Hasta acá sólo se cotizaba por HTTP directo.
+
+| Pieza | Dónde |
+|---|---|
+| Detalle de cotización: buscar SKU → previa con desglose → agregar / corregir / quitar | `apps/view/.../televenta/pages/televenta-quote-detail.component.ts` |
+| `PATCH /quotes/:id/lines/:lineId` — ⭐ **re-tarifica** y conserva el `line_number` | controller + `quote-pricing.service.ts` |
+| El peldaño cotizado se **persiste** (`qty_unit`/`qty_factor`/`qty_factor_source`) | mig `20260923170000` |
+| `libs/ui-web` estrena target de test y recibe `qty-units.ts` **con sus 11 candados** | `libs/ui-web/{vitest.config.ts,tsconfig.spec.json,src/order/}` |
+| Smoke HTTP con rol mínimo y 6 pruebas negativas | `database/tests/http-quote-lines-test.js` |
+
+**Tres hallazgos del sprint:**
+
+- ⭐ **El PATCH de cotizaciones tiene que diferir del de pedidos.** `OrdersService.updateLine`
+  conserva el `unit_price` del snapshot (`commercial-orders.service.ts:842`), y por eso en
+  `/vendor/take-order` el `+` del stepper **nunca dispara el precio de mayoreo** aunque la fila
+  diga "Faltan N para mayoreo". En una cotización el precio *es* el producto: el PATCH vuelve a
+  correr el motor entero.
+- ⛔ **El peldaño se usaba para preciar y se tiraba.** `addLine` aceptaba `rung`, el motor
+  cotizaba con él, y `insertLine` no lo escribía: leyendo la fila guardada no se podía saber si
+  el `10` eran 10 piezas o 10 cajas. Y tampoco quedaba el rastro indirecto, porque
+  `requested_text` se fuerza a NULL cuando hay `product_id`.
+- ⚠️ **`kepler_c84` habría sido una afirmación falsa.** `v_label_prices` deriva
+  `pack_size`/`box_size` de **las dos ranuras de `kdii`** (`c83`/`c84` y, si esa no trae el
+  rótulo, `c80`/`c81`). Por eso el vocabulario de `[VU.0]` gana **un** valor, `kepler_ladder`, y
+  no se reusa el que ya existía.
+
+⚠️ **La aritmética de presentación estaba encerrada.** `qty-units.ts` —138 líneas, 6 funciones
+puras, spec con 11 candados— vivía en `apps/vendor` con **1 importador**, y una app Nx no importa
+de otra app. Medido antes de moverla: **11 implementaciones de stepper en 10 archivos, cero
+compartidas**. Y `libs/ui-web` **no tenía runner**, así que mover el spec ahí sin dárselo habría
+convertido 11 candados en pruebas huérfanas (el defecto que la Fase VP contó 21 veces). De paso,
+`number-wheel-guard.spec.ts` ya vivía en esa lib y **nunca había corrido**: ahora sí.
+
+---
+
 ### COT.1 — El motor de precio 🧪 **EN CÓDIGO (2026-09-22)** · ⛔ era la ruta crítica
 
 Es `[E.12.1]`, y **nada de lo demás sirve sin esto**: un módulo que no sabe poner precio obliga al
@@ -356,7 +395,20 @@ listos sin tocar** · demanda rechazada por SKU. Todo **por canal** y contra el 
 
 ---
 
-## 4. La decisión de superficie: `/cotizaciones`, no `/telemarketing/cotizaciones`
+## 4. ❌ La decisión de superficie — REVERTIDA (2026-09-23)
+
+> ⚠️ **Lo de abajo ya NO se aplica.** Edgar, 2026-09-23: *"las cotizaciones son para
+> telemarketing"*. La pantalla **se queda en `/telemarketing/cotizaciones`** y el proyecto propio
+> `/cotizaciones` no se construye.
+>
+> Queda escrito, y no borrado, porque el argumento que sostenía la recomendación **sigue siendo
+> cierto y sigue sin resolverse**: el insumo llega de mostrador, ruta, portal y mesa de
+> negociación, y el `televentaGuard` exige `COMMERCIAL_TELEVENTA_OPERATE`, así que quien atiende
+> el mostrador —y `direccion`, que tiene `_VER` y no `OPERATE`— **no puede entrar**. Si mañana
+> alguien necesita cotizar desde fuera de telemarketing, el problema es éste, y la respuesta está
+> acá abajo. Lo que cambió es la prioridad, no el diagnóstico.
+
+### Lo que decía (para cuando haga falta): `/cotizaciones`, no `/telemarketing/cotizaciones`
 
 Hoy vive colgada de Telemarketing. Pero el insumo llega de **mostrador, ruta, portal, telemarketing y
 mesa de negociación** — es transversal, y dejarla adentro obliga a quien atiende el mostrador a
@@ -373,7 +425,7 @@ pendiente declarado en `FASE_E12` §5 (`direccion` tiene `_VER` y no puede entra
 
 | # | Decisión | Qué se decidió | Consecuencia directa |
 |---|---|---|---|
-| 1 | Superficie | **`/cotizaciones`**, como lo nombró Dirección | Proyecto propio (§4); Telemarketing enlaza. ⚠️ arrastra el `televentaGuard` que hoy lo tapa |
+| 1 | Superficie | ❌ **REVERTIDA el 2026-09-23 por Edgar** — ver abajo. Decía: `/cotizaciones` como proyecto propio | La pantalla **se queda en `/telemarketing/cotizaciones`** |
 | 2 | ¿También en Kepler? | **NO. La captura vive en la Suite.** *"El módulo de cotizaciones del ERP está en modo fábrica, no se ha tocado; hay deuda técnica de adaptación, que sería lo mismo que trabajarlo desde aquí"* | Cierra el riesgo de doble captura, y **la Suite es la única fuente de la cotización**. El `U-D-35` de Kepler queda como lo que es: un módulo de fábrica sin configurar |
 | 3 | Alta de prospectos | **En el ERP** — *"la tabla ya existe"* | La Suite **lee** `kdudp` por vista (COT.0) y **no** crea un segundo padrón. Nada de tabla propia de prospectos |
 | 4 | WhatsApp | **Cascarón ahora, cimiento para el bot** | COT.2 se entrega ya, sin esperar el BSP; el canal queda modelado y la tabla no cambia cuando llegue (§COT.2) |

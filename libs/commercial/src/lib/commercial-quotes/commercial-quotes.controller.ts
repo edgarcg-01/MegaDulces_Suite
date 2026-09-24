@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
@@ -163,6 +163,24 @@ export class CommercialQuotesController {
     @Body() body: { sku?: string; requested_text?: string; quantity: number; rung?: Rung },
   ): Promise<AddLineResult> {
     return this.pricing.addLine(id, body);
+  }
+
+  @Patch(':id/lines/:lineId')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Corrige la cantidad (y opcionalmente el peldano) de un renglon, CONSERVANDO su lugar en la '
+      + 'lista. ⭐ Vuelve a correr el motor: a diferencia de un pedido, en una cotizacion subir la '
+      + 'cantidad puede cruzar el umbral de volumen o activar una promo del ERP, y el precio nuevo '
+      + 'es justamente lo que el operador necesita ver. El precio sigue saliendo del servidor: el '
+      + 'body dice cuanto, nunca a cuanto.',
+  })
+  updateLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: { quantity: number; rung?: Rung },
+  ): Promise<AddLineResult> {
+    return this.pricing.updateLine(id, lineId, body);
   }
 
   @Delete(':id/lines/:lineId')

@@ -3,16 +3,10 @@
     "⛔ El `exclude` va REDECLARADO. El `tsconfig.json` del que esto extiende trae",
     "`exclude: [node_modules, dist, **/*.spec.ts]` — correcto para el build de la librería, veneno",
     "acá: TypeScript lo HEREDA y termina excluyendo exactamente los archivos que este `include`",
-    "agrega. MEDIDO el 2026-09-17: `tsc -p tsconfig.spec.json --noEmit` respondía TS18003 \"No inputs",
-    "were found in config file\" en las CUATRO librerías — o sea que este archivo nunca verificó un",
-    "tipo desde que existe. No se notaba porque ts-jest transpilaba archivo por archivo, sin armar",
-    "el programa que el tsconfig declara.",
+    "agrega, y `tsc -p` responde TS18003 \"No inputs were found\". Misma trampa ya documentada en",
+    "`libs/contracts/tsconfig.spec.json`, de donde sale este archivo.",
     "",
-    "`extends` NO fusiona arrays: el hijo REEMPLAZA al padre. Misma trampa que ya estaba documentada",
-    "para `paths` en `apps/view/tsconfig.json`.",
-    "",
-    "Y tampoco hay `module`/`moduleResolution` en CommonJS: eran para que jest leyera estos archivos.",
-    "Vite resuelve ESM de forma nativa y usa los `exports` del package.json."
+    "`extends` NO fusiona arrays: el hijo REEMPLAZA al padre."
   ],
   "extends": "./tsconfig.json",
   "exclude": [
