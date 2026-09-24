@@ -161,6 +161,15 @@ Madero** (`humberto_placencia`, `rdmad322`, `rvmad01`, `rvmad02`) con alcance `'
 **Wincaja** de Madero, que dejó de existir cuando migró su POS a Kepler como `'07'` y su almacén
 `MD-32` quedó soft-deleted. Para ellas `me/scope` devuelve `options: []`.
 
+⚠️ **Corrección del 2026-09-24:** la primera versión de esa migración llevaba el mapa
+`'32'→'07'` **escrito a mano**. Está mal y el repo ya lo había pagado: `[SB.1]`
+(mig `20260923120000`, del mismo día y con timestamp anterior) creó
+`analytics.v_branch_erp_cutover` justamente porque ese corte vivía **copiado en tres
+lugares y divergió**, dejando **$1,636,170.10** de Morelia Abastos invisibles. Ahora se
+**deriva** de esa vista. ⭐ Y derivarlo trajo más: medido en `wincaja.branches`, **las 8
+sucursales cambiaron de código al migrar de POS** (10→01 · 30→08 · 32→07 · 40→03 · 42→02 ·
+44→04 · 50→06 · 54→05) — el mapa a mano cubría **2 de 8**.
+
 Hoy no se nota **porque el front ignora el alcance**. El día que obedezca, se quedan sin su
 sucursal. `store-branches.ts` ya había declarado el caso y lo dejó pendiente; la migración
 `20260923160000` lo cierra por el lado del dato: **agrega `'07'` sin quitar `'32'`** (las dos llaves

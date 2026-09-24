@@ -44,15 +44,44 @@
  * @param { import("knex").Knex } knex
  */
 
-/** Equivalencias POS viejo → POS nuevo de la MISMA sucursal física. */
-const CUTOVERS = [
-  // Morelia Madero: Wincaja '32' → Kepler '07' (2026-09-08).
-  { viejo: '32', nuevo: '07', motivo: 'Madero migró su POS de Wincaja a Kepler' },
-  // Morelia Abastos ya se fusionó en una sola fila ('08' con wincaja_source_branch='30'),
-  // así que '30' sigue resolviendo solo. Se lista igual: si mañana alguien tiene '30'
-  // suelto, se repara con el mismo mecanismo en vez de con otra migración.
-  { viejo: '30', nuevo: '08', motivo: 'Abastos migró su POS de Wincaja a Kepler' },
-];
+/**
+ * ⚠️ **Corrección de esta misma migración (2026-09-24).** La primera versión llevaba el mapa
+ * `'32'→'07'` / `'30'→'08'` **escrito a mano acá**. Está mal, y el repo ya lo había pagado:
+ * `[SB.1]` (migración `20260923120000`, del mismo día y con timestamp anterior) creó
+ * `analytics.v_branch_erp_cutover` justamente porque ese corte vivía **copiado en tres lugares
+ * y divergió**, dejando **$1,636,170.10** de venta de Morelia Abastos invisibles en el blend.
+ *
+ * Escribirlo por cuarta vez habría sido reproducir el defecto exacto que ese resolvedor existe
+ * para cerrar (ADR-056: un primitivo copiado a mano diverge). Se DERIVA de la vista.
+ */
+async function cutoversVigentes(knex) {
+  const { rows } = await knex.raw(`
+    SELECT DISTINCT
+           btrim(wincaja_source_branch) AS viejo,
+           btrim(coalesce(warehouse_code, kepler_code)) AS nuevo
+      FROM analytics.v_branch_erp_cutover
+     WHERE wincaja_source_branch IS NOT NULL
+       AND coalesce(warehouse_code, kepler_code) IS NOT NULL
+       AND btrim(wincaja_source_branch) <> btrim(coalesce(warehouse_code, kepler_code))
+  `);
+  return rows.map((r) => ({
+    viejo: r.viejo,
+    nuevo: r.nuevo,
+    motivo: `cutover declarado en analytics.v_branch_erp_cutover ([SB.1])`,
+  }));
+}
+
+/*
+ * ⭐ Y derivarlo trajo más de lo que el mapa a mano tenía. Medido en `wincaja.branches`
+ * (2026-09-24): **las 8 sucursales cambiaron de código al migrar de POS**, no sólo Morelia —
+ *
+ *     10 → 01 PH   ·   30 → 08 Abastos   ·   32 → 07 Madero   ·   40 → 03 8ESQ
+ *     42 → 02 LPA  ·   44 → 04 Yurécuaro ·   50 → 06 Canindo  ·   54 → 05 Zamora
+ *
+ * El mapa escrito a mano cubría 2 de 8. Hoy sólo hay gente atorada en `'32'`, así que las otras
+ * seis no reparan nada — pero el día que alguien quede con alcance `'50'`, esto lo agarra solo,
+ * que es exactamente lo que un literal no hace.
+ */
 
 /** El universo EXACTO de la dimensión `warehouse` (espeja `UNIVERSO_SQL` + `branchKeySql`). */
 const UNIVERSO = `
@@ -65,8 +94,25 @@ const UNIVERSO = `
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '3s'`);
 
+  // El corte se LEE del resolvedor, no se escribe acá. Si la vista no está (entorno sin
+  // `[SB.1]`), no se inventa el mapa: se declara y no se repara nada — reparar a ciegas es
+  // justamente lo que produce la divergencia que esto evita.
+  const { rows: hayVista } = await knex.raw(`
+    SELECT 1 FROM information_schema.views
+     WHERE table_schema = 'analytics' AND table_name = 'v_branch_erp_cutover' LIMIT 1`);
+  if (!hayVista.length) {
+    console.log(
+      '  ! [ZN.2.0] NO MEDIDO: falta analytics.v_branch_erp_cutover ([SB.1], mig 20260923120000). ' +
+        'No se repara ningún alcance: el mapa de cutovers se deriva de esa vista, no se escribe a mano.',
+    );
+    return;
+  }
+
+  const cutovers = await cutoversVigentes(knex);
+  console.log(`  · [ZN.2.0] cutovers vigentes según el resolvedor: ${cutovers.map((c) => `${c.viejo}→${c.nuevo}`).join(' · ') || '(ninguno)'}`);
+
   let reparados = 0;
-  for (const { viejo, nuevo, motivo } of CUTOVERS) {
+  for (const { viejo, nuevo, motivo } of cutovers) {
     // Sólo donde el código viejo YA NO resuelve. Si todavía está en el universo
     // (como '30' hoy, que vive en la fila fusionada), no hay nada que reparar.
     const { rows: vive } = await knex.raw(`SELECT 1 FROM (${UNIVERSO}) u WHERE u.v = ? LIMIT 1`, [viejo]);
@@ -118,9 +164,13 @@ exports.up = async function up(knex) {
  */
 exports.down = async function down(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '3s'`);
+  const { rows: hayVista } = await knex.raw(`
+    SELECT 1 FROM information_schema.views
+     WHERE table_schema = 'analytics' AND table_name = 'v_branch_erp_cutover' LIMIT 1`);
+  if (!hayVista.length) return; // sin el resolvedor no se sabe qué se agregó: no se toca nada
   // Quita SOLO la llave que agregó esta migración, y sólo donde convive con la
   // vieja: así no le recorta el alcance a quien lo tenga por otra razón.
-  for (const { viejo, nuevo } of CUTOVERS) {
+  for (const { viejo, nuevo } of await cutoversVigentes(knex)) {
     for (const tabla of ['identity.user_scopes', 'identity.role_scopes']) {
       await knex.raw(
         `UPDATE ${tabla} SET values = array_remove(values, ?)
