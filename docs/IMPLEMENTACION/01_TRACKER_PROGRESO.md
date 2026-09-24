@@ -2081,6 +2081,115 @@ los que sostienen una decisión van en un test que se pone rojo.
 
 ---
 
+## Fase CT — contenedores: por qué son tantos, y qué sí se podía simplificar (2026-09-24)
+
+> Nace de *"audita por qué existen tantos ODS o contenedores y verifiquemos que podemos
+> simplificar"*. **El encuadre se invierte dos veces.**
+>
+> Primero: los contenedores no eran el problema. Son 21 en tres proyectos compose; los 8
+> carriles de ingesta pesan **250 MB sumados** y los 8 están `healthy` con healthcheck y
+> `autoheal` propios. Su separación está fundada en **tres ejes, cada uno con su incidente
+> detrás**: mecanismo CDC (el carril ctid **pierde los UPDATE in-place** — fue el bug del precio
+> `89137`), cadencia medida (un espejo completo son ~10 min/ciclo; meterlo en el loop de 15 s
+> mata la frescura de venta), y dueño del latido (`analytics.cron_runs` tiene PK
+> `(tenant_id, job_key)` **sin host** → dos carriles con una llave producen falso verde; ya
+> explotó el 04-sep con 15 h colgado en `healthy`, y el 23-sep con `autoheal` reiniciando los dos
+> carriles **39 veces en un día**).
+>
+> Segundo: **sí había un cuarto eje arbitrario** — qué tabla va en qué carril — y el problema
+> real estaba en el despliegue, no en la topología.
+
+- [x] **[CT.1]** ✅ **El despliegue recreaba 3 de los 8 carriles.** `SERVICIOS_DEF` de
+  `ops/vl/deploy.sh` no incluía los cinco `ods-*`, así que construía la imagen nueva y los dejaba
+  con la vieja. Medido antes del arreglo: **7 de 8 atrasados**, en **cuatro versiones
+  conviviendo**, seis de ellas en imágenes **ya sin tag** (el rebuild retaguea `latest` y
+  huerfaniza la anterior). Ese día no hubo daño **por suerte**: `replicate-ods-live.js` resultó
+  idéntico en los cuatro contenedores (md5 `a729bac5c3`); el que sí difería
+  (`refresh-caja-matview.js`) sólo corre en `feeds-cron`, que era el único al día.
+  El estado imprimía **una** fecha de imagen —se lee como "hay una versión"—; ahora imprime el ID
+  **por contenedor** y cuenta los atrasados. La información estaba en `docker ps` y **nadie la
+  dedujo en 13 días**: que se pueda deducir no es lo mismo que que esté dicha. Prueba negativa:
+  con 7 atrasados sale en rojo y los nombra. Verificado tras desplegar: **los 8 en la misma
+  imagen**.
+- [x] **[CT.2]** ✅ **Cuatro artefactos podían arrancar un SEGUNDO dueño del watermark.**
+  `ops/ingest/docker-compose.yml` declaraba los MISMOS `container_name` con el MISMO
+  `ODS_HB_KEY` —mismo `ods.ctl`, mismo `ods.shadow`, mismo renglón de latido— y encima había
+  **divergido** (`ODS_RECONCILE_ALERT` 50 contra 1000). Borrado; ⛔ la **carpeta no**: ahí viven
+  el `Dockerfile` que construye `trade-ingest:latest` y los healthchecks.
+  `ecosystem.sync.config.js` se declaraba retirado **en un comentario** y exportaba sus 4 apps con
+  toda normalidad; `ecosystem.contpaqi.config.js` tenía un freno que validaba la variable de
+  conexión, no el retiro. Los dos frenan ahora. ⚠️ Ya se había cobrado: PM2 Resurrect revivió los
+  de ContPAQi tras un reinicio y corrieron **duplicados y mudos**.
+  ⭐ **Y el defecto que apareció DOS VECES: el único freno que funcionaba te derivaba a la
+  trampa.** `ecosystem.cdc.config.js` y `replicate-ods-fast.js` decían, en su mensaje de retiro,
+  que levantaras el compose duplicado. Seguir la instrucción de un mensaje de retiro creaba el
+  doble dueño que el mensaje viene a evitar. Cuando la ingesta se mudó a `ops/vl`, los mensajes
+  no se mudaron con ella.
+- [x] **[CT.3]** ✅ **Cuatro entradas de tabla que no hacían nada.** Las dos listas no son
+  intercambiables, y se midió **en el código**: `replicate-ods-live.js:105` arma el conjunto a
+  procesar sólo desde `KP_ODS_TABLES`, e `isHashTable()` (L111) nada más elige carril, así que
+  `ODS_HASH_TABLES` **no puede agregar** una tabla. `kdib` estaba en la maestra (carril ctid,
+  **cada 15 s**) y su destino **NO EXISTE** en prod; en la fuente sí existe, o sea que no es un
+  nombre mal escrito: es una tabla que **nunca pudo entregar**, y el carril **no protesta**
+  (0 menciones en 441 líneas de log contra 55 de `kdii`). `kdm_rutas`, `kdm_transporte` y
+  `kdm_chofer` estaban sólo en la lista de carril, inertes; las entrega el espejo, verificado
+  contra la fuente (743 / 264 / 281, **idénticos antes y después**).
+  ⚠️ **Retractación de método:** la evidencia de `kdib` se midió primero con
+  `docker logs --since`, que **miente tras un reinicio sucio** — recorre el segmento viejo del
+  archivo json y corta en el borde, devolviendo 0 con el carril escribiendo activamente.
+  Re-medido con `--tail`. El hallazgo se sostiene; el método estaba mal.
+- [x] **[CT.4]** ✅ **Una agenda dentro de una cadena de shell, y otra que nadie escribió.**
+  `ods-reconcile-full` se escribía su propio crontab en runtime dentro del `command:` del YAML
+  (invisible a un inventario de agendas por archivo) **y** corría una pasada
+  `--full --delete-sobrantes` **en cada arranque del contenedor**. Eso se cobró tres veces el
+  mismo día: a las 09:06 por un recreate en horario hábil; a las **15:05, tras el corte de
+  corriente, se disparó sola y FALLÓ** porque arrancó 2 s antes que Postgres; y **no dejó latido
+  de error** (lleva `ODS_HB_IGNORE_ERROR=1`), así que el tablero siguió mostrando la corrida de
+  las 09:06. Encima era el motivo de que fuera el único contenedor imposible de recrear en
+  horario hábil — y por eso el que quedó atrás en la deriva de CT.1. Ahora la agenda vive en
+  `ops/vl/crontab.reconcile-full` a las **02:10 MX** (las 03:00 chocaban con `nightly`, que tarda
+  **48 min** medidos), y no hay pasada de arranque.
+  ⭐ **La aserción de CR atrapó un error real**: el build murió porque el archivo nuevo no estaba
+  en el `COPY` del Dockerfile. Sin ella se habría horneado una imagen cuyo contenedor arranca sin
+  poder abrir su crontab y se queda **sin agenda** — el carril que propaga DELETE, mudo y verde.
+- [x] **[CT.5]** ✅ `ops/README.md` listaba **8** contenedores y son **10**; se retira la
+  afirmación de las 3 llaves zombi (**medido: ninguna existe en `analytics.cron_runs` de prod** —
+  alguien las limpió y nadie actualizó la línea); y se declara que `ods-live-hot` y
+  `ods-live-mirror` **heredan** el healthcheck del Dockerfile, así que un `grep` sobre el compose
+  concluye que los dos carriles más críticos no tienen.
+- [x] **[CT.6]** ✅ Borrado el `docker-compose.yml` de la raíz (2026-04-20; publicaba `80:80` y
+  contradecía al de prod, que publica `8080:10000`). De **9 composes quedan 7**, 3 vivos más el
+  de desarrollo.
+
+**⛔ Lo que NO se hizo, con su motivo — y lo más grave está acá:**
+
+- **[CT.10]** ⬜ **El reparto de tablas vive COPIADO A MANO en cuatro lugares** (los dos servicios
+  del compose, el default de `replicate-ods-live.js:53` y `RUNBOOK_REPLICACION_LOGICA.md`). **Es
+  la misma bomba de `[ODS.1]`** —la lista de sucursales copiada que dejó al reconciliador nocturno
+  sin ver Morelia Madero y Abastos **por meses, sin una sola señal**— y aquella **sí** se
+  desactivó con un catálogo canónico. Ésta no. Tocar los cuatro archivos a la vez sin una prueba
+  que compare el conjunto embarcado antes y después es exactamente cómo se pierde una sucursal en
+  silencio. **Es una fase propia, no un renglón de limpieza.**
+- **Fusionar carriles** — la medición lo desaconseja: `@15 s` y `@25 s` no caben en cron, y cada
+  carril tiene hoy **su** healthcheck, que es justo lo que hace que `autoheal` lo reinicie solo.
+  Fundidos comparten el del contenedor, y un `feeds-cron` caído se llevaría 20 carriles en vez
+  de 1.
+- **`pg-rag`** ⬜ vacío (7.6 MB, 0 conexiones): un Postgres entero corriendo para nada. Declarado
+  para decidirlo aparte.
+- **`wincaja` (35 GB) y `kepler_consolidado` (10 GB)** — parecían candidatos por tener 0
+  conexiones en el instante medido. **Falso**: `wincaja` se menciona en **46 archivos `.ts`**
+  vivos. Hipótesis descartada por medición.
+- **⚠️ Carrera de arranque, sin resolver:** tras un reinicio los carriles arrancan **antes** que
+  Postgres y pierden su primera pasada. No se puede expresar `depends_on` entre `vl` y `prod`:
+  son proyectos compose distintos. Costo: hasta 15 min de retraso del árbitro de completitud
+  justo después de un reinicio, que es cuando más falta hace.
+- **⚠️ `md` no tiene UPS** (VL.8, sin ejecutar). El 2026-09-24 un corte sucio a las 14:54 se llevó
+  la base de producción entera; volvió sola a las 15:05 y `cdc_reconcile` repuso **45 filas**
+  (régimen normal) → sin pérdida de datos. **Los 21 contenedores levantaron solos**, que es lo que
+  compró la Fase VL. Pero sin UPS esto se repite.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
