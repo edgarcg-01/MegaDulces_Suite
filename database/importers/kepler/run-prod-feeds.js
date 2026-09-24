@@ -103,10 +103,30 @@ const STEPS = {
     //
     // Es la consulta #1 de toda la base: `CREATE TEMP TABLE stg_rplan` mide **157 s por corrida**
     // y corría 6 veces por hora (live @30min = 2 + stock @15min = 4) = **39 % del gasto vivo**,
-    // medio core continuo. El `EXPLAIN (ANALYZE, BUFFERS)` del 2026-09-15 dice que NO hay un nodo
-    // malo que arreglar: el costo está repartido entre 44 sub-CTEs (econ 24 s · swk 11 s · slvl
-    // 10 s · gy 9 s · hist 9 s) y `analytics.sales_daily` (4.5 GB) se escanea **4 veces por
-    // corrida** — 28 s de los 64 s. Reescribir eso es cirugía sobre la ruta del dinero.
+    // medio core continuo.
+    //
+    // ⛔⛔ [RA-PERF] EL DIAGNÓSTICO QUE SEGUÍA ACÁ ERA FALSO EN SUS TRES AFIRMACIONES, y se
+    // corrige con medición del 2026-09-24. Decía: «NO hay un nodo malo que arreglar: el costo
+    // está repartido entre 44 sub-CTEs» · «mide 157 s» · «`analytics.sales_daily` (4.5 GB) se
+    // escanea 4 veces por corrida — 28 s de los 64 s». Lo medido:
+    //
+    //   · SÍ hay un nodo malo, y es el 67 %: el CTE `tr_eff` resolvía el reparto de tránsito con
+    //     un Nested Loop que tiraba **171,538,214 filas** por el Join Filter = **100.3 s**.
+    //   · El segundo es el JIT: el plan cuesta 3.6× el umbral de inlining/optimization, así que
+    //     LLVM compila 2,860 funciones = **42.2 s de puro compilar**, sin tocar un dato.
+    //     Los dos suman 142.5 de los 153.9 s.
+    //   · `analytics.sales_daily` NO es el problema y NO le falta ningún índice: son **545 MB**
+    //     de heap (no 4.5 GB), sus 4 escaneos ya son Index Only Scan sobre `ix_sales_daily_cover`
+    //     y cuestan **3.7 s = 2.5 %**. Un índice nuevo ahí habría sido un índice inventado.
+    //
+    // Con los dos arreglos puestos: **153,890 → 25,332 ms (6.08×)**, y los buffers NO se mueven
+    // (1,744,443 → 1,745,288, +0.05 %) — o sea que lo que desaparece es CPU, no lecturas.
+    //
+    // ⚠️ ESO CAMBIA EL TRADE-OFF QUE ESTE COMENTARIO JUSTIFICA. Sacar el importer de `live` se
+    // aceptó a cambio de un rezago acotado de 5 min PORQUE costaba 157 s. A ~17 s de corrida real
+    // (proyección del ratio 6.08× sobre el `mean_exec_time` de 107.7 s de pg_stat_statements,
+    // declarada como proyección y no como medición) la decisión habría que RE-TOMARLA. Queda
+    // abierto a propósito: revertirla es un cambio con su propia medición, no un efecto colateral. Reescribir eso es cirugía sobre la ruta del dinero.
     //
     // Y el resultado casi no cambia: de las 47,327 filas del fact, **2,879 (6.1 %) cambiaron en
     // los últimos 15 min** y **31,210 (66 %) llevan más de 6 horas iguales**.
