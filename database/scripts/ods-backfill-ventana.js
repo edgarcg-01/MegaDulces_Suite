@@ -87,6 +87,22 @@ const mapType = (dt) => TIPOS[dt] || 'text';
     + ' (' + (APPLY ? 'APPLY' : 'DRY-RUN') + ') ===');
   console.log('  sink: ' + sink.sinkMode() + '  ·  ramas: ' + CODES.join(',') + '  ·  lote: ' + LOTE);
 
+  // ⛔ [NORM.3b] ESTA HERRAMIENTA ESTUVO ROTA DESDE [VL.11] Y NADIE SE ENTERÓ.
+  // Se escribió cuando el ship iba por HTTP, así que pasaba `client: null` y alcanzaba. [VL.11]
+  // cambió el sink a `pg` (escritura directa a pg-prod) y el sink `pg` EXIGE un Client conectado:
+  // desde entonces cada corrida moría con 'raw-upsert requiere un Client de pg conectado' — o sea
+  // que la única pieza capaz de reponer una ventana de fechas no reponía nada.
+  // Mismo modo de falla que [DB-MEM.19] (el latido atado al sink): cambia CÓMO se embarcan las
+  // filas y se apaga en silencio algo que no menciona el sink por ningún lado. Descubierto el
+  // 2026-09-24 al intentar reponer 10,589 filas de kdpv_bitacora_precios.
+  let DEST = null;
+  if (sink.sinkMode() === 'pg') {
+    const destStr = process.env.KP_DEST_URL || process.env.DATABASE_URL_NEW || BASE;
+    DEST = new Client({ connectionString: destStr, ssl: false, ...CONN });
+    await DEST.connect();
+    console.log('  destino pg: ' + new URL(destStr).host + new URL(destStr).pathname);
+  }
+
   const resumen = [];
   for (const code of CODES) {
     const u = new URL(BASE); u.pathname = '/' + replicaDbName(code);
@@ -151,7 +167,7 @@ const mapType = (dt) => TIPOS[dt] || 'text';
           for (const c of cols) o[c.column_name] = row[c.column_name];
           return o;
         });
-        const r = await sink.ship('raw-upsert', { rows: buf, tenantId: TENANT, meta, client: null });
+        const r = await sink.ship('raw-upsert', { rows: buf, tenantId: TENANT, meta, client: DEST });
         escritas += Number(r.rowCount || 0);
         process.stdout.write('\r  · ' + code + ': ' + leidas + '/' + total + ' leídas · ' + escritas + ' escritas   ');
       }
@@ -164,6 +180,7 @@ const mapType = (dt) => TIPOS[dt] || 'text';
   }
 
   console.log('\n=== Resumen ===');
+  if (DEST) await DEST.end().catch(() => {});
   console.table(resumen);
   if (!APPLY) console.log('DRY-RUN — nada cambió. Corré con --apply.');
   const fallas = resumen.filter((r) => r.error);
