@@ -210,6 +210,36 @@ ops/vl/deploy.sh --estado        # qué corre allá y con qué imagen
 ⛔ Archiva **`HEAD`**, no la copia de trabajo: el índice de git lo comparten ~10 sesiones y el
 working tree traería WIP ajeno a producción. Te avisa qué archivos no viajan.
 
+### 4.1 `api`/`worker` se despliegan SOLOS desde `origin/main` (`[VL.17]`, 2026-09-24)
+
+Ya no hay que correr nada: `ops/prod/auto-deploy.sh` mira `origin/main` cada 5 minutos y, si lo
+que está horneado en la imagen no coincide, construye, recrea y **verifica**. La agenda está
+versionada en [`ops/prod/crontab.auto-deploy`](prod/crontab.auto-deploy).
+
+```sh
+ssh superoot@192.168.0.222 'sh ~/ops/prod/auto-deploy.sh --estado'   # qué sirve vs qué hay en main
+ssh superoot@192.168.0.222 'tail -n 40 ~/ops/prod/auto-deploy.log'
+# y el veredicto que vale: Salud BD → job_key = 'auto_deploy'
+```
+
+⭐ **Despliega `origin/main`, y eso lo hace MÁS seguro que el despliegue a mano**, no menos:
+`deploy.sh` archiva el HEAD de quien lo corre, así que puede subir código que nadie revisó y que
+no está en el remoto — medido el 2026-09-23, prod corrió horas un commit ausente de `origin/main`.
+
+⛔ **Se FRENA solo si `origin/main` trae migraciones que prod no tiene aplicadas**, y lo dice en
+el latido. Eso no es una falla del carril: es el carril funcionando. Para destrabarlo hay que
+aplicarlas **una por una** con
+[`database/scripts/apply-one-migration-prod.js`](../database/scripts/apply-one-migration-prod.js)
+— que **verifica la identidad del clúster antes de escribir**, porque el `FLEET_DB_URL` del `.env`
+todavía apunta a Railway y el camino documentado llevaba, callado, a la base equivocada
+(`[VL.18]`). Nunca `migrate:latest`: hay **dos** `knex_migrations` y el `search_path` lleva a la
+vacía.
+
+⚠️ La lección que dejó instalarlo: **el script no es el carril**. Estuvo instalado, con la llave
+de GitHub funcionando y una corrida a mano perfecta, mientras `crontab -l` decía
+`no crontab for superoot`. El carril es *script + agenda + latido*, y un carril que nadie dispara
+se ve idéntico a uno que corre y no encuentra nada que hacer.
+
 ---
 
 ## 5. Cómo se sabe si está sano
