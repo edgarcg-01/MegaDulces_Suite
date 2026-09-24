@@ -1,5 +1,13 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import {
+  TenantKnexService,
+  TenantContextService,
+  laneAt,
+  evalInput,
+  composeFreshness,
+  FRESHNESS_UNKNOWN,
+} from '@megadulces/platform-core';
+import type { Freshness } from '@megadulces/contracts';
 
 /**
  * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.
@@ -48,16 +56,31 @@ export interface CarteraQuery {
 interface Bucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number; }
 const emptyBucket = (): Bucket => ({ por_vencer: 0, d0_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0 });
 
-/** Días vencido (hoy − vencimiento). null/futuro → por vencer. */
-function bucketFor(b: Bucket, venc: string | null, hoy: string, monto: number) {
-  if (!venc) { b.por_vencer += monto; return; }
-  const dias = Math.floor((Date.parse(hoy) - Date.parse(venc)) / 86400000);
-  if (dias <= 0) b.por_vencer += monto;
-  else if (dias <= 30) b.d0_30 += monto;
-  else if (dias <= 60) b.d31_60 += monto;
-  else if (dias <= 90) b.d61_90 += monto;
-  else b.d90_plus += monto;
-}
+const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+/**
+ * `[CXC.20]` **El saldo del cliente lo manda `kdue`; el desglose por documento se queda corto, y
+ * ese hueco se DECLARA.**
+ *
+ * Las dos cifras existen desde CXC (mig `20260831140000`) y son distintas a propósito:
+ *  · `saldo` = `max(Σ signed_amount, 0)` de `kdue` — la fórmula verificada al peso contra el PDF
+ *    de Kepler. **Es la canónica.**
+ *  · `Σ saldo_ajustado` = lo que las partidas alcanzan a explicar, que es lo único que se puede
+ *    repartir en buckets de antigüedad, por vendedor o por zona (un bucket necesita una FECHA de
+ *    vencimiento, y sólo los documentos la tienen).
+ *
+ * La diferencia es `sin_documento`: abonos que `kdm5` aplicó por encima de lo que la cuenta
+ * justifica. Hasta acá la pantalla mostraba las dos sin decirlo — el KPI sumaba una y la barra de
+ * antigüedad y el resumen gerencial sumaban la otra. **Medido en prod 2026-09-24: $771,712.64
+ * (1.34%) sobre 12 clientes**, o sea dirección leía $57,780,190.86 arriba y $57,008,478.22 abajo,
+ * en la misma pantalla y con los mismos filtros. El comentario del código afirmaba "5 clientes,
+ * $41k" — una medición vieja, 18× más chica, que nadie volvió a correr.
+ *
+ * No se arregla eligiendo una de las dos: se publica la canónica **y** se le da nombre al hueco,
+ * que ahora es un segmento más de la antigüedad. Así la barra suma exactamente el KPI (ADR-056:
+ * lo que no se puede repartir se declara, no se esconde ni se reparte a dedo).
+ */
+export interface Sindocumento { monto: number; clientes: number }
 
 @Injectable()
 export class CustomerLedgerService {
@@ -71,178 +94,409 @@ export class CustomerLedgerService {
     return r.rows[0].d;
   }
 
-  /** Cartera por cliente: saldo + aging + KPIs. Filtros = los del reporte Kepler. */
+  /**
+   * `[CXC.20]` Procedencia de la cartera (ADR-056). Dos eslabones, porque el número sale de dos
+   * carriles distintos del ODS y **una cadena es tan fresca como su peor tramo**:
+   *  · `ods_live_hot` → `kdue` + `kdm5`, o sea el saldo y las aplicaciones. Corre cada 15 s, así
+   *    que 6 h ya está lejísimos de cualquier hipo y cerca de "algo se rompió anoche".
+   *  · `ods_live_mirror` → `kdud`/`kduv`: límite de crédito, zona, grupo, teléfono y el nombre del
+   *    vendedor. Son catálogos, cambian en días → 26 h, la misma tolerancia que el resto.
+   *
+   * No es decorativo: el 2026-09-24 los dos carriles llevaban ~26 h sin latir y la pantalla
+   * igual rotulaba «saldos al 2026-09-24» — que era el reloj de Postgres, no la edad del dato.
+   */
+  private async freshness(trx: any): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('ods_live_hot', 'Saldos y cobros (kdue/kdm5)', await laneAt(trx, 'ods_live_hot'), 6),
+        evalInput('ods_live_mirror', 'Clientes y vendedores (kdud/kduv)', await laneAt(trx, 'ods_live_mirror'), 26),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * `[CXC.20]` **UNA pasada sobre la vista, y de ahí sale toda la pantalla**: la tabla, los KPIs,
+   * el resumen gerencial y las opciones de los filtros.
+   *
+   * ── Por qué, medido en prod (2026-09-24) ─────────────────────────────────────────────────
+   * `analytics.customer_receivables` es una pirámide de CTEs sobre `erp_receivable_documents`
+   * que **no admite pushdown**: se construye entera en cada consulta. Filtrar por sucursal
+   * bajaba de 6.0 s a 3.0 s, no a un noveno. Abrir la pantalla disparaba **cuatro** barridos de
+   * esa pirámide y tocar «Resumen» un quinto:
+   *
+   *     cartera() ............  6,011 ms   (17,271 filas al navegador, agrupadas en Node)
+   *     filtros() ............ 11,294 ms   (4 × `distinct`, 2 de ellos para controles que no existían)
+   *     resumen() ............  3,678 ms
+   *     ────────────────────────────────
+   *     al abrir .............. 17,305 ms  ·  con «Resumen», 20,983 ms
+   *
+   * Acá va **una sola** consulta con `doc AS MATERIALIZED` —que obliga a evaluar la pirámide una
+   * vez aunque se lea cuatro veces— y la agregación en SQL en vez de 17 mil filas por la red:
+   * **4,248 ms para todo** (medido, dos corridas). El gate del proyecto sigue siendo 1 s y esto
+   * NO llega; lo que queda es la pirámide misma, y su arreglo está declarado abajo.
+   *
+   * ⚠️ Los filtros se aplican en `sel`, **no** en `doc`. Es deliberado: las opciones de los
+   * selects salen del universo COMPLETO (si se filtraran, elegir una sucursal borraría las otras
+   * ocho del desplegable), y como `doc` ya está materializado, leerlo sin filtro no cuesta un
+   * segundo barrido.
+   *
+   * ⛔ DEUDA CON NOMBRE — `[CXC.21]`: los 4.2 s son la pirámide, no esta consulta (`EXPLAIN` da
+   * 3.2 s de CPU con **todos** los buffers en `shared hit`; no es I/O). El arreglo es el mismo que
+   * `[PERF.4b]` ya aplicó a `erp_sales_invoices`: resolver la cartera **por documento** con una
+   * función SQL inlineable + `LEFT JOIN LATERAL`, para que los predicados bajen hasta el índice.
+   * No se hace acá porque re-abre el contrato de paridad de `[AX.9]`
+   * (`test-newdb-receivable-core-parity.js`) y eso es un cambio medible aparte, no un renglón de
+   * éste. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
+   * drill** y la lista paga en cada request.
+   */
+  private async agregado(trx: any, tenantId: string, q: CarteraQuery) {
+    const cond: string[] = [];
+    const bind: any[] = [tenantId];
+    const add = (sql: string, ...v: any[]) => { cond.push(sql); bind.push(...v); };
+    if (q.sucursal) add('d.sucursal = ?', q.sucursal);
+    if (q.vendedor) add(`NULLIF(btrim(d.vendedor), '') = ?`, q.vendedor);
+    if (q.grupo) add('d.grupo = ?', q.grupo);
+    if (q.zona) add('d.zona = ?', q.zona);
+    if (q.cliente) add('d.cliente_code = ?', q.cliente);
+    if (q.from) add('d.fecha >= ?::date', q.from);
+    if (q.to) add('d.fecha <= ?::date', q.to);
+    if (q.search) {
+      const s = `%${q.search.trim()}%`;
+      add('(d.cliente_code ILIKE ? OR d.cliente_nombre ILIKE ? OR d.rfc ILIKE ?)', s, s, s);
+    }
+    const filtros = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+
+    // `res` = residual del documento, ya clampeado: la partida saldada vale 0 y no resta.
+    const VIVA = 'd.res > 0.005';
+    const bucket = (extra: string) =>
+      `round(COALESCE(sum(d.res) FILTER (WHERE ${VIVA} AND ${extra}), 0), 2)`;
+
+    const sql = `
+      WITH h AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+      doc AS MATERIALIZED (
+        SELECT r.sucursal, r.cliente_code,
+               NULLIF(btrim(r.vendedor), '') AS vendedor,
+               r.grupo, r.zona, r.telefono, r.limite_credito, r.dias_credito,
+               r.saldo_cliente, r.dias_pago, r.importe, r.fecha, r.vencimiento,
+               GREATEST(COALESCE(r.saldo_ajustado, 0), 0) AS res,
+               c.name AS cliente_nombre, c.rfc AS rfc
+          FROM analytics.customer_receivables r
+          LEFT JOIN analytics.erp_customers c
+                 ON c.tenant_id = r.tenant_id AND c.erp_code = r.cliente_code
+         WHERE r.tenant_id = ? AND r.cargo_abono = 'C'
+      ),
+      -- El vendedor se identifica por (sucursal, código), NUNCA por código solo: medido en prod,
+      -- 11 de 81 códigos de \`kduv\` nombran a personas distintas según la sucursal. Agrupar por
+      -- el código pelado fundiría dos carteras en un renglón con el nombre de uno de los dos.
+      vnd AS (
+        SELECT DISTINCT ON (btrim(sucursal), btrim(c2))
+               btrim(sucursal) AS suc, btrim(c2) AS code, NULLIF(btrim(c3), '') AS nombre
+          FROM kepler_ods.kduv
+         WHERE btrim(COALESCE(c2, '')) <> '' ORDER BY 1, 2
+      ),
+      sel AS (SELECT d.* FROM doc d ${filtros}),
+      cli AS (
+        SELECT d.sucursal, d.cliente_code,
+          max(d.cliente_nombre) AS cliente_nombre, max(d.rfc) AS rfc,
+          max(d.grupo) AS grupo, max(d.zona) AS zona, max(d.telefono) AS telefono,
+          max(d.limite_credito) AS limite_credito, max(d.dias_credito) AS dias_credito,
+          max(d.saldo_cliente) AS saldo_cliente,
+          -- El de la factura MÁS RECIENTE, no uno al azar: es "quién lo atiende hoy".
+          (array_agg(d.vendedor ORDER BY d.fecha DESC NULLS LAST)
+             FILTER (WHERE d.vendedor IS NOT NULL))[1] AS vendedor,
+          ${bucket('true')} AS residual,
+          ${bucket('d.vencimiento < h.d')} AS vencido,
+          ${bucket('(d.vencimiento IS NULL OR d.vencimiento >= h.d)')} AS por_vencer,
+          ${bucket('h.d - d.vencimiento BETWEEN 1 AND 30')} AS d0_30,
+          ${bucket('h.d - d.vencimiento BETWEEN 31 AND 60')} AS d31_60,
+          ${bucket('h.d - d.vencimiento BETWEEN 61 AND 90')} AS d61_90,
+          ${bucket('h.d - d.vencimiento > 90')} AS d90_plus,
+          ${bucket('d.vencimiento >= h.d AND d.vencimiento - h.d <= 7')} AS p0_7,
+          ${bucket('d.vencimiento - h.d BETWEEN 8 AND 15')} AS p8_15,
+          ${bucket('d.vencimiento - h.d BETWEEN 16 AND 30')} AS p16_30,
+          ${bucket('d.vencimiento - h.d > 30')} AS p30_plus,
+          ${bucket('d.vencimiento IS NULL')} AS p_sin_fecha,
+          count(*) FILTER (WHERE ${VIVA})::int AS n_partidas,
+          count(*) FILTER (WHERE NOT (${VIVA}))::int AS n_saldadas,
+          round(avg(d.dias_pago) FILTER (WHERE d.dias_pago IS NOT NULL), 1) AS dias_pago_prom,
+          count(d.dias_pago)::int AS n_pagos,
+          round(COALESCE(sum(d.importe) FILTER (WHERE d.fecha >= h.d - 90), 0), 2) AS ventas_90d
+        FROM sel d CROSS JOIN h GROUP BY 1, 2
+      ),
+      vend AS (
+        SELECT d.sucursal, d.vendedor,
+               ${bucket('true')} AS saldo,
+               ${bucket('d.vencimiento < h.d')} AS vencido,
+               count(DISTINCT d.cliente_code) FILTER (WHERE ${VIVA})::int AS n_clientes
+          FROM sel d CROSS JOIN h GROUP BY 1, 2
+      ),
+      zon AS (
+        SELECT d.zona,
+               ${bucket('true')} AS saldo,
+               ${bucket('d.vencimiento < h.d')} AS vencido
+          FROM sel d CROSS JOIN h GROUP BY 1
+      )
+      SELECT (SELECT d FROM h)::text AS hoy,
+        COALESCE((SELECT jsonb_agg(to_jsonb(c)) FROM cli c), '[]'::jsonb) AS clientes,
+        -- Comportamiento de pago REAL (días entre factura y su último cobro), sobre las partidas
+        -- ya saldadas. El DSO dice cuánto tarda la cartera; esto, cuánto tardan los que SÍ pagan.
+        -- La mediana es percentile_cont, no el elemento del medio de un arreglo ordenado: con
+        -- n par el viejo devolvia el de arriba y lo llamaba mediana igual.
+        (SELECT jsonb_build_object(
+            'n', count(*)::int,
+            'promedio', round(avg(d.dias_pago)::numeric, 1),
+            'mediana', round(percentile_cont(0.5) WITHIN GROUP (ORDER BY d.dias_pago)::numeric, 1),
+            'tarde_30d', count(*) FILTER (WHERE d.dias_pago > 30)::int)
+           FROM sel d WHERE d.dias_pago IS NOT NULL) AS pago,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'sucursal', v.sucursal, 'code', v.vendedor, 'nombre', n.nombre,
+            'saldo', v.saldo, 'vencido', v.vencido, 'n_clientes', v.n_clientes))
+          FROM vend v LEFT JOIN vnd n ON n.suc = v.sucursal AND n.code = v.vendedor
+          WHERE v.saldo > 0.005), '[]'::jsonb) AS por_vendedor,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'zona', COALESCE(z.zona, '—'), 'saldo', z.saldo, 'vencido', z.vencido))
+          FROM zon z WHERE z.saldo > 0.005), '[]'::jsonb) AS por_zona,
+        jsonb_build_object(
+          -- ⭐ Las opciones salen del DATO, no de una lista escrita a mano. Ver \`filtros()\`.
+          'sucursales', COALESCE((SELECT jsonb_agg(DISTINCT d.sucursal) FROM doc d WHERE d.sucursal IS NOT NULL), '[]'::jsonb),
+          'grupos',     COALESCE((SELECT jsonb_agg(DISTINCT d.grupo)    FROM doc d WHERE d.grupo    IS NOT NULL), '[]'::jsonb),
+          'zonas',      COALESCE((SELECT jsonb_agg(DISTINCT d.zona)     FROM doc d WHERE d.zona     IS NOT NULL), '[]'::jsonb),
+          'vendedores', COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+                            'sucursal', d.sucursal, 'code', d.vendedor, 'nombre', n.nombre))
+                          FROM doc d LEFT JOIN vnd n ON n.suc = d.sucursal AND n.code = d.vendedor
+                         WHERE d.vendedor IS NOT NULL), '[]'::jsonb)
+        ) AS opciones,
+        -- El NOMBRE, no el short_label: ese es la sigla de los chips compactos y no siempre es
+        -- una abreviatura del nombre (la 05 se llama "Zamora Centro" y su sigla es "DAMASO").
+        -- En un desplegable, "01 - PH" no le dice nada a quien cobra.
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'code', w.code,
+            'name', COALESCE(NULLIF(btrim(w.name), ''), NULLIF(btrim(w.short_label), ''), w.code),
+            'orden', w.display_order) ORDER BY w.display_order NULLS LAST, w.code)
+          FROM commercial.warehouses w
+         WHERE w.tenant_id = ? AND w.deleted_at IS NULL AND w.code ~ '^[0-9]{2}$'), '[]'::jsonb)
+          AS almacenes`;
+
+    const r = await trx.raw(sql, [...bind, tenantId]);
+    return r.rows[0];
+  }
+
+  /**
+   * Cartera por cliente: saldo + aging + KPIs + resumen gerencial + opciones de filtro.
+   *
+   * `[CXC.20]` Devuelve **toda** la pantalla en una respuesta. Antes eran tres llamadas (tabla,
+   * filtros, resumen) y cada una reconstruía la pirámide de CTEs por su cuenta; ahora es una sola
+   * pasada (ver `agregado()`). El efecto de fondo no es la velocidad sino que **el resumen y la
+   * tabla ya no pueden contradecirse**: salen del mismo `SELECT`.
+   */
   async cartera(q: CarteraQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 5000);
     return this.tk.run(async (trx) => {
-      const hoy = await this.hoy(trx);
-      let qb = trx('analytics.customer_receivables as r')
-        .leftJoin('analytics.erp_customers as c', function (this: any) {
-          this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
-        })
-        .where('r.tenant_id', tenantId);
-      if (q.sucursal) qb = qb.where('r.sucursal', q.sucursal);
-      if (q.vendedor) qb = qb.where('r.vendedor', q.vendedor);
-      if (q.grupo) qb = qb.where('r.grupo', q.grupo);
-      if (q.zona) qb = qb.where('r.zona', q.zona);
-      if (q.cliente) qb = qb.where('r.cliente_code', q.cliente);
-      if (q.from) qb = qb.where('r.fecha', '>=', q.from);
-      if (q.to) qb = qb.where('r.fecha', '<=', q.to);
-      if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
-      }
-      // `saldo_ajustado` (no `saldo_documento`): reparte FIFO el remanente que kdm5 no logró
-      // ubicar, así el total cuadra con la fórmula de Kepler. `saldo_cliente` es ese total.
-      const rows = await qb.where('r.cargo_abono', 'C').select(
-        'r.sucursal', 'r.cliente_code', 'r.vendedor', 'r.grupo', 'r.zona',
-        'r.importe', 'r.saldo_ajustado', 'r.saldo_cliente', 'r.dias_pago',
-        'r.limite_credito', 'r.dias_credito', 'r.telefono',
-        trx.raw('r.vencimiento::text as vencimiento'),
-        trx.raw('c.name as cliente_nombre'), trx.raw('c.rfc as rfc'),
-      );
-
-      const map = new Map<string, any>();
-      for (const r of rows) {
-        const k = `${r.sucursal}||${r.cliente_code}`;
-        let g = map.get(k);
-        if (!g) { g = { sucursal: r.sucursal, cliente_code: r.cliente_code, cliente_nombre: r.cliente_nombre, rfc: r.rfc, vendedor: r.vendedor, grupo: r.grupo, zona: r.zona, limite: r.limite_credito != null ? M2(r.limite_credito) : null, dias_credito: r.dias_credito != null ? Number(r.dias_credito) : null, telefono: r.telefono, saldo_cliente: M2(r.saldo_cliente), cargos: [], pagos: [] }; map.set(k, g); }
-        const saldoDoc = r.saldo_ajustado != null ? M2(r.saldo_ajustado) : M2(r.importe);
-        g.cargos.push({ saldo: saldoDoc, venc: r.vencimiento || null });
-        if (r.dias_pago != null) g.pagos.push(Number(r.dias_pago));
-        if (!g.cliente_nombre && r.cliente_nombre) g.cliente_nombre = r.cliente_nombre;
-      }
+      const a = await this.agregado(trx, tenantId, q);
+      const freshness = await this.freshness(trx);
+      const hoy: string = a.hoy;
 
       const clientes: any[] = [];
-      const kpi = { total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0, total_a_favor: 0, n_a_favor: 0, aging: emptyBucket() };
-      for (const g of map.values()) {
-        const aging = emptyBucket();
-        let saldoDocs = 0; let vencido = 0; let nPartidas = 0; let nSaldadas = 0;
-        for (const cg of g.cargos) {
-          const residual = Math.round(cg.saldo * 100) / 100;
-          if (residual <= 0.005) { nSaldadas += 1; continue; }
-          saldoDocs += residual; nPartidas += 1;
-          bucketFor(aging, cg.venc, hoy, residual);
-          if (cg.venc && Date.parse(hoy) > Date.parse(cg.venc)) vencido += residual;
-        }
-        saldoDocs = Math.round(saldoDocs * 100) / 100;
-        // El total lo manda kdue. Lo que las partidas no alcanzan a explicar (kdm5 aplicó más
-        // de lo que kdue justifica: 5 clientes, $41k) se declara, no se esconde ni se reparte.
-        const saldo = Math.round(Math.max(M2(g.saldo_cliente), 0) * 100) / 100;
-        const sin_documento = Math.round((saldo - saldoDocs) * 100) / 100;
-        const saldo_a_favor = Math.round(Math.max(-M2(g.saldo_cliente), 0) * 100) / 100;
+      const kpi = {
+        total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0,
+        total_a_favor: 0, n_a_favor: 0, aging: emptyBucket(),
+        sin_documento: { monto: 0, clientes: 0 } as Sindocumento,
+      };
+      const porCliente: { cliente_code: string; saldo: number }[] = [];
+      let ventas90 = 0;
+      const proy = { vencido: 0, d0_7: 0, d8_15: 0, d16_30: 0, d30_plus: 0, sin_fecha: 0 };
+
+      for (const g of (a.clientes as any[])) {
+        const saldoCliente = M2(g.saldo_cliente);
+        const saldo = r2(Math.max(saldoCliente, 0));
+        const residual = r2(g.residual);
+        const aging: Bucket = {
+          por_vencer: r2(g.por_vencer), d0_30: r2(g.d0_30), d31_60: r2(g.d31_60),
+          d61_90: r2(g.d61_90), d90_plus: r2(g.d90_plus),
+        };
+        // Lo que el desglose por documento NO alcanza a explicar. Ver el bloque `Sindocumento`.
+        const sin_documento = r2(saldo - residual);
+        const saldo_a_favor = r2(Math.max(-saldoCliente, 0));
+        // El "a favor" se cuenta ANTES del corte: son clientes con saldo 0 que la tabla no lista,
+        // y si se contaran después el KPI diría 0 justo cuando hay dinero del cliente sin aplicar.
         if (saldo_a_favor > 0.005) { kpi.total_a_favor += saldo_a_favor; kpi.n_a_favor += 1; }
+        ventas90 += M2(g.ventas_90d);
+
         if (saldo <= 0.005 && q.incluir_saldados !== '1') continue;
-        const limite = g.limite && g.limite > 0 ? g.limite : null;
-        const uso_linea = limite ? Math.round((saldo / limite) * 1000) / 10 : null; // %
-        const dias_pago_prom = g.pagos.length
-          ? Math.round((g.pagos.reduce((s: number, d: number) => s + d, 0) / g.pagos.length) * 10) / 10 : null;
+
+        const limite = M2(g.limite_credito) > 0 ? M2(g.limite_credito) : null;
+        const sobre_linea = limite != null && saldo > limite + 0.005;
         clientes.push({
-          sucursal: g.sucursal, cliente_code: g.cliente_code, cliente_nombre: g.cliente_nombre || g.cliente_code,
-          rfc: g.rfc || null, vendedor: g.vendedor || null, grupo: g.grupo || null, zona: g.zona || null,
-          telefono: g.telefono || null, limite_credito: limite, dias_credito: g.dias_credito || null,
-          uso_linea, sobre_linea: limite != null && saldo > limite + 0.005,
-          saldo, vencido: Math.round(vencido * 100) / 100, n_partidas: nPartidas, n_saldadas: nSaldadas,
+          sucursal: g.sucursal, cliente_code: g.cliente_code,
+          cliente_nombre: g.cliente_nombre || g.cliente_code,
+          rfc: g.rfc || null, vendedor: g.vendedor || null, vendedor_nombre: null,
+          grupo: g.grupo || null, zona: g.zona || null, telefono: g.telefono || null,
+          limite_credito: limite, dias_credito: g.dias_credito != null ? Number(g.dias_credito) : null,
+          uso_linea: limite ? Math.round((saldo / limite) * 1000) / 10 : null,
+          sobre_linea,
+          saldo, vencido: r2(g.vencido),
+          n_partidas: Number(g.n_partidas) || 0, n_saldadas: Number(g.n_saldadas) || 0,
           sin_documento: Math.abs(sin_documento) > 0.005 ? sin_documento : 0,
-          saldo_a_favor, dias_pago_prom, n_pagos: g.pagos.length, aging,
+          saldo_a_favor,
+          dias_pago_prom: g.dias_pago_prom != null ? Number(g.dias_pago_prom) : null,
+          n_pagos: Number(g.n_pagos) || 0,
+          aging,
         });
-        kpi.total_saldo += saldo; kpi.total_vencido += vencido; kpi.n_clientes += 1; kpi.n_partidas += nPartidas;
-        if (limite != null && saldo > limite + 0.005) kpi.n_sobre_linea += 1;
+
+        kpi.total_saldo += saldo; kpi.total_vencido += r2(g.vencido);
+        kpi.n_clientes += 1; kpi.n_partidas += Number(g.n_partidas) || 0;
+        if (sobre_linea) kpi.n_sobre_linea += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
+        if (Math.abs(sin_documento) > 0.005) { kpi.sin_documento.monto += sin_documento; kpi.sin_documento.clientes += 1; }
+        porCliente.push({ cliente_code: g.cliente_code, saldo });
+        proy.vencido += r2(g.vencido);
+        proy.d0_7 += r2(g.p0_7); proy.d8_15 += r2(g.p8_15);
+        proy.d16_30 += r2(g.p16_30); proy.d30_plus += r2(g.p30_plus);
+        proy.sin_fecha += r2(g.p_sin_fecha);
       }
-      kpi.total_a_favor = Math.round(kpi.total_a_favor * 100) / 100;
-      if (q.sort === 'vencido') clientes.sort((a, b) => b.vencido - a.vencido || b.saldo - a.saldo);
-      else clientes.sort((a, b) => b.saldo - a.saldo);
-      kpi.total_saldo = Math.round(kpi.total_saldo * 100) / 100;
-      kpi.total_vencido = Math.round(kpi.total_vencido * 100) / 100;
-      (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = Math.round(kpi.aging[k] * 100) / 100; });
-      return { hoy, kpi, clientes: clientes.slice(0, limit), total_clientes: clientes.length };
+
+      // Nombre del vendedor por (sucursal, código) — el rollup ya lo trae resuelto contra `kduv`.
+      const nombreVend = new Map<string, string>();
+      for (const v of (a.por_vendedor as any[])) if (v.nombre) nombreVend.set(`${v.sucursal}||${v.code}`, v.nombre);
+      for (const c of clientes) c.vendedor_nombre = c.vendedor ? (nombreVend.get(`${c.sucursal}||${c.vendedor}`) || null) : null;
+
+      if (q.sort === 'vencido') clientes.sort((x, y) => y.vencido - x.vencido || y.saldo - x.saldo);
+      else clientes.sort((x, y) => y.saldo - x.saldo);
+
+      kpi.total_saldo = r2(kpi.total_saldo);
+      kpi.total_vencido = r2(kpi.total_vencido);
+      kpi.total_a_favor = r2(kpi.total_a_favor);
+      kpi.sin_documento.monto = r2(kpi.sin_documento.monto);
+      (Object.keys(kpi.aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] = r2(kpi.aging[k]); });
+
+      const topCli = porCliente.sort((x, y) => y.saldo - x.saldo);
+      const top10 = topCli.slice(0, 10).map((c) => ({ ...c, saldo: r2(c.saldo) }));
+      const top10Suma = top10.reduce((s, c) => s + c.saldo, 0);
+      const ventasDiarias = ventas90 / 90;
+
+      const resumen = {
+        hoy,
+        saldo_total: kpi.total_saldo, vencido_total: kpi.total_vencido,
+        pct_vencido: kpi.total_saldo > 0 ? Math.round((kpi.total_vencido / kpi.total_saldo) * 1000) / 10 : 0,
+        // DSO sobre venta a CRÉDITO (lo único que engorda esta cartera), no sobre la venta total.
+        dso: ventasDiarias > 0 ? Math.round(kpi.total_saldo / ventasDiarias) : null,
+        ventas_90d: r2(ventas90), n_clientes: kpi.n_clientes,
+        pago: a.pago && Number(a.pago.n) > 0
+          ? {
+              n: Number(a.pago.n),
+              promedio: M2(a.pago.promedio),
+              mediana: M2(a.pago.mediana),
+              tarde_30d: Number(a.pago.tarde_30d) || 0,
+            }
+          : null,
+        concentracion: { top10_pct: kpi.total_saldo > 0 ? Math.round((top10Suma / kpi.total_saldo) * 1000) / 10 : 0, top10 },
+        proyeccion: {
+          vencido: r2(proy.vencido), d0_7: r2(proy.d0_7), d8_15: r2(proy.d8_15),
+          d16_30: r2(proy.d16_30), d30_plus: r2(proy.d30_plus), sin_fecha: r2(proy.sin_fecha),
+        },
+        // ⚠️ Los dos rollups reparten el saldo POR DOCUMENTO, así que suman
+        // `saldo_total − sin_documento`: un vendedor o una zona necesitan que el peso esté
+        // atado a una factura, y el hueco por definición no lo está. La pantalla lo dice.
+        por_vendedor: (a.por_vendedor as any[])
+          .map((v) => ({
+            sucursal: v.sucursal, vendedor: v.code, vendedor_nombre: v.nombre || null,
+            saldo: M2(v.saldo), vencido: M2(v.vencido), n_clientes: Number(v.n_clientes) || 0,
+          }))
+          .sort((x, y) => y.saldo - x.saldo),
+        por_zona: (a.por_zona as any[])
+          .map((z) => ({ zona: z.zona, saldo: M2(z.saldo), vencido: M2(z.vencido) }))
+          .sort((x, y) => y.saldo - x.saldo),
+        base_rollups: 'documento' as const,
+        sin_documento: kpi.sin_documento,
+      };
+
+      return {
+        hoy,
+        freshness,
+        kpi,
+        clientes: clientes.slice(0, limit),
+        total_clientes: clientes.length,
+        resumen,
+        filtros: this.opciones(a),
+      };
     });
   }
 
   /**
-   * Resumen gerencial (lo que Kepler no da): DSO (días cartera), concentración top-10,
-   * cartera por vendedor y por zona. Answer-first para dirección.
+   * ⭐ `[CXC.20]` **De dónde salen las sucursales del desplegable, y por qué antes faltaban tres.**
+   *
+   * La pantalla traía su propia lista escrita a mano con seis sucursales (`01`..`06`). No es que
+   * el dato no llegara: `filtros()` ya devolvía las nueve desde el servidor y el componente
+   * **tiraba esa respuesta** para usar su copia. Medido en prod el 2026-09-24, esa copia dejaba
+   * fuera de todo filtro **$45.4M, el 78.5% de la cartera**:
+   *
+   *     00  Oficinas ..........  $44,383,939.32   95.8% vencido   248 clientes
+   *     07  Morelia Madero ....     $392,022.27  100.0% vencido   390 clientes
+   *     08  Morelia Abastos ...     $592,552.61   12.2% vencido    45 clientes
+   *
+   * Es el patrón que ADR-056 persigue: un primitivo correcto (el catálogo de la red vive en
+   * `commercial.warehouses`, y las sucursales presentes están en el propio dato) re-declarado a
+   * mano en una rebanada, que después se congela sin que nada falle.
+   *
+   * El arreglo no es agregarle `00`, `07` y `08` a la lista — es que **no haya lista**:
+   *  · **qué sucursales se ofrecen** = las que el dato tiene (`DISTINCT sucursal` de la misma
+   *    pasada). Una sucursal nueva aparece sola; una sin cartera no ofrece un filtro vacío.
+   *  · **cómo se llaman** = `commercial.warehouses` (`short_label` y si no `name`), con su
+   *    `display_order`. El nombre no se inventa acá.
+   *  · el código sin nombre en el catálogo se muestra **como código**, no se esconde: es la
+   *    señal de que falta darlo de alta, y ocultarlo volvería a desaparecer dinero.
+   */
+  private opciones(a: any) {
+    const nombres = new Map<string, { name: string; orden: number | null }>();
+    for (const w of ((a.almacenes as any[]) || [])) {
+      nombres.set(String(w.code), { name: w.name, orden: w.orden != null ? Number(w.orden) : null });
+    }
+    const codes: string[] = ((a.opciones?.sucursales as string[]) || []).slice().sort();
+    const sucursales = codes
+      .map((code) => {
+        const n = nombres.get(code);
+        return { code, label: n ? `${code} · ${n.name}` : code, sin_catalogo: !n, orden: n?.orden ?? null };
+      })
+      .sort((x, y) => (x.orden ?? 999) - (y.orden ?? 999) || x.code.localeCompare(y.code));
+
+    // ⚠️ El valor del filtro sigue siendo el CÓDIGO (es lo que el `WHERE` compara), pero la
+    // etiqueta lleva la sucursal adelante porque 11 de 81 códigos nombran a personas distintas
+    // según la plaza: «1» solo sería mentirle a la mitad de la lista.
+    const vendedores = ((a.opciones?.vendedores as any[]) || [])
+      .map((v: any) => ({
+        code: v.code as string,
+        sucursal: v.sucursal as string,
+        label: `${v.sucursal} · ${v.nombre || v.code}`,
+      }))
+      .sort((x, y) => x.label.localeCompare(y.label));
+
+    return {
+      sucursales,
+      grupos: ((a.opciones?.grupos as string[]) || []).slice().sort(),
+      zonas: ((a.opciones?.zonas as string[]) || []).slice().sort(),
+      vendedores,
+    };
+  }
+
+  /**
+   * Resumen gerencial (lo que Kepler no da): DSO, concentración top-10, proyección de cobranza,
+   * cartera por vendedor y por zona.
+   *
+   * `[CXC.20]` **Ya no tiene cálculo propio: es el `resumen` que `cartera()` devuelve.** Tenía su
+   * propio barrido de la pirámide con su propia fórmula de saldo, y por eso el mismo universo
+   * daba $57,780,190.86 arriba (KPI) y $57,008,478.22 acá abajo, con los mismos filtros. El
+   * comentario decía *"el resumen tiene que hablar del mismo universo que la tabla"* y los
+   * filtros sí coincidían — lo que no coincidía era la fórmula. Ahora salen del mismo `SELECT`,
+   * así que no pueden separarse otra vez.
+   *
+   * El endpoint sigue vivo para quien ya lo consuma; la pantalla dejó de llamarlo.
    */
   async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; search?: string } = {}) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const hoy = await this.hoy(trx);
-      // Mismos filtros que `cartera()`: el resumen tiene que hablar del mismo universo
-      // que la tabla, o dirección lee dos números distintos en la misma pantalla.
-      let qb = trx('analytics.customer_receivables as r')
-        .leftJoin('analytics.erp_customers as c', function (this: any) {
-          this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
-        })
-        .where({ 'r.tenant_id': tenantId, 'r.cargo_abono': 'C' });
-      if (q.sucursal) qb = qb.where('r.sucursal', q.sucursal);
-      if (q.grupo) qb = qb.where('r.grupo', q.grupo);
-      if (q.zona) qb = qb.where('r.zona', q.zona);
-      if (q.vendedor) qb = qb.where('r.vendedor', q.vendedor);
-      if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        qb = qb.where((b: any) => b.whereILike('r.cliente_code', s).orWhereILike('c.name', s).orWhereILike('c.rfc', s));
-      }
-      const rows = await qb.select('r.cliente_code', 'r.vendedor', 'r.zona', 'r.importe', 'r.saldo_ajustado', 'r.dias_pago',
-        trx.raw('r.fecha::text as fecha'), trx.raw('r.vencimiento::text as vencimiento'));
-
-      const desde90 = new Date(Date.parse(hoy) - 90 * 86400000).toISOString().slice(0, 10);
-      let saldoTotal = 0; let vencidoTotal = 0; let ventas90 = 0;
-      const porCliente = new Map<string, number>();
-      const porVend = new Map<string, any>();
-      const porZona = new Map<string, any>();
-      // Proyección de cobranza (cashflow): lo NO vencido, por cuándo vence.
-      const proy = { vencido: 0, d0_7: 0, d8_15: 0, d16_30: 0, d30_plus: 0, sin_fecha: 0 };
-      const pagos: number[] = [];
-      for (const r of rows) {
-        const saldo = r.saldo_ajustado != null ? M2(r.saldo_ajustado) : M2(r.importe);
-        const importe = M2(r.importe);
-        if (r.dias_pago != null) pagos.push(Number(r.dias_pago));
-        if (r.fecha && r.fecha >= desde90) ventas90 += importe;
-        if (saldo <= 0.005) continue;
-        saldoTotal += saldo;
-        const vencido = r.vencimiento && hoy > r.vencimiento ? saldo : 0;
-        vencidoTotal += vencido;
-        if (vencido > 0) proy.vencido += saldo;
-        else if (!r.vencimiento) proy.sin_fecha += saldo;
-        else {
-          const dd = Math.floor((Date.parse(r.vencimiento) - Date.parse(hoy)) / 86400000);
-          if (dd <= 7) proy.d0_7 += saldo; else if (dd <= 15) proy.d8_15 += saldo;
-          else if (dd <= 30) proy.d16_30 += saldo; else proy.d30_plus += saldo;
-        }
-        porCliente.set(r.cliente_code, (porCliente.get(r.cliente_code) || 0) + saldo);
-        const v = porVend.get(r.vendedor || '—') || { vendedor: r.vendedor || '—', saldo: 0, vencido: 0, clientes: new Set() };
-        v.saldo += saldo; v.vencido += vencido; v.clientes.add(r.cliente_code); porVend.set(r.vendedor || '—', v);
-        const z = porZona.get(r.zona || '—') || { zona: r.zona || '—', saldo: 0, vencido: 0 };
-        z.saldo += saldo; z.vencido += vencido; porZona.set(r.zona || '—', z);
-      }
-      const r2 = (n: number) => Math.round(n * 100) / 100;
-      const ventasDiarias = ventas90 / 90;
-      const dso = ventasDiarias > 0 ? Math.round(saldoTotal / ventasDiarias) : null;
-      const topCli = [...porCliente.entries()].map(([cliente_code, saldo]) => ({ cliente_code, saldo: r2(saldo) }))
-        .sort((a, b) => b.saldo - a.saldo);
-      const top10 = topCli.slice(0, 10);
-      const top10Suma = top10.reduce((s, c) => s + c.saldo, 0);
-      return {
-        hoy,
-        saldo_total: r2(saldoTotal), vencido_total: r2(vencidoTotal),
-        pct_vencido: saldoTotal > 0 ? Math.round((vencidoTotal / saldoTotal) * 1000) / 10 : 0,
-        dso, ventas_90d: r2(ventas90), n_clientes: porCliente.size,
-        // Comportamiento de pago real (días entre factura y su último cobro). El DSO dice
-        // cuánto tarda la cartera; esto dice cuánto tardan los que SÍ pagan.
-        pago: pagos.length ? {
-          n: pagos.length,
-          promedio: Math.round((pagos.reduce((s, d) => s + d, 0) / pagos.length) * 10) / 10,
-          mediana: pagos.slice().sort((a, b) => a - b)[Math.floor(pagos.length / 2)],
-          tarde_30d: pagos.filter((d) => d > 30).length,
-        } : null,
-        concentracion: { top10_pct: saldoTotal > 0 ? Math.round((top10Suma / saldoTotal) * 1000) / 10 : 0, top10 },
-        proyeccion: { vencido: r2(proy.vencido), d0_7: r2(proy.d0_7), d8_15: r2(proy.d8_15), d16_30: r2(proy.d16_30), d30_plus: r2(proy.d30_plus), sin_fecha: r2(proy.sin_fecha) },
-        por_vendedor: [...porVend.values()].map((v) => ({ vendedor: v.vendedor, saldo: r2(v.saldo), vencido: r2(v.vencido), n_clientes: v.clientes.size })).sort((a, b) => b.saldo - a.saldo),
-        por_zona: [...porZona.values()].map((z) => ({ zona: z.zona, saldo: r2(z.saldo), vencido: r2(z.vencido) })).sort((a, b) => b.saldo - a.saldo),
-      };
-    });
+    const { resumen } = await this.cartera({ ...q, limit: 1 });
+    return resumen;
   }
 
   /** CXC.12 — tendencia de cartera (snapshots diarios). Sin sucursal = red (suma por día). */
@@ -285,7 +539,13 @@ export class CustomerLedgerService {
       const snap = (await trx('analytics.customer_receivables as r')
         .leftJoin('analytics.erp_customers as c', function (this: any) { this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code'); })
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente, 'r.cargo_abono': 'C' })
-        .select(trx.raw('max(c.name) as nombre'), trx.raw('COALESCE(sum(r.saldo_documento),0) as saldo')).first()) || {};
+        // `[CXC.20]` El saldo que se congela en el compromiso es el CANÓNICO (`saldo_cliente`, de
+        // `kdue`), no `Σ saldo_documento` — que es la otra cifra, la que se queda corta. Una
+        // promesa de pago se compara después contra lo que el cliente debe, así que guardar la
+        // que no cuadra con Kepler dejaba un compromiso comparado contra un saldo que nadie más
+        // publica.
+        .select(trx.raw('max(c.name) as nombre'),
+                trx.raw('GREATEST(COALESCE(max(r.saldo_cliente), 0), 0) as saldo')).first()) || {};
       const [row] = await trx('finance.collection_promises').insert({
         tenant_id: trx.raw('current_tenant_id()'),
         sucursal, cliente_code: cliente, cliente_nombre: snap.nombre || cliente,
@@ -308,17 +568,18 @@ export class CustomerLedgerService {
     });
   }
 
-  /** Valores distintos para los selects del reporte (sucursal/grupo/zona/vendedor). */
+  /**
+   * Opciones de los selects (sucursal/grupo/zona/vendedor), **derivadas del dato** y con el
+   * nombre resuelto contra el catálogo. Ver `opciones()` para el porqué.
+   *
+   * `[CXC.20]` Eran cuatro `SELECT DISTINCT` sueltos —**11,294 ms medidos en prod**, porque cada
+   * uno reconstruía la pirámide de CTEs entera— y devolvían códigos pelados. Ahora salen de la
+   * misma pasada que la tabla. La pantalla ya no llama a este endpoint (le llegan en `cartera()`);
+   * queda para quien lo consuma por fuera.
+   */
   async filtros() {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const distinct = async (col: string) => (await trx('analytics.customer_receivables')
-        .where('tenant_id', tenantId).whereNotNull(col).distinct(col).orderBy(col)).map((r: any) => r[col]);
-      const [sucursales, grupos, zonas, vendedores] = await Promise.all([
-        distinct('sucursal'), distinct('grupo'), distinct('zona'), distinct('vendedor'),
-      ]);
-      return { sucursales, grupos, zonas, vendedores };
-    });
+    return this.tk.run(async (trx) => this.opciones(await this.agregado(trx, tenantId, {})));
   }
 
   /**
@@ -369,11 +630,26 @@ export class CustomerLedgerService {
           aplicaciones,
         };
       });
+      // `rows[0]` es el documento MÁS VIEJO (la consulta ordena por fecha asc). Para los datos de
+      // catálogo da igual —vienen de `kdud`, iguales en todas las filas— pero el vendedor es por
+      // documento: se toma el de la factura más reciente, que es quien lo atiende hoy.
       const head = rows[0] || {};
+      const ultimo = rows.length ? rows[rows.length - 1] : head;
+      const vendedor = (ultimo.vendedor || head.vendedor || null) as string | null;
       const saldoDocs = Math.round(partidas.reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100;
       const saldoCliente = head.saldo_cliente != null ? M2(head.saldo_cliente) : saldoDocs;
       const saldo = Math.round(Math.max(saldoCliente, 0) * 100) / 100;
       const pagos = partidas.map((p) => p.dias_pago).filter((d): d is number => d != null);
+
+      // `[CXC.20]` El nombre del vendedor sale de `kduv` por **(sucursal, código)**. Por código
+      // solo nombraría mal a 11 de 81: el mismo '1' es otra persona según la plaza.
+      let vendedorNombre: string | null = null;
+      if (vendedor) {
+        const v = (await trx.raw(
+          `SELECT NULLIF(btrim(c3), '') AS nombre FROM kepler_ods.kduv
+            WHERE btrim(sucursal) = ? AND btrim(c2) = ? LIMIT 1`, [sucursal, vendedor])).rows[0];
+        vendedorNombre = v?.nombre || null;
+      }
 
       // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
       // Puente por cliente_code (los cobros de la suc '00' — Oficinas, no el CEDIS: ERP_KEPLER
@@ -400,9 +676,10 @@ export class CustomerLedgerService {
         hoy,
         cobranza,
         compromisos,
+        freshness: await this.freshness(trx),
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,
-          vendedor: head.vendedor || null, grupo: head.grupo || null, zona: head.zona || null,
+          vendedor, vendedor_nombre: vendedorNombre, grupo: head.grupo || null, zona: head.zona || null,
           telefono: head.telefono || null,
           limite_credito: head.limite_credito != null && M2(head.limite_credito) > 0 ? M2(head.limite_credito) : null,
           dias_credito: head.dias_credito != null ? Number(head.dias_credito) : null,

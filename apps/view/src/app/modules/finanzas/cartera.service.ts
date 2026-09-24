@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { Freshness } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /** CXC (ADR-048) — cliente de Cartera de clientes / Partidas vivas (CxC). */
@@ -8,6 +9,8 @@ import { environment } from '../../../environments/environment';
 export interface AgingBucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number }
 export interface CarteraCliente {
   sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null;
+  /** `[CXC.20]` Nombre del vendedor resuelto por (sucursal, código) contra `kduv`. */
+  vendedor_nombre: string | null;
   grupo: string | null; zona: string | null; telefono: string | null;
   limite_credito: number | null; dias_credito: number | null; uso_linea: number | null; sobre_linea: boolean;
   saldo: number; vencido: number; n_partidas: number; n_saldadas: number; aging: AgingBucket;
@@ -18,20 +21,49 @@ export interface CarteraCliente {
   /** Días promedio que tarda en pagar, medido sobre sus facturas ya saldadas. */
   dias_pago_prom: number | null; n_pagos: number;
 }
-export interface CarteraFiltros { sucursales: string[]; grupos: string[]; zonas: string[]; vendedores: string[] }
+/**
+ * ⭐ `[CXC.20]` Opciones de filtro **derivadas del servidor**. La pantalla ya NO trae su propia
+ * lista de sucursales: la que tenía se quedó en `01`..`06` y dejaba fuera de todo filtro la `00`
+ * ($44.4M), la `07` y la `08` — el 78.5% de la cartera, sólo alcanzable eligiendo «Todas».
+ */
+export interface SucursalOpt {
+  code: string;
+  /** `código · nombre`, con el nombre de `commercial.warehouses`. */
+  label: string;
+  /** El código existe en la cartera pero no en el catálogo de almacenes: se muestra pelado. */
+  sin_catalogo: boolean;
+}
+export interface VendedorOpt { code: string; sucursal: string; label: string }
+export interface CarteraFiltros { sucursales: SucursalOpt[]; grupos: string[]; zonas: string[]; vendedores: VendedorOpt[] }
+
+/** Lo que el desglose por documento no alcanza a explicar. Ver `CarteraResumen.sin_documento`. */
+export interface SinDocumento { monto: number; clientes: number }
+
 export interface CarteraResumen {
   hoy: string; saldo_total: number; vencido_total: number; pct_vencido: number; dso: number | null; ventas_90d: number; n_clientes: number;
   pago: { n: number; promedio: number; mediana: number; tarde_30d: number } | null;
   concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
   proyeccion: { vencido: number; d0_7: number; d8_15: number; d16_30: number; d30_plus: number; sin_fecha: number };
-  por_vendedor: { vendedor: string; saldo: number; vencido: number; n_clientes: number }[];
+  por_vendedor: { sucursal: string; vendedor: string; vendedor_nombre: string | null; saldo: number; vencido: number; n_clientes: number }[];
   por_zona: { zona: string; saldo: number; vencido: number }[];
+  /** Los dos rollups reparten por DOCUMENTO: suman `saldo_total − sin_documento`, no `saldo_total`. */
+  base_rollups: 'documento';
+  sin_documento: SinDocumento;
 }
 export interface CarteraTendencia { fecha: string; saldo_total: number; vencido_total: number; n_clientes: number; pct_vencido: number }
 export interface CarteraResp {
   hoy: string;
-  kpi: { total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number; n_sobre_linea: number; total_a_favor: number; n_a_favor: number; aging: AgingBucket };
+  /** Edad real del dato (carriles del ODS), no la hora en que respondió el servidor. ADR-056. */
+  freshness: Freshness;
+  kpi: {
+    total_saldo: number; total_vencido: number; n_clientes: number; n_partidas: number;
+    n_sobre_linea: number; total_a_favor: number; n_a_favor: number; aging: AgingBucket;
+    sin_documento: SinDocumento;
+  };
   clientes: CarteraCliente[]; total_clientes: number;
+  /** `[CXC.20]` Viajan en la MISMA respuesta: una sola pasada, imposible que se contradigan. */
+  resumen: CarteraResumen;
+  filtros: CarteraFiltros;
 }
 
 export interface Aplicacion { tipo: string; label: string; folio: string; fecha: string | null; monto: number }
@@ -47,7 +79,8 @@ export interface Partida {
 }
 export interface CarteraDetalle {
   hoy: string;
-  cliente: { sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null; grupo: string | null; zona: string | null; telefono: string | null; limite_credito: number | null; dias_credito: number | null };
+  freshness: Freshness;
+  cliente: { sucursal: string; cliente_code: string; cliente_nombre: string; rfc: string | null; vendedor: string | null; vendedor_nombre: string | null; grupo: string | null; zona: string | null; telefono: string | null; limite_credito: number | null; dias_credito: number | null };
   saldo: number; vencido: number;
   saldo_a_favor: number; sin_documento: number; dias_pago_prom: number | null; n_pagos: number;
   partidas: Partida[]; pagadas: number; importe_pagado: number;

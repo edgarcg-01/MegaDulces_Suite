@@ -12,6 +12,7 @@ import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -29,7 +30,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
@@ -56,16 +57,38 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
       <app-cartera-segments />
 
       <div class="ct-filters">
-        <p-select [options]="sucursales" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
+        <p-select [options]="sucursalOpts()" [(ngModel)]="sucursal" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Sucursal" styleClass="ct-sel" ariaLabel="Sucursal" />
         <p-select [options]="grupoOpts()" [(ngModel)]="grupo" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Grupo" [showClear]="true" styleClass="ct-sel" ariaLabel="Grupo" />
         <p-select [options]="zonaOpts()" [(ngModel)]="zona" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Zona" [showClear]="true" styleClass="ct-sel" ariaLabel="Zona" />
+        <!-- El filtro por vendedor existía en la API desde CXC y no tenía control: la pantalla
+             pedía sus 61 códigos en cada carga y los tiraba. -->
+        <p-select [options]="vendedorOpts()" [(ngModel)]="vendedor" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" styleClass="ct-sel ct-sel-vend" ariaLabel="Vendedor" />
         <span class="p-input-icon-left ct-search">
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Cliente, código o RFC…" aria-label="Buscar cliente" />
         </span>
         <p-select [options]="sortOpts" [(ngModel)]="sort" (onChange)="load()" optionLabel="label" optionValue="value" ariaLabel="Ordenar por" styleClass="ct-sel" />
         <label class="ct-toggle"><p-toggleswitch [(ngModel)]="incluirSaldados" (onChange)="load()" /> <span>Incluir saldados</span></label>
-        @if (data(); as d) { <span class="ct-hoy muted">saldos al {{ d.hoy }}</span> }
+        <!-- [CXC.20] Antes decía «saldos al {{ '{{' }} hoy }}» con la fecha del reloj de Postgres.
+             Ahora la píldora mide el DATO: la edad de los carriles del ODS que traen kdue/kdm5 y
+             los catálogos. ADR-056 — no poder medir se declara, no se pinta como fresco. -->
+        @if (data(); as d) {
+          <app-freshness-pill measures="data" [freshness]="d.freshness" [since]="d.freshness.data_as_of" label="Datos del ERP" />
+        }
       </div>
+
+      @if (data(); as d) {
+        @if (d.freshness.stale) {
+          <div class="ct-stale" role="status">
+            <i class="pi pi-clock" aria-hidden="true"></i>
+            @if (d.freshness.status === 'unknown') {
+              <span>No se pudo medir qué tan viejo es este dato. No quiere decir que esté al día.</span>
+            } @else {
+              <span>Los saldos vienen del ERP con <b>{{ d.freshness.age_human }}</b> de rezago.</span>
+            }
+            <span class="muted">{{ staleDetalle(d) }}</span>
+          </div>
+        }
+      }
 
       @if (error()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo cargar la cartera. {{ error() }}</div> }
 
@@ -107,16 +130,38 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   }
                 </div>
               </div>
-            } @else if (showResumen()) {
-              <p class="ct-rs-trend-empty muted">La tendencia se construye con el snapshot diario — aparecerá al acumular días.</p>
+            } @else if (showResumen() && tendenciaCargada()) {
+              <!-- [CXC.20] Decía «aparecerá al acumular días», que suena a que el proceso va
+                   caminando. Medido en prod el 2026-09-24: había UNA sola foto, del 23-sep, y el
+                   latido del job estaba en error desde el 22. Un empty-state que tranquiliza
+                   sobre algo roto es peor que no tenerlo. -->
+              <p class="ct-rs-trend-empty muted">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                @if (tendencia().length === 1) {
+                  La tendencia necesita al menos dos fotos diarias y sólo hay una ({{ tendencia()[0].fecha }}).
+                  Si mañana sigue igual, el trabajo de la foto diaria no está corriendo.
+                } @else {
+                  Todavía no hay ninguna foto diaria de cartera: sin eso no hay tendencia que mostrar.
+                }
+              </p>
             }
 
             <div class="ct-rs-grid">
               <div>
                 <h4 class="ct-rs-h4">Cartera por vendedor</h4>
-                <table class="ct-rs-table"><thead><tr><th>Vendedor</th><th class="ta-r">Clientes</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
-                  <tbody>@for (v of rs.por_vendedor.slice(0, 10); track v.vendedor) {
-                    <tr><td>{{ v.vendedor }}</td><td class="ta-r">{{ v.n_clientes }}</td><td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td><td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td></tr>
+                <!-- [CXC.20] Con NOMBRE, y la fila es (sucursal, código). Antes listaba «1», «2»,
+                     «10001»: el join a kduv existía en el ODS y nadie lo hacía. Y agrupar por el
+                     código pelado habría fundido dos carteras — 11 de 81 códigos nombran a
+                     personas distintas según la plaza. -->
+                <table class="ct-rs-table"><thead><tr><th>Vendedor</th><th>Suc</th><th class="ta-r">Clientes</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
+                  <tbody>@for (v of rs.por_vendedor.slice(0, 10); track v.sucursal + '|' + v.vendedor) {
+                    <tr>
+                      <td>{{ v.vendedor_nombre || v.vendedor }} @if (v.vendedor_nombre) { <span class="muted ct-mono">{{ v.vendedor }}</span> }</td>
+                      <td>{{ v.sucursal }}</td>
+                      <td class="ta-r">{{ v.n_clientes }}</td>
+                      <td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td>
+                      <td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td>
+                    </tr>
                   }</tbody></table>
               </div>
               <div>
@@ -127,19 +172,39 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   }</tbody></table>
               </div>
             </div>
+            @if (rs.sin_documento.monto > 0.005) {
+              <!-- Los dos rollups de arriba reparten POR DOCUMENTO, así que suman menos que el
+                   KPI. Decirlo es la diferencia entre una cifra con alcance y una que no cuadra. -->
+              <p class="ct-rs-nota muted">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Vendedor y zona reparten <b>{{ money(rs.saldo_total - rs.sin_documento.monto) }}</b>: los
+                <b>{{ money(rs.sin_documento.monto) }}</b> de {{ rs.sin_documento.clientes }} clientes sin documento
+                que los explique no se pueden atribuir a nadie.
+              </p>
+            }
           </section>
         }
 
         <section class="card-premium card-flat ct-aging">
           <h3 class="ct-card-title"><i class="pi pi-hourglass" aria-hidden="true"></i> Antigüedad de saldos</h3>
-          <div class="ct-aging-bar" role="img" [attr.aria-label]="'Aging total ' + money(d.kpi.total_saldo)">
-            @for (b of agingSegs(d.kpi.aging); track b.key) {
+          <!-- [CXC.20] La barra suma EXACTAMENTE el KPI de arriba. Antes sumaba el desglose por
+               documento ($57.01M) mientras el KPI mostraba el saldo de Kepler ($57.78M), y la
+               etiqueta accesible afirmaba que la barra valía el KPI. El hueco ahora es un
+               segmento con nombre: ADR-056, lo que no se puede repartir se declara. -->
+          <div class="ct-aging-bar" role="img" [attr.aria-label]="'Antigüedad de ' + money(d.kpi.total_saldo)">
+            @for (b of agingSegs(d.kpi); track b.key) {
               @if (b.val > 0) { <span class="ct-seg" [class]="'ct-seg-' + b.key" [style.flex]="b.val" [title]="b.label + ': ' + money(b.val)"></span> }
             }
           </div>
           <ul class="ct-aging-legend">
-            @for (b of agingSegs(d.kpi.aging); track b.key) {
-              <li><span class="ct-dot" [class]="'ct-seg-' + b.key"></span>{{ b.label }} <b>{{ money(b.val) }}</b></li>
+            @for (b of agingSegs(d.kpi); track b.key) {
+              <li [class.ct-leg-nodoc]="b.key === 'sin_documento'">
+                <span class="ct-dot" [class]="'ct-seg-' + b.key"></span>{{ b.label }} <b>{{ money(b.val) }}</b>
+                @if (b.key === 'sin_documento') {
+                  <i class="pi pi-info-circle" aria-hidden="true"
+                     [title]="d.kpi.sin_documento.clientes + ' clientes en los que Kepler aplicó cobros por encima de lo que la cuenta justifica: el saldo total es correcto, el desglose por factura se queda corto y por eso no tiene antigüedad.'"></i>
+                }
+              </li>
             }
           </ul>
         </section>
@@ -159,7 +224,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   <td><b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span></td>
                   <td>{{ c.sucursal }}</td>
                   <td>{{ c.zona || '—' }}</td>
-                  <td>{{ c.vendedor || '—' }}</td>
+                  <td [title]="c.vendedor || ''">{{ c.vendedor_nombre || c.vendedor || '—' }}</td>
                   <td class="ta-r">{{ c.n_partidas }}</td>
                   <td class="ta-r">
                     @if (c.dias_pago_prom != null) {
@@ -200,6 +265,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
         <div class="ct-det-head">
           <div>
             <span class="muted">Código</span> {{ det.cliente.cliente_code }} · <span class="muted">Suc</span> {{ det.cliente.sucursal }} @if (det.cliente.rfc) { · <span class="muted">RFC</span> {{ det.cliente.rfc }} }
+            @if (det.cliente.vendedor) { · <span class="muted">Vendedor</span> {{ det.cliente.vendedor_nombre || det.cliente.vendedor }} }
             @if (det.cliente.limite_credito) { · <span class="muted">Límite</span> {{ money(det.cliente.limite_credito) }} @if (det.saldo > det.cliente.limite_credito) { <span class="ct-sobre">(sobre línea)</span> } }
             @if (det.cliente.dias_credito) { · <span class="muted">{{ det.cliente.dias_credito }}d crédito</span> }
           </div>
@@ -400,6 +466,14 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-search input { min-width: 240px; }
     .ct-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
     .ct-hoy { margin-left: auto; font-size: .8rem; }
+    .ct-filters app-freshness-pill { margin-left: auto; }
+    .ct-sel-vend { min-width: 230px; }
+    /* [CXC.20] Aviso de rezago del dato: tono de advertencia, no de error — el número sirve,
+       sólo que es de hace N. Lo rojo es para lo que no se puede usar. */
+    .ct-stale { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .82rem;
+      color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--warn-fg) 24%, transparent);
+      border-radius: var(--r-md, 8px); padding: .5rem .75rem; margin: 0 0 1rem; }
     .ct-error { color: var(--danger, #b42318); display: flex; gap: .5rem; align-items: center; padding: .75rem 0; }
     .ct-card-title { display: flex; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .6rem; }
     .ct-aging { padding: 1rem; margin-bottom: 1rem; }
@@ -407,6 +481,12 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-seg { display: block; }
     .ct-seg-por_vencer { background: #6b8f71; } .ct-seg-d0_30 { background: #c9a227; }
     .ct-seg-d31_60 { background: #d98324; } .ct-seg-d61_90 { background: #c2410c; } .ct-seg-d90_plus { background: #b42318; }
+    /* El hueco no es un tramo de antigüedad: va rayado, para que se lea como "esto no tiene
+       fecha" y no como un quinto nivel de morosidad. */
+    .ct-seg-sin_documento { background: repeating-linear-gradient(45deg,
+      var(--text-faint, #8a8579) 0 4px, transparent 4px 8px); }
+    .ct-leg-nodoc { color: var(--text-faint); }
+    .ct-leg-nodoc .pi-info-circle { font-size: .72rem; cursor: help; }
     .ct-aging-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; margin: .7rem 0 0; padding: 0; font-size: .82rem; }
     .ct-aging-legend li { display: flex; align-items: center; gap: .35rem; }
     .ct-aging-legend b { margin-left: .2rem; }
@@ -467,7 +547,8 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-trend-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
     .ct-trend-bar { width: 100%; background: #6b8f71; border-radius: 2px 2px 0 0; position: relative; min-height: 2px; display: flex; align-items: flex-end; }
     .ct-trend-venc { width: 100%; background: #b42318; border-radius: 2px 2px 0 0; }
-    .ct-rs-trend-empty { font-size: .78rem; margin: .2rem 0 1rem; }
+    .ct-rs-trend-empty { font-size: .78rem; margin: .2rem 0 1rem; display: flex; gap: .4rem; align-items: baseline; }
+    .ct-rs-nota { font-size: .78rem; margin: .6rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
     .ct-promesas { margin-top: .9rem; padding: .7rem; border: 1px solid var(--surface-border, #e7e5e0); border-radius: 8px; }
     .ct-prom-head { display: flex; align-items: center; }
     .ct-prom-head .ct-rs-h4 { margin: 0; display: flex; align-items: center; gap: .4rem; }
@@ -545,14 +626,23 @@ export class FinanzasCarteraComponent implements OnInit {
     return this.verSaldadas() ? p : p.filter((x) => !x.saldada);
   });
 
-  sucursal: string | null = '01';
+  /**
+   * ⭐ `[CXC.20]` Abre en **Todas**, no en la `01`.
+   *
+   * El default era `'01'`, así que la pantalla abría mostrando **$6.41M de $57.78M — el 11%** de
+   * la cartera, con su propio % de vencido (77.6% contra el 89.7% de la red). Quien entra a
+   * «Crédito de clientes» a ver cuánto le deben, veía una novena parte y ningún aviso.
+   */
+  sucursal: string | null = null;
   grupo: string | null = null;
   zona: string | null = null;
+  vendedor: string | null = null;
   search = '';
   incluirSaldados = false;
   sort: 'saldo' | 'vencido' = 'saldo';
   readonly sortOpts = [{ label: 'Mayor saldo', value: 'saldo' }, { label: 'Más vencido (cobrar)', value: 'vencido' }];
   readonly tendencia = signal<CarteraTendencia[]>([]);
+  readonly tendenciaCargada = signal(false);
   promMonto: number | null = null;
   promFecha: Date | null = null;
   promNota = '';
@@ -561,51 +651,63 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly filtros = signal<CarteraFiltros | null>(null);
   readonly grupoOpts = computed(() => (this.filtros()?.grupos || []).map((g) => ({ label: g, value: g })));
   readonly zonaOpts = computed(() => (this.filtros()?.zonas || []).map((z) => ({ label: z, value: z })));
-  readonly resumen = signal<CarteraResumen | null>(null);
+  readonly vendedorOpts = computed(() =>
+    (this.filtros()?.vendedores || []).map((v) => ({ label: v.label, value: v.code })));
+  /** El resumen gerencial YA viene en la respuesta de la tabla: es el mismo cálculo. */
+  readonly resumen = computed<CarteraResumen | null>(() => this.data()?.resumen ?? null);
   readonly showResumen = signal(false);
 
-  readonly sucursales = [
-    { label: 'Todas', value: null },
-    { label: '01 · Padre Hidalgo', value: '01' },
-    { label: '02 · La Piedad Abastos', value: '02' },
-    { label: '03 · 8 Esquinas', value: '03' },
-    { label: '04 · Yurécuaro', value: '04' },
-    { label: '05 · Zamora Centro', value: '05' },
-    { label: '06 · Canindo', value: '06' },
-  ];
+  /**
+   * ⭐ `[CXC.20]` **Las sucursales salen del servidor, no de una lista de acá.**
+   *
+   * Acá vivía un arreglo escrito a mano con seis (`01`..`06`). No era que el dato faltara:
+   * `filtros()` ya devolvía las nueve y el componente tiraba esa respuesta. Medido en prod el
+   * 2026-09-24, esa copia dejaba **$45.4M (78.5% de la cartera) sin ninguna forma de filtrarla**:
+   * la `00` con $44.4M y 95.8% vencido, la `07` y la `08`.
+   *
+   * Ahora la lista es el dato: las sucursales que la cartera tiene, con el nombre de
+   * `commercial.warehouses`. Una plaza nueva aparece sola y una sin cartera no ofrece un filtro
+   * que devuelve vacío.
+   */
+  readonly sucursalOpts = computed(() => [
+    { label: 'Todas', value: null as string | null },
+    ...(this.filtros()?.sucursales || []).map((s) => ({ label: s.label, value: s.code as string | null })),
+  ]);
 
-  ngOnInit() {
-    this.svc.filtros().subscribe({ next: (f) => this.filtros.set(f), error: () => {} });
-    this.load();
-  }
+  ngOnInit() { this.load(); }
 
   load() {
     this.loading.set(true); this.error.set(null);
+    // `[CXC.20]` UNA llamada: tabla + KPIs + resumen + opciones de filtro. Eran tres, y cada una
+    // reconstruía la misma pirámide de CTEs (6.0 s + 11.3 s + 3.7 s medidos en prod).
     this.svc.cartera({
       sucursal: this.sucursal || undefined,
       grupo: this.grupo || undefined,
       zona: this.zona || undefined,
+      vendedor: this.vendedor || undefined,
       search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
       sort: this.sort,
     }).subscribe({
-      next: (d) => { this.data.set(d); this.loading.set(false); },
+      next: (d) => { this.data.set(d); this.filtros.set(d.filtros); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
     });
-    if (this.showResumen()) this.loadResumen();
+    if (this.showResumen()) this.loadTendencia();
   }
 
   toggleResumen() {
     const next = !this.showResumen();
     this.showResumen.set(next);
-    if (next) this.loadResumen();
+    // El resumen ya está en `data()`; lo único que falta pedir es la tendencia, que sale de otra
+    // tabla (los snapshots diarios) y no de la pirámide.
+    if (next && !this.tendenciaCargada()) this.loadTendencia();
   }
-  loadResumen() {
-    // Mismos filtros que la tabla: si no, el resumen gerencial contradice lo que se ve abajo.
-    this.svc.resumen({ sucursal: this.sucursal || undefined, grupo: this.grupo || undefined, zona: this.zona || undefined, search: this.search.trim() || undefined })
-      .subscribe({ next: (r) => this.resumen.set(r), error: () => this.resumen.set(null) });
+  private loadTendencia() {
     this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
-      .subscribe({ next: (t) => this.tendencia.set(t), error: () => this.tendencia.set([]) });
+      .subscribe({
+        next: (t) => { this.tendencia.set(t); this.tendenciaCargada.set(true); },
+        error: () => { this.tendencia.set([]); this.tendenciaCargada.set(true); },
+      });
   }
 
   trendPct(saldo: number): number {
@@ -617,9 +719,9 @@ export class FinanzasCarteraComponent implements OnInit {
   exportCsv() {
     const rows = this.data()?.clientes || [];
     if (!rows.length) return;
-    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Dias_pago_prom', 'Vencido', 'Saldo', 'Saldo_a_favor'];
+    const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Vendedor_nombre', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Dias_pago_prom', 'Vencido', 'Saldo', 'Sin_documento', 'Saldo_a_favor'];
     const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.dias_pago_prom, c.vencido, c.saldo, c.saldo_a_favor || ''].map(esc).join(','));
+    const lines = rows.map((c) => [c.sucursal, c.cliente_code, c.cliente_nombre, c.rfc, c.grupo, c.zona, c.vendedor, c.vendedor_nombre, c.telefono, c.limite_credito, c.uso_linea, c.sobre_linea ? 'SI' : '', c.n_partidas, c.dias_pago_prom, c.vencido, c.saldo, c.sin_documento || '', c.saldo_a_favor || ''].map(esc).join(','));
     const csv = '﻿' + [head.join(','), ...lines].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -711,13 +813,29 @@ export class FinanzasCarteraComponent implements OnInit {
     ];
   }
 
-  agingSegs(a: AgingBucket) {
-    return [
+  /**
+   * `[CXC.20]` Los cinco tramos **más el hueco**, para que los segmentos sumen el KPI. Si el hueco
+   * no se dibuja, la barra vale $771 mil menos que el número que tiene arriba y nada lo dice.
+   */
+  agingSegs(k: CarteraResp['kpi']) {
+    const a: AgingBucket = k.aging;
+    const segs = [
       { key: 'por_vencer', label: 'Por vencer', val: a.por_vencer },
       { key: 'd0_30', label: '1–30 días', val: a.d0_30 },
       { key: 'd31_60', label: '31–60 días', val: a.d31_60 },
       { key: 'd61_90', label: '61–90 días', val: a.d61_90 },
       { key: 'd90_plus', label: '90+ días', val: a.d90_plus },
     ];
+    if (k.sin_documento.monto > 0.005) {
+      segs.push({ key: 'sin_documento', label: 'Sin documento', val: k.sin_documento.monto });
+    }
+    return segs;
+  }
+
+  /** Qué eslabón de la ingesta está viejo, por nombre: «hay rezago» no es accionable. */
+  staleDetalle(d: CarteraResp): string {
+    const malos = (d.freshness.inputs || []).filter((i) => i.status !== 'fresh');
+    if (!malos.length) return '';
+    return malos.map((i) => `${i.label}: ${i.age_human ?? 'sin señal'}`).join(' · ');
   }
 }

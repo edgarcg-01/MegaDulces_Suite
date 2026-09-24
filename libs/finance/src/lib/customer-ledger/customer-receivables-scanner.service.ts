@@ -179,8 +179,16 @@ export class CustomerReceivablesScannerService {
           'host',
           'updated_at',
         ]);
-    } catch {
-      /* el latido nunca rompe al que late (criterio de `cron-heartbeat.js`) */
+    } catch (e) {
+      // El latido nunca rompe al que late (criterio de `cron-heartbeat.js`) — pero tampoco se
+      // calla. `[CXC.20]` El 2026-09-23 este job insertó sus 9 fotos y `analytics.cron_runs`
+      // quedó con el `error` del día anterior: el tablero mostraba una falla vieja de un trabajo
+      // que había funcionado, y **no había ni un renglón que dijera por qué**. Un `catch {}` mudo
+      // en el medidor es el mismo modo de falla que la Fase OBS vino a cerrar, una capa más
+      // arriba: el que avisa deja de avisar y nadie se entera de que dejó.
+      this.logger.error(
+        `latido cxc_snapshot NO escrito (el tablero conserva la marca anterior): ${motivoDeError(e)}`,
+      );
     }
   }
 
