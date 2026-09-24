@@ -10,17 +10,17 @@
 
 ## [Unreleased]
 
-### Added — Crédito de clientes: el 46% de la cartera no son clientes (CXC.25, 2026-09-24)
-- ⭐ **La pantalla publicaba $57,780,190.86 como si fueran clientes.** Medido: **$26,583,657.82
-  (46.0%) son ocho cuentas entre plazas propias** —`30-73 TLMKT Morelia Abastos`, `10-00 P.V.
-  Padre Hidalgo Piso`…— y $2,838,971.03 son rutas. **Cliente real: $28,357,562.01.** Quien entra
+### Added — Crédito de clientes: el 43% de la cartera no son clientes (CXC.25, 2026-09-24)
+- ⭐ **La pantalla publicaba $59,382,522.23 como si fueran clientes.** Medido: **$25,702,051.63
+  (43.3%) son ocho cuentas entre plazas propias** —`30-73 TLMKT Morelia Abastos`, `10-00 P.V.
+  Padre Hidalgo Piso`…— y $2,992,639.38 son rutas. **Cliente real: $30,687,831.22.** Quien entra
   a cobrar no puede llamar por teléfono a ninguna de las primeras.
 - **Y eso explica la diferencia con contabilidad**, que venía sin explicación: su balanza dice
   que los clientes valen **$9,144,402.36** porque excluye esas cuentas. No estaban en desacuerdo:
   contaban cosas distintas. Ahora la cartera se puede leer como auxiliar de la balanza.
 - La pantalla **reparte el total a la vista** en tres barras (cliente / cuenta interna / ruta),
   cada una filtra con un clic, y las filas que no son un cliente lo dicen con una etiqueta.
-  ⛔ **No cambia ningún total**: la suma de los tres da $57,780,190.86 al centavo.
+  ⛔ **No cambia ningún total**: la suma de los tres da el total al centavo.
 - Abre en **«Todas»**, no filtrado en «Cliente» — filtrar por default habría vuelto a esconder
   dinero, que es justo lo que se acaba de corregir.
 - El tipo se decide con **dos señales**: el código de la cuenta y el nombre que Kepler le puso.
@@ -28,8 +28,14 @@
   ninguna manda sola; y cada fila dice **qué señal la decidió**.
 
 ### Internal — Resolvedor de tipo de cuenta (CXC.25, 2026-09-24)
-- `analytics.v_customer_account_kind` + 4 funciones (mig `20260924180000`, Railway batch 528). La
-  lógica ya existía enterrada en `analytics.erp_collections`, sin forma de que nadie más la usara.
+- `analytics.v_customer_account_kind` + 4 funciones (mig `20260924180000`, **prod real batch
+  531**). La lógica ya existía enterrada en `analytics.erp_collections`, sin forma de que nadie
+  más la usara.
+- ⛔ **Esta fase se midió medio día contra la base equivocada**: `FLEET_DB_URL` sigue apuntando a
+  Railway y **producción se mudó a `md` el 2026-09-22**. Las primeras cifras publicadas eran de
+  la prod vieja, y de paso reporté un «incidente de ingesta» que no existía. Corregido, con la
+  lección, en `03_LOG_REVISIONES.md` → «La base equivocada». El destino ahora se verifica por
+  `system_identifier`, no por el nombre de la base.
 - Perf: 4,191 → **4,579 ms** (+388 ms, el costo de la vista). La primera versión costaba 11,331 ms.
 - ⛔ `knex.raw()` trata el `?` de un regex como placeholder y `CREATE FUNCTION` no falla: la
   función quedó creada clasificando mal, en silencio. La atrapó la compuerta de la migración.
