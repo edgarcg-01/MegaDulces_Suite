@@ -207,7 +207,12 @@ function vista(m) {
     : m.barcode_format === 'UPC' && d.length === 12 ? `${d[0]} ${d.slice(1, 6)} ${d.slice(6, 11)} ${d[11]}`
     : m.barcode_format === 'EAN8' && d.length === 8 ? `${d.slice(0, 4)} ${d.slice(4)}`
     : null;
-  return { nombre, heroWord, heroVal, tiers, content: m.content, sku: m.sku, bcDigits };
+  // `[ETQ-PRES.4c]` El contenido de la meta es el de la presentación que va en grande, no el
+  // gramaje sacado del nombre. Medido: 8,716 pares donde los dos no coinciden, y el peor imprimía
+  // "25 kg" arriba de un precio de 500 g. Acá cambia además el ANCHO del bloque, así que el arnés
+  // tiene que renderizar el mismo texto o mide una meta que no existe.
+  const content = hero ? (hero.contenido ?? null) : (ps.length ? null : m.content);
+  return { nombre, heroWord, heroVal, tiers, content, sku: m.sku, bcDigits };
 }
 
 const SPROUT = '<svg class="etq-sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)">'

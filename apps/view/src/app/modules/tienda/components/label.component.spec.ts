@@ -234,6 +234,52 @@ describe('LabelComponent · lo que sale impreso', () => {
   });
 
   /**
+   * ⭐⭐ `[ETQ-PRES.4c]` EL CONTENIDO DE LA META, que era el último lugar donde vivía el 50×.
+   *
+   * Los renglones ya decían la verdad y la meta seguía imprimiendo el gramaje sacado del NOMBRE
+   * del producto, que describe el BULTO. En el `18022` eso era **"25 kg | Código: 18022"** dos
+   * centímetros arriba de un **$57.88 que es de 500 g**. Medido: **8,716 pares (sku, plaza)**
+   * donde el contenido del nombre contradice al de la unidad base.
+   */
+  describe('⭐⭐ el contenido que va junto al Código es el de la unidad que va en grande', () => {
+    const CAJETA: LabelModel = {
+      ...BASE, sku: '18022', name: 'CAJETA ENVINADA 25KGS CABADAS',
+      content: '25 kg',                                   // el del NOMBRE: describe el bulto
+      unit_base: '500', piece_price: 57.88,
+      presentaciones: [
+        { unidad: '500', factor: 1, origen: 'base', contenido: '500 g', precio_lista: 57.88, mayoreo_precio: 53.75, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+        { unidad: 'CUB', factor: 50, origen: 'ranura', contenido: '25 kg', precio_lista: 2339.76, mayoreo_precio: 2232.28, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+      ],
+    };
+    const meta = (): string => el().querySelector('.etq-meta')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    it('⛔ NEGATIVA: el peso del BULTO no viaja junto al precio de la porción', async () => {
+      await render(CAJETA);
+      expect(meta()).toContain('500 g');
+      expect(meta()).not.toContain('25 kg');
+      // …y el "25 kg" sigue impreso donde corresponde: pegado a la cubeta de $2,339.76.
+      const cub = [...el().querySelectorAll('.etq-tier')]
+        .map((n) => n.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+        .find((t) => t.includes('2,339.76'));
+      expect(cub).toMatch(/Cubeta 25 kg/);
+    });
+
+    it('el rótulo y su contenido NO salen pegados ("KG1 KG")', async () => {
+      // Angular compila con `preserveWhitespaces: false` y se come el espacio que abre un bloque
+      // `@if`. Sin el `&nbsp;` la etiqueta imprimía "CUBETA25 KG" en todos los renglones.
+      await render(CAJETA);
+      const cub = [...el().querySelectorAll('.etq-tier .txt')]
+        .map((n) => n.textContent ?? '').find((t) => t.includes('25 kg'));
+      expect(cub).toMatch(/Cubeta\s25 kg/);
+    });
+
+    it('sin lista se cae al contenido del nombre: es lo único que hay, y es mejor que nada', async () => {
+      await render({ ...CAJETA, presentaciones: [] });
+      expect(meta()).toContain('25 kg');
+    });
+  });
+
+  /**
    * `[ETQ-PRES.4]` Lo que el diccionario NO entiende se imprime CRUDO — no se traduce.
    *
    * Misma regla que `QtyUnitLabel`. Medido: `SER` son 13 SKUs y casi todos son asientos

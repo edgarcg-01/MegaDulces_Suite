@@ -1270,7 +1270,12 @@ export class TiendaEtiquetasComponent {
         const nombre = leg.singular.charAt(0).toUpperCase() + leg.singular.slice(1);
         // El contenido va en la opción porque es lo que distingue dos unidades del mismo
         // producto: "Caja" y "Cubeta" se parecen; "Caja 12 kg" y "Cubeta 25 kg" no.
-        const cont = p.contenido ? ` · ${p.contenido}` : '';
+        //
+        // ⚠️ …salvo cuando el rótulo YA ES el contenido. En una base de gramaje (`500`, `250`,
+        // `400` — 1,027 pares en prod) `unidadLegible` devuelve "500 g" y el contenido derivado
+        // es "500 g", así que el selector decía **"500 g · 500 g $57.88"**. Repetir un dato no lo
+        // hace más claro: lo hace parecer dos.
+        const cont = p.contenido && p.contenido !== leg.singular ? ` · ${p.contenido}` : '';
         return { value: String(p.unidad) as HeroKey, label: `${nombre}${cont} ${fmt(this.n(p.precio_lista))}` };
       });
   }
