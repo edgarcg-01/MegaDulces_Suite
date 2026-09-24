@@ -18,6 +18,30 @@ import { BancosGateway } from './bancos.gateway';
 const n = (v: any) => Number(v) || 0;
 const normKey = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
+/**
+ * CB.46 — Cuántos meses separan la fecha del movimiento del periodo de SU estado de cuenta.
+ * Requiere `bm` y `st` en el FROM. Se calcula en meses y no en días porque el error que hay
+ * que aislar es de AÑO mal capturado, y en días se confunde con el desfase normal del corte.
+ *
+ * Medido en prod (2026-09-24), los 84 movimientos fuera de su periodo se parten en poblaciones
+ * distintas, y tratarlas igual sería un error en cualquiera de los dos sentidos:
+ *   -1 mes → 61 movimientos ($728,026). Son cierre de mes que el banco liquida en el corte
+ *            siguiente: 34 caen en el último día del mes anterior y 13 más en el último día
+ *            HÁBIL (30-may-2026 fue sábado). Legítimos.
+ *   +12 y -21,840 meses → 23 movimientos ($1,579,507) con el año mal escrito
+ *            (`2027-08-06` en el corte de ago-2026; año `0206` en feb-2026). Rotos.
+ * Por eso el umbral es |desvío| > 1, y no "distinto del periodo".
+ *
+ * ⚠️ Queda un tercer grupo SIN resolver y por eso no se filtra acá: 14 movimientos de CAJA
+ * GENERAL ($43,285) fechados el 19-ago dentro del corte de sep-2026 y con el concepto en NULL.
+ * No son desfase de corte ni typo de año — son captura suelta, y quién la hace es una pregunta
+ * para el área, no algo que este umbral pueda adivinar.
+ */
+const MESES_DE_DESVIO = `(EXTRACT(YEAR FROM bm.movement_date)::int * 12 + EXTRACT(MONTH FROM bm.movement_date)::int)
+  - (split_part(st.period,'-',1)::int * 12 + split_part(st.period,'-',2)::int) AS fecha_desvio_meses`;
+/** Un desvío de más de un mes no es desfase de corte: es la fecha mal capturada. */
+const fechaFueraDePeriodo = (m: any) => Math.abs(Number(m?.fecha_desvio_meses) || 0) > 1;
+
 // Tokens significativos de un nombre de beneficiario (para el 3er pase del matcher
 // por nombre). Quita ruido societario (SA/DE/CV/SAPI…), acentos y palabras cortas.
 // Ruido societario + palabras operativas GENÉRICAS: un concepto que solo tiene estas
@@ -1100,7 +1124,8 @@ export class FinanceBankService {
     const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
-    const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount } = await this.tk.run(async (trx) => {
+    const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
+      reconAmt, retirosAmt, ultimoImport } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1137,8 +1162,32 @@ export class FinanceBankService {
       // sin RLS → tenant explícito). Sin ellas el matching NO puede correr en absoluto.
       const kp = await trx('analytics.bank_postings')
         .where({ tenant_id: tenantId, anio_mes: period }).count({ n: '*' }).first();
+
+      // CB.46 — Estado PERSISTIDO de la conciliación. El chip del encabezado leía sólo el
+      // resultado del POST de ESTA sesión (un signal en memoria), así que al abrir la pantalla
+      // decía "sin correr" aunque la DB tuviera miles de movimientos casados — e invitaba a
+      // re-disparar una escritura que no hacía falta. Se reconstruye con el MISMO par que
+      // devuelve runMatch (monto casado / monto de retiros) para que el número no cambie
+      // según de dónde venga.
+      const reconAmt: any = await trx('finance.bank_recon_matches as rm')
+        .join('finance.bank_movements as bm', 'bm.id', 'rm.bank_movement_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.deleted_at')
+        .select(trx.raw('COALESCE(SUM(rm.kepler_amount),0)::numeric AS monto'),
+          trx.raw('MAX(rm.created_at) AS ultimo')).first();
+      const retirosAmt: any = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
+        .select(trx.raw('COALESCE(SUM(bm.amount_out),0)::numeric AS monto')).first();
+      // Un match viejo sobre un estado de cuenta re-importado ya no describe lo que hay en
+      // pantalla: los movimientos nuevos entran como `pending` y nadie vuelve a conciliar.
+      // Medido en prod: los 9 periodos se re-importaron DESPUÉS de su último match.
+      const ultimoImport: any = await trx('finance.bank_statements')
+        .where('period', period).select(trx.raw('MAX(imported_at) AS ultimo')).first();
+
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
-        matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n) };
+        matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
+        reconAmt, retirosAmt, ultimoImport };
     });
 
     const bal = await this.balances(period);
@@ -1249,6 +1298,23 @@ export class FinanceBankService {
     // sale "sin casar" y parecería que falta en Kepler cuando NO es cierto.
     const conciliacionCorrida = n(matchedCount) > 0;
     const sinPostingsKepler = n(keplerPostingsCount) === 0;
+
+    // CB.46 — el veredicto de conciliación que la pantalla puede mostrar SIN volver a escribir.
+    // `stale` no es cosmético: un match anterior al último import describe un universo que ya
+    // cambió, y su porcentaje se lee como si describiera lo que hay hoy. Se declara; no se
+    // convierte en verde ni en cero.
+    const ultimoMatch: string | null = (reconAmt as any)?.ultimo ?? null;
+    const ultimoImportAt: string | null = (ultimoImport as any)?.ultimo ?? null;
+    const reconBankAmount = n((retirosAmt as any)?.monto);
+    const reconMatchedAmount = n((reconAmt as any)?.monto);
+    const reconEstado = !conciliacionCorrida ? null : {
+      matched_amount: Math.round(reconMatchedAmount * 100) / 100,
+      bank_amount: Math.round(reconBankAmount * 100) / 100,
+      pct: reconBankAmount ? Math.round((reconMatchedAmount / reconBankAmount) * 100) : 0,
+      last_match_at: ultimoMatch,
+      last_import_at: ultimoImportAt,
+      stale: !!(ultimoMatch && ultimoImportAt && new Date(ultimoImportAt) > new Date(ultimoMatch)),
+    };
     if (sinPostingsKepler && !!recon?.accounts?.length) {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Faltan las pólizas del 102 de Kepler (no se puede conciliar aún)',
@@ -1280,6 +1346,13 @@ export class FinanceBankService {
       tiene_balanza_kepler: n(recon?.cash?.kepler_102_cargos) > 0 || n(recon?.cash?.kepler_102_abonos) > 0,
       conciliacion_corrida: conciliacionCorrida,
       kepler_postings_cargados: !sinPostingsKepler,
+      // CB.46 — el conteo sin clasificar del MISMO universo que `movimientos` (incluye la caja).
+      // El chip del encabezado lo derivaba del Concentrado, que excluye `kind='cash'` a propósito:
+      // numerador sin caja contra denominador con caja inflaba la clasificación 5-13 pp todos
+      // los meses (medido en prod: mayo decía 99%, real 86%).
+      sin_clasificar_n: n((sinClas as any)?.n),
+      sin_clasificar_monto: n((sinClas as any)?.monto),
+      recon_estado: reconEstado,
       items,
     };
   }
@@ -1414,7 +1487,7 @@ export class FinanceBankService {
     const [yy, mm] = period.split('-').map(Number);
     const ini = `${period}-01`;
     const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
-    // CB.44 — el pool de Kepler se abre ±45 días fuera del mes. Antes los DOS lados estaban
+    // CB.46 — el pool de Kepler se abre ±45 días fuera del mes. Antes los DOS lados estaban
     // cortados al mes calendario, así que los pases que anunciaban «±10d» y «sin tope de
     // fecha» no podían salir del periodo: un cobro capturado el 12-ago cuyo depósito entró
     // el 24-jul no tenía candidato POSIBLE. Ver el bloque de pases cruzados abajo.
@@ -1566,7 +1639,7 @@ export class FinanceBankService {
         for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
       }
 
-      // ── CB.44 — pases CRUZADOS de mes (pool ancho) ────────────────────────────────────
+      // ── CB.46 — pases CRUZADOS de mes (pool ancho) ────────────────────────────────────
       // Nacen de un caso medido: factura U-D-8 0000319 del 21-jul ($1,653.00), pagada el
       // 24-jul, y capturada como cobro U-A-7 0000213 el 12-AGO a las 16:52 — junto con otros
       // cinco cobros del mismo cliente, teclados entre 16:50 y 16:54. El banco lo tiene en
@@ -1672,7 +1745,7 @@ export class FinanceBankService {
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4,
-        // CB.44 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
+        // CB.46 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
         // por fecha porque la fecha no existe (se declara, no se disfraza de faltante).
         batch_pass: p5, cross_month_pass: p6,
         kepler_ya_casado_otro_periodo: yaCasadosOtroPeriodo,
@@ -2085,11 +2158,18 @@ export class FinanceBankService {
 
     return this.tk.run(async (trx) => {
       // Depósitos del banco (solo cuentas kind='bank').
+      // CB.46 — el universo se toma del PERIODO DEL ESTADO DE CUENTA, igual que el Concentrado,
+      // el Cuadre, el Cierre y la Conciliación. Antes filtraba por `movement_date` entre ini y
+      // fin, y eso partía la pantalla en dos universos: en ago-2026 dejaba fuera $722,950 de
+      // depósitos y $706,842 de retiros que el resto de las pestañas sí cuenta — sin declararlo,
+      // así que el veredicto salía verde con ese dinero afuera.
       const deps = await trx('finance.bank_movements as bm')
         .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
-        .andWhere('bm.amount_in', '>', 0).andWhere('bm.movement_date', '>=', ini).andWhere('bm.movement_date', '<', fin)
-        .select('bm.id', 'bm.movement_date as date', 'bm.amount_in as amt', 'bm.concept', 'ba.bank', 'ba.account_label')
+        .andWhere('bm.amount_in', '>', 0).andWhere('st.period', period)
+        .select('bm.id', 'bm.movement_date as date', 'bm.amount_in as amt', 'bm.concept', 'ba.bank', 'ba.account_label',
+          trx.raw(MESES_DE_DESVIO))
         .orderBy('bm.amount_in', 'desc');
 
       // Pool tesorería Kepler (entradas, con account_label), ventana ±7d.
@@ -2134,8 +2214,14 @@ export class FinanceBankService {
         return best;
       };
 
-      const buckets = { tesoreria: [] as any[], cobranza: [] as any[], caja: [] as any[], sin_explicar: [] as any[] };
+      const buckets = { tesoreria: [] as any[], cobranza: [] as any[], caja: [] as any[],
+        fecha_invalida: [] as any[], sin_explicar: [] as any[] };
       for (const dep of deps as any[]) {
+        // Con la fecha rota ninguna ventana de ±3/5/7 días puede casar, así que iría a
+        // "sin explicar" por un motivo que no es el suyo: el problema es la captura, no que
+        // falte el origen. Bucket propio para que la bandeja no acuse al ERP de algo que hizo
+        // el Excel, y para que el dinero no desaparezca del total (ver MESES_DE_DESVIO).
+        if (fechaFueraDePeriodo(dep)) { buckets.fecha_invalida.push(dep); continue; }
         const k = peso(dep.amt);
         const inner = tesIdx.get(String(dep.account_label));
         if (inner && pick(inner, k, dep.date, 7)) { buckets.tesoreria.push(dep); continue; }
@@ -2157,7 +2243,7 @@ export class FinanceBankService {
       const accInit = (d: any) => {
         const lbl = String(d.account_label || d.bank || '—');
         let r = acctMap.get(lbl);
-        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0 }; acctMap.set(lbl, r); }
+        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0, fecha_invalida: 0 }; acctMap.set(lbl, r); }
         return r;
       };
       const accAdd = (arr: any[], key: string) => { for (const d of arr) { const r = accInit(d); const v = Number(d.amt) || 0; r[key] += v; r.bank_total += v; r.n++; } };
@@ -2165,10 +2251,11 @@ export class FinanceBankService {
       accAdd(buckets.cobranza, 'via_cobranza');
       accAdd(buckets.caja, 'via_caja');
       accAdd(buckets.sin_explicar, 'sin_explicar');
+      accAdd(buckets.fecha_invalida, 'fecha_invalida');
       const por_cuenta = Array.from(acctMap.values()).map((r) => ({
         account_label: r.account_label, bank: r.bank, bank_total: r2(r.bank_total), n: r.n,
         via_tesoreria: r2(r.via_tesoreria), via_cobranza: r2(r.via_cobranza), via_caja: r2(r.via_caja),
-        sin_explicar: r2(r.sin_explicar),
+        sin_explicar: r2(r.sin_explicar), fecha_invalida: r2(r.fecha_invalida),
         kepler: r2(r.via_tesoreria + r.via_cobranza), retail: r2(r.via_caja),
       })).sort((a, b) => b.bank_total - a.bank_total);
 
@@ -2178,8 +2265,18 @@ export class FinanceBankService {
         via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
         via_cobranza: { n: buckets.cobranza.length, monto: sum(buckets.cobranza) },
         via_caja: { n: buckets.caja.length, monto: sum(buckets.caja) },
+        // No entra a `explicado` ni a `sin_explicar`: no se pudo medir su origen porque la
+        // fecha está mal capturada. Se DECLARA aparte (ADR-056) en vez de contarlo como
+        // faltante del ERP, que sería acusar de un hueco que no existe.
+        fecha_invalida: {
+          n: buckets.fecha_invalida.length, monto: sum(buckets.fecha_invalida),
+          items: buckets.fecha_invalida.slice(0, 50).map((d) => ({
+            id: d.id, fecha: d.date, bank: d.bank, account_label: d.account_label,
+            monto: Number(d.amt), concept: d.concept, desvio_meses: Number(d.fecha_desvio_meses) || 0,
+          })),
+        },
         sin_explicar: { n: buckets.sin_explicar.length, monto: sinExpl },
-        explicado: Math.round((bankTotal - sinExpl) * 100) / 100,
+        explicado: Math.round((bankTotal - sinExpl - sum(buckets.fecha_invalida)) * 100) / 100,
         cuadra: sinExpl <= TOL,
         exceptions: buckets.sin_explicar.slice(0, 100).map((d) => ({
           id: d.id, fecha: d.date, bank: d.bank, account_label: d.account_label, monto: Number(d.amt), concept: d.concept,
@@ -2190,6 +2287,186 @@ export class FinanceBankService {
             fecha: c.date, almacen: c.almacen, banco: c.banco_name, monto: Number(c.amt),
           })),
         },
+        tol: TOL,
+      };
+    });
+  }
+
+  /**
+   * CB.43 — CONTROL de egresos: ¿todo retiro del banco quedó registrado en el ERP?
+   *
+   * Espejo de ingresosControl() (CB.35), y responde una pregunta distinta a la del Cuadre:
+   * el Cuadre compara TOTALES contra los libros; esto pregunta, retiro por retiro, si la
+   * operación existe en Kepler. Es la bandeja que nombra lo que se pagó y el ERP no registró.
+   *
+   * Clasifica cada retiro (kind='bank') contra las fuentes, en orden, con consumo greedy
+   * (una fuente por retiro, sin doble crédito):
+   *   1. Tesorería Kepler (kdm1, mismo account_label + monto ±$1 + fecha ±7d).
+   *   2. Pago a proveedor del ERP (X-D-26/25/60, monto ±$1 + fecha ±5d) — atrapa lo que el
+   *      feed de tesorería no trae. Sin account_label: el pago de Kepler no dice de qué
+   *      banco salió, así que casa por monto+fecha solamente.
+   *   3. Traspaso a cuenta propia: su espejo es un DEPÓSITO en otra de nuestras cuentas
+   *      (monto ±$1, ±3d). No es gasto ni faltante.
+   *   4. Factoraje: el pago al factor. Kepler NO lo codifica (verificado: a esos proveedores
+   *      los paga como transferencia/cheque/anticipo) → bucket propio, no excepción.
+   * Lo que no cae en ninguna = SIN RESPALDO EN EL ERP: salió dinero y el ERP no se enteró.
+   *
+   * Los buckets 3 y 4 existen para no gritar en falso: una bandeja que reporta como hallazgo
+   * lo que YA está explicado enseña a ignorarla. Sólo `sin_respaldo` es excepción real.
+   * NO escribe: es lectura + veredicto.
+   */
+  async egresosControl(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    const dstr = (d: Date) => d.toISOString().slice(0, 10);
+    const addDays = (s: string, k: number) => { const d = new Date(`${s}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + k); return dstr(d); };
+    const peso = (x: any) => Math.round(Number(x) || 0);
+    const dd = (a: any, b: any) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 864e5);
+    const TOL = 1000;
+
+    return this.tk.run(async (trx) => {
+      // Retiros del banco (solo kind='bank'; caja y factoraje no son cuenta bancaria).
+      // CB.46 — universo por PERIODO DEL ESTADO DE CUENTA, igual que el resto de la pantalla
+      // (ver la nota gemela en ingresosControl): con `movement_date` esta bandeja dejaba fuera
+      // $706,842 de retiros de ago-2026 sin decirlo, y su veredicto salía verde por omisión.
+      const outs = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
+        .andWhere('bm.amount_out', '>', 0).andWhere('st.period', period)
+        .select('bm.id', 'bm.movement_date as date', 'bm.amount_out as amt', 'bm.concept',
+          'ba.bank', 'ba.account_label',
+          trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
+          trx.raw(`COALESCE(mc.name,'(sin categoría)') AS categoria`),
+          trx.raw(MESES_DE_DESVIO))
+        .orderBy('bm.amount_out', 'desc');
+
+      // 1. Tesorería Kepler (salidas, con account_label), ventana ±7d.
+      const tes = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).whereNotNull('account_label').where('signo', '<', 0)
+        .andWhere('fecha_valor', '>=', addDays(ini, -7)).andWhere('fecha_valor', '<', addDays(fin, 7))
+        .select('account_label', 'fecha_valor as date', 'importe as amt');
+      const tesIdx = new Map<string, Map<number, any[]>>();
+      for (const t of tes as any[]) {
+        const lbl = String(t.account_label); const k = peso(t.amt);
+        let inner = tesIdx.get(lbl); if (!inner) { inner = new Map(); tesIdx.set(lbl, inner); }
+        (inner.get(k) || inner.set(k, []).get(k))!.push({ date: t.date, used: false });
+      }
+
+      // 2. Pago a proveedor del ERP, ventana ±5d.
+      let pagos: any[] = [];
+      try {
+        pagos = (await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).where('monto', '>', 0)
+          .andWhere('pago_date', '>=', addDays(ini, -5)).andWhere('pago_date', '<', addDays(fin, 5))
+          .select('pago_date as date', 'monto as amt', 'proveedor_nombre', 'folio'))
+          .map((p: any) => ({ ...p, used: false }));
+      } catch { pagos = []; }
+      const pagIdx = new Map<number, any[]>();
+      for (const p of pagos) { (pagIdx.get(peso(p.amt)) || pagIdx.set(peso(p.amt), []).get(peso(p.amt)))!.push(p); }
+
+      // 3. Traspaso a cuenta propia: el espejo es un DEPÓSITO en otra cuenta nuestra, ±3d.
+      const mirrors = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('bm.tenant_id', tenantId).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
+        .andWhere('bm.amount_in', '>', 0)
+        .andWhere('bm.movement_date', '>=', addDays(ini, -3)).andWhere('bm.movement_date', '<', addDays(fin, 3))
+        .select('bm.movement_date as date', 'bm.amount_in as amt', 'ba.account_label');
+      const mirIdx = new Map<number, any[]>();
+      for (const m of mirrors as any[]) {
+        const k = peso(m.amt);
+        (mirIdx.get(k) || mirIdx.set(k, []).get(k))!.push({ date: m.date, account_label: m.account_label, used: false });
+      }
+
+      // ±$1: revisa los buckets k-1,k,k+1 y toma el candidato de fecha más cercana no usado.
+      const pick = (idx: Map<number, any[]>, k: number, date: any, win: number, skip?: (o: any) => boolean) => {
+        let best: any = null, bd = Infinity;
+        for (let d = -1; d <= 1; d++) for (const o of idx.get(k + d) || []) {
+          if (o.used || (skip && skip(o))) continue;
+          const diff = dd(o.date, date);
+          if (diff <= win && diff < bd) { best = o; bd = diff; }
+        }
+        if (best) best.used = true;
+        return best;
+      };
+
+      const buckets = { tesoreria: [] as any[], pago_erp: [] as any[], traspaso: [] as any[],
+        factoraje: [] as any[], fecha_invalida: [] as any[], sin_respaldo: [] as any[] };
+      for (const o of outs as any[]) {
+        const k = peso(o.amt);
+        // Fecha mal capturada: ninguna ventana puede casar, así que no se acusa al ERP (ver
+        // la nota gemela en ingresosControl y MESES_DE_DESVIO).
+        if (fechaFueraDePeriodo(o)) { buckets.fecha_invalida.push(o); continue; }
+        if (o.group_key === 'factoraje') { buckets.factoraje.push(o); continue; }
+        const inner = tesIdx.get(String(o.account_label));
+        if (inner && pick(inner, k, o.date, 7)) { buckets.tesoreria.push(o); continue; }
+        // El traspaso se resuelve ANTES que el pago a proveedor. El orden importa porque el
+        // consumo es greedy y el pago casa sólo por monto+fecha (Kepler no dice de qué banco
+        // salió): un traspaso que coincidiera de monto con un pago se etiquetaba como pago Y
+        // ADEMÁS quemaba ese pago, dejando sin respaldo al retiro real que sí lo necesitaba.
+        // Su espejo es más específico (exige un depósito real en OTRA cuenta nuestra), así que
+        // va primero. El espejo nunca puede ser la MISMA cuenta de la que salió.
+        if (o.group_key === 'traspaso' && pick(mirIdx, k, o.date, 3, (m) => m.account_label === o.account_label)) {
+          buckets.traspaso.push(o); continue;
+        }
+        const pago = pick(pagIdx, k, o.date, 5);
+        if (pago) { buckets.pago_erp.push({ ...o, erp_folio: pago.folio, erp_proveedor: pago.proveedor_nombre }); continue; }
+        buckets.sin_respaldo.push(o);
+      }
+
+      const sum = (a: any[]) => Math.round(a.reduce((s, r) => s + (Number(r.amt) || 0), 0) * 100) / 100;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const bankTotal = sum(outs as any[]);
+      const sinResp = sum(buckets.sin_respaldo);
+
+      // Por CATEGORÍA nombra el proceso que se saltea el ERP, que es lo accionable;
+      // por cuenta dice en qué banco pasó.
+      const catMap = new Map<string, { categoria: string; n: number; monto: number }>();
+      for (const o of buckets.sin_respaldo) {
+        const c = catMap.get(o.categoria) || { categoria: o.categoria, n: 0, monto: 0 };
+        c.n++; c.monto += Number(o.amt) || 0; catMap.set(o.categoria, c);
+      }
+      const por_categoria = Array.from(catMap.values())
+        .map((c) => ({ ...c, monto: r2(c.monto) })).sort((a, b) => b.monto - a.monto);
+
+      const acctMap = new Map<string, any>();
+      for (const o of buckets.sin_respaldo) {
+        const lbl = String(o.account_label || o.bank || '—');
+        const r = acctMap.get(lbl) || { account_label: o.account_label || null, bank: o.bank || null, n: 0, monto: 0 };
+        r.n++; r.monto += Number(o.amt) || 0; acctMap.set(lbl, r);
+      }
+      const por_cuenta = Array.from(acctMap.values())
+        .map((r) => ({ ...r, monto: r2(r.monto) })).sort((a, b) => b.monto - a.monto);
+
+      return {
+        period, bank_total: bankTotal, bank_n: (outs as any[]).length,
+        via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
+        via_pago_erp: { n: buckets.pago_erp.length, monto: sum(buckets.pago_erp) },
+        via_traspaso: { n: buckets.traspaso.length, monto: sum(buckets.traspaso) },
+        via_factoraje: { n: buckets.factoraje.length, monto: sum(buckets.factoraje) },
+        // Se DECLARA aparte, fuera de `respaldado` y de `sin_respaldo` (ADR-056): no es que el
+        // ERP no lo registre, es que no se pudo buscar con esa fecha.
+        fecha_invalida: {
+          n: buckets.fecha_invalida.length, monto: sum(buckets.fecha_invalida),
+          items: buckets.fecha_invalida.slice(0, 50).map((o) => ({
+            id: o.id, fecha: o.date, bank: o.bank, account_label: o.account_label,
+            monto: Number(o.amt), concept: o.concept, categoria: o.categoria,
+            desvio_meses: Number(o.fecha_desvio_meses) || 0,
+          })),
+        },
+        sin_respaldo: { n: buckets.sin_respaldo.length, monto: sinResp },
+        respaldado: r2(bankTotal - sinResp - sum(buckets.fecha_invalida)),
+        cuadra: sinResp <= TOL,
+        por_categoria, por_cuenta,
+        // La bandeja: lo que salió del banco y el ERP no registró, de mayor a menor.
+        items: buckets.sin_respaldo.slice(0, 300).map((o) => ({
+          id: o.id, fecha: o.date, bank: o.bank, account_label: o.account_label,
+          monto: Number(o.amt), concept: o.concept, categoria: o.categoria, group_key: o.group_key,
+        })),
+        items_truncados: Math.max(0, buckets.sin_respaldo.length - 300),
         tol: TOL,
       };
     });

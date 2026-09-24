@@ -75,14 +75,17 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
         <button type="button" class="fb-status-chip" (click)="view.set('cuentas')"
                 aria-label="Ir a Cuentas: ver el cuadre de saldos de cada cuenta" title="Ir a Cuentas — cuadre de saldos">
           <i class="pi pi-inbox"></i> Importado <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</button>
-        <button type="button" class="fb-status-chip" [class.warn]="(classifiedPct() ?? 100) < 100"
+        <!-- Sin dato el chip también avisa: "no medido" no es "todo bien" (ADR-056). -->
+        <button type="button" class="fb-status-chip" [class.warn]="classifiedPct() == null || classifiedPct()! < 100"
                 (click)="fGroup.set(''); fUncat.set(true); view.set('movimientos'); reloadMovements()"
                 aria-label="Ir a Movimientos filtrado a los que faltan clasificar" title="Ir a Movimientos — sólo los que faltan clasificar">
           <i class="pi pi-tags"></i> Clasificado <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></button>
-        <button type="button" class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"
+        <button type="button" class="fb-status-chip" [class.warn]="reconStale() || (reconciledPct() != null && reconciledPct()! < 80)"
                 (click)="view.set('conciliacion')"
-                aria-label="Ir a Conciliación contra Kepler" title="Ir a Conciliación — contra Kepler">
-          <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></button>
+                [attr.aria-label]="reconStale() ? 'Ir a Conciliación: el estado de cuenta se re-importó después de la última conciliación' : 'Ir a Conciliación contra Kepler'"
+                [title]="reconStale() ? 'El estado de cuenta se re-importó después de la última conciliación (' + (diagnostico()?.recon_estado?.last_match_at | date:'dd/MM HH:mm') + '): los movimientos nuevos están sin conciliar. Corré «Conciliar» de nuevo.' : 'Ir a Conciliación — contra Kepler'">
+          <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b>
+          @if (reconStale()) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <span class="fb-chip-note">desactualizado</span> }</button>
         @if (sheetCfg(); as sc) {
           <span class="fb-status-chip" [class.warn]="!!sc.last_error"
                 [title]="sc.last_error || 'Sync del workbook maestro (Google Sheet)'">
@@ -225,6 +228,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .fb-status-chip b { color: var(--text-main); font-weight: 600; }
     .fb-status-chip.warn { color: var(--warn-fg); }
     .fb-status-chip.warn i, .fb-status-chip.warn b { color: var(--warn-fg); }
+    /* CB.46 — la salvedad va junto al número, no en un tooltip: un % viejo leído como actual
+       es peor que no tenerlo. */
+    .fb-chip-note { font-size: var(--fs-2xs, .68rem); text-transform: uppercase; letter-spacing: .04em; opacity: .85; }
     .fb-live { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
     .fb-live i { color: var(--ok-fg); font-size: .5rem; animation: fb-live-pulse 2s ease-in-out infinite; }
     @media (prefers-reduced-motion: reduce) { .fb-live i { animation: none; } }
@@ -342,21 +348,46 @@ export class FinanzasBancosComponent implements OnInit {
     const total = this.accounts().filter((a) => a.active).length;
     return { loaded: this.statements().length, total };
   });
+  /**
+   * CB.46 — Numerador y denominador del MISMO universo, los dos de `diagnostico`.
+   *
+   * Antes el denominador era `d.movimientos` (todo el periodo, caja incluida) y el numerador
+   * descontaba el sin-clasificar del CONCENTRADO, que excluye `kind='cash'` a propósito. El
+   * chip inflaba la clasificación entre 5 y 13 pp todos los meses (medido en prod: mayo decía
+   * 99%, real 86%) y contradecía al Cierre, que lista el conteo completo dos centímetros abajo.
+   * Si el backend todavía no manda el campo devuelve null — "sin medir", no 100%.
+   */
   readonly classifiedPct = computed(() => {
     const d = this.diagnostico();
-    if (!d || !d.movimientos) return null;
-    const sc = this.concentrado()?.groupTotals?.['sin_clasificar']?.movs ?? 0;
-    return Math.max(0, Math.round(((d.movimientos - sc) / d.movimientos) * 100));
+    if (!d || !d.movimientos || d.sin_clasificar_n == null) return null;
+    return Math.max(0, Math.round(((d.movimientos - d.sin_clasificar_n) / d.movimientos) * 100));
   });
   // % por MONTO (no por conteo): es el que importa — el dinero grande casa, las
   // comisiones/nómina chiquitas que Kepler agrupa no, y subvenden el conteo.
   amtPct(mr: { matched_amount: number; bank_amount: number }): number {
     return mr?.bank_amount ? Math.round((mr.matched_amount / mr.bank_amount) * 100) : 0;
   }
+  /**
+   * CB.46 — Primero el resultado de la corrida de esta sesión; si no hubo, el estado
+   * PERSISTIDO que trae `diagnostico`.
+   *
+   * `matchResult` es un signal en memoria que sólo llena el POST /match y que se resetea al
+   * cambiar de periodo, así que al abrir la pantalla el chip decía "sin correr" aunque la DB
+   * tuviera el periodo conciliado (ago-2026: 1,467 movimientos casados en prod) — e invitaba a
+   * re-disparar una escritura que no hacía falta.
+   */
   readonly reconciledPct = computed(() => {
-    const mr = this.matchResult(); if (!mr) return null;
-    return this.amtPct(mr);
+    const mr = this.matchResult(); if (mr) return this.amtPct(mr);
+    return this.diagnostico()?.recon_estado?.pct ?? null;
   });
+  /**
+   * El match guardado quedó ANTES del último import: describe un universo que ya cambió.
+   * Medido en prod: los 9 periodos se re-importaron después de su último match, y los
+   * movimientos nuevos entran como `pending` sin que nadie vuelva a conciliar. Sólo aplica al
+   * dato persistido — lo que se acaba de correr en esta sesión está al día por definición.
+   */
+  readonly reconStale = computed(() =>
+    !this.matchResult() && !!this.diagnostico()?.recon_estado?.stale);
 
   /**
    * §Ing.UI 9 — la vista y el periodo viven en la URL (`?view=cuadre&period=2026-01`).

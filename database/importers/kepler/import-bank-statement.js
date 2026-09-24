@@ -16,6 +16,7 @@
  *   node database/importers/kepler/import-bank-statement.js --file "01 ENERO 2026.xlsx"            # dry-run
  *   node database/importers/kepler/import-bank-statement.js --file "01 ENERO 2026.xlsx" --apply
  *   ... --period 2026-01     # override (default: se deriva del nombre del archivo)
+ *   ... --allow-fecha-fuera  # CB.46: carga igual, EXCLUYENDO las filas con fecha de otro periodo
  */
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -23,8 +24,13 @@ const ExcelJS = require('exceljs');
 const { Client } = require('pg');
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
-const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
+// CB.46 — el fail-fast se evalúa al ARRANCAR el import, no al cargar el módulo: sigue siendo
+// fail-fast (nada se conecta antes), y así el candado puede requerir las funciones de la
+// compuerta sin necesitar una DB destino.
+const dstUrl = () => process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
+/** CB.46 — escape de la compuerta de fecha: carga igual, EXCLUYENDO las filas señaladas. */
+const ALLOW_FECHA_FUERA = process.argv.includes('--allow-fecha-fuera');
 const BATCH = 500;
 
 function arg(name, def) {
@@ -50,6 +56,27 @@ function excelDate(v) {
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // dd/mm/yyyy
   if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   return null;
+}
+
+/**
+ * CB.46 — ¿La fecha parseada pertenece al periodo del archivo? Devuelve el desvío en MESES.
+ *
+ * `excelDate` acepta cualquier año de 4 dígitos y nunca lo contrastaba contra `--period`, así
+ * que un typo de año entraba tal cual y el movimiento salía del periodo: queda dentro del
+ * Concentrado/Cuadre (que filtran por el periodo del estado de cuenta) y fuera de cualquier
+ * vista que filtre por fecha. Medido en prod el 2026-09-24: 23 movimientos por $1,579,507
+ * quedaron con `2027-08-06` (corte de ago-2026) y con el año `0206` (corte de feb-2026).
+ *
+ * Se mide en meses, no en días, porque la población legítima y la rota se separan justo ahí:
+ * 61 movimientos están a -1 mes y son cierre de mes que el banco liquida en el corte siguiente
+ * (último día del mes anterior, o el último HÁBIL: 30-may-2026 fue sábado). Por eso -1 y 0
+ * pasan, y todo lo demás es typo. Un umbral en DÍAS no los separaría: se mezclarían con el
+ * `2027-08-06`, que cae el día 6.
+ */
+function desvioMeses(dateStr, period) {
+  const [fy, fm] = dateStr.split('-').map(Number);
+  const [py, pm] = period.split('-').map(Number);
+  return (fy * 12 + fm) - (py * 12 + pm);
 }
 
 // CB.6 — Clasificación desde DB (finance.bank_classify_rules), misma fuente de
@@ -89,7 +116,10 @@ async function bulkUpsertMovements(db, rows) {
   }
 }
 
+// CB.46 — requerible desde el candado sin disparar el import. El test tiene que ejercer la
+// función REAL de la compuerta; una copia de la regla en el test se pone verde sola.
 (async () => {
+  if (require.main !== module) return;
   if (!fs.existsSync(FILE)) { console.error(`No existe el archivo: ${FILE}`); process.exit(2); }
   if (!PERIOD) { console.error('No pude derivar el periodo; pasá --period YYYY-MM'); process.exit(2); }
   console.log(`\n=== CB.1 Import banco (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${FILE} · periodo ${PERIOD} ===\n`);
@@ -98,7 +128,7 @@ async function bulkUpsertMovements(db, rows) {
   await wb.xlsx.readFile(FILE);
   const sheets = wb.worksheets.filter((s) => !/TOTAL MOV|CONCENTRADO|FilterDatabase/i.test(s.name));
 
-  const db = new Client({ connectionString: DST });
+  const db = new Client({ connectionString: dstUrl() });
   await db.connect();
   await db.query('BEGIN');
   await db.query(`SET LOCAL app.tenant_id = '${MEGA}'`);
@@ -115,6 +145,7 @@ async function bulkUpsertMovements(db, rows) {
 
   const summary = [];
   const byGroup = {}; // group_key → { in, out, n }
+  const fechasFueraDePeriodo = []; // CB.46 — filas cuya fecha no pertenece al periodo del archivo.
   let grandIn = 0, grandOut = 0, grandUncat = 0, grandRows = 0;
 
   for (const ws of sheets) {
@@ -153,6 +184,17 @@ async function bulkUpsertMovements(db, rows) {
       if (!date) continue;
       const amtIn = money(cellVal(row, ci.dep)), amtOut = money(cellVal(row, ci.ret));
       if (amtIn === 0 && amtOut === 0) continue;
+      // CB.46 — la fecha se contrasta contra el periodo del archivo ANTES de aceptar la fila.
+      // No se corrige ni se descarta en silencio: se junta y al final el import FALLA con la
+      // lista, porque una fecha de otro año rompe el universo de las vistas que filtran por
+      // fecha y nadie se entera (ver desvioMeses).
+      const dm = desvioMeses(date, PERIOD);
+      if (dm > 0 || dm < -1) {
+        fechasFueraDePeriodo.push({ hoja: ws.name, fila: r, fecha: date, periodo: PERIOD,
+          desvio_meses: dm, monto: Math.round(amtIn + amtOut),
+          concepto: String(norm(cellVal(row, ci.prov)) || '').slice(0, 40) });
+        continue;
+      }
       const M = norm(cellVal(row, ci.m)), C = norm(cellVal(row, ci.c)), S = norm(cellVal(row, ci.s));
       const concept = norm(cellVal(row, ci.prov));
       const bal = ci.saldo ? money(cellVal(row, ci.saldo)) : null;
@@ -214,7 +256,29 @@ async function bulkUpsertMovements(db, rows) {
     if (res.rowCount) console.log(`\nBarrido soft-delete: ${res.rowCount} movimiento(s) que ya no están en el workbook.`);
   }
 
+  // CB.46 — Compuerta de fecha. Va acá, antes del COMMIT, para que el rechazo sea TODO o NADA:
+  // el import corre dentro de una transacción, así que un ROLLBACK deja la base como estaba en
+  // vez de cargar medio workbook. Se rompe a propósito en
+  // `database/tests/test-newdb-bank-statement-date-gate.js` (prueba negativa).
+  if (fechasFueraDePeriodo.length) {
+    console.error(`\n⛔ ${fechasFueraDePeriodo.length} fila(s) con fecha fuera del periodo ${PERIOD} — el archivo NO se cargó.`);
+    console.table(fechasFueraDePeriodo.slice(0, 30));
+    if (fechasFueraDePeriodo.length > 30) console.error(`  … y ${fechasFueraDePeriodo.length - 30} más.`);
+    console.error('  Se tolera el último día del mes ANTERIOR (el banco lo liquida en este corte).');
+    console.error('  Todo lo demás es el año o el mes mal capturado en el Excel: corregí la celda y volvé a subir.');
+    if (!ALLOW_FECHA_FUERA) {
+      await db.query('ROLLBACK');
+      console.error('\n[ROLLBACK] Nada cambió. Si de verdad son correctas, repetí con --allow-fecha-fuera.');
+      await db.end();
+      process.exit(2);
+    }
+    console.error('  --allow-fecha-fuera: se continúa y esas filas quedan EXCLUIDAS de la carga.');
+  }
+
   if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); }
   else { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }
   await db.end();
 })().catch((e) => { console.error('ERROR', e.message); process.exit(1); });
+
+// CB.46 — superficie para el candado `test-newdb-bank-date-gate.js`.
+module.exports = { excelDate, desvioMeses };
