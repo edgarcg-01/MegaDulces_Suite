@@ -91,9 +91,11 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR, url: '/finanzas/calendario-pagos', motivo: 'autorizar sin view: la ruta exige FINANCE_PAYMENTS_VER' },
   { perm: Permission.FINANCE_RECON_ASIGNAR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER' },
   { perm: Permission.FINANCE_RECON_RECIBIR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER (es un marcador para repartir tareas, no un permiso de pantalla)' },
-  { perm: Permission.FINANCE_EXPENSES_VER_ALL, url: '/finanzas/gastos', motivo: 'la ruta exige EXPENSES_VER' },
-  { perm: Permission.FINANCE_EXPENSES_COMPROBAR, url: '/finanzas/gastos', motivo: 'ídem' },
-  { perm: Permission.FINANCE_FINDINGS_GESTIONAR, url: '/finanzas/gastos', motivo: 'ídem' },
+  // `[GX.17]` Las TRES deudas de `/finanzas/gastos` se saldaron solas: esa ruta dejó de
+  // exigir permiso (la sección se partió y ésta es la de capturar, abierta a todos), así
+  // que ya no rebota a nadie. Las detectó esta misma prueba, que mira las DOS direcciones:
+  // una deuda que ya no aplica es ruido que enseña a ignorar la lista.
+  // `FINANCE_EXPENSES_COMPROBAR` además ya tiene su propia ruta: `/finanzas/aprobacion-gastos`.
   // contabilidad
   { perm: Permission.FISCAL_LISTAS_GESTIONAR, url: '/contabilidad/listas-sat', motivo: 'manage sin view' },
   { perm: Permission.FISCAL_PURCHASE_BOOK_GESTIONAR, url: '/contabilidad/movimientos-no-asociados', motivo: 'manage sin view' },
