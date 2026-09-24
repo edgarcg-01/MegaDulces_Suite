@@ -876,6 +876,9 @@ const CRON_JOBS: CronCfg[] = [
   // Medido el 2026-09-21: la tabla de fotos tenia 0 filas y CERO renglones en `cron_runs`, o sea
   // que llevaba quien sabe cuanto sin tomarse y nadie podia enterarse.
   { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [CC.10] Sin este renglón el latido de `cobranza_gap` no sirve de nada: el sensor caería en
+  // `cfg ? classify : 'ok'` y un cron parado se vería verde. Van juntos, siempre.
+  { key: 'cobranza_gap',        label: 'Brecha banco↔cobro (abonos sin ligar)', cadence: 'diario 07:45 MX', warnH: 26, critH: 50, maxRunH: 1 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   // ── [NORM.3] EL CARRIL QUE ERA MUDO ─────────────────────────────────────────────────────────

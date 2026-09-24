@@ -201,6 +201,44 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · Candado `test-newdb-cobranza-match-universo.js`, **8 ✔ contra el prod real**. Atrapó un
         falso positivo propio: la aserción miraba el texto del SQL y se ponía roja con el
         comentario que explicaba por qué NO filtra — ahora mira las **líneas de código**.
+- [x] **[CC.10]** 🧪 **El cruce deja de ser mudo, y el trabajo le llega a alguien.** «Abonos sin
+      cobro» existía desde CC.6 y **sólo se veía si alguien abría la pestaña**: sin cron, sin
+      latido, sin bandeja, sin aviso. Si mañana se rompe la carga de estados de cuenta, la
+      pantalla diría «0 huérfanos» y nadie se enteraría.
+      · `CobranzaGapScannerService` (@Cron 07:45 MX, toggle `ENABLE_COBRANZA_GAP_SCAN`, guard
+        anti-solape) mide la brecha, **late** a `analytics.cron_runs` (`cobranza_gap`) y avisa
+        por `FINANCE_NOTIFIER_PORT`. Endpoint manual `POST /finance/collections/gap/scan-now`
+        pasa por el MISMO camino, así que una corrida a mano **deja latido** — la lección de
+        `[CXC.20.5]`. Umbral en `CRON_JOBS` (sin él el sensor da verde incondicional).
+      · ⛔ **NO escribe a `finance.findings`, y es una decisión medida.** El plan decía un
+        hallazgo por depósito; son **5,244 por $118,935,974.22** y la bandeja
+        `/finanzas/hallazgos` **ya fue retirada** (`[SN.18]`) por acumular **82,377 en `nuevo`
+        sin triage**. ⭐ Y la razón de fondo: **acá el trabajo cierra el item solo** — ligar el
+        abono lo saca de la cuenta. Un hallazgo exigiría un triage manual que **duplica** la
+        acción real, que es el paso que en los 82 mil nadie dio nunca.
+      · Bandeja `cobranza-abonos-sin-ligar` en «Mi trabajo», **contando en vivo** sobre
+        `bank_movements` (**13 ms**), responsabilidad `finanzas.cartera`, umbral 3 días. Recorte
+        **45 días y ≥ $10,000**: 5,244 → **1,824 abiertos**. Y **no nace congelada**: 236
+        ligados en 30 días.
+      · ⚠️ Declarado: los `recon_status = 'unmatched'` (el conciliador de CB ya miró y no
+        encontró) quedan **fuera** de la bandeja — **136 abonos por $3,911,556.33**. Son otro
+        trabajo, y `medirCola` mide un solo estado abierto.
+      · ⭐ **El latido subió a primitivo compartido.** Estaba escrito a mano en **7 servicios** y
+        el mío iba a ser el octavo: nace `latirCron()` en
+        `libs/platform-core/src/lib/provenance/cron-heartbeat.ts`, al lado de `laneAt()` —que es
+        el que LEE lo que esto escribe—. Fija las tres reglas que la copia-pega se llevó mal:
+        **cero entregado es `error`** salvo motivo declarado, el `catch` **loguea** en vez de
+        callarse, y el umbral en `CRON_JOBS` es parte del trato.
+      · Candado extendido a **13 ✔ contra el prod real**, incluido el gate de que el latido tiene
+        su umbral y de que la bandeja no volvió a colgarse de `finance.findings`.
+- [ ] **[CC.10.1]** ⬜ **DEUDA CON NOMBRE:** migrar los **7 latidos escritos a mano**
+      (`analytics-refresh`, `period-close-check`, `stock-snapshot`,
+      `customer-receivables-scanner`, `goods-receipt-twins`, `fleet-poller`,
+      `db-health-scanner`) a `latirCron()`. Hoy sólo el de cobranza lo usa.
+- [ ] **[CC.10.2]** ⬜ **Prueba negativa del latido, pendiente:** apagar
+      `ENABLE_COBRANZA_GAP_SCAN` y ver `cobranza_gap` en `error`, y correr con la fuente vacía
+      para ver que cero entregado **no** pasa por verde. Necesita el API desplegado — no se
+      puede ejercer desde un test de DB, y **un gate sin prueba negativa es una intención**.
 - [ ] **[CXC.21]** ⬜ **DEUDA CON NOMBRE — la pirámide.** Los 4.2 s son la vista, no la consulta:
       `EXPLAIN` da 3.2 s de CPU con **todos** los buffers en `shared hit` (no es I/O). El arreglo es
       el que `[PERF.4b]` ya aplicó a `erp_sales_invoices`: resolver la cartera **por documento** con

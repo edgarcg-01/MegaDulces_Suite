@@ -4,6 +4,7 @@ import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOp
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CollectionDepositsController } from './collection-deposits.controller';
 import { CobranzaGateway } from './cobranza.gateway';
+import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
 
 /**
  * Fase CC — Comprobantes de Cobranza. Adjunta el comprobante de depósito (imagen/PDF)
@@ -23,7 +24,7 @@ import { CobranzaGateway } from './cobranza.gateway';
     }),
   ],
   controllers: [CollectionDepositsController],
-  providers: [CollectionDepositsService, CobranzaGateway],
+  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService],
   exports: [CollectionDepositsService],
 })
 export class FinanceCollectionDepositsModule {}

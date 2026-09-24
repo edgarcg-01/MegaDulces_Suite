@@ -95,3 +95,6 @@ export * from './lib/pipes/zod-validation.pipe';
 // Horus (`libs/trade`, deliberadamente desacoplado del motor comercial) no podía declarar su
 // frescura sin acoplar dos dominios o copiar la lógica. `platform-core` ya es dependencia de los dos.
 export * from './lib/provenance/freshness';
+// [CC.10] El otro lado del mismo par: `freshness` LEE `analytics.cron_runs`, esto lo ESCRIBE.
+// Estaba copiado a mano en 7 servicios cuando el octavo iba a nacer.
+export * from './lib/provenance/cron-heartbeat';

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CollectionDepositsService, ListCobrosQuery, AttachDepositDto } from './collection-deposits.service';
+import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -16,7 +17,23 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 @UseGuards(RolesGuard)
 @Controller('finance/collections')
 export class CollectionDepositsController {
-  constructor(private readonly svc: CollectionDepositsService) {}
+  constructor(
+    private readonly svc: CollectionDepositsService,
+    private readonly gap: CobranzaGapScannerService,
+  ) {}
+
+  /**
+   * `[CC.10]` Corre la medición de la brecha banco↔cobro AHORA, por el mismo camino que el cron.
+   *
+   * Pasa por `scan()` y no por una consulta suelta a propósito: así una corrida manual **deja
+   * latido**. Es la lección de `[CXC.20.5]` — ahí el endpoint manual escribía las filas sin
+   * tocar `analytics.cron_runs`, y quedaba imposible distinguir «el job está roto» de «alguien
+   * lo disparó a mano» sin abrir la base.
+   */
+  @Post('gap/scan-now')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Mide la brecha banco↔cobro ahora y deja latido en analytics.cron_runs.' })
+  scanGapNow() { return this.gap.scan(); }
 
   @Get()
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
