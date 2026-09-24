@@ -4,7 +4,7 @@ import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth, HealthAlert, EngineReport } from './db-health.service';
+import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth, HealthAlert, EngineReport, VersionReport } from './db-health.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 type Sev = 'success' | 'warn' | 'danger' | 'secondary';
@@ -33,6 +33,56 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
           <button pButton type="button" (click)="toggleAuto()" size="small" [class.p-button-outlined]="!auto()" [title]="auto() ? 'Auto-refresco cada 60s activo' : 'Auto-refresco pausado'"><span class="p-button-icon p-button-icon-left pi" [class.pi-pause]="auto()" [class.pi-play]="!auto()" aria-hidden="true"></span><span class="p-button-label">{{ auto() ? 'Auto 60s' : 'Manual' }}</span></button>
         </div>
       </header>
+
+      <!-- [VL.15.E] QUÉ VERSIÓN CORRE. Va primero porque es la pregunta que se hace antes que
+           cualquier otra cuando algo no cuadra: "¿ya subió mi cambio?". Antes vivía en una
+           terminal (deploy.sh --estado) y en un JSON crudo (/api/health).
+           ⚠️ SIN acentos graves acá: este HTML vive dentro de un template literal de TS y un
+           acento grave lo TERMINA. Es la sexta vez que este repo lo paga. -->
+      @if (version(); as v) {
+        <section class="version">
+          <div class="vnow">
+            <span class="vlbl">Corriendo en producción</span>
+            <code class="vsha">{{ v.corriendo.commit }}</code>
+            <span class="vup">arriba desde hace {{ tiempoHumano(v.corriendo.uptime_seconds) }}</span>
+          </div>
+          @if (!v.bitacora_disponible) {
+            <!-- DECLARADO, no disfrazado de "nunca se desplegó": son cosas distintas. -->
+            <p class="vnota"><i class="pi pi-info-circle"></i> La bitácora de despliegues todavía no existe — se crea en el próximo <code>deploy.sh</code>.</p>
+          } @else if (!v.despliegues.length) {
+            <p class="vnota"><i class="pi pi-info-circle"></i> La bitácora existe y está vacía: ningún despliegue registrado aún.</p>
+          } @else {
+            @if (v.despliegues[0].commit_sha !== v.corriendo.commit) {
+              <p class="vnota warn"><i class="pi pi-exclamation-triangle"></i>
+                El último despliegue anotado es <code>{{ v.despliegues[0].commit_sha }}</code> y lo que corre es
+                <code>{{ v.corriendo.commit }}</code>. <strong>Manda lo que corre.</strong>
+                Suele significar que alguien levantó un contenedor por fuera de <code>deploy.sh</code>.
+              </p>
+            }
+            <table class="vtab">
+              <thead><tr><th>Cuándo</th><th>Versión</th><th>Servicios</th><th>Resultado</th><th>Mig.</th><th>Quién</th></tr></thead>
+              <tbody>
+                @for (d of v.despliegues.slice(0, 6); track d.desplegado_en) {
+                  <tr [class.malo]="d.resultado !== 'ok'">
+                    <td>{{ d.desplegado_en | date: 'dd/MM HH:mm' }}</td>
+                    <td><code>{{ d.commit_sha }}</code></td>
+                    <td class="vsrv">{{ d.servicios }}</td>
+                    <td>
+                      @if (d.resultado === 'ok') { <span class="vok">correcto</span> }
+                      @else { <span class="vmal">{{ d.resultado }}</span> }
+                    </td>
+                    <td>
+                      @if (d.migraciones_pendientes > 0) { <span class="vmal">{{ d.migraciones_pendientes }} pend.</span> }
+                      @else { <span class="vdash">—</span> }
+                    </td>
+                    <td>{{ d.quien || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </section>
+      }
 
       <!-- Marcador — lectura instantánea de toda la parvada de feeds/fuentes -->
       <div class="scoreboard">
@@ -294,6 +344,27 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .kv span { color: var(--text-faint); min-width: 12rem; }
     .kv b { font-variant-numeric: tabular-nums; color: var(--text-main); font-weight: 600; }
     .kv i { font-style: normal; color: var(--text-faint); font-size: .7rem; }
+
+    /* [VL.15.E] Versión en producción. Tokens de Operations: sin decoración, densidad alta. */
+    .version { border: 1px solid var(--border-subtle, #e7e5e4); border-radius: var(--radius-md, 8px);
+               padding: .7rem .85rem; margin-bottom: 1rem; background: var(--surface-card, #fff); }
+    .vnow { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; }
+    .vlbl { font-size: var(--fs-xs, .72rem); color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+    .vsha { font-family: var(--font-mono, ui-monospace, monospace); font-size: .95rem; font-weight: 700;
+            color: var(--text-main); background: var(--surface-sunken, #f5f5f4); padding: .1rem .4rem; border-radius: 4px; }
+    .vup { font-size: var(--fs-xs, .72rem); color: var(--text-faint); }
+    .vnota { margin: .55rem 0 0; font-size: var(--fs-xs, .72rem); color: var(--text-faint); display: flex; gap: .35rem; align-items: flex-start; }
+    .vnota.warn { color: var(--amber-700, #b45309); }
+    .vnota code { font-family: var(--font-mono, ui-monospace, monospace); }
+    .vtab { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: var(--fs-xs, .72rem); }
+    .vtab th { text-align: left; font-weight: 600; color: var(--text-faint); padding: .25rem .5rem .25rem 0; border-bottom: 1px solid var(--border-subtle, #e7e5e4); }
+    .vtab td { padding: .3rem .5rem .3rem 0; border-bottom: 1px solid var(--border-faint, #f5f5f4); color: var(--text-main); }
+    .vtab td code { font-family: var(--font-mono, ui-monospace, monospace); }
+    .vtab tr.malo td { background: var(--red-50, #fef2f2); }
+    .vsrv { color: var(--text-faint); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vok { color: var(--green-700, #15803d); }
+    .vmal { color: var(--red-700, #b91c1c); font-weight: 600; }
+    .vdash { color: var(--text-faint); }
   `],
 })
 export class AdminDbHealthComponent implements OnInit, OnDestroy {
@@ -307,6 +378,8 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
   readonly resolvedAlerts = signal<HealthAlert[]>([]);
   /** DBH.1 — salud del motor. Nulo hasta que responde (o si el endpoint aún no existe). */
   readonly engine = signal<EngineReport | null>(null);
+  /** [VL.15.E] Qué versión corre en prod. Nulo hasta que responde o si no hay endpoint. */
+  readonly version = signal<VersionReport | null>(null);
   /** Filtro de severidad activo (clic en el marcador). null = ver todo. */
   readonly filter = signal<HealthStatus | null>(null);
   /** Auto-refresco cada 60s (pantalla viva). */
@@ -362,6 +435,7 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
     });
     this.loadAlerts();
     this.loadEngine();
+    this.loadVersion();
   }
 
   load(): void {
@@ -373,6 +447,7 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
     });
     this.loadAlerts();
     this.loadEngine();
+    this.loadVersion();
   }
 
   /** El motor va en su propia llamada: si el endpoint no existe todavía (pre-deploy) la pantalla
@@ -381,6 +456,30 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
     this.svc.getEngine().subscribe({
       next: (e) => this.engine.set(e),
       error: () => { /* pre-deploy o sin permiso: la sección simplemente no se dibuja */ },
+    });
+  }
+
+  /** [VL.15.E] En su propia llamada, como el motor: si el API todavía no tiene el endpoint
+   *  (o la bitácora no existe), la pantalla de frescura sigue funcionando igual. */
+  /**
+   * `[VL.15.E]` Segundos → algo que una persona lee de un vistazo. Es `uptime` del proceso, así
+   * que también contesta "¿se reinició solo?" sin abrir un log: si dice minutos y nadie desplegó,
+   * el contenedor se cayó y volvió.
+   */
+  tiempoHumano(seg: number): string {
+    if (!Number.isFinite(seg) || seg < 0) return '—';
+    if (seg < 90) return `${Math.round(seg)} s`;
+    const min = seg / 60;
+    if (min < 90) return `${Math.round(min)} min`;
+    const h = min / 60;
+    if (h < 48) return `${Math.round(h)} h`;
+    return `${Math.round(h / 24)} días`;
+  }
+
+  loadVersion(): void {
+    this.svc.getVersion().subscribe({
+      next: (v) => this.version.set(v),
+      error: () => { /* pre-deploy o sin permiso: el bloque no se dibuja */ },
     });
   }
 
