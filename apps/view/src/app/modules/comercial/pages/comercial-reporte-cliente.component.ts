@@ -197,7 +197,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
           </thead>
           <tbody>
             @for (d of r.documentos; track d.id) {
-              <tr [class.dentro]="dentro().has(d.id)">
+              <tr [class.fuera]="!dentro().has(d.id)">
                 <td><input type="checkbox" [checked]="dentro().has(d.id)" (change)="alternar(d)"
                            [attr.aria-label]="'Incluir ' + d.id"></td>
                 <td>
@@ -236,54 +236,62 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
   styles: [`
     .rc { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
     .rc-head { display: flex; align-items: flex-end; justify-content: space-between; }
-    .rc-crumb { font-size: 12px; color: var(--text-3); }
+    .rc-crumb { font-size: 12px; color: var(--text-soft); }
     .rc h1 { margin: 2px 0 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
     .rc-volver { font-size: 13px; }
     .rc-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; }
     .rc-buscar { display: flex; align-items: center; gap: 10px; }
-    .rc-buscar label { font-size: 13px; color: var(--text-2); }
-    .rc-buscar input { flex-grow: 1; font: inherit; font-size: 14px; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-1); }
+    .rc-buscar label { font-size: 13px; color: var(--text-soft); }
+    .rc-buscar input { flex-grow: 1; font: inherit; font-size: 14px; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text); }
     .rc-cands { list-style: none; margin: 0; padding: 0; }
     .rc-cand { width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--border-color); padding: 9px 4px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: inherit; color: inherit; }
     .rc-cand:hover { background: var(--overlay-hover); }
     .rc-cand-nom { font-size: 14px; font-weight: 600; }
-    .rc-cand-sub { font-size: 12px; color: var(--text-3); }
+    .rc-cand-sub { font-size: 12px; color: var(--text-soft); }
     .rc-amb { font-size: 12px; color: var(--warn-soft-fg); }
     .rc-cli { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .rc-cli-txt { display: flex; flex-direction: column; gap: 3px; }
     .rc-barra { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
     .rc-flex { flex-grow: 1; }
-    .rc-periodo { font: inherit; font-size: 14px; font-weight: 500; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-1); }
-    .rc-masf { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 14px; padding: 9px 13px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-2); cursor: pointer; }
-    .rc-masf:hover, .rc-masf.abierto { background: var(--overlay-hover); color: var(--text-1); }
+    .rc-periodo { font: inherit; font-size: 14px; font-weight: 500; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text); }
+    .rc-masf { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 14px; padding: 9px 13px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-soft); cursor: pointer; }
+    .rc-masf:hover, .rc-masf.abierto { background: var(--overlay-hover); color: var(--text); }
     .rc-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--action); color: #fff; }
-    .rc-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 7px 6px 11px; border: 1px solid var(--action); border-radius: 999px; color: var(--action); background: transparent; }
+    /* ⚠️ Los chips estaban en --action, el mismo naranja que «Imprimir reporte»: dos
+       naranjas peleando, y el ojo no sabe cual es el boton. Un filtro puesto es
+       ESTADO, no accion — va neutro; el naranja queda para lo unico que se aprieta. */
+    .rc-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 7px 6px 11px; border: 1px solid var(--border-color); border-radius: 999px; color: var(--text); background: var(--card-bg); }
     .rc-chip button { display: inline-flex; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; line-height: 0; font-size: 11px; }
     .rc-panel { display: flex; flex-direction: column; gap: 9px; }
     .rc-cifras { display: flex; align-items: baseline; gap: 36px; padding: 2px; }
     .rc-cifras > div { display: flex; flex-direction: column; gap: 1px; }
-    .rc-cifras span { font-size: 12.5px; color: var(--text-3); }
+    .rc-cifras span { font-size: 12.5px; color: var(--text-soft); }
     .rc-total { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
     .rc-desc { font-size: 19px; font-weight: 600; color: var(--ok-fg); }
     .rc-dia { font-size: 14px; font-weight: 500; }
-    .rc-sub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
-    .rc-caja { font-style: normal; color: var(--text-3); }
+    .rc-sub { font-size: 11.5px; color: var(--text-soft); margin-top: 2px; }
+    .rc-caja { font-style: normal; color: var(--text-soft); }
     .rc-pie { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border-color); }
-    .rc-fila { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); }
-    .rc-fila input[type=date], .rc-fila input[type=text], .rc-fila input[type=number] { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-1); }
+    .rc-fila { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 13px; color: var(--text-soft); }
+    .rc-fila input[type=date], .rc-fila input[type=text], .rc-fila input[type=number] { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text); }
     .rc-num { width: 98px; }
     .rc-check { display: flex; align-items: center; gap: 6px; }
     .rc-sep { width: 1px; height: 22px; background: var(--border-color); }
     .rc-aviso { font-size: 12.5px; line-height: 1.5; padding: 10px 13px; border: 1px solid var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); border-radius: var(--radius-sm); }
     .rc-tabla { padding: 0; overflow: hidden; }
     .rc-tabla table { width: 100%; border-collapse: collapse; }
-    .rc-tabla th { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); text-align: left; font-weight: 600; padding: 10px 12px; background: var(--page-bg, transparent); }
+    .rc-tabla th { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-soft); text-align: left; font-weight: 600; padding: 10px 12px; background: var(--surface-100); }
     .rc-tabla td { font-size: 14px; padding: 12px; border-top: 1px solid var(--border-color); }
-    .rc-tabla tr.dentro td { background: var(--overlay-selected); }
+    /* ⚠️ Antes se tintaba la fila INCLUIDA. Por default entran todas, asi que 35 de 37
+       filas quedaban tintadas: el color marcaba la norma y la excepcion pasaba
+       desapercibida, que es justo al reves de lo que hay que ver de un vistazo.
+       Ahora se atenua la que NO va, y el tinte desaparece. */
+    .rc-tabla tr.fuera td { opacity: .45; }
+    .rc-tabla tr.fuera .rc-dia { text-decoration: line-through; }
     .ta-r { text-align: right; }
     .neg { color: var(--bad-fg); }
-    .rc-empty { text-align: center; color: var(--text-3); padding: 20px; }
-    .rc-nota { font-size: 12px; color: var(--text-3); margin: 0; }
+    .rc-empty { text-align: center; color: var(--text-soft); padding: 20px; }
+    .rc-nota { font-size: 12px; color: var(--text-soft); margin: 0; }
     .rc-vacio p { margin: 0 0 6px; font-size: 13px; }
     .rc-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   `],
