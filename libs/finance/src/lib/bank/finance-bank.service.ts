@@ -1561,15 +1561,49 @@ export class FinanceBankService {
         .map((b: any) => ({ id: b.id, date: b.movement_date, concept: b.concept, label: b.account_label,
           dir: n(b.amount_out) > 0 ? 'out' : 'in', amount: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in) }));
 
+      // CB.48 — La fecha REAL del pago, cuando el complemento de pago SAT la tiene.
+      //
+      // `kdm1.c9` (fecha valor) es el día en que se TECLEÓ el cobro, no el día en que entró el
+      // dinero: en la sucursal 01 es idéntica a `c68` (fecha de captura) en el 97.8% de los
+      // casos. CB.44 concluyó que eso sólo se arregla con disciplina de captura y declaró
+      // $6,858,008.40 de cobranza 2026 imposibles de conciliar por fecha. **Eso era falso**: la
+      // fecha real SÍ se captura, en el complemento (`kepler_ods.kdfe33pagm1.c7`), y el motor
+      // estaba leyendo el campo equivocado. Medido: 532 de 544 cobros de la 01 y 101 de 101 de
+      // la 06 mueven la fecha, 6.8 días de promedio — $8,501,864 que pasan a tener candidato.
+      //
+      // Se carga por separado y no dentro de `kepler_bank_movements` a propósito: esa vista ya
+      // hace un seq scan de kdm1 de ~7 s y la consumen 15 lugares; ésta son 2,583 filas.
+      const compRows = await trx('analytics.v_kepler_payment_complement')
+        .where('tenant_id', tenantId).whereNotNull('doc_tipo').whereNotNull('fecha_pago')
+        .select('sucursal', 'doc_tipo', 'folio', 'fecha_pago');
+      const compIdx = new Map<string, any>();
+      for (const r of compRows as any[]) compIdx.set(`${r.sucursal}|${r.doc_tipo}|${r.folio}`, r.fecha_pago);
+      let compUsados = 0, compDiasMovidos = 0;
+
       // Lado Kepler tesorería: por cuenta + dirección (signo>0=entra, signo<0=sale).
       const kepAll = (await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_valor', '>=', iniWide).andWhere('fecha_valor', '<', finWide).whereRaw('signo <> 0')
-        .select('doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'fecha_captura', 'beneficiario'))
-        .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, clave: p.clave_banco, label: p.account_label,
-          importe: n(p.importe), fecha: p.fecha_valor, fcap: p.fecha_captura, benef: p.beneficiario,
-          dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
-          dentro: ymd(p.fecha_valor) >= ini && ymd(p.fecha_valor) < fin }));
+        .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'fecha_captura', 'beneficiario'))
+        .map((p: any) => {
+          // El complemento manda sobre la póliza: es la fecha que el propio Kepler timbró al SAT
+          // como día del pago. Si no hay complemento (el 98% de la cobranza: el CEDIS factura
+          // PUE y el SAT no exige complemento ahí), se usa la de siempre.
+          const fPago = compIdx.get(`${p.sucursal}|${p.doc_tipo}|${p.folio}`);
+          const fecha = fPago ?? p.fecha_valor;
+          if (fPago && ymd(fPago) !== ymd(p.fecha_valor)) {
+            compUsados++;
+            compDiasMovidos += Math.abs(Math.round((new Date(ymd(p.fecha_valor)).getTime() - new Date(ymd(fPago)).getTime()) / 86400000));
+          }
+          return { sucursal: p.sucursal, doc_tipo: p.doc_tipo, folio: p.folio, clave: p.clave_banco, label: p.account_label,
+            importe: n(p.importe), fecha, fecha_poliza: p.fecha_valor, fuente_fecha: fPago ? 'complemento_sat' : 'poliza',
+            fcap: p.fecha_captura, benef: p.beneficiario,
+            dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
+            // `dentro` se evalúa con la fecha EFECTIVA: un cobro tecleado en agosto cuyo pago
+            // fue el 31-jul pertenece a julio, y con la fecha de la póliza quedaba fuera de los
+            // pases 1-4 del mes que le toca.
+            dentro: ymd(fecha) >= ini && ymd(fecha) < fin };
+        });
 
       // Anti doble-cobro entre periodos: el `used` sólo vive dentro de UNA corrida, y el
       // borrado de matches previos es por `bank_movement_id` del periodo. Sin esto, un doc
@@ -1781,6 +1815,16 @@ export class FinanceBankService {
         batch_pass: p5, cross_month_pass: p6,
         kepler_ya_casado_otro_periodo: yaCasadosOtroPeriodo,
         fecha_no_confiable: fechaNoConfiable,
+        // CB.48 — cuántos documentos conciliaron con la fecha del complemento SAT en vez de la
+        // de la póliza, y cuántos días los movió. Va en el resultado porque un cambio que mueve
+        // el número tiene que poder mostrarse: sin esto, "mejoró el match" es una afirmación
+        // sin medición. ⚠️ Límite declarado: 2 documentos ($15,241) tienen la póliza a más de
+        // 45 días de su pago real y quedan fuera del pool, que se acota por `fecha_valor`.
+        complemento_sat: {
+          usados: compUsados,
+          dias_promedio: compUsados ? Math.round((compDiasMovidos / compUsados) * 10) / 10 : 0,
+          disponibles: compIdx.size,
+        },
         matched_deposits: inMovs.filter((m) => matchedSet.has(m.id)).length, deposits: inMovs.length,
         matched_withdrawals: outMovs.filter((m) => matchedSet.has(m.id)).length, withdrawals: outMovs.length,
         unmatched_bank: bankMovs.length - matchedBank, kepler_postings: kep.length,
