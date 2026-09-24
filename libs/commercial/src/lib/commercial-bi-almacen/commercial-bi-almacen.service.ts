@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, branchKeySql, branchKeyFilterSql } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, branchKeyFilterSql } from '@megadulces/platform-core';
 import { CommercialMovementsService } from '../commercial-movements/commercial-movements.service';
 import {
   BiCostDeviation,
@@ -94,20 +94,20 @@ export class CommercialBiAlmacenService {
    * `warehouse_id` (uuid) que el resto de las consultas necesita. `null` = alcance
    * `all` sin recorte pedido → sin filtro. `[]` = alcance resuelto a CERO almacenes
    * (declarado, no se lee como "todos").
+   *
+   * `[ZN.3.3]` La traducción **ya no vive acá**: subió a `ScopeService.warehouseIds()`
+   * cuando apareció el segundo consumidor (`commercial-replenishment`). Acá queda el
+   * nombre local porque lo usan 7 llamadas, y porque el `ruta` del aviso de deprecación
+   * es propio de este módulo. Nada de comportamiento cambió: misma llave
+   * (`branchKeySql`), mismo `null` vs `[]`, y ahora además declara en el log los códigos
+   * del alcance que ya no tienen almacén vigente.
    */
   private async resolveWarehouseIds(
-    trx: any,
-    tenantId: string,
+    _trx: any,
+    _tenantId: string,
     query: Record<string, unknown>,
   ): Promise<string[] | null> {
-    const codes = await this.scope.readParam(query, 'warehouse', 'commercial/bi-almacen');
-    if (codes === null) return null;
-    if (!codes.length) return [];
-    const rows = await trx('commercial.warehouses as w')
-      .where('w.tenant_id', tenantId).whereNull('w.deleted_at')
-      .whereRaw(`(${branchKeySql('w')}) = ANY(?)`, [codes])
-      .select('w.id');
-    return rows.map((r: { id: string }) => r.id);
+    return this.scope.warehouseIds(query, 'commercial/bi-almacen');
   }
 
   /**

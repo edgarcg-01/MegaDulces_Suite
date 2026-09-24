@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { compareWarehouseCodes } from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
@@ -152,6 +152,8 @@ export class CommercialReplenishmentService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly scanner: ReplenishmentScannerService,
+    /** `[ZN.3.3]` El alcance de datos (ADR-050): sobre QUE sucursales, no si la pantalla abre. */
+    private readonly scope: ScopeService,
   ) {}
 
   // RA-PRO.27 — la migración 20260728170000 (settings + columnas de override) puede ir por
@@ -267,10 +269,29 @@ export class CommercialReplenishmentService {
   private targetCol(b: TargetBasis): string {
     return b === 'min' ? 'rp.min_stock' : b === 'reorder' ? 'rp.reorder_point' : 'rp.max_stock';
   }
-  /** RA.12 — parsea warehouse_ids (CSV) → UUIDs válidos; fallback a warehouse_id. */
-  private whIds(q: { warehouse_ids?: string; warehouse_id?: string }): string[] {
-    const raw = (q.warehouse_ids || q.warehouse_id || '').split(',').map((s) => s.trim());
-    return raw.filter((s) => UUID_RX.test(s));
+  /**
+   * RA.12 — los almacenes sobre los que corre la consulta, en uuid.
+   *
+   * `[ZN.3.3]` Antes esto era sólo un parser: leía `warehouse_ids`/`warehouse_id` del query y
+   * devolvía los uuids válidos. O sea que **quien no filtraba, veía la red completa** — el
+   * fail-open que ADR-050 retira. Ahora lo pedido se intersecta con lo que la persona alcanza
+   * (`ScopeService.warehouseIds`, que además acepta el código de sucursal y lo traduce).
+   *
+   * Tres estados, y los tres importan:
+   *   - `null` = no hay que filtrar (alcance `all` y nadie pidió nada). Es el caso del comprador
+   *     de red, que es la mayoría de quien entra acá.
+   *   - `[...]` = esas sucursales.
+   *   - `[]` = **ninguna**, y ese `[]` TIENE que llegar al `WHERE`. El patrón viejo
+   *     `if (whIds.length) ...` lo leía como "todas", que es exactamente el defecto.
+   *
+   * Por eso las llamadas quedaron `if (whIds)`, no `if (whIds.length)`: en SQL crudo, donde un
+   * `IN ()` vacío no compila, el equivalente es un `false` explícito.
+   */
+  private async whIds(q: object): Promise<string[] | null> {
+    // `object` y no `Record<string, unknown>`: las Query de este archivo son interfaces con
+    // campos declarados, y TS no las considera asignables a un indice de string. El cast es de
+    // FORMA, no de contenido — `warehouseIds` sólo lee los alias de `PARAM_ALIASES`.
+    return this.scope.warehouseIds(q as Record<string, unknown>, 'compras/pedido');
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
@@ -421,13 +442,14 @@ export class CommercialReplenishmentService {
    * allá o el conteo revienta con "missing FROM-clause entry". Revienta, no miente -- que es
    * justamente lo que se quiere.
    */
-  private criticalFilters(b: any, q: CriticalStockQuery, tenantId: string): boolean {
+  private criticalFilters(b: any, q: CriticalStockQuery, tenantId: string, whIds: string[] | null): boolean {
     const oh = this.onHand();
     b.where('rp.tenant_id', tenantId)
       .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
 
-    const whIds = this.whIds(q);
-    if (whIds.length) b.whereIn('rp.warehouse_id', whIds);
+    // `[ZN.3.3]` El alcance llega RESUELTO de afuera: esto corre dos veces por request (la página
+    // y el conteo) y resolverlo acá duplicaría la consulta. `null` = sin recorte - `[]` = ninguna.
+    if (whIds) b.whereIn('rp.warehouse_id', whIds);
     if (q.supplier_id && UUID_RX.test(q.supplier_id)) b.andWhere('pr.supplier_id', q.supplier_id);
     if (q.category_id && UUID_RX.test(q.category_id)) b.andWhere('pr.category_id', q.category_id);
     if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) b.andWhere('rp.source', q.source);
@@ -460,6 +482,8 @@ export class CommercialReplenishmentService {
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
+    // `[ZN.3.3]` Una sola vez por request: `criticalFilters` corre dos veces (pagina + conteo).
+    const whIds = await this.whIds(q);
 
     return this.tk.run(async (trx) => {
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
@@ -529,7 +553,7 @@ export class CommercialReplenishmentService {
         // rank (demanda 0 → NULL vía el leftJoin).
         .leftJoin(rankSub, (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'));
 
-      const abcPedido = this.criticalFilters(base, q, tenantId);
+      const abcPedido = this.criticalFilters(base, q, tenantId, whIds);
 
       // ⭐ [RA-PERF.2] El CONTEO se arma con las relaciones que los filtros TOCAN, y nada más.
       //
@@ -559,7 +583,7 @@ export class CommercialReplenishmentService {
         conteo.leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
       }
-      this.criticalFilters(conteo, q, tenantId);
+      this.criticalFilters(conteo, q, tenantId, whIds);
 
       const totalRow: any = await conteo.count('* as c').first();
       const total = Number(totalRow?.c || 0);
@@ -741,8 +765,8 @@ export class CommercialReplenishmentService {
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
-      const whIds = this.whIds(q);
-      if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
+      const whIds = await this.whIds(q);
+      if (whIds) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
       // Filtro por nombre de proveedor (el cockpit filtra por nombre, no por id).
@@ -900,13 +924,18 @@ export class CommercialReplenishmentService {
       // no tienen fila en el ledger de compras del almacén → con el filtro viejo (pl.product_id IS
       // NOT NULL) el pedido de una sucursal salía VACÍO. El ledger (pl) queda a nivel RED solo para
       // el costo real y el almacén primario; el scope por almacén va sobre demanda/existencia/tránsito.
-      const whIds = this.whIds(q);
-      binds.selwh = whIds.length === 1 ? whIds[0] : null; // "Compra en" = la sucursal filtrada
+      const whIds = await this.whIds(q);
+      binds.selwh = whIds && whIds.length === 1 ? whIds[0] : null; // "Compra en" = la sucursal filtrada
       let planWh = ''; // scope por almacén sobre el fact (demanda/existencia/tránsito por sucursal)
-      if (whIds.length) {
-        const inList = whIds.map((_, i) => `:w${i}`).join(',');
-        whIds.forEach((w, i) => { binds[`w${i}`] = w; });
-        planWh = ` AND warehouse_id IN (${inList})`;
+      if (whIds) {
+        // `[ZN.3.3]` Alcance vacío da `AND false`, no el `IN ()` que no compila ni el "sin filtro"
+        // que devolvería la red entera.
+        if (!whIds.length) planWh = ' AND false';
+        else {
+          const inList = whIds.map((_, i) => `:w${i}`).join(',');
+          whIds.forEach((w, i) => { binds[`w${i}`] = w; });
+          planWh = ` AND warehouse_id IN (${inList})`;
+        }
       }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
@@ -1124,18 +1153,22 @@ export class CommercialReplenishmentService {
       // sucursales por warehouse_ids (una/varias); sin selección = todas las que sostienen inventario
       // (excluye rutas/vehículos/almacenes de conteo). Cero códigos hardcodeados; columnas dinámicas.
       const general = q.group === 'general';
-      const whIds = (q.warehouse_ids ?? '').split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
+      // `[ZN.3.3]` Antes se parseaba `warehouse_ids` acá a mano, sin pasar por el alcance.
+      const whIds = await this.whIds(q);
       let whFilter = '';
-      if (whIds.length) {
-        const inList = whIds.map((_, i) => `:wh${i}`).join(',');
-        whIds.forEach((w, i) => { binds[`wh${i}`] = w; });
-        whFilter = ` AND rp.warehouse_id IN (${inList})`;
+      if (whIds) {
+        if (!whIds.length) whFilter = ' AND false';
+        else {
+          const inList = whIds.map((_, i) => `:wh${i}`).join(',');
+          whIds.forEach((w, i) => { binds[`wh${i}`] = w; });
+          whFilter = ` AND rp.warehouse_id IN (${inList})`;
+        }
       }
       // Sin selección explícita: en modo POR SUCURSAL sólo almacenes que sostienen inventario
       // (evita columnas basura de rutas/vehículos sin stock). En modo GENERAL NO se filtra por
       // stock: es un único agregado de red y debe incluir TODA la venta, incluidas las camionetas
       // (kind='truck', autoventa) que venden con stock 0 — si no, la venta General queda corta.
-      const stockJoin = (whIds.length || general) ? '' : `JOIN (
+      const stockJoin = (whIds || general) ? '' : `JOIN (
             SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t GROUP BY warehouse_id HAVING SUM(stock_pz) > 0
           ) sw ON sw.warehouse_id = rp.warehouse_id`;
       const colExpr = general ? `'GENERAL'` : 'w.code';
@@ -1688,7 +1721,16 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
       const filters: string[] = ['bd.transfer_cjs > 0'];
-      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('bd.wh = :dw'); binds.dw = q.warehouse_id; }
+      // `[ZN.3.3]` El destino sale del alcance, no del query a secas: `whIds` YA trae lo pedido
+      // intersectado con lo permitido (acepta `warehouse_id`, `warehouse_ids` y el código).
+      const whIds = await this.whIds(q);
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else {
+          filters.push(`bd.wh IN (${whIds.map((_, i) => `:zw${i}`).join(',')})`);
+          whIds.forEach((w, i) => { binds[`zw${i}`] = w; });
+        }
+      }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('bd.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('bd.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(bd.sku ILIKE :s OR bd.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
@@ -1819,7 +1861,15 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, over };
       const filters: string[] = ['ov.surplus_cjs > 0'];
-      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('ov.wh = :dw'); binds.dw = q.warehouse_id; }
+      // `[ZN.3.3]` idem transferPlan: el almacén lo decide el alcance.
+      const whIds = await this.whIds(q);
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else {
+          filters.push(`ov.wh IN (${whIds.map((_, i) => `:zw${i}`).join(',')})`);
+          whIds.forEach((w, i) => { binds[`zw${i}`] = w; });
+        }
+      }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('ov.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('ov.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(ov.sku ILIKE :s OR ov.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
@@ -1908,7 +1958,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 200));
-    const whIds = this.whIds(q);
+    const whIds = await this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
       const it = this.inTransit();   // pesado por P(llega) — ver inTransit()
@@ -1936,7 +1986,10 @@ export class CommercialReplenishmentService {
         `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
       ];
       const binds: Record<string, unknown> = { t: tenantId };
-      if (whIds.length) { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      }
       if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
       if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
       if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
@@ -2049,8 +2102,8 @@ export class CommercialReplenishmentService {
         // sin política para ESTE producto×almacén (los con política están en Crítica)
         .andWhereRaw(`NOT EXISTS (SELECT 1 FROM commercial.reorder_policy rp
                         WHERE rp.tenant_id = pr.tenant_id AND rp.warehouse_id = w.id AND rp.product_id = pr.id)`);
-      const whIds = this.whIds(q);
-      if (whIds.length) base.whereIn('w.id', whIds);
+      const whIds = await this.whIds(q);
+      if (whIds) base.whereIn('w.id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.search && q.search.trim()) {
         const t = `%${q.search.trim()}%`;
@@ -2088,9 +2141,17 @@ export class CommercialReplenishmentService {
     });
   }
 
-  /** Almacenes + proveedores con política (para los filtros del frontend). */
+  /**
+   * Almacenes + proveedores con política (para los filtros del frontend).
+   *
+   * `[ZN.3.3]` El selector ofrece SÓLO lo que la persona alcanza. No es cosmético: sin esto el
+   * dropdown listaba las nueve sucursales, y al elegir una ajena los reportes —ya recortados—
+   * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
+   * como «ahí no falta nada», que es peor que no ofrecerla.
+   */
   async filters() {
     const tenantId = this.tenantCtx.requireTenantId();
+    const permitidos = await this.whIds({});
     return this.tk.run(async (trx) => {
       // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
       // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
@@ -2109,6 +2170,7 @@ export class CommercialReplenishmentService {
           .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
             .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
           .orWhere('w.is_purchase_hub', true))
+        .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
         .select('w.id as id', 'w.code as code', 'w.name as name',
           'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
           'w.display_order as display_order'))
