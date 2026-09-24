@@ -113,6 +113,31 @@ fi
 
 di "origin/$RAMA = $DESEADO · corriendo = $VIVO ⇒ hay que desplegar"
 
+# ── ⛔ CUARENTENA: UN COMMIT QUE YA TIRÓ PROD NO SE VUELVE A INTENTAR ────────────────────────
+# Sin esto la agenda de 5 min es una máquina de repetir el incidente. Medido el 2026-09-24:
+# `0e1fef3` no arrancaba (un módulo sin su import); el carril lo desplegó, el API murió, la
+# reversión lo devolvió a `a2052fa1` a las 13:34:46 — y **a las 13:35:03 el siguiente disparo
+# volvió a construirlo, esta vez con la caché, o sea en 3 segundos, y tiró prod de nuevo**. Dos
+# ventanas de caída por un solo commit malo, y de haber seguido serían doce por hora.
+#
+# La cuarentena es por COMMIT, no por tiempo: reintentar dentro de 30 min el mismo binario que
+# ya falló da el mismo resultado. Lo que la levanta es que alguien empuje algo distinto —
+# o sea, que exista un arreglo. `--forzar` la ignora, para cuando se sabe lo que se hace.
+CUARENTENA="$HOME/ops/prod/.auto-deploy-cuarentena"
+FORZAR=0; [ "${1:-}" = "--forzar" ] && FORZAR=1
+if [ -f "$CUARENTENA" ]; then
+  _malo=$(cat "$CUARENTENA" 2>/dev/null)
+  if [ "$_malo" = "$DESEADO" ] && [ "$FORZAR" = 0 ]; then
+    di "EN CUARENTENA: $DESEADO ya tumbó producción en un intento anterior. No se reintenta."
+    di "  Se levanta sola cuando origin/$RAMA avance a otro commit (o sea: cuando haya un arreglo)."
+    di "  Para forzar igual: auto-deploy.sh --forzar"
+    latir error "commit $DESEADO en cuarentena — no arranca; esperando un arreglo en origin/$RAMA"
+    exit 1
+  fi
+  # El commit cambió: hubo un arreglo (o al menos algo distinto). Se limpia y se intenta.
+  rm -f "$CUARENTENA"
+fi
+
 if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía. No se toca nada."; exit 0; fi
 
 # ── La compuerta de migraciones, ANTES de construir ─────────────────────────
@@ -145,6 +170,9 @@ di "migraciones: prod al día"
 
 # ── Construir y recrear ─────────────────────────────────────────────────────
 ANTERIOR="$VIVO"
+# ⛔ ANTES de construir. El `docker build -t …:latest` PISA la etiqueta `latest`, así que después
+# del build ya no hay forma de saber qué imagen estaba sirviendo cada servicio.
+guardar_anteriores
 cd "$REPO_DIR" || exit 1
 for s in $SERVICIOS; do
   case "$s" in api) img=trade-prod-api; df=Dockerfile ;; worker) img=trade-prod-worker; df=Dockerfile.worker ;; *) continue ;; esac
@@ -159,22 +187,75 @@ set -a; . "$HOME/secrets/prod-compose.env"; set +a
 docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1
 
 # ── Verificar ENTREGA, no el rótulo ─────────────────────────────────────────
+# ⚠️ La ventana era de 60 s y el arranque medido es de ~15 s — parecía de sobra. Pero cuando el
+# despliegue va detrás de su propia construcción la máquina viene con carga 14 sobre 8 hilos, y
+# 60 s dejan de ser holgura. Van 120 s.
+#
+# ⭐ Y no se espera en seco: si un contenedor entra en **bucle de reinicio** se corta de una, sin
+# agotar la ventana. Esa distinción importa para el diagnóstico — "el proceso muere al arrancar"
+# y "tardó más de lo que esperábamos" piden arreglos opuestos, y un timeout solo no los separa.
 vivo_ahora=''
-for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+for i in $(seq 1 24); do
+  for c in prod-api prod-worker; do
+    _st=$(docker inspect -f '{{.State.Status}} {{.State.Restarting}} {{.RestartCount}}' "$c" 2>/dev/null)
+    case "$_st" in
+      *"true "*|restarting*)
+        di "FALLO RÁPIDO: $c en bucle de reinicio ($_st) — el proceso muere al arrancar."
+        docker logs --tail 40 "$c" 2>&1 | grep -iE "error|exception|cannot resolve|UnknownDependencies" | head -6 | sed 's/^/      /'
+        revertir; latir error "$c no arranca con $DESEADO (bucle de reinicio) — revertido"; exit 1 ;;
+    esac
+  done
   r=$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
   vivo_ahora=$(printf '%s' "$r" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
   [ -n "$vivo_ahora" ] && break
   sleep 5
 done
 
+# ── ⛔ CADA SERVICIO VUELVE A **SU** IMAGEN ANTERIOR, NO A LA DEL API ────────────────────────
+# La primera versión re-etiquetaba `$img:$ANTERIOR` para los dos, y `$ANTERIOR` es el commit que
+# servía **el API**. Medido el 2026-09-24: `trade-prod-worker:a2052fa1` NO EXISTÍA (el worker no
+# se reconstruye en cada despliegue; el suyo era `022a2604`, de 18 h antes), así que el
+# `docker image inspect` fallaba, el `&&` saltaba el re-etiquetado en silencio, y
+# `trade-prod-worker:latest` **se quedaba apuntando al build NUEVO que acababa de fallar**. O sea
+# que la reversión devolvía el API a lo bueno y **dejaba el worker en lo roto** — quedó en bucle
+# de reinicio, y el log decía `revertido.` igual.
+#
+# Ahora se guarda el ID de imagen de cada servicio ANTES de construir, que es la única forma de
+# saber a qué volver: la etiqueta de commit puede no existir para ese servicio, pero el ID que
+# estaba corriendo siempre existe.
+guardar_anteriores() {
+  for s in $SERVICIOS; do
+    case "$s" in api) img=trade-prod-api; c=prod-api ;; worker) img=trade-prod-worker; c=prod-worker ;; *) continue ;; esac
+    _id=$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null)
+    [ -n "$_id" ] && eval "PREV_$s=\$_id"
+  done
+}
+
 revertir() {
-  di "REVIRTIENDO a $ANTERIOR"
+  di "REVIRTIENDO"
+  # El commit queda marcado acá, en el único lugar por donde pasan TODOS los caminos de reversión.
+  # Ponerlo en cada sitio de llamada es cómo se olvida en el tercero.
+  echo "$DESEADO" > "$CUARENTENA" 2>/dev/null || di "aviso: no se pudo escribir la cuarentena"
+  _falta=''
   for s in $SERVICIOS; do
     case "$s" in api) img=trade-prod-api ;; worker) img=trade-prod-worker ;; *) continue ;; esac
-    docker image inspect "$img:$ANTERIOR" >/dev/null 2>&1 && docker tag "$img:$ANTERIOR" "$img:latest"
+    eval "_id=\${PREV_$s:-}"
+    if [ -n "$_id" ] && docker image inspect "$_id" >/dev/null 2>&1; then
+      docker tag "$_id" "$img:latest"
+      di "  $img → $(echo "$_id" | cut -c8-19)"
+    else
+      # ⚠️ Se DECLARA. Un servicio que no se pudo revertir y no lo dice es peor que uno caído:
+      # el log diría `revertido.` mientras sigue sirviendo el binario malo (ADR-056).
+      di "  ⛔ $img: NO se pudo revertir — no hay imagen anterior registrada"
+      _falta="$_falta $img"
+    fi
   done
   cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS >/dev/null 2>&1
-  di "revertido."
+  if [ -n "$_falta" ]; then
+    di "revertido PARCIALMENTE — quedó sin revertir:$_falta"
+  else
+    di "revertido."
+  fi
 }
 
 if [ -z "$vivo_ahora" ] || { [ "$vivo_ahora" != "$DESEADO" ] && [ "$DESEADO" != desconocido ]; }; then
