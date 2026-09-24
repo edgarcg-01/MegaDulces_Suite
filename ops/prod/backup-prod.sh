@@ -219,10 +219,70 @@ else
 fi
 di "volcando hacia $archivo"
 t0=$(date +%s)
-# shellcheck disable=SC2086
-pg_dump --dbname="$URLK" --format=custom --compress=6 --no-owner --verbose $modo --file="$archivo" 2>"$errlog"
-rc=$?
+# [OBS] EL TOPE VA DEL LADO DEL CLIENTE, y no es una preferencia de estilo.
+#
+# El 2026-09-23 este volcado tardó 4 h 43 min y AUN ASÍ imprimió "volcado OK". El 98.1 % de ese
+# tiempo (16,706 s) se lo llevó UNA sola consulta de `pg_dump` —la de `getIndexes()`— haciendo
+# **8.9 buffers por segundo**; la misma consulta corrida a mano tarda 280 ms en frío y 24-40 ms en
+# caliente, o sea un factor de 74,600x. No es un plan malo: es un backend que dejó de avanzar.
+# Y se descarta que fuera la máquina, porque en el MISMO respaldo las consultas hermanas siguieron
+# rápidas (`getTableAttrs`: 52,789 filas en 0.5 s; `getConstraints`, `getTriggers`, `getPolicies`
+# en 0.0 s). Cayó una sola.
+#
+# ⛔ `PGOPTIONS` NO SIRVE ACÁ, y está MEDIDO, no razonado: `pg_dump` ejecuta
+# `SET statement_timeout = 0` (y lock_, idle_ y transaction_) en `setup_connection()` apenas
+# conecta, así que se pisa cualquier cosa que le pases por el entorno. Se probó sobre este mismo
+# $URLK y este mismo binario (18.6) con `PGOPTIONS='-c statement_timeout=1ms'` —60,000 veces más
+# agresivo que 45 min— y el volcado completo salió rc=0 igual. Lo mismo vale para
+# `ALTER ROLE ... SET`.
+#
+# `timeout --signal=INT` hace que `pg_dump` CANCELE la consulta en el servidor y suelte su
+# snapshot REPEATABLE READ. Eso importa tanto como el respaldo: mientras ese snapshot vive,
+# NINGÚN vacuum del clúster puede reclamar nada. Durante esas 4 h 43 min `pg_attribute` quedó con
+# 28,740 filas muertas (44.6 %) y autovacuum corrió 1,187 veces perdiendo la carrera.
+# `--kill-after=2m` lo mata si no responde al INT. 45 min ≈ 8x el volcado sano (327 s).
+#
+# ⚠️ PRECONDICIÓN QUE NO ESTÁ RESUELTA Y NO SE DISFRAZA: cambiar un "OK tardío" por un fallo a
+# los 45 min sólo mejora las cosas si alguien MIRA. La llave `backup_prod` tiene umbral en
+# `CRON_JOBS`, pero su canal de salida (`SMTP_*`) sigue sin configurar — OBS.0.2. Hasta que eso
+# se cierre, esto convierte un respaldo degradado en un respaldo AUSENTE y registrado. Se acepta
+# igual porque el volcado trabado bloquea el vacuum de todo el clúster, que es peor que no tenerlo.
+#
+# ⚠️ Y el `--verbose` de abajo ahora lleva marca de tiempo: el log de la noche mala existe,
+# está completo, y no sirvió para localizar el atasco porque no tenía relojes. Cuesta una línea.
+# ⛔ Este script es `#!/bin/sh` y `/bin/sh` acá es **dash** (verificado en el contenedor): NADA de
+# sustitución de procesos `2> >(...)`, que es de bash y falla en silencio.
+#
+# ⚠️ Y el sello de tiempo va detrás de una SONDA, no de una suposición. Si `awk` no tuviera
+# `strftime` muere al arrancar, el subshell recibe SIGPIPE y `rc` llega como **141** en vez del
+# código real del volcado — con el errlog VACÍO. O sea: el adorno rompería justo el diagnóstico
+# que viene a mejorar. Medido a propósito en `prod-backup` provocando ese caso.
+if printf 'x\n' | awk '{ print strftime("%Y") }' >/dev/null 2>&1; then _ts=1; else _ts=0; fi
+
+if [ "$_ts" = 1 ]; then
+  # El rc viaja por ARCHIVO: en POSIX sh no hay `PIPESTATUS`, y `$?` tras un pipe sería el de awk.
+  # `2>&1` es seguro porque con `--file=` el volcado no usa stdout.
+  _rcf=$(mktemp)
+  # shellcheck disable=SC2086
+  ( timeout --signal=INT --kill-after=2m 45m \
+      pg_dump --dbname="$URLK" --format=custom --compress=6 --no-owner --verbose $modo --file="$archivo" 2>&1
+    echo $? > "$_rcf" ) \
+    | awk '{ print strftime("[%Y-%m-%d %H:%M:%S] ") $0; fflush() }' > "$errlog"
+  rc=$(cat "$_rcf" 2>/dev/null || echo 1); rm -f "$_rcf"
+else
+  di "aviso: el awk de esta imagen no tiene strftime — el log del volcado va SIN marca de tiempo."
+  # shellcheck disable=SC2086
+  timeout --signal=INT --kill-after=2m 45m \
+    pg_dump --dbname="$URLK" --format=custom --compress=6 --no-owner --verbose $modo --file="$archivo" 2>"$errlog"
+  rc=$?
+fi
 dt=$(( $(date +%s) - t0 ))
+if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+  rm -f "$archivo"
+  morir "pg_dump SE PASÓ DE 45 min y se canceló (rc=$rc) tras ${dt}s. No es lentitud: el 2026-09-23 \
+este mismo paso se trabó a 8.9 buffers/s reteniendo el horizonte xmin del clúster. Revisar \
+$errlog (ahora con marca de tiempo) y pg_stat_activity antes de re-lanzar."
+fi
 if [ "$rc" != 0 ]; then
   rm -f "$archivo"
   morir "pg_dump salió con $rc tras ${dt}s — $(tail -1 "$errlog" 2>/dev/null)"
