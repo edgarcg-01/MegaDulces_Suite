@@ -3455,3 +3455,77 @@ Para lo que **no** está en el compose (por ejemplo `log_min_duration_statement`
 que la disparó sigue contestando el valor viejo hasta el próximo límite de comando. Leer
 `pg_settings` en el mismo `psql -c` encadenado hace creer que el cambio no se aplicó — pasó acá, y
 casi manda a buscar un problema que no existía.
+
+---
+
+## 66. El shadow del ODS es estado POR RÉPLICA, no por destino — y al mudar prod dio por enviado lo que nunca llegó
+
+`ods.shadow` es `(table_name, pk_text, h)`. **No tiene una sola columna que diga a qué destino se
+shipeó la fila.** Mientras hubo un destino eso fue invisible. Cuando prod se mudó de Railway a
+`pg-prod` (2026-09-22/23) el shadow siguió contestando *"esa fila ya la mandé"* — y era **cierto**:
+la había mandado al destino viejo. El carril quedó convencido de no tener nada pendiente contra un
+destino que nunca vio esas filas, y el shadow no admite reintento: una fila sólo se corrige si el
+dato vuelve a cambiar por sí solo.
+
+**Medido el 2026-09-23/24, filas atascadas reparadas con `--full --apply`:**
+
+| tabla | filas | qué es |
+|---|---|---|
+| `kdii` | 460 precio + 39 factor | la escalera de precio que lee el verificador del mostrador |
+| `kdud` | 168 (41/41/40/46 en ramas 05-08) | maestro de clientes: crédito, límite, zona |
+| `kdpv_prov_prod` | 145 (15–17 × 9 ramas) | el testigo de costo de ADR-057/059 |
+
+En `kdii`: **329 de 460 publicaban MÁS BARATO** que lo que la sucursal cobra, una en **$0.00**
+(`10215 CACAHUATE PASTEL`, real $54.33, en 4 ramas). La prueba de que no era rezago: el propio
+carril en seco reportaba **0 candidatas en las 9 ramas** mientras las filas diferían.
+
+⭐ **`kdil` y `kdik` no estaban atascadas, y ésa es la respuesta.** Son las dos únicas de
+`ODS_HASH_RESYNC_TABLES`, la red que cada hora ignora el shadow una pasada. La red ya existía,
+funciona, y estaba puesta en **2 de las 17** tablas del carril hash.
+
+⛔ **Y la exclusión de `kdii` no fue un olvido.** El comentario del archivo la justifica textual:
+*"para NO pagar egress de re-shipear catálogos grandes (kdii 37MB)"*. Era correcto cuando el
+destino era Railway y cada re-ship cruzaba internet. **Desde `[VL.11]` el destino vive en la misma
+máquina que las réplicas: ese egress es loopback.** La regla sobrevivió a su motivo.
+*Cada vez que cambie dónde corre algo, hay que volver a preguntarse qué reglas se escribieron para
+el lugar viejo.*
+
+### Cómo medir esto sin inventar daño — tres falsos positivos que ya cobraron
+
+Comparar réplica contra ODS **no es restar agregados**: los dos daños se restan entre sí (prod tiene
+filas **de más** por los DELETE que el CDC no propaga y filas **viejas** por esto). Hay que cruzar
+por PK. Y el cruce miente de tres formas, las tres vividas en una sola sesión:
+
+1. **Filas en vuelo.** La réplica y prod se leen en instantes distintos y el carril escribe cada
+   15 s. Se cruza **dos veces** y sólo cuenta lo que sobrevive a las dos.
+2. **Escala numérica.** `jsonb <> jsonb` compara numéricamente; `hashtext(jsonb::text)` compara
+   TEXTO: `54.33` y `54.3300` salen distintos sin serlo. Medido: `kdii`/rama 04 dio **129
+   "atascadas"** que una comparación jsonb desmintió en cero. Se normaliza con `trim_scale()`.
+3. ⭐ **Tipo de columna.** `kdpv_descuxq` reportó **~7,000–12,000 filas distintas por rama, o sea
+   toda la tabla** — y ninguna había cambiado: la réplica guarda `timestamp` y el ODS `timestamptz`,
+   así que una fecha de 1800 se convierte con el **LMT de México (−06:36:36)** y `1800-01-01
+   00:00:00` se publica como `1800-01-01T06:36:36`. Cien por ciento de una tabla "distinta" casi
+   nunca es daño: es el esquema.
+
+**Protocolo:** el cruce por PK sólo produce *candidatas*; antes de llamarlo daño hay que abrir la
+fila con `jsonb_each` y ver **qué columna** cambia. Eso es lo que evitó re-shipear 64,000 filas
+para nada. Y el control de que el detector sirve: sus números tienen que coincidir con lo que el
+carril escribe. En `kdud` coincidieron exacto (0/0/0/0/0 y 41/41/40/46).
+
+### El arreglo
+
+`[NORM.3b]` (commit `a36fa861`): `kdii` entra a `ODS_HASH_RESYNC_TABLES`, y sobre todo
+**`ods.sink_ident`** guarda la identidad del destino (host:puerto/base, jamás la credencial) al lado
+del shadow; si cambia, el carril hash hace una pasada ignorando el shadow. Sin eso, el próximo
+cambio de destino repite este incidente idéntico. Prueba negativa en
+`database/tests/test-ods-dest-fingerprint.js`.
+
+### Lo que sigue abierto, declarado
+
+- **`kdpv_descuxq` rama 01: 511 filas que la réplica tiene y prod no.** Real, no artefacto.
+- **`kdpv_bitacora_precios` (8.3 M filas): sin medir.**
+- `kdik`: 5/6/1 filas en tres ramas, números chicos, no confirmado como atascado.
+- Los **fantasmas** (el DELETE que el CDC no propaga) siguen intactos: 392 en `kdii`, 12–14 en
+  `kdpv_prov_prod`, 3–5 en `kdud`. Es deuda aparte, con nombre.
+- El corrimiento `timestamp` → `timestamptz` del ODS: las fechas de esas columnas se publican
+  desplazadas. No se tocó.
