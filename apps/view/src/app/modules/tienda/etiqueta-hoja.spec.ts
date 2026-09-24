@@ -201,8 +201,11 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // daba el mismo ancho al píxel, o sea ningún cambio visible.
     expect(trazoMayoreo).toBeGreaterThan(trazoNormal);
     expect(LABEL).toMatch(/\.etq-tier\.is-mayoreo\{[^}]*background:/);
-    // El realce es CONDICIONAL: dos bindings, y ninguna clase estática que se lo salte.
-    expect((LABEL.match(/\[class\.is-mayoreo\]/g) || []).length).toBe(2);
+    // El realce es CONDICIONAL: un binding, y ninguna clase estática que se lo salte.
+    // `[ETQ-PRES.4]` Eran DOS bindings porque había dos bloques de renglón escritos a mano
+    // (mayoreo de pieza y mayoreo de paquete). Ahora hay un solo `@for` sobre la lista de
+    // presentaciones, así que dos sería señal de que alguien volvió a escribir un cajón fijo.
+    expect((LABEL.match(/\[class\.is-mayoreo\]/g) || []).length).toBe(1);
     expect((LABEL.match(/class="etq-tier is-mayoreo"/g) || []).length).toBe(0);
   });
 
@@ -400,33 +403,40 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(/\.etq-pieza\{[^}]*text-transform/.test(LABEL)).toBe(false);
   });
 
-  it('⭐ ningún umbral de mayoreo se inventa', () => {
-    // Era `wholesale_piece_min_qty || 3`: la etiqueta AFIRMABA "Mayoreo 3+" sin dato. Es el
-    // linaje directo de ADR-055 — no imprimir como hecho lo que es un hueco.
-    // Se mira el CUERPO del getter, no el archivo: el docstring cita el código viejo a
-    // propósito, para que quien lea entienda qué se corrigió.
-    const min = /get mayoreoMin\(\)[^\n]*\n?[^\n]*/.exec(LABEL)![0];
-    expect(min).not.toContain('|| 3');
-    expect(min).toContain('m > 1 ? m : null');
-    expect(LABEL).toMatch(/get mayoreoMin\(\): number \| null/);
-    // y sin umbral el renglón no se imprime, en las DOS variantes
-    const pza = /get hasMayoreoPza\(\): boolean \{[\s\S]*?\n  \}/.exec(LABEL)![0];
-    const paq = /get hasMayoreoPaq\(\): boolean \{[\s\S]*?\n  \}/.exec(LABEL)![0];
-    expect(pza).toContain('this.mayoreoMin === null');
-    expect(paq).toContain('this.mayoreoPaqMin === null');
+  /**
+   * `[ETQ-PRES.4]` **Los tres cajones no pueden volver.**
+   *
+   * Acá había dos candados que leían el fuente buscando `mayoreoMin`, `hasMayoreoPza`,
+   * `hasMayoreoPaq`, `realceMayoreoPza` y `realceMayoreoPaq` — los dieciséis miembros que existían
+   * sólo para decidir qué palabra ponerle a un precio que llegaba sin su unidad. Ya no existen, y
+   * lo que se comprueba ahora es que **no los reponga nadie**: el umbral y el realce se prueban
+   * contra el DOM en `components/label.component.spec.ts`, que es donde se ve lo que se imprime.
+   *
+   * ⚠️ Esta prueba es de FORMA, no de comportamiento. Vale como red de contención justamente
+   * porque su gemela de comportamiento existe: sola, un regex sobre el fuente no prueba nada.
+   */
+  it('⭐⭐ NEGATIVA: la etiqueta no vuelve a leer los tres cajones', () => {
+    for (const muerto of [
+      'wholesale_piece_price', 'wholesale_pack_price', 'wholesale_piece_min_qty',
+      'wholesale_pack_min_qty', 'pack_size', 'pack_price', 'box_size', 'box_price',
+    ]) {
+      // Declararlos en `LabelModel` está bien (el camino sin plaza todavía los recibe);
+      // LEERLOS con `this.model?.<campo>` es lo que vuelve a atar el papel a los cajones.
+      expect(LABEL).not.toContain(`this.model?.${muerto}`);
+    }
+    // Y el vocabulario de unidades sale del contrato, una sola vez, no de una cascada local.
+    expect(LABEL).toContain('unidadLegible');
+    expect(LABEL).not.toMatch(/get mayoreo(Group|Base)Word\(\)/);
+    expect(LABEL).not.toMatch(/get has(MayoreoPza|MayoreoPaq|Paquete|Caja)\(\)/);
   });
 
-  it('⭐ el realce de oferta exige que haya descuento', () => {
+  it('⭐ el realce de oferta exige que haya descuento, y es UNA sola regla', () => {
     // 265 productos imprimían chip amarillo + trazo grueso sobre un precio materialmente igual.
     const min = Number(/const MAYOREO_MIN_DESC = ([\d.]+)/.exec(LABEL)![1]);
     expect(min).toBeGreaterThan(0);
     expect(min).toBeLessThanOrEqual(0.05);
-    expect(LABEL).toMatch(/get realceMayoreoPza\(\): boolean/);
-    expect(LABEL).toMatch(/get realceMayoreoPaq\(\): boolean/);
-    for (const g of ['realceMayoreoPza', 'realceMayoreoPaq']) {
-      const fn = new RegExp(`get ${g}\\(\\): boolean \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
-      expect(fn).toContain('MAYOREO_MIN_DESC');
-    }
+    // ⭐ Una sola aparición: eran dos getters y cada uno elegía su base con una cascada distinta.
+    expect((LABEL.match(/MAYOREO_MIN_DESC/g) || []).length).toBe(2); // la constante + su uso
   });
 
   it('el brote salió de la caja del precio', () => {
@@ -674,12 +684,23 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     expect(metodo(PAGE, 'async print(): Promise<void>')).toContain('this.PER_SHEET');
   });
 
-  it('el renglón alterno del granel obedece al multiselect como los otros cuatro', () => {
-    const g = /get granelAltTier\(\)[\s\S]*?\n  \}/.exec(LABEL)![0];
-    expect(g).toContain('this.show.granel');
-    expect(LABEL).toMatch(/granel: boolean;/);
-    expect(LABEL).toMatch(/ALL_SECTIONS: LabelSections = \{[^}]*granel: true/);
-    expect(PAGE).toMatch(/value: 'granel'/);
+  /**
+   * `[ETQ-PRES.4]` El multiselect pasó de cinco cajones a DOS EJES.
+   *
+   * Eran "Mayoreo por pieza · Paquete · Mayoreo por paquete · Caja · Granel: kg y porción": cinco
+   * interruptores con el nombre de una ranura fija. Con la etiqueta imprimiendo la LISTA no hay
+   * "el paquete" — hay las presentaciones que el ERP publique, y para el `18022` son tres.
+   */
+  it('las secciones son los dos ejes reales, y el interruptor llega a los dos renglones', () => {
+    expect(LABEL).toMatch(/ALL_SECTIONS: LabelSections = \{ mayoreo: true, presentaciones: true, barcode: true \}/);
+    expect(LABEL).toContain('this.show.presentaciones');
+    expect(LABEL).toContain('this.show.mayoreo');
+    expect(PAGE).toMatch(/value: 'presentaciones'/);
+    expect(PAGE).toMatch(/value: 'mayoreo'/);
+    // ⛔ NEGATIVA: ninguna ranura fija sobrevive en el selector.
+    for (const viejo of ['mayoreoPza', 'mayoreoPaq', "value: 'paquete'", "value: 'caja'", "value: 'granel'"]) {
+      expect(PAGE).not.toContain(viejo);
+    }
   });
 
   it('la frescura que se pinta es la PEOR de la cola, no la del último escaneo', () => {

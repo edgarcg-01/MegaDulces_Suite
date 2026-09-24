@@ -146,3 +146,77 @@ export function presentacionMayor(ps: readonly PresentacionPrecio[]): Presentaci
   if (!conPrecio.length) return null;
   return conPrecio.reduce((a, b) => (b.factor > a.factor ? b : a));
 }
+
+/**
+ * `[ETQ-PRES.4]` CÓMO SE IMPRIME UNA UNIDAD — y qué se hace con la que no se entiende.
+ *
+ * El rótulo que guarda Kepler no es para un cliente: `CJA`, `BTO`, `CUB`, `500`. La etiqueta de
+ * anaquel la lee una persona, así que hace falta traducir — pero **sólo lo que está verificado**.
+ * La regla del contrato es la misma de `QtyUnitLabel`: *el consumidor decide si lo entiende, y si
+ * no lo entiende lo DECLARA, no lo traduce*.
+ *
+ * ── El censo que define el diccionario (prod, 2026-09-24, 175,202 presentaciones) ────────────
+ *
+ *   CJA  76,231 (8,502 SKUs) ... caja        PZA  18,434 (2,068) ... pieza
+ *   PAQ  74,667 (8,328) ....... paquete      KG    2,946 (331) ..... kg
+ *   BTO   1,553 (173) ......... bulto        CUB      99 (11) ...... cubeta
+ *   500     753 (88) · 250 332 (37) · 400 54 (6) ... GRAMAJES, no unidades
+ *   SER     115 (13) · IND 9 (1) · 2KG 9 (1) ....... sin traducción
+ *
+ * ⛔ **`SER` no se traduce, y medido no debería llegar nunca a un anaquel**: sus 13 SKUs son
+ * asientos, no mercancía — `VENTAS AL 0 %`, `DEVOLUCIONES 16%`, `COMISION BANCARIA`, `CANCELADA`,
+ * `APOYO PUBLICITARIO`. La única excepción es `03056 GLOBO #9 ROSA /50 AP`, que sí es mercancía y
+ * tiene `SER` de ranura: ahí el rótulo del ERP está mal puesto y la etiqueta imprime `SER` tal
+ * cual — decir "servicio" sobre un globo sería inventar; imprimir el rótulo crudo deja ver el
+ * error de captura a quien puede corregirlo.
+ *
+ * ⛔ `IND` (1 SKU) y `2KG` (1 SKU, y su factor viene `NULL`) tampoco se traducen, por lo mismo.
+ *
+ * ⭐ Los GRAMAJES sí se traducen, y no es una interpretación: `v_label_presentations` lo verificó
+ * contra un testigo independiente — de los 51 SKUs con base numérica que además tienen ranura
+ * `KG`, en **51 de 51** se cumple `base × factor_KG = 1000`. Un `500` son 500 gramos, aritmética.
+ *
+ * ⚠️ Lo que esto reemplaza imprimía **`pzas`** para una base `500`: 88 SKUs anunciando "Mayoreo
+ * 3+ pzas" sobre bolsas de medio kilo.
+ */
+export interface UnidadLegible {
+  /** Cómo se nombra en singular: `caja`, `500 g`. Vacío sólo si el rótulo vino vacío. */
+  singular: string;
+  /** Cómo se nombra al contar ("Mayoreo 3+ **cajas**"). En pesos y medidas no cambia: `3+ kg`. */
+  plural: string;
+  /** `false` = se imprime el rótulo CRUDO del ERP porque no se sabe qué es. No es un error: es la declaración. */
+  conocida: boolean;
+}
+
+/** Las seis que el censo respalda. Agregar una exige medirla primero, no suponerla. */
+const UNIDADES_CONOCIDAS: Readonly<Record<string, { singular: string; plural: string }>> = {
+  PZA: { singular: 'pieza', plural: 'piezas' },
+  PAQ: { singular: 'paquete', plural: 'paquetes' },
+  CJA: { singular: 'caja', plural: 'cajas' },
+  KG: { singular: 'kg', plural: 'kg' },
+  BTO: { singular: 'bulto', plural: 'bultos' },
+  CUB: { singular: 'cubeta', plural: 'cubetas' },
+};
+
+/** Traduce el rótulo del ERP, o lo devuelve crudo declarando que no lo entiende. */
+export function unidadLegible(unidad: string | null | undefined): UnidadLegible {
+  const u = String(unidad ?? '').trim().toUpperCase();
+  if (!u) return { singular: '', plural: '', conocida: false };
+  const d = UNIDADES_CONOCIDAS[u];
+  if (d) return { ...d, conocida: true };
+  // Gramaje: verificado 51/51 contra el factor de la ranura KG. No es una suposición.
+  if (/^[0-9]+$/.test(u)) return { singular: `${u} g`, plural: `${u} g`, conocida: true };
+  return { singular: u, plural: u, conocida: false };
+}
+
+/**
+ * La presentación que lleva el precio de mostrador: la unidad BASE del catálogo.
+ *
+ * `null` cuando el ERP **no declara unidad base** — medido en prod: **253 de 84,219 pares
+ * (sku, plaza) con precio, el 0.30 %**, y en los 253 la causa es exactamente ésa (`kdii.c11`
+ * vacío). No se sustituye por la primera con precio: sin unidad base no hay de qué colgar los
+ * factores, y la etiqueta lo tiene que DECIR, no rellenar.
+ */
+export function presentacionBase(ps: readonly PresentacionPrecio[]): PresentacionPrecio | null {
+  return ps.find((p) => p.origen === 'base') ?? null;
+}

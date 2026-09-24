@@ -4,21 +4,43 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import JsBarcode from 'jsbarcode';
-import type { PresentacionPrecio } from '@megadulces/contracts';
+import { unidadLegible, type PresentacionPrecio } from '@megadulces/contracts';
 
+/**
+ * `[ETQ-PRES.4]` Qué secciones se imprimen. **Dos ejes, no cuatro cajones.**
+ *
+ * ⛔ Esto era `{ mayoreoPza, paquete, mayoreoPaq, caja, granel }`: cinco interruptores con el
+ * nombre de un cajón fijo. Con la etiqueta leyendo la LISTA de presentaciones esos nombres dejan
+ * de existir — no hay "el paquete", hay las presentaciones que el ERP publique, y para el `18022`
+ * son la de 500 g, el kilo y la cubeta.
+ *
+ * ⭐ `granel` también se retiró, y no se perdió nada: el renglón "kg ↔ porción" que fabricaba a
+ * mano **es** una presentación más. Medido: de los 2,108 pares granel de prod, **2,108 tienen
+ * presentación `KG` en el ERP** — ninguno necesitaba que la etiqueta la calculara.
+ */
 export interface LabelSections {
-  mayoreoPza: boolean;
-  paquete: boolean;
-  mayoreoPaq: boolean;
-  caja: boolean;
+  /** Los peldaños de mayoreo (uno por presentación que tenga el suyo). */
+  mayoreo: boolean;
+  /** El precio de lista de las OTRAS presentaciones (la del hero ya va en grande). */
+  presentaciones: boolean;
   barcode: boolean;
-  /** Renglón alterno del granel (kg ↔ porción). Era el único que el multiselect no podía apagar. */
-  granel: boolean;
 }
-export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true, granel: true };
+export const ALL_SECTIONS: LabelSections = { mayoreo: true, presentaciones: true, barcode: true };
 
-/** Qué precio va en GRANDE (hero). Intercambiable por ticket. 'kg' = granel por kilo. */
-export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
+/**
+ * `[ETQ-PRES.4]` Qué precio va en GRANDE (hero) — **el RÓTULO de la unidad del ERP**, no un cajón.
+ *
+ * ⛔ Esto era `'pieza' | 'paquete' | 'caja' | 'kg'`, y ese enum de cuatro ERA el modelo de tres
+ * cajones metido en el hero. Consecuencia medida en prod: el selector de precio grande del
+ * `18022` ofrecía **una sola** opción ("Pieza $57.88") teniendo el ERP **tres** presentaciones
+ * cargadas con precio — la de 500 g, el kilo y la cubeta de 25 kg. Las otras dos no cabían en
+ * ninguno de los cuatro valores, así que no existían.
+ *
+ * Ahora el valor es el rótulo tal cual (`PZA`, `PAQ`, `CJA`, `KG`, `CUB`, `BTO`, `500`…): un
+ * `string`, por la misma razón por la que `QtyUnitLabel` lo es. El catálogo de rótulos lo fija
+ * Kepler, no este archivo.
+ */
+export type HeroKey = string;
 
 /**
  * ⭐ EL BUG DEL "número que a veces se ve más chico" — y su hermano, el que a veces DESBORDA.
@@ -315,7 +337,21 @@ export interface LabelModel {
   promo_pct?: number | null;
   promo_min_qty?: number | null;
   promo_hasta?: string | null;
+  /**
+   * ⛔ **En retiro.** Mapea la unidad de la promo a uno de los tres cajones, y por lo tanto
+   * pierde lo que no entra: medido en prod, de las 275 promos vigentes hay **1 declarada en
+   * `CUB`**, que este campo devuelve `null` — o sea que hoy esa oferta no se imprime en ningun
+   * lado y nadie se entera. Lo reemplaza `promo_unidad`, que no traduce nada.
+   */
   promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
+  /**
+   * `[ETQ-PRES.4]` El ROTULO del ERP de la presentacion en promo (`PAQ`, `CJA`, `KG`, `CUB`…).
+   *
+   * La promo **no sale de su presentacion** — medido: promo en PAQ vendida en PZA da 0 de 49
+   * renglones con descuento. Asi que se compara contra la unidad del hero, rotulo contra rotulo,
+   * y la pregunta *"¿estos dos hablan de lo mismo?"* deja de necesitar un traductor en el medio.
+   */
+  promo_unidad?: string | null;
   /**
    * `[ETQ-PRES.2]` LA LISTA DE PRESENTACIONES — cada precio con SU unidad.
    *
@@ -330,6 +366,29 @@ export interface LabelModel {
    * saber cual no hay lista que sea verdad.
    */
   presentaciones?: PresentacionPrecio[];
+}
+
+/**
+ * `[ETQ-PRES.4]` UN renglón impreso de la columna derecha. Se arma una sola vez, en el
+ * componente, y la plantilla no vuelve a decidir nada: todo lo que se imprime de una unidad sale
+ * del mismo objeto, así que es **imposible** aparear el precio de una con el contenido de otra —
+ * que es literalmente el defecto que imprimía "25 kg · $57.88" en 111 SKUs × 9 plazas.
+ */
+export interface RenglonEtiqueta {
+  /** Identidad estable para el `track` de Angular: unidad + si es el peldaño o el de lista. */
+  clave: string;
+  /** El rótulo ya legible y capitalizado: `Caja`, `Cubeta`, `500 g` — o `SER` crudo si el ERP no se entiende. */
+  unidad: string;
+  /** El mismo rótulo al contar: `cajas`, `cubetas`. Sólo lo usa el renglón de mayoreo. */
+  unidadPlural: string;
+  /** Contenido DERIVADO del factor (`25 kg`). `null` = no se conoce el de la base; no se inventa. */
+  contenido: string | null;
+  precio: number;
+  /** `true` = es el peldaño de mayoreo de ESTA presentación (lleva "c/u" y su "desde N"). */
+  mayoreo: boolean;
+  desde: number | null;
+  /** El chip amarillo. Exige un descuento real contra el precio de lista de SU MISMA unidad. */
+  realce: boolean;
 }
 
 /**
@@ -625,38 +684,19 @@ export interface LabelModel {
                 <div class="pricecell"><span class="amt etq-tachado" #amtEl>\${{ pn | number:'1.2-2' }}</span></div>
               </div>
             }
-            @if (granelAltTier; as g) {
-              <div class="etq-tier">
-                <div class="txt">Por {{ g.label }}</div>
-                <div class="pricecell"><span class="amt" #amtEl>\${{ g.value | number:'1.2-2' }}</span></div>
-              </div>
-            }
-            @if (hasMayoreoPza) {
-              <div class="etq-tier" [class.is-mayoreo]="realceMayoreoPza">
-                <div class="txt">Mayoreo <span class="etq-red">{{ mayoreoMin }}+</span> {{ mayoreoBaseWord }}</div>
-                <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
-              </div>
-            }
-            @if (hasPaquete) {
-              <div class="etq-tier">
-                <div class="txt">Paquete <span class="etq-red">{{ model.pack_size }}</span> pzas</div>
-                <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
-              </div>
-            }
-            @if (hasMayoreoPaq) {
-              <div class="etq-tier" [class.is-mayoreo]="realceMayoreoPaq">
-                <div class="txt">Mayoreo <span class="etq-red">{{ mayoreoPaqMin }}+</span> {{ mayoreoGroupWord }}</div>
-                <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
-              </div>
-            }
-            @if (hasCaja) {
-              <div class="etq-tier">
-                @if (isGranel) {
-                  <div class="txt">Caja <span class="etq-red">{{ cajaWeight }}</span></div>
+            <!-- [ETQ-PRES.4] UN renglón por presentación, salido de la LISTA del ERP.
+                 Acá vivían cuatro bloques con el nombre del cajón escrito a mano ("Paquete N
+                 pzas", "Caja N paquetes"), y ésa era la razón por la que una cubeta de 25 kg se
+                 habría impreso como "CAJA 50 PAQUETES": el número llegaba sin su unidad y la
+                 palabra la ponía el HTML. Ahora la palabra viaja con el precio. -->
+            @for (r of renglones; track r.clave) {
+              <div class="etq-tier" [class.is-mayoreo]="r.realce">
+                @if (r.mayoreo) {
+                  <div class="txt">Mayoreo <span class="etq-red">{{ r.desde }}+</span> {{ r.unidadPlural }}</div>
                 } @else {
-                  <div class="txt">Caja <span class="etq-red">{{ model.box_size }}</span> {{ boxContentWord }}</div>
+                  <div class="txt">{{ r.unidad }}@if (r.contenido) { <span class="etq-red">{{ r.contenido }}</span>}</div>
                 }
-                <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ r.precio | number:'1.2-2' }}</span>@if (r.mayoreo) {<span class="unit">c/u</span>}</div>
               </div>
             }
           </div>
@@ -701,58 +741,125 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   get headName(): string {
     return (this.model?.name || '').replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g|gr|grs|ml|l)\s*\/?\s*\d*\s*$/i, '').trim() || this.model?.name || '';
   }
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  // `[ETQ-PRES.4]` LA LISTA MANDA
+  //
+  // Acá vivían `baseUnit`, `baseIsGrouped`, `plural`, `mayoreoGroupWord`, `mayoreoBaseWord`,
+  // `boxContentWord`, `mayoreoMin`, `mayoreoPaqMin`, `bigIsBase`, `hasMayoreoPza`, `hasPaquete`,
+  // `hasMayoreoPaq`, `hasCaja`, `granelAltTier`, `cajaWeight` y `perKgPrice`: **dieciséis**
+  // miembros cuyo único trabajo era decidir qué palabra ponerle a un número que llegó sin su
+  // unidad, y qué cajón le tocaba. Todos se retiran juntos porque todos son el mismo error.
+  //
+  // ⭐ Lo que los reemplaza no es más corto por gusto: la pregunta *"¿de qué unidad es este
+  // precio?"* deja de existir. Viene en el dato.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+
   /**
-   * Umbral del mayoreo por pieza. Devuelve `null` cuando Kepler no lo trae — **nunca 3**.
+   * Las presentaciones del ERP, ordenadas por factor. Vacía = no hay lista que imprimir.
    *
-   * Antes era `this.model?.wholesale_piece_min_qty || 3`: la etiqueta AFIRMABA "Mayoreo 3+"
-   * sobre un papel que el cliente sostiene, sin dato que lo respalde (y además convertía un 0
-   * o un 1 en 3). Su gemelo `mayoreoPaqMin` ya hacía lo correcto. Medido en prod: hoy 0
-   * productos disparan ese default, así que esto no cambia ninguna etiqueta — es el candado
-   * para que un hueco de datos nunca se imprima como un hecho.
+   * ⛔ **Vacía NO se rellena con los tres cajones.** Medido en prod: de los 84,219 pares
+   * (sku, plaza) con precio, **253 (0.30 %)** no tienen presentaciones, y en los 253 la causa es
+   * exactamente una — `kdii.c11` viene vacío, o sea que **el ERP no le declara unidad base**.
+   * Ahí la etiqueta imprime el precio grande y ningún renglón, que es la verdad, en vez de
+   * fabricar un "Paquete" que nadie cargó.
    */
-  get mayoreoMin(): number | null { const m = this.num(this.model?.wholesale_piece_min_qty); return m > 1 ? m : null; }
-
-  // ── Unidad BASE de venta (piece_price == Kepler c90). `unit_base` dice QUÉ es esa fila:
-  //    PAQ → el producto se vende POR PAQUETE (c90 = precio del paquete), CJA → por caja, resto
-  //    → pieza. (Granel — KG/gramos — se resuelve por kg/porción aparte.) ~75% del catálogo es
-  //    base PAQ: antes imprimía "Precio por pieza" con el precio del paquete → bug de unidad.
-  get baseUnit(): 'paquete' | 'caja' | 'pieza' {
-    const ub = (this.model?.unit_base || '').toUpperCase();
-    if (ub === 'PAQ') return 'paquete';
-    if (ub === 'CJA') return 'caja';
-    return 'pieza';
+  get presentaciones(): PresentacionPrecio[] {
+    return (this.model?.presentaciones ?? []).filter((p) => !!p && !!String(p.unidad ?? '').trim());
   }
-  /** El producto se vende agrupado (paquete/caja) como unidad base, no por pieza suelta. */
-  get baseIsGrouped(): boolean { return this.baseUnit !== 'pieza'; }
-  private plural(u: string): string { return u === 'pieza' ? 'pzas' : u === 'paquete' ? 'paquetes' : 'cajas'; }
-  /** Umbral del mayoreo por paquete (min_qty del tier elegido). null = sin umbral confiable. */
-  get mayoreoPaqMin(): number | null { const m = this.num(this.model?.wholesale_pack_min_qty); return m > 1 ? m : null; }
-  /** Palabra plural del tier de mayoreo agrupado: paquetes/cajas (o 'paquetes' en base pieza). */
-  get mayoreoGroupWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'paquetes'; }
-  /** Unidad del mayoreo de la BASE (no agrupada): KG→'kg', granel numérico/PZA→'pzas'. */
-  get mayoreoBaseWord(): string { return (this.model?.unit_base || '').toUpperCase() === 'KG' ? 'kg' : 'pzas'; }
-  /** Contenido de la caja: en base agrupada la caja trae N paquetes/cajas, no piezas. */
-  get boxContentWord(): string { return this.baseIsGrouped ? this.plural(this.baseUnit) : 'pzas'; }
 
-  // ── F1: visibilidad data-driven — un tier solo se muestra si el multiselect lo
-  //    pide Y hay dato real (precio > 0 y, donde aplica, tamaño > 0). Mata los $0.00 y (0 pzas).
-  // ── F5: además, un mayoreo solo se muestra si CUADRA (es más barato que su precio base);
-  //    un "mayoreo" ≥ menudeo es dato erróneo de Kepler → se oculta en vez de imprimir un precio absurdo.
-  /** El precio grande (hero) es la unidad BASE (pieza/paquete/caja base o granel). null = sin scan → base. */
-  get bigIsBase(): boolean { const h = this.hero; return !h || h === 'pieza' || h === 'kg'; }
-  get hasMayoreoPza(): boolean {
-    // Base agrupada (paquete/caja) no tiene "pieza suelta" que mayorear → se oculta.
-    if (this.baseIsGrouped) return false;
-    // El mayoreo debe ser el de la UNIDAD LEÍDA: pieza solo si el hero es la base (pieza/granel).
-    if (!this.bigIsBase) return false;
-    const w = this.num(this.model?.wholesale_piece_price);
-    const base = this.num(this.model?.piece_price);
-    // Sin umbral REAL no se imprime: la etiqueta declara un precio que la caja va a cobrar, y
-    // un mayoreo cuya condición de cantidad no se conoce fabrica una discusión en el mostrador.
-    if (this.mayoreoMin === null) return false;
-    // [ETQ-PROMO.2] Bajo oferta sólo sobrevive si su precio por unidad le gana al promocional.
-    if (!this.ganaALaOferta(w, 1)) return false;
-    return !!this.show.mayoreoPza && w > 0 && (base <= 0 || w < base);
+  /**
+   * La presentación que lleva el precio GRANDE.
+   *
+   * Orden: la que pidió el ticket (`hero`, un rótulo del ERP) · el kilo si el producto se vende
+   * por kilo · la unidad base · la primera con precio. Sólo se consideran las que TIENEN precio:
+   * poner en grande un `null` sería imprimir $0.00.
+   *
+   * ⭐ El kilo ya no se calcula. Antes `perKgPrice` hacía `precio_base × 1000 / gramos`; ahora
+   * sale de la presentación `KG` que publica el ERP. Verificado antes de cambiarlo, sobre los
+   * 2,108 pares granel de prod: el derivado y el del ERP coinciden en **2,108 de 2,108**, peor
+   * diferencia **$0.00** — o sea que retirar la aritmética no mueve ni un precio. Se retira
+   * igual, porque un número que el ERP publica no se vuelve a deducir.
+   */
+  get heroPres(): PresentacionPrecio | null {
+    const ps = this.presentaciones;
+    if (!ps.length) return null;
+    const conPrecio = ps.filter((p) => this.num(p.precio_lista) > 0);
+    if (!conPrecio.length) return null;
+    const pedido = String(this.hero ?? '').trim().toUpperCase();
+    if (pedido) {
+      const hit = conPrecio.find((p) => String(p.unidad).toUpperCase() === pedido);
+      if (hit) return hit;
+    }
+    if (this.model?.sold_by_kg) {
+      const kg = conPrecio.find((p) => String(p.unidad).toUpperCase() === 'KG');
+      if (kg) return kg;
+    }
+    return conPrecio.find((p) => p.origen === 'base') ?? conPrecio[0];
+  }
+
+  /** El rótulo del ERP que va en grande. `null` cuando no hay lista. */
+  get heroUnidad(): string | null { return this.heroPres ? String(this.heroPres.unidad) : null; }
+
+  /**
+   * ⭐⭐ Los renglones de la columna derecha, uno por presentación.
+   *
+   * Dos reglas, y cada una tiene su medición detrás:
+   *
+   * 1. **El precio de lista de las otras presentaciones se imprime siempre.** No promete ser el
+   *    mejor precio — dice cuánto cuesta esa unidad, que es lo que se pregunta en el mostrador.
+   *    (Esa fue la corrección de `[ETQ-ODS.1]`: la caja estaba gateada por `ganaALaOferta` y bajo
+   *    oferta desaparecía, porque la promo no sale de su presentación.)
+   *
+   * 2. **El peldaño de mayoreo sólo se imprime si su veredicto es `ok`.** El veredicto lo emite
+   *    `analytics.v_label_presentations` comparando contra el precio de lista de **su misma**
+   *    unidad. Medido en prod: **3,864 peldaños incoherentes** (el "MAYOREO $1.35" con la pieza a
+   *    $26.01 salía de comparar dos presentaciones distintas) y **10,599 `sin_arbitro`** — sin
+   *    precio de lista de esa unidad no hay con qué comparar, y llamarlos sanos sería el
+   *    `cfg ? classify : 'ok'` que la Fase VP ya midió dando verde incondicional.
+   *
+   * ⚠️ El único que además tiene que GANARLE a la oferta es el peldaño de la presentación del
+   * hero: es el que se compara contra el número grande **en la misma unidad**, sin dividir. Los
+   * de las otras están en otra unidad, y compararlos exigiría la división que esta fase vino a
+   * eliminar — así que no se ocultan, simplemente no se realzan.
+   */
+  get renglones(): RenglonEtiqueta[] {
+    const ps = this.presentaciones;
+    if (!ps.length) return [];
+    const heroU = String(this.heroUnidad ?? '').toUpperCase();
+    const out: RenglonEtiqueta[] = [];
+    for (const p of ps) {
+      const u = String(p.unidad).toUpperCase();
+      const leg = unidadLegible(p.unidad);
+      const esHero = !!heroU && u === heroU;
+      const lista = this.num(p.precio_lista);
+      const may = this.num(p.mayoreo_precio);
+      const desde = p.mayoreo_desde == null ? null : Number(p.mayoreo_desde);
+
+      if (!esHero && lista > 0 && this.show.presentaciones) {
+        out.push({
+          clave: u + '|lista',
+          unidad: leg.singular.charAt(0).toUpperCase() + leg.singular.slice(1),
+          unidadPlural: leg.plural,
+          contenido: p.contenido ?? null,
+          precio: lista, mayoreo: false, desde: null, realce: false,
+        });
+      }
+      // `mayoreoPublicable` del contrato es `veredicto === 'ok'`; se comprueba acá para que el
+      // renglón nunca dependa de que la vista y el componente coincidan por casualidad.
+      if (this.show.mayoreo && p.mayoreo_veredicto === 'ok' && may > 0 && desde !== null && desde > 1) {
+        if (!esHero || this.ganaALaOferta(may, 1)) {
+          out.push({
+            clave: u + '|mayoreo',
+            unidad: leg.singular.charAt(0).toUpperCase() + leg.singular.slice(1),
+            unidadPlural: leg.plural,
+            contenido: p.contenido ?? null,
+            precio: may, mayoreo: true, desde,
+            realce: lista > 0 && (lista - may) / lista >= MAYOREO_MIN_DESC,
+          });
+        }
+      }
+    }
+    return out;
   }
 
   /**
@@ -764,65 +871,16 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * NO se oculta (el precio sí es más bajo, y esconderlo sorprendería a quien compare contra la
    * pantalla): pierde el realce y se imprime como cualquier otro.
    *
-   * Los que son ≥ menudeo ya los descarta `hasMayoreo*`.
+   * ⚠️ Vive dentro de renglones, contra el precio de lista de LA MISMA presentación. Antes eran
+   * dos getters —realceMayoreoPza y realceMayoreoPaq— y cada uno elegía su base con una cascada
+   * distinta: dos formas de contestar la misma pregunta, que es como se separan.
    */
-  private descuento(w: number, base: number): number {
-    return base > 0 && w > 0 ? (base - w) / base : 0;
-  }
-  get realceMayoreoPza(): boolean {
-    return this.descuento(this.num(this.model?.wholesale_piece_price), this.num(this.model?.piece_price)) >= MAYOREO_MIN_DESC;
-  }
-  get realceMayoreoPaq(): boolean {
-    const base = this.baseIsGrouped ? this.num(this.model?.piece_price) : this.num(this.model?.pack_price);
-    return this.descuento(this.num(this.model?.wholesale_pack_price), base) >= MAYOREO_MIN_DESC;
-  }
+
   /** Cuántos renglones se van a imprimir. Alimenta el centrado del caso sin renglones. */
   get tierCount(): number {
     return (this.precioNormal !== null ? 1 : 0) + (this.ahorro !== null ? 1 : 0)
-      + (this.escalonOferta ? 1 : 0)
-      + (this.granelAltTier ? 1 : 0) + (this.hasMayoreoPza ? 1 : 0) + (this.hasPaquete ? 1 : 0)
-      + (this.hasMayoreoPaq ? 1 : 0) + (this.hasCaja ? 1 : 0);
+      + (this.escalonOferta ? 1 : 0) + this.renglones.length;
   }
-  get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
-  get hasMayoreoPaq(): boolean {
-    // [ETQ-PROMO.2] Mismo criterio que el mayoreo por pieza.
-    if (!this.ganaALaOferta(this.num(this.model?.wholesale_pack_price), 1)) return false;
-    // El comparativo depende de la unidad base (Kepler unit_base):
-    //  · base=paquete/caja → el "precio de paquete" ES el precio base (c90/piece_price); el
-    //    mayoreo (wholesale_pack_price) vive suelto porque el paquete no está en pack_size. F-unit.
-    //  · base=pieza → paquete REAL de piezas (pack_price + pack_size), igual que antes. F5.
-    const w = this.num(this.model?.wholesale_pack_price);
-    if (!this.show.mayoreoPaq || w <= 0) return false;
-    // Sin umbral REAL no se imprime (17 productos en prod imprimían "Mayoreo" pelado, sin
-    // decir desde cuántos). Mismo criterio que `hasMayoreoPza`.
-    if (this.mayoreoPaqMin === null) return false;
-    if (this.baseIsGrouped) {
-      // base es paquete/caja → este ES el mayoreo de la unidad base → solo si el hero es la base.
-      if (!this.bigIsBase) return false;
-      const base = this.num(this.model?.piece_price);
-      return base > 0 && w < base;
-    }
-    // base=pieza → mayoreo por PAQUETE → solo si se leyó/eligió el paquete.
-    if (this.hero !== 'paquete') return false;
-    const base = this.num(this.model?.pack_price);
-    const size = this.num(this.model?.pack_size);
-    return base > 0 && size > 0 && w < base;
-  }
-  get hasCaja(): boolean {
-    if (!this.show.caja) return false;
-    const total = this.num(this.model?.box_price);
-    const size = this.num(this.model?.box_size);
-    // `[ETQ-ODS.1]` La caja SIEMPRE se imprime cuando hay dato. Estuvo gateada por
-    // `ganaALaOferta` y era un error de criterio: bajo oferta la caja NO lleva el descuento
-    // —la promo no sale de su presentación, medido: promo en PAQ vendida en PZA da 0 de 49
-    // renglones con descuento— así que por unidad queda por encima del hero y desaparecía.
-    // Pero este renglón no promete ser el mejor precio: dice cuánto cuesta la caja, que es lo
-    // que el cliente pregunta en el mostrador. El que promete es el REALCE, y ése sigue
-    // exigiendo un descuento real (`realceMayoreo*`).
-    return total > 0 && size > 0;
-  }
-  // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
-  // del producto, o al menos el SKU (fallback CODE128) → toda etiqueta sale escaneable.
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
   /**
@@ -841,74 +899,54 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   /**
-   * ¿Producto a GRANEL (se vende por KILO)? `unit_base` = tamaño de la porción base: "KG" (1 kg)
-   * o gramos ("500"/"250"/"400"). SOLO es granel si `sold_by_kg` (Kepler: base KG o tier KG) →
-   * evita fabricar "$/kg" para bolsas/palitos con unit_base numérico que NO se venden por kilo
-   * (ej. 68521 PALO, POLIPRO). Sin presentación en kilos → 0 (cae a "Precio por pieza").
+   * `[ETQ-PRES.4]` El precio grande: **el de la presentación del hero, con su palabra**.
+   *
+   * ⛔ Esto era una cascada de ocho ramas sobre `piece_price`/`pack_price`/`box_price` que además
+   * devolvía un `slot` para que el resto del componente supiera "de qué cajón salió el número".
+   * Ese `slot` era el síntoma más claro del problema: **hacía falta un campo aparte para decir de
+   * qué unidad hablaba un precio**. Ahora la unidad viene con el precio y el campo sobra.
+   *
+   * Sin lista (253 pares en prod, todos por `kdii.c11` vacío) se imprime el precio base con la
+   * palabra que se pueda, y `unidad` va `null` — que es lo que hace que la promo no se aplique:
+   * sin saber de qué unidad es el número grande no se puede afirmar que el descuento le toca.
    */
-  private get granelGrams(): number {
-    if (!this.model?.sold_by_kg) return 0;
-    const ub = (this.model?.unit_base || '').toUpperCase();
-    if (ub === 'KG') return 1000;
-    return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0; // 500g/250g/400g; 0 = no es granel
-  }
-  /** Precio por kg del granel: pza × (1000 / gramos de la porción base). */
-  private get perKgPrice(): number {
-    const g = this.granelGrams;
-    return g > 0 ? this.num(this.model?.piece_price) * 1000 / g : 0;
-  }
-  get isGranel(): boolean { return this.granelGrams > 0; }
-  /** Peso de la caja en granel: box_size × porción (10×500g = "5 kg"). */
-  get cajaWeight(): string {
-    const g = this.num(this.model?.box_size) * this.granelGrams;
-    return g >= 1000 ? `${+(g / 1000).toFixed(2)} kg` : `${g} g`;
-  }
-
-  /**
-   * Precio grande. Con `hero` explícito (intercambiable por ticket) usa ese precio si es válido.
-   * GRANEL (unit_base KG/500/250/…): el "pieza" se muestra como **precio por kg**.
-   * Sin override: pieza/kg; si no hay (>0), cae a paquete → caja para no imprimir $0.00.
-   */
-  get bigUnit(): { word: string; value: number; slot: 'pieza' | 'paquete' | 'caja' } {
-    const m = this.model;
-    const grams = this.granelGrams;
-    const granel = grams > 0;
-    const piece = this.num(m?.piece_price);
-    const portionWord = grams >= 1000 ? 'kg' : `${grams} g`; // "500 g" / "kg"
-
-    // Overrides explícitos por ticket.
-    // `slot` = de qué precio del modelo salió este número. Lo devuelve ACÁ y no lo re-deriva
-    // nadie: el descuento de Kepler apunta a UNA presentación, y para saber si le toca al precio
-    // grande hay que saber cuál es. Re-implementar esta cascada en otro getter sería dos verdades.
-    // El granel sale de `piece_price`, así que su ranura es `pieza` aunque la palabra sea "kg".
-    if (this.hero === 'kg' && granel) return { word: 'kg', value: this.perKgPrice, slot: 'pieza' };
-    if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price), slot: 'paquete' };
-    if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price), slot: 'caja' };
-    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece, slot: 'pieza' } : { word: this.baseUnit, value: piece, slot: 'pieza' };
-
-    // Default: granel = por kg (se vende por kilo); normal = unidad base (pieza/paquete/caja
-    // según Kepler unit_base); con fallback. c90 es el precio de ESA unidad base.
-    if (granel && (piece > 0 || this.perKgPrice > 0)) return { word: 'kg', value: this.perKgPrice, slot: 'pieza' };
-    if (piece > 0) return { word: this.baseUnit, value: piece, slot: 'pieza' };
-    if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price), slot: 'paquete' };
-    if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price), slot: 'caja' };
-    return granel ? { word: 'kg', value: 0, slot: 'pieza' } : { word: this.baseUnit, value: 0, slot: 'pieza' };
+  get bigUnit(): { word: string; value: number; unidad: string | null } {
+    const h = this.heroPres;
+    if (h) {
+      return {
+        word: unidadLegible(h.unidad).singular,
+        value: this.num(h.precio_lista),
+        unidad: String(h.unidad),
+      };
+    }
+    const leg = unidadLegible(this.model?.unit_base);
+    return { word: leg.singular || 'pieza', value: this.num(this.model?.piece_price), unidad: null };
   }
 
   /**
    * `[ETQ-PROMO.1]` El "Descuento por Cantidad" de Kepler, SÓLO si le toca al precio grande.
    *
-   * La promo apunta a una presentación (`promo_aplica`); si el precio grande es otro —el
-   * operador puso caja y la promo es de paquete— no se aplica y la etiqueta no lo menciona.
-   * Medido: 43% de las promos vigentes NO son de la unidad base, así que esto no es un caso raro.
+   * La promo apunta a UNA presentación y **no sale de ella** — medido: promo declarada en PAQ,
+   * vendida en PZA, da 0 de 49 renglones con descuento. Así que se compara rótulo contra rótulo.
    *
-   * `null` cuando no hay promo, cuando no aplica a esta ranura, o cuando no vino plaza (el
-   * descuento es POR TIENDA: sin saber cuál, no se puede afirmar ninguno).
+   * ⭐ Antes la comparación era `promo_aplica === bigUnit.slot`, o sea dos traducciones a los
+   * tres cajones que tenían que coincidir. Medido en prod sobre las 275 promos vigentes: hay
+   * **1 declarada en `CUB`**, y `promo_aplica` la devuelve `null` porque la cubeta no es ninguno
+   * de los tres — esa oferta hoy no se imprime en ningún lado. Con el rótulo crudo, se imprime.
+   *
+   * ⚠️ Verificado antes de cambiarlo: de las 275 promos, **1 sola cae sobre un SKU granel, y está
+   * declarada en `KG`** — que es justo la presentación que la etiqueta pone en grande. O sea que
+   * pasar de cajones a rótulos no apaga ninguna promo de granel.
+   *
+   * `null` cuando no hay promo, cuando es de otra unidad, o cuando no vino plaza (el descuento es
+   * POR TIENDA: sin saber cuál, no se puede afirmar ninguno).
    */
   get promoPct(): number | null {
     const pct = this.num(this.model?.promo_pct);
     if (!(pct > 0) || pct >= 100) return null;
-    return this.model?.promo_aplica === this.bigUnit.slot ? pct : null;
+    const dePromo = String(this.model?.promo_unidad ?? '').trim().toUpperCase();
+    const delHero = String(this.bigUnit.unidad ?? '').trim().toUpperCase();
+    return dePromo && delHero && dePromo === delHero ? pct : null;
   }
 
   /** ¿Esta etiqueta va en OFERTA? Es el interruptor de todo el estado visual de promo. */
@@ -970,30 +1008,27 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   /**
    * `[ETQ-AIDA.1]` El peldaño de mayoreo de LA PRESENTACIÓN EN PROMO, con su umbral.
    *
-   * ⛔ **El mapeo ranura → campo NO es el obvio, y equivocarlo falla en SILENCIO.** La ranura
-   * 'pieza' no significa "pieza": significa **la unidad base**, sea PAQ, CJA o PZA — lo fija
-   * `bigUnit`, cuyo default toma `piece_price` (= `kdii.c90`, el precio de la unidad base) y le
-   * pone `slot: 'pieza'`. Y del otro lado, `label-compute.js` guarda el peldaño DE LA BASE en
-   * `wholesale_pack_price` cuando la base es PAQ/CJA, dejando `wholesale_piece_price` en null:
+   * ⭐⭐ **Acá estaba LA MINA, y la mina desapareció.** La versión anterior tenía que elegir entre
+   * `wholesale_piece_price` y `wholesale_pack_price` a partir de un `slot`, y el mapeo NO era el
+   * obvio: la ranura 'pieza' no significaba pieza sino "la unidad base", y `label-compute.js`
+   * guardaba el peldaño de la base en el campo **pack** cuando la base era PAQ/CJA. Leer el campo
+   * que decía "pieza" daba `null` en el **73.5 % del catálogo** — y fallaba en silencio, porque un
+   * `null` se lee como "este producto no tiene mayoreo" y no como un bug.
    *
-   *     const grouped = bp === 'PAQ' || bp === 'CJA';
-   *     const w = grouped ? { packPrice: baseTier.price, piecePrice: null } : { piecePrice: ... }
+   * Ahora el peldaño es un campo de la presentación del hero, y se exige su veredicto: viene del
+   * renglón de **esa misma unidad**, así que es conmensurable por construcción. No hay mapeo que
+   * equivocar porque no hay mapeo.
    *
-   * O sea que leer `wholesale_piece_price` para la ranura 'pieza' daría **null en el 73.5% del
-   * catálogo** (las bases PAQ) — y el hero nunca pasaría a mayoreo, que se lee como "este
-   * producto no tiene mayoreo" en vez de como un bug. Es la misma distinción que ya documenta
-   * `hasMayoreoPaq`.
-   *
-   * `null` cuando la promo es de CAJA sin que la base lo sea: ahí el modelo no trae ese peldaño.
+   * `null` cuando esa presentación no tiene peldaño publicable o no trae umbral: un precio de
+   * volumen sin la cantidad que lo desbloquea fabrica una discusión en el mostrador.
    */
   private get peldanoDeLaPromo(): { precio: number; min: number } | null {
     if (this.promoPct === null) return null;
-    const slot = this.bigUnit.slot;
-    if (slot === 'caja') return null;
-    const usaPaq = slot === 'paquete' || this.baseIsGrouped;
-    const precio = this.num(usaPaq ? this.model?.wholesale_pack_price : this.model?.wholesale_piece_price);
-    const min = usaPaq ? this.mayoreoPaqMin : this.mayoreoMin;
-    return precio > 0 && min !== null ? { precio, min } : null;
+    const h = this.heroPres;
+    if (!h || h.mayoreo_veredicto !== 'ok') return null;
+    const precio = this.num(h.mayoreo_precio);
+    const min = h.mayoreo_desde == null ? null : Number(h.mayoreo_desde);
+    return precio > 0 && min !== null && min > 1 ? { precio, min } : null;
   }
 
   /**
@@ -1038,13 +1073,13 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   get condicionMayoreo(): string | null {
     const h = this.heroMayoreo;
     if (h === null) return null;
-    // La palabra sale de los mismos getters que rotulan los renglones de mayoreo, para que la
-    // etiqueta no tenga dos vocabularios. `plural(bigUnit.word)` NO sirve: en granel la palabra
-    // es "kg" y `plural` la mandaría a "cajas".
+    // ⭐ La palabra sale del MISMO diccionario que rotula los renglones, aplicado a la MISMA
+    // presentación. Antes eran dos getters (`mayoreoGroupWord` / `mayoreoBaseWord`) elegidos por
+    // una tercera cascada, y había que acordarse de que `plural(bigUnit.word)` no servía porque
+    // en granel mandaba "kg" a "cajas".
     // Devuelve sólo la cantidad y la unidad: el "Llevando" lo pone la plantilla en el mismo
     // `.pre` chico que usa "Precio por", para que la franja conserve EXACTAMENTE su formato.
-    const usaPaq = this.bigUnit.slot === 'paquete' || this.baseIsGrouped;
-    return h.min + '+ ' + (usaPaq ? this.mayoreoGroupWord : this.mayoreoBaseWord);
+    return h.min + '+ ' + unidadLegible(this.bigUnit.unidad).plural;
   }
 
   /** El promocional puro: la lista con el % de Kepler. Es el hero cuando no hay mayoreo que lo mejore. */
@@ -1082,21 +1117,10 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     return this.promoPct !== null && q > 1 ? q : null;
   }
 
-  /**
-   * Granel de porción < 1 kg (500 g / 250 g / …): muestra el OTRO precio como tier para ver
-   * AMBOS — si el hero es por kg, el tier es la porción; si el hero es la porción, el tier es kg.
-   */
-  get granelAltTier(): { label: string; value: number } | null {
-    // Obedece al multiselect como los otros cuatro renglones: era el único que no se podía apagar.
-    if (!this.show.granel) return null;
-    const grams = this.granelGrams;
-    if (grams <= 0 || grams >= 1000) return null;
-    const piece = this.num(this.model?.piece_price);
-    if (piece <= 0) return null;
-    return this.bigUnit.word === 'kg'
-      ? { label: `${grams} g`, value: piece }
-      : { label: '1 kg', value: this.perKgPrice };
-  }
+  // `[ETQ-PRES.4]` Acá vivía `granelAltTier`, el renglón "kg ↔ porción" que la etiqueta fabricaba
+  // a mano. Se retiró sin perder nada: ese renglón ES una presentación, y `renglones` ya la
+  // imprime igual que a las demás. Medido antes de sacarlo — los 2,108 pares granel de prod
+  // tienen su presentación `KG` publicada por el ERP; ninguno necesitaba que se la calcularan.
   private get bigStr(): string { return this.precioGrande.toFixed(2); }
 
   /**

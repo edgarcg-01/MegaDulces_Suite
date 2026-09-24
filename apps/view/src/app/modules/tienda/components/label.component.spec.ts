@@ -9,13 +9,47 @@ import { ALL_SECTIONS, LabelComponent, LabelModel, LabelSections, MEDIDOR_DE_TEX
  * "sin medida no se toca" y no se prueban acá. JsBarcode sí dibuja el SVG, así que la zona muda
  * y los dígitos legibles se pueden comprobar de verdad.
  */
+/**
+ * `[ETQ-PRES.4]` El fixture dejó de ser tres cajones y pasó a ser la LISTA.
+ *
+ * ⚠️ Los campos `piece_*`/`pack_*`/`box_*` siguen acá **sólo** porque `LabelModel` todavía los
+ * declara y el camino sin plaza los usa. La etiqueta YA NO LOS LEE: si se borran de abajo, nada
+ * de lo que estos casos afirman cambia. Eso es, justamente, lo que se está probando.
+ */
 const BASE: LabelModel = {
   product_id: 'p-1', sku: '20186', name: 'DULCE DE PRUEBA 50G/8', content: '50 g',
   barcode: '7501234567893', barcode_format: 'EAN13',
   piece_price: 12.5, wholesale_piece_min_qty: 3, wholesale_piece_price: 11,
   pack_size: 8, pack_price: 90, wholesale_pack_price: 85, wholesale_pack_min_qty: 3,
   box_size: 24, box_price: 250, unit_base: 'PZA', sold_by_kg: false,
+  presentaciones: [
+    { unidad: 'PZA', factor: 1, origen: 'base', contenido: '50 g', precio_lista: 12.5, mayoreo_precio: 11, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+    { unidad: 'PAQ', factor: 8, origen: 'ranura', contenido: '400 g', precio_lista: 90, mayoreo_precio: 85, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+    { unidad: 'CJA', factor: 24, origen: 'ranura', contenido: '1.2 kg', precio_lista: 250, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+  ],
 };
+
+/** Igual que `BASE` pero SIN el peldaño de la base: aísla el camino de la promo sola. */
+const SIN_PELDANO_BASE = (m: LabelModel): LabelModel => ({
+  ...m,
+  presentaciones: (m.presentaciones ?? []).map((p) =>
+    p.origen === 'base' ? { ...p, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' as const } : p),
+});
+
+/** Cambia el precio de lista de la presentación base (y deja el resto igual). */
+const CON_LISTA_BASE = (m: LabelModel, precio: number): LabelModel => ({
+  ...m, piece_price: precio,
+  presentaciones: (m.presentaciones ?? []).map((p) => (p.origen === 'base' ? { ...p, precio_lista: precio } : p)),
+});
+
+/** Cambia el peldaño de la presentación base. */
+const CON_PELDANO_BASE = (m: LabelModel, precio: number, desde = 3): LabelModel => ({
+  ...m,
+  presentaciones: (m.presentaciones ?? []).map((p) =>
+    p.origen === 'base'
+      ? { ...p, mayoreo_precio: precio, mayoreo_desde: desde, mayoreo_veredicto: 'ok' as const }
+      : p),
+});
 
 describe('LabelComponent · lo que sale impreso', () => {
   let fix: ComponentFixture<LabelComponent>;
@@ -77,16 +111,158 @@ describe('LabelComponent · lo que sale impreso', () => {
     expect(svg.hasAttribute('width')).toBe(false); // el ancho lo manda el CSS de la columna
   });
 
-  it('el renglón alterno del granel se apaga con el multiselect, como los demás', async () => {
+  /**
+   * `[ETQ-PRES.4]` EL GRANEL DEJÓ DE SER UN CASO ESPECIAL.
+   *
+   * Esto probaba `granelAltTier`, el renglón "kg ↔ porción" que la etiqueta fabricaba con
+   * aritmética (`precio_base × 1000 / gramos`) y que tenía su propio interruptor en el
+   * multiselect. Ya no existe: la porción y el kilo son **dos presentaciones del ERP**, y se
+   * imprimen por el mismo camino que la caja o la cubeta.
+   *
+   * Verificado antes de retirarlo, contra prod: los **2,108** pares granel tienen su presentación
+   * `KG` publicada, y el kilo derivado coincide con el del ERP en **2,108 de 2,108** (peor
+   * diferencia $0.00). O sea que la aritmética no estaba mal — estaba de más.
+   *
+   * ⭐ Y lo que sí corrige: el `18022` es base `500`, y la etiqueta rotulaba su mayoreo como
+   * "3+ **pzas**". No son piezas, son bolsas de medio kilo — 88 SKUs con ese rótulo.
+   */
+  it('⭐ el granel imprime su porción y su kilo como dos presentaciones, con la unidad del ERP', async () => {
     const granel: LabelModel = {
-      ...BASE, unit_base: '500', sold_by_kg: true, piece_price: 30,
+      ...BASE, sku: '18022', name: 'CAJETA ENVINADA 25KGS', unit_base: '500', sold_by_kg: true,
+      piece_price: 57.88, content: '500 g',
       pack_price: null, pack_size: null, box_price: null, box_size: null,
       wholesale_pack_price: null, wholesale_piece_price: null,
+      presentaciones: [
+        { unidad: '500', factor: 1, origen: 'base', contenido: '500 g', precio_lista: 57.88, mayoreo_precio: 53.75, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+        { unidad: 'KG', factor: 2, origen: 'ranura', contenido: '1 kg', precio_lista: 115.74, mayoreo_precio: 107.48, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+        { unidad: 'CUB', factor: 50, origen: 'ranura', contenido: '25 kg', precio_lista: 2339.76, mayoreo_precio: 2232.28, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+      ],
     };
     await render(granel);
-    expect(texto()).toContain('Por 500 g');
-    await render(granel, { ...ALL_SECTIONS, granel: false });
-    expect(texto()).not.toContain('Por 500 g');
+    const t = texto();
+    // El hero es el kilo (convención de anaquel) y sale del ERP, no de una multiplicación.
+    expect(el().querySelector('.etq-price')?.textContent).toContain('115.74');
+    // ⭐⭐ El "25 kg" queda pegado a los $2,339.76 de la CUBETA — que es de quien era ese peso.
+    // Antes el contenido salía de un regex sobre el nombre ("...25KGS") y se imprimía junto al
+    // precio de la porción: "25 kg · $57.88", 50× abajo, en 111 SKUs × 9 plazas.
+    expect(t).toMatch(/Cubeta\s*25 kg/);
+    expect(t).toContain('2,339.76');
+    expect(t).toContain('500 g');
+    // ⛔ NEGATIVA: el peso del bulto NUNCA viaja junto al precio de la porción.
+    expect(t).not.toMatch(/25 kg[^$]*\$?57\.88/);
+    // Los peldaños se apagan sin apagar las presentaciones, y viceversa.
+    await render(granel, { ...ALL_SECTIONS, mayoreo: false });
+    expect(texto()).not.toContain('Mayoreo');
+    expect(texto()).toContain('2,339.76');
+    await render(granel, { ...ALL_SECTIONS, presentaciones: false });
+    expect(texto()).not.toContain('2,339.76');
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-PRES.4]` EL PRECIO DE MAYOREO — lo que Edgar reportó tres veces seguidas.
+   *
+   * El veredicto lo emite `analytics.v_label_presentations` comparando el peldaño contra el
+   * precio de lista **de su misma unidad**. Es ternario a propósito (ADR-056): un booleano no
+   * puede decir "no sé". Medido en prod al construirlo: **3,864 peldaños incoherentes** y
+   * **10,599 `sin_arbitro`**.
+   *
+   * ⛔ Estos cuatro casos son la PRUEBA NEGATIVA: si alguien afloja el criterio y publica lo que
+   * no es `ok`, la etiqueta vuelve a imprimir "MAYOREO $1.35" bajo una pieza de $26.01.
+   */
+  describe('⭐⭐ el mayoreo sólo se publica si su veredicto lo respalda', () => {
+    const tiers = (): string[] =>
+      [...el().querySelectorAll('.etq-tier')].map((n) => n.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    const conVeredictoCJA = (v: 'ok' | 'incoherente' | 'sin_arbitro' | 'sin_mayoreo'): LabelModel => ({
+      ...BASE,
+      presentaciones: (BASE.presentaciones ?? []).map((p) =>
+        p.unidad === 'CJA'
+          ? { ...p, mayoreo_precio: 225, mayoreo_desde: 3, mayoreo_veredicto: v }
+          : p),
+    });
+
+    it('con veredicto ok, se imprime con su "desde N" y su unidad', async () => {
+      await render(conVeredictoCJA('ok'));
+      expect(tiers().some((t) => /Mayoreo 3\+ cajas.*225\.00/.test(t))).toBe(true);
+    });
+
+    for (const v of ['incoherente', 'sin_arbitro'] as const) {
+      it(`⛔ NEGATIVA: con veredicto "${v}" el peldaño NO se imprime`, async () => {
+        await render(conVeredictoCJA(v));
+        expect(tiers().some((t) => t.includes('225.00'))).toBe(false);
+        // …y la presentación sigue apareciendo con su precio de lista: lo que se suprime es el
+        // peldaño que no se puede sostener, no la caja.
+        expect(tiers().some((t) => t.includes('250.00'))).toBe(true);
+      });
+    }
+
+    it('⛔ NEGATIVA: sin umbral real (desde ≤ 1) no se imprime — un precio de volumen sin su cantidad', async () => {
+      await render({
+        ...BASE,
+        presentaciones: (BASE.presentaciones ?? []).map((p) =>
+          p.unidad === 'CJA' ? { ...p, mayoreo_precio: 225, mayoreo_desde: 1, mayoreo_veredicto: 'ok' as const } : p),
+      });
+      expect(tiers().some((t) => t.includes('225.00'))).toBe(false);
+    });
+
+    it('⭐ el REALCE exige un descuento real contra el precio de lista de SU MISMA unidad', async () => {
+      // 249 contra 250 es 0.4%: el precio SÍ es más bajo, así que el renglón se imprime —
+      // esconderlo sorprendería a quien compare contra la pantalla— pero sin el chip amarillo.
+      // ⚠️ El realce se mira EN SU RENGLÓN, no en la etiqueta: `BASE` también trae el peldaño de
+      // la pieza (11 contra 12.50 = 12%), que sí se realza. Un `querySelector` suelto lo
+      // encontraría a él y el caso se pondría verde sin probar nada.
+      const realceDe = (monto: string): boolean =>
+        [...el().querySelectorAll('.etq-tier')]
+          .filter((n) => (n.textContent ?? '').includes(monto))
+          .every((n) => n.classList.contains('is-mayoreo'));
+
+      await render(conVeredictoCJA('ok'));
+      expect(realceDe('225.00')).toBe(true);                               // 225/250 = 10%
+      await render({
+        ...BASE,
+        presentaciones: (BASE.presentaciones ?? []).map((p) =>
+          p.unidad === 'CJA' ? { ...p, mayoreo_precio: 249, mayoreo_desde: 3, mayoreo_veredicto: 'ok' as const } : p),
+      });
+      expect(texto()).toContain('249.00');
+      expect(realceDe('249.00')).toBe(false);
+    });
+  });
+
+  /**
+   * `[ETQ-PRES.4]` Lo que el diccionario NO entiende se imprime CRUDO — no se traduce.
+   *
+   * Misma regla que `QtyUnitLabel`. Medido: `SER` son 13 SKUs y casi todos son asientos
+   * contables (`VENTAS AL 0 %`, `COMISION BANCARIA`, `CANCELADA`), pero uno —`03056 GLOBO #9
+   * ROSA /50 AP`— sí es mercancía con la ranura mal rotulada en el ERP. Decir "servicio" sobre un
+   * globo sería inventar; imprimir `SER` deja ver el error de captura a quien puede corregirlo.
+   */
+  it('⭐ una unidad que el diccionario no conoce se imprime tal cual, sin traducir', async () => {
+    await render({
+      ...BASE, sku: '03056', name: 'GLOBO #9 ROSA /50 AP',
+      presentaciones: [
+        { unidad: 'PZA', factor: 1, origen: 'base', contenido: null, precio_lista: 2.5, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+        { unidad: 'SER', factor: 50, origen: 'ranura', contenido: null, precio_lista: 110, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+      ],
+    });
+    expect(texto()).toContain('SER');
+    expect(texto()).toContain('110.00');
+  });
+
+  /**
+   * `[ETQ-PRES.4]` Sin lista NO se rellena con los tres cajones — se imprime lo que hay.
+   *
+   * Medido: de los 84,219 pares (sku, plaza) con precio, **253 (0.30 %)** no tienen
+   * presentaciones, y en los 253 la causa es una sola — `kdii.c11` viene vacío, o sea que el ERP
+   * no le declara unidad base. Inventar un "Paquete" ahí sería exactamente el defecto que esta
+   * fase cierra, en miniatura.
+   */
+  it('⛔ NEGATIVA: sin presentaciones no se fabrica ningún renglón', async () => {
+    await render({ ...BASE, presentaciones: [] });
+    expect(el().querySelectorAll('.etq-tier').length).toBe(0);
+    // Los tres cajones siguen cargados en el modelo y NO se leen: ni el paquete de $90 ni la
+    // caja de $250 aparecen.
+    expect(texto()).not.toContain('90.00');
+    expect(texto()).not.toContain('250.00');
+    expect(el().querySelector('.etq-price')?.textContent).toContain('12.50');
   });
 
   it('marca cuándo terminó de ajustarse, para que la impresión tenga qué esperar', async () => {
@@ -311,19 +487,20 @@ describe('LabelComponent · lo que sale impreso', () => {
    * en casi la mitad de los casos.
    */
   describe('⭐ descuento por cantidad', () => {
-    const CON_PROMO: LabelModel = { ...BASE, promo_pct: 10, promo_min_qty: 1, promo_aplica: 'pieza' };
+    // `[ETQ-PRES.4]` La promo se declara con el RÓTULO del ERP, no con un cajón traducido.
+    const CON_PROMO: LabelModel = { ...BASE, promo_pct: 10, promo_min_qty: 1, promo_unidad: 'PZA', promo_aplica: 'pieza' };
     /**
      * `[ETQ-AIDA.1]` SIN escalera de mayoreo, para aislar el camino de la promo sola.
      *
-     * `BASE` trae `wholesale_piece_price: 11` contra una lista de 12.50, así que `CON_PROMO`
+     * `BASE` trae el peldaño de la base a $11 contra una lista de $12.50, así que `CON_PROMO`
      * entra por el hero de mayoreo (11 × 0.9 = 9.90) y ya no prueba lo que estos casos dicen
      * probar. Peor: `PROMO_GRANDE` subía la lista a 236.51 y dejaba el mayoreo en 11, una
      * combinación que no existe en el ERP — daba un "Ahorra $226.61". Un fixture incoherente no
      * es un caso límite, es ruido: se parte en dos y cada uno prueba una cosa.
      */
-    const SOLO_PROMO: LabelModel = { ...CON_PROMO, wholesale_piece_price: null, wholesale_piece_min_qty: null };
+    const SOLO_PROMO: LabelModel = SIN_PELDANO_BASE(CON_PROMO);
     // Ahorro por ENCIMA del piso ($23.65, como el FERRERO real de la plaza 05).
-    const PROMO_GRANDE: LabelModel = { ...SOLO_PROMO, piece_price: 236.51 };
+    const PROMO_GRANDE: LabelModel = CON_LISTA_BASE(SOLO_PROMO, 236.51);
     const precio = (): string => el().querySelector('.etq-price')?.textContent?.replace(/\s/g, '') ?? '';
     const antes = (): string | null => el().querySelector('.etq-antes .amt')?.textContent?.trim() ?? null;
 
@@ -335,14 +512,14 @@ describe('LabelComponent · lo que sale impreso', () => {
     });
 
     it('⭐ NEGATIVA: si la promo es de OTRA presentación, el precio grande NO se toca', async () => {
-      // Hero = pieza (default de este modelo) pero la promo es de caja: no aplica.
-      await render({ ...CON_PROMO, promo_aplica: 'caja' });
+      // Hero = la base PZA (default de este modelo) pero la promo está declarada en CJA.
+      await render({ ...CON_PROMO, promo_unidad: 'CJA', promo_aplica: 'caja' });
       expect(precio()).toContain('12.50');
       expect(antes()).toBeNull();
     });
 
     it('sin plaza no hay promo, y eso NO se pinta como "sin descuento"', async () => {
-      await render({ ...BASE, promo_pct: null, promo_aplica: null });
+      await render({ ...BASE, promo_pct: null, promo_unidad: null, promo_aplica: null });
       expect(precio()).toContain('12.50');
       expect(antes()).toBeNull();
     });
@@ -435,23 +612,36 @@ describe('LabelComponent · lo que sale impreso', () => {
       it('⭐ NEGATIVA: con la escalera INVERTIDA el grande vuelve al promocional', async () => {
         // 2 de 487 promos de la plaza 05 traen el mayoreo MÁS CARO que la lista. Ahí apilar daría
         // un precio peor que la oferta, así que el hero no se mueve.
-        await render({ ...CON_PROMO, wholesale_piece_price: 13 });
+        // El veredicto lo emite la vista contra el precio de lista de SU MISMA unidad: 13/12.50
+        // queda por encima del techo, así que llega 'incoherente' y el peldaño no se publica.
+        await render({
+          ...CON_PROMO,
+          presentaciones: (CON_PROMO.presentaciones ?? []).map((p) =>
+            p.origen === 'base' ? { ...p, mayoreo_precio: 13, mayoreo_veredicto: 'incoherente' as const } : p),
+        });
         expect(precio()).toContain('11.25');
         expect(el().textContent).not.toContain('Llevando');
       });
 
-      it('⭐ LA MINA DE UNIDADES: con base PAQ el peldaño sale de wholesale_PACK_price', async () => {
-        // `promo_aplica: 'pieza'` NO significa pieza: significa la unidad BASE. Y cuando la base
-        // es PAQ/CJA, `label-compute` guarda el peldaño de la base en `wholesale_pack_price` y
-        // deja `wholesale_piece_price` en null. Leer el campo "pieza" acá daría null y el hero
-        // nunca pasaría a mayoreo — fallando EN SILENCIO en el 73.5% del catálogo.
+      it('⭐⭐ LA MINA DE UNIDADES YA NO EXISTE: el peldaño es un campo de SU presentación', async () => {
+        // Esto probaba que el componente eligiera bien entre `wholesale_piece_price` y
+        // `wholesale_pack_price` a partir de un `slot` — un mapeo que fallaba EN SILENCIO en el
+        // 73.5% del catálogo cuando se equivocaba. Ya no hay nada que elegir: el peldaño viene
+        // en la presentación que lleva el precio grande.
+        //
+        // El candado que reemplaza al viejo: **los tres campos del modelo viejo van en `null` y
+        // la etiqueta sale igual**. Si alguien vuelve a leerlos, este caso se pone rojo.
         // Fixture = FERRERO 24P real de la plaza 05.
         const FERRERO: LabelModel = {
-          ...BASE, sku: '42001', name: 'FERRERO 24P', unit_base: 'PAQ', piece_price: 236.51,
-          wholesale_piece_price: null, wholesale_piece_min_qty: null,
-          wholesale_pack_price: 221.86, wholesale_pack_min_qty: 3,
-          pack_size: null, pack_price: null, box_size: 6, box_price: 1331.14,
-          promo_pct: 10, promo_min_qty: 1, promo_aplica: 'pieza',
+          ...BASE, sku: '42001', name: 'FERRERO 24P', unit_base: 'PAQ',
+          piece_price: null, wholesale_piece_price: null, wholesale_piece_min_qty: null,
+          wholesale_pack_price: null, wholesale_pack_min_qty: null,
+          pack_size: null, pack_price: null, box_size: null, box_price: null,
+          promo_pct: 10, promo_min_qty: 1, promo_unidad: 'PAQ', promo_aplica: 'pieza',
+          presentaciones: [
+            { unidad: 'PAQ', factor: 1, origen: 'base', contenido: '300 g', precio_lista: 236.51, mayoreo_precio: 221.86, mayoreo_desde: 3, mayoreo_veredicto: 'ok' },
+            { unidad: 'CJA', factor: 6, origen: 'ranura', contenido: '1.8 kg', precio_lista: 1331.14, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+          ],
         };
         await render(FERRERO);
         expect(precio()).toContain('199.67');                 // 221.86 × 0.9
@@ -460,6 +650,8 @@ describe('LabelComponent · lo que sale impreso', () => {
         // medido: la promo no sale de su presentación), así que por unidad queda por encima del
         // hero — pero el renglón no promete ser el mejor precio, dice cuánto cuesta la caja.
         expect(tierTxts().some((t) => t.includes('1,331.14'))).toBe(true);
+        // ⭐ Y la caja se rotula CAJA, con SU contenido — no "Caja 6 paquetes" armado en el HTML.
+        expect(tierTxts().some((t) => /Caja\s*1\.8 kg/.test(t))).toBe(true);
       });
 
       it('`[ETQ-AIDA.2]` la CONDICIÓN viaja pegada al número, con su unidad', async () => {
@@ -469,7 +661,9 @@ describe('LabelComponent · lo que sale impreso', () => {
         const franja = el().querySelector('.etq-pieza')?.textContent ?? '';
         expect(franja).toContain('Llevando');
         expect(franja).toContain('3+');
-        expect(franja).toContain('pzas');                     // ADR-055: la unidad NO se pierde
+        // ADR-055: la unidad NO se pierde. Y ahora sale del diccionario del contrato aplicado a
+        // la presentación del hero, no de una cascada aparte — por eso dice "piezas" y no "pzas".
+        expect(franja).toContain('piezas');
       });
 
       it('`[ETQ-AIDA.3]` aparece el escalón intermedio "Oferta 1 a N−1"', async () => {

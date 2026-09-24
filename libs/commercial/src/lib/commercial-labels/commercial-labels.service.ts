@@ -48,6 +48,14 @@ export interface LabelModel {
   promo_hasta?: string | null;
   promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
   /**
+   * `[ETQ-PRES.4]` El RÓTULO del ERP de la presentación en promo (`PAQ`, `CJA`, `KG`, `CUB`…).
+   *
+   * Lo que `promo_aplica` no puede decir: medido sobre las 275 promos vigentes, **1 está
+   * declarada en `CUB`** y ninguno de los tres cajones la representa, así que ese campo la
+   * devuelve `null` y la oferta no se imprime. Éste viaja sin traducir.
+   */
+  promo_unidad?: string | null;
+  /**
    * `[ETQ-PRES.2]` LA LISTA DE PRESENTACIONES — cada precio con SU unidad.
    *
    * Los campos `piece_*` / `pack_*` / `box_*` de arriba son el modelo VIEJO: tres cajones con
@@ -596,6 +604,13 @@ export class CommercialLabelsService {
           promo_min_qty: suc ? n(r.promo_min_qty) : null,
           promo_hasta: suc && r.promo_hasta ? String(r.promo_hasta).slice(0, 10) : null,
           promo_aplica: suc ? this.promoAplicaA(r.promo_unidad, r.unit_base) : null,
+          /**
+           * `[ETQ-PRES.4]` El RÓTULO crudo de la presentación en promo. Va además de
+           * `promo_aplica` —que lo traduce a los tres cajones y por eso pierde lo que no entra—
+           * porque la etiqueta ahora compara rótulo contra rótulo. Medido: de las 275 promos
+           * vigentes, **1 está declarada en `CUB`** y `promo_aplica` la devuelve `null`.
+           */
+          promo_unidad: suc && r.promo_unidad ? String(r.promo_unidad).trim().toUpperCase() : null,
           /**
            * `[ETQ-PRES.2]` La lista. Cada precio viaja con SU unidad, su factor y su contenido
            * derivado — por eso aparear el precio de una con el contenido de otra deja de ser
