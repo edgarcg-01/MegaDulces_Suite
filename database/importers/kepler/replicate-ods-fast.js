@@ -191,8 +191,14 @@ if (APPLY && !RETIRO_OK) {
     '⛔ replicate-ods-fast está RETIRADO: lo reemplazó replicate-ods-live.js, que SÍ late a prod.',
     '   Este script no reporta a analytics.cron_runs → shipearía sin que db-health lo vea.',
     '',
-    '   Lo que querés casi seguro es:',
-    '     docker compose -f ops/ingest/docker-compose.yml up -d',
+    // ⛔ [CT.2 2026-09-24] ACÁ DECÍA `ops/ingest/docker-compose.yml`, que declaraba los MISMOS
+    // container_name y el MISMO ODS_HB_KEY que los de `ops/vl` → seguir esta instrucción
+    // levantaba el doble dueño que el propio mensaje viene a evitar. Es la SEGUNDA vez que
+    // aparece el mismo defecto (la otra en ecosystem.cdc.config.js): cuando la ingesta se mudó
+    // a `ops/vl`, los mensajes de retiro se quedaron apuntando a la dirección vieja.
+    '   Lo que querés casi seguro es, en el servidor `md`:',
+    '     ops/vl/deploy.sh --estado     # qué corre y con qué versión',
+    '     ops/vl/deploy.sh --todo       # reconstruye y recrea los ocho carriles',
     '',
     '   Si de verdad necesitás este como rollback, decilo explícito:',
     '     ODS_FAST_RETIRED_OK=1 node database/importers/kepler/replicate-ods-fast.js --apply …',

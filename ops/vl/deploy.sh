@@ -28,7 +28,27 @@ SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # Las MISMAS rutas que copia ops/ingest/Dockerfile. Si ahí se agrega un COPY, acá también.
 RUTAS="ops/ingest ops/vl database/importers database/scripts services/feeds-ingest libs/platform-core/src/lib/provenance/target-guard.js"
-SERVICIOS_DEF="feeds-cron feeds-livefast store-poller"
+# ⭐ [CT.1] LOS OCHO CARRILES, y que estuvieran sólo tres fue la causa de una deriva real.
+#
+# Hasta el 2026-09-24 esta línea decía `feeds-cron feeds-livefast store-poller`: los cinco
+# `ods-*` NO estaban, así que `--todo` construía la imagen nueva y los dejaba corriendo la
+# vieja. Medido ese día, antes del arreglo:
+#
+#     trade-ingest:latest = 34d5076a1b5a
+#     ods-live-hot 4c2d81882737 · ods-live-mirror 4c2d81882737 · ods-reconcile a8823285003c
+#     ods-reconcile-chicas a8823285003c · ods-reconcile-full 5998d0949a95
+#     feeds-livefast 5998d0949a95 · store-poller 5998d0949a95      ← 7 de 8 atrasados
+#
+# O sea CUATRO versiones del mismo código conviviendo, y seis de ellas en imágenes que ya ni
+# tienen tag (`docker images` no las lista: el rebuild retagueó `latest` y las dejó huérfanas).
+#
+# ⚠️ Ese día no hubo daño, pero por SUERTE: `replicate-ods-live.js` resultó idéntico en los
+# cuatro contenedores (md5 a729bac5c3). El que sí difería era `refresh-caja-matview.js`, y
+# casualmente sólo corre en `feeds-cron`, que era el único al día. Nada garantiza que la
+# próxima divergencia caiga en un archivo inocuo.
+#
+# Si agregás un servicio al compose que corra código de este repo, va ACÁ también.
+SERVICIOS_DEF="feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror ods-reconcile ods-reconcile-chicas ods-reconcile-full"
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SRV" "$@"; }
 
@@ -38,6 +58,35 @@ estado() {
   echo
   echo "── Imagen ──"
   ssh_md 'docker image inspect trade-ingest:latest --format "  creada {{.Created}}  ·  {{.Size}} bytes"'
+  echo
+  # ⭐ [CT.1] La deriva se DECLARA, no se deduce.
+  #
+  # Este bloque imprimía UNA sola fecha de imagen, y eso se lee como "hay una versión". El
+  # 2026-09-24 había CUATRO conviviendo y 7 de 8 carriles atrasados. La información estaba a
+  # la vista —`docker ps` muestra el ID en la columna Image— pero que se pueda deducir no es
+  # lo mismo que que esté dicho: nadie lo dedujo en 13 días.
+  #
+  # Un contenedor con imagen huérfana (sin tag) imprime su ID y no coincide con `latest`.
+  echo "── Versión por carril ──"
+  ssh_md '
+    ACT=$(docker image inspect -f "{{.Id}}" trade-ingest:latest 2>/dev/null | cut -c8-19)
+    echo "  trade-ingest:latest = ${ACT:-NO EXISTE}"
+    echo
+    viejos=0
+    for c in feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror \
+             ods-reconcile ods-reconcile-chicas ods-reconcile-full; do
+      ID=$(docker inspect -f "{{.Image}}" "$c" 2>/dev/null | cut -c8-19)
+      if [ -z "$ID" ]; then M="(no existe)"
+      elif [ "$ID" = "$ACT" ]; then M="al dia"
+      else M="** ATRASADO **"; viejos=$((viejos + 1)); fi
+      printf "  %-22s %-14s %s\n" "$c" "${ID:--}" "$M"
+    done
+    echo
+    if [ "$viejos" -gt 0 ]; then
+      echo "  ⛔ $viejos carril(es) con codigo VIEJO — corré: ops/vl/deploy.sh --todo"
+    else
+      echo "  ✓ los 8 carriles en la misma imagen"
+    fi'
 }
 
 # AVISA de lo que NO va a viajar, y sigue.

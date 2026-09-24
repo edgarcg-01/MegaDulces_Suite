@@ -393,7 +393,7 @@ const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 1000);
 // que se salió de la ventana por cambio de fecha de negocio. Encender una alarma con un piso
 // desconocido fabrica un rojo permanente, y un rojo permanente que nadie atiende enseña a ignorar el
 // tablero — es justo lo que acabábamos de limpiar. Se sube a un número real cuando haya semanas de
-// observación, poniendo ODS_SOBRANTES_ALERT en ops/ingest/docker-compose.yml.
+// observación, poniendo ODS_SOBRANTES_ALERT en ops/vl/docker-compose.yml.
 const ALERTA_SOBRANTES = Math.max(0, Number(process.env.ODS_SOBRANTES_ALERT) || 0);
 
 /**
