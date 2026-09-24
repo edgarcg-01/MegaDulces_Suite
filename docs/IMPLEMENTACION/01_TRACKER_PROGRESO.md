@@ -231,6 +231,39 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         callarse, y el umbral en `CRON_JOBS` es parte del trato.
       · Candado extendido a **13 ✔ contra el prod real**, incluido el gate de que el latido tiene
         su umbral y de que la bandeja no volvió a colgarse de `finance.findings`.
+- [x] **[CC.11]** 🚀 **De quién es el depósito, lo dice una persona.** Para los **5,229 abonos
+      por ~$118.9M** que ningún cobro explica, «Ligar» **no tiene a qué ligar**: se acaba el
+      camino. Y el dato no existe en ninguna fuente — el banco no dice quién pagó, ContPAQi lleva
+      clientes por *sucursal × régimen de IVA*, no hay CFDIs emitidos. **Lo pone un humano o no
+      se sabe.** `finance.bank_movements` +4 columnas (código, nota, **quién y cuándo**: una
+      afirmación sin autor no se puede revisar), endpoint
+      `POST /finance/collections/bank/:id/customer` (**GESTIONAR**: afirmar de quién es el dinero
+      es decidir, no capturar) y el diálogo «¿De quién es?» en la fila huérfana. Mig
+      `20260924210000`, **aplicada al prod real, batch 534**.
+      · ⛔ **NO es el cobro ni lo sustituye**: no escribe a Kepler, no salda nada. Dice *«este
+        depósito es de tal cliente y Kepler aún no lo tiene»* — que es lo que cobranza necesita
+        para dejar de llamar a quien ya pagó, y la pista para capturarlo.
+      · El código **se valida contra `kdud`**: una declaración con un código inventado se ve
+        igual de firme que una buena, y encima lleva firma.
+      · ⭐ **El importador no la pisa**: las columnas quedan **fuera del `merge()`** del UPSERT,
+        exactamente como `category_id`/`classified_by`, que ya estaban protegidas por el mismo
+        motivo. El candado lo comprueba leyendo el `merge()` real.
+      · ⚠️ **Perf, medida dos veces:** resolver el nombre del cliente en la CTE costaba
+        **20,386 ms** (el `LATERAL` contra `kdud` se planifica por fila aunque el `ON` sea falso).
+        Movido a **después del `LIMIT`** —300 filas en vez de 20,791— vuelve a **316 ms**.
+      · Candado a **18 ✔ contra el prod real**, incluido el ciclo completo declarar → ver con
+        nombre → quitar.
+      · ⛔ **Lo que este item NO construyó, porque ya existía:** el plan decía reusar
+        `finance.bank_capture_inbox` (Fase CBW) para «evidencia antes del asiento». Medido: esa
+        maquinaria está **entera** —upload por web sin WhatsApp, OCR, bandeja, estados, y **106
+        remitentes dados de alta, los 106 con `customer_code`**— la ven **todos** los roles de
+        cobranza… y tiene **CERO filas**. No es un hueco de código: es de adopción. Lo que
+        faltaba de verdad era el callejón sin salida de arriba, que es lo que se construyó.
+- [ ] **[CC.11.1]** ⬜ **La captura de fichas existe y nadie la usa** (`bank_capture_inbox`, 0
+      filas contra 106 remitentes configurados). Averiguar si es que el canal de WhatsApp nunca
+      se encendió (Fase F ⏸️), si nadie sabe que el botón «Subir ficha» existe en
+      `/finanzas/bancos`, o si el trámite no le sirve a nadie. **Construir encima de una
+      capacidad sin uso sería apilar sobre lo mismo.**
 - [ ] **[CC.10.1]** ⬜ **DEUDA CON NOMBRE:** migrar los **7 latidos escritos a mano**
       (`analytics-refresh`, `period-close-check`, `stock-snapshot`,
       `customer-receivables-scanner`, `goods-receipt-twins`, `fleet-poller`,

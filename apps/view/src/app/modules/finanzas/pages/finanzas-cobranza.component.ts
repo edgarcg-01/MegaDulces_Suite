@@ -161,11 +161,25 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
                 <td class="muted cb-concepto" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
                   @if (m.tiene_candidato) { <span class="cb-orig ok"><i class="pi pi-link"></i> Hay cobro candidato</span> }
+                  @else if (m.customer_code) {
+                    <!-- [CC.11] Ya no es un depósito anónimo: alguien dijo de quién es. -->
+                    <span class="cb-orig cli" [title]="declaradoPor(m)">
+                      <i class="pi pi-user"></i> {{ m.customer_nombre || m.customer_code }}
+                    </span>
+                  }
                   @else { <span class="cb-orig bad"><i class="pi pi-exclamation-triangle"></i> Sin cobro (investigar)</span> }
                 </td>
                 <td>
                   @if (m.tiene_candidato) {
                     <button pButton type="button" size="small" text (click)="openLink(m)" title="Ligar a un cobro"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Ligar</span></button>
+                  } @else if (canManage()) {
+                    <!-- [CC.11] El callejón sin salida: no hay cobro al que ligar. Lo único que
+                         desatora es que una persona diga de quién es — ninguna fuente lo trae. -->
+                    <button pButton type="button" size="small" text (click)="openCliente(m)"
+                            [title]="m.customer_code ? 'Cambiar o quitar el cliente declarado' : 'Decir de qué cliente es este depósito'">
+                      <span class="p-button-icon p-button-icon-left pi" [class.pi-user-plus]="!m.customer_code" [class.pi-user-edit]="!!m.customer_code" aria-hidden="true"></span>
+                      <span class="p-button-label">{{ m.customer_code ? 'Cambiar' : '¿De quién es?' }}</span>
+                    </button>
                   } @else { <span class="muted cb-sub">—</span> }
                 </td>
               </tr>
@@ -207,6 +221,45 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     </p-dialog>
 
     <!-- Diálogo: adjuntar ficha + OCR (soporta ficha-first sin cobro preseleccionado) -->
+    <!-- [CC.11] El depósito sin cobro: lo único que lo desatora es que alguien diga de quién es. -->
+    <p-dialog [(visible)]="showCliente" [modal]="true" [style]="{ width: '34rem' }" [draggable]="false" header="¿De qué cliente es este depósito?">
+      @if (cliMov(); as mv) {
+        <div class="cb-form">
+          <div class="cb-cobro">
+            <div><span class="cb-lbl">Abono</span><strong class="mono">{{ mv.bank }} {{ mv.account_label }}</strong></div>
+            <div><span class="cb-lbl">Fecha</span><strong>{{ mv.movement_date | date:'dd/MM/yy' }}</strong></div>
+            <div class="ta-r"><span class="cb-lbl">Monto</span><strong class="cb-monto">{{ money(mv.amount_in) }}</strong></div>
+          </div>
+          <p class="cb-cli-aviso">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Esto <b>no registra el cobro</b> ni salda nada: deja dicho de quién es el dinero para
+            que cobranza no le llame a quien ya pagó, y para que alguien lo capture en Kepler.
+            Queda firmado con tu nombre.
+          </p>
+          <div class="cb-field">
+            <label for="cli-code">Código de cliente en Kepler</label>
+            <input id="cli-code" pInputText [(ngModel)]="cliCode" placeholder="Ej. C1015"
+                   (keyup.enter)="guardarCliente()" />
+          </div>
+          <div class="cb-field">
+            <label for="cli-nota">Cómo lo supiste (opcional)</label>
+            <input id="cli-nota" pInputText [(ngModel)]="cliNota"
+                   placeholder="«mandó el comprobante por WhatsApp», «lo confirmó el vendedor»…" />
+          </div>
+          @if (cliError()) { <p class="cb-cli-error"><i class="pi pi-times-circle"></i> {{ cliError() }}</p> }
+        </div>
+        <ng-template #footer>
+          @if (mv.customer_code) {
+            <button pButton type="button" text severity="danger" [loading]="cliSaving()" (click)="quitarCliente()">
+              <span class="p-button-label">Quitar</span></button>
+          }
+          <button pButton type="button" text (click)="showCliente.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" [loading]="cliSaving()" [disabled]="!cliCode.trim()" (click)="guardarCliente()">
+            <span class="p-button-label">Guardar</span></button>
+        </ng-template>
+      }
+    </p-dialog>
+
     <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" [header]="attachTarget() ? 'Adjuntar comprobante de depósito' : 'Capturar ficha de depósito'">
       @if (attachTarget() || captureMode()) {
         <div class="cb-form">
@@ -452,6 +505,13 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     /* [CC.8] El piso de ruido del cruce, dicho donde se decide. */
     .cb-ruido { display: flex; gap: .4rem; align-items: baseline; font-size: .78rem; margin: .1rem 0 .9rem; }
+    /* [CC.11] El depósito con dueño declarado: ni verde (no está conciliado) ni rojo (ya no es
+       un anónimo). Un tercer estado necesita su propio color. */
+    .cb-orig.cli { color: #7c6f9f; cursor: help; }
+    .cb-cli-aviso { display: flex; gap: .4rem; align-items: baseline; font-size: .78rem;
+      color: var(--text-faint); margin: .2rem 0 .8rem; }
+    .cb-cli-error { display: flex; gap: .4rem; align-items: baseline; font-size: .8rem;
+      color: var(--danger, #b42318); margin: .4rem 0 0; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }
@@ -697,6 +757,9 @@ export class FinanzasCobranzaComponent {
   bancoKpis(r: UnmatchedBankReport): MetricStripItem[] {
     return [
       { label: 'Abonos sin ligar', value: r.kpis.abonos },
+      ...(r.kpis.con_cliente > 0
+        ? [{ label: 'Ya con dueño', value: r.kpis.con_cliente } as MetricStripItem]
+        : []),
       { label: '$ sin conciliar', value: Number(r.kpis.monto) || 0, format: 'currency-short', tone: 'warn' },
       { label: 'Sin cobro (investigar)', value: r.kpis.huerfanos, tone: r.kpis.huerfanos > 0 ? 'bad' : 'ok' },
     ];
@@ -730,6 +793,55 @@ export class FinanzasCobranzaComponent {
         next: () => { this.linkingFolio.set(null); this.showLink.set(false); this.toast.add({ severity: 'success', summary: 'Conciliado', detail: `Abono ligado al cobro ${c.sucursal}/${c.folio}` }); this.loadBanco(); },
         error: (e) => { this.linkingFolio.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo ligar', detail: e?.error?.message }); },
       });
+  }
+
+  // ── `[CC.11]` De quién es un depósito que Kepler no registró ────────────────────────────
+  readonly showCliente = signal(false);
+  readonly cliMov = signal<UnmatchedBankRow | null>(null);
+  readonly cliSaving = signal(false);
+  readonly cliError = signal<string | null>(null);
+  cliCode = '';
+  cliNota = '';
+
+  openCliente(m: UnmatchedBankRow) {
+    this.cliMov.set(m);
+    this.cliCode = m.customer_code || '';
+    this.cliNota = m.customer_nota || '';
+    this.cliError.set(null);
+    this.showCliente.set(true);
+  }
+  guardarCliente() { this.enviarCliente(this.cliCode.trim(), this.cliNota.trim()); }
+  /** Quitar es legítimo: alguien se pudo equivocar, y una firma sobre un dato falso es peor. */
+  quitarCliente() { this.enviarCliente('', ''); }
+
+  private enviarCliente(code: string, nota: string) {
+    const m = this.cliMov();
+    if (!m || this.cliSaving()) return;
+    this.cliSaving.set(true); this.cliError.set(null);
+    this.svc.declararCliente(m.id, code, nota).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.cliSaving.set(false); this.showCliente.set(false);
+          this.toast.add({
+            severity: 'success',
+            summary: code ? 'Cliente declarado' : 'Declaración quitada',
+            detail: code ? `${r.customer_nombre || code} — falta capturar el cobro en Kepler` : undefined,
+          });
+          this.loadBanco();
+        },
+        // El error del servidor se muestra tal cual: dice si el código no existe en Kepler, que
+        // es justo lo que la persona necesita leer para corregirlo.
+        error: (e) => { this.cliSaving.set(false); this.cliError.set(e?.error?.message || 'No se pudo guardar.'); },
+      });
+  }
+
+  /** Quién lo dijo y cuándo. Una afirmación sin autor no se puede revisar después. */
+  declaradoPor(m: UnmatchedBankRow): string {
+    if (!m.customer_code) return '';
+    const quien = m.customer_declared_by || 'alguien';
+    const cuando = m.customer_declared_at ? new Date(m.customer_declared_at).toLocaleDateString('es-MX') : '';
+    return `${m.customer_code} — lo declaró ${quien}${cuando ? ' el ' + cuando : ''}`
+      + `${m.customer_nota ? ' · ' + m.customer_nota : ''}. Falta capturar el cobro en Kepler.`;
   }
 
   kpiItems(r: CobrosReport): MetricStripItem[] {

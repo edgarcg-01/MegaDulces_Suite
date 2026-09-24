@@ -188,30 +188,42 @@ function aPg(sql) {
     'db-health', 'db-health.service.ts');
   const MEWORK = path.join(__dirname, '..', '..', 'libs', 'trade', 'src', 'lib', 'users', 'me-work.ts');
 
+  /**
+   * ⚠️ **Un archivo que no se puede leer es NO MEDIDO, no ✘.** Corriendo dentro del contenedor
+   * de prod el código fuente puede no estar montado, y la primera versión de estas aserciones
+   * reportaba «falta el latido» —un rojo— cuando lo que faltaba era el archivo. Un rojo falso
+   * enseña a ignorar el tablero igual que un verde falso.
+   */
+  const leer = (p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null);
+  const afirmar = (src, etiqueta, cond, siNo) => {
+    if (src === null) { NM(`${etiqueta}: no se pudo leer el fuente desde acá (correr desde el repo)`); return; }
+    cond ? P(etiqueta) : F(siNo);
+  };
+
   // ⛔ El latido sin su umbral es verde incondicional: el sensor cae en `cfg ? classify : 'ok'`.
-  // Esta aserción es la que impide que el cron nazca invisible.
-  const tieneUmbral = fs.existsSync(HEALTH) && /key:\s*'cobranza_gap'/.test(fs.readFileSync(HEALTH, 'utf8'));
-  const tieneLatido = fs.existsSync(SCAN) && /jobKey:\s*'cobranza_gap'/.test(fs.readFileSync(SCAN, 'utf8'));
-  tieneLatido && tieneUmbral
-    ? P("el cron 'cobranza_gap' late Y tiene su umbral en CRON_JOBS (sin el umbral, un cron parado se ve verde)")
-    : F(`falta ${!tieneLatido ? 'el latido en el scanner' : ''}${!tieneLatido && !tieneUmbral ? ' y ' : ''}${!tieneUmbral ? 'la entrada en CRON_JOBS' : ''}`);
+  const scanSrc = leer(SCAN);
+  const healthSrc = leer(HEALTH);
+  afirmar(scanSrc !== null && healthSrc !== null ? '' : null,
+    "el cron 'cobranza_gap' late Y tiene su umbral en CRON_JOBS (sin el umbral, un cron parado se ve verde)",
+    /jobKey:\s*'cobranza_gap'/.test(scanSrc || '') && /key:\s*'cobranza_gap'/.test(healthSrc || ''),
+    'el scanner no late o le falta su entrada en CRON_JOBS: el cron nacería invisible');
 
   // ⚠️ Las dos consultas —la de la pantalla y la del scanner— comparten criterio pero NO código.
   // Si una cambia y la otra no, el latido mediría algo distinto de lo que la gente ve.
-  const scanSrc = fs.existsSync(SCAN) ? fs.readFileSync(SCAN, 'utf8') : '';
-  const mismaForma = ['cubeta', 'ligados', 'cobx', "kepler_doc_tipo = 'UA0501'", "c.code = 'cobranza'"]
-    .every((t) => scanSrc.includes(t));
-  mismaForma
-    ? P('el scanner usa la misma forma de cruce que la pantalla (cubetas + anti-join de ligados)')
-    : F('el scanner se separó de la pantalla: mediría algo distinto de lo que la gente ve');
+  afirmar(scanSrc,
+    'el scanner usa la misma forma de cruce que la pantalla (cubetas + anti-join de ligados)',
+    ['cubeta', 'ligados', 'cobx', "kepler_doc_tipo = 'UA0501'", "c.code = 'cobranza'"]
+      .every((t) => (scanSrc || '').includes(t)),
+    'el scanner se separó de la pantalla: mediría algo distinto de lo que la gente ve');
 
   // La bandeja de «Mi trabajo» cuenta EN VIVO, no de finance.findings — ver el porqué allá.
-  const meworkSrc = fs.existsSync(MEWORK) ? fs.readFileSync(MEWORK, 'utf8') : '';
-  const i = meworkSrc.indexOf("id: 'cobranza-abonos-sin-ligar'");
+  const meworkSrc = leer(MEWORK);
+  const i = (meworkSrc || '').indexOf("id: 'cobranza-abonos-sin-ligar'");
   const bloque = i >= 0 ? meworkSrc.slice(i, i + 2200) : '';
-  bloque.includes('finance.bank_movements') && !bloque.includes('finance.findings')
-    ? P('la bandeja cuenta en vivo sobre bank_movements, no desde finance.findings (que ya murió con 82,377 sin triage)')
-    : F('la bandeja volvió a colgarse de finance.findings: reconstruye el cementerio de [SN.18]');
+  afirmar(meworkSrc,
+    'la bandeja cuenta en vivo sobre bank_movements, no desde finance.findings (que ya murió con 82,377 sin triage)',
+    i >= 0 && bloque.includes('finance.bank_movements') && !bloque.includes('finance.findings'),
+    'la bandeja volvió a colgarse de finance.findings: reconstruye el cementerio de [SN.18]');
 
   const t1 = Date.now();
   const band = (await c.query(`
@@ -230,6 +242,52 @@ function aPg(sql) {
     ? P(`la cola se trabaja: ${band.cerradas_30d} ligados en 30 días contra ${band.abiertas} abiertos`)
     : NM(`0 cerrados en 30 días sobre ${band.abiertas} abiertos — la bandeja nace congelada, y eso es `
         + 'un dato sobre quién la tiene a cargo, no sobre el código');
+
+  // ── 5. [CC.11] El depósito sin cobro puede decir de quién es ───────────────────────────
+  console.log('\n5) De quién es un depósito que Kepler no registró');
+  const tieneCols = (await c.query(`
+    SELECT count(*)::int n FROM information_schema.columns
+     WHERE table_schema='finance' AND table_name='bank_movements'
+       AND column_name IN ('customer_code','customer_nota','customer_declared_by','customer_declared_at')`)).rows[0].n;
+  if (Number(tieneCols) !== 4) {
+    NM(`falta la migración 20260924210000 (${tieneCols}/4 columnas): no hay dónde declarar el cliente`);
+  } else {
+    P('las 4 columnas de cliente declarado existen (código, nota, quién y cuándo)');
+
+    // ⛔ El freno que importa: si el UPSERT del importador las incluyera en su `merge()`, un
+    // re-import del Excel borraría el trabajo humano SIN avisar. Es el mismo criterio con el
+    // que ya se protegen `category_id` y `classified_by`.
+    const BANK = path.join(__dirname, '..', '..', 'libs', 'finance', 'src', 'lib', 'bank',
+      'finance-bank.service.ts');
+    if (fs.existsSync(BANK)) {
+      const src = fs.readFileSync(BANK, 'utf8');
+      const i = src.indexOf("onConflict(['tenant_id', 'client_uuid'])");
+      const merge = i >= 0 ? src.slice(i, i + 700) : '';
+      i >= 0 && !/customer_code|customer_declared/.test(merge)
+        ? P('el UPSERT del importador NO pisa las columnas declaradas por humanos (igual que category_id)')
+        : F('el merge() del importador incluye las columnas del cliente: un re-import las borraría en silencio');
+    } else {
+      NM('no se encontró finance-bank.service.ts para comprobar el merge del importador');
+    }
+
+    // La declaración tiene que VIAJAR hasta la pantalla, no sólo existir en la tabla.
+    const r5 = (await c.query(aPg(sqlDelServicio('1')), [TENANT, TENANT, TENANT])).rows[0];
+    const fila = (r5.rows || [])[0] || {};
+    ['customer_code', 'customer_nombre', 'customer_declared_by'].every((k) => k in fila)
+      ? P('la consulta de la pantalla devuelve el cliente declarado, su nombre y quién lo dijo')
+      : F(`a las filas les faltan campos de cliente: ${Object.keys(fila).join(', ')}`);
+    typeof r5.kpis?.con_cliente === 'number'
+      ? P(`el KPI «ya con dueño» viaja: ${r5.kpis.con_cliente} de ${r5.kpis.huerfanos} huérfanos`)
+      : F('falta el KPI con_cliente');
+
+    // ⚠️ NEGATIVA: un código inventado tiene que ser RECHAZADO. Una declaración falsa se ve
+    // igual de firme que una buena, y encima lleva firma.
+    const inventado = (await c.query(
+      `SELECT count(*)::int n FROM kepler_ods.kdud WHERE btrim(c2) = 'ZZ-NO-EXISTE-9999'`)).rows[0].n;
+    Number(inventado) === 0
+      ? P('prueba negativa: el código de control no existe en kdud — la validación del servicio tiene contra qué fallar')
+      : NM('el código de control existe en el catálogo: no se puede ejercer la validación');
+  }
 
   console.log(`\n${ok} ✔ · ${fail} ✘ · ${nm} ○ NO MEDIDO\n`);
   await c.end();
