@@ -10,7 +10,71 @@
 
 ## [Unreleased]
 
+### Added — Los depósitos sin ligar aparecen en «Mi trabajo» (CC.10, 2026-09-24)
+- **La pestaña «Abonos sin cobro» sólo se veía si alguien se acordaba de abrirla**: sin aviso,
+  sin conteo en la portada, sin nadie a cargo. Ahora es una bandeja de **Mi trabajo** para
+  crédito y cobranza: **1,824 depósitos de los últimos 45 días por arriba de $10,000** que
+  entraron al banco y que Kepler no tiene aplicados.
+- **Y si el cruce se rompe, ahora se sabe**: corre solo a las 7:45 y deja constancia. Si un día
+  no entrega nada —porque dejaron de llegar los estados de cuenta, por ejemplo— el tablero lo
+  marca en rojo en vez de mostrar «0 pendientes».
+- La bandeja cuenta **en vivo**: ligar un depósito lo saca de la lista, sin ningún paso extra de
+  «marcar como revisado» que alguien tenga que acordarse de hacer. La bandeja de hallazgos de
+  finanzas murió justamente por eso, con 82,377 sin revisar.
 
+### Internal — El latido de un cron se escribe una sola vez (CC.10, 2026-09-24)
+- `latirCron()` en `libs/platform-core/.../cron-heartbeat.ts`. Estaba copiado a mano en **7
+  servicios** y el octavo iba a nacer. Fija las tres reglas que la copia-pega se llevó mal: cero
+  entregado es `error` salvo motivo declarado, el `catch` loguea en vez de callarse, y el umbral
+  en `CRON_JOBS` es parte del trato.
+- ⬜ Los 7 existentes siguen con su copia — migrarlos queda como deuda con nombre (`[CC.10.1]`).
+- ⚠️ Estas notas **se habían perdido** en la resolución de un merge de otra rama (`5cda810d`);
+  se restauraron desde el commit original.
+
+### Fixed — Cobranza: «Abonos sin cobro» buscaba en el 30% del dinero y no terminaba de cargar (CC.8+CC.9, 2026-09-24)
+- ⭐ **El cruce banco↔cobro sólo miraba los cobros cuyo concepto trae la palabra «depósito»,
+  «transferencia» o «tarjeta».** El resto —**17,677 cobros por $318,563,684.39, el 70.1% del
+  dinero cobrado**— quedaba fuera, no por no tener ficha sino porque el texto que alguien
+  capturó a mano no traía la palabra. Con el universo completo, los abonos que sí tienen un
+  cobro que los explique pasan de **18.6% a 74.8%**, y los que quedan sin explicación bajan de
+  **16,900 a 5,248**.
+- **La pantalla no cargaba**: la consulta tardaba **más de 5 minutos** (medido también contra la
+  base local, o sea que no era la red). Ahora responde en **361 ms**, con los mismos números.
+- **El aviso que faltaba**: «Hay cobro candidato» ahora dice en pantalla que es un candidato por
+  importe y fecha, no una certeza — medido, **~1 de cada 13 coincide por azar**. Se propone; liga
+  una persona.
+
+### Added — Crédito de clientes: el 43% de la cartera no son clientes (CXC.25, 2026-09-24)
+- ⭐ **La pantalla publicaba $59,382,522.23 como si fueran clientes.** Medido: **$25,702,051.63
+  (43.3%) son ocho cuentas entre plazas propias** —`30-73 TLMKT Morelia Abastos`, `10-00 P.V.
+  Padre Hidalgo Piso`…— y $2,992,639.38 son rutas. **Cliente real: $30,687,831.22.** Quien entra
+  a cobrar no puede llamar por teléfono a ninguna de las primeras.
+- **Y eso explica la diferencia con contabilidad**, que venía sin explicación: su balanza dice
+  que los clientes valen **$9,144,402.36** porque excluye esas cuentas. No estaban en desacuerdo:
+  contaban cosas distintas. Ahora la cartera se puede leer como auxiliar de la balanza.
+- La pantalla **reparte el total a la vista** en tres barras (cliente / cuenta interna / ruta),
+  cada una filtra con un clic, y las filas que no son un cliente lo dicen con una etiqueta.
+  ⛔ **No cambia ningún total**: la suma de los tres da el total al centavo.
+- Abre en **«Todas»**, no filtrado en «Cliente» — filtrar por default habría vuelto a esconder
+  dinero, que es justo lo que se acaba de corregir.
+- El tipo se decide con **dos señales**: el código de la cuenta y el nombre que Kepler le puso.
+  Donde discrepaban (8 cuentas por $1,047,338.95) el que acertaba cambiaba según el caso, así que
+  ninguna manda sola; y cada fila dice **qué señal la decidió**.
+
+### Internal — Resolvedor de tipo de cuenta (CXC.25, 2026-09-24)
+- `analytics.v_customer_account_kind` + 4 funciones (mig `20260924180000`, **prod real batch
+  531**). La lógica ya existía enterrada en `analytics.erp_collections`, sin forma de que nadie
+  más la usara.
+- ⛔ **Esta fase se midió medio día contra la base equivocada**: `FLEET_DB_URL` sigue apuntando a
+  Railway y **producción se mudó a `md` el 2026-09-22**. Las primeras cifras publicadas eran de
+  la prod vieja, y de paso reporté un «incidente de ingesta» que no existía. Corregido, con la
+  lección, en `03_LOG_REVISIONES.md` → «La base equivocada». El destino ahora se verifica por
+  `system_identifier`, no por el nombre de la base.
+- Perf: 4,191 → **4,579 ms** (+388 ms, el costo de la vista). La primera versión costaba 11,331 ms.
+- ⛔ `knex.raw()` trata el `?` de un regex como placeholder y `CREATE FUNCTION` no falla: la
+  función quedó creada clasificando mal, en silencio. La atrapó la compuerta de la migración.
+  Los cuantificadores se escriben `{0,1}`.
+- `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
 
 ### Fixed — Crédito de clientes mostraba el 11% de la cartera y dos saldos distintos (CXC.20, 2026-09-24)
 - ⛔ **La pantalla publicaba DOS saldos del mismo universo, a la vez y con los mismos filtros**: el

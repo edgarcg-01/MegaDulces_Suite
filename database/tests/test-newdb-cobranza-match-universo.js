@@ -180,6 +180,57 @@ function aPg(sql) {
       : NM(`ruido de ${ruido.toFixed(1)}%: tan bajo que no obliga a nada, pero el auto-ligado sigue prohibido por criterio`);
   }
 
+  // ── 4. [CC.10] El trabajo le llega a alguien, y el que mide tiene quién lo mire ─────────
+  console.log('\n4) La bandeja y su latido');
+  const SCAN = path.join(__dirname, '..', '..', 'libs', 'finance', 'src', 'lib',
+    'collection-deposits', 'cobranza-gap-scanner.service.ts');
+  const HEALTH = path.join(__dirname, '..', '..', 'apps', 'api', 'src', 'modules',
+    'db-health', 'db-health.service.ts');
+  const MEWORK = path.join(__dirname, '..', '..', 'libs', 'trade', 'src', 'lib', 'users', 'me-work.ts');
+
+  // ⛔ El latido sin su umbral es verde incondicional: el sensor cae en `cfg ? classify : 'ok'`.
+  // Esta aserción es la que impide que el cron nazca invisible.
+  const tieneUmbral = fs.existsSync(HEALTH) && /key:\s*'cobranza_gap'/.test(fs.readFileSync(HEALTH, 'utf8'));
+  const tieneLatido = fs.existsSync(SCAN) && /jobKey:\s*'cobranza_gap'/.test(fs.readFileSync(SCAN, 'utf8'));
+  tieneLatido && tieneUmbral
+    ? P("el cron 'cobranza_gap' late Y tiene su umbral en CRON_JOBS (sin el umbral, un cron parado se ve verde)")
+    : F(`falta ${!tieneLatido ? 'el latido en el scanner' : ''}${!tieneLatido && !tieneUmbral ? ' y ' : ''}${!tieneUmbral ? 'la entrada en CRON_JOBS' : ''}`);
+
+  // ⚠️ Las dos consultas —la de la pantalla y la del scanner— comparten criterio pero NO código.
+  // Si una cambia y la otra no, el latido mediría algo distinto de lo que la gente ve.
+  const scanSrc = fs.existsSync(SCAN) ? fs.readFileSync(SCAN, 'utf8') : '';
+  const mismaForma = ['cubeta', 'ligados', 'cobx', "kepler_doc_tipo = 'UA0501'", "c.code = 'cobranza'"]
+    .every((t) => scanSrc.includes(t));
+  mismaForma
+    ? P('el scanner usa la misma forma de cruce que la pantalla (cubetas + anti-join de ligados)')
+    : F('el scanner se separó de la pantalla: mediría algo distinto de lo que la gente ve');
+
+  // La bandeja de «Mi trabajo» cuenta EN VIVO, no de finance.findings — ver el porqué allá.
+  const meworkSrc = fs.existsSync(MEWORK) ? fs.readFileSync(MEWORK, 'utf8') : '';
+  const i = meworkSrc.indexOf("id: 'cobranza-abonos-sin-ligar'");
+  const bloque = i >= 0 ? meworkSrc.slice(i, i + 2200) : '';
+  bloque.includes('finance.bank_movements') && !bloque.includes('finance.findings')
+    ? P('la bandeja cuenta en vivo sobre bank_movements, no desde finance.findings (que ya murió con 82,377 sin triage)')
+    : F('la bandeja volvió a colgarse de finance.findings: reconstruye el cementerio de [SN.18]');
+
+  const t1 = Date.now();
+  const band = (await c.query(`
+    SELECT count(*) FILTER (WHERE m.recon_status = 'pending')::int abiertas,
+           count(*) FILTER (WHERE m.recon_status <> 'pending'
+                              AND m.updated_at > now() - interval '30 days')::int cerradas_30d
+      FROM finance.bank_movements m
+      JOIN finance.movement_categories c ON c.id = m.category_id
+     WHERE m.tenant_id = $1 AND c.code = 'cobranza' AND m.amount_in > 10000
+       AND m.deleted_at IS NULL AND m.movement_date >= current_date - 45`, [TENANT])).rows[0];
+  const msB = Date.now() - t1;
+  msB < 1000
+    ? P(`la bandeja cuenta en ${msB} ms — corre en cada carga de «Mi trabajo», así que tiene que ser barata`)
+    : F(`la bandeja tarda ${msB} ms: es una portada, no un reporte`);
+  Number(band.cerradas_30d) > 0
+    ? P(`la cola se trabaja: ${band.cerradas_30d} ligados en 30 días contra ${band.abiertas} abiertos`)
+    : NM(`0 cerrados en 30 días sobre ${band.abiertas} abiertos — la bandeja nace congelada, y eso es `
+        + 'un dato sobre quién la tiene a cargo, no sobre el código');
+
   console.log(`\n${ok} ✔ · ${fail} ✘ · ${nm} ○ NO MEDIDO\n`);
   await c.end();
   process.exit(fail ? 1 : 0);

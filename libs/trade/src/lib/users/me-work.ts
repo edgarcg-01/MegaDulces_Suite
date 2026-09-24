@@ -266,6 +266,18 @@ export const TOPE_DESGLOSE = 10;
 const ENTRADAS_VENTANA_DIAS = 90;
 
 /**
+ * `[CC.10]` El recorte de la bandeja de abonos sin ligar. Mismo motivo que arriba para vivir
+ * acá: el `detalle` los interpola y `BANDEJAS` se arma al cargar el módulo.
+ *
+ * **45 días y $10,000.** Medido en prod el 2026-09-24: sin recorte son **5,244 abonos por
+ * $118,935,974.22** —el backlog completo, que no es trabajo de hoy—; con él, **1,838 por
+ * $63,971,506.77**, que es el flujo del mes y sí se puede drenar. Bajar el monto o ampliar la
+ * ventana convierte la bandeja en un número que nadie mira, que es cómo murió `[SN.18]`.
+ */
+const COBRANZA_VENTANA_DIAS = 45;
+const COBRANZA_MIN_MONTO = 10000;
+
+/**
  * Cuenta y fecha la cola en UNA sola pasada (`count(*)` + `min(<fecha>)`). Dos consultas por
  * bandeja duplicarían el trabajo de las ocho sin comprar nada: el filtro es el mismo.
  * `columnaFecha` se declara por bandeja porque en una cola con JOIN importa cuál de las dos
@@ -843,6 +855,73 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * nace de una lista sino del mostrador —«¿le vendo a crédito a éste?»— y ese momento ocurre
      * en `/finanzas/cartera` con el cliente delante, no leyendo la portada. Un segundo desglose
      * sumaría ocho renglones a la landing sin cambiar ninguna decisión.
+     */
+  },
+
+  /**
+   * `[CC.10]` **El dinero que entró al banco y Kepler no registró.**
+   *
+   * La pestaña «Abonos sin cobro» de `/finanzas/cobranza` existía desde CC.6 y **sólo se veía si
+   * alguien se acordaba de abrirla**: sin bandeja, sin aviso, sin nadie a cargo.
+   *
+   * ── ⛔ POR QUÉ CUENTA EN VIVO Y NO DESDE `finance.findings` ──────────────────────────────
+   * Las dos bandejas de cartera de arriba cuentan hallazgos. Ésta **no**, y es a propósito:
+   *
+   *  · **Volumen medido:** son **5,244 abonos sin explicar por $118,935,974.22** en el
+   *    histórico. La bandeja `/finanzas/hallazgos` ya fue **retirada** (`[SN.18]`) por acumular
+   *    **82,377 filas en `nuevo` sin triage**. Volcar esto ahí sería reconstruir el cementerio.
+   *  · ⭐ **Y la razón de fondo:** acá **el trabajo cierra el item solo**. Ligar el abono lo saca
+   *    de la cuenta. Un hallazgo exigiría además un triage manual («confirmar / descartar») que
+   *    **duplica** la acción real — y es justo el paso que en los 82 mil nadie dio nunca.
+   *
+   * ── El recorte, y lo que deja afuera ────────────────────────────────────────────────────
+   * Últimos `${COBRANZA_VENTANA_DIAS}` días y **≥ $${COBRANZA_MIN_MONTO}**: es el flujo del mes,
+   * no el backlog histórico. Medido en prod: **1,838 abonos por $63,971,506.77** dentro del
+   * recorte, contra 5,244 sin él.
+   *
+   * ⚠️ **Sólo cuenta `recon_status = 'pending'`.** Los **`unmatched`** —donde el conciliador de
+   * `[CB]` ya miró y no encontró— quedan fuera: son **136 abonos por $3,911,556.33** en la misma
+   * ventana. No es que no sean trabajo; es que son OTRO trabajo (investigación, no ligado), y
+   * `medirCola` mide un solo estado abierto. Queda declarado, no disfrazado.
+   */
+  {
+    id: 'cobranza-abonos-sin-ligar',
+    label: 'Depósitos de cobranza sin ligar a un cobro',
+    detalle: `últimos ${COBRANZA_VENTANA_DIAS} días · el dinero entró al banco y Kepler no lo tiene aplicado`,
+    ruta: '/finanzas/cobranza',
+    icono: 'pi pi-link',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.cartera',
+    acotablePorSucursal: false,
+    /*
+     * **3 días.** Un depósito sin ligar no envejece solo: mientras no se aplique, el cliente
+     * sigue apareciendo como deudor en la cartera y cobranza lo llama por algo que ya pagó.
+     */
+    umbral_dias: 3,
+    anyOf: [Permission.FINANCE_COLLECTIONS_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        knex('finance.bank_movements as m')
+          .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+          .where('m.tenant_id', tenantId)
+          .where('c.code', 'cobranza')
+          .where('m.amount_in', '>', COBRANZA_MIN_MONTO)
+          .whereNull('m.deleted_at')
+          .whereRaw(`m.movement_date >= current_date - ${COBRANZA_VENTANA_DIAS}`),
+        {
+          estadoCol: 'm.recon_status',
+          estadoAbierto: 'pending',
+          fecha: 'm.movement_date',
+          // `updated_at` lo mueve `writeReconMatch` al ligar: el cierre es la acción real.
+          cierre: 'm.updated_at',
+        },
+      ),
+    /*
+     * ⛔ **No se desglosa.** El desglose sirve cuando la lista ES el trabajo (como en cartera
+     * vencida: ocho nombres a quién llamar). Acá cada renglón es un depósito anónimo —el banco
+     * no dice quién pagó— así que una lista de importes en la portada no decide nada: el trabajo
+     * es abrir la pantalla, ver el candidato y ligarlo.
      */
   },
 
