@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
+import { commitDelBuild } from '../../build-info';
 
 /**
  * Salud/frescura de datos para Administración. Dos grupos:
@@ -1087,6 +1088,26 @@ export interface EngineMetric {
   key: string; label: string; display: string; status: Status; note?: string;
 }
 
+/** `[VL.15.E]` Un renglón de la bitácora `ops.deploys` que escribe `ops/prod/deploy.sh`. */
+export interface DeployRow {
+  commit_sha: string;
+  servicios: string;
+  resultado: string;
+  migraciones_pendientes: number;
+  quien: string | null;
+  desde: string | null;
+  desplegado_en: string;
+}
+
+export interface VersionReport {
+  checked_at: string;
+  /** Lo que ESTE proceso está sirviendo, leído de la imagen — no de la bitácora. */
+  corriendo: { commit: string; uptime_seconds: number };
+  /** `false` = la bitácora todavía no existe. Distinto de "existe y está vacía". */
+  bitacora_disponible: boolean;
+  despliegues: DeployRow[];
+}
+
 export interface EngineReport {
   checked_at: string; db_label: string; overall: Status;
   database: { name: string; size_pretty: string; version: string };
@@ -1467,6 +1488,59 @@ export class DbHealthService {
    *
    * Todo es SELECT sobre catálogos; no toca datos de negocio y no depende de ningún tenant.
    */
+  /**
+   * `[VL.15.E]` **Qué versión corre, mirable sin terminal.**
+   *
+   * Dos piezas que responden preguntas distintas y por eso van juntas:
+   *
+   *   `corriendo` — el commit HORNEADO en esta imagen. Es el mismo que sirve `/api/health`, y
+   *     se lee del proceso, no de la bitácora: si alguien levantó un contenedor por fuera de
+   *     `deploy.sh`, la bitácora no se entera y esto **sí**. La verdad es lo que está en
+   *     memoria, no lo que alguien anotó.
+   *
+   *   `despliegues` — la bitácora `ops.deploys` que escribe `deploy.sh`: quién, cuándo, qué
+   *     servicios, con cuántas migraciones pendientes, y **también los que fallaron** — que son
+   *     los que uno quiere leer cuando algo no cuadra.
+   *
+   * ⚠️ Si las dos no coinciden, el renglón de arriba manda y hay que sospechar de un
+   * `docker compose up` a mano. Por eso se devuelven las dos y no una sola "versión".
+   *
+   * La tabla puede no existir todavía (se auto-crea en el primer despliegue): eso se DECLARA
+   * con `bitacora_disponible: false`, no se disfraza de lista vacía — que se leería como
+   * "nunca se desplegó nada", que es otra cosa.
+   */
+  async getVersionReport(): Promise<VersionReport> {
+    const base: VersionReport = {
+      checked_at: new Date().toISOString(),
+      corriendo: { commit: commitDelBuild(), uptime_seconds: Math.floor(process.uptime()) },
+      bitacora_disponible: false,
+      despliegues: [],
+    };
+    if (!this.knex) return base;
+    try {
+      const { rows } = await this.knex.raw(
+        `SELECT commit_sha, servicios, resultado, migraciones_pendientes, quien, desde,
+                desplegado_en
+           FROM ops.deploys ORDER BY id DESC LIMIT 20`);
+      return {
+        ...base,
+        bitacora_disponible: true,
+        despliegues: rows.map((r: Record<string, unknown>) => ({
+          commit_sha: String(r.commit_sha),
+          servicios: String(r.servicios),
+          resultado: String(r.resultado),
+          migraciones_pendientes: Number(r.migraciones_pendientes ?? 0),
+          quien: r.quien ? String(r.quien) : null,
+          desde: r.desde ? String(r.desde) : null,
+          desplegado_en: new Date(r.desplegado_en as string).toISOString(),
+        })),
+      };
+    } catch {
+      // `ops.deploys` todavía no existe (o no se pudo leer). Se declara, no se inventa.
+      return base;
+    }
+  }
+
   async getEngineReport(): Promise<EngineReport> {
     const checked_at = new Date().toISOString();
     const vacio: EngineReport = {

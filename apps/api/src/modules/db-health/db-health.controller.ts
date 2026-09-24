@@ -31,6 +31,20 @@ export class DbHealthController {
     return this.service.getEngineReport();
   }
 
+  /**
+   * `[VL.15.E]` **Qué versión corre en producción, mirable sin terminal.**
+   *
+   * Hasta hoy la respuesta vivía en dos lugares que no son para una persona: `deploy.sh
+   * --estado` (terminal, con llave ssh) y `/api/health` (un JSON crudo). Quien administra el
+   * sistema no tiene por qué abrir una consola para saber qué está sirviendo su producción.
+   */
+  @Get('version')
+  @ApiOperation({ summary: 'Versión que corre en prod + bitácora de despliegues' })
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  getVersion() {
+    return this.service.getVersionReport();
+  }
+
   @Get('alerts')
   @ApiOperation({ summary: 'Bandeja de alertas de salud (abiertas + resueltas recientes)' })
   @RequirePermissions(Permission.USUARIOS_GESTIONAR)

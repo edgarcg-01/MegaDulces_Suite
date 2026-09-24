@@ -67,6 +67,27 @@ export interface EngineReport {
   autovacuum: { name: string; setting: string }[];
 }
 
+// [VL.15.E] Qué versión corre en prod, sin abrir una terminal.
+// `corriendo` sale del proceso (la imagen); `despliegues` de la bitácora que escribe deploy.sh.
+// Si no coinciden, manda el primero: alguien levantó un contenedor por fuera del despliegue.
+export interface DeployRow {
+  commit_sha: string;
+  servicios: string;
+  resultado: string;
+  migraciones_pendientes: number;
+  quien: string | null;
+  desde: string | null;
+  desplegado_en: string;
+}
+
+export interface VersionReport {
+  checked_at: string;
+  corriendo: { commit: string; uptime_seconds: number };
+  /** `false` = la bitácora aún no existe. NO es lo mismo que "existe y está vacía". */
+  bitacora_disponible: boolean;
+  despliegues: DeployRow[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class DbHealthService {
   private http = inject(HttpClient);
@@ -78,6 +99,10 @@ export class DbHealthService {
 
   getEngine(): Observable<EngineReport> {
     return this.http.get<EngineReport>(`${this.apiUrl}/engine`);
+  }
+
+  getVersion(): Observable<VersionReport> {
+    return this.http.get<VersionReport>(`${this.apiUrl}/version`);
   }
 
   listAlerts(): Observable<HealthAlertsResponse> {
