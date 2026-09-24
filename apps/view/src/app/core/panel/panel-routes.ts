@@ -42,6 +42,11 @@ function unir(area: string, hijo: string | undefined): string {
 function espejable(r: Route): boolean {
   if (r.redirectTo !== undefined) return false;
   if (r.path === '**') return false;
+  // ⛔ Nada que ya viva en un outlet con nombre — empezando por el PROPIO aux
+  // route del panel, que `app.routes` empuja a las 12 áreas. Sin este freno el
+  // espejo se incluye a sí mismo (medido: 14 de 200 entradas) y queda una
+  // estructura recursiva con `outlet: 'panel'` dentro del panel.
+  if (r.outlet) return false;
   return r.loadComponent !== undefined || r.component !== undefined || r.loadChildren !== undefined || !!r.children;
 }
 
@@ -60,7 +65,17 @@ export function espejarParaPanel(raiz: Routes, esLayout: (r: Route) => boolean):
     if (!prefijo) continue; // un área sin camino no se puede prefijar
     for (const hijo of area.children) {
       if (!espejable(hijo)) continue;
-      salida.push({ ...hijo, path: unir(prefijo, hijo.path), outlet: 'panel' });
+      // ⛔ SIN `outlet`. El outlet lo declara el aux route PADRE que carga este
+      // espejo (`{ path: '', outlet: 'panel', loadChildren }`); estas rutas son
+      // sus HIJAS y viajan por dentro de él.
+      //
+      // Ponérselo también acá fue un incidente real (2026-09-24, "la página sale
+      // vacía y no se puede cerrar"): un hijo con outlet nombrado exige un
+      // `<router-outlet name>` DENTRO del componente del padre, y el padre es
+      // componentless → ningún hijo matcheaba → `NG04002: Cannot match any
+      // routes` → la navegación entera fallaba y la app quedaba en `/`. Con la
+      // URL sin resolver, el botón de cerrar tampoco tenía a dónde volver.
+      salida.push({ ...hijo, path: unir(prefijo, hijo.path) });
     }
   }
   return salida;
