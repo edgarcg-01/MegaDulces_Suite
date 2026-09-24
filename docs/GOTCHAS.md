@@ -3529,3 +3529,41 @@ cambio de destino repite este incidente idéntico. Prueba negativa en
   `kdpv_prov_prod`, 3–5 en `kdud`. Es deuda aparte, con nombre.
 - El corrimiento `timestamp` → `timestamptz` del ODS: las fechas de esas columnas se publican
   desplazadas. No se tocó.
+
+---
+
+## 67. Postgres NO acepta parámetros ligados en `SET` — y el doble del test no lo ve
+
+**El incidente (2026-09-23, prod):** `[ID.37]` unificó las dos puertas de login en un núcleo
+compartido. Al mudar el código se "mejoró" esta línea, que venía con interpolación:
+
+```ts
+await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);   // antes
+await trx.raw('SET LOCAL app.tenant_id = ?', [tenant.id]);   // "mejorado" → 42601
+```
+
+Parece más seguro y es **inválido**: `SET` es un comando de utilidad, no acepta parámetros
+ligados. Knex convierte el `?` en `$1` y el servidor responde
+`42601 syntax error at or near "$1"`. Resultado: **el login devolvía 500 a todo el mundo.**
+Lo arregló `[VL.16]` volviendo a la forma que el repo **ya usaba en 13 lugares**:
+
+```ts
+await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenant.id]);   // ✅
+```
+
+`set_config(clave, valor, true)` tiene la misma semántica (`true` = LOCAL, se revierte al cerrar
+la transacción) y **sí** acepta el parámetro. Vale para cualquier GUC: `lock_timeout`,
+`statement_timeout`, `search_path`. Con valor **constante** (`SET LOCAL lock_timeout = '3s'`) el
+`SET` directo está bien — el problema es sólo el parámetro.
+
+### ⚠️ Por qué ningún test lo atrapó
+
+El núcleo de login tiene **13 pruebas con dobles de Knex**, y pasaron todas: un doble no ejecuta
+SQL, así que **no puede rechazar SQL inválido**. Un smoke HTTP contra Postgres real sí lo habría
+visto en el primer login — y existía uno escrito (`http-session-revocation-test.js`), pero quedó
+**declarado NO MEDIDO** por no haber API viva en esa sesión. El hueco declarado era exactamente
+donde estaba el defecto.
+
+**La regla:** un cambio en la forma de una consulta —no en su lógica— **no lo cubre un test con
+dobles**. Si se toca SQL, hay que ejercerlo contra Postgres antes de decir que está verificado
+(ADR-044, y acá el precio fue el login entero).
