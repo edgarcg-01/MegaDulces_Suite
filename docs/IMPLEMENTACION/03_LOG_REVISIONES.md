@@ -219,7 +219,93 @@ sobre «el mismo periodo», el periodo tiene que ser **la misma columna**, y si 
 diferencia se **declara**.
 
 ---
+<a id="2026-09-24--la-base-equivocada"></a>
+## 2026-09-24 — La base equivocada: medí medio día contra una prod que dejó de serlo hace dos
+
+**Cómo se llegó:** *"¿tenés algo pendiente?"*. Al re-verificar un «incidente de ingesta» que yo
+mismo había reportado, `docker ps` en `md` devolvió `pg-prod`, `prod-api`, `prod-caddy`… y ahí se
+cayó todo.
+
+### El hecho
+
+**Producción se mudó a `md` el 2026-09-22.** `FLEET_DB_URL` en el `.env` sigue diciendo
+`trolley.proxy.rlwy.net`. Medido con `pg_control_system()`:
+
+```
+Railway (FLEET_DB_URL) : 7644730674938200108   ← prod VIEJA, sin escrituras desde el 23-sep
+md / pg-prod :5434     : 7688376744939610156   ← prod REAL, 2,592 docs de kdm1 de HOY
+```
+
+**Misma base `railway`, mismas tablas, mismos datos de hace dos días.** `md` es una restauración
+de Railway: clasificar por forma no puede distinguirlas.
+
+### Lo que costó
+
+1. **Una auditoría entera de `/finanzas/cartera` medida contra la base vieja.** Las cifras
+   publicadas en `[CXC.20]` y `[CXC.25]` estaban ~1.5 días atrasadas.
+2. **Una migración aplicada al lugar equivocado** (batch 528 en Railway). En el prod real decía
+   `NO APLICADA` — y el código ya commiteado la consume: un redeploy habría tirado la pantalla.
+3. ⛔ **Un incidente inventado.** Reporté *«la ingesta lleva 22 h parada»* y *«5,888 documentos
+   represados»*. **Nada de eso existía**: los carriles escriben al prod real y estaban perfectos,
+   con las 9 réplicas avanzando al segundo. Lo que vi muerto era la base que ya nadie alimenta.
+
+### Por qué no lo vi antes
+
+Tres avisos que estaban escritos y no leí a tiempo:
+
+- El commit `06f299a7` (`[VL.18]`), del **mismo día**, dice literalmente: *«un destino equivocado
+  no falla: triunfa en el lugar equivocado»*, y trae `apply-one-migration-prod.js` con candado de
+  identidad — hecho exactamente para esto. No lo usé.
+- `ops/README.md` ya registraba dos casos de la misma familia: `[VL.13]` (el respaldo de prod
+  volcando Railway **durante días**) y `[VL.14]` (la Caja General escribiendo a la prod vieja).
+- Mi propia memoria de topología decía «PROD = Railway = `FLEET_DB_URL`» y advertía, en el
+  párrafo siguiente, que *«el NOMBRE de la variable miente»* y que una auditoría ya había
+  reportado un incidente inexistente por medir la base equivocada. **Hice las dos cosas.**
+
+### Las cifras corregidas
+
+Medidas contra el prod real el 2026-09-24 ~15:30 MX (base viva, los centavos se mueven):
+
+| | Railway (lo publicado primero) | **prod real** |
+|---|---|---|
+| Saldo total | $57,780,190.86 | **$59,389,516.95** |
+| Vencido | $51,815,537.36 (89.7%) | **$51,469,593.97 (86.7%)** |
+| Cliente real | $28,357,562.01 · 49.1% | **$30,687,831.22 · 51.7%** |
+| **Cuenta interna (8 cuentas)** | $26,583,657.82 · 46.0% | **$25,702,051.63 · 43.3%** |
+| Ruta | $2,838,971.03 | $2,992,639.38 |
+| Hueco «sin documento» | $771,712.64 · 12 clientes | **$462,557.11 · 12 clientes** |
+| Lo que escondía la lista vieja 01-06 | $45,392,532.22 · 78.6% | **$47,274,011.32 · 79.6%** |
+
+**Ninguna conclusión cambia.** Las ocho cuentas internas siguen siendo el 43% del saldo, el hueco
+sigue existiendo, las tres sucursales seguían sin filtro. Lo que cambió son los pesos, y el
+tracker y el CHANGELOG ya los llevan corregidos.
+
+### Lo que se hizo
+
+Migración aplicada al prod real (**batch 531**) con el script del candado, por el camino que no
+mueve secretos: `docker cp` a `prod-api` y `docker exec` adentro. Los dos candados re-corridos
+**ahí mismo**: `[CXC.20]` **15 ✔** y `[CXC.25]` **14 ✔**. ⭐ Bonus medido: corriendo dentro del
+contenedor la consulta baja de **4,579 a 2,625 ms** — la base está en la LAN, no al otro lado de
+un proxy.
+
+### Lección
+
+**El nombre de una variable no es un hecho; el `system_identifier` sí.** Toda medición contra
+«prod» tiene que declarar contra qué clúster corrió, y toda escritura tiene que verificarlo antes
+de la primera fila. La forma —el nombre de la base, las tablas, hasta los datos— es idéntica en
+una restauración; lo único que no se puede falsificar es la identidad.
+
+⚠️ Y una segunda, más incómoda: **el aviso existía tres veces y no alcanzó**. Estaba en un commit
+del mismo día, en `ops/README.md` y en mi propia memoria. Un aviso que hay que acordarse de leer
+no es una compuerta. La compuerta es el candado del script — que fue lo único que, cuando por fin
+lo usé, no me dejó equivocarme.
+
+---
 ## 2026-09-24 — `[CXC.25]` El 46% de la cartera no son clientes, y por eso contabilidad decía otra cifra
+
+> ⚠️ **Las cifras de esta entrada son de la base VIEJA** (Railway). Las corregidas están en la
+> entrada de arriba, «La base equivocada». La tesis no cambia: 8 cuentas internas = **43.3%** del
+> saldo (no 46.0%), sobre un total de **$59,382,522.23** (no $57,780,190.86).
 
 **Cómo se llegó:** *«ayudame a que contabilidad le saque provecho a esta vista… dime qué tanto
 podemos ofrecerles a crédito y cobranza»*. La investigación arrancó buscando cómo cruzar pólizas
@@ -327,6 +413,11 @@ cifras, conviene preguntarse qué hay adentro de cada una.
 
 ---
 ## 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo
+
+> ⚠️ **Las cifras de esta entrada son de la base VIEJA** (Railway; ver «La base equivocada»,
+> arriba). Contra el prod real: saldo **$59,389,516.95**, vencido **$51,469,593.97 (86.7%)**,
+> hueco sin documento **$462,557.11**, y lo que escondía la lista 01-06 son **$47,274,011.32 =
+> 79.6%**. Los dos defectos y sus pruebas negativas son idénticos.
 
 **Cómo se llegó:** *"analiza /finanzas/cartera"* → siete hallazgos → *"hay que resolver los 7
 hallazgos, pero no hardcodear las sucursales, ver por qué no salen y arreglarlo con el protocolo

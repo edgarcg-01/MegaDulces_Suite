@@ -138,16 +138,22 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       verde mientras el servicio hace otra cosa, que es exactamente cómo la contradicción de
       `[CXC.20.1]` sobrevivió a una suite de 12 archivos. Las tres afirmaciones centrales llevan
       **prueba negativa** ejercida de verdad, y sin datos reporta **NO MEDIDO**, nunca ✔.
-- [x] **[CXC.25]** 🚀 ⭐ **A quién le estás cobrando.** La pantalla publicaba **$57,780,190.86**
-      como si fueran clientes. Medido: **$26,583,657.82 (46.0%) son OCHO cuentas entre plazas
-      propias** (`30-73 TLMKT Morelia Abastos`, `50-75 TLMKT Canindo`, `10-00 P.V. Padre Hidalgo
-      Piso`…) y $2,838,971.03 son rutas; **cliente real, $28,357,562.01**. Por eso la balanza de
-      contabilidad dice **$9,144,402.36** y no estaban en desacuerdo: contaban cosas distintas.
-      Del lado de los cobros pasa lo mismo — de los $452M de 2026, **$392.7M (86.8%) son
-      internos** y sólo **$11.2M (2.5%) cliente final**.
+- [x] **[CXC.25]** 🚀 ⭐ **A quién le estás cobrando.** La pantalla publicaba **$59,382,522.23**
+      como si fueran clientes. Medido contra el prod real (`md`/`pg-prod`, 2026-09-24 15:30 MX;
+      la base es viva, los centavos se mueven): **$25,702,051.63 (43.3%) son OCHO cuentas entre
+      plazas propias** (`30-73 TLMKT Morelia Abastos`, `50-75 TLMKT Canindo`, `10-00 P.V. Padre
+      Hidalgo Piso`…) y $2,992,639.38 son rutas; **cliente real, $30,687,831.22 (51.7%)**. Por eso
+      la balanza de contabilidad dice **$9,144,402.36** y no estaban en desacuerdo: contaban cosas
+      distintas. Del lado de los cobros pasa lo mismo — de los $452M de 2026, **$392.7M (86.8%)
+      son internos** y sólo **$11.2M (2.5%) cliente final**.
       · La lógica ya existía **enterrada** en `analytics.erp_collections` (`tipo_cuenta`), sin
         forma de que nadie más la usara. Sube a resolvedor: `analytics.v_customer_account_kind`
-        + 4 funciones (mig `20260924180000`, **aplicada a Railway batch 528**).
+        + 4 funciones (mig `20260924180000`, **aplicada al prod real, batch 531**, con el candado
+        de identidad de `apply-one-migration-prod.js`).
+      · ⛔ **Esta fase se midió medio día contra la base EQUIVOCADA.** `FLEET_DB_URL` sigue
+        diciendo Railway y prod se mudó a `md` el 22-sep: las primeras cifras publicadas
+        ($57.78M / 46.0%) eran de la prod vieja, congelada. Detalle y lección en
+        [`03_LOG_REVISIONES`](03_LOG_REVISIONES.md#2026-09-24--la-base-equivocada).
       · ⭐ **El patrón del código no alcanza solo** (ADR-059): contra el nombre de `kdud`
         discrepaban 8 cuentas por $1,047,338.95 y **el que tenía razón cambiaba**. Precedencia:
         **el código AFIRMA → el nombre RESCATA cuando el código calla → `cliente_final` es el
