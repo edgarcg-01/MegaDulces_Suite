@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
 
 /**
@@ -68,7 +68,31 @@ export class PurchaseAdjustmentsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly storage: ObjectStorageService,
+    /** `[ZN.3]` El alcance de datos (ADR-050). Aca decide sobre que SUCURSAL, no si se abre. */
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * `[ZN.3]` — Sucursales por las que hay que filtrar, o 403 si pidio una ajena.
+   *
+   * ── Por que importa en ESTE modulo ─────────────────────────────────────────
+   * Lo que se lee aca es el **costo de compra** por sucursal: lo que se le pago al proveedor,
+   * los ajustes y las polizas. `COMPRAS_360_VER` y `COMPRAS_DESCUENTOS_VER` los tienen **6
+   * encargadas de tienda** con alcance `own`, asi que sin este corte la encargada de la 02
+   * podia leer los costos de la 05.
+   *
+   * Mismo criterio que reparto: pidio una → 403 si no le toca; no pidio → lo suyo, no la red.
+   * `null` = no filtrar (alcance global) · `[]` = ninguna, y ese `[]` TIENE que llegar al WHERE.
+   */
+  private async sucursalesPermitidas(pedida?: string | null): Promise<string[] | null> {
+    const suc = String(pedida ?? '').trim();
+    if (suc) {
+      await this.scope.assertCanRead('warehouse', suc);
+      return [suc];
+    }
+    const sc = await this.scope.current();
+    return this.scope.intersect(sc, 'warehouse', null);
+  }
 
   /** Base con filtros comunes (tenant_id explícito + doctype/categoría/fecha/search). */
   private base(trx: any, tenantId: string, q: AdjustmentsQuery) {
@@ -275,6 +299,7 @@ export class PurchaseAdjustmentsService {
    * Confundir `no_aplica` con `sin_dato` es afirmar que falta información cuando no falta.
    */
   async lines(p: { sucursal: string; doctype: string; folio: string }) {
+    await this.scope.assertCanRead('warehouse', p.sucursal);
     const tenantId = this.tenantCtx.requireTenantId();
     const sucursal = String(p.sucursal || '').trim();
     const folio = String(p.folio || '').trim();
@@ -479,6 +504,12 @@ export class PurchaseAdjustmentsService {
     tenantId: string,
     q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number },
     skipDim?: 'sucursal' | 'proveedor_code',
+    /**
+     * `[ZN.3]` Sucursales que esta persona alcanza. `null` = alcance global (no se filtra) ·
+     * `[]` = ninguna, y ese vacio TIENE que llegar al WHERE. Se resuelve en el metodo que
+     * llama, porque ahi es donde se puede `await`; aca solo se aplica.
+     */
+    permitidas?: string[] | null,
   ): Knex.QueryBuilder {
     // Un ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado (descuento
     // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
@@ -513,7 +544,17 @@ export class PurchaseAdjustmentsService {
       .leftJoin(dep, (j: any) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
       .where('c.tenant_id', tenantId)
       .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); la canónica (sucursal) manda
-    if (q.sucursal && skipDim !== 'sucursal') b.where('c.sucursal', q.sucursal);
+    /*
+     * `[ZN.3]` El alcance se aplica **siempre**, incluso con `skipDim === 'sucursal'`.
+     *
+     * `skipDim` existe para que el dropdown pueda contar las opciones de su propia dimension
+     * sin filtrarse a si mismo — o sea, omite el filtro que puso el USUARIO. El alcance no es
+     * un filtro del usuario: si se omitiera aca, el desplegable listaria sucursales ajenas
+     * (con sus conteos) y al elegir una devolveria 403. Ofrecer lo que no se puede abrir es el
+     * mismo defecto que `[ZN.2]` cerro en el frontend.
+     */
+    if (permitidas) b.whereIn('c.sucursal', permitidas);
+    else if (q.sucursal && skipDim !== 'sucursal') b.where('c.sucursal', q.sucursal);
     if (q.proveedor_code && skipDim !== 'proveedor_code') b.where('c.proveedor_code', q.proveedor_code);
     if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
     if (q.date_to) b.where('c.receipt_date', '<=', q.date_to);
@@ -572,8 +613,9 @@ export class PurchaseAdjustmentsService {
       ? `${sortCol} ${sortDir} NULLS LAST, c.receipt_date DESC, c.folio DESC`
       : 'c.receipt_date DESC, c.monto DESC, c.folio DESC';
 
+    const permitidas = await this.sucursalesPermitidas(q.sucursal);
     return this.tk.run(async (trx) => {
-      const base = () => this.compras360Base(trx, tenantId, { ...q, ajuste: ajusteMode });
+      const base = () => this.compras360Base(trx, tenantId, { ...q, ajuste: ajusteMode }, undefined, permitidas);
       // Frescura del feed: la pantalla es read-only sobre un espejo que puebla un importer.
       // Sin esto el comprador no puede distinguir "no hay recepciones" de "el feed no corrió".
       const [fresh]: any = await trx('analytics.erp_goods_receipts')
@@ -645,11 +687,12 @@ export class PurchaseAdjustmentsService {
    */
   async compras360Filters(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
+    const permitidas = await this.sucursalesPermitidas(q.sucursal);
     return this.tk.run(async (trx) => {
-      const sucs: any[] = await this.compras360Base(trx, tenantId, q, 'sucursal')
+      const sucs: any[] = await this.compras360Base(trx, tenantId, q, 'sucursal', permitidas)
         .whereNotNull('c.sucursal')
         .groupBy('c.sucursal').select('c.sucursal').count({ n: '*' }).orderBy('c.sucursal', 'asc');
-      const provs: any[] = await this.compras360Base(trx, tenantId, q, 'proveedor_code')
+      const provs: any[] = await this.compras360Base(trx, tenantId, q, 'proveedor_code', permitidas)
         .whereNotNull('c.proveedor_code')
         .groupBy('c.proveedor_code')
         .select('c.proveedor_code', trx.raw('max(c.proveedor_nombre) AS proveedor_nombre'))
@@ -674,6 +717,7 @@ export class PurchaseAdjustmentsService {
    * de Entradas. Las líneas ya vienen del row; acá solo la evidencia + OCR.
    */
   async receiptEvidence(sucursal: string, folio: string) {
+    await this.scope.assertCanRead('warehouse', sucursal);
     this.tenantCtx.requireTenantId();
     if (!sucursal || !folio) return { deposits: [] as any[] };
     return this.tk.run(async (trx) => {
@@ -708,6 +752,7 @@ export class PurchaseAdjustmentsService {
    * (verificado 96.7% de cobertura para XA2001). analytics.* sin RLS → tenant explícito.
    */
   async polizaForReceipt(q: { sucursal: string; folio: string; tipo_pol?: string }) {
+    await this.scope.assertCanRead('warehouse', q.sucursal);
     const tenantId = this.tenantCtx.requireTenantId();
     const tipo = q.tipo_pol || 'XA2001';
     if (!q.sucursal || !q.folio) return { found: false, cuadra: false, polizas: [], lines: [] };
