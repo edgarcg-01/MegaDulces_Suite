@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { AlertsService } from '../commercial-alerts/alerts.service';
 import { solveOpenRoute, centroid, GeoPoint } from './route-solver';
 
@@ -83,7 +83,32 @@ export class HomeDispatchService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly alerts: AlertsService,
+    /** `[ZN.3]` El alcance de datos (ADR-050): decide SOBRE QUE SUCURSAL, no si se abre. */
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * `[ZN.3]` — Sucursales por las que hay que filtrar este listado.
+   *
+   * ── Por que `intersect` y no `assertCanRead` ──────────────────────────────────
+   * Aca la sucursal es OPCIONAL. Son dos preguntas distintas y no se responden igual:
+   *   · pidio una concreta  → si no le toca, **403**: contestarle con otra seria responder
+   *     algo que no pregunto (eso lo hace `assertCanRead`, en las rutas `/sucursal/:code`);
+   *   · no pidio ninguna    → se le da **lo suyo**, no la red entera. Ese era el defecto:
+   *     sin parametro, la encargada de la 02 veia el despacho de las nueve.
+   *
+   * Devuelve `null` cuando NO hay que filtrar (alcance global), `[]` cuando no le toca
+   * ninguna — y un `[]` filtra a cero filas, que es lo correcto y no lo mismo que `null`.
+   */
+  private async sucursalesPermitidas(pedida?: string): Promise<string[] | null> {
+    const suc = String(pedida ?? '').trim();
+    if (suc) {
+      await this.scope.assertCanRead('warehouse', suc);
+      return [suc];
+    }
+    const sc = await this.scope.current();
+    return this.scope.intersect(sc, 'warehouse', null);
+  }
 
   private async nextFolio(trx: any): Promise<string> {
     const year = new Date().getFullYear();
@@ -128,11 +153,13 @@ export class HomeDispatchService {
 
   /** Repartidores asignables: usuarios con rol repartidor (opcional scope por sucursal). */
   async listRiders(opts: { warehouse_code?: string } = {}) {
+    const permitidas = await this.sucursalesPermitidas(opts.warehouse_code);
     return this.tk.run(async (trx) => {
       let q = trx('identity.users')
         .where({ role_name: 'repartidor', activo: true })
         .whereNull('deleted_at');
-      if (opts.warehouse_code) q = q.andWhere({ warehouse_code: opts.warehouse_code });
+      // `null` = alcance global, no se filtra. Un arreglo (incluso vacio) SI filtra.
+      if (permitidas) q = q.whereIn('warehouse_code', permitidas);
       return q
         .select('id as rider_user_id', 'username', 'nombre as full_name', 'warehouse_code')
         .orderBy('nombre', 'asc');
@@ -453,13 +480,14 @@ export class HomeDispatchService {
    */
   async listDispatched(opts: { warehouse_code?: string; date?: string; status?: string } = {}) {
     const date = opts.date || new Date().toISOString().slice(0, 10);
+    const permitidas = await this.sucursalesPermitidas(opts.warehouse_code);
     return this.tk.run(async (trx) => {
       let q = trx('commercial.home_deliveries as d')
         .leftJoin('identity.users as u', 'u.id', 'd.rider_user_id')
         .leftJoin('commercial.orders as o', 'o.id', 'd.order_id')
         .whereNull('d.deleted_at')
         .whereRaw('d.dispatched_at::date = ?', [date]);
-      if (opts.warehouse_code) q = q.andWhere('d.kepler_warehouse_code', opts.warehouse_code);
+      if (permitidas) q = q.whereIn('d.kepler_warehouse_code', permitidas);
       if (opts.status) q = q.andWhere('d.status', opts.status);
 
       return q
