@@ -3,6 +3,9 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import {
   FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt,
 } from '../shared/freshness';
+// `[ETQ-PRES.2]` La forma la define el contrato, no este archivo (ADR-056: un primitivo vive en
+// `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
+import type { PresentacionPrecio } from '@megadulces/contracts';
 
 export interface LabelModel {
   code: string;                       // el código con el que se pidió (sku o barcode)
@@ -44,6 +47,20 @@ export interface LabelModel {
   promo_min_qty?: number | null;
   promo_hasta?: string | null;
   promo_aplica?: 'pieza' | 'paquete' | 'caja' | null;
+  /**
+   * `[ETQ-PRES.2]` LA LISTA DE PRESENTACIONES — cada precio con SU unidad.
+   *
+   * Los campos `piece_*` / `pack_*` / `box_*` de arriba son el modelo VIEJO: tres cajones con
+   * nombre fijo sobre los que se apoyaba todo, y la causa unica de los cinco defectos medidos el
+   * 2026-09-24 (1,980 ranuras perdidas por elegir el cajon comparando el NOMBRE contra 'PAQ' y
+   * 'CJA', 6,826 SKUs sin el peldano de caja, 61 con el mayoreo en otra escala, 111 con el
+   * contenido 50x equivocado). Quedan mientras el componente termina de migrar; despues se
+   * retiran. Ver `libs/contracts/src/http/price-presentation.contract.ts`.
+   *
+   * Vacia sin plaza, y la pantalla lo DECLARA: el precio de Kepler es por tienda, asi que sin
+   * saber cual no hay lista que sea verdad.
+   */
+  presentaciones?: PresentacionPrecio[];
 }
 
 /**
@@ -485,6 +502,44 @@ export class CommercialLabelsService {
           'l.wholesale_pack_price', 'l.wholesale_pack_min_qty', 'l.box_size', 'l.box_price', 'l.unit_base', 'l.sold_by_kg',
         );
 
+      /**
+       * `[ETQ-PRES.2]` La LISTA de presentaciones de esos SKUs, en una sola consulta.
+       *
+       * ⚠️ Va aparte y NO como join: `v_label_presentations` tiene una fila por unidad (hasta 3
+       * por SKU), así que unirla al SELECT de arriba multiplicaría cada producto por sus
+       * presentaciones — la misma trampa que ya obligó a meter `DISTINCT ON` en el join de
+       * promociones. Un viaje más es más barato que desduplicar a mano.
+       *
+       * ⛔ Sólo con plaza. La vista es por (sucursal, sku) porque el precio de Kepler es por
+       * tienda; sin plaza no hay una lista que sea verdad, y **declararlo vacío es mejor que
+       * promediar nueve tiendas**.
+       */
+      const presPorSku = new Map<string, PresentacionPrecio[]>();
+      if (suc && skuMatch.length) {
+        const pr = await trx.raw(
+          `SELECT sku, unidad, factor, origen, contenido, precio_lista,
+                  mayoreo_precio, mayoreo_desde, mayoreo_veredicto
+             FROM analytics.v_label_presentations
+            WHERE sucursal = ? AND sku = ANY(?)
+            ORDER BY sku, factor NULLS LAST`,
+          [suc, skuMatch],
+        );
+        for (const p of (pr?.rows ?? []) as any[]) {
+          const k = String(p.sku);
+          if (!presPorSku.has(k)) presPorSku.set(k, []);
+          presPorSku.get(k)!.push({
+            unidad: String(p.unidad),
+            factor: Number(p.factor ?? 1),
+            origen: p.origen,
+            contenido: p.contenido ?? null,
+            precio_lista: n(p.precio_lista),
+            mayoreo_precio: n(p.mayoreo_precio),
+            mayoreo_desde: p.mayoreo_desde == null ? null : Number(p.mayoreo_desde),
+            mayoreo_veredicto: p.mayoreo_veredicto,
+          });
+        }
+      }
+
       // Índice por sku y por barcode del producto, para remapear al código pedido.
       const bySku = new Map<string, any>();
       const byBarcode = new Map<string, any>();
@@ -541,6 +596,15 @@ export class CommercialLabelsService {
           promo_min_qty: suc ? n(r.promo_min_qty) : null,
           promo_hasta: suc && r.promo_hasta ? String(r.promo_hasta).slice(0, 10) : null,
           promo_aplica: suc ? this.promoAplicaA(r.promo_unidad, r.unit_base) : null,
+          /**
+           * `[ETQ-PRES.2]` La lista. Cada precio viaja con SU unidad, su factor y su contenido
+           * derivado — por eso aparear el precio de una con el contenido de otra deja de ser
+           * posible, en vez de quedar atajado por una guarda.
+           *
+           * Vacía sin plaza, y eso se DECLARA: la pantalla debe decir "sin tienda no hay lista",
+           * no dibujar cero presentaciones como si el producto tuviera una sola.
+           */
+          presentaciones: presPorSku.get(String(r.sku ?? '')) ?? [],
         });
       }
       return { labels, not_found, freshness: await this.freshness(trx) };
