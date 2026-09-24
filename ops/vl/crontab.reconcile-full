@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [CT.4] LA AGENDA DEL RECONCILIADOR FULL, versionada.
+#
+# ⛔ POR QUÉ EXISTE ESTE ARCHIVO
+# Hasta el 2026-09-24 esta agenda vivía DENTRO de una cadena de shell del
+# `command:` de `ops/vl/docker-compose.yml`:
+#
+#     'node …/reconcile-ods-window.js --full … ; echo "0 3 * * * …" | crontab - ; exec crond -f'
+#
+# O sea que el contenedor se escribía su propio crontab en runtime. Eso rompe lo
+# que ADR-060 vino a arreglar: la agenda tiene que verse en un diff. Un inventario
+# de agendas por archivo NO la encontraba — `grep` sobre `crontab.*` daba cero, y
+# el horario real sólo aparecía leyendo una línea de YAML de 300 caracteres.
+#
+# ⛔ Y SE FUE LA PASADA DE ARRANQUE, que era la OTRA agenda no declarada.
+# El comando corría una pasada `--full --delete-sobrantes` **al arrancar el
+# contenedor**. "Cada vez que alguien reinicie" es una agenda que nadie escribió, y
+# se cobró tres veces el mismo día:
+#   · el 2026-09-24 a las 09:06 corrió por un recreate, en horario hábil (108 s);
+#   · a las 15:05, tras el corte de corriente, se disparó sola y FALLÓ con
+#     `ERR the database system is starting up` — arrancó 2 s antes que Postgres;
+#   · y no dejó latido de error, porque el carril lleva `ODS_HB_IGNORE_ERROR=1`.
+#     Falló en silencio y el tablero siguió mostrando la corrida de las 09:06.
+#   · Encima era el motivo de que este contenedor fuera el ÚNICO que no se podía
+#     recrear en horario hábil, y por eso quedó atrás en la deriva que arregló CT.1.
+# Ahora corre cuando lo dice este archivo, y nada más.
+#
+# ⛔ NO A LAS 03:00. Ahí corre `nightly` (ops/vl/crontab.feeds), que tarda **48 min**
+# medidos el 2026-09-24 (03:00 → 03:48). Los dos apuntaban al mismo minuto contra el
+# mismo Postgres. La lección de VL.4 fue exactamente ésta: *"los cuatro carriles más
+# pesados cayendo juntos en el mismo minuto … el ship del ODS empezó a morir con
+# `canceling statement due to statement timeout`"*.
+#
+# Ventana elegida: **02:10 MX**, libre todos los días —los respaldos terminan 23:30,
+# `nightly` arranca 03:00, y el `catalog` de los sábados es a las 02:00 en punto—.
+#
+# ⚠️ FIN DE LÍNEA LF, OBLIGATORIO. `.gitattributes` trae `crontab.* text eol=lf` y
+# `ops/ingest/Dockerfile` vuelve a limpiarlo y ASERTA que no quedó ningún CR. No es
+# paranoia: un `\r` al final hizo que `argv.includes('--apply')` —comparación
+# exacta— no matcheara `--apply\r`, y NUEVE carriles corrieron en seco diciendo
+# "ok" durante horas, sin escribir latido, dejando la marca vieja en el tablero.
+#
+# ⚠️ El env NO se sourcea acá, a diferencia de `crontab.feeds`: este contenedor
+# recibe `ingest.env` por `env_file:` del compose y busybox crond se lo pasa al job
+# (verificado: la corrida de las 03:01 del 2026-09-24 entregó con esta misma forma).
+# `crontab.feeds` tiene que sourcear porque su contenedor NO usa `env_file` — monta
+# el secreto y lo lee por carril.
+#
+# ⚠️ `cd /app` explícito: crond lanza desde `/root` y los pasos usan rutas relativas.
+# Sin esto el mismo comando da 2/2 OK por `docker exec` y 0/2 desde cron.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Reconciliación FULL de las tres tablas de movimiento grandes, con borrado de
+# sobrantes. Es el único carril que propaga DELETE al ODS (el CDC por WAL se retiró
+# en OBS.8). Sus dos frenos anti-catástrofe viven en el código, no acá:
+# re-confirmación full-table de cada sobrante + `ODS_DELETE_MAX_FRAC=0.6`.
+10 2 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij >> /proc/1/fd/1 2>&1

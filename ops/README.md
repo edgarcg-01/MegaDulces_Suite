@@ -38,10 +38,27 @@ en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`,
 | `ods-live-hot` | Carril caliente réplica → `kepler_ods` de prod (venta, movimientos, catálogos) | @15 s | `ods_live_hot` |
 | `ods-live-mirror` | Espejo completo de lo que el hot no cubre | @300 s | `ods_live_mirror` |
 | `ods-reconcile` | **La única alarma de COMPLETITUD**: compara llaves y repone el delta | @900 s | `cdc_reconcile` |
+| `ods-reconcile-chicas` | Lo mismo sobre 16 catálogos chicos. Cadencia aparte porque ninguna es de movimiento vivo | @1800 s | `cdc_reconcile_chicas` |
+| `ods-reconcile-full` | Reconciliación FULL de `kdpord`/`kdm2`/`kdij` **con borrado de sobrantes** — el único carril que propaga DELETE. Agenda en [`crontab.reconcile-full`](vl/crontab.reconcile-full) | 02:10 MX | `cdc_reconcile_full` |
 | `feeds-cron` | Los **17 carriles agendados** (§2.2) | ver abajo | uno por carril |
 | `feeds-livefast` | Venta del día + cajas abiertas. Sub-minuto, por eso **no** va en cron | @60 s | `feed_livefast` |
 | `store-poller` | Tickets en vivo → `/tienda/live` | @25 s | `store_poller` |
 | `ods-autoheal` | **El brazo**: reinicia lo que se declare `unhealthy` | @30 s | — |
+
+> ⭐ **Son DIEZ, y hasta el 2026-09-24 esta tabla listaba OCHO** — faltaban `ods-reconcile-chicas`
+> y `ods-reconcile-full`, que existían en el compose desde antes. Este archivo se declara *"fuente
+> única"*, así que una omisión acá no es un detalle: es la fuente única mintiendo.
+>
+> ⚠️ **`ods-live-hot` y `ods-live-mirror` NO declaran `healthcheck` en el compose**: heredan el
+> `HEALTHCHECK` de [`ops/ingest/Dockerfile`](ingest/Dockerfile) (el mismo `health.js`, con
+> `start-period` de 180 s). Funciona —los dos salen `healthy`— pero no estaba escrito en ningún
+> lado, así que un `grep healthcheck` sobre el compose concluye que los dos carriles más críticos
+> no tienen. Lo tienen; viene de la imagen.
+>
+> ⛔ **La versión no se deduce, se mira.** `ops/vl/deploy.sh --estado` imprime el ID de imagen
+> **por contenedor** y cuenta los atrasados. Hizo falta porque `deploy.sh --todo` recreaba sólo 3
+> de los 8 carriles y el 2026-09-24 había **cuatro versiones del mismo código conviviendo**, seis
+> de ellas en imágenes ya sin tag. Estaba a la vista en `docker ps` y nadie lo dedujo en 13 días.
 
 ### 2.2 Los carriles agendados
 
@@ -312,11 +329,13 @@ Medido el **2026-09-11 17:14** (`vie`). Tres cosas se ven raras y ninguna es un 
   03:00 y `catalog` los sábados 02:00, o sea después del corte de hoy. Hasta esa primera pasada
   el renglón conserva el host viejo. Si mañana siguen diciendo `SISTEMAS`, **ahí sí** es un
   problema.
-- **Hay llaves ZOMBI de carriles retirados, y están en `ok` para siempre:**
-  `kepler_prices_bitacora` (18 d), `wincaja_replica` (24 d — lo reemplazaron `wincaja_replica_inc`
-  y `_hash` en WR.5.1), `kepler_catalog_bulk` (26 d). Nadie las escribe ya y nadie las borró. Un
-  `ok` de 26 días se lee igual que salud: cuando barras la tabla, **ordená por antigüedad**, no
-  por status.
+- **Un `ok` viejo se lee igual que salud: al barrer la tabla, ordená por ANTIGÜEDAD, no por
+  status.** ⭐ *Corregido el 2026-09-24 [CT.5]:* este renglón afirmaba tres llaves zombi
+  (`kepler_prices_bitacora` 18 d, `wincaja_replica` 24 d, `kepler_catalog_bulk` 26 d).
+  **Medido contra prod ese día: ninguna de las tres existe en `analytics.cron_runs`** — las 46
+  llaves de la tabla tienen dueño. Alguien las limpió y nadie actualizó esta línea. La regla
+  sigue valiendo; el ejemplo ya no. Hoy la más vieja es `feed_catalog` con 132 h, y **es
+  correcta**: su carril corre los sábados.
 
 Reglas que ya costaron caro:
 

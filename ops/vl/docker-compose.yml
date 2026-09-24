@@ -135,8 +135,36 @@ services:
     environment:
       ODS_HB_KEY: ods_live_hot
       ODS_HB_MAX_MIN: "20"
-      KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
-      ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+      # ⭐ [CT.3 2026-09-24] LAS DOS LISTAS NO SON INTERCAMBIABLES, y por confundirlas había
+      # cuatro entradas que no hacían nada. Medido en el código, no en la doc:
+      # `replicate-ods-live.js:105` arma el conjunto a procesar SÓLO desde KP_ODS_TABLES, y
+      # `isHashTable()` (L111) nada más elige el CARRIL. O sea: ODS_HASH_TABLES **no puede
+      # agregar** una tabla; es un filtro sobre las que ya están en la maestra.
+      #
+      # Lo que se retiró, con su medición del 2026-09-24 contra prod:
+      #
+      #   · `kdib` estaba en la MAESTRA — o sea en el carril ctid, cada 15 s — y su destino
+      #     NO EXISTE: `to_regclass('kepler_ods.kdib')` da NULL en prod. En la fuente sí existe
+      #     (`md.kdib` está en las réplicas), así que no es una tabla mal escrita: es una que
+      #     nunca pudo entregar. Y el carril no protesta — 0 menciones en sus 441 líneas de log,
+      #     contra 55 de `kdii` y 48 de `kdm1`. No falla: CALLA.
+      #     ⚠️ Se midió con `--tail`, no con `--since`: tras un reinicio sucio `docker logs
+      #     --since` recorre el segmento VIEJO del json y devuelve 0 con el carril escribiendo.
+      #
+      #   · `kdm_rutas`, `kdm_transporte` y `kdm_chofer` estaban en ODS_HASH_TABLES pero NO en
+      #     la maestra → inertes por la regla de arriba. Tienen datos reales (743 / 264 / 281
+      #     filas) y las entrega el ESPEJO (`ods-live-mirror`, KP_ODS_TABLES="*"), verificado:
+      #     llegan a las 9 sucursales. Sacarlas de acá no cambia una sola fila.
+      #
+      # ⛔ Lo que NO se tocó, y es el hallazgo grande: esta lista vive COPIADA A MANO en cuatro
+      # lugares (acá, el espejo de abajo, el default de `replicate-ods-live.js:53` y
+      # `RUNBOOK_REPLICACION_LOGICA.md`). Es la misma bomba de `[ODS.1]` —la lista de sucursales
+      # copiada que dejó al reconciliador nocturno sin ver Morelia Madero y Abastos por meses,
+      # sin una sola señal— y aquella SÍ se desactivó con un catálogo canónico. Ésta no. Tocar
+      # el reparto de los cuatro archivos a la vez sin una prueba que compare el conjunto
+      # embarcado antes y después es exactamente cómo se pierde una sucursal en silencio.
+      KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+      ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
 
   # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
@@ -260,9 +288,16 @@ services:
       ODS_HB_KEY: cdc_reconcile_full
       ODS_HB_MAX_MIN: "1560"
       ODS_HB_IGNORE_ERROR: "1"
+    # [CT.4] La agenda salio a ops/vl/crontab.reconcile-full y la pasada de arranque SE FUE.
+    # Antes esta linea traia las dos cosas metidas en una cadena de shell: el horario (0 3,
+    # que chocaba con `nightly`) escrito con `| crontab -` en runtime, y una pasada
+    # `--full --delete-sobrantes` que se disparaba en CADA arranque del contenedor.
+    # Esa pasada fallo sola el 2026-09-24 a las 15:05 tras el corte de corriente
+    # (`ERR the database system is starting up`: arranco 2 s antes que Postgres) y NO dejo
+    # latido de error, porque este carril lleva ODS_HB_IGNORE_ERROR=1. Fallo en silencio.
+    # Misma forma que `feeds-cron`: la agenda es un archivo del repo, horneado en la imagen.
     entrypoint: ["/bin/sh", "-c"]
-    command:
-      - 'node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij; echo "0 3 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij >> /proc/1/fd/1 2>&1" | crontab -; exec crond -f -d 8'
+    command: ["crontab /app/ops/vl/crontab.reconcile-full && exec crond -f -d 8"]
     healthcheck:
       test: ["CMD", "node", "/app/ops/ingest/health.js"]
       interval: 300s

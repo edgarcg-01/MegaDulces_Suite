@@ -80,9 +80,14 @@ COPY ops/vl/run-feed.sh ops/vl/crontab.feeds ./ops/vl/
 #
 # La regla en `.gitattributes` arregla el ORIGEN; esto arregla el BORDE, y hace falta igual: el
 # contexto de build puede llegar de un checkout ajeno, un zip o un `git archive` de otra máquina.
-RUN sed -i 's/\r$//' ./ops/vl/run-feed.sh ./ops/vl/crontab.feeds \
+# [CT.4] `crontab.reconcile-full` entra a la MISMA limpieza y a la MISMA aserción. Antes esa
+# agenda vivía en una cadena del `command:` del compose y no pasaba por acá; al sacarla a un
+# archivo hereda el riesgo del CR, así que hereda también el freno. Una compuerta que cubre un
+# archivo y no el de al lado es la forma en que esto vuelve a pasar.
+RUN sed -i 's/\r$//' ./ops/vl/run-feed.sh ./ops/vl/crontab.feeds ./ops/vl/crontab.reconcile-full \
  && chmod +x ./ops/vl/run-feed.sh \
- && ! grep -q "$(printf '\r')" ./ops/vl/crontab.feeds
+ && ! grep -q "$(printf '\r')" ./ops/vl/crontab.feeds \
+ && ! grep -q "$(printf '\r')" ./ops/vl/crontab.reconcile-full
 
 # ⛔ `target-guard.js` — el ÚNICO archivo de `libs/` que la imagen necesita, y el que
 # más cuesta descubrir. `run-prod-feeds.js:349` lo requiere **por path computado**
