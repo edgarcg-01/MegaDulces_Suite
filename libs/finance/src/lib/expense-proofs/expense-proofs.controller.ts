@@ -57,6 +57,15 @@ export class ExpenseProofsController {
     return this.svc.list({ mine: actor, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('resumen')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: '[GX.14] Resumen de lo que pidió ESTE usuario (12 meses o el mes en curso). Recortado por su alcance; sin alcance devuelve medido=false con el motivo, nunca ceros.' })
+  resumen(@Query('periodo') periodo?: string, @Req() req?: AuthedRequest) {
+    // Cualquier valor que no sea 'mes' cae en los 12 meses: un periodo inválido no debe
+    // tumbar la pantalla, y 12m es el que contesta la pregunta «cómo vengo».
+    return this.svc.resumenDelSolicitante(periodo === 'mes' ? 'mes' : '12m', req?.user);
+  }
+
   @Get('status-by-folio')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: '(C) Mapa folio_solicitud → estado, para el indicador en Solicitudes.' })
@@ -92,8 +101,11 @@ export class ExpenseProofsController {
   @Post('upload')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) al bucket y devuelve su referencia.' })
-  upload(@Body() body: { file_base64?: string; role?: string }) {
-    return this.svc.uploadFile(body?.file_base64 || '', body?.role || '');
+  upload(@Body() body: { file_base64?: string; role?: string; live?: boolean; captured_at?: string }) {
+    // [GX.14] `live` viaja con el archivo: es lo que después distingue una foto tomada en
+    // el momento de un archivo cualquiera. Es una declaración del cliente, no una prueba
+    // — el límite está escrito en `aporte-solicitante.contract.ts`, no escondido.
+    return this.svc.uploadFile(body?.file_base64 || '', body?.role || '', { live: body?.live === true, captured_at: body?.captured_at });
   }
 
   @Post('validate-photo')

@@ -50,6 +50,12 @@ export * from './http/warehouse-order.contract';
 // [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';
+// [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
+//   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
+//   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
+// Dato chico (6 entradas + 4 funciones puras): no pega al bundle inicial, mismo criterio que GX.9.
+export * from './finance/forma-pago.contract';
+export * from './finance/aporte-solicitante.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:

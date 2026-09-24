@@ -2,6 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// [GX.14] El catálogo de formas de pago y la compuerta NO se copian acá: se importan del
+// contrato compartido, que es el mismo que valida el backend.
+import type { FormaPagoId } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -9,7 +12,13 @@ export type ProofStatus = 'recibida' | 'aprobada' | 'validada' | 'rechazada' | '
 
 /** Roles de archivo del formulario (Google Form → plataforma). */
 export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
-export interface ProofFile { role: ProofFileRole | string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ProofFile {
+  role: ProofFileRole | string; url: string; public_id?: string; kind?: string; name?: string;
+  /** `[GX.14]` Salió de la cámara, no de un archivo. Ver el límite en `aporte-solicitante.contract.ts`. */
+  live?: boolean;
+  /** `[GX.14]` Cuándo se tomó (ISO). */
+  captured_at?: string;
+}
 
 /** Naturaleza del gasto — decide si la evidencia (factura/ticket) es obligatoria. */
 export type ExpenseClasificacion = 'fiscal' | 'no_fiscal_comprobable' | 'no_comprobable';
@@ -96,6 +105,10 @@ export interface CreateExpenseProof {
   comentarios?: string;
   /** Naturaleza del gasto — obligatoria: decide si la evidencia es obligatoria. */
   clasificacion?: ExpenseClasificacion;
+  /** `[GX.14]` Cómo se pagó — obligatoria. Catálogo en `@megadulces/contracts`. */
+  forma_pago?: FormaPagoId;
+  /** `[GX.14]` El dato que pide la forma elegida (caja, últimos 4, referencia, cheque). */
+  forma_pago_detalle?: string;
   files?: ProofFile[];
   monto_ocr?: number | null;
   subtotal_ocr?: number | null;
@@ -106,6 +119,27 @@ export interface CreateExpenseProof {
 export interface SolicitudSug {
   folio: string; sucursal: string | null; fecha: string | null; solicitante: string | null;
   beneficiario: string | null; concepto: string | null; estado: string | null; aplicada: boolean; importe: number;
+}
+
+/**
+ * `[GX.14]` Resumen de lo que pidió ESTA persona.
+ *
+ * `medido: false` no es «cero»: es «no hay cómo saber cuáles son tuyas» (el usuario no
+ * tiene áreas ni nombre que case). La pantalla tiene que decir el motivo, no pintar 0.
+ */
+export interface ResumenSolicitante {
+  periodo: '12m' | 'mes';
+  medido: boolean;
+  motivo: string | null;
+  alcance?: string;
+  /** `promedio` y `mayor` llegan NULL cuando no hay solicitudes: sin datos no hay cifra. */
+  totales: { n: number; monto: number; promedio: number | null; mayor: number | null } | null;
+  por_mes: { mes: string; n: number; monto: number; en_curso: boolean }[];
+  por_estado: { estado: string; label: string; n: number; monto: number }[];
+  top_beneficiarios: { beneficiario: string; n: number; monto: number }[];
+  /** El hallazgo que justifica pedir la forma de pago: cuántas de las suyas la traen. */
+  forma_pago: { declarada: number; total: number } | null;
+  evidencia: { con_expediente: number; total: number } | null;
 }
 
 /** Detalle + señal de si el bucket está configurado (para no confundir "sin adjunto" con "no lo puedo servir"). */
@@ -133,9 +167,19 @@ export class ComprobacionesService {
   mine(limit = 50): Observable<ExpenseProofsReport> {
     return this.http.get<ExpenseProofsReport>(`${this.base}/mine`, { params: new HttpParams().set('limit', String(limit)) });
   }
-  /** Sube UN archivo (base64 data URI) y devuelve su referencia (bucket privado). */
-  uploadFile(file_base64: string, role: ProofFileRole): Observable<ProofFile> {
-    return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });
+  /**
+   * Sube UN archivo (base64 data URI) y devuelve su referencia (bucket privado).
+   *
+   * `[GX.14]` `sello` marca la foto que salió de la cámara. Sin él, el backend la trata
+   * como archivo y el 400 de la compuerta la rechaza — que es lo que queremos.
+   */
+  uploadFile(file_base64: string, role: ProofFileRole, sello?: { live?: boolean; captured_at?: string }): Observable<ProofFile> {
+    return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role, live: sello?.live === true, captured_at: sello?.captured_at });
+  }
+
+  /** `[GX.14]` Resumen de lo que pidió este usuario. */
+  resumen(periodo: '12m' | 'mes' = '12m'): Observable<ResumenSolicitante> {
+    return this.http.get<ResumenSolicitante>(`${this.base}/resumen`, { params: new HttpParams().set('periodo', periodo) });
   }
   /** Preview: valida la foto del comprobante con Claude Vision contra el importe de la solicitud. */
   validatePhoto(file_base64: string, importe: number): Observable<ProofPhotoOcr> {

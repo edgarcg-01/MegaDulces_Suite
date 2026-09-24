@@ -419,6 +419,25 @@ Bug que el smoke destapó y el build no podía ver: al vaciar un rack la fila qu
   `['clave', 'Etiqueta', …]`, y `[CG.21]` declaró la suya como `const KEY = 'finanzas.caja'` → el
   catálogo salía en 14 con 15 claves sembradas y dos aserciones de biyección acusaban en falso a
   una clave que **sí** estaba declarada.
+### Added — cómo se pagó, y la foto tomada en vivo (`[GX.14]`, 2026-09-24)
+- **Dos cosas que quien gasta aporta antes de que su solicitud llegue a revisión**, y que
+  Kepler no pide. Medido en prod (2026-09-23): `forma_pago` **vacía en 5,410 de 10,082
+  solicitudes (54 %) = $20,283,721.89**, y `finance.expense_proofs` con **9 filas** contra esas
+  10,082 (**0.09 %**).
+- **La regla vive una sola vez**: `faltaParaMandar()` en `libs/contracts/src/finance/` enciende
+  el botón del frontend *y* arma el `400` del backend. El catálogo de formas de pago lleva el
+  **código con el que Kepler/SAT las guardan** (01/02/03/04/07/99).
+- **La foto sólo se toma en vivo**: nace `CapturaEnVivoComponent` y se retiran el input de
+  archivo y el arrastrar-y-soltar del comprobante, en la captura **y** en la subida
+  post-aprobación. El `capture="environment"` anterior era una sugerencia que nadie honraba.
+- **Resumen del solicitante** (`GET /finance/expenses/proofs/resumen`): sin alcance devuelve
+  `medido: false` con el motivo, **nunca ceros**.
+- El buscador abarca concepto, cuenta y **monto** — el monto sólo dentro del alcance.
+- Migración `20260923120000` (idempotente, CHECK con prueba negativa corrida). Sin permisos
+  nuevos → **no hace falta re-login**.
+- ⚠️ **El límite queda escrito**: `live` lo pone el cliente, así que no prueba que la foto sea
+  de hoy — logra que la interfaz no ofrezca otro camino y que el archivo diga de dónde salió.
+
 
 ### Added — la caja confirma los DOS signos, y el gasto **sí** estaba en Kepler (`[CG.21]`, 2026-09-22)
 - **Corrige a CG.20**, que declaró que los gastos *"no están en Kepler — acá no hay derivación

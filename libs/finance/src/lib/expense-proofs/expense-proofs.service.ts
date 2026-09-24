@@ -1,6 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
+// [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
+// este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
+import { esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -42,7 +45,20 @@ const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
 /** La solicitud de gasto firmada: **obligatoria siempre**, en los tres tipos de gasto. */
 const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
 
-export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ProofFile {
+  role: string; url: string; public_id?: string; kind?: string; name?: string;
+  /**
+   * `[GX.14]` `true` si la foto salio de la camara abierta en la pantalla, no de un archivo.
+   *
+   * ⚠️ Es una DECLARACION DEL CLIENTE, no una prueba: quien quiera falsificarla puede.
+   * Lo que logra es que la interfaz no ofrezca otro camino y que quien revisa vea de donde
+   * salio cada archivo. Volverlo demostrable del lado del servidor exige otra cosa (canal de
+   * camara con sesion, o EXIF contra la hora) y NO esta hecho — se declara en vez de aparentar.
+   */
+  live?: boolean;
+  /** Cuando se tomo, en ISO. Lo pone el cliente junto con `live`. */
+  captured_at?: string;
+}
 
 /**
  * Clave de un expediente contra Kepler. **El folio NO alcanza**: en Kepler es único por
@@ -90,6 +106,10 @@ export interface CreateExpenseProofDto {
   comentarios?: string;
   /** Naturaleza del gasto — decide si la evidencia es obligatoria (ver ExpenseClasificacion). */
   clasificacion?: string;
+  /** `[GX.14]` Cómo se pagó: id del catálogo cerrado (`FORMAS_PAGO`). Obligatorio. */
+  forma_pago?: string;
+  /** `[GX.14]` El dato que pide la forma elegida (caja, últimos 4, referencia, cheque). */
+  forma_pago_detalle?: string;
   files?: ProofFile[];
   // Validación por vision de la foto del comprobante (preview vía validate-photo):
   monto_ocr?: number | null;    // total leído de la foto
@@ -191,7 +211,7 @@ export class ExpenseProofsService {
    * Sube UN archivo a Cloudinary (comprobante/solicitud/evidencia). Se llama una
    * vez por archivo para no rebasar el límite de body (hasta 6 × 10MB por form).
    */
-  async uploadFile(dataUri: string, role: string): Promise<ProofFile> {
+  async uploadFile(dataUri: string, role: string, sello?: { live?: boolean; captured_at?: string }): Promise<ProofFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!PROOF_FILE_ROLES.includes(role as ProofFileRole)) throw new BadRequestException(`role inválido: ${role}`);
@@ -199,7 +219,11 @@ export class ExpenseProofsService {
       // putFile: imagen o PDF (antes solo PDF). El comprobante suele ser FOTO y Claude
       // Vision necesita leerla para el cuadre; los demás roles también aceptan ambos.
       const f = await this.storage.putFile(dataUri, `finance/${tenantId}/expense-proofs`);
-      return { role, url: f.key, public_id: f.key, kind: f.kind };
+      // [GX.14] El sello viaja CON el archivo, no en una tabla aparte: quien revisa abre el
+      // expediente y ve de donde salio cada foto sin tener que cruzar nada.
+      const out: ProofFile = { role, url: f.key, public_id: f.key, kind: f.kind };
+      if (sello?.live === true) { out.live = true; out.captured_at = sello.captured_at || new Date().toISOString(); }
+      return out;
     } catch (e: any) {
       if (e?.status === 400) throw e; // "no configurado"
       this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
@@ -335,6 +359,22 @@ export class ExpenseProofsService {
       throw new BadRequestException('un gasto no comprobable exige un motivo (por qué no lleva evidencia)');
     }
 
+    // [GX.14] LA COMPUERTA. Las dos cosas que quien gastó tiene que aportar y que Kepler no
+    // pide: cómo se pagó, y la foto TOMADA EN VIVO. La regla no se escribe acá — vive en
+    // `faltaParaMandar()` (libs/contracts), que es la MISMA que enciende el botón del frontend.
+    // Escrita dos veces, se separan: es el defecto que ADR-056 midió ocho veces.
+    //
+    // Que el botón esté apagado no es un control, es una cortesía. El control es este 400.
+    const formaPago = req(dto.forma_pago);
+    const formaPagoDetalle = req(dto.forma_pago_detalle);
+    const faltan = faltaParaMandar({
+      forma_pago: formaPago,
+      forma_pago_detalle: formaPagoDetalle,
+      archivos: files,
+      exige_evidencia: llevaEvidencia,
+    } satisfies EstadoAporte);
+    if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
+
     return this.tk.run(async (trx) => {
       // Importe esperado = el de la solicitud Kepler (XA1501, fuente de verdad); si no se
       // encuentra, cae al del DTO (auto-rellenado por el front desde la misma solicitud).
@@ -354,6 +394,10 @@ export class ExpenseProofsService {
           folio_solicitud: folioSolicitud, proveedor,
           importe,
           clasificacion,
+          forma_pago: formaPago,
+          // El detalle sólo se guarda si la forma elegida lo pide: guardarlo para `vales`
+          // dejaría un texto que después nadie sabe cómo leer.
+          forma_pago_detalle: exigeDetalle(formaPago) ? formaPagoDetalle : null,
           // El motivo de un no_comprobable vive en comprobacion_nota (campo de "por qué falta").
           comprobacion_nota: llevaEvidencia ? null : motivo,
           files: JSON.stringify(files),
@@ -362,7 +406,7 @@ export class ExpenseProofsService {
           created_by: actor || null,
         })
         .returning(['id', 'folio_solicitud', 'status']);
-      this.logger.log(`solicitud de gasto folio ${row.folio_solicitud} [${clasificacion}] capturada → recibida · ${files.length} archivos, por ${actor || '?'}`);
+      this.logger.log(`solicitud de gasto folio ${row.folio_solicitud} [${clasificacion}/${formaPago}] capturada → recibida · ${files.length} archivos (${files.filter((f) => f.live).length} en vivo), por ${actor || '?'}`);
       this.emit('captured', { folio_solicitud: row.folio_solicitud, status: row.status, solicitante, importe: dto.importe, sucursal: dto.sucursal }, actor);
       return row;
     });
@@ -461,9 +505,19 @@ export class ExpenseProofsService {
   async addEvidence(id: string, dto: CreateExpenseProofDto, actor?: string) {
     this.tenantCtx.requireTenantId();
     const nuevos = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
-    if (!nuevos.some((f) => String(f.role).startsWith('comprobante'))) {
-      throw new BadRequestException('falta la evidencia del gasto (foto o PDF del comprobante)');
-    }
+    // [GX.14] Se reusa la MISMA compuerta de la captura, no una copia. Acá la forma de
+    // pago ya se declaró al crear el expediente, así que sólo se juzga la evidencia — por
+    // eso entra un `forma_pago` válido de relleno y el faltante de ese tipo se descarta.
+    //
+    // ⚠️ Sin esta puerta, la de `create()` sería decorativa: bastaba con esperar la
+    // aprobación y subir por acá cualquier archivo.
+    const faltanEv = faltaParaMandar({
+      forma_pago: 'efectivo',
+      forma_pago_detalle: 'n/a',
+      archivos: nuevos,
+      exige_evidencia: true,
+    } satisfies EstadoAporte).filter((f) => f.id === 'evidencia' || f.id === 'evidencia_en_vivo');
+    if (faltanEv.length) throw new BadRequestException(faltanEv.map((f) => f.motivo).join('; '));
 
     // Datos base + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
@@ -586,6 +640,34 @@ export class ExpenseProofsService {
   }
 
   /**
+   * `[GX.14]` El ALCANCE de quien pregunta: ¿ve todo, o sólo lo suyo?
+   *
+   * Estaba escrito adentro de `searchSolicitudes`. Lo saqué porque el resumen necesita
+   * exactamente el mismo recorte, y copiarlo habría dejado dos alcances que se separan
+   * — justo el defecto que ADR-056 mide. Las `claves` son los nombres normalizados
+   * (áreas asignadas + el propio) contra los que se compara `expense_requests.solicitante`.
+   *
+   * `veTodo=false` y `claves=[]` NO significa «todo»: significa que quien llama tiene que
+   * exigir folio exacto o devolver vacío. Cada llamador lo decide y lo dice.
+   */
+  private async alcanceDelUsuario(
+    trx: any,
+    user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
+  ): Promise<{ veTodo: boolean; claves: string[] }> {
+    const veTodo = isPlatformAdminRole(user?.role_name) || user?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true;
+    const claves: string[] = [];
+    if (!veTodo && user?.sub) {
+      const u = await trx('users').where({ id: user.sub }).first('nombre', 'finance_expense_area_ids');
+      const norm = (v: any) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
+      const ids: string[] = Array.isArray(u?.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
+      const areas = ids.length ? (await trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key')).map(norm).filter(Boolean) : [];
+      const n = norm(u?.nombre);
+      for (const k of [...areas, ...(n ? [n] : [])]) if (k && claves.indexOf(k) === -1) claves.push(k);
+    }
+    return { veTodo, claves };
+  }
+
+  /**
    * Busca la SOLICITUD (XA1501) contra la que se va a subir el comprobante.
    *
    * Antes el capturista buscaba el GASTO (XA1001) y su captura caía en otra tabla, en
@@ -608,28 +690,32 @@ export class ExpenseProofsService {
     if (!q.length || (q.length < 2 && !/^[0-9]+$/.test(q))) return [];
     const lim = Math.min(50, Math.max(1, Number(limit) || 20));
     return this.tk.run(async (trx) => {
-      const veTodo = isPlatformAdminRole(user?.role_name) || user?.permissions?.[Permission.FINANCE_EXPENSES_VER_ALL] === true;
-      let claves: string[] = [];
-      if (!veTodo && user?.sub) {
-        const u = await trx('users').where({ id: user.sub }).first('nombre', 'finance_expense_area_ids');
-        const norm = (v: any) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
-        const ids: string[] = Array.isArray(u?.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
-        const areas = ids.length ? (await trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key')).map(norm).filter(Boolean) : [];
-        const n = norm(u?.nombre);
-        for (const k of [...areas, ...(n ? [n] : [])]) if (k && claves.indexOf(k) === -1) claves.push(k);
-      }
+      const { veTodo, claves } = await this.alcanceDelUsuario(trx, user);
       const cols = await trx.raw(`SELECT 1 FROM information_schema.columns
         WHERE table_schema='analytics' AND table_name='expense_requests' AND column_name='acreedor'`);
       const conAcreedor = (cols.rows || []).length > 0;
       const soloNumeros = /^\d+$/.test(q);
       const b = trx('analytics.expense_requests as r').where('r.tenant_id', tenantId).where('r.estado', '<>', 'C');
+      // [GX.14] El monto también busca — pero SÓLO dentro del alcance.
+      // El folio numérico se permite sin áreas a propósito («subí lo que te dieron»); abrir
+      // el monto con la misma manga dejaría pescar el gasto ajeno tecleando cifras hasta
+      // que caiga algo. Por eso el monto cuelga de `veTodo || claves.length` y el folio no.
+      const montoBuscable = (veTodo || claves.length > 0) && Number(q) > 0;
       if (soloNumeros) {
         // Igualdad numérica: '23' encuentra '0000023' y nada más.
-        b.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
+        b.andWhere((w: any) => {
+          w.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
+          if (montoBuscable) w.orWhereRaw('round(r.importe::numeric) = ?', [Math.round(Number(q))]);
+        });
       } else if (veTodo || claves.length) {
+        // [GX.14] Antes sólo beneficiario. Se suman CONCEPTO y CUENTA porque es como la
+        // gente busca de verdad («maniobras», «GG014»), y los dos campos ya viajan en el
+        // SELECT de abajo — mostrarlos y no dejar buscarlos era el defecto.
         b.andWhere((w: any) => {
           w.whereILike('r.beneficiario', `%${q}%`);
           if (conAcreedor) w.orWhereILike('r.acreedor', `%${q}%`);
+          w.orWhereILike('r.concepto', `%${q}%`);
+          w.orWhereILike('r.cuenta_clave', `%${q}%`);
         });
       } else {
         return []; // sin áreas y sin folio: no se pasea el gasto ajeno
@@ -643,6 +729,107 @@ export class ExpenseProofsService {
           trx.raw('r.importe::numeric AS importe'),
           trx.raw(conAcreedor ? 'COALESCE(r.acreedor, r.beneficiario) AS beneficiario' : 'r.beneficiario AS beneficiario'));
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
+    });
+  }
+
+  /**
+   * `[GX.14]` **Resumen de lo que ESTA persona pidió.** Lo que en el tablero de Finanzas
+   * es la vista de toda la empresa, acá es la de quien gasta: cuánto pidió, en qué quedó,
+   * a quién, y — el dato que justifica la fase — cuántas veces declaró cómo lo pagó.
+   *
+   * Sale de `analytics.expense_requests` (la vista viva sobre Kepler), no de los
+   * expedientes: lo que hay que resumir es **lo que pidió**, exista expediente o no.
+   *
+   * ⚠️ **Alcance.** Se recorta con la MISMA regla que la búsqueda (`alcanceDelUsuario`).
+   * Quien no tiene áreas asignadas ni nombre que casar **no recibe ceros**: recibe
+   * `medido: false` con el motivo. Un cero aquí se leería como «no pediste nada», que es
+   * una afirmación distinta de «no puedo saberlo» (ADR-056).
+   */
+  async resumenDelSolicitante(
+    periodo: '12m' | 'mes',
+    user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const meses = periodo === 'mes' ? 0 : 12;
+    return this.tk.run(async (trx) => {
+      const { veTodo, claves } = await this.alcanceDelUsuario(trx, user);
+      const vacio = {
+        periodo, medido: false as const,
+        motivo: 'no hay cómo saber cuáles solicitudes son tuyas: tu usuario no tiene áreas de gasto asignadas ni un nombre que case con el solicitante de Kepler',
+        totales: null, por_mes: [], por_estado: [], top_beneficiarios: [], forma_pago: null, evidencia: null,
+      };
+      if (!veTodo && claves.length === 0) return vacio;
+
+      // Base común: el periodo y el recorte por solicitante. `estado <> 'C'` NO se aplica
+      // acá: una cancelada también es algo que pediste, y el desglose la muestra aparte.
+      const base = () => {
+        const b = trx('analytics.expense_requests as r').where('r.tenant_id', tenantId);
+        if (periodo === 'mes') b.whereRaw("r.fecha >= date_trunc('month', current_date)");
+        else b.whereRaw(`r.fecha >= current_date - interval '${meses} months'`);
+        b.whereRaw('r.fecha <= current_date');
+        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+        return b;
+      };
+
+      const [tot] = await base().select(
+        trx.raw('COUNT(*)::int AS n'),
+        trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'),
+        trx.raw('AVG(NULLIF(r.importe,0))::numeric AS promedio'),
+        trx.raw('MAX(r.importe)::numeric AS mayor'),
+        // El hallazgo: cuántas de sus propias solicitudes traen `forma_pago` en Kepler.
+        trx.raw("COUNT(*) FILTER (WHERE NULLIF(btrim(r.forma_pago),'') IS NOT NULL)::int AS con_forma_pago"),
+      );
+
+      // Siempre 7 meses de barras, aunque el periodo sea el mes: la tendencia es lo que
+      // se lee de un vistazo, y recortarla a una sola barra no dice nada.
+      const porMes = await trx('analytics.expense_requests as r')
+        .where('r.tenant_id', tenantId)
+        .whereRaw("r.fecha >= date_trunc('month', current_date) - interval '6 months'")
+        .whereRaw('r.fecha <= current_date')
+        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]); })
+        .groupByRaw("to_char(r.fecha,'YYYY-MM')")
+        .orderByRaw("to_char(r.fecha,'YYYY-MM')")
+        .select(trx.raw("to_char(r.fecha,'YYYY-MM') AS mes"), trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));
+
+      const porEstado = await base().groupBy('r.estado').orderByRaw('SUM(r.importe) DESC NULLS LAST')
+        .select('r.estado', trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));
+
+      const topBenef = await base().whereRaw("NULLIF(btrim(r.beneficiario),'') IS NOT NULL")
+        .groupBy('r.beneficiario').orderByRaw('SUM(r.importe) DESC NULLS LAST').limit(6)
+        .select('r.beneficiario', trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));
+
+      // Evidencia: cuántos de SUS folios ya tienen expediente en la Suite. Se cruza por el
+      // par (sucursal, folio) — el folio solo NO identifica: es único por sucursal (GX.11).
+      const [ev] = await base()
+        .leftJoin('finance.expense_proofs as p', function (this: any) {
+          this.on('p.folio_solicitud', '=', 'r.folio').andOn('p.sucursal', '=', 'r.sucursal');
+        })
+        .select(trx.raw('COUNT(DISTINCT (r.sucursal, r.folio))::int AS total'),
+                trx.raw('COUNT(DISTINCT (r.sucursal, r.folio)) FILTER (WHERE p.id IS NOT NULL)::int AS con_expediente'));
+
+      const ESTADO_LABEL: Record<string, string> = {
+        F: 'Aplicada — el dinero salió', A: 'Autorizada, sin ejercer', N: 'Por ejercer', C: 'Cancelada',
+      };
+      const num = (v: any) => (v == null ? null : Number(v));
+      const mesActual = new Date().toISOString().slice(0, 7);
+
+      return {
+        periodo, medido: true as const, motivo: null,
+        alcance: veTodo ? 'todo' : `${claves.length} clave(s) de solicitante`,
+        totales: {
+          n: Number(tot?.n) || 0,
+          monto: Number(tot?.monto) || 0,
+          // NULL, no 0: sin solicitudes no hay promedio ni máximo que publicar.
+          promedio: num(tot?.promedio),
+          mayor: num(tot?.mayor),
+        },
+        por_mes: porMes.map((m: any) => ({ mes: m.mes, n: Number(m.n), monto: Number(m.monto), en_curso: m.mes === mesActual })),
+        por_estado: porEstado.map((e: any) => ({ estado: e.estado, label: ESTADO_LABEL[e.estado] || e.estado, n: Number(e.n), monto: Number(e.monto) })),
+        top_beneficiarios: topBenef.map((b: any) => ({ beneficiario: b.beneficiario, n: Number(b.n), monto: Number(b.monto) })),
+        // Los dos huecos que la fase existe para cerrar, con su denominador a la vista.
+        forma_pago: { declarada: Number(tot?.con_forma_pago) || 0, total: Number(tot?.n) || 0 },
+        evidencia: { con_expediente: Number(ev?.con_expediente) || 0, total: Number(ev?.total) || 0 },
+      };
     });
   }
 
