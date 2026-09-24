@@ -1,11 +1,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Fase VL (ADR-060) — el stack de ingesta EN EL SERVIDOR `md` (192.168.0.222).
 #
-# Reemplaza a ops/ingest/docker-compose.yml, que es el de `.249` (Windows). Las
-# diferencias no son cosméticas:
+# ⭐ [CT.2 2026-09-24] ESTE ES EL ÚNICO COMPOSE DE LA INGESTA. Reemplazó al de `.249`
+# (`ops/ingest/docker-compose.yml`), que se BORRÓ en CT.2 y ya no existe. Se borró porque
+# declaraba los MISMOS `container_name` con el MISMO `ODS_HB_KEY` — o sea el mismo `ods.ctl`,
+# el mismo `ods.shadow` y el mismo renglón de `analytics.cron_runs` que éstos — y encima había
+# DIVERGIDO (`ODS_RECONCILE_ALERT: 50` contra 1000 acá; excluía `kdpv_bitacora_precios`, acá no).
+# Dos repartos vivos del mismo carril en el mismo repo es el riesgo de `[ODS.1]` sin desactivar.
+#
+# Lo que aquel traía y ESTE conserva, para que no se pierda el porqué:
 #   · el `env_file` vive en ~/secrets/ (Linux, 600), no en C:\KeplerRunner\
 #   · la fuente se alcanza por IP LAN, no por host.docker.internal
 #   · acá SÍ vive el Postgres de las réplicas (en `.249` estaba en otro compose)
+#
+# ⛔ `ops/ingest/` NO se borró: ahí siguen el `Dockerfile` que construye `trade-ingest:latest`
+#    (ops/vl/deploy.sh lo usa) y los healthchecks `health.js` / `health-lane.sh`.
 #
 #   docker compose -f ops/vl/docker-compose.yml up -d              # sólo los carriles (VL.2a)
 #   docker compose -f ops/vl/docker-compose.yml --profile db up -d # + Postgres (VL.2b)

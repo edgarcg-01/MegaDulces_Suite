@@ -25,6 +25,25 @@
  */
 
 const path = require('path');
+// ⛔⛔ [CT.2 2026-09-24] RETIRADO — y acá el freno tenía que ser EXPLÍCITO.
+//
+// Este archivo ya tenía un `throw`, pero valida `DATABASE_URL_NEW`: con la variable puesta —que
+// es justo lo que hace quien lo arranca a propósito— pasaba de largo y levantaba los dos
+// carriles. Un `throw` que no es el freno que creés que es, es peor que ninguno.
+//
+// Los dos carriles se mudaron a `ops/vl/crontab.feeds` el 2026-09-22 y su dueño es `feeds-cron`
+// en el servidor `md`. Comparten `CONTPAQI_HB_KEY` con las líneas de cron, así que dos dueños no
+// se ven como conflicto: se ven como un latido fresco que en realidad lo escribe el otro.
+//
+// ⚠️ Ya pasó: `ops/README.md:110` documenta que este README los daba por mudados y en `pm2 stop`
+// cuando estaban ONLINE — `PM2 Resurrect ODS` los revivió tras un reinicio de Windows, y el
+// incremental corrió DUPLICADO y mudo.
+throw new Error(
+  'ecosystem.contpaqi.config.js está RETIRADO (2026-09-22). Los dos carriles corren en `feeds-cron` ' +
+  'del servidor md: ops/vl/crontab.feeds líneas `contpaqi-cfdis` (3-58/5) y `contpaqi-cfdis-full` ' +
+  '(45 5). Arrancarlo acá crea un SEGUNDO dueño del watermark y del latido: un carril = UN dueño.',
+);
+
 const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
 const SCRIPT = 'database/importers/contpaqi/import-contpaqi-cfdis.js';
 
