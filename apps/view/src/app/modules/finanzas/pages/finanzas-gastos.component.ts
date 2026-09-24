@@ -1,55 +1,29 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
-import { FinanzasSolicitudesComponent } from './finanzas-solicitudes.component';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.component';
 
 /**
- * GX.10 — **Gastos**: la única puerta al ciclo del gasto. Reemplaza tres tabs que
- * resolvían el mismo trámite en tres lugares distintos («Solicitudes de gasto»,
- * «Capturas de campo» y «Capturar gasto»).
+ * `[GX.17]` — **Gastos**: la pantalla de quien CAPTURA. Pega el folio de Kepler, declara
+ * cómo se pagó y sube la foto del comprobante.
  *
- * Por qué una ruta y no una pantalla: son **dos públicos**, y está medido.
- *   · 11 roles / **75 usuarios activos** (32 cajeros, 19 promotores de ruta, 9 encargados
- *     de tienda…) tienen `FINANCE_EXPENSES_CAPTURAR` pero **no** `FINANCE_EXPENSES_VER`.
- *     Para ellos el tablero de toda la empresa no es útil —y no deberían verlo—: su
- *     trabajo es pegar un folio y subir fotos.
- *   · Otros 5 roles (`finanzas`, `direccion`, `auditor_externo`, `credito_cobranza`,
- *     `auxiliar finanzas`) ven sin capturar.
- *   · Sólo 7 roles tienen los dos, y eran los únicos que sufrían la duplicación.
+ * Antes (`[GX.10]`) esta ruta elegía entre DOS superficies según el permiso: tablero para
+ * quien tenía `FINANCE_EXPENSES_VER`, captura para quien sólo tenía `_CAPTURAR`. Esa
+ * bifurcación se retiró al partir la sección en dos por pedido del usuario:
  *
- * Fundirlos en una pantalla que exigiera VER habría dejado afuera a los 75 que capturan.
- * Así que la ruta es una sola y el contenido se decide acá. Para quien tiene VER, la
- * página de captura además **no aportaba nada**: el tablero ya trae la captura como
- * diálogo, con los datos de Kepler cargados.
+ *   · `/finanzas/gastos`            → esto: capturar. **Sin permiso, todos entran.**
+ *   · `/finanzas/aprobacion-gastos` → dar luz verde. Gateada con `_COMPROBAR`.
+ *   · `/finanzas/gastos-tablero`    → el tablero de GX.10, con su `_VER` de siempre.
  *
- * El guard de la ruta es `anyPermissionGuard(VER, CAPTURAR)`; este componente sólo elige
- * cuál de las dos superficies renderizar. No hay tercera rama: si el guard te dejó pasar,
- * tenés al menos uno de los dos.
+ * ⛔ El tablero **no se borró**: 25 personas con `FINANCE_EXPENSES_VER` lo usan para
+ * revisar y buscar. Cambió de dirección, no de existencia.
+ *
+ * Este componente ya no decide nada — queda como el punto de entrada de la ruta. Si algún
+ * día no tiene que hacer nada más, se puede cargar el de captura directo desde la ruta.
  */
 @Component({
   selector: 'app-finanzas-gastos',
   standalone: true,
-  imports: [FinanzasSolicitudesComponent, FinanzasCapturarGastoComponent],
+  imports: [FinanzasCapturarGastoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @if (verTablero()) {
-      <app-finanzas-solicitudes />
-    } @else {
-      <app-finanzas-capturar-gasto />
-    }
-  `,
+  template: `<app-finanzas-capturar-gasto />`,
 })
-export class FinanzasGastosComponent {
-  private readonly auth = inject(AuthService);
-  private readonly perms = inject(PermissionsService);
-
-  /**
-   * Quien puede ver el tablero, lo ve — la captura vive adentro como diálogo. Quien sólo
-   * captura recibe la superficie mínima. `isAdmin()` primero por el mismo motivo que en
-   * `PageTabs`: un superadmin cuyo JSONB no tenga la clave literal igual debe entrar.
-   */
-  readonly verTablero = computed(() => this.perms.isAdmin()
-    || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER] === true);
-}
+export class FinanzasGastosComponent {}
