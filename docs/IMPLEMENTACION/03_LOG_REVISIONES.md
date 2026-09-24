@@ -173,6 +173,19 @@ O sea **cero sesiones vivas se cierran** por encender esto.
 | Qué | Resultado |
 |---|---|
 | `vitest` de `apps/api` (login) | **13/13**, con el **rojo ejercido**: rotos a propósito los dos frenos nuevos → caen exactamente sus 2 pruebas, control positivo verde |
+
+### ⛔ Y aun así, `[ID.37]` tiró el login en PROD (corregido el 2026-09-23 por `[VL.16]`)
+
+Al mudar el código al núcleo se «mejoró» una línea que venía con interpolación:
+
+```ts
+await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);   // antes
+await trx.raw('SET LOCAL app.tenant_id = ?', [tenant.id]);   // «más seguro» → 42601
+```
+
+Parece mejor y es **inválido**: Postgres no acepta parámetros ligados en `SET`, así que el servidor contestó `42601 syntax error at or near "$1"` y **el login devolvió 500 a todo el mundo**. La forma correcta —`set_config('app.tenant_id', ?, true)`— **ya estaba escrita en 13 lugares del repo**; se perdió justo al reescribir el login.
+
+⭐ **Lo que esto enseña sobre la verificación de arriba:** las 13 pruebas pasaron porque un **doble de Knex no ejecuta SQL y por lo tanto no puede rechazar SQL inválido**. El smoke HTTP que sí lo habría visto en el primer login estaba escrito y quedó **declarado NO MEDIDO** por no haber API viva — o sea que **el hueco declarado era exactamente donde estaba el defecto**. Un cambio en la FORMA de una consulta no lo cubre un test con dobles. Gotcha §67.
 | `nx run api:typecheck` | OK |
 | `nx build view` | OK (1.28 MB) |
 | `vitest` de `apps/view` | 686 pasan, 1 archivo skipped |
