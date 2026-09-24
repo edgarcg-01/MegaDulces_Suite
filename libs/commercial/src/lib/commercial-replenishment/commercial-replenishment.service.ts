@@ -1111,7 +1111,26 @@ export class CommercialReplenishmentService {
       if (q.only_overstock) wbConds.push('p.has_over');
       const wbWhere = wbConds.length ? `WHERE ${wbConds.join(' AND ')}` : '';
       const inner = `
-        WITH base AS (
+        -- ⛔ \`MATERIALIZED\` NO ES ADORNO: sin él esta pantalla devuelve 500. Medido en PROD el
+        -- 2026-09-24, con **6 de 6 peticiones muertas exactas a los 120 s** de
+        -- \`statement_timeout\` (proveedor FABRICAS SELECTAS, \`group=branch\`).
+        --
+        -- El plan lo dice:
+        --     Nested Loop Left Join  (cost=33524..47302  rows=2)
+        --           Join Filter: (lad.sku = (pr.sku)::text)     ← la igualdad, DEGRADADA a filtro
+        --
+        -- El planificador estima **2 filas** y la realidad son **732** (366× de error), así que
+        -- elige un nested loop que re-evalúa \`v_supplier_cost_ladder\` por cada fila. El CTE se
+        -- referencia UNA sola vez, y desde PG12 eso significa que se INLINEA: la estimación mala
+        -- no se queda acá, contamina la agregación y el pivote de arriba.
+        --
+        -- \`MATERIALIZED\` corta la propagación: el CTE se computa una vez (2.5 s, 732 filas) y las
+        -- capas de arriba reciben un conteo REAL. Mismo remedio que \`[PERF.1]\` aplicó a
+        -- \`v_erp_unit_cost\` por el mismo cuadro (mig 20260923120000_v_erp_unit_cost_hash_join).
+        --
+        -- ⚠️ No cuesta empuje de predicados: TODOS los filtros (tenant, proveedor, almacenes,
+        -- stock) ya viven DENTRO del CTE. No hay nada que empujar hacia adentro.
+        WITH base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
                  COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
