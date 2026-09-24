@@ -1014,7 +1014,7 @@ export class FinanceBankService {
       // fallback al 102 contable (matching legacy).
       const hasTes = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
-        .andWhere('fecha_valor', '>=', tIni).andWhere('fecha_valor', '<', tFin).first('doc_tipo');
+        .andWhere('fecha_efectiva', '>=', tIni).andWhere('fecha_efectiva', '<', tFin).first('doc_tipo');
       const kepler = hasTes
         ? await trx('analytics.kepler_bank_movements as k')
             .where('k.tenant_id', tenantId).where('k.signo', '<', 0).whereNotNull('k.account_label')
@@ -1022,12 +1022,12 @@ export class FinanceBankService {
             // caja jamás casa contra un movimiento bancario → saldría siempre como "sin conciliar".
             .whereNotIn('k.account_label', trx('finance.bank_accounts')
               .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
-            .andWhere('k.fecha_valor', '>=', tIni).andWhere('k.fecha_valor', '<', tFin)
+            .andWhere('k.fecha_efectiva', '>=', tIni).andWhere('k.fecha_efectiva', '<', tFin)
             .whereNotExists(function () {
               this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
                 .whereRaw('m.kepler_doc_tipo = k.doc_tipo AND m.kepler_doc_folio = k.folio');
             })
-            .select('k.doc_tipo', 'k.folio', trx.raw('k.fecha_valor AS fecha'), 'k.importe',
+            .select('k.doc_tipo', 'k.folio', trx.raw('k.fecha_efectiva AS fecha'), 'k.importe',
               trx.raw('COALESCE(k.beneficiario, k.concepto) AS contraparte'))
             .orderBy('k.importe', 'desc')
         : await trx('analytics.bank_postings as p')
@@ -1573,36 +1573,35 @@ export class FinanceBankService {
       //
       // Se carga por separado y no dentro de `kepler_bank_movements` a propósito: esa vista ya
       // hace un seq scan de kdm1 de ~7 s y la consumen 15 lugares; ésta son 2,583 filas.
-      const compRows = await trx('analytics.v_kepler_payment_complement')
-        .where('tenant_id', tenantId).whereNotNull('doc_tipo').whereNotNull('fecha_pago')
-        .select('sucursal', 'doc_tipo', 'folio', 'fecha_pago');
-      const compIdx = new Map<string, any>();
-      for (const r of compRows as any[]) compIdx.set(`${r.sucursal}|${r.doc_tipo}|${r.folio}`, r.fecha_pago);
+      // CB.49 — la fecha efectiva ya viene RESUELTA en la vista, igual que para las otras
+      // pestañas. Antes esto cargaba el complemento por su cuenta y lo resolvía en JS: funcionaba
+      // acá y dejaba al Cuadre viendo otra cosa — el mismo cobro salía casado en la base y «En
+      // ContPAQi» en pantalla. El resolvedor vive en un solo lugar (ADR-056) y nadie puede
+      // olvidarse de aplicarlo.
       let compUsados = 0, compDiasMovidos = 0;
 
       // Lado Kepler tesorería: por cuenta + dirección (signo>0=entra, signo<0=sale).
       const kepAll = (await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
-        .andWhere('fecha_valor', '>=', iniWide).andWhere('fecha_valor', '<', finWide).whereRaw('signo <> 0')
-        .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo', 'fecha_valor', 'fecha_captura', 'beneficiario'))
+        .andWhere('fecha_efectiva', '>=', iniWide).andWhere('fecha_efectiva', '<', finWide).whereRaw('signo <> 0')
+        .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo',
+          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario'))
         .map((p: any) => {
-          // El complemento manda sobre la póliza: es la fecha que el propio Kepler timbró al SAT
-          // como día del pago. Si no hay complemento (el 98% de la cobranza: el CEDIS factura
-          // PUE y el SAT no exige complemento ahí), se usa la de siempre.
-          const fPago = compIdx.get(`${p.sucursal}|${p.doc_tipo}|${p.folio}`);
-          const fecha = fPago ?? p.fecha_valor;
-          if (fPago && ymd(fPago) !== ymd(p.fecha_valor)) {
+          // Se mide cuánto aportó el complemento para poder mostrarlo en el resultado: un cambio
+          // que mueve el número tiene que poder enseñarlo.
+          if (p.fecha_pago_sat && ymd(p.fecha_pago_sat) !== ymd(p.fecha_valor)) {
             compUsados++;
-            compDiasMovidos += Math.abs(Math.round((new Date(ymd(p.fecha_valor)).getTime() - new Date(ymd(fPago)).getTime()) / 86400000));
+            compDiasMovidos += Math.abs(Math.round((new Date(ymd(p.fecha_valor)).getTime() - new Date(ymd(p.fecha_pago_sat)).getTime()) / 86400000));
           }
           return { sucursal: p.sucursal, doc_tipo: p.doc_tipo, folio: p.folio, clave: p.clave_banco, label: p.account_label,
-            importe: n(p.importe), fecha, fecha_poliza: p.fecha_valor, fuente_fecha: fPago ? 'complemento_sat' : 'poliza',
+            importe: n(p.importe), fecha: p.fecha_efectiva, fecha_poliza: p.fecha_valor,
+            fuente_fecha: p.fecha_pago_sat ? 'complemento_sat' : 'poliza',
             fcap: p.fecha_captura, benef: p.beneficiario,
             dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
             // `dentro` se evalúa con la fecha EFECTIVA: un cobro tecleado en agosto cuyo pago
             // fue el 31-jul pertenece a julio, y con la fecha de la póliza quedaba fuera de los
             // pases 1-4 del mes que le toca.
-            dentro: ymd(fecha) >= ini && ymd(fecha) < fin };
+            dentro: ymd(p.fecha_efectiva) >= ini && ymd(p.fecha_efectiva) < fin };
         });
 
       // Anti doble-cobro entre periodos: el `used` sólo vive dentro de UNA corrida, y el
@@ -1823,7 +1822,9 @@ export class FinanceBankService {
         complemento_sat: {
           usados: compUsados,
           dias_promedio: compUsados ? Math.round((compDiasMovidos / compUsados) * 10) / 10 : 0,
-          disponibles: compIdx.size,
+          // Cuántos documentos del pool traían complemento (con o sin desfase). Sale del pool
+          // ya cargado, no de un índice aparte — CB.49 lo retiró.
+          disponibles: kepAll.filter((p: any) => p.fuente_fecha === 'complemento_sat').length,
         },
         matched_deposits: inMovs.filter((m) => matchedSet.has(m.id)).length, deposits: inMovs.length,
         matched_withdrawals: outMovs.filter((m) => matchedSet.has(m.id)).length, withdrawals: outMovs.length,
@@ -1854,7 +1855,7 @@ export class FinanceBankService {
     const tFin = tm >= 12 ? `${ty + 1}-01-01` : `${ty}-${String(tm + 1).padStart(2, '0')}-01`;
     const hasTreasury = await this.tk.run((trx) => trx('analytics.kepler_bank_movements')
       .where('tenant_id', tenantId).whereNotNull('account_label')
-      .andWhere('fecha_valor', '>=', tIni).andWhere('fecha_valor', '<', tFin).first('doc_tipo'));
+      .andWhere('fecha_efectiva', '>=', tIni).andWhere('fecha_efectiva', '<', tFin).first('doc_tipo'));
     if (hasTreasury) return this.runMatchTreasury(period);
 
     const cents = (x: number) => Math.round((Number(x) || 0) * 100);
@@ -2142,7 +2143,7 @@ export class FinanceBankService {
         // la caja va como memo no-fiscal) y con el Cuadre (threeWay). Banco-vs-banco.
         .whereNotIn('account_label', trx('finance.bank_accounts')
           .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
-        .andWhere('fecha_valor', '>=', kIni).andWhere('fecha_valor', '<', kFin)
+        .andWhere('fecha_efectiva', '>=', kIni).andWhere('fecha_efectiva', '<', kFin)
         .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS cargos`),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS abonos`)).first();
       const tesHas = n(tesRow?.cargos) > 0 || n(tesRow?.abonos) > 0;
@@ -2272,8 +2273,8 @@ export class FinanceBankService {
       // Pool tesorería Kepler (entradas, con account_label), ventana ±7d.
       const tes = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label').where('signo', '>', 0)
-        .andWhere('fecha_valor', '>=', addDays(ini, -7)).andWhere('fecha_valor', '<', addDays(fin, 7))
-        .select('account_label', 'fecha_valor as date', 'importe as amt');
+        .andWhere('fecha_efectiva', '>=', addDays(ini, -7)).andWhere('fecha_efectiva', '<', addDays(fin, 7))
+        .select('account_label', 'fecha_efectiva as date', 'importe as amt');
       // account_label → (monto redondeado → lista). El ±$1 se resuelve sobre el mapa numérico interno.
       const tesIdx = new Map<string, Map<number, any[]>>();
       for (const t of tes as any[]) {
@@ -2487,8 +2488,8 @@ export class FinanceBankService {
       // 1. Tesorería Kepler (salidas, con account_label), ventana ±7d.
       const tes = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label').where('signo', '<', 0)
-        .andWhere('fecha_valor', '>=', addDays(ini, -7)).andWhere('fecha_valor', '<', addDays(fin, 7))
-        .select('account_label', 'fecha_valor as date', 'importe as amt');
+        .andWhere('fecha_efectiva', '>=', addDays(ini, -7)).andWhere('fecha_efectiva', '<', addDays(fin, 7))
+        .select('account_label', 'fecha_efectiva as date', 'importe as amt');
       const tesIdx = new Map<string, Map<number, any[]>>();
       for (const t of tes as any[]) {
         const lbl = String(t.account_label); const k = peso(t.amt);
@@ -2659,7 +2660,7 @@ export class FinanceBankService {
         // de caja como si fueran banco). Debe ser banco-vs-banco.
         .whereNotIn('account_label', trx('finance.bank_accounts')
           .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
+        .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin)
         .groupBy('account_label')
         .select('account_label',
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS dep`),
@@ -2751,9 +2752,11 @@ export class FinanceBankService {
         .where('st.period', period).whereNull('bm.deleted_at')
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(bm.movement_date) AS last')).first();
       const kp: any = await trx('analytics.kepler_bank_movements').where('tenant_id', tenantId).whereNotNull('account_label')
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
+        .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin)
         // fecha_valor, no fecha_captura: la cobertura mide hasta qué DÍA DEL PERIODO llegó la
         // fuente, y la fecha de captura puede caer fuera del mes (se captura después).
+        // CB.49 — éste SÍ se queda con `fecha_valor`: mide hasta qué día del periodo alcanzó a
+        // REGISTRARSE la póliza (cobertura del feed), no cuándo se movió el dinero.
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) AS last')).first();
       const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) AS last')).first();
@@ -2833,9 +2836,9 @@ export class FinanceBankService {
     return this.tk.run(async (trx) => {
       const cheques = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).where('signo', '<', 0)
+        .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin).where('signo', '<', 0)
         .andWhere((q: any) => q.whereILike('doc_tipo', 'X-D-25%').orWhere('metodo', 'Che'))
-        .select('doc_tipo', 'folio', 'account_label', 'banco_nombre', 'importe', 'fecha_valor', 'beneficiario')
+        .select('doc_tipo', 'folio', 'account_label', 'banco_nombre', 'importe', trx.raw('fecha_efectiva AS fecha_valor'), 'beneficiario')
         .orderBy('importe', 'desc');
       if (!cheques.length) return { period, total: { cheques_n: 0, en_transito_n: 0, en_transito_monto: 0, cobrado_n: 0, cobrado_monto: 0 }, cheques: [] };
 
@@ -2917,9 +2920,14 @@ export class FinanceBankService {
 
       const kepler = (await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).where('account_label', accountLabel)
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin).whereRaw('signo <> 0')
-        .select('sucursal', 'clave_banco', 'doc_tipo', 'folio', 'importe', 'signo', 'fecha_valor', 'beneficiario', 'metodo'))
-        .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, fecha: p.fecha_valor, concepto: p.beneficiario, metodo: p.metodo,
+        .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin).whereRaw('signo <> 0')
+        // CB.49 — `fecha_efectiva` también en el SELECT: es la fecha con la que este pool parea
+        // contra el estado de cuenta y la que se muestra en el drill. `fecha_poliza` viaja al
+        // lado para poder explicar por qué un cobro de agosto aparece en julio.
+        .select('sucursal', 'clave_banco', 'doc_tipo', 'folio', 'importe', 'signo',
+          'fecha_efectiva', 'fecha_valor as fecha_poliza', 'beneficiario', 'metodo'))
+        .map((p: any) => ({ doc_tipo: p.doc_tipo, folio: p.folio, fecha: p.fecha_efectiva,
+          fecha_poliza: p.fecha_poliza, concepto: p.beneficiario, metodo: p.metodo,
           key: `${p.sucursal}|${p.doc_tipo}|${p.folio}|${p.clave_banco}`,
           dir: Number(p.signo) > 0 ? 'in' : 'out', importe: n(p.importe), used: false }));
 
@@ -3086,22 +3094,26 @@ export class FinanceBankService {
           trx.raw('COALESCE(SUM(bm.amount_in),0)::numeric AS bin'),
           trx.raw('COALESCE(SUM(bm.amount_out),0)::numeric AS bout'),
           trx.raw('COUNT(*)::int AS n'));
-      // Kepler tesorería por día (fecha_valor).
+      // Kepler tesorería por día. CB.49 — agrupa por `fecha_efectiva`, la MISMA por la que filtra:
+      // acotar por una fecha y agrupar por otra deja días con movimientos que no suman a ningún
+      // renglón, y el total del día deja de cuadrar contra el banco.
       const kep = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).where('account_label', accountLabel).whereRaw('signo <> 0')
-        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
-        .groupByRaw("to_char(fecha_valor, 'YYYY-MM-DD')")
-        .select(trx.raw("to_char(fecha_valor, 'YYYY-MM-DD') AS dia"),
+        .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin)
+        .groupByRaw("to_char(fecha_efectiva, 'YYYY-MM-DD')")
+        .select(trx.raw("to_char(fecha_efectiva, 'YYYY-MM-DD') AS dia"),
           trx.raw('COALESCE(SUM(importe) FILTER (WHERE signo > 0),0)::numeric AS kin'),
           trx.raw('COALESCE(SUM(importe) FILTER (WHERE signo < 0),0)::numeric AS kout'),
           trx.raw('COUNT(*)::int AS n'));
       // Duplicados de Kepler por día: grupos (importe, fecha, signo) con count≥2 → exceso = doble conteo.
+      // CB.49 — por `fecha_efectiva`, la misma del renglón de arriba: si los duplicados se
+      // agruparan por otra fecha, el `dup_monto` de un día se restaría de un día que no es el suyo.
       const dups = await trx.raw(
         `WITH grp AS (
-           SELECT to_char(fecha_valor,'YYYY-MM-DD') dia, round(importe::numeric,2) imp, signo, count(*) n
+           SELECT to_char(fecha_efectiva,'YYYY-MM-DD') dia, round(importe::numeric,2) imp, signo, count(*) n
              FROM analytics.kepler_bank_movements
             WHERE tenant_id = :tenant AND account_label = :al AND signo <> 0
-              AND fecha_valor >= :ini AND fecha_valor < :fin
+              AND fecha_efectiva >= :ini AND fecha_efectiva < :fin
             GROUP BY 1,2,3 HAVING count(*) >= 2)
          SELECT dia, SUM(n-1)::int AS dup_n, SUM((n-1)*imp)::numeric AS dup_monto FROM grp GROUP BY 1`,
         { tenant: tenantId, al: accountLabel, ini, fin });
