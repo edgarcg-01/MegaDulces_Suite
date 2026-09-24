@@ -217,7 +217,18 @@ services:
     container_name: ods-reconcile-chicas
     depends_on: [ods-live-hot]
     environment:
-      ODS_HB_KEY: cdc_reconcile_chicas
+      # ⛔ LA VARIABLE ES `ODS_RECONCILE_HB_KEY`, NO `ODS_HB_KEY`. Medido el 2026-09-24: este
+      # carril nació (2026-09-23) con `ODS_HB_KEY` —el nombre que usan los OTROS servicios de
+      # este archivo— y `reconcile-ods-window.js` lee `ODS_RECONCILE_HB_KEY`. Resultado: cayó al
+      # default `'cdc_reconcile'` y estuvo **pisando el latido del reconciliador con ventana**,
+      # que es "la única alarma de COMPLETITUD" del sistema según el propio script. Dos carriles
+      # escribiendo la MISMA fila: el tablero mostraba al que hubiera corrido último.
+      #
+      # ⚠️ No fue mudo, fue PEOR que mudo. Un carril mudo deja un renglón envejeciendo que
+      # alguien puede ver; éste mantenía el renglón ajeno fresco y verde con SUS números.
+      # Se descubrió porque `cdc_reconcile_chicas` no existía en `cron_runs` — la llave estaba
+      # registrada en `CRON_JOBS` y eso la delató.
+      ODS_RECONCILE_HB_KEY: cdc_reconcile_chicas
       ODS_HB_MAX_MIN: "90"
       ODS_HB_IGNORE_ERROR: "1"
       ODS_DELETE_SOBRANTES: "0"
