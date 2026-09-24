@@ -5,6 +5,70 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-24 — `[CB.47]` El traspaso interno se reportaba como «depósito sin origen»
+
+**Cómo se llegó:** reporte de Edgar — *"traspasos internos no se consideran y eso hace que
+desconcilie el sistema"*. Medido contra **prod (Railway/`railway`)**, sólo lectura. **Confirmado.**
+
+### El defecto
+
+`egresosControl` tenía bucket `traspaso`. **`ingresosControl` —el que lleva meses en prod— no.**
+Sus buckets eran tesorería / cobranza / caja / sin_explicar, así que **todo depósito entre cuentas
+propias caía en «sin explicar»** salvo que Kepler lo trajera por casualidad.
+
+| Periodo | Sin explicar | De eso, traspaso | Real |
+|---|---|---|---|
+| **2026-04** | $30,545,811 | **$17,879,000 (59 %)** | $12,666,811 |
+| 2026-08 | $11,832,620 | $843,000 (7 %) | $10,989,620 |
+
+Volumen total de traspaso interno: **$216,097,722 en 9 meses**, ~30 % del movimiento bancario.
+La diferencia entre meses **no es ruido**: depende de si la cuenta origen está cargada.
+
+### La causa de fondo es de COBERTURA, no de captura
+
+Los TI/TE no netean en **7 de 9 meses**. Peor abril: **146 TI contra 104 TE, Δ $8,727,000**; marzo
+Δ $4,503,000. Enero y febrero netean exacto. El conteo lo explica: faltan estados de cuenta.
+
+- mar y may: **1604, 1621, 2169, 4885, 5565** sin cargar
+- feb: 4885 · abr, jun, sep: 3660
+- **la 1604 no tiene un solo movimiento en mar/abr/may**, aunque en abril sí tiene `bank_statement`
+
+Si la cuenta origen no está, el retiro espejo no existe y el depósito parece caído del cielo.
+
+### Código muerto, con un comentario que afirmaba lo contrario
+
+En `reconciliation()` había un `EXCLUDE = {traspaso, factoraje}` que sumaba `bankIn/bankOut` sin
+ellos… y **treinta líneas después los pisaba** con los totales del estado de cuenta, que sí los
+traen. El comentario del método decía *"banco (excl. traspasos internos Y factoraje)"*. Se retiró.
+
+Y la medición dejó la razón de fondo escrita, porque el arreglo intuitivo es el equivocado: **el
+lado Kepler TAMBIÉN trae los traspasos**. Excluirlos sólo del banco mueve el Δ de enero de
+**+$5.4M a −$20.0M** y el de marzo de **−$2.2M a −$32.3M**. No había que excluirlos: había que
+**emparejarlos**.
+
+### Lo que se hizo
+
+`ingresosControl` empareja contra el **retiro espejo en OTRA cuenta nuestra** (±$1, ±3d) y estrena
+`via_traspaso` + `via_factoraje`; `egresosControl` gana el mismo trato para `TI`/`TE` (antes sólo
+miraba `group_key`). Lo que **no** tiene espejo va a `traspaso_sin_contraparte` — ni «explicado»
+ni «sin explicar»: se declara, porque la acción es *cargar el estado de cuenta que falta*, no
+*investigar este depósito*.
+
+El hallazgo del Cierre decía «falta el otro lado de un traspaso» sin decir cuál — inservible con
+42 patas entre 5,221 movimientos. Ahora lista los huérfanos mayores y **nombra la cuenta cuyo
+estado de cuenta falta**. Candado extendido a **14/14**, con dos negativas del emparejamiento:
+el espejo exige **otra** cuenta, y un importe desplazado $999,777.13 no casa con nada.
+
+### Lección
+
+**Un bucket que falta no se ve como un error: se ve como un hallazgo.** La bandeja no estaba
+rota — estaba llena, y llena de cosas correctas mal etiquetadas. En abril, seis de cada diez
+pesos «sin explicar» eran dinero nuestro cambiando de cuenta. Ese es el modo de falla que hay
+que buscar en toda bandeja de excepciones: no que esté vacía cuando debería tener algo, sino que
+esté llena de lo que ya estaba explicado. **Una bandeja con 59 % de falsos se deja de mirar**, y
+entonces el 41 % real tampoco se atiende.
+
+---
 ## 2026-09-24 — `[CB.46]` `/finanzas/bancos`: tres indicadores que apuntaban al verde, y dos universos
 
 **Cómo se llegó:** *"analiza /finanzas/bancos"* → siete hallazgos → *"arreglemos lo que está en
