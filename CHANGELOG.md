@@ -419,6 +419,19 @@ Bug que el smoke destapó y el build no podía ver: al vaciar un rack la fila qu
   `['clave', 'Etiqueta', …]`, y `[CG.21]` declaró la suya como `const KEY = 'finanzas.caja'` → el
   catálogo salía en 14 con 15 claves sembradas y dos aserciones de biyección acusaban en falso a
   una clave que **sí** estaba declarada.
+### Added — áreas de gasto: el motor propone, la persona confirma (`[GX.16]`, 2026-09-24)
+- **0 de 76** personas que capturan o revisan gastos tenían un área asignada, así que no
+  veían **ninguna** solicitud suya — y no como error, sino como lista vacía. El selector por
+  usuario existía desde GX.8; asignarlas era abrir 76 diálogos.
+- Nueva pantalla `/admin/areas-gasto`: las 76 juntas, con la propuesta y su evidencia, y
+  confirmación en lote. Reusa `USUARIOS_GESTIONAR` → **sin migración ni re-login**.
+- ⚠️ **La propuesta es estricta a propósito**: asignar un área da visibilidad sobre el gasto
+  de otro. El matcher por tokens en común proponía `Miriam … Carrillo Contreras` →
+  `JUAN JESUS CARRILLO CONTRERAS` (otra persona, mismos apellidos). La regla que quedó exige
+  que el nombre del área esté contenido entero en el de la persona.
+- Rinde **12 de 76** (10 únicas + 2 con variantes del mismo nombre) sobre 17 que ya casaban.
+  Los **47 restantes se declaran**, no se rellenan bajando el umbral.
+
 ### Added — el expediente del gasto, y su PDF (`[GX.15]`, 2026-09-24)
 - **Los cuatro eslabones en un solo lugar**: solicitud `XA1501` (Kepler) + expediente propio
   + gasto aplicado `XA1001` (Kepler) + comprobación, con la etapa del trámite derivada y qué

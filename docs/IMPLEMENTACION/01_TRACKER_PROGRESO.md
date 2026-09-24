@@ -1849,6 +1849,73 @@ parciales o captura. ⬜ Sin dueño asignado.
 
 ---
 
+## GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código)
+
+⛔ **Esta fase nació de un error mío, y conviene que quede escrito.** Al revisar por qué
+nadie veía sus gastos concluí que faltaba construir el selector de áreas. **Era falso: ya
+existía** en `/admin/usuarios` desde GX.8. Llegué ahí por grepear `formControlName` en el
+`.ts` del componente, cuando la plantilla vive en un `.html` aparte. Alcancé a agregar un
+campo duplicado y una prueba montada sobre esa premisa; **lo destapó la prueba negativa**
+(rompí el binding esperando rojo y siguió verde, porque había dos ocurrencias). Revertido.
+
+Lo que sí era cierto, medido el 2026-09-24: de **76 personas** que capturan o revisan
+gastos, **0 tenían un área asignada**. No es un hueco de software — es que asignarlas
+significaba abrir 76 diálogos de uno en uno. Y el efecto no se veía como error: la persona
+abría su bandeja y encontraba una lista vacía, que se lee «no tenés nada pendiente».
+
+- [x] **[GX.16.1]** `area-match.ts` — función pura que propone. **La regla es
+      deliberadamente estricta**: el nombre del área tiene que estar contenido ENTERO en el
+      de la persona, con dos palabras propias como mínimo.
+      ⚠️ **Asignar un área da visibilidad sobre el gasto de otro**, así que una propuesta
+      mal hecha confirmada en lote es una fuga, no un detalle. El primer matcher (tokens en
+      común) proponía, sobre datos reales: `Miriam Jazmin Carrillo Contreras` →
+      `JUAN JESUS CARRILLO CONTRERAS` (otra persona, mismos apellidos), `Maria del Pilar
+      Nava Tafoya` → `MARIA DEL CARMEN RODRIGUEZ VERA`, y `JOSE LUIS MUÑOZ MOTA` → `LUIS F`.
+      Los tres son casos de prueba hoy.
+- [x] **[GX.16.2]** `GET/POST /finance/expenses/areas/asignacion` — estado + propuestas, y
+      aplicar lo confirmado. Valida que **todo id exista en el catálogo del tenant** antes
+      de escribir: un id inventado quedaría guardado y el alcance lo ignoraría en silencio,
+      dejando a la persona creyendo que tiene acceso.
+- [x] **[GX.16.3]** `/admin/areas-gasto` — las 76 juntas, con la propuesta y su evidencia
+      (cuántas solicitudes trae cada área) al lado, y confirmación en lote.
+      «Poner todas las propuestas» **llena la pantalla pero no guarda**: guardar es un acto
+      aparte, a propósito.
+
+### Lo que la regla estricta rinde, medido
+
+| | |
+|---|---|
+| Personas que capturan o revisan gastos | **76** |
+| Ya casan exacto por nombre (funcionan hoy) | 17 |
+| Reciben una propuesta única | 10 |
+| Reciben varias (variantes del mismo nombre) | 2 |
+| **Sin propuesta — quedan a mano** | **47** |
+
+⭐ Los 2 «ambiguos» resultaron ser el mismo nombre escrito de tres formas en el catálogo
+(`ANGEL MEJÍA` · `ANGEL MEJIA` · `ANGEL VAZQUEZ MEJIA`), así que se proponen **las tres**:
+el campo del usuario es una lista justamente para eso.
+
+⚠️ Los 47 sin propuesta **se declaran, no se rellenan**. Bajar el umbral para que «no quede
+nadie fuera» es exactamente cómo se cuela el caso `Miriam → JUAN JESUS`. La pantalla los
+lista igual con su buscador: el problema era que estaban invisibles.
+
+### Lo verificado
+
+- `nx typecheck api` verde · `nx build view` verde (1.27 MB) · `nx test view` sin
+  regresiones (los 7 rojos de `landing-guards.spec.ts` son preexistentes y están intactos).
+- **14 pruebas unitarias nuevas** sobre la función pura (`finance` 145 → **159**), incluidos
+  los tres falsos positivos como casos negativos.
+
+### ⬜ Pendiente
+
+- **Sin migración y sin permisos nuevos** (reusa `USUARIOS_GESTIONAR`) → no hace falta
+  re-login. Sí redeploy api + view.
+- **Validación visual**: la pantalla no se ejerció en un navegador.
+- La asignación en sí **sigue siendo una decisión humana**: esto la hace posible en una
+  sentada, no la hace sola.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
