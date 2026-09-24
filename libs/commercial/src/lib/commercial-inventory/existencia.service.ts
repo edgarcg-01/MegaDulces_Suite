@@ -212,6 +212,29 @@ export class ExistenciaService {
         ELSE 'sano' END`;
 
     return this.tk.run(async (trx) => {
+      // ⭐ [EX-PERF.2] Las dos vistas más caras del join, leídas de su copia materializada.
+      //
+      // Medido contra prod: de las 939,977 páginas que costaba devolver 50 filas,
+      // `v_warehouse_box_factor` aportaba 194,173 y `v_kepler_unit_cost` 87,557 — se calculaban
+      // ENTERAS en cada carga sólo para armar el hash del join. Con las dos materializadas, la
+      // consulta real bajó de **4,910 a 1,353 ms (3.6x)**, medido con tablas TEMP dentro de un
+      // ROLLBACK antes de construir nada.
+      //
+      // Se pregunta si EXISTEN en vez de asumirlo por la fecha de la migración: el código y el
+      // DDL viajan por caminos distintos y llegan desordenados, así que ninguno de los dos puede
+      // romper al otro por entrar primero — la trampa de orden que casi tira la bandeja de caja.
+      //
+      // ⛔ Que existan NO se confunde con que estén frescos: la edad la declara `freshness()`
+      // desde `analytics.cron_run_log`. Un materializado que dejó de refrescarse sirve datos
+      // viejos sin un solo error.
+      const auxListo = await this.memoized('mv_existencia_aux', 60_000, async () => {
+        const r = await trx.raw(`SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a,
+                                        to_regclass('analytics.mv_kepler_unit_cost')     AS b`);
+        return !!(r.rows?.[0]?.a && r.rows?.[0]?.b);   // o las DOS, o ninguna: no se mezcla
+      });
+      const FUENTE_VBF = auxListo ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      const FUENTE_KC = auxListo ? 'analytics.mv_kepler_unit_cost' : 'analytics.v_kepler_unit_cost';
+
       // PASO 1 — una sola pasada. MATERIALIZED es obligatorio: sin él, Postgres inlinea la CTE
       // y la vista se escanea dos veces (medido: 2,317 ms contra 809 ms).
       //
@@ -266,7 +289,7 @@ export class ExistenciaService {
             LEFT JOIN analytics.replenishment_plan rp
                  ON rp.tenant_id = s.tenant_id AND rp.warehouse_id = s.warehouse_id
                 AND rp.product_id = s.product_id
-            LEFT JOIN analytics.v_warehouse_box_factor vbf
+            LEFT JOIN ${FUENTE_VBF} vbf
                  ON vbf.tenant_id = s.tenant_id AND vbf.warehouse_id = s.warehouse_id
                 AND vbf.product_id = s.product_id
             LEFT JOIN commercial.reorder_policy pol
@@ -276,7 +299,7 @@ export class ExistenciaService {
             -- re-deriva: un primitivo con dos implementaciones es un primitivo que va a divergir.
             -- Y ojo: se une por s.product_id (el CRUDO), NO por el canonico del alias — kdik
             -- mapea por el SKU real de la sucursal.
-            LEFT JOIN analytics.v_kepler_unit_cost kc
+            LEFT JOIN ${FUENTE_KC} kc
                  ON kc.tenant_id = s.tenant_id AND kc.warehouse_id = s.warehouse_id
                 AND kc.product_id = s.product_id
            WHERE ${filters.join(' AND ')}
@@ -464,7 +487,11 @@ export class ExistenciaService {
           arbitrado: agg._arbitrado == null ? null : Number(agg._arbitrado),
           per_warehouse: totWh,
         },
-        freshness: await this.memoized(`fresh:${tenantId}`, 30_000, () => this.freshness(trx, tenantId)),
+        // [EX-PERF.2] auxListo entra en la LLAVE del memo, no solo en el argumento: si no, la
+        // primera respuesta cacheada gana 30 s y la pantalla podria declarar la procedencia de
+        // la otra ruta. Un cache que devuelve la procedencia equivocada es peor que no tenerlo.
+        freshness: await this.memoized(`fresh:${tenantId}:${auxListo ? 'mv' : 'vivo'}`, 30_000,
+          () => this.freshness(trx, tenantId, auxListo)),
         page, pageSize, total: Number(agg._skus || 0),
       };
     });
@@ -508,8 +535,35 @@ export class ExistenciaService {
    * Wincaja NO está ahí (hueco declarado: ningún sensor mide `wincaja.v_stock`, sólo la venta),
    * así que su edad se lee del propio dato — `imported_at` — hasta que tenga sensor.
    */
-  private async freshness(trx: any, tenantId: string) {
+  private async freshness(trx: any, tenantId: string, auxListo = false) {
     const out: any[] = [];
+    // [EX-PERF.2] EL TRAMO NUEVO, y es el que hay que declarar.
+    //
+    // Desde que el factor de caja y el costo del ERP salen de una copia materializada, la
+    // cadena tiene un eslabon mas: por fresco que este Kepler, la CANTIDAD se convierte a cajas
+    // con un factor de hace hasta 5 minutos y se valua con un costo de hace hasta 5 minutos.
+    // Sin este renglon la pantalla seguiria rotulando solo "Kepler hace 2 min" -- el carril
+    // fresco prestandole su pulso al que quiza se congelo.
+    //
+    // Es lo mismo que [CXC.20] tuvo que arreglar en la cartera, y lo que la Fase VP midio: la
+    // frescura llegaba a 4 de 171 endpoints. Una cadena es tan fresca como su PEOR tramo.
+    if (auxListo) {
+      try {
+        const f = (await trx.raw(`
+          SELECT max(finished_at) AS dato_al,
+                 round(EXTRACT(epoch FROM now() - max(finished_at)) / 60.0, 1) AS minutos
+            FROM analytics.cron_run_log
+           WHERE job_key = 'mv_existencia_aux_refresh' AND status = 'ok'`)).rows[0];
+        // Sin latido NO se calla: se declara desconocido. Un null silencioso se lee igual que
+        // "recien refrescado", que es la lectura opuesta a la verdadera.
+        out.push(f && f.dato_al
+          ? { rama: 'factor_costo', label: 'Factor de caja y costo', dato_al: f.dato_al, minutos: Number(f.minutos) }
+          : { rama: 'factor_costo', label: 'Factor de caja y costo', dato_al: null, minutos: null, nota: 'sin latido del refresco' });
+      } catch (e: any) {
+        this.logger.warn(`edad del factor/costo no disponible: ${e.message}`);
+        out.push({ rama: 'factor_costo', label: 'Factor de caja y costo', dato_al: null, minutos: null, nota: 'no medida' });
+      }
+    }
     try {
       const k = (await trx.raw(`
         SELECT dato_al, round(edad_seg / 60.0, 1) AS minutos
@@ -560,6 +614,10 @@ export class ExistenciaService {
                pol.min_stock, pol.reorder_point, pol.max_stock, pol.safety_stock, pol.xyz_class
           FROM analytics.v_erp_stock_on_hand s
           JOIN commercial.warehouses w ON w.tenant_id = s.tenant_id AND w.id = s.warehouse_id
+          -- [EX-PERF.2] Acá se lee la VISTA VIVA a propósito, no el materializado: esto es el
+          -- detalle de UN producto, así que el join no pesa (la pantalla lo paga sobre 39 mil
+          -- filas; esto sobre ~9) y a cambio el detalle sale siempre fresco. La regla es
+          -- materializar donde DUELE, no en todos lados por simetría.
           LEFT JOIN analytics.v_warehouse_box_factor vbf
                  ON vbf.tenant_id = s.tenant_id AND vbf.warehouse_id = s.warehouse_id
                 AND vbf.product_id = s.product_id

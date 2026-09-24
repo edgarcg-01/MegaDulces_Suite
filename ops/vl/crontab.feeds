@@ -33,6 +33,18 @@
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
 
+# [EX-PERF.2] Las dos vistas caras de /compras/existencia, materializadas.
+# Medido 2026-09-24: aportaban 281,730 de las 939,977 paginas que costaba devolver 50 filas
+# (27 s de LCP). Con las dos materializadas la consulta real bajo de 4,910 a 1,353 ms (3.6x),
+# medido con tablas TEMP dentro de un ROLLBACK ANTES de construir nada.
+#
+# Cada 5 min y no mas seguido, con motivo: el ciclo cuesta ~3.6 s (3,068 + 514 ms) y lo que
+# guarda es dato de CATALOGO -- factor de caja y costo unitario del ERP, que cambian por dia,
+# no por segundo. Ya hay un matview pagando ~4.5 s por minuto (caja-mv) sobre el MISMO
+# Postgres que atiende la pantalla.
+# Si alguien la acelera, que traiga la medicion del costo del ciclo, no la intuicion.
+*/5 * * * * /app/ops/vl/run-feed.sh existencia-aux "node /app/database/importers/kepler/refresh-existencia-aux.js --apply"
+
 # ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
 5,20,35,50 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
 */30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"

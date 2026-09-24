@@ -990,6 +990,13 @@ const CRON_JOBS: CronCfg[] = [
   // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja
   // congelada se lee como "no hay trabajo pendiente". Corre cada minuto; warn al saltarse ~6.
   { key: 'mv_caja_refresh',     label: 'Caja — refresca mv_caja_movimientos', cadence: 'cada minuto', warnH: 0.25, critH: 1 },
+  // [EX-PERF.2] `mv_existencia_aux_refresh`: el factor de caja y el costo del ERP que valuan
+  // /compras/existencia. Mismo modo de falla que el matview de caja: si deja de refrescarse
+  // **no da error**, sirve la foto vieja — y acá eso vale dinero, porque el factor manda la
+  // cantidad que se pide y el costo, la valuacion del inventario. Corre cada 5 min.
+  // Sin este renglon `db-health` daria verde INCONDICIONAL (`cfg ? classify : ok`), que es lo
+  // que la Fase VP midio sobre 3 matvistas del sell-out.
+  { key: 'mv_existencia_aux_refresh', label: 'Existencia — factor de caja y costo Kepler', cadence: 'cada 5 min', warnH: 0.5, critH: 2 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
   // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
