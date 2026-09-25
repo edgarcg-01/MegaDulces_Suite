@@ -72,7 +72,7 @@ lo sostienen.
 
 ```sh
 ops/prod/deploy.sh --estado      # qué corre allá y con qué imagen
-ops/prod/deploy.sh --imagenes    # construye las 4 imágenes, no recrea nada
+ops/prod/deploy.sh --imagenes    # construye las 7 imágenes, no recrea nada
 ops/prod/deploy.sh --db          # sólo pg-prod + pg-rag
 ops/prod/deploy.sh               # construye y recrea todo
 ops/prod/deploy.sh api worker    # sólo esos
@@ -94,6 +94,134 @@ Se generan con [`make-prod-env.js`](make-prod-env.js) a partir de `railway varia
 Reapunta **sólo host y puerto**; usuario, contraseña y base se conservan byte a byte, así que
 la copia nace con las credenciales que la app ya trae. **Rotar es un paso aparte del corte**
 (ver [`ops/ACCESO_RAILWAY.md`](../ACCESO_RAILWAY.md)), no un efecto secundario del empaquetado.
+
+---
+
+## 2.1 [VL.20] El carril de construcción — un grafo, cuatro destinos
+
+Producción se mudó a `md` el 2026-09-22 y el carril de construcción se mudó **tal cual**, con la
+forma que le había impuesto Railway: **un `Dockerfile` por servicio** y cache mounts con
+`id=s/<service-id>-…`, que allá es obligatorio y es **por servicio** — o sea que ningún servicio
+podía ver el caché de otro. Railway ya no construye nada. Las consecuencias seguían.
+
+### Lo que costaba, medido sobre 7 despliegues reales del 2026-09-24
+
+| | api | worker | total |
+|---|---|---|---|
+| antes | 3m31 – 4m46 | 1m34 – 1m54 | **~5m20** |
+| después | igual | **57 s** | **~4m30** |
+
+⭐ **El desperdicio con nombre:** el worker recompilaba `nx build api` — **la misma tarea** que la
+imagen de api acababa de compilar 3 minutos antes, en la misma máquina, del mismo commit.
+Verificado con `--progress=plain`: hoy ese paso sale `CACHED`. De los 57 s que le quedan al
+worker, **45 son el `COPY` de `node_modules`**, que es su piso real: es la única capa que no
+puede compartir con `api`, porque las dos imágenes tienen bases distintas.
+
+⚠️ Un dato que ordena expectativas: **`runner-api` en frío mide 273 s** — un build desde cero del
+grafo nuevo cuesta lo mismo que uno *caliente* del viejo.
+
+### El grafo
+
+```text
+deps ──► src ──┬─► build-api ──┬─► prod-deps ──┐
+   │           │  (view + api) │               ├─► runner-api      (chromium + nginx)
+   │           │               └───────────────┴─► runner-worker   (chromium)
+   │           ├─► build-portal ─────────────────► runner-portal   (nginx)
+   │           └─► build-vendor ─────────────────► runner-vendor   (nginx)
+   └─ npm ci UNA vez  ·  cachés compartidos: trade-npm, trade-nx, trade-apt-*
+```
+
+`docker build --target runner-<app>`. ⭐ **El orden importa y está fijo en `deploy.sh`: `api`
+primero**, porque es quien materializa `deps`/`src`/`build-api`; los otros tres son después casi
+todo caché de capa (portal 27 s, vendedor 33 s, medidos).
+
+**Es equivalente en comportamiento.** Verificado contra las imágenes vivas: `User`, `WorkingDir`,
+`Entrypoint`, `Cmd`, `StopSignal` y `ExposedPorts` idénticos; `Env` idéntico salvo el commit; 479
+paquetes y 115 archivos de `dist` en ambas. Las divergencias reales de nginx se **preservaron a
+propósito**: `api` conserva la directiva `user` y su `access.log` en archivo; `portal`/`vendedor`
+la quitan y mandan a stdout. Unificar el logging es una decisión de producto, no un efecto
+colateral de un refactor de construcción.
+
+⛔ **No se paraleliza**, y el motivo cambió: antes era la RAM del contenedor de Railway, ahora es
+que **la construcción comparte máquina con producción** (el propio carril documenta "carga 14
+sobre 8 hilos"). `--parallel=1` se queda.
+
+### El sello de portal/vendedor dejó de llevar reloj de pared
+
+Sus Dockerfiles **declaraban** que, por meter `date -u` dentro de `index.html` —que está en los
+inputs del hash de Nx—, ese target **no acertaba el caché nunca, por diseño**. Ahora el sello es
+función del commit, así que un rollback o un reintento aciertan.
+
+⚠️ **Trampa medida:** `git show --date=format:` **no respeta `TZ`** (usa la zona del commit). Un
+commit de las `18:16 -06:00` salía rotulado `18:16:50Z`, o sea una hora **falsa** con sello UTC.
+Va `--date=format-local:`, que da `00:16:50Z`.
+
+### El carril dejaba dos apps atrás
+
+Hasta el 2026-09-24 `auto-deploy.sh` construía **sólo `api` y `worker`**: las imágenes de
+`portal` y `vendedor` tenían **34 horas**, o sea que un commit a esas apps se mergeaba a `main` y
+**nunca llegaba a producción**, sin que nada lo dijera. (El frontend principal sí viajaba:
+`apps/view` va adentro de `trade-prod-api`.)
+
+Ahora entran cuando cambiaron. ⚠️ **Es una heurística de rutas, no el grafo de Nx**, y se
+declara: `md` tiene el clon **sin `node_modules`**, así que `nx show projects --affected` no
+puede correr ahí. Es conservadora — ante un cambio en `libs/`, `package-lock.json`, `nx.json`,
+`tsconfig*`, `eslint.config.js` o el `Dockerfile`, entran las cuatro.
+
+⛔ El mapa servicio → imagen/contenedor estaba **copiado tres veces**. Al sumar portal y vendedor
+habría divergido en la tercera, que es `revertir()`: el modo de falla habría sido **desplegar dos
+servicios sin nada a qué volver**, callado.
+
+### El disco deja de crecer sin tope — y el techo que no era techo
+
+[`podar-disco.sh`](podar-disco.sh), llamado por `deploy.sh`, por `auto-deploy.sh` tras cada
+despliegue exitoso, y por la agenda a las 04:30 como red de seguridad.
+
+⛔ **Por qué hacía falta:** `podar_imagenes()` ya existía en `deploy.sh` y funcionaba — pero el
+camino que despliega **7 veces al día** es `auto-deploy.sh`, **que nunca la llamaba**. Medido:
+**12 etiquetas** de `api` y 12 de `worker` con `RETENER_IMG=5`, y **80.23 GB** de caché de
+construcción sin ninguna política de GC. *La política estaba escrita en el carril que casi no se
+usa.*
+
+⛔⛔ **Y el techo por tamaño no cumple lo que promete.** Medido: `docker buildx prune
+--max-used-space=60GB` sobre un caché de 85 GB liberó 10 y **se plantó en 75**, con **62.64 GB
+marcados como reclamables**; una segunda pasada con el mismo techo liberó **0 B**. La explicación
+fácil también era falsa — se sospechó de los *cache mounts*, que `prune` no toca sin `--all`,
+pero son **1.0 GB de 75**; los otros 72.6 son caché de capas normal. **Lo que sí funciona es la
+edad:** `--filter until=12h` liberó **14.34 GB**. Por eso la política principal es la edad (72 h)
+y el techo quedó como segunda pasada *best-effort*, sin creerle.
+
+Resultado real en `md`: caché **85 → 43 GB**, imágenes **30 → 18 GB**, libre **213 → 262 GB**.
+
+⭐ **Late** en `analytics.cron_runs` (`poda_disco`) con los GB de antes y después, y tiene umbral
+en `CRON_JOBS` — sin él el sensor daría **verde incondicional**, que es el defecto que la Fase VP
+midió sobre las matvistas del sell-out. Un carril de higiene es justo donde más engaña: si nadie
+poda, no se rompe nada… hasta que el disco se llena.
+
+### Dos cosas que saber antes de tocar `md` por SSH
+
+1. **El repo gana.** `deploy.sh subir_compose` ahora también sincroniza `auto-deploy.sh`,
+   `termometro.sh`, `tunel-vigia.sh` y `podar-disco.sh`. Antes se instalaban **a mano** y el
+   servidor podía divergir del repo sin que nada lo dijera. Un ajuste hecho por SSH se pisa en el
+   próximo despliegue.
+2. **La agenda NO se instala sola**, a propósito: cambiar un cron sin que una persona lo mire es
+   cómo se duplica un carril. El comando está en la cabecera de
+   [`crontab.auto-deploy`](crontab.auto-deploy).
+
+⛔ El carril sigue corriendo su copia **instalada**, no la del clon que él mismo mantiene: así un
+commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo. El precio es que
+las dos se pueden desfasar — por eso `auto-deploy.sh` comprueba que el `Dockerfile` del commit
+declare `AS runner-api` y, si no, **lo declara con el arreglo al lado** en vez de dejar 288
+fallos por día con un error de Docker que no menciona la causa.
+
+### Lo que queda declarado, no hecho
+
+| Qué | Tamaño | Por qué no |
+|---|---|---|
+| `runner-api` heredando de `runner-worker` para compartir el `COPY` de `node_modules` | ~40 s por despliegue | Pondría un `apt` encima de una copia de ~60k archivos, que es la forma que este repo ya documentó como cara en `exporting`. El premio no paga volver desconocido el costo del api |
+| `@opentelemetry` | **102 MB** | Su exportador **no tiene destino on-prem**: el colector no se portó |
+| `main.js.map` | **13.9 MB** | Se envía a producción y nadie lo usa ahí |
+| `chromium` | ~230 MB | **Se queda**: cinco servicios usan Puppeteer |
 
 ---
 

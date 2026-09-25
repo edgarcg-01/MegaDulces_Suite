@@ -3,7 +3,7 @@
 # VL.9 — DESPLIEGUE de PRODUCCIÓN al servidor `md` (192.168.0.222).
 #
 #   ops/prod/deploy.sh --estado        # qué corre allá, QUÉ FALTA subir, y los últimos deploys
-#   ops/prod/deploy.sh --imagenes      # construye las 6 imágenes, no recrea nada
+#   ops/prod/deploy.sh --imagenes      # construye las 7 imágenes, no recrea nada
 #   ops/prod/deploy.sh --imagenes api  # …o sólo la de ese servicio
 #   ops/prod/deploy.sh --db            # sólo levanta pg-prod + pg-rag
 #   ops/prod/deploy.sh --recrear api   # sube el compose y recrea, SIN reconstruir imágenes
@@ -263,10 +263,30 @@ subir_compose() {
   # hace ejecutar basura desde el byte donde iba. `mv` desenlaza el inodo viejo, y el
   # proceso que lo está corriendo lo sigue leyendo entero y sano.
   # No es teórico: `esperar-y-restaurar.sh` puede estar corriendo durante horas.
-  for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh; do
+  # ── [VL.20.4] LOS GUIONES DE LOS CARRILES TAMBIÉN VIAJAN ────────────────────────────────
+  # ⛔ `auto-deploy.sh`, `termometro.sh` y `tunel-vigia.sh` NO estaban en esta lista: la copia
+  # que corre en `md` se instalaba **a mano**, así que el repo y el servidor podían divergir sin
+  # que nada lo dijera. El refactor del grafo lo volvió urgente — con el `Dockerfile` nuevo en
+  # `origin/main` y la copia vieja en `md`, el carril fallaría cada 5 minutos buscando un
+  # `Dockerfile.worker` que ya no existe.
+  #
+  # ⚠️ Esto hace que el repo GANE sobre `md`: un ajuste hecho a mano allá se pisa en el próximo
+  # despliegue. Es lo que se quiere (la agenda y los guiones son memoria compartida del repo),
+  # pero hay que saberlo antes de editar algo por SSH.
+  #
+  # ⛔ La AGENDA (`crontab.auto-deploy`) NO se instala sola a propósito: cambiar un cron sin que
+  # una persona lo mire es cómo se duplica un carril. Se instala con el comando que está en la
+  # cabecera de ese archivo.
+  #
+  # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
+  # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
+  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh"
+  for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
-  ssh_md "cd ~/ops/prod && for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh"
+  # ⛔ Se mueve encima, nunca se sobrescribe el inodo en curso: `sh` lee el guion POR POSICIÓN
+  # mientras lo ejecuta. `auto-deploy.sh` puede estar corriendo justo ahora (dispara cada 5 min).
+  ssh_md "cd ~/ops/prod && for a in $_guiones; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
@@ -311,7 +331,7 @@ construir() {
   if [ -n "$filtro" ]; then
     echo "── Construyendo sólo:$filtro ──"
   else
-    echo "── Construyendo (esto tarda: son 3 bundles de Angular) ──"
+    echo "── Construyendo las 7 imágenes (api primero: materializa deps/src/build-api) ──"
   fi
   # En serie a propósito: 4 builds en paralelo sobre 4 núcleos físicos se pelean por CPU y
   # por RAM (cada `nx build` de Angular pide hasta 4 GB de heap). Serializar cuesta
