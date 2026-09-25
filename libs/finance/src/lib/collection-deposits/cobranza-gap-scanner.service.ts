@@ -68,9 +68,14 @@ export class CobranzaGapScannerService {
     let m = { abonos: 0, con_candidato: 0, huerfanos: 0, monto_huerfano: 0 };
     try {
       const r = await this.knex.raw(`
+        -- [CC.13] Mismo arreglo que en listUnmatchedBank: el cobro se identifica por
+        -- (sucursal, doc_tipo, folio). El literal 'UA0501' casaba 1 de 19,020 filas porque CB
+        -- escribe la forma con guiones, asi que esta CTE venia vacia y el latido contaba como
+        -- huerfanos cobros que ya estaban conciliados.
         WITH ligados AS MATERIALIZED (
-          SELECT DISTINCT kepler_doc_folio AS folio FROM finance.bank_recon_matches
-           WHERE tenant_id = ? AND kepler_doc_tipo = 'UA0501'
+          SELECT DISTINCT kepler_sucursal AS sucursal, kepler_doc_tipo AS doc_tipo,
+                 kepler_doc_folio AS folio
+            FROM finance.bank_recon_matches WHERE tenant_id = ?
         ),
         mov AS MATERIALIZED (
           SELECT m.id, m.movement_date, m.amount_in::numeric AS amount_in,
@@ -85,7 +90,9 @@ export class CobranzaGapScannerService {
         cobx AS MATERIALIZED (
           SELECT ec.cobro_date, ec.monto, b.cubeta
             FROM analytics.erp_collections ec
-            LEFT JOIN ligados l ON l.folio = ec.folio
+            LEFT JOIN ligados l
+              ON l.sucursal = ec.sucursal AND l.folio = ec.folio
+             AND l.doc_tipo = 'U-A-' || ltrim(substr(ec.doc_prefix, 3, 2), '0')
             CROSS JOIN LATERAL (VALUES (round(ec.monto)::bigint - 1),
                                        (round(ec.monto)::bigint),
                                        (round(ec.monto)::bigint + 1)) AS b(cubeta)
