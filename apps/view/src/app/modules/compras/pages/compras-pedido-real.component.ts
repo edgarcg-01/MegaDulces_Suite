@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { compareWarehouseCodes } from '@megadulces/contracts';
+import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -353,6 +353,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <span class="pr-bulk-sp"></span>
                                         <button type="button" class="pr-zlink" (click)="zoneAllDirect(r, z)">todo directo</button>
                                         <button type="button" class="pr-zlink" (click)="zoneAllToHub(r, z)">todo a {{ z.hubCode }}</button>
+                                        @if (showZoneToMain(z)) {
+                                          <button type="button" class="pr-zlink" (click)="zoneAllToMain(r, z)"
+                                                  [title]="'Toda la zona se entrega en el CEDIS principal ' + mainCedis()!.code + ' ' + mainCedis()!.name + ', y de ahí baja por traspaso a cada sucursal.'">todo a {{ mainCedis()!.code }}</button>
+                                        }
                                       } @else {
                                         <span class="pr-zhub pr-rung">sin CEDIS asignado — configuralo en el almacén</span>
                                       }
@@ -1258,6 +1262,33 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const n = { ...m };
       // La sucursal que ES el CEDIS no se consolida en sí misma: se queda directa.
       for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === z.hubCode ? null : z.hubCode;
+      return n;
+    });
+    this.dirty.set(true);
+  }
+  /**
+   * El CEDIS PRINCIPAL de la empresa (hoy `00` Bpirapuato): el CEDIS de compra cuyo código cae en
+   * el grupo 'CEDIS' del orden canónico de `@megadulces/contracts`. No se clava '00' acá: los
+   * alias de esa plaza viven en el contrato, y sólo cuenta si además está marcado como CEDIS de
+   * compra (`is_purchase_hub`); si no, el atajo no se pinta.
+   */
+  readonly mainCedis = computed(() => {
+    const g = WAREHOUSE_DISPLAY_ORDER.find((x) => x.label === 'CEDIS');
+    return g ? this.cedisList().find((c) => g.codes.includes(c.code)) ?? null : null;
+  });
+  /** ¿Pintar "todo a 00" en esta zona? No, si el CEDIS de la zona YA es el principal (sería repetir el botón). */
+  showZoneToMain(z: ZoneGroup): boolean {
+    const m = this.mainCedis();
+    return !!m && z.hubCode !== m.code;
+  }
+  /** Atajo: toda la zona se consolida en el CEDIS principal (y de ahí baja por traspaso a cada sucursal). */
+  zoneAllToMain(r: WorkbookRow, z: ZoneGroup): void {
+    const m = this.mainCedis();
+    if (!m) return;
+    this.buyDeliver.update((map) => {
+      const n = { ...map };
+      // El CEDIS principal no se consolida en sí mismo: se queda directo.
+      for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === m.code ? null : m.code;
       return n;
     });
     this.dirty.set(true);
