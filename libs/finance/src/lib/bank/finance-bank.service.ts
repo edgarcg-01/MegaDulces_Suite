@@ -3012,12 +3012,43 @@ export class FinanceBankService {
               'bm.movement_date as fecha_banco', 'bm.concept as concepto_banco', 'm.matched_by')
         : [];
       const cruceIdx = new Map((cruces as any[]).map((c) => [`${c.dt}|${String(c.folio).trim()}`, c]));
+
+      // CB.50 — TERCERA causa, y es la que más pesa: el banco agrupa lo que Kepler parte.
+      //
+      // La lista mezclaba tres cosas bajo un mismo «sin conciliar» y sólo distinguía una. Medido
+      // en julio-2026: de los cobros sin casar, **2 ($4,915)** tienen un depósito de su importe
+      // exacto esperando —eso es ruido— y **749 ($7,848,763)** NO lo tienen, porque el banco
+      // recibió el dinero en otro corte. El mes entero lo confirma: Kepler registra 3,395
+      // entradas por $78.4M y el banco 3,091 depósitos por $69.6M — la misma plata en menos
+      // pedazos. Decirle «no existe en el banco» a eso es acusar de un faltante que no hay.
+      //
+      // La señal es barata y honesta: ¿existe ALGÚN depósito de este importe exacto, en esta
+      // cuenta, cerca de esta fecha? Si no existe, el cobro no puede casar 1:1 ni en principio,
+      // y el problema es de granularidad, no de dinero.
+      const exactos = sueltos.length
+        ? await trx('finance.bank_movements as bm')
+            .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+            .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+            .where('st.period', period).andWhere('ba.account_label', accountLabel)
+            .whereNull('bm.deleted_at').andWhere('bm.amount_in', '>', 0)
+            .select(trx.raw('round(bm.amount_in::numeric, 2) AS imp'))
+        : [];
+      const impBanco = new Set((exactos as any[]).map((r) => cents(n(r.imp))));
+
       const keplerOnly = sueltos.map((x) => {
         const c = cruceIdx.get(`${x.doc_tipo}|${String(x.folio).trim()}`);
+        // Sólo aplica a ENTRADAS: un egreso no se «deposita en bulto».
+        const sinImporteEnBanco = x.dir === 'in' && !impBanco.has(cents(x.importe));
         return { source: 'kepler', key: x.key, doc: `${x.doc_tipo} ${x.folio}`.trim(), fecha: x.fecha,
           importe: x.importe, dir: x.dir, concepto: x.concepto, metodo: x.metodo,
           // null = huérfano de verdad; con valor = el banco lo tiene, en otro periodo.
-          casado_otro_periodo: c ? { period: c.period, fecha_banco: c.fecha_banco, concepto_banco: c.concepto_banco, matched_by: c.matched_by } : null };
+          casado_otro_periodo: c ? { period: c.period, fecha_banco: c.fecha_banco, concepto_banco: c.concepto_banco, matched_by: c.matched_by } : null,
+          // Ni el importe existe en el banco de esta cuenta y mes → el banco lo agrupó.
+          sin_importe_en_banco: sinImporteEnBanco,
+          // El motivo, resuelto acá y no en la pantalla, para que las tres vistas que lean esto
+          // cuenten lo mismo. Prioridad: lo explicado primero, la excepción real al final.
+          motivo: c ? 'otro_periodo' : (sinImporteEnBanco ? 'banco_agrupa' : 'sin_casar'),
+        };
       });
       const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
 
@@ -3057,6 +3088,13 @@ export class FinanceBankService {
           // el hueco del mes sigue siendo el mismo, pero deja de leerse como dinero perdido.
           kepler_only_otro_periodo_n: keplerOnly.filter((x: any) => x.casado_otro_periodo).length,
           kepler_only_otro_periodo_monto: sum(keplerOnly.filter((x: any) => x.casado_otro_periodo)),
+          // CB.50 — las tres poblaciones, contadas por separado. Son una PARTICIÓN: cada cobro
+          // cae en exactamente una, así que los tres n suman `kepler_only_n`. Sin esto, la
+          // pantalla mostraba un solo número grande donde la mayor parte ya estaba explicada.
+          kepler_only_banco_agrupa_n: keplerOnly.filter((x: any) => x.motivo === 'banco_agrupa').length,
+          kepler_only_banco_agrupa_monto: sum(keplerOnly.filter((x: any) => x.motivo === 'banco_agrupa')),
+          kepler_only_sin_casar_n: keplerOnly.filter((x: any) => x.motivo === 'sin_casar').length,
+          kepler_only_sin_casar_monto: sum(keplerOnly.filter((x: any) => x.motivo === 'sin_casar')),
           contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
         },
       };

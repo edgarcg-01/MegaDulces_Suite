@@ -425,15 +425,34 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         </div>
         @if (keplerOnlyRows().length || contpaqiOnlyRows().length) {
           <div class="tw-orphans">
-            @if (keplerOnlyRows(); as ko) { @if (ko.length) {
+            <!-- CB.50 — TRES poblaciones, no una. Antes iban mezcladas bajo «En Kepler, sin
+                 banco» y sólo una llevaba aclaración al final del renglón: en julio-2026 eso era
+                 una lista de ~120 donde la mayoría YA estaba explicada, y la excepción real
+                 quedaba enterrada. Una bandeja con mayoría de falsos se deja de mirar.
+                 El orden es el de la acción: lo que hay que investigar primero. -->
+            @if (keplerOnlyGrupos(); as g) { @if (g.total) {
               <div class="tw-orphan">
-                <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ ko.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(ko) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
-                @if (otroPeriodoN(ko); as n) {
-                  <p class="tw-orphan-note muted">De estos, <b>{{ n }}</b> SÍ están en el banco — en otro mes (se cobró antes o después de que Kepler lo capturara). No son faltantes: es desfase de corte.</p>
+                <h4><i class="pi pi-database"></i> En Kepler, sin casar 1:1 en el banco ({{ g.total }}<span class="tw-orphan-tot"> · {{ g.totalMonto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
+
+                @for (grupo of g.grupos; track grupo.key) {
+                  @if (grupo.rows.length) {
+                    <div class="tw-grp" [class.tw-grp-real]="grupo.key === 'sin_casar'">
+                      <button type="button" class="tw-grp-head" (click)="toggleGrupo(grupo.key)"
+                              [attr.aria-expanded]="grupoAbierto()[grupo.key] !== false">
+                        <i class="pi" [class.pi-chevron-down]="grupoAbierto()[grupo.key] !== false" [class.pi-chevron-right]="grupoAbierto()[grupo.key] === false"></i>
+                        <span class="tw-grp-tit">{{ grupo.titulo }}</span>
+                        <span class="tw-grp-n mono">{{ grupo.rows.length }}</span>
+                        <span class="tw-grp-monto mono">{{ grupoTotal(grupo.rows) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                      </button>
+                      <p class="tw-grp-sub muted">{{ grupo.explica }}</p>
+                      @if (grupoAbierto()[grupo.key] !== false) {
+                        <table class="tw-tbl"><tbody>
+                          @for (k of grupo.rows; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                        </tbody></table>
+                      }
+                    </div>
+                  }
                 }
-                <table class="tw-tbl"><tbody>
-                  @for (k of ko; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
-                </tbody></table>
               </div>
             } }
             @if (contpaqiOnlyRows(); as co) { @if (co.length) {
@@ -549,6 +568,21 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       border-radius: var(--r-pill); white-space: nowrap; }
     .tw-orphan-tot { color: var(--text-muted); font-weight: 400; font-family: var(--font-mono); }
     .tw-orphan-note { font-size: var(--fs-xs); margin: var(--sp-1) 0 0; }
+    /* CB.50 — los tres motivos. El que hay que investigar lleva la barra de aviso; los otros
+       dos son informativos y se leen en gris: el color marca la ACCIÓN, no la categoría. */
+    .tw-grp { margin-top: var(--sp-3); border-left: 2px solid var(--border-color); padding-left: var(--sp-3); }
+    .tw-grp.tw-grp-real { border-left-color: var(--warn-fg); }
+    .tw-grp-head { display: flex; align-items: center; gap: var(--sp-2); width: 100%; background: none;
+      border: none; padding: 2px 0; cursor: pointer; color: var(--text-main); font: inherit; text-align: left; }
+    .tw-grp-head:hover .tw-grp-tit { text-decoration: underline; }
+    .tw-grp-head:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .tw-grp-head i { font-size: .75rem; color: var(--text-faint); }
+    .tw-grp-tit { font-size: var(--fs-sm); font-weight: 600; }
+    .tw-grp-real .tw-grp-tit { color: var(--warn-fg); }
+    .tw-grp-n { font-size: var(--fs-xs); color: var(--text-muted); background: var(--hover-bg);
+      border-radius: var(--r-pill); padding: 0 var(--sp-2); }
+    .tw-grp-monto { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .tw-grp-sub { font-size: var(--fs-xs); color: var(--text-muted); margin: 2px 0 var(--sp-2); line-height: 1.4; }
     .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-fg); font-weight: 700; }
     .tw-dayfilter { color: var(--text-muted); margin-left: .3rem; }
     .tw-daychip { appearance: none; border: 1px solid var(--border-color); background: var(--card-bg); border-radius: var(--r-pill); padding: 0 .5rem; font: inherit; font-size: .7rem; cursor: pointer; color: var(--text-muted); }
@@ -737,6 +771,45 @@ export class BancosThreeWayComponent {
 
   /** CB.45 — cuántos de los «sólo Kepler» ya tienen su movimiento de banco en otro mes. */
   otroPeriodoN(rows: any[]): number { return (rows || []).filter((r) => r?.casado_otro_periodo).length; }
+
+  /**
+   * CB.50 — parte los «sólo Kepler» en las tres razones por las que un cobro no casa 1:1, que
+   * NO son la misma cosa y pedían acciones distintas:
+   *
+   *   · sin_casar     → el importe SÍ existe en el banco y aun así no pareó. Es la excepción
+   *                     real, va primero y abierta.
+   *   · banco_agrupa  → no hay ningún depósito de ese importe: el banco recibió el dinero en
+   *                     otro corte (una transferencia por varias ventas). El dinero está.
+   *   · otro_periodo  → el banco lo tiene, en otro mes. Desfase de corte, ya explicado.
+   *
+   * Los dos últimos nacen colapsados: son informativos y en julio-2026 eran ~9 de cada 10
+   * renglones. Enterrar la excepción real bajo lo ya explicado es cómo una bandeja se vuelve
+   * invisible. `motivo` lo decide el backend, no esta pantalla: si lo resolviera acá, el drill,
+   * el resumen y la tabla podrían discrepar.
+   */
+  readonly grupoAbierto = signal<Record<string, boolean>>({ sin_casar: true, banco_agrupa: false, otro_periodo: false });
+  toggleGrupo(k: string): void {
+    const cur = this.grupoAbierto();
+    this.grupoAbierto.set({ ...cur, [k]: cur[k] === false });
+  }
+  grupoTotal(rows: { importe: number }[]): number { return rows.reduce((s, r) => s + (Number(r.importe) || 0), 0); }
+  readonly keplerOnlyGrupos = computed(() => {
+    const rows = this.keplerOnlyRows();
+    // `motivo` puede faltar si el backend todavía no está desplegado: se deriva de lo que sí
+    // hay, en vez de dejar el renglón fuera de los tres grupos y perderlo de la pantalla.
+    const motivoDe = (r: any): string => r?.motivo
+      ?? (r?.casado_otro_periodo ? 'otro_periodo' : (r?.sin_importe_en_banco ? 'banco_agrupa' : 'sin_casar'));
+    const def = [
+      { key: 'sin_casar', titulo: 'Sin explicar — revisar',
+        explica: 'El importe existe en el banco de esta cuenta y aun así no pareó. Son los únicos que hay que investigar.' },
+      { key: 'banco_agrupa', titulo: 'El banco lo agrupó',
+        explica: 'No hay ningún depósito por ese importe: el banco recibió el dinero junto con otras ventas, en un solo movimiento. El dinero está, se parte distinto.' },
+      { key: 'otro_periodo', titulo: 'Cobrado en otro mes',
+        explica: 'El banco SÍ lo tiene, en otro periodo — se cobró antes o después de que Kepler lo capturara. No son faltantes: es desfase de corte.' },
+    ];
+    const grupos = def.map((d) => ({ ...d, rows: rows.filter((r: any) => motivoDe(r) === d.key) }));
+    return { grupos, total: rows.length, totalMonto: this.grupoTotal(rows) };
+  });
   readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only));
 
   constructor() {
