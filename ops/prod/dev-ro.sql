@@ -119,10 +119,22 @@ END $$;
 -- Nominales a proposito: un rol compartido no deja rastro de quien consulto que, y eso es
 -- justo lo que el control de acceso de esta semana vino a cerrar.
 -- Mismos nombres que ya tienen en `pgvector-md`, para que nadie aprenda una credencial nueva.
+--
+-- ⛔ LA LISTA ES UN PARAMETRO (`\set personas` viene del archivo de claves), NO una constante.
+-- En la primera version estaba clavada aca mientras el guion ofrecia `DEV_RO_PERSONAS` como si
+-- la controlara: dar de alta a una persona mas obligaba a editar este archivo, y correr el
+-- guion otra vez **rotaba las claves de todos** — invalidando las que ya se habian repartido.
+-- Un parametro que no parametriza es peor que no tenerlo, porque se confia en el.
+-- ⛔ La lista entra por `set_config` y NO por `:'personas'` directo: psql **no interpola sus
+-- variables dentro de un bloque con comillas de dolar** (`$$ … $$`), asi que ahi adentro el
+-- `:'personas'` llega literal y Postgres responde `syntax error at or near ":"`. `true` la hace
+-- local a la transaccion, que es justo el alcance de este guion.
+SELECT set_config('dev_ro.personas', :'personas', true);
+
 DO $$
 DECLARE p text;
 BEGIN
-  FOREACH p IN ARRAY ARRAY['david','francisco','sistemas'] LOOP
+  FOREACH p IN ARRAY string_to_array(current_setting('dev_ro.personas'), ',') LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p) THEN
       EXECUTE format('CREATE ROLE %I LOGIN', p);
     END IF;
@@ -135,10 +147,8 @@ BEGIN
   END LOOP;
 END $$;
 
--- Las claves vienen del archivo que se antepone (ver la cabecera). Van aparte del bucle porque
--- cada persona tiene la suya y `format(%L)` sobre una variable de psql no aplica.
-ALTER ROLE david     PASSWORD :'clave_david';
-ALTER ROLE francisco PASSWORD :'clave_francisco';
-ALTER ROLE sistemas  PASSWORD :'clave_sistemas';
-
 COMMIT;
+
+-- Las claves NO van en este archivo. `dev-ro-crear.sh` genera un tramo final con un
+-- `ALTER ROLE <persona> PASSWORD :'clave_<persona>'` por cada persona de ESTA corrida, y lo
+-- concatena despues de este archivo. Asi, agregar a alguien no toca la clave de nadie mas.
