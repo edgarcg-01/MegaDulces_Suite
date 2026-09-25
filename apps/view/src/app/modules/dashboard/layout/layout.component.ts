@@ -616,9 +616,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Egresos y bancos',
       items: [
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+        // [IG.2] El otro lado del libro, pegado a su hermano. Permiso PROPIO: hay roles que ven
+        // la venta y no el gasto, así que no se cuelga de FINANCE_EXPENSES_VER.
+        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
+        // [IG.2] Faltaba en el sidebar: tenía pestaña desde CS.2 pero no entrada acá, así que se
+        // llegaba sólo escribiendo la URL. Lo destapó el candado nuevo de `finanzas-tabs.spec.ts`,
+        // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
+        { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
         { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
         /**
          * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
