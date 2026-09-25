@@ -3672,3 +3672,47 @@ cuando, que es justo lo que uno esperaría de un medidor honesto. Nadie va a bus
 
 **Dónde mirar si aparece:** cualquier `Promise.all` que incluya `tableAt`, `stepAt`, o un
 `trx.raw('SAVEPOINT …')` propio.
+
+---
+
+## 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture se escribió contra la misma interfaz vieja
+
+**Vivido el 2026-09-25 en `[IG.1]`** (atrapado antes de desplegar, por una relectura del diff, no
+por una compuerta).
+
+Al generalizar `expense-coverage.ts` → `period-coverage.ts` para que sirviera a ingresos, el campo
+`sucursal` pasó a `grupo` y la respuesta del servidor pasó a emitir `grupos` / `grupos_todos` /
+`grupos_parciales`. El frontend de `/finanzas/egresos` seguía **declarando a mano**:
+
+```ts
+export interface ExpenseCoverage {
+  sucursales: string[];
+  sucursales_todos: string[];     // ← el servidor ya no manda esto
+  …
+}
+```
+
+**Las tres compuertas siguieron en verde**, y cada una por su propio motivo:
+
+| compuerta | por qué no lo vio |
+|---|---|
+| `nx build view` (AOT, `strictTemplates`) | el template usa `cov.sucursales_todos.length` y **según la interfaz ese campo existe**. TypeScript valida contra lo DECLARADO, no contra lo que llega por HTTP. |
+| `nx build api` | del lado del servidor todo era coherente: el que cambió el nombre fue él. |
+| el spec del componente | su fixture estaba escrito **contra la misma interfaz vieja**, así que montaba con `sucursales_todos` y pasaba. Un doble confirma lo que uno cree, no lo que el otro lado manda. |
+
+En producción `cov.sucursales_todos` habría sido `undefined` y `.length` **revienta el render entero
+del componente**, no sólo la banda.
+
+**La regla:** la forma del wire vive en `libs/contracts` y los dos lados la IMPORTAN. No es
+preferencia de estilo — es la única forma de que renombrar un campo sea un **error de compilación**
+en vez de un `undefined` en el navegador. Con el tipo compartido, la prueba negativa se pone roja:
+volver a poner `sucursales_todos` en el fixture tira **5 tests**.
+
+⚠️ **El olor a buscar:** cualquier `export interface` en un `*.service.ts` de `apps/view` que
+describa una respuesta HTTP. Si existe, hay dos definiciones de la misma cosa y nada obliga a que
+coincidan. Es exactamente cómo el tipo `Freshness` terminó copiado a mano a los tres días de nacer
+(el caso que fundó `provenance.contract.ts`).
+
+⚠️ **Y el corolario incómodo:** un spec verde sobre un fixture propio **no prueba que el contrato se
+respete**. Prueba que el componente es coherente consigo mismo. Lo mismo que ya está escrito en §67
+para el SQL: *un doble nunca valida el otro lado*.

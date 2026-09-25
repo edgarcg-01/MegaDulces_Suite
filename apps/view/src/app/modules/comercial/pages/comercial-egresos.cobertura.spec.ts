@@ -34,13 +34,13 @@ const REPORTE = (p: Partial<ExpensesReport> = {}): ExpensesReport => ({
   coverage: {
     measured: true, pct: 95.9,
     note: '3 sucursales no están en todos los meses del rango: 06 (desde 2026-08).',
-    sucursales: ['00', '01', '02', '03', '04', '05', '06', '07', '08'],
-    sucursales_todos: ['00', '01', '02', '03', '04', '05'],
-    sucursales_parciales: [{ sucursal: '06', desde: '2026-08', total: 6_573_368.44 }],
+    grupos: ['00', '01', '02', '03', '04', '05', '06', '07', '08'],
+    grupos_todos: ['00', '01', '02', '03', '04', '05'],
+    grupos_parciales: [{ grupo: '06', desde: '2026-08', total: 6_573_368.44 }],
     meses_parciales: ['2026-06', '2026-09'],
   },
   comparativo: {
-    sucursales_ambos: ['00', '02', '03', '04', '05'],
+    grupos_ambos: ['00', '02', '03', '04', '05'],
     solo_actual: ['01', '06', '07', '08'], solo_previo: [],
     total: 195_232_624.72, total_prev: 153_731_451.29, delta_pct: 27,
     total_comparable: 155_487_953.74, total_prev_comparable: 153_731_451.29,
@@ -108,7 +108,7 @@ describe('ComercialEgresosComponent — cobertura declarada', () => {
     arrancar(REPORTE({
       coverage: {
         measured: true, pct: 100, note: 'La tendencia es comparable.',
-        sucursales: ['00'], sucursales_todos: ['00'], sucursales_parciales: [], meses_parciales: [],
+        grupos: ['00'], grupos_todos: ['00'], grupos_parciales: [], meses_parciales: [],
       },
       comparativo: null,
     }));
@@ -120,10 +120,10 @@ describe('ComercialEgresosComponent — cobertura declarada', () => {
     arrancar(REPORTE({
       coverage: {
         measured: true, pct: 100, note: 'La tendencia es comparable.',
-        sucursales: ['00'], sucursales_todos: ['00'], sucursales_parciales: [], meses_parciales: [],
+        grupos: ['00'], grupos_todos: ['00'], grupos_parciales: [], meses_parciales: [],
       },
       comparativo: {
-        sucursales_ambos: ['00'], solo_actual: [], solo_previo: [],
+        grupos_ambos: ['00'], solo_actual: [], solo_previo: [],
         total: 100, total_prev: 80, delta_pct: 25,
         total_comparable: 100, total_prev_comparable: 80, delta_pct_comparable: 25,
         universo_cambio: false,
@@ -148,7 +148,7 @@ describe('ComercialEgresosComponent — cobertura declarada', () => {
     arrancar(REPORTE({
       coverage: {
         measured: false, pct: null, note: 'Sin movimientos en el período.',
-        sucursales: [], sucursales_todos: [], sucursales_parciales: [], meses_parciales: [],
+        sucursales: [], grupos_todos: [], grupos_parciales: [], meses_parciales: [],
       },
       comparativo: null,
     }));

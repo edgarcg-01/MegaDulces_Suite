@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
+import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
@@ -2941,28 +2942,19 @@ export interface ExpenseSeriesPoint {
   sucursales: number;
 }
 /** [GX.19] Cobertura declarada — la FORMA es `Coverage` de `@megadulces/contracts`, más el detalle. */
-export interface ExpenseCoverage {
-  measured: boolean;
-  pct: number | null;
-  note: string;
-  sucursales: string[];
-  sucursales_todos: string[];
-  sucursales_parciales: Array<{ sucursal: string; desde: string; total: number }>;
-  meses_parciales: string[];
-}
-/** [GX.19] El Δ con y sin las sucursales que cambiaron de universo entre los dos períodos. */
-export interface ExpenseComparativo {
-  sucursales_ambos: string[];
-  solo_actual: string[];
-  solo_previo: string[];
-  total: number;
-  total_prev: number;
-  delta_pct: number | null;
-  total_comparable: number;
-  total_prev_comparable: number;
-  delta_pct_comparable: number | null;
-  universo_cambio: boolean;
-}
+/**
+ * [IG.1] La cobertura de EGRESOS usa el mismo motor y la misma forma que la de ingresos
+ * (`period-coverage.ts` los sirve a los dos), así que la forma vive en `@megadulces/contracts` y
+ * acá sólo se le pone el alias del dominio. El grupo es la **sucursal** de este lado.
+ *
+ * ⚠️ Los campos se llamaban `sucursales*` y pasaron a `grupos*` al generalizar el motor. No era
+ * cosmético: TypeScript **no puede ver** un desajuste entre una interfaz declarada a mano y el JSON
+ * que llega, así que el build seguía en verde mientras `cov.sucursales_todos.length` iba a reventar
+ * en el navegador. Por eso la forma se importa y no se re-declara.
+ */
+export type ExpenseCoverage = PeriodCoverageWire;
+export type ExpenseComparativo = PeriodComparativoWire;
+
 export interface ExpensesReport {
   from: string;
   to: string;

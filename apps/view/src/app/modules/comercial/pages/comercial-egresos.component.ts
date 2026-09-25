@@ -135,7 +135,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
               <div>Meses incompletos en la tendencia: <strong>{{ cov.meses_parciales.join(', ') }}</strong> — su barra es más baja por calendario.</div>
             }
             @if (cov.pct !== null) {
-              <div class="muted">Comparable mes a mes: <strong>{{ cov.pct }}%</strong> del importe del rango ({{ cov.sucursales_todos.length }} de {{ cov.sucursales.length }} sucursales en todos los meses).</div>
+              <div class="muted">Comparable mes a mes: <strong>{{ cov.pct }}%</strong> del importe del rango ({{ cov.grupos_todos.length }} de {{ cov.grupos.length }} sucursales en todos los meses).</div>
             }
           </div>
         </div>
@@ -504,7 +504,7 @@ export class ComercialEgresosComponent {
     if (!r?.coverage?.measured) return null;
     const c = r.coverage;
     const comp = r.comparativo?.universo_cambio ? r.comparativo : null;
-    if (!comp && !c.sucursales_parciales.length && !c.meses_parciales.length) return null;
+    if (!comp && !c.grupos_parciales.length && !c.meses_parciales.length) return null;
     return { ...c, comp };
   });
 
