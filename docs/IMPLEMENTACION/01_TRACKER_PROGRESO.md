@@ -2263,6 +2263,47 @@ lista igual con su buscador: el problema era que estaban invisibles.
   (69×) en el filtro por defecto y hasta **294×** sin bucket. Candado con prueba negativa:
   `test-newdb-critical-stock-count.js` 15/15 contra prod. Commit `d74e7ee7`.
   🚫 **Falta desplegarlo** — ver el bloqueo de `[CG.22.4]`.
+- [x] **[EX-PERF.1]** 🧪 `/compras/existencia` — `SET LOCAL jit = off` antes de la consulta
+  principal. A este volumen la compilación JIT no se amortiza: **821 funciones compiladas** para
+  una consulta que devuelve 50 filas. ⚠️ `SET LOCAL` fuera de una transacción es un **no-op
+  silencioso**; se verificó que `tk.run()` usa `knex.transaction()` **antes** de confiar en él.
+- [x] **[EX-PERF.2]** ✅ `analytics.mv_warehouse_box_factor` + `analytics.mv_kepler_unit_cost`
+  (mig `20260924220000`, batch 535, 7.0 s). Las dos vistas se calculaban **enteras en cada carga**
+  sólo para armar el hash del join: aportaban **281,730 de las 939,977 páginas** que costaba
+  devolver 50 filas (27 s de LCP). Con las dos materializadas, la consulta real de la pantalla
+  bajó de **5,580 a 1,140 ms (4.9×)**, medido de punta a punta después de desplegar. Carril
+  `existencia-aux` cada 5 min (`ops/vl/crontab.feeds:52`) con latido `mv_existencia_aux_refresh`
+  y umbral propio en `CRON_JOBS`. Candado: `test-newdb-existencia-aux-matview.js` **12/12 contra
+  prod**. ⛔ Las VISTAS quedan intactas: `v_warehouse_box_factor` tiene 5 dependientes, entre
+  ellos `v_unit_truth` (ADR-057).
+- [x] **[AX-PERF.1]** ✅ **El anexo al CFDI dejaba de responder por documento grande.** Disparado
+  por *"`/comercial/documentos` tarda demasiado en cargar los documentos PDF"*.
+  `analytics.erp_sales_invoice_lines` traía `box_factor` con un `LEFT JOIN` a
+  `analytics.v_product_box_factor`, un resolvedor que es **catálogo completo por construcción**
+  (agrega `kdii` entera, 76,903 filas, y `v_product_label_prices`, 78,799) y por eso **no admite
+  que se le empuje un `product_id`** — menos a través de un LEFT JOIN. El planeador lo ponía del
+  lado interno de un nested loop y **lo reejecutaba entero por cada renglón** (`loops=28`,
+  1,620,122 páginas ≈ 13 GB para devolver 28 filas).
+  ⭐ **El costo escalaba con los RENGLONES del documento, no con el catálogo**, y se comprobó en
+  las dos direcciones: la factura más grande de prod tiene **160 renglones** (× ~370 ms =
+  **59.2 s estimados**) y `pg_stat_statements` de prod tenía medido un **máximo real de
+  65,716 ms**; sobre **108 llamadas reales**, promedio **13,776 ms** y **1,488 s (24.8 min) de
+  CPU de prod** acumulados en una sola consulta.
+  Fix: `analytics.mv_product_box_factor` (mig `20260924235000`, batch 537, 688 ms) y
+  `erp_sales_invoice_lines` reapuntada a la copia. Medido en prod, misma consulta:
+  **10,422 → 26 ms**. El carril `existencia-aux` la refresca junto a las otras dos (572 ms).
+  Candado: `test-newdb-anexo-box-factor-matview.js` **10/10 contra prod**, incluida la
+  comprobación que de verdad importa — el `box_factor` que **se imprime** es idéntico renglón por
+  renglón al del resolvedor vivo (**67 renglones de 8 facturas, 0 difieren**).
+  ⭐ **No era un hallazgo nuevo: es la deuda que `[TK.6]` dejó declarada con nombre el 21-sep**
+  (*"lo que queda es `analytics.v_product_box_factor`"*). Aquella medición vio 2.9 s porque sus
+  documentos de prueba eran chicos.
+  ⚠️ **Lo que cambia de frescura, dicho:** el divisor de la equivalencia en cajas pasa de vivo a
+  una foto de hasta 5 min. Es dato **maestro**, y su hermana tomó la misma decisión en
+  `[EX-PERF.2]`.
+  ⛔ `v_product_box_factor` queda **intacta**: tiene **7 dependientes**, entre ellos `v_unit_truth`.
+  🚫 **Falta desplegar** el carril (la imagen `trade-ingest` todavía refresca 2 de 3) y el API
+  (sólo el rótulo de `db-health`).
 - [x] **[OBS.7]** ✅ `ops/prod/backup-prod.sh` — `timeout` POSIX-safe con sonda de `strftime`
   (el `awk` de la imagen puede no tenerlo) y brazo propio para `rc=124/137`. El respaldo **rompe a
   los 45 min** en vez de reportar OK después de 4h43m. ⚠️ `pg_dump` hace `SET statement_timeout = 0`

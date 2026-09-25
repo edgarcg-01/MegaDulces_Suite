@@ -1,6 +1,8 @@
 /**
- * [EX-PERF.2] Refresca las dos copias materializadas que usa `/compras/existencia`:
- * `analytics.mv_warehouse_box_factor` y `analytics.mv_kepler_unit_cost`.
+ * [EX-PERF.2 + AX-PERF.1] Refresca las TRES copias materializadas del factor de caja y el costo:
+ * `analytics.mv_warehouse_box_factor` y `analytics.mv_kepler_unit_cost` (las lee
+ * `/compras/existencia`) y `analytics.mv_product_box_factor` (la lee
+ * `analytics.erp_sales_invoice_lines`, o sea el anexo del CFDI de `/comercial/documentos`).
  *
  * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
  * Medido contra prod el 2026-09-24: la pantalla tardaba **27 s de LCP**. La consulta —sacada del
@@ -41,7 +43,18 @@ const { Client } = require('pg');
 // corrieron en seco diciendo "ok" durante horas. Que no vuelva a depender de un retorno de carro.
 const APPLY = process.argv.slice(2).some((a) => a.trim() === '--apply');
 const KEY = 'mv_existencia_aux_refresh';
-const MVS = ['analytics.mv_warehouse_box_factor', 'analytics.mv_kepler_unit_cost'];
+// [AX-PERF.1] Se suma `mv_product_box_factor` a este mismo carril en vez de abrirle uno propio.
+// Motivo: es la MISMA familia de dato (el factor de caja) y `analytics.cron_runs` tiene PK
+// `(tenant_id, job_key)` **sin host** — dos carriles que comparten llave se pisan el renglón y
+// producen falso verde. Un carril, un latido, una edad para las tres fotos.
+const MVS = [
+  'analytics.mv_warehouse_box_factor',
+  'analytics.mv_kepler_unit_cost',
+  // Lo lee `analytics.erp_sales_invoice_lines` → el anexo del CFDI de `/comercial/documentos`.
+  // Sin esta copia, ese resolvedor se reejecutaba UNA VEZ POR RENGLÓN del documento: medido en
+  // prod, 108 llamadas reales con promedio 13,776 ms y máximo 65,716 ms; con la copia, 5.7 ms.
+  'analytics.mv_product_box_factor',
+];
 
 function conexion() {
   const cs = process.env.DATABASE_URL_NEW || process.env.DATABASE_URL;
@@ -57,15 +70,25 @@ async function ciclo() {
   const c = conexion();
   await c.connect();
   try {
-    // ⛔ O las DOS o ninguna: el servicio decide por el par, no por cada una. Si sólo existiera
-    // una, refrescarla dejaría al otro join leyendo la vista viva y el número de la pantalla
-    // saldría de dos fotos con edades distintas.
+    // Se refresca LO QUE EXISTE y se DECLARA lo que falta.
+    //
+    // ⚠️ Hasta `[AX-PERF.1]` esto era "o todas o ninguna" y con dos materializados funcionaba.
+    // Al sumar el tercero esa regla se volvía una trampa: en cualquier entorno donde la
+    // migración nueva no estuviera aplicada, el carril salía por la puerta de "falta uno" y
+    // **dejaba de refrescar los otros dos** — que sí existían y sí se estaban sirviendo. Un
+    // carril que deja de entregar diciendo `ok` es justo el modo de falla que la Fase OBS
+    // existe para matar.
+    //
+    // No reintroduce el problema que la regla vieja cuidaba: si un materializado NO existe, su
+    // consumidor lee la **vista viva** (más fresca, no más vieja). Lo que nunca puede pasar es
+    // servir una foto vencida, y eso lo cubre el latido.
     const falta = [];
+    const presentes = [];
     for (const mv of MVS) {
       const r = await c.query(`SELECT to_regclass($1) AS t`, [mv]);
-      if (!r.rows[0] || !r.rows[0].t) falta.push(mv);
+      if (!r.rows[0] || !r.rows[0].t) falta.push(mv); else presentes.push(mv);
     }
-    if (falta.length) {
+    if (!presentes.length) {
       return { filas: null, nota: `sin materializar todavía: ${falta.join(', ')} (migración sin aplicar)` };
     }
 
@@ -75,7 +98,7 @@ async function ciclo() {
 
     let total = 0;
     const detalle = [];
-    for (const mv of MVS) {
+    for (const mv of presentes) {
       const t0 = Date.now();
       // CONCURRENTLY para no tomar el lock exclusivo: sin esto la pantalla queda EN BLANCO
       // mientras corre. Requiere el índice UNIQUE que crea la migración.
@@ -86,6 +109,9 @@ async function ciclo() {
       total += n;
       detalle.push(`${mv.split('.').pop()} ${n} en ${ms} ms`);
     }
+    // Lo que falta se DECLARA en el detalle, no se calla: un carril que refresca 2 de 3 y
+    // reporta lo mismo que uno que refresca 3 de 3 no sirve para enterarse de nada.
+    if (falta.length) detalle.push(`SIN MATERIALIZAR: ${falta.map((m) => m.split('.').pop()).join(', ')}`);
     return { filas: total, detalle };
   } finally {
     await c.end().catch(() => {});
