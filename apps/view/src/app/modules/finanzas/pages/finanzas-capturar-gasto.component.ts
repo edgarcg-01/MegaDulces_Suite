@@ -189,16 +189,20 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               }
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
-              <!-- [GX.14] Qué falta, dicho antes de apretar. La lista NO se arma acá: sale
-                   de faltaParaMandar(), la misma función que devuelve el 400 del backend. -->
-              @if (clasificacion() && faltan().length) {
-                <ul class="cap-faltan">
-                  @for (f of faltan(); track f.id) { <li><i class="pi pi-circle" aria-hidden="true"></i> {{ f.label }}</li> }
-                </ul>
-              }
+              <!--
+                [GX.17] Se retiró la lista de faltantes que iba acá («Cómo se pagó» / «La foto
+                del comprobante»): con los pasos numerados a la vista, repetía lo que la propia
+                pantalla ya dice. Pedido del usuario.
+
+                ⚠️ Lo que la lista SÍ hacía era explicar por qué el botón está apagado, y el
+                «title» de un botón deshabilitado no se lee: no hay hover en táctil y varios
+                navegadores ni lo muestran. Por eso el faltante pasa a la ETIQUETA del botón,
+                donde se ve sin apuntarle. La compuerta no cambia: sigue saliendo de
+                faltaParaMandar(), la misma función que devuelve el 400 del backend.
+              -->
               <button pButton type="button" class="cap-send" [loading]="saving()"
                       [disabled]="!puedeEnviar() || saving()" [title]="enviarTitle()" (click)="submit()">
-                <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Enviar a aprobación</span>
+                <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">{{ enviarLabel() }}</span>
               </button>
             }
 
@@ -534,6 +538,17 @@ export class FinanzasCapturarGastoComponent {
     if (this.faltan().length) return false;
     return this.llevaEvidencia() ? true : !!this.comentarios.trim();
   }
+  /**
+   * [GX.17] Lo que dice el BOTÓN. Mientras falte algo lo nombra; cuando no falta nada,
+   * nombra la acción. Reemplaza a la lista de faltantes que vivía encima -- un botón
+   * apagado sin motivo visible es el mismo callejon que un botón que no hace nada.
+   */
+  enviarLabel(): string {
+    if (this.saving()) return 'Enviando…';
+    const t = this.enviarTitle();
+    return t.startsWith('Falta') ? t : 'Enviar a aprobación';
+  }
+
   enviarTitle(): string {
     if (this.modo() === 'evidencia') return this.names()['comprobante_1'] ? 'Enviar evidencia' : 'Falta capturar la evidencia';
     if (!this.names()['solicitud_kepler']) return 'Falta la solicitud firmada';
