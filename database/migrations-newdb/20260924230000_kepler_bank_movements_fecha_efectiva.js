@@ -104,7 +104,8 @@ const VIEW_SQL = `
     -- sólo exige complemento en pago diferido). NULL aquí significa "no aplica", no "se perdió".
     pc.fecha_pago AS fecha_pago_sat,
     -- El día en que el dinero se movió de verdad. Es la que hay que usar para cruzar contra un
-    -- estado de cuenta; `fecha_valor` sirve para cruzar contra los libros.
+    -- estado de cuenta; fecha_valor (sin acentos graves acá: este SQL vive dentro de un template
+    -- literal y un backtick lo cierra, ver GOTCHAS) sirve para cruzar contra los libros.
     COALESCE(pc.fecha_pago, legs.fval) AS fecha_efectiva
   FROM legs
   LEFT JOIN kb ON kb.clave = legs.clave
