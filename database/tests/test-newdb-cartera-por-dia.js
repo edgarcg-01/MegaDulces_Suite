@@ -29,6 +29,13 @@
  *     literal de «qué día cobrar» y no tiene una sola fila: el test lo declara para que nadie
  *     construya la agenda encima sin volver a medirlo.
  *
+ *  9. **La zona tiene NOMBRE, y el join es por CÓDIGO a propósito.** El catálogo `kduk` está
+ *     replicado por sucursal pero ninguna tiene los seis códigos: el join estricto
+ *     `(sucursal, código)` dejaba **1,390 filas / $3.21M** sin nombre. El join por código resuelve
+ *     todas y es seguro porque el código→nombre es unívoco — y eso se comprueba acá, no se supone.
+ * 10. **La plaza tiene NOMBRE.** Todo código de sucursal con cartera tiene que estar en
+ *     `commercial.warehouses`; el que no esté se DECLARA con su monto, no se esconde.
+ *
  * ⚠️ Read-only puro: ni un INSERT. Se puede correr contra prod.
  */
 const { Client } = require('pg');
@@ -87,6 +94,42 @@ WITH doc AS MATERIALIZED (
 SELECT round(COALESCE(sum(res), 0), 2) AS suma_dias
   FROM doc WHERE res > 0.005 AND vencimiento IS NOT NULL`;
 
+/**
+ * El nombre de la zona. Compara los DOS joins posibles en la misma pasada: el estricto por
+ * `(sucursal, código)` y el de código solo. Si algún día el estricto alcanza, este test lo dice.
+ */
+const SQL_ZONA = `
+WITH v AS (SELECT sucursal, NULLIF(btrim(COALESCE(zona, '')), '') AS zona,
+                  GREATEST(COALESCE(saldo_ajustado, 0), 0) AS res
+             FROM analytics.customer_receivables
+            WHERE tenant_id = $1 AND cargo_abono = 'C' AND saldo_ajustado > 0.005),
+k AS (SELECT btrim(sucursal) AS suc, btrim(c1) AS code, btrim(c2) AS nombre
+        FROM kepler_ods.kduk WHERE btrim(COALESCE(c1, '')) <> ''),
+kc AS (SELECT code, count(DISTINCT nombre) AS n FROM k GROUP BY 1)
+SELECT
+  (SELECT count(*) FROM kc WHERE n > 1)::int                                        AS codigos_ambiguos,
+  (SELECT count(*) FROM v JOIN k ON k.suc = v.sucursal AND k.code = v.zona)::int    AS filas_estricto,
+  (SELECT count(*) FROM v JOIN kc ON kc.code = v.zona)::int                         AS filas_codigo,
+  (SELECT round(COALESCE(sum(res), 0), 2) FROM v
+    WHERE zona IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM k WHERE k.suc = v.sucursal AND k.code = v.zona)) AS monto_rescatado,
+  (SELECT count(*) FROM v WHERE zona IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM kc WHERE kc.code = v.zona))::int                AS con_zona_sin_nombre,
+  (SELECT round(COALESCE(sum(res), 0), 2) FROM v WHERE zona IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM kc WHERE kc.code = v.zona))                     AS monto_sin_nombre,
+  (SELECT count(*) FROM v WHERE zona IS NULL)::int                                  AS sin_zona,
+  (SELECT round(COALESCE(sum(res), 0), 2) FROM v WHERE zona IS NULL)                AS monto_sin_zona`;
+
+/** Toda sucursal con cartera tiene que tener nombre en `commercial.warehouses`. */
+const SQL_SUC = `
+SELECT r.sucursal,
+       round(sum(GREATEST(COALESCE(r.saldo_ajustado, 0), 0)), 2) AS monto,
+       EXISTS (SELECT 1 FROM commercial.warehouses w
+                WHERE w.tenant_id = $1 AND w.deleted_at IS NULL AND w.code = r.sucursal) AS en_catalogo
+  FROM analytics.customer_receivables r
+ WHERE r.tenant_id = $1 AND r.cargo_abono = 'C' AND r.saldo_ajustado > 0.005
+ GROUP BY 1 ORDER BY 1`;
+
 const SQL_INTERNO = `
 WITH h AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
 v AS (SELECT r.vencimiento, GREATEST(COALESCE(r.saldo_ajustado, 0), 0) AS res,
@@ -123,12 +166,34 @@ function auditarCodigo() {
   if (/sin_vencimiento/.test(fn)) P('sin_vencimiento se mide (aunque hoy valga 0)');
   else F('sin_vencimiento no se mide: una ausencia sin medir se lee como cero');
 
-  // El desglose por cliente NO se acota por fecha. Se midió que recortarlo no ahorra tiempo
-  // (la pirámide domina) y sí esconde la mitad del dinero detrás de un «ampliá la ventana».
+  // El desglose NO se acota por fecha. Se midió que recortarlo no ahorra tiempo (la pirámide
+  // domina) y sí esconde la mitad del dinero detrás de un «ampliá la ventana».
   if (/f\.vencimiento BETWEEN/.test(fn)) F('el detalle volvió a tener ventana: eso esconde dinero sin ahorrar tiempo (medido)');
-  else P('el detalle por cliente NO tiene ventana: la agenda entera viaja en una respuesta');
+  else P('el detalle NO tiene ventana: la agenda entera viaja en una respuesta');
 
-  if (/filtros: this\.opciones\(a\)/.test(fn)) P('reusa el constructor de opciones de filtro (ADR-056: sin segundo builder)');
+  // El drill llega a FACTURA. Un agregado por (día, cliente) no se puede desarmar, y «qué
+  // facturas tiene vencidas» es la pregunta del que sale a cobrar.
+  if (/folio_digital/.test(fn)) P('el desglose llega a nivel FACTURA (folio), no a cliente-por-día');
+  else F('el desglose no trae folio: no se puede contestar qué facturas debe');
+
+  if (/kepler_ods\.kduk/.test(fn)) P('la zona se resuelve contra el catálogo kduk (nombre, no código)');
+  else F('la zona sigue publicándose como código pelado');
+
+  // ⛔ knex cuenta TODOS los `?` del string como binds, incluso dentro de un comentario. Ya pasó
+  // tres veces en este archivo; acá queda la compuerta.
+  const sqlIni = fn.indexOf('const sql = `');
+  const sqlFin = fn.indexOf('AS almacenes`', sqlIni);
+  if (sqlIni < 0 || sqlFin < 0) { NM('no se pudo aislar el SQL para contar binds'); }
+  else {
+    const n = (fn.slice(sqlIni, sqlFin).match(/\?/g) || []).length;
+    if (n === 2) P('el SQL tiene exactamente 2 signos de interrogación: los 2 binds reales de tenant_id');
+    else F(`el SQL tiene ${n} signos de interrogación y los binds reales son 2 — knex cuenta los de los COMENTARIOS y la consulta revienta`);
+  }
+
+  // ⚠️ Se busca la LLAMADA, no un renglón literal: la primera versión exigía
+  // `filtros: this.opciones(a)` y se puso roja sola cuando esa línea pasó a ser
+  // `const filtros = this.opciones(a)`. Un test atado a la forma del renglón mide el renglón.
+  if (/this\.opciones\(a\)/.test(fn)) P('reusa el constructor de opciones de filtro (ADR-056: sin segundo builder)');
   else F('porDia() construye sus propias opciones de filtro en vez de reusar opciones()');
 
   // La ruta de 1 segmento tiene que ir ANTES de ':sucursal/:cliente' o Express la casa como
@@ -220,7 +285,31 @@ function auditarCodigo() {
     if (pares <= TECHO_PARES) P(`${pares} pares (día × cliente) — dentro del techo de ${TECHO_PARES}; la agenda entera viaja en una respuesta`);
     else F(`${pares} pares superan el techo de ${TECHO_PARES}: volver a medir el payload antes de seguir sirviendo la agenda completa (gzip medido: 119 KB con 5,652)`);
 
-    console.log('\n[H] La promesa de pago NO puede ser el eje');
+    console.log('\n[H] Los nombres: plaza y zona dejan de ser números');
+    const zc = (await c.query(SQL_ZONA, [TENANT])).rows[0];
+    const amb = Number(zc.codigos_ambiguos) || 0;
+    if (amb === 0) P('el código de zona → nombre es UNÍVOCO en todo el catálogo: el join por código es seguro');
+    else F(`${amb} código(s) de zona tienen más de un nombre: el join por código elegiría uno a dedo — volver a (sucursal, código)`);
+
+    const estricto = Number(zc.filas_estricto) || 0;
+    const porCodigo = Number(zc.filas_codigo) || 0;
+    if (porCodigo > estricto) {
+      P(`el join por código resuelve ${porCodigo} filas contra ${estricto} del estricto (sucursal, código): ${money(Number(zc.monto_rescatado))} que el estricto dejaba sin nombre`);
+    } else if (porCodigo === estricto && porCodigo > 0) {
+      P('hoy los dos joins resuelven lo mismo — el catálogo se completó; el de código sigue siendo el correcto');
+    } else NM('no hay filas con zona para comparar los dos joins');
+
+    const sinNombre = Number(zc.con_zona_sin_nombre) || 0;
+    if (sinNombre === 0) P('toda fila con código de zona tiene nombre: cero códigos pelados en pantalla');
+    else F(`${sinNombre} filas tienen código de zona sin nombre en kduk (${money(Number(zc.monto_sin_nombre))}): saldrían como número`);
+    console.log(`      sin zona asignada: ${zc.sin_zona} filas · ${money(Number(zc.monto_sin_zona))} (se declara «Sin zona», no se inventa)`);
+
+    const suc = (await c.query(SQL_SUC, [TENANT])).rows;
+    const huerfanas = suc.filter((s) => !s.en_catalogo);
+    if (huerfanas.length === 0) P(`las ${suc.length} sucursales con cartera están en commercial.warehouses: todas salen con nombre`);
+    else F(`${huerfanas.length} sucursal(es) con cartera NO están en el catálogo de almacenes (${huerfanas.map((s) => s.sucursal + ': ' + money(Number(s.monto))).join(' · ')}): la pantalla muestra el número marcado, pero hay que darlas de alta`);
+
+    console.log('\n[I] La promesa de pago NO puede ser el eje');
     const pr = (await c.query('SELECT count(*)::int n FROM finance.collection_promises WHERE tenant_id = $1', [TENANT])).rows[0];
     if (Number(pr.n) === 0) P('finance.collection_promises tiene 0 filas: una agenda montada sobre promesas abriría en blanco');
     else P(`finance.collection_promises tiene ${pr.n} filas — ya se puede superponer al eje de vencimiento (no reemplazarlo)`);

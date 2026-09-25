@@ -9,7 +9,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
-import { CarteraService, PorDiaResp, DiaCartera, DiaCliente, DiaEstado } from '../cartera.service';
+import { CarteraService, PorDiaResp, DiaCartera, DiaDocumento, DiaClienteRef, ClienteDelDia, DiaEstado } from '../cartera.service';
 
 /**
  * ⭐ `[CXC.26]` **Crédito por día** — la misma cartera de `/finanzas/cartera`, con el calendario
@@ -205,43 +205,100 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaCliente, DiaEstado } from '.
                 @if (diaSel() === t.fecha) {
                   <tr class="cd-drill"><td colspan="7">
                     <div class="cd-drill-head">
-                      <b>{{ clientesDelDia().length }}</b> {{ clientesDelDia().length === 1 ? 'cliente' : 'clientes' }} con saldo que venció el {{ t.fecha }}
-                      <span class="muted">— suman {{ money(t.monto) }}</span>
+                      <span>
+                        <b>{{ clientesDelDia().length }}</b> {{ clientesDelDia().length === 1 ? 'cliente' : 'clientes' }}
+                        {{ t.estado === 'futuro' ? 'con facturas que vencen el' : 'con facturas vencidas el' }} {{ t.fecha }}
+                        <span class="muted">— suman {{ money(t.monto) }} en {{ t.docs }} {{ t.docs === 1 ? 'factura' : 'facturas' }}</span>
+                      </span>
+                      <button type="button" class="cd-link-btn" (click)="alternarTodasLasFacturas()">
+                        <i class="pi" [class.pi-eye]="!todasFacturas()" [class.pi-eye-slash]="todasFacturas()" aria-hidden="true"></i>
+                        {{ todasFacturas() ? 'Ocultar las facturas' : 'Ver todas las facturas' }}
+                      </button>
                     </div>
                     <table class="cd-drill-table">
-                      <thead><tr><th>Cliente</th><th>Suc</th><th>Zona</th><th>Vendedor</th><th>Teléfono</th><th class="ta-r">Docs</th><th class="ta-r">Monto</th></tr></thead>
+                      <thead><tr>
+                        <th>Cliente</th><th>Plaza</th><th>Zona</th><th>Vendedor</th><th>Teléfono</th>
+                        <th class="ta-r">Facturas</th><th class="ta-r">Monto</th><th><span class="sr-only">Abrir</span></th>
+                      </tr></thead>
                       <tbody>
-                        @for (c of clientesDelDia(); track c.sucursal + c.cliente_code) {
-                          <tr>
+                        @for (c of clientesDelDia(); track c.ref.k) {
+                          <tr class="cd-crow" [class.cd-crow-open]="facturasAbiertas(c.ref.k)"
+                              [attr.aria-expanded]="facturasAbiertas(c.ref.k)" (click)="alternarCliente(c.ref.k)">
                             <td>
-                              <!-- Abre el auxiliar del cliente en la vista por cliente. Ver
-                                   enlaceAuxiliar() abajo: el deep link y por qué NO usa
-                                   multitarea.enlaceDetalle(). ⚠️ Sin acentos graves acá adentro:
-                                   esto vive dentro del template literal y uno solo lo corta. -->
+                              <!-- El nombre abre el auxiliar completo; el RENGLÓN abre sus facturas
+                                   de este día. Son dos cosas distintas y por eso el enlace corta la
+                                   propagación. Ver el bloque del deep link en la cabecera del
+                                   componente. Sin acentos graves acá: esto vive en un template
+                                   literal y uno solo lo corta. -->
                               <a [routerLink]="['/finanzas/cartera']"
-                                 [queryParams]="{ suc: c.sucursal, cliente: c.cliente_code, nombre: c.cliente_nombre }"
+                                 [queryParams]="{ suc: c.ref.sucursal, cliente: c.ref.cliente_code, nombre: c.ref.cliente_nombre }"
                                  (click)="$event.stopPropagation()"
-                                 [title]="'Ver el auxiliar completo de ' + c.cliente_nombre">{{ c.cliente_nombre }}</a>
-                              <span class="muted cd-mono">{{ c.cliente_code }}</span>
-                              @if (!cuenta && c.cuenta_kind !== 'cliente_final') {
-                                <span class="cd-kind" [class]="'cd-kind-' + c.cuenta_kind">{{ kindLabel(c.cuenta_kind) }}</span>
+                                 [title]="'Ver el estado de cuenta completo de ' + c.ref.cliente_nombre">{{ c.ref.cliente_nombre }}</a>
+                              <span class="muted cd-mono">{{ c.ref.cliente_code }}</span>
+                              @if (!cuenta && c.ref.cuenta_kind !== 'cliente_final') {
+                                <span class="cd-kind" [class]="'cd-kind-' + c.ref.cuenta_kind">{{ kindLabel(c.ref.cuenta_kind) }}</span>
                               }
                             </td>
-                            <td>{{ c.sucursal }}</td>
-                            <td>{{ c.zona || '—' }}</td>
-                            <td>{{ c.vendedor_nombre || c.vendedor || '—' }}</td>
+                            <!-- El NOMBRE de la plaza. Si el código no está en el catálogo de
+                                 almacenes se muestra el número, marcado: esconderlo sería esconder
+                                 dinero que nadie puede ubicar. -->
                             <td>
-                              @if (c.telefono) {
-                                <a [href]="'tel:' + c.telefono" (click)="$event.stopPropagation()" class="cd-tel"><i class="pi pi-phone" aria-hidden="true"></i> {{ c.telefono }}</a>
+                              @if (c.ref.sucursal_nombre) { {{ c.ref.sucursal_nombre }} }
+                              @else { <span class="cd-sinnombre" [title]="'La sucursal ' + c.ref.sucursal + ' no está en el catálogo de almacenes'">{{ c.ref.sucursal }}</span> }
+                            </td>
+                            <td>
+                              @if (c.ref.zona_nombre) { {{ c.ref.zona_nombre }} }
+                              @else if (c.ref.zona) { <span class="cd-sinnombre" [title]="'El código de zona ' + c.ref.zona + ' no está en el catálogo de Kepler'">{{ c.ref.zona }}</span> }
+                              @else { <span class="muted" title="El cliente no tiene zona asignada en el ERP">Sin zona</span> }
+                            </td>
+                            <td>{{ c.ref.vendedor_nombre || c.ref.vendedor || '—' }}</td>
+                            <td>
+                              @if (c.ref.telefono) {
+                                <a [href]="'tel:' + c.ref.telefono" (click)="$event.stopPropagation()" class="cd-tel"><i class="pi pi-phone" aria-hidden="true"></i> {{ c.ref.telefono }}</a>
                               } @else { <span class="muted">—</span> }
                             </td>
-                            <td class="ta-r">{{ c.docs }}</td>
+                            <td class="ta-r">{{ c.docs.length }}</td>
                             <td class="ta-r"><b>{{ c.monto | number:'1.2-2' }}</b></td>
+                            <td class="ta-r"><i class="pi" [class.pi-angle-down]="facturasAbiertas(c.ref.k)" [class.pi-angle-right]="!facturasAbiertas(c.ref.k)" aria-hidden="true"></i></td>
                           </tr>
+                          @if (facturasAbiertas(c.ref.k)) {
+                            <tr class="cd-fact"><td colspan="8">
+                              <table class="cd-fact-table">
+                                <thead><tr>
+                                  <th>Documento</th><th>Folio</th><th>Se facturó</th><th>Venció</th>
+                                  <th class="ta-r">Importe</th><th class="ta-r">Saldo</th>
+                                </tr></thead>
+                                <tbody>
+                                  @for (f of c.docs; track f.folio_digital) {
+                                    <tr>
+                                      <td>{{ f.doc_label }}</td>
+                                      <td class="cd-mono">{{ f.folio_digital }}</td>
+                                      <td>{{ f.fecha_doc || '—' }}</td>
+                                      <td [class.cd-venc-num]="f.estado === 'vencido'">{{ f.fecha }}</td>
+                                      <td class="ta-r muted">{{ f.importe | number:'1.2-2' }}</td>
+                                      <td class="ta-r"><b>{{ f.saldo | number:'1.2-2' }}</b></td>
+                                    </tr>
+                                  }
+                                </tbody>
+                              </table>
+                              <!-- ⭐ El que va a llamar necesita saber que el cliente debe MÁS que lo
+                                   de este día, o lo llama dos veces. -->
+                              @if (c.otros_dias_docs > 0) {
+                                <p class="cd-otros muted">
+                                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                                  Este cliente además debe <b>{{ money(c.otros_dias_monto) }}</b> en
+                                  {{ c.otros_dias_docs }} {{ c.otros_dias_docs === 1 ? 'factura' : 'facturas' }} de otros días.
+                                  <a [routerLink]="['/finanzas/cartera']"
+                                     [queryParams]="{ suc: c.ref.sucursal, cliente: c.ref.cliente_code, nombre: c.ref.cliente_nombre }"
+                                     (click)="$event.stopPropagation()">Ver su estado de cuenta</a>
+                                </p>
+                              }
+                            </td></tr>
+                          }
                         } @empty {
-                          <!-- No puede pasar (los días salen de las mismas filas que el detalle), pero
-                               si pasara, un drill vacío en silencio se leería como "no debe nadie". -->
-                          <tr><td colspan="7" class="cd-empty">Este día tiene {{ money(t.monto) }} pero ningún cliente en el desglose. Es una inconsistencia del dato, no un día sin deuda: avisá a Sistemas.</td></tr>
+                          <!-- No puede pasar: los días y las facturas salen de las mismas filas. Pero
+                               un drill vacío en silencio se leería como "no debe nadie". -->
+                          <tr><td colspan="8" class="cd-empty">Este día tiene {{ money(t.monto) }} pero ningún cliente en el desglose. Es una inconsistencia del dato, no un día sin deuda: avisá a Sistemas.</td></tr>
                         }
                       </tbody>
                     </table>
@@ -323,12 +380,28 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaCliente, DiaEstado } from '.
     .cd-mono { font-family: var(--font-mono, 'Geist Mono', monospace); font-size: .72rem; margin-left: .35rem; }
 
     .cd-drill td { background: var(--layout-bg, #faf9f7); padding: .5rem .8rem .8rem; }
-    .cd-drill-head { font-size: .8rem; margin-bottom: .4rem; }
+    .cd-drill-head { font-size: .8rem; margin-bottom: .4rem; display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
     .cd-drill-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
     .cd-drill-table th { text-align: left; font-weight: 600; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #6b6b6b); padding: .3rem .45rem; border-bottom: 1px solid var(--border-color, #e7e5e0); }
     .cd-drill-table td { padding: .3rem .45rem; border-bottom: 1px dashed var(--surface-border, #eee); }
     .cd-drill-table a { color: var(--action, #c2410c); text-decoration: none; }
     .cd-drill-table a:hover { text-decoration: underline; }
+    .cd-crow { cursor: pointer; }
+    .cd-crow:hover > td { background: var(--card-bg, #fff); }
+    .cd-crow-open > td { background: var(--card-bg, #fff); font-weight: 600; }
+
+    /* El tercer nivel: las FACTURAS. Se hunde un poco mas y pierde el fondo, para que se lea
+       como "lo de adentro de este cliente" y no como otra tabla al mismo nivel. */
+    .cd-fact > td { background: var(--card-bg, #fff); padding: .35rem .5rem .6rem 1.6rem; border-left: 2px solid var(--action, #c2410c); }
+    .cd-fact-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
+    .cd-fact-table th { text-align: left; font-weight: 600; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #6b6b6b); padding: .25rem .4rem; border-bottom: 1px solid var(--surface-border, #eee); }
+    .cd-fact-table td { padding: .25rem .4rem; border-bottom: 1px dotted var(--surface-border, #f0eeeb); }
+    .cd-otros { font-size: .74rem; margin: .45rem 0 0; display: flex; gap: .35rem; align-items: baseline; flex-wrap: wrap; }
+    .cd-otros a { color: var(--action, #c2410c); }
+
+    /* Un codigo sin nombre NO se esconde: se muestra marcado. Ocultarlo seria esconder dinero
+       que nadie puede ubicar, y en esta pantalla ese es justo el error a evitar. */
+    .cd-sinnombre { font-family: var(--font-mono, 'Geist Mono', monospace); font-size: .74rem; border-bottom: 1px dotted currentColor; opacity: .75; cursor: help; }
     .cd-tel { white-space: nowrap; }
     .cd-kind { font-size: .68rem; font-weight: 600; border-radius: 4px; padding: .05rem .3rem; margin-left: .3rem; white-space: nowrap; }
     .cd-kind-interno { background: rgba(107,143,113,.16); color: #4f6b54; }
@@ -403,12 +476,82 @@ export class FinanzasCarteraDiaComponent implements OnInit {
 
   readonly maxDia = computed(() => this.tira().reduce((m, x) => Math.max(m, x.monto), 0));
 
-  /** El desglose del día abierto — filtrado en memoria, sin request. */
-  readonly clientesDelDia = computed<DiaCliente[]>(() => {
+  /**
+   * ⭐ Los clientes del día abierto, con SUS facturas — armado en memoria, sin un solo request.
+   *
+   * El monto del renglón es la suma de sus propias facturas, no un número que venga aparte: por
+   * construcción no puede discrepar del desglose que se abre debajo.
+   *
+   * `otros_dias_*` mira TODA la agenda, no sólo el día: el que va a llamar necesita saber que el
+   * cliente debe más que lo de hoy, o lo llama dos veces.
+   */
+  readonly clientesDelDia = computed<ClienteDelDia[]>(() => {
     const f = this.diaSel(); const d = this.data();
     if (!f || !d) return [];
-    return d.detalle.filter((x) => x.fecha === f).sort((a, b) => b.monto - a.monto);
+
+    const porK = new Map<string, DiaClienteRef>();
+    for (const c of d.clientes) porK.set(c.k, c);
+
+    const delDia = new Map<string, DiaDocumento[]>();
+    const otros = new Map<string, { monto: number; docs: number }>();
+    for (const doc of d.documentos) {
+      if (doc.fecha === f) {
+        const l = delDia.get(doc.k); if (l) l.push(doc); else delDia.set(doc.k, [doc]);
+      } else {
+        const o = otros.get(doc.k) || { monto: 0, docs: 0 };
+        o.monto += doc.saldo; o.docs += 1; otros.set(doc.k, o);
+      }
+    }
+
+    const out: ClienteDelDia[] = [];
+    for (const [k, docs] of delDia) {
+      const ref = porK.get(k);
+      // Una factura sin su cliente no se descarta en silencio: se muestra con el código que trae
+      // la llave. Descartarla haría que el renglón del día no sume lo que dice la tabla.
+      const [suc, code] = k.split('|');
+      const o = otros.get(k);
+      out.push({
+        ref: ref ?? {
+          k, sucursal: suc, sucursal_nombre: null, cliente_code: code, cliente_nombre: code,
+          telefono: null, zona: null, zona_nombre: null, vendedor: null, vendedor_nombre: null,
+          cuenta_kind: 'cliente_final', dias_credito: null,
+        },
+        docs: docs.slice().sort((a, b) => b.saldo - a.saldo),
+        monto: Math.round(docs.reduce((s, x) => s + x.saldo, 0) * 100) / 100,
+        otros_dias_monto: o ? Math.round(o.monto * 100) / 100 : 0,
+        otros_dias_docs: o ? o.docs : 0,
+      });
+    }
+    return out.sort((a, b) => b.monto - a.monto);
   });
+
+  /** Qué clientes tienen sus facturas abiertas. Se limpia al cambiar de día o de filtro. */
+  private readonly abiertos = signal<ReadonlySet<string>>(new Set());
+  /** «Ver todas las facturas» — abre el desglose de todos los clientes del día de una. */
+  readonly todasFacturas = signal(false);
+
+  facturasAbiertas(k: string): boolean { return this.todasFacturas() || this.abiertos().has(k); }
+
+  alternarCliente(k: string): void {
+    // Con «ver todas» prendido, el clic individual apagaría sólo uno y el botón quedaría
+    // mintiendo. Se apaga el modo global y se conserva lo que estaba abierto menos éste.
+    if (this.todasFacturas()) {
+      const todos = new Set(this.clientesDelDia().map((c) => c.ref.k));
+      todos.delete(k);
+      this.todasFacturas.set(false);
+      this.abiertos.set(todos);
+      return;
+    }
+    const s = new Set(this.abiertos());
+    if (s.has(k)) s.delete(k); else s.add(k);
+    this.abiertos.set(s);
+  }
+
+  alternarTodasLasFacturas(): void {
+    const v = !this.todasFacturas();
+    this.todasFacturas.set(v);
+    if (!v) this.abiertos.set(new Set());
+  }
 
   ngOnInit() { this.load(); }
 
@@ -424,7 +567,8 @@ export class FinanzasCarteraDiaComponent implements OnInit {
       next: (d) => {
         this.data.set(d);
         // Un día abierto que ya no existe en el recorte nuevo dejaría la fila expandida vacía.
-        if (this.diaSel() && !d.dias.some((x) => x.fecha === this.diaSel())) this.diaSel.set(null);
+        if (this.diaSel() && !d.dias.some((x) => x.fecha === this.diaSel())) this.cerrarDia();
+        else this.cerrarFacturas();
         this.loading.set(false);
       },
       // Visible SIEMPRE: un `subscribe(next)` a secas deja la pantalla en el estado anterior y
@@ -433,9 +577,21 @@ export class FinanzasCarteraDiaComponent implements OnInit {
     });
   }
 
-  seleccionar(fecha: string): void { this.diaSel.set(this.diaSel() === fecha ? null : fecha); }
-  verLado(l: DiaEstado): void { this.lado.set(this.lado() === l ? null : l); this.diaSel.set(null); }
-  verTodo(): void { this.lado.set(null); this.diaSel.set(null); }
+  /**
+   * ⚠️ Cerrar las facturas al cambiar de día NO es cosmético: las llaves abiertas son de los
+   * clientes del día anterior, y si sobreviven, el cliente que caiga con la misma llave en el día
+   * nuevo aparece desplegado sin que nadie lo haya pedido.
+   */
+  private cerrarFacturas(): void { this.abiertos.set(new Set()); this.todasFacturas.set(false); }
+  private cerrarDia(): void { this.diaSel.set(null); this.cerrarFacturas(); }
+
+  seleccionar(fecha: string): void {
+    const mismo = this.diaSel() === fecha;
+    this.cerrarFacturas();
+    this.diaSel.set(mismo ? null : fecha);
+  }
+  verLado(l: DiaEstado): void { this.lado.set(this.lado() === l ? null : l); this.cerrarDia(); }
+  verTodo(): void { this.lado.set(null); this.cerrarDia(); }
 
   repartible(d: PorDiaResp): number { return d.cobertura.repartible; }
   absN(n: number): number { return Math.abs(n); }
@@ -484,21 +640,41 @@ export class FinanzasCarteraDiaComponent implements OnInit {
   }
   pct(a: number, b: number): number { return b > 0 ? Math.round((a / b) * 1000) / 10 : 0; }
 
-  /** El CSV sale de lo que está EN PANTALLA (mismo filtro, mismo lado): si exportara todo, el
-   *  archivo no coincidiría con lo que la persona acaba de mirar. */
+  /**
+   * El CSV sale de lo que está EN PANTALLA (mismo filtro, mismo lado): si exportara todo, el
+   * archivo no coincidiría con lo que la persona acaba de mirar.
+   *
+   * ⭐ Una fila por **FACTURA**, no por cliente: es lo que se lleva el que sale a cobrar, y una
+   * fila «cliente X debe $600» no le dice qué folios reclamar. Plaza y zona van con **nombre**;
+   * el código va en su propia columna para que siga siendo cruzable con el ERP.
+   */
   exportCsv(): void {
     const d = this.data(); if (!d) return;
     const filas = this.filas();
     const porFecha = new Set(filas.map((f) => f.fecha));
-    const det = d.detalle.filter((x) => porFecha.has(x.fecha));
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const head = ['fecha', 'dia', 'cuando', 'sucursal', 'cliente_code', 'cliente', 'zona', 'vendedor', 'telefono', 'tipo_cuenta', 'docs', 'monto'];
+    const porK = new Map(d.clientes.map((c) => [c.k, c]));
     const cuandoPorFecha = new Map(filas.map((f) => [f.fecha, this.cuando(f)]));
-    const body = det
-      .sort((a, b) => a.fecha.localeCompare(b.fecha) || b.monto - a.monto)
-      .map((x) => [x.fecha, this.diaSemana(x.fecha), cuandoPorFecha.get(x.fecha) || '', x.sucursal,
-        x.cliente_code, x.cliente_nombre, x.zona || '', x.vendedor_nombre || x.vendedor || '',
-        x.telefono || '', x.cuenta_kind, x.docs, x.monto.toFixed(2)].map(esc).join(','));
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['vence', 'dia', 'cuando', 'dias_vencido', 'plaza', 'plaza_code', 'zona', 'zona_code',
+      'cliente_code', 'cliente', 'vendedor', 'telefono', 'tipo_cuenta',
+      'documento', 'folio', 'se_facturo', 'importe', 'saldo'];
+    const body = d.documentos
+      .filter((x) => porFecha.has(x.fecha))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha) || b.saldo - a.saldo)
+      .map((x) => {
+        const c = porK.get(x.k);
+        return [
+          x.fecha, this.diaSemana(x.fecha), cuandoPorFecha.get(x.fecha) || '',
+          x.dias_offset < 0 ? -x.dias_offset : 0,
+          // Si el catálogo no tiene el código, va el código: un vacío se leería como «sin plaza».
+          c?.sucursal_nombre || c?.sucursal || '', c?.sucursal || '',
+          c?.zona_nombre || c?.zona || 'Sin zona', c?.zona || '',
+          c?.cliente_code || '', c?.cliente_nombre || '',
+          c?.vendedor_nombre || c?.vendedor || '', c?.telefono || '', c?.cuenta_kind || '',
+          x.doc_label, x.folio_digital, x.fecha_doc || '',
+          x.importe.toFixed(2), x.saldo.toFixed(2),
+        ].map(esc).join(',');
+      });
     const csv = [head.join(','), ...body].join('\n');
     // BOM: sin él Excel en Windows abre los acentos rotos.
     const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));

@@ -18,12 +18,26 @@
   **$7.92M vencen hoy o después (13.0%)** contra **$53.02M ya vencidos (87.1%) repartidos en 273
   días**. Un calendario sólo-futuro habría publicado «$7.9M por cobrar» sobre una cartera de $61M.
   Hacia atrás el día dice *desde cuándo*, hacia adelante *cuándo*.
-- **Sin ventana:** la respuesta trae los 292 días y las 5,652 filas (día × cliente), así que abrir
+- **Sin ventana:** la respuesta trae los 292 días, las 6,913 facturas y los 1,307 clientes, así que abrir
   un día es instantáneo y no dispara requests. Se midió antes de decidirlo — traer todo cuesta lo
-  mismo que traer un mes (la pirámide de CTEs domina) y comprime a **119 KB**. Una ventana de ±30
+  mismo que traer un mes (la pirámide de CTEs domina) y comprime a **131 KB**. Una ventana de ±30
   días sólo habría escondido **$29.7M** detrás de un «ampliá para ver el resto».
 - Lo que ningún día puede colocar se **declara al pie**: `sin_documento` **$612,428.11 (1.0%)**,
   que es saldo sin documento abierto que le ponga fecha.
+- **El drill llega a la FACTURA** (CXC.26.1): día → clientes → sus folios, con documento, fecha de
+  emisión, importe y saldo. El monto del cliente pasa a ser la **suma de sus propias facturas**, así
+  que no puede discrepar del desglose. Y cada cliente avisa lo que debe en **otros días**, o el que
+  llama lo llama dos veces.
+- **Plaza y zona con NOMBRE, no con número.** La zona tenía catálogo en Kepler (`kduk`) y nadie lo
+  usaba. ⚠️ El join va **por código**, no por (sucursal, código): el catálogo está replicado por
+  plaza pero ninguna tiene los seis códigos, así que el estricto dejaba **$3,685,841.18 sin nombre**.
+  El de código resuelve todas y es seguro porque el código→nombre es unívoco — comprobado en el
+  smoke, no supuesto. Lo que no tiene zona dice **«Sin zona»**, que es otra ausencia; y un código
+  que el catálogo no tenga se muestra **marcado**, nunca escondido.
+- Bajar a factura costó **12 KB**: 6,913 documentos contra 5,652 pares, y la respuesta pasa de
+  119 a **131 KB** gzipeados porque va normalizada (los 1,307 clientes en su propia lista).
+- El CSV pasa a una fila por factura, con plaza y zona por nombre **y** su código en columna aparte.
+
 
 ### Fixed
 - **El selector de vista de Crédito marcaba la pestaña equivocada.** Resolvía por
