@@ -411,6 +411,24 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
       },
       {
+        /**
+         * `[CXC.26]` La misma cartera con el DÍA como eje. Va ANTES de `cartera` a secas: con el
+         * matcher de Angular el orden no cambia nada porque los paths son distintos, pero dejarlo
+         * pegado deja ver de un vistazo que son dos vistas del mismo dato.
+         *
+         * ⛔ **Mismo guard, no uno nuevo.** `carteraEntryGuard` exige `FINANCE_RECEIVABLES_VER` y
+         * redirige a Cobranza a quien sólo tenga el permiso de ésa — exactamente lo que hace falta
+         * acá. Un `permissionGuard` propio dejaría a ese usuario con un 403 seco en vez del rebote.
+         *
+         * NO se registra como nodo de `AUTHZ_TREE`: no es un módulo, es una lente de `cartera`
+         * bajo su mismo permiso. Un nodo propio la haría aparecer como proyecto aparte en
+         * «Mi trabajo» y como candidato duplicado del landing de Finanzas (ADR-061).
+         */
+        path: 'cartera/dia',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera-dia.component').then(m => m.FinanzasCarteraDiaComponent),
+        canActivate: [carteraEntryGuard]
+      },
+      {
         path: 'cartera',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
         canActivate: [carteraEntryGuard]

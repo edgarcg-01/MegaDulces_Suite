@@ -10,6 +10,38 @@
 
 ## [Unreleased]
 
+### Added — Crédito por día: la agenda de cobranza (CXC.26, 2026-09-25)
+- Tercer chip en `/finanzas/cartera` → **`/finanzas/cartera/dia`**: la misma cartera con el
+  **calendario como eje**. Contesta «¿quiénes me deben estos días?» y «¿qué día debo cobrar?».
+  Mismo dato y mismo permiso que la vista por cliente.
+- ⛔ **El eje va a los DOS lados, y eso no es una preferencia de diseño.** Medido contra prod:
+  **$7.92M vencen hoy o después (13.0%)** contra **$53.02M ya vencidos (87.1%) repartidos en 273
+  días**. Un calendario sólo-futuro habría publicado «$7.9M por cobrar» sobre una cartera de $61M.
+  Hacia atrás el día dice *desde cuándo*, hacia adelante *cuándo*.
+- **Sin ventana:** la respuesta trae los 292 días y las 5,652 filas (día × cliente), así que abrir
+  un día es instantáneo y no dispara requests. Se midió antes de decidirlo — traer todo cuesta lo
+  mismo que traer un mes (la pirámide de CTEs domina) y comprime a **119 KB**. Una ventana de ±30
+  días sólo habría escondido **$29.7M** detrás de un «ampliá para ver el resto».
+- Lo que ningún día puede colocar se **declara al pie**: `sin_documento` **$612,428.11 (1.0%)**,
+  que es saldo sin documento abierto que le ponga fecha.
+
+### Fixed
+- **El selector de vista de Crédito marcaba la pestaña equivocada.** Resolvía por
+  `startsWith` y `/finanzas/cartera` es prefijo de `/finanzas/cartera/dia`, así que en la vista por
+  día se encendía «Por cliente». Ahora gana el prefijo más largo y el corte es por segmento.
+- **`/finanzas/cartera` ignoraba los query params.** Se agregó el deep link `?suc=&cliente=`, que
+  filtra por ese cliente y abre su auxiliar — sin eso, el enlace del drill habría sido un enlace
+  que se ve bien y no hace nada.
+
+### Internal
+- `GET /finance/receivables/por-dia` (una pasada, reusa el constructor de opciones de filtro de la
+  vista por cliente en vez de escribir un segundo).
+- Candado `database/tests/test-newdb-cartera-por-dia.js` (**14 ✔ contra prod**) en la regresión, con
+  techo de payload: el día que la agenda crezca se pone rojo un test, no lenta una pantalla.
+- Specs de front (**21 ✔**): el del chip con prueba negativa; el del componente hace **clic** en un
+  día y exige el desglose y el banner de error en el DOM.
+
+
 ### Added — Ingresos contables: el otro lado del libro (IG, 2026-09-25)
 - Pantalla nueva **`/finanzas/ingresos`**, hermana de Egresos: árbol **canal → plaza**, tabla,
   tendencia y una pestaña **¿Cuadra?** que pone las cuatro fuentes del mismo peso de venta lado a

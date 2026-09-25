@@ -9,7 +9,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -657,6 +657,7 @@ export class FinanzasCarteraComponent implements OnInit {
   private readonly svc = inject(CarteraService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
 
@@ -738,7 +739,31 @@ export class FinanzasCarteraComponent implements OnInit {
     ...(this.filtros()?.sucursales || []).map((s) => ({ label: s.label, value: s.code as string | null })),
   ]);
 
-  ngOnInit() { this.load(); }
+  /**
+   * `[CXC.26]` **Enlace profundo a un cliente**: `?suc=00&cliente=C1011` deja la pantalla filtrada
+   * a ese código y abre su auxiliar.
+   *
+   * Lo estrena el drill de «Por día» (`/finanzas/cartera/dia`), que lista quién debe cada día y
+   * tiene que poder mandarte al estado de cuenta completo. Sin esto el enlace existía y no hacía
+   * nada: la pantalla ignoraba por completo los query params, así que un `?q=` se veía como un
+   * enlace que funciona y aterrizaba en la lista sin filtrar.
+   *
+   * ⚠️ Se lee del `snapshot`, no de un `subscribe`: navegar a la misma ruta con otros params no
+   * vuelve a construir el componente, pero **ningún** enlace de la app hace eso hoy — y suscribirse
+   * acá reabriría el diálogo cada vez que otra cosa toque la URL. Si algún día hace falta, va con
+   * su propio motivo.
+   */
+  ngOnInit() {
+    const qp = this.route.snapshot.queryParamMap;
+    const cliente = qp.get('cliente'); const suc = qp.get('suc');
+    if (cliente) this.search = cliente;
+    this.load();
+    if (cliente && suc) {
+      this.detalleRef.set({ sucursal: suc, cliente, nombre: qp.get('nombre') || cliente });
+      this.detalleOpen.set(true);
+      this.fetchDetalle(suc, cliente);
+    }
+  }
 
   load() {
     this.loading.set(true); this.error.set(null);
