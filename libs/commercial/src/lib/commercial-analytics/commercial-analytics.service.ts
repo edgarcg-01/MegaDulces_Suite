@@ -1,10 +1,13 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, stepAt, tableAt } from '../shared/freshness';
-// [GX.19] Cobertura de egresos: lógica pura y probada (expense-coverage.spec.ts), fuera del god service.
+// [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
+// god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
+// sucursal) y a ingresos (grupo = plaza) — ver el encabezado del módulo.
 import {
-  computeExpenseComparativo, computeExpenseCoverage,
-  type ExpenseComparativo, type ExpenseCoverage, type ExpenseMonthBranch, type ExpenseQueryFilters,
-} from './expense-coverage';
+  computePeriodComparativo, computePeriodCoverage, ETIQUETA_PLAZA, ETIQUETA_SUCURSAL,
+  type ExpenseQueryFilters, type IncomeQueryFilters, type PeriodComparativo, type PeriodCoverage,
+  type PeriodSlice,
+} from './period-coverage';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -24,6 +27,19 @@ import type {
 } from '@megadulces/contracts';
 // [GX.9] Familias de egreso: etiqueta y clave de serie en UNA fuente (ADR-056).
 import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/contracts';
+// [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
+import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
+import type { IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+/** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
+interface TreePlaza { key: string; label: string; level: string; total: number; movs: number }
+/** Un agregado de una sola columna `v`; knex devuelve el numérico de Postgres como texto. */
+type Agregado = { v: string } | undefined;
+interface TreeCanal { key: string; label: string; level: string; total: number; movs: number; children: Map<string, TreePlaza> }
+/** Fila cruda de la serie mensual de ingresos: knex devuelve los numéricos como texto. */
+interface IncomeSeriesRaw {
+  mes: string; total: string;
+  mostrador: string; telemarketing: string; ruta: string; vecinal: string; contado: string; otro: string;
+}
 import { calculateRouteSalesPace } from './route-sales-pace';
 
 /**
@@ -2343,7 +2359,7 @@ export class CommercialAnalyticsService {
    */
   private async expenseMonthBranch(
     trx: Knex.Transaction, tenantId: string, from: string, to: string, q: ExpenseQueryFilters,
-  ): Promise<ExpenseMonthBranch[]> {
+  ): Promise<PeriodSlice[]> {
     const rows: Array<{ mes: string; sucursal: string; total: string }> =
       await this.expenseQuery(trx, tenantId, from, to, q)
         .groupByRaw("to_char(e.fecha,'YYYY-MM'), e.sucursal")
@@ -2352,7 +2368,7 @@ export class CommercialAnalyticsService {
           'e.sucursal',
           trx.raw('SUM(importe)::numeric AS total'),
         );
-    return rows.map((r) => ({ mes: r.mes, sucursal: r.sucursal, total: Number(r.total) }));
+    return rows.map((r) => ({ mes: r.mes, grupo: r.sucursal, total: Number(r.total) }));
   }
 
   /**
@@ -2400,7 +2416,7 @@ export class CommercialAnalyticsService {
         const prev = await base(prev_from, prev_to).clone()
           .groupByRaw(dim.groupSql)
           .select(trx.raw(`${dim.keySql} AS key`), trx.raw('SUM(importe)::numeric AS total'));
-        prevMap = new Map(prev.map((r: any) => [String(r.key), Number(r.total)]));
+        prevMap = new Map((prev as Array<{ key: string; total: string }>).map((r) => [String(r.key), Number(r.total)]));
       }
 
       // [GX.9] Una columna por familia del contrato (compras · gastos · financiero ·
@@ -2426,9 +2442,9 @@ export class CommercialAnalyticsService {
       // tumbando la consulta que venía a describir.
       const mesSuc = await this.expenseMonthBranch(trx, tenantId, from, to, q);
       const freshness = await this.expenseFreshness(trx, tenantId);
-      const coverage: ExpenseCoverage = computeExpenseCoverage(mesSuc, from, to);
-      const comparativo: ExpenseComparativo | null = q.compare
-        ? computeExpenseComparativo(mesSuc, await this.expenseMonthBranch(trx, tenantId, prev_from, prev_to, q))
+      const coverage: PeriodCoverage = computePeriodCoverage(mesSuc, from, to, ETIQUETA_SUCURSAL);
+      const comparativo: PeriodComparativo | null = q.compare
+        ? computePeriodComparativo(mesSuc, await this.expenseMonthBranch(trx, tenantId, prev_from, prev_to, q))
         : null;
       const parciales = new Set(coverage.meses_parciales);
       // Sucursales que reportan en CADA mes: es lo que convierte un escalón de la gráfica en
@@ -2447,7 +2463,7 @@ export class CommercialAnalyticsService {
         by_familia: byFamilia.map((r: any) => ({
           ...r, label: expenseFamiliaLabel(r.familia), total: Number(r.total), movs: Number(r.movs),
         })),
-        rows: rows.map((r: any) => {
+        rows: rows.map((r) => {
           const t = Number(r.total);
           const prev = prevMap.get(String(r.key));
           return {
@@ -2550,6 +2566,293 @@ export class CommercialAnalyticsService {
         .limit(3000);
       return items.map((r: any) => ({ ...r, importe: Number(r.importe) }));
     });
+  }
+
+  // ─────────── IG — Ingresos contables (el otro lado del libro) ───────────
+  //
+  // Hermana de los egresos y con el MISMO motor de cobertura/frescura, pero con las dimensiones
+  // que de verdad miden acá. La fuente es `analytics.income_entries_src(from,to)`: vista viva
+  // derive-no-copy sobre `kepler_ods.kdc2YYMM`, no una tabla de importer. Las tres reglas duras
+  // (sólo CEDIS · sólo UD1301 · canal por `c6`) viven ADENTRO de la función, no acá — ver la
+  // migración `20260925150000_analytics_income_entries.js`. Sin ellas el número sube **+69 %**.
+
+  /** Query base de ingresos con los filtros aplicados. La función ya acota el rango. */
+  private incomeQuery(trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters) {
+    const b = trx
+      .from(trx.raw('analytics.income_entries_src(?::date, ?::date) AS e', [from, to]))
+      .where('e.tenant_id', tenantId);
+    if (q.canal?.length) b.whereIn('e.canal', q.canal);
+    if (q.plaza) b.where('e.plaza', q.plaza);
+    // Búsqueda libre sobre el concepto crudo de la póliza (donde vive el nombre del cliente).
+    if (q.concepto) b.whereRaw('e.concepto ILIKE ?', [`%${q.concepto}%`]);
+    if (q.min_importe != null) b.where('e.importe', '>=', q.min_importe);
+    if (q.max_importe != null) b.where('e.importe', '<=', q.max_importe);
+    return b;
+  }
+
+  /** Dimensión de agrupación del reporte de ingresos. */
+  private incomeDim(gb?: string) {
+    switch (gb) {
+      case 'plaza':
+        return { key: 'plaza', groupSql: 'e.plaza, e.canal', keySql: "COALESCE(NULLIF(e.plaza,''),'(sin plaza)')", labelSql: "COALESCE(NULLIF(e.plaza,''),'(sin plaza)')", canal: true };
+      case 'mes':
+        return { key: 'mes', groupSql: 'e.anio_mes', keySql: 'e.anio_mes', labelSql: 'e.anio_mes', canal: false };
+      case 'documento':
+        return { key: 'documento', groupSql: 'e.folio', keySql: 'e.folio', labelSql: 'e.folio', canal: false };
+      case 'canal':
+      default:
+        return { key: 'canal', groupSql: 'e.canal', keySql: 'e.canal', labelSql: 'e.canal', canal: false };
+    }
+  }
+
+  /**
+   * `[IG.1.3]` Frescura del ingreso — **un solo eslabón, y a propósito**.
+   *
+   * El número publicado sale de la derivación sobre el ODS, así que su edad es la del carril que
+   * alimenta el ODS (`ods_live_hot`, que corre cada 15 s), NO la del feed nocturno. Componer las
+   * dos haría que la píldora dijera «8 h» sobre un dato de minutos: sería pesimista, y una etiqueta
+   * que miente hacia el lado prudente sigue siendo una etiqueta que miente.
+   *
+   * La edad del feed nocturno SÍ importa, pero como **árbitro**: va en el cuadre de fuentes
+   * (`incomeSources`), donde es lo que se está comparando.
+   *
+   * Tolerancia 1 h: el carril corre cada 15 s, así que una hora de silencio ya es una falla — y es
+   * generosa comparada con su cadencia real.
+   */
+  private async incomeFreshness(trx: Knex.Transaction): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('ods_live_hot', 'Réplica ODS (pólizas)', await laneAt(trx, 'ods_live_hot'), 1),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /** Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos. */
+  private async incomeMonthPlaza(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters,
+  ): Promise<PeriodSlice[]> {
+    const rows: Array<{ mes: string; plaza: string; total: string }> =
+      await this.incomeQuery(trx, tenantId, from, to, q)
+        .groupByRaw('e.anio_mes, e.plaza')
+        .select(
+          trx.raw('e.anio_mes AS mes'),
+          trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+          trx.raw('SUM(e.importe)::numeric AS total'),
+        );
+    return rows.map((r) => ({ mes: r.mes, grupo: r.plaza, total: Number(r.total) }));
+  }
+
+  /**
+   * `[IG.1.1]` Ingresos contables agregados por dimensión dinámica
+   * (`group_by = canal | plaza | mes | documento`), con cobertura, frescura y comparativo.
+   *
+   * Devuelve lo mismo que `expenses()` en forma, para que la pantalla pueda reusar sus organismos.
+   */
+  async income(q: IncomeQueryFilters): Promise<IncomeReport> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to, prev_from, prev_to } = this.expenseRange(q); // mismo cálculo de ventana
+    const dim = this.incomeDim(q.group_by);
+    return this.tk.run(async (trx) => {
+      const base = (f = from, t = to) => this.incomeQuery(trx, tenantId, f, t, q);
+
+      // Las filas crudas de knex se tipan acá y no con `any`: son el borde entre el SQL y el
+      // contrato, y es justo donde un campo que cambia de nombre pasa inadvertido.
+      const totalsRow = await base().clone()
+        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .first() as { total: string; movs: number } | undefined;
+      const total = Number(totalsRow?.total || 0);
+
+      const byCanal: Array<{ canal: string; total: string; movs: number }> = await base().clone()
+        .groupBy('e.canal')
+        .select('e.canal', trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .orderByRaw('SUM(e.importe) DESC');
+
+      const rowsQ = base().clone()
+        .groupByRaw(dim.groupSql)
+        .select(
+          trx.raw(`${dim.keySql} AS key`),
+          trx.raw(`${dim.labelSql} AS label`),
+          trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'),
+          trx.raw('COUNT(*)::int AS movs'),
+        )
+        .orderByRaw('SUM(e.importe) DESC')
+        .limit(1000);
+      if (dim.canal) rowsQ.select(trx.raw('MAX(e.canal) AS canal'));
+      const rows: Array<{ key: string; label: string; canal?: string; total: string; movs: number }> = await rowsQ;
+
+      let prevMap = new Map<string, number>();
+      if (q.compare) {
+        const prev = await base(prev_from, prev_to).clone()
+          .groupByRaw(dim.groupSql)
+          .select(trx.raw(`${dim.keySql} AS key`), trx.raw('SUM(e.importe)::numeric AS total'));
+        prevMap = new Map((prev as Array<{ key: string; total: string }>).map((r) => [String(r.key), Number(r.total)]));
+      }
+
+      // Serie mensual con una columna por canal — misma forma que la de egresos por familia.
+      const seriesQ = base().clone()
+        .groupBy('e.anio_mes')
+        .select(trx.raw('e.anio_mes AS mes'), trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'));
+      for (const [canal, key] of Object.entries(SALES_CANAL_SERIES_KEY)) {
+        seriesQ.select(trx.raw(`ROUND(COALESCE(SUM(e.importe) FILTER (WHERE e.canal=?),0)::numeric,2) AS ${key}`, [canal]));
+      }
+      const series = await seriesQ.orderBy('mes');
+
+      // Secuencial, no `Promise.all`: `laneAt`/`tableAt` tocan la misma transacción (ver el bloque
+      // de `expenseFreshness`).
+      const mesPlaza = await this.incomeMonthPlaza(trx, tenantId, from, to, q);
+      const freshness = await this.incomeFreshness(trx);
+      const coverage: PeriodCoverage = computePeriodCoverage(mesPlaza, from, to, ETIQUETA_PLAZA);
+      const comparativo: PeriodComparativo | null = q.compare
+        ? computePeriodComparativo(mesPlaza, await this.incomeMonthPlaza(trx, tenantId, prev_from, prev_to, q))
+        : null;
+      const parciales = new Set(coverage.meses_parciales);
+      const plazasPorMes = new Map<string, number>();
+      for (const f of mesPlaza) plazasPorMes.set(f.mes, (plazasPorMes.get(f.mes) ?? 0) + 1);
+
+      return {
+        from, to, prev_from, prev_to,
+        freshness, coverage, comparativo,
+        group_by: dim.key,
+        total: +total.toFixed(2),
+        movimientos: Number(totalsRow?.movs || 0),
+        by_canal: byCanal.map((r) => ({
+          canal: r.canal, label: salesCanalLabel(r.canal), total: Number(r.total), movs: Number(r.movs),
+        })),
+        rows: rows.map((r) => {
+          const t = Number(r.total);
+          const prev = prevMap.get(String(r.key));
+          return {
+            key: r.key, label: r.label, canal: r.canal ?? null,
+            total: t, movs: Number(r.movs),
+            share_pct: total ? +((t / total) * 100).toFixed(1) : 0,
+            prev_total: prev ?? null,
+            delta_pct: q.compare && prev ? +(((t - prev) / prev) * 100).toFixed(1) : null,
+          };
+        }),
+        series: (series as IncomeSeriesRaw[]).map((r) => ({
+          mes: r.mes, total: Number(r.total),
+          mostrador: Number(r.mostrador) || 0, telemarketing: Number(r.telemarketing) || 0,
+          ruta: Number(r.ruta) || 0, vecinal: Number(r.vecinal) || 0,
+          contado: Number(r.contado) || 0, otro: Number(r.otro) || 0,
+          parcial: parciales.has(r.mes),
+          plazas: plazasPorMes.get(r.mes) ?? 0,
+        })),
+      };
+    });
+  }
+
+  /** `[IG.1.2]` Árbol Canal → Plaza, con totales y share por nodo. */
+  async incomeTree(q: IncomeQueryFilters): Promise<IncomeTree> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    return this.tk.run(async (trx) => {
+      const rows: Array<{ canal: string; plaza: string; total: string; movs: number }> =
+        await this.incomeQuery(trx, tenantId, from, to, q)
+        .groupByRaw('e.canal, e.plaza')
+        .select('e.canal', trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+          trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
+
+      const total = rows.reduce((a, r) => a + Number(r.total), 0);
+      const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
+      const canales = new Map<string, TreeCanal>();
+      for (const r of rows) {
+        const ck = r.canal || 'otro';
+        if (!canales.has(ck)) canales.set(ck, { key: ck, label: salesCanalLabel(ck), level: 'canal', total: 0, movs: 0, children: new Map() });
+        const C = canales.get(ck)!;
+        C.total += Number(r.total); C.movs += Number(r.movs);
+        // ⚠️ El residuo NO se desglosa por plaza: sus "plazas" son nombres de cliente sueltos
+        // (233 de 271 en el rango por defecto). Desplegarlas fingiría 233 puntos de venta.
+        if (ck === SALES_CANAL_RESIDUO) continue;
+        const p = r.plaza;
+        if (!C.children.has(p)) C.children.set(p, { key: `${ck}|${p}`, label: p, level: 'plaza', total: 0, movs: 0 });
+        const P = C.children.get(p)!;
+        P.total += Number(r.total); P.movs += Number(r.movs);
+      }
+      const tree = [...canales.values()]
+        .sort((a, b) => b.total - a.total)
+        .map((c) => ({
+          ...c, share_pct: share(c.total),
+          children: [...c.children.values()].sort((a, b) => b.total - a.total)
+            .map((p) => ({ ...p, share_pct: share(p.total) })),
+        }));
+      return { from, to, total: +total.toFixed(2), tree };
+    });
+  }
+
+  /**
+   * `[IG.3]` **Cuadre de fuentes** — el organismo que hoy no existe en ninguna pantalla.
+   *
+   * Pone lado a lado los cuatro caminos que llevan al mismo peso de venta. No es adorno: es lo que
+   * ADR-059 pide (un número se ARBITRA) y lo único que permite decir si la cifra es confiable.
+   * Medido en prod para agosto-2026:
+   *
+   *   A contable (esta pantalla) ... $55,940,323.96
+   *   D por canal (feed nocturno) .. $55,863,192.60   Δ −0.14 %  ← se validan mutuamente
+   *   B hecho de venta ............. $54,265,356.22   Δ −3.0 %   ← otro camino, otra fuente
+   *   C cobranza ................... $43,930,836.96   Δ −21.5 %  ← NO es discrepancia: es DSO
+   *
+   * ⚠️ `C` se muestra **explícitamente marcado como no comparable de frente**. Es lo que se cobró,
+   * no lo que se devengó; leerlo como faltante es el error que esta pestaña tiene que impedir.
+   */
+  async incomeSources(q: IncomeQueryFilters): Promise<IncomeSources> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const mesIni = from.slice(0, 7);
+    const mesFin = to.slice(0, 7);
+    return this.tk.run(async (trx) => {
+      const uno = async (fn: () => Promise<string | number | null | undefined>): Promise<number | null> => {
+        try { const r = await fn(); return r == null ? null : Number(r); } catch { return null; }
+      };
+
+      const contable = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
+        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
+
+      // El feed nocturno es MENSUAL: sólo se compara si el rango son meses enteros, o el Δ sería
+      // un artefacto del recorte. Si no lo son, se DECLARA no comparable en vez de restar peras.
+      const mesesEnteros = from.endsWith('-01') && to === this.ultimoDiaDelMes(to);
+      const porCanal = mesesEnteros ? await uno(async () => (await trx('analytics.sales_by_channel_monthly')
+        .where('tenant_id', tenantId).andWhere('anio_mes', '>=', mesIni).andWhere('anio_mes', '<=', mesFin)
+        .select(trx.raw('COALESCE(SUM(ventas),0)::numeric AS v')).first() as Agregado)?.v) : null;
+
+      const hechoVenta = await uno(async () => (await trx('analytics.mv_sales_blended')
+        .where('tenant_id', tenantId).andWhereBetween('sale_date', [from, to])
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS v')).first() as Agregado)?.v);
+
+      const cobranza = await uno(async () => (await trx('analytics.erp_collections')
+        .where('tenant_id', tenantId).andWhereBetween('cobro_date', [from, to])
+        .select(trx.raw('COALESCE(SUM(monto),0)::numeric AS v')).first() as Agregado)?.v);
+
+      const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
+      const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
+
+      return {
+        from, to,
+        fuentes: [
+          { key: 'contable', label: 'Contable (pólizas 401, CEDIS · UD1301)', monto: contable, delta_pct: 0, comparable: true,
+            nota: 'Lo que publica esta pantalla. Derivado del ODS al minuto.' },
+          { key: 'canal', label: 'Por canal (feed nocturno)', monto: porCanal, delta_pct: pct(porCanal), comparable: true,
+            medido_al: edadFeed,
+            nota: mesesEnteros
+              ? 'Mismo universo por otro camino (lee las réplicas, no el ODS). Debe cuadrar: en los 6 meses cerrados de feb–jul 2026 el delta fue $0.00 exacto.'
+              : 'NO MEDIDO: este feed es mensual y el rango no son meses enteros. Compararlo restaría peras con manzanas.' },
+          { key: 'hecho_venta', label: 'Hecho de venta (mv_sales_blended)', monto: hechoVenta, delta_pct: pct(hechoVenta), comparable: true,
+            nota: 'Testigo independiente: otra fuente y otro camino. Un ~3 % de diferencia es sano; una brecha grande es señal.' },
+          { key: 'cobranza', label: 'Cobranza (UA0501)', monto: cobranza, delta_pct: pct(cobranza), comparable: false,
+            nota: '⚠️ NO comparable de frente: es lo que se COBRÓ, no lo que se devengó. La diferencia es plazo de crédito (DSO), no faltante.' },
+        ],
+      };
+    });
+  }
+
+  /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
+  private ultimoDiaDelMes(d: string): string {
+    const y = Number(d.slice(0, 4)); const m = Number(d.slice(5, 7));
+    const bis = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const dias = [31, bis ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+    return `${d.slice(0, 7)}-${String(dias).padStart(2, '0')}`;
   }
 
   /**

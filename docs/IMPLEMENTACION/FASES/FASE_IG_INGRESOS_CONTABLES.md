@@ -1,8 +1,25 @@
 # Fase IG — Ingresos contables
 
-> Plan de implementación. Estado: **🔨 DISEÑADO (planeación) 2026-09-25**. Sin código.
+> Estado: **🧪 IG.0–IG.3 EN CÓDIGO 2026-09-25** (falta aplicar 2 migraciones y validar en pantalla).
 > Hermana de **GX** (egresos contables, `/finanzas/egresos`). Todo lo medido acá salió de consultas
 > de **solo lectura contra prod** el 2026-09-25.
+>
+> ## Lo que el plan dijo mal, corregido al construirlo
+>
+> Tres cosas se cayeron al medirlas. Quedan escritas porque el error es más útil que la versión
+> limpia:
+>
+> 1. **`erp_sales_invoices` NO sirve como fuente.** El plan la daba por buena para el drill y para
+>    los agregados. Medido: la vista **no incluye `UD1301`** —el documento que ES la venta— y cubre
+>    **$8.2M de los $55.9M** de agosto. La Fase AX la acotó a propósito a los documentos con líneas
+>    de producto. El drill al documento queda abierto.
+> 2. **No hace falta matview.** El plan asumía el patrón de `bank_postings` (materializar por
+>    costo). Medido: el fan-out del ingreso sobre las 21 `kdc2` cuesta **72 ms** (contra los 2.8 s
+>    que obligaron a materializar el 102), así que va **vista viva** — y la pantalla gana frescura
+>    de minutos en vez de nocturna.
+> 3. **La decisión D1 se resolvió al revés de lo previsto.** El plan proponía la tabla nocturna para
+>    los agregados; no puede ser, porque es de grano **mensual** y la pantalla tiene rango por día.
+>    Sirve del ODS y la tabla pasa a **árbitro**, que además es el rol que la hace valiosa.
 
 ---
 
@@ -120,7 +137,7 @@ vendido. Dibujar ese número sería exactamente lo que esta arquitectura existe 
 
 ## 4. Sprints
 
-### `[IG.0]` — Fijar el contrato del dato (sin UI) ⬜
+### `[IG.0]` — Fijar el contrato del dato (sin UI) ✅ 2026-09-25
 
 Ruta crítica. Nada se construye encima hasta que esto cierre.
 
@@ -139,7 +156,7 @@ Ruta crítica. Nada se construye encima hasta que esto cierre.
 - `[IG.0.3]` Prueba negativa: quitar el filtro `sucursal='00'` y verificar que el candado se pone
   **rojo** (tiene que saltar el +69 %). Un gate sin prueba negativa es una intención.
 
-### `[IG.1]` — Backend: el reporte ⬜
+### `[IG.1]` — Backend: el reporte ✅ 2026-09-25
 
 - `[IG.1.1]` `GET /analytics/income` — mismo motor que `expenses()`: `group_by` =
   `canal | plaza | cliente | vendedor | mes`, filtros `from/to`, `canal`, `plaza`, `cliente`,
@@ -154,7 +171,7 @@ Ruta crítica. Nada se construye encima hasta que esto cierre.
   `FINANCE_EXPENSES_VER` desde el estado vivo. ⚠️ Lección `[LC.6.2]`: **un módulo no está entregado
   hasta que su permiso está REPARTIDO en prod**, no sólo declarado en el enum.
 
-### `[IG.2]` — Frontend: la pantalla ⬜
+### `[IG.2]` — Frontend: la pantalla ✅ 2026-09-25
 
 `/finanzas/ingresos`, tab hermano de Egresos en `finanzas-tabs.ts`.
 
@@ -163,7 +180,7 @@ Ruta crítica. Nada se construye encima hasta que esto cierre.
 - KPIs: **facturado** · **cobrado** · **por cobrar** · ticket promedio · nº de documentos.
   Los tres primeros salen de `erp_sales_invoices` sin ningún cálculo nuevo.
 
-### `[IG.3]` — El cuadre de fuentes (el organismo que hoy no existe en ninguna pantalla) ⬜
+### `[IG.3]` — El cuadre de fuentes ✅ 2026-09-25
 
 Una pestaña que responde *«¿este número es confiable?»* poniendo las cuatro fuentes juntas, que es
 lo que ADR-059 pide y hoy sólo se puede hacer preguntándole a Maat. Medido, agosto 2026:
@@ -179,7 +196,7 @@ Valor: A y D cuadran al 0.14 % (se validan mutuamente), B confirma por un camino
 distinto, y C **no debe compararse de frente** — la pantalla tiene que decirlo, o alguien va a leer
 «faltan $12M de cobranza».
 
-### `[IG.4]` — Drill al documento ⬜
+### `[IG.4]` — Drill al documento ⬜ ABIERTO (la vista de AX no cubre UD1301 — ver arriba)
 
 Reusar `analytics.erp_sales_invoices` / `_lines`. **Antes de construir**: `/comercial/documentos`
 (Fase AX) ya lee esas vistas. Si cubre el caso, esto es un **enlace**, no una pantalla.

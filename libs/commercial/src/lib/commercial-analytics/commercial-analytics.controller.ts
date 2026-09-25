@@ -7,6 +7,9 @@ import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
+// [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
+import type { IncomeQueryFilters } from './period-coverage';
+import type { IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -371,6 +374,64 @@ export class CommercialAnalyticsController {
     });
   }
 
+  // ─────────── IG — Ingresos contables ───────────
+  //
+  // Permiso PROPIO (`FINANCE_INCOME_VER`), no un alias del de egresos: hay roles que deben ver la
+  // venta sin ver el gasto. La fuente es `analytics.income_entries_src()` (derive-no-copy sobre el
+  // ODS) y las tres reglas duras viven adentro de esa función, no acá.
+
+  @Get('income')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG — Ingresos contables (pólizas 401, sólo CEDIS y sólo UD1301) agregados por dimensión dinámica '
+      + '(group_by=canal|plaza|mes|documento). Filtros: from,to (90d), canal=csv, plaza, concepto (ILIKE), '
+      + 'min/max importe. compare=true → Δ% vs período previo. Incluye cobertura, frescura y serie por canal.',
+  })
+  income(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('group_by') groupBy?: string,
+    @Query('compare') compare?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ): Promise<IncomeReport> {
+    return this.service.income({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      group_by: groupBy,
+      compare: compare === 'true',
+    });
+  }
+
+  @Get('income/tree')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG — Árbol Canal → Plaza. Mismos filtros que /income.' })
+  incomeTree(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ): Promise<IncomeTree> {
+    return this.service.incomeTree(this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte));
+  }
+
+  @Get('income/sources')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG — Cuadre de las cuatro fuentes del mismo peso de venta (contable · por canal · hecho de venta · '
+      + 'cobranza), con su Δ%. La cobranza va marcada NO comparable de frente: es DSO, no faltante.',
+  })
+  incomeSources(@Query('from') from?: string, @Query('to') to?: string): Promise<IncomeSources> {
+    return this.service.incomeSources(this.parseIncomeFilters(from, to));
+  }
+
   @Get('expenses/tree')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Árbol jerárquico Familia → Cuenta mayor → Subcuenta (desglose de menú). Mismos filtros que /expenses.' })
@@ -521,6 +582,26 @@ export class CommercialAnalyticsController {
   @ApiOperation({ summary: 'GX — Sucursales con egresos (para el selector del reporte).' })
   expensesSucursales() {
     return this.service.expensesSucursales();
+  }
+
+  /**
+   * `[IG.1.1]` Filtros del reporte de ingresos. Mucho más corto que el de egresos a propósito: del
+   * lado del ingreso la sucursal es siempre `00`, los campos del ciclo de solicitud vienen vacíos y
+   * el nombre de la cuenta miente. Lo que discrimina es canal y plaza.
+   */
+  private parseIncomeFilters(
+    from?: string, to?: string, canal?: string, plaza?: string, concepto?: string,
+    minImporte?: string, maxImporte?: string,
+  ): IncomeQueryFilters {
+    return {
+      from,
+      to,
+      canal: canal ? canal.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      plaza,
+      concepto,
+      min_importe: minImporte != null && minImporte !== '' ? Number(minImporte) : undefined,
+      max_importe: maxImporte != null && maxImporte !== '' ? Number(maxImporte) : undefined,
+    };
   }
 
   private parseExpenseFilters(

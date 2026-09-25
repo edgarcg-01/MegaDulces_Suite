@@ -340,6 +340,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
+        // [IG.2] El otro lado del libro. Permiso PROPIO: hay roles que ven la venta y no el gasto.
+        path: 'ingresos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-ingresos.component').then(m => m.FinanzasIngresosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_INCOME_VER)]
+      },
+      {
         path: 'egresos/detalle',
         loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]

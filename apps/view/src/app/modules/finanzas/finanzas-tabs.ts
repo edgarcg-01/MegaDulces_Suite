@@ -14,6 +14,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Ingresos contables',
+    route: '/finanzas/ingresos',
+    icon: 'pi pi-arrow-down-left',
+    permission: Permission.FINANCE_INCOME_VER,
+  },
+  {
     label: 'Bancos',
     route: '/finanzas/bancos',
     icon: 'pi pi-building-columns',

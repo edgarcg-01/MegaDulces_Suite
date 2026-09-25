@@ -2295,6 +2295,110 @@ lista igual con su buscador: el problema era que estaban invisibles.
 
 ---
 
+## IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código)
+
+Pedido: *"una interfaz igual pero para los ingresos"*. La interfaz sí se reusa casi entera; **las
+dimensiones no**, y el filtro que las hace correctas es justo el que en Egresos no existe.
+
+### Lo primero que se midió: qué pasa si se copia el WHERE
+
+| qué se contaría | agosto 2026 |
+|---|---:|
+| balanza familia 4, **todas** las sucursales ← el espejo literal | **$94,061,828.00** |
+| sólo CEDIS | $61,903,631.74 |
+| **sólo CEDIS + sólo `UD1301`** ← la regla canónica | **$55,940,323.96** |
+| `mv_sales_blended` (testigo independiente) | $54,265,356.22 |
+
+**Un espejo ingenuo publicaría +69 %.** No por un bug: porque el modelo contable del ingreso es
+otro, y ya estaba decodificado y verificado en `KEPLER_CONTABILIDAD_MODELO.md` §Familia 4. Las tres
+reglas duras —**sólo CEDIS** (las 6 DBs de sucursal REPLICAN la misma venta), **sólo `UD1301`**
+(confirmado contra `kdmm`), **canal por `c6` y nunca por el nombre de la subcuenta**— no se
+re-discuten: se metieron adentro de la fuente.
+
+⚠️ **Hipótesis REFUTADA, anotada para que nadie la reconstruya.** Las contrapartes del renglón más
+grande son «P.V. Morelia Abastos», «TLMKT Canindo»… y la lectura obvia es *«el CEDIS le factura a
+sus sucursales, hay que excluirlo como traspaso interno»* — el Fix#B de los egresos. **Es falso:**
+eso es la PLAZA donde se vendió al público. Excluirlo borraría venta real. El doble conteo no viene
+del concepto sino de **leer las 6 réplicas**.
+
+### Por qué las dimensiones de Egresos no sirven acá
+
+`sucursal` tiene **un solo valor** (`00`, y es el filtro, no una dimensión) · `área`/`depto`/
+`concepto` vienen del ciclo de solicitud de gasto → **vacías** · las **6** cuentas de ingreso tienen
+nombres que MIENTEN (`401-002` se llama «VENTA FLETES A TERCEROS» y no es fletes; `401-003` es
+«VECINAL» en unas sucursales y «MAYOREO» en otras). Lo que discrimina es **canal → plaza**.
+
+- [x] **[IG.0.1]** `analytics.income_entries_src(from,to)` + vista `v_income_entries` — **cero
+      importer** (mig `20260925150000`). **Vista viva, no matview**, y eso se midió: el fan-out
+      sobre las **21** `kdc2` del ODS cuesta **72 ms / 8,030 filas**, y con el rango por defecto
+      **54 ms** (enumera 4 tablas, no 21). `bank_postings` se materializó porque su filtro traía
+      44,770 filas y costaba 2.8 s; acá materializar sería pagar un refresco y perder frescura para
+      ganar nada.
+- [x] **[IG.0.2]** `test-newdb-income-parity.js` — el candado, y **lo primero que se construyó**.
+      Compara contra `sales_by_channel_monthly` (que lee las RÉPLICAS: otra fuente, otro camino).
+      **Tres estados**: los meses cerrados se AFIRMAN al centavo, el mes vivo se DECLARA, y sin
+      datos es `NO MEDIDO`. **Verificado contra prod: mar·abr·may·jun·jul 2026 con Δ $0.00 exacto,
+      total y POR CANAL** (los 5 canales de julio, al centavo).
+- [x] **[IG.0.3]** Prueba negativa **corregida por medición**: la primera versión comprobaba un
+      filtro a la vez y era **inservible como gate** — quitar sólo el de sucursal mueve **$6,837
+      (0.01 %)** en julio, así que un `> 0` pasaría también con la función rota. Ahora compara
+      contra el alcance ingenuo COMPLETO, que es lo que produce copiar la pantalla de egresos:
+      jul **+44.6 %**, ago **+69.0 %**.
+- [x] **[IG.1]** `income()` · `incomeTree()` · `incomeSources()` + 3 endpoints con permiso **propio**
+      `FINANCE_INCOME_VER` (no alias del de egresos: hay roles que ven la venta y no el gasto).
+- [x] **[IG.1.4]** **Permiso REPARTIDO** (mig `20260925150100`), no sólo declarado en el enum — la
+      lección de `[LC.6.2]`, donde un módulo estuvo en prod sin que nadie pudiera abrirlo. Se otorga
+      **leyendo `FINANCE_EXPENSES_VER = true` en vivo**, no nombrando roles a mano: si alguien gana
+      o pierde el de egresos entre que esto se escribe y se aplica, el reparto lo sigue. Medido:
+      11 roles. No pisa un `false` explícito.
+- [x] **[IG.2]** `/finanzas/ingresos` — árbol canal→plaza, tabla, tendencia y cuadre. Reusa los
+      organismos de `[GX.19]`: píldora de frescura, banda de cobertura, opciones de gráfica,
+      métricas. **El residuo NO se desglosa**: 233 de las 271 «plazas» del rango por defecto son
+      nombres de cliente sueltos, y desplegarlas fingiría 233 puntos de venta.
+- [x] **[IG.3]** **Cuadre de fuentes** — las cuatro juntas, que hoy sólo se podía armar
+      preguntándole a Maat. La cobranza va marcada **NO comparable de frente** (es DSO, no
+      faltante) y una fuente que no se pudo medir dice **NO MEDIDO**, no `$0`.
+- [x] **[IG.1.3]** Frescura de **UN solo eslabón, a propósito**: el número sale del ODS, así que su
+      edad es la del carril `ods_live_hot` (cada 15 s), **no** la del feed nocturno. Componer las
+      dos diría «8 h» sobre un dato de minutos — pesimista, pero igual de falso.
+
+### `period-coverage.ts` — el motor de `[GX.19]`, generalizado
+
+Nació como `expense-coverage.ts` y el mismo mecanismo sirve a los dos lados: agrupa
+`(mes, grupo, total)` y mide si el conjunto de grupos cambia adentro del rango. El grupo es
+**sucursal** en egresos y **plaza** en ingresos. Se renombró —y con él el campo `sucursal` → `grupo`,
+más una `etiqueta` que el llamador pasa— porque un campo llamado `sucursal` con una plaza adentro es
+exactamente la clase de mentira que esta capa existe para cortar (ADR-056).
+
+### Lo que se DECLARA y no se dibuja
+
+- **2025 no es comparable**: fue presupuesto, sin `UD1301`.
+- **Reclasificación interna de $54.67M** en marzo (`'VENTAS ABRIL 26'`, neto $0).
+- **La deriva de universo es idéntica a la de egresos** (1 plaza hasta nov-2025 → 9 en sep-2026).
+- ⚠️ **`AUD-ODS-01` también pega del lado del ingreso, y se midió:** en el mes vivo el ODS va
+  **ATRÁS** del feed nocturno — sep-2026 **−$793,318.13**. En agosto va adelante (+$77,131.36, el
+  ODS es más fresco). **Ninguna de las dos fuentes domina**, y por eso la pantalla no elige una y
+  calla: sirve del ODS y declara el delta en el cuadre.
+
+### ⛔ El «Resultado» (ingresos − egresos) NO se construyó, y no es un olvido
+
+**No hay costo de ventas real desde mayo-2026.** El sistema es de inventario periódico y el cierre
+se cortó en abril — medido en CEDIS: `509`/`516` vacíos de mayo en adelante. `ingresos − egresos`
+para agosto daría **$55.9M − $61.6M = −$5.7M**, una pérdida que **no existe**, porque $55.4M de esos
+«egresos» son **compras**, no costo de lo vendido. Queda como `[IG.5]`, acotado a ene–abr, y con
+dueño humano: **alguien tiene que retomar el cierre de inventario**.
+
+- **Pruebas:** `period-coverage.spec.ts` 11 · `finanzas-ingresos.component.spec.ts` 9 (montado) ·
+  `test-newdb-income-parity.js` (registrado en la regresión) · `nx test commercial` 194 ·
+  `nx test contracts` 145 · `nx test view` 884 · builds api+view OK · `check:templates`,
+  `check:provenance` y boundary-gate limpios.
+- **Pendiente prod:** aplicar **2 migraciones** (`20260925150000` función+vista ·
+  `20260925150100` reparto del permiso) + redeploy api+view + **re-login** (el permiso nuevo viaja
+  en el JWT) + correr el candado contra prod. **Validación visual pendiente** (no hay DB alcanzable
+  desde esta máquina para levantar la app).
+
+---
+
 ## GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código)
 
 Salió de revisar `/finanzas/egresos` de punta a punta. **El número está bien** —y eso se midió
