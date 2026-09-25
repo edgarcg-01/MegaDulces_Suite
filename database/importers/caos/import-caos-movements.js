@@ -162,12 +162,15 @@ async function ciclo(c) {
         await c.query(`DELETE FROM analytics.caos_cash_denominations WHERE tenant_id=$1 AND movement_id=$2`, [TENANT, movId]);
         for (const d of det.cashDetails || []) {
           const q = Number(d.quantity) || 0;
-          if (q <= 0) continue;
+          const dn = Number(d.denom);
+          // `denom` NEGATIVO es válido: en un "Cambio" son los billetes que SALEN (el signo lleva la
+          // dirección). Sólo se descarta el 0 o el no-numérico, que no es dinero.
+          if (q <= 0 || !Number.isFinite(dn) || dn === 0) continue;
           await c.query(
             `INSERT INTO analytics.caos_cash_denominations (tenant_id, movement_id, denom, pieza_tipo, quantity)
              VALUES ($1,$2,$3,$4,$5)
              ON CONFLICT (tenant_id, movement_id, denom, pieza_tipo) DO UPDATE SET quantity=EXCLUDED.quantity`,
-            [TENANT, movId, Number(d.denom), String(d.type || 'B'), q],
+            [TENANT, movId, dn, String(d.type || 'B'), q],
           );
         }
       }
