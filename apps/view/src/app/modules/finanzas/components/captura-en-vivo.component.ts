@@ -38,6 +38,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inj
 
     @if (estado() === 'pidiendo') {
       <div class="cv-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Pidiendo permiso a la cámara…</div>
+      <button type="button" class="cv-reintentar" (click)="cerrar()">Cancelar</button>
     }
 
     @if (estado() === 'viva') {
@@ -179,6 +180,12 @@ export class CapturaEnVivoComponent {
    */
   private readonly stream = signal<MediaStream | null>(null);
 
+  /** Cuanto se espera al permiso antes de declarar que nadie contesto. */
+  private readonly ESPERA_PERMISO_MS = 20_000;
+  /** Numero de apertura, para descartar el stream de una que ya se cancelo. */
+  private intento = 0;
+  private reloj: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     /**
      * ⭐ El arreglo del visor NEGRO que no disparaba. Antes esto era un `queueMicrotask`
@@ -227,6 +234,20 @@ export class CapturaEnVivoComponent {
     this.error.set('');
     this.aviso.set('');
     this.listo.set(false);
+    // Cada apertura lleva su numero. Si la persona cancela y el permiso se concede DESPUES,
+    // el stream que llega es de una apertura vieja: se suelta en vez de encenderse solo.
+    const mia = ++this.intento;
+    /**
+     * ⚠️ `getUserMedia` puede no resolver NUNCA: mientras el dialogo de permiso siga
+     * abierto la promesa queda pendiente, y si nadie lo contesta -- o el navegador no lo
+     * muestra, como pasa en un navegador sin camara -- la pantalla se queda en
+     * «Pidiendo permiso…» sin boton, sin error y sin salida salvo recargar. Medido acá.
+     */
+    this.reloj = setTimeout(() => {
+      if (this.intento === mia && this.estado() === 'pidiendo') {
+        this.fallar('El navegador no respondió al permiso de cámara. Revisá el candado de la barra de direcciones y reintentá.');
+      }
+    }, this.ESPERA_PERMISO_MS);
     const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
     if (!md?.getUserMedia) {
       // Pasa de verdad: por HTTP sin `localhost` el navegador ni expone la API.
@@ -236,10 +257,17 @@ export class CapturaEnVivoComponent {
     try {
       // `environment` = la cámara trasera del celular, que es la que apunta al ticket.
       // Si el equipo no la tiene, el navegador entrega la que haya.
-      this.stream.set(await md.getUserMedia({ video: { facingMode: 'environment' }, audio: false }));
+      const s = await md.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      // Llego tarde: alguien ya cancelo o cerro. Encender la camara ahora seria prender una
+      // luz que nadie pidio -- se suelta y listo.
+      if (this.intento !== mia) { s.getTracks().forEach((t) => t.stop()); return; }
+      this.detenerReloj();
+      this.stream.set(s);
       this.estado.set('viva');
       // El enganche al <video> lo hace el `effect` del constructor, cuando el elemento existe.
     } catch (e: unknown) {
+      if (this.intento !== mia) return;
+      this.detenerReloj();
       const nombre = (e as { name?: string })?.name ?? '';
       // Se distinguen porque la acción de la persona es distinta en cada caso.
       if (nombre === 'NotAllowedError') this.fallar('No diste permiso para usar la cámara.');
@@ -285,7 +313,14 @@ export class CapturaEnVivoComponent {
     this.estado.set('error');
   }
 
+  private detenerReloj(): void {
+    if (this.reloj !== null) { clearTimeout(this.reloj); this.reloj = null; }
+  }
+
   private soltar(): void {
+    this.detenerReloj();
+    // Sube el numero: cualquier apertura en vuelo queda invalidada.
+    this.intento++;
     this.stream()?.getTracks().forEach((t) => t.stop());
     this.stream.set(null);
     this.listo.set(false);

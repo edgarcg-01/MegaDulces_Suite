@@ -545,8 +545,15 @@ export class FinanzasCapturarGastoComponent {
    */
   enviarLabel(): string {
     if (this.saving()) return 'Enviando…';
-    const t = this.enviarTitle();
-    return t.startsWith('Falta') ? t : 'Enviar a aprobación';
+    /**
+     * ⚠️ Acá filtraba por `startsWith('Falta')` y se comía «Elige el tipo de gasto»: el botón
+     * quedaba apagado diciendo «Enviar a aprobación», o sea mintiendo. Lo agarró la prueba de
+     * al lado el mismo día que se escribió.
+     *
+     * La pregunta correcta no es cómo empieza el texto — es si se puede enviar. Si no se
+     * puede, se muestra el motivo, sea cual sea.
+     */
+    return this.puedeEnviar() ? 'Enviar a aprobación' : this.enviarTitle();
   }
 
   enviarTitle(): string {

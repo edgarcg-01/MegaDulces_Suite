@@ -207,6 +207,81 @@ describe('[GX.14] CapturaEnVivoComponent', () => {
     expect(comp.estado()).toBe('viva'); // sigue abierto: no se pierde lo que estaba encuadrando
   });
 
+  /**
+   * [GX.17] **«Pidiendo permiso…» era un callejon sin salida.**
+   *
+   * `getUserMedia` puede no resolver NUNCA: mientras el dialogo de permiso siga abierto la
+   * promesa queda pendiente, y si nadie lo contesta -- o el navegador ni lo muestra, como
+   * pasa en uno sin camara -- la pantalla se quedaba en ese mensaje **sin boton, sin error
+   * y sin salida salvo recargar**. Medido con el navegador de las pruebas end-to-end.
+   */
+  describe('mientras pide permiso', () => {
+    /** Una promesa que se resuelve cuando la prueba quiera: el dialogo de permiso abierto. */
+    function pendiente() {
+      let resolver: (s: MediaStream) => void = () => undefined;
+      const promesa = new Promise<MediaStream>((r) => { resolver = r; });
+      return { promesa, resolver: (s: MediaStream) => resolver(s) };
+    }
+
+    it('ofrece Cancelar, y cancelar devuelve al inicio', async () => {
+      const { promesa } = pendiente();
+      conCamara(() => promesa);
+      void comp.abrir();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(comp.estado()).toBe('pidiendo');
+      const html = fixture.nativeElement as HTMLElement;
+      const cancelar = [...html.querySelectorAll('button')].find((b) => b.textContent?.includes('Cancelar'));
+      expect(cancelar).toBeTruthy();
+
+      cancelar?.click();
+      fixture.detectChanges();
+      expect(comp.estado()).toBe('idle');
+    });
+
+    it('si nadie contesta el permiso, lo declara en vez de colgarse', async () => {
+      vi.useFakeTimers();
+      try {
+        const { promesa } = pendiente();
+        conCamara(() => promesa);
+        void comp.abrir();
+        await Promise.resolve();
+        expect(comp.estado()).toBe('pidiendo');
+
+        vi.advanceTimersByTime(20_000);
+        expect(comp.estado()).toBe('error');
+        expect(comp.error()).toContain('no respondió');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * ⭐ La carrera: la persona cancela y el permiso se concede DESPUES. Sin el numero de
+     * apertura, ese stream tardio encendia la camara sola -- la luz del equipo prendida
+     * sobre una pantalla que ya no muestra nada.
+     */
+    it('un permiso que llega DESPUES de cancelar no enciende la camara', async () => {
+      const { promesa, resolver } = pendiente();
+      const { stream, track } = streamFalso();
+      conCamara(() => promesa);
+
+      void comp.abrir();
+      await Promise.resolve();
+      comp.cerrar();
+      expect(comp.estado()).toBe('idle');
+
+      resolver(stream);
+      await promesa;
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(comp.estado()).toBe('idle');
+      expect(track.stop).toHaveBeenCalled();
+    });
+  });
+
   it('cancelar suelta la cámara y vuelve al inicio', async () => {
     const { stream, track } = streamFalso();
     conCamara(() => Promise.resolve(stream));
