@@ -735,6 +735,21 @@ export class CashLedgerService {
       : new Map<string, MapaRuta>();
     const reglas = hayGasto ? await this.reglasDeGasto(trx, tenantId) : [];
 
+    // CS.3.1b — Piso de resolución: la contra-cuenta del PROPIO documento (su póliza de Kepler),
+    // traída por página. Sólo se usa cuando regla/ruta NO resolvieron. Su cuenta es AUTORITATIVA
+    // (lo que Kepler posteó) → la pantalla la muestra BLOQUEADA. El concepto se fija si la cuenta
+    // tiene uno solo; si tiene varios, queda una elección ACOTADA a esa cuenta (no un buscador en
+    // blanco). Medido: contra limpia 99.75%, la consulta batch 19 ms/100 docs.
+    const contra = await this.contraDeDocumentos(trx, tenantId, rows);
+    const paresCuenta = new Map<string, { sucursal: string; cuenta: string }>();
+    for (const r of rows) {
+      const cc = contra.get(this.claveDoc(r));
+      if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
+        paresCuenta.set(`${r.sucursal}|${cc.contra_cuenta}`, { sucursal: String(r.sucursal), cuenta: cc.contra_cuenta });
+      }
+    }
+    const conceptos = await this.conceptosDeCuenta(trx, tenantId, [...paresCuenta.values()]);
+
     return rows.map((r: any) => {
       const v: Confirmable = r.tipo === 'ingreso'
         ? esConfirmable(
@@ -743,14 +758,89 @@ export class CashLedgerService {
         : cuentaPorRegla(
             { tipo: r.tipo, glosa: r.concepto, beneficiario: r.beneficiario ?? r.entidad_code, monto: Number(r.monto) },
             reglas);
-      return v.ok
-        ? { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }
-        // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
-        // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
-        // cuenta contable.
-        : { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
-            motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
+      if (v.ok) {
+        return { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto,
+          cuenta_fuente: r.tipo === 'ingreso' ? 'ruta' : 'regla' };
+      }
+      // Piso CS.3.1b — la contra del propio documento, cuando regla/ruta no alcanzaron.
+      const cc = contra.get(this.claveDoc(r));
+      if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
+        const cs = conceptos.get(`${r.sucursal}|${cc.contra_cuenta}`) ?? [];
+        if (cs.length === 1) {
+          return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
+            kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
+        }
+        // La CUENTA es autoritativa (del documento) → se bloquea. El CONCEPTO es una elección
+        // acotada a esa cuenta (o manual, si la cuenta no está en el catálogo de conceptos). NO es
+        // "faltan datos": el dato de Kepler ya está, sólo se afina el concepto.
+        return { ...r, confirmable: false, kepler_cuenta: cc.contra_cuenta, kepler_concepto: null,
+          kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento', cuenta_bloqueada: true,
+          conceptos_cuenta: cs, motivo: 'elegir_concepto',
+          motivo_texto: cs.length
+            ? `La cuenta ${cc.contra_cuenta} viene del documento; elegí el concepto (${cs.length} ${cs.length === 1 ? 'opción' : 'opciones'}).`
+            : `La cuenta ${cc.contra_cuenta} viene del documento; falta el concepto.` };
+      }
+      // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
+      // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
+      // cuenta contable.
+      return { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+        motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
     });
+  }
+
+  /** CS.3.1b — Llave del documento de caja = la misma que la póliza usa (doc_tipo COMPACTO). */
+  private claveDoc(r: { sucursal: any; doc_tipo: any; folio: any }): string {
+    return `${r.sucursal}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
+  }
+
+  /**
+   * doc_tipo (`X-D-26`) → tipo_pol compacto de la póliza (`XD2601`). Formato Kepler:
+   * `c2 c3 lpad(c4,2) c5`, y para estos doctypes de caja `c5='01'`. Verificado en prod:
+   * XD2601 / XD6001 / XD2501 / XA4501 / UA0501.
+   */
+  private tipoPolCompacto(docTipo: any): string {
+    const p = String(docTipo ?? '').split('-');
+    if (p.length < 3) return '';
+    return p[0] + p[1] + String(p[2]).padStart(2, '0') + '01';
+  }
+
+  /**
+   * CS.3.1b — La contra-cuenta del propio documento, por página (batch). Medido 19 ms / 100 docs
+   * contra `analytics.v_caja_doc_contracuenta`. `contra_n>1` (split) NO se usa: se declara y cae a
+   * manual, nunca se inventa una sola cuenta para una póliza repartida.
+   */
+  private async contraDeDocumentos(trx: any, tenantId: string, rows: any[]) {
+    const m = new Map<string, { contra_n: number; contra_cuenta: string; contra_cuenta_nombre: string | null }>();
+    const tuplas = rows
+      .map((r) => [String(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
+      .filter((t) => t[1]);
+    if (!tuplas.length) return m;
+    const filas = await trx('analytics.v_caja_doc_contracuenta')
+      .where('tenant_id', tenantId)
+      .whereIn(['sucursal', 'tipo_pol', 'folio'], tuplas)
+      .select('sucursal', 'tipo_pol', 'folio', 'contra_n', 'contra_cuenta', 'contra_cuenta_nombre');
+    for (const f of filas as any[]) {
+      m.set(`${f.sucursal}|${f.tipo_pol}|${f.folio}`,
+        { contra_n: Number(f.contra_n), contra_cuenta: f.contra_cuenta, contra_cuenta_nombre: f.contra_cuenta_nombre });
+    }
+    return m;
+  }
+
+  /** CS.3.1b — Los conceptos válidos de cada (sucursal, cuenta), para la elección acotada. */
+  private async conceptosDeCuenta(trx: any, tenantId: string, pares: Array<{ sucursal: string; cuenta: string }>) {
+    const m = new Map<string, Array<{ concepto: string; concepto_nombre: string | null }>>();
+    if (!pares.length) return m;
+    const filas = await trx('analytics.v_kepler_conceptos')
+      .where('tenant_id', tenantId)
+      .whereIn(['sucursal', 'cuenta'], pares.map((p) => [p.sucursal, p.cuenta]))
+      .select('sucursal', 'cuenta', 'concepto', 'concepto_nombre')
+      .orderBy(['cuenta', 'concepto']);
+    for (const f of filas as any[]) {
+      const k = `${f.sucursal}|${f.cuenta}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push({ concepto: f.concepto, concepto_nombre: f.concepto_nombre });
+    }
+    return m;
   }
 
   /**

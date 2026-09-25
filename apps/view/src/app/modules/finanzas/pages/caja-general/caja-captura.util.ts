@@ -132,7 +132,7 @@ export interface FormularioCaja {
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal'
-  | 'falta_concepto' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra';
+  | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra';
 
 /** Texto que ve el capturista. Dice QUÉ falta, no "formulario inválido". */
 export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
@@ -140,6 +140,7 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
   falta_fecha: 'Falta la fecha.',
   falta_sucursal: 'Falta la sucursal.',
   falta_concepto: 'Falta la cuenta y el concepto de Kepler: sin eso el movimiento no se puede contabilizar.',
+  falta_concepto_de_cuenta: 'Falta el concepto de Kepler de esa cuenta: elegilo para poder contabilizar.',
   glosa_corta: `Contá qué pasó, con al menos ${GLOSA_MIN} caracteres. El concepto dice a qué cuenta va; esto dice qué pasó.`,
   monto_invalido: 'El monto tiene que ser mayor a cero.',
   falta_desglose: 'Contá el efectivo por denominación: el desglose es obligatorio, y de ahí sale el monto.',
@@ -155,8 +156,11 @@ export function motivosDeBloqueo(f: FormularioCaja): MotivoBloqueo[] {
   if (!f.tipo) m.push('falta_tipo');
   if (!f.fecha) m.push('falta_fecha');
   if (!f.sucursal) m.push('falta_sucursal');
-  // El par va COMPLETO o no va: media cuenta no contabiliza nada.
-  if (!f.kepler_cuenta || !f.kepler_concepto) m.push('falta_concepto');
+  // El par va COMPLETO o no va: media cuenta no contabiliza nada. CS.3.1b — si la cuenta ya está
+  // (vino del documento o se eligió) y sólo falta el concepto, se dice ESO, no "falta la cuenta":
+  // decir que falta un dato presente es la mentira que esta fase vino a quitar.
+  if (!f.kepler_cuenta) m.push('falta_concepto');
+  else if (!f.kepler_concepto) m.push('falta_concepto_de_cuenta');
   if (!f.glosa || f.glosa.trim().length < GLOSA_MIN) m.push('glosa_corta');
 
   // CG.23 — El arqueo es OBLIGATORIO, no un detalle plegado. Decisión de Edgar: "el desglose
