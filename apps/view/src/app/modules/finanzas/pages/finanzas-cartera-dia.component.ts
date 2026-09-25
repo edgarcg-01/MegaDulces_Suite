@@ -27,10 +27,15 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaCliente, DiaEstado } from '.
  *
  * ── ⛔ EL TIPO DE CUENTA NO ES UN FILTRO MÁS ─────────────────────────────────────────────────
  * De los $26,081,506.31 entre plazas propias (`interno`), **cero están por vencer**: el 100% ya
- * venció. Lo mismo `ruta` ($3,190,883.23, cero por vencer). Sin separarlas, la agenda de cobranza
- * se llena de saldos que nadie va a cobrar por teléfono. La pantalla abre en **Todas** —esconder
+ * venció. `ruta` ($3.2M) va casi igual — 0.4% por vencer. Sin separarlas, la agenda de cobranza se
+ * llena de saldos que nadie va a cobrar por teléfono. La pantalla abre en **Todas** —esconder
  * dinero al abrir es el bug que `[CXC.20.3]` ya arregló una vez— pero el reparto por tipo está a
  * un clic, arriba.
+ *
+ * ⚠️ Esas cifras son del 2026-09-25 y la base es VIVA (el CDC corre cada 15 s): entre la primera
+ * medición de esta fase y la última, `ruta` pasó de $0 a $12,873 por vencer. Quien las necesite
+ * exactas las saca del smoke, que las vuelve a medir; acá están para explicar la decisión de
+ * diseño, no para citarlas como saldo.
  *
  * ── Lo que el calendario NO puede mostrar ────────────────────────────────────────────────────
  * El eje es el vencimiento, que sólo existe a nivel documento. La diferencia contra el saldo
