@@ -24,7 +24,9 @@ import { AdminService, PermisosDePersona } from '../admin.service';
 import {
   PERMISSION_META,
   PERMISSION_CATEGORY_ORDER,
+  TOTAL_PERMISSIONS,
 } from '../../../core/constants/permission-meta';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
  * `[AU.10]` — Qué abre una persona: su perfil base, sus complementos y sus
@@ -157,7 +159,7 @@ interface Excepcion {
                  había que saber de antemano que se llama COMMERCIAL_QUOTES_VER.
                  filterBy=label,key para que el que sí se sabe la clave la siga tecleando. -->
             <p-select [options]="claveOpts()" [ngModel]="nuevaClave()"
-                      (ngModelChange)="nuevaClave.set($event)" optionLabel="label" optionValue="value"
+                      (ngModelChange)="elegirClave($event)" optionLabel="label" optionValue="value"
                       [group]="true" optionGroupLabel="label" optionGroupChildren="items"
                       [filter]="true" filterBy="label,key" appendTo="body"
                       placeholder="Agregar una excepción" ariaLabel="Permiso"></p-select>
@@ -169,6 +171,17 @@ interface Excepcion {
               <span class="p-button-label">Agregar</span>
             </button>
           </div>
+          <p class="pd-hint">
+            Se puede elegir cualquiera de los {{ totalPermisos }} permisos del catálogo, tenga o no
+            este perfil. Los que ya abre vienen marcados.
+          </p>
+
+          @if (avisoNoPuedeOtorgar(); as etq) {
+            <p class="pd-hint">
+              <strong>{{ etq }}</strong> no lo tenés vos, y sólo un superadmin puede otorgar un
+              permiso que no tiene. Si lo agregás, el guardado se va a rechazar.
+            </p>
+          }
 
           @if (excepcionesCambiaron()) {
             <div class="pa-acc">
@@ -196,6 +209,8 @@ interface Excepcion {
 export class PersonaAccesoComponent implements OnChanges {
   private api = inject(AdminService);
   private destroyRef = inject(DestroyRef);
+  /** `[AU.12]` Los permisos de QUIEN administra, para avisar del freno del backend. */
+  private perms = inject(PermissionsService);
 
   @Input() userId: string | null = null;
   @Input() puedeEscribir = false;
@@ -228,25 +243,44 @@ export class PersonaAccesoComponent implements OnChanges {
       .map((r) => ({ label: r, value: r })),
   );
 
+  /** Lo que esta persona YA abre. Decide el signo por default y marca la opción. */
+  readonly yaTiene = computed(() => new Set(this.permisos()?.efectivos ?? []));
+
   /**
    * Las claves que todavía no son excepción. Un permiso no se declara dos veces.
    *
    * `[AU.6]` Agrupadas por la categoría de `PERMISSION_META` y ordenadas por etiqueta, no por
    * clave: el orden alfabético del enum mezcla dominios (`COMMERCIAL_*` de ventas, de almacén y
    * de logística quedan intercalados) y no es el orden en el que nadie busca.
+   *
+   * ⛔ `[AU.12]` **Acá salía sólo lo que la persona YA tenía** (`efectivos ∪ del_puesto`), y eso
+   * volvía imposible la mitad de la función: el selector de signo ofrece «Le concede» y «Le
+   * quita», pero para conceder hay que elegir una clave que NO tiene — y esa clave nunca estaba
+   * en la lista. Medido: a una persona con 17 permisos se le ofrecían 17 de las
+   * **204 del catálogo** (8%). El comentario de `[AU.6]` decía «eran 201 claves», o sea
+   * que la intención siempre fue el catálogo entero; la lista se había recortado sola.
+   *
+   * El backend nunca fue el límite: `setPermissions` valida contra el enum completo y sólo pide
+   * —para quien no es superadmin— que el permiso que se OTORGA lo tenga quien lo otorga.
    */
   readonly claveOpts = computed(() => {
     const ya = new Set(this.excepciones().map((e) => e.permission_key));
-    const claves = (this.permisos()?.efectivos ?? [])
-      .concat(this.permisos()?.del_puesto ?? [])
-      .filter((k, i, a) => a.indexOf(k) === i && !ya.has(k));
+    const tiene = this.yaTiene();
+    const claves = Object.keys(PERMISSION_META).filter((k) => !ya.has(k));
 
     const porCategoria = new Map<string, Array<{ label: string; key: string; value: string }>>();
     for (const k of claves) {
       const meta = PERMISSION_META[k];
       const cat = meta?.category || 'Otros';
       if (!porCategoria.has(cat)) porCategoria.set(cat, []);
-      porCategoria.get(cat)!.push({ label: meta?.label || k, key: k, value: k });
+      // Se marcan los que YA tiene, que son los pocos: sobre esos la excepción sólo puede
+      // quitar. Sin la marca, «Le concede» sobre algo que ya tiene es una excepción que no
+      // hace nada y que después nadie sabe por qué está.
+      porCategoria.get(cat)!.push({
+        label: (meta?.label || k) + (tiene.has(k) ? ' · ya lo tiene' : ''),
+        key: k,
+        value: k,
+      });
     }
 
     // El orden declarado del catálogo manda; lo que no esté en él va al final, por nombre.
@@ -270,6 +304,9 @@ export class PersonaAccesoComponent implements OnChanges {
   etiqueta(key: string): string {
     return PERMISSION_META[key]?.label || key;
   }
+
+  /** `[AU.12]` El tamaño del catálogo, en vivo: un número escrito a mano envejece sin avisar. */
+  readonly totalPermisos = TOTAL_PERMISSIONS;
 
   readonly demasiadas = computed(() => this.excepciones().length >= 10);
 
@@ -332,6 +369,27 @@ export class PersonaAccesoComponent implements OnChanges {
       this.excepciones().map((e) => (e.permission_key === key ? { ...e, nota } : e)),
     );
   }
+
+  /**
+   * `[AU.12]` El signo lo propone la realidad: sobre un permiso que ya tiene, la única excepción
+   * con sentido es quitárselo; sobre uno que no tiene, concedérselo. Se sigue pudiendo cambiar.
+   */
+  elegirClave(k: string | null): void {
+    this.nuevaClave.set(k);
+    if (k) this.nuevoAllow.set(!this.yaTiene().has(k));
+  }
+
+  /**
+   * `[AU.12]` El freno del backend, dicho ANTES de guardar: quien no es superadmin no puede
+   * otorgar un permiso que no tiene (`setPermissions` responde 403). Se AVISA, no se esconde la
+   * opción: `PermissionsService` lee la foto del JWT, que puede estar vieja — ocultar por un
+   * dato viejo sería negar algo que sí se puede hacer.
+   */
+  readonly avisoNoPuedeOtorgar = computed(() => {
+    const k = this.nuevaClave();
+    if (!k || !this.nuevoAllow() || this.perms.isAdmin()) return null;
+    return this.perms.has(k) ? null : this.etiqueta(k);
+  });
 
   agregar(): void {
     const k = this.nuevaClave();
