@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -216,6 +216,12 @@ interface FormularioCajaUI {
     .cg-caos-monto { font-variant-numeric:tabular-nums; }
     .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
+    .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
+    .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
+    .cg-cajero-head label { margin:0; }
+    .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
+    .cg-caos-motivos { flex:1 1 100%; font-size:var(--fs-micro); }
+    .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
     .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
       background:color-mix(in srgb, var(--border-color) 22%, transparent); }
@@ -747,6 +753,42 @@ interface FormularioCajaUI {
              Con eso "arqueo_no_cuadra" ya no puede ocurrir por construccion.
              Billetes de 500 a 20 (los que circulan en la caja); el metal entero va en Morralla,
              que es lo unico editable de la columna de importes porque es un importe, no piezas. -->
+        <!-- CS.3.4 — El detector: ¿este gasto salió del cajero (CAOS)? Propone los retiros por
+             patrones (mismo día + ref + monto + aprendido); al vincular uno, su efectivo se suma al
+             arqueo y el resto se cuenta a mano. NO aparece si la captura YA es un movimiento de CAOS. -->
+        @if (!caosElegido()) {
+          <div class="fin-row fin-row-col cg-cajero">
+            <div class="cg-cajero-head">
+              <label>Del cajero (CAOS)</label>
+              <button type="button" class="cg-link" (click)="buscarEnCajero()" [disabled]="buscandoCajero()">
+                {{ buscandoCajero() ? 'buscando…' : '¿salió del cajero? buscar retiros' }}
+              </button>
+            </div>
+            @if (caosVinculados().length) {
+              <div class="cg-chips">
+                @for (v of caosVinculados(); track v.external_id) {
+                  <span class="cg-chip cg-caos-in">del cajero {{ money(v.monto) }} · {{ v.ref || 's/ref' }}
+                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
+                  </span>
+                }
+              </div>
+              <small class="fin-hint-ok">Ya se agregaron {{ money(totalCajero()) }} del cajero al arqueo — agregá lo restante abajo.</small>
+            }
+            @if (caosSugeridos().length) {
+              <div class="cg-caos-list">
+                @for (c of caosSugeridos(); track c.external_id) {
+                  <button type="button" class="cg-caos-row" (click)="vincularCaos(c)">
+                    <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
+                    <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
+                    <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
+                    <span class="fin-dim cg-caos-motivos">{{ c.motivos.join(' · ') }}</span>
+                    <span class="cg-caos-go" aria-hidden="true">agregar →</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
         <div class="cg-arqueo">
           <div class="cg-arqueo-head">
             <strong>Contá el efectivo</strong>
@@ -1120,6 +1162,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   caosPendientes = signal<CaosCapturable[]>([]);
   cargandoCaosPend = signal(false);
+
+  /**
+   * CS.3.4 — El detector DENTRO de la captura: candidatos del cajero propuestos para ESTE gasto y
+   * los que el capturista ya vinculó (su efectivo se suma al arqueo y se enlaza al guardar).
+   */
+  caosSugeridos = signal<CaosCandidato[]>([]);
+  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown> }>>([]);
+  buscandoCajero = signal(false);
+  /** Cuánto del arqueo ya vino del cajero (para el aviso «ya se agregaron $X»). */
+  totalCajero = computed(() => this.caosVinculados().reduce((a, v) => a + Number(v.monto), 0));
 
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
@@ -1696,6 +1748,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.caosSel = null;
     this.caosElegido.set(null);
     this.caosOpciones.set([]);
+    // CS.3.4 — el detector del cajero tampoco sobrevive al diálogo anterior.
+    this.caosSugeridos.set([]);
+    this.caosVinculados.set([]);
+    this.buscandoCajero.set(false);
     this.abrirConFoco(this.capturaAbierta);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
     // sucursal seguían siendo los de la 00. Se refrescan al abrir, con la sucursal en curso.
@@ -1950,6 +2006,52 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   capturarDesdeCaos(m: CaosCapturable): void {
     this.abrirCaptura();
     this.tomarMovimientoCaos(m);
+  }
+
+  /**
+   * CS.3.4 — Busca en el cajero (CAOS) qué retiros pudieron pagar ESTE gasto. Llama al detector con
+   * lo que ya se sabe del gasto (fecha, monto del documento anclado si hay, beneficiario, glosa).
+   */
+  buscarEnCajero(): void {
+    const f = this.f();
+    const doc = this.cobroElegido();
+    this.buscandoCajero.set(true);
+    this.svc.caosCandidatos({
+      fecha: f.fecha, tipo: f.tipo,
+      monto: doc?.monto ?? undefined,
+      beneficiario: f.beneficiario || undefined,
+      concepto: f.glosa || undefined,
+      sucursal: f.sucursal || undefined,
+    }).subscribe({
+      next: (r) => {
+        const ya = new Set(this.caosVinculados().map((v) => v.external_id));
+        this.caosSugeridos.set((r.rows ?? []).filter((c) => !ya.has(c.external_id)));
+        this.buscandoCajero.set(false);
+      },
+      error: (err) => { this.buscandoCajero.set(false); this.avisarError(err, 'No se pudo buscar en el cajero (CAOS)'); },
+    });
+  }
+
+  /** CS.3.4 — Vincula un retiro del cajero: suma sus billetes al arqueo y lo recuerda para el enlace. */
+  vincularCaos(c: CaosCandidato): void {
+    for (const d of c.denominaciones) {
+      this.setPiezas(Number(d.denominacion), this.piezasDe(Number(d.denominacion)) + Number(d.piezas));
+    }
+    this.caosVinculados.update((v) => [...v, {
+      device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref,
+      denominaciones: c.denominaciones,
+      senales: { score: c.score, confianza: c.confianza, motivos: c.motivos },
+    }]);
+    this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
+  }
+
+  /** CS.3.4 — Suelta un retiro vinculado: resta del arqueo lo que había sumado. */
+  desvincularCaos(externalId: number): void {
+    const v = this.caosVinculados().find((x) => x.external_id === externalId);
+    if (v) for (const d of v.denominaciones) {
+      this.setPiezas(Number(d.denominacion), Math.max(0, this.piezasDe(Number(d.denominacion)) - Number(d.piezas)));
+    }
+    this.caosVinculados.update((l) => l.filter((x) => x.external_id !== externalId));
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -2380,6 +2482,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya
       // tenía `monto_contado` resuelto; lo que faltaba era que la pantalla lo mandara.
       monto_contado: this.montoContado() ?? undefined,
+      // CS.3.4 — los retiros del cajero (CAOS) que financiaron este gasto: el servidor los enlaza
+      // (consume, no se cuentan dos veces) y aprende de ellos. Sólo si el capturista vinculó alguno.
+      caos_links: this.caosVinculados().length
+        ? this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales }))
+        : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: this.nuevoUuid(),

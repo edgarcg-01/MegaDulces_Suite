@@ -240,10 +240,20 @@ código puede ir por delante de la migración). Verificado: typecheck limpio + l
 candidatos reales sensatos (gasto «CUERITOS» → propone el retiro `cueritos` por ref, más los del
 mismo día). NO aplica nada: el humano confirma.
 
-**Pendiente CS.3.4:** confirmar+escribir el enlace (que consume el movimiento y afina el aprendizaje)
-+ la UI en el arqueo (compone CAOS bloqueado + lo restante a mano + el botón «traer del cajero» que
-llama al detector). Seguir minando: fecha embebida en el `ref`, depósitos↔cobros de ruta, precisión
-por señal (con feedback negativo). Aplicar las migraciones (`160000`, `170000`) a prod por el deploy.
+**CS.3.4 — confirmar+escribir el enlace + UI del detector 🧪 EN CÓDIGO 2026-09-25:** `create()`
+acepta `caos_links` y los escribe en `finance.caos_cash_links` en la misma transacción (CONSUME el
+retiro; un 23505 revierte la captura entera = no se consume dos veces; guard si la tabla no existe).
+Front: sección **«Del cajero (CAOS)»** en el arqueo (sólo si la captura no es ya CAOS) con el botón
+**«¿salió del cajero? buscar retiros»** → llama al detector → lista candidatos con confianza + motivos
+→ al vincular uno, **su efectivo se suma al arqueo** («ya se agregaron $X del cajero») y **agregás lo
+restante** a mano; al guardar se manda el enlace. Se puede soltar (resta lo sumado). Gates: build view,
+templates, spec (+3 pruebas: propone, vincula+enlaza, suelta+resta). ⚠️ **Marcado 🧪:** la escritura
+del enlace necesita las migraciones aplicadas para probarse contra DB, y la UI necesita validación con
+clic real (dev server). El motor y las consultas están verificados; el cableado UI↔guardar↔enlace no.
+
+**Pendiente:** aplicar migraciones (`160000`, `170000`) a prod + smoke DB del enlace (consume + el
+aprendizaje afina) + validación visual con clic real. Seguir minando: fecha embebida en el `ref`,
+depósitos↔cobros de ruta, precisión por señal (con feedback negativo).
 
 ## Estado (2026-09-25)
 
