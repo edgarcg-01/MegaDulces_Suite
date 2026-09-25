@@ -42,7 +42,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Capturar gasto</h1>
-          <p class="surf-page-sub">Pega el folio de la solicitud (Kepler), sube la solicitud firmada y —si aplica— el comprobante. Lo demás lo llena el sistema.</p>
+          <p class="surf-page-sub">Pegá el folio de la solicitud de HOY, decí cómo se pagó y tomá la foto. Lo demás lo llena el sistema.</p>
         </div>
       </header>
 
@@ -107,26 +107,14 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               @if (yaRechazada()) {
                 <div class="cap-val warn"><i class="pi pi-replay" aria-hidden="true"></i> Esta solicitud fue devuelta. Vuelve a capturarla.</div>
               }
-              <!-- 2) Solicitud firmada: OBLIGATORIA siempre (la autorización que respalda la
-                   salida de dinero). Va en los tres tipos de gasto, incluso no comprobable. -->
-              <div class="cap-step">2 · Sube la solicitud firmada</div>
-              @if (!names()['solicitud_kepler']) {
-                <div class="cap-drop" [class.drag]="dragSol()" (dragover)="overSol($event)" (dragleave)="leaveSol($event)" (drop)="dropSol($event)">
-                  <i class="pi pi-file-edit cap-drop-ic" aria-hidden="true"></i>
-                  <div>Arrastra la <strong>solicitud de gasto firmada</strong> (foto o PDF)</div>
-                  <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
-                    <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'solicitud_kepler')" hidden />
-                  </label>
-                </div>
-              } @else {
-                <div class="cap-done">
-                  <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['solicitud_kepler'] }}</span>
-                  <button type="button" class="cap-link" (click)="clearFile('solicitud_kepler')">cambiar</button>
-                </div>
-              }
-
-              <!-- 3) Clasificación del gasto: decide si lleva ticket o motivo. -->
-              <div class="cap-step">3 · ¿Qué tipo de gasto es?</div>
+              <!--
+                [GX.18] Se retiro el paso «Sube la solicitud firmada». Pedido del usuario:
+                de este lado solo hace falta la FOTO de la evidencia. El rol
+                «solicitud_kepler» sigue existiendo en el contrato de archivos -- los
+                expedientes viejos lo tienen y el expediente en PDF lo sigue mostrando.
+              -->
+              <!-- 2) Clasificacion del gasto: decide que evidencia se pide. -->
+              <div class="cap-step">2 · ¿Qué tipo de gasto es?</div>
               <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
                               optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
                               ariaLabel="Tipo de gasto" />
@@ -136,7 +124,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                 <!-- [GX.14] Paso propio, y ANTES de la foto: se pregunta en los tres tipos
                      de gasto, porque el dinero salió de algún lado aunque no haya papel.
                      Kepler tiene la columna y nadie la llena — 5,410 de 10,082 vacías. -->
-                <div class="cap-step">4 · ¿Cómo se pagó?</div>
+                <div class="cap-step">3 · Método de pago</div>
                 <div class="cap-fp">
                   @for (f of formasPago; track f.id) {
                     <button type="button" class="cap-fp-b" [class.on]="formaPago() === f.id"
@@ -154,11 +142,13 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                   }
                 }
 
-                @if (llevaEvidencia()) {
-                  <!-- GX.11 — la evidencia se sube ACÁ. Antes se difería hasta después de
-                       aprobar; como el expediente siempre se captura DESPUÉS de gastar, el
-                       ticket ya existe y diferirlo sólo dejaba expedientes a medias. -->
-                  <div class="cap-step">5 · Tomá {{ clasificacion() === 'fiscal' ? 'la factura' : 'el ticket' }}</div>
+                <!--
+                  GX.11 -- la evidencia se sube ACA. [GX.18] Y ahora en los TRES tipos: el
+                  «Vale autorizado» tambien se fotografia en el momento, por pedido del
+                  usuario. Antes ese caso se registraba sin ninguna imagen, solo con un
+                  motivo escrito -- o sea, sin nada que mirar.
+                -->
+                <div class="cap-step">4 · {{ tituloEvidencia() }}</div>
                   @if (!names()['comprobante_1']) {
                     <!-- [GX.14] Se fue el input de archivo y el arrastrar-y-soltar. El
                          atributo capture="environment" de antes era una sugerencia: en escritorio
@@ -177,15 +167,32 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                       @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
                     }
                   }
-                  <label class="cap-f"><span>Comentarios (opcional)</span>
-                    <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
-                } @else {
-                  <!-- No comprobable: sin foto nunca, pero el motivo es obligatorio y auditable. -->
-                  <div class="cap-step">4 · ¿Por qué no se puede comprobar?</div>
-                  <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="w-full"
-                            placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
-                  <em class="cap-hint">Este gasto se registra <strong>sin evidencia</strong>. El motivo lo lee quien aprueba.</em>
+                <!--
+                  [GX.18] La cotizacion, solo cuando el gasto va con ticket o recibo. Es el
+                  papel que respalda el precio ANTES de gastar, asi que llega por correo o en
+                  PDF: aca si se adjunta. No se le pide camara en vivo porque no es algo que
+                  exista en el mostrador -- exigirlo seria pedir la foto de una pantalla.
+                -->
+                @if (clasificacion() === 'no_fiscal_comprobable') {
+                  <div class="cap-step">5 · La cotización</div>
+                  @if (!names()['cotizacion']) {
+                    <div class="cap-drop">
+                      <i class="pi pi-file cap-drop-ic" aria-hidden="true"></i>
+                      <div>Subí la <strong>cotización</strong> del gasto (foto o PDF)</div>
+                      <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
+                        <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
+                      </label>
+                    </div>
+                  } @else {
+                    <div class="cap-done">
+                      <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
+                      <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
+                    </div>
+                  }
                 }
+
+                <label class="cap-f"><span>Comentarios (opcional)</span>
+                  <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
               }
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
@@ -256,47 +263,12 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
         }
       </div>
 
-      <!-- [GX.15] Lo que Kepler ya autorizo y aplico: la comprobacion queda lista sola. -->
-      <div class="cap-mine">
-        <div class="cap-mine-h">
-          <h2>Listas para comprobar</h2>
-          <button type="button" class="cap-link" (click)="loadListas()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button>
-        </div>
-        @if (listasLoading()) { <div class="cap-muted">Cargando…</div> }
-        @else if (listas(); as lp) {
-          @if (!lp.medido) {
-            <div class="cap-muted">No se puede saber cuáles son tuyas: {{ lp.motivo }}</div>
-          } @else if (!lp.rows.length) {
-            <div class="cap-muted">Nada por comprobar en los últimos {{ lp.ventana_dias }} días.</div>
-          } @else {
-            <p class="cap-muted">{{ lp.rows.length }} gasto(s) ya aplicados en Kepler, esperando su comprobación.</p>
-            <div class="cap-list">
-              @for (g of lp.rows; track g.folio_gasto) {
-                <div class="cap-item">
-                  <div class="cap-it-main">
-                    <strong>{{ g.concepto || g.beneficiario || "—" }}</strong>
-                    <span class="cap-it-prov">gasto {{ g.folio_gasto }} · solicitud {{ g.solicitud_folio }}</span>
-                    <span class="cap-it-date">{{ g.fecha_gasto | date: "dd/MM/yy" }}</span>
-                  </div>
-                  <div class="cap-it-side">
-                    <span class="cap-it-imp">{{ moneyFull(g.importe) }}</span>
-                    @if (g.cuadra_con_solicitud === false) {
-                      <span class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        no cuadra con lo solicitado ({{ moneyFull(g.solicitud_importe) }})</span>
-                    }
-                    <button type="button" class="cap-link" [disabled]="pdfCargando() === g.solicitud_folio"
-                            (click)="verExpediente(g.sucursal, g.solicitud_folio)">
-                      <i class="pi pi-file-pdf" aria-hidden="true"></i>
-                      {{ pdfCargando() === g.solicitud_folio ? "armando…" : "expediente" }}
-                    </button>
-                  </div>
-                </div>
-              }
-            </div>
-          }
-        }
-      </div>
-
+      <!--
+        [GX.18] Se retiro el bloque «Listas para comprobar» (lo que Kepler ya autorizo y
+        aplico). Pedido del usuario: esta pantalla es para LEVANTAR el gasto, y esa lista
+        era una bandeja de seguimiento -- otro oficio, y empujaba la captura hacia abajo.
+        El endpoint «listasParaComprobar» sigue existiendo: se quito la vista, no el dato.
+      -->
       <!-- Mis capturas -->
       <div class="cap-mine">
         <div class="cap-mine-h"><h2>Mis últimas capturas</h2><button type="button" class="cap-link" (click)="loadMine()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button></div>
@@ -495,15 +467,33 @@ export class FinanzasCapturarGastoComponent {
   readonly clasOpts = [
     { label: 'Con factura', value: 'fiscal' },
     { label: 'Sólo ticket o recibo', value: 'no_fiscal_comprobable' },
-    { label: 'Sin comprobante', value: 'no_comprobable' },
+    { label: 'Vale autorizado', value: 'no_comprobable' },
   ];
-  readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
+  /**
+   * [GX.18] Los TRES tipos llevan foto. El «Vale autorizado» (antes «Sin comprobante»)
+   * tambien se fotografia en el momento: era el unico que se registraba sin ninguna
+   * imagen, solo con un motivo escrito. `requiereEvidencia()` del servicio NO se toca --
+   * lo leen otras pantallas y significa otra cosa ahi.
+   */
+  readonly llevaEvidencia = computed(() => !!this.clasificacion());
   onClasChange() { this.clasificacion.set(this.clasificacionV); this.formError.set(''); }
+  /**
+   * [GX.18] Que se le pide fotografiar, segun el tipo. Los tres piden foto EN VIVO -- lo
+   * que cambia es el papel: la factura, el ticket, o el vale firmado.
+   */
+  tituloEvidencia(): string {
+    switch (this.clasificacion()) {
+      case 'fiscal': return 'Tomá la factura';
+      case 'no_comprobable': return 'Tomá el vale autorizado';
+      default: return 'Tomá el ticket';
+    }
+  }
+
   clasHint(): string {
     switch (this.clasificacion()) {
       case 'fiscal': return 'Te dieron factura. Adjuntala.';
-      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Adjunta la foto.';
-      case 'no_comprobable': return 'No hay documento que lo respalde. Se registra con un motivo, sin foto.';
+      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Tomá la foto y subí la cotización.';
+      case 'no_comprobable': return 'Sacale foto al vale firmado. Se toma en el momento, como las otras.';
       default: return '';
     }
   }
@@ -558,7 +548,7 @@ export class FinanzasCapturarGastoComponent {
 
   enviarTitle(): string {
     if (this.modo() === 'evidencia') return this.names()['comprobante_1'] ? 'Enviar evidencia' : 'Falta capturar la evidencia';
-    if (!this.names()['solicitud_kepler']) return 'Falta la solicitud firmada';
+    // [GX.18] El paso de la solicitud firmada se retiro: el boton ya no lo puede pedir.
     if (!this.clasificacion()) return 'Elige el tipo de gasto';
     // [GX.14] El primer faltante de la compuerta manda el texto: es el que hay que
     // resolver primero, y sale de la misma lista que ve la persona en pantalla.
@@ -747,15 +737,23 @@ export class FinanzasCapturarGastoComponent {
     if (this.modo() !== 'capturar') return;
     // MOMENTO 1 — capturar la solicitud (firmada + clasificación). Sin evidencia.
     if (!this.clasificacion()) { this.formError.set('Elige el tipo de gasto.'); return; }
-    if (!this.fileData['solicitud_kepler'] && !this.uploaded['solicitud_kepler']) { this.formError.set('Sube la solicitud firmada.'); return; }
-    if (!this.llevaEvidencia() && !this.comentarios.trim()) { this.formError.set('Escribe por qué no se puede comprobar.'); return; }
+    // [GX.18] Se fue el freno de la solicitud firmada: ese paso ya no existe en la pantalla.
+    // Y se fue el del motivo obligatorio, porque el «Vale autorizado» ahora lleva su foto.
     // [GX.14] Se frena ANTES de subir nada al bucket: mandar los bytes para que el 400
     // los rechace después deja archivos huérfanos pagados y a la persona esperando.
     const faltan = this.faltan();
     if (faltan.length) { this.formError.set(faltan.map((f) => f.motivo).join('. ')); return; }
     this.formError.set('');
     this.saving.set(true);
-    this.uploadThen(['solicitud_kepler'], () => this.createSolicitud(g));
+    /**
+     * [GX.18] Sube lo que de verdad viaja: la foto del comprobante y -- si es ticket o
+     * recibo -- la cotizacion.
+     *
+     * ⚠️ Antes esto subia SOLO `solicitud_kepler`, asi que la foto que la compuerta EXIGIA
+     * se quedaba en memoria y `reset()` la tiraba: el expediente nacia sin la imagen por la
+     * que se la habia pedido a la persona.
+     */
+    this.uploadThen(['comprobante_1', 'cotizacion'], () => this.createSolicitud(g));
   }
 
   // MOMENTO 3 — el gasto ya está aprobado y comprobable: sube la evidencia.
@@ -787,7 +785,7 @@ export class FinanzasCapturarGastoComponent {
 
   private createSolicitud(g: SelSolicitud) {
     const lleva = this.llevaEvidencia();
-    const files = [this.uploaded['solicitud_kepler']].filter(Boolean) as ProofFile[];
+    const files = [this.uploaded['comprobante_1'], this.uploaded['cotizacion']].filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,

@@ -11,7 +11,7 @@ import type { FormaPagoId } from '@megadulces/contracts';
 export type ProofStatus = 'recibida' | 'aprobada' | 'validada' | 'rechazada' | 'revision';
 
 /** Roles de archivo del formulario (Google Form → plataforma). */
-export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
+export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'solicitud_kepler' | 'cotizacion' | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
 export interface ProofFile {
   role: ProofFileRole | string; url: string; public_id?: string; kind?: string; name?: string;
   /** `[GX.14]` Salió de la cámara, no de un archivo. Ver el límite en `aporte-solicitante.contract.ts`. */

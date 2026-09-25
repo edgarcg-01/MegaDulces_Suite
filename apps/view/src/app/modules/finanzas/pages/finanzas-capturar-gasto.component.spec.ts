@@ -27,21 +27,16 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
   });
 
-  it('sin la solicitud firmada, lo nombra', () => {
-    expect(comp.enviarLabel()).toBe('Falta la solicitud firmada');
-  });
-
   /**
-   * El orden importa: primero el papel que respalda la salida de dinero, después el tipo de
-   * gasto. Decir «elegí el tipo» cuando falta la firma manda a resolver lo que no bloquea.
+   * [GX.18] El primer faltante ya NO es la solicitud firmada: ese paso se retiro de la
+   * pantalla. El primero es elegir el tipo de gasto, que es lo que decide que evidencia
+   * se pide.
    */
-  it('con la firma puesta pero sin tipo de gasto, pide el tipo', () => {
-    comp.names.set({ solicitud_kepler: 'solicitud.jpg' });
+  it('sin elegir el tipo de gasto, lo pide', () => {
     expect(comp.enviarLabel()).toBe('Elige el tipo de gasto');
   });
 
   it('elegido el tipo, nombra el primer faltante de la compuerta', () => {
-    comp.names.set({ solicitud_kepler: 'solicitud.jpg' });
     comp.clasificacion.set('no_fiscal_comprobable');
     // La compuerta es `faltaParaMandar()`, la MISMA función que devuelve el 400 del backend:
     // el botón no inventa su propia idea de qué falta.

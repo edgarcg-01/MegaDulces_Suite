@@ -7,6 +7,10 @@ import { esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } f
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
+import {
+  diaValido, etapaDe, hoyMx, particionarDelDia,
+  type EtapaGasto, type ParticionDelDia,
+} from './etapas-del-dia';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -22,7 +26,7 @@ import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendient
  * ya los tenemos de Kepler por folio— sino porque la firma es la evidencia de que alguien
  * autorizó. Por eso es OPCIONAL: lo que no puede faltar es el comprobante del gasto.
  */
-export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
+export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'cotizacion', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
 
 /**
@@ -95,6 +99,44 @@ export interface ExpedienteParaAprobar extends ExpedientePendiente {
 
 export interface RespuestaPorAprobar extends AgrupadoAprobacion {
   filas: ExpedienteParaAprobar[];
+}
+
+/**
+ * `[GX.20]` Un expediente del dia, con todo lo que la pantalla necesita para decir **que
+ * falta y de quien**. Extiende el de aprobacion: es el mismo expediente, en cualquier etapa.
+ */
+export interface ExpedienteDelDiaDetallado extends ExpedienteParaAprobar {
+  /** El estado crudo de la tabla. La etapa se deriva de el, pero el estado se muestra. */
+  status: string;
+  etapa: EtapaGasto;
+  /** Hora de captura (`HH:MM`, Mexico). El dia ya viene en `created_at`. */
+  created_hora: string;
+  motivo_rechazo: string | null;
+  revision_nota: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  /** Este gasto debe llevar evidencia? Derivado de la clasificacion. */
+  requiere_evidencia: boolean;
+  /** Ya la subieron? Es lo que separa "falta ejercer" de "falta firmar el cierre". */
+  tiene_evidencia: boolean;
+}
+
+/** `[GX.20]` Lo que devuelve `delDia()`. Cruza el boundary REST (ADR-052), asi que se declara. */
+export interface RespuestaDelDia extends ParticionDelDia {
+  /** El dia que se esta mirando (`YYYY-MM-DD`, Mexico). */
+  fecha: string;
+  es_hoy: boolean;
+  /** Hoy en Mexico, para que la pantalla no lo calcule con el reloj del navegador. */
+  hoy: string;
+  /** La fecha que pidieron cuando era ilegible y se cayo a hoy. `null` = todo en orden. */
+  fecha_pedida: string | null;
+  filas: ExpedienteDelDiaDetallado[];
+  /** Los grupos por departamento de lo que espera firma ESE dia. */
+  aprobar: AgrupadoAprobacion;
+  /** Las tres semanas alrededor, con cuantas firmas debe cada dia. */
+  dias_recientes: { dia: string; n: number; monto: number; pendientes: number }[];
+  /** Lo que espera firma y NO cayo en este dia. El dia filtra lo que se lee, no lo que existe. */
+  pendientes_fuera_del_dia: { n: number; monto: number };
 }
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
@@ -724,6 +766,16 @@ export class ExpenseProofsService {
       // el monto con la misma manga dejaría pescar el gasto ajeno tecleando cifras hasta
       // que caiga algo. Por eso el monto cuelga de `veTodo || claves.length` y el folio no.
       const montoBuscable = (veTodo || claves.length > 0) && Number(q) > 0;
+    /**
+     * `[GX.18]` **Sólo las solicitudes de HOY.** Pedido del usuario: el levantamiento se hace
+     * el mismo día, así que una solicitud vieja en el desplegable es ruido — y peor, invita a
+     * capturar contra el folio equivocado cuando dos se parecen.
+     *
+     * El día es el de México, no el del servidor: `fecha` es un `date` de Kepler y a las 19:00
+     * de Morelia ya es el día siguiente en UTC. Con `current_date` pelado, media tarde de
+     * trabajo desaparecería del buscador.
+     */
+    b.andWhereRaw("r.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date");
       if (soloNumeros) {
         // Igualdad numérica: '23' encuentra '0000023' y nada más.
         b.andWhere((w: any) => {
@@ -982,6 +1034,188 @@ export class ExpenseProofsService {
       })));
 
       return { ...agrupado, filas: detalladas };
+    });
+  }
+
+  /**
+   * `[GX.20]` **El dia del gasto.** Todo lo que se levanto un dia, partido en las tres
+   * pestanas de la pantalla de Aprobacion: *Aprobar*, *Ejercer* y *Todos*.
+   *
+   * ## (!) El dia es el de CAPTURA, y el de Mexico
+   * "Los levantamientos que se hicieron al dia" habla de cuando se **levanto** el
+   * expediente (`created_at`), no de cuando ocurrio el gasto (`fecha_gasto`) -- que puede
+   * ser de la semana pasada y que cada renglon muestra aparte, justo porque no coinciden.
+   *
+   * El corte se hace contra el dia de **Mexico**: a las 20:00 de aca ya es el dia siguiente
+   * en UTC, y un gasto levantado de noche no apareceria en "hoy".
+   *
+   * (X) El filtro va como **rango de timestamps**, no envolviendo la columna en `to_char`:
+   * envolverla anula el indice de `created_at` y obliga a leer la tabla entera. Es la otra
+   * mitad de la trampa de `porAprobar` -- ahi `to_char` es gratis porque esta en la lista
+   * de seleccion, aca seria carisimo porque estaria en el `WHERE`.
+   *
+   * ## (X) Acotar por dia NO puede esconder lo que espera firma
+   * Una pantalla que solo mire "hoy" haria desaparecer el expediente que nadie aprobo
+   * anteayer. Por eso la respuesta trae `dias_recientes` con **cuantas firmas debe cada
+   * dia** y `pendientes_fuera_del_dia` con lo que quedo afuera del rango: el rail de dias
+   * lo marca y la pantalla lo dice. El dia filtra lo que se LEE, nunca lo que existe.
+   */
+  async delDia(fecha?: string, limit = 500): Promise<RespuestaDelDia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const lim = Math.min(2000, Math.max(1, Number(limit) || 500));
+    const hoy = hoyMx();
+    // Una fecha ilegible NO se convierte en "hoy" en silencio: se declara en `fecha_pedida`
+    // para que la pantalla pueda decir que el parametro venia roto.
+    const pedida = fecha == null || String(fecha).trim() === '' ? null : String(fecha).trim();
+    const dia = diaValido(pedida) ?? hoy;
+
+    return this.tk.run(async (trx) => {
+      interface FilaCruda {
+        id: string; folio_solicitud: string | null; sucursal: string | null;
+        fecha_gasto: string | null; created_dia: string; created_hora: string;
+        departamento: string | null; proveedor: string | null; clasificacion: string | null;
+        forma_pago: string | null; forma_pago_detalle: string | null;
+        files: string | ProofFile[] | null; comentarios: string | null;
+        created_by: string | null; importe: string | number; status: string;
+        motivo_rechazo: string | null; revision_nota: string | null;
+        validated_by: string | null; validated_at: string | Date | null;
+      }
+
+      // El dia de Mexico como rango de timestamps: [00:00, 00:00 del siguiente).
+      const desde = trx.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+      const hasta = trx.raw(`((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+
+      const filas: FilaCruda[] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .where('created_at', '>=', desde)
+        .where('created_at', '<', hasta)
+        .orderBy('created_at', 'desc')
+        .limit(lim)
+        .select('id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
+          'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
+          'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at',
+          trx.raw('importe::numeric AS importe'),
+          trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`));
+
+      // El rail de dias: las tres semanas alrededor de lo que se mira, con cuantas firmas
+      // debe cada uno. Es lo que impide que acotar por dia esconda trabajo.
+      interface DiaCrudo { dia: string; n: number; monto: string | number; pendientes: number }
+      const piso = dia < hoy ? dia : hoy;
+      const dias: DiaCrudo[] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .whereRaw(`created_at >= ((?::date) - interval '20 days')::timestamp AT TIME ZONE 'America/Mexico_City'`, [piso])
+        .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
+        .orderByRaw(`1 DESC`)
+        .select(
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
+          trx.raw('COUNT(*)::int AS n'),
+          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'),
+          trx.raw(`COUNT(*) FILTER (WHERE status = 'recibida')::int AS pendientes`));
+
+      // Lo que espera firma y NO cayo en el dia que se mira. Sin este numero, un expediente
+      // parado hace un mes no existe en ninguna pantalla.
+      const [fuera] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId, status: 'recibida' })
+        .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
+        .select(trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+
+      const particion = particionarDelDia(filas.map((f) => ({
+        id: f.id, status: f.status, importe: Number(f.importe) || 0,
+      })));
+
+      const base = {
+        ...particion,
+        fecha: dia,
+        es_hoy: dia === hoy,
+        hoy,
+        // No-null = la fecha pedida era ilegible y se cayo a hoy. La pantalla lo dice.
+        fecha_pedida: pedida != null && diaValido(pedida) == null ? pedida : null,
+        dias_recientes: dias.map((d) => ({
+          dia: d.dia, n: Number(d.n) || 0,
+          monto: Math.round((Number(d.monto) || 0) * 100) / 100,
+          pendientes: Number(d.pendientes) || 0,
+        })),
+        pendientes_fuera_del_dia: {
+          n: Number(fuera?.n) || 0,
+          monto: Math.round((Number(fuera?.monto) || 0) * 100) / 100,
+        },
+      };
+
+      if (!filas.length) {
+        return { ...base, filas: [], aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] } };
+      }
+
+      // Segundo viaje: el area y el concepto de la solicitud de Kepler, por (sucursal, folio).
+      // Mismo criterio que `porAprobar`: sin folio no hay llave, y no se inventa.
+      const porSucursal = new Map<string, Set<string>>();
+      for (const f of filas) {
+        const suc = String(f.sucursal ?? '');
+        const folio = f.folio_solicitud ? String(f.folio_solicitud).trim() : '';
+        if (!suc || !folio) continue;
+        if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
+        porSucursal.get(suc)!.add(folio);
+      }
+      interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null }
+      const sol = new Map<string, SolicitudMinima>();
+      for (const [suc, folios] of porSucursal) {
+        if (!suc) continue;
+        const rows = await trx('analytics.expense_requests')
+          .where({ tenant_id: tenantId, sucursal: suc })
+          .whereRaw('folio = ANY(?::text[])', [[...folios]])
+          .select('sucursal', 'folio', 'solicitante', 'concepto');
+        for (const r of rows) sol.set(`${r.sucursal}|${r.folio}`, r);
+      }
+
+      const detalladas: ExpedienteDelDiaDetallado[] = await Promise.all(filas.map(async (f) => {
+        const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
+        const s = sol.get(`${f.sucursal}|${f.folio_solicitud}`);
+        const clasificacion = f.clasificacion ?? null;
+        return {
+          id: f.id,
+          folio_solicitud: f.folio_solicitud ?? '',
+          sucursal: f.sucursal,
+          fecha_gasto: f.fecha_gasto ?? null,
+          created_at: f.created_dia,
+          created_hora: f.created_hora,
+          importe: Number(f.importe) || 0,
+          departamento: f.departamento,
+          solicitante: s?.solicitante ?? null,
+          concepto: s?.concepto ?? null,
+          proveedor: f.proveedor,
+          clasificacion,
+          forma_pago: f.forma_pago ?? null,
+          forma_pago_detalle: f.forma_pago_detalle ?? null,
+          comentarios: f.comentarios ?? null,
+          created_by: f.created_by ?? null,
+          status: f.status,
+          etapa: etapaDe(f.status),
+          motivo_rechazo: f.motivo_rechazo ?? null,
+          revision_nota: f.revision_nota ?? null,
+          validated_by: f.validated_by ?? null,
+          validated_at: f.validated_at == null ? null : String(f.validated_at),
+          requiere_evidencia: requiereEvidencia(clasificacion),
+          // Lo que decide si "Ejercer" ya tiene con que cerrarse. Que exista un comprobante
+          // de la captura no alcanza: la evidencia del gasto es otro rol de archivo.
+          tiene_evidencia: arch.some((a) => String(a?.role ?? '').startsWith('evidencia') && !!a?.url),
+          evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
+          files: await this.storage.signFiles(arch, 1800),
+        };
+      }));
+
+      // Los grupos por departamento del bucket que se firma. Quien autoriza no revisa
+      // renglones sueltos: revisa "lo de Logistica". Se reusa el agrupador de GX.17.
+      const aprobar = agruparParaAprobacion(
+        detalladas.filter((d) => d.etapa === 'aprobar').map((d) => ({
+          id: d.id, folio_solicitud: d.folio_solicitud, sucursal: d.sucursal,
+          fecha_gasto: d.fecha_gasto, created_at: d.created_at, importe: d.importe,
+          departamento: d.departamento, solicitante: d.solicitante, proveedor: d.proveedor,
+          clasificacion: d.clasificacion, forma_pago: d.forma_pago,
+          evidencia_en_vivo: d.evidencia_en_vivo,
+        })));
+
+      return { ...base, filas: detalladas, aprobar };
     });
   }
 

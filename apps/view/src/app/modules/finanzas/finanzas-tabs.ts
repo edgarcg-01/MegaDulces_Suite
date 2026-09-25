@@ -116,7 +116,7 @@ export const FINANZAS_TABS: PageTab[] = [
      * Por eso `anyOf`: con un permiso único, uno de los dos grupos perdía
      * el tab aunque el guard lo dejara pasar.
      */
-    label: 'Gastos',
+    label: 'Levantamiento de gasto',
     route: '/finanzas/gastos',
     icon: 'pi pi-file-edit',
     // `[GX.17]` SIN permiso: la ruta es `canActivate: []`. El `anyOf` que traía escondía
@@ -129,12 +129,7 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-verified',
     permission: Permission.FINANCE_EXPENSES_COMPROBAR,
   },
-  {
-    label: 'Tablero de gastos',
-    route: '/finanzas/gastos-tablero',
-    icon: 'pi pi-table',
-    permission: Permission.FINANCE_EXPENSES_VER,
-  },
+  // `[GX.18]` La pestaña del tablero salió por pedido del usuario. La ruta sigue viva.
   {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
