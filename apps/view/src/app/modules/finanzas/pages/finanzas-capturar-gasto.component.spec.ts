@@ -28,12 +28,13 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
   });
 
   /**
-   * [GX.18] El primer faltante ya NO es la solicitud firmada: ese paso se retiro de la
-   * pantalla. El primero es elegir el tipo de gasto, que es lo que decide que evidencia
-   * se pide.
+   * [GX.19] Ya no hay paso de «tipo de gasto»: la clasificacion se fija sola al elegir la
+   * solicitud. El primer faltante real es el METODO DE PAGO, que es una de las dos cosas
+   * que Kepler no tiene y esta pantalla existe para juntar.
    */
-  it('sin elegir el tipo de gasto, lo pide', () => {
-    expect(comp.enviarLabel()).toBe('Elige el tipo de gasto');
+  it('el primer faltante es como se pago', () => {
+    comp.clasificacion.set('no_comprobable');
+    expect(comp.enviarLabel()).toContain('Cómo se pagó');
   });
 
   it('elegido el tipo, nombra el primer faltante de la compuerta', () => {

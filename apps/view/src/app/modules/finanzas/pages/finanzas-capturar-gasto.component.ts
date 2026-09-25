@@ -113,18 +113,23 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                 «solicitud_kepler» sigue existiendo en el contrato de archivos -- los
                 expedientes viejos lo tienen y el expediente en PDF lo sigue mostrando.
               -->
-              <!-- 2) Clasificacion del gasto: decide que evidencia se pide. -->
-              <div class="cap-step">2 · ¿Qué tipo de gasto es?</div>
-              <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
-                              optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
-                              ariaLabel="Tipo de gasto" />
-              @if (clasificacion()) { <em class="cap-hint">{{ clasHint() }}</em> }
+              <!--
+                [GX.19] Se retiro el paso «¿Que tipo de gasto es?». De la solicitud, Kepler ya
+                sabe TODO: que se compro, a quien, cuanto y de que cuenta sale. Lo unico que
+                el ERP no tiene -- y por eso existe esta pantalla -- son tres cosas:
 
-              @if (clasificacion()) {
+                  1. como se pago            (Kepler tiene la columna y nadie la llena)
+                  2. la foto del vale autorizado
+                  3. la cotizacion, cuando el gasto la tiene
+
+                Pedirle ademas que clasifique el gasto era hacerle repetir lo que el sistema
+                ya sabe, y de paso trababa el formulario: sin elegir tipo no aparecia nada.
+              -->
+              @if (true) {
                 <!-- [GX.14] Paso propio, y ANTES de la foto: se pregunta en los tres tipos
                      de gasto, porque el dinero salió de algún lado aunque no haya papel.
                      Kepler tiene la columna y nadie la llena — 5,410 de 10,082 vacías. -->
-                <div class="cap-step">3 · Método de pago</div>
+                <div class="cap-step">2 · Método de pago</div>
                 <div class="cap-fp">
                   @for (f of formasPago; track f.id) {
                     <button type="button" class="cap-fp-b" [class.on]="formaPago() === f.id"
@@ -148,7 +153,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                   usuario. Antes ese caso se registraba sin ninguna imagen, solo con un
                   motivo escrito -- o sea, sin nada que mirar.
                 -->
-                <div class="cap-step">4 · {{ tituloEvidencia() }}</div>
+                <div class="cap-step">3 · Tomá el vale autorizado</div>
                   @if (!names()['comprobante_1']) {
                     <!-- [GX.14] Se fue el input de archivo y el arrastrar-y-soltar. El
                          atributo capture="environment" de antes era una sugerencia: en escritorio
@@ -168,27 +173,29 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                     }
                   }
                 <!--
-                  [GX.18] La cotizacion, solo cuando el gasto va con ticket o recibo. Es el
-                  papel que respalda el precio ANTES de gastar, asi que llega por correo o en
-                  PDF: aca si se adjunta. No se le pide camara en vivo porque no es algo que
-                  exista en el mostrador -- exigirlo seria pedir la foto de una pantalla.
+                  [GX.19] La cotizacion: OPCIONAL y para cualquier gasto. Antes colgaba del
+                  tipo «solo ticket o recibo»; ahora el criterio es el del usuario -- «si es
+                  alguno que tiene cotizacion, que pueda subir la evidencia». No todos la
+                  tienen, asi que no es un faltante: es una puerta abierta.
+
+                  Este SI se adjunta, a diferencia del vale: es el papel que respalda el
+                  precio ANTES de gastar, llega por correo o en PDF. Pedir camara en vivo
+                  seria pedir la foto de una pantalla.
                 -->
-                @if (clasificacion() === 'no_fiscal_comprobable') {
-                  <div class="cap-step">5 · La cotización</div>
-                  @if (!names()['cotizacion']) {
-                    <div class="cap-drop">
-                      <i class="pi pi-file cap-drop-ic" aria-hidden="true"></i>
-                      <div>Subí la <strong>cotización</strong> del gasto (foto o PDF)</div>
-                      <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
-                        <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
-                      </label>
-                    </div>
-                  } @else {
-                    <div class="cap-done">
-                      <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
-                      <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
-                    </div>
-                  }
+                <div class="cap-step cap-step-opt">4 · La cotización <span>si el gasto la tiene</span></div>
+                @if (!names()['cotizacion']) {
+                  <div class="cap-drop">
+                    <i class="pi pi-file cap-drop-ic" aria-hidden="true"></i>
+                    <div>Subí la <strong>cotización</strong> (foto o PDF)</div>
+                    <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
+                      <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
+                    </label>
+                  </div>
+                } @else {
+                  <div class="cap-done">
+                    <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
+                    <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
+                  </div>
                 }
 
                 <label class="cap-f"><span>Comentarios (opcional)</span>
@@ -345,6 +352,10 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
     .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
       letter-spacing: .04em; }
 
+    /* [GX.19] El paso opcional se ve distinto del obligatorio: si los cuatro pesan igual,
+       la persona cree que le falta uno y se queda esperando. */
+    .cap-step-opt span { margin-left: var(--sp-2); font-weight: var(--fw-regular);
+      font-size: var(--fs-xs); color: var(--fg-3); }
     .cap-step { padding-top: var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
     /* Clasificación: que las 3 opciones quepan y envuelvan en móvil. */
@@ -618,6 +629,17 @@ export class FinanzasCapturarGastoComponent {
     this.gasto.set({ folio: g.folio, beneficiario: g.beneficiario, importe: Number(g.importe) || 0,
       sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto });
     this.sel = null;
+    /**
+     * [GX.19] La clasificacion deja de preguntarse y se fija en `no_comprobable`, que es
+     * exactamente lo que la persona aporta: el VALE AUTORIZADO fotografiado.
+     *
+     * ⚠️ La columna sigue existiendo con su CHECK de tres valores y su chip en Aprobacion,
+     * asi que todo lo que se levante por esta pantalla va a decir «Vale autorizado». Si mas
+     * adelante hace falta distinguir factura de ticket, la distincion NO se recupera sola:
+     * hay que volver a preguntarla o derivarla de la cuenta de Kepler.
+     */
+    this.clasificacionV = 'no_comprobable';
+    this.clasificacion.set('no_comprobable');
     this.checkFolio(g.folio, g.sucursal ?? undefined);
   }
 
