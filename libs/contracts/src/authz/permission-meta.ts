@@ -154,6 +154,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.PORTAL_B2B_ACCESS]: { label: 'Acceso a Portal B2B', description: 'Permite entrar al portal de autoservicio para clientes B2B.', category: 'Portal B2B' },
 
   // ── Proyecto Finanzas ──────────────────────────────────────────────────
+  [Permission.FINANCE_INCOME_VER]: { label: 'Ver Ingresos Contables', description: 'Proyecto Finanzas: ingresos contables (pólizas de venta 401), desglose por canal y plaza, y cuadre contra el hecho de venta y la cobranza.', category: 'Finanzas' },
   [Permission.FINANCE_EXPENSES_VER]: { label: 'Ver Egresos Contables', description: 'Proyecto Finanzas: egresos contables (pólizas de gastos 6xx y compras 5xx), desglose por cuenta/beneficiario y drill a documentos.', category: 'Finanzas' },
   [Permission.FINANCE_AI_CHAT]: { label: 'Chat AI de Finanzas (Maat)', description: 'Conversar con Maat: consultas sobre balanza, egresos, proveedores y hallazgos. Solo lectura de datos.', category: 'Finanzas' },
   [Permission.FINANCE_FINDINGS_GESTIONAR]: { label: 'Gestionar Hallazgos y Conocimiento', description: 'Confirmar/descartar hallazgos del motor de patrones y curar la base de conocimiento de Maat.', category: 'Finanzas' },

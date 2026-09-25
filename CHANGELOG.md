@@ -10,6 +10,35 @@
 
 ## [Unreleased]
 
+### Added — Ingresos contables: el otro lado del libro (IG, 2026-09-25)
+- Pantalla nueva **`/finanzas/ingresos`**, hermana de Egresos: árbol **canal → plaza**, tabla,
+  tendencia y una pestaña **¿Cuadra?** que pone las cuatro fuentes del mismo peso de venta lado a
+  lado. Hasta hoy eso sólo se podía armar preguntándole a Maat.
+- ⚠️ **Copiar la pantalla de Egresos habría publicado +69 %.** Agosto 2026: sumar la familia 4 de
+  todas las sucursales da **$94.06M**; lo correcto —sólo el CEDIS y sólo el documento de venta— da
+  **$55.94M**, y el hecho de venta independiente confirma **$54.27M**. Las seis sucursales
+  **replican** la misma venta que el CEDIS ya contabiliza centralizada.
+- **Cero feeds nuevos.** El dato se deriva en vivo del ODS, así que la pantalla es de **minutos**,
+  no de la noche anterior. El feed nocturno que ya existía pasa a ser el **árbitro**: los seis meses
+  cerrados coinciden **al centavo** (Δ $0.00), total y por canal.
+- El desglose **no inventa plazas**: 233 de las 271 «plazas» del rango por defecto son nombres de
+  cliente sueltos, y se muestran agrupadas como residuo en vez de fingir 233 puntos de venta.
+- La **cobranza** aparece en el cuadre marcada como **no comparable de frente**: es lo que se cobró,
+  no lo que se devengó, y su diferencia es plazo de crédito, no faltante.
+- ⛔ **No se construyó el «Resultado» (ingresos − egresos), y no es un olvido:** no hay costo de
+  ventas real desde **mayo-2026** porque el cierre de inventario se cortó en abril. Restarlos daría
+  una pérdida de $5.7M en agosto que **no existe** — esos «egresos» son compras, no costo de lo
+  vendido. Queda declarado con dueño: alguien tiene que retomar el cierre.
+- ⚠️ El hueco del ODS (`AUD-ODS-01`) también pega acá y está medido: en el mes en curso la
+  derivación va **$793,318 por debajo** del feed nocturno. Ninguna de las dos fuentes domina a la
+  otra, así que la pantalla sirve de una y **declara** la diferencia en lugar de elegir en silencio.
+
+### Internal — El motor de cobertura se generaliza a los dos lados del libro (IG, 2026-09-25)
+- `expense-coverage.ts` pasa a `period-coverage.ts`: el mismo mecanismo mide sucursales del lado del
+  gasto y plazas del lado de la venta. El campo `sucursal` —que del otro lado habría contenido una
+  plaza— pasa a `grupo`, con la etiqueta a cargo de quien llama.
+
+
 ### Fixed — Egresos publicaba +27% de "gasto" que eran sucursales entrando al universo (GX.19, 2026-09-25)
 - `/finanzas/egresos`, con su rango por defecto y el toggle **Comparar**, decía **+27.0 %** vs el
   período previo. El gasto comparable había subido **+1.1 %**: los otros 26 puntos eran sucursales

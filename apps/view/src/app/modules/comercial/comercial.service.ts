@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -1886,6 +1887,29 @@ export class ComercialService {
   }
 
   // ── Fase GX v2 — Egresos contables (motor dinámico) ──
+  // ─── IG — Ingresos contables (pólizas 401, sólo CEDIS y sólo UD1301) ───
+  income(p: IncomeParams) {
+    return this.http.get<IncomeReportT>(`${this.base}/analytics/income`, { params: this.incomeParams(p) });
+  }
+  incomeTree(p: IncomeParams) {
+    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: this.incomeParams(p) });
+  }
+  incomeSources(p: IncomeParams) {
+    return this.http.get<IncomeSourcesT>(`${this.base}/analytics/income/sources`, { params: this.incomeParams(p) });
+  }
+  private incomeParams(p: IncomeParams): HttpParams {
+    let q = new HttpParams();
+    if (p.from) q = q.set('from', p.from);
+    if (p.to) q = q.set('to', p.to);
+    if (p.group_by) q = q.set('group_by', p.group_by);
+    if (p.compare) q = q.set('compare', 'true');
+    if (p.canal?.length) q = q.set('canal', p.canal.join(','));
+    if (p.plaza) q = q.set('plaza', p.plaza);
+    if (p.concepto) q = q.set('concepto', p.concepto);
+    if (p.min_importe != null) q = q.set('min_importe', String(p.min_importe));
+    return q;
+  }
+
   expenses(p: ExpensesParams) {
     return this.http.get<ExpensesReport>(`${this.base}/analytics/expenses`, { params: this.expensesParams(p) });
   }
@@ -2855,6 +2879,24 @@ export interface VendorSaleLine {
 }
 
 // ── Fase GX v2 — Egresos contables ──
+/**
+ * [IG] Ingresos contables — la forma del wire vive en `@megadulces/contracts`, no acá.
+ *
+ * Se re-exporta para que los consumidores de esta app la importen del mismo lugar que el resto,
+ * pero la definición es UNA (ADR-052). Declararla otra vez de este lado es exactamente cómo el tipo
+ * `Freshness` terminó copiado a mano tres días después de nacer.
+ */
+export type {
+  IncomeGroupBy, IncomeCanalRow, IncomeRow, IncomeSeriesPoint, IncomeReport,
+  IncomeTreeNode, IncomeTree, IncomeSourceRow, IncomeSources,
+} from '@megadulces/contracts';
+
+/** Parámetros de consulta (no son wire de respuesta: los arma esta app). */
+export interface IncomeParams {
+  from?: string; to?: string; group_by?: IncomeGroupByT; compare?: boolean;
+  canal?: string[]; plaza?: string; concepto?: string; min_importe?: number;
+}
+
 export type ExpenseGroupBy = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'sucursal' | 'doc_tipo' | 'area' | 'dpto' | 'mes';
 export interface ExpensesParams {
   from?: string;

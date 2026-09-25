@@ -340,6 +340,9 @@ export enum Permission {
   // ── Proyecto Finanzas (egresos contables, CxP, hallazgos) ─────────────
   // Separado de ventas: un rol contable no debe arrastrar permisos comerciales.
   FINANCE_EXPENSES_VER = 'FINANCE_EXPENSES_VER',
+  // [IG.1.4] El otro lado del libro: ingresos contables (pólizas 401). Permiso PROPIO y no un
+  // alias de egresos — hay roles que deben ver la venta sin ver el gasto, y al revés.
+  FINANCE_INCOME_VER = 'FINANCE_INCOME_VER',
   // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos/conocimiento
   FINANCE_AI_CHAT = 'FINANCE_AI_CHAT',
   FINANCE_FINDINGS_GESTIONAR = 'FINANCE_FINDINGS_GESTIONAR',
