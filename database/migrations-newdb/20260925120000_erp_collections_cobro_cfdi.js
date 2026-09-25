@@ -32,6 +32,13 @@
  * $0.51M** llegan de la base de la `03` perteneciendo a la `02`. Sin `btrim(c1) = btrim(sucursal)`
  * se duplicaban. (Ya estaba avisado para `kdfe33pagm1` — vale igual acá.)
  *
+ * ⚠️ **El caso límite, medido:** en la base de la sucursal 03 el folio `0000001` existe **tres
+ * veces** — `c1=02` como `U-A-5` ($59.85), `c1=03` como `U-A-5` ($8,602.54) y `c1=02` como
+ * `U-A-7` ($59.85). O sea que la llave completa de un documento del ODS es
+ * **(sucursal, DUEÑO, doctype, folio)**: ni con el doctype alcanza. La vista se queda con
+ * `c1 = sucursal`, que es leer cada documento de la base de su propio dueño — y por eso su
+ * conteo cuadra exacto contra los documentos no-réplica del ODS (26,602 = 26,602).
+ *
  * **3. ⛔ `DISTINCT ON (sucursal, folio)` sin el doctype.** En Kepler **el folio NO es único
  * entre doctypes**: con dos doctypes en la misma vista, un `UA0501` y un `UA0701` del mismo
  * folio se pisaban y uno desaparecía en silencio. Ahora la llave lleva `doc_prefix`.
