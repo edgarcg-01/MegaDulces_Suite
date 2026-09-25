@@ -221,11 +221,35 @@ efectivo que pasa físicamente por la caja fuerte (~40%), sin llave común con l
   tipos "Bóveda Virtual" **no aparecen** en los datos reales (sólo Depósito/Dispensar/Dotar/Cambio/
   Vaciar), así que CS.5 probablemente no aplica en esta instalación.
 
+### CS.4 (2026-09-25) — cuadre de TOTAL DE CONTROL, no árbitro 1:1
+
+Construido como lo que la medición permite: `GET /finance/caos/conciliacion` + pestaña «¿Cuadra?»
+compara por día/período Σ CAOS vs Σ Kepler caja `0011` (suc 00) y **publica la cobertura** (~39%
+depósitos / ~40% dispensado). Es **informativo, sin hallazgos automáticos**: marcar movimiento por
+movimiento daría ~60% de falsos (CAOS es el subconjunto que pasa por la máquina). Se declara además
+el rezago del feed (el último día puede verse descuadrado por lag contable, no por error).
+
+### CS.5 (2026-09-25) — NO viable con los datos actuales (medido, declarado)
+
+Medido contra prod: **no hay camino de datos para conciliar CAOS contra banco.**
+- Los tipos "Bóveda Virtual" (el mecanismo de acreditación al banco) **no aparecen** en esta
+  instalación (sólo Depósito/Dispensar/Dotar/Cambio/Vaciar).
+- `finance.bank_movements` existe (Fase CB), pero sus abonos son otro universo: la cuenta
+  "CAJA GENERAL" del banco tiene **$77.3M** de abonos vs los **$15.9M** de depósitos de CAOS
+  (~20%), sin llave común y a otro grano.
+- El efectivo de CAOS es cash que ENTRA a la caja fuerte (de rutas), no un depósito bancario; el
+  puente físico caja→banco (recolección/CIT → abono) no está en los datos de CAOS.
+
+Para hacerlo viable haría falta: los datos de recolección/ficha de depósito (qué bulto fue a qué
+depósito bancario) **o** una definición operativa del mapeo. Hasta entonces, CS.5 queda declarado
+como no construible — no se hace un cuadre hueco.
+
 ### Pendiente
 
 - **Mapear operadores** (`003`/`006`/`002`) a `identity.users` — para CS.7.
-- **Desplegar CS.1 en `md`** (migración + secrets `CAOS_*` en `feeds.env` + rotar `admin/caos`) para
-  poblar el espejo y que el reporte y CS.6/CS.7 tengan datos.
+- **Desplegar app** (`prod-api` + `view` en `md`) para que el reporte + CS.4/CS.6/CS.7 se vean —
+  bloqueado por la compuerta de Production Deploy; lo corre el usuario. + re-login (permiso en JWT).
+- **Rotar `admin/caos`** (login compartido — coordina 0Sistemas).
 - **Mapear los usuarios de CAOS** (`003`, `006`, `002`) a `identity.users`.
 - **`accountingDate` vs `date`, TZ y retención** no verificados — cuál manda para cuadrar un período.
 - **Riesgo de adapter:** son endpoints internos de CAOS 6.72.3, sin contrato. Una actualización de

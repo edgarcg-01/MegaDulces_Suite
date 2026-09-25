@@ -64,6 +64,20 @@ export class CaosService {
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
     return this.http.get<CaosResumen>(`${this.base}/resumen`, { params: p });
   }
+
+  conciliacion(f: { from?: string; to?: string }): Observable<CaosConciliacion> {
+    let p: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
+    return this.http.get<CaosConciliacion>(`${this.base}/conciliacion`, { params: p });
+  }
+}
+
+export interface CaosCuadreDia { dia: string; caos_dep: number; kepler_ing: number; caos_dis: number; kepler_egr: number }
+export interface CaosConciliacion {
+  dias: CaosCuadreDia[];
+  totales: { caos_dep: number; kepler_ing: number; caos_dis: number; kepler_egr: number };
+  cobertura: { depositos: number | null; dispensado: number | null };
+  desde: string; hasta: string;
 }
 
 export interface CaosPorRuta { ruta: string | null; movimientos: number; total: number }

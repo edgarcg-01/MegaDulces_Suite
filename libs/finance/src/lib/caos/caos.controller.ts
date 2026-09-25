@@ -29,6 +29,13 @@ export class CaosController {
     return this.svc.resumen(q);
   }
 
+  @Get('conciliacion')
+  @RequirePermissions(Permission.FINANCE_CAOS_VER)
+  @ApiOperation({ summary: 'CS.4 — cuadre de total de control: CAOS vs Caja General de Kepler (0011).' })
+  conciliacion(@Query() q: CaosQuery) {
+    return this.svc.conciliacion(q);
+  }
+
   @Get('movimientos/:id')
   @RequirePermissions(Permission.FINANCE_CAOS_VER)
   @ApiOperation({ summary: 'Detalle por denominación de un movimiento de CAOS.' })
