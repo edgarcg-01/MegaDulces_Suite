@@ -83,6 +83,10 @@ export interface TicketVentaLinea {
   ieps: number;
   impuesto_tipo: 'iva' | 'ieps' | null;
   iva_tasa: number;
+  /** [TK.10] Precio de lista SIN impuestos. `null` = no se puede publicar; nunca 0. */
+  precio_neto: number | null;
+  /** [TK.10] Precio pagado SIN impuestos. `null` = el desglose no cuadra. */
+  precio_neto_desc: number | null;
   ieps_tasa: number;
 }
 
@@ -104,6 +108,8 @@ export interface TicketVentaCascada {
   impuesto_desglosado: boolean;
   iva_lineas: number;
   ieps_lineas: number;
+  /** [TK.10] Σ sin impuestos. Cierra: importe_neto + IEPS + IVA = total. `null` si no cuadra. */
+  importe_neto: number | null;
 }
 
 export interface TicketVenta {
@@ -258,6 +264,10 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
   // declara el documento (lo verifica el backend contra la cabecera de Kepler). Unos importes
   // que no suman lo declarado son peores que no tenerlos (ADR-056).
   const conImp = c.impuesto_desglosado;
+  // [TK.10] Los netos cuelgan del MISMO cuadre que el impuesto: se derivan de la cascada
+  // fiscal, asi que sin ese cuadre no se pueden publicar. Y el del documento se imprime solo
+  // si el backend lo pudo calcular: un `null` aca significa "no se sabe", no "cero".
+  const conNeto = conImp && c.importe_neto != null;
 
   // ── Encabezado. A 45 caracteres ya no caben dos columnas, así que va centrado y apilado,
   //    como cualquier ticket de rollo.
@@ -301,6 +311,20 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
       // entra. Nunca vienen los dos (0 de 123,203 renglones medidos).
       if (conImp && l.iva > 0) declara.push('IVA ' + money(l.iva));
       if (conImp && l.ieps > 0) declara.push('IEPS ' + money(l.ieps));
+      // [TK.10] Los netos, con UNA condicion que no es cosmetica: se imprimen solo si DIFIEREN
+      // del precio del que salen. Un renglon sin impuesto tiene neto == pagado, y repetir el
+      // mismo numero con otra etiqueta en un papel de 45 caracteres no informa: se lee como una
+      // correccion. Es la misma regla que ya rige a "Lista" y al descuento en este ticket.
+      const netoDifiere = l.precio_neto != null && l.precio_neto !== l.precio_lista;
+      const netoDescDifiere = l.precio_neto_desc != null && l.precio_neto_desc !== l.precio_pagado;
+      if (conNeto && netoDifiere && l.descuento_linea > 0) {
+        declara.push('Neto ' + money(l.precio_neto as number));
+      }
+      if (conNeto && netoDescDifiere) {
+        // Sin descuento los dos netos son el MISMO numero: va uno solo, sin sufijo.
+        const solo = !netoDifiere || l.descuento_linea <= 0;
+        declara.push((solo ? 'Neto ' : 'Neto c/desc ') + money(l.precio_neto_desc as number));
+      }
 
       L.push(...producto(nombre, operacion, money(l.importe), declara));
     }
@@ -317,6 +341,9 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
   // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor del
   // cliente). Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
   else if (c.descuento_documento < 0) L.push(fila('Ajuste', pesos(-c.descuento_documento)));
+  if (conNeto) L.push(fila('Importe neto', pesos(c.importe_neto as number)));
+  if (conNeto && t.impuestos_incluidos && c.ieps) L.push(fila('IEPS', pesos(c.ieps)));
+  if (conNeto && t.impuestos_incluidos && c.iva) L.push(fila('IVA', pesos(c.iva)));
   if (!t.impuestos_incluidos && c.iva) L.push(fila('IVA', pesos(c.iva)));
   L.push(fila('TOTAL', pesos(c.total)));
 
