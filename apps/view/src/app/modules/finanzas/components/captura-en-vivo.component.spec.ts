@@ -86,6 +86,69 @@ describe('[GX.14] CapturaEnVivoComponent', () => {
     expect(comp.error()).toContain('no tiene cámara');
   });
 
+  /**
+   * ⭐⭐ **La asercion que faltaba, y por eso el bug llegó a produccion.**
+   *
+   * Las pruebas de arriba comprobaban que el <video> EXISTE y que dice EN VIVO. Las dos
+   * cosas eran ciertas con la camara desenchufada: el enganche se hacia en un
+   * `queueMicrotask` disparado antes de que Angular pintara la rama, asi que `srcObject`
+   * se quedaba en null. En pantalla: recuadro NEGRO y el boton sin efecto, porque
+   * `videoWidth` nunca pasaba de 0 y `disparar()` hacia `return` en silencio.
+   *
+   * Que el elemento este en el DOM no prueba que la camara este conectada a el.
+   */
+  it('engancha la camara al <video>: srcObject queda con el stream', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const video = (fixture.nativeElement as HTMLElement).querySelector('video') as HTMLVideoElement;
+    expect(video).toBeTruthy();
+    expect(video.srcObject).toBe(stream);
+  });
+
+  /** Un disparador vivo sobre un visor negro es una promesa que no se cumple. */
+  it('el disparador esta apagado hasta que hay imagen', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const html = fixture.nativeElement as HTMLElement;
+    const boton = html.querySelector('.cv-disparar') as HTMLButtonElement;
+    expect(comp.listo()).toBe(false);
+    expect(boton.disabled).toBe(true);
+
+    const video = html.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+    comp.marcarListo();
+    fixture.detectChanges();
+
+    expect(comp.listo()).toBe(true);
+    expect((html.querySelector('.cv-disparar') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /**
+   * No alcanza con no entregar una foto negra: hay que DECIRLO. Callado, la persona
+   * concluye que el boton no sirve -- que fue exactamente lo que se reportó.
+   */
+  it('sin cuadro lo dice, en vez de no hacer nada', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const video = (fixture.nativeElement as HTMLElement).querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 0, configurable: true });
+
+    comp.disparar();
+    fixture.detectChanges();
+
+    expect(comp.aviso()).not.toBe('');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.cv-aviso')?.textContent).toContain('imagen');
+  });
+
   it('abre el visor y enciende el sello EN VIVO', async () => {
     const { stream } = streamFalso();
     conCamara(() => Promise.resolve(stream));
@@ -142,6 +205,81 @@ describe('[GX.14] CapturaEnVivoComponent', () => {
 
     expect(emitidas).toHaveLength(0);
     expect(comp.estado()).toBe('viva'); // sigue abierto: no se pierde lo que estaba encuadrando
+  });
+
+  /**
+   * [GX.17] **«Pidiendo permiso…» era un callejon sin salida.**
+   *
+   * `getUserMedia` puede no resolver NUNCA: mientras el dialogo de permiso siga abierto la
+   * promesa queda pendiente, y si nadie lo contesta -- o el navegador ni lo muestra, como
+   * pasa en uno sin camara -- la pantalla se quedaba en ese mensaje **sin boton, sin error
+   * y sin salida salvo recargar**. Medido con el navegador de las pruebas end-to-end.
+   */
+  describe('mientras pide permiso', () => {
+    /** Una promesa que se resuelve cuando la prueba quiera: el dialogo de permiso abierto. */
+    function pendiente() {
+      let resolver: (s: MediaStream) => void = () => undefined;
+      const promesa = new Promise<MediaStream>((r) => { resolver = r; });
+      return { promesa, resolver: (s: MediaStream) => resolver(s) };
+    }
+
+    it('ofrece Cancelar, y cancelar devuelve al inicio', async () => {
+      const { promesa } = pendiente();
+      conCamara(() => promesa);
+      void comp.abrir();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(comp.estado()).toBe('pidiendo');
+      const html = fixture.nativeElement as HTMLElement;
+      const cancelar = [...html.querySelectorAll('button')].find((b) => b.textContent?.includes('Cancelar'));
+      expect(cancelar).toBeTruthy();
+
+      cancelar?.click();
+      fixture.detectChanges();
+      expect(comp.estado()).toBe('idle');
+    });
+
+    it('si nadie contesta el permiso, lo declara en vez de colgarse', async () => {
+      vi.useFakeTimers();
+      try {
+        const { promesa } = pendiente();
+        conCamara(() => promesa);
+        void comp.abrir();
+        await Promise.resolve();
+        expect(comp.estado()).toBe('pidiendo');
+
+        vi.advanceTimersByTime(20_000);
+        expect(comp.estado()).toBe('error');
+        expect(comp.error()).toContain('no respondió');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * ⭐ La carrera: la persona cancela y el permiso se concede DESPUES. Sin el numero de
+     * apertura, ese stream tardio encendia la camara sola -- la luz del equipo prendida
+     * sobre una pantalla que ya no muestra nada.
+     */
+    it('un permiso que llega DESPUES de cancelar no enciende la camara', async () => {
+      const { promesa, resolver } = pendiente();
+      const { stream, track } = streamFalso();
+      conCamara(() => promesa);
+
+      void comp.abrir();
+      await Promise.resolve();
+      comp.cerrar();
+      expect(comp.estado()).toBe('idle');
+
+      resolver(stream);
+      await promesa;
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(comp.estado()).toBe('idle');
+      expect(track.stop).toHaveBeenCalled();
+    });
   });
 
   it('cancelar suelta la cámara y vuelve al inicio', async () => {
