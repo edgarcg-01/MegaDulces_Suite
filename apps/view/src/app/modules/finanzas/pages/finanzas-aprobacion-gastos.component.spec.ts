@@ -45,7 +45,7 @@ const F = (over: Partial<ExpedienteDelDia> = {}): ExpedienteDelDia => ({
   requiere_evidencia: true,
   tiene_evidencia: false,
   evidencia_en_vivo: true,
-  files: [{ role: 'comprobante_1', url: 'https://ejemplo/x.jpg' }],
+  files: [{ role: 'comprobante_1', url: 'https://ejemplo/x.jpg', kind: 'image' }],
   ...over,
 });
 
@@ -206,7 +206,10 @@ describe('FinanzasAprobacionGastosComponent', () => {
         filas: [F({ id: 'raro', status: 'pagada', etapa: 'sin_etapa', importe: 7 })],
         entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
-      expect(fix.nativeElement.textContent).toContain('sin acciones pendientes');
+      expect(c.accionesDe(c.visibles()[0])).toEqual([]);
+      c.abrir(c.visibles()[0]);
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
     });
   });
 
@@ -324,13 +327,122 @@ describe('FinanzasAprobacionGastosComponent', () => {
     });
   });
 
+  /**
+   * ⛔ El renglón NO trae botones. Un «Aprobar» al pie de una tarjeta deja autorizar dinero
+   * sin haber abierto el comprobante — que es justo lo que esta pantalla existe para evitar.
+   */
+  describe('el vale se abre, no se firma desde la lista', () => {
+    const botonesDeFila = () =>
+      [...fix.nativeElement.querySelectorAll('.ap-item button')].map((b: Element) => b.textContent?.trim());
+
+    it('ningún renglón trae botones de decisión', () => {
+      montar();
+      expect(botonesDeFila()).toEqual([]);
+      c.verPestana('aprobados');
+      fix.detectChanges();
+      expect(botonesDeFila()).toEqual([]);
+    });
+
+    it('el renglón se abre con clic, y también con el teclado', () => {
+      montar();
+      const fila = fix.nativeElement.querySelector('.ap-item') as HTMLElement;
+      expect(fila.getAttribute('role')).toBe('button');
+      expect(fila.getAttribute('tabindex')).toBe('0');
+      fila.click();
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('a1');
+      c.cerrarSiHaceFalta(false);
+      expect(c.abierto()).toBeNull();
+      fila.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('a1');
+    });
+
+    it('el panel muestra el vale completo: importe, folio y sus datos', () => {
+      montar();
+      c.abrir(c.visibles()[0]);
+      fix.detectChanges();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('$100.00');
+      expect(txt).toContain('0009678');
+      expect(txt).toContain('Casetas ruta norte');
+      expect(txt).toContain('Evidencia');
+    });
+
+    it('la decisión vive en el panel, y sale del estado del vale', () => {
+      montar();
+      c.abrir(c.visibles()[0]);                      // recibida
+      expect(c.accionesDe(c.abierto()!)).toEqual(['aprobar', 'rechazar']);
+      c.verPestana('aprobados');
+      c.abrir(c.visibles()[0]);                      // aprobada
+      expect(c.accionesDe(c.abierto()!)).toEqual(['comprobar', 'rechazar']);
+      c.abrir(c.visibles()[1]);                      // validada
+      expect(c.accionesDe(c.abierto()!)).toEqual([]);
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
+    });
+
+    /** ⛔ En Rechazados también se abre: mirar el vale no es lo mismo que poder cambiarlo. */
+    it('un vale rechazado se abre igual, con su motivo, y sin botones', () => {
+      montar();
+      c.verPestana('rechazados');
+      fix.detectChanges();
+      (fix.nativeElement.querySelector('.ap-item') as HTMLElement).click();
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('r1');
+      expect(c.accionesDe(c.abierto()!)).toEqual([]);
+      expect(fix.nativeElement.textContent).toContain('falta el ticket');
+      expect(botonesDeFila()).toEqual([]);
+    });
+
+    it('un PDF se sanitiza una sola vez; una imagen no se sanitiza', () => {
+      montar(DIA({
+        total: 1,
+        filas: [F({ id: 'a1', files: [
+          { role: 'comprobante_1', url: 'https://ejemplo/t.jpg', kind: 'image' },
+          { role: 'evidencia_1', url: 'https://ejemplo/f.pdf', kind: 'pdf' },
+        ] })],
+      }));
+      c.abrir(c.visibles()[0]);
+      const docs = c.docs();
+      expect(docs.map((d) => d.label)).toEqual(['Comprobante — hoja 1', 'Evidencia 1']);
+      expect(docs[0].isPdf).toBe(false);
+      expect(docs[0].safeUrl).toBeNull();
+      expect(docs[1].isPdf).toBe(true);
+      expect(docs[1].safeUrl).not.toBeNull();
+      // La MISMA referencia entre lecturas: si cambiara, el iframe se recrearía solo.
+      expect(c.docs()[1].safeUrl).toBe(docs[1].safeUrl);
+    });
+
+    /** Un archivo que no carga NO es un vale sin archivos: son dos cosas distintas. */
+    it('«no se pudo mostrar» se dice aparte de «no hay archivos»', () => {
+      montar();
+      c.abrir(c.visibles()[0]);
+      c.fallo('https://ejemplo/x.jpg');
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('No se pudo mostrar el archivo');
+      expect(fix.nativeElement.textContent).not.toContain('no trae ningún archivo');
+    });
+
+    it('un vale sin archivos lo dice con todas las letras', () => {
+      montar(DIA({ total: 1, filas: [F({ id: 'a1', files: [] })] }));
+      c.abrir(c.visibles()[0]);
+      fix.detectChanges();
+      expect(c.docs()).toEqual([]);
+      expect(fix.nativeElement.textContent).toContain('no trae ningún archivo');
+    });
+  });
+
   describe('las acciones', () => {
     it('aprobar llama a su endpoint y recarga el día', () => {
       montar();
+      c.abrir(c.visibles()[0]);
       c.aprobar(c.visibles()[0]);
       http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/a1/approve')).flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
       expect(c.actuando()).toBeNull();
+      // El panel se cierra: el vale que se miraba ya no está en ese estado.
+      expect(c.abierto()).toBeNull();
     });
 
     it('«dar por comprobado» es validate, el mismo que resuelve lo que no cuadró', () => {
@@ -377,8 +489,10 @@ describe('FinanzasAprobacionGastosComponent', () => {
         entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
       c.verPestana('aprobados');
+      c.abrir(c.visibles()[0]);
       fix.detectChanges();
-      expect(fix.nativeElement.textContent).toContain('sin acciones pendientes');
+      expect(c.accionesDe(c.abierto()!)).toEqual([]);
+      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
       expect(fix.nativeElement.textContent).toContain('Cerrado por maria');
     });
   });

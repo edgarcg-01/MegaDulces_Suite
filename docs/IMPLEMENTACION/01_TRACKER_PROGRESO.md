@@ -2580,6 +2580,28 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
 - [x] **[GX.20.9]** Se retiró `dias_recientes` del endpoint: alimentaba el rail, que se fue en
   `[GX.20.6]`, y quedó viajando sin lector. Era un `GROUP BY` de 21 días por request — **un
   payload que nadie lee es una consulta que nadie paga**. ✅ 2026-09-25
+- [x] **[GX.20.10]** ⛔ **No se firma desde la lista: se firma mirando el vale.** Por pedido del
+  usuario, el renglón **pierde sus botones** y se vuelve clickeable; la decisión vive en un panel
+  lateral (`app-side-peek`, 820 px) que muestra el expediente **completo con su evidencia** —los
+  comprobantes pintados, no un enlace. Vale para las tres pestañas: en *Rechazados* también se
+  abre, porque **mirar un vale no es lo mismo que poder cambiarlo** (ahí el panel no ofrece
+  botones). El motivo de fondo: un «Aprobar» al pie de una tarjeta deja autorizar dinero **sin
+  haber abierto el comprobante**, que es justo lo que esta pantalla existe para impedir.
+  ⚠️ **No se reusó `app-expense-evidence-peek`**, que ya hace algo parecido: su autoridad es la
+  fila de Kepler (`ExpenseRequestRow`, 23 campos) y su veredicto compara ese importe contra el
+  del expediente. Esta pantalla **no tiene esa fila** — sintetizarla habría sido inventar el
+  veredicto. Se reusó el cascarón compartido (`SidePeekComponent`), que es la parte que sí
+  corresponde. ⚠️ **Tampoco vuelve a pedir el expediente**: usa la fila que la lista ya trajo,
+  con sus archivos firmados a 30 min. Un segundo viaje agregaría una fuente que puede
+  contradecir a la primera, y `GET /:id` exige `FINANCE_EXPENSES_VER` — que quien firma **no
+  necesariamente tiene** (la pantalla se gatea con `_COMPROBAR`). ⚠️ El `safeUrl` de los PDF se
+  sanitiza **una vez, en el `computed`**: hacerlo en el template recrea el `iframe` en cada
+  ciclo de detección y el documento se recarga solo, sin parar. ⛔ «No se pudo mostrar el
+  archivo» y «este vale no trae ningún archivo» se dicen **por separado**: son dos cosas
+  distintas y confundirlas haría pasar por vacío un expediente que sí tiene papeles.
+  Accesible por teclado (`role="button"`, `tabindex`, Enter y Espacio).
+  **Prueba negativa corrida**: al devolver un botón al renglón, 2 pruebas se ponen en rojo.
+  Pruebas: 17 (motor) + 37 (componente) = **54**. ✅ 2026-09-25
 - [x] **[GX.20.7]** ⚠️ La prueba del día **pasaba en verde mostrando el día en inglés**: el
   `TestBed` corre en `en-US` y el pipe daba «Friday 25 de September» mientras `textContent` seguía
   conteniendo lo que la aserción buscaba. Se registró `es-MX` en el spec como en `app.config.ts`.
@@ -2587,8 +2609,8 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
   «Los levantamientos del **V**iernes 25» — correcto cuando era el título de una barra, incorrecto
   en medio de una frase. ✅ 2026-09-25
 
-**Pruebas al cierre:** 17 (motor puro) + 29 (componente) = **46**. `view/finanzas` 166 ·
-`libs/finance` 194, verde. **Medido en pantalla:** los tres contadores dan 3 · 5 · 1 = 9 y
+**Pruebas al cierre:** 17 (motor puro) + 37 (componente) = **54**. `view/finanzas` 175 ·
+`libs/finance` 192, verde. **Medido en pantalla:** los tres contadores dan 3 · 5 · 1 = 9 y
 $3,945.75 + $25,580.50 + $220.00 = **$29,746.25**, el total del día, al centavo. Dentro de
 *Aprobados*, los dos `validada` salen sin botones y atenuados, y los tres restantes con los suyos.
 
