@@ -65,6 +65,14 @@ const COMPUERTAS = [
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
   { nombre: 'docker-ctx', cmd: 'node scripts/check-docker-context.js', que: 'los Dockerfiles copian lo que los configs de proyecto importan de la raíz' },
+  // `[CT.9]` El handle que dice "producción" tiene que SER producción. Medido el 2026-09-25,
+  // tres días después del corte: `FLEET_DB_URL` seguía apuntando a Railway, **que no se apagó**.
+  // Los dos clústeres tienen una base llamada `railway`, los dos responden, y el equivocado va
+  // 23 migraciones atrás — o sea que un guion que pide prod no falla, **triunfa en el lugar
+  // equivocado**. Arrastró a la suite de regresión entera, que lo lee ANTES que
+  // `DATABASE_URL_NEW`. Sin red hasta prod reporta NO MEDIDO y sale 0: no se pinta verde lo que
+  // no se pudo comprobar, ni se rompe el trabajo de quien no tiene acceso.
+  { nombre: 'destino-prod', cmd: 'node scripts/check-prod-target.js', que: 'el handle de "prod" es el clúster de prod, y no puede escribir' },
   // `[NX.7]` Va ANTES del typecheck a propósito: si los dos mapas de `paths` divergen, el
   // typecheck sale rojo con TS2307 "Cannot find module", que se lee como un error del código y
   // no lo es. Medido el 2026-09-18: así estaba —5 errores, cero de ellos reales— porque a
