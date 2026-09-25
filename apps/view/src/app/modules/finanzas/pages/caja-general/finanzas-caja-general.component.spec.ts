@@ -467,6 +467,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       cobertura: vi.fn(() => of(COBERTURA)), libro: vi.fn(() => of(LIBRO)), saldo: vi.fn(() => of(SALDO)),
       cortes: vi.fn(() => of({ rows: [] })), cajas: vi.fn(() => of({ rows: CAJAS, ventana_dias: 1 })),
       movimientosPendientes: vi.fn(() => of(CON_GASTO)), frecuentes: vi.fn(() => of({ rows: [FRECUENTE] })),
+      caosCapturables: vi.fn(() => of({ rows: [], limit: 100, has_more: false, desde: '2026-09-21' })),
       autofill: vi.fn(() => of({ concepto: null, provenance: null })), conceptos: vi.fn(() => of({ rows: [] })),
       crear: vi.fn(() => of({ id: 'm1' })),
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
@@ -946,5 +947,28 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.elegirCaos({ value: CAOS_DEP } as any);
     comp.setMorralla(15.5);
     expect(comp.f().monto).toBe(1315.5);
+  });
+
+  // ── CS.3.1c · CAOS ENTRA SOLO A LA BANDEJA + ARQUEO BLOQUEADO ──────────────────────────────
+  it('CAOS aparece SOLO en la bandeja y capturar desde ahí precarga el arqueo', () => {
+    montar({ caosCapturables: vi.fn(() => of({ rows: [CAOS_DEP], limit: 100, has_more: false, desde: '2026-09-24' })) });
+    // Se ve sin buscarlo: la fuente ya no es un autocompletado opcional.
+    expect(comp.caosPendientes().length).toBe(1);
+    comp.capturarDesdeCaos(CAOS_DEP);
+    expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
+    expect(comp.piezasDe(500)).toBe(2);
+    expect(comp.f().monto).toBe(1300);
+  });
+
+  it('[negativa] el arqueo de CAOS queda BLOQUEADO: la máquina ya contó, sólo la morralla se teclea', async () => {
+    const fx = await capturaEnPantalla();
+    comp.elegirCaos({ value: CAOS_DEP } as any);
+    fx.detectChanges();
+    const piezas = inputsPieza(fx);
+    const billetes = piezas.filter((i) => !i.classList.contains('cg-morralla-in'));
+    const morralla = piezas.find((i) => i.classList.contains('cg-morralla-in'))!;
+    expect(billetes.length).toBe(5);
+    expect(billetes.every((i) => i.readOnly)).toBe(true);   // los cinco billetes, bloqueados
+    expect(morralla.readOnly).toBe(false);                  // "lo faltante" se cuenta a mano
   });
 });

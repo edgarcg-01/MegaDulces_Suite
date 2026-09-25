@@ -213,7 +213,13 @@ vivo desde `kdb1`/`kdc2` para el mismo día.)
 - **CS.3.1b Frontend** 🧪 EN CÓDIGO: `cuentaFuenteDoc` + bloqueo/elección acotada del concepto +
   «corregir» + tipo `MovimientoPendiente` extendido. Gate primeng ✅. **Validación visual con clic
   real: PENDIENTE** (prod es real; los dev servers los levanta Edgar).
-- **CS.3.1c/d (CAOS a la bandeja + propuesta por `ref`)**: PENDIENTE (siguiente entrega).
+- **CS.3.1c CAOS a la bandeja** 🧪 EN CÓDIGO: sección «Caja fuerte (CAOS)» en la página de caja —
+  los movimientos de CAOS aparecen SOLOS (carga al entrar + repaso en vivo 60 s + socket), ya no un
+  buscador opcional. Un clic abre la captura con el arqueo de la máquina **precargado y BLOQUEADO**
+  (billetes 500/200/100/50/20 disabled; morralla y clasificación = «lo faltante»). Gates: build view,
+  templates, spec (57, +2 R1: aparece-solo y arqueo-bloqueado-por-DOM) verde. Visual: PENDIENTE.
+- **CS.3.1d (propuesta de clasificación por `ref` de CAOS)**: PENDIENTE — CAOS no tiene póliza en
+  Kepler para estos movimientos, así que su contra-cuenta sale de regla por `ref` o manual. Declarado.
 - **Aplicar migración a prod**: por el flujo normal de deploy (⛔ nunca `migrate.latest()` contra
   prod; es una vista, ligera).
 
