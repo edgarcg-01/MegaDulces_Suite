@@ -728,6 +728,21 @@ export class ExpenseProofsService {
         // Igualdad numérica: '23' encuentra '0000023' y nada más.
         b.andWhere((w: any) => {
           w.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
+          /**
+           * `[GX.17]` **Y las coincidencias PARCIALES, para quien ya puede ver su cartera.**
+           *
+           * Con sólo la igualdad, teclear `9843` devuelve como mucho UNA fila —la del folio
+           * `0009843`— y para cualquier otra cosa el desplegable sale vacío. Reportado tal
+           * cual: «al buscarlo quiero que desglose los que coincidan». El texto de ayuda
+           * («con los últimos dígitos basta») describía el relleno con ceros, no una búsqueda
+           * parcial: `199` no encontraba `0071199`, y eso se lee como que el buscador no anda.
+           *
+           * ⛔ Cuelga de `veTodo || claves.length` A PROPÓSITO. La igualdad exacta se permite
+           * SIN áreas asignadas («subí lo que te dieron») justamente porque no deja pescar:
+           * hay que saber el folio. Abrir el parcial con esa misma manga dejaría teclear `1`
+           * y enumerar el gasto ajeno. Quien no tiene áreas sigue con la igualdad de antes.
+           */
+          if (veTodo || claves.length) w.orWhereILike('r.folio', `%${q}%`);
           if (montoBuscable) w.orWhereRaw('round(r.importe::numeric) = ?', [Math.round(Number(q))]);
         });
       } else if (veTodo || claves.length) {
