@@ -6,6 +6,7 @@ import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
+import { roundSeed } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -1026,7 +1027,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
-        const sd = this.roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
+        const sd = roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
         out.push({
           code, name: names.get(code) || '',
           vta: Number(c.vta) || 0,
@@ -1052,23 +1053,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
   branchBuys(r: WorkbookRow): BranchBuy[] { return this.branchBuyMap().get(r.product_id) ?? []; }
 
-  /**
-   * Redondeo del SUGERIDO (pedido del comprador, 2026-09-25): que llegue listo para pedir, sin que
-   * alguien tenga que pasar a mano 1.5 → 2 cajas o 0.4 caja → piezas.
-   *  - Media caja o más → cajas CERRADAS, redondeo al entero más cercano (147.1 → 147, 1.5 → 2,
-   *    0.6 → 1).
-   *  - Menos de media caja → se propone en PIEZAS enteras (0.4 cj × 20 → 8 pz), mínimo 1 pieza:
-   *    si el motor pidió algo, no se borra redondeando a cero.
-   * Sólo toca el valor INICIAL: lo que el usuario escriba se respeta tal cual. El canónico sigue
-   * siendo cajas (las piezas se guardan como fracción de caja), así que días, valor, totales,
-   * requisición y Excel leen el mismo número que ve el input.
-   */
-  private roundSeed(ped: number, uxc: number): { cajas: number; unit: 'caja' | 'pieza' } {
-    if (!(ped > 0)) return { cajas: 0, unit: 'caja' };
-    if (ped >= 0.5) return { cajas: Math.round(ped), unit: 'caja' };
-    const pz = Math.max(1, Math.round(ped * uxc));
-    return { cajas: pz / uxc, unit: 'pieza' };
-  }
+  // [RA-PRO.51] El redondeo del sugerido vive en `../pedido-redondeo` (probado sin montar Angular,
+  // y con guardia contra `uxc = 0` que la versión embebida no tenía). Ver `roundSeed`.
 
   /**
    * Rótulo de la unidad nativa, para la celda.
