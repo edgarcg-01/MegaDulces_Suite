@@ -3625,3 +3625,50 @@ el import, la compuerta lo caza en **3.5 s** con el mensaje exacto y sale con 1.
 ⚠️ **Lo que sigue abierto:** con el CI apagado, la compuerta **sólo corre si alguien la escribe**.
 Existe, pero nada la obliga. Runbook completo en
 [`ops/prod/RUNBOOK-despliegue.md`](../ops/prod/RUNBOOK-despliegue.md).
+
+---
+
+## 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un `statement_timeout`
+
+**Vivido el 2026-09-25 en `[GX.19]`** (atrapado antes de mergear, no en producción — pero el código
+ya estaba escrito y compilaba).
+
+Los medidores de procedencia (`tableAt`, `stepAt` en `libs/platform-core/.../provenance/freshness.ts`)
+se protegen con un `SAVEPOINT` para que un fallo suyo no aborte la transacción **del reporte** que
+vienen a describir. Está bien pensado… hasta que dos corren a la vez:
+
+```ts
+// ⛔ MAL
+const [paso, tabla] = await Promise.all([
+  stepAt(trx, 'feed_nightly/import-expenses-polizas.js', tenantId),
+  tableAt(trx, 'analytics.expense_entries', 'computed_at'),
+]);
+```
+
+Knex serializa las consultas de una transacción sobre su única conexión, pero **no ordena dos
+cadenas `async` independientes**. La intercalación posible es:
+
+```
+SAVEPOINT vp_step · SAVEPOINT vp_freshness · … · RELEASE vp_step · RELEASE vp_freshness
+                                                       ↑ destruye vp_freshness     ↑ 3B001
+```
+
+En Postgres, liberar un savepoint **destruye los que se abrieron después**. El segundo `RELEASE`
+falla, lo atrapa el `catch` del medidor, y éste devuelve `null` → la frescura se declara
+**«sin medir»**. Es el peor resultado posible: no es que el dato esté viejo, es que **el defecto es
+nuestro y se disfraza de dato no medible** — exactamente la mentira que la Fase VP existe para
+cerrar, cometida por el código que la implementa.
+
+Y hay un segundo daño, más silencioso: `tableAt` hace `SET LOCAL statement_timeout = '2s'` mientras
+mide. Con otra consulta intercalada en esa misma transacción, **ese tope le cae encima** — la
+consulta de procedencia tumbando la consulta real por timeout.
+
+**Regla:** dentro de una misma transacción, todo lo que abra `SAVEPOINT` o toque `SET LOCAL` corre
+**en fila**, nunca en `Promise.all`. El paralelismo ahí no compra nada (van por índice, y `tableAt`
+cachea 60 s) y cuesta una medición falsa.
+
+⚠️ El síntoma es traicionero porque **no rompe nada visible**: la píldora dice «sin medir» de vez en
+cuando, que es justo lo que uno esperaría de un medidor honesto. Nadie va a buscar un bug ahí.
+
+**Dónde mirar si aparece:** cualquier `Promise.all` que incluya `tableAt`, `stepAt`, o un
+`trx.raw('SAVEPOINT …')` propio.

@@ -244,3 +244,59 @@ export async function laneAt(trx: any, jobKey: string): Promise<string | null> {
         `SELECT COALESCE(last_finish, last_start) AS dato_al FROM analytics.cron_runs WHERE job_key=?`, [jobKey]);
   return r?.rows?.[0]?.dato_al ?? null;
 }
+
+/**
+ * [GX.19] Edad de **un PASO** de un carril con muchos pasos, desde `analytics.cron_run_log`.
+ *
+ * ── POR QUÉ NO ALCANZABA `laneAt` ────────────────────────────────────────────────────────
+ * `laneAt` lee `analytics.cron_runs`, que guarda **un latido por carril**. Y `run-prod-feeds.js`
+ * cierra ese latido con `status: total > 0 && failed === total ? 'error' : 'ok'` — o sea que
+ * `feed_nightly` reporta **`ok` mientras UNO solo de sus ~40 pasos falle**. Medido: el
+ * `feed_nightly` del 2026-09-25 08:36 dice `ok` con 47/53 y 6 pasos fallados.
+ *
+ * Para una pantalla que vive de UN paso (egresos ← `import-expenses-polizas.js`), preguntarle al
+ * carril es preguntarle a quien no sabe: el carril puede estar verde y el dato de esa pantalla
+ * llevar días parado. `cron_run_log` es la bitácora POR PASO que [VL.6.4] agregó justamente para
+ * esto, y sólo registra estados terminales.
+ *
+ * ── POR QUÉ VIVE ACÁ ─────────────────────────────────────────────────────────────────────
+ * Ya estaba escrito a mano **dos veces** —`existencia.service.ts` (`mv_existencia_aux_refresh`) y
+ * `cash-ledger.service.ts` (`mv_caja_refresh`)— con dos formas distintas de fallar. ADR-056: un
+ * primitivo que se reinventa en cada rebanada no cierra la fase hasta que sube a `libs/`.
+ *
+ * `status='ok'` no es decorativo: una corrida que **falló** no entregó dato, así que su hora no
+ * puede pasar por frescura. Devolver la del último cierre BUENO es lo correcto y además es
+ * información — "esto es de hace 2 días" en vez de "corrió hace 5 minutos (y reventó)".
+ *
+ * Devuelve `null` cuando la tabla no existe todavía o el paso nunca cerró bien — y quien llame debe
+ * tratarlo como NO MEDIDO, nunca como ok (regla 1 del encabezado).
+ */
+export async function stepAt(trx: any, jobKey: string, tenantId?: string): Promise<string | null> {
+  const existe = (await trx.raw(
+    `SELECT to_regclass('analytics.cron_run_log') IS NOT NULL AS ok`,
+  ))?.rows?.[0]?.ok;
+  if (!existe) return null;
+
+  // Mismo cuidado que `tableAt`: `trx` es la transacción DEL REPORTE, y un error acá (un GRANT que
+  // falta, una columna que cambió) la abortaría entera — una consulta de procedencia tumbando al
+  // reporte que venía a describir. El SAVEPOINT lo contiene; sin transacción externa no hay nada
+  // que proteger y se consulta directo.
+  const leer = async (t: any) => (await t.raw(
+    `SELECT max(finished_at) AS dato_al FROM analytics.cron_run_log
+      WHERE job_key = ? AND status = 'ok'` + (tenantId ? ` AND tenant_id = ?` : ``),
+    tenantId ? [jobKey, tenantId] : [jobKey],
+  ))?.rows?.[0]?.dato_al ?? null;
+
+  if (!trx.isTransaction) {
+    try { return await leer(trx); } catch { return null; }
+  }
+  await trx.raw('SAVEPOINT vp_step');
+  try {
+    const at = await leer(trx);
+    await trx.raw('RELEASE SAVEPOINT vp_step');
+    return at;
+  } catch {
+    await trx.raw('ROLLBACK TO SAVEPOINT vp_step').catch(() => undefined);
+    return null; // no se pudo medir — nunca se reporta como fresco (regla 2)
+  }
+}

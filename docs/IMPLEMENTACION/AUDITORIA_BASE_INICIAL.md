@@ -766,6 +766,64 @@ devuelve JWT (`superoot` / `superadmin`).
 
 ---
 
+## Addendum — `AUD-ODS-01`: el ODS tiene un hueco en `kdc2` y nadie lo estaba mirando (2026-09-25)
+
+**Severidad: 🔴 crítico para lo que deriva del ODS.** Salió de revisar `/finanzas/egresos` (GX.19)
+y **no es un problema de esa pantalla** — de hecho es al revés: esa pantalla es la única que NO
+sufre el hueco, porque su importer lee las réplicas por sucursal y no el ODS.
+
+### Lo medido
+
+Se reprodujo contra `kepler_ods.kdc2YYMM` el predicado exacto de `import-expenses-polizas.js`
+(`c4='C'` + cuentas 511/6xx/150/702-764 + `c5<>0`) y se cruzó por llave
+`(sucursal, doc_tipo, folio, línea)` contra `analytics.expense_entries`:
+
+| mes | renglones que el ODS NO tiene | importe |
+|---|---|---|
+| 2026-04 … 2026-07 | 0 | $0.00 |
+| **2026-08** | **20** | **$203,162.31** |
+| **2026-09** | **76** | **$2,271,435.75** |
+
+Las de agosto están fechadas del **4 al 18**, todas sucursal `00`, y son gasto normal
+(COMERCIALIZADORA SARAMEL $161,895.73, arrendamiento vehicular, mantenimiento del local,
+combustibles). **Sus folios no existen en el ODS en absoluto** — no es que estén con otra línea:
+`SELECT count(*) … WHERE folio = …` da **0**.
+
+### Por qué NO es rezago de la corrida
+
+El bloque `(sucursal 00, agosto)` de `expense_entries` se reescribió **entero** el 2026-09-25 a las
+03:34 desde la réplica (el merge es un block-diff por sucursal×mes: `min(computed_at) =
+max(computed_at) = 2026-09-25 03:34:28`). O sea que esos renglones **están hoy en la réplica** y
+**no están en el ODS**, con `kdc2*` en el carril caliente (`ods-live-hot`, `--watch=15`, carril
+hash). Septiembre puede ser en parte actividad del día; agosto no.
+
+### A quién le pega
+
+A todo lo que deriva del ODS para gasto, que es cada vez más cosas:
+
+- `analytics.expense_documents` — **la vista que usa el drill de la propia pantalla de egresos**
+  (`/finanzas/egresos/detalle`).
+- `analytics.bank_postings` (matview `derive-no-copy`, mig `20260903130000`).
+- Las tools de Maat que leen el gasto contable.
+
+### Consecuencia para la regla ⭐ del proyecto
+
+La regla dice «cero importers, todo del ODS». Para este dataset **todavía no se puede**: hoy el ODS
+está **menos completo** que la réplica, y migrar `expense_entries` a una vista sobre `kepler_ods`
+haría desaparecer $203k de agosto y $2.27M de septiembre de la pantalla. Se declara y se espera:
+primero el hueco, después el retiro del importer.
+
+### Qué falta (no hecho en GX.19 — es de ingesta, no de la pantalla)
+
+1. Encontrar por qué el carril hash de `kdc2*` no trae esos renglones. Hipótesis no verificada: el
+   hash relee y compara por tabla, y `kdc22608` deja de mirarse —o se pagina y nunca termina—
+   cuando septiembre pasa a ser el mes vivo; eso explicaría que el hueco arranque justo en agosto
+   y crezca.
+2. Un candado que lo mida solo: comparar por llave `expense_entries` vs `kepler_ods.kdc2*` del mes
+   y **declarar** la diferencia. Hoy nadie la mira, y por eso llevaba al menos un mes creciendo.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

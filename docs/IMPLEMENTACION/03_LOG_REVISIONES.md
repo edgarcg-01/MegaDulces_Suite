@@ -5,6 +5,99 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-25 — `[GX.19]` El número de egresos estaba bien; lo que faltaba era decir con qué se calculó
+
+**Cómo se llegó:** *"analiza /finanzas/egresos"*. Sin hipótesis previa.
+
+### Lo primero fue comprobar que el número NO estaba mal
+
+Antes de tocar nada se buscó un árbitro del mismo ERP y el mismo grano (ADR-059). Contra
+`analytics.ledger_monthly` para ago-2026:
+
+| familia | egresos | balanza | |
+|---|---|---|---|
+| 6 gastos | $5,243,569.36 | $5,243,569.36 | **exacto** |
+| 7 financieros | $668,435.19 | $668,435.19 | **exacto** |
+| 5 compras | $65,552,940.98 | `511`: 55,383,424.90 + 10,169,516.08 | **exacto** |
+
+Y la consulta tampoco era el problema: **18.7 ms / 3,153 páginas**, index scan sobre
+`ix_expense_fecha`. O sea: ni el cálculo ni la performance. El defecto estaba en otro lado.
+
+### Lo que la pantalla no decía
+
+Con el rango por defecto (90 días) el toggle «Comparar» publicaba **+27.0 %**. El mismo Δ sobre las
+sucursales que reportan en **ambos** períodos: **+1.1 %**. Veintiséis de los veintisiete puntos
+eran universo, no gasto.
+
+El universo de `analytics.expense_entries` **crece mes a mes**: `00` sola hasta nov-2025, `02` en
+dic, `03` en ene-2026, `04` en feb, `05` en mar, `01` en jun, `06` en ago, `07` y `08` en sep.
+Parte lo explica `v_branch_erp_cutover` y parte es que la contabilidad por sucursal de Kepler no
+existe hacia atrás — **verificado contra la fuente**, no asumido: `kepler_ods.kdc22510` tiene sólo
+sucursal `00`. O sea que el hueco es de la fuente, y por eso la respuesta correcta era **declarar**,
+no filtrar ni corregir.
+
+Dos distorsiones más en la misma vista por defecto: la tendencia dibujaba jun (desde el día 27) y
+sep (hasta el 25) como meses enteros —un auge y un desplome de calendario—, y no había ninguna
+declaración de frescura sobre un dato que es un lote nocturno.
+
+### El hallazgo que no era de esta pantalla
+
+Al probar si se podía retirar el importer (regla ⭐ del proyecto) apareció lo contrario de lo
+esperado: **el ODS está MENOS completo que la réplica**. 20 renglones / $203,162.31 de agosto y 76
+/ $2.27M de septiembre existen en `expense_entries` y **sus folios no están en `kepler_ods.kdc2*`
+en absoluto**. No es rezago: el bloque `(00, agosto)` se reescribió entero hoy a las 03:34 desde la
+réplica. Le pega a `expense_documents` (el drill de esta misma pantalla), a `bank_postings` y a
+Maat. Queda como `AUD-ODS-01`.
+
+### Decisiones
+
+1. **El total no se toca.** Es el que cuadra contra la balanza. Se agrega el **segundo número**.
+2. **El Δ de todas las sucursales tampoco se tacha** — es el movimiento real de la caja y es
+   cierto. Va atenuado; el comparable va en verde. Tachar un número correcto es otra forma de
+   mentir.
+3. **El aviso no sale si no hay nada que declarar.** Un aviso permanente se vuelve fondo.
+4. **La frescura se mide sobre el PASO, no sobre el carril**, porque `run-prod-feeds.js` cierra
+   `feed_nightly` en `ok` mientras no fallen todos sus pasos. Primitivo nuevo `stepAt()`, que ya
+   estaba escrito a mano dos veces (ADR-056).
+5. **No se retira el importer.** Se declara por qué y se espera a `AUD-ODS-01`.
+
+### Lo que casi entra y no era teórico
+
+Los dos medidores abren `SAVEPOINT` sobre la misma transacción; en `Promise.all` la intercalación
+hace que liberar el externo destruya al interno, el segundo `RELEASE` reviente, y la frescura se
+declare **«sin medir» por defecto nuestro**. Más el `SET LOCAL statement_timeout='2s'` de `tableAt`
+cayéndole a una consulta intercalada. Van en fila. Documentado en `GOTCHAS.md §69`.
+
+### Verificación
+
+- `expense-coverage.spec.ts` 9 · `comercial-egresos.cobertura.spec.ts` 8 (montado) ·
+  `nx test commercial` 179/179 · `nx test view` 859/859 · builds api+view OK · `check:templates`,
+  `check:provenance` y el boundary-gate limpios para estos archivos.
+- **Contra prod (solo lectura):** las filas reales por el módulo compilado reproducen
+  `Δ 27 % / 1.1 %`, `pct 95.9 %`, parciales `06,07,08`, meses cortados `2026-06`/`2026-09`. El SQL
+  de `stepAt` corrido tal cual en una tx con savepoints en fila devuelve `2026-09-25 03:34:46`.
+- **Antes/después de la píldora en la noche que falló de verdad:** 22-sep 12:00 `fresh` (8.4 h) ·
+  **23-sep 12:00 `stale` (32.4 h)** · 24-sep 12:00 `fresh` (8.5 h).
+- **Prueba negativa:** se rompió `check:templates` a propósito con un acento grave en un comentario
+  CSS y salió en rojo. (Volvió a pasar de verdad: el build de `view` falló por eso. Sexta vez.)
+
+### Lecciones
+
+- **Antes de arreglar un número, buscarle árbitro.** Acá el número estaba bien y el trabajo real
+  era otro; sin ese paso se "arregla" lo que no está roto.
+- **Un dato correcto sin cobertura declarada se lee mal igual.** El +27 % no era un bug de
+  cálculo y era la lectura más dañina de la pantalla.
+- **Una medición con fecha va en un test, no en un comentario** (`[CDRP.2.1]`). Las cifras de prod
+  están pinchadas en `expense-coverage.spec.ts`.
+- **El código que implementa la honestidad puede mentir por descuido propio** — el `Promise.all`
+  habría declarado «sin medir» sin que el dato tuviera nada.
+
+### Pendiente
+
+Validación visual en navegador (no hay DB alcanzable desde esta máquina para levantar la app) y
+redeploy de api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
+
+---
 ## 2026-09-24 — `[CB.48]` El dato que dimos por inexistente llevaba meses en la base
 
 **Cómo se llegó:** Edgar mandó una **foto de la pantalla de Kepler** — la ventana «Recepción de
