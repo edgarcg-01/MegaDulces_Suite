@@ -50,6 +50,32 @@ const n = (x) => Number(x) || 0;
   const pass = (m) => { ok++; console.log('  ✔ ' + m); };
   const bad = (m) => { fail++; console.log('  ✖ ' + m); };
 
+  // ── (0) ¿LAS MIGRACIONES SIQUIERA PARSEAN? ────────────────────────────────────────────────
+  // Esto nace de un fallo propio: la migración de CB.49 llevaba un acento grave dentro de un
+  // comentario SQL, y ese SQL vive en un template literal — el backtick lo cerró y el archivo
+  // dejó de ser JavaScript válido. No lo vio nadie: `nx build` no compila `database/**`, y el
+  // candado leía la migración con un REGEX sobre el texto, que da igual si el módulo parsea o no.
+  // Sólo reventó al aplicarla en prod, con `Unexpected identifier 'fecha_valor'`.
+  // Es la quinta vez que un backtick rompe algo en este repo, así que la compuerta cubre el
+  // directorio entero: 854 archivos en ~200 ms. `vm.Script` sólo PARSEA — no ejecuta nada, que
+  // en un directorio de migraciones es justo lo que no se quiere.
+  const vm = require('node:vm');
+  const DIR_MIG = path.join(__dirname, '..', 'migrations-newdb');
+  const rotas = [];
+  for (const f of fs.readdirSync(DIR_MIG).filter((x) => x.endsWith('.js'))) {
+    try { new vm.Script(fs.readFileSync(path.join(DIR_MIG, f), 'utf8'), { filename: f }); }
+    catch (e) { rotas.push(`${f} → ${e.message.slice(0, 70)}`); }
+  }
+  if (!rotas.length) pass(`Sintaxis: las ${fs.readdirSync(DIR_MIG).filter((x) => x.endsWith('.js')).length} migraciones parsean como JavaScript`);
+  else bad(`Migraciones que NO parsean (reventarían al aplicarse):\n      ${rotas.join('\n      ')}`);
+
+  // Y la de esta fase se CARGA de verdad, no se lee: `require` prueba lo que el regex no puede.
+  try {
+    const mig = require(path.join(DIR_MIG, '20260924230000_kepler_bank_movements_fecha_efectiva.js'));
+    if (typeof mig.up === 'function' && typeof mig.down === 'function') pass('La migración de CB.49 se carga y expone up/down');
+    else bad('La migración de CB.49 carga pero no expone up/down');
+  } catch (e) { bad(`La migración de CB.49 no se puede cargar: ${e.message.slice(0, 80)}`); }
+
   // ── (B) EL CÓDIGO ─────────────────────────────────────────────────────────────────────────
   // Se corre PRIMERO y sin DB: es la mitad que atrapa la regresión más probable — alguien
   // agrega una consulta nueva copiando una vieja.
