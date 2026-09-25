@@ -125,6 +125,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       cortes: vi.fn(() => of({ rows: [] })),
       cajas: vi.fn(() => of({ rows: CAJAS, ventana_dias: 1 })),
       movimientosPendientes: vi.fn(() => of(VACIA)),
+      caosCapturables: vi.fn(() => of({ rows: [], limit: 100, has_more: false, desde: '2026-09-21' })),
       frecuentes: vi.fn(() => of({ rows: [FRECUENTE] })),
       autofill: vi.fn(() => of({ concepto: null, provenance: null })),
       conceptos: vi.fn(() => of({ rows: [] })),
@@ -877,5 +878,73 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = TestBed.createComponent(FinanzasCajaGeneralComponent);
     expect(() => fx.detectChanges()).not.toThrow();
     expect(fx.componentInstance.pendientes().length).toBe(1);
+  });
+
+  // ── 14 · CS.3 · AUTORRELLENO DE LA CAPTURA DESDE CAOS ────────────────────────────────────────
+  //
+  // Pedido: en Caja General (captura) autorellenar con CAOS; lo pendiente, con arqueo. El movimiento
+  // de CAOS trae el conteo de la máquina → precarga el arqueo; el monto sale de ahí; se guarda con
+  // origen_tipo='caos'. Las dos fuentes (CAOS/Kepler) son excluyentes en UNA captura.
+
+  const CAOS_DEP = {
+    origen_ref: 'AST700-19758|1420', external_id: 1420, device: 'AST700-19758',
+    tipo: 'ingreso' as const, type_label: 'Deposito', occurred_at: '2026-09-24T10:00:00-06:00',
+    fecha_valor: '2026-09-24', sucursal: '00', user_external: 'Vendedor (006) - VENTAS', ref: 'rd28',
+    monto: 1300, denominaciones: [{ denominacion: 500, piezas: 2 }, { denominacion: 100, piezas: 3 }],
+  };
+
+  it('elegir un movimiento de CAOS precarga el arqueo y el monto sale del conteo', () => {
+    montar();
+    comp.abrirCaptura();
+    comp.elegirCaos({ value: CAOS_DEP } as any);
+
+    expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
+    expect(comp.f().tipo).toBe('ingreso');
+    expect(comp.f().sucursal).toBe('00');
+    expect(comp.piezasDe(500)).toBe(2);
+    expect(comp.piezasDe(100)).toBe(3);
+    // 500×2 + 100×3 = 1300, sale del arqueo.
+    expect(comp.f().monto).toBe(1300);
+    expect(comp.bloqueos()).not.toContain('falta_desglose');
+  });
+
+  it('guardar con origen CAOS manda origen_tipo="caos" y origen_ref=device|external_id', () => {
+    montar();
+    comp.abrirCaptura();
+    comp.elegirCaos({ value: CAOS_DEP } as any);
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'VENTAS');
+    comp.setF('glosa', 'deposito de ruta 28');
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['origen_tipo']).toBe('caos');
+    expect(body['origen_ref']).toBe('AST700-19758|1420');
+    // El monto va del conteo; no viaja monto_contado (CAOS no ancla a un documento Kepler).
+    expect(body['monto']).toBe(1300);
+    expect(body['monto_contado']).toBeUndefined();
+  });
+
+  it('[negativa] las dos fuentes son EXCLUYENTES: elegir CAOS suelta el cobro de Kepler', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    expect(comp.cobroElegido()).not.toBeNull();
+
+    comp.elegirCaos({ value: CAOS_DEP } as any);
+    expect(comp.caosElegido()).not.toBeNull();
+    expect(comp.cobroElegido()).toBeNull(); // no quedan dos orígenes
+
+    // Y al revés: tomar un documento suelta CAOS.
+    comp.capturarDesde(GASTO_TRABADO);
+    expect(comp.caosElegido()).toBeNull();
+  });
+
+  it('la morralla se suma a lo precargado de CAOS: "lo pendiente" se cuenta a mano', () => {
+    montar();
+    comp.abrirCaptura();
+    comp.elegirCaos({ value: CAOS_DEP } as any);
+    comp.setMorralla(15.5);
+    expect(comp.f().monto).toBe(1315.5);
   });
 });

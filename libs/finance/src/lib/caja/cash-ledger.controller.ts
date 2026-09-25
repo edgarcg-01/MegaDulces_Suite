@@ -100,6 +100,20 @@ export class CashLedgerController {
     return this.svc.movimientosPendientes({ tipo, caja, sucursal, from, to, search, limit: limit ? Number(limit) : undefined });
   }
 
+  // CS.3 — va ANTES de `@Get(':id')` (Nest resuelve por orden; `caos-capturables` se comería como id).
+  @Get('caos-capturables')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CS.3 — Movimientos de CAOS (caja fuerte) pendientes de capturar, con sus denominaciones para autorrellenar el arqueo. Segunda fuente de la bandeja, convive con los documentos de Kepler.' })
+  caosCapturables(
+    @Query('tipo') tipo?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.caosCapturables({ tipo, from, to, search, limit: limit ? Number(limit) : undefined });
+  }
+
   @Get('cajas')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CG.21 — Las cajas de efectivo que Kepler declara en kdb1 (c3=EFECTIVO), con su volumen MEDIDO en la ventana. Sale del catálogo y no de los movimientos: una caja dormida tiene que poder verse, o sería indistinguible de una que no existe.' })

@@ -140,6 +140,18 @@ export class CashLedgerService {
   }
 
   /**
+   * CS.3 — Movimientos de CAOS (caja fuerte) pendientes de capturar, con sus denominaciones ya
+   * contadas por la máquina para autorrellenar el arqueo. Segunda fuente de la bandeja.
+   */
+  caosCapturables(
+    f: { tipo?: string; from?: string; to?: string; search?: string; limit?: number } = {},
+  ): Observable<CaosCapturablesResponse> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<CaosCapturablesResponse>(`${this.base}/caos-capturables`, { params: p });
+  }
+
+  /**
    * CG.21 — Las cajas de efectivo del catálogo de Kepler, con su volumen medido.
    *
    * Viene del catálogo y no de los movimientos: una caja dormida tiene que poder verse en el
@@ -332,6 +344,30 @@ export interface PendientesResponse {
   /** Cuántas de las visibles se pueden confirmar de un clic. Una lista llena de filas trabadas
    *  no puede leerse igual que una lista lista (ADR-056). */
   confirmables: number;
+}
+
+/** CS.3 — Un movimiento de CAOS capturable, con sus denominaciones para el arqueo. */
+export interface CaosCapturable {
+  origen_ref: string;      // 'device|external_id' — la identidad para el candado anti-duplicado
+  external_id: number;
+  device: string;
+  tipo: 'ingreso' | 'gasto';
+  type_label: string;
+  occurred_at: string;
+  fecha_valor: string;
+  sucursal: string;
+  user_external: string | null;
+  ref: string | null;
+  monto: number;
+  denominaciones: Array<{ denominacion: number; piezas: number }>;
+}
+
+export interface CaosCapturablesResponse {
+  rows: CaosCapturable[];
+  limit: number;
+  has_more: boolean;
+  desde: string;
+  datos_al?: string | null;
 }
 
 /** Resultado del lote: por fila, porque una que falla no tumba a las demás. */
