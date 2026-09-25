@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inject, input, output, signal, viewChild } from '@angular/core';
 
 /**
  * `[GX.14]` — **La foto del comprobante se toma en el momento, o no se toma.**
@@ -38,18 +38,26 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, inp
 
     @if (estado() === 'pidiendo') {
       <div class="cv-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Pidiendo permiso a la cámara…</div>
+      <button type="button" class="cv-reintentar" (click)="cerrar()">Cancelar</button>
     }
 
     @if (estado() === 'viva') {
       <div class="cv-visor">
-        <video #video class="cv-video" playsinline muted autoplay aria-label="Lo que ve la cámara"></video>
+        <video #video class="cv-video" playsinline muted autoplay
+               (loadedmetadata)="marcarListo()" (playing)="marcarListo()"
+               aria-label="Lo que ve la cámara"></video>
         <span class="cv-live"><span class="cv-punto"></span> EN VIVO</span>
         <span class="cv-guia" aria-hidden="true"></span>
+        @if (!listo()) {
+          <span class="cv-cargando"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Encendiendo la cámara…</span>
+        }
       </div>
-      <p class="cv-tip">Que se vean el total y la fecha del comprobante.</p>
+      <p class="cv-tip">{{ listo() ? tipListo : tipEsperando }}</p>
+      @if (aviso()) { <p class="cv-aviso" role="status">{{ aviso() }}</p> }
       <div class="cv-barra">
         <button type="button" class="cv-cancel" (click)="cerrar()">Cancelar</button>
-        <button type="button" class="cv-disparar" (click)="disparar()" aria-label="Capturar la evidencia"></button>
+        <button type="button" class="cv-disparar" [disabled]="!listo()" (click)="disparar()"
+                [attr.aria-label]="listo() ? tipAriaOk : tipAriaEsperando"></button>
         <span class="cv-hueco"></span>
       </div>
     }
@@ -107,6 +115,11 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, inp
     }
 
     .cv-tip { margin: 8px 0 0; font-size: var(--fs-xs); color: var(--c-text-3); text-align: center; }
+    .cv-aviso { margin: 6px 0 0; font-size: var(--fs-xs); text-align: center; color: var(--bad-fg); }
+    .cv-cargando {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 7px;
+      color: #FFF; font-size: var(--fs-sm);
+    }
 
     .cv-barra { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
     .cv-cancel, .cv-hueco { width: 88px; }
@@ -118,7 +131,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, inp
       width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--c-divider);
       background: var(--c-text-1); cursor: pointer; flex-shrink: 0;
     }
-    .cv-disparar:hover { background: var(--action); border-color: var(--action-ring); }
+    .cv-disparar:hover:not(:disabled) { background: var(--action); border-color: var(--action-ring); }
+    .cv-disparar:disabled { opacity: .45; cursor: not-allowed; }
 
     .cv-error {
       display: flex; gap: 9px; align-items: flex-start; padding: 12px;
@@ -149,17 +163,91 @@ export class CapturaEnVivoComponent {
 
   private readonly video = viewChild<ElementRef<HTMLVideoElement>>('video');
   private readonly lienzo = viewChild<ElementRef<HTMLCanvasElement>>('lienzo');
-  private stream: MediaStream | null = null;
+
+  /** El <video> ya entrega cuadros. Hasta entonces el disparador va apagado. */
+  readonly listo = signal(false);
+  /** Lo que se le dice a la persona cuando el disparo no pudo hacerse. */
+  readonly aviso = signal('');
+
+  readonly tipListo = 'Que se vean el total y la fecha del comprobante.';
+  readonly tipEsperando = 'Esperá a que se vea la imagen para disparar.';
+  readonly tipAriaOk = 'Capturar la evidencia';
+  readonly tipAriaEsperando = 'La cámara todavía no da imagen';
+
+  /**
+   * Señal, no campo suelto: el `effect` que engancha la cámara al <video> necesita algo de
+   * qué depender. Con un campo plano no se vuelve a ejecutar cuando el stream llega.
+   */
+  private readonly stream = signal<MediaStream | null>(null);
+
+  /** Cuanto se espera al permiso antes de declarar que nadie contesto. */
+  private readonly ESPERA_PERMISO_MS = 20_000;
+  /** Numero de apertura, para descartar el stream de una que ya se cancelo. */
+  private intento = 0;
+  private reloj: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
+    /**
+     * ⭐ El arreglo del visor NEGRO que no disparaba. Antes esto era un `queueMicrotask`
+     * disparado justo después de `estado.set('viva')` — y ahí el <video> TODAVÍA NO EXISTE:
+     * con señales, Angular pinta la rama `@if` en una tarea posterior, no en el microtask
+     * siguiente. Resultado: `srcObject` no se asignaba nunca, el visor quedaba en negro y
+     * `videoWidth` se quedaba en 0 — con lo que `disparar()` hacía `return` en silencio.
+     * Dos síntomas, una sola causa.
+     *
+     * Un `effect` sí espera: se vuelve a correr cuando el `viewChild` aparece.
+     */
+    effect(() => {
+      const el = this.video()?.nativeElement;
+      const s = this.stream();
+      if (!el || !s) return;
+      if (el.srcObject !== s) el.srcObject = s;
+      this.reproducir(el);
+    });
     // Soltar la cámara al destruir la pantalla. Sin esto el indicador del sistema queda
     // encendido y en algunos equipos la cámara no la puede tomar otra app.
     this.destroyRef.onDestroy(() => this.soltar());
   }
 
+  /**
+   * `play()` no siempre devuelve una promesa: jsdom lo deja en `undefined` y los navegadores
+   * viejos también. Encadenar `.catch` a ciegas revienta, y acá revienta DENTRO de un effect,
+   * o sea que se lleva puesta la detección de cambios y el visor no se pinta.
+   */
+  private reproducir(el: HTMLVideoElement): void {
+    try {
+      const r: unknown = el.play?.();
+      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
+    } catch { /* el autoplay lo puede negar el navegador; el visor sigue enganchado */ }
+  }
+
+  /**
+   * El <video> ya tiene cuadro. Lo llaman `loadedmetadata` y `playing`: en algunos equipos
+   * dispara sólo uno de los dos.
+   */
+  marcarListo(): void {
+    if ((this.video()?.nativeElement.videoWidth ?? 0) > 0) this.listo.set(true);
+  }
+
   async abrir(): Promise<void> {
     this.estado.set('pidiendo');
     this.error.set('');
+    this.aviso.set('');
+    this.listo.set(false);
+    // Cada apertura lleva su numero. Si la persona cancela y el permiso se concede DESPUES,
+    // el stream que llega es de una apertura vieja: se suelta en vez de encenderse solo.
+    const mia = ++this.intento;
+    /**
+     * ⚠️ `getUserMedia` puede no resolver NUNCA: mientras el dialogo de permiso siga
+     * abierto la promesa queda pendiente, y si nadie lo contesta -- o el navegador no lo
+     * muestra, como pasa en un navegador sin camara -- la pantalla se queda en
+     * «Pidiendo permiso…» sin boton, sin error y sin salida salvo recargar. Medido acá.
+     */
+    this.reloj = setTimeout(() => {
+      if (this.intento === mia && this.estado() === 'pidiendo') {
+        this.fallar('El navegador no respondió al permiso de cámara. Revisá el candado de la barra de direcciones y reintentá.');
+      }
+    }, this.ESPERA_PERMISO_MS);
     const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
     if (!md?.getUserMedia) {
       // Pasa de verdad: por HTTP sin `localhost` el navegador ni expone la API.
@@ -169,14 +257,17 @@ export class CapturaEnVivoComponent {
     try {
       // `environment` = la cámara trasera del celular, que es la que apunta al ticket.
       // Si el equipo no la tiene, el navegador entrega la que haya.
-      this.stream = await md.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      const s = await md.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      // Llego tarde: alguien ya cancelo o cerro. Encender la camara ahora seria prender una
+      // luz que nadie pidio -- se suelta y listo.
+      if (this.intento !== mia) { s.getTracks().forEach((t) => t.stop()); return; }
+      this.detenerReloj();
+      this.stream.set(s);
       this.estado.set('viva');
-      // El <video> recién existe después de que Angular pinte la rama 'viva'.
-      queueMicrotask(() => {
-        const el = this.video()?.nativeElement;
-        if (el && this.stream) { el.srcObject = this.stream; void el.play().catch(() => undefined); }
-      });
+      // El enganche al <video> lo hace el `effect` del constructor, cuando el elemento existe.
     } catch (e: unknown) {
+      if (this.intento !== mia) return;
+      this.detenerReloj();
       const nombre = (e as { name?: string })?.name ?? '';
       // Se distinguen porque la acción de la persona es distinta en cada caso.
       if (nombre === 'NotAllowedError') this.fallar('No diste permiso para usar la cámara.');
@@ -189,7 +280,15 @@ export class CapturaEnVivoComponent {
   disparar(): void {
     const v = this.video()?.nativeElement;
     const c = this.lienzo()?.nativeElement;
-    if (!v || !c || !v.videoWidth) return; // todavía no hay cuadro: no se entrega una foto negra
+    // ⚠️ Antes esto era un `return` PELADO. Con el visor en negro, apretar el botón no hacía
+    // nada y no decía nada: la persona concluye que «no toma la foto» y tiene razón. Sigue sin
+    // entregarse una foto negra, pero ahora se dice por qué.
+    if (!v || !c || !v.videoWidth) {
+      this.listo.set(false);
+      this.aviso.set('La cámara todavía no da imagen. Esperá un segundo y volvé a intentar.');
+      return;
+    }
+    this.aviso.set('');
     c.width = v.videoWidth;
     c.height = v.videoHeight;
     const ctx = c.getContext('2d');
@@ -214,9 +313,17 @@ export class CapturaEnVivoComponent {
     this.estado.set('error');
   }
 
+  private detenerReloj(): void {
+    if (this.reloj !== null) { clearTimeout(this.reloj); this.reloj = null; }
+  }
+
   private soltar(): void {
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
+    this.detenerReloj();
+    // Sube el numero: cualquier apertura en vuelo queda invalidada.
+    this.intento++;
+    this.stream()?.getTracks().forEach((t) => t.stop());
+    this.stream.set(null);
+    this.listo.set(false);
     const el = this.video()?.nativeElement;
     if (el) el.srcObject = null;
   }

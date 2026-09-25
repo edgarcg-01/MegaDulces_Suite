@@ -100,7 +100,7 @@ const files = args.length
  * partió, el nodo deja de ser un literal y pasa a ser una expresión (acceso a propiedad, resta,
  * comparación…). Eso se detecta sin tipos y no tiene falsos negativos por paridad.
  */
-function revisarComponente(sf, rel, errores, stats) {
+function revisarComponente(sf, rel, errores, stats, rangos) {
   const esLiteral = (n) => n && (ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n));
   // Sólo el caso 1 justifica listar los comentarios con backtick. Si lo que falló fue el CSS,
   // esa lista es ruido que manda a buscar donde no está — el pecado original de este bug.
@@ -200,7 +200,12 @@ function revisarComponente(sf, rel, errores, stats) {
       const nombre = ts.isIdentifier(fn) ? fn.text : null;
       if (nombre === 'Component' || nombre === 'Directive') {
         const arg = node.expression.arguments[0];
-        if (arg && ts.isObjectLiteralExpression(arg)) revisarObjetoDecorador(arg);
+        if (arg && ts.isObjectLiteralExpression(arg)) {
+          // El tramo donde un backtick suelto hace dano. Todo lo de afuera -- el JSDoc de la
+          // clase, el de un metodo -- puede tener backticks y esta PERFECTO.
+          rangos.push([arg.getStart(sf), arg.getEnd()]);
+          revisarObjetoDecorador(arg);
+        }
       }
     }
     ts.forEachChild(node, visitar);
@@ -223,17 +228,55 @@ for (const file of files) {
     errores.push(`  ${line + 1}:${character + 1}  ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
   }
   const parseRoto = (sf.parseDiagnostics || []).length > 0;
-  const sospechaBacktick = revisarComponente(sf, rel, errores, stats) || parseRoto;
+  const rangos = [];
+  // Linea del primer error de parseo: el punto donde TypeScript perdio el hilo. Sirve de
+  // brujula para ordenar las pistas -- el backtick culpable esta ANTES, y cerca.
+  const lineaError = (sf.parseDiagnostics || []).length
+    ? sf.getLineAndCharacterOfPosition(sf.parseDiagnostics[0].start).line + 1
+    : null;
+  const sospechaBacktick = revisarComponente(sf, rel, errores, stats, rangos) || parseRoto;
 
-  // La pista accionable del caso 1: el backtick dentro de un comentario. Se lista sólo cuando el
-  // síntoma es del caso 1 — ante un CSS mal cerrado, esta lista mandaría a buscar donde no está.
+  /**
+   * La pista accionable del caso 1: el backtick dentro de un comentario. Se lista sólo cuando el
+   * síntoma es del caso 1 — ante un CSS mal cerrado, esta lista mandaría a buscar donde no está.
+   *
+   * ATENCION: **Y sólo los comentarios DENTRO del decorador.** Antes se listaba cualquier comentario
+   * del archivo con un backtick, y el primero que salia solia ser un JSDoc de clase o de
+   * metodo — donde el backtick es correcto y no rompe nada. Medido: con el culpable en la
+   * linea 64, el gate apuntaba a la 806. Un mensaje que manda a la linea equivocada cuesta
+   * casi lo mismo que no tener mensaje: la diagnosis toma tres vueltas igual.
+   */
   if (errores.length && sospechaBacktick) {
     const re = /<!--[\s\S]*?-->|\/\*[\s\S]*?\*\//g;
+    const dentro = (i) => rangos.some(([a, b]) => i >= a && i <= b);
     let m;
+    const candidatos = [];
     while ((m = re.exec(text)) !== null) {
       if (!m[0].includes('`')) continue;
+      if (rangos.length && !dentro(m.index)) continue;
       const linea = text.slice(0, m.index).split('\n').length;
-      errores.push(`  ↳ línea ${linea}: backtick dentro de un comentario — ${m[0].slice(0, 70).replace(/\s+/g, ' ')}…`);
+      candidatos.push({ linea, texto: m[0].slice(0, 70).replace(/\s+/g, ' ') });
+    }
+    /**
+     * El culpable es el ULTIMO backtick antes de donde el parser se perdio, no el primero
+     * del archivo. Sin esto el gate marcaba el JSDoc de mas arriba -- correcto, inofensivo,
+     * y a 700 lineas del problema.
+     */
+    const probable = lineaError
+      ? candidatos.filter((c) => c.linea <= lineaError).slice(-1)[0]
+      : candidatos[0];
+    // Primero el sospechoso, despues el resto como contexto: quien lee arregla el primero.
+    const ordenados = probable ? [probable, ...candidatos.filter((c) => c !== probable)] : candidatos;
+    for (const c of ordenados.slice(0, 6)) {
+      const marca = c === probable ? '⭐ EMPEZA POR ACA — ' : '';
+      errores.push(`  ↳ ${marca}línea ${c.linea}: backtick en un comentario del decorador — ${c.texto}…`);
+    }
+    const hallados = candidatos.length;
+    if (!hallados) {
+      // Sin candidatos adentro del decorador, el backtick puede estar en el CODIGO del
+      // template (una interpolacion, un atributo). Se DICE, en vez de dejar la lista vacia
+      // y que se lea como «no hay nada que mirar».
+      errores.push('  ↳ ningún comentario del decorador tiene backtick: busca uno suelto en el TEXTO del template o de los styles.');
     }
   }
 
