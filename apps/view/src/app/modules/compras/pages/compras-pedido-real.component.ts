@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { compareWarehouseCodes } from '@megadulces/contracts';
+import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -63,7 +63,8 @@ interface BranchBuy {
   code: string; name: string;
   vta: number;           // venta 30 d, en cajas — es lo que ordena la lista
   exis: number;          // existencia, en cajas
-  seed: number;          // sugerido del motor, en cajas (valor inicial del input)
+  seed: number;          // sugerido del motor YA REDONDEADO, en cajas (valor inicial del input) — ver roundSeed
+  seedUnit: 'caja' | 'pieza';   // unidad en que se PROPONE el sugerido: cajas cerradas, o piezas si no llega a media caja
   cc: number;            // costo de caja DE ESA SUCURSAL
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
@@ -353,6 +354,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <span class="pr-bulk-sp"></span>
                                         <button type="button" class="pr-zlink" (click)="zoneAllDirect(r, z)">todo directo</button>
                                         <button type="button" class="pr-zlink" (click)="zoneAllToHub(r, z)">todo a {{ z.hubCode }}</button>
+                                        @if (showZoneToMain(z)) {
+                                          <button type="button" class="pr-zlink" (click)="zoneAllToMain(r, z)"
+                                                  [title]="'Toda la zona se entrega en el CEDIS principal ' + mainCedis()!.code + ' ' + mainCedis()!.name + ', y de ahí baja por traspaso a cada sucursal.'">todo a {{ mainCedis()!.code }}</button>
+                                        }
                                       } @else {
                                         <span class="pr-zhub pr-rung">sin CEDIS asignado — configuralo en el almacén</span>
                                       }
@@ -1021,11 +1026,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
+        const sd = this.roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
         out.push({
           code, name: names.get(code) || '',
           vta: Number(c.vta) || 0,
           exis: Number(c.exis) || 0,
-          seed: Number(c.ped) || 0,
+          seed: sd.cajas,
+          seedUnit: sd.unit,
           // Sin costo por celda (feed viejo) se cae al del producto, que es el `max` entre
           // almacenes: sobrevalúa, pero es lo que ya publicaba la pantalla. No se inventa 0.
           cc: Number(c.cc ?? r.caja_cost) || 0,
@@ -1044,6 +1051,24 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
   branchBuys(r: WorkbookRow): BranchBuy[] { return this.branchBuyMap().get(r.product_id) ?? []; }
+
+  /**
+   * Redondeo del SUGERIDO (pedido del comprador, 2026-09-25): que llegue listo para pedir, sin que
+   * alguien tenga que pasar a mano 1.5 → 2 cajas o 0.4 caja → piezas.
+   *  - Media caja o más → cajas CERRADAS, redondeo al entero más cercano (147.1 → 147, 1.5 → 2,
+   *    0.6 → 1).
+   *  - Menos de media caja → se propone en PIEZAS enteras (0.4 cj × 20 → 8 pz), mínimo 1 pieza:
+   *    si el motor pidió algo, no se borra redondeando a cero.
+   * Sólo toca el valor INICIAL: lo que el usuario escriba se respeta tal cual. El canónico sigue
+   * siendo cajas (las piezas se guardan como fracción de caja), así que días, valor, totales,
+   * requisición y Excel leen el mismo número que ve el input.
+   */
+  private roundSeed(ped: number, uxc: number): { cajas: number; unit: 'caja' | 'pieza' } {
+    if (!(ped > 0)) return { cajas: 0, unit: 'caja' };
+    if (ped >= 0.5) return { cajas: Math.round(ped), unit: 'caja' };
+    const pz = Math.max(1, Math.round(ped * uxc));
+    return { cajas: pz / uxc, unit: 'pieza' };
+  }
 
   /**
    * Rótulo de la unidad nativa, para la celda.
@@ -1096,7 +1121,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return ov === undefined ? b.seed : ov;
   }
   unitOfBranch(r: WorkbookRow, b: BranchBuy): 'caja' | 'pieza' {
-    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? 'caja';
+    // Sin elección del usuario, se captura en la unidad en que vino propuesto el sugerido.
+    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? b.seedUnit;
   }
   setUnitBranch(r: WorkbookRow, b: BranchBuy, u: 'caja' | 'pieza'): void {
     this.buyUnit.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: u }));
@@ -1258,6 +1284,33 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const n = { ...m };
       // La sucursal que ES el CEDIS no se consolida en sí misma: se queda directa.
       for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === z.hubCode ? null : z.hubCode;
+      return n;
+    });
+    this.dirty.set(true);
+  }
+  /**
+   * El CEDIS PRINCIPAL de la empresa (hoy `00` Bpirapuato): el CEDIS de compra cuyo código cae en
+   * el grupo 'CEDIS' del orden canónico de `@megadulces/contracts`. No se clava '00' acá: los
+   * alias de esa plaza viven en el contrato, y sólo cuenta si además está marcado como CEDIS de
+   * compra (`is_purchase_hub`); si no, el atajo no se pinta.
+   */
+  readonly mainCedis = computed(() => {
+    const g = WAREHOUSE_DISPLAY_ORDER.find((x) => x.label === 'CEDIS');
+    return g ? this.cedisList().find((c) => g.codes.includes(c.code)) ?? null : null;
+  });
+  /** ¿Pintar "todo a 00" en esta zona? No, si el CEDIS de la zona YA es el principal (sería repetir el botón). */
+  showZoneToMain(z: ZoneGroup): boolean {
+    const m = this.mainCedis();
+    return !!m && z.hubCode !== m.code;
+  }
+  /** Atajo: toda la zona se consolida en el CEDIS principal (y de ahí baja por traspaso a cada sucursal). */
+  zoneAllToMain(r: WorkbookRow, z: ZoneGroup): void {
+    const m = this.mainCedis();
+    if (!m) return;
+    this.buyDeliver.update((map) => {
+      const n = { ...map };
+      // El CEDIS principal no se consolida en sí mismo: se queda directo.
+      for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === m.code ? null : m.code;
       return n;
     });
     this.dirty.set(true);
