@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar } from './expense-proofs.service';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
@@ -71,6 +71,13 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: '[GX.17] Lo que espera luz verde, agrupado por fecha y por departamento. Mismo permiso que aprobar/validar/rechazar: quien no puede firmar tampoco necesita la bandeja.' })
   porAprobar(@Query('limit') limit?: string): Promise<RespuestaPorAprobar> {
     return this.svc.porAprobar(limit ? Number(limit) : undefined);
+  }
+
+  @Get('del-dia')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.20] Los levantamientos de gasto de UN dia (captura, hora de Mexico), partidos en Aprobar / Ejercer / Todos. Sin `fecha` devuelve hoy. Trae el rail de dias con sus pendientes y lo que espera firma FUERA del dia: acotar por dia no puede esconder trabajo.' })
+  delDia(@Query('fecha') fecha?: string, @Query('limit') limit?: string): Promise<RespuestaDelDia> {
+    return this.svc.delDia(fecha, limit ? Number(limit) : undefined);
   }
 
   @Get('status-by-folio')

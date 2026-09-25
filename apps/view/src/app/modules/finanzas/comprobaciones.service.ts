@@ -189,6 +189,77 @@ export interface ExpedienteGasto {
   generado_at: string;
 }
 
+/**
+ * `[GX.20]` **El dia del gasto.** Lo que devuelve `GET /del-dia`, tipado del lado del
+ * cliente porque cruza el boundary REST (ADR-052). Los nombres son los del servidor: si
+ * alguien renombra un campo alla, esto deja de compilar en vez de mostrar `undefined`.
+ */
+
+/** Las bandejas. `sin_etapa` no es una pestana: es un estado que el servidor no reconocio. */
+export type EtapaGasto = 'aprobar' | 'ejercer' | 'cerrado' | 'sin_etapa';
+/** Las tres pestanas de la pantalla, en el orden en que se leen. */
+export type PestanaGasto = 'aprobar' | 'ejercer' | 'todos';
+
+export interface GrupoAprobacion {
+  clave: string;
+  etiqueta: string;
+  /** Solo en los grupos por departamento: de donde salio la etiqueta. */
+  origen?: 'capturado' | 'solicitud' | 'sin_clasificar';
+  n: number;
+  monto: number;
+  ids: string[];
+}
+
+export interface ExpedienteDelDia {
+  id: string;
+  folio_solicitud: string;
+  sucursal: string | null;
+  /** Cuando OCURRIO el gasto. No es el dia de la pantalla — ver `created_at`. */
+  fecha_gasto: string | null;
+  /** Cuando se LEVANTO el expediente (`YYYY-MM-DD`, Mexico). Es el dia que filtra. */
+  created_at: string;
+  created_hora: string;
+  importe: number;
+  departamento: string | null;
+  solicitante: string | null;
+  concepto: string | null;
+  proveedor: string | null;
+  clasificacion: string | null;
+  forma_pago: string | null;
+  forma_pago_detalle: string | null;
+  comentarios: string | null;
+  created_by: string | null;
+  status: ProofStatus | string;
+  etapa: EtapaGasto;
+  motivo_rechazo: string | null;
+  revision_nota: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  requiere_evidencia: boolean;
+  tiene_evidencia: boolean;
+  evidencia_en_vivo: boolean;
+  files: ProofFile[];
+}
+
+export interface DiaDelRail { dia: string; n: number; monto: number; pendientes: number }
+
+export interface GastosDelDia {
+  fecha: string;
+  es_hoy: boolean;
+  /** Hoy segun el SERVIDOR. La pantalla no calcula el dia con el reloj del navegador. */
+  hoy: string;
+  /** No-null = la fecha que se pidio era ilegible y el servidor cayo a hoy. */
+  fecha_pedida: string | null;
+  total: number;
+  monto_total: number;
+  etapas: Record<EtapaGasto, { n: number; monto: number }>;
+  filas: ExpedienteDelDia[];
+  aprobar: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
+  dias_recientes: DiaDelRail[];
+  /** Lo que espera firma y NO es de este dia. Sin esto, acotar por dia esconderia trabajo. */
+  pendientes_fuera_del_dia: { n: number; monto: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprobacionesService {
   private readonly http = inject(HttpClient);
@@ -206,6 +277,16 @@ export class ComprobacionesService {
   searchSolicitudes(q: string, limit = 20): Observable<SolicitudSug[]> {
     return this.http.get<SolicitudSug[]>(`${this.base}/search-solicitudes`,
       { params: new HttpParams().set('q', q).set('limit', String(limit)) });
+  }
+  /**
+   * `[GX.20]` Los levantamientos de gasto de UN dia, ya partidos en Aprobar / Ejercer /
+   * Todos por el servidor. Sin `fecha` contesta con HOY en hora de Mexico — que es el
+   * unico reloj que vale: el del navegador puede estar en otra zona.
+   */
+  delDia(fecha?: string, limit = 500): Observable<GastosDelDia> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (fecha) params = params.set('fecha', fecha);
+    return this.http.get<GastosDelDia>(`${this.base}/del-dia`, { params });
   }
   /** Lo que capturó este usuario (ruta propia, acotada por el token). */
   mine(limit = 50): Observable<ExpenseProofsReport> {

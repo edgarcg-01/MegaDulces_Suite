@@ -2483,6 +2483,102 @@ tiene un hueco en `kdc2` y por eso NO se puede retirar todavía el importer de e
 
 ---
 
+## GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código)
+
+Pedido del usuario: que Aprobación **muestre los levantamientos de gasto que se hicieron al día**,
+con tres apartados — **Aprobar · Ejercer · Todos**.
+
+La pantalla de `[GX.17]` era una bandeja atemporal («todo lo que espera firma, de cualquier
+fecha»). Ahora es **el día**, partido por lo que falta hacer con cada expediente. El reparto sale
+del ciclo que ya existía en la tabla, no de una invención: el `CHECK` de
+`finance.expense_proofs.status` tiene exactamente cinco estados, y los cinco caen en su lugar.
+
+| Pestaña | Estados | Qué falta, y de quién |
+|---|---|---|
+| **Aprobar** | `recibida` | Dar la luz verde. De quien firma. |
+| **Ejercer** | `aprobada`, `revision` | Ya hay luz verde y el gasto no cierra. |
+| **Todos** | los cinco | El día entero. Para leer. |
+
+⭐ **`revision` va en *Ejercer*, no en *Cerrado*.** Es el expediente que volvió con su evidencia y
+**el cuadre por visión no dio**; sigue abierto y lo resuelve `validate()`, que es de la misma
+persona que firma. En *Cerrado* se le saldría de la vista a quien debe resolverlo.
+
+⛔ **Acotar por día NO puede esconder lo que espera firma.** Un expediente que nadie aprobó
+anteayer no puede dejar de existir porque hoy miramos hoy. Por eso `delDia()` devuelve además
+`dias_recientes` (con **cuántas firmas debe cada día**, que el rail marca con un punto) y
+`pendientes_fuera_del_dia`, que la pestaña *Aprobar* dice con su monto. **Medido en local:** el día
+mostraba 9 expedientes y el aviso decía «otros días tienen 9 esperando firma ($68,865.50)» — que
+son exactamente los 6 del 24-sep ($65,385.00) más los 3 del 14-sep ($3,480.50).
+
+⚠️ **El día es el de CAPTURA, y el de México.** «Los levantamientos que se hicieron al día» es
+cuándo se **levantó** el expediente (`created_at`), no cuándo ocurrió el gasto (`fecha_gasto`), que
+puede ser de la semana pasada — cada renglón muestra las dos, justo porque no coinciden. Y el corte
+va contra el día de México: a las 20:00 de acá ya es el día siguiente en UTC.
+
+⛔ **El filtro por día va como RANGO de timestamps, no envolviendo la columna en `to_char`.**
+Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `porAprobar`: ahí
+`to_char` es gratis porque está en la lista de selección; en el `WHERE` sería carísimo.
+
+- [x] **[GX.20.1]** `etapas-del-dia.ts` — el reparto como **función pura** (patrón de
+  `aprobacion-agrupar.ts`): `etapaDe()`, `visibleEn()`, `particionarDelDia()`, `diaValido()`,
+  `hoyMx()`. ⛔ **Un estado que el mapa no conoce cae en `sin_etapa`**, no en «cerrado»: si mañana
+  alguien agrega un estado a la tabla y olvida esta línea, tiene que **salir a la luz**, no
+  desaparecer. `diaValido()` devuelve `null` —no «hoy»— ante una fecha rota: caer a hoy en silencio
+  haría que un parámetro ilegible se vea igual que un día sin movimiento. 15 pruebas. ✅ 2026-09-25
+- [x] **[GX.20.2]** `delDia()` + `GET /finance/expenses/proofs/del-dia?fecha=` con
+  `FINANCE_EXPENSES_COMPROBAR` (el mismo de `por-aprobar`: quien no puede firmar no necesita la
+  bandeja). Reusa `agruparParaAprobacion` para los grupos por departamento del bucket que se firma.
+  ✅ 2026-09-25
+- [x] **[GX.20.3]** La pantalla: tres pestañas con su conteo y su monto, navegación de día
+  (‹ › + selector + rail de 14 días con el punto de pendientes), aviso de lo que quedó fuera del
+  día, y por renglón **qué falta y de quién** — incluido «la evidencia la sube quien lo levantó»,
+  que es el botón que el aprobador **no** tiene. ✅ 2026-09-25
+- [x] **[GX.20.4]** Pruebas: 15 (motor puro) + 32 (componente, montado con `TestBed`) = **47**.
+  **Prueba negativa corrida**: al romper a propósito el filtro por pestaña, 10 pruebas se ponen en
+  rojo. Suites completas verdes: `view/finanzas` 169 · `libs/finance` 190. ✅ 2026-09-25
+- [x] **[GX.20.5]** ⚠️ Atrapado en el acto: un acento grave dentro de un comentario **CSS** del
+  bloque `styles` — la OCTAVA vez en este repo. `check:templates` lo confirmó limpio después.
+  ✅ 2026-09-25
+
+**Verificado en el 4200** contra `platform_local`, con un día sembrado a propósito (9 expedientes
+repartidos en los cinco estados, marcados `created_by='demo_gx20'`): el servidor cuadra al centavo
+(4 + 3 + 2 = 9 · $5,196.25 + $21,180.00 + $3,370.00 = $29,746.25), y **aprobar un expediente lo
+movió de pestaña con su importe exacto**: Aprobar 4/$5,196.25 → 3/$3,945.75 y Ejercer
+3/$21,180.00 → 4/$22,430.50, con el total del día intacto. Claro y oscuro revisados, consola limpia.
+
+⛔ **HALLAZGO AJENO — `[GX.18]` dejó la captura de gastos ROTA.** Se topó al ejercitar el botón
+Aprobar y **está medido contra la API, no deducido del código**:
+
+- `create()` (`expense-proofs.service.ts:405`) y `approve()` **exigen** el archivo
+  `solicitud_kepler`. Un `POST` con exactamente lo que la captura manda hoy responde
+  `400 falta la solicitud de gasto firmada`.
+- `[GX.18]` retiró de la pantalla de captura el paso «Sube la solicitud firmada» — la **única** UI
+  que adjuntaba ese rol. La zona que quedó (`cap-drop`) es la de `cotizacion`.
+- Pero `puedeEnviar()` (`finanzas-capturar-gasto.component.ts:522`) **todavía** pide
+  `names()['solicitud_kepler']`, y `[GX.18]` sacó de `enviarTitle()` la rama que lo explicaba →
+  el botón queda **deshabilitado diciendo «Enviar a aprobación»**, sin decir qué falta. Que es
+  justo el modo de fallar que `[GX.17]` construyó ese mecanismo para evitar.
+
+**No se corrigió acá a propósito:** quitar esa guarda es una **decisión de negocio**, no un bug de
+código — el comentario del servicio dice «la solicitud firmada respalda la salida de dinero: va en
+los TRES tipos de gasto». O `[GX.18]` gana y hay que retirar el control de los tres lugares
+(`create`, `approve`, `puedeEnviar`), o el control gana y el paso vuelve. Lo decide quien pidió
+`[GX.18]`.
+
+⚠️ **Segundo hallazgo, menor:** `no_comprobable` tiene **dos nombres**. `[GX.18]` lo renombró a
+«Vale autorizado» sólo en la lista local de la captura; el `CLASIFICACION_LABEL` canónico de
+`comprobaciones.service.ts` —el que lee Aprobación, y que `comprobaciones-etiquetas.spec.ts` tiene
+**clavado**— sigue diciendo «Sin comprobante». La persona captura una cosa y quien firma lee otra.
+Tampoco se tocó: cambiarlo mueve la prueba clavada de `[GX.17]` y dos listas duplicadas más.
+
+**Pendiente:** validación visual del usuario · resolver los dos hallazgos de arriba · redeploy
+api+view. **Sin migraciones ni permisos nuevos** → no hace falta re-login.
+
+**Limpieza de la demo local:** `node tmp/gx20-limpiar.js` borra los 9 expedientes sembrados y el
+usuario `demo_gx20`. Nada de esto existe fuera de `platform_local`.
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del
