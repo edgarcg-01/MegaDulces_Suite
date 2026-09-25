@@ -1,4 +1,5 @@
 import { Global, Module, Logger } from '@nestjs/common';
+import { poolMax, poolMin } from './pool-size';
 import knex, { Knex } from 'knex';
 import { legacyTxStorage } from '../tenant/legacy-tx.als';
 
@@ -24,7 +25,7 @@ function buildLegacyDbConfig(): any {
         connectionString: connStr,
         ssl: env === 'production' ? { rejectUnauthorized: false } : false,
       },
-      pool: { min: 2, max: 10 },
+      pool: { min: poolMin(2, poolMax(10)), max: poolMax(10) },
     };
   }
   const host = process.env.DB_HOST || 'localhost';
@@ -45,7 +46,7 @@ function buildLegacyDbConfig(): any {
       password: process.env.DB_PASSWORD || 'postgres',
       ssl: env === 'production' ? { rejectUnauthorized: false } : false,
     },
-    pool: { min: 2, max: 10 },
+    pool: { min: poolMin(2, poolMax(10)), max: poolMax(10) },
   };
 }
 

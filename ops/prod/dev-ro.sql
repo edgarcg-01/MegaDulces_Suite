@@ -159,7 +159,18 @@ BEGIN
     EXECUTE format('ALTER ROLE %I SET default_transaction_read_only = on', p);
     EXECUTE format('ALTER ROLE %I SET statement_timeout = %L', p, '60s');
     EXECUTE format('ALTER ROLE %I SET idle_in_transaction_session_timeout = %L', p, '5min');
-    EXECUTE format('ALTER ROLE %I CONNECTION LIMIT 5', p);
+    -- ⚠️ 25, NO 5. El 5 original era para una PERSONA con un cliente grafico; en cuanto la
+    -- cuenta la usa la API el numero deja de alcanzar: abre CUATRO pools contra el mismo
+    -- servidor (legacy 10 + nueva 10 + runtime 10 + kepler 4), o sea hasta ~34 conexiones de
+    -- una sola instancia. Medido: el login murio con `53300 too many connections for role`.
+    --
+    -- ⛔ Y NO se sube "hasta que deje de fallar": `max_connections` de prod es 200 y prod ya
+    -- usa ~30. A 40 por persona, cuatro devs serian 160 y dev podria dejar a PRODUCCION sin
+    -- conexiones — que es justo lo que este limite existe para impedir. 25 aguanta una API de
+    -- dev y deja ~75 libres con los cuatro conectados a la vez.
+    -- La otra mitad del arreglo es bajar el pool, no subir el limite: `DB_POOL_MAX` (ver
+    -- libs/platform-core/src/lib/database/pool-size.ts). Con DB_POOL_MAX=3 la API abre 10.
+    EXECUTE format('ALTER ROLE %I CONNECTION LIMIT 25', p);
   END LOOP;
 END $$;
 
