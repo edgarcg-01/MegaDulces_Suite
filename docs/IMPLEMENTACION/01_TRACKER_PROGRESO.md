@@ -219,12 +219,52 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         es donde un equipo en otra zona horaria cambia de día — el defecto que la Fase VP midió
         en 21 de 24 píldoras de frescura. Mismo motivo por el que el día de la semana se arma con
         `Date.UTC`.
-      · Candado `database/tests/test-newdb-cartera-por-dia.js`, **14 ✔ contra prod**, en la
-        regresión. Specs de front **21 ✔**: el del chip lleva prueba negativa y el del componente
-        hace **clic** en un día y exige el desglose correcto y el banner de error en el DOM.
+      · Candado `database/tests/test-newdb-cartera-por-dia.js`, **21 ✔ contra prod**, en la
+        regresión. Specs de front **27 ✔**: el del chip lleva prueba negativa y el del componente
+        hace **clic** en un día, **clic** en un cliente y exige sus folios y el banner de error en
+        el DOM. (Conteos finales, ya con `[CXC.26.1]`.)
       · ⚠️ **Falta validación visual y reinicio del API.** El endpoint
         `/finance/receivables/por-dia` está construido y probado contra la base, pero la API de
         dev responde 404 porque corre el build anterior. Sin push.
+      · **[CXC.26.1]** ⭐ **El drill baja a FACTURA, y plaza y zona dejan de ser números.**
+        Pedido de Edgar sobre la pantalla ya construida.
+        · **Tres niveles**: día → clientes → **sus facturas** (folio, documento, fecha de emisión,
+          importe, saldo). El monto del renglón del cliente pasa a ser **la suma de sus propias
+          facturas**, así que por construcción no puede discrepar del desglose que abre debajo.
+        · Medido antes de cambiarlo: **6,913 facturas** contra 5,652 pares (día × cliente) — 22%
+          más filas. Con los nombres repetidos en cada factura la respuesta pesaba **205 KB**
+          gzipeados; **normalizada** (los 1,307 clientes en su propia lista, unidos por
+          `sucursal|cliente_code`) baja a **131 KB**, contra los 119 KB del agregado viejo. Doce
+          kilobytes por pasar de un número a los folios que lo componen.
+        · Cada cliente avisa **lo que debe en OTROS días** — sin eso, el que llama lo llama dos
+          veces.
+        · ⭐ **La zona tenía catálogo y nadie lo estaba usando.** `kepler_ods.kduk` (35 filas,
+          6 códigos). ⚠️ **El join va por CÓDIGO, no por (sucursal, código), y eso se midió:** el
+          catálogo está replicado por sucursal pero **ninguna tiene los seis códigos**, así que el
+          join estricto dejaba **1,227 filas / $3,685,841.18** sin nombre. El de código resuelve
+          **todas** y es seguro porque el código→nombre es **unívoco en todo el catálogo**
+          (`códigos con más de un nombre = 0`, comprobado en el smoke, no supuesto). Las **1,448
+          filas / $15,708,789.44 sin zona asignada** se declaran «Sin zona»: es otra ausencia.
+        · La plaza sale de `commercial.warehouses` (las 9 con cartera están). ⚠️ **Un código que
+          el catálogo no tenga se muestra MARCADO, no escondido**: ocultarlo sería esconder dinero
+          que nadie puede ubicar, que es justo el error que esta pantalla existe para no cometer.
+        · El CSV pasa a **una fila por factura**, con plaza y zona por nombre **y** su código en
+          columna aparte, para que siga siendo cruzable con el ERP.
+        · ⛔ **Tercera vez en este archivo: `knex.raw()` cuenta los signos de interrogación de los
+          COMENTARIOS como binds.** Un «¿…?» dentro del SQL sumó dos binds fantasma y la consulta
+          reventó con *could not determine data type of parameter*; caí dos veces seguidas, la
+          segunda **redactando el aviso**. Ahora hay compuerta en el smoke: el SQL tiene que tener
+          exactamente 2 signos de interrogación.
+        · ⚠️ **Una aserción atada a la forma de un renglón mide el renglón**: la que exigía
+          `filtros: this.opciones(a)` se puso roja sola cuando esa línea pasó a ser
+          `const filtros = this.opciones(a)`. Ahora busca la llamada.
+        · ⛔ DEUDA CON NOMBRE (ADR-056): el resolvedor de zona vive dentro de la consulta. Cuando
+          aparezca el segundo consumidor —el filtro y el rollup por zona de la vista por cliente,
+          que hoy siguen mostrando `10000`— sube a `analytics.v_kepler_zone`. No se creó la vista
+          ya porque exigiría aplicar una migración a prod para que este código funcione allá.
+        · Smoke **21 ✔ contra prod** (suma de facturas == suma de días al centavo, cero facturas
+          huérfanas, cero zonas sin resolver) · specs de front **27 ✔** (el gesto completo: clic en
+          el día, clic en el cliente, los folios en el DOM).
 
 - [x] **[CC.8]** 🧪 ⭐ **El cruce banco↔cobro miraba el 30% del dinero.** `listUnmatchedBank` y
       `cobroCandidates` buscaban candidatos **sólo** entre `forma_pago IN (deposito,
