@@ -136,9 +136,23 @@ describe('[GX.14] el catálogo de formas de pago', () => {
     expect(new Set(FORMAS_PAGO.map((f) => f.codigo_kepler)).size).toBe(FORMAS_PAGO.length);
   });
 
-  it('sólo `vales` cierra sin pedir un dato más', () => {
+  /**
+   * [GX.19] `efectivo` se sumo a la lista de los que cierran sin pedir nada: la pregunta
+   * «¿De que caja salio?» se retiro por pedido del usuario.
+   *
+   * ⚠️ Lo que se pierde esta medido en el comentario del catalogo: sin ese dato, un gasto
+   * en efectivo no dice de que caja salio. La regla NO se toco -- `exigeDetalle` se deriva
+   * del catalogo, asi que dejar de pedirlo fue poner `detalle_label` en null y nada mas.
+   */
+  it('efectivo y vales cierran sin pedir un dato más', () => {
     const sinDetalle = FORMAS_PAGO.filter((f) => f.detalle_label == null).map((f) => f.id);
-    expect(sinDetalle).toEqual(['vales']);
+    expect(sinDetalle).toEqual(['efectivo', 'vales']);
+  });
+
+  /** Y la compuerta lo respeta sin que nadie la edite: esa es la gracia de derivarla. */
+  it('efectivo ya no genera el faltante del dato del pago', () => {
+    const faltan = faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: null, archivos: [], exige_evidencia: false });
+    expect(faltan.map((f) => f.id)).not.toContain('forma_pago_detalle');
   });
 
   it('una forma con etiqueta de detalle trae también su ejemplo (el placeholder)', () => {

@@ -45,7 +45,10 @@ export interface FormaPago {
 
 /** El catálogo. Cerrado: agregar una opción es tocar este archivo y su prueba. */
 export const FORMAS_PAGO: readonly FormaPago[] = [
-  { id: 'efectivo',      label: 'Efectivo',      codigo_kepler: '01', detalle_label: '¿De qué caja salió?',  detalle_ejemplo: 'Caja chica logística' },
+  // [GX.19] El efectivo deja de pedir la caja: se retiro por pedido del usuario. Al quedar
+  // en null, «exigeDetalle» lo deja de exigir solo -- la regla se deriva del catalogo, no hay
+  // una segunda lista que actualizar.
+  { id: 'efectivo',      label: 'Efectivo',      codigo_kepler: '01', detalle_label: null,                   detalle_ejemplo: null },
   { id: 'tarjeta',       label: 'Tarjeta',       codigo_kepler: '04', detalle_label: 'Últimos 4 dígitos',    detalle_ejemplo: '0000' },
   { id: 'transferencia', label: 'Transferencia', codigo_kepler: '03', detalle_label: 'Referencia del banco', detalle_ejemplo: '882301' },
   { id: 'cheque',        label: 'Cheque',        codigo_kepler: '02', detalle_label: 'Número de cheque',     detalle_ejemplo: '1204' },
