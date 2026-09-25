@@ -879,7 +879,7 @@ export class ExpenseProofsService {
       // sin que nada se queje hasta que la pantalla muestre `undefined`.
       interface FilaCruda {
         id: string; folio_solicitud: string; sucursal: string | null;
-        fecha_gasto: string | Date | null; created_at: string | Date;
+        fecha_gasto: string | null; created_dia: string; created_at: string | Date;
         departamento: string | null; proveedor: string | null; clasificacion: string | null;
         forma_pago: string | null; forma_pago_detalle: string | null;
         files: string | ProofFile[] | null; comentarios: string | null;
@@ -889,9 +889,18 @@ export class ExpenseProofsService {
         .where({ tenant_id: tenantId, status: 'recibida' })
         .orderBy('created_at', 'desc')
         .limit(lim)
-        .select('id', 'folio_solicitud', 'sucursal', 'fecha_gasto', 'created_at', 'departamento',
+        // ⚠️ `to_char` y NO la columna cruda. `pg` devuelve `date`/`timestamptz` como objeto
+        // `Date`, y `String(fecha).slice(0,10)` sobre eso da **«Thu Sep 24»** — no una fecha, y
+        // con el día corrido por zona horaria (un `2026-09-15` UTC se lee 14 en MX). Es la misma
+        // trampa que la Fase LC.16 pagó en el respaldo, el CSV y el orden de un TXT entregado.
+        // En la lista de selección `to_char` es gratis; lo que anula un índice es envolverla en
+        // el WHERE.
+        .select('id', 'folio_solicitud', 'sucursal', 'departamento',
           'proveedor', 'clasificacion', 'forma_pago', 'forma_pago_detalle', 'files', 'comentarios',
-          'created_by', trx.raw('importe::numeric AS importe'));
+          'created_by', trx.raw('importe::numeric AS importe'),
+          trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
+          trx.raw('created_at'));
 
       if (!filas.length) {
         return { total: 0, monto_total: 0, por_fecha: [], por_departamento: [], filas: [] };
@@ -901,8 +910,14 @@ export class ExpenseProofsService {
       const porSucursal = new Map<string, Set<string>>();
       for (const f of filas) {
         const suc = String(f.sucursal ?? '');
+        // ⚠️ Hay expedientes SIN folio: son las «capturas sin folio» (alguien subió el
+        // comprobante antes de que existiera la solicitud en Kepler). Sin este filtro se
+        // pediría `folio = 'null'` al ODS — una consulta que nunca casa y que ensucia el
+        // universo. Quedan igual en la bandeja: lo que no tienen es área.
+        const folio = f.folio_solicitud ? String(f.folio_solicitud).trim() : '';
+        if (!suc || !folio) continue;
         if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
-        porSucursal.get(suc)!.add(String(f.folio_solicitud));
+        porSucursal.get(suc)!.add(folio);
       }
       /** Lo que se necesita de la solicitud de Kepler: el área y el concepto. */
       interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null; estado: string | null }
@@ -923,8 +938,9 @@ export class ExpenseProofsService {
           id: f.id,
           folio_solicitud: f.folio_solicitud,
           sucursal: f.sucursal,
-          fecha_gasto: f.fecha_gasto ? String(f.fecha_gasto) : null,
-          created_at: String(f.created_at),
+          fecha_gasto: f.fecha_gasto ?? null,
+          // Ya viene como `YYYY-MM-DD` desde la DB, en hora de México.
+          created_at: f.created_dia,
           importe: Number(f.importe) || 0,
           departamento: f.departamento,
           solicitante: s?.solicitante ?? null,
