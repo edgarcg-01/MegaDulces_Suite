@@ -1001,7 +1001,11 @@ const CRON_JOBS: CronCfg[] = [
   // cantidad que se pide y el costo, la valuacion del inventario. Corre cada 5 min.
   // Sin este renglon `db-health` daria verde INCONDICIONAL (`cfg ? classify : ok`), que es lo
   // que la Fase VP midio sobre 3 matvistas del sell-out.
-  { key: 'mv_existencia_aux_refresh', label: 'Existencia — factor de caja y costo Kepler', cadence: 'cada 5 min', warnH: 0.5, critH: 2 },
+  // [AX-PERF.1] El mismo carril refresca ahora TRES fotos: las dos de `/compras/existencia` y
+  // `mv_product_box_factor`, que es el divisor con el que el anexo al CFDI imprime la
+  // equivalencia en cajas. O sea que este renglon dejo de cubrir solo una pantalla interna:
+  // si se apaga, se entrega papel al cliente con un factor viejo.
+  { key: 'mv_existencia_aux_refresh', label: 'Factor de caja y costo Kepler (existencia + anexo del CFDI)', cadence: 'cada 5 min', warnH: 0.5, critH: 2 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
   // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
