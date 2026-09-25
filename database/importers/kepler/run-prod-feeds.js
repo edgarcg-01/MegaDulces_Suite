@@ -600,6 +600,15 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   // ⚠️ Tampoco va en `nightly`: ahí el default de 120 d ES el pase de backfill. El precio
   // declarado de la ventana corta: una corrección a un documento de más de 15 días deja de
   // aterrizar en la hora y aterriza esa noche. Es el reparto que `schedules.js` ya había elegido.
+  //
+  // DESPUÉS, medido el mismo día por el MISMO wrapper del cron (`run-feed.sh intraday`, que es
+  // lo único que reproduce flock + env + CWD — una corrida a mano con `docker exec node …` no):
+  //   carril `feed_intraday`   836 s → **196 s**   (baseline: 13 corridas entre 770 y 1,013 s)
+  //   INSERT INTO stg_mov      769 s → **145 s**   (confirmado por `min_exec_time` = 144,917 ms)
+  //   7/7 pasos OK · el importer rotula «(kepler_ods, APPLY, 15d)» · 24 corridas/día ⇒ se
+  //   recuperan ~15,360 s/día = **0.18 núcleos** de los 8 de `md`.
+  // Historia intacta tras la ventana corta (el merge es aditivo por bloque, no borra fuera de
+  // ventana): 54,748 filas ≤15 d · 589,854 de 16-120 d · 3,097,674 de más de 120 d (desde 2020).
   const ENV_POR_MODO = {
     intraday: { SKIP_AUTOLINK: '1', STOCK_MOVEMENTS_DAYS: '15' },
     stock:    { SKIP_AUTOLINK: '1' },
