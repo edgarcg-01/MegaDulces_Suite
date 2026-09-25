@@ -222,6 +222,21 @@ por monto ciego.
   25k pagado con 20k del cajero: los montos no coinciden). Por eso: **proponer + confirmar**, nunca
   aplicar a ciegas.
 
+**Minado adicional (fecha / hora / ruta, 2026-09-25):**
+- **Depósitos = ruta, muy parseable**: de 650 refs, **457 con nº de ruta + 74 con nombre = 99.7%**;
+  **92% traen fecha embebida** (`ruta 28 100926`, `rd28 15/08`). Sólo 16 (2.5%) sin ruta reconocible.
+- **La fecha del `ref` es la de NEGOCIO**: el depósito ocurre **0-2 días después** en **162/164
+  (98.8%)** → para casar depósitos con Kepler conviene la fecha del `ref` (cuándo cobró la ruta), no
+  la del depósito (`occurred_at`).
+- **Tiers de confianza (gasto)**: mismo día + monto exacto + ref en el beneficiario = **11 reales /
+  0 placebo = 100%** pero raro (sólo el gasto pagado 100% del cajero con ref que coincide). El grueso
+  cae en media/baja → el humano confirma. Confirma el diseño: **proponer con confianza, no auto-aplicar**.
+
+**Follow-ups de minado (declarados):** parsear la fecha embebida del `ref` en el motor (mejora la
+fecha de negocio) · matcher de **depósitos↔cobros de ruta** (nº de ruta del `ref` + fecha de negocio
++ Σ de cobros `U-A-5` de esa ruta ≈ el depósito; necesita el mapa ruta→cliente `route_customer_map`) ·
+precisión por señal con **feedback negativo** (guardar también los candidatos rechazados).
+
 **La base que aprende (migración `20260925170000`, verificada read-only):**
 - `finance.caos_cash_links` (tabla real — HITL/feedback, RLS): enlaces **CONFIRMADOS** caja↔CAOS;
   **CONSUME** el movimiento (índice único vivo `ux_caos_link_vivo`, anti-doble-conteo); `senales jsonb`
