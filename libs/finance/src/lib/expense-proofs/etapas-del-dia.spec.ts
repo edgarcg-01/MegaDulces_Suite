@@ -18,19 +18,21 @@ const E = (over: Partial<ExpedienteDelDia> = {}): ExpedienteDelDia => ({
 });
 
 describe('[GX.20] en qué bandeja cae cada estado', () => {
-  it('reparte los cinco estados del ciclo', () => {
-    expect(etapaDe('recibida')).toBe('aprobar');
-    expect(etapaDe('aprobada')).toBe('ejercer');
-    expect(etapaDe('validada')).toBe('cerrado');
-    expect(etapaDe('rechazada')).toBe('cerrado');
+  /** El corte es la DECISIÓN: lo que espera una, lo que se dijo que sí, lo que se dijo que no. */
+  it('reparte los cinco estados del ciclo por su decisión', () => {
+    expect(etapaDe('recibida')).toBe('entrada');
+    expect(etapaDe('aprobada')).toBe('aprobados');
+    expect(etapaDe('validada')).toBe('aprobados');
+    expect(etapaDe('rechazada')).toBe('rechazados');
   });
 
   /**
-   * ⭐ `revision` es el expediente que volvió con evidencia y NO cuadró. Sigue abierto y lo
-   * resuelve la misma persona que firma. En «Cerrado» desaparecería de su vista.
+   * ⭐ `revision` es el expediente que volvió con evidencia y el cuadre NO dio. La decisión
+   * sobre él **ya fue que sí**: lo que falta es cerrar, no autorizar. Mandarlo a «Rechazados»
+   * diría que se le negó, que es exactamente lo contrario de lo que pasó.
    */
-  it('revision queda en EJERCER, no en cerrado', () => {
-    expect(etapaDe('revision')).toBe('ejercer');
+  it('revision está APROBADO: el cuadre falló, la decisión no', () => {
+    expect(etapaDe('revision')).toBe('aprobados');
   });
 
   /**
@@ -46,48 +48,50 @@ describe('[GX.20] en qué bandeja cae cada estado', () => {
   });
 
   it('no se cae por espacios ni por mayúsculas', () => {
-    expect(etapaDe('  Recibida ')).toBe('aprobar');
-    expect(etapaDe('APROBADA')).toBe('ejercer');
+    expect(etapaDe('  Recibida ')).toBe('entrada');
+    expect(etapaDe('APROBADA')).toBe('aprobados');
   });
 });
 
 describe('[GX.20] qué muestra cada pestaña', () => {
-  it('Aprobar sólo trae lo que espera firma', () => {
-    expect(visibleEn('aprobar', 'recibida')).toBe(true);
-    expect(visibleEn('aprobar', 'aprobada')).toBe(false);
-    expect(visibleEn('aprobar', 'validada')).toBe(false);
+  it('la bandeja de entrada sólo trae lo que espera decisión', () => {
+    expect(visibleEn('entrada', 'recibida')).toBe(true);
+    expect(visibleEn('entrada', 'aprobada')).toBe(false);
+    expect(visibleEn('entrada', 'validada')).toBe(false);
+    expect(visibleEn('entrada', 'rechazada')).toBe(false);
   });
 
-  it('Ejercer trae lo aprobado y lo que quedó en revisión', () => {
-    expect(visibleEn('ejercer', 'aprobada')).toBe(true);
-    expect(visibleEn('ejercer', 'revision')).toBe(true);
-    expect(visibleEn('ejercer', 'recibida')).toBe(false);
-    expect(visibleEn('ejercer', 'validada')).toBe(false);
+  /** Los tres momentos del cierre viven juntos: la decisión fue una sola. */
+  it('Aprobados trae los TRES estados del sí', () => {
+    expect(visibleEn('aprobados', 'aprobada')).toBe(true);
+    expect(visibleEn('aprobados', 'revision')).toBe(true);
+    expect(visibleEn('aprobados', 'validada')).toBe(true);
+    expect(visibleEn('aprobados', 'recibida')).toBe(false);
+    expect(visibleEn('aprobados', 'rechazada')).toBe(false);
   });
 
-  it('«Rechazados y aprobados» trae lo ya resuelto, y nada más', () => {
-    expect(visibleEn('cerrado', 'validada')).toBe(true);
-    expect(visibleEn('cerrado', 'rechazada')).toBe(true);
-    expect(visibleEn('cerrado', 'recibida')).toBe(false);
-    expect(visibleEn('cerrado', 'aprobada')).toBe(false);
-    expect(visibleEn('cerrado', 'revision')).toBe(false);
+  it('Rechazados trae sólo lo rechazado', () => {
+    expect(visibleEn('rechazados', 'rechazada')).toBe(true);
+    for (const s of ['recibida', 'aprobada', 'revision', 'validada']) {
+      expect(visibleEn('rechazados', s)).toBe(false);
+    }
   });
 
   /**
-   * ⛔ Al irse «Todos» se fue el único lugar donde un estado desconocido seguía siendo
-   * visible. Cae en la última pestaña **a propósito**: verlo marcado es peor que nada, pero
-   * mucho mejor que no verlo en ninguna pantalla.
+   * ⛔ Un estado que el servidor no reconoce entra por la bandeja de entrada — la que
+   * significa «alguien tiene que mirar esto». Sin esta red no saldría en ninguna de las
+   * tres, o sea que el expediente no existiría en la aplicación.
    */
-  it('un estado desconocido no desaparece: cae en la última', () => {
-    expect(visibleEn('cerrado', 'pagada')).toBe(true);
-    expect(visibleEn('cerrado', null)).toBe(true);
-    expect(visibleEn('aprobar', 'pagada')).toBe(false);
-    expect(visibleEn('ejercer', 'pagada')).toBe(false);
+  it('un estado desconocido no desaparece: entra por la bandeja de entrada', () => {
+    expect(visibleEn('entrada', 'pagada')).toBe(true);
+    expect(visibleEn('entrada', null)).toBe(true);
+    expect(visibleEn('aprobados', 'pagada')).toBe(false);
+    expect(visibleEn('rechazados', 'pagada')).toBe(false);
   });
 
   /**
-   * ⭐ La invariante que reemplaza a «Todos»: las tres pestañas **particionan** el día. Cada
-   * estado se ve en una y sólo una — ni dos veces, ni ninguna.
+   * ⭐ La invariante de fondo: las tres pestañas **particionan** el día. Cada estado se ve en
+   * una y sólo una — ni dos veces, ni ninguna.
    */
   it('las tres pestañas particionan: cada estado cae en exactamente una', () => {
     for (const s of ['recibida', 'aprobada', 'revision', 'validada', 'rechazada', 'pagada', '', null]) {
@@ -102,7 +106,7 @@ describe('[GX.20] los números del día', () => {
     const r = particionarDelDia([]);
     expect(r.total).toBe(0);
     expect(r.monto_total).toBe(0);
-    expect(Object.keys(r.etapas).sort()).toEqual(['aprobar', 'cerrado', 'ejercer', 'sin_etapa']);
+    expect(Object.keys(r.etapas).sort()).toEqual(['aprobados', 'entrada', 'rechazados', 'sin_etapa']);
     for (const k of Object.keys(r.etapas) as EtapaGasto[]) expect(r.etapas[k]).toEqual({ n: 0, monto: 0 });
   });
 
@@ -115,9 +119,9 @@ describe('[GX.20] los números del día', () => {
       E({ status: 'validada', importe: 10 }),
       E({ status: 'rechazada', importe: 5 }),
     ]);
-    expect(r.etapas.aprobar).toEqual({ n: 2, monto: 150 });
-    expect(r.etapas.ejercer).toEqual({ n: 2, monto: 325 });
-    expect(r.etapas.cerrado).toEqual({ n: 2, monto: 15 });
+    expect(r.etapas.entrada).toEqual({ n: 2, monto: 150 });
+    expect(r.etapas.aprobados).toEqual({ n: 3, monto: 335 });
+    expect(r.etapas.rechazados).toEqual({ n: 1, monto: 5 });
     expect(r.total).toBe(6);
     expect(r.monto_total).toBe(490);
   });
@@ -151,7 +155,7 @@ describe('[GX.20] los números del día', () => {
     ]);
     expect(r.total).toBe(3);
     expect(r.monto_total).toBe(10);
-    expect(r.etapas.aprobar).toEqual({ n: 3, monto: 10 });
+    expect(r.etapas.entrada).toEqual({ n: 3, monto: 10 });
   });
 });
 

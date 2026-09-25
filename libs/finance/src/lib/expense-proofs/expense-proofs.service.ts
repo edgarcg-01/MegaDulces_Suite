@@ -131,10 +131,8 @@ export interface RespuestaDelDia extends ParticionDelDia {
   /** La fecha que pidieron cuando era ilegible y se cayo a hoy. `null` = todo en orden. */
   fecha_pedida: string | null;
   filas: ExpedienteDelDiaDetallado[];
-  /** Los grupos por departamento de lo que espera firma ESE dia. */
-  aprobar: AgrupadoAprobacion;
-  /** Las tres semanas alrededor, con cuantas firmas debe cada dia. */
-  dias_recientes: { dia: string; n: number; monto: number; pendientes: number }[];
+  /** Los grupos por departamento de lo que espera decision ESE dia (la bandeja de entrada). */
+  entrada: AgrupadoAprobacion;
   /** Lo que espera firma y NO cayo en este dia. El dia filtra lo que se lee, no lo que existe. */
   pendientes_fuera_del_dia: { n: number; monto: number };
 }
@@ -815,8 +813,18 @@ export class ExpenseProofsService {
       }
       const rows = await b
         .orderBy('r.fecha', 'desc').limit(lim)
+        /**
+         * [GX.21] Se suman las columnas que la vista YA calculaba y nadie pedia: el RFC,
+         * el IVA, quien autoriza, la referencia y la cuenta contable. Son para la vista
+         * previa del alta -- «todos los datos que se jalan de Kepler».
+         *
+         * No cuesta una consulta mas: `analytics.expense_requests` las trae en la misma
+         * fila. Lo que costaba era NO traerlas: la pantalla mostraba cinco campos de una
+         * solicitud que tiene quince, y nadie podia comprobar que fuera la correcta.
+         */
         .select('r.folio', 'r.sucursal', 'r.fecha', 'r.solicitante', 'r.concepto', 'r.estado', 'r.aplicada',
-          trx.raw('r.importe::numeric AS importe'),
+          'r.rfc', 'r.autoriza', 'r.referencia', 'r.cuenta_clave', 'r.usuario', 'r.forma_pago',
+          trx.raw('r.importe::numeric AS importe'), trx.raw('r.iva::numeric AS iva'),
           trx.raw(conAcreedor ? 'COALESCE(r.acreedor, r.beneficiario) AS beneficiario' : 'r.beneficiario AS beneficiario'));
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
     });
@@ -1056,9 +1064,12 @@ export class ExpenseProofsService {
    *
    * ## (X) Acotar por dia NO puede esconder lo que espera firma
    * Una pantalla que solo mire "hoy" haria desaparecer el expediente que nadie aprobo
-   * anteayer. Por eso la respuesta trae `dias_recientes` con **cuantas firmas debe cada
-   * dia** y `pendientes_fuera_del_dia` con lo que quedo afuera del rango: el rail de dias
-   * lo marca y la pantalla lo dice. El dia filtra lo que se LEE, nunca lo que existe.
+   * anteayer. Por eso la respuesta trae `pendientes_fuera_del_dia` con lo que quedo afuera
+   * del rango, y la pantalla lo dice con su monto. El dia filtra lo que se LEE, nunca lo
+   * que existe.
+   *
+   * (!) El rail de dias que acompanaba a este numero se retiro de la pantalla, y con el la
+   * consulta que lo alimentaba: un payload que nadie lee es una consulta que nadie paga.
    */
   async delDia(fecha?: string, limit = 500): Promise<RespuestaDelDia> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -1099,21 +1110,6 @@ export class ExpenseProofsService {
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`));
 
-      // El rail de dias: las tres semanas alrededor de lo que se mira, con cuantas firmas
-      // debe cada uno. Es lo que impide que acotar por dia esconda trabajo.
-      interface DiaCrudo { dia: string; n: number; monto: string | number; pendientes: number }
-      const piso = dia < hoy ? dia : hoy;
-      const dias: DiaCrudo[] = await trx('finance.expense_proofs')
-        .where({ tenant_id: tenantId })
-        .whereRaw(`created_at >= ((?::date) - interval '20 days')::timestamp AT TIME ZONE 'America/Mexico_City'`, [piso])
-        .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
-        .orderByRaw(`1 DESC`)
-        .select(
-          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
-          trx.raw('COUNT(*)::int AS n'),
-          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'),
-          trx.raw(`COUNT(*) FILTER (WHERE status = 'recibida')::int AS pendientes`));
-
       // Lo que espera firma y NO cayo en el dia que se mira. Sin este numero, un expediente
       // parado hace un mes no existe en ninguna pantalla.
       const [fuera] = await trx('finance.expense_proofs')
@@ -1132,11 +1128,6 @@ export class ExpenseProofsService {
         hoy,
         // No-null = la fecha pedida era ilegible y se cayo a hoy. La pantalla lo dice.
         fecha_pedida: pedida != null && diaValido(pedida) == null ? pedida : null,
-        dias_recientes: dias.map((d) => ({
-          dia: d.dia, n: Number(d.n) || 0,
-          monto: Math.round((Number(d.monto) || 0) * 100) / 100,
-          pendientes: Number(d.pendientes) || 0,
-        })),
         pendientes_fuera_del_dia: {
           n: Number(fuera?.n) || 0,
           monto: Math.round((Number(fuera?.monto) || 0) * 100) / 100,
@@ -1144,7 +1135,7 @@ export class ExpenseProofsService {
       };
 
       if (!filas.length) {
-        return { ...base, filas: [], aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] } };
+        return { ...base, filas: [], entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] } };
       }
 
       // Segundo viaje: el area y el concepto de la solicitud de Kepler, por (sucursal, folio).
@@ -1204,10 +1195,10 @@ export class ExpenseProofsService {
         };
       }));
 
-      // Los grupos por departamento del bucket que se firma. Quien autoriza no revisa
+      // Los grupos por departamento de la bandeja de entrada. Quien autoriza no revisa
       // renglones sueltos: revisa "lo de Logistica". Se reusa el agrupador de GX.17.
-      const aprobar = agruparParaAprobacion(
-        detalladas.filter((d) => d.etapa === 'aprobar').map((d) => ({
+      const entrada = agruparParaAprobacion(
+        detalladas.filter((d) => d.etapa === 'entrada').map((d) => ({
           id: d.id, folio_solicitud: d.folio_solicitud, sucursal: d.sucursal,
           fecha_gasto: d.fecha_gasto, created_at: d.created_at, importe: d.importe,
           departamento: d.departamento, solicitante: d.solicitante, proveedor: d.proveedor,
@@ -1215,7 +1206,7 @@ export class ExpenseProofsService {
           evidencia_en_vivo: d.evidencia_en_vivo,
         })));
 
-      return { ...base, filas: detalladas, aprobar };
+      return { ...base, filas: detalladas, entrada };
     });
   }
 

@@ -1,36 +1,36 @@
 /**
- * `[GX.20]` — **Las tres etapas del día.** Función pura.
+ * `[GX.20]` — **Las tres bandejas del día.** Función pura.
  *
- * La pantalla de Aprobación dejó de ser «lo que espera firma» y pasó a ser **el día del
- * gasto**: todo lo que se levantó ese día, partido en lo que cada quien tiene que hacer
- * con ello — *Aprobar*, *Ejercer*, *Todos*.
+ * La pantalla de Aprobación es **el día del gasto**, partido por **la decisión** que se tomó
+ * sobre cada expediente: lo que todavía espera una, lo aprobado y lo rechazado.
  *
  * Vive aparte del servicio, sin knex, porque es la parte que decide **en qué bandeja cae
  * cada expediente** — y eso se prueba sin levantar una base. Mismo criterio que
- * `aprobacion-agrupar.ts`, que agrupa lo que ya cayó en *Aprobar*.
+ * `aprobacion-agrupar.ts`, que agrupa lo que ya cayó en la bandeja de entrada.
  *
- * ## Qué significa cada etapa
- * | Etapa | Estados | Qué falta, y de quién |
+ * ## Qué significa cada bandeja
+ * | Bandeja | Estados | Qué es |
  * |---|---|---|
- * | `aprobar` | `recibida` | Alguien tiene que dar la luz verde. **De quien firma.** |
- * | `ejercer` | `aprobada`, `revision` | Ya hay luz verde y el gasto todavía no cierra. |
- * | `cerrado` | `validada`, `rechazada` | Ya no hay nada que hacer. Queda para leer. |
+ * | `entrada` | `recibida` | Llegó y **nadie decidió todavía**. |
+ * | `aprobados` | `aprobada`, `revision`, `validada` | Tiene luz verde, en cualquier momento del cierre. |
+ * | `rechazados` | `rechazada` | Se dijo que no, con su motivo. |
  *
- * ## ⚠️ `revision` está en *Ejercer*, no en *Cerrado*
- * `revision` es el expediente que volvió con su evidencia y **el cuadre por visión no dio**
- * (`addEvidence`). Sigue abierto, y la acción que lo cierra —`validate()`— la tiene la
- * misma persona que firma. Dejarlo en *Cerrado* lo sacaría de la vista de quien debe
- * resolverlo, que es la forma más silenciosa de que un expediente se quede parado.
+ * ## ⚠️ El corte es la DECISIÓN, no el avance del trámite
+ * Los tres estados de `aprobados` son el mismo hecho —se autorizó el gasto— en tres momentos
+ * distintos: falta ejercerlo (`aprobada`), volvió con evidencia que no cuadró (`revision`), o
+ * ya cerró (`validada`). El renglón dice en cuál está; la bandeja dice que **la decisión fue
+ * que sí**. Separarlos en pestañas distintas partiría en tres una sola respuesta.
  *
  * ## ⛔ Un estado que no conozco NO se reparte: se declara
- * Si mañana aparece un estado nuevo en la tabla, cae en `sin_etapa` y la pantalla lo
- * muestra marcado. Meterlo en *Cerrado* «porque no es ninguno de los otros» haría
- * desaparecer trabajo pendiente sin que nadie se entere — y la suma de las etapas dejaría
- * de dar el total del día, que es justo el número que se mira primero.
+ * Si mañana aparece un estado nuevo en la tabla, cae en `sin_etapa`. Repartirlo «porque no es
+ * ninguno de los otros» haría desaparecer trabajo pendiente sin que nadie se entere — y la
+ * suma de las bandejas dejaría de dar el total del día, que es el número que se mira primero.
+ * Para que igual se VEA, `visibleEn()` lo deja entrar a la bandeja de entrada: es la que
+ * significa «alguien tiene que mirar esto». Es una **red**, no una clasificación.
  */
 
-/** Las bandejas de la pantalla. `sin_etapa` no es una pestaña: es una declaración. */
-export type EtapaGasto = 'aprobar' | 'ejercer' | 'cerrado' | 'sin_etapa';
+/** Las bandejas. `sin_etapa` no es una pestaña: es una declaración. */
+export type EtapaGasto = 'entrada' | 'aprobados' | 'rechazados' | 'sin_etapa';
 
 /** Lo que la partición necesita de cada expediente. Nada más. */
 export interface ExpedienteDelDia {
@@ -54,15 +54,16 @@ export interface ParticionDelDia {
 /**
  * En qué bandeja cae un estado.
  *
- * El mapa es explícito —no un `switch` con `default`— para que agregar un estado a la
- * tabla y olvidarse de esta línea salga a la luz como `sin_etapa` en vez de esconderse.
+ * El mapa es explícito —no un `switch` con `default`— para que agregar un estado a la tabla
+ * y olvidarse de esta línea salga a la luz como `sin_etapa` en vez de esconderse.
  */
 const ETAPA_POR_ESTADO: Readonly<Record<string, EtapaGasto>> = {
-  recibida: 'aprobar',
-  aprobada: 'ejercer',
-  revision: 'ejercer',
-  validada: 'cerrado',
-  rechazada: 'cerrado',
+  recibida: 'entrada',
+  // Los tres son «se aprobó», en tres momentos del cierre. Ver el doc de arriba.
+  aprobada: 'aprobados',
+  revision: 'aprobados',
+  validada: 'aprobados',
+  rechazada: 'rechazados',
 };
 
 export function etapaDe(status: string | null | undefined): EtapaGasto {
@@ -71,43 +72,39 @@ export function etapaDe(status: string | null | undefined): EtapaGasto {
 }
 
 /**
- * Las pestañas, en el orden en que se leen. Son las **tres etapas del trámite**, y
- * **particionan el día**: cada expediente se ve en una y sólo una.
- *
- * ⚠️ Antes la tercera era `todos` (el día entero, sin filtrar). Se cambió por pedido del
- * usuario (2026-09-25): la tercera es **lo ya resuelto** — rechazados y aprobados.
+ * Las pestañas, en el orden en que se leen. **Particionan el día**: cada expediente se ve en
+ * una y sólo una.
  */
-export const PESTANAS = ['aprobar', 'ejercer', 'cerrado'] as const;
+export const PESTANAS = ['entrada', 'aprobados', 'rechazados'] as const;
 export type Pestana = (typeof PESTANAS)[number];
 
 /**
  * ¿Este expediente se ve en esta pestaña?
  *
- * ⛔ **`sin_etapa` cae en `cerrado`, y NO es un descuido.** Al irse la pestaña «Todos» se fue
- * el único lugar donde un estado que no conocemos seguía siendo visible; sin esta línea, un
- * estado nuevo en la tabla desaparecería de las tres pestañas — o sea de la aplicación
- * entera. Cae en la última y la pantalla lo marca «estado desconocido»: se lo ve, con su
- * aviso, en vez de no existir. Es una red, no una clasificación.
+ * ⛔ **`sin_etapa` entra por la bandeja de entrada, y NO es un descuido.** Sin esta línea, un
+ * estado que el servidor no reconoce no saldría en ninguna de las tres — o sea que el
+ * expediente no existiría en la aplicación. Entra por la bandeja que significa «alguien tiene
+ * que mirar esto», y la pantalla lo marca «estado desconocido». Es una red, no una
+ * clasificación: verlo con un aviso es peor que verlo bien, pero mucho mejor que no verlo.
  */
 export function visibleEn(pestana: Pestana, status: string | null | undefined): boolean {
   const e = etapaDe(status);
-  return pestana === 'cerrado' ? (e === 'cerrado' || e === 'sin_etapa') : e === pestana;
+  return pestana === 'entrada' ? e === 'entrada' || e === 'sin_etapa' : e === pestana;
 }
 
 const vacia = (): ConteoEtapa => ({ n: 0, monto: 0 });
 
 /**
- * Cuenta y suma el día por etapa.
+ * Cuenta y suma el día por bandeja.
  *
  * ⚠️ El monto se redondea **al final de cada bandeja**, no en cada suma: redondear en cada
  * paso corre el total unos centavos y el encabezado deja de cuadrar con la suma de las
- * pestañas — que es exactamente la clase de descuadre que hace desconfiar de la pantalla
- * entera.
+ * pestañas — que es exactamente la clase de descuadre que hace desconfiar de la pantalla.
  */
 export function particionarDelDia(filas: readonly ExpedienteDelDia[]): ParticionDelDia {
   const lista = filas ?? [];
   const etapas: Record<EtapaGasto, ConteoEtapa> = {
-    aprobar: vacia(), ejercer: vacia(), cerrado: vacia(), sin_etapa: vacia(),
+    entrada: vacia(), aprobados: vacia(), rechazados: vacia(), sin_etapa: vacia(),
   };
 
   for (const f of lista) {
@@ -130,8 +127,8 @@ export function particionarDelDia(filas: readonly ExpedienteDelDia[]): Particion
  * El día que se está mirando, validado.
  *
  * Devuelve `null` —no «hoy»— cuando lo que llega no tiene forma de fecha. Caer a hoy en
- * silencio haría que un parámetro roto se vea igual que un día sin movimiento, y quien
- * mira creería que no se levantó nada.
+ * silencio haría que un parámetro roto se vea igual que un día sin movimiento, y quien mira
+ * creería que no se levantó nada.
  */
 export function diaValido(v: unknown): string | null {
   const t = String(v ?? '').trim().slice(0, 10);

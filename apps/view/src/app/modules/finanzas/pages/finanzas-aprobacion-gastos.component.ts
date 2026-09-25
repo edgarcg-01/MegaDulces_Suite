@@ -46,19 +46,25 @@ export function isoADiaLocal(iso: string): Date | null {
  * La pantalla de GX.17 era una bandeja: «todo lo que espera firma, de cualquier fecha».
  * Ahora es **el día**: lo que se levantó ese día, partido por lo que hay que hacer con ello.
  *
- * | Pestaña | Qué trae | Qué se hace ahí |
+ * El corte es **la decisión**, no el avance del trámite:
+ *
+ * | Pestaña | Estados | Qué es |
  * |---|---|---|
- * | **Aprobar** | Lo `recibida` | Dar la luz verde, o rechazar con motivo. Es la entrada. |
- * | **Ejercer** | Lo `aprobada` y lo `revision` | Ya tiene luz verde y todavía no cierra. |
- * | **Rechazados y aprobados** | Lo `validada` y lo `rechazada` | Nada: ya se resolvió. |
+ * | **Bandeja de entrada** | `recibida` | Llegó y nadie decidió todavía. |
+ * | **Aprobados** | `aprobada`, `revision`, `validada` | Se dijo que sí. |
+ * | **Rechazados** | `rechazada` | Se dijo que no, con su motivo. |
  *
  * Las tres **particionan el día**: cada expediente se ve en una y sólo una. El reparto lo
  * hace el servidor (`etapas-del-dia.ts`, función pura con sus pruebas), no esta pantalla.
  *
- * ⚠️ La tercera era «Todos» (el día entero). Se cambió por pedido del usuario (2026-09-25).
- * Con ella se fue el único lugar donde un estado que el servidor no reconoce seguía siendo
- * visible, así que `sin_etapa` cae ahora en la última pestaña **con su marca**: verlo con un
- * aviso es peor que nada, pero mucho mejor que no verlo en ninguna pantalla.
+ * ⚠️ Los tres estados de *Aprobados* son el mismo hecho en tres momentos del cierre: falta
+ * ejercerlo, volvió con evidencia que no cuadró, o ya cerró. **El renglón dice en cuál está
+ * y qué botón ofrece**; la pestaña dice que la decisión fue que sí. Separarlos en pestañas
+ * distintas partiría en tres una sola respuesta.
+ *
+ * ⛔ `sin_etapa` —un estado que el servidor no reconoce— entra por la **bandeja de entrada**,
+ * que es la que significa «alguien tiene que mirar esto», y sale marcado. Sin eso no saldría
+ * en ninguna de las tres, o sea que el expediente no existiría en la aplicación.
  *
  * ## ⛔ Acotar por día NO esconde lo que espera firma
  * Un expediente que nadie aprobó anteayer no puede dejar de existir porque hoy miramos hoy.
@@ -130,7 +136,7 @@ export function isoADiaLocal(iso: string): Date | null {
         </div>
 
         <!-- Lo que espera firma y NO es de este día. Sin esto, el día escondería trabajo. -->
-        @if (pestana() === 'aprobar' && d.pendientes_fuera_del_dia.n) {
+        @if (pestana() === 'entrada' && d.pendientes_fuera_del_dia.n) {
           <div class="ap-aviso">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             <span>
@@ -151,14 +157,14 @@ export function isoADiaLocal(iso: string): Date | null {
           <div class="ap-cols">
             <!-- El rail de departamentos sólo aplica a lo que se firma: quien autoriza no
                  revisa renglones sueltos, revisa «lo de Logística». -->
-            @if (pestana() === 'aprobar' && d.aprobar.por_departamento.length > 1) {
+            @if (pestana() === 'entrada' && d.entrada.por_departamento.length > 1) {
               <aside class="ap-grupos">
                 <div class="ap-grupos-t">Por departamento</div>
                 <button type="button" class="ap-grupo" [class.on]="!grupo()" (click)="grupo.set(null)">
                   <span class="ap-g-t">Todos</span>
-                  <span class="ap-g-n">{{ d.aprobar.total }}</span>
+                  <span class="ap-g-n">{{ d.entrada.total }}</span>
                 </button>
-                @for (g of d.aprobar.por_departamento; track g.clave) {
+                @for (g of d.entrada.por_departamento; track g.clave) {
                   <button type="button" class="ap-grupo" [class.on]="grupo() === g.clave" (click)="grupo.set(g.clave)">
                     <span class="ap-g-t">
                       {{ g.etiqueta }}
@@ -174,7 +180,7 @@ export function isoADiaLocal(iso: string): Date | null {
 
             <section class="ap-lista">
               @for (p of visibles(); track p.id) {
-                <article class="ap-item" [class.cerrado]="p.etapa === 'cerrado'">
+                <article class="ap-item" [class.cerrado]="sinAcciones(p)">
                   <div class="ap-it-head">
                     <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
                     @if (p.sucursal) { <span class="ap-suc">suc {{ p.sucursal }}</span> }
@@ -197,7 +203,7 @@ export function isoADiaLocal(iso: string): Date | null {
                   </div>
 
                   <div class="ap-it-chips">
-                    <span class="ap-chip" [class.ok]="p.etapa === 'cerrado' && p.status === 'validada'"
+                    <span class="ap-chip" [class.ok]="p.status === 'validada'"
                           [class.warn]="p.status === 'revision'" [class.bad]="p.status === 'rechazada'">
                       {{ estado(p.status) }}
                     </span>
@@ -213,7 +219,7 @@ export function isoADiaLocal(iso: string): Date | null {
                     @if (p.evidencia_en_vivo) { <span class="ap-chip ok">foto en vivo</span> }
                     @else { <span class="ap-chip warn">foto sin sello de cámara</span> }
                     @if (p.clasificacion) { <span class="ap-chip">{{ tipoGasto(p.clasificacion) }}</span> }
-                    @if (p.etapa === 'ejercer' && p.requiere_evidencia && !p.tiene_evidencia) {
+                    @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
                       <span class="ap-chip warn">falta la evidencia</span>
                     }
                   </div>
@@ -231,19 +237,27 @@ export function isoADiaLocal(iso: string): Date | null {
                     }
                     <span class="ap-grow"></span>
 
-                    @switch (p.etapa) {
-                      @case ('aprobar') {
+                    <!-- Las acciones salen del ESTADO, no de la pestaña: dentro de «Aprobados»
+                         conviven tres momentos del cierre y cada uno ofrece otra cosa. -->
+                    @switch (p.status) {
+                      @case ('recibida') {
                         <button pButton type="button" class="p-button-text p-button-sm" [disabled]="actuando() === p.id"
                                 (click)="rechazar(p)">Rechazar</button>
                         <button pButton type="button" class="p-button-sm" [loading]="actuando() === p.id"
                                 (click)="aprobar(p)">Aprobar</button>
                       }
-                      @case ('ejercer') {
+                      @case ('aprobada') {
                         @if (p.requiere_evidencia && !p.tiene_evidencia) {
                           <!-- La evidencia la sube quien capturó, no quien firma. Decirlo evita
                                que el aprobador busque un botón que no le toca. -->
                           <span class="ap-faint">la evidencia la sube quien lo levantó</span>
                         }
+                        <button pButton type="button" class="p-button-text p-button-sm" [disabled]="actuando() === p.id"
+                                (click)="rechazar(p)">Rechazar</button>
+                        <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="actuando() === p.id"
+                                (click)="darPorComprobado(p)">Dar por comprobado</button>
+                      }
+                      @case ('revision') {
                         <button pButton type="button" class="p-button-text p-button-sm" [disabled]="actuando() === p.id"
                                 (click)="rechazar(p)">Rechazar</button>
                         <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="actuando() === p.id"
@@ -359,7 +373,7 @@ export class FinanzasAprobacionGastosComponent {
   readonly datos = signal<GastosDelDia | null>(null);
   readonly cargando = signal(true);
   readonly error = signal('');
-  readonly pestana = signal<PestanaGasto>('aprobar');
+  readonly pestana = signal<PestanaGasto>('entrada');
   readonly grupo = signal<string | null>(null);
   readonly actuando = signal<string | null>(null);
   /** El día que muestra la pantalla: siempre hoy, y quién es hoy lo decide el SERVIDOR
@@ -367,11 +381,9 @@ export class FinanzasAprobacionGastosComponent {
   private readonly fecha = signal<string>('');
 
   readonly tabs: { id: PestanaGasto; label: string }[] = [
-    { id: 'aprobar', label: 'Aprobar' },
-    { id: 'ejercer', label: 'Ejercer' },
-    // El nombre es el que puso el usuario. `validada` se rotula «Comprobado» en el renglón
-    // —que es lo que dice la tabla— y acá se agrupa como «aprobado», que es como se habla.
-    { id: 'cerrado', label: 'Rechazados y aprobados' },
+    { id: 'entrada', label: 'Bandeja de entrada' },
+    { id: 'aprobados', label: 'Aprobados' },
+    { id: 'rechazados', label: 'Rechazados' },
   ];
 
   constructor() { this.cargar(); }
@@ -394,9 +406,9 @@ export class FinanzasAprobacionGastosComponent {
 
   verPestana(p: PestanaGasto): void {
     this.pestana.set(p);
-    // El filtro por departamento es de la pestaña que firma: arrastrarlo a otra dejaría la
+    // El filtro por departamento es de la bandeja de entrada: arrastrarlo a otra dejaría la
     // lista recortada sin que se vea por qué.
-    if (p !== 'aprobar') this.grupo.set(null);
+    if (p !== 'entrada') this.grupo.set(null);
   }
 
   /**
@@ -409,38 +421,49 @@ export class FinanzasAprobacionGastosComponent {
     const d = this.datos();
     if (!d) return [];
     const p = this.pestana();
-    // ⛔ `sin_etapa` entra en la última: sin esto, un estado que el servidor no reconoce no
-    // saldría en NINGUNA pestaña. Ver `visibleEn()` en `etapas-del-dia.ts`.
-    const filas = d.filas.filter((f) => (p === 'cerrado' ? f.etapa === 'cerrado' || f.etapa === 'sin_etapa' : f.etapa === p));
+    // ⛔ `sin_etapa` entra por la bandeja de entrada: sin esto, un estado que el servidor no
+    // reconoce no saldría en NINGUNA pestaña. Ver `visibleEn()` en `etapas-del-dia.ts`.
+    const filas = d.filas.filter((f) => (p === 'entrada' ? f.etapa === 'entrada' || f.etapa === 'sin_etapa' : f.etapa === p));
     const g = this.grupo();
-    if (p !== 'aprobar' || !g) return filas;
-    const sel = d.aprobar.por_departamento.find((x) => x.clave === g);
+    if (p !== 'entrada' || !g) return filas;
+    const sel = d.entrada.por_departamento.find((x) => x.clave === g);
     if (!sel) return filas;
     const ids = new Set(sel.ids);
     return filas.filter((f) => ids.has(f.id));
   });
 
   /**
-   * El contador de cada pestaña. La última suma **lo cerrado más lo que no se reconoce**, y
-   * por eso los tres contadores suman el día completo — si no, la pantalla tendría
-   * expedientes que no aparecen en ninguna cuenta.
+   * El contador de cada pestaña. La bandeja de entrada suma **lo que espera decisión más lo
+   * que no se reconoce**, y por eso los tres contadores suman el día completo — si no, la
+   * pantalla tendría expedientes que no aparecen en ninguna cuenta.
    */
   conteo(p: PestanaGasto): { n: number; monto: number } {
     const d = this.datos();
     if (!d) return { n: 0, monto: 0 };
     const e = d.etapas[p] ?? { n: 0, monto: 0 };
-    if (p !== 'cerrado') return e;
+    if (p !== 'entrada') return e;
     const raro = d.etapas.sin_etapa ?? { n: 0, monto: 0 };
     return { n: e.n + raro.n, monto: Math.round((e.monto + raro.monto) * 100) / 100 };
   }
 
   vacioDe(p: PestanaGasto): string {
-    if (p === 'aprobar') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada de este día espera tu visto bueno.';
-    if (p === 'ejercer') return 'Nada de este día quedó a medio camino.';
-    return 'Todavía no se resolvió nada de este día.';
+    if (p === 'entrada') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada de este día espera tu visto bueno.';
+    if (p === 'aprobados') return 'Todavía no se aprobó nada de este día.';
+    return 'No se rechazó nada de este día.';
   }
 
   diaLocal(iso: string | null | undefined): Date | null { return isoADiaLocal(String(iso ?? '')); }
+
+  /**
+   * ¿Este expediente ya no ofrece nada que hacer? Se atenúa el renglón.
+   *
+   * Sale del ESTADO, igual que los botones — no de la pestaña: dentro de «Aprobados» hay
+   * renglones que sí piden acción (`aprobada`, `revision`) y otros que ya cerraron
+   * (`validada`). Atenuar por pestaña los pintaría a todos iguales.
+   */
+  sinAcciones(p: ExpedienteDelDia): boolean {
+    return p.status !== 'recibida' && p.status !== 'aprobada' && p.status !== 'revision';
+  }
 
   money(v: number | null | undefined): string {
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });

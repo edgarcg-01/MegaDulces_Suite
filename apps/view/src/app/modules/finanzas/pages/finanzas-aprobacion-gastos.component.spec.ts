@@ -37,7 +37,7 @@ const F = (over: Partial<ExpedienteDelDia> = {}): ExpedienteDelDia => ({
   comentarios: null,
   created_by: 'maria.tesoreria',
   status: 'recibida',
-  etapa: 'aprobar',
+  etapa: 'entrada',
   motivo_rechazo: null,
   revision_nota: null,
   validated_by: null,
@@ -54,21 +54,22 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
   es_hoy: true,
   hoy: '2026-09-25',
   fecha_pedida: null,
-  total: 4,
-  monto_total: 460,
+  total: 5,
+  monto_total: 485,
   etapas: {
-    aprobar: { n: 2, monto: 150 },
-    ejercer: { n: 1, monto: 300 },
-    cerrado: { n: 1, monto: 10 },
+    entrada: { n: 2, monto: 150 },
+    aprobados: { n: 2, monto: 310 },
+    rechazados: { n: 1, monto: 25 },
     sin_etapa: { n: 0, monto: 0 },
   },
   filas: [
-    F({ id: 'a1', status: 'recibida', etapa: 'aprobar', importe: 100, departamento: 'LOGISTICA' }),
-    F({ id: 'a2', status: 'recibida', etapa: 'aprobar', importe: 50, departamento: 'SISTEMAS' }),
-    F({ id: 'e1', status: 'aprobada', etapa: 'ejercer', importe: 300, tiene_evidencia: false }),
-    F({ id: 'c1', status: 'validada', etapa: 'cerrado', importe: 10, validated_by: 'maria', tiene_evidencia: true }),
+    F({ id: 'a1', status: 'recibida', etapa: 'entrada', importe: 100, departamento: 'LOGISTICA' }),
+    F({ id: 'a2', status: 'recibida', etapa: 'entrada', importe: 50, departamento: 'SISTEMAS' }),
+    F({ id: 'e1', status: 'aprobada', etapa: 'aprobados', importe: 300, tiene_evidencia: false }),
+    F({ id: 'c1', status: 'validada', etapa: 'aprobados', importe: 10, validated_by: 'maria', tiene_evidencia: true }),
+    F({ id: 'r1', status: 'rechazada', etapa: 'rechazados', importe: 25, motivo_rechazo: 'falta el ticket' }),
   ],
-  aprobar: {
+  entrada: {
     total: 2, monto_total: 150,
     por_fecha: [{ clave: '2026-09-25', etiqueta: '2026-09-25', n: 2, monto: 150, ids: ['a1', 'a2'] }],
     por_departamento: [
@@ -76,11 +77,6 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
       { clave: 'SISTEMAS', etiqueta: 'SISTEMAS', origen: 'capturado', n: 1, monto: 50, ids: ['a2'] },
     ],
   },
-  dias_recientes: [
-    { dia: '2026-09-25', n: 4, monto: 460, pendientes: 2 },
-    { dia: '2026-09-24', n: 3, monto: 900, pendientes: 1 },
-    { dia: '2026-09-23', n: 1, monto: 20, pendientes: 0 },
-  ],
   pendientes_fuera_del_dia: { n: 0, monto: 0 },
   ...over,
 });
@@ -131,18 +127,20 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
   afterEach(() => http.verify());
 
-  it('monta y arranca en la pestaña que espera firma', () => {
+  it('monta y arranca en la bandeja de entrada', () => {
     montar();
-    expect(c.pestana()).toBe('aprobar');
+    expect(c.pestana()).toBe('entrada');
     expect(fix.nativeElement.textContent).toContain('Aprobación de gastos');
+    const tabs = [...fix.nativeElement.querySelectorAll('.ap-tab-t')].map((e: Element) => e.textContent?.trim());
+    expect(tabs).toEqual(['Bandeja de entrada', 'Aprobados', 'Rechazados']);
   });
 
   describe('las tres pestañas', () => {
     it('cada pestaña cuenta lo suyo', () => {
       montar();
-      expect(c.conteo('aprobar')).toEqual({ n: 2, monto: 150 });
-      expect(c.conteo('ejercer')).toEqual({ n: 1, monto: 300 });
-      expect(c.conteo('cerrado')).toEqual({ n: 1, monto: 10 });
+      expect(c.conteo('entrada')).toEqual({ n: 2, monto: 150 });
+      expect(c.conteo('aprobados')).toEqual({ n: 2, monto: 310 });
+      expect(c.conteo('rechazados')).toEqual({ n: 1, monto: 25 });
     });
 
     /**
@@ -151,28 +149,29 @@ describe('FinanzasAprobacionGastosComponent', () => {
      */
     it('los tres contadores suman el día completo', () => {
       montar();
-      const t = (['aprobar', 'ejercer', 'cerrado'] as const).map((p) => c.conteo(p));
-      expect(t.reduce((a, x) => a + x.n, 0)).toBe(4);
-      expect(Math.round(t.reduce((a, x) => a + x.monto, 0) * 100) / 100).toBe(460);
+      const t = (['entrada', 'aprobados', 'rechazados'] as const).map((p) => c.conteo(p));
+      expect(t.reduce((a, x) => a + x.n, 0)).toBe(5);
+      expect(Math.round(t.reduce((a, x) => a + x.monto, 0) * 100) / 100).toBe(485);
     });
 
-    it('Aprobar sólo muestra lo que espera firma', () => {
+    it('la bandeja de entrada sólo muestra lo que espera decisión', () => {
       montar();
       expect(c.visibles().map((f) => f.id)).toEqual(['a1', 'a2']);
     });
 
-    it('Ejercer muestra lo aprobado que todavía no cierra', () => {
+    /** Los tres momentos del cierre viven juntos: la decisión fue una sola. */
+    it('Aprobados junta lo que falta ejercer con lo ya cerrado', () => {
       montar();
-      c.verPestana('ejercer');
-      expect(c.visibles().map((f) => f.id)).toEqual(['e1']);
+      c.verPestana('aprobados');
+      expect(c.visibles().map((f) => f.id)).toEqual(['e1', 'c1']);
     });
 
-    it('«Rechazados y aprobados» muestra lo ya resuelto', () => {
+    it('Rechazados muestra lo rechazado, con su motivo', () => {
       montar();
-      c.verPestana('cerrado');
-      expect(c.visibles().map((f) => f.id)).toEqual(['c1']);
+      c.verPestana('rechazados');
+      expect(c.visibles().map((f) => f.id)).toEqual(['r1']);
       fix.detectChanges();
-      expect(fix.nativeElement.textContent).toContain('Rechazados y aprobados');
+      expect(fix.nativeElement.textContent).toContain('falta el ticket');
     });
 
     /**
@@ -180,22 +179,34 @@ describe('FinanzasAprobacionGastosComponent', () => {
      * pestaña de trabajo — pero **tiene** que seguir existiendo en «Todos», o el expediente
      * no existiría en ninguna pantalla.
      */
-    it('un estado desconocido no desaparece: cae en la última, y marcado', () => {
+    it('un estado desconocido no desaparece: entra por la bandeja de entrada, y marcado', () => {
       montar(DIA({
         total: 1, monto_total: 7,
-        etapas: { aprobar: { n: 0, monto: 0 }, ejercer: { n: 0, monto: 0 }, cerrado: { n: 0, monto: 0 }, sin_etapa: { n: 1, monto: 7 } },
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 1, monto: 7 } },
         filas: [F({ id: 'raro', status: 'pagada', etapa: 'sin_etapa', importe: 7 })],
-        aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
-      expect(c.visibles()).toEqual([]);              // Aprobar
-      c.verPestana('ejercer');
-      expect(c.visibles()).toEqual([]);
-      c.verPestana('cerrado');
       expect(c.visibles().map((f) => f.id)).toEqual(['raro']);
       // Y se CUENTA: si no, el renglón estaría en la lista y el contador diría 0.
-      expect(c.conteo('cerrado')).toEqual({ n: 1, monto: 7 });
+      expect(c.conteo('entrada')).toEqual({ n: 1, monto: 7 });
+      c.verPestana('aprobados');
+      expect(c.visibles()).toEqual([]);
+      c.verPestana('rechazados');
+      expect(c.visibles()).toEqual([]);
+      c.verPestana('entrada');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('estado desconocido');
+    });
+
+    /** ⛔ Un estado desconocido NO ofrece botones: no se sabe qué se le puede hacer. */
+    it('un estado desconocido no ofrece acciones', () => {
+      montar(DIA({
+        total: 1, monto_total: 7,
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 1, monto: 7 } },
+        filas: [F({ id: 'raro', status: 'pagada', etapa: 'sin_etapa', importe: 7 })],
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+      }));
+      expect(fix.nativeElement.textContent).toContain('sin acciones pendientes');
     });
   });
 
@@ -210,9 +221,9 @@ describe('FinanzasAprobacionGastosComponent', () => {
     it('se suelta al cambiar de pestaña', () => {
       montar();
       c.grupo.set('LOGISTICA');
-      c.verPestana('ejercer');
+      c.verPestana('aprobados');
       expect(c.grupo()).toBeNull();
-      expect(c.visibles().map((f) => f.id)).toEqual(['e1']);
+      expect(c.visibles().map((f) => f.id)).toEqual(['e1', 'c1']);
     });
 
     it('un grupo que ya no existe no vacía la lista', () => {
@@ -264,7 +275,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     it('ese aviso es de la pestaña que firma, no de las otras', () => {
       montar(DIA({ pendientes_fuera_del_dia: { n: 7, monto: 12_345.67 } }));
-      c.verPestana('cerrado');
+      c.verPestana('aprobados');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).not.toContain('esperando firma');
     });
@@ -291,8 +302,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     it('un día sin movimiento lo dice con todas las letras', () => {
       montar(DIA({
         total: 0, monto_total: 0, filas: [],
-        etapas: { aprobar: { n: 0, monto: 0 }, ejercer: { n: 0, monto: 0 }, cerrado: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
-        aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
       expect(fix.nativeElement.textContent).toContain('no se levantó ningún gasto');
       // Y no manda a «probar otro día»: ya no hay cómo.
@@ -301,13 +312,13 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     /** Las dos fechas son cosas distintas: cuándo se levantó y cuándo ocurrió el gasto. */
     it('cuando el gasto es de otro día, lo muestra aparte', () => {
-      montar(DIA({ filas: [F({ id: 'a1', created_at: '2026-09-25', fecha_gasto: '2026-09-18' })] }));
+      montar(DIA({ total: 1, filas: [F({ id: 'a1', created_at: '2026-09-25', fecha_gasto: '2026-09-18' })] }));
       expect(fix.nativeElement.textContent).toContain('gasto del 18/09/26');
     });
 
     it('marca el expediente que sigue esperando su evidencia', () => {
-      montar(DIA({ filas: [F({ id: 'e1', status: 'aprobada', etapa: 'ejercer', requiere_evidencia: true, tiene_evidencia: false })] }));
-      c.verPestana('ejercer');
+      montar(DIA({ total: 1, filas: [F({ id: 'e1', status: 'aprobada', etapa: 'aprobados', requiere_evidencia: true, tiene_evidencia: false })] }));
+      c.verPestana('aprobados');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('falta la evidencia');
     });
@@ -324,7 +335,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     it('«dar por comprobado» es validate, el mismo que resuelve lo que no cuadró', () => {
       montar();
-      c.verPestana('ejercer');
+      c.verPestana('aprobados');
       c.darPorComprobado(c.visibles()[0]);
       http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/e1/validate')).flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
@@ -361,11 +372,11 @@ describe('FinanzasAprobacionGastosComponent', () => {
     /** Lo cerrado no ofrece botones: no hay nada que hacerle. */
     it('un expediente cerrado no trae acciones', () => {
       montar(DIA({
-        total: 1, filas: [F({ id: 'c1', status: 'validada', etapa: 'cerrado', validated_by: 'maria' })],
-        etapas: { aprobar: { n: 0, monto: 0 }, ejercer: { n: 0, monto: 0 }, cerrado: { n: 1, monto: 10 }, sin_etapa: { n: 0, monto: 0 } },
-        aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+        total: 1, filas: [F({ id: 'c1', status: 'validada', etapa: 'aprobados', validated_by: 'maria' })],
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 1, monto: 10 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
-      c.verPestana('cerrado');
+      c.verPestana('aprobados');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('sin acciones pendientes');
       expect(fix.nativeElement.textContent).toContain('Cerrado por maria');

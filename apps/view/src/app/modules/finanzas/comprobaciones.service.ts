@@ -119,6 +119,13 @@ export interface CreateExpenseProof {
 export interface SolicitudSug {
   folio: string; sucursal: string | null; fecha: string | null; solicitante: string | null;
   beneficiario: string | null; concepto: string | null; estado: string | null; aplicada: boolean; importe: number;
+  /**
+   * [GX.21] Lo que la vista del ODS ya traia y no se pedia. Todo opcional: una solicitud
+   * vieja puede no tener RFC ni referencia, y eso se DECLARA con un guion en pantalla --
+   * nunca se rellena con un cero o una cadena vacia que parezca un dato.
+   */
+  rfc?: string | null; iva?: number | null; autoriza?: string | null; referencia?: string | null;
+  cuenta_clave?: string | null; usuario?: string | null; forma_pago?: string | null;
 }
 
 /**
@@ -195,11 +202,17 @@ export interface ExpedienteGasto {
  * alguien renombra un campo alla, esto deja de compilar en vez de mostrar `undefined`.
  */
 
-/** Las bandejas. `sin_etapa` no es una pestana: es un estado que el servidor no reconocio. */
-export type EtapaGasto = 'aprobar' | 'ejercer' | 'cerrado' | 'sin_etapa';
-/** Las tres pestanas de la pantalla, en el orden en que se leen. Particionan el dia:
- *  cada expediente se ve en una y solo una. */
-export type PestanaGasto = 'aprobar' | 'ejercer' | 'cerrado';
+/**
+ * Las bandejas del dia, por la DECISION que se tomo sobre el expediente:
+ *   entrada    = `recibida`                           -> nadie decidio todavia
+ *   aprobados  = `aprobada` | `revision` | `validada` -> se dijo que si (3 momentos del cierre)
+ *   rechazados = `rechazada`                          -> se dijo que no
+ * `sin_etapa` no es una pestana: es un estado que el servidor no reconocio.
+ */
+export type EtapaGasto = 'entrada' | 'aprobados' | 'rechazados' | 'sin_etapa';
+/** Las tres pestanas, en el orden en que se leen. Particionan el dia: cada expediente se
+ *  ve en una y solo una. */
+export type PestanaGasto = 'entrada' | 'aprobados' | 'rechazados';
 
 export interface GrupoAprobacion {
   clave: string;
@@ -242,8 +255,6 @@ export interface ExpedienteDelDia {
   files: ProofFile[];
 }
 
-export interface DiaDelRail { dia: string; n: number; monto: number; pendientes: number }
-
 export interface GastosDelDia {
   fecha: string;
   es_hoy: boolean;
@@ -255,8 +266,8 @@ export interface GastosDelDia {
   monto_total: number;
   etapas: Record<EtapaGasto, { n: number; monto: number }>;
   filas: ExpedienteDelDia[];
-  aprobar: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
-  dias_recientes: DiaDelRail[];
+  /** Los grupos por departamento de la bandeja de entrada de ESE dia. */
+  entrada: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
   /** Lo que espera firma y NO es de este dia. Sin esto, acotar por dia esconderia trabajo. */
   pendientes_fuera_del_dia: { n: number; monto: number };
 }

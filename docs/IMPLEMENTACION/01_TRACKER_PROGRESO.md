@@ -2493,19 +2493,28 @@ fecha»). Ahora es **el día**, partido por lo que falta hacer con cada expedien
 del ciclo que ya existía en la tabla, no de una invención: el `CHECK` de
 `finance.expense_proofs.status` tiene exactamente cinco estados, y los cinco caen en su lugar.
 
-| Pestaña | Estados | Qué falta, y de quién |
+El corte es **la decisión**, no el avance del trámite:
+
+| Pestaña | Estados | Qué es |
 |---|---|---|
-| **Aprobar** | `recibida` | Dar la luz verde. De quien firma. **Es la entrada.** |
-| **Ejercer** | `aprobada`, `revision` | Ya hay luz verde y el gasto no cierra. |
-| **Rechazados y aprobados** | `validada`, `rechazada` | Nada: ya se resolvió. |
+| **Bandeja de entrada** | `recibida` | Llegó y **nadie decidió todavía**. |
+| **Aprobados** | `aprobada`, `revision`, `validada` | Se dijo que sí. |
+| **Rechazados** | `rechazada` | Se dijo que no, con su motivo. |
 
-⚠️ La tercera arrancó siendo «Todos» (el día entero, sin filtrar) y **la cambió el usuario**
-(2026-09-25) — ver `[GX.20.8]`. Ahora las tres **particionan** el día: cada expediente se ve en
-una y sólo una.
+Las tres **particionan** el día: cada expediente se ve en una y sólo una.
 
-⭐ **`revision` va en *Ejercer*, no en *Cerrado*.** Es el expediente que volvió con su evidencia y
-**el cuadre por visión no dio**; sigue abierto y lo resuelve `validate()`, que es de la misma
-persona que firma. En *Cerrado* se le saldría de la vista a quien debe resolverlo.
+⚠️ Los tres estados de *Aprobados* son **el mismo hecho en tres momentos del cierre**: falta
+ejercerlo (`aprobada`), volvió con evidencia que no cuadró (`revision`), o ya cerró (`validada`).
+El renglón dice en cuál está **y qué botón ofrece**; la pestaña dice que la decisión fue que sí.
+Separarlos en pestañas distintas partiría en tres una sola respuesta.
+
+⚠️ Las tres tardaron **tres iteraciones** en quedar: arrancaron como «Aprobar · Ejercer · Todos»
+(el pedido literal), pasaron por «Aprobar · Ejercer · Rechazados y aprobados» —una lectura
+**equivocada** de la corrección— y aterrizaron acá. Ver `[GX.20.8]`.
+
+⭐ **`revision` está en *Aprobados*, no en *Rechazados*.** Es el expediente que volvió con su
+evidencia y **el cuadre por visión no dio**. La decisión sobre él ya fue que sí: lo que falta es
+cerrar, no autorizar. Mandarlo a *Rechazados* diría que se le negó — lo contrario de lo que pasó.
 
 ⛔ **Acotar por día NO puede esconder lo que espera firma.** Un expediente que nadie aprobó
 anteayer no puede dejar de existir porque hoy miramos hoy. Por eso `delDia()` devuelve
@@ -2552,17 +2561,25 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
   día pasó al subtítulo. El aviso de lo que quedó afuera **se conserva a propósito**: ahora que no
   hay cómo ir a buscarlo, callarlo lo borraría de todas las pantallas. `delDia()` sigue aceptando
   `fecha` — se fue el control, no la capacidad. ✅ 2026-09-25
-- [x] **[GX.20.8]** **La tercera pestaña deja de ser «Todos» y pasa a ser «Rechazados y
-  aprobados»** (`validada` + `rechazada`), por pedido del usuario; *Aprobar* queda como la
-  entrada. Con eso las tres particionan el día en vez de solaparse. ⛔ **Pero «Todos» era el
-  único lugar donde un estado que el servidor NO reconoce seguía siendo visible** — sin él,
-  `sin_etapa` desaparecía de las tres pestañas, o sea de la aplicación entera. Así que cae en la
-  última **con su marca «estado desconocido»** y **se cuenta** ahí: verlo con un aviso es peor
-  que nada, pero mucho mejor que no verlo. Es una red, no una clasificación. Dos candados
-  nuevos: que las tres pestañas particionen (cada estado en exactamente una) y que **los tres
-  contadores sumen el día completo** — sin «Todos», son lo único que dice cuánto hubo.
-  **Prueba negativa corrida**: al dejar a `sin_etapa` sin casa, 2 pruebas se ponen en rojo.
-  Pruebas: 17 (motor) + 28 (componente) = **45**. ✅ 2026-09-25
+- [x] **[GX.20.8]** **Las tres pestañas pasan a ser «Bandeja de entrada · Aprobados ·
+  Rechazados»**, por pedido del usuario. ⚠️ **En el medio hubo una lectura equivocada mía**: con
+  la primera corrección entendí «Aprobar · Ejercer · Rechazados y aprobados» y lo entregué así.
+  Lo que el usuario quería era partir por **la decisión**, no por el avance del trámite — así que
+  *Ejercer* desaparece como pestaña y sus dos estados se reparten: `aprobada` y `revision` van a
+  *Aprobados*, porque la decisión sobre ellos ya fue que sí. ⛔ **Las acciones dejaron de salir de
+  la pestaña y salen del ESTADO**: dentro de *Aprobados* conviven tres momentos del cierre y cada
+  uno ofrece otra cosa (`aprobada`/`revision` → Rechazar + Dar por comprobado; `validada` → nada,
+  y el renglón se atenúa). Atenuar o pintar botones por pestaña los habría hecho ver todos
+  iguales. ⛔ **`sin_etapa` entra por la bandeja de entrada** —la que significa «alguien tiene que
+  mirar esto»— con su marca «estado desconocido», y **se cuenta ahí**; sin esa red no saldría en
+  ninguna de las tres, o sea que el expediente no existiría en la aplicación. Tampoco ofrece
+  botones: no se sabe qué se le puede hacer. Dos candados: que las tres **particionen** (cada
+  estado en exactamente una) y que **los tres contadores sumen el día completo**.
+  **Dos pruebas negativas corridas**: dejar a `sin_etapa` sin casa pone 2 en rojo; mover
+  `revision` a *Rechazados* pone 4. Pruebas: 17 (motor) + 29 (componente) = **46**. ✅ 2026-09-25
+- [x] **[GX.20.9]** Se retiró `dias_recientes` del endpoint: alimentaba el rail, que se fue en
+  `[GX.20.6]`, y quedó viajando sin lector. Era un `GROUP BY` de 21 días por request — **un
+  payload que nadie lee es una consulta que nadie paga**. ✅ 2026-09-25
 - [x] **[GX.20.7]** ⚠️ La prueba del día **pasaba en verde mostrando el día en inglés**: el
   `TestBed` corre en `en-US` y el pipe daba «Friday 25 de September» mientras `textContent` seguía
   conteniendo lo que la aserción buscaba. Se registró `es-MX` en el spec como en `app.config.ts`.
@@ -2570,9 +2587,10 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
   «Los levantamientos del **V**iernes 25» — correcto cuando era el título de una barra, incorrecto
   en medio de una frase. ✅ 2026-09-25
 
-**Pruebas al cierre:** 17 (motor puro) + 28 (componente) = **45**. `view/finanzas` 165 ·
-`libs/finance` 192, verde. **Medido en pantalla:** los tres contadores dan 3 · 3 · 3 = 9 y
-$3,945.75 + $10,030.50 + $15,770.00 = **$29,746.25**, el total del día, al centavo.
+**Pruebas al cierre:** 17 (motor puro) + 29 (componente) = **46**. `view/finanzas` 166 ·
+`libs/finance` 194, verde. **Medido en pantalla:** los tres contadores dan 3 · 5 · 1 = 9 y
+$3,945.75 + $25,580.50 + $220.00 = **$29,746.25**, el total del día, al centavo. Dentro de
+*Aprobados*, los dos `validada` salen sin botones y atenuados, y los tres restantes con los suyos.
 
 **Verificado en el 4200** contra `platform_local`, con un día sembrado a propósito (9 expedientes
 repartidos en los cinco estados, marcados `created_by='demo_gx20'`): el servidor cuadra al centavo
