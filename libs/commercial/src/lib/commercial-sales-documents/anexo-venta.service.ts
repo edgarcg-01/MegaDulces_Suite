@@ -202,8 +202,21 @@ export class AnexoVentaService {
   }
 
   // ── navegador COMPARTIDO ────────────────────────────────────────────────
-  // Lanzar Chromium por petición costaba ~3-4 s de arranque cada vez (la queja real de
-  // lentitud). Se reusa UNA instancia y cada render abre solo una page (~centenas de ms).
+  // Lanzar Chromium por petición cuesta un arranque completo cada vez. Se reusa UNA instancia y
+  // cada render abre solo una page.
+  //
+  // ⚠️ **Re-medido en prod el 2026-09-24 y la cifra vieja quedó falsa**: esta línea decía
+  // "~3-4 s de arranque cada vez (la queja real de lentitud)". Medido dentro de `prod-api`,
+  // que desde entonces corre en `md` (NVMe local, no Railway):
+  //
+  //     arranque 1,039 ms · render 236 ms      (primera, caché de página fría)
+  //     arranque   353 ms · render 123 ms      (segunda)
+  //
+  // O sea que el navegador compartido sigue valiendo la pena —ahorra 0.35-1 s por impresión—
+  // pero **nunca fue "la queja real de lentitud"**. Esa era la consulta: `[AX-PERF.1]` midió
+  // 13,776 ms de promedio y 65,716 ms de máximo en `erp_sales_invoice_lines` sobre 108 llamadas
+  // reales. Se deja escrito porque un comentario con un número no avisa cuando deja de ser
+  // cierto, y éste le estaba apuntando al sospechoso equivocado.
   // Contrapeso del OOM (ADR-043): un Chromium ocioso son ~100-150 MB, así que un timer lo
   // cierra tras 3 min sin uso; si crashea, `disconnected` limpia la promesa y el siguiente
   // render lo relanza.
