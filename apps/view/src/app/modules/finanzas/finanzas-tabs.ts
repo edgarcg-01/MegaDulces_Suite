@@ -113,7 +113,21 @@ export const FINANZAS_TABS: PageTab[] = [
     label: 'Gastos',
     route: '/finanzas/gastos',
     icon: 'pi pi-file-edit',
-    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
+    // `[GX.17]` SIN permiso: la ruta es `canActivate: []`. El `anyOf` que traía escondía
+    // el tab a 66 de los 166 activos que la ruta sí deja entrar.
+  },
+  {
+    // `[GX.17]` La otra mitad del trámite. Mismo orden que el sidebar, a propósito.
+    label: 'Aprobación de gastos',
+    route: '/finanzas/aprobacion-gastos',
+    icon: 'pi pi-verified',
+    permission: Permission.FINANCE_EXPENSES_COMPROBAR,
+  },
+  {
+    label: 'Tablero de gastos',
+    route: '/finanzas/gastos-tablero',
+    icon: 'pi pi-table',
+    permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
     label: 'Pregúntale a Maat',

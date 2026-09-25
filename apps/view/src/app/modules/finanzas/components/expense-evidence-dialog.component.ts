@@ -208,17 +208,17 @@ export class ExpenseEvidenceDialogComponent {
   readonly clasificacion = signal<ExpenseClasificacion | null>(null);
   clasificacionV: ExpenseClasificacion | null = null;
   readonly clasOpts = [
-    { label: 'Fiscal', value: 'fiscal' },
-    { label: 'No fiscal, con recibo', value: 'no_fiscal_comprobable' },
-    { label: 'No comprobable', value: 'no_comprobable' },
+    { label: 'Con factura', value: 'fiscal' },
+    { label: 'Sólo ticket o recibo', value: 'no_fiscal_comprobable' },
+    { label: 'Sin comprobante', value: 'no_comprobable' },
   ];
   readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
   onClasChange() { this.clasificacion.set(this.clasificacionV); this.error.set(''); }
   clasHint(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Lleva CFDI/factura. Adjunta la factura.';
-      case 'no_fiscal_comprobable': return 'No tiene factura pero sí ticket o recibo.';
-      case 'no_comprobable': return 'Sin factura ni ticket. La solicitud firmada va igual, más el motivo.';
+      case 'fiscal': return 'Te dieron factura. Adjuntala.';
+      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo.';
+      case 'no_comprobable': return 'No hay factura ni ticket. La solicitud firmada va igual, más el motivo.';
       default: return '';
     }
   }
