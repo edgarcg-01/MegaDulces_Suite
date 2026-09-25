@@ -200,6 +200,9 @@ interface FormularioCajaUI {
     .cg-chip:hover { border-color:var(--action); color:var(--action); }
     .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); }
+    .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
+      color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
+    .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
 
     /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
     @media (pointer: coarse) {
@@ -673,12 +676,16 @@ interface FormularioCajaUI {
           <label for="cg-concepto">Cuenta y concepto de Kepler</label>
           <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
                           (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
-                          optionLabel="label" [delay]="250" [minQueryLength]="2" [showClear]="true"
+                          optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
+                          [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
                           placeholder="Buscá por nombre, cuenta o código" appendTo="body"
                           class="cg-full"></p-autocomplete>
           <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
             {{ etiquetaConcepto().texto }}
           </small>
+          @if (cuentaFuenteDoc()) {
+            <button type="button" class="cg-link" (click)="corregirCuentaDoc()">Corregir la cuenta</button>
+          }
         </div>
 
         <div class="fin-row">
@@ -1231,14 +1238,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * propuesto de tecleado; diciendo lo contrario era peor que no estar.
    */
   etiquetaConcepto = computed(() => {
-    // El signal se lee PRIMERO e incondicional: un `&&` que corte antes dejaría al computed sin
-    // dependencias, que es la misma familia de bug que tenía `bloqueos`.
+    // Los signals se leen PRIMERO e incondicionales: un `&&` que corte antes dejaría al computed
+    // sin dependencias, que es la misma familia de bug que tenía `bloqueos`.
+    const doc = this.cuentaFuenteDoc();
     const manual = this.conceptoManual();
+    // La cuenta del documento manda sobre todo: es el dato de Kepler, no una propuesta.
+    if (doc) return { tono: 'propuesto' as const,
+      texto: `Cuenta ${doc.cuenta} de la póliza del documento (Kepler)${doc.conceptos.length > 1 ? ' — elegí el concepto' : ''}.` };
     if (manual) return etiquetaManual();
     return etiquetaProcedencia(this.propuesta()?.concepto);
   });
   /** `true` en cuanto la persona elige o teclea el concepto ella misma. */
   conceptoManual = signal(false);
+
+  /**
+   * CS.3.1b — Cuando el movimiento anclado trae su cuenta de la PROPIA póliza del documento, la
+   * cuenta es autoritativa y se BLOQUEA: el buscador de conceptos se acota a los de esa cuenta (no
+   * busca en todo el catálogo). `corregirCuentaDoc()` lo suelta si de verdad hace falta. `null` =
+   * captura normal (regla/propuesta/manual).
+   */
+  cuentaFuenteDoc = signal<{ cuenta: string; cuenta_nombre: string | null; conceptos: Array<{ concepto: string; concepto_nombre: string | null }> } | null>(null);
   /**
    * CG.22.6 - ¿esta cuenta vale para este beneficiario de ahora en adelante?
    *
@@ -1609,6 +1628,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.f.set(this.formVacio());
     this.conceptoSel = null;
     this.conceptoManual.set(false);
+    this.cuentaFuenteDoc.set(null);
     this.declararRegla.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
@@ -1736,6 +1756,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // El desglose de otro documento no es el de éste: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
+    // CS.3.1b — Si la cuenta salió de la PROPIA póliza del documento, es autoritativa: se muestra
+    // y se BLOQUEA (el buscador se acota a los conceptos de esa cuenta). No se pide propuesta por
+    // historia — el dato de Kepler manda.
+    if (c.cuenta_fuente === 'documento' && c.kepler_cuenta) {
+      const conceptos = c.conceptos_cuenta ?? [];
+      this.cuentaFuenteDoc.set({ cuenta: c.kepler_cuenta, cuenta_nombre: c.kepler_cuenta_nombre ?? null, conceptos });
+      this.conceptoSel = c.kepler_concepto
+        ? { cuenta: c.kepler_cuenta, concepto: c.kepler_concepto, concepto_nombre: conceptos[0]?.concepto_nombre ?? '',
+            sucursal: c.sucursal, cuenta_mayor: '', label: `${c.kepler_cuenta} / ${c.kepler_concepto}` }
+        : null;
+      this.conceptoManual.set(false);
+      return;
+    }
+    this.cuentaFuenteDoc.set(null);
     this.pedirPropuesta();
   }
 
@@ -1808,6 +1842,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroSel = null;
     this.contadoBandeja.set(null);
     this.montoContado.set(null);
+    // CAOS no tiene póliza de Kepler para estos movimientos: su clasificación no se bloquea.
+    this.cuentaFuenteDoc.set(null);
     this.caosElegido.set(m);
     this.f.update((v) => ({
       ...v,
@@ -1829,6 +1865,15 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   soltarCaos(): void {
     this.caosElegido.set(null);
     this.caosSel = null;
+  }
+
+  /** CS.3.1b — Suelta la cuenta del documento y vuelve al buscador libre (por si Kepler se equivocó). */
+  corregirCuentaDoc(): void {
+    this.cuentaFuenteDoc.set(null);
+    this.conceptoSel = null;
+    this.conceptoManual.set(true);
+    this.conceptos.set([]);
+    this.f.update((v) => ({ ...v, kepler_cuenta: null, kepler_concepto: null }));
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -2117,6 +2162,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   buscarConceptos(e: AutoCompleteCompleteEvent): void {
+    // CS.3.1b — Con la cuenta anclada al documento, el buscador se ACOTA a los conceptos de esa
+    // cuenta (no busca en todo el catálogo): la cuenta no se cambia sin "corregir".
+    const doc = this.cuentaFuenteDoc();
+    if (doc) {
+      const suc = this.f().sucursal;
+      this.conceptos.set(doc.conceptos.map((x) => {
+        const c: ConceptoKepler = { cuenta: doc.cuenta, concepto: x.concepto, concepto_nombre: x.concepto_nombre ?? '', sucursal: suc, cuenta_mayor: '' };
+        return { ...c, label: this.conceptoLabel(c) };
+      }));
+      return;
+    }
     this.svc.conceptos(this.f().sucursal || undefined, e.query || '', 30).subscribe({
       // `label` es lo que el autocomplete pinta: la vista no arma texto en la plantilla.
       next: (r) => this.conceptos.set((r.rows ?? []).map((c) => ({ ...c, label: this.conceptoLabel(c) }))),

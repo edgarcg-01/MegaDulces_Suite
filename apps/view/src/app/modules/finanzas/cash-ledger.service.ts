@@ -307,7 +307,15 @@ export interface MovimientoPendiente {
   confirmable: boolean;
   kepler_cuenta: string | null;
   kepler_concepto: string | null;
-  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla';
+  /** CS.3.1b — El NOMBRE de la contra-cuenta cuando viene del documento (para mostrarla). */
+  kepler_cuenta_nombre?: string | null;
+  /** CS.3.1b — De dónde salió la cuenta: `ruta` | `regla` | `documento` (su propia póliza). */
+  cuenta_fuente?: 'ruta' | 'regla' | 'documento' | null;
+  /** CS.3.1b — `true` = la cuenta es autoritativa (del documento) y la pantalla la BLOQUEA. */
+  cuenta_bloqueada?: boolean;
+  /** CS.3.1b — Los conceptos válidos de esa cuenta, para la elección ACOTADA (no buscador libre). */
+  conceptos_cuenta?: Array<{ concepto: string; concepto_nombre: string | null }>;
+  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto';
   motivo_texto?: string;
 }
 
