@@ -100,6 +100,25 @@ export interface TicketLinea {
   /** La tasa tal como la escribe Kepler (0.16 / 0.08), para poder rotular "IVA 16%". */
   iva_tasa: number;
   ieps_tasa: number;
+  /**
+   * `[TK.10]` Precio de LISTA sin impuestos — el neto ANTES de descuento.
+   *
+   * `null` en dos casos distintos, y los dos importan: cuando la lista no se conoce
+   * (`lista_conocida` false: Kepler no la escribe antes del 2026-08-13) y cuando el desglose de
+   * impuesto no reproduce la cabecera (`impuesto_desglosado` false). Nunca 0: un neto en cero se
+   * leería como "este producto es gratis sin impuestos" (ADR-056).
+   */
+  precio_neto: number | null;
+  /**
+   * `[TK.10]` Precio PAGADO sin impuestos — el neto DESPUES de descuento. `null` si el desglose
+   * no cuadra.
+   *
+   * ⚠️ Se deriva del mismo `precio_pagado` que se imprime al lado, SIN el factor de prorrateo
+   * del descuento del documento: si se le aplicara, la columna no reconciliaria con su vecina y
+   * el papel diria dos precios distintos para el mismo renglon. El prorrateo es aritmetica de
+   * DOCUMENTO y vive en `importe_neto`.
+   */
+  precio_neto_desc: number | null;
 }
 
 /**
@@ -144,6 +163,12 @@ export interface TicketCascada {
   /** Lo que suman los renglones. Se publica para poder contrastarlo contra `iva`/`ieps`. */
   iva_lineas: number;
   ieps_lineas: number;
+  /**
+   * `[TK.10]` Σ del importe sin impuestos, ya con el descuento del documento prorrateado.
+   * Cierra exacto: `importe_neto + ieps_lineas + iva_lineas = total`. `null` si el desglose no
+   * cuadra.
+   */
+  importe_neto: number | null;
 }
 
 export interface TicketDetalle {
@@ -737,6 +762,7 @@ export class CommercialTicketsService {
         // El importe se llena abajo: depende de prorratear el descuento del DOCUMENTO, y eso
         // no se puede saber mirando un renglón solo.
         iva: 0, ieps: 0, impuesto_tipo: null,
+        precio_neto: null, precio_neto_desc: null,
         iva_tasa: num(l['iva_tasa']), ieps_tasa: num(l['ieps_tasa']),
       };
     });
@@ -764,6 +790,10 @@ export class CommercialTicketsService {
     //
     // Los pedidos propios van por el otro camino: su precio NO trae impuesto, se suma aparte.
     const factor = h.impuestos_incluidos && subtotal > 0 ? r2(h.total) / subtotal : 1;
+    // `[TK.10]` El importe sin impuestos se acumula ACA, en el mismo lazo que ya descompone el
+    // impuesto: derivarlo despues seria calcular dos veces la misma cascada, y dos aritmeticas
+    // para un mismo numero terminan discrepando.
+    let importeNeto = 0;
     for (const l of lineas) {
       const neto = l.importe * factor;
       if (h.impuestos_incluidos) {
@@ -773,9 +803,12 @@ export class CommercialTicketsService {
         const sinImp = neto / ((1 + l.ieps_tasa) * (1 + l.iva_tasa));
         l.ieps = r2(sinImp * l.ieps_tasa);
         l.iva = r2(sinImp * (1 + l.ieps_tasa) * l.iva_tasa);
+        importeNeto += sinImp;
       } else {
         l.ieps = r2(neto * l.ieps_tasa);
         l.iva = r2(neto * l.iva_tasa);
+        // Sin impuesto adentro, el importe YA es neto: el impuesto se suma aparte.
+        importeNeto += neto;
       }
       l.impuesto_tipo = l.iva > 0 ? 'iva' : (l.ieps > 0 ? 'ieps' : null);
     }
@@ -788,6 +821,18 @@ export class CommercialTicketsService {
     const impuestoCuadra = lineas.length > 0
       && (h.iva == null || Math.abs(ivaLineas - num(h.iva)) <= tolerancia)
       && (h.ieps == null || Math.abs(iepsLineas - num(h.ieps)) <= tolerancia);
+
+    // `[TK.10]` Los dos netos POR UNIDAD. Va despues del cuadre a proposito: si la suma de los
+    // renglones no reproduce la cabecera, estas columnas no se publican —quedan en `null`— y los
+    // papeles las omiten enteras. Un precio neto que no reconstruye el total es peor que ninguno.
+    for (const l of lineas) {
+      const div = h.impuestos_incluidos ? (1 + l.ieps_tasa) * (1 + l.iva_tasa) : 1;
+      l.precio_neto_desc = impuestoCuadra ? r2(l.precio_pagado / div) : null;
+      // ⚠️ DOS motivos distintos para el mismo `null`: sin cuadre no se puede publicar, y sin
+      // lista conocida no hay contra que comparar. No se rellena con el pagado: eso diria
+      // "no hubo descuento" donde lo cierto es "no se sabe".
+      l.precio_neto = impuestoCuadra && l.lista_conocida ? r2(l.precio_lista / div) : null;
+    }
 
     const descuentoTotal = r2(descuentoPrecio + (cuadra ? descuentoDocumento : 0));
     const cascada: TicketCascada = {
@@ -805,6 +850,7 @@ export class CommercialTicketsService {
       impuesto_desglosado: impuestoCuadra,
       iva_lineas: ivaLineas,
       ieps_lineas: iepsLineas,
+      importe_neto: impuestoCuadra ? r2(importeNeto) : null,
     };
 
     return {
