@@ -25,12 +25,33 @@ import { cuerpoTicketVenta, TicketVenta, TicketVentaLinea } from './ticket-venta
 /** Ancho del rollo de 80 mm a 10px. Medido, no elegido: ver la cabecera de ticket-venta.ts. */
 const ANCHO = 45;
 
-const L = (p: Partial<TicketVentaLinea>): TicketVentaLinea => ({
-  linea: 1, sku: '70043', descripcion: 'GOMA A GRANEL LA ROSA 12KG', unidad: 'KG',
-  cantidad: 420, precio_lista: 58.88, lista_conocida: true, precio_pagado: 53.21,
-  descuento_unitario: 5.67, descuento_linea: 2381.40, importe: 22348.20, equivalencia: null,
-  iva: 0, ieps: 1655.42, impuesto_tipo: 'ieps', iva_tasa: 0, ieps_tasa: 0.08, ...p,
-});
+const r2 = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * ⚠️ Los dos netos se DERIVAN de las tasas del propio fixture, no se fijan a mano.
+ *
+ * La primera version los dejaba clavados en el default (54.52 / 49.27) y cualquier variante que
+ * pusiera `ieps_tasa: 0` quedaba mintiendo: un renglon SIN impuesto tiene neto == precio, y el
+ * fixture decia lo contrario. Esa incoherencia hizo fallar una prueba que estaba bien escrita
+ * —la del producto sin nada que declarar— y por un rato parecio culpa del codigo.
+ */
+const L = (p: Partial<TicketVentaLinea>): TicketVentaLinea => {
+  const b: TicketVentaLinea = {
+    linea: 1, sku: '70043', descripcion: 'GOMA A GRANEL LA ROSA 12KG', unidad: 'KG',
+    cantidad: 420, precio_lista: 58.88, lista_conocida: true, precio_pagado: 53.21,
+    descuento_unitario: 5.67, descuento_linea: 2381.40, importe: 22348.20, equivalencia: null,
+    iva: 0, ieps: 1655.42, impuesto_tipo: 'ieps', iva_tasa: 0, ieps_tasa: 0.08,
+    precio_neto: null, precio_neto_desc: null, ...p,
+  };
+  const div = (1 + b.ieps_tasa) * (1 + b.iva_tasa);
+  return {
+    ...b,
+    precio_neto: p.precio_neto !== undefined ? p.precio_neto
+      : (b.lista_conocida ? r2(b.precio_lista / div) : null),
+    precio_neto_desc: p.precio_neto_desc !== undefined ? p.precio_neto_desc
+      : r2(b.precio_pagado / div),
+  };
+};
 
 const BASE: TicketVenta = {
   id: '05UD1005-0006440', origen: 'mostrador', origen_label: 'Ticket de mostrador',
@@ -45,7 +66,7 @@ const BASE: TicketVenta = {
     descuento_documento: 0, descuento_documento_pct_erp: null,
     iva: 0, ieps: 0, total: 22348.20, descuento_total: 2381.40, descuento_total_pct: 9.63,
     lineas_con_lista: 1, lineas_sin_lista: 0,
-    impuesto_desglosado: true, iva_lineas: 0, ieps_lineas: 1655.42,
+    impuesto_desglosado: true, iva_lineas: 0, ieps_lineas: 1655.42, importe_neto: 20692.78,
   },
   cuadra: true, aviso: null,
 };
@@ -138,13 +159,33 @@ describe('cuerpoTicketVenta — el producto en tres renglones', () => {
     expect(dos.length - uno.length).toBe(2);
   });
 
-  it('con descuento e impuesto que caben en un renglon ocupa TRES', () => {
+  /**
+   * ⚠️ ESTA PRUEBA CAMBIO DE VALOR CON [TK.10], a proposito: antes decia TRES.
+   *
+   * Un producto con descuento E impuesto ahora declara cuatro conceptos —Lista, Desc, IVA y
+   * los dos netos— y en 43 caracteres utiles ya no entran en un renglon. El ticket pasa a
+   * CUATRO. Es el costo que se acepto al agregar las columnas, medido antes de escribirlas.
+   *
+   * Lo que NO puede cambiar, y por eso se comprueba abajo, es COMO se parte: por concepto,
+   * nunca dejando una etiqueta sin su monto.
+   */
+  it('con descuento, impuesto y netos el producto ocupa CUATRO renglones', () => {
     const corto = L({ descripcion: 'PALETA', cantidad: 12, unidad: 'PZA', precio_lista: 6,
       precio_pagado: 5, descuento_linea: 12, importe: 60,
       impuesto_tipo: 'iva', iva: 8.28, ieps: 0, iva_tasa: 0.16, ieps_tasa: 0 });
     const uno = lineas({ lineas: [corto] });
     const dos = lineas({ lineas: [corto, { ...corto, linea: 2 }] });
-    expect(dos.length - uno.length).toBe(3);
+    expect(dos.length - uno.length).toBe(4);
+
+    // 6.00/1.16 = 5.17 y 5.00/1.16 = 4.31: los dos netos salen del precio que esta al lado.
+    const txt = uno.join(String.fromCharCode(10));
+    expect(txt).toContain('Neto 5.17');
+    expect(txt).toContain('Neto c/desc 4.31');
+    // Ninguna etiqueta queda huerfana al final de su renglon.
+    for (const ln of uno) {
+      expect(ln.trimEnd().endsWith('Neto')).toBe(false);
+      expect(ln.trimEnd().endsWith('Neto c/desc')).toBe(false);
+    }
   });
 
   /**

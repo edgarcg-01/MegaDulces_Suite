@@ -62,7 +62,12 @@ interface NavItem {
   label: string;
   icon: string;
   route: string;
-  permission: Permission;
+  /**
+   * Ausente = **sin compuerta**: lo ve cualquiera con sesión. Sólo para items cuya RUTA
+   * tampoco pide permiso (`canActivate: []`); si la ruta gatea y el item no, el menú
+   * ofrece una puerta que rebota. Hoy el único caso es «Gastos» (`[GX.17]`).
+   */
+  permission?: Permission;
   /**
    * Si está set, el item es visible si el usuario tiene CUALQUIERA de estas
    * perms (OR). Reemplaza a `permission` para el gate. Útil en superficies
@@ -473,6 +478,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (item.anyOf?.length) {
       return item.anyOf.some((p) => (legacy ? legacy[p] === true : false));
     }
+    // Sin `anyOf` y sin `permission` el item no tiene compuerta. Sin esta línea caería en
+    // `legacy[undefined]` → `false`, o sea que un item declarado para todos se escondería
+    // de TODOS menos del god-mode — invisible y sin error.
+    if (!item.permission) return true;
     return legacy ? legacy[item.permission] === true : false;
   }
 
@@ -642,14 +651,31 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Gastos',
       items: [
-        // GX.10 — UN destino. Siguen siendo dos roles (el autorizador trabaja el tablero,
-        // el capturista sube), pero eso lo resuelve la pantalla según quién entra, no el
-        // menú: tener dos entradas obligaba a los 7 roles con ambos permisos a elegir
-        // entre dos puertas al mismo trámite.
-        // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
-        { label: 'Gastos', icon: 'pi pi-file-edit', route: '/finanzas/gastos',
-          permission: Permission.FINANCE_EXPENSES_VER,
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
+        /**
+         * `[GX.17]` GX.10 había fundido todo en UN destino porque las dos mitades eran
+         * vistas del mismo trámite. Ya no: subir, firmar y consultar son tres oficios
+         * con tres públicos distintos, y las dos rutas nuevas nacieron SIN entrada —
+         * sólo se llegaba escribiendo la URL. Es la falla de `[LC.6.2]`: una pantalla
+         * en prod que nadie puede abrir.
+         *
+         * El grupo crece sólo para quien firma. Medido en `platform_test` (166 usuarios
+         * activos): 166 ven «Gastos», 12 ven «Aprobación», 25 ven «Tablero».
+         *
+         * Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
+         */
+        // SIN compuerta, a propósito: la ruta es `canActivate: []` («para este tendrán
+        // acceso todos», GX.17). Con el `anyOf` que traía, 66 de los 166 activos podían
+        // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
+        // ruta. El dato sigue acotado por áreas del lado del backend.
+        { label: 'Gastos', icon: 'pi pi-file-edit', route: '/finanzas/gastos' },
+        // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
+        // approve/validate/reject — no se inventó un permiso para la misma puerta.
+        { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
+          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
+        // El tablero de GX.10 no se borró: 25 personas con `_VER` lo usan para revisar y
+        // buscar. Dejó de ser lo que sirve `/finanzas/gastos` y tiene ruta propia.
+        { label: 'Tablero de gastos', icon: 'pi pi-table', route: '/finanzas/gastos-tablero',
+          permission: Permission.FINANCE_EXPENSES_VER },
       ],
     },
     {
