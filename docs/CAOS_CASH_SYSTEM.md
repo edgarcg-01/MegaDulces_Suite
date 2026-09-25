@@ -172,11 +172,28 @@ concretos, en orden de valor:
 4. **Trazabilidad del efectivo del CEDIS/tesorería** que hoy no vive en Kepler ni en Wincaja: es un
    circuito propio de la caja fuerte.
 
-### ⚠️ Lo que hay que resolver ANTES de cruzar una sola cifra (declarado, no resuelto)
+### ✅ Anclaje de negocio (respondido por el usuario 2026-09-25)
 
-- **QUÉ caja física y QUÉ sucursal es CAOS.** Sin esto no se sabe si su efectivo es el mismo
-  universo que Caja General (riesgo de **doble conteo**) o uno separado. Es el mismo paso que se
-  hizo con `c45` para Caja General, y es bloqueante.
+**CAOS ES la Caja General de OFICINAS (sucursal `00`).** El efectivo físico que mueve CAOS es el
+mismo que ya representan (a) la contabilidad de Kepler (`kdm1`, `c45 = 0011` CAJA GENERAL / EFECTIVO)
+y (b) el libro nuevo `finance.cash_ledger`. Son **tres vistas del mismo dinero**; CAOS es la única
+con el **conteo físico por denominación de la máquina**.
+
+⛔ **Consecuencia de diseño:** como CAOS *es* la Caja General, sus movimientos **NO se agregan como
+asientos nuevos** al libro — eso sería doble conteo. El valor de CAOS es ser el **árbitro**: su
+conteo de máquina se **cruza** contra la contabilidad (Kepler `0011` / `cash_ledger`) y las
+diferencias se levantan como hallazgo. Esto redefine las capas: CS.3/CS.4/CS.5 son, en el fondo, un
+**único matcher CAOS (máquina) ↔ Kepler caja 0011 (contabilidad)**.
+
+### ⚠️ Lo que sigue pendiente
+
+- **Mapear los operadores de CAOS** (`003` María del Carmen, `006` Vendedor VENTAS, `002` Juan Jesús)
+  a `identity.users`.
+- **El matcher necesita MEDIRSE contra datos reales antes de confiar en sus hallazgos.** CAOS y
+  Kepler `0011` no comparten llave: el cruce sería por importe + proximidad de fecha (+ quizá
+  `ref "ruta NN"`). Un cruce por importe sin su **placebo/piso de ruido** no significa nada
+  (regla del proyecto). No se puede medir desde esta máquina (`.245` rechaza la IP en `pg_hba`);
+  se mide en `md`.
 - **Mapear los usuarios de CAOS** (`003`, `006`, `002`) a `identity.users`.
 - **`accountingDate` vs `date`, TZ y retención** no verificados — cuál manda para cuadrar un período.
 - **Riesgo de adapter:** son endpoints internos de CAOS 6.72.3, sin contrato. Una actualización de
