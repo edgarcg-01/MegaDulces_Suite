@@ -269,32 +269,11 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
         era una bandeja de seguimiento -- otro oficio, y empujaba la captura hacia abajo.
         El endpoint «listasParaComprobar» sigue existiendo: se quito la vista, no el dato.
       -->
-      <!-- Mis capturas -->
-      <div class="cap-mine">
-        <div class="cap-mine-h"><h2>Mis últimas capturas</h2><button type="button" class="cap-link" (click)="loadMine()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button></div>
-        @if (mineLoading()) { <div class="cap-muted">Cargando…</div> }
-        @else if (!mine().length) { <div class="cap-muted">Aún no has capturado comprobantes.</div> }
-        @else {
-          <div class="cap-list">
-            @for (m of mine(); track m.id) {
-              <div class="cap-item">
-                <div class="cap-it-main">
-                  <span class="mono">{{ m.folio_solicitud }}</span>
-                  <span class="cap-it-prov">{{ m.proveedor }}</span>
-                </div>
-                <div class="cap-it-side">
-                  <span class="cap-it-imp">{{ moneyFull(m.importe) }}</span>
-                  <p-tag [value]="statusLabel(m.status)" [severity]="statusSev(m.status)" />
-                  <span class="cap-it-date">{{ m.created_at | date:'dd/MM HH:mm' }}</span>
-                </div>
-                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_solicitud }}.</div> }
-                @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ m.revision_nota }}</div> }
-              </div>
-            }
-          </div>
-        }
-      </div>
-    </div>
+      <!--
+        [GX.18] Se retiro «Mis ultimas capturas». Pedido del usuario. Era la bitacora de lo
+        ya enviado -- seguimiento, no levantamiento -- y ocupaba mas alto que el formulario
+        que la persona viene a llenar. El endpoint «mine» sigue vivo: se quito la vista, no el dato.
+      -->
   `,
   styles: [`
     :host { display: block; }
