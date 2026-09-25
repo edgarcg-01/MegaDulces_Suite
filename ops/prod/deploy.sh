@@ -263,15 +263,27 @@ subir_compose() {
   # hace ejecutar basura desde el byte donde iba. `mv` desenlaza el inodo viejo, y el
   # proceso que lo está corriendo lo sigue leyendo entero y sano.
   # No es teórico: `esperar-y-restaurar.sh` puede estar corriendo durante horas.
-  for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do
+  for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
-  ssh_md "cd ~/ops/prod && for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh"
+  ssh_md "cd ~/ops/prod && for a in docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
 construir() {
   commit=$(cd "$REPO" && git rev-parse --short HEAD)
+
+  # ── [VL.20.2] EL SELLO DE portal/vendedor, DETERMINISTA POR COMMIT ──────────────
+  # Los Dockerfiles de portal y vendedor metían `date -u` —un reloj de pared— dentro de su
+  # `index.html`, que está en los inputs del hash de Nx. Su propio comentario lo declaraba:
+  # **ese target no acertaba el caché NUNCA, por diseño**, ni recompilando el mismo commit.
+  # Acá el sello pasa a ser función del commit, así que un rollback o un reintento aciertan.
+  #
+  # ⚠️ TRAMPA MEDIDA: `git show --date=format:` **NO respeta `TZ`** — usa la zona del commit.
+  # Con `TZ=UTC ... --date=format:'…Z'` un commit de las 18:16 -06:00 salía como `18:16:50Z`,
+  # o sea una hora FALSA con rótulo UTC. `--date=format-local:` sí la respeta: `00:16:50Z`.
+  # Se conserva la forma `…Z` que ya tenía el sello para no sorprender a quien lo lee.
+  commit_iso=$(cd "$REPO" && TZ=UTC git show -s --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format=%cd HEAD)
 
   # ── [VL.11.D] CONSTRUIR SÓLO LO QUE SE PIDIÓ ────────────────────────────────────
   # Antes `deploy.sh portal` reconstruía LAS SEIS imágenes y recreaba una. Con los dos
@@ -313,30 +325,42 @@ construir() {
   # a la versión de ayer es la mitad que falta del control de cambios: la otra mitad (que no
   # entre una mala) la da la CI, que hoy está apagada.
   #
-  # ⭐ [VL.11.C] `--build-arg` DEL COMMIT, A LAS SEIS. Hasta hoy esta línea NO pasaba ningún
+  # ⭐ [VL.11.C] `--build-arg` DEL COMMIT. Hasta el 2026-09-23 esta línea NO pasaba ningún
   # build-arg, y eso tenía dos consecuencias que nadie había atado:
   #   1. `/api/health` sólo sabía su commit por el entorno que le pone `recrear()`, así que
   #      cualquier `docker compose up` a mano lo dejaba en `""`. Pasó dos veces el 2026-09-22.
-  #   2. `apps/portal/Dockerfile` y `apps/vendor/Dockerfile` YA declaraban
-  #      `ARG RAILWAY_GIT_COMMIT_SHA` y lo estampan en su `index.html` — o sea que el sello de
-  #      versión del portal y del vendedor decía **`unknown`** on-prem desde el primer día.
-  # Se mandan los DOS nombres porque el repo usa ambos: `RAILWAY_*` es el que Railway inyecta
-  # solo y el que leen `otel.ts`/`instrument.ts`. ⚠️ Docker avisa por el arg que un Dockerfile
-  # no declara; ese aviso va al log del build, no a la consola, y es inofensivo.
+  #   2. El sello de versión del portal y del vendedor decía **`unknown`** on-prem desde el
+  #      primer día, porque sus Dockerfiles esperaban `RAILWAY_GIT_COMMIT_SHA`.
+  # `[VL.20.1]` Ya no se manda `RAILWAY_GIT_COMMIT_SHA`: Railway no construye nada y el único
+  # lector que quedaba (`apps/api/src/build-info.ts`) resuelve por `GIT_COMMIT_SHA`.
+  #
+  # ── [VL.20.1/.3] UN GRAFO, CUATRO DESTINOS ──────────────────────────────────────
+  # Las cuatro apps salen del MISMO `/Dockerfile` con `--target`. Antes eran cuatro archivos
+  # (herencia de Railway, que exige uno por servicio) y eso costaba, medido el 2026-09-24:
+  # cuatro `npm ci` distintos, 7 registros de caché npm de ~3 GB, y **el worker recompilando
+  # `nx build api` que la imagen de api acababa de compilar 3 minutos antes**.
+  #
+  # ⭐ EL ORDEN IMPORTA Y POR ESO ESTÁ FIJO: `api` PRIMERO. Es quien materializa `deps`, `src`
+  # y `build-api`; los otros tres destinos son después casi todo caché de capa. Al revés
+  # funciona igual pero se paga la compilación en el primero que toque.
+  # `pg`, `backup` y `caddy` conservan su Dockerfile propio (no son apps de Node) y por eso
+  # el tercer campo —el destino— les va vacío.
   ssh_md "cd $REMOTO && set -e
     FILTRO='$filtro'
-    for par in 'trade-prod-pg:ops/prod/Dockerfile.pg' \
-               'trade-prod-api:Dockerfile' \
-               'trade-prod-worker:Dockerfile.worker' \
-               'trade-prod-portal:apps/portal/Dockerfile' \
-               'trade-prod-vendor:apps/vendor/Dockerfile' \
-               'trade-prod-backup:ops/prod/Dockerfile.backup'                'trade-prod-caddy:ops/prod/Dockerfile.caddy'; do
-      img=\${par%%:*}; df=\${par#*:}
+    for par in 'trade-prod-api|Dockerfile|runner-api' \
+               'trade-prod-worker|Dockerfile|runner-worker' \
+               'trade-prod-portal|Dockerfile|runner-portal' \
+               'trade-prod-vendor|Dockerfile|runner-vendor' \
+               'trade-prod-pg|ops/prod/Dockerfile.pg|' \
+               'trade-prod-backup|ops/prod/Dockerfile.backup|' \
+               'trade-prod-caddy|ops/prod/Dockerfile.caddy|'; do
+      img=\${par%%|*}; resto=\${par#*|}; df=\${resto%%|*}; tgt=\${resto#*|}
       # Los espacios de los dos lados evitan que 'trade-prod-pg' matchee dentro de otro nombre.
       if [ -n \"\$FILTRO\" ] && ! echo \" \$FILTRO \" | grep -q \" \$img \"; then continue; fi
+      arg_t=''; [ -n \"\$tgt\" ] && arg_t=\"--target \$tgt\"
       printf '   %-22s ' \"\$img\"
       t0=\$(date +%s)
-      if docker build -q -f \"\$df\" --build-arg GIT_COMMIT_SHA=$commit --build-arg RAILWAY_GIT_COMMIT_SHA=$commit -t \"\$img:$commit\" -t \"\$img:latest\" . >/dev/null 2>/tmp/build-\$img.log; then
+      if docker build -q -f \"\$df\" \$arg_t --build-arg GIT_COMMIT_SHA=$commit --build-arg GIT_COMMIT_ISO=$commit_iso -t \"\$img:$commit\" -t \"\$img:latest\" . >/dev/null 2>/tmp/build-\$img.log; then
         echo \"ok (\$(( \$(date +%s) - t0 ))s)  →  \$img:$commit\"
       else
         echo 'FALLÓ'; tail -25 /tmp/build-\$img.log | sed 's/^/      /'; exit 1
@@ -346,18 +370,20 @@ construir() {
   podar_imagenes
 }
 
-# Conserva las $RETENER_IMG etiquetas de commit más nuevas de cada imagen y borra las demás.
-# ⚠️ NO toca `:latest` ni la imagen que algún contenedor esté usando — `docker rmi` de una
-# etiqueta en uso falla, y acá ese fallo es benigno (se ignora): lo que importa es no dejar
-# el disco creciendo sin tope. Con 6 imágenes de hasta 2.2 GB, 5 versiones son ~35 GB.
+# ── [VL.20.5] LA PODA VIVE EN UN SCRIPT, NO EN UNA FUNCIÓN DE ACÁ ──────────────────
+# Esto ERA una función de este archivo y funcionaba — pero el camino que despliega 7 veces al
+# día es `auto-deploy.sh`, que **nunca la llamaba**. Resultado medido el 2026-09-24: **12
+# etiquetas** de `api` y 12 de `worker` con `RETENER_IMG=5`, y **80.23 GB de caché de
+# construcción sin tope**. La política estaba escrita en el carril que casi no se usa.
+#
+# Ahora es `ops/prod/podar-disco.sh`, que además recorta el caché de BuildKit y **late** a
+# `analytics.cron_runs` (`poda_disco`) — un carril de higiene sin latido es indistinguible de
+# uno que no corre. Lo llaman los tres: este guion, `auto-deploy.sh` y la agenda diaria.
+# ⚠️ Dos implementaciones de lo mismo divergen; por eso no se deja una copia acá.
 RETENER_IMG="${RETENER_IMG:-5}"
 podar_imagenes() {
-  ssh_md "for i in trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy; do
-            docker images --format '{{.Tag}} {{.CreatedAt}}' \"\$i\" \
-              | grep -v '^latest ' | sort -k2,3 -r | tail -n +\$(( $RETENER_IMG + 1 )) | awk '{print \$1}' \
-              | while read t; do docker rmi \"\$i:\$t\" >/dev/null 2>&1 || true; done
-          done" 2>/dev/null
-  echo "   (se conservan las $RETENER_IMG versiones más nuevas de cada imagen)"
+  ssh_md "RETENER_IMG=$RETENER_IMG sh ~/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/   /' \
+    || echo "   ⚠️ la poda falló (el despliegue NO falla por esto)"
 }
 
 # ⭐ EL ROLLBACK. `deploy.sh --volver <commit>` reapunta `:latest` a esa versión y recrea.

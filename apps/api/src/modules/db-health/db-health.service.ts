@@ -1100,6 +1100,23 @@ const CRON_JOBS: CronCfg[] = [
   // construye las dos imágenes tarda varios minutos y `flock -n` saltea la siguiente.
   { key: 'auto_deploy',         label: 'Despliegue automático (origin/main)', cadence: 'cada 5 min (md)', warnH: 1, critH: 6, maxRunH: 1 },
 
+  // ── [VL.20.5] LA HIGIENE DEL DISCO TAMBIÉN ES UN CARRIL ───────────────────────────────────
+  // Poda etiquetas de commit viejas y recorta el caché de BuildKit a un techo. Nace de una
+  // medición: el 2026-09-24 `md` tenía **80.23 GB de caché de construcción** sin ninguna
+  // política de GC y **12 etiquetas** de `api` y 12 de `worker` con la retención puesta en 5 —
+  // porque la poda vivía en `deploy.sh` y el camino que despliega 7 veces al día es
+  // `auto-deploy.sh`, que nunca la llamaba.
+  //
+  // ⭐ Sin este renglón el sensor daría **verde incondicional** (`cfg ? classify : 'ok'`), que
+  // es el defecto que la Fase VP midió sobre las matvistas del sell-out. Y un carril de higiene
+  // es justo donde más engaña: si nadie poda, nada se rompe… hasta que el disco se llena.
+  //
+  // Corre después de cada despliegue exitoso Y a las 04:30 como red de seguridad. `warnH: 30`
+  // porque lo que importa es que haya pasado algo en el último día y pico; `critH: 72` porque
+  // tres días sin podar en una máquina que despliega siete veces al día ya es acumulación.
+  // El script se pone en `error` solo si tras podar el disco libre queda bajo el piso.
+  { key: 'poda_disco',          label: 'Poda de imágenes y caché de construcción', cadence: 'tras cada despliegue + 04:30 (md)', warnH: 30, critH: 72 },
+
 ];
 
 export interface SourceHealth {

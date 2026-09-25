@@ -39,7 +39,9 @@ REPO_DIR="${AUTO_DEPLOY_REPO:-$HOME/auto-deploy/repo}"
 REMOTO="git@github.com:edgarcg-01/Trade_marketing.git"
 RAMA="${AUTO_DEPLOY_BRANCH:-main}"
 LLAVE="${AUTO_DEPLOY_KEY:-$HOME/.ssh/deploy_md}"
-SERVICIOS="${AUTO_DEPLOY_SERVICIOS:-api worker}"
+# `[VL.20.4]` `SERVICIOS` YA NO SE FIJA ACÁ: se calcula más abajo, cuando ya se sabe contra qué
+# commit comparar (api y worker siempre; portal y vendedor sólo si cambiaron). Dejarlo también
+# acá daría dos fuentes de verdad para lo mismo. `AUTO_DEPLOY_SERVICIOS` sigue mandando.
 JOB=auto_deploy
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
 
@@ -47,6 +49,17 @@ SECO=0; [ "${1:-}" = "--seco" ] && SECO=1
 ESTADO=0; [ "${1:-}" = "--estado" ] && ESTADO=1
 
 di() { echo "[$(date '+%F %T %Z')] $*"; }
+
+# ── [VL.20.4] EL MAPA servicio → imagen / contenedor, UNA sola vez ──────────────────────────
+# Este `case` estaba copiado TRES veces —`guardar_anteriores()`, el bucle de construcción y
+# `revertir()`— cada una con su propio `*) continue`. Al sumar `portal` y `vendedor` habría
+# divergido en la tercera, y la tercera es `revertir()`: o sea que el modo de falla habría sido
+# **desplegar dos servicios sin nada a qué volver**, callado, hasta el día que hiciera falta.
+# Verificado contra `md`: los contenedores son `prod-api`, `prod-worker`, `prod-portal`,
+# `prod-vendor` (el compose los nombra así; `pg-prod` y `pg-rag` NO siguen el patrón, pero este
+# carril no los toca).
+img_de()  { case "$1" in api) echo trade-prod-api ;; worker) echo trade-prod-worker ;; portal) echo trade-prod-portal ;; vendor) echo trade-prod-vendor ;; *) echo '' ;; esac; }
+cont_de() { case "$1" in api) echo prod-api ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
 
 # ── El diario se recorta solo ────────────────────────────────────────────────
 # `md` no tiene `logrotate` a mano para un usuario sin sudo, y una pasada cada 5 minutos escribe
@@ -138,7 +151,43 @@ if [ -f "$CUARENTENA" ]; then
   rm -f "$CUARENTENA"
 fi
 
-if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía. No se toca nada."; exit 0; fi
+# ── [VL.20.4] QUÉ SERVICIOS ENTRAN — portal y vendedor sólo si cambiaron ────────────────────
+# ⛔ EL HUECO QUE CIERRA: hasta hoy este carril construía **sólo `api` y `worker`**. Medido el
+# 2026-09-24, las imágenes de `portal` y `vendedor` tenían **34 horas**: un commit que tocara
+# esas dos apps se mergeaba a `main` y **nunca llegaba a producción**, sin que nada lo dijera.
+# (El frontend principal sí viajaba: `apps/view` va adentro de `trade-prod-api`.)
+#
+# `api` y `worker` van SIEMPRE, y no es pereza: `/api/health` y el humo del login son las dos
+# comprobaciones de entrega de este carril, y las dos viven en el API. Además, con el grafo
+# unificado el API es quien materializa `deps`/`src`/`build-api`, así que las otras imágenes
+# salen casi gratis después.
+#
+# ⚠️ ES UNA HEURÍSTICA DE RUTAS, NO EL GRAFO DE Nx, y se declara. Lo correcto sería
+# `nx show projects --affected`, pero `md` tiene el clon **sin `node_modules`**: Nx no puede
+# correr acá. Entonces se hace CONSERVADORA — ante cualquier cambio compartido (o ante la duda,
+# o si no se puede comparar) entran las cuatro. Equivocarse de más cuesta minutos de CPU;
+# equivocarse de menos deja producción atrás sin avisar, que es el defecto que esto cierra.
+SERVICIOS="api worker"
+_extra=''
+if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
+  _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)
+  if echo "$_cambios" | grep -qE '^(libs/|package(-lock)?\.json|nx\.json|tsconfig|eslint\.config\.js|vitest\.shared\.ts|Dockerfile)'; then
+    _extra='portal vendor'
+    di "cambió algo compartido ⇒ entran también portal y vendedor"
+  else
+    echo "$_cambios" | grep -q '^apps/portal/' && _extra="$_extra portal"
+    echo "$_cambios" | grep -q '^apps/vendor/' && _extra="$_extra vendor"
+  fi
+else
+  _extra='portal vendor'
+  di "no se pudo comparar contra $VIVO ⇒ se construyen las cuatro (conservador)"
+fi
+[ -n "$_extra" ] && SERVICIOS="$SERVICIOS $_extra"
+# Se puede forzar la lista completa con AUTO_DEPLOY_SERVICIOS, igual que antes.
+SERVICIOS="${AUTO_DEPLOY_SERVICIOS:-$SERVICIOS}"
+di "servicios: $SERVICIOS"
+
+if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS). No se toca nada."; exit 0; fi
 
 # ── La compuerta de migraciones, ANTES de construir ─────────────────────────
 # Se reusa la de `deploy.sh` en vez de reimplementarla: dos compuertas para lo mismo divergen, y
@@ -187,7 +236,7 @@ di "migraciones: prod al día"
 # estaba corriendo siempre existe.
 guardar_anteriores() {
   for s in $SERVICIOS; do
-    case "$s" in api) img=trade-prod-api; c=prod-api ;; worker) img=trade-prod-worker; c=prod-worker ;; *) continue ;; esac
+    c=$(cont_de "$s"); [ -n "$c" ] || continue
     _id=$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null)
     [ -n "$_id" ] && eval "PREV_$s=\$_id"
   done
@@ -209,11 +258,32 @@ command -v guardar_anteriores >/dev/null 2>&1 || {
 }
 guardar_anteriores
 cd "$REPO_DIR" || exit 1
-for s in $SERVICIOS; do
-  case "$s" in api) img=trade-prod-api; df=Dockerfile ;; worker) img=trade-prod-worker; df=Dockerfile.worker ;; *) continue ;; esac
+# ── [VL.20.1/.4] UN GRAFO, CUATRO DESTINOS ──────────────────────────────────────────────────
+# Las cuatro apps salen del MISMO `/Dockerfile` con `--target`. Antes eran cuatro archivos
+# (herencia de Railway) y **el worker recompilaba `nx build api`, la misma tarea que la imagen
+# de api acababa de compilar 3 minutos antes**. Verificado el 2026-09-24 con `--progress=plain`:
+# en el build del worker el paso `build-api` ahora sale `CACHED`, y el worker bajó de 1m34–1m54
+# a **57 s** (de los cuales 45 s son el `COPY` de `node_modules`, que es su piso real).
+#
+# ⛔ EL ORDEN ESTÁ FIJO Y NO SE TOCA: `api` primero, porque es quien materializa `deps`, `src`
+# y `build-api`. Por eso se recorre esta lista y no `$SERVICIOS`, que puede venir en cualquier
+# orden.
+#
+# `GIT_COMMIT_ISO`: el sello de portal/vendedor dejó de llevar un reloj de pared (`date -u`),
+# que los condenaba a nunca acertar el caché de Nx. ⚠️ `--date=format:` NO respeta `TZ` (usa la
+# zona del commit); va `--date=format-local:`. Medido: con `format:` un commit de las 18:16
+# -06:00 salía rotulado `18:16:50Z`, una hora falsa.
+COMMIT_ISO=$(TZ=UTC git show -s --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format=%cd HEAD 2>/dev/null)
+for s in api worker portal vendor; do
+  case " $SERVICIOS " in *" $s "*) ;; *) continue ;; esac
+  img=$(img_de "$s"); [ -n "$img" ] || continue
   di "construyendo $img:$DESEADO"
-  if ! docker build -q -f "$df" --build-arg GIT_COMMIT_SHA="$DESEADO" -t "$img:$DESEADO" -t "$img:latest" . >/dev/null 2>&1; then
-    di "FALLO: no compiló $img"; latir error "build de $img falló en $DESEADO"; exit 1
+  if ! docker build -q -f Dockerfile --target "runner-$s" \
+        --build-arg GIT_COMMIT_SHA="$DESEADO" --build-arg GIT_COMMIT_ISO="$COMMIT_ISO" \
+        -t "$img:$DESEADO" -t "$img:latest" . >/tmp/auto-build-$s.log 2>&1; then
+    di "FALLO: no compiló $img"
+    tail -15 /tmp/auto-build-$s.log | sed 's/^/      /'
+    latir error "build de $img falló en $DESEADO"; exit 1
   fi
 done
 
@@ -231,7 +301,10 @@ docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1
 # y "tardó más de lo que esperábamos" piden arreglos opuestos, y un timeout solo no los separa.
 vivo_ahora=''
 for i in $(seq 1 24); do
-  for c in prod-api prod-worker; do
+  # `[VL.20.4]` Se vigilan los contenedores que ESTE despliegue tocó, no dos fijos: con portal y
+  # vendedor en la lista, dejarlos fuera sería desplegarlos sin mirar si arrancan.
+  for s in $SERVICIOS; do
+    c=$(cont_de "$s"); [ -n "$c" ] || continue
     _st=$(docker inspect -f '{{.State.Status}} {{.State.Restarting}} {{.RestartCount}}' "$c" 2>/dev/null)
     case "$_st" in
       *"true "*|restarting*)
@@ -253,7 +326,7 @@ revertir() {
   echo "$DESEADO" > "$CUARENTENA" 2>/dev/null || di "aviso: no se pudo escribir la cuarentena"
   _falta=''
   for s in $SERVICIOS; do
-    case "$s" in api) img=trade-prod-api ;; worker) img=trade-prod-worker ;; *) continue ;; esac
+    img=$(img_de "$s"); [ -n "$img" ] || continue
     eval "_id=\${PREV_$s:-}"
     if [ -n "$_id" ] && docker image inspect "$_id" >/dev/null 2>&1; then
       docker tag "$_id" "$img:latest"
@@ -291,3 +364,18 @@ esac
 
 di "DESPLEGADO $DESEADO (venía de $ANTERIOR)"
 latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS"
+
+# ── [VL.20.5] LA PODA, DESPUÉS DE DESPLEGAR ─────────────────────────────────────────────────
+# ⛔ Acá estaba el agujero: `podar_imagenes()` existía en `deploy.sh` y funcionaba, pero el
+# camino que despliega **7 veces al día** es ÉSTE, y nunca la llamaba. Medido el 2026-09-24:
+# **12 etiquetas** de `api` y 12 de `worker` con `RETENER_IMG=5`, y **80.23 GB** de caché de
+# construcción sin ningún tope. La política existía; el carril que la necesita no la conocía.
+#
+# Va DESPUÉS del latido de éxito y nunca hace fallar el despliegue: una tarea de limpieza que
+# tumba lo que acaba de salir bien es peor que no tenerla (mismo criterio que la bitácora).
+# Si el script todavía no está en `md` (lo sube `deploy.sh subir_compose`), se dice y se sigue.
+if [ -x "$HOME/ops/prod/podar-disco.sh" ] || [ -f "$HOME/ops/prod/podar-disco.sh" ]; then
+  sh "$HOME/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/      /' || di "aviso: la poda falló (el despliegue NO se toca)"
+else
+  di "aviso: falta ~/ops/prod/podar-disco.sh — no se podó (corré ops/prod/deploy.sh --imagenes para subirlo)"
+fi

@@ -32,3 +32,21 @@
 #     # y el veredicto de verdad, en Salud BD: analytics.cron_runs job_key='auto_deploy'
 # ─────────────────────────────────────────────────────────────────────────────
 */5 * * * * flock -n /tmp/auto-deploy.lock /bin/sh $HOME/ops/prod/auto-deploy.sh >> $HOME/ops/prod/auto-deploy.log 2>&1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `[VL.20.5]` LA PODA DEL DISCO — red de seguridad, no el camino principal.
+#
+# El camino principal es `auto-deploy.sh`, que poda después de cada despliegue exitoso. Esta
+# línea existe para los días en que NO se despliega: sin ella, un fin de semana sin commits
+# deja el caché donde quedó y nadie lo mira. Medido el 2026-09-24, antes de que existiera
+# ninguna de las dos: **80.23 GB de caché de construcción** (58.56 reclamables) y **12
+# etiquetas** de `api` y 12 de `worker`, con la retención puesta en 5.
+#
+# ⚠️ 04:30 a propósito: después del nocturno de la ingesta (03:00) y antes de la jornada.
+# Podar mientras se construye no rompe nada —BuildKit no borra lo que está en uso— pero
+# evictar caché caliente a media compilación es regalar minutos.
+#
+# ⚠️ `flock` contra el MISMO candado del despliegue: si una pasada está construyendo, la poda
+# se saltea en vez de pelearle el disco. `-n` porque una poda que no corrió hoy corre mañana.
+# ─────────────────────────────────────────────────────────────────────────────
+30 4 * * * flock -n /tmp/auto-deploy.lock /bin/sh $HOME/ops/prod/podar-disco.sh >> $HOME/ops/prod/podar-disco.log 2>&1
