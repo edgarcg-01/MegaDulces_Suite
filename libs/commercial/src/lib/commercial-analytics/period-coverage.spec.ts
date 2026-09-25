@@ -148,3 +148,38 @@ describe('cobertura del lado ingreso (mismo motor, otra etiqueta)', () => {
     expect(c.delta_pct_comparable).toBe(7.6);
   });
 });
+
+/**
+ * `[IG.2.1]` La nota tiene que poder LEERSE. Salió de ver la pantalla decir «245 plazas no están
+ * en todos los meses del rango» seguido de doscientos y pico de nombres de cliente.
+ */
+describe('la nota de cobertura no se vuelve un muro', () => {
+  it('nombra a los que pesan y cuenta el resto', () => {
+    const filas: PeriodSlice[] = [
+      { mes: '2026-08', grupo: 'ANCLA', total: 1_000_000 },
+      { mes: '2026-09', grupo: 'ANCLA', total: 1_000_000 },
+      // 40 grupos que entran sólo en septiembre, con monto decreciente.
+      ...Array.from({ length: 40 }, (_, i) => ({ mes: '2026-09', grupo: `CLIENTE_${i}`, total: 1000 - i })),
+    ];
+    const c = computePeriodCoverage(filas, '2026-08-01', '2026-09-30', ETIQUETA_PLAZA);
+
+    expect(c.grupos_parciales.length).toBe(40);
+    // Nombra 5 y cuenta 35 — no 40 nombres seguidos.
+    expect(c.note).toContain('y 35 más');
+    expect(c.note).toContain('CLIENTE_0');      // el de mayor monto
+    expect(c.note).not.toContain('CLIENTE_39'); // el más chico no se nombra
+    // Y sigue diciendo cuántos son en total.
+    expect(c.note).toContain('40 plazas');
+  });
+
+  it('con pocos, los nombra a todos y no dice «y N más»', () => {
+    const filas: PeriodSlice[] = [
+      { mes: '2026-08', grupo: 'ANCLA', total: 100 },
+      { mes: '2026-09', grupo: 'ANCLA', total: 100 },
+      { mes: '2026-09', grupo: 'NUEVA', total: 50 },
+    ];
+    const c = computePeriodCoverage(filas, '2026-08-01', '2026-09-30', ETIQUETA_PLAZA);
+    expect(c.note).toContain('NUEVA');
+    expect(c.note).not.toContain('más');
+  });
+});

@@ -36,6 +36,8 @@ interface TreePlaza { key: string; label: string; level: string; total: number; 
 type Agregado = { v: string } | undefined;
 interface TreeCanal { key: string; label: string; level: string; total: number; movs: number; children: Map<string, TreePlaza> }
 /** Fila cruda de la serie mensual de ingresos: knex devuelve los numéricos como texto. */
+/** Cómo se nombra el bucket residual cuando se lo cuenta como UN grupo en la cobertura. */
+const RESIDUO_LABEL = 'Sin canal declarado (crédito individual)';
 interface IncomeSeriesRaw {
   mes: string; total: string;
   mostrador: string; telemarketing: string; ruta: string; vecinal: string; contado: string; otro: string;
@@ -2629,16 +2631,30 @@ export class CommercialAnalyticsService {
     }
   }
 
-  /** Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos. */
+  /**
+   * Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos.
+   *
+   * ⚠️ **El residuo cuenta como UN grupo, no como sus 233 "plazas".** Medido en el rango por
+   * defecto: de 261 plazas, **233 son el bucket `otro`** — crédito individual cuyo concepto trae
+   * nombre de cliente y ningún prefijo de canal. Contarlas una por una hacía que la cobertura
+   * dijera *«237 plazas no están en todos los meses»*, que es un muro de nombres de clientes y
+   * además es FALSO como medición: un cliente que compró en agosto y no en julio **no es deriva
+   * de universo**, es un cliente. Las plazas reales parciales son **4**.
+   *
+   * Colapsarlo acá y no en la pantalla es a propósito: el `pct` y el Δ comparable se calculan con
+   * esto, así que si el residuo entra partido, el número —no sólo el texto— queda mal.
+   */
   private async incomeMonthPlaza(
     trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters,
   ): Promise<PeriodSlice[]> {
+    const grupoSql = `CASE WHEN e.canal = '${SALES_CANAL_RESIDUO}' THEN '${RESIDUO_LABEL}'
+                           ELSE COALESCE(NULLIF(e.plaza,''),'(sin plaza)') END`;
     const rows: Array<{ mes: string; plaza: string; total: string }> =
       await this.incomeQuery(trx, tenantId, from, to, q)
-        .groupByRaw('e.anio_mes, e.plaza')
+        .groupByRaw(`e.anio_mes, ${grupoSql}`)
         .select(
           trx.raw('e.anio_mes AS mes'),
-          trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+          trx.raw(`${grupoSql} AS plaza`),
           trx.raw('SUM(e.importe)::numeric AS total'),
         );
     return rows.map((r) => ({ mes: r.mes, grupo: r.plaza, total: Number(r.total) }));

@@ -96,7 +96,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                   <strong class="in-cov-ok">{{ signo(c.delta_pct_comparable) }}</strong> con las que reportan en ambos períodos.</span>
               </div>
               @if (c.solo_actual.length) {
-                <div>Plazas nuevas en este período: <strong>{{ c.solo_actual.join(', ') }}</strong> — su venta sube el total sin que las demás hayan vendido más.</div>
+                <div>Plazas nuevas en este período: <strong>{{ lista(c.solo_actual) }}</strong> — su venta sube el total sin que las demás hayan vendido más.</div>
               }
               @if (c.solo_previo.length) {
                 <div>Dejaron de reportar: <strong>{{ c.solo_previo.join(', ') }}</strong>.</div>
@@ -330,6 +330,15 @@ export class FinanzasIngresosComponent {
     if (!comp && !c.grupos_parciales.length && !c.meses_parciales.length) return null;
     return { ...c, comp };
   });
+
+  /**
+   * Nombra unos pocos y cuenta el resto. La banda ya publicó una vez «237 plazas» seguido de
+   * doscientos nombres de cliente: un aviso que no se puede leer no avisa. El arreglo de fondo es
+   * que el residuo cuente como UN grupo (lo hace el servidor), esto es el cinturón.
+   */
+  lista(xs: string[], n = 5): string {
+    return xs.slice(0, n).join(', ') + (xs.length > n ? ` y ${xs.length - n} más` : '');
+  }
 
   signo(v: number | null): string { return v === null ? 'sin base' : `${v > 0 ? '+' : ''}${v}%`; }
   canalShort(c: string | null): string { return c ? (SALES_CANAL_SHORT[c as SalesCanal] ?? '') : ''; }
