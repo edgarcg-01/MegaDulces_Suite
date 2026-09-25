@@ -2786,8 +2786,16 @@ export class CommercialAnalyticsService {
         const P = C.children.get(p)!;
         P.total += Number(r.total); P.movs += Number(r.movs);
       }
+      // ⚠️ El residuo va SIEMPRE al final, no donde lo ponga su monto. Ordenar por importe lo
+      // dejaba ENCABEZANDO la tabla (73.2 % con el clasificador roto, ~12 % con el arreglado), y
+      // un bucket que significa «no pude clasificar esto» liderando el ranking se lee como si
+      // fuera la categoría más grande del negocio. No es una categoría: es lo que falta clasificar.
       const tree = [...canales.values()]
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => {
+          if (a.key === SALES_CANAL_RESIDUO) return 1;
+          if (b.key === SALES_CANAL_RESIDUO) return -1;
+          return b.total - a.total;
+        })
         .map((c) => ({
           ...c, share_pct: share(c.total),
           children: [...c.children.values()].sort((a, b) => b.total - a.total)

@@ -129,6 +129,10 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
         <app-load-state [error]="error()" (retry)="reload()"></app-load-state>
       } @else {
         @if (view() === 'arbol') {
+          <!-- ⚠️ Los anchos van en el <th> Y en el <td>. Con [scrollable] PrimeNG renderiza
+               encabezado y cuerpo como DOS tablas separadas, así que el width del <th> no llega
+               al <td> y las columnas quedan corridas respecto de su título. Se veía en pantalla:
+               "3,487" a la izquierda y "Docs" al extremo derecho. -->
           <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm in-table">
             <ng-template #header>
               <tr><th>Canal / plaza</th><th class="ta-r" style="width:8rem">Docs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
@@ -140,9 +144,9 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                   <span [class.strong]="rowData.level === 'canal'">{{ rowData.label }}</span>
                   @if (rowData.residuo) { <span class="in-tag">residuo</span> }
                 </td>
-                <td class="ta-r">{{ rowData.movs | number }}</td>
-                <td class="ta-r strong">{{ money(rowData.total) }}</td>
-                <td class="ta-r muted">{{ rowData.share_pct }}%</td>
+                <td class="ta-r" style="width:8rem">{{ rowData.movs | number }}</td>
+                <td class="ta-r strong" style="width:12rem">{{ money(rowData.total) }}</td>
+                <td class="ta-r muted" style="width:7rem">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="4" class="in-empty">Sin ingresos en el período.</td></tr></ng-template>
