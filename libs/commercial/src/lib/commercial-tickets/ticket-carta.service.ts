@@ -70,7 +70,7 @@ export class TicketCartaService {
    *     pasa en todo documento anterior al 2026-08-13, cuando Kepler empezó a guardarlo.
    *     Dejarla con guiones o en $0.00 le daría al cliente un "antes costaba nada".
    */
-  private fila(l: TicketLinea, conDesc: boolean, conLista: boolean, conImp: boolean): string {
+  private fila(l: TicketLinea, conDesc: boolean, conLista: boolean, conImp: boolean, conNeto: boolean): string {
     const rebaja = l.descuento_linea > 0;
     // Un GUION, no un $0.00, cuando el renglón no lleva ese impuesto. Medido: IVA e IEPS nunca
     // coinciden (0 de 123,203 renglones), así que una de las dos celdas SIEMPRE va vacía — y un
@@ -83,6 +83,8 @@ export class TicketCartaService {
       <td class="r">${cant(l.cantidad)}${l.unidad ? ` <i>${esc(l.unidad)}</i>` : ''}</td>
       ${conLista ? `<td class="r ${rebaja ? 'tachado' : ''}">${l.lista_conocida ? money(l.precio_lista) : '<i>sin dato</i>'}</td>` : ''}
       <td class="r fuerte">${money(l.precio_pagado)}</td>
+      ${conNeto ? `<td class="r neto">${l.precio_neto != null ? money(l.precio_neto) : '<i>sin dato</i>'}</td>
+      <td class="r neto fuerte">${l.precio_neto_desc != null ? money(l.precio_neto_desc) : '<i>sin dato</i>'}</td>` : ''}
       ${conDesc ? `<td class="r ahorro">${rebaja ? '-' + money(l.descuento_linea) : ''}</td>` : ''}
       ${conImp ? `<td class="r">${imp(l.ieps, l.ieps_tasa)}</td><td class="r">${imp(l.iva, l.iva_tasa)}</td>` : ''}
       <td class="r fuerte">${money(l.importe)}</td>
@@ -101,7 +103,12 @@ export class TicketCartaService {
     // que declara el documento. Unas columnas que no suman lo declarado son peores que no
     // tenerlas: el cliente las suma y no le da (ADR-056).
     const conImp = c.impuesto_desglosado;
-    const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista, conImp)).join('\n');
+    // [TK.10] Las dos columnas de neto viajan juntas y cuelgan del MISMO cuadre que el
+    // impuesto: el neto se deriva de la cascada fiscal, asi que si esa no reproduce la
+    // cabecera, estas dos tampoco se pueden publicar. Un neto que no reconstruye el total es
+    // peor que ninguno, igual que las columnas de impuesto (ADR-056).
+    const conNeto = c.impuesto_desglosado && c.importe_neto != null;
+    const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista, conImp, conNeto)).join('\n');
     const logo = this.anexo.logo();
 
     // Los renglones del resumen se arman como lista y se filtran: un "- $0.00" invita a
@@ -122,6 +129,14 @@ export class TicketCartaService {
       // Medido en el anexo: hay documentos donde el total es MAYOR que la suma de renglones
       // (redondeo a favor del cliente). Llamarlo "descuento negativo" confundiria; se nombra.
       resumen.push(`<tr><td>Ajuste de redondeo</td><td class="r">${money(-c.descuento_documento)}</td></tr>`);
+    }
+    if (conNeto) {
+      // Cierra exacto contra el total: importe_neto + IEPS + IVA = total pagado.
+      resumen.push(`<tr class="neto"><td>Importe neto <i>(sin impuestos)</i></td><td class="r">${money(c.importe_neto as number)}</td></tr>`);
+      if (doc.impuestos_incluidos) {
+        if (c.ieps != null && c.ieps > 0) resumen.push(`<tr><td>IEPS</td><td class="r">${money(c.ieps)}</td></tr>`);
+        if (c.iva != null && c.iva > 0) resumen.push(`<tr><td>IVA</td><td class="r">${money(c.iva)}</td></tr>`);
+      }
     }
     if (!doc.impuestos_incluidos && c.iva != null && c.iva > 0) {
       resumen.push(`<tr><td>IVA</td><td class="r">${money(c.iva)}</td></tr>`);
@@ -167,6 +182,22 @@ col.c-tx{width:10%}
 table.det.con-imp col.c-prod{width:27%}table.det.con-imp col.c-cant{width:9%}
 table.det.con-imp col.c-pl,table.det.con-imp col.c-pp,table.det.con-imp col.c-ds{width:11%}
 table.det.con-imp col.c-imp{width:11%}
+/* [TK.10] Con los dos netos son DIEZ columnas. El ancho sale del nombre del producto, que
+   es lo unico elastico: cae a 20% (~39.6mm) y a 8.5pt eso son ~28 caracteres, o sea que el
+   p95 medido de 41 se parte en dos renglones mas seguido. Se acepta a proposito: el renglon
+   crece hacia abajo, que es reversible, mientras que una cifra recortada no se nota. */
+col.c-nt{width:9%}
+table.det.con-neto col.c-prod{width:26%}
+table.det.con-imp.con-neto col.c-prod{width:20%}
+table.det.con-imp.con-neto col.c-cant{width:8%}
+table.det.con-imp.con-neto col.c-pl,table.det.con-imp.con-neto col.c-pp,
+table.det.con-imp.con-neto col.c-ds{width:9%}
+table.det.con-imp.con-neto col.c-tx{width:8%}
+/* El neto se tinta para que se lea como un bloque y no se confunda con el precio cobrado:
+   son la misma magnitud en otra unidad (sin impuesto), y mezclarlas es el error caro. */
+table.det td.neto,table.det thead th.neto{background:var(--accent-soft)}
+table.det td.neto{color:var(--accent)}
+table.det thead th.neto{color:var(--accent)}
 table.det thead{display:table-header-group}
 table.det thead th{font-size:7pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;
   text-align:right;padding:3px 5px;border-bottom:1.5px solid var(--ink)}
@@ -239,10 +270,11 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
 
 <div class="sec-h"><h2>Productos</h2>
   <span>${doc.lineas.length} renglon${doc.lineas.length === 1 ? '' : 'es'}</span></div>
-<table class="det ${conDesc ? '' : 'sin-desc'} ${conImp ? 'con-imp' : ''}">
-  <colgroup><col class="c-prod"><col class="c-cant">${conLista ? '<col class="c-pl">' : ''}<col class="c-pp">${conDesc ? '<col class="c-ds">' : ''}${conImp ? '<col class="c-tx"><col class="c-tx">' : ''}<col class="c-imp"></colgroup>
+<table class="det ${conDesc ? '' : 'sin-desc'} ${conImp ? 'con-imp' : ''} ${conNeto ? 'con-neto' : ''}">
+  <colgroup><col class="c-prod"><col class="c-cant">${conLista ? '<col class="c-pl">' : ''}<col class="c-pp">${conNeto ? '<col class="c-nt"><col class="c-nt">' : ''}${conDesc ? '<col class="c-ds">' : ''}${conImp ? '<col class="c-tx"><col class="c-tx">' : ''}<col class="c-imp"></colgroup>
   <thead><tr>
     <th class="l">Producto</th><th>Cantidad</th>${conLista ? '<th>Precio de lista</th>' : ''}<th>${conLista ? 'Precio pagado' : 'Precio'}</th>
+    ${conNeto ? '<th class="neto">Neto</th><th class="neto">Neto c/desc</th>' : ''}
     ${conDesc ? '<th>Descuento</th>' : ''}${conImp ? '<th>IEPS</th><th>IVA</th>' : ''}<th>Importe</th>
   </tr></thead>
   <tbody>${filas}</tbody>
