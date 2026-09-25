@@ -3716,3 +3716,63 @@ coincidan. Es exactamente cómo el tipo `Freshness` terminó copiado a mano a lo
 ⚠️ **Y el corolario incómodo:** un spec verde sobre un fixture propio **no prueba que el contrato se
 respete**. Prueba que el componente es coherente consigo mismo. Lo mismo que ya está escrito en §67
 para el SQL: *un doble nunca valida el otro lado*.
+
+---
+
+## 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings
+
+**Vivido el 2026-09-25 en `[IG.0.1]`, y llegó a producción.**
+
+`knex.raw(sql)` parsea `?` como placeholder posicional **siempre**, sin importar que no haya array
+de bindings. En una regex de Postgres el `?` es un cuantificador, así que una migración que crea una
+función con regex instala esto:
+
+```sql
+-- lo que se escribió            -- lo que knex instaló en prod
+up ~ '(R\.?D\.?|RUTA)\D*\d+'     up ~ '(R\.$1D\.$2|RUTA)\D*\d+'
+```
+
+**Y no falla.** La función se crea, la consulta corre, el total sigue cuadrando al centavo. Lo único
+que miente es la clasificación:
+
+| canal | instalado (roto) | correcto |
+|---|---:|---:|
+| mostrador | $6,324,400.46 | $33,807,924.40 |
+| otro (residuo) | $39,300,333.58 | $5,021,917.61 |
+| reparto vecinal | *desaparece* | $1,461,182.10 |
+
+⚠️ **Lo que hizo que se escapara de la revisión:** la función se verificó creándola en `pg_temp`
+**con `psql`**, y ahí los cinco canales cuadraban exactos. **`psql` no toca los `?`; `knex` sí.** Se
+probó con un ejecutor distinto del que despliega, y el bug vive justo en esa diferencia. Es el
+espejo de §67 (`SET` no acepta parámetros ligados) y de la Fase CV.7 (allá los `$1` nativos no
+servían porque knex sólo entiende `?`).
+
+**La regla:** en un SQL que viaja por `knex.raw`, **no escribas ni un `?`**. No lo escapes como
+`\?` —funciona, pero deja una trampa que el siguiente que edite el archivo no puede adivinar—:
+escribí la regex sin él.
+
+```
+\.?        →  \.{0,1}
+TLMKT?     →  TLMKT{0,1}
+(?:A|B)    →  (A|B)   ← grupo normal, y corré el índice del `regexp_match`
+```
+
+**Cómo detectarlo sin esperar a que alguien lo note.** Dos comprobaciones baratas, las dos ya en
+`test-newdb-income-parity.js`:
+
+```sql
+-- 1. estructural: ninguna regex de la función puede contener $N
+SELECT pg_get_functiondef(p.oid) ~ '~ ''[^'']*\$\d' AS rota
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'analytics' AND p.proname = 'income_entries_src';
+
+-- 2. barrido de todo prod, para saber si le pasó a alguien más
+SELECT n.nspname||'.'||p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE p.prokind = 'f' AND pg_get_functiondef(p.oid) ~ '~ ''[^'']*[$][0-9]';
+```
+
+El barrido se corrió el 2026-09-25 contra prod: **una sola función afectada**, la de este incidente.
+
+⚠️ **Y la lección que vale más que el bug:** el candado de paridad comparaba el TOTAL y también
+**por canal**. El total salió verde. Si sólo hubiera comparado totales, esto entraba a producción
+sin un solo ruido — y el número grande de la pantalla habría estado bien todo el tiempo.

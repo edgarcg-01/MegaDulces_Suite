@@ -71,7 +71,14 @@ const ultimoDia = (ym) => {
     await knex.destroy();
     process.exit(0);
   }
-  const fn = await knex.raw(`SELECT to_regclass('analytics.income_entries_src'::text) IS NOT NULL AS t`)
+  // ⛔ `to_regclass` NO resuelve FUNCIONES, sólo relaciones (tablas, vistas, índices, secuencias).
+  // Con él esta comprobación devolvía `false` **aunque la función existiera** → el candado salía por
+  // el camino de «NO MEDIDO» y **terminaba en verde SIEMPRE**: un gate que no puede fallar, que es
+  // justo la clase de verde-por-vacuidad que este archivo existe para impedir. Lo destapó aplicar la
+  // migración a prod y ver que el chequeo seguía diciendo que no estaba.
+  // `to_regprocedure` sí, y lleva la firma porque el nombre solo es ambiguo si hay sobrecargas.
+  const fn = await knex.raw(
+    `SELECT to_regprocedure('analytics.income_entries_src(date,date)') IS NOT NULL AS t`)
     .then((r) => r.rows[0]?.t).catch(() => false);
   if (!fn) {
     declarar('analytics.income_entries_src() no existe todavía — falta aplicar la migración 20260925150000');
@@ -99,8 +106,22 @@ const ultimoDia = (ym) => {
   }
   if (!mesesConDato) declarar('ningún mes cerrado tenía datos en las dos fuentes');
 
-  // ── 2. Por CANAL, no sólo el total: un clasificador roto puede cuadrar en la suma ─────────
-  console.log('\n2) Por canal — la suma puede cuadrar con los canales cruzados');
+  // ── 1-bis. El cuerpo instalado no puede traer placeholders de knex ────────────────────────
+  // `knex.raw(sql)` parsea `?` como placeholder **aunque no le pases bindings** y lo sustituye por
+  // `$N`. En una regex de Postgres el `?` es un cuantificador, así que la migración 20260925150000
+  // instaló `(R\.$1D\.$2|RUTA)` en prod y el clasificador quedó mudo. El TOTAL siguió cuadrando:
+  // sólo mintió el desglose. Esta comprobación es barata y no depende de que haya datos.
+  console.log('\n1-bis) El cuerpo de la función no trae placeholders de knex');
+  const { rows: def } = await knex.raw(
+    `SELECT pg_get_functiondef(p.oid) AS src FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'analytics' AND p.proname = 'income_entries_src'`);
+  const cuerpo = def?.[0]?.src || '';
+  ok(cuerpo !== '' && !/~ '[^']*\$\d/.test(cuerpo),
+    'ninguna regex de la función contiene $1/$2 (señal de que knex se comió un `?`)');
+
+  // ── 2. Por CANAL y por PLAZA, no sólo el total: un clasificador roto cuadra en la suma ────
+  console.log('\n2) Por canal y por plaza — la suma puede cuadrar con los canales cruzados');
   const ymRef = mesesCerrados(1)[0];
   const porCanal = (await knex.raw(
     `SELECT canal, COALESCE(SUM(importe),0)::numeric AS v FROM analytics.income_entries_src(?::date, ?::date)
@@ -115,6 +136,23 @@ const ultimoDia = (ym) => {
       ok(Math.abs(Number(c.v) - Number(feed)) < 0.005,
         `${ymRef} · ${c.canal}: ${money(c.v)} == ${money(feed)}`);
     }
+
+    // Y por PLAZA. El canal solo no alcanza: la plaza sale del MISMO texto `c6` con otra regex, y
+    // puede romperse sola dejando el canal intacto.
+    const porPlaza = (await knex.raw(
+      `SELECT canal, plaza, COALESCE(SUM(importe),0)::numeric AS v
+         FROM analytics.income_entries_src(?::date, ?::date)
+        WHERE tenant_id = ? GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10`,
+      [`${ymRef}-01`, ultimoDia(ymRef), M])).rows;
+    let plazasMal = 0;
+    for (const p of porPlaza) {
+      const [{ v: feed }] = (await knex.raw(
+        `SELECT COALESCE(SUM(ventas),0)::numeric AS v FROM analytics.sales_by_channel_monthly
+          WHERE tenant_id = ? AND anio_mes = ? AND canal = ? AND plaza = ?`,
+        [M, ymRef, p.canal, p.plaza])).rows;
+      if (Math.abs(Number(p.v) - Number(feed)) >= 0.005) plazasMal++;
+    }
+    ok(plazasMal === 0, `${ymRef}: las 10 plazas más grandes cuadran al centavo (${plazasMal} distinta(s))`);
   }
 
   // ── 3. Mes vivo: se DECLARA, no se afirma ────────────────────────────────────────────────
