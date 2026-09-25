@@ -131,7 +131,71 @@ function assertAuthWiring(): void {
  *
  * Sólo aplica fuera de producción: en prod, apuntar a prod es lo correcto.
  */
-function assertNoEsProdEnDev(): void {
+/**
+ * `[REP.0.6]` LA EXCEPCIÓN: desarrollo LEYENDO producción, decidida el 2026-09-25.
+ *
+ * El equipo trabaja contra los datos de prod **sin escribirlos**: se escribe recién cuando el
+ * código llega a producción. Eso convierte a `[REP.0.5]` en un muro que ya no corresponde… pero
+ * sólo si las tres razones por las que existe están cerradas de verdad. No se afloja el guardián:
+ * se le agrega una excepción que **mide**, y que falla cerrada si algo falta.
+ *
+ * Las tres condiciones, y cada una es una de las razones escritas arriba:
+ *   1. ⛔ La cuenta NO puede escribir — comprobado contra la base (`has_table_privilege`), no por
+ *      el nombre del rol. Cierra "escribe en el padrón real". Las cuentas de `[SEG.4]` lo cumplen.
+ *   2. ⛔ `DISABLE_CRONS=true` — cierra "duplica los 51 cron".
+ *   3. ⛔ Sin credenciales de Cloudinary — cierra "borrando fotos de Cloudinary", que es la que
+ *      una base de solo lectura NO detiene: es una llamada a un servicio externo, no un UPDATE.
+ *      Es justo el agujero que quedaría si uno se conformara con que la base no deje escribir.
+ *
+ * ⚠️ `default_transaction_read_only` NO alcanza como prueba: la sesión puede apagarlo con un
+ * `SET`. Lo que no se puede apagar es no tener el privilegio, y eso es lo que se pregunta.
+ */
+async function permitirSoloLecturaContraProd(url: string, nombre: string): Promise<void> {
+  const faltan: string[] = [];
+
+  if (process.env['DISABLE_CRONS'] !== 'true') {
+    faltan.push('DISABLE_CRONS=true (sin esto arrancan 51 cron contra producción)');
+  }
+  if (process.env['CLOUDINARY_URL'] || process.env['CLOUDINARY_API_SECRET']) {
+    faltan.push(
+      'quitar CLOUDINARY_URL / CLOUDINARY_API_SECRET del .env — una base de solo lectura NO ' +
+        'impide borrar una foto real, porque eso es una llamada externa, no una escritura en la DB',
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Client } = require('pg');
+  const c = new Client({ connectionString: url, connectionTimeoutMillis: 10000 });
+  try {
+    await c.connect();
+    const { rows } = await c.query(
+      "select current_user as usuario, " +
+        "coalesce(has_table_privilege(current_user,'commercial.orders','INSERT'), true) as escribe, " +
+        '(select rolsuper from pg_roles where rolname = current_user) as superusuario',
+    );
+    if (rows[0].escribe || rows[0].superusuario) {
+      faltan.push(
+        `usar una cuenta de SOLO LECTURA: \`${rows[0].usuario}\` puede escribir en producción ` +
+          '(ops/prod/README.md §2.2 — `dev_ro`)',
+      );
+    }
+  } catch (e) {
+    faltan.push(`no se pudo comprobar si la cuenta escribe (${(e as Error).message.slice(0, 80)})`);
+  } finally {
+    await c.end().catch(() => undefined);
+  }
+
+  if (faltan.length) {
+    throw new Error(
+      `[REP.0.6] ${nombre} apunta a PRODUCCIÓN y NODE_ENV no es "production".\n` +
+        'Se permite LEER prod en desarrollo, pero falta cerrar:\n' +
+        faltan.map((f) => `  · ${f}`).join('\n') +
+        '\nAbortando el arranque.',
+    );
+  }
+}
+
+async function assertNoEsProdEnDev(): Promise<void> {
   if (process.env['NODE_ENV'] === 'production') return;
 
   // La guarda es CJS a propósito (ver su encabezado: es lo primero que corre
@@ -148,18 +212,18 @@ function assertNoEsProdEnDev(): void {
     if (!url) continue;
     const r = classify(url);
     if (r.kind === 'prod') {
-      throw new Error(
-        `[REP.0.5] ${nombre} apunta a PRODUCCIÓN (${r.host}/${r.db}) y NODE_ENV no es "production". ` +
-          'Abortando el arranque: una API de dev contra prod duplica los cron y escribe en el padrón real. ' +
-          'Si de verdad querés correr contra prod, poné NODE_ENV=production.',
-      );
+      // `[REP.0.6]` Ya no es un "no" seco: leer prod en desarrollo está permitido, pero sólo si
+      // las tres razones por las que este guardián existe están cerradas. Lo comprueba, no lo
+      // supone — y si falta alguna, aborta diciendo cuál.
+      // eslint-disable-next-line no-await-in-loop
+      await permitirSoloLecturaContraProd(url, nombre);
     }
   }
 }
 
 async function bootstrap() {
   assertAuthWiring();
-  assertNoEsProdEnDev();
+  await assertNoEsProdEnDev();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     // Con LOG_JSON=true, bufferLogs deja que nestjs-pino tome el control (los logs
