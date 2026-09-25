@@ -2504,8 +2504,7 @@ del ciclo que ya existía en la tabla, no de una invención: el `CHECK` de
 persona que firma. En *Cerrado* se le saldría de la vista a quien debe resolverlo.
 
 ⛔ **Acotar por día NO puede esconder lo que espera firma.** Un expediente que nadie aprobó
-anteayer no puede dejar de existir porque hoy miramos hoy. Por eso `delDia()` devuelve además
-`dias_recientes` (con **cuántas firmas debe cada día**, que el rail marca con un punto) y
+anteayer no puede dejar de existir porque hoy miramos hoy. Por eso `delDia()` devuelve
 `pendientes_fuera_del_dia`, que la pestaña *Aprobar* dice con su monto. **Medido en local:** el día
 mostraba 9 expedientes y el aviso decía «otros días tienen 9 esperando firma ($68,865.50)» — que
 son exactamente los 6 del 24-sep ($65,385.00) más los 3 del 14-sep ($3,480.50).
@@ -2539,6 +2538,26 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
 - [x] **[GX.20.5]** ⚠️ Atrapado en el acto: un acento grave dentro de un comentario **CSS** del
   bloque `styles` — la OCTAVA vez en este repo. `check:templates` lo confirmó limpio después.
   ✅ 2026-09-25
+- [x] **[GX.20.6]** **La barra de navegación de días se retiró por pedido del usuario.** Con ella
+  se fueron el rail, el selector de fecha y el código que ya no podía alcanzarse (`mover()`,
+  `irADia()`, `irAHoy()`, `railVisible()`, `sumarDias()`, `FormsModule` y dos clases de CSS que
+  quedaban huérfanas). La pantalla muestra **siempre hoy**. ⚠️ Arrastró tres cosas que habrían
+  quedado mintiendo: el aviso decía «están marcados en el rail de arriba» (un control que ya no
+  existe), el vacío decía «probá otro día del rail», y **el día dejaba de estar escrito en
+  ningún lado** — una pantalla que dice «del día» sin decir cuál no se puede auditar, así que el
+  día pasó al subtítulo. El aviso de lo que quedó afuera **se conserva a propósito**: ahora que no
+  hay cómo ir a buscarlo, callarlo lo borraría de todas las pantallas. `delDia()` sigue aceptando
+  `fecha` — se fue el control, no la capacidad. ✅ 2026-09-25
+- [x] **[GX.20.7]** ⚠️ La prueba del día **pasaba en verde mostrando el día en inglés**: el
+  `TestBed` corre en `en-US` y el pipe daba «Friday 25 de September» mientras `textContent` seguía
+  conteniendo lo que la aserción buscaba. Se registró `es-MX` en el spec como en `app.config.ts`.
+  Y la revisión visual encontró lo que ninguna prueba vio: `::first-letter` en mayúscula daba
+  «Los levantamientos del **V**iernes 25» — correcto cuando era el título de una barra, incorrecto
+  en medio de una frase. ✅ 2026-09-25
+
+**Pruebas tras el retiro de la barra:** 15 (motor puro) + 27 (componente) = **42**; las cuatro de
+navegación de día se reemplazaron por el candado de que **no queden controles de fecha** y de que
+la pantalla **siga nombrando el día** que muestra. `view/finanzas` 164 verde.
 
 **Verificado en el 4200** contra `platform_local`, con un día sembrado a propósito (9 expedientes
 repartidos en los cinco estados, marcados `created_by='demo_gx20'`): el servidor cuadra al centavo

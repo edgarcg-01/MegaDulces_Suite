@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
@@ -42,20 +41,6 @@ export function isoADiaLocal(iso: string): Date | null {
 }
 
 /**
- * Corre una fecha ISO N días, sin salirse del calendario.
- *
- * Se hace en UTC a propósito: mover un `Date` local a través de un cambio de horario daría
- * 23 o 25 horas y el día podría repetirse o saltarse. Acá sólo se mueve el casillero.
- */
-export function sumarDias(iso: string, n: number): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? '').slice(0, 10));
-  if (!m) return iso;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-/**
  * `[GX.20]` — **Aprobación de gastos.** El día del gasto, en tres pestañas.
  *
  * La pantalla de GX.17 era una bandeja: «todo lo que espera firma, de cualquier fecha».
@@ -73,8 +58,14 @@ export function sumarDias(iso: string, n: number): string {
  *
  * ## ⛔ Acotar por día NO esconde lo que espera firma
  * Un expediente que nadie aprobó anteayer no puede dejar de existir porque hoy miramos hoy.
- * Por eso el rail de días marca **cuántas firmas debe cada uno** y, cuando queda algo afuera
- * del rango, la pestaña *Aprobar* lo dice con su monto. El día filtra lo que se LEE.
+ * Por eso, cuando queda algo afuera del día, la pestaña *Aprobar* **lo dice con su monto**.
+ * El día filtra lo que se LEE, nunca lo que existe.
+ *
+ * ⚠️ La barra de navegación de días **se retiró por pedido del usuario** (2026-09-25). La
+ * pantalla muestra siempre HOY. El aviso de lo que quedó afuera se conserva justamente
+ * porque ya no hay cómo ir a buscarlo: si además se callara, ese trabajo no existiría en
+ * ninguna pantalla. `delDia()` sigue aceptando `fecha` — lo que se fue es el control, no la
+ * capacidad.
  *
  * ## ⚠️ El día es el de CAPTURA
  * «Los levantamientos que se hicieron al día» es cuándo se **levantó** el expediente. El
@@ -88,7 +79,7 @@ export function sumarDias(iso: string, n: number): string {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, ToastModule],
+  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -97,50 +88,18 @@ export function sumarDias(iso: string, n: number): string {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Aprobación de gastos</h1>
-          <p class="surf-page-sub">Los levantamientos del día, partidos por lo que falta hacer con ellos.</p>
+          <!-- Sin barra de días, el subtítulo es lo único que ancla la cifra a una fecha.
+               Una pantalla que dice «del día» sin decir cuál no se puede auditar. -->
+          <p class="surf-page-sub">
+            Los levantamientos del
+            <strong class="ap-dia-txt">{{ diaLocal(fechaActiva()) | date: "EEEE d 'de' MMMM" }}</strong>,
+            partidos por lo que falta hacer con ellos.
+          </p>
         </div>
         <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
           <i class="pi pi-refresh" aria-hidden="true"></i>&nbsp;Actualizar
         </button>
       </header>
-
-      <!-- ── El día ──────────────────────────────────────────────────────────────── -->
-      <nav class="ap-dia" aria-label="Día que se está mirando">
-        <button pButton type="button" class="p-button-text p-button-sm" aria-label="Día anterior"
-                [disabled]="cargando()" (click)="mover(-1)">
-          <i class="pi pi-chevron-left" aria-hidden="true"></i>
-        </button>
-
-        <div class="ap-dia-hoy">
-          <strong>{{ diaLocal(fechaActiva()) | date: 'EEEE d \\'de\\' MMMM' }}</strong>
-          @if (datos()?.es_hoy) { <span class="ap-chip ok">hoy</span> }
-          @else { <button type="button" class="ap-link" (click)="irAHoy()">ir a hoy</button> }
-        </div>
-
-        <button pButton type="button" class="p-button-text p-button-sm" aria-label="Día siguiente"
-                [disabled]="cargando() || datos()?.es_hoy" (click)="mover(1)">
-          <i class="pi pi-chevron-right" aria-hidden="true"></i>
-        </button>
-
-        <label class="ap-fecha-in">
-          <span class="ap-sr">Elegir día</span>
-          <input type="date" [ngModel]="fechaActiva()" (ngModelChange)="irADia($event)" [max]="datos()?.hoy || null" />
-        </label>
-
-        <span class="ap-grow"></span>
-
-        <!-- El rail dice qué días deben firmas. Es lo que impide que el día esconda trabajo. -->
-        <div class="ap-rail">
-          @for (d of railVisible(); track d.dia) {
-            <button type="button" class="ap-rail-d" [class.on]="d.dia === fechaActiva()"
-                    [title]="d.n + ' levantamientos · ' + money(d.monto) + (d.pendientes ? ' · ' + d.pendientes + ' esperan firma' : '')"
-                    (click)="irADia(d.dia)">
-              <span class="ap-rail-n">{{ diaLocal(d.dia) | date: 'd' }}</span>
-              @if (d.pendientes) { <span class="ap-rail-p" aria-label="esperan firma">{{ d.pendientes }}</span> }
-            </button>
-          }
-        </div>
-      </nav>
 
       @if (cargando()) { <div class="ap-muted">Cargando…</div> }
       @else if (error()) { <div class="ap-err">{{ error() }}</div> }
@@ -172,7 +131,7 @@ export function sumarDias(iso: string, n: number): string {
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             <span>
               Otros días tienen <strong>{{ d.pendientes_fuera_del_dia.n }}</strong> esperando firma
-              ({{ money(d.pendientes_fuera_del_dia.monto) }}). Están marcados en el rail de arriba.
+              ({{ money(d.pendientes_fuera_del_dia.monto) }}). Esta pantalla muestra sólo hoy.
             </span>
           </div>
         }
@@ -180,8 +139,8 @@ export function sumarDias(iso: string, n: number): string {
         @if (!d.total) {
           <div class="ap-vacio">
             <i class="pi pi-calendar" aria-hidden="true"></i>
-            <div><strong>Ese día no se levantó ningún gasto.</strong>
-              <div class="ap-muted">Probá otro día del rail, o volvé a hoy.</div>
+            <div><strong>Hoy todavía no se levantó ningún gasto.</strong>
+              <div class="ap-muted">En cuanto alguien capture uno, aparece acá.</div>
             </div>
           </div>
         } @else {
@@ -303,11 +262,8 @@ export function sumarDias(iso: string, n: number): string {
     .ap-muted { font-size: var(--fs-sm); color: var(--fg-2); padding: var(--sp-3); }
     .ap-faint { font-size: var(--fs-xs); color: var(--fg-3); }
     .ap-grow { flex-grow: 1; }
-    .ap-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .ap-err { font-size: var(--fs-sm); color: var(--bad-fg); padding: var(--sp-3);
       border: 1px solid var(--bad-border); border-radius: var(--r-md); }
-    .ap-link { border: 0; background: transparent; padding: 0; font: inherit; font-size: var(--fs-xs);
-      color: var(--action); cursor: pointer; text-decoration: underline; }
 
     .ap-vacio { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-5);
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
@@ -318,26 +274,10 @@ export function sumarDias(iso: string, n: number): string {
       border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
     .ap-aviso.warn { color: var(--warn-fg); border-color: var(--warn-border); }
 
-    /* ── El día ─────────────────────────────────────────────────────────────── */
-    .ap-dia { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-      background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
-    .ap-dia-hoy { display: flex; align-items: center; gap: var(--sp-2); min-width: 15rem;
-      font-size: var(--fs-sm); }
-    /* Solo la PRIMERA letra: "capitalize" a secas da «Viernes 25 De Septiembre», con el
-       "De" en mayuscula, que no es como se escribe una fecha en castellano. */
-    .ap-dia-hoy strong::first-letter { text-transform: uppercase; }
-    .ap-fecha-in input { height: 28px; border: 1px solid var(--border-color); border-radius: var(--r-sm);
-      background: var(--layout-bg); color: var(--fg-1); font: inherit; font-size: var(--fs-xs); padding: 0 6px; }
-    .ap-rail { display: flex; gap: 2px; flex-wrap: wrap; }
-    .ap-rail-d { position: relative; width: 30px; height: 30px; border: 1px solid transparent;
-      border-radius: var(--r-sm); background: var(--layout-bg); color: var(--fg-2);
-      font: inherit; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; cursor: pointer; }
-    .ap-rail-d:hover { border-color: var(--border-color); }
-    .ap-rail-d.on { background: var(--fg-1); color: var(--card-bg); font-weight: var(--fw-bold); }
-    .ap-rail-p { position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px;
-      border-radius: 7px; background: var(--action); color: #fff;
-      font-size: var(--fs-nano); line-height: 14px; padding: 0 3px; }
+    /* Sin capitalizar: el dia va EN MEDIO de la frase («Los levantamientos del viernes 25
+       de septiembre»). Ponerle mayuscula ahi es tan incorrecto como el «De Septiembre» que
+       daba "capitalize" a secas cuando esto era el titulo de una barra. */
+    .ap-dia-txt { font-weight: var(--fw-bold); }
 
     /* ── Pestañas ───────────────────────────────────────────────────────────── */
     .ap-tabs { display: flex; gap: 2px; background: var(--card-bg); border: 1px solid var(--border-color);
@@ -418,7 +358,8 @@ export class FinanzasAprobacionGastosComponent {
   readonly pestana = signal<PestanaGasto>('aprobar');
   readonly grupo = signal<string | null>(null);
   readonly actuando = signal<string | null>(null);
-  /** El día pedido. Vacío = «hoy», y quien decide cuál es hoy es el servidor. */
+  /** El día que muestra la pantalla: siempre hoy, y quién es hoy lo decide el SERVIDOR
+   *  (hora de México). Se retiró la barra que dejaba elegir otro — ver el doc de la clase. */
   private readonly fecha = signal<string>('');
 
   readonly tabs: { id: PestanaGasto; label: string }[] = [
@@ -445,36 +386,12 @@ export class FinanzasAprobacionGastosComponent {
       });
   }
 
-  irADia(iso: string): void {
-    if (!iso || iso === this.fechaActiva()) return;
-    this.fecha.set(iso);
-    this.cargar();
-  }
-
-  irAHoy(): void {
-    this.fecha.set('');
-    this.cargar();
-  }
-
-  mover(delta: number): void {
-    const base = this.fechaActiva();
-    if (!base) return;
-    const destino = sumarDias(base, delta);
-    // No se navega al futuro: no hay levantamientos de mañana, y una pantalla vacía sin
-    // explicación se lee como «no hay nada», que es otra cosa.
-    if (this.datos()?.hoy && destino > this.datos()!.hoy) return;
-    this.irADia(destino);
-  }
-
   verPestana(p: PestanaGasto): void {
     this.pestana.set(p);
     // El filtro por departamento es de la pestaña que firma: arrastrarlo a otra dejaría la
     // lista recortada sin que se vea por qué.
     if (p !== 'aprobar') this.grupo.set(null);
   }
-
-  /** Los días del rail, más nuevo primero y acotados a dos semanas para que entren. */
-  readonly railVisible = computed(() => (this.datos()?.dias_recientes ?? []).slice(0, 14).reverse());
 
   /**
    * Lo que se ve, según la pestaña y el grupo elegido.

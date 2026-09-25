@@ -1,9 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LOCALE_ID } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import {
-  FinanzasAprobacionGastosComponent, isoADiaLocal, sumarDias,
-} from './finanzas-aprobacion-gastos.component';
+import { registerLocaleData } from '@angular/common';
+import localeEsMx from '@angular/common/locales/es-MX';
+import { FinanzasAprobacionGastosComponent, isoADiaLocal } from './finanzas-aprobacion-gastos.component';
 import type { ExpedienteDelDia, GastosDelDia } from '../comprobaciones.service';
 
 /**
@@ -100,23 +101,6 @@ describe('[GX.20] la fecha no se corre de día', () => {
     for (const v of ['', 'hoy', '25/09/2026', 'Thu Sep 24']) expect(isoADiaLocal(v)).toBeNull();
   });
 
-  it('correr días respeta fin de mes y fin de año', () => {
-    expect(sumarDias('2026-09-25', 1)).toBe('2026-09-26');
-    expect(sumarDias('2026-09-25', -1)).toBe('2026-09-24');
-    expect(sumarDias('2026-09-30', 1)).toBe('2026-10-01');
-    expect(sumarDias('2026-01-01', -1)).toBe('2025-12-31');
-    expect(sumarDias('2028-02-28', 1)).toBe('2028-02-29'); // bisiesto
-  });
-
-  /** ⚠️ El cambio de horario da días de 23 o 25 horas: moverse en UTC evita repetir o saltar uno. */
-  it('el cambio de horario no repite ni saltea un día', () => {
-    expect(sumarDias('2026-04-05', 1)).toBe('2026-04-06');
-    expect(sumarDias('2026-10-25', 1)).toBe('2026-10-26');
-  });
-
-  it('una fecha ilegible se devuelve tal cual, no se inventa una', () => {
-    expect(sumarDias('nada', 1)).toBe('nada');
-  });
 });
 
 describe('FinanzasAprobacionGastosComponent', () => {
@@ -133,10 +117,14 @@ describe('FinanzasAprobacionGastosComponent', () => {
     return req;
   };
 
+  // El locale va como en `app.config.ts`. Sin esto el pipe de fecha corre en `en-US` y la
+  // prueba comprobaria «Friday 25 de September» -- que no es lo que nadie ve en pantalla.
+  beforeAll(() => registerLocaleData(localeEsMx));
+
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [FinanzasAprobacionGastosComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -147,11 +135,6 @@ describe('FinanzasAprobacionGastosComponent', () => {
     montar();
     expect(c.pestana()).toBe('aprobar');
     expect(fix.nativeElement.textContent).toContain('Aprobación de gastos');
-  });
-
-  it('el primer pedido es HOY: no manda fecha, porque el día lo decide el servidor', () => {
-    const req = montar();
-    expect(req.request.params.has('fecha')).toBe(false);
   });
 
   describe('las tres pestañas', () => {
@@ -224,35 +207,29 @@ describe('FinanzasAprobacionGastosComponent', () => {
     });
   });
 
-  describe('moverse de día', () => {
-    it('el día anterior pide esa fecha', () => {
+  /**
+   * La barra de navegación de días se retiró por pedido del usuario (2026-09-25). Lo que
+   * queda es el candado de que la pantalla **sigue diciendo qué día muestra** y de que no
+   * se calla lo que quedó afuera: sin barra, ese aviso es lo único que revela ese trabajo.
+   */
+  describe('la pantalla muestra HOY, y lo dice', () => {
+    it('no hay controles para cambiar de día', () => {
       montar();
-      c.mover(-1);
-      const req = http.expectOne((r) => r.url.includes('/del-dia') && r.params.get('fecha') === '2026-09-24');
-      req.flush(DIA({ fecha: '2026-09-24', es_hoy: false }));
-      expect(c.fechaActiva()).toBe('2026-09-24');
+      const html = fix.nativeElement.innerHTML as string;
+      expect(html).not.toContain('ap-rail');
+      expect(html).not.toContain('type="date"');
+      expect(fix.nativeElement.querySelectorAll('input[type=date]').length).toBe(0);
     });
 
-    /** No hay levantamientos de mañana, y una pantalla vacía se leería como «no hay nada». */
-    it('no se puede pasar de hoy', () => {
+    /** Una pantalla que dice «del día» sin decir cuál no se puede auditar. */
+    it('nombra el día que está mostrando', () => {
       montar();
-      c.mover(1);
-      http.expectNone((r) => r.url.includes('/del-dia'));
-      expect(c.fechaActiva()).toBe('2026-09-25');
+      expect(fix.nativeElement.textContent).toContain('viernes 25 de septiembre');
     });
 
-    it('«ir a hoy» vuelve a pedir sin fecha', () => {
-      montar(DIA({ fecha: '2026-09-20', es_hoy: false }));
-      c.irAHoy();
-      const req = http.expectOne((r) => r.url.includes('/del-dia'));
+    it('sólo pide hoy: nunca manda fecha', () => {
+      const req = montar();
       expect(req.request.params.has('fecha')).toBe(false);
-      req.flush(DIA());
-    });
-
-    it('pedir el día que ya se está viendo no dispara otro viaje', () => {
-      montar();
-      c.irADia('2026-09-25');
-      http.expectNone((r) => r.url.includes('/del-dia'));
     });
   });
 
@@ -266,6 +243,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
       const txt = fix.nativeElement.textContent as string;
       expect(txt).toContain('7');
       expect(txt).toContain('$12,345.67');
+      // Ya no hay rail al que mandar a nadie: el aviso no puede prometer un control que no existe.
+      expect(txt).not.toContain('rail');
     });
 
     it('ese aviso es de la pestaña que firma, no de las otras', () => {
@@ -291,6 +270,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.error()).toBeTruthy();
       expect(txt).toContain('No se pudo cargar el día');
       expect(txt).not.toContain('no se levantó ningún gasto');
+      expect(txt).not.toContain('Nada de este día espera');
     });
 
     it('un día sin movimiento lo dice con todas las letras', () => {
@@ -300,6 +280,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
         aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
       expect(fix.nativeElement.textContent).toContain('no se levantó ningún gasto');
+      // Y no manda a «probar otro día»: ya no hay cómo.
+      expect(fix.nativeElement.textContent).not.toContain('otro día');
     });
 
     /** Las dos fechas son cosas distintas: cuándo se levantó y cuándo ocurrió el gasto. */
