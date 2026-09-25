@@ -198,14 +198,42 @@ if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS
 # compuerta puede DEJAR PASAR una migración pendiente o inventar una que no existe. Medido el
 # 2026-09-24 en `md`: los tres avisos salieron; esa vez el veredicto coincidió de casualidad
 # (4 pendientes con los dos órdenes), lo cual es justo lo que vuelve invisible al defecto.
-git ls-tree -r --name-only HEAD database/migrations-newdb/ \
-  | sed 's#.*/##' | grep -E '\.js$' | LC_ALL=C sort > /tmp/ad-repo.txt
 docker exec pg-prod psql -U postgres -At -d railway -c 'SELECT name FROM public.knex_migrations' 2>/dev/null \
-  | tr -d '\r' | grep -E '\.js$' | LC_ALL=C sort > /tmp/ad-prod.txt
-PEND=$(LC_ALL=C comm -23 /tmp/ad-repo.txt /tmp/ad-prod.txt)
+  | tr -d '\r' | grep -E '\.js$' > /tmp/ad-prod.txt
 if [ ! -s /tmp/ad-prod.txt ]; then
   di "FALLO: no se pudo leer public.knex_migrations — estado de migraciones NO MEDIDO. No se despliega a ciegas."
   latir error "no se pudo leer knex_migrations"; exit 1
+fi
+
+# ── [VL.21] CLASIFICA, NO SÓLO RESTA ────────────────────────────────────────
+# ⛔ El 2026-09-24 esta compuerta frenó un despliegue por DOS migraciones que **no había que
+# aplicar**: los nombres viejos de un renombre a medio commitear, cuyo contenido ya había
+# corrido en prod bajo otro nombre. El reflejo natural —aplicarlas— habría dejado en
+# `knex_migrations` una fila para un archivo que al commitearse el renombre deja de existir,
+# que es el estado que este proyecto ya vivió como "directory corrupt" → crash loop.
+# La lógica vive en `clasificar-migraciones.awk`, compartido con `deploy.sh`, porque dos
+# compuertas para lo mismo divergen y la que se olvide es la que va a dejar pasar el error.
+#
+# ⭐ Y se va `comm -23` con su `LC_ALL=C`: comparar por blob de git no depende del orden, así
+# que el modo de falla del `sort` regional deja de existir en vez de quedar tapado.
+CLASIF="$HOME/ops/prod/clasificar-migraciones.awk"
+if [ ! -f "$CLASIF" ]; then
+  di "FALLO: falta $CLASIF — no se puede clasificar y no se despliega a ciegas."
+  di "  Se sube con: ops/prod/deploy.sh --imagenes (subir_compose lo sincroniza)."
+  latir error "falta clasificar-migraciones.awk en md"; exit 1
+fi
+git ls-tree -r HEAD database/migrations-newdb/ \
+  | awk '{ n = split($4, p, "/"); if (p[n] ~ /\.js$/) print $3 " " p[n] }' > /tmp/ad-blobs.txt
+CLAS=$(awk -v prod=/tmp/ad-prod.txt -f "$CLASIF" /tmp/ad-blobs.txt) || {
+  di "FALLO: el clasificador de migraciones salió con error. NO MEDIDO."
+  latir error "clasificador de migraciones falló"; exit 1
+}
+DUPS=$(printf '%s\n' "$CLAS" | grep '^DUP ' || true)
+PEND=$(printf '%s\n' "$CLAS" | grep '^PEND ' | sed 's/^PEND //' || true)
+
+if [ -n "$DUPS" ]; then
+  di "ℹ️ $(echo "$DUPS" | wc -l | tr -d ' ') archivo(s) que prod no tiene pero cuyo contenido YA corrió con otro nombre (renombre a medio commitear) — NO se aplican, NO frenan:"
+  echo "$DUPS" | sed 's/^DUP /      /; s/ / → ya aplicada como /2'
 fi
 if [ -n "$PEND" ]; then
   n=$(echo "$PEND" | wc -l | tr -d ' ')
@@ -274,6 +302,22 @@ cd "$REPO_DIR" || exit 1
 # zona del commit); va `--date=format-local:`. Medido: con `format:` un commit de las 18:16
 # -06:00 salía rotulado `18:16:50Z`, una hora falsa.
 COMMIT_ISO=$(TZ=UTC git show -s --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format=%cd HEAD 2>/dev/null)
+
+# ⛔ EL GUION Y EL REPO TIENEN QUE HABLAR EL MISMO IDIOMA, y se comprueba antes de construir.
+# Este archivo vive INSTALADO en `~/ops/prod/` y el código viene de `origin/$RAMA`: son dos
+# cosas que se actualizan por caminos distintos y pueden quedar desfasadas. Si esta versión
+# —que construye por `--target`— se encuentra un `Dockerfile` viejo (uno por servicio), el
+# `docker build` fallaría con un error de Docker que no menciona la causa.
+# Se declara el desfase con el arreglo al lado (ADR-056), en vez de dejar 288 fallos por día
+# con un mensaje que no se entiende.
+if ! grep -q 'AS runner-api' Dockerfile 2>/dev/null; then
+  di "FALLO: el Dockerfile de $DESEADO no tiene destinos (\`AS runner-api\`), pero este carril"
+  di "  construye con \`--target\`. El guion instalado va ADELANTE del código de origin/$RAMA."
+  di "  Arreglo: subí el commit del grafo unificado, o reinstalá la versión anterior del carril."
+  latir error "auto-deploy desfasado: el Dockerfile de $DESEADO no declara runner-api"
+  exit 1
+fi
+
 for s in api worker portal vendor; do
   case " $SERVICIOS " in *" $s "*) ;; *) continue ;; esac
   img=$(img_de "$s"); [ -n "$img" ] || continue

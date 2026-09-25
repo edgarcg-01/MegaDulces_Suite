@@ -78,15 +78,32 @@ sqlq() { printf "%s" "$1" | sed "s/'/''/g"; }
 #    comprobación diría que están pendientes LAS 829 — y el freno se volvería ruido que alguien
 #    apagaría el primer día. Es el mismo motivo por el que `migrate.latest()` está prohibido acá.
 # ─────────────────────────────────────────────────────────────────────────────
+# ── [VL.21] Clasifica, no sólo resta ────────────────────────────────────────────────────────
+# Emite una línea por migración que prod no tiene:
+#   PEND <archivo>              → falta de verdad
+#   DUP  <archivo> <ya-corrida> → MISMO contenido que una ya aplicada bajo otro nombre
+#
+# ⛔ La distinción no es académica: el 2026-09-24 esta compuerta frenó un despliegue por dos
+# migraciones que **no había que aplicar** —los nombres viejos de un renombre a medio
+# commitear— y el reflejo natural (aplicarlas) habría dejado en `knex_migrations` una fila para
+# un archivo que al commitearse el renombre ya no existe. Detalle en el `.awk`.
+#
+# ⭐ Y de paso se va `comm -23`, que exigía orden byte a byte: sin `LC_ALL=C` avisa por stderr
+# —donde nadie lo ve, porque hay un `2>/dev/null` en el camino— y devuelve un resultado que no
+# vale. `deploy.sh` no tenía ese `LC_ALL=C` (`auto-deploy.sh` sí). Comparar por blob no depende
+# del orden, así que el modo de falla deja de existir en vez de quedar tapado.
 migraciones_pendientes() {
   cd "$REPO"
-  # El nombre que registra knex es el BASENAME del archivo, no la ruta.
-  git ls-tree -r --name-only HEAD database/migrations-newdb/ 2>/dev/null \
-    | sed 's#.*/##' | grep -E '\.js$' | sort > "$TMP/mig-repo.txt" || true
   : > "$TMP/mig-prod.txt"
+  # El nombre que registra knex es el BASENAME del archivo, no la ruta.
   ssh_md "docker exec pg-prod psql -U postgres -At -d railway -c \"SELECT name FROM public.knex_migrations\"" \
-    2>/dev/null | tr -d '\r' | grep -E '\.js$' | sort > "$TMP/mig-prod.txt" || true
-  comm -23 "$TMP/mig-repo.txt" "$TMP/mig-prod.txt"
+    2>/dev/null | tr -d '\r' | grep -E '\.js$' > "$TMP/mig-prod.txt" || true
+  [ -s "$TMP/mig-prod.txt" ] || return 0
+  # "<blob-sha> <basename>": git ya es direccionable por contenido, así que dos archivos
+  # idénticos comparten SHA y no hace falta calcular ningún hash.
+  git ls-tree -r HEAD database/migrations-newdb/ 2>/dev/null \
+    | awk '{ n = split($4, p, "/"); if (p[n] ~ /\.js$/) print $3 " " p[n] }' > "$TMP/mig-blobs.txt" || true
+  awk -v prod="$TMP/mig-prod.txt" -f "$REPO/ops/prod/clasificar-migraciones.awk" "$TMP/mig-blobs.txt"
 }
 
 compuerta_migraciones() {
@@ -94,7 +111,7 @@ compuerta_migraciones() {
   # estáticos y `pg-prod`/`backup` no leen el schema de negocio: frenarlos sería ruido.
   case " $* " in *" api "*|*" worker "*) ;; *) return 0 ;; esac
 
-  pend=$(migraciones_pendientes || true)
+  clas=$(migraciones_pendientes || true)
 
   # ⚠️ Si no se pudo LEER prod, eso NO es "todo al día" ni "829 pendientes": es NO MEDIDO, y se
   # declara (ADR-056). Fallar cerrado, porque el modo de falla contrario —desplegar a ciegas— es
@@ -105,6 +122,17 @@ compuerta_migraciones() {
     echo "   Comprobá:  ssh $SRV 'docker exec pg-prod psql -U postgres -c \"select 1\"'"
     exit 1
   fi
+
+  # `[VL.21]` Los duplicados NO frenan: ya corrieron. Se avisan igual, porque un renombre a medio
+  # commitear es un estado transitorio que conviene ver — y porque aplicarlos sería el daño.
+  dups=$(printf '%s\n' "$clas" | grep '^DUP ' || true)
+  if [ -n "$dups" ]; then
+    echo "   ℹ️ $(echo "$dups" | wc -l | tr -d ' ') archivo(s) que prod no tiene pero cuyo CONTENIDO ya corrió con otro nombre"
+    echo "      (renombre a medio commitear). ⛔ NO se aplican: dejarían una fila en knex_migrations"
+    echo "      para un archivo que va a dejar de existir."
+    echo "$dups" | sed 's/^DUP /      /; s/ / → ya aplicada como /2'
+  fi
+  pend=$(printf '%s\n' "$clas" | grep '^PEND ' | sed 's/^PEND //' || true)
 
   if [ -z "$pend" ]; then
     MIG_PEND_N=0
@@ -206,7 +234,9 @@ estado() {
     echo "      podés subir a prod código que nadie revisó, y que nadie más tiene."
   fi
 
-  pend=$(migraciones_pendientes || true)
+  clas=$(migraciones_pendientes || true)
+  pend=$(printf '%s\n' "$clas" | grep '^PEND ' | sed 's/^PEND //' || true)
+  dups=$(printf '%s\n' "$clas" | grep '^DUP ' || true)
   if [ ! -s "$TMP/mig-prod.txt" ]; then
     echo "   ⛔ migraciones: NO MEDIDO (no se pudo leer public.knex_migrations en prod)"
   elif [ -z "$pend" ]; then
@@ -214,6 +244,26 @@ estado() {
   else
     echo "   ⛔ $(echo "$pend" | wc -l | tr -d ' ') migración(es) SIN APLICAR — el despliegue de api/worker se va a frenar:"
     echo "$pend" | sed 's/^/        /'
+  fi
+  if [ -n "$dups" ]; then
+    echo "   ℹ️ $(echo "$dups" | wc -l | tr -d ' ') con el contenido YA aplicado bajo otro nombre (renombre a medio commitear) — NO aplicar:"
+    echo "$dups" | sed 's/^DUP /        /; s/ / → ya aplicada como /2'
+  fi
+
+  # ── [VL.21] EL SENTIDO CONTRARIO: aplicada en prod, sin archivo en HEAD ──────
+  # Es el estado que produce el `directory corrupt` → crash loop que este proyecto ya vivió, y
+  # por eso existe la regla dura de no borrar migraciones aplicadas. Se AVISA y no se frena: la
+  # causa más común es un archivo que alguien aplicó y todavía no commiteó, y frenar el
+  # despliegue de todos por el trabajo en vuelo de uno sería ruido que se termina apagando.
+  if [ -s "$TMP/mig-prod.txt" ] && [ -s "$TMP/mig-blobs.txt" ]; then
+    awk '{print $2}' "$TMP/mig-blobs.txt" | LC_ALL=C sort > "$TMP/mig-enhead.txt"
+    LC_ALL=C sort "$TMP/mig-prod.txt" > "$TMP/mig-prod-ord.txt"
+    huerf=$(LC_ALL=C comm -13 "$TMP/mig-enhead.txt" "$TMP/mig-prod-ord.txt")
+    if [ -n "$huerf" ]; then
+      echo "   ⚠️ $(echo "$huerf" | wc -l | tr -d ' ') aplicada(s) en prod SIN archivo en HEAD (riesgo de \`directory corrupt\`):"
+      echo "$huerf" | sed 's/^/        /'
+      echo "        Si el archivo existe sin commitear, commitealo con pathspec. Si se borró, es grave."
+    fi
   fi
 
   echo
@@ -280,7 +330,7 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh"
+  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
