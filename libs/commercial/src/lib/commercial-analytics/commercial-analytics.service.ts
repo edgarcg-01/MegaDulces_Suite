@@ -1,5 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, stepAt, tableAt } from '../shared/freshness';
+// [CPU.2] El resolvedor de unidad se LEE de la copia materializada, y la copia declara su edad.
+// Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
+import { unitTruth } from '../shared/unit-truth';
+import type { MaterializedProvenance } from '@megadulces/platform-core';
 // [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
 // god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
 // sucursal) y a ingresos (grupo = plaza) — ver el encabezado del módulo.
@@ -532,6 +536,18 @@ export interface SellOutReport {
    * igual de fresco. Son las dos preguntas que la fase OBS separó.
    */
   freshness: Freshness;
+  /**
+   * [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD (ADR-057) con el que se convirtió a cajas.
+   *
+   * Va aparte de `freshness` y no como un eslabón suyo, con motivo: `freshness` compone la edad de
+   * los HECHOS y se queda con el tramo MÁS VIEJO a propósito. El resolvedor es una DIMENSIÓN de
+   * catálogo —factor de caja, método, rótulo— que cambia por día, no por segundo; meterlo ahí
+   * pintaría de rezagada la pantalla entera por algo que no lo está. Son dos preguntas distintas.
+   *
+   * `source: 'view'` = se leyó la vista viva (es en vivo, pero paga la derivación completa por
+   * llamada). Pasa cuando la migración de la MV no está aplicada en ese entorno.
+   */
+  unit_provenance: MaterializedProvenance;
   /**
    * [U.7] Venta que NO se pudo expresar en cajas, declarada en vez de dibujada. Hasta hoy esas
    * celdas caían a `units / 1` y se publicaban como "cajas" siendo PIEZAS: medido, 716,742
@@ -3457,7 +3473,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -3544,8 +3560,16 @@ export class CommercialAnalyticsService {
       // terminaba en `factor_sale ?? box_size ?? 1`: medido, ese último recurso publicaba
       // **716,742 PIEZAS rotuladas como cajas** en 710 SKUs ($14,279,457 = 2.2% de la venta).
       // El grano es (producto × almacén) porque el divisor lo es; se indexa por las dos claves.
+      //
+      // [CPU.2] Se lee la COPIA materializada, no la vista viva. Medido el 2026-09-25: filtrar por
+      // SKU no ahorraba nada — el filtro cae sobre `btrim(columna)`, que ningún índice atiende, así
+      // que cada llamada pagaba la derivación COMPLETA (1.55 s filtrada contra 1.32 s escaneando
+      // las 180,272 filas enteras). Entre este sitio y los otros dos eran 9,694 s de CPU en 21 h =
+      // el 16.4 % de TODO el SQL de producción. La MV tiene UNIQUE (tenant, almacén, producto), así
+      // que acá pasa a ser una búsqueda indexada. Su edad viaja en `unit_provenance`.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
       const boxMethods = pids.length
-        ? await trx('analytics.v_unit_truth')
+        ? await trx(unitRel)
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [pids])
             .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
@@ -3591,7 +3615,11 @@ export class CommercialAnalyticsService {
           if (r.route_warehouse_code && r.parent_warehouse_code) routePlaza.set(r.route_warehouse_code, r.parent_warehouse_code);
         }
       }
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, uxcRows, identMap, freshness, routePlaza };
+      return {
+        brand: b, products: ps, raw: rawRows,
+        retail: retailRows.map((r: { branch_name: string }) => r.branch_name),
+        boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv,
+      };
     });
     // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
     // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
@@ -3640,7 +3668,9 @@ export class CommercialAnalyticsService {
 
     // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
     // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
-    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo'> = {
+    // [CPU.2] `unit_provenance` se suma a los que se resuelven al final: la edad del resolvedor
+    // sale de la misma sonda que eligió la relación, o sea dentro del `tk.run`, no acá.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo' | 'unit_provenance'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -3966,6 +3996,12 @@ export class CommercialAnalyticsService {
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
       freshness,
+      // [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD con el que se convirtió a cajas. Va aparte de
+      // `freshness` a propósito: ése compone la edad de los HECHOS (la venta) y se queda con el
+      // eslabón más viejo, así que meter acá una dimensión de catálogo que se refresca cada media
+      // hora pintaría de rezagada la pantalla entera por algo que cambia por día, no por segundo.
+      // Son dos preguntas distintas y se responden por separado.
+      unit_provenance: unitProv,
       // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
       // divisor inventado. El total baja respecto de ayer y eso es el arreglo, no el defecto.
       sin_metodo: {
@@ -4386,7 +4422,14 @@ export class CommercialAnalyticsService {
 
   /** Un tramo → filas con el SHAPE de `sellOutByVendor()`. Scoped a canales con vendedor: crédito
    *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
-  private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+  // [CPU.2] `unitRel` llega RESUELTA por parámetro y no se resuelve acá adentro: esta función NO es
+  // async (devuelve el query builder para que el llamador lo componga), así que no puede esperar la
+  // sonda. El llamador la resuelve una vez y la pasa a las dos piernas.
+  private selloutVendorLeg(
+    trx: Knex.Transaction, table: string, dateCol: string, lo: string, hi: string,
+    o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo },
+    unitRel: string,
+  ) {
     return trx(`${table} as s`)
       // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
       // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
@@ -4400,8 +4443,12 @@ export class CommercialAnalyticsService {
       // por (producto × almacén) y acá no hay almacén, así que se toma el método del producto con
       // `bool_or`. Sólo se usa para la rama `unidad_es_caja`, que NO depende del almacén (es una
       // propiedad del empaque: no hay paquete ni caja en la escalera del ERP).
+      // [CPU.2] Acá el cambio pesa MÁS que en los otros dos sitios: esta subconsulta NO filtra —
+      // agrupa el resolvedor ENTERO por producto. Contra la vista viva eso es derivar las 180,272
+      // filas desde `kepler_ods` en cada pierna y en cada corrida; contra la copia es un scan de
+      // 106 MB ya materializados.
       .leftJoin(
-        trx('analytics.v_unit_truth')
+        trx(unitRel)
           .select('tenant_id', 'product_id')
           .select(trx.raw(`bool_or(metodo_cajas = 'unidad_es_caja') AS unidad_es_caja`))
           .groupBy('tenant_id', 'product_id')
@@ -4451,9 +4498,13 @@ export class CommercialAnalyticsService {
     const plan = this.planSellOutSources(o.from, o.to);
     const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
-    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    // [CPU.2] Una sola sonda para las dos piernas: la sonda está cacheada por proceso, pero
+    // resolverla acá deja explícito que las dos leen LA MISMA relación — si una leyera la copia y
+    // la otra la vista viva, el mismo reporte mezclaría dos edades del resolvedor sin decirlo.
+    const { rel: unitRel } = await unitTruth(trx, this.logger);
+    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, unitRel));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
-    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, unitRel));
     return out;
   }
 
@@ -4895,7 +4946,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, uxcRows, baseRows, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, raw, uxcRows, baseRows, identMap, freshness, unitProv } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -4925,15 +4976,18 @@ export class CommercialAnalyticsService {
       // rotula PZA todo lo que no es peso — y `sales_daily.units` de Kepler está en la unidad
       // base real del renglón (`c11`), que también puede ser PAQ o un gramaje. Rotular por
       // conveniencia es inventar la unidad, que es el defecto que esta fase persigue.
+      // [CPU.2] De la copia materializada, igual que el pivote principal — y por el mismo motivo:
+      // el filtro por SKU cae sobre `btrim(columna)` y no ahorra derivación.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
       const baseRows = vpids.length
-        ? await trx('analytics.v_unit_truth')
+        ? await trx(unitRel)
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [vpids])
             .select('product_id', 'warehouse_code', 'base_label')
         : [];
       // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
       const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
-      return { brand: b, raw, uxcRows, baseRows, identMap, freshness };
+      return { brand: b, raw, uxcRows, baseRows, identMap, freshness, unitProv };
     });
     // [SO.U] Índice del rótulo por celda y por producto (el segundo para los almacenes que el
     // resolvedor no cubre). Sin fila NO se rotula: una ausencia no se dibuja como 'PZA'.
@@ -5031,6 +5085,8 @@ export class CommercialAnalyticsService {
           + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
       },
       freshness,
+      // [CPU.2] La edad del resolvedor de unidad, declarada igual que en el pivote principal.
+      unit_provenance: unitProv,
       sin_metodo: {
         skus: sinMetodo.skus.size,
         unidades: round(sinMetodo.unidades, 3),
