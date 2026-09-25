@@ -203,6 +203,38 @@ R2 resuelve casi todo, y lo fresco que no liga NO dice «faltan datos» a la lig
 siempre. No se fuerza nada. (Mejora futura declarada: adelantar el GL de caja o derivar la contra en
 vivo desde `kdb1`/`kdc2` para el mismo día.)
 
+## CS.3.2 — Patrones de enlace caja⇄CAOS + base que APRENDE (medido 2026-09-25)
+
+Pedido: conectar los movimientos de nuestro sistema con CAOS; que al capturar un gasto el arqueo tome
+lo que ya salió del cajero («ya se agregaron 20 mil») y agregue lo restante. Como CAOS↔Kepler **no
+comparten llave (0%)**, el enlace se APRENDE de confirmaciones humanas y se propone por patrones — no
+por monto ciego.
+
+**Patrones medidos (prod, read-only):**
+- **Fecha**: el enlace es **MISMO DÍA**. Monto exacto + mismo día = **~90% precisión** (47 real / 5
+  placebo); ±1 d ~80% (60/12); ±3 d ~68% (84/27). `accounting_date` = `occurred_at` (981/982).
+- **Ref**: depósitos = **ruta** (`rd28`, `ruta 21`, `rd morelia/canindo`); dispensaciones =
+  **propósito/proveedor** (`cueritos`, `bolsas`, `nomina`, `gnf ma`, `lic omar`). Señal fuerte.
+- **Operador = rol**: 006 sólo deposita (495/0), 003 sobre todo dispensa (125/250), 002 dispensa (29/61).
+- **Hora**: depósitos por la tarde (~15 h), dispensaciones a mediodía. Kepler no guarda hora → sólo
+  ordena dentro del día, no cruza.
+- **Monto solo NO alcanza** (1 de 3 «matches» es falso por azar) **y falla el caso parcial** (gasto
+  25k pagado con 20k del cajero: los montos no coinciden). Por eso: **proponer + confirmar**, nunca
+  aplicar a ciegas.
+
+**La base que aprende (migración `20260925170000`, verificada read-only):**
+- `finance.caos_cash_links` (tabla real — HITL/feedback, RLS): enlaces **CONFIRMADOS** caja↔CAOS;
+  **CONSUME** el movimiento (índice único vivo `ux_caos_link_vivo`, anti-doble-conteo); `senales jsonb`
+  guarda qué patrones matchearon (para aprender cuáles son confiables).
+- `analytics.v_caos_link_patterns` (vista, derive-no-copy): `ref → cuenta/concepto/beneficiario/
+  operador típico + casos + rezago`. Cada enlace confirmado la afina → **la precisión sube sola**.
+- El **matcher** (siguiente): rankea candidatos por señales cold-start (mismo día + ref + operador) +
+  boost de lo aprendido, y el humano confirma con un toque; el confirm escribe el enlace.
+
+**Pendiente CS.3.2:** el matcher (candidatos rankeados + confirmar en el arqueo) · seguir minando
+(fecha embebida en el ref, precisión por señal con feedback negativo, depósitos↔cobros de ruta) ·
+aplicar la migración a prod por el deploy normal.
+
 ## Estado (2026-09-25)
 
 - **CS.3.1a Medición** ✅ (prod read-only): contra limpia 99.75%, grano mayor 201/115/103, `cash_ledger`
