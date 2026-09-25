@@ -232,10 +232,19 @@ por monto ciego.
   0 placebo = 100%** pero raro (sólo el gasto pagado 100% del cajero con ref que coincide). El grueso
   cae en media/baja → el humano confirma. Confirma el diseño: **proponer con confianza, no auto-aplicar**.
 
-**Follow-ups de minado (declarados):** parsear la fecha embebida del `ref` en el motor (mejora la
-fecha de negocio) · matcher de **depósitos↔cobros de ruta** (nº de ruta del `ref` + fecha de negocio
-+ Σ de cobros `U-A-5` de esa ruta ≈ el depósito; necesita el mapa ruta→cliente `route_customer_map`) ·
-precisión por señal con **feedback negativo** (guardar también los candidatos rechazados).
+**CS.3.5 — matcher de DEPÓSITOS↔cobros de ruta 🧪 (2026-09-25):** ⭐ hallazgo que lo hace fácil: la
+ruta está LIMPIA en AMBOS lados — el cobro de Kepler trae `entidad_code='RUTA 28'` (¡no hace falta
+`route_customer_map`!) y el depósito de CAOS trae `rd28`. `rutaDe()` extrae el nº de ruta de los dos;
+el motor suma **+45 si la ruta coincide** y **+22 si el monto está a ≤5%** (el efectivo de la ruta ≈
+el cobro, no al peso). Medido: **ruta + mismo día + monto≈5% = 328 real / 19 placebo = ~94% precisión,
+58% de cobertura** — mucho mejor que el lado gasto (~41%/77%). Reusa la MISMA UI del detector (CS.3.4)
+con `tipo='ingreso'` → **cero UI nueva**. Spec del motor +3 pruebas (rutaDe + depósito alta + ruta
+distinta). **Pendiente:** validación visual del flujo de ingreso (capturar un cobro → buscar en el
+cajero → vincular el depósito de la ruta).
+
+**Follow-ups de minado (declarados):** precisión por señal con **feedback negativo** (guardar también
+los candidatos rechazados) · parsear la fecha embebida del `ref` para la fecha de negocio del depósito
+(hoy usa `occurred_at`; el `ref` adelanta 0-2 d).
 
 **La base que aprende (migración `20260925170000`, verificada read-only):**
 - `finance.caos_cash_links` (tabla real — HITL/feedback, RLS): enlaces **CONFIRMADOS** caja↔CAOS;

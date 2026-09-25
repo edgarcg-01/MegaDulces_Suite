@@ -5,7 +5,7 @@
  * NUNCA premie lo improbable (un retiro mayor que el gasto no es parte de ese gasto).
  */
 import {
-  norm, tokensRef, diasEntre, puntuarCaos, rankearCaos,
+  norm, tokensRef, diasEntre, rutaDe, puntuarCaos, rankearCaos,
   type CaosCandidato, type GastoCtx, type PatronAprendido,
 } from './caja-caos-match.engine';
 
@@ -53,7 +53,7 @@ describe('puntuarCaos — la señal medida manda', () => {
   it('[negativa] un retiro MAYOR que el gasto se penaliza (no es parte de ese gasto)', () => {
     const g: GastoCtx = { monto: 5000, fecha: '2026-09-24', beneficiario: 'otro' };
     const chico = puntuarCaos(g, cand({ monto: 20000, ref: 'zzz' }));
-    expect(chico.motivos).toContain('retiro mayor que el gasto');
+    expect(chico.motivos).toContain('monto mayor que el objetivo');
   });
 
   it('[negativa] lejos en el tiempo y sin ninguna otra señal no llega a confianza', () => {
@@ -71,6 +71,37 @@ describe('puntuarCaos — la señal medida manda', () => {
     const conApr = puntuarCaos(g, cand({ fecha_valor: '2026-09-24' }), aprendido);
     expect(conApr.score).toBeGreaterThan(base.score);
     expect(conApr.motivos.some((m) => m.includes('confirmado antes'))).toBe(true);
+  });
+});
+
+describe('rutaDe — la ruta como llave (depósitos↔cobros)', () => {
+  it('extrae la ruta de las formas de CAOS y de Kepler; null si no hay', () => {
+    expect(rutaDe('rd28')).toBe(28);
+    expect(rutaDe('ruta 21 09 26')).toBe(21);         // la ruta, no la fecha
+    expect(rutaDe('r23')).toBe(23);
+    expect(rutaDe('R.D. 28 PH Valadez')).toBe(28);    // norm "r d 28 ph"
+    expect(rutaDe('VENTA RD 28 23-09-2026')).toBe(28);
+    expect(rutaDe('RUTA 22')).toBe(22);
+    expect(rutaDe('cueritos')).toBeNull();
+    expect(rutaDe(null)).toBeNull();
+  });
+});
+
+describe('puntuarCaos — el lado DEPÓSITO (ruta como llave)', () => {
+  it('CS.3.5 — depósito ↔ cobro por RUTA + mismo día + monto ≈5% = confianza ALTA', () => {
+    const g: GastoCtx = { monto: 14294, fecha: '2026-09-23', beneficiario: 'R.D. 28 PH Valadez', concepto: 'VENTA RD 28 23-09-2026' };
+    const dep = cand({ type_label: 'Deposito', ref: 'rd28', monto: 14300, fecha_valor: '2026-09-23', denominaciones: [] });
+    const r = puntuarCaos(g, dep);
+    expect(r.motivos).toContain('ruta 28');
+    expect(r.motivos.some((m) => m.includes('±5%') || m === 'monto exacto')).toBe(true);
+    expect(r.confianza).toBe('alta');   // 50 mismo día + 45 ruta + 22 ≈5% = 117
+  });
+
+  it('[negativa] rutas DISTINTAS no dan el bono de ruta', () => {
+    const g: GastoCtx = { monto: 14294, fecha: '2026-09-23', beneficiario: 'R.D. 21 PH Urbano', concepto: 'VENTA RD 21' };
+    const dep = cand({ ref: 'rd28', monto: 99999, fecha_valor: '2026-09-23', denominaciones: [] });
+    const r = puntuarCaos(g, dep);
+    expect(r.motivos.some((m) => m.startsWith('ruta'))).toBe(false);
   });
 });
 

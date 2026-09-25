@@ -77,6 +77,17 @@ export function tokensRef(ref: string | null | undefined): string[] {
   return norm(ref).split(' ').filter((t) => t.length >= 4 && !STOP.has(t));
 }
 
+/**
+ * CS.3.5 — Número de ruta embebido en un texto (el `ref` de CAOS `rd28`/`ruta 21`/`r23`, o el
+ * beneficiario/concepto de Kepler `RUTA 28`/`R.D. 28`/`VENTA RD 28`). La ruta es una llave casi
+ * limpia en AMBOS lados → medido: depósito↔cobro por ruta+día+monto≈ da ~94% de precisión.
+ * Toma el PRIMER número (1-3 dígitos) que sigue a una `r`/`rd`/`ruta` — no la fecha (que va después).
+ */
+export function rutaDe(texto: string | null | undefined): number | null {
+  const m = norm(texto).match(/\br\s*d?\s*(?:uta)?\s*0*(\d{1,3})\b/);
+  return m ? Number(m[1]) : null;
+}
+
 /** Días absolutos entre dos fechas YYYY-MM-DD (sin TZ: ambas son fechas de negocio). */
 export function diasEntre(a: string, b: string): number {
   const da = Date.parse(`${String(a).slice(0, 10)}T00:00:00Z`);
@@ -100,17 +111,26 @@ export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<strin
   else if (lag <= 3) { score += 10; motivos.push(`±${lag} días`); }
   else { score -= 10; }
 
-  // 2) Ref ↔ beneficiario/concepto del gasto — la señal estructural.
+  // 2) Ref ↔ beneficiario/concepto del gasto — la señal estructural del lado GASTO.
   const txt = norm(`${g.beneficiario ?? ''} ${g.concepto ?? ''}`);
   const hit = txt ? tokensRef(c.ref).find((t) => txt.includes(t)) : undefined;
   if (hit) { score += 40; motivos.push(`ref «${hit}» coincide`); }
 
-  // 3) Monto — exacto fuerte; parcial (retiro ≤ gasto) plausible; retiro > gasto improbable.
+  // 2b) RUTA ↔ ruta — la señal del lado DEPÓSITO (ingresos). Llave casi limpia: el `ref` del cajero
+  // y el `entidad_code`/concepto del cobro traen el mismo nº de ruta. Medido: ruta+día+monto≈ = 94%.
+  const rc = rutaDe(c.ref);
+  const rg = rutaDe(`${g.beneficiario ?? ''} ${g.concepto ?? ''}`);
+  if (rc != null && rc === rg) { score += 45; motivos.push(`ruta ${rc}`); }
+
+  // 3) Monto — exacto fuerte; ≈5% (depósito de ruta: el efectivo ≈ el cobro, no al peso); parcial
+  // (retiro ≤ gasto) plausible; mayor que el objetivo, improbable.
   if (g.monto != null && g.monto > 0) {
     const cm = Math.abs(c.monto);
+    const rel = Math.abs(cm - g.monto) / g.monto;
     if (cm === g.monto) { score += 30; motivos.push('monto exacto'); }
+    else if (rel <= 0.05) { score += 22; motivos.push('monto ≈ (±5%)'); }
     else if (cm < g.monto) { score += 10; motivos.push('financia una parte'); }
-    else { score -= 20; motivos.push('retiro mayor que el gasto'); }
+    else { score -= 20; motivos.push('monto mayor que el objetivo'); }
   }
 
   // 4) Aprendido — lo que ya se confirmó para ese ref sube la confianza.
