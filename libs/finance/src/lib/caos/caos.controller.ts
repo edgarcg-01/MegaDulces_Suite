@@ -22,6 +22,13 @@ export class CaosController {
     return this.svc.movimientos(q);
   }
 
+  @Get('resumen')
+  @RequirePermissions(Permission.FINANCE_CAOS_VER)
+  @ApiOperation({ summary: 'CS.6/CS.7 — resumen de CAOS por ruta (del ref) y por operador.' })
+  resumen(@Query() q: CaosQuery) {
+    return this.svc.resumen(q);
+  }
+
   @Get('movimientos/:id')
   @RequirePermissions(Permission.FINANCE_CAOS_VER)
   @ApiOperation({ summary: 'Detalle por denominación de un movimiento de CAOS.' })

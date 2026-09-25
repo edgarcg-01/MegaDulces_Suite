@@ -70,6 +70,54 @@ export class CaosService {
     });
   }
 
+  /**
+   * CS.6/CS.7 — Resumen INTERNO de CAOS: por ruta (del `ref` de los depósitos) y por operador.
+   *
+   * No cruza contra nada (no tiene el problema de grano del árbitro): son agregaciones sobre el
+   * propio espejo. La ruta se extrae del `ref` (`"ruta 27 240926"`); lo que no parsea como ruta se
+   * DECLARA como "sin ruta", nunca se inventa una (regla del proyecto).
+   */
+  async resumen(q: CaosQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const desde = q.from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const hasta = q.to ? new Date(new Date(q.to).getTime() + 86400000).toISOString().slice(0, 10) : null;
+
+    return this.tk.run(async (trx) => {
+      const rango = (qb: any) => {
+        let x = qb.where('tenant_id', tenantId).where('occurred_at', '>=', desde);
+        if (hasta) x = x.where('occurred_at', '<', hasta);
+        return x;
+      };
+
+      // Por RUTA: sólo depósitos. El `ref` es TEXTO LIBRE del operador ("rd28", "ruta 21 09 26",
+      // "rd morelia", "r23…"), sin formato forzado. Medido contra prod: `(?:rd|ruta|r)\\s*(\\d+)`
+      // extrae el número de ruta en ~40% de los depósitos; el resto no trae número reconocible
+      // (ej. "rd morelia"). `ruta` NULL = "sin ruta reconocida" → se agrupa aparte y la pantalla
+      // muestra el ref crudo. NO se inventa una ruta (regla del proyecto: declarar, no dibujar).
+      const porRuta = await rango(trx('analytics.caos_cash_movements'))
+        .where('type_id', 0)
+        .select(trx.raw(`substring(lower(ref) from '(?:rd|ruta|r)\\s*(\\d+)') AS ruta`))
+        .count({ movimientos: '*' })
+        .sum({ total: 'total' })
+        .groupByRaw(`substring(lower(ref) from '(?:rd|ruta|r)\\s*(\\d+)')`)
+        .orderByRaw('sum(total) desc nulls last');
+
+      // Por OPERADOR: depósitos (entra) y dispensaciones (sale) por persona.
+      const porOperador = await rango(trx('analytics.caos_cash_movements'))
+        .select('user_external')
+        .select(trx.raw(`
+          count(*) FILTER (WHERE type_id = 0)::int AS depositos_n,
+          coalesce(sum(total) FILTER (WHERE type_id = 0), 0) AS depositos_total,
+          count(*) FILTER (WHERE type_id = 4)::int AS dispensado_n,
+          coalesce(sum(total) FILTER (WHERE type_id = 4), 0) AS dispensado_total
+        `))
+        .groupBy('user_external')
+        .orderByRaw('coalesce(sum(total) FILTER (WHERE type_id = 0),0) desc');
+
+      return { porRuta, porOperador, desde };
+    });
+  }
+
   /** Detalle por denominación de un movimiento (para el drill del reporte). */
   async detalle(id: string) {
     const tenantId = this.tenantCtx.requireTenantId();
