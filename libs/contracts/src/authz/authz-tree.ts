@@ -330,6 +330,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
           { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
+          // [CS.2] Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
+          { id: 'caja-fuerte', label: 'Caja Fuerte (CAOS)', route: '/finanzas/caos', view: [Permission.FINANCE_CAOS_VER], manage: [] },
           // `[SM.9]` Llegó de `/almacen/cuadre`: el Supervisor de Movimientos (ADR-029)
           // cuadra el arqueo ciego contra el corte de caja. Su permiso `RECONCILIATION_*`
           // es de dominio propio y NO cambió con la mudanza — el árbol sólo dice dónde

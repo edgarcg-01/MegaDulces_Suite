@@ -453,6 +453,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
+        // CS.2 — Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
+        path: 'caos',
+        loadComponent: () => import('./modules/finanzas/pages/caos/finanzas-caos.component').then(m => m.FinanzasCaosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAOS_VER)]
+      },
+      {
         // CG.4 — Caja General (Tesorería): venta diaria → depósito + arqueo + conciliación CB.
         path: 'caja',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-caja.component').then(m => m.FinanzasCajaComponent),

@@ -34,6 +34,13 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_CAJA_VER,
   },
   {
+    // CS.2 — Reporte de la caja fuerte de efectivo (CAOS). Sólo lectura, permiso propio.
+    label: 'Caja Fuerte',
+    route: '/finanzas/caos',
+    icon: 'pi pi-lock',
+    permission: Permission.FINANCE_CAOS_VER,
+  },
+  {
     label: 'Cancelados',
     route: '/finanzas/cancelados',
     icon: 'pi pi-ban',
