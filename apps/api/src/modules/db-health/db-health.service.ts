@@ -990,6 +990,11 @@ const CRON_JOBS: CronCfg[] = [
   // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja
   // congelada se lee como "no hay trabajo pendiente". Corre cada minuto; warn al saltarse ~6.
   { key: 'mv_caja_refresh',     label: 'Caja — refresca mv_caja_movimientos', cadence: 'cada minuto', warnH: 0.25, critH: 1 },
+  // [CS.1] Feed de CAOS (caja fuerte) → analytics.caos_cash_movements. Corre cada 2 min on-prem.
+  // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
+  // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el
+  // corte de caja, pero un feed muerto un día entero sí importa (crit a 6 h).
+  { key: 'caos_movimientos',    label: 'CAOS — movimientos de caja fuerte',   cadence: 'cada 2 min', warnH: 2, critH: 6 },
   // [EX-PERF.2] `mv_existencia_aux_refresh`: el factor de caja y el costo del ERP que valuan
   // /compras/existencia. Mismo modo de falla que el matview de caja: si deja de refrescarse
   // **no da error**, sirve la foto vieja — y acá eso vale dinero, porque el factor manda la

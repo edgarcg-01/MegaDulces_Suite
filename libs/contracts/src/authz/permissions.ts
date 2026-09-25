@@ -370,6 +370,10 @@ export enum Permission {
   FINANCE_CAJA_VER = 'FINANCE_CAJA_VER',
   FINANCE_CAJA_GESTIONAR = 'FINANCE_CAJA_GESTIONAR',
   FINANCE_CAJA_AUTORIZAR = 'FINANCE_CAJA_AUTORIZAR',
+  // CAOS — caja fuerte de efectivo (sistema externo, Fase CS). Sólo lectura por ahora: el reporte
+  // de movimientos (depósitos/dispensaciones por denominación). Permiso propio y no un alias de
+  // FINANCE_CAJA_VER porque es otro circuito de efectivo (bóveda virtual, dispensaciones).
+  FINANCE_CAOS_VER = 'FINANCE_CAOS_VER',
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',

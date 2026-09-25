@@ -32,6 +32,12 @@
 
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
+# [CS.1] CAOS (caja fuerte de efectivo, 192.168.0.110) → analytics.caos_cash_movements.
+# Ventana movil de 3 dias, UPSERT sin churn (una getTransactions + detalle SOLO de ids nuevos).
+# Requiere CAOS_USER/CAOS_PASS/CAOS_BASE_URL en feeds.env. Alcanza 192.168.0.110 porque `md`
+# esta en la misma subred de oficinas (Railway no podria). ⚠️ La credencial por defecto (admin/caos)
+# debe rotarse antes de dejar esto vivo. Cada 2 min basta: la caja mueve ~8 movimientos/dia.
+*/2 * * * * /app/ops/vl/run-feed.sh caos "node /app/database/importers/caos/import-caos-movements.js --apply"
 
 # [EX-PERF.2] Las dos vistas caras de /compras/existencia, materializadas.
 # Medido 2026-09-24: aportaban 281,730 de las 939,977 paginas que costaba devolver 50 filas

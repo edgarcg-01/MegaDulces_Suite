@@ -41,6 +41,8 @@ export * from './lib/purchase-book/purchase-book.service';
 export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
 export * from './lib/caja/finance-caja-general.module';
+export * from './lib/caos/finance-caos.module';
+export * from './lib/caos/caos.service';
 export * from './lib/caja/caja-general.service';
 export * from './lib/caja/cash-ledger.service';
 export * from './lib/caja/caja-autofill.service';
