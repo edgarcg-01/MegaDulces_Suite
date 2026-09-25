@@ -1,5 +1,5 @@
 import {
-  diaValido, etapaDe, hoyMx, particionarDelDia, visibleEn,
+  diaValido, etapaDe, hoyMx, particionarDelDia, visibleEn, PESTANAS,
   type EtapaGasto, type ExpedienteDelDia,
 } from './etapas-del-dia';
 
@@ -65,10 +65,34 @@ describe('[GX.20] qué muestra cada pestaña', () => {
     expect(visibleEn('ejercer', 'validada')).toBe(false);
   });
 
-  /** «Todos» es el día entero: es la única pestaña donde un estado raro sigue existiendo. */
-  it('Todos no filtra nada, ni siquiera lo desconocido', () => {
-    for (const s of ['recibida', 'aprobada', 'revision', 'validada', 'rechazada', 'pagada', null]) {
-      expect(visibleEn('todos', s)).toBe(true);
+  it('«Rechazados y aprobados» trae lo ya resuelto, y nada más', () => {
+    expect(visibleEn('cerrado', 'validada')).toBe(true);
+    expect(visibleEn('cerrado', 'rechazada')).toBe(true);
+    expect(visibleEn('cerrado', 'recibida')).toBe(false);
+    expect(visibleEn('cerrado', 'aprobada')).toBe(false);
+    expect(visibleEn('cerrado', 'revision')).toBe(false);
+  });
+
+  /**
+   * ⛔ Al irse «Todos» se fue el único lugar donde un estado desconocido seguía siendo
+   * visible. Cae en la última pestaña **a propósito**: verlo marcado es peor que nada, pero
+   * mucho mejor que no verlo en ninguna pantalla.
+   */
+  it('un estado desconocido no desaparece: cae en la última', () => {
+    expect(visibleEn('cerrado', 'pagada')).toBe(true);
+    expect(visibleEn('cerrado', null)).toBe(true);
+    expect(visibleEn('aprobar', 'pagada')).toBe(false);
+    expect(visibleEn('ejercer', 'pagada')).toBe(false);
+  });
+
+  /**
+   * ⭐ La invariante que reemplaza a «Todos»: las tres pestañas **particionan** el día. Cada
+   * estado se ve en una y sólo una — ni dos veces, ni ninguna.
+   */
+  it('las tres pestañas particionan: cada estado cae en exactamente una', () => {
+    for (const s of ['recibida', 'aprobada', 'revision', 'validada', 'rechazada', 'pagada', '', null]) {
+      const n = PESTANAS.filter((p) => visibleEn(p, s)).length;
+      expect({ estado: s, pestanas: n }).toEqual({ estado: s, pestanas: 1 });
     }
   });
 });

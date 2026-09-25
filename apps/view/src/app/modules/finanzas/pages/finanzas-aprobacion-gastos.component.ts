@@ -48,13 +48,17 @@ export function isoADiaLocal(iso: string): Date | null {
  *
  * | Pestaña | Qué trae | Qué se hace ahí |
  * |---|---|---|
- * | **Aprobar** | Lo `recibida` | Dar la luz verde, o rechazar con motivo. |
+ * | **Aprobar** | Lo `recibida` | Dar la luz verde, o rechazar con motivo. Es la entrada. |
  * | **Ejercer** | Lo `aprobada` y lo `revision` | Ya tiene luz verde y todavía no cierra. |
- * | **Todos** | El día entero | Leer. Incluye lo ya cerrado. |
+ * | **Rechazados y aprobados** | Lo `validada` y lo `rechazada` | Nada: ya se resolvió. |
  *
- * El reparto lo hace el servidor (`etapas-del-dia.ts`, función pura con sus pruebas), no
- * esta pantalla: si mañana aparece un estado nuevo en la tabla cae en `sin_etapa` y acá sale
- * marcado, en vez de colarse en «cerrado» y desaparecer.
+ * Las tres **particionan el día**: cada expediente se ve en una y sólo una. El reparto lo
+ * hace el servidor (`etapas-del-dia.ts`, función pura con sus pruebas), no esta pantalla.
+ *
+ * ⚠️ La tercera era «Todos» (el día entero). Se cambió por pedido del usuario (2026-09-25).
+ * Con ella se fue el único lugar donde un estado que el servidor no reconoce seguía siendo
+ * visible, así que `sin_etapa` cae ahora en la última pestaña **con su marca**: verlo con un
+ * aviso es peor que nada, pero mucho mejor que no verlo en ninguna pantalla.
  *
  * ## ⛔ Acotar por día NO esconde lo que espera firma
  * Un expediente que nadie aprobó anteayer no puede dejar de existir porque hoy miramos hoy.
@@ -365,7 +369,9 @@ export class FinanzasAprobacionGastosComponent {
   readonly tabs: { id: PestanaGasto; label: string }[] = [
     { id: 'aprobar', label: 'Aprobar' },
     { id: 'ejercer', label: 'Ejercer' },
-    { id: 'todos', label: 'Todos' },
+    // El nombre es el que puso el usuario. `validada` se rotula «Comprobado» en el renglón
+    // —que es lo que dice la tabla— y acá se agrupa como «aprobado», que es como se habla.
+    { id: 'cerrado', label: 'Rechazados y aprobados' },
   ];
 
   constructor() { this.cargar(); }
@@ -403,7 +409,9 @@ export class FinanzasAprobacionGastosComponent {
     const d = this.datos();
     if (!d) return [];
     const p = this.pestana();
-    const filas = p === 'todos' ? d.filas : d.filas.filter((f) => f.etapa === p);
+    // ⛔ `sin_etapa` entra en la última: sin esto, un estado que el servidor no reconoce no
+    // saldría en NINGUNA pestaña. Ver `visibleEn()` en `etapas-del-dia.ts`.
+    const filas = d.filas.filter((f) => (p === 'cerrado' ? f.etapa === 'cerrado' || f.etapa === 'sin_etapa' : f.etapa === p));
     const g = this.grupo();
     if (p !== 'aprobar' || !g) return filas;
     const sel = d.aprobar.por_departamento.find((x) => x.clave === g);
@@ -412,18 +420,24 @@ export class FinanzasAprobacionGastosComponent {
     return filas.filter((f) => ids.has(f.id));
   });
 
-  /** El contador de cada pestaña. `Todos` es el día entero, incluido lo que no se reconoce. */
+  /**
+   * El contador de cada pestaña. La última suma **lo cerrado más lo que no se reconoce**, y
+   * por eso los tres contadores suman el día completo — si no, la pantalla tendría
+   * expedientes que no aparecen en ninguna cuenta.
+   */
   conteo(p: PestanaGasto): { n: number; monto: number } {
     const d = this.datos();
     if (!d) return { n: 0, monto: 0 };
-    if (p === 'todos') return { n: d.total, monto: d.monto_total };
-    return d.etapas[p] ?? { n: 0, monto: 0 };
+    const e = d.etapas[p] ?? { n: 0, monto: 0 };
+    if (p !== 'cerrado') return e;
+    const raro = d.etapas.sin_etapa ?? { n: 0, monto: 0 };
+    return { n: e.n + raro.n, monto: Math.round((e.monto + raro.monto) * 100) / 100 };
   }
 
   vacioDe(p: PestanaGasto): string {
     if (p === 'aprobar') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada de este día espera tu visto bueno.';
     if (p === 'ejercer') return 'Nada de este día quedó a medio camino.';
-    return 'Ese día no se levantó ningún gasto.';
+    return 'Todavía no se resolvió nada de este día.';
   }
 
   diaLocal(iso: string | null | undefined): Date | null { return isoADiaLocal(String(iso ?? '')); }

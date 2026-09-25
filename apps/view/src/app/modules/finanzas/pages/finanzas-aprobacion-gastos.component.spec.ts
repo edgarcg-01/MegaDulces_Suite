@@ -138,11 +138,22 @@ describe('FinanzasAprobacionGastosComponent', () => {
   });
 
   describe('las tres pestañas', () => {
-    it('cada pestaña cuenta lo suyo, y «Todos» cuenta el día entero', () => {
+    it('cada pestaña cuenta lo suyo', () => {
       montar();
       expect(c.conteo('aprobar')).toEqual({ n: 2, monto: 150 });
       expect(c.conteo('ejercer')).toEqual({ n: 1, monto: 300 });
-      expect(c.conteo('todos')).toEqual({ n: 4, monto: 460 });
+      expect(c.conteo('cerrado')).toEqual({ n: 1, monto: 10 });
+    });
+
+    /**
+     * ⭐ Sin «Todos», los tres contadores son lo único que dice cuánto hubo. Si no suman el
+     * día, hay expedientes que no aparecen en ninguna cuenta.
+     */
+    it('los tres contadores suman el día completo', () => {
+      montar();
+      const t = (['aprobar', 'ejercer', 'cerrado'] as const).map((p) => c.conteo(p));
+      expect(t.reduce((a, x) => a + x.n, 0)).toBe(4);
+      expect(Math.round(t.reduce((a, x) => a + x.monto, 0) * 100) / 100).toBe(460);
     });
 
     it('Aprobar sólo muestra lo que espera firma', () => {
@@ -156,10 +167,12 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.visibles().map((f) => f.id)).toEqual(['e1']);
     });
 
-    it('Todos muestra el día entero, incluido lo ya cerrado', () => {
+    it('«Rechazados y aprobados» muestra lo ya resuelto', () => {
       montar();
-      c.verPestana('todos');
-      expect(c.visibles().map((f) => f.id)).toEqual(['a1', 'a2', 'e1', 'c1']);
+      c.verPestana('cerrado');
+      expect(c.visibles().map((f) => f.id)).toEqual(['c1']);
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('Rechazados y aprobados');
     });
 
     /**
@@ -167,7 +180,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
      * pestaña de trabajo — pero **tiene** que seguir existiendo en «Todos», o el expediente
      * no existiría en ninguna pantalla.
      */
-    it('«Todos» no esconde un estado desconocido', () => {
+    it('un estado desconocido no desaparece: cae en la última, y marcado', () => {
       montar(DIA({
         total: 1, monto_total: 7,
         etapas: { aprobar: { n: 0, monto: 0 }, ejercer: { n: 0, monto: 0 }, cerrado: { n: 0, monto: 0 }, sin_etapa: { n: 1, monto: 7 } },
@@ -177,8 +190,10 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.visibles()).toEqual([]);              // Aprobar
       c.verPestana('ejercer');
       expect(c.visibles()).toEqual([]);
-      c.verPestana('todos');
+      c.verPestana('cerrado');
       expect(c.visibles().map((f) => f.id)).toEqual(['raro']);
+      // Y se CUENTA: si no, el renglón estaría en la lista y el contador diría 0.
+      expect(c.conteo('cerrado')).toEqual({ n: 1, monto: 7 });
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('estado desconocido');
     });
@@ -249,7 +264,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     it('ese aviso es de la pestaña que firma, no de las otras', () => {
       montar(DIA({ pendientes_fuera_del_dia: { n: 7, monto: 12_345.67 } }));
-      c.verPestana('todos');
+      c.verPestana('cerrado');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).not.toContain('esperando firma');
     });
@@ -350,7 +365,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
         etapas: { aprobar: { n: 0, monto: 0 }, ejercer: { n: 0, monto: 0 }, cerrado: { n: 1, monto: 10 }, sin_etapa: { n: 0, monto: 0 } },
         aprobar: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
-      c.verPestana('todos');
+      c.verPestana('cerrado');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('sin acciones pendientes');
       expect(fix.nativeElement.textContent).toContain('Cerrado por maria');

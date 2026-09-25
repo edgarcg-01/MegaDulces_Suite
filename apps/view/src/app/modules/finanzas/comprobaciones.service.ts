@@ -197,8 +197,9 @@ export interface ExpedienteGasto {
 
 /** Las bandejas. `sin_etapa` no es una pestana: es un estado que el servidor no reconocio. */
 export type EtapaGasto = 'aprobar' | 'ejercer' | 'cerrado' | 'sin_etapa';
-/** Las tres pestanas de la pantalla, en el orden en que se leen. */
-export type PestanaGasto = 'aprobar' | 'ejercer' | 'todos';
+/** Las tres pestanas de la pantalla, en el orden en que se leen. Particionan el dia:
+ *  cada expediente se ve en una y solo una. */
+export type PestanaGasto = 'aprobar' | 'ejercer' | 'cerrado';
 
 export interface GrupoAprobacion {
   clave: string;

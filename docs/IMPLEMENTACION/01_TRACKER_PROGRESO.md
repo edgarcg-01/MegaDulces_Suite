@@ -2495,9 +2495,13 @@ del ciclo que ya existía en la tabla, no de una invención: el `CHECK` de
 
 | Pestaña | Estados | Qué falta, y de quién |
 |---|---|---|
-| **Aprobar** | `recibida` | Dar la luz verde. De quien firma. |
+| **Aprobar** | `recibida` | Dar la luz verde. De quien firma. **Es la entrada.** |
 | **Ejercer** | `aprobada`, `revision` | Ya hay luz verde y el gasto no cierra. |
-| **Todos** | los cinco | El día entero. Para leer. |
+| **Rechazados y aprobados** | `validada`, `rechazada` | Nada: ya se resolvió. |
+
+⚠️ La tercera arrancó siendo «Todos» (el día entero, sin filtrar) y **la cambió el usuario**
+(2026-09-25) — ver `[GX.20.8]`. Ahora las tres **particionan** el día: cada expediente se ve en
+una y sólo una.
 
 ⭐ **`revision` va en *Ejercer*, no en *Cerrado*.** Es el expediente que volvió con su evidencia y
 **el cuadre por visión no dio**; sigue abierto y lo resuelve `validate()`, que es de la misma
@@ -2548,6 +2552,17 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
   día pasó al subtítulo. El aviso de lo que quedó afuera **se conserva a propósito**: ahora que no
   hay cómo ir a buscarlo, callarlo lo borraría de todas las pantallas. `delDia()` sigue aceptando
   `fecha` — se fue el control, no la capacidad. ✅ 2026-09-25
+- [x] **[GX.20.8]** **La tercera pestaña deja de ser «Todos» y pasa a ser «Rechazados y
+  aprobados»** (`validada` + `rechazada`), por pedido del usuario; *Aprobar* queda como la
+  entrada. Con eso las tres particionan el día en vez de solaparse. ⛔ **Pero «Todos» era el
+  único lugar donde un estado que el servidor NO reconoce seguía siendo visible** — sin él,
+  `sin_etapa` desaparecía de las tres pestañas, o sea de la aplicación entera. Así que cae en la
+  última **con su marca «estado desconocido»** y **se cuenta** ahí: verlo con un aviso es peor
+  que nada, pero mucho mejor que no verlo. Es una red, no una clasificación. Dos candados
+  nuevos: que las tres pestañas particionen (cada estado en exactamente una) y que **los tres
+  contadores sumen el día completo** — sin «Todos», son lo único que dice cuánto hubo.
+  **Prueba negativa corrida**: al dejar a `sin_etapa` sin casa, 2 pruebas se ponen en rojo.
+  Pruebas: 17 (motor) + 28 (componente) = **45**. ✅ 2026-09-25
 - [x] **[GX.20.7]** ⚠️ La prueba del día **pasaba en verde mostrando el día en inglés**: el
   `TestBed` corre en `en-US` y el pipe daba «Friday 25 de September» mientras `textContent` seguía
   conteniendo lo que la aserción buscaba. Se registró `es-MX` en el spec como en `app.config.ts`.
@@ -2555,9 +2570,9 @@ Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `p
   «Los levantamientos del **V**iernes 25» — correcto cuando era el título de una barra, incorrecto
   en medio de una frase. ✅ 2026-09-25
 
-**Pruebas tras el retiro de la barra:** 15 (motor puro) + 27 (componente) = **42**; las cuatro de
-navegación de día se reemplazaron por el candado de que **no queden controles de fecha** y de que
-la pantalla **siga nombrando el día** que muestra. `view/finanzas` 164 verde.
+**Pruebas al cierre:** 17 (motor puro) + 28 (componente) = **45**. `view/finanzas` 165 ·
+`libs/finance` 192, verde. **Medido en pantalla:** los tres contadores dan 3 · 3 · 3 = 9 y
+$3,945.75 + $10,030.50 + $15,770.00 = **$29,746.25**, el total del día, al centavo.
 
 **Verificado en el 4200** contra `platform_local`, con un día sembrado a propósito (9 expedientes
 repartidos en los cinco estados, marcados `created_by='demo_gx20'`): el servidor cuadra al centavo

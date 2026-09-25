@@ -70,20 +70,28 @@ export function etapaDe(status: string | null | undefined): EtapaGasto {
   return ETAPA_POR_ESTADO[s] ?? 'sin_etapa';
 }
 
-/** Las pestañas, en el orden en que se leen. `todos` no filtra: muestra el día entero. */
-export const PESTANAS = ['aprobar', 'ejercer', 'todos'] as const;
+/**
+ * Las pestañas, en el orden en que se leen. Son las **tres etapas del trámite**, y
+ * **particionan el día**: cada expediente se ve en una y sólo una.
+ *
+ * ⚠️ Antes la tercera era `todos` (el día entero, sin filtrar). Se cambió por pedido del
+ * usuario (2026-09-25): la tercera es **lo ya resuelto** — rechazados y aprobados.
+ */
+export const PESTANAS = ['aprobar', 'ejercer', 'cerrado'] as const;
 export type Pestana = (typeof PESTANAS)[number];
 
 /**
  * ¿Este expediente se ve en esta pestaña?
  *
- * `todos` deja pasar **todo**, incluido `sin_etapa`. Es la única pestaña donde un estado
- * que no conocemos sigue siendo visible; si también lo filtrara, el expediente no existiría
- * en ninguna pantalla.
+ * ⛔ **`sin_etapa` cae en `cerrado`, y NO es un descuido.** Al irse la pestaña «Todos» se fue
+ * el único lugar donde un estado que no conocemos seguía siendo visible; sin esta línea, un
+ * estado nuevo en la tabla desaparecería de las tres pestañas — o sea de la aplicación
+ * entera. Cae en la última y la pantalla lo marca «estado desconocido»: se lo ve, con su
+ * aviso, en vez de no existir. Es una red, no una clasificación.
  */
 export function visibleEn(pestana: Pestana, status: string | null | undefined): boolean {
-  if (pestana === 'todos') return true;
-  return etapaDe(status) === pestana;
+  const e = etapaDe(status);
+  return pestana === 'cerrado' ? (e === 'cerrado' || e === 'sin_etapa') : e === pestana;
 }
 
 const vacia = (): ConteoEtapa => ({ n: 0, monto: 0 });
