@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Changed — `/compras/pedido`: sugerido listo para pedir + "todo a 00" (RA-PRO.50/51, 2026-09-25)
+- **El sugerido llega redondeado** en el desglose por sucursal: de **media caja para arriba**, cajas
+  cerradas al entero más cercano (147.1 → 147, 1.5 → 2, 0.6 → 1); **por debajo de media caja**, se
+  propone en **piezas** enteras con el selector ya en `pz` (0.4 cj × 20 → 8 pz, mínimo 1). Sólo
+  cambia el valor inicial: lo que el comprador escriba se respeta. Días, valor, totales de la fila,
+  requisición y Excel por sucursal leen el mismo número.
+  ⚠️ El export del libro completo (`workbook.xlsx`) lo arma el servidor y **sigue sin redondear**.
+- **Atajo "todo a 00"** en cada zona del desglose: consolida la zona en el CEDIS principal (que baja
+  después por traspaso). El CEDIS principal sale del grupo `CEDIS` del orden canónico de
+  `@megadulces/contracts` + `is_purchase_hub`, no de un `'00'` clavado.
+
 ### Added — Crédito por día: la agenda de cobranza (CXC.26, 2026-09-25)
 - Tercer chip en `/finanzas/cartera` → **`/finanzas/cartera/dia`**: la misma cartera con el
   **calendario como eje**. Contesta «¿quiénes me deben estos días?» y «¿qué día debo cobrar?».

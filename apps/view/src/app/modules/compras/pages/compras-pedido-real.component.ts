@@ -63,7 +63,8 @@ interface BranchBuy {
   code: string; name: string;
   vta: number;           // venta 30 d, en cajas — es lo que ordena la lista
   exis: number;          // existencia, en cajas
-  seed: number;          // sugerido del motor, en cajas (valor inicial del input)
+  seed: number;          // sugerido del motor YA REDONDEADO, en cajas (valor inicial del input) — ver roundSeed
+  seedUnit: 'caja' | 'pieza';   // unidad en que se PROPONE el sugerido: cajas cerradas, o piezas si no llega a media caja
   cc: number;            // costo de caja DE ESA SUCURSAL
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
@@ -1025,11 +1026,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
+        const sd = this.roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
         out.push({
           code, name: names.get(code) || '',
           vta: Number(c.vta) || 0,
           exis: Number(c.exis) || 0,
-          seed: Number(c.ped) || 0,
+          seed: sd.cajas,
+          seedUnit: sd.unit,
           // Sin costo por celda (feed viejo) se cae al del producto, que es el `max` entre
           // almacenes: sobrevalúa, pero es lo que ya publicaba la pantalla. No se inventa 0.
           cc: Number(c.cc ?? r.caja_cost) || 0,
@@ -1048,6 +1051,24 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
   branchBuys(r: WorkbookRow): BranchBuy[] { return this.branchBuyMap().get(r.product_id) ?? []; }
+
+  /**
+   * Redondeo del SUGERIDO (pedido del comprador, 2026-09-25): que llegue listo para pedir, sin que
+   * alguien tenga que pasar a mano 1.5 → 2 cajas o 0.4 caja → piezas.
+   *  - Media caja o más → cajas CERRADAS, redondeo al entero más cercano (147.1 → 147, 1.5 → 2,
+   *    0.6 → 1).
+   *  - Menos de media caja → se propone en PIEZAS enteras (0.4 cj × 20 → 8 pz), mínimo 1 pieza:
+   *    si el motor pidió algo, no se borra redondeando a cero.
+   * Sólo toca el valor INICIAL: lo que el usuario escriba se respeta tal cual. El canónico sigue
+   * siendo cajas (las piezas se guardan como fracción de caja), así que días, valor, totales,
+   * requisición y Excel leen el mismo número que ve el input.
+   */
+  private roundSeed(ped: number, uxc: number): { cajas: number; unit: 'caja' | 'pieza' } {
+    if (!(ped > 0)) return { cajas: 0, unit: 'caja' };
+    if (ped >= 0.5) return { cajas: Math.round(ped), unit: 'caja' };
+    const pz = Math.max(1, Math.round(ped * uxc));
+    return { cajas: pz / uxc, unit: 'pieza' };
+  }
 
   /**
    * Rótulo de la unidad nativa, para la celda.
@@ -1100,7 +1121,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return ov === undefined ? b.seed : ov;
   }
   unitOfBranch(r: WorkbookRow, b: BranchBuy): 'caja' | 'pieza' {
-    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? 'caja';
+    // Sin elección del usuario, se captura en la unidad en que vino propuesto el sugerido.
+    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? b.seedUnit;
   }
   setUnitBranch(r: WorkbookRow, b: BranchBuy, u: 'caja' | 'pieza'): void {
     this.buyUnit.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: u }));
