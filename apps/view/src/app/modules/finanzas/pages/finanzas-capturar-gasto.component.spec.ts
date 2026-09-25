@@ -53,6 +53,25 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     expect(comp.enviarLabel()).not.toBe('Enviar a aprobación');
   });
 
+  /**
+   * [GX.22] **Escribir el dato del pago tiene que DESBLOQUEAR el boton.**
+   *
+   * No lo hacia: `formaPagoDetalleV` era una propiedad plana y la leia el `computed` de la
+   * compuerta, que solo se recalcula cuando cambia una SENAL. Elegias Transferencia,
+   * escribias la referencia, y el boton seguia diciendo «Falta: El dato del pago» -- el
+   * gasto no se podia enviar. Se destapo probando «Otro» en el navegador.
+   *
+   * Vale para las CUATRO formas que piden dato (tarjeta, transferencia, cheque, otro).
+   */
+  it('escribir el dato del pago desbloquea el boton', () => {
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('transferencia');
+    expect(comp.enviarLabel()).toContain('El dato del pago');
+
+    comp.formaPagoDetalle.set('882301');
+    expect(comp.enviarLabel()).not.toContain('El dato del pago');
+  });
+
   it('mientras guarda, lo dice', () => {
     comp.saving.set(true);
     expect(comp.enviarLabel()).toBe('Enviando…');

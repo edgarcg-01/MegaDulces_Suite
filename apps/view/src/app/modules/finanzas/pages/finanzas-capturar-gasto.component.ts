@@ -158,7 +158,7 @@ interface SelSolicitud {
                 @if (formaSel(); as fs) {
                   @if (fs.detalle_label) {
                     <label class="cap-f"><span>{{ fs.detalle_label }}</span>
-                      <input pInputText [(ngModel)]="formaPagoDetalleV" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
+                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
                     </label>
                   }
                 }
@@ -623,7 +623,7 @@ export class FinanzasCapturarGastoComponent {
    */
   readonly faltan = computed<Faltante[]>(() => faltaParaMandar({
     forma_pago: this.formaPago(),
-    forma_pago_detalle: this.formaPagoDetalleV,
+    forma_pago_detalle: this.formaPagoDetalle(),
     // El sello viaja por rol: `names` sólo dice que hay archivo, no de dónde salió.
     archivos: Object.keys(this.names()).map((role) => ({ role, live: this.sellos()[role]?.live === true })),
     exige_evidencia: this.llevaEvidencia(),
@@ -677,7 +677,16 @@ export class FinanzasCapturarGastoComponent {
   readonly formasPago = FORMAS_PAGO;
   readonly formaPago = signal<FormaPagoId | null>(null);
   /** ngModel del detalle (caja, últimos 4, referencia…). */
-  formaPagoDetalleV = '';
+  /**
+   * [GX.22] SENAL, no campo suelto. Estaba como propiedad plana y la leia el `computed`
+   * de la compuerta -- que solo se recalcula cuando cambia una SENAL que leyo. O sea:
+   * escribir la referencia del banco no invalidaba nada, el boton seguia diciendo
+   * «Falta: El dato del pago» y **no se podia enviar el gasto**.
+   *
+   * Lo agarro `scripts/check-signal-reactivity.js`, que ya venia en rojo por esta misma
+   * linea. Un candado que nadie mira es un candado apagado.
+   */
+  readonly formaPagoDetalle = signal('');
   readonly formaSel = computed(() => FORMAS_PAGO.find((f) => f.id === this.formaPago()) ?? null);
 
   /**
@@ -692,7 +701,7 @@ export class FinanzasCapturarGastoComponent {
   elegirForma(id: FormaPagoId) {
     // Cambiar de forma borra el detalle: un número de cheque no sirve como referencia
     // de transferencia, y dejarlo ahí lo mandaría con la etiqueta equivocada.
-    if (this.formaPago() !== id) this.formaPagoDetalleV = '';
+    if (this.formaPago() !== id) this.formaPagoDetalle.set('');
     this.formaPago.set(id);
   }
 
@@ -795,7 +804,7 @@ export class FinanzasCapturarGastoComponent {
   reset() {
     this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios = '';
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
-    this.formaPago.set(null); this.formaPagoDetalleV = ''; this.sellos.set({});
+    this.formaPago.set(null); this.formaPagoDetalle.set(''); this.sellos.set({});
     this.existing.set(null); this.checking.set(false);
   }
 
@@ -920,7 +929,7 @@ export class FinanzasCapturarGastoComponent {
       fecha_gasto: g.fecha ? String(g.fecha).slice(0, 10) : undefined, importe: g.importe || undefined,
       clasificacion: this.clasificacion()!,
       forma_pago: this.formaPago() ?? undefined,
-      forma_pago_detalle: this.formaPagoDetalleV.trim() || undefined,
+      forma_pago_detalle: this.formaPagoDetalle().trim() || undefined,
       // No comprobable: el motivo ES el comentario (obligatorio). Comprobable: nota opcional.
       comentarios: this.comentarios || (lleva ? g.concepto || undefined : undefined), files,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
