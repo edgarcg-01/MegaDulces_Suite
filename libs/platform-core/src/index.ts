@@ -98,3 +98,7 @@ export * from './lib/provenance/freshness';
 // [CC.10] El otro lado del mismo par: `freshness` LEE `analytics.cron_runs`, esto lo ESCRIBE.
 // Estaba copiado a mano en 7 servicios cuando el octavo iba a nacer.
 export * from './lib/provenance/cron-heartbeat';
+// [CPU.2] «Preferí la copia materializada y declará su edad». Mismo patrón que los dos de arriba:
+// estaba bien resuelto en UN servicio (`commercial-bi-almacen`) mientras el de al lado tenía la
+// vista viva clavada a mano en tres lugares, quemando el 16.4 % del SQL de prod.
+export * from './lib/provenance/materialized';

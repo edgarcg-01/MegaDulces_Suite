@@ -6,6 +6,7 @@
  * `ScopeService` y no de un mecanismo nuevo, qué columnas del pedido original NO
  * existen todavía en el dato real).
  */
+import type { MaterializedProvenance } from '@megadulces/platform-core';
 
 export interface BiWarehouseOpt {
   id: string;
@@ -228,12 +229,12 @@ export interface BiPage<T> {
  * `source: 'view'` es el camino degradado: la MV todavía no existe en este entorno (migración
  * `20260914130000_mv_unit_truth` sin aplicar). Se lee la vista viva — correcta pero lenta — y
  * se DECLARA, en vez de romper la página o fingir que se leyó la copia.
+ *
+ * [CPU.2] La FORMA es ahora `MaterializedProvenance` de `@megadulces/platform-core`: el alias
+ * conserva el nombre de dominio (y el contrato del wire, byte por byte) sin tener una segunda
+ * declaración de la misma cosa. Era la última copia del primitivo — el resto ya se compartió.
  */
-export interface BiUnitProvenance {
-  source: 'mv' | 'view';
-  /** `now()` de la última materialización. `null` cuando `source === 'view'` (es en vivo). */
-  refreshed_at: string | null;
-}
+export type BiUnitProvenance = MaterializedProvenance;
 
 /** Página de movimientos: la de arriba + la procedencia de la unidad. */
 export interface BiMovementPage extends BiPage<BiMovementRow> {

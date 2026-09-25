@@ -59,6 +59,28 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // `REFRESH CONCURRENTLY` medido: **2 s** — ocho veces más barato que el de rutas, así que la
   // cadencia de 30 min le sobra.
   { name: 'analytics.mv_sales_daily_wh_200d', everyMin: 30 },
+  // `[CPU.2]` El resolvedor de unidad (ADR-057). Estaba SÓLO en el grupo nocturno, y eso dejaba de
+  // ser tolerable el día que sus consumidores pasaron de la vista viva a esta copia: publicar el
+  // factor de caja de anoche cuando antes era en vivo sería cambiar CPU por una mentira chica.
+  //
+  // `everyMin: 30` medido, no elegido de oído: el `REFRESH CONCURRENTLY` tarda **9.0 s** (106 MB,
+  // 180,272 filas, con UNIQUE sobre (tenant, almacén, producto) → no bloquea lecturas). A 30 min
+  // son 48 corridas/día ≈ 7 min de CPU, contra los **9,694 s en 21 h** que costaba que tres
+  // pantallas derivaran la vista viva 6,242 veces. Se paga 1 para no pagar 1,300.
+  //
+  // El hueco que cierra, medido el 2026-09-25 comparando copia contra vista tras ~6 h de rezago:
+  // las LLAVES eran idénticas (180,272 = 180,272) y `box_factor`/`metodo_cajas`/`base_label`/
+  // `is_weight` no tenían NI UNA diferencia; el que se movía era **`cja_price`, 32 filas**. O sea
+  // que el rezago no rompía las conversiones, movía precios de caja — chico, pero es dinero, y es
+  // justo la clase de diferencia que nadie va a notar mirando la pantalla.
+  //
+  // ⚠️ SIGUE ADEMÁS EN EL GRUPO NOCTURNO, a propósito y no por olvido. Su latido dedicado
+  // (`analytics_refresh_unit_truth`, umbral registrado en `CRON_JOBS`) lo escribe el loop nocturno,
+  // que es el único que lleva una llave POR MV; este array escribe UN latido agregado
+  // (`analytics_refresh`) para todo el grupo. Sacarla de allá dejaría esa llave registrada y sin
+  // nadie que la escriba = rojo permanente, que entrena a ignorar el tablero igual que un verde
+  // falso. El precio de dejarla en los dos lados es UN refresco redundante de 9 s al día.
+  { name: 'analytics.mv_unit_truth', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
