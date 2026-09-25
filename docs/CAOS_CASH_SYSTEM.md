@@ -185,15 +185,47 @@ conteo de máquina se **cruza** contra la contabilidad (Kepler `0011` / `cash_le
 diferencias se levantan como hallazgo. Esto redefine las capas: CS.3/CS.4/CS.5 son, en el fondo, un
 **único matcher CAOS (máquina) ↔ Kepler caja 0011 (contabilidad)**.
 
-### ⚠️ Lo que sigue pendiente
+### ⭐ MEDICIÓN 2026-09-25 (en `md`, contra prod) — el árbitro naïve queda REFUTADO
 
-- **Mapear los operadores de CAOS** (`003` María del Carmen, `006` Vendedor VENTAS, `002` Juan Jesús)
-  a `identity.users`.
-- **El matcher necesita MEDIRSE contra datos reales antes de confiar en sus hallazgos.** CAOS y
-  Kepler `0011` no comparten llave: el cruce sería por importe + proximidad de fecha (+ quizá
-  `ref "ruta NN"`). Un cruce por importe sin su **placebo/piso de ruido** no significa nada
-  (regla del proyecto). No se puede medir desde esta máquina (`.245` rechaza la IP en `pg_hba`);
-  se mide en `md`.
+Se corrió `database/importers/caos/measure-caos-match.js` en `feeds-cron` (alcanza CAOS + prod),
+con placebo. Resultado:
+
+- **Match 1:1 por importe+fecha: 0%. Incluso por importe solo: 0%** (649 depósitos CAOS × 12,053
+  movimientos de caja `0011`). No es bug de escala (ambos en pesos, verificado con muestras). Es
+  **diferencia de GRANO**: CAOS registra depósitos/dispensaciones **en bulto** y redondos
+  ($19,010, $9,700 — contados por la máquina); Kepler caja `0011` registra movimientos
+  **individuales** con centavos (cobros `U-A-5` $20,106.00, gastos `X-D-26` $3,747.66). Es el
+  mismo patrón "banco = bulto, Kepler = por venta" ya visto en conciliación. → **el matcher
+  movimiento-a-movimiento NO sirve.**
+- **Total de control del período:** CAOS depósitos **$15.9M** vs Kepler caja ingresos **$41.1M**
+  (ratio **0.39**); CAOS dispensado **$15.6M** vs egresos **$39.0M** (ratio **0.40**). O sea:
+  **por CAOS pasa sólo ~40% del efectivo de la Caja General**; el resto de `0011` se maneja fuera
+  de la máquina. Diario: de 90 días con actividad en ambos, sólo **34%** quedan dentro del 15%. →
+  **un árbitro "CAOS total == Kepler caja total" también daría ~60% de falsos hallazgos.**
+- **Hallazgo colateral útil:** el 2026-09-24 CAOS ya tenía datos y Kepler caja `0011` estaba en
+  $0 — **CAOS es MÁS FRESCO** que el feed contable para ese efectivo.
+
+**Conclusión (honesta):** CAOS **no es un espejo** de la Caja General — es el **subconjunto** de
+efectivo que pasa físicamente por la caja fuerte (~40%), sin llave común con la contabilidad. Un
+árbitro automático que marque diferencias sería casi todo ruido.
+
+### Lo que SÍ es viable (revisado por la medición)
+
+- ✅ **CS.2 reporte** (entregado) — la vista por denominación, más fresca que Kepler.
+- ✅ **CS.6 atribución por ruta / CS.7 rendición por persona** — son INTERNAS a CAOS (`ref "ruta NN"`,
+  operador, propósito); no cruzan contra nada, así que no tienen el problema del grano. Valor real
+  y seguro.
+- ⚠️ **CS.4 árbitro / CS.5 banco: NO como se planearon.** Requieren una respuesta OPERATIVA:
+  **¿qué se supone que pasa por CAOS y qué no?** Sin eso, lo máximo honesto es un **tablero de total
+  de control** (CAOS vs Kepler caja lado a lado, informativo), no hallazgos automáticos. Además los
+  tipos "Bóveda Virtual" **no aparecen** en los datos reales (sólo Depósito/Dispensar/Dotar/Cambio/
+  Vaciar), así que CS.5 probablemente no aplica en esta instalación.
+
+### Pendiente
+
+- **Mapear operadores** (`003`/`006`/`002`) a `identity.users` — para CS.7.
+- **Desplegar CS.1 en `md`** (migración + secrets `CAOS_*` en `feeds.env` + rotar `admin/caos`) para
+  poblar el espejo y que el reporte y CS.6/CS.7 tengan datos.
 - **Mapear los usuarios de CAOS** (`003`, `006`, `002`) a `identity.users`.
 - **`accountingDate` vs `date`, TZ y retención** no verificados — cuál manda para cuadrar un período.
 - **Riesgo de adapter:** son endpoints internos de CAOS 6.72.3, sin contrato. Una actualización de
