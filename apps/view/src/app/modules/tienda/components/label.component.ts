@@ -695,7 +695,12 @@ export interface RenglonEtiqueta {
                  número sin su unidad es el error más caro del proyecto (ADR-055). Por eso la
                  palabra va en su propio nivel de jerarquía, no como pie de foto. -->
             <div class="etq-pieza" #pieza>
-              <span class="etq-pieza-txt" #piezaTxt>@if (sinPrecio) {<span class="pre">el ERP no lo cotiza en esta tienda</span>} @else if (condicionMayoreo; as cc) {<span class="pre">Llevando</span><span class="u">{{ cc }}</span>} @else {<span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span>}</span>
+              <!-- [ETQ-PRES.4d] "el ERP no declara la unidad" NO es una decoracion: es el unico
+                   renglon honesto cuando kdii.c11 viene vacio. Antes caia a la palabra "pieza" y
+                   el 02968 (IND GALL OREO VAINILLA 105 G) salia anunciando 1,194.24 "por pieza",
+                   que es un precio de CAJA. Son 253 pares (sku, plaza) y cada uno es una
+                   discusion en el mostrador. Mismo tratamiento que el precio que el ERP retiro. -->
+              <span class="etq-pieza-txt" #piezaTxt>@if (sinPrecio) {<span class="pre">el ERP no lo cotiza en esta tienda</span>} @else if (condicionMayoreo; as cc) {<span class="pre">Llevando</span><span class="u">{{ cc }}</span>} @else if (sinUnidad) {<span class="pre">el ERP no declara la unidad</span>} @else {<span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span>}</span>
             </div>
           </div>
         </div>
@@ -910,7 +915,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
           clave: u + '|lista',
           unidad: leg.singular.charAt(0).toUpperCase() + leg.singular.slice(1),
           unidadPlural: leg.plural,
-          contenido: p.contenido ?? null,
+          contenido: this.detalleDe(p, leg),
           precio: lista, mayoreo: false, desde: null, realce: false,
           descuento: 0, factor: Number(p.factor) || 0,
         });
@@ -933,6 +938,36 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
       }
     }
     return this.recortar(out);
+  }
+
+  /**
+   * ⭐⭐ `[ETQ-PRES.4d]` QUÉ VA AL LADO DEL RÓTULO: el contenido, o si no se sabe, **el factor**.
+   *
+   * Dos cosas que la auditoría visual del 2026-09-24 encontró mirando las etiquetas impresas:
+   *
+   * ⛔ **Se había perdido el factor.** La etiqueta vieja imprimía "Paquete **12** pzas"; ésta
+   * imprimía "PAQUETE $93.48" a secas, porque el contenido derivado llega `null` cuando el ERP no
+   * publica gramaje. Medido en prod: de los **155,866 renglones que se imprimen, 87,096 (55.9%)**
+   * no tienen contenido. O sea que más de la mitad del anaquel perdió el "¿de cuántas?".
+   *
+   * El factor NO es una suposición: es `kdii.c81`/`c84`, el mismo número con el que el ERP cobra.
+   * Y la unidad en la que se cuenta es la de la presentación BASE, que también viene del ERP.
+   * ⚠️ Sólo puede leerse mal si la base fuera una MEDIDA ("Paquete 12 500 g"), y eso no puede
+   * pasar: cuando la base es `KG` o un gramaje el contenido nunca es `null` (reglas 1 y 2 de la
+   * vista siempre lo derivan). El hueco es exactamente el caso en que la base cuenta piezas.
+   *
+   * ⛔ **Y el rótulo se repetía a sí mismo**: el renglón del kilo salía "KG 1 KG" y el selector
+   * decía "500 g · 500 g $57.88". Cuando la unidad legible YA ES la medida, el contenido no
+   * agrega nada — lo hace parecer dos datos.
+   */
+  private detalleDe(p: PresentacionPrecio, leg: { singular: string }): string | null {
+    const base = this.presentaciones.find((x) => x.origen === 'base');
+    const factor = Number(p.factor) || 0;
+    const det = p.contenido
+      ?? (factor > 1 && base ? `${factor} ${unidadLegible(base.unidad).plural}` : null);
+    if (!det) return null;
+    // "1 kg" contra la unidad "kg", o "500 g" contra "500 g": el mismo dato dicho dos veces.
+    return det.replace(/^1\s+/, '').toLowerCase() === leg.singular.toLowerCase() ? null : det;
   }
 
   /**
@@ -1036,9 +1071,25 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
         unidad: String(h.unidad),
       };
     }
+    // ⛔ Sin lista y sin `unit_base`, `word` queda VACÍO a propósito. Acá había un `|| 'pieza'` y
+    // era una afirmación inventada sobre un papel que el cliente sostiene — ver `sinUnidad`.
     const leg = unidadLegible(this.model?.unit_base);
-    return { word: leg.singular || 'pieza', value: this.num(this.model?.piece_price), unidad: null };
+    return { word: leg.singular, value: this.num(this.model?.piece_price), unidad: null };
   }
+
+  /**
+   * ⛔ `[ETQ-PRES.4d]` El ERP NO DECLARA LA UNIDAD de este precio, y la etiqueta lo dice.
+   *
+   * Medido en prod: **253 pares (sku, plaza)**, y en los 253 la causa es una sola — `kdii.c11`
+   * viene vacío. El caso que lo destapó al mirar las etiquetas impresas: el `02968`
+   * (*IND GALL OREO VAINILLA 105 G MONDELEZ*) salía con **$1,194.24 "Precio por pieza"**. Ese no
+   * es el precio de una galleta: es el de una caja. La palabra "pieza" no venía del ERP, venía de
+   * un `|| 'pieza'` puesto como default.
+   *
+   * Un precio sin su unidad es el defecto que funda esta fase (`[VU.0]`). Declararlo cuesta un
+   * renglón; inventarlo cuesta una discusión en el mostrador y un cobro mal hecho.
+   */
+  get sinUnidad(): boolean { return !this.bigUnit.word; }
 
   /**
    * `[ETQ-PROMO.1]` El "Descuento por Cantidad" de Kepler, SÓLO si le toca al precio grande.

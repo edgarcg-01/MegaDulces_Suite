@@ -33,6 +33,7 @@ const argv = process.argv.slice(2);
 const etiqueta = argv.find((a) => !a.startsWith('--')) || 'medicion';
 const arg = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null; };
 const PDF = arg('--pdf');
+const PNG = arg('--png');
 const SKUS = (arg('--skus') || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 const STYLES_CSS = path.join(RAIZ, 'apps/view/src/styles.css');
@@ -156,7 +157,9 @@ function vista(m) {
     || conPrecio.find((p) => p.origen === 'base')
     || conPrecio[0]
     || null;
-  const heroWord = hero ? legible(hero.unidad).singular : legible(m.unit_base).singular || 'pieza';
+  // `[ETQ-PRES.4d]` Sin `|| 'pieza'`: cuando el ERP no declara unidad, la franja lo DICE. El
+  // arnés tiene que renderizar esa frase o mide una franja mas corta que la que se imprime.
+  const heroWord = hero ? legible(hero.unidad).singular : legible(m.unit_base).singular;
   const heroVal = hero ? n(hero.precio_lista) : n(m.piece_price);
   const heroU = hero ? String(hero.unidad).toUpperCase() : '';
 
@@ -168,7 +171,13 @@ function vista(m) {
     const may = n(p.mayoreo_precio);
     const desde = p.mayoreo_desde == null ? null : Number(p.mayoreo_desde);
     if (u !== heroU && lista > 0) {
-      tiers.push({ txt: `${esc(capit(leg.singular))}${p.contenido ? ` <span class="etq-red">${esc(p.contenido)}</span>` : ''}`, amt: lista });
+      // `[ETQ-PRES.4d]` Mismo `detalleDe` del componente: el contenido, o el FACTOR si no se
+      // conoce (55.9% de los renglones), y nada si el rótulo ya es la medida ("KG 1 KG").
+      const base = ps.find((x) => x.origen === 'base');
+      const f = Number(p.factor) || 0;
+      let det = p.contenido || (f > 1 && base ? `${f} ${legible(base.unidad).plural}` : null);
+      if (det && det.replace(/^1\s+/, '').toLowerCase() === leg.singular.toLowerCase()) det = null;
+      tiers.push({ txt: `${esc(capit(leg.singular))}${det ? ` <span class="etq-red">${esc(det)}</span>` : ''}`, amt: lista, factor: f });
     }
     if (p.mayoreo_veredicto === 'ok' && may > 0 && desde !== null && desde > 1) {
       tiers.push({
@@ -228,9 +237,12 @@ const FRANJA_NUEVA = /\.etq-pieza-txt\{/.test(css);
 
 function html(v) {
   const ent = dinero(v.heroVal).slice(1).split('.');
-  const franja = FRANJA_NUEVA
-    ? `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">Precio por</span><span class="u">${esc(v.heroWord)}</span></span></div>`
-    : `<div class="etq-pieza">Precio por ${esc(v.heroWord)}</div>`;
+  // `[ETQ-PRES.4d]` Sin unidad declarada la franja lleva la frase, no la palabra inventada.
+  const franja = !v.heroWord
+    ? `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">el ERP no declara la unidad</span></span></div>`
+    : FRANJA_NUEVA
+      ? `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">Precio por</span><span class="u">${esc(v.heroWord)}</span></span></div>`
+      : `<div class="etq-pieza">Precio por ${esc(v.heroWord)}</div>`;
   return `<wrap data-sku="${esc(v.sku)}"><div class="etq-label">
   <div class="etq-head">${BROTE_EN_BANDA ? SPROUT : ''}<span class="etq-head-txt">${esc(v.nombre)}</span></div>
   <div class="etq-body">
@@ -428,6 +440,31 @@ function html(v) {
     await page.pdf({ path: PDF, format: 'Letter', landscape: true, printBackground: true,
       margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } });
     console.log(`\nhoja para mirar: ${PDF}`);
+  }
+
+  /**
+   * ⭐ `--png <dir>` — una IMAGEN por etiqueta, a 4× para que el texto se lea.
+   *
+   * Un PDF de 15 por hoja sirve para juzgar la hoja; no sirve para leer un renglón. Y los
+   * defectos que se le escaparon a este arnés hasta ahora **no eran de geometría, eran de TEXTO**:
+   * "KG1 KG" pegado, "25 kg" en la meta de un precio de 500 g. Ninguno mueve un milímetro, así
+   * que ningún invariante los ve — hay que mirarlos.
+   *
+   * ⚠️ Lo que se ve acá sale de la RÉPLICA (`vista`), no del componente Angular. Para el TEXTO la
+   * verdad está en `components/label.component.spec.ts`, que renderiza el componente de verdad.
+   * Esta salida es para el ojo; la del DOM es la que bloquea.
+   */
+  if (PNG) {
+    fs.mkdirSync(PNG, { recursive: true });
+    await page.evaluate(() => { document.body.style.background = '#ffffff'; });
+    const cajas = await page.$$('wrap');
+    let n = 0;
+    for (const caja of cajas) {
+      const sku = await caja.evaluate((e) => e.dataset.sku);
+      await caja.screenshot({ path: path.join(PNG, `${sku}.png`) });
+      n++;
+    }
+    console.log(`\n${n} imagen(es) en ${PNG}`);
   }
   await b.close();
 

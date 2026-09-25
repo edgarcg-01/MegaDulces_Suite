@@ -280,6 +280,76 @@ describe('LabelComponent · lo que sale impreso', () => {
   });
 
   /**
+   * ⭐⭐ `[ETQ-PRES.4d]` Lo que encontró mirar las etiquetas RENDERIZADAS, una por arquetipo.
+   *
+   * Ninguno de estos tres mueve un milímetro, así que ningún invariante del arnés de geometría
+   * los podía ver. Salieron de leer el papel.
+   */
+  describe('⭐⭐ auditoría visual: el rótulo dice de cuántas, y no inventa unidades', () => {
+    const txts = (): string[] =>
+      [...el().querySelectorAll('.etq-tier .txt')].map((n) => n.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    const franja = (): string => el().querySelector('.etq-pieza')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    /**
+     * ⛔ REGRESIÓN que introdujo la migración: la etiqueta vieja imprimía "Paquete **12** pzas" y
+     * ésta imprimía "PAQUETE $93.48" pelado. Medido: **87,096 de 155,866 renglones (55.9%)** no
+     * tienen contenido derivado — más de la mitad del anaquel perdió el "¿de cuántas?".
+     */
+    it('⭐ sin contenido, el renglón dice el FACTOR en la unidad de la base', async () => {
+      await render({
+        ...BASE, sku: '00052', name: 'TIC TAC CANELA /12', content: null,
+        presentaciones: [
+          { unidad: 'PZA', factor: 1, origen: 'base', contenido: null, precio_lista: 8.78, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+          { unidad: 'PAQ', factor: 12, origen: 'ranura', contenido: null, precio_lista: 93.48, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+          { unidad: 'CJA', factor: 144, origen: 'ranura', contenido: null, precio_lista: 1057.11, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+        ],
+      });
+      expect(txts()).toContain('Paquete 12 piezas');
+      expect(txts()).toContain('Caja 144 piezas');
+    });
+
+    it('⛔ NEGATIVA: sin presentación base el factor NO se inventa una unidad en la que contarse', async () => {
+      await render({
+        ...BASE, content: null,
+        presentaciones: [
+          { unidad: 'CJA', factor: 144, origen: 'escalera', contenido: null, precio_lista: 1057.11, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+        ],
+      });
+      // Es el único con precio, así que va en grande y no deja renglón: lo que importa es que no
+      // aparezca un "144 " colgando de ninguna palabra.
+      expect(txts().some((t) => /144/.test(t))).toBe(false);
+    });
+
+    it('el rótulo no se repite a sí mismo: el renglón del kilo es "Kg", no "Kg 1 kg"', async () => {
+      await render({
+        ...BASE, sku: '18022', unit_base: '500', content: null, piece_price: 57.88,
+        presentaciones: [
+          { unidad: '500', factor: 1, origen: 'base', contenido: '500 g', precio_lista: 57.88, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+          { unidad: 'KG', factor: 2, origen: 'ranura', contenido: '1 kg', precio_lista: 115.74, mayoreo_precio: null, mayoreo_desde: null, mayoreo_veredicto: 'sin_mayoreo' },
+        ],
+      });
+      expect(txts()).toContain('Kg');
+      expect(txts().some((t) => /Kg\s*1 kg/i.test(t))).toBe(false);
+    });
+
+    /**
+     * ⛔⛔ El `02968` (*IND GALL OREO VAINILLA 105 G*) salía con **$1,194.24 "Precio por pieza"**.
+     * Ése no es el precio de una galleta: es el de una caja. La palabra no venía del ERP —venía
+     * de un `|| 'pieza'` puesto como default— y son **253 pares (sku, plaza)**, todos con
+     * `kdii.c11` vacío.
+     */
+    it('⛔⛔ NEGATIVA: sin unidad declarada la etiqueta NO dice "pieza", lo DICE', async () => {
+      await render({
+        ...BASE, sku: '02968', name: 'IND GALL OREO VAINILLA 105 G MONDELEZ',
+        content: null, unit_base: null, piece_price: 1194.24, presentaciones: [],
+      });
+      expect(franja()).toContain('el ERP no declara la unidad');
+      expect(franja()).not.toContain('pieza');
+      expect(el().querySelector('.etq-price')?.textContent).toContain('1,194.24');
+    });
+  });
+
+  /**
    * `[ETQ-PRES.4]` Lo que el diccionario NO entiende se imprime CRUDO — no se traduce.
    *
    * Misma regla que `QtyUnitLabel`. Medido: `SER` son 13 SKUs y casi todos son asientos
