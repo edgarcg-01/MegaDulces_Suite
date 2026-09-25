@@ -114,6 +114,26 @@ export class CashLedgerController {
     return this.svc.caosCapturables({ tipo, from, to, search, limit: limit ? Number(limit) : undefined });
   }
 
+  // CS.3.3 — va ANTES de `@Get(':id')` (Nest resuelve por orden). El detector: propone qué retiros
+  // del cajero (CAOS) pudieron pagar un gasto, rankeados por patrones medidos + lo aprendido.
+  @Get('caos-candidatos')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CS.3.3 — Propone los retiros de CAOS que pudieron pagar un gasto (rankeados por mismo día + ref + monto + aprendido). No aplica: el humano confirma.' })
+  caosCandidatos(
+    @Query('fecha') fecha?: string,
+    @Query('monto') monto?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('concepto') concepto?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('tipo') tipo?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.caosCandidatos({
+      fecha, monto: monto ? Number(monto) : undefined, beneficiario, concepto, sucursal, tipo,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get('cajas')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CG.21 — Las cajas de efectivo que Kepler declara en kdb1 (c3=EFECTIVO), con su volumen MEDIDO en la ventana. Sale del catálogo y no de los movimientos: una caja dormida tiene que poder verse, o sería indistinguible de una que no existe.' })

@@ -231,9 +231,19 @@ por monto ciego.
 - El **matcher** (siguiente): rankea candidatos por señales cold-start (mismo día + ref + operador) +
   boost de lo aprendido, y el humano confirma con un toque; el confirm escribe el enlace.
 
-**Pendiente CS.3.2:** el matcher (candidatos rankeados + confirmar en el arqueo) · seguir minando
-(fecha embebida en el ref, precisión por señal con feedback negativo, depósitos↔cobros de ruta) ·
-aplicar la migración a prod por el deploy normal.
+**CS.3.3 — matcher (detector) backend 🧪 EN CÓDIGO 2026-09-25:** motor puro
+`caja-caos-match.engine.ts` (rankea por **mismo día** + **ref↔beneficiario** + **monto** + lo
+**aprendido**; devuelve score + motivos + confianza; spec **9/9**) + `caosCandidatos()` en el
+servicio + endpoint `GET /finance/cash-ledger/caos-candidatos` (gate `FINANCE_CAJA_VER`) +
+`caosCapturables` ahora excluye lo ya enlazado (con **guard** si la tabla aún no existe, porque el
+código puede ir por delante de la migración). Verificado: typecheck limpio + la consulta devuelve
+candidatos reales sensatos (gasto «CUERITOS» → propone el retiro `cueritos` por ref, más los del
+mismo día). NO aplica nada: el humano confirma.
+
+**Pendiente CS.3.4:** confirmar+escribir el enlace (que consume el movimiento y afina el aprendizaje)
++ la UI en el arqueo (compone CAOS bloqueado + lo restante a mano + el botón «traer del cajero» que
+llama al detector). Seguir minando: fecha embebida en el `ref`, depósitos↔cobros de ruta, precisión
+por señal (con feedback negativo). Aplicar las migraciones (`160000`, `170000`) a prod por el deploy.
 
 ## Estado (2026-09-25)
 
