@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -622,6 +622,24 @@ interface FormularioCajaUI {
               </small>
             }
           </div>
+
+          <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
+               abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
+          <div class="fin-row fin-row-col">
+            <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
+            <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
+                            (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
+                            (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
+                            [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                            placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
+            @if (caosElegido(); as m) {
+              <small class="fin-hint-ok">
+                De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
+                {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
+                El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
+              </small>
+            }
+          </div>
         }
 
         <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
@@ -1038,6 +1056,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * monto: es una referencia para que no pierda ese trabajo al desglosarlo por denominación.
    */
   contadoBandeja = signal<number | null>(null);
+
+  /** CS.3 — la segunda fuente: movimientos de CAOS (caja fuerte) capturables, y el elegido. */
+  caosOpciones = signal<Array<CaosCapturable & { label: string }>>([]);
+  caosSel: (CaosCapturable & { label: string }) | null = null;
+  caosElegido = signal<CaosCapturable | null>(null);
 
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
@@ -1595,6 +1618,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.montoContado.set(null);
     this.contadoBandeja.set(null);
     this.cobros.set([]);
+    // CS.3 — la fuente CAOS tampoco sobrevive al diálogo anterior.
+    this.caosSel = null;
+    this.caosElegido.set(null);
+    this.caosOpciones.set([]);
     this.abrirConFoco(this.capturaAbierta);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
     // sucursal seguían siendo los de la 00. Se refrescan al abrir, con la sucursal en curso.
@@ -1676,6 +1703,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * anclar un documento es una sola operación, se haya llegado por el buscador o por la fila.
    */
   private tomarDocumento(c: MovimientoPendiente, contado?: number | null): void {
+    // Excluyente con CAOS: una captura tiene UN origen.
+    this.caosElegido.set(null);
+    this.caosSel = null;
     this.cobroElegido.set(c);
     // CG.23 — El importe YA NO SE HEREDA del documento ni del total tecleado en la bandeja.
     //
@@ -1736,6 +1766,69 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.montoContado.set(null);
     this.contadoBandeja.set(null);
     this.recomputarMonto();
+  }
+
+  // ── CS.3 — la segunda fuente de captura: la caja fuerte (CAOS) ────────────────────────────────
+  //
+  // El capturista puede anclar un movimiento de CAOS igual que un documento de Kepler. La
+  // diferencia: CAOS trae el ARQUEO ya contado por la máquina, así que el desglose se precarga y
+  // el monto sale de ahí. Lo que la máquina no cubre (morralla, monedas, una diferencia) se teclea.
+  // Las dos fuentes conviven pero son excluyentes en UNA captura: elegir CAOS suelta el cobro y
+  // viceversa, para que `guardar()` no tenga dos orígenes.
+
+  /** Etiqueta del movimiento de CAOS: qué es, quién y cuánto. */
+  caosLabel = (m: CaosCapturable) =>
+    `${dmy(m.fecha_valor)} · ${m.type_label} #${m.external_id} · ${m.user_external || 's/operador'} · ${money(m.monto)}${m.ref ? ' · «' + m.ref + '»' : ''}`;
+
+  buscarCaos(e: AutoCompleteCompleteEvent): void {
+    this.svc.caosCapturables({
+      tipo: this.f().tipo === 'gasto' ? 'gasto' : 'ingreso',
+      search: (e.query || '').trim() || undefined,
+      limit: 40,
+    }).subscribe({
+      next: (r) => this.caosOpciones.set((r.rows ?? []).map((m) => ({ ...m, label: this.caosLabel(m) }))),
+      error: (err) => this.avisarError(err, 'No se pudieron buscar movimientos de la caja fuerte (CAOS)'),
+    });
+  }
+
+  elegirCaos(e: AutoCompleteSelectEvent): void {
+    const m = e.value as CaosCapturable;
+    if (!m) return;
+    this.tomarMovimientoCaos(m);
+  }
+
+  /**
+   * Ancla un movimiento de CAOS y **precarga el arqueo con el conteo de la máquina**. El monto sale
+   * del desglose (recomputarMonto). NO ancla a un documento de Kepler: `guardar()` manda
+   * `origen_tipo='caos'` y el servidor toma el monto del arqueo, no de un documento.
+   */
+  private tomarMovimientoCaos(m: CaosCapturable): void {
+    // Excluyente con el cobro de Kepler: una captura tiene UN origen.
+    this.cobroElegido.set(null);
+    this.cobroSel = null;
+    this.contadoBandeja.set(null);
+    this.montoContado.set(null);
+    this.caosElegido.set(m);
+    this.f.update((v) => ({
+      ...v,
+      tipo: m.tipo as TipoMovimiento,
+      fecha: String(m.fecha_valor).slice(0, 10) || v.fecha,
+      sucursal: m.sucursal || v.sucursal,
+      beneficiario: m.user_external || v.beneficiario,
+      glosa: v.glosa?.trim() || `CAOS ${m.type_label} #${m.external_id}${m.ref ? ' · ' + m.ref : ''}`.slice(0, 200),
+      // ⭐ El arqueo se precarga con las denominaciones de la máquina (500/200/100/50/20). La
+      // morralla arranca en 0 y es lo que se cuenta a mano si hace falta.
+      denominaciones: (m.denominaciones || []).map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })),
+      morralla: 0,
+    }));
+    this.recomputarMonto();
+    this.pedirPropuesta();
+  }
+
+  /** Soltar CAOS vuelve a captura manual; conserva el conteo ya precargado (no se re-teclea). */
+  soltarCaos(): void {
+    this.caosElegido.set(null);
+    this.caosSel = null;
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -2132,6 +2225,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (this.bloqueos().length || this.guardando()) return;
     this.guardando.set(true);
     const cobro = this.cobroElegido();
+    const caos = this.caosElegido();
     const f = this.f();
     // Se lee ANTES de emitir: el `next` corre despues y para entonces el dialogo ya se cerro.
     const declarar = this.declararRegla() && this.puedeDeclararRegla();
@@ -2144,8 +2238,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // importe del ERP con `ORIGEN_ANCLADO = ['cobro','pago_proveedor']`, y el CHECK admite los
       // dos. La fila ya trae su propio `origen_tipo` (la vista lo emite por signo) — se usa ése,
       // igual que hace el lote; el fallback por signo es sólo por si la vista no lo mandara.
-      origen_tipo: cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null,
-      origen_ref: cobro ? cobro.origen_ref : null,
+      // CS.3 — si el origen es CAOS, va `origen_tipo='caos'` + `origen_ref='device|external_id'` (el
+      // candado del servidor garantiza que ese movimiento se capture una vez). CAOS NO ancla a un
+      // documento: el monto sale del arqueo precargado, no se relee de Kepler.
+      origen_tipo: caos ? 'caos' : (cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null),
+      origen_ref: caos ? caos.origen_ref : (cobro ? cobro.origen_ref : null),
       // ⭐ Lo CONTADO, en su campo propio. Sin esto el servidor relee el importe del documento y
       // descarta el conteo: la diferencia llegaba al hallazgo pero NO al libro, o sea que la caja
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya

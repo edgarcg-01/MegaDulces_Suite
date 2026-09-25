@@ -586,6 +586,95 @@ export class CashLedgerService {
   }
 
   /**
+   * CS.3 — Movimientos de CAOS (caja fuerte) PENDIENTES de capturar en el libro, con sus
+   * denominaciones ya contadas por la máquina, para autorrellenar el arqueo.
+   *
+   * Es la segunda fuente de la bandeja (la primera son los documentos de Kepler). Convive con
+   * aquélla; el capturista elige. ⚠️ NO se deduplica contra Kepler por fila: la medición dio 0% de
+   * llave común (bulto vs individual). Cada fuente se captura una vez por su propia identidad:
+   * `origen_ref = 'device|external_id'`, `origen_tipo='caos'`, y el candado `ux_cash_ledger_origen_vivo`
+   * garantiza el "una vez". El cuadre de control CS.4 es la red de seguridad contra superposición.
+   *
+   * Sólo Depósito (type_id 0 → `ingreso`) y Dispensar (4 → `gasto`): son los eventos de efectivo del
+   * libro. Dotar/Cambio/Vaciar son operaciones internas de la máquina, no asientos de caja.
+   *
+   * `analytics.caos_cash_movements` NO tiene RLS (espejo de feed) → filtro de tenant explícito.
+   */
+  async caosCapturables(q: { from?: string; to?: string; tipo?: string; search?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const desde = q.from || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      let qb = trx('analytics.caos_cash_movements as m')
+        .where('m.tenant_id', tenantId)
+        .whereIn('m.type_id', [0, 4])
+        .where('m.occurred_at', '>=', desde)
+        // Anti ya-capturado: excluye lo que ya tiene fila viva en el libro con esa identidad CAOS.
+        .whereNotExists((sub: any) => sub
+          .select(trx.raw('1'))
+          .from('finance.cash_ledger as l')
+          .whereRaw(`l.tenant_id = m.tenant_id
+             AND l.origen_tipo = 'caos'
+             AND l.origen_ref = m.device || '|' || m.external_id
+             AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`));
+      if (q.to) qb = qb.where('m.occurred_at', '<=', new Date(new Date(q.to).getTime() + 86400000).toISOString().slice(0, 10));
+      if (q.tipo === 'ingreso') qb = qb.where('m.type_id', 0);
+      if (q.tipo === 'gasto') qb = qb.where('m.type_id', 4);
+      if (q.search) {
+        const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        qb = qb.where((b: any) => b
+          .whereRaw(`m.ref ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`m.user_external ILIKE ? ESCAPE '\\'`, [s]));
+      }
+      const movs = await qb
+        .orderBy([{ column: 'm.occurred_at', order: 'desc' }, { column: 'm.external_id', order: 'desc' }])
+        .limit(limit)
+        .select('m.id', 'm.device', 'm.external_id', 'm.type_id', 'm.type_label', 'm.occurred_at',
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref', 'm.sucursal');
+
+      // Denominaciones de cada movimiento (una consulta, no N).
+      const ids = movs.map((r: any) => r.id);
+      const dens = ids.length
+        ? await trx('analytics.caos_cash_denominations')
+          .where('tenant_id', tenantId).whereIn('movement_id', ids)
+          .select('movement_id', 'denom', 'quantity')
+        : [];
+      const porMov = new Map<string, Array<{ denominacion: number; piezas: number }>>();
+      for (const d of dens as any[]) {
+        const arr = porMov.get(d.movement_id) || [];
+        arr.push({ denominacion: Number(d.denom), piezas: Number(d.quantity) });
+        porMov.set(d.movement_id, arr);
+      }
+
+      const rows = movs.map((m: any) => ({
+        origen_ref: `${m.device}|${m.external_id}`,
+        external_id: Number(m.external_id),
+        device: m.device,
+        tipo: m.type_id === 0 ? 'ingreso' : 'gasto',
+        type_label: m.type_label,
+        occurred_at: m.occurred_at,
+        fecha_valor: String(m.occurred_at).slice(0, 10),
+        sucursal: m.sucursal || '00',
+        user_external: m.user_external,
+        ref: m.ref,
+        monto: Number(m.total),
+        // Sólo billetes 500/200/100/50/20 (los que la máquina cuenta). La morralla va a mano.
+        denominaciones: porMov.get(m.id) || [],
+      }));
+
+      return { rows, limit, has_more: movs.length === limit, desde, datos_al: await this.frescuraCaos(trx, tenantId) };
+    });
+  }
+
+  /** Edad del espejo de CAOS (para declarar frescura). `null` si no se puede medir. */
+  private async frescuraCaos(trx: any, tenantId: string): Promise<string | null> {
+    try {
+      const r = await trx('analytics.caos_cash_movements').where('tenant_id', tenantId).max({ al: 'synced_at' }).first();
+      return r?.al ? new Date(r.al).toISOString() : null;
+    } catch { return null; }
+  }
+
+  /**
    * Las cajas de efectivo que Kepler declara, **con su volumen medido**.
    *
    * ⭐ Sale del catálogo (`analytics.v_kepler_cajas`, `kdb1.c3='EFECTIVO'`) y no de los
