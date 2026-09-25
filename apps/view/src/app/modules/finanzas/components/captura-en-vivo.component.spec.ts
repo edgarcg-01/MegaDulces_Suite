@@ -86,6 +86,69 @@ describe('[GX.14] CapturaEnVivoComponent', () => {
     expect(comp.error()).toContain('no tiene cámara');
   });
 
+  /**
+   * ⭐⭐ **La asercion que faltaba, y por eso el bug llegó a produccion.**
+   *
+   * Las pruebas de arriba comprobaban que el <video> EXISTE y que dice EN VIVO. Las dos
+   * cosas eran ciertas con la camara desenchufada: el enganche se hacia en un
+   * `queueMicrotask` disparado antes de que Angular pintara la rama, asi que `srcObject`
+   * se quedaba en null. En pantalla: recuadro NEGRO y el boton sin efecto, porque
+   * `videoWidth` nunca pasaba de 0 y `disparar()` hacia `return` en silencio.
+   *
+   * Que el elemento este en el DOM no prueba que la camara este conectada a el.
+   */
+  it('engancha la camara al <video>: srcObject queda con el stream', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const video = (fixture.nativeElement as HTMLElement).querySelector('video') as HTMLVideoElement;
+    expect(video).toBeTruthy();
+    expect(video.srcObject).toBe(stream);
+  });
+
+  /** Un disparador vivo sobre un visor negro es una promesa que no se cumple. */
+  it('el disparador esta apagado hasta que hay imagen', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const html = fixture.nativeElement as HTMLElement;
+    const boton = html.querySelector('.cv-disparar') as HTMLButtonElement;
+    expect(comp.listo()).toBe(false);
+    expect(boton.disabled).toBe(true);
+
+    const video = html.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+    comp.marcarListo();
+    fixture.detectChanges();
+
+    expect(comp.listo()).toBe(true);
+    expect((html.querySelector('.cv-disparar') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /**
+   * No alcanza con no entregar una foto negra: hay que DECIRLO. Callado, la persona
+   * concluye que el boton no sirve -- que fue exactamente lo que se reportó.
+   */
+  it('sin cuadro lo dice, en vez de no hacer nada', async () => {
+    const { stream } = streamFalso();
+    conCamara(() => Promise.resolve(stream));
+    await comp.abrir();
+    fixture.detectChanges();
+
+    const video = (fixture.nativeElement as HTMLElement).querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 0, configurable: true });
+
+    comp.disparar();
+    fixture.detectChanges();
+
+    expect(comp.aviso()).not.toBe('');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.cv-aviso')?.textContent).toContain('imagen');
+  });
+
   it('abre el visor y enciende el sello EN VIVO', async () => {
     const { stream } = streamFalso();
     conCamara(() => Promise.resolve(stream));

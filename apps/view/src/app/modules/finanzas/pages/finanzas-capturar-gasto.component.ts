@@ -52,8 +52,33 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           <label class="cap-f"><span>1 · Folio de la solicitud (Kepler)</span>
             <p-autocomplete [(ngModel)]="sel" [suggestions]="sug()" (completeMethod)="buscar($event)"
               (onSelect)="pick($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body" styleClass="w-full"
-              [emptyMessage]="vacioMsg()" />
+              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body"
+              inputStyleClass="w-full" panelStyleClass="cap-ac-panel"
+              [emptyMessage]="vacioMsg()">
+              <!--
+                [GX.17] Cada coincidencia, DESGLOSADA. Antes «optionLabel» pintaba una sola
+                línea pegada -- folio, sucursal, beneficiario e importe separados por puntos --
+                y con dos o tres resultados no se distinguía cuál era cuál. Acá el folio y el
+                importe (lo que de verdad decide) van con su propio peso, y el concepto abajo.
+
+                Ojo: «styleClass» en «p-autocomplete» **no existe en PrimeNG 22** -- era un
+                atributo muerto, sin error ni aviso. Va «inputStyleClass», que sí existe.
+              -->
+              <ng-template let-s #item>
+                <div class="cap-ac">
+                  <div class="cap-ac-l">
+                    <div class="cap-ac-top">
+                      <span class="cap-ac-folio mono">{{ s.folio }}</span>
+                      <span>suc {{ s.sucursal || '?' }}</span>
+                      @if (s.fecha) { <span>{{ s.fecha | date:'dd/MM/yy' }}</span> }
+                    </div>
+                    <div class="cap-ac-benef">{{ s.beneficiario || '—' }}</div>
+                    @if (s.concepto) { <div class="cap-ac-con">{{ s.concepto }}</div> }
+                  </div>
+                  <span class="cap-ac-imp mono">{{ moneyFull(s.importe) }}</span>
+                </div>
+              </ng-template>
+            </p-autocomplete>
             <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También podés buscar por beneficiario.</em>
           </label>
         } @else {
@@ -333,6 +358,38 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
       text-decoration: underline; text-underline-offset: 2px; }
     .cap-link:hover { color: var(--action-hover); }
     .cap-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    /* [GX.17] El desglose de cada coincidencia del buscador. */
+    .cap-ac { display: flex; align-items: flex-start; justify-content: space-between;
+      gap: var(--sp-3); width: 100%; }
+    .cap-ac-l { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .cap-ac-top { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+      font-size: var(--fs-xs); color: var(--fg-3); }
+    .cap-ac-folio { font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cap-ac-benef { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cap-ac-con { font-size: var(--fs-xs); color: var(--fg-2);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cap-ac-imp { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1);
+      white-space: nowrap; }
+
+    /* [GX.17] «¿Cómo se pagó?» salía como texto pegado -- «Efectivo01Tarjeta04…» -- porque
+       estas cuatro clases se usaban en la plantilla desde GX.14 y **nunca se definieron**.
+       Un «class="…"» que no existe es HTML válido: sin error, sin aviso, build verde. */
+    .cap-fp { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+      gap: var(--sp-2); }
+    .cap-fp-b { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      min-height: var(--tap-min); padding: var(--sp-2) var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md);
+      background: transparent; font: inherit; text-align: left; cursor: pointer; }
+    .cap-fp-b:hover { border-color: var(--action); }
+    .cap-fp-b:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-fp-b.on { border-color: var(--action); background: var(--overlay-selected); }
+    .cap-fp-t { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); }
+    .cap-fp-b.on .cap-fp-t { color: var(--action); }
+    /* El código de Kepler es contexto, no el nombre: va chico y en mono. */
+    .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
+      letter-spacing: .04em; }
+
     .cap-step { padding-top: var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
     /* Clasificación: que las 3 opciones quepan y envuelvan en móvil. */
