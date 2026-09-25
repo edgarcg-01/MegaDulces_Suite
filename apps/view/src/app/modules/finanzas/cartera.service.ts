@@ -82,6 +82,64 @@ export interface CarteraResp {
   filtros: CarteraFiltros;
 }
 
+/* ── `[CXC.26]` Cartera por DÍA — la agenda de cobranza ──────────────────────────────────── */
+
+export interface PorDiaQuery {
+  sucursal?: string; vendedor?: string; grupo?: string; zona?: string; cuenta?: string; search?: string;
+}
+
+/**
+ * Tres estados, no un booleano `vencido`. «Vence hoy» no es ni una cosa ni la otra, y es
+ * justamente el día que la cobranza tiene que mirar primero.
+ */
+export type DiaEstado = 'vencido' | 'hoy' | 'futuro';
+
+export interface DiaCartera {
+  fecha: string;
+  /** ⭐ Lo emite el SERVIDOR. La pantalla NO vuelve a restar fechas: un `new Date()` local le
+   *  cambiaría el día al equipo que esté en otra zona horaria. */
+  estado: DiaEstado;
+  /** Negativo = venció hace N días · 0 = hoy · positivo = vence en N días. */
+  dias_offset: number;
+  monto: number; docs: number; clientes: number;
+}
+
+export interface DiaCliente {
+  fecha: string; sucursal: string; cliente_code: string; cliente_nombre: string;
+  telefono: string | null; zona: string | null;
+  vendedor: string | null; vendedor_nombre: string | null;
+  cuenta_kind: CuentaKind; dias_credito: number | null;
+  monto: number; docs: number; dias_offset: number;
+}
+
+/**
+ * ⭐ Lo que el calendario NO puede mostrar, con su monto. El eje es `vencimiento`, que sólo
+ * existe a nivel documento; el saldo canónico es el de `kdue` por cliente. La resta no tiene
+ * fecha y **se declara, no se reparte a dedo** (ADR-056).
+ */
+export interface PorDiaCobertura {
+  canonico: number; repartible: number; sin_documento: number; sin_vencimiento: number; clientes: number;
+}
+
+/**
+ * ⚠️ **Viene la agenda COMPLETA, sin ventana.** Medido en prod: los 292 días y las 5,652 filas
+ * (día × cliente) son 1,480 KB crudos = **119 KB gzipeados**, y pedir todo cuesta lo mismo que
+ * pedir un mes (2.4 s, que es la pirámide de CTEs). Una ventana sólo habría comprado un botón de
+ * «ampliá para ver el resto» sobre la mitad del dinero.
+ */
+export interface PorDiaResp {
+  hoy: string;
+  freshness: Freshness;
+  dias: DiaCartera[];
+  detalle: DiaCliente[];
+  totales: {
+    vencido: number; hoy: number; futuro: number;
+    dias_vencidos: number; dias_futuros: number;
+  };
+  cobertura: PorDiaCobertura;
+  filtros: CarteraFiltros;
+}
+
 export interface Aplicacion { tipo: string; label: string; folio: string; fecha: string | null; monto: number }
 export interface Partida {
   doc_tipo: string; doc_label: string; doc_code: string; folio: string; folio_digital: string;
@@ -150,6 +208,17 @@ export class CarteraService {
     for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
     const qs = p.toString();
     return this.http.get<CarteraResumen>(`${this.base}/resumen${qs ? '?' + qs : ''}`);
+  }
+  /**
+   * `[CXC.26]` La cartera con el DÍA como eje. Una sola llamada trae la agenda completa: los
+   * días con su monto **y** los clientes de cada día dentro de la ventana, así que abrir un día
+   * no dispara otro request.
+   */
+  porDia(q: PorDiaQuery = {}): Observable<PorDiaResp> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== '') p.set(k, String(v));
+    const qs = p.toString();
+    return this.http.get<PorDiaResp>(`${this.base}/por-dia${qs ? '?' + qs : ''}`);
   }
   tendencia(q: { sucursal?: string; dias?: number } = {}): Observable<CarteraTendencia[]> {
     const p = new URLSearchParams();

@@ -8,9 +8,11 @@ import { Permission } from '../../core/constants/permissions';
 /**
  * Selector de vista de **Cartera** — las dos mitades del mismo oficio bajo un solo control.
  *
- *   · **Cartera**  (`/finanzas/cartera`)  — lo que te DEBEN: saldo por cliente, aging,
- *     y las aplicaciones de cada factura (cobros, notas de crédito, devoluciones).
- *   · **Cobranza** (`/finanzas/cobranza`) — lo que te PAGARON: la ficha de depósito
+ *   · **Por cliente** (`/finanzas/cartera`)     — lo que te DEBEN, por quién: saldo, aging, y
+ *     las aplicaciones de cada factura (cobros, notas de crédito, devoluciones).
+ *   · **Por día**     (`/finanzas/cartera/dia`) — `[CXC.26]` lo MISMO, por cuándo: quiénes deben
+ *     cada día y qué día toca cobrar. Mismo permiso y mismo dato que la anterior.
+ *   · **Cobranza**    (`/finanzas/cobranza`)    — lo que te PAGARON: la ficha de depósito
  *     adjunta a cada cobro de Kepler, con su cuadre por OCR.
  *
  * ⛔ CADA SEGMENTO SE GATEA CON SU PROPIO PERMISO, y no es celo de más: las dos rutas
@@ -60,15 +62,31 @@ export class CarteraSegmentsComponent {
 
   readonly opciones = computed(() => {
     const o: { label: string; value: string }[] = [];
-    if (this.tiene(Permission.FINANCE_RECEIVABLES_VER)) o.push({ label: 'Crédito', value: '/finanzas/cartera' });
+    if (this.tiene(Permission.FINANCE_RECEIVABLES_VER)) {
+      o.push({ label: 'Por cliente', value: '/finanzas/cartera' });
+      // `[CXC.26]` El MISMO permiso que «Por cliente», y no es un descuido de la regla de arriba:
+      // es el mismo dato reagrupado por día. Un permiso propio sería una puerta nueva sobre
+      // información que el rol ya puede ver, y dejaría a medio equipo con media pantalla.
+      o.push({ label: 'Por día', value: '/finanzas/cartera/dia' });
+    }
     if (this.tiene(Permission.FINANCE_COLLECTIONS_VER)) o.push({ label: 'Cobranza', value: '/finanzas/cobranza' });
     return o;
   });
 
-  /** La ruta viva, para que el segmento marcado sea el que se está viendo. */
+  /**
+   * La ruta viva, para que el segmento marcado sea el que se está viendo.
+   *
+   * ⚠️ **Gana el prefijo MÁS LARGO, y el corte es por segmento.** Con `find(startsWith)` —que es
+   * lo que había— estando en `/finanzas/cartera/dia` se encendía **«Por cliente»**, porque es la
+   * primera opción y `/finanzas/cartera` es prefijo suyo: el control marcaba una pestaña que no
+   * era la abierta. Y `startsWith` pelado además casaría `/finanzas/carteras` con
+   * `/finanzas/cartera`, que es la misma familia de error un paso más allá.
+   */
   readonly actual = computed(() => {
-    const url = this.router.url.split('?')[0];
-    return this.opciones().find((o) => url.startsWith(o.value))?.value ?? '';
+    const url = this.router.url.split('?')[0].split('#')[0];
+    return this.opciones()
+      .filter((o) => url === o.value || url.startsWith(o.value + '/'))
+      .sort((a, b) => b.value.length - a.value.length)[0]?.value ?? '';
   });
 
   ir(destino: string): void {

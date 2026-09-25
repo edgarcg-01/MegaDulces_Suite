@@ -172,6 +172,60 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         compuerta de 5 casos de la propia migración. Es `[CV.7]` con otra cara → todos los
         cuantificadores se escriben **`{0,1}`**, nunca `?`.
       · Candado `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
+- [x] **[CXC.26]** 🧪 ⭐ **La cartera por DÍA: «¿quiénes me deben estos días?» y «¿qué día debo
+      cobrar?».** Tercer segmento del control de Crédito → `/finanzas/cartera/dia`. Mismo dato,
+      mismo permiso (`FINANCE_RECEIVABLES_VER`), el calendario como eje.
+      · ⛔ **La lectura ingenua del pedido era un calendario hacia adelante, y ese calendario está
+        casi vacío.** Medido contra el prod real (`md`/`pg-prod`, 2026-09-25): **$7,919,882.92
+        vencen hoy o después (13.0%)** contra **$53,015,537.54 ya vencidos (87.1%), repartidos en
+        273 días distintos**. Una pantalla sólo-futuro habría dicho «tenés $7.9M por cobrar» sobre
+        una cartera de $61M. Por eso el eje va **a los dos lados**: hacia atrás el día contesta
+        *¿desde cuándo me deben?*, hacia adelante *¿cuándo me van a deber?*. Es la corrección que
+        `[CXC.22]` ya había declarado para la curva semanal, aplicada al día.
+      · ⛔ **No hay ventana, y eso se decidió midiendo.** La primera versión traía el desglose de
+        ±30 días «para no cargar de más». Medido en prod: `-30/+30` = 2,890 filas / 787 KB /
+        2,311 ms · `-90/+30` = 4,405 / 1,184 KB / 2,374 ms · **TODO = 5,652 / 1,480 KB /
+        2,413 ms**. El costo es **la pirámide de CTEs, no el recorte**: pedir todo sale igual que
+        pedir un mes, y con el `compression()` del API la agenda completa viaja en **119 KB
+        (12.4×)**. La ventana sólo compraba un botón de «ampliá para ver el resto» sobre
+        **$29.7M**. El techo quedó puesto en el smoke: el día que crezca se pone rojo un test, no
+        lenta una pantalla.
+      · ⛔ **La promesa de pago NO puede ser el eje**, aunque sea la respuesta más literal a «qué
+        día debo cobrar»: `finance.collection_promises` tiene **0 filas** en prod. Una agenda
+        montada ahí abriría en blanco. Cuando se empiece a usar, se superpone; no reemplaza al
+        vencimiento.
+      · **El tipo de cuenta pesa más acá que en la vista por cliente**: de los **$26,081,506.31**
+        entre plazas propias (`interno`), **CERO están por vencer** — el 100% ya venció. Sin
+        separarlas, la agenda de cobranza se llena de saldos que nadie va a cobrar por teléfono.
+        Abre en «Todas», igual que `[CXC.25]` y por el mismo motivo: el reparto se ve siempre y
+        filtrar es un clic.
+      · **El puente con la vista por cliente cierra al centavo**: `repartible + sin_documento ==
+        canónico` y `Σ días + sin_vencimiento == repartible`. El residual usa el **mismo umbral**
+        (`res > 0.005`) que el `bucket('true')` de `cartera()`, para que las dos vistas no puedan
+        publicar totales distintos. Lo que ningún día puede colocar se **declara**:
+        `sin_documento` **$612,428.11 (1.0%)** con su monto, y `sin_vencimiento` se mide aunque
+        hoy valga 0 (ADR-056).
+      · ⛔ **El chip marcaba la pestaña equivocada.** `actual()` resolvía con
+        `find(url.startsWith(o.value))`: estando en `/finanzas/cartera/dia` se encendía **«Por
+        cliente»**, porque es la primera opción y su ruta es prefijo de la otra. Ahora gana el
+        prefijo **más largo** y el corte es **por segmento** (`/finanzas/carteras` ya no casa).
+      · ⛔ **`/finanzas/cartera` ignoraba por completo los query params**, así que el enlace del
+        drill al auxiliar habría sido un enlace que se ve bien y no hace nada. Se agregó el deep
+        link `?suc=&cliente=`. Y **no** usa `multitarea.enlaceDetalle()`: en pantalla partida
+        devuelve un `UrlTree`, y el `RouterLink` de Angular **ignora `queryParams`** cuando su
+        entrada ya es un `UrlTree` (verificado en el fuente de `@angular/router`:
+        `isUrlTree(input)` → `return input`).
+      · El veredicto `vencido|hoy|futuro` lo emite el **servidor**: restar fechas en el navegador
+        es donde un equipo en otra zona horaria cambia de día — el defecto que la Fase VP midió
+        en 21 de 24 píldoras de frescura. Mismo motivo por el que el día de la semana se arma con
+        `Date.UTC`.
+      · Candado `database/tests/test-newdb-cartera-por-dia.js`, **14 ✔ contra prod**, en la
+        regresión. Specs de front **21 ✔**: el del chip lleva prueba negativa y el del componente
+        hace **clic** en un día y exige el desglose correcto y el banner de error en el DOM.
+      · ⚠️ **Falta validación visual y reinicio del API.** El endpoint
+        `/finance/receivables/por-dia` está construido y probado contra la base, pero la API de
+        dev responde 404 porque corre el build anterior. Sin push.
+
 - [x] **[CC.8]** 🧪 ⭐ **El cruce banco↔cobro miraba el 30% del dinero.** `listUnmatchedBank` y
       `cobroCandidates` buscaban candidatos **sólo** entre `forma_pago IN (deposito,
       transferencia, tarjeta)`. Pero `forma_pago` es un **regex sobre el concepto capturado a
