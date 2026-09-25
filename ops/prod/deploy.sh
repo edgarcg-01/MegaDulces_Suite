@@ -330,13 +330,13 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk"
+  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
   # ⛔ Se mueve encima, nunca se sobrescribe el inodo en curso: `sh` lee el guion POR POSICIÓN
   # mientras lo ejecuta. `auto-deploy.sh` puede estar corriendo justo ahora (dispara cada 5 min).
-  ssh_md "cd ~/ops/prod && for a in $_guiones; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh"
+  ssh_md "cd ~/ops/prod && for a in $_guiones; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 

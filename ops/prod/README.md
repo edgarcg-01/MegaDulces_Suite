@@ -225,6 +225,61 @@ fallos por día con un error de Docker que no menciona la causa.
 
 ---
 
+## 2.2 [SEG.4] Quién puede CONSULTAR la base de producción
+
+Hasta el 2026-09-25 `pg-prod` tenía exactamente tres roles — `postgres`, `app_runtime` y
+`fdw_verificador_ro` — o sea que para consultar datos un dev no tenía más opción que usar **la
+credencial de la aplicación**. El clúster de réplicas (`pgvector-md`) ya lo resolvía bien, con un
+grupo `dev_ro` y personas como miembros; esto **copia ese patrón** en vez de inventar otro.
+
+```sh
+ssh superoot@192.168.0.222 'sh ~/ops/prod/dev-ro-crear.sh'      # crea o ROTA las claves
+ssh superoot@192.168.0.222 'sh ~/ops/prod/dev-ro-verificar.sh'  # 9 comprobaciones por cuenta
+ssh superoot@192.168.0.222 'cat ~/secrets/dev-ro-credenciales.txt'   # las claves, permisos 600
+```
+
+Hoy: `david`, `francisco`, `sistemas` — **nominales a propósito**, porque un rol compartido no
+deja rastro de quién consultó qué. Conectan a `192.168.0.222:5434/railway`.
+
+### Las dos trampas que esto esquiva, medidas antes de escribirlo
+
+⛔ **RLS forzada en 325 tablas** (`commercial` 129 de 131, `finance` 53, `logistics` 32,
+`wincaja` 29). Un rol de lectura sin contexto de tenant las ve **vacías y sin ningún error**:
+`SELECT count(*) FROM commercial.orders` devuelve 0 y parece un dato.
+
+⭐ Se resolvió **sin `BYPASSRLS`**. `current_tenant_id()` es
+`NULLIF(current_setting('app.tenant_id', true),'')::uuid` y las políticas son
+`tenant_id = current_tenant_id()`, así que basta con `ALTER ROLE … SET app.tenant_id` para que
+la sesión nazca con el contexto y la política evalúe normal. `BYPASSRLS` daba el mismo resultado
+**rompiendo** el aislamiento. ⚠️ Hoy hay **un solo tenant**; el día que haya dos, esa línea es lo
+que define qué ve cada dev.
+
+⛔ **Un `GRANT SELECT` ingenuo entrega secretos**: `identity.users.password_hash`,
+`public.users.password_hash` y los tokens OAuth vivos de `kepler_ods.orgmail` / `md.orgmail`. Se
+revocan esas cuatro tablas y se vuelven a conceder **columna por columna**, sin las prohibidas.
+
+⭐ Y una tercera que no es trampa sino detalle que muerde: **`GRANT … ON ALL TABLES` no cubre las
+vistas materializadas**. Sin concederlas aparte, justo los objetos de `analytics` que un dev más
+quiere consultar responden `permission denied`, que se lee como un permiso mal dado.
+
+### Tres frenos, porque esto corre contra producción
+
+`default_transaction_read_only` (cinturón; el muro es que `dev_ro` no tiene `INSERT`/`UPDATE`/
+`DELETE`) · `statement_timeout` de 60 s, para que un `SELECT` sin `WHERE` sobre 23 GB no degrade
+a los usuarios · `CONNECTION LIMIT 5`, porque un cliente gráfico abre más sesiones de las que uno
+cree.
+
+**Verificado conectándose de verdad por la red** (no con `docker exec`, donde `pg_hba` dice
+`127.0.0.1/32 trust` y la contraseña ni se pide — una prueba hecha así saldría verde sin haber
+probado la autenticación). 9/9 por cuenta, más la prueba negativa: con una clave inventada
+responde `password authentication failed`.
+
+⚠️ **Lo que queda dicho y no se arregla acá:** `pg-prod` publica el puerto en `0.0.0.0:5434` y su
+`pg_hba` es `host all all all scram-sha-256`, así que estas credenciales sirven **desde cualquier
+máquina de la red**. El riesgo ya existía y esto no lo empeora, pero ahora hay tres llaves más.
+
+---
+
 ## 3. Cómo se restaura la base — y por qué el respaldo diario NO alcanzaba para cortar
 
 > ⭐ **[VL.6.4] Esta sección describía el respaldo de PowerShell. El 2026-09-22 el respaldo se
