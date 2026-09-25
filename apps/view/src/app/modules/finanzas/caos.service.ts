@@ -58,4 +58,18 @@ export class CaosService {
   detalle(id: string): Observable<CaosDetalle> {
     return this.http.get<CaosDetalle>(`${this.base}/movimientos/${id}`);
   }
+
+  resumen(f: { from?: string; to?: string }): Observable<CaosResumen> {
+    let p: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
+    return this.http.get<CaosResumen>(`${this.base}/resumen`, { params: p });
+  }
 }
+
+export interface CaosPorRuta { ruta: string | null; movimientos: number; total: number }
+export interface CaosPorOperador {
+  user_external: string | null;
+  depositos_n: number; depositos_total: number;
+  dispensado_n: number; dispensado_total: number;
+}
+export interface CaosResumen { porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[]; desde: string }

@@ -11,7 +11,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 
 /**
@@ -67,6 +67,44 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
 
       <!-- KPIs: sin medir NO es cero (ADR-056) -->
       <app-metric-strip [items]="kpis()" ariaLabel="Resumen de la caja fuerte"></app-metric-strip>
+
+      <!-- CS.6/CS.7 — resumen interno de CAOS (no cruza contra nada) -->
+      <details class="cs-resumen">
+        <summary>Resumen por operador y ruta</summary>
+        <div class="cs-resumen-grid">
+          <div>
+            <h3 class="cs-h3">Por operador</h3>
+            <table class="cs-tbl cs-mini">
+              <thead><tr><th scope="col">Operador</th><th scope="col" class="cs-r">Depósitos</th><th scope="col" class="cs-r">Dispensado</th></tr></thead>
+              <tbody>
+                @for (o of resumen()?.porOperador || []; track o.user_external) {
+                  <tr>
+                    <td>{{ o.user_external || '—' }}</td>
+                    <td class="cs-r mono">{{ money(o.depositos_total) }} <span class="fin-dim">({{ o.depositos_n }})</span></td>
+                    <td class="cs-r mono">{{ money(o.dispensado_total) }} <span class="fin-dim">({{ o.dispensado_n }})</span></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h3 class="cs-h3">Por ruta <span class="fin-dim">(del texto del depósito)</span></h3>
+            <p class="fin-dim cs-nota">El operador escribe la ruta a mano; ~40% trae número reconocible. Lo que no, se muestra como «sin ruta reconocida» — no se inventa.</p>
+            <table class="cs-tbl cs-mini">
+              <thead><tr><th scope="col">Ruta</th><th scope="col" class="cs-r">Depósitos</th><th scope="col" class="cs-r">Total</th></tr></thead>
+              <tbody>
+                @for (r of resumen()?.porRuta || []; track r.ruta) {
+                  <tr>
+                    <td>{{ r.ruta ? ('Ruta ' + r.ruta) : 'sin ruta reconocida' }}</td>
+                    <td class="cs-r mono">{{ r.movimientos }}</td>
+                    <td class="cs-r mono">{{ money(r.total) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
 
       <!-- Tabla -->
       <app-load-state [loading]="cargando()" [error]="err()" [isEmpty]="!cargando() && !err() && rows().length === 0"
@@ -142,6 +180,12 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
     .cs-denom th, .cs-denom td { padding:.15rem .75rem .15rem 0; }
     .cs-rezago { margin-top:.5rem; }
     .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    .cs-resumen { margin:.75rem 0; border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.5rem .75rem; }
+    .cs-resumen > summary { cursor:pointer; font-size:var(--fs-sm); font-weight:600; }
+    .cs-resumen-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem, 1fr)); gap:1rem; margin-top:.6rem; }
+    .cs-h3 { font-size:var(--fs-sm); margin:0 0 .3rem; }
+    .cs-nota { font-size:var(--fs-xs); margin:0 0 .35rem; }
+    .cs-mini { font-size:var(--fs-xs); }
   `],
 })
 export class FinanzasCaosComponent implements OnInit, OnDestroy {
@@ -170,6 +214,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
 
   rows = signal<FilaUI[]>([]);
   kpi = signal<CaosKpi | null>(null);
+  resumen = signal<{ porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[] } | null>(null);
   cargando = signal(false);
   err = signal<string | null>(null);
   hasMore = signal(false);
@@ -216,6 +261,11 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           this.err.set(this.textoError(e)); this.cargando.set(false);
         },
       });
+    // El resumen (por operador/ruta) va aparte y es best-effort: su fallo no rompe el reporte.
+    this.svc.resumen({ from: this.from, to: this.to }).subscribe({
+      next: (r) => this.resumen.set({ porRuta: r.porRuta || [], porOperador: r.porOperador || [] }),
+      error: () => this.resumen.set(null),
+    });
   }
 
   verDetalle(r: FilaUI): void {
