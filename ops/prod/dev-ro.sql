@@ -97,9 +97,25 @@ END $$;
 DO $$
 DECLARE t record; cols text;
 BEGIN
+  -- ⛔⛔ `identity.users` / `public.users` SALIERON DE ESTA LISTA EL 2026-09-25, Y EL MOTIVO
+  -- IMPORTA MAS QUE LA DECISION: **un permiso por columna no redacta un `SELECT *`, lo
+  -- RECHAZA ENTERO**. La app hace `select * from users` para autenticar, asi que excluir
+  -- `password_hash` no le ocultaba la columna: le rompia el login con `42501 permission denied
+  -- for view users`, con 28 de 29 columnas concedidas. Medido en vivo.
+  --
+  -- O sea que la restriccion por columna sirve SOLO en tablas que nadie lee con `*`. Antes de
+  -- agregar una a esta lista hay que saber como la consulta el codigo, no solo si es sensible.
+  --
+  -- Compromiso ASUMIDO Y DECLARADO: las cuentas `dev_ro` pueden leer los hash de contraseña de
+  -- los 138 usuarios. Son hash, no contraseñas, y estas mismas cuentas ya leen nomina, fiscal,
+  -- finanzas y el padron de clientes — pero el riesgo real que queda es la REUTILIZACION de
+  -- contraseña fuera de esta app. Se revierte con una linea:
+  --     REVOKE SELECT ON identity.users, public.users FROM dev_ro;
+  --     -- (y volver a conceder por columna, sabiendo que el login deja de funcionar)
+  --
+  -- `orgmail` SE QUEDA restringida: son tokens OAuth VIVOS de un buzon —no un hash, una llave
+  -- que abre hoy— y se midio que la app NO lee esa tabla, asi que la restriccion no cuesta nada.
   FOR t IN SELECT * FROM (VALUES
-      ('identity',   'users',   ARRAY['password_hash']),
-      ('public',     'users',   ARRAY['password_hash']),
       ('kepler_ods', 'orgmail', ARRAY['k_access_token','k_refresh_token']),
       ('md',         'orgmail', ARRAY['k_access_token','k_refresh_token'])
   ) AS v(sch, tab, prohibidas) LOOP
