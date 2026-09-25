@@ -11,7 +11,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 
 /**
@@ -67,6 +67,40 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
 
       <!-- KPIs: sin medir NO es cero (ADR-056) -->
       <app-metric-strip [items]="kpis()" ariaLabel="Resumen de la caja fuerte"></app-metric-strip>
+
+      <!-- CS.4 — cuadre de total de control contra la Caja General de Kepler -->
+      <details class="cs-resumen">
+        <summary>¿Cuadra contra la Caja General? (total de control)</summary>
+        @if (conc(); as k) {
+          <p class="fin-dim cs-nota">
+            Por CAOS pasa <strong>{{ pct(k.cobertura.depositos) }}</strong>
+            del efectivo que entra a la Caja General y <strong>{{ pct(k.cobertura.dispensado) }}</strong>
+            del que sale. NO es un cuadre 1:1 — CAOS es el efectivo que pasa por la máquina; el resto
+            de la caja se maneja fuera. Es informativo, no un veredicto (el feed de CAOS es más fresco
+            que el contable, así que el último día puede verse descuadrado por rezago, no por error).
+          </p>
+          <table class="cs-tbl cs-mini">
+            <thead><tr>
+              <th scope="col">Día</th>
+              <th scope="col" class="cs-r">CAOS depósitos</th><th scope="col" class="cs-r">Kepler ingresos</th>
+              <th scope="col" class="cs-r">CAOS dispensado</th><th scope="col" class="cs-r">Kepler egresos</th>
+            </tr></thead>
+            <tbody>
+              @for (d of k.dias; track d.dia) {
+                <tr>
+                  <td class="mono">{{ d.dia }}</td>
+                  <td class="cs-r mono">{{ money(d.caos_dep) }}</td>
+                  <td class="cs-r mono fin-dim">{{ money(d.kepler_ing) }}</td>
+                  <td class="cs-r mono">{{ money(d.caos_dis) }}</td>
+                  <td class="cs-r mono fin-dim">{{ money(d.kepler_egr) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        } @else {
+          <p class="fin-dim">Sin datos de cuadre en el rango.</p>
+        }
+      </details>
 
       <!-- CS.6/CS.7 — resumen interno de CAOS (no cruza contra nada) -->
       <details class="cs-resumen">
@@ -215,6 +249,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   rows = signal<FilaUI[]>([]);
   kpi = signal<CaosKpi | null>(null);
   resumen = signal<{ porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[] } | null>(null);
+  conc = signal<CaosConciliacion | null>(null);
   cargando = signal(false);
   err = signal<string | null>(null);
   hasMore = signal(false);
@@ -261,12 +296,19 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           this.err.set(this.textoError(e)); this.cargando.set(false);
         },
       });
-    // El resumen (por operador/ruta) va aparte y es best-effort: su fallo no rompe el reporte.
+    // El resumen (por operador/ruta) y el cuadre van aparte y best-effort: su fallo no rompe el reporte.
     this.svc.resumen({ from: this.from, to: this.to }).subscribe({
       next: (r) => this.resumen.set({ porRuta: r.porRuta || [], porOperador: r.porOperador || [] }),
       error: () => this.resumen.set(null),
     });
+    this.svc.conciliacion({ from: this.from, to: this.to }).subscribe({
+      next: (r) => this.conc.set(r),
+      error: () => this.conc.set(null),
+    });
   }
+
+  /** Porcentaje de cobertura; `null` se declara "sin medir", nunca 0% (ADR-056). */
+  pct(x: number | null): string { return x == null ? 'sin medir' : Math.round(x * 100) + '%'; }
 
   verDetalle(r: FilaUI): void {
     r.abierto = !r.abierto;

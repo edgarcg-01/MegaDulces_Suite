@@ -118,6 +118,69 @@ export class CaosService {
     });
   }
 
+  /**
+   * CS.4 — Cuadre de TOTAL DE CONTROL: CAOS (máquina) vs Caja General de Kepler (`c45=0011`, suc 00).
+   *
+   * ⚠️ NO es un árbitro 1:1. La medición (2026-09-25) lo refutó: 0% de cruce por importe (CAOS
+   * registra en bulto y redondo, Kepler individual con centavos) y por CAOS pasa sólo ~40% del
+   * efectivo de la Caja General. Marcar movimiento por movimiento daría ~60% de falsos hallazgos.
+   *
+   * Lo defendible es el TOTAL por día/período: cuánto del efectivo de la caja pasó por la máquina y
+   * cuál es la brecha. Se PUBLICA la cobertura (ratio CAOS/Kepler), no se dibuja un cuadre perfecto.
+   * No levanta hallazgos automáticos: es informativo hasta que se defina operativamente qué flujo
+   * debe pasar por CAOS (sin esa definición, cualquier "diferencia" es sólo lo que no usa la máquina).
+   *
+   * ⚠️ Frescura desalineada: el feed de CAOS es más nuevo que el contable de Kepler (medido: un día
+   * CAOS con datos y Kepler caja en $0). El último día del rango puede verse "descuadrado" por lag,
+   * no por un problema real — por eso se muestran los días, no un veredicto.
+   */
+  async conciliacion(q: CaosQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const desde = q.from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const hasta = q.to || new Date().toISOString().slice(0, 10);
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `WITH caos AS (
+           SELECT occurred_at::date AS dia,
+                  coalesce(sum(total) FILTER (WHERE type_id = 0), 0) AS caos_dep,
+                  coalesce(sum(total) FILTER (WHERE type_id = 4), 0) AS caos_dis
+             FROM analytics.caos_cash_movements
+            WHERE tenant_id = ? AND occurred_at::date BETWEEN ? AND ?
+            GROUP BY 1
+         ), kep AS (
+           SELECT fecha_valor AS dia,
+                  coalesce(sum(importe) FILTER (WHERE signo = 1), 0) AS kep_ing,
+                  coalesce(sum(importe) FILTER (WHERE signo = -1), 0) AS kep_egr
+             FROM analytics.kepler_bank_movements
+            WHERE tenant_id = ? AND sucursal = '00' AND tipo_cuenta = 'caja'
+              AND fecha_valor BETWEEN ? AND ?
+            GROUP BY 1
+         )
+         SELECT to_char(coalesce(c.dia, k.dia), 'YYYY-MM-DD') AS dia,
+                coalesce(c.caos_dep, 0) AS caos_dep, coalesce(k.kep_ing, 0) AS kepler_ing,
+                coalesce(c.caos_dis, 0) AS caos_dis, coalesce(k.kep_egr, 0) AS kepler_egr
+           FROM caos c FULL OUTER JOIN kep k ON c.dia = k.dia
+          ORDER BY 1 DESC`,
+        [tenantId, desde, hasta, tenantId, desde, hasta],
+      );
+
+      const n = (v: any) => Number(v) || 0;
+      const tot = rows.reduce((a: any, r: any) => ({
+        caos_dep: a.caos_dep + n(r.caos_dep), kepler_ing: a.kepler_ing + n(r.kepler_ing),
+        caos_dis: a.caos_dis + n(r.caos_dis), kepler_egr: a.kepler_egr + n(r.kepler_egr),
+      }), { caos_dep: 0, kepler_ing: 0, caos_dis: 0, kepler_egr: 0 });
+
+      // Cobertura: qué fracción del efectivo de la caja pasó por CAOS. NULL si no hay base (no 0%).
+      const cobertura = {
+        depositos: tot.kepler_ing ? tot.caos_dep / tot.kepler_ing : null,
+        dispensado: tot.kepler_egr ? tot.caos_dis / tot.kepler_egr : null,
+      };
+
+      return { dias: rows, totales: tot, cobertura, desde, hasta };
+    });
+  }
+
   /** Detalle por denominación de un movimiento (para el drill del reporte). */
   async detalle(id: string) {
     const tenantId = this.tenantCtx.requireTenantId();
