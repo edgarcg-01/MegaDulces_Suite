@@ -70,6 +70,23 @@ describe('[GX.17] agrupar lo que espera luz verde', () => {
     it('sin ninguna de las dos fechas lo dice, no lo esconde en el día de hoy', () => {
       expect(fechaDeAgrupacion(E({ fecha_gasto: null, created_at: '' }))).toBe('sin_fecha');
     });
+
+    /**
+     * ⭐ El caso que mis propias pruebas NO cubían y que apareció al correr la pantalla en
+     * local: `pg` devuelve las fechas como objeto `Date`, no como texto ISO. Con `String()`
+     * eso da «Thu Sep 24», que no es una fecha y además corre el día por zona horaria.
+     * Yo alimenté el spec con cadenas ISO y pasó en verde mientras la pantalla mostraba
+     * nombres de día. Es la misma trampa de la Fase LC.16.
+     */
+    it('un objeto Date de pg NO se acepta como fecha: se declara sin_fecha', () => {
+      const comoDate = new Date('2026-09-22T06:00:00.000Z') as unknown as string;
+      expect(fechaDeAgrupacion(E({ fecha_gasto: comoDate, created_at: comoDate }))).toBe('sin_fecha');
+    });
+
+    it('si la del gasto no sirve pero la de captura sí, usa la de captura', () => {
+      const comoDate = new Date('2026-09-22T06:00:00.000Z') as unknown as string;
+      expect(fechaDeAgrupacion(E({ fecha_gasto: comoDate, created_at: '2026-09-23' }))).toBe('2026-09-23');
+    });
   });
 
   describe('por departamento', () => {
