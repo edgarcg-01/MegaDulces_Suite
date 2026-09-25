@@ -2865,6 +2865,17 @@ export class CommercialAnalyticsService {
         .where('tenant_id', tenantId).andWhereBetween('cobro_date', [from, to])
         .select(trx.raw('COALESCE(SUM(monto),0)::numeric AS v')).first() as Agregado)?.v);
 
+      // `[IG.3.1]` **Lo que queda FUERA del alcance, medido y declarado.** La pregunta «¿no nos
+      // estamos saltando ningún tipo de ingreso?» no la contesta el candado de paridad: ése compara
+      // contra un feed que usa LAS MISMAS tres reglas, así que es un espejo (ADR-059 regla 5).
+      //
+      // Medido en prod sobre 12 meses, familia 4 del CEDIS fuera de `UD1301`:
+      //   · `UA2501`/`UA2502` «Nota Créd/Dev NoFis POS» = **−$1,505,625.79** que NO se restan.
+      //   · `UD1201` «Factura Cont No Fiscal» = **$4,809,937.99** que NO se suman.
+      //   · `UD4102` «Embarque Sucursal» con concepto «TRASPASO A SUCURSAL…» — traspaso interno,
+      //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
+      const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
+
       const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
       const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
 
@@ -2882,9 +2893,49 @@ export class CommercialAnalyticsService {
             nota: 'Testigo independiente: otra fuente y otro camino. Un ~3 % de diferencia es sano; una brecha grande es señal.' },
           { key: 'cobranza', label: 'Cobranza (UA0501)', monto: cobranza, delta_pct: pct(cobranza), comparable: false,
             nota: '⚠️ NO comparable de frente: es lo que se COBRÓ, no lo que se devengó. La diferencia es plazo de crédito (DSO), no faltante.' },
+          // Las tres de abajo NO son fuentes alternativas: son lo que el alcance deja fuera. Van
+          // acá porque es donde alguien viene a preguntarse si el número está completo.
+          { key: 'devoluciones', label: 'Devoluciones y notas de crédito (NO restadas)', monto: fueraDeAlcance.devoluciones,
+            delta_pct: null, comparable: false,
+            nota: '⚠️ El ingreso de arriba NO les resta esto. Son «Nota Créd/Dev NoFis POS» (UA2501/UA2502) contra la cuenta 403. Decisión pendiente: restarlas cambia el número y lo separa del feed nocturno.' },
+          { key: 'contado_nf', label: 'Factura Contado No Fiscal (NO sumada)', monto: fueraDeAlcance.contado_nf,
+            delta_pct: null, comparable: false,
+            nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },
+          { key: 'traspasos', label: 'Traspasos a sucursal (excluidos a propósito)', monto: fueraDeAlcance.traspasos,
+            delta_pct: null, comparable: false,
+            nota: 'UD4102 «Embarque Sucursal» con concepto de traspaso: mercancía que se mueve dentro de la empresa, no venta externa. Se declara para que cuadre contra la balanza, que sí los tiene.' },
         ],
       };
     });
+  }
+
+  /**
+   * `[IG.3.1]` Lo que el alcance del ingreso deja fuera, en el mismo rango y con el mismo filtro de
+   * CEDIS. Se lee del ODS directo porque justamente son las filas que `income_entries_src()`
+   * descarta.
+   *
+   * ⚠️ No se suma al total ni se resta: se DECLARA. Cambiar el número es una decisión de negocio
+   * (restar devoluciones lo separa del feed nocturno que hoy es el árbitro), y esta capa no la
+   * toma sola.
+   */
+  private async incomeOutOfScope(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ devoluciones: number | null; contado_nf: number | null; traspasos: number | null }> {
+    const vacio = { devoluciones: null, contado_nf: null, traspasos: null };
+    try {
+      const { rows } = await trx.raw(
+        `SELECT
+           COALESCE(SUM(v) FILTER (WHERE dt LIKE 'UA25%'), 0)::numeric  AS devoluciones,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD1201'), 0)::numeric    AS contado_nf,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD4102'), 0)::numeric    AS traspasos
+         FROM analytics.income_out_of_scope(?::date, ?::date)`, [from, to]);
+      const r = rows?.[0];
+      return r
+        ? { devoluciones: Number(r.devoluciones), contado_nf: Number(r.contado_nf), traspasos: Number(r.traspasos) }
+        : vacio;
+    } catch {
+      return vacio; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
   }
 
   /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
