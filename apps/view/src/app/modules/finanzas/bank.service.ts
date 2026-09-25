@@ -309,7 +309,14 @@ export interface ThreeWayDetail {
   excel: ThreeWayDetailExcel[];
   kepler_only: { source: 'kepler'; key: string; doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null;
     /** CB.45 — null = huérfano real; con valor = el banco SÍ lo tiene, en otro periodo (desfase de corte). */
-    casado_otro_periodo: { period: string; fecha_banco: string; concepto_banco: string | null; matched_by: string | null } | null }[];
+    casado_otro_periodo: { period: string; fecha_banco: string; concepto_banco: string | null; matched_by: string | null } | null;
+    /** CB.50 — no existe NINGÚN depósito de este importe en la cuenta y el mes: el banco lo agrupó. */
+    sin_importe_en_banco?: boolean;
+    /**
+     * CB.50 — por qué no casó, resuelto en el backend para que todas las vistas cuenten lo mismo.
+     * `otro_periodo` y `banco_agrupa` están EXPLICADOS; sólo `sin_casar` es excepción a investigar.
+     */
+    motivo?: 'otro_periodo' | 'banco_agrupa' | 'sin_casar' }[];
   contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
   recon_totals: Record<ReconStatus, { n: number; monto: number }>;
   agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
@@ -317,6 +324,9 @@ export interface ThreeWayDetail {
     sin_match_n: number; sin_match_monto: number;
     kepler_only_n: number; kepler_only_monto: number;
     kepler_only_otro_periodo_n: number; kepler_only_otro_periodo_monto: number;
+    /** CB.50 — partición de `kepler_only`: los tres n suman `kepler_only_n`. */
+    kepler_only_banco_agrupa_n?: number; kepler_only_banco_agrupa_monto?: number;
+    kepler_only_sin_casar_n?: number; kepler_only_sin_casar_monto?: number;
     contpaqi_only_n: number; contpaqi_only_monto: number };
 }
 
