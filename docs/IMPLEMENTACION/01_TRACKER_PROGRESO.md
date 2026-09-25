@@ -2295,6 +2295,90 @@ lista igual con su buscador: el problema era que estaban invisibles.
 
 ---
 
+## GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código)
+
+Salió de revisar `/finanzas/egresos` de punta a punta. **El número está bien** —y eso se midió
+primero, contra `analytics.ledger_monthly`, antes de tocar nada: para ago-2026 la familia 6 da
+`$5,243,569.36` y la 7 `$668,435.19`, **exactas**, y la familia 5 es exactamente las dos cuentas
+511 que el subtítulo declara (`55,383,424.90 + 10,169,516.08`). La consulta tampoco es el problema:
+18.7 ms / 3,153 páginas, index scan.
+
+⛔ **Lo que estaba mal era lo que la pantalla NO decía.** Con el rango por defecto (90 días) el
+toggle «Comparar» publicaba:
+
+| ámbito | período previo | actual | Δ |
+|---|---|---|---|
+| todas las sucursales | $153,731,451.29 | $195,232,624.72 | **+27.0 %** |
+| sólo las que reportan en AMBOS | $153,731,451.29 | $155,487,953.74 | **+1.1 %** |
+
+**26 de los 27 puntos eran sucursales entrando al universo**, no gasto: `01` (cutover 2026-07-01),
+`06` (2026-08-15), `07` (2026-09-08) y `08` (2026-09-18). Parte lo explica el cutover de ERP y
+parte que la contabilidad por sucursal de Kepler no existe hacia atrás — verificado contra la
+fuente: en `kepler_ods.kdc22510` sólo hay sucursal `00`. Nada de eso es un bug del cálculo; era un
+hueco de **declaración** (ADR-056).
+
+Dos distorsiones más, en la misma vista por defecto:
+
+- La **tendencia corta los dos meses de las puntas** (jun desde el día 27, sep hasta el 25) y los
+  dibujaba como barras enteras: jun $20.5M · jul $62.1M · ago $71.8M · sep $40.8M se lee como un
+  auge y un desplome que son el calendario.
+- **Cero frescura.** El dato es un lote nocturno y la pantalla no lo decía. Medido: el
+  **2026-09-23 no hay corrida registrada** del paso y sirvió el dato del 22 en silencio. El latido
+  del carril no ayuda — `run-prod-feeds.js` cierra `feed_nightly` en `ok` mientras no fallen TODOS
+  sus pasos.
+
+- [x] **[GX.19.1]** `stepAt()` en `libs/platform-core/.../provenance/freshness.ts` — el primitivo
+      que faltaba: edad de **un paso** desde `analytics.cron_run_log`, no del carril. Ya estaba
+      escrito **a mano dos veces** (`existencia.service.ts`, `cash-ledger.service.ts`) con dos
+      formas distintas de fallar; ADR-056 pide que suba a `libs/`. Filtra `status='ok'`: una
+      corrida que reventó no entregó dato, así que su hora no puede pasar por frescura.
+- [x] **[GX.19.2]** `expense-coverage.ts` — lógica pura de cobertura y comparativo (patrón
+      `route-sales-pace.ts` del mismo folder). El total sigue siendo el total; lo que se agrega es
+      el **segundo número** y el motivo. Nada se filtra por lo bajo.
+- [x] **[GX.19.3]** `expenses()` devuelve `freshness` + `coverage` + `comparativo`, y cada punto de
+      la serie lleva `parcial` y `sucursales`. Se piden **siempre**, no sólo con `compare=true`:
+      la deriva de universo deforma la tendencia aunque nadie prenda el comparativo.
+- [x] **[GX.19.4]** Frontend: píldora de frescura con el `Freshness` **del servidor**
+      (`measures="data"`), banda que declara los dos Δ y qué sucursales entraron, meses
+      incompletos en su propia línea, y el mes cortado rotulado en el eje (`2026-09 ·parcial`) —
+      que es lo único que viaja con la barra. La banda **no sale** cuando no hay nada que declarar:
+      un aviso permanente se vuelve fondo y deja de avisar.
+- [x] **[GX.19.5]** El árbol —que es la vista por defecto— se tragaba su error (`error: () => {}`):
+      si sólo fallaba esa consulta, quedaba vacío o con el resultado del filtro anterior, y «sin
+      egresos» y «no se pudo cargar» se leían igual. Ahora declara, limpia lo viejo, y el botón de
+      reintento recarga la **vista activa** (antes recargaba el reporte, limpiaba el error y dejaba
+      el árbol vacío igual).
+
+**⛔ Un peligro que casi entra y NO es teórico.** Los dos medidores (`stepAt` y `tableAt`) abren un
+`SAVEPOINT` sobre la MISMA transacción. Knex serializa las consultas de una tx en su única conexión
+pero **no ordena dos cadenas async independientes**, así que un `Promise.all` permite
+`SAVEPOINT vp_step · SAVEPOINT vp_freshness · … · RELEASE vp_step`, y en Postgres liberar el
+savepoint externo **destruye los internos**: el segundo `RELEASE` revienta, lo atrapa el `catch` de
+`tableAt` y la frescura se declara «sin medir» **por un defecto nuestro, no por el dato** — la
+mentira exacta que este código existe para cerrar. Peor: `tableAt` pone
+`SET LOCAL statement_timeout='2s'` mientras mide, y ese tope le caería encima a cualquier consulta
+intercalada. Van **en fila**, con el porqué escrito al lado.
+
+- **Pruebas:** `expense-coverage.spec.ts` 9 (las cifras de prod **pinchadas en el test**, no en un
+  comentario — es la lección de `[CDRP.2.1]`: un comentario no avisa cuando deja de ser cierto) ·
+  `comercial-egresos.cobertura.spec.ts` 8 (montado: los dos Δ, quién entró, meses cortados, y que
+  **no** se pinte el aviso cuando la tendencia es comparable ni cuando la cobertura no se midió).
+- **Verificado contra prod (solo lectura):** las filas reales pasadas por el módulo compilado
+  reproducen `Δ 27 % / 1.1 %`, `pct 95.9 %`, parciales `06,07,08` y meses cortados `2026-06`,
+  `2026-09`. El SQL de `stepAt` corrido tal cual en una transacción con los savepoints en fila
+  devuelve `2026-09-25 03:34:46`. Y el **antes/después** de la píldora en la noche que falló:
+  22-sep 12:00 → `fresh` (8.4 h) · **23-sep 12:00 → `stale` (32.4 h)** · 24-sep 12:00 → `fresh`.
+- **Prueba negativa de la compuerta:** se rompió a propósito `check:templates` con un acento grave
+  en un comentario CSS y salió en rojo. (Y sí: **volvió a pasar de verdad** — el build de `view`
+  falló por eso antes del fix. Sexta vez en el repo.)
+- **Pendiente:** validación visual en navegador (no hay DB alcanzable desde esta máquina para
+  levantar la app) y redeploy de api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
+
+⚠️ **Hallazgo ajeno a esta fase, registrado en `AUDITORIA_BASE_INICIAL.md` (`AUD-ODS-01`): el ODS
+tiene un hueco en `kdc2` y por eso NO se puede retirar todavía el importer de egresos.**
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del

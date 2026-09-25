@@ -1,5 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
-import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, tableAt } from '../shared/freshness';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, stepAt, tableAt } from '../shared/freshness';
+// [GX.19] Cobertura de egresos: lógica pura y probada (expense-coverage.spec.ts), fuera del god service.
+import {
+  computeExpenseComparativo, computeExpenseCoverage,
+  type ExpenseComparativo, type ExpenseCoverage, type ExpenseMonthBranch, type ExpenseQueryFilters,
+} from './expense-coverage';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -2216,6 +2221,10 @@ export class CommercialAnalyticsService {
 
   // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
 
+  // [GX.19] La forma de los filtros de egreso, que hasta ahora viajaba como `any` de punta a punta.
+  // Se tipa acá y no en `libs/contracts` porque NO es forma de wire: el controller ya recibe los
+  // parámetros sueltos y los arma con `parseExpenseFilters`. Los `*_null` son el drill del bucket
+  // "(sin …)" y los `*_eq` el drill exacto desde una fila — ver `expenseQuery`.
   private static readonly EXPENSE_FILTER_KEYS = [
     'sucursal', 'familia', 'doc_tipo', 'cuenta', 'cuenta_mayor', 'area', 'dpto', 'beneficiario',
     'min_importe', 'max_importe',
@@ -2233,7 +2242,7 @@ export class CommercialAnalyticsService {
   }
 
   /** Query base de expense_entries con todos los filtros aplicados. */
-  private expenseQuery(trx: any, tenantId: string, from: string, to: string, q: any) {
+  private expenseQuery(trx: Knex.Transaction, tenantId: string, from: string, to: string, q: ExpenseQueryFilters) {
     const b = trx('analytics.expense_entries as e')
       .where('e.tenant_id', tenantId)
       .andWhere('e.fecha', '>=', from)
@@ -2283,6 +2292,67 @@ export class CommercialAnalyticsService {
       default:
         return { key: 'cuenta', groupSql: 'e.cuenta, e.cuenta_nombre, e.familia', keySql: 'e.cuenta', labelSql: "CASE WHEN COALESCE(e.cuenta_nombre,'')<>'' THEN e.cuenta||' · '||e.cuenta_nombre ELSE e.cuenta END", familia: true };
     }
+  }
+
+  /**
+   * [GX.19] Frescura de los egresos — DOS eslabones, porque ninguno solo alcanza.
+   *
+   *  1. El PASO `import-expenses-polizas.js` en `analytics.cron_run_log`. No sirve el latido del
+   *     carril: `run-prod-feeds.js` cierra `feed_nightly` en `ok` mientras no fallen TODOS sus
+   *     pasos, así que el carril puede estar verde con este importer muerto. Medido: el
+   *     2026-09-23 no hay corrida registrada de este paso y la pantalla sirvió el dato del 22 sin
+   *     decirlo.
+   *  2. `max(computed_at)` de la tabla — el latido de ENTREGA (ADR-053): que el paso corra no
+   *     prueba que haya escrito. El merge es sin churn, así que esto se mueve sólo si algo cambió;
+   *     en la práctica el mes en curso cambia todas las noches (verificado en prod: coincide con
+   *     la hora de la corrida al segundo).
+   *
+   * Tolerancia 26 h, la misma que ya usan los otros consumidores de feeds nocturnos (corren 03:xx:
+   * 24 h de edad son sanas, 26 h significan que se saltó una corrida). No se inventa un número
+   * nuevo. NO bloquea: declara. Y si falla el medidor, `unknown` — que falle la medición no
+   * autoriza a afirmar lo que no se midió.
+   */
+  private async expenseFreshness(trx: Knex.Transaction, tenantId: string): Promise<Freshness> {
+    try {
+      // ⛔ SECUENCIAL, no `Promise.all`. Los dos medidores abren un SAVEPOINT sobre la MISMA
+      // transacción (`vp_step` y `vp_freshness`), y knex serializa las consultas de una tx en su
+      // única conexión pero NO ordena dos cadenas async independientes: la intercalación posible es
+      //   SAVEPOINT vp_step · SAVEPOINT vp_freshness · … · RELEASE vp_step · RELEASE vp_freshness
+      // y en Postgres liberar el savepoint EXTERNO destruye los internos, así que el segundo
+      // `RELEASE` revienta. Lo atrapa el `catch` de `tableAt` y devuelve `null` — o sea que la
+      // frescura se declararía «sin medir» por un defecto NUESTRO, no por el dato. Es exactamente
+      // la mentira que esta clase de código existe para cerrar. Correrlos en fila cuesta ~1 ms más
+      // (los dos van por índice y `tableAt` cachea 60 s) y no tiene esa trampa.
+      const paso = await stepAt(trx, 'feed_nightly/import-expenses-polizas.js', tenantId);
+      const tabla = await tableAt(trx, 'analytics.expense_entries', 'computed_at');
+      return composeFreshness([
+        evalInput('feed_expenses', 'Feed de pólizas de egreso', paso, 26),
+        evalInput('expense_entries', 'Egresos contables', tabla, 26),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * [GX.19] Totales por (mes × sucursal) del período — el insumo de la cobertura.
+   *
+   * Va aparte de `series` (que agrupa sólo por mes) porque lo que hay que declarar es **quién**
+   * reporta en cada mes, no cuánto. Misma query base y mismo índice `ix_expense_fecha`, así que
+   * cuesta otro index scan del mismo rango: medido 18.7 ms / 3,153 páginas para 90 días.
+   */
+  private async expenseMonthBranch(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string, q: ExpenseQueryFilters,
+  ): Promise<ExpenseMonthBranch[]> {
+    const rows: Array<{ mes: string; sucursal: string; total: string }> =
+      await this.expenseQuery(trx, tenantId, from, to, q)
+        .groupByRaw("to_char(e.fecha,'YYYY-MM'), e.sucursal")
+        .select(
+          trx.raw("to_char(e.fecha,'YYYY-MM') AS mes"),
+          'e.sucursal',
+          trx.raw('SUM(importe)::numeric AS total'),
+        );
+    return rows.map((r) => ({ mes: r.mes, sucursal: r.sucursal, total: Number(r.total) }));
   }
 
   /**
@@ -2347,8 +2417,30 @@ export class CommercialAnalyticsService {
       }
       const series = await seriesQ.orderBy('mes');
 
+      // [GX.19] Cobertura + frescura. Se piden SIEMPRE (no sólo con `compare=true`): la deriva de
+      // universo distorsiona la tendencia aunque nadie prenda el comparativo, y era justamente la
+      // vista por defecto la que publicaba +27 % de "gasto" que eran sucursales entrando.
+      // Secuencial por el mismo motivo que adentro de `expenseFreshness`: ése pone
+      // `SET LOCAL statement_timeout='2s'` mientras mide, y en la misma transacción ese tope le
+      // caería encima a cualquier consulta que corra intercalada — la medición de procedencia
+      // tumbando la consulta que venía a describir.
+      const mesSuc = await this.expenseMonthBranch(trx, tenantId, from, to, q);
+      const freshness = await this.expenseFreshness(trx, tenantId);
+      const coverage: ExpenseCoverage = computeExpenseCoverage(mesSuc, from, to);
+      const comparativo: ExpenseComparativo | null = q.compare
+        ? computeExpenseComparativo(mesSuc, await this.expenseMonthBranch(trx, tenantId, prev_from, prev_to, q))
+        : null;
+      const parciales = new Set(coverage.meses_parciales);
+      // Sucursales que reportan en CADA mes: es lo que convierte un escalón de la gráfica en
+      // "entró una sucursal" en vez de "se gastó más".
+      const sucPorMes = new Map<string, number>();
+      for (const f of mesSuc) sucPorMes.set(f.mes, (sucPorMes.get(f.mes) ?? 0) + 1);
+
       return {
         from, to, prev_from, prev_to,
+        freshness,
+        coverage,
+        comparativo,
         group_by: dim.key,
         total: +total.toFixed(2),
         movimientos: Number(totalsRow?.movs || 0),
@@ -2370,6 +2462,10 @@ export class CommercialAnalyticsService {
           mes: r.mes, total: Number(r.total),
           compras: Number(r.compras) || 0, gastos: Number(r.gastos) || 0,
           financiero: Number(r.financiero) || 0, activo: Number(r.activo) || 0,
+          // [GX.19] `parcial` = el rango corta ese mes (las dos puntas del default de 90 días, y
+          // siempre el mes en curso). Sin esto la barra más baja se lee como caída del gasto.
+          parcial: parciales.has(r.mes),
+          sucursales: sucPorMes.get(r.mes) ?? 0,
         })),
       };
     });

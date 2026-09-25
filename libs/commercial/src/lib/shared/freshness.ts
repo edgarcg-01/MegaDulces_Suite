@@ -23,6 +23,7 @@ export {
   composeFreshness,
   FRESHNESS_UNKNOWN,
   laneAt,
+  stepAt,
   tableAt,
 } from '@megadulces/platform-core';
 export type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';

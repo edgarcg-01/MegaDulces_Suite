@@ -2891,12 +2891,45 @@ export interface ExpenseRow {
   delta_pct: number | null;
 }
 /** [GX.9] Una clave por familia contable (ver EXPENSE_FAMILIA_SERIES_KEY en contracts). */
-export interface ExpenseSeriesPoint { mes: string; total: number; compras: number; gastos: number; financiero: number; activo: number; }
+export interface ExpenseSeriesPoint {
+  mes: string; total: number; compras: number; gastos: number; financiero: number; activo: number;
+  /** [GX.19] El rango corta ese mes → su barra es más baja por calendario, no por gasto. */
+  parcial: boolean;
+  /** Sucursales que reportaron ese mes. Un escalón acá explica un escalón en el total. */
+  sucursales: number;
+}
+/** [GX.19] Cobertura declarada — la FORMA es `Coverage` de `@megadulces/contracts`, más el detalle. */
+export interface ExpenseCoverage {
+  measured: boolean;
+  pct: number | null;
+  note: string;
+  sucursales: string[];
+  sucursales_todos: string[];
+  sucursales_parciales: Array<{ sucursal: string; desde: string; total: number }>;
+  meses_parciales: string[];
+}
+/** [GX.19] El Δ con y sin las sucursales que cambiaron de universo entre los dos períodos. */
+export interface ExpenseComparativo {
+  sucursales_ambos: string[];
+  solo_actual: string[];
+  solo_previo: string[];
+  total: number;
+  total_prev: number;
+  delta_pct: number | null;
+  total_comparable: number;
+  total_prev_comparable: number;
+  delta_pct_comparable: number | null;
+  universo_cambio: boolean;
+}
 export interface ExpensesReport {
   from: string;
   to: string;
   prev_from: string;
   prev_to: string;
+  /** [GX.19] Con qué se calculó: edad del feed nocturno + de la tabla. Nunca se asume fresco. */
+  freshness: Freshness;
+  coverage: ExpenseCoverage;
+  comparativo: ExpenseComparativo | null;
   group_by: string;
   total: number;
   movimientos: number;

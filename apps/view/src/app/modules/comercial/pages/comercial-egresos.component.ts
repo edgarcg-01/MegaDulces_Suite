@@ -36,6 +36,9 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+// [GX.19] La píldora ya acepta un `Freshness` del servidor (measures="data"): no se re-deriva
+// la edad en el navegador, que era la mentira que VP.0.2 midió en 21 de 24 usos.
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ThemeService } from '../../../core/services/theme.service';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
@@ -51,7 +54,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule, ToastModule,
-    SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent,
+    SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent, FreshnessPillComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,7 +64,11 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" /></div>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" />
+            <!-- [GX.19] measures="data" y [freshness] del SERVIDOR: la edad es la del feed
+                 nocturno y la de la tabla, NO la hora del navegador. Ver freshness-pill §VP.0.2. -->
+            @if (report(); as r) { <app-freshness-pill measures="data" [freshness]="r.freshness" label="egresos" /> }
+          </div>
           <p class="surf-page-sub">Pólizas de compras (511), gastos (6xx), activo no circulante (150) y financieros e impuestos (702-764) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
         </div>
         <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
@@ -101,6 +108,39 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
         <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de egresos" />
       }
 
+      <!-- [GX.19] COBERTURA DECLARADA — el segundo número, no un filtro.
+           El total de arriba sigue siendo el total (cuadra contra la balanza al centavo). Esto
+           dice qué parte es COMPARABLE, porque el universo de sucursales crece mes a mes y sin
+           decirlo el Δ se lee como gasto: medido en prod, +27.0 % contra +1.1 % real. -->
+      @if (isReportView() && coverageAviso(); as cov) {
+        <div class="ex-cov" role="note">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          <div class="ex-cov-body">
+            @if (cov.comp; as c) {
+              <div class="ex-cov-delta">
+                <span>Δ vs período previo: <strong class="ex-cov-all">{{ signo(c.delta_pct) }}</strong> con todas las sucursales,
+                  <strong class="ex-cov-ok">{{ signo(c.delta_pct_comparable) }}</strong> con las que reportan en ambos períodos.</span>
+              </div>
+              @if (c.solo_actual.length) {
+                <div>Entraron al universo este período: <strong>{{ c.solo_actual.join(', ') }}</strong> — su gasto sube el total sin que nadie haya gastado más.</div>
+              }
+              @if (c.solo_previo.length) {
+                <div>Dejaron de reportar: <strong>{{ c.solo_previo.join(', ') }}</strong>.</div>
+              }
+            }
+            <div>{{ cov.note }}</div>
+            <!-- Los meses cortados van en su PROPIA línea, no sólo dentro de la nota: la nota es
+                 prosa del servidor y esto es lo que hay que mirar antes de leer la gráfica. -->
+            @if (cov.meses_parciales.length) {
+              <div>Meses incompletos en la tendencia: <strong>{{ cov.meses_parciales.join(', ') }}</strong> — su barra es más baja por calendario.</div>
+            }
+            @if (cov.pct !== null) {
+              <div class="muted">Comparable mes a mes: <strong>{{ cov.pct }}%</strong> del importe del rango ({{ cov.sucursales_todos.length }} de {{ cov.sucursales.length }} sucursales en todos los meses).</div>
+            }
+          </div>
+        </div>
+      }
+
       <!-- Vista -->
       <div class="ex-viewbar">
         <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista" />
@@ -115,7 +155,9 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
       @if (loading()) {
         <div class="ex-empty">Cargando…</div>
       } @else if (error()) {
-        <app-load-state [error]="error()" (retry)="loadReport()"></app-load-state>
+        <!-- [GX.19] Reintenta la VISTA ACTIVA, no sólo el reporte: si lo que falló fue el árbol,
+             un retry que recarga el reporte limpiaba el error y dejaba el árbol vacío igual. -->
+        <app-load-state [error]="error()" (retry)="reload()"></app-load-state>
       } @else {
         <!-- ÁRBOL -->
         @if (view() === 'arbol') {
@@ -303,6 +345,22 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
     .ex-tag.fam5 { color: var(--chip-brand-fg); border-color: var(--chip-brand-border); background: var(--chip-brand-bg); }
     .ex-tag.fam6 { color: var(--chip-competition-fg); border-color: var(--chip-competition-border); background: var(--chip-competition-bg); }
     .ex-empty { padding: 2rem; text-align: center; color: var(--text-muted, #78716c); }
+    /* [GX.19] Banda de cobertura. Tono warn (no danger): no está roto, está declarado — y no
+       es un ex-empty porque convive con el dato, no lo reemplaza. */
+    .ex-cov { display: flex; gap: .6rem; align-items: flex-start; margin: 0 0 1rem;
+      font-size: .82rem; line-height: 1.45; color: var(--text-strong, inherit);
+      background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--warn-fg) 28%, transparent);
+      border-radius: var(--r-sm, .4rem); padding: .6rem .8rem; }
+    .ex-cov > .pi { color: var(--warn-fg); margin-top: .15rem; flex: none; }
+    .ex-cov-body { display: flex; flex-direction: column; gap: .25rem; }
+    .ex-cov-delta { font-size: .88rem; }
+    /* El Δ de todas las sucursales NO se tacha: es el movimiento real de la caja y sigue siendo
+       cierto. Va atenuado para que el ojo caiga primero en el comparable, que es el que responde
+       "¿gastamos más?". Tachar un número correcto es otra forma de mentir. */
+    .ex-cov-all { color: var(--text-muted, #78716c); }
+    .ex-cov-ok { color: var(--ok-fg); }
+    .ex-cov .muted { color: var(--text-muted, #78716c); }
     .ex-chart { padding: 1rem; }
     .ex-docs { margin-top: 1.25rem; padding: 1rem; }
     .ex-docs-head { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
@@ -416,7 +474,10 @@ export class ComercialEgresosComponent {
   readonly chartData = computed(() => {
     const s = this.report()?.series || [];
     return {
-      labels: s.map((p) => p.mes),
+      // [GX.19] El mes cortado por el rango se rotula como tal EN EL EJE. El aviso de arriba y el
+      // tooltip lo explican, pero quien mira la gráfica de reojo sólo ve la barra: la etiqueta es
+      // lo único que viaja con ella.
+      labels: s.map((p) => (p.parcial ? `${p.mes} ·parcial` : p.mes)),
       datasets: [
         { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: egresChartSeries()[0] },
         { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: egresChartSeries()[1] },
@@ -426,7 +487,29 @@ export class ComercialEgresosComponent {
     };
   });
   // Theme-aware (ver egresos-chart-opts): sin esto los ejes/leyenda son ilegibles en dark.
-  readonly chartOpts = computed(() => egresChartOptions(this.theme.isMonochrome()));
+  // [GX.19] Se le pasa el meta por mes (parcial + sucursales) para que el tooltip declare por qué
+  // una barra es más baja o más alta que su vecina cuando la causa NO es el gasto.
+  readonly chartOpts = computed(() => egresChartOptions(
+    this.theme.isMonochrome(),
+    new Map((this.report()?.series || []).map((p) => [p.mes, { parcial: p.parcial, sucursales: p.sucursales }])),
+  ));
+
+  /**
+   * [GX.19] El aviso sale cuando hay ALGO que declarar: universo que cambió entre períodos, una
+   * sucursal que no está en todos los meses, o un mes cortado por el rango. Si la tendencia es
+   * comparable no se pinta nada — un aviso permanente se vuelve invisible y deja de avisar.
+   */
+  readonly coverageAviso = computed(() => {
+    const r = this.report();
+    if (!r?.coverage?.measured) return null;
+    const c = r.coverage;
+    const comp = r.comparativo?.universo_cambio ? r.comparativo : null;
+    if (!comp && !c.sucursales_parciales.length && !c.meses_parciales.length) return null;
+    return { ...c, comp };
+  });
+
+  /** Δ en palabras, con la salida honesta cuando no se pudo calcular (base 0). */
+  signo(v: number | null): string { return v === null ? 'sin base' : `${v > 0 ? '+' : ''}${v}%`; }
 
   constructor() {
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
@@ -484,6 +567,9 @@ export class ComercialEgresosComponent {
     if (this.filterTimer) clearTimeout(this.filterTimer);
     this.filterTimer = setTimeout(() => this.applyFilters(), 300);
   }
+  /** [GX.19] Reintento del botón de error: invalida y recarga TODO lo que la vista activa necesita. */
+  reload() { this.error.set(null); this.applyFilters(); }
+
   /** Aplica filtros ya: invalida la caché y recarga la vista activa. */
   applyFilters() {
     if (this.filterTimer) { clearTimeout(this.filterTimer); this.filterTimer = null; }
@@ -518,7 +604,14 @@ export class ComercialEgresosComponent {
   private loadTree() {
     this.treeSub?.unsubscribe();
     this.treeSub = this.svc.expensesTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (t) => { this.tree.set(t); this.fresh.tree = true; }, error: () => {} });
+      .subscribe({
+        next: (t) => { this.tree.set(t); this.fresh.tree = true; },
+        // [GX.19] Antes: `error: () => {}`. El árbol es la vista POR DEFECTO, así que si sólo
+        // fallaba esta consulta el usuario veía un árbol vacío —o peor, el del filtro anterior—
+        // sin un solo aviso: "sin egresos" y "no se pudo cargar" se leían igual. Se limpia el
+        // árbol viejo (no se deja pasar por resultado del filtro nuevo) y se declara el error.
+        error: () => { this.tree.set(null); this.fresh.tree = false; this.error.set('No se pudo cargar el desglose por cuenta.'); },
+      });
   }
 
   private providersSub?: Subscription;

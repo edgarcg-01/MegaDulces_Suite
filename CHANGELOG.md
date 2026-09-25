@@ -10,6 +10,36 @@
 
 ## [Unreleased]
 
+### Fixed — Egresos publicaba +27% de "gasto" que eran sucursales entrando al universo (GX.19, 2026-09-25)
+- `/finanzas/egresos`, con su rango por defecto y el toggle **Comparar**, decía **+27.0 %** vs el
+  período previo. El gasto comparable había subido **+1.1 %**: los otros 26 puntos eran sucursales
+  que **entraron al universo** (01 en julio, 06 en agosto, 07 y 08 en septiembre), no dinero
+  gastado de más.
+- El total nunca estuvo mal —cuadra al centavo contra la balanza— pero **nadie decía que el
+  universo había cambiado**. Ahora la pantalla publica **los dos Δ**, nombra qué sucursales
+  entraron y cuánto aportan, y dice qué porcentaje del importe es comparable mes a mes.
+- La **gráfica de tendencia** cortaba los dos meses de las puntas y los dibujaba como meses
+  enteros: junio desde el día 27 y septiembre hasta el 25 se leían como un auge y un desplome que
+  eran el calendario. Ahora van rotulados `·parcial` en el eje y declarados arriba.
+- **Frescura:** el dato es un lote nocturno y la pantalla no lo decía. El **23 de septiembre el
+  feed no corrió** y sirvió el dato del día anterior en silencio. Ahora lleva píldora con la edad
+  real del dato (la del feed y la de la tabla, la peor de las dos), que ese día habría marcado
+  **32.4 h en ámbar**.
+- El **desglose por cuenta** —la vista por defecto— se tragaba su error: si fallaba sólo esa
+  consulta, quedaba vacío o con el resultado del filtro anterior, y «sin egresos» se leía igual
+  que «no se pudo cargar».
+- ⚠️ **Hallazgo aparte, sin resolver:** el ODS tiene un hueco en las pólizas (`kdc2`) —**20
+  renglones / $203,162.31 de agosto** y **76 / $2.27M de septiembre** que la réplica sí tiene— que
+  afecta al drill de esta misma pantalla, a `bank_postings` y a Maat. Queda registrado como
+  `AUD-ODS-01` en `AUDITORIA_BASE_INICIAL.md`; **bloquea retirar el importer de egresos.**
+
+### Internal — `stepAt()`: medir la edad de UN paso, no del carril entero (GX.19, 2026-09-25)
+- `run-prod-feeds.js` cierra el latido de `feed_nightly` en `ok` mientras no fallen **todos** sus
+  pasos, así que una pantalla que vive de un solo importer no puede preguntarle al carril. El
+  primitivo ya estaba escrito a mano dos veces (`existencia`, `cash-ledger`): sube a
+  `libs/platform-core` como pide ADR-056.
+
+
 ### Fixed — La lista de cobros no contaba un tipo de cobro entero (CC.13, 2026-09-24)
 - El sistema conocía sólo el **«Cobro PUE»**. El **«Cobro CFDI»** —que el propio catálogo de
   Kepler llama cobro— no lo contaba nadie: ni la cartera, ni cobranza, ni la conciliación del
