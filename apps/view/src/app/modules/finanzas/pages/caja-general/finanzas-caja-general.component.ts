@@ -203,6 +203,22 @@ interface FormularioCajaUI {
     .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
       color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
     .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .cg-caos { border-color:var(--action); }
+    .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
+    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left;
+      cursor:pointer; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      background:transparent; padding:.5rem .7rem; min-height:var(--tap-min,44px); color:inherit; }
+    .cg-caos-row:hover { border-color:var(--action); }
+    .cg-caos-row:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .cg-caos-tag { font-size:var(--fs-micro); font-weight:600; padding:.1rem .45rem; border-radius:999px;
+      border:1px solid var(--border-color); color:var(--text-muted); white-space:nowrap; }
+    .cg-caos-in { color:var(--action); border-color:var(--action); }
+    .cg-caos-monto { font-variant-numeric:tabular-nums; }
+    .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
+    /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
+    .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
+      background:color-mix(in srgb, var(--border-color) 22%, transparent); }
 
     /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
     @media (pointer: coarse) {
@@ -453,6 +469,30 @@ interface FormularioCajaUI {
           </p>
         }
       </section>
+
+      <!-- CS.3.1c — La caja fuerte (CAOS) entra SOLA a la bandeja: sus movimientos se ven sin
+           buscarlos (antes eran un autocompletado opcional dentro del diálogo). Un clic abre la
+           captura con el arqueo de la máquina ya cargado y BLOQUEADO; sólo se clasifica lo faltante. -->
+      @if (caosPendientes().length) {
+        <section class="cg-bandeja cg-caos">
+          <header class="cg-bandeja-head">
+            <h2 class="fin-h2"><i class="pi pi-lock" aria-hidden="true"></i> Caja fuerte (CAOS)</h2>
+            <span class="cg-bandeja-sp"></span>
+            <small class="fin-dim">{{ caosPendientes().length }} por capturar — el arqueo lo trae la máquina</small>
+          </header>
+          <div class="cg-caos-list">
+            @for (m of caosPendientes(); track m.origen_ref) {
+              <button type="button" class="cg-caos-row" (click)="capturarDesdeCaos(m)">
+                <span class="cg-caos-tag" [class.cg-caos-in]="m.tipo === 'ingreso'">{{ m.type_label }}</span>
+                <span class="mono cg-caos-monto">{{ money(m.monto) }}</span>
+                <span class="fin-dim cg-caos-ref">{{ m.ref || 'sin referencia' }}</span>
+                <span class="fin-dim">{{ m.user_external || '' }}</span>
+                <span class="cg-caos-go" aria-hidden="true">Capturar →</span>
+              </button>
+            }
+          </div>
+        </section>
+      }
 
       <div class="fin-filters">
         <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
@@ -713,6 +753,9 @@ interface FormularioCajaUI {
             @if (cobroElegido(); as c) {
               <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
             }
+            @if (caosElegido()) {
+              <span class="fin-hint-ok">La caja fuerte ya contó los billetes — sólo la morralla se cuenta a mano.</span>
+            }
           </div>
           <table class="cg-arqueo-tbl">
             <caption class="cg-cap">Desglose del efectivo por denominación</caption>
@@ -734,6 +777,7 @@ interface FormularioCajaUI {
                   <th scope="row" class="mono">{{ b.label }}</th>
                   <td>
                     <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                           [readonly]="!!caosElegido()"
                            [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
                            (keydown.enter)="moverEnReja($event, 1)"
                            (keydown.arrowdown)="moverEnReja($event, 1)"
@@ -1069,6 +1113,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   caosSel: (CaosCapturable & { label: string }) | null = null;
   caosElegido = signal<CaosCapturable | null>(null);
 
+  /**
+   * CS.3.1c — Los movimientos de CAOS PENDIENTES de capturar, mostrados SOLOS en la bandeja (no un
+   * buscador opcional): el capturista los ve sin buscarlos. Al elegir uno, el arqueo de la máquina
+   * se precarga y se BLOQUEA, y sólo queda clasificar lo faltante.
+   */
+  caosPendientes = signal<CaosCapturable[]>([]);
+  cargandoCaosPend = signal(false);
+
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
@@ -1355,6 +1407,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // algo que aparezca después de un clic.
     this.cargarCajas();
     this.cargarPendientes();
+    this.cargarCaosPendientes();
     this.cargarFrecuentes();
     this.enVivo();
   }
@@ -1396,7 +1449,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
     // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
     // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
-    encuestarVisible(60000, () => this.cargarPendientes(), { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => { this.cargarPendientes(); this.cargarCaosPendientes(); }, { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
@@ -1410,6 +1463,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       if (e.origen === 'feed' && firma === this.firmaVista) return;
       this.firmaVista = firma;
       this.cargarPendientes();
+      this.cargarCaosPendientes();
       this.cargarSaldo();
     });
   }
@@ -1874,6 +1928,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.conceptoManual.set(true);
     this.conceptos.set([]);
     this.f.update((v) => ({ ...v, kepler_cuenta: null, kepler_concepto: null }));
+  }
+
+  /**
+   * CS.3.1c — Trae los movimientos de CAOS pendientes para mostrarlos SOLOS en la bandeja. Se pide
+   * al cargar y en el repaso en vivo, igual que los de Kepler. Un fallo deja la sección vacía (no es
+   * la fuente de verdad del libro), pero no tumba la pantalla.
+   */
+  cargarCaosPendientes(): void {
+    this.cargandoCaosPend.set(true);
+    this.svc.caosCapturables({ limit: 50 }).subscribe({
+      next: (r) => { this.caosPendientes.set(r.rows ?? []); this.cargandoCaosPend.set(false); },
+      error: () => { this.caosPendientes.set([]); this.cargandoCaosPend.set(false); },
+    });
+  }
+
+  /**
+   * CS.3.1c — Abre la captura desde un movimiento de CAOS de la bandeja: el arqueo de la máquina se
+   * precarga y se bloquea; sólo queda clasificar lo faltante. Espeja `capturarDesde` (Kepler).
+   */
+  capturarDesdeCaos(m: CaosCapturable): void {
+    this.abrirCaptura();
+    this.tomarMovimientoCaos(m);
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
