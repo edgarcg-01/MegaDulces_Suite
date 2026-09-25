@@ -325,8 +325,23 @@ export interface EntradasReport {
   settings: ReceiptSettings;
 }
 
-/** Un archivo ya subido a una entrada (o su duplicado) — para reportar dónde ya vive. */
-export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
+/**
+ * Un archivo ya subido a una entrada (o su duplicado) — para reportar dónde ya vive.
+ *
+ * ⭐ `[RE.31]` `vigente: false` = esa entrada ya NO existe en Kepler (el ERP la borró). Un
+ * duplicado así no frena: es un fantasma, y frenar contra él impide pegar la factura en la
+ * entrada que la reemplazó. Medido en prod: 3 de 329 evidencias apuntan a una entrada muerta.
+ *
+ * ⚠️ Opcional a propósito: una API vieja que no lo mande deja `undefined`, y la pantalla trata
+ * `undefined` como vigente — que es el comportamiento seguro (seguir bloqueando).
+ */
+export interface DuplicateHit {
+  reason: 'file' | 'folio';
+  sucursal: string;
+  folio: string;
+  proveedor?: string | null;
+  vigente?: boolean;
+}
 
 /** RE.11.0 — un renglón de producto extraído de la remisión (materia prima del match por línea). */
 export interface RemisionLine {

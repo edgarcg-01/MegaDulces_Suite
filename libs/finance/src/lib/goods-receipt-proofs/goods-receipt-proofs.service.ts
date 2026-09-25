@@ -146,7 +146,26 @@ export interface ReceiptFile {
 }
 
 /** Coincidencia de duplicado (misma hoja por hash, o folio ya subido). */
-export interface DuplicateHit { reason: 'file' | 'folio'; sucursal: string; folio: string; proveedor?: string | null; }
+/**
+ * ⭐ `[RE.31]` Una hoja repetida, y **si la entrada donde ya vive sigue existiendo en Kepler**.
+ *
+ * `vigente: false` = la evidencia está pegada a una entrada que el ERP ya BORRÓ. Ese duplicado no
+ * protege nada: es un fantasma, y bloquear contra él le impide al capturista pegar la factura en
+ * la entrada nueva que la reemplazó.
+ *
+ * Caso real (2026-09-25, prod): la entrada `08/0000018` de DULCES LAS DELICIAS se borró en Kepler
+ * y la misma factura se recapturó como `08/0000054`. El espejo ya no tiene la 18, pero su
+ * evidencia sí, así que la pantalla decía *"Este PDF ya está subido en la entrada 08/0000018"* y
+ * no dejaba subirlo. Medido: **3 de 329 evidencias (0.9%)** apuntan a una entrada que ya no está.
+ */
+export interface DuplicateHit {
+  reason: 'file' | 'folio';
+  sucursal: string;
+  folio: string;
+  proveedor?: string | null;
+  /** `false` = la entrada ya no existe en el espejo de Kepler. No bloquea; se avisa. */
+  vigente: boolean;
+}
 
 export interface ListReceiptsQuery {
   /**
@@ -1356,19 +1375,34 @@ export class GoodsReceiptProofsService {
     const rfc = (q.rfc || '').trim().toLowerCase();
     const folioOk = folio.length >= 3 && /[^0]/.test(folio); // evita folios triviales ("1", "000")
     if (!sha && !folioOk) return null;
+    const tid = this.tenantCtx.requireTenantId();
+    /**
+     * ⭐ `[RE.31]` ¿La entrada donde ya vive esa hoja SIGUE existiendo en Kepler?
+     *
+     * ⚠️ `analytics.erp_goods_receipts` lleva el filtro de tenant EXPLÍCITO: es un schema
+     * `analytics.*` y ahí el RLS no manda (mismo criterio que `attach`, unas líneas más abajo).
+     */
+    const VIGENTE = `EXISTS (SELECT 1 FROM analytics.erp_goods_receipts g
+                              WHERE g.tenant_id = ? AND g.sucursal = p.sucursal AND g.folio = p.folio) AS vigente`;
+    /**
+     * ⛔ El ORDEN importa y no es cosmético: si la misma hoja está en una entrada VIVA y en una
+     * borrada, tiene que ganar la viva — si no, un fantasma más reciente dejaría pasar un
+     * duplicado de verdad. Por eso `vigente DESC` va ANTES que `created_at DESC`.
+     */
+    const ORDEN = 'ORDER BY vigente DESC, p.created_at DESC LIMIT 1';
     return this.tk.run(async (trx) => {
       if (sha) {
         const hit = await trx.raw(
-          `SELECT sucursal, folio, proveedor_nombre
-             FROM finance.goods_receipt_proofs
-            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
-            ORDER BY created_at DESC LIMIT 1`, [sha]);
+          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
+             FROM finance.goods_receipt_proofs p
+            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
+            ${ORDEN}`, [tid, sha]);
         const r = hit.rows?.[0];
-        if (r) return { reason: 'file' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre };
+        if (r) return { reason: 'file' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
       }
       if (folioOk) {
         const hit = await trx.raw(
-          `SELECT sucursal, folio, proveedor_nombre
+          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
              FROM finance.goods_receipt_proofs p
             WHERE (
                     lower(btrim(COALESCE(p.ocr_folio,''))) = ?
@@ -1377,9 +1411,9 @@ export class GoodsReceiptProofsService {
                                AND lower(btrim(COALESCE(e->>'ocr_folio',''))) = ?)
                   )
               AND ( ? = '' OR lower(btrim(COALESCE(p.proveedor_rfc,''))) IN ('', ?) )
-            ORDER BY p.created_at DESC LIMIT 1`, [folio, folio, rfc, rfc]);
+            ${ORDEN}`, [tid, folio, folio, rfc, rfc]);
         const r = hit.rows?.[0];
-        if (r) return { reason: 'folio' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre };
+        if (r) return { reason: 'folio' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
       }
       return null;
     });
@@ -1405,7 +1439,22 @@ export class GoodsReceiptProofsService {
         folio: f.role === 'remision' || f.role === 'factura' ? f.ocr_folio : null,
         rfc: f.ocr_rfc,
       });
-      if (dup) {
+      /**
+       * ⭐ `[RE.31]` Sólo bloquea un duplicado **vigente**. Si la entrada donde ya vive la hoja
+       * fue BORRADA en Kepler, el duplicado es un fantasma: bloquear contra él le impide al
+       * capturista pegar la factura en la entrada que la reemplazó, que es justo lo que tiene
+       * que pasar. Caso real: `08/0000018` borrada y recapturada como `08/0000054`.
+       *
+       * ⚠️ No se borra nada acá. La evidencia vieja queda huérfana y se DECLARA en el log, para
+       * que quede rastro de que hay dos registros con la misma hoja. Limpiarla es otra decisión.
+       */
+      if (dup && !dup.vigente) {
+        this.logger.warn(
+          `[RE.31] hoja repetida contra ${dup.sucursal}/${dup.folio}, que ya NO existe en el espejo de Kepler. `
+          + `Se deja pasar hacia ${sucursal}/${folio}; la evidencia vieja queda huérfana.`,
+        );
+      }
+      if (dup?.vigente) {
         throw new BadRequestException(
           dup.reason === 'file'
             ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quitala.`

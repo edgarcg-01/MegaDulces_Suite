@@ -76,6 +76,8 @@ interface Hoja {
   porMonto?: boolean;
   candidatas?: EntradaRow[];
   dupDe?: string | null;
+  /** `[RE.31]` La entrada de `dupDe` ya NO existe en Kepler: no frena, pero se avisa. */
+  dupMuerta?: boolean;
   motivo?: string;
   busqueda?: string;
   buscando?: boolean;
@@ -608,6 +610,17 @@ interface Hoja {
                     <span>No pude leer el importe de la factura, así que no puedo comparar. Se puede enviar igual.</span>
                   }
                 </p>
+
+                <!-- [RE.31] El duplicado que NO frena: la hoja ya estaba en una entrada que Kepler
+                     borró. Se dice, porque esa evidencia vieja queda huerfana y el dato importa
+                     para quien despues audite por que hay dos registros con la misma factura. -->
+                @if (h.dupMuerta && h.dupDe) {
+                  <p class="ep-veredicto warn" role="status">
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    <span>Esta hoja ya estaba en la entrada <b class="mono">{{ h.dupDe }}</b>, que <b>Kepler ya borró</b>.
+                      Se envía a la nueva; la evidencia vieja queda huérfana.</span>
+                  </p>
+                }
 
                 <!-- El análisis: qué dice Kepler contra qué dice el papel, renglón por renglón. -->
                 <table class="ep-cmp">
@@ -1534,7 +1547,10 @@ export class ComprasEntradasPendientesComponent {
   private static readonly EN_VUELO = 3;
 
   /** Cuántos EXPEDIENTES se van a crear — no cuántos archivos. Dos hojas de una factura son uno. */
-  readonly listas = computed(() => this.hojas().filter((h) => h.estado === 'enlazada' && h.entrada && !h.dupDe));
+  // `[RE.31]` `dupMuerta` NO descalifica la hoja: el duplicado apunta a una entrada que Kepler ya
+  // borró, así que la hoja sí se tiene que poder enviar. Sin esta excepción el aviso la dejaría
+  // fuera del lote y el botón seguiría sin mandarla — el bloqueo cambiado de lugar, no quitado.
+  readonly listas = computed(() => this.hojas().filter((h) => h.estado === 'enlazada' && h.entrada && (!h.dupDe || h.dupMuerta)));
   readonly nExpedientes = computed(() =>
     new Set(this.listas().map((h) => `${h.entrada!.sucursal}|${h.entrada!.folio}`)).size);
   readonly nBloqueadas = computed(() =>
@@ -1761,9 +1777,23 @@ export class ComprasEntradasPendientesComponent {
         ocrDocs: (o.documents_present ?? []).map((d) => d.type),
         ocrDocsDetail: o.documents_present ?? [],
       });
-      if (o.duplicate) {
+      /**
+       * ⭐ `[RE.31]` Un duplicado sólo frena si la entrada donde ya vive la hoja SIGUE en Kepler.
+       *
+       * Si el ERP la borró, ese duplicado es un fantasma y frenar contra él impide justo lo que
+       * hay que hacer: pegar la factura en la entrada que la reemplazó. Caso real (2026-09-25):
+       * la `08/0000018` de DULCES LAS DELICIAS se borró y volvió como `08/0000054`, y la pantalla
+       * no dejaba subir el PDF. Medido en prod: 3 de 329 evidencias apuntan a una entrada muerta.
+       *
+       * ⚠️ No se calla: sigue el flujo normal y deja el aviso (`dupDe` + `dupMuerta`), porque la
+       * evidencia vieja queda huérfana y alguien tiene que saberlo.
+       */
+      if (o.duplicate && o.duplicate.vigente !== false) {
         this.parchar(h.id, { estado: 'duplicada', dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}` });
         return;
+      }
+      if (o.duplicate) {
+        this.parchar(h.id, { dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}`, dupMuerta: true });
       }
       // Soltada sobre una fila: la entrada ya la eligió el usuario, no se busca nada.
       if (h.entrada) { this.parchar(h.id, { estado: 'enlazada' }); return; }

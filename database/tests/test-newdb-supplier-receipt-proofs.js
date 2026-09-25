@@ -197,6 +197,58 @@ const matchR = (total, sub, val) => {
       throw { __rollback: true };
     }).catch((e) => { if (!e || !e.__rollback) throw e; });
 
+    // ── 4c. `[RE.31]` El duplicado FANTASMA: la entrada donde ya vive la hoja fue BORRADA ─────
+    //
+    // Caso real de prod (2026-09-25): la entrada `08/0000018` de DULCES LAS DELICIAS se borró en
+    // Kepler y la misma factura volvió como `08/0000054`. El espejo ya no tiene la 18, pero su
+    // evidencia sí, así que la pantalla decía "Este PDF ya está subido en la entrada 08/0000018"
+    // y NO dejaba subirlo a la nueva. Medido: 3 de 329 evidencias apuntan a una entrada muerta.
+    //
+    // ⚠️ Este bloque reproduce la expresión `vigente` de `findDuplicate` — es SQL, no puede
+    // importar el servicio. Lo que asegura no es la línea de TypeScript: es que el DATO permita
+    // distinguir un duplicado vivo de uno muerto, y que el ORDEN prefiera el vivo. Si alguien
+    // quita el EXISTS del servicio, este candado no lo ve; si alguien rompe la forma del espejo
+    // o el filtro de tenant, sí.
+    await knex.transaction(async (trx) => {
+      const SHA = 'e2e' + 'f'.repeat(61);
+      const viva = await trx('analytics.erp_goods_receipts').where({ tenant_id: T }).first('sucursal', 'folio');
+      ok(!!viva, 'hay al menos una entrada viva en el espejo con la que contrastar');
+      const FANTASMA = '9999999';                       // folio que el espejo no tiene (7 dígitos)
+      const noEsta = await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: T, sucursal: viva.sucursal, folio: FANTASMA }).first('folio');
+      ok(!noEsta, `el folio ${FANTASMA} NO existe en el espejo (sirve de entrada borrada)`);
+
+      const mk = (folio) => trx('finance.goods_receipt_proofs').insert({
+        tenant_id: T, sucursal: viva.sucursal, folio,
+        files: JSON.stringify([{ role: 'factura', url: 'http://x/f.pdf', public_id: 'x/f', kind: 'pdf', sha256: SHA }]),
+        ocr_status: 'ok', created_by: 'smoke-re31',
+      });
+      await mk(FANTASMA);
+
+      const q = () => trx.raw(`
+        SELECT p.sucursal, p.folio,
+               EXISTS (SELECT 1 FROM analytics.erp_goods_receipts g
+                        WHERE g.tenant_id = ? AND g.sucursal = p.sucursal AND g.folio = p.folio) AS vigente
+          FROM finance.goods_receipt_proofs p
+         WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
+         ORDER BY vigente DESC, p.created_at DESC LIMIT 1`, [T, SHA]);
+
+      const solo = (await q()).rows[0];
+      ok(solo && solo.folio === FANTASMA && solo.vigente === false,
+        '⭐ duplicado contra una entrada BORRADA se reporta vigente=false (no debe frenar)');
+
+      // Y ahora la MISMA hoja también en una entrada viva: tiene que ganar la viva.
+      await mk(viva.folio);
+      const gana = (await q()).rows[0];
+      ok(gana && gana.folio === viva.folio && gana.vigente === true,
+        '⛔ NEGATIVA: con la hoja en una entrada VIVA y otra borrada, gana la viva (si no, un fantasma dejaría pasar un duplicado real)');
+
+      throw { __rollback: true };
+    }).catch((e) => { if (!e || !e.__rollback) throw e; });
+
+    const [aR31] = await knex('finance.goods_receipt_proofs').where({ created_by: 'smoke-re31' }).count('* as n');
+    ok(Number(aR31.n) === 0, 'rollback RE.31: 0 evidencias persistidas');
+
     const [aP] = await knex('finance.supplier_payment_proofs').where({ sucursal: '00', folio: '0000609' }).count('* as n');
     const [aG] = await knex('finance.goods_receipt_proofs').where({ sucursal: '00', folio: '0008231' }).count('* as n');
     ok(Number(aP.n) === 0 && Number(aG.n) === 0, 'rollback: 0 evidencias persistidas (no ensucia data real)');
