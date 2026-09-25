@@ -3,9 +3,9 @@ import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
 
 const CLASIFICACION_LABEL: Record<string, string> = {
-  fiscal: 'Fiscal (con factura)',
-  no_fiscal_comprobable: 'No fiscal, con recibo',
-  no_comprobable: 'No comprobable',
+  fiscal: 'Con factura',
+  no_fiscal_comprobable: 'Sólo ticket o recibo',
+  no_comprobable: 'Sin comprobante',
 };
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
