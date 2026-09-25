@@ -10,6 +10,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia, type ListasParaComprobar } from '../comprobaciones.service';
@@ -22,7 +23,13 @@ import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component'
 type CapMode = 'checking' | 'capturar' | 'evidencia' | 'esperando' | 'revision' | 'cerrada';
 
 /** Solicitud de Kepler elegida (read-only) — el capturista sólo confirma que es la correcta. */
-interface SelSolicitud { folio: string; beneficiario: string | null; importe: number; sucursal: string | null; solicitante: string | null; fecha: string | null; concepto: string | null; }
+interface SelSolicitud {
+  folio: string; beneficiario: string | null; importe: number; sucursal: string | null;
+  solicitante: string | null; fecha: string | null; concepto: string | null;
+  /** [GX.21] Lo demas que Kepler trae, para la vista previa del alta. */
+  rfc?: string | null; iva?: number | null; autoriza?: string | null; referencia?: string | null;
+  cuenta_clave?: string | null; usuario?: string | null; estado?: string | null;
+}
 
 /**
  * GX.8 — Vista del CAPTURISTA (rol `FINANCE_EXPENSES_CAPTURAR`). Superficie mínima:
@@ -33,7 +40,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, CapturaEnVivoComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -96,7 +103,16 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               @if (gasto()!.fecha) { <span><i class="pi pi-calendar" aria-hidden="true"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
             @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left" aria-hidden="true"></i> {{ gasto()!.concepto }}</span></div> }
-            <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
+            <div class="cap-g-acc">
+              <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
+              <!--
+                [GX.21] El disparador de la vista previa es DISCRETO a proposito: un enlace
+                de texto al pie de la ficha, no un boton que compita con «Enviar». Quien
+                captura no necesita abrirlo: es para cuando alguien duda de si el folio es
+                el correcto, o de como va a quedar el alta.
+              -->
+              <button type="button" class="cap-link" (click)="verPrevia()">ver alta completa</button>
+            </div>
           </div>
 
           @switch (modo()) {
@@ -153,50 +169,54 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                   usuario. Antes ese caso se registraba sin ninguna imagen, solo con un
                   motivo escrito -- o sea, sin nada que mirar.
                 -->
-                <div class="cap-step">3 · Tomá el vale autorizado</div>
-                  @if (!names()['comprobante_1']) {
-                    <!-- [GX.14] Se fue el input de archivo y el arrastrar-y-soltar. El
-                         atributo capture="environment" de antes era una sugerencia: en escritorio
-                         abría el explorador y en móvil la galería seguía disponible. -->
-                    <md-captura-en-vivo (capturada)="onCaptura($event)" />
-                  } @else {
-                    <div class="cap-done">
-                      <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-                      @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
-                      <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
-                    </div>
-                    @if (photoResult(); as pr) {
-                      @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
-                      @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-                      @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
-                      @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
-                    }
-                  }
                 <!--
-                  [GX.19] La cotizacion: OPCIONAL y para cualquier gasto. Antes colgaba del
-                  tipo «solo ticket o recibo»; ahora el criterio es el del usuario -- «si es
-                  alguno que tiene cotizacion, que pueda subir la evidencia». No todos la
-                  tienen, asi que no es un faltante: es una puerta abierta.
+                  [GX.20] Un solo paso, dos botones. Antes eran dos pasos numerados -- el vale
+                  y la cotizacion -- y eso los ponia al mismo nivel: la persona contaba cuatro
+                  obligaciones cuando en realidad hay UNA evidencia que dar, por dos caminos.
 
-                  Este SI se adjunta, a diferencia del vale: es el papel que respalda el
-                  precio ANTES de gastar, llega por correo o en PDF. Pedir camara en vivo
-                  seria pedir la foto de una pantalla.
+                  La diferencia entre los dos botones es real y por eso no se puede fundir en
+                  uno: el VALE se toma en el momento (es el papel que se firma al gastar) y la
+                  COTIZACION se adjunta (existe antes, llega por correo o en PDF). Pedirle
+                  camara a la cotizacion seria pedir la foto de una pantalla.
+
+                  La cotizacion no muestra su zona de arrastre: es un boton que abre el
+                  explorador y, elegido el archivo, ya esta. Sin superficie que ocupe alto
+                  esperando algo que la mayoria de los gastos no tiene.
                 -->
-                <div class="cap-step cap-step-opt">4 · La cotización <span>si el gasto la tiene</span></div>
-                @if (!names()['cotizacion']) {
-                  <div class="cap-drop">
-                    <i class="pi pi-file cap-drop-ic" aria-hidden="true"></i>
-                    <div>Subí la <strong>cotización</strong> (foto o PDF)</div>
-                    <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir archivo
-                      <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
-                    </label>
+                <div class="cap-step">3 · Capturá la evidencia de tu gasto</div>
+                <div class="cap-ev">
+                  <div class="cap-ev-c">
+                    @if (!names()['comprobante_1']) {
+                      <md-captura-en-vivo etiqueta="Tomar foto del vale" (capturada)="onCaptura($event)" />
+                    } @else {
+                      <div class="cap-done">
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
+                        @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
+                        <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
+                      </div>
+                    }
                   </div>
-                } @else {
-                  <div class="cap-done">
-                    <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
-                    <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
+                  <div class="cap-ev-c">
+                    @if (!names()['cotizacion']) {
+                      <label class="cap-ev-b">
+                        <i class="pi pi-upload" aria-hidden="true"></i> Subir cotización
+                        <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
+                      </label>
+                      <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
+                    } @else {
+                      <div class="cap-done">
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
+                        <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
+                      </div>
+                    }
                   </div>
-                }
+                </div>
+                  @if (photoResult(); as pr) {
+                    @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
+                    @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
+                    @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
+                    @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
+                  }
 
                 <label class="cap-f"><span>Comentarios (opcional)</span>
                   <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
@@ -269,6 +289,73 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           }
         }
       </div>
+
+      <!--
+        [GX.21] La vista previa del alta: a la izquierda lo que Kepler ya sabe, a la derecha
+        lo que esta pantalla agrega. Puestas lado a lado se ve de un golpe que el trabajo de
+        la persona son tres renglones y el resto viene solo.
+
+        ⚠️ Un campo que Kepler no trae sale con un GUION, nunca vacio ni en cero: un espacio
+        en blanco se lee como «no hay dato» igual que como «no se cargo», y son cosas
+        distintas. El guion dice que se miro y no habia.
+      -->
+      <p-dialog [(visible)]="previaAbierta" [modal]="true" [draggable]="false" [style]="{ width: '44rem' }"
+                header="Vista previa del alta">
+        @if (gasto(); as g) {
+          <div class="cap-prev">
+            <section>
+              <h3><i class="pi pi-database" aria-hidden="true"></i> Lo que trae Kepler</h3>
+              <dl>
+                <dt>Folio</dt><dd class="mono">{{ g.folio }}</dd>
+                <dt>Sucursal</dt><dd>{{ g.sucursal || '—' }}</dd>
+                <dt>Fecha</dt><dd>{{ g.fecha ? (g.fecha | date:'dd/MM/yy') : '—' }}</dd>
+                <dt>Beneficiario</dt><dd>{{ g.beneficiario || '—' }}</dd>
+                <dt>RFC</dt><dd class="mono">{{ g.rfc || '—' }}</dd>
+                <dt>Concepto</dt><dd>{{ g.concepto || '—' }}</dd>
+                <dt>Cuenta</dt><dd class="mono">{{ g.cuenta_clave || '—' }}</dd>
+                <dt>Solicita</dt><dd>{{ g.solicitante || '—' }}</dd>
+                <dt>Autoriza</dt><dd>{{ g.autoriza || '—' }}</dd>
+                <dt>Referencia</dt><dd class="mono">{{ g.referencia || '—' }}</dd>
+                <dt>Capturo</dt><dd>{{ g.usuario || '—' }}</dd>
+                <dt>IVA</dt><dd class="mono">{{ g.iva ? moneyFull(g.iva) : '—' }}</dd>
+                <dt>Importe</dt><dd class="mono cap-prev-imp">{{ moneyFull(g.importe) }}</dd>
+              </dl>
+            </section>
+            <section>
+              <h3><i class="pi pi-pencil" aria-hidden="true"></i> Lo que agregas vos</h3>
+              <dl>
+                <dt>Método de pago</dt>
+                <dd>
+                  @if (formaSel(); as fs) { {{ fs.label }} <span class="cap-prev-cod mono">{{ fs.codigo_kepler }}</span> }
+                  @else { <span class="cap-prev-falta">sin elegir</span> }
+                </dd>
+                <dt>Evidencia</dt>
+                <dd>
+                  @if (names()['comprobante_1']; as n) { <span class="cap-prev-ok">✓</span> {{ n }} }
+                  @else { <span class="cap-prev-falta">falta la foto</span> }
+                </dd>
+                <dt>Cotización</dt>
+                <dd>
+                  @if (names()['cotizacion']; as n) { <span class="cap-prev-ok">✓</span> {{ n }} }
+                  @else { <span class="cap-prev-opt">no se adjuntó — es opcional</span> }
+                </dd>
+                <dt>Comentarios</dt>
+                <dd>{{ comentarios.trim() || '—' }}</dd>
+              </dl>
+              @if (faltan().length) {
+                <p class="cap-prev-pend"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                  Así como está <strong>no se puede enviar</strong>: {{ faltan()[0].label }}.</p>
+              } @else {
+                <p class="cap-prev-listo"><i class="pi pi-check-circle" aria-hidden="true"></i>
+                  Listo para enviar a aprobación.</p>
+              }
+            </section>
+          </div>
+        }
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text" (click)="previaAbierta = false">Cerrar</button>
+        </ng-template>
+      </p-dialog>
 
       <!--
         [GX.18] Se retiro el bloque «Listas para comprobar» (lo que Kepler ya autorizo y
@@ -352,6 +439,41 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
     .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
       letter-spacing: .04em; }
 
+    /* [GX.21] La vista previa: dos columnas que se apilan en movil. */
+    .cap-g-acc { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+    .cap-prev { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+    @media (max-width: 40rem) { .cap-prev { grid-template-columns: 1fr; } }
+    .cap-prev h3 { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2);
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cap-prev dl { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3);
+      margin: 0; font-size: var(--fs-xs); }
+    .cap-prev dt { color: var(--fg-3); white-space: nowrap; }
+    .cap-prev dd { margin: 0; color: var(--fg-1); overflow-wrap: anywhere; }
+    .cap-prev-imp { font-weight: var(--fw-bold); }
+    .cap-prev-cod { color: var(--fg-3); font-size: var(--fs-micro); }
+    .cap-prev-ok { color: var(--ok-fg); font-weight: var(--fw-bold); }
+    /* Lo que falta y lo que es opcional NO se pintan igual: uno frena el envio, el otro no. */
+    .cap-prev-falta { color: var(--bad-fg); }
+    .cap-prev-opt { color: var(--fg-3); font-style: italic; }
+    .cap-prev-pend, .cap-prev-listo { display: flex; align-items: flex-start; gap: var(--sp-2);
+      margin: var(--sp-3) 0 0; font-size: var(--fs-xs); line-height: 1.45; }
+    .cap-prev-pend { color: var(--bad-fg); }
+    .cap-prev-listo { color: var(--ok-fg); }
+
+    /* [GX.20] Los dos caminos de la evidencia, lado a lado. El de la camara es el
+       primario (lo pinta el propio componente); el de la cotizacion es secundario,
+       porque la mayoria de los gastos no la tiene. */
+    .cap-ev { display: flex; gap: var(--sp-2); align-items: flex-start; }
+    .cap-ev-c { flex: 1 1 0; min-width: 0; }
+    .cap-ev-b { display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; height: 40px; box-sizing: border-box;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: transparent; color: var(--fg-1); font-size: var(--fs-body);
+      font-weight: var(--fw-medium); cursor: pointer; }
+    .cap-ev-b:hover { border-color: var(--action); color: var(--action); }
+    .cap-ev-b:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-ev-nota { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0;
+      font-size: var(--fs-xs); line-height: 1.45; color: var(--fg-3); }
     /* [GX.19] El paso opcional se ve distinto del obligatorio: si los cuatro pesan igual,
        la persona cree que le falta uno y se queda esperando. */
     .cap-step-opt span { margin-left: var(--sp-2); font-weight: var(--fw-regular);
@@ -428,6 +550,9 @@ export class FinanzasCapturarGastoComponent {
 
   readonly gasto = signal<SelSolicitud | null>(null);
   readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
+  /** [GX.21] La vista previa del alta. Se abre desde el enlace discreto de la ficha. */
+  previaAbierta = false;
+  verPrevia() { this.previaAbierta = true; }
   sel: (SolicitudSug & { label: string }) | string | null = null;
   comentarios = '';
 
@@ -627,7 +752,9 @@ export class FinanzasCapturarGastoComponent {
     const g = (ev as { value: SolicitudSug & { label: string } }).value ?? (ev as SolicitudSug & { label: string });
     if (!g || typeof g === 'string') return;
     this.gasto.set({ folio: g.folio, beneficiario: g.beneficiario, importe: Number(g.importe) || 0,
-      sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto });
+      sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto,
+      rfc: g.rfc, iva: g.iva, autoriza: g.autoriza, referencia: g.referencia,
+      cuenta_clave: g.cuenta_clave, usuario: g.usuario, estado: g.estado });
     this.sel = null;
     /**
      * [GX.19] La clasificacion deja de preguntarse y se fija en `no_comprobable`, que es
