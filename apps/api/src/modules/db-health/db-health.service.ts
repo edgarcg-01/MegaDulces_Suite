@@ -3,6 +3,10 @@ import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-co
 import type { Knex } from 'knex';
 import { Client } from 'pg';
 import { commitDelBuild } from '../../build-info';
+// [DH.1] La regla de recurrencia vive aparte, SIN dependencias, para que su candado pueda
+// ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
+// no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
+import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
 
 /**
  * Salud/frescura de datos para Administración. Dos grupos:
@@ -795,7 +799,12 @@ export function veredictoRetirada(
 const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
-  { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 2 min',  warnH: 3,  critH: 12 },
+  // ⚠️ [DH.2] Decía "cada 2 min" y no corre así desde que `[VL.4]` lo mudó al carril `stock`
+  // (`5,20,35,50 * * * *` = cada 15 min). Medido sobre 587 corridas de 7 días: p50 **15.0 min**,
+  // p95 15.1, p99 29.9. Los umbrales (3 h / 12 h) siguen siendo correctos para 15 min — 12x y 48x
+  // la cadencia — así que esto es sólo el rótulo, pero es el rótulo contra el que alguien decide
+  // si "hace 20 minutos" es normal o es una alarma.
+  { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 15 min', warnH: 3,  critH: 12 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
   // [VL.6.3] EL RESPALDO DE PROD. Era invisible: 36 job_key vigilados y ninguno era el
@@ -917,7 +926,11 @@ const CRON_JOBS: CronCfg[] = [
   // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
   // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación
   // más probable de que el feed_nightly muriera 2 noches (25 y 26-ago) sin que nadie lo viera.
-  { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
+  // ⚠️ [DH.2] Decía "semanal dom 02:00" y el cron real es `0 2 * * 6` = **sábado** 02:00
+  // (`ops/vl/crontab.feeds`). Los umbrales no cambian —180/200 h cubren la semana igual— pero la
+  // cadencia es lo que el operador LEE para decidir si un rezago es normal, y le estaba corriendo
+  // el día. Verificado carril por carril el 2026-09-25: 18 de 19 coincidían, éste no.
+  { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal sáb 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   // [VL.4b] El carril de PRECIOS. Corría fuera del runner (`C:\KeplerRunner\run-prices.cmd` llamaba a
   // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
@@ -1124,6 +1137,8 @@ export interface SourceHealth {
   key: string; label: string; table: string; ts_col: string | null;
   last_update: string | null; age_seconds: number | null;
   status: Status; cadence: string; rows: number | null; note?: string;
+  // [DH.1] RECURRENCIA — ver `RECURRENCIA` más abajo. Nulo en los grupos que no son carriles.
+  runs_7d?: number | null; fails_7d?: number | null;
 }
 
 export interface DbHealthReport {
@@ -1377,7 +1392,14 @@ export class DbHealthService {
       last_update: null, age_seconds: null, status: 'unknown', cadence: s.cadence, rows: null,
     };
     const conn = s.envVars.map((v) => process.env[v]).find(Boolean);
-    if (!conn) return { ...base, note: `no configurada (falta ${s.envVars.join('/')})` };
+    // [DH.2] La nota nombra al DUEÑO del arreglo. Antes decía sólo "no configurada", y en un
+    // tablero donde la sección entera se rotulaba "en prod no alcanza la LAN" eso se leía como
+    // "es la red" — que es falso y manda a la persona equivocada. Medido el 2026-09-25 desde
+    // `prod-api`: `192.168.0.245:5432` y `192.168.0.222:5433` ALCANZABLES. Lo que falta es la
+    // variable, no la ruta.
+    if (!conn) {
+      return { ...base, note: `APAGADA: falta la variable ${s.envVars.join('/')} en el entorno del API. La red SÍ alcanza (medido); es configuración, no conectividad.` };
+    }
 
     const c = new Client({ connectionString: conn, connectionTimeoutMillis: 3500, statement_timeout: 8000 });
     try {
@@ -1395,11 +1417,103 @@ export class DbHealthService {
       };
     } catch (e) {
       const msg = (e as Error).message.slice(0, 60);
-      // No alcanzable ≠ crítico: puede ser que este backend (Railway) no ve la LAN.
+      // No alcanzable ≠ crítico: la fuente puede estar apagada o el origen fuera de servicio.
+      // ⚠️ Este comentario decía "puede ser que este backend (Railway) no ve la LAN" y dejó de
+      // ser cierto: desde `[VL.9]` prod corre en `md` (192.168.0.222), DENTRO de la LAN. Medido
+      // el 2026-09-25 desde el contenedor `prod-api`: `.245:5432` y `.222:5433` alcanzables,
+      // `.35:1433` (ContPAQi) rechaza la conexión. O sea que un fallo acá ya SÍ dice algo del
+      // origen, y no se puede seguir excusando con "es que estamos en la nube".
       return { ...base, status: 'unknown', note: `no alcanzable: ${msg}` };
     } finally {
       await c.end().catch(() => {});
     }
+  }
+
+  /**
+   * [DH.1] LA RECURRENCIA — el tablero deja de olvidar lo que pasó hace diez minutos.
+   *
+   * ── Qué estaba mal ─────────────────────────────────────────────────────────────────────────
+   * `analytics.cron_runs` guarda UNA fila por carril: la ÚLTIMA corrida. El tablero la pintaba y
+   * nada más, así que sólo sabía responder *"¿cómo está en este instante?"*. Y un carril que
+   * falla y se recupera al ciclo siguiente se ve, en el instante en que alguien mira, **idéntico
+   * a uno sano**.
+   *
+   * Medido contra prod el 2026-09-25, 7 días de `analytics.cron_run_log`:
+   *
+   *     cdc_reconcile ........................ 109 de 619 corridas FALLARON (17.6 %)
+   *       y 103 de esas fallas dicen literalmente
+   *       "N filas ausentes en el ODS — el carril esta perdiendo filas"
+   *     backup_prod .......................... 3 de 6 (50.0 %)
+   *     stock_snapshot ....................... 2 de 3 (66.7 %)
+   *
+   * `cdc_reconcile` es **la única alarma de completitud del ODS** (`ops/README.md` §2.1). Estaba
+   * gritando seis veces por día que se pierden filas, y en el momento de escribir esto la página
+   * lo pintaba **verde**, porque la última corrida había salido bien. La detección funcionaba; lo
+   * que faltaba era memoria.
+   *
+   * ── ⛔ Y los PASOS, que no existían en la pantalla ──────────────────────────────────────────
+   * `run-prod-feeds.js` marca el carril en `error` **sólo si fallan TODOS sus pasos** (está así a
+   * propósito y documentado en `[VL.4]`). Los pasos laten con llave `padre/paso.js` y esa llave
+   * **nunca llega a `cron_runs`**: vive sólo en el log. Resultado medido:
+   *
+   *     feed_nightly/import-cash-cuts.js ................ 6 de 6 FALLARON (100 %)
+   *     feed_nightly/import-sales-by-vendor-monthly.js ... 2 de 6  (33 %)
+   *     feed_intraday/import-pos-ticket-sales.js ........ 12 de 146 (8.2 %)
+   *
+   * O sea: el importer de cortes de caja lleva **una semana entera fallando todas las noches** y
+   * `feed_nightly` salía `ok`. Por eso la recurrencia del padre **incluye la de sus pasos**: se
+   * agregan a su nota y elevan su estado. No se agregan como renglones propios — serían 40 filas
+   * más en una página que ya es larga, y el pedido era limpiarla, no engordarla.
+   *
+   * ── El umbral, y por qué 5 % ────────────────────────────────────────────────────────────────
+   * No se eligió a ojo: se corrió la regla contra los 45 carriles que fallaron alguna vez en 7
+   * días y se miró **a quién marca**. Con `≥ 2 fallas Y ≥ 5 %` marca siete —los tres de arriba
+   * más `cdc_reconcile_full` (11.8 %), `import-pos-ticket-sales` (8.2 %),
+   * `import-sales-by-vendor-monthly` (33 %) y `products_active_refresh` (20 %)— y deja callados a
+   * `auto_deploy` (4.6 %), `import-replenishment-plan` (4.3 %), `store_poller` (3.7 %),
+   * `kepler_sales_fact` (3.3 %) y los 30 restantes por debajo. El piso de **2 fallas** existe para
+   * que un carril diario con UN tropiezo (1 de 7 = 14 %) no encienda nada.
+   *
+   * ⚠️ La recurrencia **sólo puede empeorar** el veredicto, nunca mejorarlo: un carril en
+   * `critical` por su última corrida no baja a `warn` porque su semana haya sido buena.
+   */
+  private static readonly RECURRENCIA = RECURRENCIA;
+
+  /** Fallas por carril en la ventana, incluidas las de sus pasos (`padre/paso.js`). */
+  private async recurrencia(): Promise<Map<string, { runs: number; fails: number; pasos: string[] }>> {
+    const m = new Map<string, { runs: number; fails: number; pasos: string[] }>();
+    try {
+      const reg = await this.knex!.raw(`SELECT to_regclass('analytics.cron_run_log') AS t`);
+      if (!reg.rows[0]?.t) return m;
+      const { rows } = await this.knex!.raw(
+        `SELECT job_key,
+                count(*)::int AS runs,
+                count(*) FILTER (WHERE status = 'error')::int AS fails
+           FROM analytics.cron_run_log
+          WHERE finished_at > now() - make_interval(days => ?)
+          GROUP BY job_key`, [DbHealthService.RECURRENCIA.dias]);
+      // Primero los carriles propios; después se les suman los pasos a su padre.
+      for (const r of rows) {
+        if (String(r.job_key).includes('/')) continue;
+        m.set(r.job_key, { runs: Number(r.runs), fails: Number(r.fails), pasos: [] });
+      }
+      for (const r of rows) {
+        const k = String(r.job_key);
+        const i = k.indexOf('/');
+        if (i < 0) continue;
+        const padre = k.slice(0, i);
+        const fails = Number(r.fails);
+        if (!fails) continue;
+        const e = m.get(padre) || { runs: 0, fails: 0, pasos: [] };
+        // El paso NO suma a `runs`/`fails` del padre: son universos distintos (un padre corre una
+        // vez y lanza N pasos). Se guarda aparte para que la nota lo nombre y el estado suba.
+        e.pasos.push(`${k.slice(i + 1)} ${fails}/${r.runs}`);
+        m.set(padre, e);
+      }
+    } catch (e) {
+      this.logger.warn(`db-health recurrencia: ${(e as Error).message}`);
+    }
+    return m;
   }
 
   // ── Grupo 'cron': estado de ejecución de cada feed (analytics.cron_runs) ────
@@ -1417,6 +1531,7 @@ export class DbHealthService {
     } catch (e) {
       this.logger.warn(`db-health cron_runs: ${(e as Error).message}`);
     }
+    const hist = await this.recurrencia();
     // Recorre el registro de jobs esperados + cualquier job extra que haya reportado.
     const keys = new Set<string>([...CRON_JOBS.map((j) => j.key), ...Array.from(byKey.keys())]);
     for (const key of keys) {
@@ -1510,9 +1625,25 @@ export class DbHealthService {
           note = `SIN CORRER hace ${edad} (cadencia ${cfg?.cadence || '—'}); la última terminó bien${dur}${filas}`;
         }
       }
+      // [DH.1] La semana pesa. Sólo puede EMPEORAR el veredicto (ver el comentario de arriba).
+      const h = hist.get(key);
+      if (h) {
+        const { dias } = DbHealthService.RECURRENCIA;
+        const { marca, propio, enPasos, pct } = recurrenciaLevantaLaMano(h);
+        if (marca) {
+          if (RANK['warn'] > RANK[status]) status = 'warn';
+          // La recurrencia va ADELANTE de la nota: si va al final, en una celda angosta la tapa
+          // justo el texto que dice "OK" y volvemos a donde estábamos.
+          const partes: string[] = [];
+          if (propio) partes.push(`falló ${h.fails} de ${h.runs} corridas (${pct.toFixed(1)}%) en ${dias} d`);
+          if (enPasos) partes.push(`pasos que fallan: ${h.pasos.join(' · ')}`);
+          note = `RECURRENTE — ${partes.join(' · ')}${note ? ` | ${note}` : ''}`;
+        }
+      }
       out.push({
         ...base, last_update: finish ? finish.toISOString() : null, age_seconds: ageSec,
         status, rows: row.rows_affected != null ? Number(row.rows_affected) : null, note,
+        runs_7d: h ? h.runs : null, fails_7d: h ? h.fails : null,
       });
     }
     return out;

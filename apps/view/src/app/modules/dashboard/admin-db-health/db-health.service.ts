@@ -17,6 +17,17 @@ export interface SourceHealth {
   cadence: string;
   rows: number | null;
   note?: string;
+  /**
+   * [DH.1] La SEMANA del carril: corridas y fallas en los últimos 7 días, contadas sobre
+   * `analytics.cron_run_log`. Sólo viene en el grupo `cron`; en los otros llega null.
+   *
+   * Existe porque el resto de esta interfaz describe **un instante**, y un carril que falla y se
+   * recupera al ciclo siguiente se ve, justo cuando alguien mira, idéntico a uno sano. Medido en
+   * prod: `cdc_reconcile` —la única alarma de completitud del ODS— falló 109 de 619 corridas en
+   * 7 días diciendo "el carril está perdiendo filas", y la página lo pintaba verde.
+   */
+  runs_7d?: number | null;
+  fails_7d?: number | null;
 }
 
 export interface DbHealthReport {

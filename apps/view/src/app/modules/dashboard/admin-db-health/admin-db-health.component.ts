@@ -221,7 +221,11 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
 
       <ng-container *ngTemplateOutlet="tbl; context: { $implicit: cronRows(), title: 'Crons / feeds (estado de ejecución)', firstCol: 'Cron' }"></ng-container>
       <ng-container *ngTemplateOutlet="tbl; context: { $implicit: appRows(), title: 'DB de la app', firstCol: 'Tabla' }"></ng-container>
-      <ng-container *ngTemplateOutlet="tbl; context: { $implicit: sourceRows(), title: 'Fuentes / orígenes (se leen desde local; en prod no alcanza la LAN)', firstCol: 'Origen' }"></ng-container>
+      <!-- [DH.2] El rótulo decía "en prod no alcanza la LAN". Era cierto con prod en Railway y
+           dejó de serlo cuando prod se mudó a md (VL.9): medido el 2026-09-25 desde el contenedor
+           prod-api, 192.168.0.245:5432 y 192.168.0.222:5433 responden. Lo que falta es la variable
+           de entorno, no la ruta — y son arreglos de dueños distintos. -->
+      <ng-container *ngTemplateOutlet="tbl; context: { $implicit: sourceRows(), title: 'Fuentes / orígenes (DBs de otro host; cada una necesita su variable de conexión)', firstCol: 'Origen' }"></ng-container>
 
       <ng-template #tbl let-data let-title="title" let-firstCol="firstCol">
         <h2 class="sec">{{ title }}</h2>
@@ -234,6 +238,8 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
                 <th class="num">Antigüedad</th>
                 <th>Estado</th>
                 <th>Cadencia esperada</th>
+                <!-- [DH.1] La semana. Sin esto la tabla sólo sabía responder "¿cómo está ahora?" -->
+                <th class="num" title="Corridas fallidas sobre el total, últimos 7 días">Semana</th>
                 <th class="num">Filas</th>
               </tr>
             </ng-template>
@@ -258,11 +264,21 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
                   @if (s.note) { <span class="note">{{ s.note }}</span> }
                 </td>
                 <td class="cadence">{{ s.cadence }}</td>
+                <td class="num tnum">
+                  @if (s.runs_7d) {
+                    <span [class.txt-warn]="(s.fails_7d ?? 0) > 0" [title]="s.fails_7d + ' de ' + s.runs_7d + ' corridas fallaron en 7 dias'">
+                      {{ s.fails_7d }}/{{ s.runs_7d }}
+                    </span>
+                  } @else {
+                    <!-- Sin historial NO es "cero fallas": es que no hay con qué comprobarlo. -->
+                    <span class="muted">—</span>
+                  }
+                </td>
                 <td class="num tnum">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="empty">
+              <tr><td colspan="7" class="empty">
                 @if (loading()) { Cargando… } @else { Sin fuentes. }
               </td></tr>
             </ng-template>
@@ -400,9 +416,27 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
     };
   });
 
+  /**
+   * [DH.3] ANSWER-FIRST. Las tablas salían en el orden en que el backend las arma, o sea: un
+   * `critical` podía quedar en el renglón 40 de 51, debajo de cuarenta verdes. Con scroll interno
+   * eso es lo mismo que no mostrarlo.
+   *
+   * El orden es el del veredicto —`critical` › `warn` › `unknown` › `ok`— y dentro de cada estado
+   * manda **lo más viejo primero**, que es lo que lleva más tiempo sin que nadie lo mire.
+   *
+   * ⚠️ `unknown` va ARRIBA de `ok` a propósito: "no lo pude medir" no es salud, y si se ordena
+   * después de los verdes desaparece. Es el mismo criterio con el que `RANK` ya lo pone por
+   * encima de `ok` en el backend para calcular el semáforo global.
+   */
+  private static readonly ORDEN: Record<HealthStatus, number> = { critical: 0, warn: 1, unknown: 2, ok: 3 };
+
   private byGroup(g: SourceHealth['group']): SourceHealth[] {
     const f = this.filter();
-    return (this.report()?.sources ?? []).filter((s) => s.group === g && (!f || s.status === f));
+    const O = AdminDbHealthComponent.ORDEN;
+    return (this.report()?.sources ?? [])
+      .filter((s) => s.group === g && (!f || s.status === f))
+      .slice()
+      .sort((a, b) => (O[a.status] - O[b.status]) || ((b.age_seconds ?? -1) - (a.age_seconds ?? -1)));
   }
   readonly appRows = computed<SourceHealth[]>(() => this.byGroup('app'));
   readonly sourceRows = computed<SourceHealth[]>(() => this.byGroup('source'));

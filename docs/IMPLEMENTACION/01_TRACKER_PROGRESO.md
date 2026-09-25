@@ -2469,7 +2469,66 @@ tiene un hueco en `kdc2` y por eso NO se puede retirar todavía el importer de e
   aplicar la migración antes rompe la bandeja de caja en el siguiente request. El auto-deploy está
   frenado por un fallo de arranque ajeno (`[GX.15]`, ya corregido en `origin/main`).
 
-**Lección transversal de la fase:** tres de los cuatro comentarios que describían el costo de estos
+### Fase DH — `/admin/db-health` deja de olvidar (2026-09-25)
+
+> Pedido: *"hay que limpiar y actualizar a nuestras necesidades `/admin/db-health`"*.
+> **La medición invirtió el pedido.** El registro no estaba sucio: **51 de 51** carriles con umbral
+> registrado, **cero** zombis (todos los declarados laten en prod), **cero** verdes incondicionales,
+> **18 de 19** cadencias coincidiendo con `ops/vl/crontab.feeds`, y **las 35** sondas de
+> `APP_SOURCES` apuntando a tablas que existen. No había casi nada que borrar.
+> Lo que faltaba era **memoria**, y tres rótulos decían cosas que dejaron de ser ciertas.
+
+- [x] **[DH.1]** ✅ **El tablero recordaba diez minutos.** `analytics.cron_runs` guarda **una fila
+  por carril —la última corrida—**, así que la página sólo sabía responder *"¿cómo está en este
+  instante?"*: un carril que falla y se recupera al ciclo siguiente se ve, justo cuando alguien
+  mira, **idéntico a uno sano**. Medido en prod sobre 7 días de `analytics.cron_run_log`:
+  **`cdc_reconcile` —la ÚNICA alarma de completitud del ODS— falló 109 de 619 corridas (17.6 %),
+  y 103 de esas fallas dicen textual *"el carril esta perdiendo filas"*, con la página pintándolo
+  VERDE.**
+  ⛔ Y peor, los **pasos** no existían en la pantalla: laten con llave `padre/paso.js`, que **nunca
+  llega a `cron_runs`**, y `run-prod-feeds.js` marca el carril en `error` sólo si fallan **todos**
+  sus pasos (por diseño, `[VL.4]`) → **`feed_nightly/import-cash-cuts.js` llevaba 6 de 6 noches
+  fallando con `feed_nightly` en `ok`**.
+  Fix: `apps/api/src/modules/db-health/db-health-recurrencia.ts` (archivo propio, **sin una sola
+  importación**, para que el candado pueda ejercitar la regla real en vez de una copia) + columna
+  **Semana** (`fallas/corridas`) y la recurrencia **entra al veredicto** — sólo puede empeorarlo.
+  Umbral `≥2 fallas Y ≥5 %` **elegido mirando a quién marca**: hoy enciende 7 y deja callados a
+  `auto_deploy` (4.6 %), `store_poller` (3.7 %) y los 30 restantes.
+  Candado: `test-newdb-db-health-recurrencia.js` — **10/10 la regla en local** con prueba negativa
+  en los cuatro bordes, y **3/3 contra prod**, listando los **7 carriles que estaban verdes y cuya
+  semana los desmiente**: `feed_nightly` 6/6 · `stock_snapshot` 2/3 · `backup_prod` 3/6 ·
+  `cdc_reconcile` 109/620 · `cdc_reconcile_full` 2/17 · `feed_intraday` 12/146.
+- [x] **[DH.2]** ✅ **Tres rótulos que mentían**, los tres por infraestructura que se movió:
+  (a) la sección *"Fuentes / orígenes (**se leen desde local; en prod no alcanza la LAN**)"* era
+  cierta con prod en Railway y dejó de serlo con `[VL.9]` — **medido el 2026-09-25 desde el
+  contenedor `prod-api`: `.245:5432` y `.222:5433` ALCANZABLES**; lo que falta es la variable de
+  entorno, no la ruta, y son arreglos de **dueños distintos**;
+  (b) `feed_catalog` decía *"semanal dom 02:00"* y el cron es `0 2 * * 6` = **sábado**;
+  (c) `kepler_stock` decía *"cada 2 min"* y corre **cada 15** desde que `[VL.4]` lo mudó al carril
+  `stock` (medido: p50 15.0 min sobre 587 corridas).
+- [x] **[DH.3]** ✅ **Answer-first.** Las tablas salían en el orden en que el backend las arma, o sea
+  que un `critical` podía quedar en el renglón 40 de 51 bajo cuarenta verdes — con scroll interno
+  eso es lo mismo que no mostrarlo. Ahora ordenan por veredicto (`critical › warn › unknown › ok`)
+  y, dentro de cada estado, **lo más viejo primero**. `unknown` va **arriba** de `ok` a propósito:
+  *"no lo pude medir" no es salud*.
+- [x] **[DH.4]** 🧪 **Qué se saca: casi nada, y con motivo.** Las 5 sondas Wincaja `retiredOn`
+  **se quedan** — dos están en `warn` justamente porque *"la fuente VOLVIÓ a recibir datos"*, que
+  es el mecanismo haciendo su trabajo. El único bloque muerto es **Fuentes / orígenes**, y no por
+  la red: `prod-api` **no tiene ni una** variable de fuentes externas, así que su única sonda
+  (`consolidado`) sale `unknown`. Se **declara** (`APAGADA: falta la variable …; la red SÍ alcanza`)
+  en vez de borrarla. ⛔ **Encenderla exige una credencial** (`platform_ro` no tiene `USAGE` sobre
+  `mart` en `kepler_consolidado` — verificado) y eso pide autorización explícita: queda propuesto,
+  no hecho.
+
+**Hallazgos que el tablero ya estaba reportando y nadie atendió** (no son de esta fase, son lo que
+la fase hizo visible): `feed_nightly/import-cash-cuts.js` **6 de 6 noches**; `backup_prod` **3 de 6**;
+`cdc_reconcile` avisando **103 veces en 7 días** que el ODS pierde filas; `cobranza_gap` *"cero
+entregado"*; `kepler_replica_refresh` *"md_prom_comb: ninguna otra réplica la tiene"*; y Wincaja
+**retirada el 19-sep pero todavía recibiendo datos**.
+
+---
+
+**Lección transversal de la fase PERF:** tres de los cuatro comentarios que describían el costo de estos
 carriles estaban **equivocados y nadie se enteró** — decían "12,237 filas en 0.5-2 s" cuando eran
 12,294 en 4,582 ms de media sobre 951 corridas, y uno **nombraba mal la llave de latido**. Un
 comentario no avisa cuando deja de ser cierto; por eso los números de acá van **con su fecha**, y
