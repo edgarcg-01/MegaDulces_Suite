@@ -63,6 +63,12 @@ export interface CreateMovementInput {
   monto_contado?: number;
   morralla?: number;
   denominaciones?: DenominationInput[];
+  /**
+   * CS.3.4 — Retiros del cajero (CAOS) que financiaron esta captura. Se escriben en
+   * `finance.caos_cash_links`: consumen el movimiento (no se cuenta dos veces) y alimentan el
+   * aprendizaje del detector.
+   */
+  caos_links?: Array<{ device: string; external_id: number; monto: number; senales?: Record<string, unknown> }>;
   origen_tipo?: string;
   origen_ref?: string;
   origen_uuid?: string;
@@ -432,6 +438,22 @@ export class CashLedgerService {
         await trx('finance.cash_ledger_denominations').insert(
           dens.map((d) => ({ tenant_id: tenantId, cash_ledger_id: mov.id, denominacion: d.denominacion, piezas: d.piezas })),
         );
+      }
+      // CS.3.4 — Enlaces al cajero (CAOS): registran qué retiros financiaron esta captura, CONSUMEN
+      // el movimiento (candado ux_caos_link_vivo → un 23505 = ya estaba enlazado, y la captura entera
+      // se revierte, que es lo correcto: no se consume dos veces) y alimentan el aprendizaje. Guard:
+      // la tabla puede no existir si el código va por delante de su migración.
+      const links = input.caos_links ?? [];
+      if (links.length && await this.tablaCaosLinks(trx)) {
+        await trx('finance.caos_cash_links').insert(links.map((k) => ({
+          tenant_id: tenantId,
+          cash_ledger_id: mov.id,
+          caos_device: k.device,
+          caos_external_id: k.external_id,
+          monto_enlazado: k.monto,
+          senales: k.senales ? JSON.stringify(k.senales) : null,
+          confirmed_by: user.id,
+        })));
       }
       // Que el monto del formulario NO coincidiera con el del documento se DICE. Es un dato de
       // diagnóstico, no un error: el que manda es el de Kepler y ya se guardó ése. Si esto aparece

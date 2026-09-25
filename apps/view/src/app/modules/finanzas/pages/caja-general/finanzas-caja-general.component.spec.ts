@@ -126,6 +126,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       cajas: vi.fn(() => of({ rows: CAJAS, ventana_dias: 1 })),
       movimientosPendientes: vi.fn(() => of(VACIA)),
       caosCapturables: vi.fn(() => of({ rows: [], limit: 100, has_more: false, desde: '2026-09-21' })),
+      caosCandidatos: vi.fn(() => of({ rows: [], fecha: '2026-09-24', datos_al: null })),
       frecuentes: vi.fn(() => of({ rows: [FRECUENTE] })),
       autofill: vi.fn(() => of({ concepto: null, provenance: null })),
       conceptos: vi.fn(() => of({ rows: [] })),
@@ -970,5 +971,50 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(billetes.length).toBe(5);
     expect(billetes.every((i) => i.readOnly)).toBe(true);   // los cinco billetes, bloqueados
     expect(morralla.readOnly).toBe(false);                  // "lo faltante" se cuenta a mano
+  });
+
+  // ── CS.3.4 · EL DETECTOR: "ya se agregaron 20 mil del cajero" + agregá lo restante ──────────
+  const CANDIDATO = { ...CAOS_DEP, score: 120, motivos: ['mismo día', 'monto exacto'], confianza: 'alta' as const };
+
+  it('CS.3.4 — buscar en el cajero PROPONE candidatos para el gasto', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('beneficiario', 'CUERITOS LUPITA');
+    comp.buscarEnCajero();
+    expect(comp.caosSugeridos().length).toBe(1);
+    expect(svc['caosCandidatos']).toHaveBeenCalled();
+  });
+
+  it('CS.3.4 — vincular un retiro suma su efectivo al arqueo y se ENLAZA al guardar', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('sucursal', '00');
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    // "ya se agregaron X del cajero": su efectivo entró al arqueo.
+    expect(comp.piezasDe(500)).toBe(2);
+    expect(comp.piezasDe(100)).toBe(3);
+    expect(comp.f().monto).toBe(1300);
+    expect(comp.totalCajero()).toBe(1300);
+    // "agregá lo restante" + clasificar, y guardar lleva el enlace.
+    comp.setF('kepler_cuenta', '201'); comp.setF('kepler_concepto', '001'); comp.setF('glosa', 'pago a cueritos');
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const links = body['caos_links'] as Array<{ external_id: number }>;
+    expect(links.length).toBe(1);
+    expect(links[0].external_id).toBe(1420);
+  });
+
+  it('[negativa] soltar un retiro vinculado RESTA su efectivo del arqueo', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    expect(comp.f().monto).toBe(1300);
+    comp.desvincularCaos(1420);
+    expect(comp.f().monto).toBe(0);            // el efectivo del cajero se fue con el enlace
+    expect(comp.caosVinculados().length).toBe(0);
   });
 });
