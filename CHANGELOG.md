@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Fixed — La lista de cobros no contaba un tipo de cobro entero (CC.13, 2026-09-24)
+- El sistema conocía sólo el **«Cobro PUE»**. El **«Cobro CFDI»** —que el propio catálogo de
+  Kepler llama cobro— no lo contaba nadie: ni la cartera, ni cobranza, ni la conciliación del
+  banco. Sus cobros aparecían como *«depósito sin cobro»* aunque Kepler los tuviera registrados.
+- No era un rincón olvidado: **creció seis veces en tres meses** ($0.86M en julio → $5.14M en
+  septiembre). Entran **2,624 cobros por $10.46M**.
+- Además aparecieron **144 cobros por $661,742.57** de las sucursales La Piedad y 8 Esquinas que
+  la lista escondía porque sólo miraba oficinas.
+- **504 cobros de ruta salían clasificados como si fueran de un cliente** — cobranza los veía
+  como deuda de alguien a quien llamarle. Ya no.
+- ⚠️ **Lo que esto NO arregla:** desde agosto faltan ~$14M por mes de cobros sin registrar
+  contra el promedio de mayo–julio. Eso sigue sin explicación y no lo tapa este cambio.
+- La pantalla de **Caja General no cambia ni un renglón**: se le dejó el alcance que tenía.
+
 ### Fixed — El flujo de efectivo ahora dice qué parte de la cobranza NO está dibujando (CXC.22, 2026-09-24)
 - La curva de cobros agenda por **fecha de vencimiento**. Como el 86.5% de la cartera **ya
   venció**, la curva sólo mostraba **$8.01M de $59.31M (13.5%)** — y no lo decía. Se leía como

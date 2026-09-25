@@ -22,6 +22,31 @@ const BANK_DAYS_AFTER = 6;  // …o hasta unos días después (efectivo en venta
 const COMBO_MAX_COBROS = 18;
 const COMBO_MAX_OPCIONES = 5;
 
+/**
+ * `[CC.13]` **El tag con el que se identifica el documento en `finance.bank_recon_matches`.**
+ *
+ * ⛔ En esa tabla conviven **dos vocabularios** para la misma columna, y el nuestro era el
+ * minoritario absoluto. Medido contra prod el 2026-09-24:
+ *
+ *     X-D-26  9,118 · U-A-5  7,744 · N-A-26  1,263 · U-A-7  568 · X-D-25  250 …   <- CB
+ *     UA0501      1                                                               <- CC
+ *
+ * O sea que la CTE de *"cobros ya ligados"* de este módulo —que filtraba `= 'UA0501'`— casaba
+ * **1 fila de 19,020**, y la pantalla ofrecía como candidatos **~8,312 cobros que ya estaban
+ * conciliados** por el matcher de CB. Se adopta la forma con guiones, que es la que tiene el
+ * 99.99% de los datos; convertir 19,019 filas para imponer la nuestra sería al revés.
+ *
+ * ⚠️ El tag NO lleva el `tipo` (`c5`), igual que lo escribe CB. Hoy `c5` es 1 en el 100% de los
+ * cobros; si algún día se usa `U-A-7-2` («Cobro efectivo CFDI 16%»), los dos tipos compartirían
+ * tag y habría que alargarlo.
+ */
+export function docTipoRecon(docPrefix: string | null | undefined): string {
+  const p = (docPrefix || 'UA0501').trim().toUpperCase();
+  const m = /^([A-Z])([A-Z])(\d{2})(\d{2})$/.exec(p);
+  if (!m) return p;                       // ya viene con guiones, o es algo que no conocemos
+  return `${m[1]}-${m[2]}-${Number(m[3])}`;
+}
+
 export interface DepositFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   /** Hash del contenido: con él `attach` recupera la lectura que hizo el servidor. */
@@ -277,7 +302,8 @@ export class CollectionDepositsService {
     return this.tk.run(async (trx) => {
       const cobro = await trx('analytics.erp_collections')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
-        .first('cliente_code', 'cliente_nombre', 'cobro_date', trx.raw('monto::numeric AS monto'));
+        .first('cliente_code', 'cliente_nombre', 'cobro_date', 'doc_prefix',
+               trx.raw('monto::numeric AS monto'));
       if (!cobro) throw new BadRequestException(`cobro ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
       // Lo que se guarda como lectura del modelo tiene que venir del modelo: de `o` salen
@@ -313,6 +339,9 @@ export class CollectionDepositsService {
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           sucursal, folio,
+          // [CC.13] Que documento es. El folio no alcanza: en la sucursal 02 hay 137 que
+          // existen como UA0501 y como UA0701 a la vez.
+          doc_prefix: cobro.doc_prefix || 'UA0501',
           cliente_code: cobro.cliente_code || null,
           cliente_nombre: cobro.cliente_nombre || null,
           cobro_date: cobro.cobro_date || null,
@@ -379,7 +408,7 @@ export class CollectionDepositsService {
         for (const r of otros) (otrosPorRef[r.ref_norm] ||= []).push(`${r.sucursal}/${r.folio}`);
       }
       // Conciliación YA persistida de este cobro (nivel cobro, no depósito): links en
-      // finance.bank_recon_matches (tabla de CB) con kepler_doc_tipo='UA0501'.
+      // finance.bank_recon_matches (tabla de CB), identificado por (sucursal, tipo, folio).
       const matched = await this.linkedBankMovements(trx, sucursal, folio);
       const conciliado = matched.length > 0;
 
@@ -500,11 +529,29 @@ export class CollectionDepositsService {
     return tails.some((t) => t.length >= 3 && digits.endsWith(t));
   }
 
-  /** Movimientos de banco ya ligados a este cobro (bank_recon_matches, UA0501). */
+  /**
+   * `[CC.13]` El `doc_prefix` del cobro. El folio **no alcanza** para identificarlo: en la
+   * sucursal 02 hay 137 folios que existen como `UA0501` y como `UA0701` a la vez. Si el par
+   * resulta ambiguo **se dice**, no se elige uno al azar.
+   */
+  private async docPrefixDelCobro(trx: any, sucursal: string, folio: string): Promise<string> {
+    const rows = await trx('analytics.erp_collections')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
+      .select('doc_prefix');
+    if (rows.length > 1) {
+      throw new BadRequestException(
+        `el folio ${sucursal}/${folio} existe como ${rows.map((r: any) => r.doc_prefix).join(' y ')}: `
+        + 'hay que decir cual de los dos.');
+    }
+    return rows[0]?.doc_prefix || 'UA0501';
+  }
+
+  /** Movimientos de banco ya ligados a este cobro (bank_recon_matches). */
   private async linkedBankMovements(trx: any, sucursal: string, folio: string): Promise<any[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    const docTipo = docTipoRecon(await this.docPrefixDelCobro(trx, sucursal, folio));
     const recon = await trx('finance.bank_recon_matches')
-      .where({ tenant_id: tenantId, kepler_doc_tipo: 'UA0501', kepler_doc_folio: folio, kepler_sucursal: sucursal })
+      .where({ tenant_id: tenantId, kepler_doc_tipo: docTipo, kepler_doc_folio: folio, kepler_sucursal: sucursal })
       .select('bank_movement_id', 'match_type', 'match_confidence', 'matched_by', 'created_at', trx.raw('kepler_amount::numeric AS kepler_amount'));
     if (!recon.length) return [];
     const byId = new Map(recon.map((r: any) => [r.bank_movement_id, r]));
@@ -531,9 +578,9 @@ export class CollectionDepositsService {
     if (!bankMovementId) throw new BadRequestException('bank_movement_id requerido');
     return this.tk.run(async (trx) => {
       const dep = await trx('finance.collection_deposits').where({ id: depositId })
-        .first('sucursal', 'folio', trx.raw('cobro_monto::numeric AS cobro_monto'));
+        .first('sucursal', 'folio', 'doc_prefix', trx.raw('cobro_monto::numeric AS cobro_monto'));
       if (!dep) throw new BadRequestException('comprobante no encontrado');
-      const res = await this.writeReconMatch(trx, dep.sucursal, dep.folio, Number(dep.cobro_monto) || 0, bankMovementId, actor);
+      const res = await this.writeReconMatch(trx, dep.sucursal, dep.folio, Number(dep.cobro_monto) || 0, bankMovementId, actor, dep.doc_prefix);
       return { ...res, _ws: { sucursal: dep.sucursal, folio: dep.folio, monto: Number(dep.cobro_monto) || null } };
     }).then((res: any) => {
       const { _ws, ...out } = res;
@@ -543,7 +590,7 @@ export class CollectionDepositsService {
   }
 
   /** Escribe el cruce cobro↔abono en bank_recon_matches + marca el movimiento matched. */
-  private async writeReconMatch(trx: any, sucursal: string, folio: string, cobroMonto: number, bankMovementId: string, actor?: string) {
+  private async writeReconMatch(trx: any, sucursal: string, folio: string, cobroMonto: number, bankMovementId: string, actor?: string, docPrefix?: string) {
     const mov = await trx('finance.bank_movements').where({ id: bankMovementId })
       .first('id', trx.raw('amount_in::numeric AS amount_in'));
     if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
@@ -552,12 +599,14 @@ export class CollectionDepositsService {
       .insert({
         tenant_id: trx.raw('public.current_tenant_id()'),
         bank_movement_id: bankMovementId,
-        kepler_sucursal: sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: folio,
+        kepler_sucursal: sucursal,
+        kepler_doc_tipo: docTipoRecon(docPrefix || await this.docPrefixDelCobro(trx, sucursal, folio)),
+        kepler_doc_folio: folio,
         kepler_cuenta: '102', kepler_amount: cobroMonto,
         match_type: matchType, match_confidence: matchType === 'exact' ? 1 : 0.5,
         matched_by: actor || null,
       })
-      .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
+      .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio', 'kepler_sucursal'])
       .merge({ kepler_amount: cobroMonto, match_type: matchType, matched_by: actor || null });
     await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'matched', updated_at: trx.fn.now() });
     this.logger.log(`cobro ${sucursal}/${folio} conciliado con abono ${bankMovementId} (${matchType}) por ${actor || '?'}`);
@@ -616,10 +665,16 @@ export class CollectionDepositsService {
         -- cuando trae ~24,000, elige Nested Loop Anti Join y recorre bank_recon_matches por
         -- cada cobro. Es la misma mala estimacion que documento [PERF.4b] para
         -- erp_sales_invoices, y aca costaba lo mismo: >5 min sin terminar.
+        -- [CC.13] Un cobro se identifica por (sucursal, doc_tipo, folio). Antes se buscaba
+        -- por folio suelto Y filtrando kepler_doc_tipo='UA0501', que casa 1 de 19,020 filas
+        -- porque CB escribe la forma con guiones (U-A-5 / U-A-7). Resultado: esta CTE venia
+        -- practicamente VACIA y la pantalla ofrecia como candidatos ~8,312 cobros que ya
+        -- estaban conciliados. Ahora no se filtra por tipo: el tipo entra en el JOIN.
         WITH ligados AS MATERIALIZED (
-          SELECT DISTINCT kepler_doc_folio AS folio
+          SELECT DISTINCT kepler_sucursal AS sucursal, kepler_doc_tipo AS doc_tipo,
+                 kepler_doc_folio AS folio
             FROM finance.bank_recon_matches
-           WHERE tenant_id = ? AND kepler_doc_tipo = 'UA0501'
+           WHERE tenant_id = ?
         ),
         mov AS MATERIALIZED (
           SELECT m.id, m.movement_date, m.amount_in::numeric AS amount_in, m.concept,
@@ -646,7 +701,9 @@ export class CollectionDepositsService {
         cobx AS MATERIALIZED (
           SELECT ec.cobro_date, ec.monto, b.cubeta
             FROM analytics.erp_collections ec
-            LEFT JOIN ligados l ON l.folio = ec.folio
+            LEFT JOIN ligados l
+              ON l.sucursal = ec.sucursal AND l.folio = ec.folio
+             AND l.doc_tipo = 'U-A-' || ltrim(substr(ec.doc_prefix, 3, 2), '0')
             CROSS JOIN LATERAL (VALUES (round(ec.monto)::bigint - 1),
                                        (round(ec.monto)::bigint),
                                        (round(ec.monto)::bigint + 1)) AS b(cubeta)
@@ -796,8 +853,12 @@ export class CollectionDepositsService {
         .where('ec.tenant_id', tenantId)
         .whereRaw('ec.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
         .whereRaw(`ec.cobro_date BETWEEN ?::date - INTERVAL '${BANK_DAYS_AFTER} days' AND ?::date + INTERVAL '${BANK_DAYS_BEFORE} days'`, [mov.movement_date, mov.movement_date])
+        // [CC.13] Identificar el cobro por (sucursal, doc_tipo, folio). El literal 'UA0501'
+        // no casaba con lo que escribe CB, asi que ofrecia cobros ya conciliados.
         .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r')
-          .whereRaw(`r.tenant_id = ec.tenant_id AND r.kepler_doc_tipo='UA0501' AND r.kepler_doc_folio = ec.folio`))
+          .whereRaw("r.tenant_id = ec.tenant_id AND r.kepler_sucursal = ec.sucursal"
+            + " AND r.kepler_doc_folio = ec.folio"
+            + " AND r.kepler_doc_tipo = 'U-A-' || ltrim(substr(ec.doc_prefix, 3, 2), '0')"))
         .select('ec.sucursal', 'ec.folio', 'ec.cobro_date', 'ec.cliente_code', 'ec.cliente_nombre',
           'ec.forma_pago', trx.raw('ec.monto::numeric AS monto'))
         .orderBy('ec.cobro_date', 'desc').limit(15);
@@ -863,7 +924,9 @@ export class CollectionDepositsService {
                            AND ?::date + INTERVAL '${BANK_DAYS_BEFORE} days'`,
         [movementDate, movementDate])
       .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r')
-        .whereRaw("r.tenant_id = ec.tenant_id AND r.kepler_doc_tipo='UA0501' AND r.kepler_doc_folio = ec.folio"))
+        .whereRaw("r.tenant_id = ec.tenant_id AND r.kepler_sucursal = ec.sucursal"
+          + " AND r.kepler_doc_folio = ec.folio"
+          + " AND r.kepler_doc_tipo = 'U-A-' || ltrim(substr(ec.doc_prefix, 3, 2), '0')"))
       .select('ec.sucursal', 'ec.folio', 'ec.cobro_date', 'ec.cliente_nombre', 'ec.forma_pago',
         trx.raw('ec.monto::numeric AS monto'))
       .orderBy('ec.cobro_date', 'desc')
@@ -912,9 +975,9 @@ export class CollectionDepositsService {
     return this.tk.run(async (trx) => {
       const cobro = await trx('analytics.erp_collections')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
-        .first(trx.raw('monto::numeric AS monto'));
+        .first('doc_prefix', trx.raw('monto::numeric AS monto'));
       if (!cobro) throw new BadRequestException(`cobro ${sucursal}/${folio} no existe en Kepler`);
-      const res = await this.writeReconMatch(trx, sucursal, folio, Number(cobro.monto) || 0, bankMovementId, actor);
+      const res = await this.writeReconMatch(trx, sucursal, folio, Number(cobro.monto) || 0, bankMovementId, actor, cobro.doc_prefix);
       return { ...res, _ws: { monto: Number(cobro.monto) || null } };
     }).then((res: any) => {
       const { _ws, ...out } = res;
@@ -954,9 +1017,9 @@ export class CollectionDepositsService {
       for (const it of lista) {
         const c = await trx('analytics.erp_collections')
           .where({ tenant_id: tenantId, sucursal: it.sucursal, folio: it.folio })
-          .first(trx.raw('monto::numeric AS monto'));
+          .first('doc_prefix', trx.raw('monto::numeric AS monto'));
         if (!c) throw new BadRequestException(`cobro ${it.sucursal}/${it.folio} no existe en Kepler`);
-        cobros.push({ ...it, monto: Number(c.monto) || 0 });
+        cobros.push({ ...it, monto: Number(c.monto) || 0, doc_prefix: c.doc_prefix });
       }
       const suma = cobros.reduce((a, c) => a + c.monto, 0);
       const exacto = Math.abs(Number(mov.amount_in) - suma) <= BANK_TOL;
@@ -965,13 +1028,15 @@ export class CollectionDepositsService {
         await trx('finance.bank_recon_matches').insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           bank_movement_id: bankMovementId,
-          kepler_sucursal: c.sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: c.folio,
+          kepler_sucursal: c.sucursal, kepler_doc_tipo: docTipoRecon(c.doc_prefix),
+          kepler_doc_folio: c.folio,
           kepler_cuenta: '102', kepler_amount: c.monto,
           match_type: exacto ? 'exact' : 'manual',
           match_confidence: exacto ? 1 : 0.5,
           matched_by: actor || null,
         })
-        .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
+        .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio',
+                     'kepler_sucursal'])
         .merge({ kepler_amount: c.monto, match_type: exacto ? 'exact' : 'manual',
                  matched_by: actor || null });
       }
@@ -999,10 +1064,12 @@ export class CollectionDepositsService {
   async unlinkBank(depositId: string, bankMovementId: string) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const dep = await trx('finance.collection_deposits').where({ id: depositId }).first('sucursal', 'folio');
+      const dep = await trx('finance.collection_deposits').where({ id: depositId })
+        .first('sucursal', 'folio', 'doc_prefix');
       if (!dep) throw new BadRequestException('comprobante no encontrado');
       await trx('finance.bank_recon_matches')
-        .where({ kepler_doc_tipo: 'UA0501', kepler_doc_folio: dep.folio, kepler_sucursal: dep.sucursal, bank_movement_id: bankMovementId })
+        .where({ kepler_doc_tipo: docTipoRecon(dep.doc_prefix), kepler_doc_folio: dep.folio,
+                 kepler_sucursal: dep.sucursal, bank_movement_id: bankMovementId })
         .del();
       const [rest] = await trx('finance.bank_recon_matches').where({ bank_movement_id: bankMovementId }).count('* as n');
       if (Number(rest.n) === 0) await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'pending', updated_at: trx.fn.now() });

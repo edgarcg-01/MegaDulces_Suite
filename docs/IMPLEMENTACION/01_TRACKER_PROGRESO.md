@@ -295,6 +295,69 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         medición con fecha es código que caduca). ⭐ Las afirmaciones que leen el **código**
         corren **antes** de conectar: si la base no está, declaran `NO MEDIDO` en vez de tumbar
         el test entero — antes un `pg_hba` ajeno silenciaba 3 aserciones que sí se podían medir.
+- [x] **[CC.13]** 🚀 ⭐⭐ **La vista canónica de cobros contaba UN solo tipo de cobro, y de UNA
+      sola sucursal.** Sale de una pregunta del usuario —*«no encuentro el valor que dijiste que
+      le dimos»*— que obligó a ir a medir lo que de verdad había preguntado al principio.
+      `analytics.erp_collections` filtraba `c4 = 5` (**Cobro PUE**) y dejaba fuera `c4 = 7`
+      (**Cobro CFDI**), que el catálogo `kdmm` declara como cobro con todas las letras. Estaba
+      anotado como diferido en Fase CC («grupo 7») y nadie volvió a mirarlo mientras **crecía ×6
+      en tres meses**: días 1–24, **$0.86M (jul) → $1.87M (ago) → $5.14M (sep)**. Sus cobros
+      salían como *«abonos sin cobro»* aunque Kepler los tuviera registrados.
+      **Migs `20260925120000` + `20260925120100` aplicadas al prod real, batches 538 y 539.**
+      · **Lo que entra, medido:** `23,834 → 26,602` documentos y
+        `$455,408,007.15 → $466,525,217.00`. El delta cierra exacto:
+        **+2,624 CFDI ($10,455,467.28)** y **+144 PUE ($661,742.57)** que el literal
+        `sucursal = '00'` tapaba (137 en la suc 02 desde nov-2025, 7 en la 03).
+      · ⛔ **Esto NO cierra la brecha de ~$14M/mes** contra la línea base mayo–julio. Son dos
+        cosas distintas: ésta es una omisión nuestra; aquélla sigue sin explicar.
+      · **5 defectos más que hubo que arreglar para poder agregarlo, cada uno medido:**
+        (1) **réplicas** — `c1` es la sucursal DUEÑA; 787 documentos llegan de la base de la 03
+        perteneciendo a la 02, y sin `btrim(c1) = btrim(sucursal)` se duplicaban;
+        (2) **`DISTINCT ON` sin el doctype** — en la suc 02 hay **137 folios que existen como
+        `UA0501` y como `UA0701`**, y uno desaparecía en silencio (la trampa del folio, tercera
+        vez en el proyecto);
+        (3) **la fecha del CFDI no está en la póliza** — `c9` es el día del tecleo; la real vive
+        en el complemento SAT, y **652 de 2,618 difieren**;
+        (4) **la `forma_pago` del CFDI se adivinaba** con un regex sobre texto a mano pudiendo
+        leer la **forma declarada al SAT**;
+        (5) ⭐ **`tipo_cuenta` tenía una copia INLINE del clasificador y estaba ROTA**: la regex
+        horneada en prod decía `'^(RUTA|R\.$1[DV]\.$2|…)'` — esos `$1`/`$2` son **signos de
+        interrogación que knex convirtió en placeholders**. Perdía **504 rutas**. `[CXC.25]` ya
+        había creado el resolvedor único para esto; la vista seguía con su copia. Ahora lo LEE,
+        y para los **229 códigos que el resolvedor no conoce llama a SU función** (las 229 son
+        de ruta: un `CASE` de respaldo casero las mandaba a `cliente_final`).
+      · ⭐⭐ **Y apareció el mayor de todos: `kepler_doc_tipo` tiene DOS vocabularios.** CB escribe
+        la forma con guiones (`X-D-26` 9,118 · `U-A-5` 7,744 · `U-A-7` 568 …) y este módulo
+        escribía la forma prefijo: **`UA0501`, 1 fila de 19,020**. O sea que su CTE de «cobros ya
+        ligados» venía **prácticamente vacía** y la pantalla ofrecía como candidatos **~8,312
+        cobros que ya estaban conciliados**. Se adopta la forma que tienen los datos
+        (`docTipoRecon()`), y el cobro pasa a identificarse por **(sucursal, doc_tipo, folio)**
+        en los 8 sitios del módulo.
+      · **Schema:** `finance.bank_recon_matches` gana `kepler_sucursal` en la UNIQUE (el mismo
+        folio en dos plazas se pisaba por `ON CONFLICT`) y `finance.collection_deposits` gana
+        `doc_prefix`. ⚠️ **La UNIQUE vieja se CONSERVA a propósito hasta el deploy**: borrarla
+        antes dejaría al código que hoy corre en prod con un `ON CONFLICT` de 4 columnas sin
+        constraint que lo respalde, o sea conciliar tirando error en vivo → `[CC.13.1]`.
+      · ⛔ **El único consumidor dependiente se CONGELA, no se arrastra.**
+        `finance.v_caja_ingresos_pendientes` (Caja General) cuelga de la vista y usa
+        `sucursal|folio` como llave: con la vista ampliada estrenaba **+2,768 renglones que nadie
+        pidió** y su llave quedaba ambigua. Se le fija el alcance que tenía de hecho.
+        **Verificado tras aplicar: 23,834 renglones, 1 sucursal, 0 fuera de oficinas — idéntico
+        al antes.** Si Caja General quiere ver el CFDI, es su decisión → `[CC.13.2]`.
+      · Candado `test-newdb-erp-collections-cobro-cfdi.js`. ⚠️ **Sus dos primeros rojos eran del
+        test, no del código**: comparaba la lista de doctypes sin deduplicar (`U-A-7` aparece dos
+        veces porque tiene dos `c5`) y su chequeo de réplicas no filtraba el doctype, así que
+        casaba un `UA0501` de la 03 contra una réplica `UA0701` del mismo folio. Y la prueba
+        negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
+        directo — reescribir una regex a través de tres capas de escape se pone verde por el
+        motivo equivocado.
+- [ ] **[CC.13.1]** ⬜ **Retirar la UNIQUE corta de `bank_recon_matches`**, sólo DESPUÉS de que el
+      deploy lleve el código que usa el `ON CONFLICT` de 5 columnas. Hacerlo antes tira la
+      conciliación en vivo.
+- [ ] **[CC.13.2]** ⬜ **¿Caja General quiere ver el Cobro CFDI?** Hoy su vista está congelada al
+      alcance viejo (PUE de oficinas) para no moverle 2,768 renglones sin que lo pidan. Si lo
+      quieren, hay que resolver antes que `cash_ledger.origen_ref` guarda `sucursal|folio`, que
+      ya no identifica un cobro. Decisión de Caja General, no de esta fase.
 - [ ] **[CC.11.1]** ⬜ **La captura de fichas existe y nadie la usa** (`bank_capture_inbox`, 0
       filas contra 106 remitentes configurados). Averiguar si es que el canal de WhatsApp nunca
       se encendió (Fase F ⏸️), si nadie sabe que el botón «Subir ficha» existe en
