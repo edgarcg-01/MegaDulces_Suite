@@ -9,7 +9,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
-import { ComprobacionesService } from '../comprobaciones.service';
+import { CLASIFICACION_LABEL, ComprobacionesService, type ExpenseClasificacion } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 interface Grupo {
@@ -163,7 +163,7 @@ const FORMA_PAGO_LABEL: Record<string, string> = {
                     } @else {
                       <span class="ap-chip warn">foto sin sello de cámara</span>
                     }
-                    @if (p.clasificacion) { <span class="ap-chip">{{ p.clasificacion }}</span> }
+                    @if (p.clasificacion) { <span class="ap-chip">{{ tipoGasto(p.clasificacion) }}</span> }
                   </div>
                   @if (p.comentarios) { <div class="ap-it-nota">“{{ p.comentarios }}”</div> }
 
@@ -305,6 +305,9 @@ export class FinanzasAprobacionGastosComponent {
   }
 
   formaPago(id: string): string { return FORMA_PAGO_LABEL[id] ?? id; }
+  /** El tipo de gasto en palabras. Sin la clave cruda: `no_fiscal_comprobable` es cómo
+   *  se guarda, no cómo se dice. */
+  tipoGasto(c: string): string { return CLASIFICACION_LABEL[c as ExpenseClasificacion] ?? c; }
 
   aprobar(p: Pendiente): void {
     this.actuando.set(p.id);

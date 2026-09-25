@@ -28,9 +28,9 @@ export function requiereEvidencia(c?: string | null): boolean {
 }
 /** Etiquetas de la clasificación para la UI. */
 export const CLASIFICACION_LABEL: Record<ExpenseClasificacion, string> = {
-  fiscal: 'Fiscal (con factura)',
-  no_fiscal_comprobable: 'No fiscal, con recibo',
-  no_comprobable: 'No comprobable',
+  fiscal: 'Con factura',
+  no_fiscal_comprobable: 'Sólo ticket o recibo',
+  no_comprobable: 'Sin comprobante',
 };
 
 export interface Departamento { code: string; nombre: string; sucursal: string; }

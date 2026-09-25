@@ -432,16 +432,16 @@ export class FinanzasCapturarGastoComponent {
   /** ngModel del selectbutton (no toma signal directo). */
   clasificacionV: ExpenseClasificacion | null = null;
   readonly clasOpts = [
-    { label: 'Fiscal (factura)', value: 'fiscal' },
-    { label: 'No fiscal, con recibo', value: 'no_fiscal_comprobable' },
-    { label: 'No comprobable', value: 'no_comprobable' },
+    { label: 'Con factura', value: 'fiscal' },
+    { label: 'Sólo ticket o recibo', value: 'no_fiscal_comprobable' },
+    { label: 'Sin comprobante', value: 'no_comprobable' },
   ];
   readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
   onClasChange() { this.clasificacion.set(this.clasificacionV); this.formError.set(''); }
   clasHint(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Lleva CFDI/factura. Adjunta la factura.';
-      case 'no_fiscal_comprobable': return 'No tiene factura pero sí ticket o recibo. Adjunta la foto.';
+      case 'fiscal': return 'Te dieron factura. Adjuntala.';
+      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Adjunta la foto.';
       case 'no_comprobable': return 'No hay documento que lo respalde. Se registra con un motivo, sin foto.';
       default: return '';
     }
