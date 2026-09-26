@@ -14,7 +14,7 @@ import { Permission } from '../../core/constants/permissions';
  * "mismo orden en sidebar y pestañas" — pero nada lo comprobaba.
  */
 describe('[GX.18] las puertas del gasto en el nav', () => {
-  const RUTAS = ['/finanzas/gastos', '/finanzas/aprobacion-gastos'] as const;
+  const RUTAS = ['/finanzas/gastos', '/finanzas/aprobacion-gastos', '/finanzas/gastos-historial'] as const;
   const TABLERO = '/finanzas/gastos-tablero';
 
   /** El sidebar se declara en campos privados del componente: se comprueba sobre el fuente. */
@@ -30,12 +30,17 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     throw new Error('NO MEDIDO: no se pudo leer el sidebar desde ' + process.cwd());
   }
 
-  it('las dos rutas tienen pestaña, en ese orden', () => {
+  /**
+   * [GX.25] Son TRES: levantar, firmar y consultar. El historial es el tercero -- lo que
+   * la persona levanto sigue existiendo despues de enviarlo, y alguien tiene que poder
+   * volver a verlo.
+   */
+  it('las tres rutas tienen pestaña, en ese orden', () => {
     const rutas = FINANZAS_TABS.map((t) => t.route).filter((r) => RUTAS.includes(r as typeof RUTAS[number]));
     expect(rutas).toEqual([...RUTAS]);
   });
 
-  it('el sidebar lista las mismas dos rutas', () => {
+  it('el sidebar lista las mismas tres rutas', () => {
     const fuente = fuenteSidebar();
     for (const r of RUTAS) expect(fuente).toContain("route: '" + r + "'");
   });

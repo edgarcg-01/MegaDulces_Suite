@@ -49,12 +49,15 @@ export class ExpenseProofsController {
   @Get('mine')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
-  mine(@Query('limit') limit?: string, @Req() req?: AuthedRequest) {
+  mine(@Query('limit') limit?: string, @Query('search') search?: string, @Req() req?: AuthedRequest) {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
     if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] };
-    return this.svc.list({ mine: actor, limit: limit ? Number(limit) : undefined });
+    // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
+    // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
+    // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
+    return this.svc.list({ mine: actor, search, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('resumen')

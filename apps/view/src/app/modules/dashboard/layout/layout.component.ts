@@ -673,6 +673,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // approve/validate/reject — no se inventó un permiso para la misma puerta.
         { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
           permission: Permission.FINANCE_EXPENSES_COMPROBAR },
+        // `[GX.25]` El historial de lo levantado. `anyOf` porque quien SOLO captura tiene
+        // que poder ver lo suyo: el endpoint lo acota por token.
+        { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
+          permission: Permission.FINANCE_EXPENSES_VER,
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
         // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
         // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
         // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder

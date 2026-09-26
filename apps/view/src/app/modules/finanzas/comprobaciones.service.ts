@@ -306,9 +306,26 @@ export class ComprobacionesService {
     if (fecha) params = params.set('fecha', fecha);
     return this.http.get<GastosDelDia>(`${this.base}/del-dia`, { params });
   }
-  /** Lo que capturó este usuario (ruta propia, acotada por el token). */
-  mine(limit = 50): Observable<ExpenseProofsReport> {
-    return this.http.get<ExpenseProofsReport>(`${this.base}/mine`, { params: new HttpParams().set('limit', String(limit)) });
+  /**
+   * Lo que capturó este usuario (ruta propia, acotada por el token).
+   *
+   * `[GX.25]` De TODAS las fechas, no sólo de hoy: es un historial. El buscador va contra
+   * folio, proveedor y solicitante — los tres campos con los que alguien recuerda un gasto.
+   */
+  mine(limit = 200, search?: string): Observable<ExpenseProofsReport> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (search?.trim()) params = params.set('search', search.trim());
+    return this.http.get<ExpenseProofsReport>(`${this.base}/mine`, { params });
+  }
+
+  /**
+   * `[GX.25]` El historial de TODOS los que levantaron gastos. Exige `FINANCE_EXPENSES_VER`
+   * del lado del servidor: quien sólo captura ve lo suyo por `mine`, no esto.
+   */
+  historial(limit = 200, search?: string): Observable<ExpenseProofsReport> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (search?.trim()) params = params.set('search', search.trim());
+    return this.http.get<ExpenseProofsReport>(this.base, { params });
   }
   /**
    * Sube UN archivo (base64 data URI) y devuelve su referencia (bucket privado).

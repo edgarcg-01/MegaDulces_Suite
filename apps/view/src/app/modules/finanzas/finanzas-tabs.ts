@@ -129,6 +129,13 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-verified',
     permission: Permission.FINANCE_EXPENSES_COMPROBAR,
   },
+  {
+    // `[GX.25]` De todas las fechas. Lo ve quien captura (lo suyo) y quien revisa (todo).
+    label: 'Historial',
+    route: '/finanzas/gastos-historial',
+    icon: 'pi pi-history',
+    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
+  },
   // `[GX.18]` La pestaña del tablero salió por pedido del usuario. La ruta sigue viva.
   {
     label: 'Pregúntale a Maat',
