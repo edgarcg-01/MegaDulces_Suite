@@ -6,7 +6,7 @@ import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
-import { diasInventario, roundSeed, textoCajasPiezas } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, pasoCantidad, pasoPorTecla, roundSeed, textoCajasPiezas } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -223,10 +223,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           }
           <div class="pr-wb-scroll">
             <p-table [value]="wbRows()" [loading]="loading()"
-                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle">
+                     styleClass="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
               <ng-template #header>
                 <tr>
-                  <th style="min-width:15rem">
+                  <th class="pr-prod-h">
                     <!-- [RA-PRO.54] Marca TODOS los productos de la consulta (todas las páginas) que tienen pedido. -->
                     <!-- Sin <label> a propósito: con el título adentro, un clic en "Producto" traería el catálogo entero. -->
                     <span class="pr-sel-all">
@@ -350,12 +350,12 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                             <div class="pr-peek-loading">Este producto no tiene existencia ni venta en ninguna sucursal del filtro.</div>
                           } @else {
                             <div class="pr-wb-scroll">
-                              <table class="pr-peek-tbl pr-det-tbl">
+                              <table class="pr-peek-tbl pr-det-tbl pr-det-buy">
                                 <thead><tr>
                                   <th>Sucursal</th>
                                   <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal, en CAJAS. Ordena la lista dentro de cada zona: la que más vende, arriba.">Venta 30d</th>
                                   <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
-                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino). Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · Alt + ↑ ↓ suma o resta de a uno · escribí para reemplazar.">Pedido ✎</th>
+                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino). Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribí para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
                                   <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
                                   <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribís.">Días inv.</th>
                                   <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS (que después baja la mercancía por traspaso).">Entrega</th>
@@ -405,10 +405,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <td class="pr-r pr-muted">—</td>
                                       } @else {
                                         <td class="pr-r">
-                                          <input type="number" min="0" step="1" class="pr-qty pr-qty-sm" aria-keyshortcuts="ArrowUp ArrowDown Enter Alt+ArrowUp Alt+ArrowDown"
-                                                 [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
-                                                 (keydown)="onQtyKey($event)"
-                                                 [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
+                                          <!-- [RA-PRO.57] − / + sólo en pantallas táctiles (CSS pointer:coarse): ajustar
+                                               sin abrir el teclado, que en celular tapa media tabla. Mantener presionado repite. -->
+                                          <span class="pr-step">
+                                            <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
+                                                    (pointerdown)="stepStart(r, b, -1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
+                                                    (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">−</button>
+                                            <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty pr-qty-sm"
+                                                   aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                   [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
+                                                   (keydown)="onQtyKey($event)"
+                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
+                                            <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
+                                                    (pointerdown)="stepStart(r, b, 1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
+                                                    (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">+</button>
+                                          </span>
                                         </td>
                                         <td class="pr-r">
                                           <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
@@ -502,7 +513,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                               }
                             </div>
                             <div class="pr-wb-scroll">
-                              <table class="pr-peek-tbl pr-det-tbl">
+                              <table class="pr-peek-tbl pr-det-tbl pr-det-tr">
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
                                   <th class="pr-r" title="Déficit de la sucursal (cajas)">Señal</th>
@@ -543,8 +554,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                que PrimeNG pinta con el primary (sunset): quedaban DOS acciones naranjas en la
                                misma fila y "Requisición" —la única que escribe en la DB— dejaba de ser la
                                acción obvia. 'p-button-secondary' la baja a neutro sin tocar el token. -->
-                          <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text p-button-secondary" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
-                          <p-button type="button" [label]="pdfBusy() ? 'Generando…' : 'PDF del producto'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
+                          <p-button type="button" [label]="compacto() ? 'XLSX' : 'XLSX del producto'" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text p-button-secondary" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
+                          <p-button type="button" [label]="pdfBusy() ? 'Generando…' : (compacto() ? 'PDF' : 'PDF del producto')" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
                                     (click)="printReqPdf(r)" [disabled]="pdfBusy() || sumCajas(r) <= 0"
                                     title="Orden de requisición en PDF (borrador, sin folio): entrega del proveedor, repartición desde el CEDIS y días de inventario por sucursal."></p-button>
                           <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (sumValor(r) + prodTr(r.product_id)) <= 0"></p-button>
@@ -572,8 +583,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         }
 
         @if (wbRows().length) {
-          <div class="pr-bulk" role="region" aria-label="Acciones globales">
-            @if (selCount() > 0) {
+          <div class="pr-bulk" role="region" aria-label="Acciones globales" [class.pr-bulk-abierta]="compacto() && bulkOpen()">
+            @if (compacto() && !bulkOpen()) {
+              <!-- [RA-PRO.59] En celular: un renglón. La leyenda completa tapaba ~35% de la pantalla;
+                   se abre al tocar el resumen. -->
+              <button type="button" class="pr-bulk-mini" (click)="bulkOpen.set(true)" [attr.aria-expanded]="false" title="Ver el detalle">
+                @if (selCount() > 0) { <strong>{{ selCount() }}</strong> sel · {{ dineroCorto(selValor()) }} }
+                @else if (totCajas() > 0) { Página · {{ dineroCorto(totBuy()) }} }
+                @else { {{ wbTotal() }} productos }
+                <i class="pi pi-chevron-up" aria-hidden="true"></i>
+              </button>
+            } @else if (selCount() > 0) {
               <!-- [RA-PRO.54] Los botones de acá al lado arman SÓLO lo seleccionado (requisición y PDF). -->
               <span class="pr-bulk-n" title="Productos marcados, con lo que hayas editado en sus desgloses. Es exactamente lo que arman la requisición y el PDF globales.">
                 <strong>{{ selCount() }}</strong> producto{{ selCount() === 1 ? '' : 's' }} seleccionado{{ selCount() === 1 ? '' : 's' }} · comprar <strong>{{ money(selValor()) }}</strong>
@@ -584,12 +604,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
+            @if (compacto() && bulkOpen()) {
+              <button type="button" class="pr-bulk-cerrar" (click)="bulkOpen.set(false)" [attr.aria-expanded]="true" aria-label="Cerrar el detalle">
+                <i class="pi pi-chevron-down" aria-hidden="true"></i>
+              </button>
+            }
             <span class="pr-bulk-sp"></span>
-            <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor + hoja Traspasos"></p-button>
-            <p-button type="button" [label]="pdfBusy() ? 'Generando…' : 'PDF requisición (' + selCount() + ')'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
+            <!-- [RA-PRO.59] En celular, textos cortos: con los largos los tres botones no caben en un renglón. -->
+            <p-button type="button" [label]="compacto() ? '' : 'XLSX'" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor + hoja Traspasos"></p-button>
+            <p-button type="button" [label]="pdfBusy() ? 'Generando…' : (compacto() ? 'PDF' : 'PDF requisición') + ' (' + selCount() + ')'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
                       (click)="printReqGlobalPdf()" [disabled]="pdfBusy() || selCount() === 0"
                       title="Orden de requisición en PDF de los productos marcados: una hoja por proveedor, con la O. Compra en blanco por punto de entrega."></p-button>
-            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (' + selCount() + ')'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || selCount() === 0"
+            <p-button type="button" [label]="saving() ? 'Armando…' : (compacto() ? 'Req.' : 'Requisiciones') + ' (' + selCount() + ')'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || selCount() === 0"
                       title="Registra en el sistema las requisiciones de los productos marcados: una por proveedor y punto de entrega, más sus traspasos."></p-button>
           </div>
         }
@@ -918,6 +944,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-exp-actions { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border-color); }
     .pr-exp-sum { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: var(--fs-sm); }
+    /* [RA-PRO.57] − / + del pedido: sólo con puntero grueso (dedo). En escritorio no se pintan y la
+       columna queda como estaba; ahí ← → hacen el mismo paso. 44px = piso táctil. */
+    .pr-step { display: inline-flex; align-items: center; gap: .25rem; }
+    .pr-step-b { display: none; }
+    @media (pointer: coarse) {
+      .pr-step-b { display: inline-flex; align-items: center; justify-content: center;
+        min-width: 44px; min-height: 44px; border: 1px solid var(--border); border-radius: var(--r-sm, 8px);
+        background: var(--card-bg); color: var(--text); font-size: 1.25rem; line-height: 1; cursor: pointer;
+        touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      .pr-step-b:active { background: var(--action); border-color: var(--action); color: var(--action-fg, #fff); }
+    }
     .pr-det-tbl td { vertical-align: middle; }
     /* El desglose NO se estira. Vive dentro de un td que abarca las 15 columnas de la tabla de
        arriba (~82rem), y con width:100% sus 8 columnas cortas quedaban repartidas en todo ese
@@ -987,6 +1024,80 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-peek-tbl td { padding: .35rem .4rem; border-bottom: 1px solid var(--border-color); }
     .pr-peek-terr { font-size: var(--fs-micro); color: var(--text-muted); }
     .pr-peek-note { font-size: var(--fs-micro); color: var(--text-muted); margin-top: .75rem; line-height: 1.4; }
+
+    /* [RA-PRO.59] Ancho de la tabla principal y de la columna Producto: antes eran estilos en linea
+       (tableStyle / style=), que el celular no puede anular sin !important. */
+    :host ::ng-deep .pr-wb-tbl { min-width: 82rem; }
+    :host ::ng-deep .pr-wb th.pr-prod-h { min-width: 15rem; }
+    /* Resumen y cierre de la barra de abajo: solo se pintan en celular (senal compacto). */
+    .pr-bulk-mini, .pr-bulk-cerrar { display: inline-flex; align-items: center; gap: .35rem; min-height: 44px;
+      border: 0; background: transparent; color: var(--text-main); font: inherit; cursor: pointer; padding: 0 .3rem; }
+    .pr-bulk-cerrar { min-width: 44px; justify-content: center; color: var(--text-muted); }
+
+    /* ── [RA-PRO.59] CELULAR VERTICAL (menos de 40rem). Tableta y escritorio quedan por encima del
+       corte y no cambian. Mismo corte que la senal compacto() del componente. ────────────── */
+    @media (max-width: 40rem) {
+      /* B — Tabla principal: sin scroll horizontal. Quedan Producto, Exist. red, Suma Ped. cajas y
+         $ Pedido (lo que decide). Se ocultan por posicion: 2 Ud/caja, 3 Costo, 4 Tend., 5 Est.,
+         7 XYZ, 8 En camino, 9 Reorden, 10 Max, 12 Piezas, 14 Valor venta, 15 Valor exist.
+         Si se agrega o mueve una columna arriba, actualizar esta lista. */
+      :host ::ng-deep .pr-wb-tbl { min-width: 0; width: 100%; }
+      :host ::ng-deep .pr-wb th.pr-prod-h { min-width: 0; }
+      :host ::ng-deep .pr-wb thead tr:first-child > th:is(:nth-child(2), :nth-child(3), :nth-child(4), :nth-child(5), :nth-child(7), :nth-child(8), :nth-child(9), :nth-child(10), :nth-child(12), :nth-child(14), :nth-child(15)),
+      :host ::ng-deep .pr-wb tbody tr.pr-wb-row > td:is(:nth-child(2), :nth-child(3), :nth-child(4), :nth-child(5), :nth-child(7), :nth-child(8), :nth-child(9), :nth-child(10), :nth-child(12), :nth-child(14), :nth-child(15)) { display: none; }
+      .pr-supp { display: none; }   /* el proveedor ya se lee dentro del desglose */
+      :host ::ng-deep .pr-wb tbody tr.pr-wb-row > td { padding-top: .6rem; padding-bottom: .6rem; }   /* renglon de 56px (DESIGN tabla densa) */
+
+      /* C — Desglose en TARJETAS: la sucursal siempre arriba de su cantidad, sin scroll lateral.
+         Mismas celdas que la tabla de escritorio, acomodadas con grid; no hay una segunda copia. */
+      .pr-exp-in { padding: .6rem .5rem .75rem .75rem; }   /* el relleno de escritorio (1.75rem a la izquierda) se come la tarjeta */
+      .pr-det-tbl, .pr-det-tbl tbody { display: block; width: 100%; }
+      .pr-det-tbl thead { display: none; }
+      .pr-det-tbl th, .pr-det-tbl td { white-space: normal; }
+      .pr-det-tbl tbody tr:not(.pr-zrow) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem .6rem;
+        align-items: center; padding: .65rem .4rem; border-bottom: 1px solid var(--border-color); }
+      .pr-det-tbl tbody tr:not(.pr-zrow) > td { border: 0; padding: 0; text-align: left; }
+      .pr-det-tbl tr.pr-zrow { display: block; }
+      .pr-det-tbl tr.pr-zrow > td { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .5rem; }
+      .pr-det-tbl tr.pr-zrow .pr-bulk-sp { flex-basis: 100%; height: 0; }   /* los atajos bajan a su renglon */
+      .pr-det-tbl tr.pr-zrow .pr-zlink { min-height: 44px; padding: 0 .4rem; }
+
+      /* Pedir a proveedor: 1 Sucursal 2 Venta 3 Exist. 4 Pedido 5 Unidad 6 Dias 7 Entrega 8 Valor */
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(1) { grid-column: 1 / 3; grid-row: 1; font-weight: 600; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(8) { grid-column: 3; grid-row: 1; text-align: right; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(2) { grid-column: 1; grid-row: 2; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(3) { grid-column: 2; grid-row: 2; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(6) { grid-column: 3; grid-row: 2; text-align: right; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(4) { grid-column: 1 / 3; grid-row: 3; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(5) { grid-column: 3; grid-row: 3; text-align: right; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(7) { grid-column: 1 / 4; grid-row: 4; }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(2)::before { content: 'Venta '; color: var(--text-faint); font-size: var(--fs-micro); }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(3)::before { content: 'Exist. '; color: var(--text-faint); font-size: var(--fs-micro); }
+      .pr-det-buy tr:not(.pr-zrow) > td:nth-child(6)::before { content: 'Días '; color: var(--text-faint); font-size: var(--fs-micro); }
+      .pr-det-buy .pr-step { width: 100%; justify-content: flex-start; }
+      .pr-det-buy .pr-qty-sm { width: 5rem; min-height: 44px; font-size: var(--fs-body); }
+      .pr-det-buy .pr-ent { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+      .pr-det-buy .pr-cedis { flex: 1 1 10rem; min-width: 0; }
+
+      /* Traspasos: 1 Sucursal 2 Accion 3 Senal 4 Exist. 5 Cant. 6 Piezas 7 Costo 8 Valor */
+      .pr-det-tr tr > td:nth-child(1) { grid-column: 1 / 3; grid-row: 1; font-weight: 600; }
+      .pr-det-tr tr > td:nth-child(8) { grid-column: 3; grid-row: 1; text-align: right; }
+      .pr-det-tr tr > td:nth-child(2) { grid-column: 1 / 3; grid-row: 2; }
+      .pr-det-tr tr > td:nth-child(4) { grid-column: 3; grid-row: 2; text-align: right; }
+      .pr-det-tr tr > td:nth-child(5) { grid-column: 1 / 3; grid-row: 3; }
+      .pr-det-tr tr > td:nth-child(3) { grid-column: 3; grid-row: 3; text-align: right; }
+      .pr-det-tr tr > td:is(:nth-child(6), :nth-child(7)) { display: none; }
+      .pr-det-tr tr > td:nth-child(4)::before { content: 'Exist. '; color: var(--text-faint); font-size: var(--fs-micro); }
+      .pr-det-tr .pr-qty-sm { width: 5rem; min-height: 44px; font-size: var(--fs-body); }
+
+      /* D — Pie del desglose: el importe en su renglon, los botones abajo. */
+      .pr-exp-actions { flex-wrap: wrap; }
+      .pr-exp-actions .pr-exp-sum { flex-basis: 100%; }
+
+      /* A — Barra de abajo: un renglon (resumen + botones cortos); abierta, el detalle ocupa el ancho. */
+      .pr-bulk { flex-wrap: wrap; gap: .3rem; padding: .35rem .5rem; }
+      .pr-bulk-abierta .pr-bulk-n { flex: 1 1 calc(100% - 3.5rem); font-size: var(--fs-sm); }
+    }
   `],
 })
 export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
@@ -1042,8 +1153,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // RA-PRO.47 — las sucursales ya NO son columnas (bajaron al desglose), así que el ancho es fijo
-  // y la tabla tiene un solo renglón de encabezado. Ref estable → evita ExpressionChanged.
-  readonly wbTableStyle = { 'min-width': '82rem' };
+  // y la tabla tiene un solo renglón de encabezado.
+  // [RA-PRO.59] Ese ancho mínimo (82rem) vive en CSS (.pr-wb-tbl), no en [tableStyle]: un estilo
+  // en línea no se puede anular en el celular sin !important.
   /** Producto · Ud/caja · Costo · Tend. · Est. · Exist. red · XYZ · En camino · Reorden · Máx
    *  · Σ Ped. · Σ Piezas · $ Pedido · Valor venta · Valor exist. */
   readonly wbColCount = 15;
@@ -1398,6 +1510,24 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * Sin factor de caja válido se muestra como antes, en cajas con decimal.
    */
   entregaQty(r: WorkbookRow, e: Entrega): string { return textoCajasPiezas(e.cajas, Number(r.uxc)); }
+  // ── [RA-PRO.59] Vista de CELULAR (vertical) ───────────────────────────────────────────────
+  // El acomodo (columnas ocultas, desglose en tarjetas) lo hace el CSS con el mismo corte
+  // (`@media (max-width: 40rem)`). Esta señal sólo sirve para lo que el CSS no puede cambiar: el
+  // TEXTO de los botones ("PDF del producto" no cabe en un celular). Tableta y escritorio quedan
+  // por encima del corte y no cambian. Se actualiza sola al girar el teléfono.
+  private static readonly CORTE_CELULAR = '(max-width: 40rem)';
+  private readonly mqCelular = typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia(ComprasPedidoRealComponent.CORTE_CELULAR) : null;
+  readonly compacto = signal(this.mqCelular?.matches ?? false);
+  private readonly mqListener = (e: MediaQueryListEvent) => this.compacto.set(e.matches);
+  private readonly mqCleanup = (() => {
+    this.mqCelular?.addEventListener('change', this.mqListener);
+    return this.destroyRef.onDestroy(() => this.mqCelular?.removeEventListener('change', this.mqListener));
+  })();
+  /** En celular la barra de abajo muestra un resumen corto; al tocarlo se abre el detalle. */
+  readonly bulkOpen = signal(false);
+  readonly dineroCorto = dineroCorto;
+
   // ── [RA-PRO.54] SELECCIÓN de productos para la requisición y el PDF globales ─────────────
   // El comprador marca lo que va a pedir. La casilla general marca TODOS los productos de la
   // consulta (todas las páginas) que tienen pedido. Las cantidades editadas no se pierden al
@@ -1489,6 +1619,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // Se arma con lo que está en pantalla (ediciones incluidas) y se dibuja en el navegador:
   // no escribe nada, por eso el PDF sale como BORRADOR sin folio.
   readonly pdfBusy = signal(false);
+
+  // ── [RA-PRO.57] Botones − / + del pedido (celular y tableta) ──────────────────────────────
+  // Un toque = un paso (`pasoCantidad`, en la unidad de captura). Mantener presionado repite: tras
+  // 400 ms, un paso cada 90 ms. Se usa `pointerdown` (no `click`) para que el primer paso sea
+  // inmediato y el mismo gesto sirva para repetir; soltar, salir del botón o cancelar lo corta.
+  private stepDelay: ReturnType<typeof setTimeout> | null = null;
+  private stepTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly stepCleanup = this.destroyRef.onDestroy(() => this.stepStop());
+
+  stepStart(r: WorkbookRow, b: BranchBuy, d: 1 | -1, ev: PointerEvent): void {
+    ev.preventDefault();   // que el toque no enfoque el campo ni abra el teclado
+    this.stepStop();
+    const paso = () => this.setDispOf(r, b, pasoCantidad(this.dispOf(r, b), d));
+    paso();
+    this.stepDelay = setTimeout(() => { this.stepTimer = setInterval(paso, 90); }, 400);
+  }
+  stepStop(): void {
+    if (this.stepDelay) { clearTimeout(this.stepDelay); this.stepDelay = null; }
+    if (this.stepTimer) { clearInterval(this.stepTimer); this.stepTimer = null; }
+  }
 
   /** Cuándo se consultaron los datos que imprime el PDF (null si todavía no hay carga). */
   private datosAl(): Date | null { const t = this.loadedAt(); return t ? new Date(t) : null; }
@@ -2214,7 +2364,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    *
    *   ↑ ↓            campo anterior / siguiente de la columna
    *   Enter          siguiente (Shift+Enter: anterior) — el gesto de Excel
-   *   Alt + ↑ ↓      sumar / restar un paso, para quien lo quiera
+   *   ← →            [RA-PRO.57] restar / sumar un paso (Compras lo pidió para ajustar sin teclear;
+   *                  con decimales cae al entero, ver `pasoCantidad`). Se pierde mover el cursor
+   *                  dentro del número, que casi no se usa: al llegar el valor ya está seleccionado.
+   *   Alt + ↑ ↓      el mismo paso, para quien ya lo usaba
+   *
+   * En celular y tableta el paso tiene botones − / + (ver `stepStart`).
    *
    * Al llegar se hace `select()`: teclear reemplaza, que es lo que espera quien viene capturando.
    * El recorrido usa el orden del DOM de los `.pr-qty` visibles, así que cruza filas abiertas en
@@ -2225,17 +2380,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const up = ev.key === 'ArrowUp';
     const down = ev.key === 'ArrowDown';
     const enter = ev.key === 'Enter';
-    if (!up && !down && !enter) return;
-
-    // Alt + flecha = el incremento de siempre, explícito.
-    if ((up || down) && ev.altKey) {
-      const step = el.step === 'any' ? 1 : (Number(el.step) || 1);
-      const min = el.min === '' ? -Infinity : Number(el.min);
+    // [RA-PRO.57] ← → (y Alt + ↑ ↓) suman o restan un paso en la unidad de captura. Qué tecla hace
+    // qué lo decide `pasoPorTecla` (probada); con modificadores queda lo nativo.
+    const bump = pasoPorTecla(ev);
+    if (bump) {
       ev.preventDefault();
-      el.value = String(Math.max(min, (Number(el.value) || 0) + (up ? step : -step)));
+      el.value = String(pasoCantidad(Number(el.value), bump));
       el.dispatchEvent(new Event('input', { bubbles: true }));   // que ngModel se entere
+      el.select();                                                // teclear sigue reemplazando
       return;
     }
+    if (!up && !down && !enter) return;
 
     const fields = Array.from(
       document.querySelectorAll<HTMLInputElement>('.pr-qty:not([disabled]):not([readonly])'),

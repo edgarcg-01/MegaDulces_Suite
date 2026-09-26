@@ -124,10 +124,43 @@ async function loadLogo(): Promise<string | null> {
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Nombre de archivo: requisicion-<sku>-<AAAA-MM-DD>.pdf */
-export function nombreArchivoRequisicion(sku: string, d: Date): string {
-  const limpio = (sku || 'producto').replace(/[^A-Za-z0-9_-]+/g, '_');
-  return `requisicion-${limpio}-${ymd(d)}.pdf`;
+/**
+ * `[RA-PRO.56]` Texto apto para nombre de archivo (Windows y adjuntos de correo): sin acentos,
+ * signos ni espacios (guiones en su lugar), en mayúsculas y recortado a `max` sin guion colgando.
+ * Vacío si no queda nada legible.
+ */
+export function textoParaArchivo(txt: string, max = 40): string {
+  return (txt || '').normalize('NFD').replace(/\p{M}/gu, '')   // quita los acentos que NFD separó de su letra
+    .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase().slice(0, max).replace(/-+$/, '');
+}
+
+/** Fecha y hora LOCAL para el nombre del archivo: AAAA-MM-DD-HH-MM (formato pedido por Compras). */
+function fechaHoraArchivo(d: Date): string {
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${ymd(d)}-${p2(d.getHours())}-${p2(d.getMinutes())}`;
+}
+
+/**
+ * `[RA-PRO.56]` Nombre del PDF global, para llevar control de los archivos emitidos:
+ * `Requisicion-global_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf`. Con varios proveedores dice
+ * `VARIOS-PROVEEDORES`.
+ */
+export function nombreArchivoRequisicionGlobal(proveedores: string[], d: Date): string {
+  const unicos = [...new Set(proveedores.map((p) => (p || '').trim()).filter(Boolean))];
+  const prov = unicos.length === 1 ? unicos[0] : unicos.length > 1 ? 'VARIOS PROVEEDORES' : 'SIN PROVEEDOR';
+  return `Requisicion-global_${textoParaArchivo(prov) || 'SIN-PROVEEDOR'}_${fechaHoraArchivo(d)}.pdf`;
+}
+
+/**
+ * `[RA-PRO.58]` Nombre del PDF por producto, con el mismo control que el global:
+ * `Requisicion_<CODIGO>_<NOMBRE>_AAAA-MM-DD-HH-MM.pdf`. El código conserva sus letras y números
+ * (tope de 30 sólo por defensa: los reales son de ~5, y es la llave con la que se busca); el
+ * nombre se limpia y se recorta a 40 caracteres.
+ */
+export function nombreArchivoRequisicion(sku: string, nombre: string, d: Date): string {
+  const cod = textoParaArchivo(sku, 30) || 'SIN-CODIGO';
+  const nom = textoParaArchivo(nombre);
+  return `Requisicion_${cod}${nom ? `_${nom}` : ''}_${fechaHoraArchivo(d)}.pdf`;
 }
 
 // ── Piezas compartidas por los dos PDF ─────────────────────────────────────────────────────
@@ -337,7 +370,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
   ]);
   dibujarFirmas(doc, y, data.elaboro);
   dibujarPies(doc, `Requisición ${p.sku}`, data.datosAl);
-  doc.save(nombreArchivoRequisicion(p.sku, data.emitido));
+  doc.save(nombreArchivoRequisicion(p.sku, p.nombre, data.emitido));
 }
 
 // ── [RA-PRO.54] PDF global: una hoja por proveedor ─────────────────────────────────────────
@@ -473,5 +506,5 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
   });
 
   dibujarPies(doc, `Requisición global · ${data.alcance}`, data.datosAl);
-  doc.save(`requisicion-global-${ymd(data.emitido)}.pdf`);
+  doc.save(nombreArchivoRequisicionGlobal(hojas.map((h) => h.supplierName), data.emitido));
 }
