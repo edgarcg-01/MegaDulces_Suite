@@ -2653,6 +2653,69 @@ usuario `demo_gx20`. Nada de esto existe fuera de `platform_local`.
 
 ---
 
+## GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código)
+
+Pedido del usuario, sobre la pantalla de `[GX.25]` (**Historial de levantamientos**,
+`/finanzas/gastos-historial`). Su apartado **«Todos»** —el gasto de todas las personas, de
+todas las fechas— exigía `FINANCE_EXPENSES_VER`. Ahora exige **god-mode** (`admin`/`superadmin`).
+
+**Medido en `platform_local` antes de tocar nada**, que es lo que disparó el cambio: lo veían
+**25 personas**, y **9 de ellas eran cuentas de administración** (`superadmin`) — más de un
+tercio del acceso al historial completo no venía del área que revisa gastos. Con el recorte
+quedan esos 9 y **pierden el apartado 16**: `finanzas_operativo` 6, `contabilidad` 2,
+`credito_cobranza` 2, `tesoreria` 2, y una persona en `direccion`, `finanzas`,
+`gerente_compras` y `marketing`.
+
+⚠️ **Nadie pierde lo suyo.** `GET /mine` sigue acotado por token y no se tocó: quien captura —y
+quien revisa— sigue viendo sus propios levantamientos. Lo que se cerró es mirar los ajenos.
+
+- [x] **[GX.26.1]** ⛔ **El recorte va en el SERVIDOR, no sólo escondiendo la pestaña.**
+  `GET /finance/expenses/proofs` devuelve los expedientes de todas las personas; con el candado
+  sólo en el front, cualquiera con `_VER` la seguiría pudiendo pedir a mano y el «recorte» sería
+  una decoración. ⚠️ **El decorador de permiso no alcanza para expresar «sólo god-mode»**:
+  `RolesGuard` deja pasar a admin/superadmin **y** a quien tenga la clave, así que
+  `@RequirePermissions(_VER)` por sí solo abre la puerta a los 25. El rol se comprueba explícito
+  con `isPlatformAdminRole`; `_VER` queda como primer filtro para que quien no lo tenga se vaya
+  antes, en el guard. ✅ 2026-09-25
+- [x] **[GX.26.2]** Front: `puedeVerTodos()` mira el **ROL** (`perms.isAdmin()`, espejo de
+  `isPlatformAdminRole`), no una clave del mapa. Usar una clave volvería a abrirlo a quien la
+  tenga marcada — justo lo que se acaba de cerrar. Se retiraron `AuthService` y el import de
+  `Permission`, que quedaron huérfanos. ✅ 2026-09-25
+- [x] **[GX.26.3]** Pruebas nuevas en las **dos capas**, porque el candado vive en las dos:
+  `historial-god-mode.spec.ts` (7, ejercita el controller de verdad) y
+  `finanzas-gastos-historial.component.spec.ts` (9, monta el componente — **la pantalla de
+  `[GX.25]` no tenía ninguna**). Cubren que `_VER` ya no alcanza, que sin rol **no** se cae del
+  lado permisivo, y que forzar el ámbito a «todos» sin god-mode igual pide `/mine`.
+  **Prueba negativa corrida**: al aflojar el `if` del controller, 4 se ponen en rojo.
+  ✅ 2026-09-25
+- [x] **[GX.26.4]** ⚠️ `libs/finance/vitest.config.ts` gana un `JWT_SECRET` **de pruebas**:
+  importar cualquier controller arrastra `platform-core`, y su `TenantModule` exige el secreto
+  **al cargar el módulo** (fail-fast a propósito). Sin eso, un spec que monte un controller no
+  falla por lo que prueba — falla antes de correr, en el import. No afloja nada: el fail-fast de
+  producción queda intacto. ✅ 2026-09-25
+- [x] **[GX.26.5]** El boundary gate se puso **rojo** con el cambio y atrapó algo que no era mío:
+  `mine()` de `[GX.25]` estaba sin tipo de retorno en el boundary. Se tipó contra el servicio
+  (`ReturnType<ExpenseProofsService['list']>`) en vez de repetir la forma a mano — si allá cambia,
+  acá deja de compilar en vez de mentir. ✅ 2026-09-25
+
+**Verificado contra el servidor real** (API reconstruida, `platform_local`):
+
+| Usuario | Rol | `GET /proofs` (todos) | `GET /proofs/mine` |
+|---|---|---|---|
+| `demo_gx20` | tesoreria (tiene `_VER`) | **403** | 200 |
+| `demo_gx26_admin` | superadmin | **200** — 18 expedientes de 7 personas | 200 |
+
+Y en la UI: con `tesoreria` el interruptor **no se dibuja**; con god-mode aparece «Míos · Todos»
+y «Todos» carga 19 renglones sin error. `libs/finance` 199 · `view/finanzas` 184, verde.
+check:templates OK · boundary gate OK · `nx build api` OK.
+
+⚠️ **Decisión que queda abierta:** que el historial completo sea de administradores de
+plataforma y **no** del área que revisa gastos es lo que se pidió, pero deja a `tesoreria`
+—que es quien aprueba— sin ver el gasto ajeno. Si la intención era lo contrario (sacárselo a
+las cuentas de administración y dárselo al área), es cambiar una línea.
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del

@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
@@ -17,9 +17,27 @@ interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: 
 export class ExpenseProofsController {
   constructor(private readonly svc: ExpenseProofsService) {}
 
+  /**
+   * El historial de gasto de TODA la empresa, sin acotar por persona.
+   *
+   * `[GX.26]` **Sólo god-mode**, por pedido del usuario (2026-09-25). Antes bastaba
+   * `FINANCE_EXPENSES_VER` — 25 personas, de las cuales 9 eran cuentas de administración.
+   *
+   * ⛔ El recorte va **acá**, no sólo escondiendo la pestaña en la UI. Esta ruta devuelve
+   * los expedientes de todos: si el candado viviera sólo en el front, cualquiera con `_VER`
+   * la seguiría pudiendo pedir a mano y el «recorte» sería una decoración.
+   *
+   * ⚠️ El decorador de permiso NO alcanza para expresar «sólo god-mode»: `RolesGuard` deja
+   * pasar a admin/superadmin **y** a quien tenga la clave, así que la clave sola abre la
+   * puerta. Por eso el rol se comprueba explícito. Se conserva `_VER` como primer filtro:
+   * quien no lo tiene se va antes, en el guard.
+   *
+   * ⚠️ Quien sólo captura NO pierde nada: `GET /mine` le sigue dando lo suyo, acotado por
+   * su token.
+   */
   @Get()
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Lista solicitudes de reembolso + KPIs.' })
+  @ApiOperation({ summary: '[GX.26] Historial de gasto de toda la empresa + KPIs. SÓLO god-mode (admin/superadmin): devuelve los expedientes de todas las personas. Lo propio se pide por /mine.' })
   list(
     @Query('status') status?: string,
     @Query('folio_solicitud') folio_solicitud?: string,
@@ -27,7 +45,11 @@ export class ExpenseProofsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
-  ) {
+    @Req() req?: AuthedRequest,
+  ): ReturnType<ExpenseProofsService['list']> {
+    if (!isPlatformAdminRole(req?.user?.role_name)) {
+      throw new ForbiddenException('el historial de toda la empresa es sólo para administradores de la plataforma; lo tuyo está en /mine');
+    }
     const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, limit: limit ? Number(limit) : undefined };
     return this.svc.list(q);
   }
@@ -49,7 +71,7 @@ export class ExpenseProofsController {
   @Get('mine')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
-  mine(@Query('limit') limit?: string, @Query('search') search?: string, @Req() req?: AuthedRequest) {
+  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['list']> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.

@@ -4,9 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { InputTextModule } from 'primeng/inputtext';
 import { ComprobacionesService, ExpenseProof, ExpenseProofsReport } from '../comprobaciones.service';
-import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 /**
@@ -18,9 +16,11 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
  * ## Dos ámbitos, una pantalla
  * · **Míos** — lo que levantó ESTA persona. Sale de `/mine`, que el servidor acota por el
  *   token: no hay forma de pedir los de otro por más que se cambie un parámetro.
- * · **Todos** — el historial de todos los que generaron gastos. Exige
- *   `FINANCE_EXPENSES_VER`, que es el permiso de quien revisa. Quien sólo captura no ve
- *   esta pestaña **y tampoco la podría pedir**: el endpoint la rechaza igual.
+ * · **Todos** — el historial de todos los que generaron gastos. `[GX.26]` **Sólo
+ *   god-mode** (`admin`/`superadmin`), por pedido del usuario. Antes bastaba
+ *   `FINANCE_EXPENSES_VER`: eran 25 personas. Quien no lo tiene no ve esta pestaña **y
+ *   tampoco la podría pedir** — el endpoint comprueba el rol igual, así que esconderla no
+ *   es el candado, es la cortesía.
  *
  * ## ⚠️ De TODAS las fechas, a propósito
  * El buscador de folios de `/finanzas/gastos` muestra **sólo los de hoy** — ahí se levanta
@@ -149,18 +149,20 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 })
 export class FinanzasGastosHistorialComponent {
   private readonly svc = inject(ComprobacionesService);
-  private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
 
   /**
-   * «Todos» sólo para quien revisa. No es sólo estética: el endpoint lo exige igual, así
-   * que mostrar la pestaña a quien no lo tiene sería ofrecer una puerta que devuelve 403.
+   * `[GX.26]` «Todos» sólo para god-mode. No es sólo estética: el endpoint comprueba el rol
+   * igual, así que mostrar la pestaña a quien no lo tiene sería ofrecer una puerta que
+   * devuelve 403.
+   *
+   * ⚠️ Se mira el ROL, no una clave del mapa de permisos. `perms.isAdmin()` es el espejo de
+   * `isPlatformAdminRole` del servidor — el mismo criterio de los dos lados. Usar una clave
+   * volvería a abrirlo a quien la tenga marcada, que es justo lo que se acaba de cerrar.
    */
-  readonly puedeVerTodos = computed(() =>
-    this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_VER] === true
-    || this.perms.isAdmin());
+  readonly puedeVerTodos = computed(() => this.perms.isAdmin());
 
   readonly ambito = signal<'mios' | 'todos'>('mios');
   readonly busqueda = signal('');
