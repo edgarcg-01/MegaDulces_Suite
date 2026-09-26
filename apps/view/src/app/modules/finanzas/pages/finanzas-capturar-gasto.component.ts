@@ -105,6 +105,22 @@ interface SelSolicitud {
               @if (gasto()!.fecha) { <span><i class="pi pi-calendar" aria-hidden="true"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
             @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left" aria-hidden="true"></i> {{ gasto()!.concepto }}</span></div> }
+            <!--
+              [GX.28] Lo que Kepler decidió sobre este vale. Alguien lo abre allá y le pone
+              N o A; ese flag es «c43» y ya viajaba en la vista sin que nadie lo mostrara.
+
+              ⚠️ «Autoriza» es un ÁREA, no una persona: la migración que trajo esa columna
+              (20260821200000) la midió y conviven «FINANZAS / DPTO FINANZAS /
+              DEPARTAMENTO DE FINANSAS». Se rotula como área a propósito -- ponerle «por»
+              delante la haría leer como el nombre de quien firmó, que es otra cosa y
+              todavía no sabemos en qué columna vive.
+            -->
+            <div class="cap-g-meta">
+              @if (estadoKepler(); as e) {
+                <span class="cap-g-est" [class]="'k-' + e.clave"><i class="pi pi-verified" aria-hidden="true"></i> Kepler: {{ e.label }}</span>
+              }
+              @if (gasto()!.autoriza) { <span><i class="pi pi-sitemap" aria-hidden="true"></i> área que autoriza: {{ gasto()!.autoriza }}</span> }
+            </div>
             <div class="cap-g-acc">
               <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
               <!--
@@ -443,6 +459,11 @@ interface SelSolicitud {
     .cap-g-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
       font-size: var(--fs-xs); color: var(--fg-2); }
     .cap-g-meta span { display: inline-flex; align-items: center; gap: var(--sp-1); }
+    /* [GX.28] El estado de Kepler se lee por PALABRA; el color solo acompaña. */
+    .cap-g-est { padding: 1px var(--sp-2); border-radius: var(--r-sm);
+      border: 1px solid var(--border-color); color: var(--fg-2); }
+    .cap-g-est.k-a { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .cap-g-est.k-c { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
     .cap-cuadre { display: inline-flex; align-items: center; gap: var(--sp-1);
       padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs);
       border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--fg-2); }
@@ -1099,5 +1120,25 @@ export class FinanzasCapturarGastoComponent {
 
   statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s] || s; }
   statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
+  /**
+   * [GX.28] El estado que Kepler le puso al vale. «c43» en el ERP, `estado` en la vista.
+   *
+   * Los cuatro valores están decodificados y documentados (`derivarEtapa` del expediente
+   * usa los mismos). Un valor que no sea uno de esos se muestra CRUDO en vez de caer a
+   * «desconocido»: si Kepler empieza a mandar una quinta letra, queremos verla, no que la
+   * pantalla la esconda detrás de una palabra tranquilizadora.
+   */
+  estadoKepler(): { clave: string; label: string } | null {
+    const e = String(this.gasto()?.estado || '').trim().toUpperCase();
+    if (!e) return null;
+    switch (e) {
+      case 'N': return { clave: 'n', label: 'por ejercer' };
+      case 'A': return { clave: 'a', label: 'autorizada' };
+      case 'F': return { clave: 'f', label: 'aplicada' };
+      case 'C': return { clave: 'c', label: 'cancelada' };
+      default: return { clave: 'x', label: e };
+    }
+  }
+
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }
