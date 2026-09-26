@@ -10,6 +10,30 @@
 
 ## [Unreleased]
 
+### Added — `/compras/pedido`: PDF de requisición por producto y global + selección (RA-PRO.52–55, 2026-09-25)
+- **El acuse "Se entrega en" dice cajas cerradas + piezas** (`6 cj 6 pz`, no `6.5 cj`): se redondea
+  una vez sobre el total en piezas, así que piezas de varias sucursales que completan una caja se
+  juntan. Sin factor de caja válido se muestra como antes.
+- **PDF del producto** (botón en el desglose): orden de requisición en borrador —el folio lo asigna
+  el sistema al registrar—, cabe en una hoja. Proveedor, producto, recuadros de pedido / precio /
+  importe, tabla de **puntos de entrega con la O. Compra en blanco** para anotarla a mano, y una
+  sola tabla de **repartición** (quién recibe consolidado y a quién le toca qué) con venta 30 d,
+  existencia y días de inventario hoy y con el pedido.
+- **Selección de productos**: casilla por producto (sólo si tiene pedido) y casilla general que
+  marca **toda la consulta** —todas las páginas— con pedido. La selección sobrevive al paginar y se
+  limpia al cambiar de filtro.
+- ⚠️ **"Requisiciones" (global) registra SÓLO lo marcado** — antes registraba la página abierta, que
+  no es algo que el comprador elija. Los traspasos también se filtran por la selección.
+- **PDF requisición (global)**: una hoja por proveedor (y un resumen si hay varios), con sus puntos
+  de entrega y la O. Compra en blanco, el pedido por punto de entrega con totales **por almacén**
+  (cajas cerradas + piezas sueltas, sin convertir piezas de productos distintos, e importe) y la
+  repartición en cuadrícula producto × sucursal. Cada punto de entrega = una requisición del sistema.
+- Se genera en el navegador (jsPDF, carga perezosa): no escribe en la base ni toca el backend.
+- Lógica de números en módulos puros con pruebas: `pedido-redondeo.ts` (`textoCajasPiezas`,
+  `textoSumaCajasPiezas`, `diasInventario`) y `pedido-requisicion-global.ts` (`agruparPorProveedor`,
+  `repartoProducto`). `diasInv` y los días "hoy" del PDF comparten la misma función (antes los días
+  "hoy" no respetaban la unidad no confiable).
+
 ### Changed — `/compras/pedido`: sugerido listo para pedir + "todo a 00" (RA-PRO.50/51, 2026-09-25)
 - **El sugerido llega redondeado** en el desglose por sucursal: de **media caja para arriba**, cajas
   cerradas al entero más cercano (147.1 → 147, 1.5 → 2, 0.6 → 1); **por debajo de media caja**, se

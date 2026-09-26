@@ -1,4 +1,4 @@
-import { roundSeed } from './pedido-redondeo';
+import { cajasYPiezas, diasInventario, roundSeed, textoCajasPiezas, textoSumaCajasPiezas } from './pedido-redondeo';
 
 describe('[RA-PRO.51] roundSeed — el sugerido llega redondeado', () => {
   describe('los cuatro ejemplos que el PR promete en su tabla', () => {
@@ -68,5 +68,86 @@ describe('[RA-PRO.51] roundSeed — el sugerido llega redondeado', () => {
         });
       }
     }
+  });
+});
+
+describe('[RA-PRO.52] cajasYPiezas — el acuse dice cajas cerradas + piezas', () => {
+  it('6.5 cj con 12 pz/caja → 6 cj 6 pz (el caso de la captura)', () => {
+    expect(cajasYPiezas(6.5, 12)).toEqual({ cj: 6, pz: 6 });
+  });
+  it('suma de sucursales 5 cj + 4/12 + 1 cj + 2/12 → 6 cj 6 pz, sin arrastrar decimales', () => {
+    expect(cajasYPiezas(5 + 4 / 12 + 1 + 2 / 12, 12)).toEqual({ cj: 6, pz: 6 });
+  });
+  it('cajas exactas → 0 piezas', () => {
+    expect(cajasYPiezas(147, 20)).toEqual({ cj: 147, pz: 0 });
+  });
+  it('menos de una caja → 0 cajas y sólo piezas', () => {
+    expect(cajasYPiezas(0.4, 20)).toEqual({ cj: 0, pz: 8 });
+  });
+  it('fracciones que suman una caja entera se juntan (11.999… pz no queda como "0 cj 12 pz")', () => {
+    expect(cajasYPiezas(7 / 12 + 5 / 12, 12)).toEqual({ cj: 1, pz: 0 });
+  });
+  it('cero o valor inválido → 0 cj 0 pz', () => {
+    expect(cajasYPiezas(0, 12)).toEqual({ cj: 0, pz: 0 });
+    expect(cajasYPiezas(NaN, 12)).toEqual({ cj: 0, pz: 0 });
+    expect(cajasYPiezas(-3, 12)).toEqual({ cj: 0, pz: 0 });
+  });
+  it('uxc inválido → null (no se inventa la conversión)', () => {
+    expect(cajasYPiezas(6.5, 0)).toBeNull();
+    expect(cajasYPiezas(6.5, -1)).toBeNull();
+    expect(cajasYPiezas(6.5, NaN)).toBeNull();
+  });
+});
+
+describe('[RA-PRO.52] textoCajasPiezas — el texto que imprimen el acuse y el PDF', () => {
+  it('mixto, sólo cajas, sólo piezas y cero', () => {
+    expect(textoCajasPiezas(6.5, 12)).toBe('6 cj 6 pz');
+    expect(textoCajasPiezas(147, 20)).toBe('147 cj');
+    expect(textoCajasPiezas(0.4, 20)).toBe('8 pz');
+    expect(textoCajasPiezas(0, 20)).toBe('0 cj');
+  });
+  it('miles con separador', () => {
+    expect(textoCajasPiezas(1293, 20)).toBe('1,293 cj');
+  });
+  it('uxc inválido → cajas con un decimal', () => {
+    expect(textoCajasPiezas(6.54, 0)).toBe('6.5 cj');
+  });
+});
+
+describe('[RA-PRO.55] textoSumaCajasPiezas — total por almacén de varios productos', () => {
+  it('suma cajas cerradas por un lado y piezas sueltas por otro', () => {
+    expect(textoSumaCajasPiezas([{ cajas: 6 + 10 / 25, uxc: 25 }, { cajas: 5, uxc: 25 }])).toBe('11 cj 10 pz');
+  });
+  it('piezas de productos con distinto factor NO se convierten a cajas', () => {
+    // 10 pz de 25/caja + 18 pz de 20/caja = 28 pz sueltas, aunque 28 > 25 y > 20.
+    expect(textoSumaCajasPiezas([{ cajas: 10 / 25, uxc: 25 }, { cajas: 18 / 20, uxc: 20 }])).toBe('28 pz');
+  });
+  it('sólo cajas, con separador de miles', () => {
+    expect(textoSumaCajasPiezas([{ cajas: 655, uxc: 1 }, { cajas: 797, uxc: 1 }])).toBe('1,452 cj');
+  });
+  it('lista vacía o todo en cero → 0 cj', () => {
+    expect(textoSumaCajasPiezas([])).toBe('0 cj');
+    expect(textoSumaCajasPiezas([{ cajas: 0, uxc: 20 }])).toBe('0 cj');
+  });
+  it('factor inválido: sus cajas se suman tal cual', () => {
+    expect(textoSumaCajasPiezas([{ cajas: 2.5, uxc: 0 }, { cajas: 3, uxc: 20 }])).toBe('5.5 cj');
+  });
+});
+
+describe('[RA-PRO.53] diasInventario — existencia (+ pedido) / (venta 30 d / 30.4)', () => {
+  it('hoy (sin pedido) y con el pedido', () => {
+    expect(diasInventario(4.1, 26.9)).toBeCloseTo(4.63, 2);
+    expect(diasInventario(4.1, 26.9, 23)).toBeCloseTo(30.6, 1);
+  });
+  it('sin venta → null (no se puede calcular, no es "0 días" ni "infinito")', () => {
+    expect(diasInventario(10, 0)).toBeNull();
+    expect(diasInventario(10, NaN)).toBeNull();
+    expect(diasInventario(10, -3)).toBeNull();
+  });
+  it('unidad no confiable → null aunque haya venta', () => {
+    expect(diasInventario(10, 20, 5, true)).toBeNull();
+  });
+  it('existencia en cero con venta → 0 días (sí es "urge")', () => {
+    expect(diasInventario(0, 37.3)).toBe(0);
   });
 });
