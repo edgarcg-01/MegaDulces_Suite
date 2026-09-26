@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
@@ -12,33 +11,13 @@ import {
   type ExpenseClasificacion, type ExpedienteDelDia, type GastosDelDia, type PestanaGasto,
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { parseLocalDate } from '../../../core/utils/mx-date';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
   cheque: 'Cheque', vales: 'Vales', otro: 'Otro',
 };
-
-/** Cómo se llama cada adjunto. La clave (`comprobante_1`) es el rol, no el nombre. */
-const ARCHIVO_LABEL: Record<string, string> = {
-  comprobante_1: 'Comprobante — hoja 1', comprobante_2: 'Comprobante — hoja 2',
-  solicitud_kepler: 'Solicitud de gasto firmada', cotizacion: 'Cotización',
-  evidencia_1: 'Evidencia 1', evidencia_2: 'Evidencia 2', evidencia_3: 'Evidencia 3',
-};
-
-/**
- * Un adjunto listo para pintar.
- *
- * ⚠️ `safeUrl` se sanitiza **una vez, acá**. Hacerlo en el template recrearía el `iframe` en
- * cada ciclo de detección — o sea que el PDF se recargaría solo, sin parar.
- */
-interface DocDelExpediente {
-  role: string;
-  label: string;
-  url: string;
-  isPdf: boolean;
-  safeUrl: SafeResourceUrl | null;
-}
 
 /** Cómo se llama cada estado en voz alta. La clave cruda es cómo se guarda, no cómo se dice. */
 const ESTADO_LABEL: Record<string, string> = {
@@ -48,20 +27,6 @@ const ESTADO_LABEL: Record<string, string> = {
   validada: 'Comprobado',
   rechazada: 'Rechazado',
 };
-
-/**
- * `[GX.20]` La fecha ISO como `Date` **local**, para que el pipe de fecha no corra el día.
- *
- * ⚠️ `new Date('2026-09-25')` es medianoche **UTC**, y en México (−06:00) eso es el 24 a las
- * 18:00 — el pipe imprimiría «24 sep». Es la misma trampa que la Fase LC.16 pagó en el
- * respaldo, el CSV y el orden de un TXT ya entregado. Construyéndola por partes, la fecha
- * es exactamente el día que dice.
- */
-export function isoADiaLocal(iso: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? '').slice(0, 10));
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-}
 
 /**
  * `[GX.20]` — **Aprobación de gastos.** El día del gasto, en tres pestañas.
@@ -123,7 +88,7 @@ export function isoADiaLocal(iso: string): Date | null {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, SidePeekComponent],
+  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -283,94 +248,13 @@ export function isoADiaLocal(iso: string): Date | null {
         }
       }
 
-      <!-- ── El vale, completo ──────────────────────────────────────────────────── -->
-      <!-- 820px: adentro va el comprobante, y un documento financiero no se lee en un
-           overlay apretado (DESIGN.md O.1). -->
-      <app-side-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)" [width]="820"
-                     title="Vale de gasto" [subtitle]="subtituloPeek()">
-        @if (abierto(); as p) {
-          <div class="vp">
-            <div class="vp-top">
-              <div>
-                <div class="vp-imp">{{ money(p.importe) }}</div>
-                <div class="vp-prov">{{ p.proveedor || '—' }}</div>
-              </div>
-              <span class="ap-chip" [class.ok]="p.status === 'validada'"
-                    [class.warn]="p.status === 'revision'" [class.bad]="p.status === 'rechazada'">
-                {{ estado(p.status) }}
-              </span>
-            </div>
-
-            @if (p.concepto) { <p class="vp-con">{{ p.concepto }}</p> }
-
-            <dl class="vp-datos">
-              <div><dt>Folio</dt><dd class="vp-mono">{{ p.folio_solicitud || 'sin folio' }}</dd></div>
-              <div><dt>Sucursal</dt><dd>{{ p.sucursal || '—' }}</dd></div>
-              <div><dt>Departamento</dt><dd>{{ p.departamento || p.solicitante || 'sin departamento' }}</dd></div>
-              <div><dt>Levantado</dt><dd>{{ diaLocal(p.created_at) | date: 'dd/MM/yy' }} {{ p.created_hora }} · {{ p.created_by || '—' }}</dd></div>
-              <!-- Las dos fechas, siempre: el gasto puede ser de otro día que el levantamiento. -->
-              <div><dt>Fecha del gasto</dt><dd>{{ p.fecha_gasto ? (diaLocal(p.fecha_gasto) | date: 'dd/MM/yy') : 'no declarada' }}</dd></div>
-              <div><dt>Tipo</dt><dd>{{ p.clasificacion ? tipoGasto(p.clasificacion) : 'sin clasificar' }}</dd></div>
-              <div><dt>Pago</dt><dd>{{ p.forma_pago ? formaPago(p.forma_pago) : 'sin forma de pago' }}@if (p.forma_pago_detalle) { · {{ p.forma_pago_detalle }} }</dd></div>
-              @if (p.validated_by) { <div><dt>Cerrado por</dt><dd>{{ p.validated_by }}</dd></div> }
-            </dl>
-
-            @if (p.comentarios) { <p class="vp-nota">“{{ p.comentarios }}”</p> }
-            @if (p.revision_nota) { <p class="vp-nota warn">{{ p.revision_nota }}</p> }
-            @if (p.motivo_rechazo) { <p class="vp-nota bad">Rechazado: {{ p.motivo_rechazo }}</p> }
-
-            <!-- ── Los papeles ──────────────────────────────────────────────────── -->
-            <h3 class="vp-h">Evidencia</h3>
-            @if (!docs().length) {
-              <!-- «No hay archivos» y «no los puedo mostrar» son dos cosas distintas. -->
-              <div class="vp-sin">
-                <i class="pi pi-file-excel" aria-hidden="true"></i>
-                <span>Este vale no trae ningún archivo adjunto.</span>
-              </div>
-            } @else {
-              @for (d of docs(); track d.url) {
-                <figure class="vp-doc">
-                  <figcaption>
-                    <span>{{ d.label }}</span>
-                    <a [href]="d.url" target="_blank" rel="noopener">abrir aparte</a>
-                  </figcaption>
-                  @if (d.isPdf) {
-                    <iframe [src]="d.safeUrl" [title]="d.label" loading="lazy"></iframe>
-                  } @else {
-                    <img [src]="d.url" [alt]="d.label" loading="lazy" (error)="fallo(d.url)" />
-                  }
-                  @if (fallidos().has(d.url)) {
-                    <!-- Que la imagen no cargue NO es que no exista: se dice cuál de las dos. -->
-                    <p class="vp-fallo">No se pudo mostrar el archivo. Probá «abrir aparte».</p>
-                  }
-                </figure>
-              }
-            }
-
-            <!-- ── La decisión, al pie del documento ───────────────────────────── -->
-            @if (accionesDe(p).length) {
-              <div class="vp-act">
-                @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
-                  <!-- La evidencia la sube quien capturó, no quien firma. Decirlo evita que
-                       el aprobador busque un botón que no le toca. -->
-                  <span class="ap-faint">la evidencia la sube quien lo levantó</span>
-                }
-                <span class="ap-grow"></span>
-                <button pButton type="button" class="p-button-text" [disabled]="actuando() === p.id"
-                        (click)="rechazar(p)">Rechazar</button>
-                @if (p.status === 'recibida') {
-                  <button pButton type="button" [loading]="actuando() === p.id" (click)="aprobar(p)">Aprobar</button>
-                } @else {
-                  <button pButton type="button" class="p-button-outlined" [loading]="actuando() === p.id"
-                          (click)="darPorComprobado(p)">Dar por comprobado</button>
-                }
-              </div>
-            } @else {
-              <p class="ap-faint vp-cerrado">Este vale ya se resolvió: no hay nada que decidir.</p>
-            }
-          </div>
-        }
-      </app-side-peek>
+      <!-- El vale completo vive en un componente compartido: el Historial usa el mismo.
+           Dos visores serian dos lugares donde arreglar el mismo error. -->
+      <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
+                           [vale]="abierto()" [acciones]="accionesDe(abierto())"
+                           [ocupado]="actuando() !== null"
+                           (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
+                           (rechazar)="rechazar($any($event))" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -461,39 +345,6 @@ export function isoADiaLocal(iso: string): Date | null {
     .ap-item[role='button']:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .ap-item.abierto { border-color: var(--action); box-shadow: inset 2px 0 0 var(--action); }
 
-    /* ── El vale, completo ──────────────────────────────────────────────────── */
-    .vp { display: flex; flex-direction: column; gap: var(--sp-3); }
-    .vp-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
-    .vp-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-h1); font-weight: var(--fw-bold); line-height: 1.1; }
-    .vp-prov { font-size: var(--fs-sm); color: var(--fg-2); }
-    .vp-con { font-size: var(--fs-sm); color: var(--fg-1); margin: 0; }
-    .vp-datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-4);
-      margin: 0; padding: var(--sp-3); background: var(--layout-bg); border-radius: var(--r-md); }
-    .vp-datos dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
-    .vp-datos dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
-    .vp-mono { font-family: var(--font-mono); }
-    .vp-nota { font-size: var(--fs-sm); color: var(--fg-2); font-style: italic; margin: 0; }
-    .vp-nota.warn { color: var(--warn-fg); font-style: normal; }
-    .vp-nota.bad { color: var(--bad-fg); font-style: normal; }
-    .vp-h { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em;
-      color: var(--fg-3); margin: var(--sp-2) 0 0; }
-    .vp-sin { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--fg-2);
-      padding: var(--sp-4); border: 1px dashed var(--border-color); border-radius: var(--r-md); }
-    .vp-doc { margin: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
-    .vp-doc figcaption { display: flex; align-items: center; justify-content: space-between;
-      gap: var(--sp-2); padding: 6px var(--sp-3); background: var(--layout-bg);
-      font-size: var(--fs-xs); color: var(--fg-2); }
-    .vp-doc figcaption a { font-size: var(--fs-xs); }
-    .vp-doc img { display: block; width: 100%; height: auto; background: var(--layout-bg); }
-    .vp-doc iframe { display: block; width: 100%; height: 62vh; border: 0; background: var(--layout-bg); }
-    .vp-fallo { font-size: var(--fs-xs); color: var(--warn-fg); padding: var(--sp-2) var(--sp-3); margin: 0; }
-    .vp-act { display: flex; align-items: center; gap: var(--sp-2); position: sticky; bottom: 0;
-      margin-top: var(--sp-2); padding-top: var(--sp-3); background: var(--card-bg);
-      border-top: 1px solid var(--c-divider); }
-    .vp-cerrado { padding-top: var(--sp-3); border-top: 1px solid var(--c-divider); }
-
-    @media (max-width: 48rem) { .vp-datos { grid-template-columns: 1fr; } }
 
     @media (max-width: 60rem) {
       .ap-cols { flex-direction: column; }
@@ -505,7 +356,6 @@ export function isoADiaLocal(iso: string): Date | null {
 })
 export class FinanzasAprobacionGastosComponent {
   private readonly svc = inject(ComprobacionesService);
-  private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -517,8 +367,6 @@ export class FinanzasAprobacionGastosComponent {
   readonly actuando = signal<string | null>(null);
   /** El vale que se está mirando. `null` = el panel está cerrado. */
   readonly abierto = signal<ExpedienteDelDia | null>(null);
-  /** Las urls de los archivos que el navegador no pudo pintar. Ver `fallo()`. */
-  readonly fallidos = signal<ReadonlySet<string>>(new Set());
   /** El día que muestra la pantalla: siempre hoy, y quién es hoy lo decide el SERVIDOR
    *  (hora de México). Se retiró la barra que dejaba elegir otro — ver el doc de la clase. */
   private readonly fecha = signal<string>('');
@@ -595,24 +443,14 @@ export class FinanzasAprobacionGastosComponent {
     return 'No se rechazó nada de este día.';
   }
 
-  diaLocal(iso: string | null | undefined): Date | null { return isoADiaLocal(String(iso ?? '')); }
+  /** `[GX.27]` El helper COMPARTIDO del repo (`core/utils/mx-date`). Yo habia escrito uno
+   *  identico acá — un duplicado es un segundo lugar donde se puede corregir mal. */
+  diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }
 
   readonly peekAbierto = computed(() => this.abierto() !== null);
 
-  subtituloPeek(): string {
-    const p = this.abierto();
-    if (!p) return '';
-    return `${p.folio_solicitud || 'sin folio'} · ${p.departamento || p.solicitante || 'sin departamento'}`;
-  }
-
-  /**
-   * Abre el vale. Los archivos ya vienen firmados en la fila — no se vuelve a pedir nada.
-   *
-   * ⚠️ El `safeUrl` de los PDF se sanitiza ACÁ, una sola vez. Hacerlo en el template
-   * recrearía el `iframe` en cada ciclo de detección: el documento se recargaría solo.
-   */
+  /** Abre el vale. Los archivos ya vienen firmados en la fila — no se vuelve a pedir nada. */
   abrir(p: ExpedienteDelDia): void {
-    this.fallidos.set(new Set());
     this.abierto.set(p);
   }
 
@@ -621,32 +459,12 @@ export class FinanzasAprobacionGastosComponent {
     if (!v) this.abierto.set(null);
   }
 
-  readonly docs = computed<DocDelExpediente[]>(() => {
-    const p = this.abierto();
-    if (!p) return [];
-    return (p.files ?? []).filter((f) => f?.url).map((f) => {
-      const role = String(f.role ?? '');
-      const isPdf = f.kind === 'pdf' || /\.pdf(\?|$)/i.test(f.url);
-      return {
-        role,
-        label: ARCHIVO_LABEL[role] ?? role ?? 'Archivo',
-        url: f.url,
-        isPdf,
-        safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
-      };
-    });
-  });
-
-  /** Que el navegador no pueda pintarlo NO es que el archivo no exista: se dice cuál de las dos. */
-  fallo(url: string): void {
-    this.fallidos.update((s) => new Set(s).add(url));
-  }
-
   /**
    * Qué se puede hacer con este vale, **según su estado** — no según la pestaña: dentro de
    * «Aprobados» conviven tres momentos del cierre y cada uno ofrece otra cosa.
    */
-  accionesDe(p: ExpedienteDelDia): readonly ('aprobar' | 'comprobar' | 'rechazar')[] {
+  accionesDe(p: ExpedienteDelDia | null): readonly AccionVale[] {
+    if (!p) return [];
     if (p.status === 'recibida') return ['aprobar', 'rechazar'];
     if (p.status === 'aprobada' || p.status === 'revision') return ['comprobar', 'rechazar'];
     return [];

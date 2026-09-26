@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
-import { FinanzasAprobacionGastosComponent, isoADiaLocal } from './finanzas-aprobacion-gastos.component';
+import { FinanzasAprobacionGastosComponent } from './finanzas-aprobacion-gastos.component';
 import type { ExpedienteDelDia, GastosDelDia } from '../comprobaciones.service';
 
 /**
@@ -79,24 +79,6 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
   },
   pendientes_fuera_del_dia: { n: 0, monto: 0 },
   ...over,
-});
-
-describe('[GX.20] la fecha no se corre de día', () => {
-  /**
-   * ⭐ `new Date('2026-09-25')` es medianoche UTC; en México (−06:00) eso es el 24 a las
-   * 18:00, y el pipe imprimiría «24 sep». Es la trampa que la Fase LC.16 ya pagó.
-   */
-  it('una fecha ISO se vuelve ESE día, no el anterior', () => {
-    const d = isoADiaLocal('2026-09-25');
-    expect(d?.getFullYear()).toBe(2026);
-    expect(d?.getMonth()).toBe(8); // septiembre
-    expect(d?.getDate()).toBe(25);
-  });
-
-  it('lo que no es una fecha devuelve null en vez de una fecha inventada', () => {
-    for (const v of ['', 'hoy', '25/09/2026', 'Thu Sep 24']) expect(isoADiaLocal(v)).toBeNull();
-  });
-
 });
 
 describe('FinanzasAprobacionGastosComponent', () => {
@@ -379,7 +361,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
       c.abrir(c.visibles()[1]);                      // validada
       expect(c.accionesDe(c.abierto()!)).toEqual([]);
       fix.detectChanges();
-      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
+      expect(c.accionesDe(c.abierto())).toEqual([]);
     });
 
     /** ⛔ En Rechazados también se abre: mirar el vale no es lo mismo que poder cambiarlo. */
@@ -395,41 +377,26 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(botonesDeFila()).toEqual([]);
     });
 
-    it('un PDF se sanitiza una sola vez; una imagen no se sanitiza', () => {
-      montar(DIA({
-        total: 1,
-        filas: [F({ id: 'a1', files: [
-          { role: 'comprobante_1', url: 'https://ejemplo/t.jpg', kind: 'image' },
-          { role: 'evidencia_1', url: 'https://ejemplo/f.pdf', kind: 'pdf' },
-        ] })],
-      }));
-      c.abrir(c.visibles()[0]);
-      const docs = c.docs();
-      expect(docs.map((d) => d.label)).toEqual(['Comprobante — hoja 1', 'Evidencia 1']);
-      expect(docs[0].isPdf).toBe(false);
-      expect(docs[0].safeUrl).toBeNull();
-      expect(docs[1].isPdf).toBe(true);
-      expect(docs[1].safeUrl).not.toBeNull();
-      // La MISMA referencia entre lecturas: si cambiara, el iframe se recrearía solo.
-      expect(c.docs()[1].safeUrl).toBe(docs[1].safeUrl);
-    });
-
-    /** Un archivo que no carga NO es un vale sin archivos: son dos cosas distintas. */
-    it('«no se pudo mostrar» se dice aparte de «no hay archivos»', () => {
+    /**
+     * ⚠️ Lo que el visor MUESTRA (documentos, sanitización de PDF, «no se pudo mostrar»
+     * vs «no hay archivos») se prueba en `vale-gasto-peek.component.spec.ts`: es un
+     * componente compartido con el Historial. Acá se prueba el CABLEADO — que esta página
+     * le pase el vale correcto y las acciones que corresponden.
+     */
+    it('le pasa al visor el vale abierto y las acciones de su estado', () => {
       montar();
       c.abrir(c.visibles()[0]);
-      c.fallo('https://ejemplo/x.jpg');
       fix.detectChanges();
-      expect(fix.nativeElement.textContent).toContain('No se pudo mostrar el archivo');
-      expect(fix.nativeElement.textContent).not.toContain('no trae ningún archivo');
+      const peek = fix.nativeElement.querySelector('app-vale-gasto-peek');
+      expect(peek).not.toBeNull();
+      expect(c.abierto()?.id).toBe('a1');
+      expect(c.accionesDe(c.abierto())).toEqual(['aprobar', 'rechazar']);
     });
 
-    it('un vale sin archivos lo dice con todas las letras', () => {
-      montar(DIA({ total: 1, filas: [F({ id: 'a1', files: [] })] }));
-      c.abrir(c.visibles()[0]);
-      fix.detectChanges();
-      expect(c.docs()).toEqual([]);
-      expect(fix.nativeElement.textContent).toContain('no trae ningún archivo');
+    it('sin vale abierto, no le pasa acciones a nadie', () => {
+      montar();
+      expect(c.abierto()).toBeNull();
+      expect(c.accionesDe(null)).toEqual([]);
     });
   });
 

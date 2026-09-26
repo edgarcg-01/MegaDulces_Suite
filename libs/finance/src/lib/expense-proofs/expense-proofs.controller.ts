@@ -2,6 +2,7 @@ import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, Use
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
+import type { CalendarioDelMes } from './calendario-gastos';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
@@ -45,12 +46,13 @@ export class ExpenseProofsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
+    @Query('dia') dia?: string,
     @Req() req?: AuthedRequest,
   ): ReturnType<ExpenseProofsService['list']> {
     if (!isPlatformAdminRole(req?.user?.role_name)) {
       throw new ForbiddenException('el historial de toda la empresa es sólo para administradores de la plataforma; lo tuyo está en /mine');
     }
-    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, limit: limit ? Number(limit) : undefined };
+    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, dia, limit: limit ? Number(limit) : undefined };
     return this.svc.list(q);
   }
 
@@ -71,7 +73,7 @@ export class ExpenseProofsController {
   @Get('mine')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
-  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['list']> {
+  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['list']> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
@@ -79,7 +81,7 @@ export class ExpenseProofsController {
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
-    return this.svc.list({ mine: actor, search, limit: limit ? Number(limit) : undefined });
+    return this.svc.list({ mine: actor, search, dia, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('resumen')
@@ -103,6 +105,35 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: '[GX.20] Los levantamientos de gasto de UN dia (captura, hora de Mexico), partidos en Aprobar / Ejercer / Todos. Sin `fecha` devuelve hoy. Trae el rail de dias con sus pendientes y lo que espera firma FUERA del dia: acotar por dia no puede esconder trabajo.' })
   delDia(@Query('fecha') fecha?: string, @Query('limit') limit?: string): Promise<RespuestaDelDia> {
     return this.svc.delDia(fecha, limit ? Number(limit) : undefined);
+  }
+
+  /**
+   * `[GX.27]` El mes del historial: cuántos levantamientos hubo cada día y cuánto sumaron.
+   *
+   * ⚠️ El **alcance** lo decide esta ruta, no el cliente. `alcance=todos` es el calendario de
+   * toda la empresa y por lo tanto **god-mode**, la misma regla que `[GX.26]` puso en la
+   * colección: si acá se resolviera por un parámetro, el recorte de allá sería inútil —
+   * bastaría pedir el calendario para saber cuánto gastó cada área.
+   *
+   * Cualquier otro valor cae en «lo mío», que es lo que todos pueden ver de sí mismos.
+   */
+  @Get('calendario')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: '[GX.27] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode; cualquier otro valor devuelve lo del propio usuario.' })
+  calendario(
+    @Query('mes') mes?: string,
+    @Query('alcance') alcance?: string,
+    @Req() req?: AuthedRequest,
+  ): Promise<CalendarioDelMes> {
+    const esGod = isPlatformAdminRole(req?.user?.role_name);
+    if (alcance === 'todos' && !esGod) {
+      throw new ForbiddenException('el calendario de toda la empresa es sólo para administradores de la plataforma');
+    }
+    if (alcance === 'todos') return this.svc.calendarioMes(mes);
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    // Sin actor NO se cae a sin-filtro: eso devolvería el calendario de la empresa entera a
+    // quien sólo pidió el suyo. Se acota a un nombre que no existe → mes vacío, declarado.
+    return this.svc.calendarioMes(mes, { mine: actor || ' sin-actor' });
   }
 
   @Get('status-by-folio')

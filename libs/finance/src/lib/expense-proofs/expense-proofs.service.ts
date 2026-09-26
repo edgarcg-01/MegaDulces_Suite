@@ -1,9 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
-import { esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
+import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
@@ -11,6 +11,10 @@ import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
 } from './etapas-del-dia';
+import {
+  mesValido, rangoDelMes, totalDelMes,
+  type CalendarioDelMes, type DiaDelCalendario,
+} from './calendario-gastos';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -205,6 +209,15 @@ export interface ListExpenseProofsQuery {
   to?: string;
   /** Sólo lo que capturó este usuario (para la vista del capturista). */
   mine?: string;
+  /**
+   * `[GX.27]` Un día de calendario **de México** (`YYYY-MM-DD`).
+   *
+   * ⚠️ Es distinto de `from`/`to`, que comparan `created_at` contra un string suelto y por eso
+   * arrastran el corrimiento de zona: `'2026-09-26'` es medianoche **UTC**, o sea las 18:00 del
+   * 25 en México. Para «lo del día 26» eso mete seis horas del día anterior y pierde seis del
+   * propio. `dia` se resuelve como rango en hora de México.
+   */
+  dia?: string;
   limit?: number;
 }
 
@@ -219,6 +232,12 @@ export class ExpenseProofsService {
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
     @Optional() private readonly gateway?: ExpenseProofsGateway,
+    /**
+     * `[GX.26]` El canal que llega a la CAMPANA de quien levanto el gasto. `@Optional`
+     * como manda el port: si no hay binding, la decision se guarda igual y el aviso no
+     * sale -- nunca al reves.
+     */
+    @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
   /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
@@ -233,6 +252,51 @@ export class ExpenseProofsService {
         importe: row.importe == null ? null : Number(row.importe), actor: actor ?? null,
       });
     } catch { /* el aviso no debe tumbar la operación */ }
+  }
+
+  /**
+   * `[GX.26]` **El aviso a QUIEN LEVANTO el gasto.**
+   *
+   * El `emit` de arriba avisa al AUTORIZADOR que llego algo. Este es el camino de vuelta:
+   * la persona que tomo la foto mandó el vale y se quedo sin saber en que quedo. Ahora le
+   * llega a su campana cuando se aprueba o se rechaza, con el motivo si lo hubo.
+   *
+   * ⚠️ Va a SU cuarto, no al del tenant: «tu vale fue rechazado» es de una persona, y
+   * mandarselo a los 166 seria ruido para 165 y una fuga para el dueño.
+   *
+   * ⛔ Los expedientes que entraron por LINK no tienen a quien avisarle: su `created_by`
+   * es `link:<quien firmo>`, que no es un usuario de la app. Se DECLARA en el log en vez
+   * de intentar adivinar a quien mandarselo.
+   */
+  private avisarAlSolicitante(
+    decision: 'aprobado' | 'rechazado',
+    row: { folio_solicitud?: string | null; created_by?: string | null; proveedor?: string | null;
+           importe?: number | null; motivo_rechazo?: string | null },
+  ): void {
+    try {
+      const quien = String(row.created_by || '').trim();
+      if (!quien) return;
+      if (quien.startsWith('link:')) {
+        this.logger.debug(`sin aviso: ${row.folio_solicitud} lo levanto un link (${quien}), no un usuario`);
+        return;
+      }
+      const tenantId = this.tenantCtx.requireTenantId();
+      const folio = row.folio_solicitud || 'sin folio';
+      const monto = row.importe == null ? '' : ` · $${Number(row.importe).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+      const aprobado = decision === 'aprobado';
+      void this.notifier?.notify?.(tenantId, {
+        key: `vale_${decision}:${folio}`,
+        type: 'vale_resuelto',
+        severity: aprobado ? 'info' : 'warn',
+        title: aprobado ? `Aprobaron tu vale ${folio}` : `Rechazaron tu vale ${folio}`,
+        message: aprobado
+          ? `${row.proveedor || 'Sin proveedor'}${monto}`
+          : `${row.proveedor || 'Sin proveedor'}${monto} — ${row.motivo_rechazo || 'sin motivo declarado'}`,
+        route: '/finanzas/gastos-historial',
+        para_usuario: quien,
+        data: { folio_solicitud: folio, decision, importe: row.importe ?? null },
+      });
+    } catch { /* el aviso no debe tumbar la decision */ }
   }
 
   /**
@@ -559,8 +623,12 @@ export class ExpenseProofsService {
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit(cierra ? 'validated' : 'captured', full, actor);
+      // `[GX.26]` Se avisa cuando la decision CIERRA el vale. Aprobar un gasto comprobable
+      // no lo cierra -- deja al capturista con algo mas que hacer (subir la evidencia), y ese
+      // aviso es otro mensaje, no este. Avisar «aprobado» ahi diria que ya termino.
+      if (full && cierra) this.avisarAlSolicitante('aprobado', full);
       this.logger.log(`solicitud de gasto folio ${base.cur.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
       return row;
     });
@@ -648,9 +716,22 @@ export class ExpenseProofsService {
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
           'files', 'comentarios', 'status',
+          // `[GX.27]` La forma de pago viaja porque el visor del vale la muestra. Sin ella,
+          // el visor diría «sin forma de pago» en un vale que SI la tiene -- que es afirmar
+          // algo falso, no omitir un dato.
+          // Lo mismo vale para la clasificacion: sin ella el visor decia «sin clasificar»
+          // en un vale que SI estaba clasificado. Medido en pantalla.
+          'forma_pago', 'forma_pago_detalle', 'clasificacion',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
       if (q.status) b.where('status', q.status);
+      // `[GX.27]` El día, como RANGO en hora de México -- no envolviendo la columna en
+      // `to_char`, que anularía el índice de `created_at`.
+      const dia = diaValido(q.dia);
+      if (dia) {
+        b.whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia])
+         .whereRaw(`created_at <  ((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+      }
       if (q.folio_solicitud) b.where('folio_solicitud', q.folio_solicitud.trim());
       if (q.mine) b.where('created_by', q.mine);
       if (q.from) b.where('created_at', '>=', q.from);
@@ -669,6 +750,58 @@ export class ExpenseProofsService {
       return {
         kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         rows,
+      };
+    });
+  }
+
+  /**
+   * `[GX.27]` **El mes del historial**: cuántos levantamientos hubo cada día y cuánto sumaron.
+   *
+   * Es lo que dibuja el calendario. Devuelve **sólo los días con movimiento** — la rejilla
+   * pinta los vacíos igual, y mandar 30 ceros por la red no agrega información.
+   *
+   * ⚠️ El corte del mes va en hora de **México**: un gasto levantado el 30 a las 20:00 de acá
+   * ya es día 1 en UTC, y con el corte en UTC el total de octubre se comería el último día de
+   * septiembre.
+   *
+   * ⚠️ `mine` NO es un filtro opcional de conveniencia: es el alcance. Cuando viene, la
+   * consulta se acota a esa persona; cuando no, devuelve el de toda la empresa — y eso lo
+   * decide el controller, que es quien sabe si hay god-mode.
+   */
+  async calendarioMes(mesPedido: string | undefined, opts: { mine?: string } = {}): Promise<CalendarioDelMes> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const pedido = mesPedido == null || String(mesPedido).trim() === '' ? null : String(mesPedido).trim();
+    const mes = mesValido(pedido) ?? hoyMx().slice(0, 7);
+    const { desde, hasta } = rangoDelMes(mes);
+
+    return this.tk.run(async (trx) => {
+      interface FilaCruda { dia: string; n: number; monto: string | number }
+      const b = trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
+        .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta])
+        .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
+        .orderByRaw('1 ASC')
+        .select(
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
+          trx.raw('COUNT(*)::int AS n'),
+          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+      if (opts.mine) b.where('created_by', opts.mine);
+
+      const filas: FilaCruda[] = await b;
+      const dias: DiaDelCalendario[] = filas.map((f) => ({
+        dia: f.dia,
+        n: Number(f.n) || 0,
+        monto: Math.round((Number(f.monto) || 0) * 100) / 100,
+      }));
+
+      return {
+        mes,
+        // No-null = el mes que pidieron era ilegible y se cayó al actual. La pantalla lo dice.
+        mes_pedido: pedido != null && mesValido(pedido) == null ? pedido : null,
+        dias,
+        total: totalDelMes(dias),
+        alcance: opts.mine ? 'mios' : 'todos',
       };
     });
   }
@@ -1372,8 +1505,10 @@ export class ExpenseProofsService {
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit('validated', full, actor);
+      // `[GX.26]` Y el camino de vuelta: a quien levanto el gasto, a su campana.
+      if (full) this.avisarAlSolicitante('aprobado', full);
       return row;
     });
   }
@@ -1387,8 +1522,11 @@ export class ExpenseProofsService {
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya rechazada');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by', 'motivo_rechazo');
       if (full) this.emit('rejected', full, actor);
+      // `[GX.26]` El rechazo SIEMPRE viaja con su motivo: un «te lo rechazaron» sin por que
+      // obliga a la persona a ir a preguntar, que es justo lo que el aviso deberia evitar.
+      if (full) this.avisarAlSolicitante('rechazado', full);
       return row;
     });
   }

@@ -2716,6 +2716,79 @@ las cuentas de administración y dárselo al área), es cambiar una línea.
 
 ---
 
+## GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código)
+
+Pedido del usuario: que el Historial (`[GX.25]`) sea **un calendario**, con un mini número por
+día que diga cuántos gastos se levantaron, y que al abrir una fecha se pueda entrar a un vale y
+ver su información.
+
+La tabla de 200 renglones se fue. Ahora el mes está a la vista: cada casilla dice **cuántos**
+levantamientos hubo y **cuánto** sumaron; al abrir un día salen sus vales; al abrir un vale, el
+expediente completo con su evidencia. Es como la gente recuerda un gasto —«fue el martes
+pasado»— y no por número de folio.
+
+⚠️ **El mes y el día son los de México.** Un gasto levantado a las 20:00 de acá ya es el día
+siguiente en UTC: con el corte en UTC caería en la casilla de mañana, y el último día de cada
+mes se mudaría al siguiente.
+
+- [x] **[GX.27.1]** `calendario-gastos.ts` (backend, puro): `mesValido`, `rangoDelMes`,
+  `totalDelMes`. ⛔ El rango es **medio abierto**, del 1 al 1 del mes siguiente — calcular «el
+  último día del mes» a mano es de donde salen los febreros rotos y los gastos del 31 perdidos;
+  una prueba comprueba que meses consecutivos **se tocan sin hueco ni traslape**. 12 pruebas.
+  ✅ 2026-09-26
+- [x] **[GX.27.2]** `GET /calendario?mes=&alcance=` (agregado por día) y `dia=` en la colección
+  y en `/mine`. ⚠️ `dia` existe **porque `from`/`to` no sirven**: comparan `created_at` contra un
+  string suelto, y `'2026-09-26'` es medianoche **UTC** — o sea las 18:00 del 25 en México. Para
+  «lo del 26» eso mete seis horas del día anterior y pierde seis del propio. ⛔ El **alcance** lo
+  decide la ruta, no el cliente: `alcance=todos` es god-mode, la misma regla de `[GX.26]` — si se
+  resolviera por parámetro, bastaría pedir el calendario para saber cuánto gastó cada área.
+  ✅ 2026-09-26
+- [x] **[GX.27.3]** `calendario-mes.util.ts` (frontend, puro): la rejilla del mes. ⛔ **Nada de
+  `new Date(iso)`** — es medianoche UTC y la rejilla arrancaría el día equivocado; se arma con
+  `Date.UTC` y se lee con los getters `UTC*`, así que es aritmética de casilleros, sin husos.
+  Una prueba verifica que **están todos los días del mes, una sola vez**, en seis meses
+  distintos (el 31 perdido es el clásico). 17 pruebas. ✅ 2026-09-26
+- [x] **[GX.27.4]** ⭐ **El visor del vale se extrajo a `vale-gasto-peek.component.ts`**, y esto
+  es lo que más importa del sprint: nació dentro de Aprobación en `[GX.20.10]` y el Historial
+  necesitaba **lo mismo**. Duplicarlo serían dos lugares donde arreglar el mismo error y dos que
+  pueden empezar a mostrar cosas distintas del mismo expediente — justo lo que ADR-056 prohíbe.
+  El visor **no decide ni pide nada**: recibe el expediente y la lista de acciones permitidas, y
+  emite; quien manda es la página, que es la que conoce el permiso. Por eso el Historial lo usa
+  de **sólo lectura** sin apagar botones uno por uno. 15 pruebas propias. ✅ 2026-09-26
+- [x] **[GX.27.5]** ⚠️ **Encontré un duplicado MÍO al extraer**: `isoADiaLocal`, que escribí en
+  `[GX.20]`, era idéntico a `parseLocalDate` de `core/utils/mx-date.ts` — el helper compartido
+  que el repo ya tenía. Se retiró y ahora los dos usan el compartido. ✅ 2026-09-26
+- [x] **[GX.27.6]** ⛔ **Medido en pantalla: el visor decía «sin clasificar» en un vale que SÍ
+  estaba clasificado**, porque la colección no seleccionaba `clasificacion` (ni `forma_pago`).
+  Se arregló en los dos lados: el endpoint ahora las manda, **y** el visor distingue
+  `undefined` («este endpoint no lo manda») de `null` («vino vacío») y en el primer caso
+  **omite la fila** en vez de afirmar un hueco que no existe. ✅ 2026-09-26
+- [x] **[GX.27.7]** Revisión visual, dos defectos corregidos: el peso visual estaba **invertido**
+  (los días sin gasto se veían llenos y el día con gasto, vacío) y el encabezado del día salía
+  «Domingo 27 **De** Septiembre» — `capitalize` a secas otra vez, ahora `::first-letter`.
+  ✅ 2026-09-26
+
+**Verificado contra el servidor real** (API reconstruida, `platform_local`): el calendario de
+septiembre devuelve **17 días con movimiento, 46 levantamientos, $293,794.33**, y la suma de los
+días **cuadra exacto** con el total del encabezado. Tesorería pidiendo `alcance=todos` → **403**;
+lo suyo → **200**. Un mes ilegible (`13-2026`) se **declara** en `mes_pedido` y cae al actual, en
+vez de verse igual que un mes sin gasto. En pantalla: el día 26 muestra **19** y **$85k**, abre
+sus 19 vales, y el vale abre con su evidencia y **cero botones** (el Historial es consulta).
+
+`view/finanzas` 224 · `libs/finance` 211, verde. check:templates OK.
+
+⚠️ **El boundary gate está en rojo con 8 violaciones que NO son de esta fase**: todas en
+`apps/api/src/modules/store/*`, staged por otra sesión mientras yo trabajaba. Mis archivos salen
+limpios. No las toqué: es trabajo en curso ajeno.
+
+⚠️ **Deuda que dejé anotada:** `expense-proofs.service.ts` y su controller quedaron con finales
+de línea **mezclados** por un script mío de `[GX.26]`; lo normalicé a LF (que es como los guarda
+git) y el diff volvió de 229 líneas a 37. La lección es la de siempre acá: un script que
+reescribe un archivo tiene que respetar su final de línea, o el diff se vuelve irrevisable y el
+gate empieza a marcar como nuevas líneas que nadie tocó.
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del

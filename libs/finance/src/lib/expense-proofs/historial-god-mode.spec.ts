@@ -31,7 +31,10 @@ const pedirHistorial = (role_name?: string | null) => {
   const { svc, llamadas } = servicioFalso();
   const ctrl = new ExpenseProofsController(svc);
   const req = role_name === undefined ? undefined : { user: { role_name } };
-  const correr = () => ctrl.list(undefined, undefined, undefined, undefined, undefined, undefined, req);
+  // (status, folio, search, from, to, limit, dia, req) -- `req` es el ULTIMO. Si la firma
+  // gana otro @Query, esta llamada se corre: por eso las 3 pruebas de god-mode se pusieron
+  // en rojo cuando `[GX.27]` agrego `dia`, y por eso el conteo va explicito aca.
+  const correr = () => ctrl.list(undefined, undefined, undefined, undefined, undefined, undefined, undefined, req);
   return { correr, llamadas };
 };
 

@@ -75,6 +75,9 @@ export interface ExpenseProof {
   monto_match?: boolean | null;   // cuadró vs el importe de la solicitud
   tiene_comprobacion?: boolean | null; // (XA1001, dormante) lo declaraba quien valida
   comprobacion_nota?: string | null;
+  /** `[GX.27]` La forma de pago viaja en el listado porque el visor del vale la muestra. */
+  forma_pago?: string | null;
+  forma_pago_detalle?: string | null;
   revision_nota?: string | null;  // por qué quedó en revisión
   validated_by: string | null;
   validated_at: string | null;
@@ -261,6 +264,49 @@ export interface ExpedienteDelDia {
   files: ProofFile[];
 }
 
+/**
+ * `[GX.27]` Lo que el **visor del vale** necesita para pintar un expediente.
+ *
+ * Es el minimo comun: `ExpedienteDelDia` (la pantalla de Aprobacion) y `ExpenseProof` (el
+ * Historial) son asignables a esto. Existe para que el visor sea UNO solo -- dos visores son
+ * dos lugares donde arreglar el mismo error, y dos que pueden empezar a mostrar cosas
+ * distintas del mismo expediente.
+ *
+ * (!) Los campos OPCIONALES no son "puede no existir": son "este endpoint no los manda".
+ * `created_hora` y `concepto` solo vienen de `/del-dia`. El visor los omite cuando faltan, en
+ * vez de pintar un guion -- un guion afirma que el expediente no los tiene, y eso seria falso.
+ */
+export interface ValeGasto {
+  id: string;
+  folio_solicitud: string | null;
+  sucursal: string | null;
+  /** Cuando OCURRIO el gasto. Puede ser de otro dia que el levantamiento. */
+  fecha_gasto: string | null;
+  /** Cuando se LEVANTO (`YYYY-MM-DD` o ISO completo; el visor lo normaliza). */
+  created_at: string;
+  /** `HH:MM`. `undefined` = este endpoint no lo manda. */
+  created_hora?: string;
+  importe: number;
+  departamento: string | null;
+  solicitante?: string | null;
+  /** Concepto de la solicitud de Kepler. `undefined` = este endpoint no lo trae. */
+  concepto?: string | null;
+  proveedor: string | null;
+  clasificacion?: string | null;
+  forma_pago?: string | null;
+  forma_pago_detalle?: string | null;
+  comentarios: string | null;
+  created_by: string | null;
+  status: ProofStatus | string;
+  motivo_rechazo: string | null;
+  revision_nota?: string | null;
+  validated_by: string | null;
+  requiere_evidencia?: boolean;
+  tiene_evidencia?: boolean;
+  evidencia_en_vivo?: boolean;
+  files: ProofFile[];
+}
+
 export interface GastosDelDia {
   fecha: string;
   es_hoy: boolean;
@@ -276,6 +322,18 @@ export interface GastosDelDia {
   entrada: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
   /** Lo que espera firma y NO es de este dia. Sin esto, acotar por dia esconderia trabajo. */
   pendientes_fuera_del_dia: { n: number; monto: number };
+}
+
+/** `[GX.27]` Un dia del calendario del historial. Solo viajan los dias CON movimiento. */
+export interface DiaDelCalendario { dia: string; n: number; monto: number }
+
+export interface CalendarioDelMes {
+  mes: string;
+  /** No-null = el mes que se pidio era ilegible y el servidor cayo al actual. */
+  mes_pedido: string | null;
+  dias: DiaDelCalendario[];
+  total: { n: number; monto: number };
+  alcance: 'mios' | 'todos';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -305,6 +363,30 @@ export class ComprobacionesService {
     let params = new HttpParams().set('limit', String(limit));
     if (fecha) params = params.set('fecha', fecha);
     return this.http.get<GastosDelDia>(`${this.base}/del-dia`, { params });
+  }
+
+  /**
+   * `[GX.27]` El mes del historial: por dia, cuantos levantamientos y cuanto sumaron.
+   *
+   * (!) El `alcance` lo VALIDA el servidor: pedir `todos` sin god-mode devuelve 403, no una
+   * version recortada. Aca se manda lo que la pantalla puede ofrecer; la puerta esta alla.
+   */
+  calendario(mes?: string, alcance: 'mios' | 'todos' = 'mios'): Observable<CalendarioDelMes> {
+    let params = new HttpParams().set('alcance', alcance);
+    if (mes) params = params.set('mes', mes);
+    return this.http.get<CalendarioDelMes>(`${this.base}/calendario`, { params });
+  }
+
+  /**
+   * `[GX.27]` Los levantamientos de UN dia, con el mismo alcance que el calendario.
+   *
+   * (X) La ruta cambia con el alcance, y no es cosmetico: `/mine` esta acotada por el token
+   * y la coleccion es god-mode (`[GX.26]`). Pedir el dia "de todos" sin permiso devuelve 403.
+   */
+  delDiaHistorial(dia: string, alcance: 'mios' | 'todos' = 'mios', limit = 200): Observable<ExpenseProofsReport> {
+    const params = new HttpParams().set('dia', dia).set('limit', String(limit));
+    const url = alcance === 'todos' ? this.base : `${this.base}/mine`;
+    return this.http.get<ExpenseProofsReport>(url, { params });
   }
   /**
    * Lo que capturó este usuario (ruta propia, acotada por el token).
