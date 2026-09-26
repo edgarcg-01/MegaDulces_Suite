@@ -1,4 +1,4 @@
-import { cajasYPiezas, diasInventario, roundSeed, textoCajasPiezas, textoSumaCajasPiezas } from './pedido-redondeo';
+import { cajasYPiezas, diasInventario, dineroCorto, pasoCantidad, pasoPorTecla, roundSeed, TeclaPaso, textoCajasPiezas, textoSumaCajasPiezas } from './pedido-redondeo';
 
 describe('[RA-PRO.51] roundSeed — el sugerido llega redondeado', () => {
   describe('los cuatro ejemplos que el PR promete en su tabla', () => {
@@ -149,5 +149,73 @@ describe('[RA-PRO.53] diasInventario — existencia (+ pedido) / (venta 30 d / 3
   });
   it('existencia en cero con venta → 0 días (sí es "urge")', () => {
     expect(diasInventario(0, 37.3)).toBe(0);
+  });
+});
+
+describe('[RA-PRO.57] pasoCantidad — el + / − del pedido', () => {
+  it('entero: suma y resta de a uno', () => {
+    expect(pasoCantidad(12, 1)).toBe(13);
+    expect(pasoCantidad(12, -1)).toBe(11);
+  });
+  it('con decimales cae al entero siguiente / anterior', () => {
+    expect(pasoCantidad(147.4, 1)).toBe(148);
+    expect(pasoCantidad(147.4, -1)).toBe(147);
+  });
+  it('nunca baja de 0', () => {
+    expect(pasoCantidad(0, -1)).toBe(0);
+    expect(pasoCantidad(0.4, -1)).toBe(0);
+  });
+  it('absorbe el ruido de flotante de cajas↔piezas', () => {
+    expect(pasoCantidad(3.0000000004, 1)).toBe(4);
+    expect(pasoCantidad(2.9999999996, -1)).toBe(2);
+  });
+  it('valor inválido cuenta como 0', () => {
+    expect(pasoCantidad(NaN, 1)).toBe(1);
+    expect(pasoCantidad(NaN, -1)).toBe(0);
+  });
+});
+
+describe('[RA-PRO.59] dineroCorto — resumen de la barra en celular', () => {
+  it('millones con un decimal, miles redondeados, menores tal cual', () => {
+    expect(dineroCorto(4_284_837)).toBe('$4.3 M');
+    expect(dineroCorto(519_337)).toBe('$519 mil');
+    expect(dineroCorto(850.4)).toBe('$850');
+  });
+  it('fronteras: lo que redondea a 1,000 mil se escribe 1 M, nunca "1,000 mil"', () => {
+    expect(dineroCorto(999_600)).toBe('$1 M');
+    expect(dineroCorto(999_499)).toBe('$999 mil');
+    expect(dineroCorto(1_000_000)).toBe('$1 M');
+  });
+  it('cero, inválido y negativo', () => {
+    expect(dineroCorto(0)).toBe('$0');
+    expect(dineroCorto(NaN)).toBe('$0');
+    expect(dineroCorto(-2500)).toBe('−$3 mil');
+  });
+});
+
+describe('[RA-PRO.57] pasoPorTecla — qué tecla suma o resta en el pedido', () => {
+  const T = (key: string, m: Partial<TeclaPaso> = {}): TeclaPaso =>
+    ({ key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...m });
+
+  it('→ suma y ← resta, sin modificadores', () => {
+    expect(pasoPorTecla(T('ArrowRight'))).toBe(1);
+    expect(pasoPorTecla(T('ArrowLeft'))).toBe(-1);
+  });
+  it('con Shift / Ctrl / Meta / Alt, ← → quedan nativas (no hay paso)', () => {
+    expect(pasoPorTecla(T('ArrowLeft', { shiftKey: true }))).toBe(0);
+    expect(pasoPorTecla(T('ArrowRight', { ctrlKey: true }))).toBe(0);
+    expect(pasoPorTecla(T('ArrowRight', { metaKey: true }))).toBe(0);
+    expect(pasoPorTecla(T('ArrowRight', { altKey: true }))).toBe(0);
+  });
+  it('Alt + ↑ suma y Alt + ↓ resta (el atajo de antes)', () => {
+    expect(pasoPorTecla(T('ArrowUp', { altKey: true }))).toBe(1);
+    expect(pasoPorTecla(T('ArrowDown', { altKey: true }))).toBe(-1);
+    expect(pasoPorTecla(T('ArrowUp', { altKey: true, shiftKey: true }))).toBe(0);
+  });
+  it('↑ ↓ solas y Enter NO son paso: mueven de renglón (D.5)', () => {
+    expect(pasoPorTecla(T('ArrowUp'))).toBe(0);
+    expect(pasoPorTecla(T('ArrowDown'))).toBe(0);
+    expect(pasoPorTecla(T('Enter'))).toBe(0);
+    expect(pasoPorTecla(T('5'))).toBe(0);
   });
 });

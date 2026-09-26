@@ -104,3 +104,56 @@ export function diasInventario(exis: number, venta30: number, pedido = 0, noConf
   if (noConfiable || !(v > 0)) return null;
   return ((Number(exis) || 0) + (Number(pedido) || 0)) * 30.4 / v;
 }
+
+/**
+ * `[RA-PRO.57]` Un paso de + / − sobre la cantidad del pedido (teclas ← → en escritorio, botones
+ * − + en celular y tableta), en la unidad en que se está capturando.
+ *
+ * Si el valor trae decimales, el paso **cae al siguiente entero** en vez de arrastrar la fracción:
+ * `147.4 +` → 148, `147.4 −` → 147. Así un par de toques deja la cantidad en número cerrado, que
+ * es lo que se le pide al proveedor. Nunca baja de `min` (0).
+ * El margen de 1e-9 absorbe el ruido de flotante de convertir cajas↔piezas (3.0000000004 es 3).
+ */
+export function pasoCantidad(valor: number, delta: 1 | -1, min = 0): number {
+  const v = Number(valor) || 0;
+  const EPS = 1e-9;
+  const next = delta > 0 ? Math.floor(v + EPS) + 1 : Math.ceil(v - EPS) - 1;
+  return Math.max(min, next);
+}
+
+/**
+ * `[RA-PRO.59]` Dinero en corto para la barra de celular, donde `$4,284,837` no cabe junto a los
+ * botones: `$519 mil`, `$4.3 M`, `$850`. Es un resumen para ubicarse: la cifra exacta sigue en la
+ * vista completa (y en escritorio no se usa).
+ */
+export function dineroCorto(v: number): string {
+  const n = Number(v) || 0;
+  const s = n < 0 ? '−' : '';
+  const a = Math.abs(n);
+  if (a < 1_000) return `${s}$${Math.round(a).toLocaleString('es-MX')}`;
+  // Se decide con el valor YA redondeado: 999,600 redondea a 1,000 mil, y eso se escribe "1 M".
+  const miles = Math.round(a / 1_000);
+  if (miles >= 1_000) return `${s}$${(Math.round(a / 100_000) / 10).toLocaleString('es-MX')} M`;
+  return `${s}$${miles.toLocaleString('es-MX')} mil`;
+}
+
+/** Lo que importa de una tecla para decidir el paso (subconjunto de `KeyboardEvent`, para probarlo sin DOM). */
+export interface TeclaPaso { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; }
+
+/**
+ * `[RA-PRO.57]` Qué paso hace una tecla en la columna de captura del pedido: +1, −1 o nada (0).
+ *  - `→` / `←` SIN modificadores: +1 / −1. Con Shift/Ctrl/Alt/Meta se deja lo nativo
+ *    (Shift+← selecciona texto, Ctrl+← salta palabra…).
+ *  - `Alt + ↑` / `Alt + ↓`: +1 / −1 (el atajo de antes, se conserva).
+ *  - `↑ ↓` solas y `Enter` NO son paso: mueven de renglón (regla D.5), las resuelve el componente.
+ */
+export function pasoPorTecla(t: TeclaPaso): 1 | -1 | 0 {
+  const mod = t.altKey || t.ctrlKey || t.metaKey || t.shiftKey;
+  if (!mod && t.key === 'ArrowRight') return 1;
+  if (!mod && t.key === 'ArrowLeft') return -1;
+  if (t.altKey && !t.ctrlKey && !t.metaKey && !t.shiftKey) {
+    if (t.key === 'ArrowUp') return 1;
+    if (t.key === 'ArrowDown') return -1;
+  }
+  return 0;
+}
