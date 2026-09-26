@@ -168,6 +168,38 @@ export class ExpenseProofsController {
     return this.svc.detail(id);
   }
 
+  /**
+   * `[GX.29]` El capturista PIDE que le reabran su vale ya aprobado, para agregar la
+   * evidencia definitiva cuando el vale se aprobo con prefactura o cotizacion.
+   *
+   * ⚠️ Sin permiso especial: es su propio vale, y el servicio comprueba que lo sea. Gatearlo
+   * con `_VER` dejaria afuera a los ~140 que solo capturan, que son justo quienes piden.
+   */
+  @Post(':id/reapertura')
+  @ApiOperation({ summary: '[GX.29] Solicita reabrir un vale aprobado para agregar evidencia. Decide quien lo aprobo.' })
+  solicitarReapertura(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req?: AuthedRequest) {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.solicitarReapertura(id, actor, body?.motivo || '');
+  }
+
+  /** `[GX.29]` Lo que ESTA persona tiene que decidir: solo los vales que ella aprobo. */
+  @Get('reaperturas/pendientes')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.29] Solicitudes de reapertura que le toca decidir a quien pregunta.' })
+  reaperturasPendientes(@Req() req?: AuthedRequest) {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.reaperturasPendientes(actor);
+  }
+
+  /** `[GX.29]` La decision. Solo quien aprobo el vale puede tomarla (lo valida el servicio). */
+  @Post('reaperturas/:id/decidir')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.29] Autoriza o niega una reapertura. Al autorizar, el vale vuelve a la bandeja del dia con vuelta+1.' })
+  decidirReapertura(@Param('id') id: string, @Body() body: { aprueba?: boolean; nota?: string }, @Req() req?: AuthedRequest) {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.decidirReapertura(id, actor, body?.aprueba === true, body?.nota);
+  }
+
   @Post('upload')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Sube UN archivo (comprobante/solicitud/evidencia) al bucket y devuelve su referencia.' })

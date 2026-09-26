@@ -7,6 +7,12 @@ import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exi
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
+// [GX.29] Las reglas de la reapertura viven aparte, sin knex: deciden quien puede tocar
+// dinero ya aprobado, y eso se prueba sin levantar una base.
+import {
+  KIND_REAPERTURA, SQL_OCULTA_RECHAZOS_VIEJOS, puedeAutorizarReapertura, puedePedirReapertura,
+  type ValeParaReabrir,
+} from './reapertura';
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -297,6 +303,148 @@ export class ExpenseProofsService {
         data: { folio_solicitud: folio, decision, importe: row.importe ?? null },
       });
     } catch { /* el aviso no debe tumbar la decision */ }
+  }
+
+  /**
+   * `[GX.29]` Lee el vale + el estado que Kepler le puso, que es lo que las reglas de
+   * reapertura necesitan. Dos viajes y no un JOIN porque `analytics.expense_requests` es
+   * una VISTA sobre el ODS y cruzarla con la tabla sale caro (medido en GX.15: >90 s).
+   */
+  private async valeParaReabrir(trx: any, id: string): Promise<ValeParaReabrir | null> {
+    const v = await trx('finance.expense_proofs').where({ id })
+      .first('id', 'status', 'validated_by', 'created_by', 'folio_solicitud', 'sucursal');
+    if (!v) return null;
+    let estadoKepler: string | null = null;
+    if (v.folio_solicitud) {
+      const sol = await trx('analytics.expense_requests')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: v.folio_solicitud })
+        .modify((qb: any) => { if (v.sucursal) qb.where('sucursal', v.sucursal); })
+        .first('estado');
+      estadoKepler = sol?.estado ?? null;
+    }
+    return { ...v, estado_kepler: estadoKepler };
+  }
+
+  /**
+   * `[GX.29]` **El capturista pide que le reabran su vale.**
+   *
+   * No lo reabre: deja una solicitud que decide quien lo aprobo. Vive en
+   * `finance.proposed_actions`, el molde que ya existia para «alguien propone, otro
+   * decide, nada se ejecuta solo» — no se invento una tabla para lo mismo.
+   */
+  async solicitarReapertura(id: string, actor: string, motivo: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const razon = String(motivo || '').trim();
+    if (razon.length < 10) throw new BadRequestException('Contá en una frase qué vas a agregar: quien autoriza decide con eso.');
+    return this.tk.run(async (trx) => {
+      const vale = await this.valeParaReabrir(trx, id);
+      const v = puedePedirReapertura(vale, actor);
+      if (!v.puede) throw new BadRequestException(v.explicacion);
+
+      // Una sola solicitud viva por vale: pedirlo tres veces no lo hace mas urgente, y le
+      // llena la bandeja a quien decide con el mismo caso repetido.
+      const yaHay = await trx('finance.proposed_actions')
+        .where({ tenant_id: tenantId, kind: KIND_REAPERTURA, estado: 'pending_approval' })
+        .whereRaw("payload->>'proof_id' = ?", [id]).first('id');
+      if (yaHay) throw new BadRequestException('Ya hay una solicitud esperando respuesta para este vale.');
+
+      const [row] = await trx('finance.proposed_actions').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        kind: KIND_REAPERTURA,
+        titulo: `Reabrir el vale ${vale!.id}`,
+        descripcion: razon,
+        payload: JSON.stringify({ proof_id: id, aprobador: vale!.validated_by, solicita: actor }),
+        estado: 'pending_approval',
+        origen: 'humano',
+        created_by: actor || null,
+      }).returning(['id']);
+
+      // Le llega a QUIEN APROBO, a su campana. No al area: es su firma la que se toca.
+      void this.notifier?.notify?.(tenantId, {
+        key: `reapertura:${id}`,
+        type: 'vale_resuelto',
+        severity: 'warn',
+        title: 'Te piden reabrir un vale que aprobaste',
+        message: razon,
+        route: '/finanzas/aprobacion-gastos',
+        para_usuario: vale!.validated_by || '',
+        data: { proof_id: id, solicitud_id: row.id },
+      });
+      this.logger.log(`reapertura solicitada para ${id} por ${actor} → decide ${vale!.validated_by}`);
+      return { id: row.id, estado: 'pending_approval' };
+    });
+  }
+
+  /** `[GX.29]` Las solicitudes de reapertura que le toca decidir a ESTA persona. */
+  async reaperturasPendientes(actor: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!String(actor || '').trim()) return [];
+    return this.tk.run(async (trx) => trx('finance.proposed_actions as a')
+      .join('finance.expense_proofs as p', trx.raw("p.id::text = a.payload->>'proof_id'"))
+      .where({ 'a.tenant_id': tenantId, 'a.kind': KIND_REAPERTURA, 'a.estado': 'pending_approval' })
+      .where('p.validated_by', actor)
+      .orderBy('a.created_at', 'desc')
+      .select('a.id', 'a.descripcion as motivo', 'a.created_by as solicita', 'a.created_at',
+        'p.id as proof_id', 'p.folio_solicitud', 'p.proveedor', 'p.status',
+        trx.raw('p.importe::numeric AS importe')));
+  }
+
+  /**
+   * `[GX.29]` **Quien aprobo decide.** Si acepta, el vale vuelve a la bandeja del dia.
+   *
+   * ⛔ Vuelve el MISMO expediente, con `vuelta + 1` — no se crea uno nuevo. Un registro
+   * nuevo contaria ese dinero dos veces en el total del dia, en el historial y en lo que
+   * se le reporta a Direccion, y duplicaria el folio de Kepler de este lado.
+   *
+   * ⛔ Y vuelve a `recibida`, que es el estado que la bandeja ya lista: se ve como algo
+   * nuevo que atender sin inventar un sexto estado que todas las consultas tendrian que
+   * aprender. Al agregar la evidencia hay que autorizarlo otra vez, que es el pedido.
+   */
+  async decidirReapertura(solicitudId: string, actor: string, aprueba: boolean, nota?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const sol = await trx('finance.proposed_actions')
+        .where({ id: solicitudId, tenant_id: tenantId, kind: KIND_REAPERTURA, estado: 'pending_approval' })
+        .first('id', 'payload', 'descripcion', 'created_by');
+      if (!sol) throw new BadRequestException('Esa solicitud ya no está esperando respuesta.');
+      const payload = typeof sol.payload === 'string' ? JSON.parse(sol.payload || '{}') : (sol.payload || {});
+      const proofId = String(payload.proof_id || '');
+
+      const vale = await this.valeParaReabrir(trx, proofId);
+      const v = puedeAutorizarReapertura(vale, actor);
+      if (!v.puede) throw new BadRequestException(v.explicacion);
+
+      await trx('finance.proposed_actions').where({ id: solicitudId }).update({
+        estado: aprueba ? 'approved' : 'rejected',
+        decided_by: actor || null, decided_at: trx.fn.now(),
+        resultado: String(nota || '').trim() || null, updated_at: trx.fn.now(),
+      });
+
+      if (aprueba) {
+        await trx('finance.expense_proofs').where({ id: proofId }).update({
+          status: 'recibida',
+          vuelta: trx.raw('COALESCE(vuelta, 1) + 1'),
+          reabierto_por: actor || null, reabierto_at: trx.fn.now(),
+          reapertura_motivo: sol.descripcion || null,
+          updated_at: trx.fn.now(),
+        });
+      }
+
+      void this.notifier?.notify?.(tenantId, {
+        key: `reapertura_resuelta:${proofId}`,
+        type: 'vale_resuelto',
+        severity: aprueba ? 'info' : 'warn',
+        title: aprueba ? 'Te reabrieron el vale' : 'No te reabrieron el vale',
+        message: aprueba
+          ? 'Agregá la evidencia y mandalo otra vez: hay que autorizarlo de nuevo.'
+          : (String(nota || '').trim() || 'Sin motivo declarado.'),
+        route: '/finanzas/gastos',
+        para_usuario: String(sol.created_by || ''),
+        data: { proof_id: proofId },
+      });
+      this.logger.log(`reapertura ${aprueba ? 'concedida' : 'negada'} para ${proofId} por ${actor}`);
+      return { proof_id: proofId, reabierto: aprueba };
+    });
   }
 
   /**
@@ -725,6 +873,10 @@ export class ExpenseProofsService {
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
       if (q.status) b.where('status', q.status);
+      // [GX.29] Un rechazo deja de verse a las 24 h. Se DERIVA de la hora del rechazo, no
+      // de un flag: un flag necesita un proceso que lo prenda, y uno que falla en silencio
+      // deja vales visibles creyendo que se ocultaron. ⚠️ Ocultar NO es borrar: la fila queda.
+      b.whereRaw(SQL_OCULTA_RECHAZOS_VIEJOS);
       // `[GX.27]` El día, como RANGO en hora de México -- no envolviendo la columna en
       // `to_char`, que anularía el índice de `created_at`.
       const dia = diaValido(q.dia);
