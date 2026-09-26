@@ -26,7 +26,18 @@ import {
  * ya los tenemos de Kepler por folio— sino porque la firma es la evidencia de que alguien
  * autorizó. Por eso es OPCIONAL: lo que no puede faltar es el comprobante del gasto.
  */
-export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'cotizacion', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
+/**
+ * [GX.23] Un gasto puede llevar VARIAS evidencias: el vale de ida y el de vuelta, el
+ * ticket y su detalle, dos cotizaciones que se compararon. Antes cabian dos
+ * comprobantes y una cotizacion, y la pantalla solo dejaba subir uno de cada.
+ *
+ * La lista es CERRADA a proposito, con un tope explicito (4 y 3), en vez de aceptar
+ * `comprobante_<n>` por patron: el rol viaja en un JSONB sin CHECK, asi que la unica
+ * barrera contra un rol inventado es esta lista. Un patron abierto no seria barrera.
+ */
+export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'comprobante_3', 'comprobante_4',
+  'solicitud_kepler', 'cotizacion', 'cotizacion_2', 'cotizacion_3',
+  'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
 
 /**

@@ -13,7 +13,9 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
-import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia, type ListasParaComprobar } from '../comprobaciones.service';
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof,
+  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
+  type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
@@ -186,27 +188,62 @@ interface SelSolicitud {
                 <div class="cap-step">3 · Capturá la evidencia de tu gasto</div>
                 <div class="cap-ev">
                   <div class="cap-ev-c">
-                    @if (!names()['comprobante_1']) {
-                      <md-captura-en-vivo etiqueta="Tomar foto del vale" (capturada)="onCaptura($event)" />
+                    <!--
+                      [GX.23] Varias fotos, no una. Un gasto puede llevar el vale de ida y el
+                      de vuelta, o el ticket y su detalle. El boton sigue siendo el mismo y
+                      cambia de texto: la primera vez «Tomar foto del vale», despues «Agregar
+                      otra foto» -- la accion es la misma, lo que cambia es que ya hay una.
+                    -->
+                    @if (comprobantes().length < MAX_COMPROBANTES) {
+                      <md-captura-en-vivo [etiqueta]="comprobantes().length ? 'Agregar otra foto' : 'Tomar foto del vale'"
+                                          (capturada)="onCaptura($event)" />
                     } @else {
+                      <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Ya hay {{ MAX_COMPROBANTES }} fotos, el máximo.</p>
+                    }
+                    @for (r of comprobantes(); track r) {
                       <div class="cap-done">
-                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-                        @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
-                        <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
+                        <!--
+                          [GX.24] La miniatura. Antes el unico rastro de la foto era el texto
+                          «Foto tomada 18:42»: la persona no podia comprobar que hubiera
+                          salido el ticket y no el mostrador, ni el dedo sobre el lente.
+                          Se abre en grande al tocarla -- en un telefono, 48 px no alcanzan
+                          para leer un total.
+                        -->
+                        @if (miniaturas()[r]; as src) {
+                          <button type="button" class="cap-mini" (click)="verFoto(r)"
+                                  [attr.aria-label]="'Ver ' + names()[r] + ' en grande'">
+                            <img [src]="src" alt="" />
+                          </button>
+                        }
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
+                        @if (photoLoading() && r === 'comprobante_1') { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
+                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
                       </div>
                     }
                   </div>
                   <div class="cap-ev-c">
-                    @if (!names()['cotizacion']) {
+                    @if (cotizaciones().length < MAX_COTIZACIONES) {
                       <label class="cap-ev-b">
-                        <i class="pi pi-upload" aria-hidden="true"></i> Subir cotización
-                        <input type="file" accept="image/*,application/pdf" (change)="onFile($event, 'cotizacion')" hidden />
+                        <i class="pi pi-upload" aria-hidden="true"></i> {{ cotizaciones().length ? 'Agregar otra' : 'Subir cotización' }}
+                        <input type="file" accept="image/*,application/pdf" (change)="onFileCotizacion($event)" hidden />
                       </label>
-                      <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
-                    } @else {
+                      @if (!cotizaciones().length) {
+                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
+                      }
+                    }
+                    @for (r of cotizaciones(); track r) {
                       <div class="cap-done">
-                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['cotizacion'] }}</span>
-                        <button type="button" class="cap-link" (click)="clearFile('cotizacion')">cambiar</button>
+                        <!-- Un PDF no tiene miniatura: se DICE con su icono, no se deja el hueco. -->
+                        @if (miniaturas()[r]; as src) {
+                          <button type="button" class="cap-mini" (click)="verFoto(r)"
+                                  [attr.aria-label]="'Ver ' + names()[r] + ' en grande'">
+                            <img [src]="src" alt="" />
+                          </button>
+                        } @else {
+                          <span class="cap-mini cap-mini-pdf" aria-hidden="true"><i class="pi pi-file-pdf"></i></span>
+                        }
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
+                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
                       </div>
                     }
                   </div>
@@ -289,6 +326,15 @@ interface SelSolicitud {
           }
         }
       </div>
+
+      <!-- [GX.24] La foto en grande. Sin recortes: se mira para comprobar que se lee. -->
+      <p-dialog [(visible)]="fotoAbierta" [modal]="true" [draggable]="false" [dismissableMask]="true"
+                [style]="{ width: 'min(42rem, 94vw)' }" [header]="fotoTitulo()">
+        @if (fotoSrc(); as src) { <img [src]="src" class="cap-foto-grande" alt="" /> }
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text" (click)="fotoAbierta = false">Cerrar</button>
+        </ng-template>
+      </p-dialog>
 
       <!--
         [GX.21] La vista previa del alta: a la izquierda lo que Kepler ya sabe, a la derecha
@@ -439,6 +485,17 @@ interface SelSolicitud {
     .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
       letter-spacing: .04em; }
 
+    /* [GX.24] La miniatura de lo capturado. Es un boton: se abre en grande al tocarla. */
+    .cap-mini { flex-shrink: 0; width: 40px; height: 40px; padding: 0; overflow: hidden;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: var(--surface-ground); cursor: pointer; display: flex;
+      align-items: center; justify-content: center; }
+    .cap-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cap-mini:hover { border-color: var(--action); }
+    .cap-mini:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-mini-pdf { cursor: default; color: var(--fg-3); }
+    .cap-foto-grande { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
+
     /* [GX.21] La vista previa: dos columnas que se apilan en movil. */
     .cap-g-acc { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
     .cap-prev { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
@@ -553,6 +610,21 @@ export class FinanzasCapturarGastoComponent {
   /** [GX.21] La vista previa del alta. Se abre desde el enlace discreto de la ficha. */
   previaAbierta = false;
   verPrevia() { this.previaAbierta = true; }
+
+  /**
+   * [GX.24] Lo que se ve de cada archivo, como data URI. Solo imagenes: un PDF no tiene
+   * miniatura y eso se dice con su icono en vez de dejar el hueco.
+   *
+   * ⚠️ Vive en una senal aparte de `fileData` porque esa es privada y se VACIA al subir
+   * (`uploadThen` borra el data URI cuando el archivo ya esta en el bucket). La miniatura
+   * tiene que sobrevivir a eso: la persona sigue viendo su foto mientras el envio corre.
+   */
+  readonly miniaturas = signal<Record<string, string>>({});
+  fotoAbierta = false;
+  readonly fotoRol = signal<string>('');
+  fotoSrc() { return this.miniaturas()[this.fotoRol()] ?? null; }
+  fotoTitulo() { return this.names()[this.fotoRol()] ?? 'Foto'; }
+  verFoto(role: string) { this.fotoRol.set(role); this.fotoAbierta = true; }
   sel: (SolicitudSug & { label: string }) | string | null = null;
   comentarios = '';
 
@@ -705,11 +777,35 @@ export class FinanzasCapturarGastoComponent {
     this.formaPago.set(id);
   }
 
-  /** `[GX.14]` Llega una foto recién tomada: se guarda como el comprobante, con su sello. */
+  /** [GX.23] Tope de cada familia. Vienen del catalogo de roles: no se inventan aca. */
+  readonly MAX_COMPROBANTES = ROLES_COMPROBANTE.length;
+  readonly MAX_COTIZACIONES = ROLES_COTIZACION.length;
+
+  /** Los roles de esta familia que YA tienen archivo, en el orden del catalogo. */
+  readonly comprobantes = computed(() => ROLES_COMPROBANTE.filter((r) => !!this.names()[r]));
+  readonly cotizaciones = computed(() => ROLES_COTIZACION.filter((r) => !!this.names()[r]));
+
+  /** El primer rol libre de la familia, o `null` si ya no queda. */
+  private libre(roles: ProofFileRole[]): ProofFileRole | null {
+    return roles.find((r) => !this.names()[r]) ?? null;
+  }
+
+  /**
+   * `[GX.14]` Llega una foto recien tomada. [GX.23] Va al primer hueco libre, no siempre
+   * a `comprobante_1`: un gasto puede llevar varias.
+   */
   onCaptura(ev: { dataUrl: string; capturedAt: string }) {
-    const role = 'comprobante_1';
+    const role = this.libre(ROLES_COMPROBANTE);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COMPROBANTES} fotos, el maximo.`); return; }
     this.formError.set('');
     this.guardarCaptura(role, ev.dataUrl, ev.capturedAt);
+  }
+
+  /** Lo mismo del lado de la cotizacion, que entra por archivo. */
+  onFileCotizacion(ev: Event) {
+    const role = this.libre(ROLES_COTIZACION);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COTIZACIONES} cotizaciones, el maximo.`); return; }
+    this.onFile(ev, role);
   }
 
   readonly photoLoading = signal(false);
@@ -827,6 +923,7 @@ export class FinanzasCapturarGastoComponent {
     // [GX.14] El sello se va con el archivo. Si quedara, la compuerta creería que la
     // foto siguiente también se tomó en vivo aunque haya entrado por otro lado.
     this.sellos.update((m) => { const n = { ...m }; delete n[role]; return n; });
+    this.miniaturas.update((m) => { const n = { ...m }; delete n[role]; return n; });
     if (role === 'comprobante_1') this.photoResult.set(null);
   }
 
@@ -837,6 +934,7 @@ export class FinanzasCapturarGastoComponent {
     // El nombre lo ponemos nosotros: no hay archivo de origen del cual tomarlo.
     const hora = new Date(capturedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     this.names.update((m) => ({ ...m, [role]: `Foto tomada ${hora}` }));
+    this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
     this.sellos.update((m) => ({ ...m, [role]: { live: true, captured_at: capturedAt } }));
     if (role === 'comprobante_1') this.validate(dataUri);
     this.cdr.markForCheck();
@@ -852,6 +950,9 @@ export class FinanzasCapturarGastoComponent {
       this.fileData[role] = dataUri;
       delete this.uploaded[role];
       this.names.update((m) => ({ ...m, [role]: file.name }));
+      // [GX.24] La miniatura, solo si es imagen. Un PDF no la tiene y la pantalla lo DICE
+      // con su icono: dejar el hueco se lee como «no cargo», que es otra cosa.
+      if (dataUri.startsWith('data:image/')) this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
       if (role === 'comprobante_1') this.validate(dataUri);
       this.cdr.markForCheck();
     };
@@ -890,7 +991,8 @@ export class FinanzasCapturarGastoComponent {
      * se quedaba en memoria y `reset()` la tiraba: el expediente nacia sin la imagen por la
      * que se la habia pedido a la persona.
      */
-    this.uploadThen(['comprobante_1', 'cotizacion'], () => this.createSolicitud(g));
+    // [GX.23] Todas las que haya, no la primera de cada una.
+    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION], () => this.createSolicitud(g));
   }
 
   // MOMENTO 3 — el gasto ya está aprobado y comprobable: sube la evidencia.
@@ -922,7 +1024,8 @@ export class FinanzasCapturarGastoComponent {
 
   private createSolicitud(g: SelSolicitud) {
     const lleva = this.llevaEvidencia();
-    const files = [this.uploaded['comprobante_1'], this.uploaded['cotizacion']].filter(Boolean) as ProofFile[];
+    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION]
+      .map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,
