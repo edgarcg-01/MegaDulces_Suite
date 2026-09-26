@@ -6,7 +6,7 @@ import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
-import { roundSeed } from '../pedido-redondeo';
+import { diasInventario, roundSeed, textoCajasPiezas } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -20,6 +20,9 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
+import { AuthService } from '../../../core/services/auth.service';
+import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, ReqPdfData, ReqPdfFila, ReqPdfGrupo } from '../pedido-requisicion-pdf';
+import { agruparPorProveedor, LineaCompra, repartoProducto } from '../pedido-requisicion-global';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
@@ -223,7 +226,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                      styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle">
               <ng-template #header>
                 <tr>
-                  <th style="min-width:15rem">Producto</th>
+                  <th style="min-width:15rem">
+                    <!-- [RA-PRO.54] Marca TODOS los productos de la consulta (todas las páginas) que tienen pedido. -->
+                    <!-- Sin <label> a propósito: con el título adentro, un clic en "Producto" traería el catálogo entero. -->
+                    <span class="pr-sel-all">
+                      <input type="checkbox" class="pr-chk" [checked]="selState() === 'all'" [indeterminate]="selState() === 'some'"
+                             [disabled]="selAllBusy()" (click)="$event.stopPropagation()" (change)="toggleSelAll($event)"
+                             [title]="selState() === 'all' ? 'Quitar la selección' : 'Seleccionar todos los productos de la consulta que tienen pedido al proveedor (todas las páginas)'"
+                             aria-label="Seleccionar todos los productos con pedido" />
+                      @if (selAllBusy()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> }
+                      Producto
+                    </span>
+                  </th>
                   <th class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th class="pr-r">Costo/Cja</th>
                   <th class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
@@ -243,7 +257,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <ng-template #body let-r>
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" [class.pr-wb-noncom]="esContable(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
+                  <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
+                           (click)="$event.stopPropagation()" (keyup.enter)="$event.stopPropagation()" (change)="toggleSel(r)"
+                           [title]="sumCajas(r) > 0 ? 'Incluir en la requisición y el PDF globales' : 'Sin pedido al proveedor: no hay nada que requerir'"
+                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
                     @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
@@ -454,7 +471,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <span class="pr-ent-chip" [class.pr-ent-dir]="e.direct">
                                     @if (!e.direct) { <i class="pi pi-building" aria-hidden="true"></i> }
                                     <span class="pr-mono">{{ e.code }}</span> {{ e.name }}
-                                    <b>{{ e.cajas | number:'1.0-1' }} cj</b> {{ money(e.valor) }}
+                                    <b [title]="(e.cajas | number:'1.0-2') + ' cajas en total'">{{ entregaQty(r, e) }}</b> {{ money(e.valor) }}
                                     @if (e.direct) { <em>directo</em> }
                                   </span>
                                 }
@@ -527,6 +544,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                misma fila y "Requisición" —la única que escribe en la DB— dejaba de ser la
                                acción obvia. 'p-button-secondary' la baja a neutro sin tocar el token. -->
                           <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text p-button-secondary" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
+                          <p-button type="button" [label]="pdfBusy() ? 'Generando…' : 'PDF del producto'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
+                                    (click)="printReqPdf(r)" [disabled]="pdfBusy() || sumCajas(r) <= 0"
+                                    title="Orden de requisición en PDF (borrador, sin folio): entrega del proveedor, repartición desde el CEDIS y días de inventario por sucursal."></p-button>
                           <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (sumValor(r) + prodTr(r.product_id)) <= 0"></p-button>
                         </div>
                       </div>
@@ -553,14 +573,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
 
         @if (wbRows().length) {
           <div class="pr-bulk" role="region" aria-label="Acciones globales">
-            @if (totCajas() > 0) {
-              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. Es exactamente lo que arman los botones de acá al lado. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
+            @if (selCount() > 0) {
+              <!-- [RA-PRO.54] Los botones de acá al lado arman SÓLO lo seleccionado (requisición y PDF). -->
+              <span class="pr-bulk-n" title="Productos marcados, con lo que hayas editado en sus desgloses. Es exactamente lo que arman la requisición y el PDF globales.">
+                <strong>{{ selCount() }}</strong> producto{{ selCount() === 1 ? '' : 's' }} seleccionado{{ selCount() === 1 ? '' : 's' }} · comprar <strong>{{ money(selValor()) }}</strong>
+                <button type="button" class="pr-zlink" (click)="clearSel()">quitar selección</button>
+              </span>
+            } @else if (totCajas() > 0) {
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>marcá los productos para armar la requisición</em></span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
             <span class="pr-bulk-sp"></span>
             <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor + hoja Traspasos"></p-button>
-            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
+            <p-button type="button" [label]="pdfBusy() ? 'Generando…' : 'PDF requisición (' + selCount() + ')'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
+                      (click)="printReqGlobalPdf()" [disabled]="pdfBusy() || selCount() === 0"
+                      title="Orden de requisición en PDF de los productos marcados: una hoja por proveedor, con la O. Compra en blanco por punto de entrega."></p-button>
+            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (' + selCount() + ')'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || selCount() === 0"
+                      title="Registra en el sistema las requisiciones de los productos marcados: una por proveedor y punto de entrega, más sus traspasos."></p-button>
           </div>
         }
 
@@ -710,6 +740,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-r { text-align: right; font-variant-numeric: tabular-nums; }
     .pr-muted, .pr-muted-h { color: var(--text-muted); }
     .pr-prod { line-height: 1.2; }
+    /* [RA-PRO.54] Casillas de selección: nativas (accesibles y con estado indeterminado gratis), teñidas con la acción. */
+    .pr-chk { width: 1rem; height: 1rem; margin: 0 .45rem 0 0; vertical-align: -2px; accent-color: var(--action); cursor: pointer; }
+    .pr-chk:disabled { cursor: not-allowed; opacity: .35; }
+    .pr-chk:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .pr-sel-all { display: inline-flex; align-items: center; gap: .15rem; cursor: pointer; font: inherit; }
     .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
@@ -959,6 +994,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly route = inject(ActivatedRoute); // Q.4 — deep-link desde Existencia
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
 
   // P2 — cantidades editadas sin armar requisición = trabajo volátil. dirty protege contra
   // navegación interna (unsavedChangesGuard) + salida externa (beforeunload).
@@ -1023,7 +1059,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const names = this.whName();
     const meta = this.whMeta();
     const m = new Map<string, BranchBuy[]>();
-    for (const r of this.wbRows()) {
+    // [RA-PRO.54] Sobre la página abierta Y los productos seleccionados de otras páginas: la
+    // requisición y el PDF globales necesitan sus renglones aunque no estén a la vista.
+    for (const r of this.knownRows().values()) {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
@@ -1130,10 +1168,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * Sin venta NO hay cobertura que calcular → null, que la pantalla pinta "—". Un 0 se leería
    * "urge" y un número enorme se leería "sobra"; las dos serían mentira.
    */
-  diasInv(r: WorkbookRow, b: BranchBuy): number | null {
-    if (b.rung || !(b.vta > 0)) return null;
-    return (b.exis + this.qtyOf(r, b)) * 30.4 / b.vta;
-  }
+  diasInv(r: WorkbookRow, b: BranchBuy): number | null { return diasInventario(b.exis, b.vta, this.qtyOf(r, b), !!b.rung); }
   diasLabel(d: number | null): string {
     if (d == null) return '—';
     return d >= 999 ? '+999 d' : `${Math.round(d)} d`;
@@ -1357,6 +1392,228 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }
     return [...m.values()].sort((a, b) => Number(a.direct) - Number(b.direct) || b.valor - a.valor);
   }
+  /**
+   * `[RA-PRO.52]` Cantidad del acuse en lo que se le pide al proveedor: cajas cerradas + piezas
+   * sueltas ("6 cj 6 pz"), no una fracción de caja ("6.5 cj") que nadie puede surtir.
+   * Sin factor de caja válido se muestra como antes, en cajas con decimal.
+   */
+  entregaQty(r: WorkbookRow, e: Entrega): string { return textoCajasPiezas(e.cajas, Number(r.uxc)); }
+  // ── [RA-PRO.54] SELECCIÓN de productos para la requisición y el PDF globales ─────────────
+  // El comprador marca lo que va a pedir. La casilla general marca TODOS los productos de la
+  // consulta (todas las páginas) que tienen pedido. Las cantidades editadas no se pierden al
+  // paginar (viven por producto × sucursal), así que un producto marcado en otra página sale
+  // con lo que se capturó. Cambiar de filtro es otro universo: la selección se limpia.
+  readonly selected = signal<Set<string>>(new Set());
+  /** Renglones de productos seleccionados que no están en la página abierta. */
+  private readonly rowCache = signal<Map<string, WorkbookRow>>(new Map());
+  /** Productos con pedido de TODA la consulta, cuando ya se trajeron con la casilla general. */
+  private readonly queryEligible = signal<string[] | null>(null);
+  readonly selAllBusy = signal(false);
+
+  /** Página abierta + renglones guardados de otras páginas (la página abierta manda). */
+  private readonly knownRows = computed(() => {
+    const m = new Map(this.rowCache());
+    for (const r of this.wbRows()) m.set(r.product_id, r);
+    return m;
+  });
+  private readonly selRows = computed(() => {
+    const k = this.knownRows();
+    return [...this.selected()].map((id) => k.get(id)).filter((r): r is WorkbookRow => !!r);
+  });
+  /** Sólo cuentan los marcados que HOY tienen pedido (si alguno se editó a 0, se cae solo). */
+  readonly selCount = computed(() => this.selRows().filter((r) => this.sumCajas(r) > 0).length);
+  readonly selValor = computed(() => this.selRows().reduce((s, r) => s + this.sumValor(r), 0));
+  readonly selState = computed<'none' | 'some' | 'all'>(() => {
+    const sel = this.selected();
+    if (!sel.size) return 'none';
+    const all = this.queryEligible();
+    return all && all.length && all.every((id) => sel.has(id)) ? 'all' : 'some';
+  });
+
+  isSel(r: WorkbookRow): boolean { return this.selected().has(r.product_id); }
+  toggleSel(r: WorkbookRow): void {
+    const s = new Set(this.selected());
+    if (s.has(r.product_id)) s.delete(r.product_id);
+    else {
+      s.add(r.product_id);
+      this.rowCache.update((m) => new Map(m).set(r.product_id, r));   // sobrevive al cambio de página
+    }
+    this.selected.set(s);
+  }
+  clearSel(): void { this.selected.set(new Set()); }
+  private resetSel(): void {
+    this.selected.set(new Set()); this.rowCache.set(new Map()); this.queryEligible.set(null);
+  }
+
+  /** Casilla general: si ya está todo marcado, limpia; si no, trae TODA la consulta con pedido y la marca. */
+  toggleSelAll(ev?: Event): void {
+    // El clic ya palomeó la casilla nativa. Se regresa a lo que dice el estado y que lo pinte el
+    // binding: si la consulta falla o no hay nada que pedir, el estado no cambia, Angular no ve
+    // diferencia y la casilla se quedaría palomeada sin nada seleccionado.
+    const input = ev?.target as HTMLInputElement | undefined;
+    if (input) { input.checked = this.selState() === 'all'; input.indeterminate = this.selState() === 'some'; }
+    if (this.selState() === 'all') { this.clearSel(); return; }
+    if (this.selAllBusy()) return;
+    this.selAllBusy.set(true);
+    const pageSize = 1000;
+    const acc: WorkbookRow[] = [];
+    const fin = (ok: boolean) => {
+      this.selAllBusy.set(false);
+      if (!ok) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo traer la consulta completa. Intentá de nuevo.' });
+        return;
+      }
+      this.rowCache.update((m) => { const n = new Map(m); for (const r of acc) n.set(r.product_id, r); return n; });
+      // "Tiene pedido" se decide con lo que ve el comprador (sugerido redondeado o lo que editó),
+      // no con el número del servidor: por eso se filtra DESPUÉS de meterlos al modelo.
+      const ids = [...this.knownRows().values()].filter((r) => this.sumCajas(r) > 0).map((r) => r.product_id);
+      this.queryEligible.set(ids);
+      this.selected.set(new Set(ids));
+      if (!ids.length) this.toast.add({ severity: 'info', summary: 'Nada que pedir', detail: 'Ningún producto de la consulta tiene pedido al proveedor.' });
+    };
+    const pagina = (page: number) => {
+      this.api.workbook({ ...this.wbQuery(), scope: 'needed', page, pageSize })
+        .pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
+        .subscribe((res) => {
+          if (!res) { fin(false); return; }
+          acc.push(...res.rows);
+          // Tope defensivo: 50 páginas de 1000 = 50k productos. Si el total del servidor viniera mal, no se queda pidiendo páginas sin fin.
+          if (res.rows.length === pageSize && acc.length < res.total && page < 50) pagina(page + 1);
+          else fin(true);
+        });
+    };
+    pagina(1);
+  }
+
+  // ── [RA-PRO.53] PDF "Orden de requisición" del producto ──────────────────────────────────
+  // Se arma con lo que está en pantalla (ediciones incluidas) y se dibuja en el navegador:
+  // no escribe nada, por eso el PDF sale como BORRADOR sin folio.
+  readonly pdfBusy = signal(false);
+
+  /** Cuándo se consultaron los datos que imprime el PDF (null si todavía no hay carga). */
+  private datosAl(): Date | null { const t = this.loadedAt(); return t ? new Date(t) : null; }
+
+  /** Días de inventario SIN el pedido: lo que aguanta la sucursal hoy (misma regla que `diasInv`). */
+  private diasHoy(b: BranchBuy): number | null { return diasInventario(b.exis, b.vta, 0, !!b.rung); }
+
+  private reqPdfData(r: WorkbookRow): ReqPdfData {
+    const uxc = Number(r.uxc);
+    const txt = (cajas: number) => textoCajasPiezas(cajas, uxc);
+    const rows = this.branchBuys(r).filter((b) => this.qtyOf(r, b) > 0);
+    const fila = (b: BranchBuy, seQueda = false): ReqPdfFila => ({
+      qtyTxt: txt(this.qtyOf(r, b)),
+      destino: `${b.code} · ${b.name}${seQueda ? ' (se queda)' : ''}`,
+      vta: b.vta, exis: b.exis,
+      diasActual: this.diasHoy(b), diasCon: this.diasInv(r, b),
+      valor: this.qtyOf(r, b) * b.cc,
+    });
+
+    // Un bloque por CEDIS que recibe consolidado (su propia sucursal "se queda", el resto baja por
+    // traspaso) y uno para lo que el proveedor entrega directo. La regla vive en `repartoProducto`
+    // (probada sin Angular); acá sólo se le ponen nombres y días.
+    const entregas = this.entregas(r);
+    const grupos: ReqPdfGrupo[] = repartoProducto(
+      rows.map((b) => ({ b, branchCode: b.code, entregaCode: this.deliverOf(r, b), cajas: this.qtyOf(r, b) })),
+    ).map((g) => ({
+      titulo: g.receptor
+        ? `${g.receptor} · ${this.nameOf(g.receptor)} recibe ${txt(g.cajas)} y reparte así:`
+        : 'Entrega directa del proveedor en cada sucursal:',
+      filas: g.filas.map((f) => fila(f.item.b, f.seQueda)),
+    }));
+
+    const cajas = this.sumCajas(r);
+    const importe = this.sumValor(r);
+    const costos = new Set(rows.map((b) => Math.round(b.cc * 100)));
+
+    const avisos: string[] = [];
+    const sinCalc = this.branchBuys(r).filter((b) => b.rung).length;
+    if (sinCalc) {
+      avisos.push(`${sinCalc} almacén${sinCalc === 1 ? '' : 'es'} sin pedido calculado: su divisor de cajas `
+        + 'no cuadra con lo que se pagó al proveedor. Revisar antes de comprar; el total puede venir corto.');
+    }
+    const tran = Number(r.transito_cajas) || 0;
+    if (tran > 0) {
+      avisos.push(`Hay ${txt(tran)} en órdenes de compra abiertas que todavía no llegan. Confirmar con el proveedor antes de duplicar el pedido.`);
+    }
+
+    return {
+      emitido: new Date(),
+      datosAl: this.datosAl(),
+      elaboro: this.auth.user()?.username || 'Compras',
+      coberturaDias: this.coverage,
+      producto: {
+        sku: r.sku, nombre: r.nombre, proveedor: r.supplier_name || '',
+        uxc, unidad: this.unidadBase(r),
+        transitoTxt: tran > 0 ? txt(tran) : null,
+      },
+      resumen: {
+        pedidoTxt: txt(cajas),
+        precio: cajas > 0 ? importe / cajas : null,
+        precioVaria: costos.size > 1,
+        importe,
+        entregas: entregas.map((e) => ({ code: e.code, name: e.name })),
+      },
+      grupos,
+      nTraspasos: this.traspasosGenerados(r),
+      avisos,
+    };
+  }
+
+  /** [RA-PRO.54] Datos del PDF global: los renglones de compra de lo marcado, agrupados por proveedor. */
+  private reqGlobalPdfData(): ReqGlobalPdfData {
+    const lineas: LineaCompra[] = this.buyLines().map((l) => {
+      const to = l.toCode ?? l.b.code;
+      return {
+        supplierId: l.r.supplier_id, supplierName: l.r.supplier_name || '',
+        productId: l.r.product_id, sku: l.r.sku, nombre: l.r.nombre,
+        uxc: Number(l.r.uxc), unidad: this.unidadBase(l.r),
+        branchCode: l.b.code, branchName: l.b.name,
+        entregaCode: to, entregaName: l.toCode ? this.nameOf(to) : l.b.name,
+        cajas: l.qty, valor: l.qty * l.b.cc,
+      };
+    });
+    const avisos: string[] = [];
+    const sinCalc = this.selRows().reduce((s, r) => s + this.branchBuys(r).filter((b) => b.rung).length, 0);
+    if (sinCalc) {
+      avisos.push(`${sinCalc} renglón(es) sucursal-producto sin pedido calculado: su divisor de cajas no cuadra con lo `
+        + 'que se pagó al proveedor. Revisar antes de comprar; esos totales pueden venir cortos.');
+    }
+    const n = this.selCount();
+    return {
+      emitido: new Date(),
+      datosAl: this.datosAl(),
+      elaboro: this.auth.user()?.username || 'Compras',
+      coberturaDias: this.coverage,
+      alcance: `${n} producto${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`,
+      hojas: agruparPorProveedor(lineas),
+      avisos,
+    };
+  }
+
+  async printReqGlobalPdf(): Promise<void> {
+    if (this.pdfBusy() || !this.selCount()) return;
+    this.pdfBusy.set(true);
+    try {
+      await generarRequisicionGlobalPdf(this.reqGlobalPdfData());
+    } catch {
+      this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF.' });
+    } finally {
+      this.pdfBusy.set(false);
+    }
+  }
+
+  async printReqPdf(r: WorkbookRow): Promise<void> {
+    if (this.pdfBusy()) return;
+    this.pdfBusy.set(true);
+    try {
+      await generarRequisicionPdf(this.reqPdfData(r));
+    } catch {
+      this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF.' });
+    } finally {
+      this.pdfBusy.set(false);
+    }
+  }
+
   /** Cuántos traspasos CEDIS→sucursal va a generar este producto. Se avisa ANTES de armar. */
   traspasosGenerados(r: WorkbookRow): number {
     return this.branchBuys(r).filter((b) => {
@@ -1769,14 +2026,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // Al paginar NO se limpian (están indexadas por producto×sucursal), así que ir y volver de
       // página conserva lo capturado.
       this.buyQty.set({}); this.buyUnit.set({}); this.buyDeliver.set({}); this.dirty.set(false);
+      this.resetSel();   // [RA-PRO.54] otra consulta: lo marcado ya no aplica
     }
-    const iad = this.fIad();
     this.api.workbook({
-      supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
-      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
-      iad: iad === 'all' ? undefined : iad,
-      only_overstock: this.wbOnlyOver() || undefined,
+      ...this.wbQuery(),
       page: Math.floor(this.wbFirst() / this.wbPageSize()) + 1, pageSize: this.wbPageSize(),
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
@@ -1792,6 +2045,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           });
         }
       });
+  }
+
+  /** Los filtros de la consulta del workbook, sin paginar. Lo usan la página y la casilla "seleccionar todo". */
+  private wbQuery() {
+    const iad = this.fIad();
+    return {
+      supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
+      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? ('needed' as const) : undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch' as const,
+      iad: iad === 'all' ? undefined : iad,
+      only_overstock: this.wbOnlyOver() || undefined,
+    };
   }
 
   /** forkJoin de las 3 fuentes por-sucursal. ignoreWarehouse=true (Vista Excel) trae todas las sucursales. */
@@ -2219,8 +2484,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       /** RA-PRO.48 — dónde la ENTREGA el proveedor. null = la misma sucursal. */
       toCode: string | null; toWh: string | undefined;
     }> = [];
-    for (const r of this.wbRows()) {
-      if (pid && r.product_id !== pid) continue;
+    // [RA-PRO.54] Un producto (botón del desglose) o, en global, SÓLO los productos marcados —
+    // antes era "la página abierta", que no es algo que el comprador elija.
+    const known = this.knownRows();
+    const scope = pid ? [known.get(pid)].filter((r): r is WorkbookRow => !!r) : this.selRows();
+    for (const r of scope) {
       for (const b of this.branchBuys(r)) {
         if (code && b.code !== code) continue;
         const qty = this.qtyOf(r, b);
@@ -2241,7 +2509,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const buyL = all.filter((l) => l.wh && (!l.toCode || l.toWh));
     const sinWh = all.length - buyL.length;
     const tr = (pid ? this.urows() : this.flatRows())
-      .filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
+      .filter((r) => (!code || r.warehouse_code === code) && (pid ? r.product_id === pid : this.selected().has(r.product_id))
+        && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
     if (!buyL.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'No hay cantidades > 0 en el scope.' }); return; }
     // El código de almacén tiene que resolver a un id o la línea no se puede mandar. Se avisa en
     // vez de perderla en silencio (pasaría si /filters falló y los lookups quedaron vacíos).
@@ -2356,7 +2625,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // los traspasos siguen saliendo del motor de traspasos, que sí es por almacén.
     const buyL = this.buyLines(pid, code);
     const tr = (pid ? this.urows() : this.flatRows())
-      .filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
+      .filter((r) => (!code || r.warehouse_code === code) && (pid ? r.product_id === pid : this.selected().has(r.product_id))
+        && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
     if (!buyL.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
     const lines: PedidoExportLine[] = [
       ...buyL.map<PedidoExportLine>((l) => ({
