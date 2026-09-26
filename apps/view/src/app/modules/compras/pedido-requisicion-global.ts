@@ -48,6 +48,14 @@ export interface HojaProveedor {
   nTraspasos: number;
 }
 
+/**
+ * Orden alfabético por nombre de producto, como se lee en español: sin distinguir mayúsculas ni
+ * acentos, y con los números en orden natural ("15X25" antes que "120X90"). Empate → código.
+ */
+const COLLATOR = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+export const porNombre = (a: { nombre: string; sku: string }, b: { nombre: string; sku: string }) =>
+  COLLATOR.compare((a.nombre || '').trim(), (b.nombre || '').trim()) || COLLATOR.compare(a.sku || '', b.sku || '');
+
 export function agruparPorProveedor(lineas: LineaCompra[]): HojaProveedor[] {
   const hojas = new Map<string, HojaProveedor>();
   const orden = (s: string | null, n: string) => `${s ?? 'none'}|${n}`;
@@ -96,6 +104,10 @@ export function agruparPorProveedor(lineas: LineaCompra[]): HojaProveedor[] {
     }
     // Consolidados primero (son los que generan traspasos), después por valor.
     h.puntos.sort((a, b) => Number(b.consolidado) - Number(a.consolidado) || b.valor - a.valor);
+    // [RA-PRO.56] Productos en orden ALFABÉTICO, en el pedido y en cada repartición: con el papel
+    // en la mano frente a la mercancía, se busca por nombre, no por cuánto se pidió.
+    h.productos.sort(porNombre);
+    for (const rp of h.repartos) rp.filas.sort(porNombre);
   }
 
   return [...hojas.values()].sort((a, b) => b.valor - a.valor);

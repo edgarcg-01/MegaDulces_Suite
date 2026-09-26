@@ -10,6 +10,43 @@
 
 ## [Unreleased]
 
+### Changed — `/compras/pedido` en celular vertical (RA-PRO.59, 2026-09-26)
+Sólo pantallas de menos de 40rem (celular en vertical); tableta y escritorio no cambian.
+- **Barra de abajo en un renglón**: resumen corto (`12 sel · $184 mil`) y botones con texto corto
+  (`PDF (12)`, `Req. (12)`, XLSX sólo ícono). Antes la leyenda completa tapaba ~35% de la pantalla;
+  ahora se abre al tocar el resumen.
+- **Tabla principal sin scroll lateral**: quedan Producto, Exist. red, Suma Ped. cajas y $ Pedido;
+  las otras 11 columnas siguen en tableta y escritorio. Sin proveedor en la celda (ya está en el
+  desglose). El ancho mínimo de 82rem pasa de estilo en línea a CSS para poder anularlo.
+- **Desglose en tarjetas**: cada sucursal es una tarjeta (sucursal y valor · venta, existencia y
+  días · − cantidad + y cj/pz · entrega), así la sucursal nunca se pierde al llegar a la cantidad.
+  Son las mismas celdas acomodadas con CSS grid, no una segunda copia del template. Igual en Traspasos.
+- Pie del desglose en dos renglones y botones cortos (`XLSX`, `PDF`).
+- `dineroCorto()` (`pedido-redondeo.ts`) con pruebas, incluida la frontera 999,600 → `$1 M`.
+
+### Changed — `/compras/pedido`: ajustar el pedido sin teclear (RA-PRO.57, 2026-09-26)
+- **Escritorio: `← →` restan / suman un paso** en el campo Pedido (y en Traspasos), en la unidad de
+  captura (`cj` = una caja, `pz` = una pieza). `↑ ↓` siguen moviendo de renglón; `Alt + ↑ ↓` hace
+  el mismo paso. Con decimales el paso cae al entero (`147.4` → 148 / 147); nunca baja de 0.
+- **Celular y tableta: botones `−` / `+`** de 44px a los lados del campo, sólo con puntero táctil.
+  No enfocan el campo, así que **no abren el teclado** que tapa media pantalla; mantener presionado
+  repite. Tocar la cifra abre el teclado **numérico** (no el completo) para cantidades grandes.
+- Regla D.5 de `DESIGN.md` enmendada (antes `← →` movían el cursor dentro del número). Paso en
+  `pasoCantidad()` (`pedido-redondeo.ts`), con pruebas.
+
+### Changed — PDF requisición global: orden alfabético + nombre de archivo con control (RA-PRO.56, 2026-09-26)
+- **Productos en orden alfabético** en el pedido al proveedor y en cada repartición (antes: en el
+  orden de selección). Con el papel en la mano frente a la mercancía se busca por nombre. Orden en
+  español: sin distinguir mayúsculas ni acentos, números en orden natural (`15X25` antes que
+  `120X90`), empate por código.
+- **Nombre del archivo**: `Requisicion-global_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf` (antes
+  `requisicion-global-AAAA-MM-DD.pdf`), para llevar control de los PDF emitidos. Con varios
+  proveedores dice `VARIOS-PROVEEDORES`. El proveedor se limpia (sin acentos, signos ni espacios)
+  y se recorta a 40 caracteres.
+- `[RA-PRO.58]` **PDF del producto con el mismo control**: `Requisicion_<CODIGO>_<NOMBRE>_AAAA-MM-DD-HH-MM.pdf`
+  (antes `requisicion-<sku>-AAAA-MM-DD.pdf`). Los dos nombres usan la misma limpieza
+  (`textoParaArchivo`) y la misma fecha-hora local.
+
 ### Added — `/compras/pedido`: PDF de requisición por producto y global + selección (RA-PRO.52–55, 2026-09-25)
 - **El acuse "Se entrega en" dice cajas cerradas + piezas** (`6 cj 6 pz`, no `6.5 cj`): se redondea
   una vez sobre el total en piezas, así que piezas de varias sucursales que completan una caja se

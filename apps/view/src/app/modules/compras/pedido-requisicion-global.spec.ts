@@ -1,4 +1,4 @@
-import { agruparPorProveedor, LineaCompra, repartoProducto } from './pedido-requisicion-global';
+import { agruparPorProveedor, LineaCompra, porNombre, repartoProducto } from './pedido-requisicion-global';
 
 const L = (o: Partial<LineaCompra>): LineaCompra => ({
   supplierId: 'S1', supplierName: 'BOLSAS DE LOS ALTOS', productId: 'P1', sku: '17083', nombre: 'ALTOS CAM CHICA',
@@ -104,5 +104,31 @@ describe('[RA-PRO.53] repartoProducto — la repartición del PDF por producto',
 
   it('ignora renglones en cero o inválidos', () => {
     expect(repartoProducto([R('01', '00', 0), R('02', null, NaN)])).toEqual([]);
+  });
+});
+
+describe('[RA-PRO.56] orden alfabético del producto en el pedido y la repartición', () => {
+  it('el pedido al proveedor sale por nombre, no por el orden en que llegaron ni por importe', () => {
+    const [h] = agruparPorProveedor([
+      L({ productId: 'P1', sku: '17083', nombre: 'ALTOS CAM CHICA', valor: 90000 }),
+      L({ productId: 'P2', sku: '17210', nombre: 'GREENPACK ROLLO', valor: 100 }),
+      L({ productId: 'P3', sku: '17064', nombre: 'ALTOS ROLLO ALTA 20X30', valor: 50 }),
+      L({ productId: 'P4', sku: '17021', nombre: 'ALTOS BAJA CORT', valor: 10 }),
+    ]);
+    expect(h.productos.map((p) => p.nombre)).toEqual(['ALTOS BAJA CORT', 'ALTOS CAM CHICA', 'ALTOS ROLLO ALTA 20X30', 'GREENPACK ROLLO']);
+  });
+
+  it('cada repartición también sale por nombre', () => {
+    const [h] = agruparPorProveedor([
+      L({ productId: 'P2', sku: '2', nombre: 'ZETA', branchCode: '03', entregaCode: '00', entregaName: 'CEDIS' }),
+      L({ productId: 'P1', sku: '1', nombre: 'ALFA', branchCode: '01', entregaCode: '00', entregaName: 'CEDIS' }),
+    ]);
+    expect(h.repartos[0].filas.map((f) => f.nombre)).toEqual(['ALFA', 'ZETA']);
+  });
+
+  it('sin distinguir mayúsculas ni acentos, números en orden natural, empate por código', () => {
+    const P = (nombre: string, sku: string) => ({ nombre, sku });
+    const lista = [P('ROLLO 120X90', 'a'), P('rollo 15x25', 'b'), P('Ácido', 'c'), P('ACIDO', 'b0'), P('azucar', 'd')];
+    expect([...lista].sort(porNombre).map((p) => p.sku)).toEqual(['b0', 'c', 'd', 'b', 'a']);
   });
 });
