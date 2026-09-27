@@ -31,6 +31,27 @@
   - Marca de agua obligatoria con la leyenda: `"ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"`.
   - Formato membretado profesional con logo, datos fiscales, desglose de líneas y resumen de importes.
 
+### Added — `/compras/pedido`: pestaña **Flujo** — requisición → OC de Kepler → entrada (RA-PRO.63, 2026-09-26)
+Solo lectura. Por cada requisición de proveedor del periodo (30/60/90 días): hasta dónde llegó
+(*con entrada · en OC sin entrada · esperando OC · sin OC*), qué OC de Kepler la cubrió, cuánto
+surtió la entrada y qué productos no vinieron. Más la tabla de **productos negados recurrentes**.
+- ⚠️ **La liga requisición→OC es SUGERIDA, no capturada**: hoy nadie registra qué OC cubrió cada
+  requisición (medido: las **310** requisiciones de prod siguen en `pending_approval`). Se toma la OC
+  de la misma sucursal y proveedor, en los 14 días siguientes, que trae más productos de la
+  requisición; con menos de la mitad no se liga. La confianza (alta ≥80% / media) y el empate
+  (`ambigua`) se muestran.
+- **No se compara la cantidad**: la OC no es la requisición copiada (de 0.1× a 94× lo pedido del
+  mismo producto; 22 de 66 OC juntan 2–4 requisiciones). Requisición→OC se mide como "¿vino el
+  producto?" y OC→entrada en dinero.
+- El surtido principal es la **mediana por OC** (100%); el ponderado por dinero (32%) se da al lado:
+  una sola OC de Mondelez de $10 M recibida al 19% lo arrastraba.
+- Medido en prod (60 días): 238 requisiciones · 99 con OC · 97 sin OC · 42 en espera · 92.1% de los
+  productos vinieron · Trident, Oreo display y Ricolino Payaso **negados 3 de 3**.
+- Endpoint `GET /commercial/replenishment/purchase-flow` (`COMPRAS_PEDIDO_VER`, alcance por
+  sucursal; tenant explícito porque las vistas `analytics.erp_*` no tienen RLS). Sin migración.
+- Decisiones en `flujo-compras.ts` con 19 pruebas (incluidas las negativas: liga <50%, fuera de
+  ventana, requisición en espera, OC sin monto, almacén Wincaja sin fuente).
+
 ### Added — `/compras/oc-abiertas`: PDF de cada orden y estatus de seguimiento (RA-PRO.61–62, 2026-09-26)
 - **PDF por orden de compra de Kepler** (botones `Prov.` e `Int.` en cada renglón): copia de consulta
   (el oficial es Kepler) con proveedor, fechas, condición de pago, **todos** los renglones con cajas,
