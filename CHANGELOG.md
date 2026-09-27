@@ -76,6 +76,19 @@
 - Decisiones en `oc-abiertas.ts` (`filtroSucursalOc`, `resumenOcAbiertas`) con pruebas, incluidas
   las negativas de alcance vacío y de tope.
 
+### Fixed — `/compras/oc-abiertas`: correcciones de la revisión (RA-PRO.60–62, 2026-09-26)
+- ⚠️ **Tenant explícito** en la consulta de órdenes abiertas y sus renglones: las vistas
+  `analytics.erp_purchase_*` no tienen RLS, así que el filtro por empresa lo pone la consulta.
+- Sucursal validada (dos dígitos) en el filtro y en el detalle/seguimiento; renglones del detalle
+  ordenados por número de línea (9, 10, 11), no como texto.
+- El primer estatus de una orden ya no puede chocar si dos personas guardan a la vez (candado por orden).
+- Migración: RLS, política y permisos se aplican **siempre**, aunque la tabla ya exista.
+- PDF para el proveedor: un solo importe (la suma de renglones), sin el "concepto" interno, y
+  nombre de archivo distinto de la copia interna (`_PROVEEDOR` / `_INTERNO`). Cantidades negativas
+  ya no dan cajas negativas. Si el historial llega al tope de 50 cambios, se dice.
+- Pantalla: sin permiso, el estatus se ve como texto (y el lector de pantalla lee la nota); el
+  diálogo no se cierra a medio guardar; una recarga vieja ya no pisa a la nueva.
+
 ### Changed — `/compras/pedido` en celular vertical (RA-PRO.59, 2026-09-26)
 Sólo pantallas de menos de 40rem (celular en vertical); tableta y escritorio no cambian.
 - **Barra de abajo en un renglón**: resumen corto (`12 sel · $184 mil`) y botones con texto corto

@@ -61,7 +61,10 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
       'Sucursal', `${o.sucursal}${op.sucursalNombre ? ` · ${op.sucursalNombre}` : ''}`],
     ['Fecha OC', dia(o.fecha), 'Vence', dia(o.vence), 'Condición de pago', o.condicion_pago || '—'],
   ];
-  if (ref || o.concepto) body.push(['Referencia', ref || '—', 'Concepto', { content: o.concepto || '—', colSpan: 3 }]);
+  // `concepto` (kdm1.c24) es texto libre de Kepler; en otros documentos ha traído motivos internos.
+  // Sólo va en la copia interna. La referencia sí va en las dos (es el folio que cita el proveedor).
+  const concepto = op.interno ? o.concepto : null;
+  if (ref || concepto) body.push(['Referencia', ref || '—', 'Concepto', { content: concepto || '—', colSpan: 3 }]);
   autoTable(doc, {
     startY: y, margin: { left: M, right: M }, theme: 'plain', body,
     styles: { fontSize: 9, cellPadding: { top: 2, bottom: 2, left: 0, right: 8 }, textColor: INK },
@@ -76,7 +79,14 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
   const h = 42;
   let cx = M;
   const surtido = data.pct_surtido === null ? 'Sin monto' : data.recepciones.length ? `${data.pct_surtido}%` : 'Sin recepciones';
-  const cards: [string, string][] = [['Renglones', String(data.lineas.length)], ['Importe', money(o.monto)], ['Surtido (en dinero)', surtido]];
+  const sumLineas = data.lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0);
+  // Un solo total por versión: la del proveedor usa la suma de renglones (la misma que el pie de la
+  // tabla), así nunca ve dos importes distintos sin explicación. La interna usa el importe del
+  // documento de Kepler y, si no cuadra con los renglones, lo dice en las notas.
+  const importe: [string, string] = op.interno
+    ? ['Importe del documento', money(o.monto)]
+    : ['Importe (suma de renglones)', money(sumLineas)];
+  const cards: [string, string][] = [['Renglones', String(data.lineas.length)], importe, ['Surtido (en dinero)', surtido]];
   cards.forEach(([t, v], i) => { dibujarRecuadro(doc, cx, y, ws[i], h, t, v); cx += ws[i] + gap; });
   if (op.interno) {
     const s = data.seguimiento;
@@ -99,7 +109,6 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
     return [String(i + 1), l.sku || '—', l.nombre || '—', num(l.cantidad), (l.unidad || '—').toLowerCase(),
       cj ?? 'sin verificar', money(l.costo_unitario), money(l.importe)];
   });
-  const sumLineas = data.lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0);
   autoTable(doc, {
     ...tablaBase, startY: y + 6,
     head: [['#', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Cajas', 'Costo unit.', 'Importe']],
@@ -150,6 +159,12 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
         columnStyles: { 0: { cellWidth: 64 }, 1: { cellWidth: 118 }, 2: { cellWidth: 118 }, 4: { cellWidth: 90 } },
       });
       y = lastY(doc, y) + 14;
+      // La API manda los últimos 50 cambios: si llegaron 50, puede haber más viejos. Se declara.
+      if (data.historia.length >= 50) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
+        doc.text('Se muestran los 50 cambios más recientes; puede haber anteriores.', M, y);
+        y += 12;
+      }
     } else {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
       doc.text('Nadie ha revisado esta orden todavía (Sin revisar).', M, y + 14);
@@ -174,5 +189,5 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
   dibujarNotas(doc, y, notas);
 
   dibujarPies(doc, `OC ${o.sucursal}-${o.folio}${op.interno ? ' · copia interna' : ''}`, null, 'Compras > OC abiertas');
-  doc.save(nombreArchivoOc(o.sucursal, o.folio, o.proveedor, op.emitido));
+  doc.save(nombreArchivoOc(o.sucursal, o.folio, o.proveedor, op.emitido, op.interno));
 }
