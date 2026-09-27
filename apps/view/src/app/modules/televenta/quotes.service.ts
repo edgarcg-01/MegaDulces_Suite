@@ -52,6 +52,7 @@ export interface WholesaleBranchTerms {
   discount_2_pct: number | string | null;
   zone_code: string | null;
   group_code: string | null;
+  salesperson_code?: string | null;
 }
 
 export interface WholesaleCustomer {
@@ -133,6 +134,8 @@ export interface PricedLine {
   availability: string;
   applied: PriceStep[];
   not_applied: { mechanism: string; reason: string }[];
+  /** Escalón de mayoreo / volumen configurado en el ERP */
+  volume_tier?: { min_qty: number; price: number } | null;
   free_goods: { sku: string; quantity: number; unit_label: string | null; product_id: string | null } | null;
   unpriced_reason: string | null;
   warnings: string[];
@@ -296,11 +299,19 @@ export class QuotesService {
     valid_until?: string;
     customer_request?: string;
     notes?: string;
+    salesperson_code?: string;
+    salesperson_name?: string;
   }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string }> {
     return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string }>(
       this.base,
       payload,
     );
+  }
+
+  /** Lista los vendedores de Kepler asignados a una sucursal (?branch=01). */
+  listSalespersons(branch: string): Observable<Array<{ code: string; name: string }>> {
+    const params = new HttpParams().set('branch', branch);
+    return this.http.get<Array<{ code: string; name: string }>>(`${this.base}/salespersons`, { params });
   }
 
   cancel(id: string, reason: string): Observable<{ id: string; code: string; status: QuoteStatus }> {

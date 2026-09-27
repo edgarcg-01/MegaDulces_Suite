@@ -11,7 +11,12 @@ import { environment } from '../../../environments/environment';
  * red, la pantalla lo dice y deja reintentar; no finge que se guardó.
  */
 
-export type StockoutKind = 'agotado' | 'no_en_sucursal' | 'no_en_catalogo' | 'codigo_no_pasa';
+export type StockoutKind =
+  | 'agotado'
+  | 'no_en_anaquel'
+  | 'no_en_sucursal'
+  | 'no_en_catalogo'
+  | 'codigo_no_pasa';
 export type StockoutStatus = 'open' | 'in_progress' | 'resolved' | 'dismissed';
 export type StockoutDecision =
   | 'alta_catalogo' | 'ya_en_camino' | 'no_se_trabaja' | 'codigo_corregido' | 'era_error';
@@ -28,6 +33,8 @@ export interface ReportarPayload {
 export interface ReportarResultado {
   id: string;
   kind: StockoutKind;
+  /** A quién le toca. Lo deriva el servidor de (motivo, existencia) — acá sólo se rotula. */
+  destino: StockoutDestino;
   times_reported: number;
   product_name: string | null;
   on_hand_at_report: number | null;
@@ -68,15 +75,51 @@ export interface ResumenFaltantes {
   dinero_estimado: number;
   no_en_catalogo: number;
   contradicen_al_erp: number;
+  /** `[FLT.21]` Lo que se recupera HOY: hay existencia y no estaba en el anaquel. */
+  recuperable_hoy: number;
+  dinero_recuperable_hoy: number;
 }
 
 /** Etiquetas en llano. El motivo es lo que la persona del mostrador elige, así que se lee como habla. */
-export const MOTIVOS: ReadonlyArray<{ kind: StockoutKind; label: string; ayuda: string; icon: string }> = [
-  { kind: 'agotado', label: 'No hay en piso', ayuda: 'Sí lo vendemos, se acabó', icon: 'pi pi-inbox' },
+export interface MotivoUi {
+  kind: StockoutKind;
+  label: string;
+  ayuda: string;
+  icon: string;
+}
+
+export const MOTIVOS: ReadonlyArray<MotivoUi> = [
+  // `[FLT.21]` El motivo nuevo va PRIMERO: es el único cuya venta todavía no se perdió.
+  { kind: 'no_en_anaquel', label: 'No estaba en el anaquel', ayuda: 'Sí hay en la tienda — avisar a piso', icon: 'pi pi-box' },
+  { kind: 'agotado', label: 'No hay en la tienda', ayuda: 'Busqué y no está en ningún lado', icon: 'pi pi-inbox' },
   { kind: 'no_en_sucursal', label: 'No se maneja aquí', ayuda: 'Existe, pero no en esta tienda', icon: 'pi pi-map-marker' },
   { kind: 'no_en_catalogo', label: 'No lo trabajamos', ayuda: 'No está en el catálogo', icon: 'pi pi-question-circle' },
   { kind: 'codigo_no_pasa', label: 'El código no pasó', ayuda: 'Existe, pero el lector no lo tomó', icon: 'pi pi-ban' },
 ];
+
+/** `[FLT.21]` A quién le toca. Lo deriva el servidor; acá sólo se rotula. */
+export type StockoutDestino = 'piso' | 'compras' | 'inventario' | 'catalogo';
+
+export const ETIQUETA_DESTINO: Record<StockoutDestino, string> = {
+  piso: 'Piso — surtir anaquel',
+  compras: 'Compras',
+  inventario: 'Inventario — descuadre',
+  catalogo: 'Catálogo — código',
+};
+
+/** `[FLT.22]` Lo que contesta «¿lo tenemos?» antes de pedir nada. */
+export interface ConsultaFaltante {
+  encontrado: boolean;
+  termino: string;
+  warehouse_code: string;
+  warehouse_name: string | null;
+  sku?: string;
+  product_name?: string;
+  precio?: number | null;
+  /** `null` = NO SE PUDO MEDIR. Nunca 0 por defecto. */
+  existencia?: number | null;
+  veredicto?: 'hay_en_tienda' | 'sin_existencia' | 'no_medido';
+}
 
 export const ETIQUETA_MOTIVO: Record<StockoutKind, string> =
   MOTIVOS.reduce((a, m) => ({ ...a, [m.kind]: m.label }), {} as Record<StockoutKind, string>);
@@ -102,6 +145,17 @@ export class FaltantesService {
     return this.http.get<Faltante[]>(`${this.base}/sucursal/${encodeURIComponent(code)}`, {
       params: { semanas: String(semanas) },
     });
+  }
+
+  /**
+   * `[FLT.22]` «¿Lo tenemos?» — resuelve el producto y contesta la existencia ANTES de reportar.
+   * Es lo que hace que la pantalla le sirva a quien la abre, y no sólo a Compras tres días después.
+   */
+  consultar(code: string, termino: string): Observable<ConsultaFaltante> {
+    return this.http.get<ConsultaFaltante>(
+      `${this.base}/sucursal/${encodeURIComponent(code)}/consulta`,
+      { params: { q: termino } },
+    );
   }
 
   codigosQueFallan(code: string): Observable<CodigoQueFalla[]> {

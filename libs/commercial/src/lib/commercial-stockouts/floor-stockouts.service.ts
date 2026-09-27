@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService, todayMx } from '@megadulces/platform-core';
 
@@ -52,7 +52,12 @@ import { TenantKnexService, TenantContextService, ScopeService, todayMx } from '
  * `SET LOCAL app.tenant_id` toda consulta devuelve cero filas en silencio (lección de la Fase E).
  */
 
-export type StockoutKind = 'agotado' | 'no_en_sucursal' | 'no_en_catalogo' | 'codigo_no_pasa';
+// `[FLT.21]` La regla del destino vive en un modulo PURO para poder probarse sin base de datos.
+// Se re-exporta desde aca para no romper a quien ya importa del servicio.
+export { destinoDe, STOCKOUT_KINDS } from './stockout-destino';
+export type { StockoutKind, StockoutDestino } from './stockout-destino';
+import { destinoDe, STOCKOUT_KINDS, type StockoutKind, type StockoutDestino } from './stockout-destino';
+
 export type StockoutSource = 'verificador' | 'almacen' | 'caja' | 'otro';
 export type StockoutStatus = 'open' | 'in_progress' | 'resolved' | 'dismissed';
 export type StockoutDecision =
@@ -62,7 +67,7 @@ export type StockoutDecision =
   | 'codigo_corregido'
   | 'era_error';
 
-const KINDS: readonly StockoutKind[] = ['agotado', 'no_en_sucursal', 'no_en_catalogo', 'codigo_no_pasa'];
+const KINDS = STOCKOUT_KINDS;
 const SOURCES: readonly StockoutSource[] = ['verificador', 'almacen', 'caja', 'otro'];
 const DECISIONS: readonly StockoutDecision[] = [
   'alta_catalogo', 'ya_en_camino', 'no_se_trabaja', 'codigo_corregido', 'era_error',
@@ -118,6 +123,8 @@ interface FilaFaltante {
 export interface FaltanteSalida {
   id: string;
   kind: StockoutKind;
+  /** A quién le toca. Derivado de (kind, existencia) — ver `destinoDe`. */
+  destino: StockoutDestino;
   sku: string | null;
   scanned_code: string | null;
   product_name: string | null;
@@ -155,11 +162,45 @@ export interface ResumenFaltantes {
   dinero_estimado: number;
   no_en_catalogo: number;
   contradicen_al_erp: number;
+  /**
+   * `[FLT.21]` Lo que se recupera **hoy**: hay existencia y no estaba en el anaquel. Va primero
+   * en la pantalla porque es la única fila de la bandeja cuya venta todavía no se perdió.
+   */
+  recuperable_hoy: number;
+  /** El dinero de esa fila, aparte del total: es el que se salva caminando a la bodega. */
+  dinero_recuperable_hoy: number;
 }
+
+/**
+ * `[FLT.22]` Lo que contesta la consulta «¿lo tenemos?». Dos formas, porque "no está en el
+ * catálogo" y "está y no hay" mandan a la persona a hacer cosas distintas.
+ */
+export type ConsultaResultado =
+  | {
+      encontrado: false;
+      termino: string;
+      warehouse_code: string;
+      warehouse_name: string | null;
+    }
+  | {
+      encontrado: true;
+      termino: string;
+      warehouse_code: string;
+      warehouse_name: string | null;
+      sku: string;
+      product_name: string;
+      /** `null` = no se pudo leer el precio; la pantalla lo declara, no dibuja $0. */
+      precio: number | null;
+      /** `null` = NO SE PUDO MEDIR. Nunca 0 por defecto (ADR-056). */
+      existencia: number | null;
+      veredicto: 'hay_en_tienda' | 'sin_existencia' | 'no_medido';
+    };
 
 export interface ReportarResult {
   id: string;
   kind: StockoutKind;
+  /** A quién le toca. Derivado de (kind, existencia) — ver `destinoDe`. */
+  destino: StockoutDestino;
   /** Cuántas veces van en la semana. Es lo que la pantalla le devuelve a la persona. */
   times_reported: number;
   product_name: string | null;
@@ -242,6 +283,81 @@ export class FloorStockoutsService {
     return s
       .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin acentos
       .toUpperCase().replace(/\s+/g, ' ').trim();
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // CONSULTA — «¿lo tenemos?»
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * `[FLT.22]` Lo que la pantalla contesta ANTES de pedir nada.
+   *
+   * ── Por qué existe, medido ──────────────────────────────────────────────────────────────────
+   * La primera versión era un formulario: pedía capturar y contestaba "gracias". Todo el beneficio
+   * caía en Compras, tres días después. **En cinco días la usó UNA persona de piso de 19 cajeras**
+   * (9 reportes, y 3 eran de cuentas de prueba). Nadie hace captura para beneficio ajeno con un
+   * cliente enfrente.
+   *
+   * Esto da vuelta el trato: primero le contesta a quien pregunta —*¿vale la pena que alguien
+   * camine a la bodega?*— y el reporte queda como consecuencia de una consulta útil. Es la misma
+   * pregunta que tienen la cajera y el anaquelista, y es la razón por la que van a abrirla.
+   *
+   * ── Lo que devuelve y lo que NO inventa ─────────────────────────────────────────────────────
+   * `existencia` es la del ERP (`analytics.v_erp_stock_on_hand`, la vista que mide 100% contra el
+   * POS). **`null` significa "no se pudo leer", nunca 0** — y los dos casos llevan etiquetas
+   * distintas, porque "no hay" y "no sé" mandan a la persona a hacer cosas opuestas (ADR-056).
+   */
+  async consultar(warehouseCode: string, termino: string): Promise<ConsultaResultado> {
+    if (!warehouseCode) throw new BadRequestException('Falta la sucursal');
+    const q = (termino || '').trim();
+    if (!q) throw new BadRequestException('Falta el código o la clave a consultar');
+    await this.assertAlcanza(warehouseCode);
+
+    return this.tk.run(async (trx) => {
+      const wh = await trx('commercial.warehouses')
+        .select('id', 'code', 'name')
+        .whereRaw('LOWER(code) = LOWER(?)', [warehouseCode])
+        .whereNull('deleted_at')
+        .first();
+      if (!wh) throw new NotFoundException(`No existe la sucursal ${warehouseCode}`);
+
+      const producto = await this.resolverProducto(trx, q, q);
+      if (!producto) {
+        // El catálogo contestó que no existe. Es autoritativo y NO se disfraza de error.
+        return {
+          encontrado: false as const,
+          termino: q,
+          warehouse_code: wh.code,
+          warehouse_name: wh.name ?? null,
+        };
+      }
+
+      const [existencia, precio] = await Promise.all([
+        this.leerExistencia(trx, wh.id, producto.id),
+        this.leerPrecio(trx, wh.code, producto.sku),
+      ]);
+
+      return {
+        encontrado: true as const,
+        termino: q,
+        warehouse_code: wh.code,
+        warehouse_name: wh.name ?? null,
+        sku: producto.sku,
+        product_name: producto.name,
+        precio,
+        existencia,
+        /**
+         * El veredicto que la persona necesita, ya resuelto acá para que las dos pantallas no lo
+         * calculen cada una a su manera. `no_medido` NO es `sin_existencia`: con el primero se
+         * manda a alguien a buscar, con el segundo no.
+         */
+        veredicto: existencia == null
+          ? ('no_medido' as const)
+          : existencia > 0
+            ? ('hay_en_tienda' as const)
+            : ('sin_existencia' as const),
+      };
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -357,13 +473,17 @@ export class FloorStockoutsService {
       return {
         id: r.id,
         kind: r.kind,
+        destino: destinoDe(r.kind, onHandNum),
         times_reported: Number(r.times_reported),
         product_name: r.product_name ?? null,
         on_hand_at_report: onHandNum,
         est_lost_revenue: r.est_lost_revenue != null ? Number(r.est_lost_revenue) : null,
         est_source: r.est_source,
-        // El hallazgo: dijo que no hay y el ERP dice que sí. Va a inventario, no a compras.
-        contradice_al_erp: r.kind === 'agotado' && onHandNum != null && onHandNum > 0,
+        // Dijo "no hay" y el ERP dice que sí, DESPUÉS de haberlo buscado. Eso ya es un descuadre
+        // afirmado por una persona — antes esta bandera se encendía sola, por construcción.
+        // Se DERIVA del destino y no se reimplementa: es la misma pregunta con otro nombre, y
+        // escrita dos veces son dos respuestas el día que una de las dos cambie.
+        contradice_al_erp: destinoDe(r.kind, onHandNum) === 'inventario',
       };
     });
   }
@@ -571,9 +691,17 @@ export class FloorStockoutsService {
             COALESCE(sum(est_lost_revenue) FILTER (WHERE status IN ('open','in_progress')), 0) AS dinero_estimado,
             count(*) FILTER (WHERE status IN ('open','in_progress')
                                AND kind = 'no_en_catalogo')                   AS no_en_catalogo,
+            -- ⚠️ Esta condicion es la unica copia de destinoDe() que vive fuera de TypeScript:
+            -- el SQL no puede llamarla. Es 'inventario' escrito en SQL. Si cambia la regla, este
+            -- FILTER y el de abajo cambian con ella, o el KPI deja de cuadrar con la columna
+            -- "Le toca a" de la misma pantalla.
             count(*) FILTER (WHERE status IN ('open','in_progress')
                                AND kind = 'agotado'
-                               AND on_hand_at_report > 0)                     AS contradicen_al_erp
+                               AND on_hand_at_report > 0)                     AS contradicen_al_erp,
+            count(*) FILTER (WHERE status IN ('open','in_progress')
+                               AND kind = 'no_en_anaquel')                    AS recuperable_hoy,
+            COALESCE(sum(est_lost_revenue) FILTER (WHERE status IN ('open','in_progress')
+                               AND kind = 'no_en_anaquel'), 0)                AS dinero_recuperable_hoy
            FROM commercial.floor_stockouts`,
       );
       const r = rows[0];
@@ -583,8 +711,10 @@ export class FloorStockoutsService {
         abiertos_sin_valorar: Number(r.abiertos_sin_valorar),
         dinero_estimado: Number(r.dinero_estimado),
         no_en_catalogo: Number(r.no_en_catalogo),
-        /** Dijeron "no hay" y el ERP dice que sí: descuadre de inventario, no compra. */
+        /** Dijeron "no hay" y el ERP dice que sí DESPUÉS de buscarlo: descuadre, no compra. */
         contradicen_al_erp: Number(r.contradicen_al_erp),
+        recuperable_hoy: Number(r.recuperable_hoy),
+        dinero_recuperable_hoy: Number(r.dinero_recuperable_hoy),
       };
     });
   }
@@ -631,6 +761,7 @@ export class FloorStockoutsService {
     return {
       id: r.id,
       kind: r.kind as StockoutKind,
+      destino: destinoDe(r.kind as StockoutKind, onHand),
       sku: r.sku ?? null,
       scanned_code: r.scanned_code ?? null,
       product_name: r.product_name ?? null,
@@ -649,7 +780,7 @@ export class FloorStockoutsService {
       source: r.source ?? null,
       warehouse_code: r.warehouse_code ?? null,
       warehouse_name: r.warehouse_name ?? null,
-      contradice_al_erp: r.kind === 'agotado' && onHand != null && onHand > 0,
+      contradice_al_erp: destinoDe(r.kind as StockoutKind, onHand) === 'inventario',
     };
   }
 }

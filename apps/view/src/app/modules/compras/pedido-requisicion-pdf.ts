@@ -25,12 +25,17 @@
  *
  * Los modelos los arma el componente; este archivo sólo dibuja.
  */
-import type jsPDFType from 'jspdf';
 import type { HojaProveedor } from './pedido-requisicion-global';
 import { textoCajasPiezas, textoSumaCajasPiezas } from './pedido-redondeo';
 
-type JsPDFCtor = typeof jsPDFType;
-type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
+import {
+  INK, M, MUTED, RULE, altoPuntos, alinearTitulos, dias, dibujarEncabezado, encabezadoRequisicion,
+  dibujarFirmas, dibujarNotas, dibujarPies, dibujarPuntos, dibujarRecuadro, fechaHoraArchivo, lastY, loadLibs,
+  loadLogo, money, num1, tablaBase, textoParaArchivo,
+} from './compras-pdf-comun';
+
+// Se re-exporta: las pruebas y quien ya lo importaba de acá siguen funcionando.
+export { textoParaArchivo } from './compras-pdf-comun';
 
 /** Un renglón de la tabla de repartición: a quién le toca, y cómo está esa sucursal hoy. */
 export interface ReqPdfFila {
@@ -77,69 +82,6 @@ export interface ReqGlobalPdfData {
   avisos: string[];
 }
 
-const EMPRESA = 'MEGA DULCES DE LOS ALTOS';
-const LOGO_URL = 'assets/logos/mega-dulces-logo-print.png';
-
-// Paleta sobria (Stone de DESIGN.md) + el sunset de acción sólo en la raya del título.
-const INK: [number, number, number] = [28, 25, 23];       // stone-900
-const MUTED: [number, number, number] = [120, 113, 108];  // stone-500
-const RULE: [number, number, number] = [231, 229, 228];   // stone-200
-const HEAD: [number, number, number] = [68, 64, 60];      // stone-700
-const ZEBRA: [number, number, number] = [245, 245, 244];  // stone-100
-const ACTION: [number, number, number] = [240, 90, 40];   // --action #F05A28
-const M = 36;
-
-const money = (v: number) =>
-  (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 });
-const num1 = (v: number) => (Math.round((Number(v) || 0) * 10) / 10).toLocaleString('es-MX');
-const dias = (d: number | null) => (d == null ? 's/venta' : d > 999 ? '+999 d' : `${Math.round(d)} d`);
-const fecha = (d: Date) =>
-  d.toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-let libs: Promise<{ jsPDF: JsPDFCtor; autoTable: AutoTableFn }> | null = null;
-function loadLibs() {
-  // Carga perezosa: jsPDF + autoTable pesan ~500 KB y sólo se necesitan al imprimir.
-  libs ??= Promise.all([import('jspdf'), import('jspdf-autotable')]).then(([a, b]) => ({
-    jsPDF: a.default as JsPDFCtor,
-    autoTable: b.default as unknown as AutoTableFn,
-  }));
-  return libs;
-}
-
-async function loadLogo(): Promise<string | null> {
-  // Sin logo el documento sigue siendo válido: no se cancela la impresión por una imagen.
-  try {
-    const blob = await (await fetch(LOGO_URL)).blob();
-    return await new Promise<string>((res, rej) => {
-      const fr = new FileReader();
-      fr.onload = () => res(String(fr.result));
-      fr.onerror = rej;
-      fr.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-/**
- * `[RA-PRO.56]` Texto apto para nombre de archivo (Windows y adjuntos de correo): sin acentos,
- * signos ni espacios (guiones en su lugar), en mayúsculas y recortado a `max` sin guion colgando.
- * Vacío si no queda nada legible.
- */
-export function textoParaArchivo(txt: string, max = 40): string {
-  return (txt || '').normalize('NFD').replace(/\p{M}/gu, '')   // quita los acentos que NFD separó de su letra
-    .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase().slice(0, max).replace(/-+$/, '');
-}
-
-/** Fecha y hora LOCAL para el nombre del archivo: AAAA-MM-DD-HH-MM (formato pedido por Compras). */
-function fechaHoraArchivo(d: Date): string {
-  const p2 = (n: number) => String(n).padStart(2, '0');
-  return `${ymd(d)}-${p2(d.getHours())}-${p2(d.getMinutes())}`;
-}
-
 /**
  * `[RA-PRO.56]` Nombre del PDF global, para llevar control de los archivos emitidos:
  * `Requisicion-global_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf`. Con varios proveedores dice
@@ -163,134 +105,6 @@ export function nombreArchivoRequisicion(sku: string, nombre: string, d: Date): 
   return `Requisicion_${cod}${nom ? `_${nom}` : ''}_${fechaHoraArchivo(d)}.pdf`;
 }
 
-// ── Piezas compartidas por los dos PDF ─────────────────────────────────────────────────────
-
-const lastY = (doc: jsPDFType, fallback: number) =>
-  (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? fallback;
-
-/** Encabezado con logo, empresa, título y la caja BORRADOR. Devuelve la y donde sigue el contenido. */
-function dibujarEncabezado(doc: jsPDFType, logo: string | null, emitido: Date, elaboro: string): number {
-  const W = doc.internal.pageSize.getWidth();
-  const y = M;
-  if (logo) doc.addImage(logo, 'PNG', M, y - 4, 44, 44);
-  const tx = logo ? M + 54 : M;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...INK);
-  doc.text(EMPRESA, tx, y + 12);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...HEAD);
-  doc.text('Orden de requisición de compra', tx, y + 28);
-
-  // Caja de folio a la derecha: BORRADOR, porque el folio real lo asigna el servidor.
-  const bw = 220, bx = W - M - bw;
-  doc.setDrawColor(...RULE); doc.setFillColor(...ZEBRA);
-  doc.roundedRect(bx, y - 6, bw, 54, 4, 4, 'FD');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...ACTION);
-  doc.text('BORRADOR · SIN FOLIO', bx + 10, y + 8);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
-  doc.text(`Emitido: ${fecha(emitido)}`, bx + 10, y + 21);
-  doc.text(`Elaboró: ${elaboro}`, bx + 10, y + 32);
-  doc.text('El folio RQ-AAAA-NNNNN se asigna al registrarla.', bx + 10, y + 43);
-
-  doc.setDrawColor(...ACTION); doc.setLineWidth(1.5); doc.line(M, y + 58, W - M, y + 58);
-  doc.setLineWidth(0.5);
-  return y + 72;
-}
-
-const OC_ROW = 20, OC_HEAD = 30;
-/** Altura que ocupa la tabla de puntos de entrega con `n` renglones. */
-const altoPuntos = (n: number) => Math.max(38, OC_HEAD + n * OC_ROW + 4);
-
-/** Recuadro simple: título arriba, valor abajo. */
-function dibujarRecuadro(doc: jsPDFType, x: number, y: number, w: number, h: number, titulo: string, valor: string): void {
-  doc.setFillColor(...ZEBRA); doc.setDrawColor(...RULE);
-  doc.roundedRect(x, y, w, h, 4, 4, 'FD');
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
-  doc.text(titulo.toUpperCase(), x + 9, y + 12);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...INK);
-  doc.text(doc.splitTextToSize(valor, w - 18)[0], x + 9, y + 29);
-}
-
-/**
- * Tabla "Puntos de entrega (N)": ALMACÉN | O. COMPRA, un renglón por punto. La O. Compra va EN
- * BLANCO a propósito — se anota a mano cuando se le dio trámite al pedido.
- */
-function dibujarPuntos(doc: jsPDFType, x: number, y: number, w: number, h: number, puntos: { code: string; name: string }[]): void {
-  const colOc = x + w * 0.58;   // dónde empieza la columna O. COMPRA
-  doc.setFillColor(...ZEBRA); doc.setDrawColor(...RULE);
-  doc.roundedRect(x, y, w, h, 4, 4, 'FD');
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
-  doc.text(`PUNTOS DE ENTREGA (${puntos.length})`, x + 9, y + 12);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-  doc.text('ALMACÉN', x + 9, y + 25);
-  doc.text('O. COMPRA', colOc + 6, y + 25);
-  doc.setDrawColor(...MUTED);
-  doc.line(x + 9, y + OC_HEAD - 2, x + w - 9, y + OC_HEAD - 2);
-  puntos.forEach((e, i) => {
-    const ry = y + OC_HEAD + i * OC_ROW;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK);
-    doc.text(doc.splitTextToSize(`${e.code} · ${e.name}`, colOc - x - 14)[0], x + 9, ry + 13);
-    // Espacio para escribir: fondo blanco con línea base, no una celda vacía que se confunda con "sin OC".
-    doc.setFillColor(255, 255, 255); doc.setDrawColor(...RULE);
-    doc.rect(colOc, ry + 2, x + w - 9 - colOc, OC_ROW - 5, 'FD');
-    doc.setDrawColor(...MUTED);
-    doc.line(colOc + 4, ry + OC_ROW - 6, x + w - 13, ry + OC_ROW - 6);
-  });
-}
-
-/** Notas al pie del contenido. Devuelve la y donde terminan. */
-function dibujarNotas(doc: jsPDFType, y: number, notas: string[]): number {
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
-  for (const n of notas) {
-    const lines = doc.splitTextToSize(n, W - 2 * M);
-    if (y + lines.length * 10 > H - 90) { doc.addPage(); y = M; }
-    doc.text(lines, M, y); y += lines.length * 10;
-  }
-  return y;
-}
-
-/** Líneas de firma al fondo de la hoja (o de una hoja nueva si ya no caben). */
-function dibujarFirmas(doc: jsPDFType, y: number, elaboro: string): void {
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  if (y > H - 90) { doc.addPage(); y = M; }
-  y = Math.max(y + 34, H - 78);
-  const firmas = ['Elaboró (Compras)', 'Autorizó', 'Recibió (CEDIS / sucursal)'];
-  const fw = (W - 2 * M - 40) / 3;
-  firmas.forEach((f, i) => {
-    const fx = M + i * (fw + 20);
-    doc.setDrawColor(...HEAD); doc.line(fx, y, fx + fw, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
-    doc.text(i === 0 ? `${f} · ${elaboro}` : f, fx, y + 11);
-  });
-}
-
-/** Pie en cada página: de dónde sale el documento y el número de página. */
-function dibujarPies(doc: jsPDFType, etiqueta: string, datosAl: Date | null): void {
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const total = doc.getNumberOfPages();
-  for (let i = 1; i <= total; i++) {
-    doc.setPage(i);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...MUTED);
-    const origen = `${EMPRESA} · ${etiqueta} · Generado desde Compras > Pedido`
-      + (datosAl ? ` · datos consultados ${fecha(datosAl)}` : '');
-    doc.text(origen, M, H - 18);
-    doc.text(`Página ${i} de ${total}`, W - M, H - 18, { align: 'right' });
-  }
-}
-
-const tablaBase = {
-  margin: { left: M, right: M }, theme: 'grid',
-  styles: { fontSize: 8.5, cellPadding: 4, textColor: INK, lineColor: RULE, lineWidth: 0.5 },
-  headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-};
-/** Alinea a la derecha el título y el total de las columnas numéricas (DESIGN, regla D.0). */
-const alinearTitulos = (cols: number[]) =>
-  (h: { section: string; column: { index: number }; cell: { styles: { halign: string } } }) => {
-    if ((h.section === 'head' || h.section === 'foot') && cols.includes(h.column.index)) h.cell.styles.halign = 'right';
-  };
-
 // ── PDF por producto ───────────────────────────────────────────────────────────────────────
 
 export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
@@ -299,7 +113,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
   const W = doc.internal.pageSize.getWidth();
   const p = data.producto;
   const r = data.resumen;
-  let y = dibujarEncabezado(doc, logo, data.emitido, data.elaboro);
+  let y = dibujarEncabezado(doc, logo, encabezadoRequisicion(data.emitido, data.elaboro));
 
   // ── Renglón 1: proveedor + cobertura · Renglón 2: producto + unidades + órdenes abiertas ─
   autoTable(doc, {
@@ -385,7 +199,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
 
   // ── Hoja de resumen, sólo si hay más de un proveedor ─────────────────────────────────────
   if (hojas.length > 1) {
-    let y = dibujarEncabezado(doc, logo, data.emitido, data.elaboro);
+    let y = dibujarEncabezado(doc, logo, encabezadoRequisicion(data.emitido, data.elaboro));
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...INK);
     doc.text('RESUMEN DE LA REQUISICIÓN', M, y + 4);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
@@ -413,7 +227,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
   // ── Una hoja por proveedor ───────────────────────────────────────────────────────────────
   hojas.forEach((h, hi) => {
     if (hi > 0 || hojas.length > 1) doc.addPage();
-    let y = dibujarEncabezado(doc, logo, data.emitido, data.elaboro);
+    let y = dibujarEncabezado(doc, logo, encabezadoRequisicion(data.emitido, data.elaboro));
 
     autoTable(doc, {
       startY: y, margin: { left: M, right: M }, theme: 'plain',

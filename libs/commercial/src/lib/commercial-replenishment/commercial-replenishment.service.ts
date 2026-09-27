@@ -1,7 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
-import { compareWarehouseCodes } from '@megadulces/contracts';
+import {
+  compareWarehouseCodes, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, validarSeguimiento,
+} from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
+import {
+  clasificarRecepciones, filtroSucursalOc, OcAbierta, OcDocRow, OcFollowupRow, OcHistoryRow, OcLineRow, OcReceiptRow,
+  resumenOcAbiertas, TOPE_CONSULTA_OC,
+} from './oc-abiertas';
 
 /**
  * RA.4/RA.7 — Fase Reabastecimiento (ADR-030). Proyecto Compras.
@@ -1586,15 +1592,33 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const minDays = Math.min(120, Math.max(0, Number(q.min_days) || 0));
     const suc = /^[0-9]{1,3}$/.test(String(q.sucursal ?? '')) ? String(q.sucursal) : null;
+    // `[RA-PRO.60]` El alcance (`[ZN.3.3]`): antes la sucursal pedida se usaba tal cual y, sin
+    // pedir ninguna, se veía la red completa. `readParam` devuelve los códigos de sucursal (la
+    // misma llave que trae la OC) YA recortados a lo que la persona alcanza; `[]` = ninguna.
+    const alcance = filtroSucursalOc(
+      await this.scope.readParam(suc ? { warehouse_codes: suc } : {}, 'warehouse', 'compras/oc-abiertas'),
+    );
+    const vacio = { ...resumenOcAbiertas([]), total_minimo: false, curva: [] as Array<{ edad: number; n: number; pct: number; fallback: boolean }> };
+    if (!alcance.todas && !alcance.codigos.length) return vacio;
     return this.tk.run(async (trx) => {
       const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
-      if (!hasOds) return { rows: [], total: 0, total_valor: 0, curva: [] };
+      if (!hasOds) return vacio;
 
       // La curva NO se re-deriva acá: la escribe el importer del fact (un solo productor) — así la
       // probabilidad que ve el comprador es exactamente la que usó el motor para descontar.
       const curva = (await trx('analytics.oc_survival_curve')
         .where({ tenant_id: tenantId }).orderBy('edad')
         .select('edad', 'muestra', 'fallback', trx.raw('round(p*100, 1) AS pct'))) as Array<Record<string, unknown>>;
+
+      // [RA-PRO.62] El seguimiento es opcional en la consulta: la tabla nace con una migración que
+      // puede llegar DESPUÉS del código. Sin ella, todas salen "Sin revisar" en vez de romper la bandeja.
+      const hasFu = !!(await trx.raw(`SELECT to_regclass('commercial.purchase_order_followups') AS t`)).rows[0]?.t;
+      const fuCols = hasFu
+        ? 'fu.estatus AS fu_estatus, fu.nota AS fu_nota, fu.updated_by_username AS fu_por, fu.updated_at AS fu_en'
+        : 'NULL::text AS fu_estatus, NULL::text AS fu_nota, NULL::text AS fu_por, NULL::timestamptz AS fu_en';
+      const fuJoin = hasFu
+        ? 'LEFT JOIN commercial.purchase_order_followups fu ON fu.tenant_id = :t AND fu.sucursal = oc.sucursal AND fu.oc_folio = oc.folio'
+        : '';
 
       // RA-PRO.45.1 — todo sale de `analytics.erp_purchase_orders`: el decode de "abierta" no se
       // vuelve a escribir acá. MATERIALIZED en `oc` porque la vista trae un EXISTS por fila y sin
@@ -1608,13 +1632,17 @@ export class CommercialReplenishmentService {
            WHERE doc_date >= CURRENT_DATE - 120
              AND NOT cerrada
              AND dias_abierta >= :mind
-             AND (:suc::text IS NULL OR sucursal = :suc)
+             -- [RA-PRO.60] alcance: la lista viaja como texto ('01,08') para no depender de cómo
+             -- expande knex un arreglo en un raw con nombres. Vacía nunca llega (se corta antes).
+             AND (:todas::boolean OR sucursal = ANY(string_to_array(:codigos::text, ',')))
         )
         SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
                v.lineas, round(v.valor::numeric, 2) AS valor,
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
-               CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob
+               CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob,
+               ${fuCols}
           FROM oc
+          ${fuJoin}
           -- LEFT: si el importer todavía no escribió la curva, la bandeja igual lista las OCs
           -- (con prob NULL). Una pantalla de trabajo no se queda en blanco por eso.
           LEFT JOIN surv sv ON sv.edad = (CASE WHEN oc.dias <= 3 THEN 0 WHEN oc.dias <= 7 THEN 4
@@ -1627,9 +1655,11 @@ export class CommercialReplenishmentService {
              WHERE l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
          WHERE v.valor > 0
          ORDER BY oc.dias DESC, v.valor DESC
-         LIMIT 500`, { t: tenantId, mind: minDays, suc })).rows as Array<Record<string, unknown>>;
+         LIMIT :tope`, {
+        t: tenantId, mind: minDays, todas: alcance.todas, codigos: alcance.codigos.join(','), tope: TOPE_CONSULTA_OC,
+      })).rows as Array<Record<string, unknown>>;
 
-      const out = rows.map((r) => ({
+      const out: OcAbierta[] = rows.map((r) => ({
         almacen: String(r.almacen ?? '').trim(),
         folio: String(r.folio ?? '').trim(),
         fecha_oc: r.fecha_oc,
@@ -1639,14 +1669,170 @@ export class CommercialReplenishmentService {
         lineas: Number(r.lineas) || 0,
         valor: Number(r.valor) || 0,
         prob: r.prob === null || r.prob === undefined ? null : Number(r.prob),
+        seguimiento: r.fu_estatus
+          ? { estatus: r.fu_estatus as OcSeguimientoEstatus, nota: (r.fu_nota as string) ?? null,
+              actualizado_por: (r.fu_por as string) ?? null, actualizado_en: new Date(r.fu_en as string).toISOString() }
+          : null,
       }));
+      // [RA-PRO.60] Los indicadores (total, valor en papel, esperado —el valor pesado por la
+      // probabilidad de llegar—, para barrer) salen de TODAS las órdenes; la tabla lleva las
+      // primeras 500 y lo declara. Antes todo se calculaba sobre esos 500, sin avisar.
+      if (out.length >= TOPE_CONSULTA_OC) {
+        this.logger.warn(`oc-abiertas: se alcanzó el tope de ${TOPE_CONSULTA_OC} órdenes; los indicadores son un MÍNIMO`);
+      }
       return {
-        rows: out,
-        total: out.length,
-        total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
-        // Lo que de verdad sigue en juego: el valor pesado por la probabilidad de que llegue.
-        valor_esperado: Math.round(out.reduce((s, r) => s + r.valor * ((r.prob ?? 100) / 100), 0) * 100) / 100,
+        ...resumenOcAbiertas(out),
+        // Si hasta la consulta llegó a su tope, ni el total es exacto: se dice, no se disimula.
+        total_minimo: out.length >= TOPE_CONSULTA_OC,
         curva: curva.map((c) => ({ edad: Number(c.edad), n: Number(c.muestra), pct: Number(c.pct), fallback: !!c.fallback })),
+      };
+    });
+  }
+
+  /** `[RA-PRO.61/62]` ¿La persona alcanza esta sucursal? Mismo recorte que la lista (`[ZN.3.3]`). */
+  private async alcanzaSucursalOc(sucursal: string): Promise<boolean> {
+    const a = filtroSucursalOc(
+      await this.scope.readParam({ warehouse_codes: sucursal }, 'warehouse', 'compras/oc-abiertas'),
+    );
+    return a.todas || a.codigos.includes(sucursal);
+  }
+
+  /** Valida la llave de una OC de Kepler (sucursal numérica, folio alfanumérico corto). */
+  private llaveOc(sucursal: string, folio: string): { sucursal: string; folio: string } {
+    const s = String(sucursal ?? '').trim();
+    const f = String(folio ?? '').trim();
+    if (!/^[0-9]{1,3}$/.test(s)) throw new BadRequestException('sucursal inválida');
+    if (!/^[A-Za-z0-9-]{1,30}$/.test(f)) throw new BadRequestException('folio inválido');
+    return { sucursal: s, folio: f };
+  }
+
+  /**
+   * `[RA-PRO.61]` Una orden de compra de Kepler completa, para su PDF de consulta: encabezado, TODOS
+   * sus renglones (la ficha de documento corta en un límite), lo que ya llegó contra ella y su
+   * seguimiento con historia. Lee `kepler_ods` por las vistas derivadas; no escribe nada.
+   *
+   * El avance "surtido" se mide en DINERO (Σ recepciones / monto), igual que la ficha de documento:
+   * la OC y la recepción pueden venir en unidades distintas (caja vs pieza) y restarlas daría un
+   * número falso.
+   */
+  async openPurchaseOrderDetail(sucursal: string, folio: string): Promise<OcDetalleDto> {
+    const k = this.llaveOc(sucursal, folio);
+    const tenantId = this.tenantCtx.requireTenantId();
+    // Fuera de alcance responde igual que "no existe": no se confirma que la orden exista.
+    if (!(await this.alcanzaSucursalOc(k.sucursal))) throw new NotFoundException('Orden de compra no encontrada');
+    return this.tk.run(async (trx) => {
+      const [d] = (await trx('analytics.erp_purchase_docs')
+        .where({ tenant_id: tenantId, doctype: 'XA3501', sucursal: k.sucursal, folio: k.folio })
+        .select('sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'concepto', 'condicion_pago',
+          'referencia', 'monto', 'estatus',
+          trx.raw(`to_char(doc_date,'YYYY-MM-DD') AS doc_date`), trx.raw(`to_char(due_date,'YYYY-MM-DD') AS due_date`),
+          trx.raw(`(CURRENT_DATE - doc_date)::int AS dias`))
+        .limit(1)) as OcDocRow[];
+      if (!d) throw new NotFoundException('Orden de compra no encontrada');
+
+      const lineas = (await trx('analytics.erp_purchase_doc_lines')
+        .where({ tenant_id: tenantId, doctype: 'XA3501', sucursal: k.sucursal, folio: k.folio })
+        .select('linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe', 'unidades_por_caja', 'costo_caja')
+        .orderByRaw('linea::int ASC NULLS LAST')) as OcLineRow[];
+
+      const citan = (await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
+        .select('folio', 'monto', 'proveedor_code', trx.raw(`to_char(receipt_date,'YYYY-MM-DD') AS fecha`))
+        .orderBy('receipt_date', 'asc')) as OcReceiptRow[];
+      // La cadena de Kepler a veces liga una recepción de OTRO proveedor con el mismo folio: sólo
+      // cuentan las del mismo proveedor y no anteriores a la orden; las demás se declaran aparte.
+      const { validas, descartadas } = clasificarRecepciones(d.proveedor_code ?? null, d.doc_date ?? null,
+        citan.map((r) => ({ folio: String(r.folio).trim(), fecha: r.fecha ?? null,
+          monto: Number(r.monto) || 0, proveedor_code: r.proveedor_code ?? null })));
+
+      const hasFu = !!(await trx.raw(`SELECT to_regclass('commercial.purchase_order_followups') AS t`)).rows[0]?.t;
+      const [fu] = (hasFu
+        ? await trx('commercial.purchase_order_followups')
+          .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
+          .select('estatus', 'nota', 'updated_by_username', 'updated_at').limit(1)
+        : []) as OcFollowupRow[];
+      const historia = (hasFu
+        ? await trx('commercial.purchase_order_followup_history')
+          .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
+          .select('estatus_anterior', 'estatus', 'nota', 'changed_by_username', 'changed_at')
+          .orderBy('changed_at', 'desc').limit(50)
+        : []) as OcHistoryRow[];
+
+      const n = (v: unknown) => Number(v) || 0;
+      const monto = n(d.monto);
+      const recibido = validas.reduce((s, r) => s + r.monto, 0);
+      return {
+        orden: {
+          sucursal: String(d.sucursal).trim(), folio: String(d.folio).trim(),
+          fecha: d.doc_date, vence: d.due_date, dias: n(d.dias),
+          proveedor: d.proveedor_nombre || d.proveedor_code || null, proveedor_rfc: d.proveedor_rfc || null,
+          condicion_pago: d.condicion_pago || null, concepto: d.concepto || null, referencia: d.referencia || null,
+          estatus_kepler: String(d.estatus ?? 'N'), monto,
+        },
+        lineas: lineas.map((l) => ({
+          linea: l.linea, sku: l.sku ? String(l.sku).trim() : null, nombre: l.nombre || null,
+          cantidad: n(l.cantidad), unidad: l.unidad || null,
+          costo_unitario: n(l.costo_unitario), importe: n(l.importe),
+          unidades_por_caja: l.unidades_por_caja == null ? null : n(l.unidades_por_caja),
+          costo_caja: l.costo_caja == null ? null : n(l.costo_caja),
+        })),
+        recepciones: validas.map((r) => ({ folio: r.folio, fecha: r.fecha, monto: r.monto })),
+        recepciones_descartadas: {
+          n: descartadas.length,
+          monto: Math.round(descartadas.reduce((s, r) => s + r.monto, 0) * 100) / 100,
+        },
+        recibido: Math.round(recibido * 100) / 100,
+        pct_surtido: monto > 0 ? Math.round((recibido / monto) * 1000) / 10 : null,
+        seguimiento: fu ? { estatus: fu.estatus, nota: fu.nota ?? null, actualizado_por: fu.updated_by_username ?? null,
+          actualizado_en: new Date(fu.updated_at).toISOString() } : null,
+        historia: historia.map((h) => ({ estatus_anterior: h.estatus_anterior ?? null, estatus: h.estatus, nota: h.nota ?? null,
+          por: h.changed_by_username ?? null, en: new Date(h.changed_at).toISOString() })),
+      };
+    });
+  }
+
+  /**
+   * `[RA-PRO.62]` Guarda el estatus de seguimiento de una OC (registro de Compras; NO toca Kepler).
+   *
+   * Valida con la MISMA regla que usa la pantalla (`validarSeguimiento` de `@megadulces/contracts`)
+   * y los CHECK de la tabla la repiten en la base. Estatus vigente + historia en una sola
+   * transacción: o quedan las dos cosas o ninguna. No verifica que la OC siga abierta en el ERP:
+   * se puede anotar una orden aunque Kepler la cierre después, y la nota sobrevive.
+   */
+  async setPurchaseOrderFollowup(sucursal: string, folio: string, body: { estatus?: unknown; nota?: unknown }): Promise<OcSeguimientoGuardadoDto> {
+    const k = this.llaveOc(sucursal, folio);
+    const v = validarSeguimiento(body?.estatus, body?.nota);
+    if (!v.ok) throw new BadRequestException(v.error);
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!(await this.alcanzaSucursalOc(k.sucursal))) throw new NotFoundException('Orden de compra no encontrada');
+    const ctx = this.tenantCtx.get();
+    const userId = ctx?.userId ?? null;
+    const username = ctx?.username ?? null;
+    return this.tk.run(async (trx) => {
+      const [prev] = (await trx('commercial.purchase_order_followups')
+        .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
+        .select('estatus', 'nota', 'updated_by_username', 'updated_at').forUpdate().limit(1)) as OcFollowupRow[];
+      // Sin cambio real (mismo estatus y misma nota) no se escribe ni se ensucia la historia.
+      if (prev && prev.estatus === v.estatus && (prev.nota ?? null) === v.nota) {
+        return { sucursal: k.sucursal, folio: k.folio, estatus: v.estatus, nota: v.nota,
+          actualizado_por: prev.updated_by_username ?? null, actualizado_en: new Date(prev.updated_at).toISOString(), sin_cambio: true };
+      }
+      const [row] = (await trx('commercial.purchase_order_followups')
+        .insert({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio, estatus: v.estatus, nota: v.nota,
+          created_by: userId, updated_by: userId, updated_by_username: username })
+        .onConflict(['tenant_id', 'sucursal', 'oc_folio'])
+        .merge({ estatus: v.estatus, nota: v.nota, updated_by: userId, updated_by_username: username, updated_at: trx.fn.now() })
+        .returning(['estatus', 'nota', 'updated_by_username', 'updated_at'])) as OcFollowupRow[];
+      await trx('commercial.purchase_order_followup_history').insert({
+        tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio,
+        estatus_anterior: prev?.estatus ?? null, estatus: v.estatus, nota: v.nota,
+        changed_by: userId, changed_by_username: username,
+      });
+      this.logger.log(`OC ${k.sucursal}-${k.folio}: seguimiento ${prev?.estatus ?? 'sin_revisar'} → ${v.estatus} por ${username ?? userId ?? 'system'}`);
+      return {
+        sucursal: k.sucursal, folio: k.folio, estatus: row.estatus, nota: row.nota ?? null,
+        actualizado_por: row.updated_by_username ?? null, actualizado_en: new Date(row.updated_at).toISOString(),
+        sin_cambio: false,
       };
     });
   }

@@ -78,6 +78,7 @@ export interface WholesaleBranchTerms {
   discount_2_pct: string | null;
   zone_code: string | null;
   group_code: string | null;
+  salesperson_code?: string | null;
 }
 
 export interface WholesaleCustomerRow {
@@ -421,7 +422,8 @@ export class CommercialQuotesService {
               'discount_1_pct', v.discount_1_pct,
               'discount_2_pct', v.discount_2_pct,
               'zone_code',      v.zone_code,
-              'group_code',     v.group_code
+              'group_code',     v.group_code,
+              'salesperson_code', v.salesperson_code
             ) ORDER BY v.sucursal
           )                                AS branches,
           -- ¿Las condiciones son las mismas en todas sus sucursales? Si no, la pantalla tiene
@@ -435,6 +437,27 @@ export class CommercialQuotesService {
         ORDER BY v.customer_code
         `,
         { term, like: `%${term}%`, lim: n },
+      );
+      return res.rows;
+    });
+  }
+
+  /**
+   * `[COT.1d]` — Vendedores de Kepler asignados a la sucursal.
+   * La fuente es `kepler_ods.kduv`, el padrón de vendedores por sucursal del ERP.
+   */
+  async listSalespersons(branch: string): Promise<Array<{ code: string; name: string }>> {
+    const suc = (branch || '').trim();
+    if (!suc) return [];
+    return this.tk.run(async (knex) => {
+      const res = await knex.raw(
+        `SELECT btrim(c2) AS code, btrim(c3) AS name
+           FROM kepler_ods.kduv
+          WHERE sucursal = :branch
+            AND btrim(coalesce(c2, '')) <> ''
+            AND btrim(coalesce(c3, '')) <> ''
+          ORDER BY btrim(c3) ASC`,
+        { branch: suc },
       );
       return res.rows;
     });
@@ -529,6 +552,8 @@ export class CommercialQuotesService {
     customer_request?: string | null;
     notes?: string | null;
     internal_notes?: string | null;
+    salesperson_code?: string | null;
+    salesperson_name?: string | null;
   }): Promise<CreatedQuote> {
     const userId = this.tenantCtx.get()?.userId;
     const tenantId = this.tenantCtx.requireTenantId();
@@ -578,21 +603,39 @@ export class CommercialQuotesService {
           { code: erpCode, branch: dto.source_branch },
         );
         if (!found.rows.length) {
-          throw new NotFoundException(
-            `El cliente ${erpCode} no existe en el padrón de mayoreo de la sucursal ${dto.source_branch}.`,
+          const anyBranch = await trx.raw(
+            `
+            SELECT name
+            FROM analytics.v_erp_wholesale_customers
+            WHERE customer_code = :code
+            LIMIT 1
+            `,
+            { code: erpCode },
           );
+          if (!anyBranch.rows.length) {
+            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de mayoreo.`);
+          }
+          terms = {
+            source: 'kepler_kdud',
+            branch: String(dto.source_branch),
+            discount: null,
+            credit_limit: null,
+            payment_days: null,
+            name: anyBranch.rows[0].name,
+          };
+        } else {
+          const r = found.rows[0];
+          terms = {
+            source: 'kepler_kdud',
+            branch: String(dto.source_branch),
+            // NULL se queda NULL: "sin descuento configurado" no es "0% de descuento" hasta que
+            // alguien lo verifique. El 0 lo dibujaría como una decisión que nadie tomó (ADR-056).
+            discount: r.discount_1_pct === null ? null : Number(r.discount_1_pct),
+            credit_limit: r.credit_limit === null ? null : Number(r.credit_limit),
+            payment_days: r.payment_days === null ? null : Number(r.payment_days),
+            name: r.name,
+          };
         }
-        const r = found.rows[0];
-        terms = {
-          source: 'kepler_kdud',
-          branch: String(dto.source_branch),
-          // NULL se queda NULL: "sin descuento configurado" no es "0% de descuento" hasta que
-          // alguien lo verifique. El 0 lo dibujaría como una decisión que nadie tomó (ADR-056).
-          discount: r.discount_1_pct === null ? null : Number(r.discount_1_pct),
-          credit_limit: r.credit_limit === null ? null : Number(r.credit_limit),
-          payment_days: r.payment_days === null ? null : Number(r.payment_days),
-          name: r.name,
-        };
       }
 
         // Folio atómico, mismo patrón que commercial.order_sequences: el UPSERT de Postgres
@@ -659,7 +702,14 @@ export class CommercialQuotesService {
             valid_until: validUntil,
             customer_request: dto.customer_request ?? null,
             notes: dto.notes ?? null,
-            internal_notes: dto.internal_notes ?? null,
+            internal_notes: [
+              dto.salesperson_code
+                ? `Vendedor asignado: ${dto.salesperson_name ? `${dto.salesperson_name} (${dto.salesperson_code})` : dto.salesperson_code}`
+                : '',
+              dto.internal_notes,
+            ]
+              .filter(Boolean)
+              .join('\n') || null,
             branch: terms.branch,
             terms_source: terms.source,
             discount: terms.discount,
@@ -669,7 +719,12 @@ export class CommercialQuotesService {
         );
 
         this.logger.log(`Cotización creada ${code} (origin=${origin})`);
-        return inserted.rows[0];
+        const row = inserted.rows[0];
+        if (dto.salesperson_code) {
+          row.salesperson_code = dto.salesperson_code;
+          row.salesperson_name = dto.salesperson_name || null;
+        }
+        return row;
     });
   }
 

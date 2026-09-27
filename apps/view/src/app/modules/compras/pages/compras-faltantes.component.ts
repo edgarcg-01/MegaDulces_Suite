@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -7,8 +7,9 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { TextareaModule } from 'primeng/textarea';
 import {
-  FaltantesService, MOTIVOS, ETIQUETA_MOTIVO, ETIQUETA_DECISION,
-  type Faltante, type ResumenFaltantes, type StockoutDecision, type StockoutKind,
+  FaltantesService, MOTIVOS, ETIQUETA_MOTIVO, ETIQUETA_DECISION, ETIQUETA_DESTINO,
+  type Faltante, type ResumenFaltantes, type StockoutDecision, type StockoutDestino,
+  type StockoutKind,
 } from '../../tienda/faltantes.service';
 
 /**
@@ -70,6 +71,18 @@ import {
               </span>
             }
           </div>
+          <!-- FLT.24 — Va ANTES que el resto: es la única fila cuya venta todavía no se perdió.
+               El anaquelista la resuelve hoy caminando a la bodega. -->
+          <div class="cf-kpi" [class.alerta]="r.recuperable_hoy > 0">
+            <span class="cf-kpi-n">{{ r.recuperable_hoy }}</span>
+            <span class="cf-kpi-l">Recuperable HOY</span>
+            <span class="cf-kpi-nota">
+              Hay existencia, faltó en el anaquel — va a piso
+              @if (r.dinero_recuperable_hoy > 0) {
+                · {{ r.dinero_recuperable_hoy | currency:'MXN':'symbol-narrow':'1.0-0':'es-MX' }}
+              }
+            </span>
+          </div>
           <div class="cf-kpi">
             <span class="cf-kpi-n">{{ r.no_en_catalogo }}</span>
             <span class="cf-kpi-l">No los trabajamos</span>
@@ -77,8 +90,8 @@ import {
           </div>
           <div class="cf-kpi" [class.alerta]="r.contradicen_al_erp > 0">
             <span class="cf-kpi-n">{{ r.contradicen_al_erp }}</span>
-            <span class="cf-kpi-l">Dice que sí hay</span>
-            <span class="cf-kpi-nota">Van a inventario, no a compra</span>
+            <span class="cf-kpi-l">Buscado y no estaba</span>
+            <span class="cf-kpi-nota">Descuadre afirmado — va a inventario</span>
           </div>
         </section>
       }
@@ -115,6 +128,7 @@ import {
             <tr>
               <th scope="col">Producto</th>
               <th scope="col">Sucursal</th>
+              <th scope="col">Le toca a</th>
               <th scope="col">Motivo</th>
               <th scope="col" class="num">Veces</th>
               <th scope="col" class="num">Estimado</th>
@@ -135,6 +149,9 @@ import {
                   }
                 </td>
                 <td>{{ f.warehouse_name || f.warehouse_code }}</td>
+                <!-- FLT.24 — El destino lo DERIVA el servidor de (motivo, existencia). Acá no se
+                     vuelve a calcular: dos copias de la misma regla divergen el día que cambie. -->
+                <td><span class="cf-destino" [class]="'d-' + f.destino">{{ etiquetaDestino(f.destino) }}</span></td>
                 <td><p-tag [value]="etiquetaMotivo(f.kind)" [severity]="severidad(f.kind)" /></td>
                 <td class="num mono"><b>{{ f.times_reported }}</b></td>
                 <td class="num mono">
@@ -236,6 +253,18 @@ import {
     .cf-flag { display: flex; align-items: center; gap: .3rem; margin-top: .15rem;
       font-size: var(--fs-xs, .7rem); color: var(--tone-warn); font-weight: 600; }
     .cf-muted { color: var(--text-muted); font-style: normal; }
+
+    /* FLT.24 — El destino: color + TEXTO, nunca color solo. Piso resalta porque es lo único
+       que todavía se puede salvar hoy.
+       SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y lo cierran. */
+    .cf-destino { display: inline-block; font-size: var(--fs-xs, .72rem); font-weight: 700;
+      padding: .15rem .5rem; border-radius: 999px; white-space: nowrap;
+      border: 1px solid var(--border-color); color: var(--text-muted); }
+    .cf-destino.d-piso { color: var(--tone-ok);
+      border-color: color-mix(in srgb, var(--tone-ok) 45%, transparent); }
+    .cf-destino.d-inventario { color: var(--tone-warn);
+      border-color: color-mix(in srgb, var(--tone-warn) 45%, transparent); }
+    .cf-destino.d-compras { color: var(--text-main); }
     .cf-dec { font-weight: 700; font-size: var(--fs-sm, .8rem); }
 
     .cf-empty, .cf-aviso { display: flex; flex-direction: column; align-items: center; gap: .35rem;
@@ -320,8 +349,8 @@ export class ComprasFaltantesComponent implements OnInit {
     });
   }
 
-  filtrar(campo: 'kind' | 'status', valor: any): void {
-    if (campo === 'kind') this.motivo.set(valor ?? null);
+  filtrar(campo: 'kind' | 'status', valor: string | null): void {
+    if (campo === 'kind') this.motivo.set((valor as StockoutKind) || null);
     else this.estado.set(valor ?? null);
     this.cargar();
   }
@@ -355,10 +384,12 @@ export class ComprasFaltantesComponent implements OnInit {
   }
 
   etiquetaMotivo(k: StockoutKind): string { return ETIQUETA_MOTIVO[k] ?? k; }
-  etiquetaDecision(d: string): string { return (ETIQUETA_DECISION as any)[d] ?? d; }
+  etiquetaDecision(d: string): string { return ETIQUETA_DECISION[d as StockoutDecision] ?? d; }
+  etiquetaDestino(d: StockoutDestino): string { return ETIQUETA_DESTINO[d] ?? d; }
 
   severidad(k: StockoutKind): 'danger' | 'warn' | 'info' | 'secondary' {
     if (k === 'agotado') return 'danger';
+    if (k === 'no_en_anaquel') return 'warn';
     if (k === 'no_en_catalogo') return 'warn';
     if (k === 'codigo_no_pasa') return 'info';
     return 'secondary';
