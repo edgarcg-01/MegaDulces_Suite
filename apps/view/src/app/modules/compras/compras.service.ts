@@ -2,11 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-<<<<<<< origin/main
-import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
-=======
-import { OcSeguimiento, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
->>>>>>> origin/feat/oc-abiertas-seguimiento
+import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
