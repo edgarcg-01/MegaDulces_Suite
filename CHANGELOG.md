@@ -10,6 +10,72 @@
 
 ## [Unreleased]
 
+### Added — `/telemarketing/cotizaciones`: Mayoreo por volumen en caja (CJA), vendedor por sucursal y entregables PDF/XLSX con marca de agua (COT.10–COT.14, 2026-09-26)
+- **Descuento por volumen en caja (CJA)**: lectura e integración directa de las escalas de mayoreo
+  definidas en el ERP Kepler (`analytics.v_label_presentations` y `kepler_ods.kdpv_prod_util`).
+  - El peldaño `box` expone `volume_tier: { min_qty, price }`.
+  - Distintivo visual en el selector de unidad con el precio mayorista disponible.
+  - Banner de oportunidad por volumen cuando la cantidad ingresada está por debajo del umbral,
+    con botón de 1-clic para alcanzar el volumen y ahorrar.
+  - Banner de confirmación de mayoreo aplicado con desglose del ahorro unitario y total.
+- **Desglose de unidad menor en unidad mayor**:
+  - En líneas cotizadas en CJA, cálculo automático del precio unitario equivalente en unidad menor
+    mostrado en la misma celda de P. Unitario: ej. `$969.84 (12PZS 80.82)`.
+  - Desglose de P. Unitario Neto e Importe Neto con descuentos aplicados.
+- **Vendedor asignado por sucursal**:
+  - Selector desplegable de vendedor filtrado por la plantilla de vendedores de cada sucursal en Kepler (`kepler_ods.kduv`).
+  - Migración `20260926170000_quotes_salesperson.js` para persistencia en `commercial.quotes`.
+- **Entregables formales en PDF y XLSX**:
+  - Botones de exportación rápida en captura y detalle de cotización.
+  - Nomenclatura exacta de archivo: `(NUMERO CLIENTE)(NOMBRE CLIENTE)(AAAA,MM,DD,HH,MM).pdf` y `.xlsx`.
+  - Marca de agua obligatoria con la leyenda: `"ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"`.
+  - Formato membretado profesional con logo, datos fiscales, desglose de líneas y resumen de importes.
+
+### Added — `/compras/oc-abiertas`: PDF de cada orden y estatus de seguimiento (RA-PRO.61–62, 2026-09-26)
+- **PDF por orden de compra de Kepler** (botones `Prov.` e `Int.` en cada renglón): copia de consulta
+  (el oficial es Kepler) con proveedor, fechas, condición de pago, **todos** los renglones con cajas,
+  lo que ya llegó y el % surtido en dinero. Nombre: `OC_<SUC>-<FOLIO>_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf`.
+  - **Dos versiones**: *para el proveedor* (sin notas internas) e *interna* (con el seguimiento, su
+    historia y las notas sobre calidad de datos). Una nota como "detenida por pago" no sale al
+    proveedor por descuido.
+  - **Cajas sólo cuando el costo las confirma**: `costo_caja = costo_unitario × unidades_por_caja`
+    (medido: 98.9% de 95,555 renglones). Si no cuadra, se muestra la cantidad en su unidad y las
+    cajas "sin verificar"; el resto de caja va en la unidad del renglón ("44 cj + 10 paq").
+  - ⚠️ **Surtido sin ligas falsas**: la cadena de Kepler a veces liga recepciones de OTRO proveedor
+    con el mismo folio (OC 00-0003095 de BARCEL salía 229% por dos recepciones de BIMBO). Sólo
+    cuentan las del mismo proveedor y no anteriores a la orden; las demás se declaran aparte.
+  - Endpoint nuevo `GET /commercial/replenishment/open-purchase-orders/:sucursal/:folio`
+    (`COMPRAS_PEDIDO_VER`, respeta el alcance por sucursal).
+- **Estatus de seguimiento** por orden: *Vigente · Detenida por pago · Detenida por logística ·
+  Backorder vigente · No surtida / cancelada*. Sin registro = **Sin revisar** (no "Vigente").
+  Nota **obligatoria** salvo Vigente. Queda quién y cuándo, con historial. Conteo por estatus sobre
+  todas las órdenes, que además filtra la tabla. **Es registro de Compras: no toca Kepler.**
+  - Tablas nuevas `commercial.purchase_order_followups` y `purchase_order_followup_history`
+    (mig `20260926150000`, RLS forzado; la historia es sólo INSERT). Endpoint
+    `PUT …/:sucursal/:folio/seguimiento` (`COMPRAS_PEDIDO_GESTIONAR`). Sin la migración aplicada, la
+    lista sigue funcionando y todas salen "Sin revisar".
+  - La lista de estatus y la regla de la nota viven en `@megadulces/contracts`
+    (`oc-seguimiento.contract.ts`): la misma regla en la pantalla, el servidor y los CHECK de la base.
+- Las piezas comunes de los PDF de Compras (encabezado, logo, recuadros, pie, nombre de archivo)
+  pasan a `compras-pdf-comun.ts`; la requisición las usa sin cambiar su resultado.
+
+### Fixed — `/compras/oc-abiertas`: alcance por sucursal, filtro desde la base y tope declarado (RA-PRO.60, 2026-09-26)
+- ⚠️ **Alcance (`[ZN.3.3]`)**: `open-purchase-orders` no recortaba por sucursal. Quien tenía
+  `COMPRAS_PEDIDO_VER` con alcance acotado (encargadas de tienda) veía las órdenes de las nueve
+  sucursales. Ahora pasa por `ScopeService.readParam`: sin sucursal pedida, lo que la persona
+  alcanza; con una ajena, nada. El alcance vacío (`[]`) no se lee como "todas".
+- **Filtro de sucursal desde la base** (el lookup del pedido, ya recortado al alcance). La lista
+  escrita a mano no tenía **07 Morelia Madero ni 08 Morelia Abastos**, que sí tienen órdenes
+  abiertas, y dejaba 02/04/05 sin nombre.
+- **Tope declarado**: la tabla corta en 500 renglones (las más antiguas), pero los indicadores
+  (órdenes, valor en papel, esperado, para barrer) ahora cuentan **todas**; antes se calculaban
+  sobre esos 500 sin avisar. Si hay recorte, la pantalla lo dice. Si hasta la consulta llegara a
+  su tope (5,000), el total se marca como mínimo (`+`).
+- Si la consulta falla, los indicadores se limpian junto con la tabla (antes quedaban los de la
+  carga anterior).
+- Decisiones en `oc-abiertas.ts` (`filtroSucursalOc`, `resumenOcAbiertas`) con pruebas, incluidas
+  las negativas de alcance vacío y de tope.
+
 ### Changed — `/compras/pedido` en celular vertical (RA-PRO.59, 2026-09-26)
 Sólo pantallas de menos de 40rem (celular en vertical); tableta y escritorio no cambian.
 - **Barra de abajo en un renglón**: resumen corto (`12 sel · $184 mil`) y botones con texto corto

@@ -98,6 +98,16 @@ export class CommercialQuotesController {
     return this.service.searchCatalog(branch, search ?? '', limit ? Number(limit) : 30);
   }
 
+  @Get('salespersons')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary: 'Lista los vendedores de Kepler asignados a la sucursal (?branch=01).',
+  })
+  @ApiQuery({ name: 'branch', required: true, description: 'Sucursal Kepler (01-08).' })
+  salespersons(@Query('branch') branch: string): Promise<Array<{ code: string; name: string }>> {
+    return this.service.listSalespersons(branch);
+  }
+
   @Get('summary')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({
@@ -107,6 +117,23 @@ export class CommercialQuotesController {
   @ApiQuery({ name: 'mine', required: false, type: Boolean })
   summary(@Query('mine') mine?: string) {
     return this.service.summary(mine === 'true' || mine === '1');
+  }
+
+  @Get('price-preview')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({ summary: 'Vista previa de precio vía GET' })
+  pricePreviewGet(
+    @Query('branch') branch: string,
+    @Query('sku') sku: string,
+    @Query('quantity') quantity: string,
+    @Query('rung') rung?: Rung,
+  ): Promise<PricedLine> {
+    return this.pricing.previewLine({
+      branch,
+      sku,
+      quantity: Number(quantity) || 1,
+      rung,
+    });
   }
 
   @Get(':id')

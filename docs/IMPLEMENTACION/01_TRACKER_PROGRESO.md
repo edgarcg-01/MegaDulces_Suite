@@ -908,6 +908,18 @@ re-login esta vez: no hay permisos nuevos. ⚠️ **El orden importa**: si se de
 que la migración, reportar "no estaba en el anaquel" revienta con un `23514` que la pantalla muestra
 como un error genérico.
 
+#### COT.10–COT.14 — Cotizaciones Telemarketing: Descuento por Volumen CJA, Vendedor por Sucursal y Entregables Formales (PDF/XLSX) · 2026-09-26
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[COT.10]` | 🔨 | **Mayoreo / volumen en caja (CJA) desde ERP**: integración directa con `analytics.v_label_presentations` y `kepler_ods.kdpv_prod_util` (modal *Margen de Utilidad por Cantidad de Venta*). Peldaño `box` expone `volume_tier: { min_qty, price }`. Badge de oportunidad en botón Caja, banners de umbral con botón 1-click para completar volumen y desglose de ahorro |
+| `[COT.11]` | 🔨 | **Desglose de unidad menor dentro del precio unitario**: en líneas de unidad mayor (CJA), se calcula y muestra automáticamente el precio equivalente por unidad menor, ej. `$969.84 (12PZS 80.82)`. Columna de descuento neto y desglose de precio unitario neto e importe neto tanto en pantalla como en entregables |
+| `[COT.12]` | 🔨 | **Vendedor por sucursal**: selector de vendedor responsable filtrado estrictamente por sucursal Kepler (`kepler_ods.kduv`). Migración `20260926170000_quotes_salesperson.js` agrega `salesperson_code` y `salesperson_name` a `commercial.quotes` (idempotente) |
+| `[COT.13]` | 🔨 | **Entregable formal al cliente en PDF y XLSX**: exportación descargable desde la captura de cotización y vista de detalle. Módulo puro `quote-deliverable-export.ts` con carga perezosa de `jspdf` y `exceljs` |
+| `[COT.14]` | 🔨 | **Estándar comercial y marca de agua**: nombre de archivo estricto `(NUMERO CLIENTE)(NOMBRE CLIENTE)(AAAA,MM,DD,HH,MM).ext` y leyenda oficial en marca de agua: `"ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"` en PDF y Excel |
+
+**Verificado:** `quote-deliverable-export.spec.ts` 4/4 ok; `quote-pricing.spec.ts` 2/2 ok; suite `commercial` 21/21 suites (231 pruebas) ok; suite `contracts` 10/10 suites (152 pruebas) ok; compuertas `check-template-literals` (344 componentes ok), `lint-changed` (32 archivos limpios), `lint-boundary-gate` (10 archivos ok) y `check-provenance` ok; `nx build api` y `nx build view` pasan limpios con exit code 0. Endpoint live probado en caliente contra `127.0.0.1:3334` devolviendo `volume_tier` y `price_source: 'volume_qty'`.
+
 ### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
 
 Continúa `[NX.1]`/`[NX.3]` (2026-09-17). **El hallazgo de entrada: Nx Cloud ya estaba conectado
