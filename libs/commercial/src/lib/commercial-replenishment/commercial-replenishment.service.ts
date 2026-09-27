@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, validarSeguimiento,
@@ -1591,14 +1591,19 @@ export class CommercialReplenishmentService {
   async openPurchaseOrders(q: { sucursal?: string; min_days?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const minDays = Math.min(120, Math.max(0, Number(q.min_days) || 0));
-    const suc = /^[0-9]{1,3}$/.test(String(q.sucursal ?? '')) ? String(q.sucursal) : null;
+    // Exactamente 2 dígitos: es la llave canónica del alcance. Con '1' el traductor del alcance lo
+    // descartaba, lo pedido quedaba en [] y el alcance 'all' lo leía como "toda la red".
+    const suc = /^\d{2}$/.test(String(q.sucursal ?? '')) ? String(q.sucursal) : null;
     // `[RA-PRO.60]` El alcance (`[ZN.3.3]`): antes la sucursal pedida se usaba tal cual y, sin
     // pedir ninguna, se veía la red completa. `readParam` devuelve los códigos de sucursal (la
     // misma llave que trae la OC) YA recortados a lo que la persona alcanza; `[]` = ninguna.
     const alcance = filtroSucursalOc(
       await this.scope.readParam(suc ? { warehouse_codes: suc } : {}, 'warehouse', 'compras/oc-abiertas'),
     );
-    const vacio = { ...resumenOcAbiertas([]), total_minimo: false, curva: [] as Array<{ edad: number; n: number; pct: number; fallback: boolean }> };
+    const vacio = {
+      ...resumenOcAbiertas([]), total_minimo: false, seguimiento_habilitado: false,
+      curva: [] as Array<{ edad: number; n: number; pct: number; fallback: boolean }>,
+    };
     if (!alcance.todas && !alcance.codigos.length) return vacio;
     return this.tk.run(async (trx) => {
       const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
@@ -1629,7 +1634,8 @@ export class CommercialReplenishmentService {
           SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor,
                  estatus, dias_abierta AS dias
             FROM analytics.erp_purchase_orders
-           WHERE doc_date >= CURRENT_DATE - 120
+           WHERE tenant_id = :t   -- la vista no tiene RLS: el tenant se filtra explícito
+             AND doc_date >= CURRENT_DATE - 120
              AND NOT cerrada
              AND dias_abierta >= :mind
              -- [RA-PRO.60] alcance: la lista viaja como texto ('01,08') para no depender de cómo
@@ -1652,7 +1658,7 @@ export class CommercialReplenishmentService {
           JOIN LATERAL (
             SELECT count(*) AS lineas, COALESCE(sum(l.importe), 0) AS valor
               FROM analytics.erp_purchase_doc_lines l
-             WHERE l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
+             WHERE l.tenant_id = :t AND l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
          WHERE v.valor > 0
          ORDER BY oc.dias DESC, v.valor DESC
          LIMIT :tope`, {
@@ -1684,6 +1690,9 @@ export class CommercialReplenishmentService {
         ...resumenOcAbiertas(out),
         // Si hasta la consulta llegó a su tope, ni el total es exacto: se dice, no se disimula.
         total_minimo: out.length >= TOPE_CONSULTA_OC,
+        // [RA-PRO.62] Sin la tabla (migración pendiente) la pantalla deshabilita el cambio de estatus
+        // y lo dice, en vez de dejar intentar y fallar.
+        seguimiento_habilitado: hasFu,
         curva: curva.map((c) => ({ edad: Number(c.edad), n: Number(c.muestra), pct: Number(c.pct), fallback: !!c.fallback })),
       };
     });
@@ -1701,7 +1710,8 @@ export class CommercialReplenishmentService {
   private llaveOc(sucursal: string, folio: string): { sucursal: string; folio: string } {
     const s = String(sucursal ?? '').trim();
     const f = String(folio ?? '').trim();
-    if (!/^[0-9]{1,3}$/.test(s)) throw new BadRequestException('sucursal inválida');
+    // 2 dígitos exactos (llave canónica): '1' no es '01', y guardarlo dejaría renglones huérfanos.
+    if (!/^\d{2}$/.test(s)) throw new BadRequestException('sucursal inválida');
     if (!/^[A-Za-z0-9-]{1,30}$/.test(f)) throw new BadRequestException('folio inválido');
     return { sucursal: s, folio: f };
   }
@@ -1733,7 +1743,8 @@ export class CommercialReplenishmentService {
       const lineas = (await trx('analytics.erp_purchase_doc_lines')
         .where({ tenant_id: tenantId, doctype: 'XA3501', sucursal: k.sucursal, folio: k.folio })
         .select('linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe', 'unidades_por_caja', 'costo_caja')
-        .orderByRaw('linea::int ASC NULLS LAST')) as OcLineRow[];
+        // Orden numérico sin castear a ciegas: un c7 vacío o no numérico no debe tirar el PDF entero.
+        .orderByRaw(`NULLIF(regexp_replace(linea::text, '[^0-9]', '', 'g'), '')::int ASC NULLS LAST, linea ASC`)) as OcLineRow[];
 
       const citan = (await trx('analytics.erp_goods_receipts')
         .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
@@ -1809,6 +1820,15 @@ export class CommercialReplenishmentService {
     const userId = ctx?.userId ?? null;
     const username = ctx?.username ?? null;
     return this.tk.run(async (trx) => {
+      // Migración pendiente: se dice con palabras, no con un 500 de "relation does not exist".
+      if (!(await trx.raw(`SELECT to_regclass('commercial.purchase_order_followups') AS t`)).rows[0]?.t) {
+        throw new ServiceUnavailableException(
+          'El registro de seguimiento todavía no está habilitado: falta aplicar la migración 20260926150000.');
+      }
+      // Candado por orden: sin él, dos primeros guardados simultáneos ven "sin registro" los dos
+      // (FOR UPDATE no bloquea un renglón que todavía no existe) y el historial del segundo
+      // queda con estatus_anterior = NULL en vez del estatus que puso el primero.
+      await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`oc-seguimiento:${tenantId}:${k.sucursal}:${k.folio}`]);
       const [prev] = (await trx('commercial.purchase_order_followups')
         .where({ tenant_id: tenantId, sucursal: k.sucursal, oc_folio: k.folio })
         .select('estatus', 'nota', 'updated_by_username', 'updated_at').forUpdate().limit(1)) as OcFollowupRow[];

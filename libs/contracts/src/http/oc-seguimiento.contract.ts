@@ -130,3 +130,9 @@ export interface OcSeguimientoGuardadoDto {
   /** `true` si no había nada que cambiar (mismo estatus y nota): no se escribió historia. */
   sin_cambio: boolean;
 }
+
+/** Cuerpo de PUT …/:sucursal/:folio/seguimiento. Se valida con `validarSeguimiento` antes de guardar. */
+export interface OcSeguimientoInputDto {
+  estatus: OcSeguimientoEstatus;
+  nota: string | null;
+}

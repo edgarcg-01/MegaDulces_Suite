@@ -26,7 +26,8 @@ export function cajasDeRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_caj
   const cu = Number(r.costo_unitario);
   const cc = Number(r.costo_caja);
   const cant = Number(r.cantidad);
-  if (!(upc > 0) || !(cu > 0) || !(cc > 0) || !Number.isFinite(cant)) return null;
+  // Cantidad negativa (ajuste/devolución capturado como OC): no hay cajas que mostrar.
+  if (!(upc > 0) || !(cu > 0) || !(cc > 0) || !Number.isFinite(cant) || cant < 0) return null;
   if (Math.abs(cc - cu * upc) > 0.01 * cc) return null;
   return cant / upc;
 }
@@ -44,13 +45,16 @@ export function referenciaUtil(ref: string | null | undefined): string | null {
 
 /**
  * Nombre del archivo, con el mismo control que las requisiciones:
- * `OC_<SUC>-<FOLIO>_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf`.
+ * `OC_<SUC>-<FOLIO>_<PROVEEDOR>_<PROVEEDOR|INTERNO>_AAAA-MM-DD-HH-MM.pdf`.
+ *
+ * Las dos versiones se llaman DISTINTO a propósito: si se descargan las dos, no debe poder
+ * adjuntarse por error la interna (con "detenida por pago…") al correo del proveedor.
  */
-export function nombreArchivoOc(sucursal: string, folio: string, proveedor: string | null, d: Date): string {
+export function nombreArchivoOc(sucursal: string, folio: string, proveedor: string | null, d: Date, interno: boolean): string {
   const suc = textoParaArchivo(sucursal, 5) || 'SUC';
   const fol = textoParaArchivo(folio, 30) || 'SIN-FOLIO';
   const prov = textoParaArchivo(proveedor ?? '') || 'SIN-PROVEEDOR';
-  return `OC_${suc}-${fol}_${prov}_${fechaHoraArchivo(d)}.pdf`;
+  return `OC_${suc}-${fol}_${prov}_${interno ? 'INTERNO' : 'PROVEEDOR'}_${fechaHoraArchivo(d)}.pdf`;
 }
 
 /**

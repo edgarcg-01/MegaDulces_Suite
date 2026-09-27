@@ -7,6 +7,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
+import { Subscription } from 'rxjs';
 import {
   OC_NOTA_MAX, OC_SEGUIMIENTO_ESTATUS, OC_SEGUIMIENTO_LABEL, OC_SIN_REVISAR, OcSeguimientoEstatus,
   notaObligatoria, validarSeguimiento,
@@ -81,11 +82,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <!-- [RA-PRO.62] Conteo por estatus de seguimiento (sobre TODAS las órdenes) que además filtra la tabla. -->
       <div class="oa-seg-bar" role="group" aria-label="Filtrar por estatus de seguimiento">
         <span class="oa-seg-lbl">Seguimiento</span>
-        <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === ''" (click)="fSeg.set('')">
+        <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === ''" [attr.aria-pressed]="fSeg() === ''" (click)="fSeg.set('')">
           Todas <b>{{ total() | number }}</b>
         </button>
         @for (s of segOpts; track s.value) {
-          <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === s.value" (click)="fSeg.set(s.value)"
+          <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === s.value" [attr.aria-pressed]="fSeg() === s.value" (click)="fSeg.set(s.value)"
                   [attr.data-seg]="s.value">
             {{ s.label }} <b>{{ (porSeguimiento()[s.value] ?? 0) | number }}</b>
           </button>
@@ -98,7 +99,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p class="oa-aviso" role="status">
           <span class="pi pi-info-circle" aria-hidden="true"></span>
           La tabla muestra las {{ mostradas() | number }} órdenes más antiguas de {{ total() | number }}@if (totalMinimo()) {+}.
-          Los indicadores de arriba cuentan todas. Filtrá por sucursal o antigüedad para ver el resto.
+          Los indicadores de arriba cuentan todas. Filtra por sucursal o antigüedad para ver el resto.
+          @if (fSeg()) { El filtro de seguimiento sólo recorre las órdenes mostradas: puede haber más con ese estatus fuera de la tabla (el número del botón sí cuenta todas). }
         </p>
       }
       @if (pdfError()) {
@@ -133,22 +135,31 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @else { <span [class]="probCls(o)" [title]="probTitle(o)">{{ o.prob }}%</span> }
             </td>
             <td>
-              <!-- Sin permiso de gestionar se ve, pero no se puede cambiar. -->
-              <button type="button" class="oa-seg-pill" [attr.data-seg]="o.seguimiento?.estatus ?? 'sin_revisar'"
-                      [disabled]="!canManage()" (click)="abrirSeguimiento(o)" [title]="segTitle(o)">
-                {{ segLabel(o) }}@if (canManage()) { <span class="pi pi-pencil" aria-hidden="true"></span> }
-              </button>
+              <!-- Sin permiso (o sin migración) se ve, pero no es botón: un botón deshabilitado no
+                   recibe foco y su nota quedaba sólo en el title, invisible para teclado y lector. -->
+              @if (puedeEditar()) {
+                <button type="button" class="oa-seg-pill" [attr.data-seg]="o.seguimiento?.estatus ?? 'sin_revisar'"
+                        (click)="abrirSeguimiento(o)" [title]="segTitle(o)"
+                        [attr.aria-label]="'Cambiar seguimiento de la orden ' + o.almacen + '-' + o.folio + ': ' + segLabel(o)">
+                  {{ segLabel(o) }} <span class="pi pi-pencil" aria-hidden="true"></span>
+                </button>
+              } @else {
+                <span class="oa-seg-pill oa-seg-ro" [attr.data-seg]="o.seguimiento?.estatus ?? 'sin_revisar'" [title]="segTitle(o)">
+                  {{ segLabel(o) }}@if (o.seguimiento?.nota) {<span class="sr-only"> — {{ o.seguimiento.nota }}</span>}
+                </span>
+              }
             </td>
             <td class="oa-pdf-cell">
               <button type="button" class="oa-pdf" [disabled]="pdfFolio() !== null" (click)="imprimir(o, false)"
                       title="PDF para enviar al proveedor: la orden, sus renglones y lo que ya llegó (sin notas internas)"
                       [attr.aria-label]="'PDF para el proveedor de la orden ' + o.almacen + '-' + o.folio">
-                <span class="pi pi-file-pdf" aria-hidden="true"></span> Prov.
+                @if (pdfFolio() === o.almacen + '-' + o.folio && !pdfInterno()) { <span class="pi pi-spin pi-spinner" aria-hidden="true"></span> }
+                @else { <span class="pi pi-file-pdf" aria-hidden="true"></span> } Prov.
               </button>
               <button type="button" class="oa-pdf" [disabled]="pdfFolio() !== null" (click)="imprimir(o, true)"
                       title="PDF interno: además, el estatus de seguimiento y su historia"
                       [attr.aria-label]="'PDF interno de la orden ' + o.almacen + '-' + o.folio">
-                @if (pdfFolio() === o.almacen + '-' + o.folio) { <span class="pi pi-spin pi-spinner" aria-hidden="true"></span> }
+                @if (pdfFolio() === o.almacen + '-' + o.folio && pdfInterno()) { <span class="pi pi-spin pi-spinner" aria-hidden="true"></span> }
                 @else { <span class="pi pi-lock" aria-hidden="true"></span> } Int.
               </button>
             </td>
@@ -162,14 +173,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <!-- [RA-PRO.62] Cambiar el estatus de seguimiento. La nota es obligatoria salvo "Vigente"
            (misma regla que valida el servidor, de @megadulces/contracts). -->
       <p-dialog [visible]="!!segOrden()" (visibleChange)="$event ? null : cerrarSeguimiento()" [modal]="true"
-                [style]="{ width: '30rem' }" [breakpoints]="{ '640px': '95vw' }" [dismissableMask]="true"
+                [style]="{ width: '30rem' }" [breakpoints]="{ '640px': '95vw' }"
+                [dismissableMask]="!segGuardando()" [closable]="!segGuardando()" [closeOnEscape]="!segGuardando()"
                 [header]="segOrden() ? 'Seguimiento · OC ' + segOrden()!.almacen + '-' + segOrden()!.folio : ''">
         @if (segOrden(); as o) {
           <div class="oa-dlg">
             <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ money(o.valor) }} · {{ o.dias }} días abierta</p>
             <label class="oa-dlg-lbl" for="oa-seg-estatus">Estatus</label>
             <p-select inputId="oa-seg-estatus" [options]="segEditOpts" [ngModel]="segEstatus()" (ngModelChange)="segEstatus.set($event)" optionLabel="label" optionValue="value"
-                      appendTo="body" styleClass="oa-dlg-sel"></p-select>
+                      appendTo="body" [fluid]="true"></p-select>
             <label class="oa-dlg-lbl" for="oa-seg-nota">
               Nota @if (notaRequerida()) { <span class="oa-req">(obligatoria)</span> } @else { <span class="oa-muted">(opcional)</span> }
             </label>
@@ -180,7 +192,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </div>
         }
         <ng-template #footer>
-          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarSeguimiento()">Cancelar</button>
+          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="segGuardando()" (click)="cerrarSeguimiento()">Cancelar</button>
           <button pButton type="button" class="p-button-sm" [disabled]="segGuardando()" (click)="guardarSeguimiento()">
             {{ segGuardando() ? 'Guardando…' : 'Guardar' }}
           </button>
@@ -242,7 +254,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .oa-seg-pill { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem; border-radius: 999px;
       border: 1px solid var(--border-color); background: transparent; color: var(--text-main); font: inherit; font-size: .74rem;
       white-space: nowrap; cursor: pointer; }
-    .oa-seg-pill:disabled { cursor: default; }
+    .oa-seg-ro { cursor: default; }
     .oa-seg-pill .pi { font-size: .65rem; color: var(--text-muted); }
     [data-seg='sin_revisar'] { color: var(--text-muted); border-style: dashed; }
     .oa-seg-pill[data-seg='vigente'] { color: var(--ok-fg); border-color: var(--ok-fg); }
@@ -259,7 +271,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .oa-dlg { display: flex; flex-direction: column; gap: .35rem; }
     .oa-dlg-sub { margin: 0 0 .4rem; font-size: .8rem; color: var(--text-muted); }
     .oa-dlg-lbl { font-size: .72rem; font-weight: 600; color: var(--text-main); margin-top: .35rem; }
-    :host ::ng-deep .oa-dlg-sel { width: 100%; }
     .oa-dlg-nota { width: 100%; resize: vertical; padding: .45rem .55rem; font: inherit; font-size: .85rem; color: var(--text-main);
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); }
     .oa-dlg-nota:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
@@ -316,6 +327,11 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly canManage = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_PEDIDO_GESTIONAR] === true);
 
+  /** `false` mientras la migración del seguimiento no esté aplicada (lo dice el servidor). */
+  readonly seguimientoHabilitado = signal(false);
+  /** Editar = tener el permiso Y que la tabla exista. */
+  readonly puedeEditar = computed(() => this.canManage() && this.seguimientoHabilitado());
+
   /** Conteo por estatus sobre TODAS las órdenes (lo calcula el servidor). */
   readonly porSeguimiento = signal<Record<string, number>>({});
   /** Filtro de la tabla por estatus ('' = todas, 'sin_revisar' = sin registro). */
@@ -341,19 +357,28 @@ export class ComprasOcAbiertasComponent implements OnInit {
 
   segLabel(o: OpenOcRow): string { return o.seguimiento ? OC_SEGUIMIENTO_LABEL[o.seguimiento.estatus] : OC_SIN_REVISAR; }
   segTitle(o: OpenOcRow): string {
+    if (!this.seguimientoHabilitado()) {
+      return 'El registro de seguimiento todavía no está habilitado: falta aplicar la migración en la base.';
+    }
     const s = o.seguimiento;
-    if (!s) return this.canManage() ? 'Nadie la ha revisado. Clic para registrar el estatus.' : 'Nadie la ha revisado.';
+    if (!s) return this.puedeEditar() ? 'Nadie la ha revisado. Clic para registrar el estatus.' : 'Nadie la ha revisado.';
     const cuando = new Date(s.actualizado_en).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
     return `${OC_SEGUIMIENTO_LABEL[s.estatus]}${s.nota ? ` — ${s.nota}` : ''}\n${s.actualizado_por ?? '—'} · ${cuando}`;
   }
   abrirSeguimiento(o: OpenOcRow): void {
-    if (!this.canManage()) return;
+    if (!this.puedeEditar()) return;
     this.segOrden.set(o);
     this.segEstatus.set(o.seguimiento?.estatus ?? 'vigente');
     this.segNota.set(o.seguimiento?.nota ?? '');
     this.segError.set(null);
   }
-  cerrarSeguimiento(): void { this.segOrden.set(null); this.segGuardando.set(false); }
+  /** Mientras se guarda no se cierra: si se cerrara, la respuesta tardía no tendría a quién avisarle. */
+  cerrarSeguimiento(): void {
+    if (this.segGuardando()) return;
+    this.segOrden.set(null);
+  }
+  /** Ficha de la última petición de guardado: una respuesta vieja no pisa el diálogo actual. */
+  private segReq = 0;
   guardarSeguimiento(): void {
     const o = this.segOrden();
     if (!o || this.segGuardando()) return;
@@ -361,14 +386,21 @@ export class ComprasOcAbiertasComponent implements OnInit {
     const v = validarSeguimiento(this.segEstatus(), this.segNota());
     if (!v.ok) { this.segError.set(v.error); return; }
     this.segGuardando.set(true);
+    const req = ++this.segReq;
     this.api.setPurchaseOrderFollowup(o.almacen, o.folio, { estatus: v.estatus, nota: v.nota })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         // Se recarga en vez de parchar el renglón: los conteos por estatus son sobre TODAS las
         // órdenes y sólo el servidor los sabe.
-        next: () => { this.cerrarSeguimiento(); this.reload(); },
-        error: (e) => {
+        next: () => {
+          if (req !== this.segReq) return;
           this.segGuardando.set(false);
-          this.segError.set(e?.error?.message || 'No se pudo guardar el estatus. Intentá de nuevo.');
+          this.cerrarSeguimiento();
+          this.reload();
+        },
+        error: (e) => {
+          if (req !== this.segReq) return;
+          this.segGuardando.set(false);
+          this.segError.set(e?.error?.message || 'No se pudo guardar el estatus. Intenta de nuevo.');
         },
       });
   }
@@ -377,11 +409,14 @@ export class ComprasOcAbiertasComponent implements OnInit {
   private readonly sucNombre = signal(new Map<string, string>());
   /** 'SUC-FOLIO' de la orden cuyo PDF se está armando (uno a la vez). */
   readonly pdfFolio = signal<string | null>(null);
+  /** Qué versión se está armando: el spinner sale sólo en el botón que se tocó. */
+  readonly pdfInterno = signal(false);
   readonly pdfError = signal<string | null>(null);
 
   imprimir(o: OpenOcRow, interno: boolean): void {
     if (this.pdfFolio()) return;
     this.pdfFolio.set(`${o.almacen}-${o.folio}`);
+    this.pdfInterno.set(interno);
     this.pdfError.set(null);
     this.api.openPurchaseOrderDetail(o.almacen, o.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: async (d) => {
@@ -416,9 +451,13 @@ export class ComprasOcAbiertasComponent implements OnInit {
     this.reload();
   }
 
+  /** La carga en curso: si se cambia el filtro antes de que responda, la vieja se cancela y no pisa a la nueva. */
+  private reloadSub?: Subscription;
+
   reload(): void {
     this.loading.set(true);
-    this.api.openPurchaseOrders({ sucursal: this.fSuc || undefined, min_days: this.fMinDays || undefined })
+    this.reloadSub?.unsubscribe();
+    this.reloadSub = this.api.openPurchaseOrders({ sucursal: this.fSuc || undefined, min_days: this.fMinDays || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []);
@@ -431,6 +470,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.truncado.set(!!r.truncado);
           this.totalMinimo.set(!!r.total_minimo);
           this.porSeguimiento.set(r.por_seguimiento ?? {});
+          this.seguimientoHabilitado.set(!!r.seguimiento_habilitado);
           this.curva.set(r.curva ?? []);
           this.loading.set(false);
         },
@@ -442,6 +482,8 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.rows.set([]); this.total.set(0); this.totalValor.set(0); this.valorEsperado.set(0);
           this.viejas.set(0); this.valorViejas.set(0); this.mostradas.set(0);
           this.truncado.set(false); this.totalMinimo.set(false); this.porSeguimiento.set({});
+          // Sin respuesta no se sabe si la tabla de seguimiento existe: no se ofrece editar.
+          this.seguimientoHabilitado.set(false); this.curva.set([]);
           this.loading.set(false);
         },
       });
