@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
+import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
 
@@ -215,10 +217,18 @@ export interface OpenOcRow {
   estatus: string;                      // c43 en Kepler: N pendiente · F finalizada · C cancelada · R recibida
   dias: number; lineas: number; valor: number;
   prob: number | null;                  // % histórico de que una OC de esa edad termine llegando
+  seguimiento?: OcSeguimiento | null;   // [RA-PRO.62] registro de Compras; null = Sin revisar
 }
 export interface OpenOcResponse {
   rows: OpenOcRow[];
-  total: number; total_valor: number; valor_esperado: number;
+  // [RA-PRO.60] Los indicadores cuentan TODAS las órdenes del filtro; `rows` trae como máximo 500
+  // (las más viejas). `truncado` dice que quedaron fuera de la tabla; `total_minimo`, que ni la
+  // consulta las trajo todas (el total es un mínimo). Las dos se DECLARAN en pantalla.
+  total: number; mostradas: number; truncado: boolean; total_minimo: boolean;
+  total_valor: number; valor_esperado: number;
+  viejas: number; valor_viejas: number;
+  /** [RA-PRO.62] Órdenes por estatus de seguimiento (incluye 'sin_revisar'), sobre TODAS. */
+  por_seguimiento?: Record<string, number>;
   curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
 }
 export interface WorkbookRow {
@@ -882,6 +892,17 @@ export class ComprasService {
     if (q?.min_days) p.set('min_days', String(q.min_days));
     const qs = p.toString();
     return this.http.get<OpenOcResponse>(`${this.base}/open-purchase-orders${qs ? '?' + qs : ''}`);
+  }
+
+  /** [RA-PRO.61] Una OC de Kepler completa (todos los renglones, recepciones, seguimiento) para su PDF. */
+  openPurchaseOrderDetail(sucursal: string, folio: string): Observable<OcDetalle> {
+    return this.http.get<OcDetalle>(`${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
+  }
+
+  /** [RA-PRO.62] Guarda el estatus de seguimiento de una OC (registro de Compras; no toca Kepler). */
+  setPurchaseOrderFollowup(sucursal: string, folio: string, body: { estatus: OcSeguimientoEstatus; nota: string | null }) {
+    return this.http.put<OcSeguimientoGuardadoDto>(
+      `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/seguimiento`, body);
   }
 
   /**

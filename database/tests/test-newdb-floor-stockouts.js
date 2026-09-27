@@ -94,7 +94,12 @@ async function intentar(fila) {
 
     // ── 4. Motivo y contador ───────────────────────────────────────────────────────────────
     ok(/kind_chk/.test(await intentar(base({ kind: 'se_perdio' })) || ''),
-      'RECHAZA un motivo inventado (los cuatro son un vocabulario cerrado)');
+      'RECHAZA un motivo inventado (los cinco son un vocabulario cerrado)');
+    // `[FLT.21]` El motivo nuevo tiene que ENTRAR. Sin esta linea, el dia que alguien corra la
+    // migracion a medias el INSERT revienta en produccion con un 23514 y nadie lo ata a este
+    // archivo. Es la prueba POSITIVA del CHECK; la negativa de arriba no la cubre.
+    ok((await intentar(base({ kind: 'no_en_anaquel' }))) === null,
+      'ACEPTA no_en_anaquel: el CHECK de la migracion 20260926120000 esta aplicado');
     ok(/times_chk/.test(await intentar(base({ times_reported: 0 })) || ''),
       'RECHAZA un contador en 0: un reporte de cero veces no es un reporte');
 
@@ -139,6 +144,27 @@ async function intentar(fila) {
     const nulosAlFinal = orden.every((r, i) =>
       r.est_lost_revenue !== null || orden.slice(i).every((x) => x.est_lost_revenue === null));
     ok(nulosAlFinal, 'en la bandeja lo no valorado va AL FINAL: no se premia la falta de dato');
+
+
+    // ── 8. `[FLT.21]` El destino se DERIVA y no se guarda ─────────────────────────────────
+    // La columna no existe a proposito: guardarla seria una segunda copia de algo calculable, y
+    // el dia que cambie la regla quedarian filas viejas afirmando un destino que la regla nueva
+    // no les daria. Aca se fija que NADIE la agrego por comodidad.
+    const cols = (await knex.raw(`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_schema='commercial' AND table_name='floor_stockouts'`)).rows.map((r) => r.column_name);
+    ok(!cols.includes('destino'),
+      'la tabla NO guarda el destino: se deriva al leer (regla en stockout-destino.ts)');
+
+    // El caso que el motivo nuevo existe para capturar: hay existencia y no estaba en el anaquel.
+    // Guarda la existencia que la persona vio, que es lo que despues decide a quien le toca.
+    await knex('commercial.floor_stockouts').insert(base({
+      kind: 'no_en_anaquel', dedup_key: `${MARCA}|anaquel`, on_hand_at_report: 12,
+    }));
+    const anaquel = await knex('commercial.floor_stockouts')
+      .where({ tenant_id: T, dedup_key: `${MARCA}|anaquel` }).first();
+    ok(anaquel && Number(anaquel.on_hand_at_report) === 12,
+      'no_en_anaquel guarda la existencia del momento: es lo que lo manda a piso y no a Compras');
 
   } catch (e) {
     console.log(`  ❌ error inesperado: ${e.message}`);

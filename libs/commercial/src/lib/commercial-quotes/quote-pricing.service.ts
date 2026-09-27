@@ -116,6 +116,8 @@ export interface PricedLine {
   applied: PriceStep[];
   /** Mecanismos que existían y NO se aplicaron, con el motivo. */
   not_applied: { mechanism: string; reason: string }[];
+  /** Escalón de mayoreo / volumen configurado en el ERP (kdpv_prod_util / v_label_presentations) */
+  volume_tier?: { min_qty: number; price: number } | null;
   free_goods: { sku: string; quantity: number; unit_label: string | null; product_id: string | null } | null;
   unpriced_reason: string | null;
   warnings: string[];
@@ -189,6 +191,47 @@ export class QuotePricingService {
         ? { min_qty: Number(minQty), price: Number(price) }
         : null;
 
+    // Mayoreo para caja: analytics.v_label_presentations (o kdpv_prod_util directo)
+    let boxVolume: { min_qty: number; price: number } | null = null;
+    let boxPrice = num(p.box_price);
+    let boxSize = num(p.box_size);
+
+    const cjaRes = await knex.raw(
+      `SELECT precio_lista, mayoreo_precio, mayoreo_desde, factor
+         FROM analytics.v_label_presentations
+        WHERE sucursal = :branch AND sku = :sku AND unidad = 'CJA'
+        LIMIT 1`,
+      { branch, sku },
+    );
+    if (cjaRes.rows.length) {
+      const cjaRow = cjaRes.rows[0];
+      if (boxPrice === null && cjaRow.precio_lista !== null) {
+        boxPrice = num(cjaRow.precio_lista);
+      }
+      if (boxSize === null && cjaRow.factor !== null) {
+        boxSize = num(cjaRow.factor);
+      }
+      if (cjaRow.mayoreo_desde && cjaRow.mayoreo_precio) {
+        boxVolume = volumeOf(cjaRow.mayoreo_desde, cjaRow.mayoreo_precio);
+      }
+    }
+
+    if (!boxVolume && boxPrice !== null) {
+      const kdpvRes = await knex.raw(
+        `SELECT u.c7::numeric AS price, floor(u.c4::numeric)::int AS min_qty
+           FROM kepler_ods.kdpv_prod_util u
+          WHERE u.sucursal = :branch AND u.c1 = :sku
+            AND btrim(u.c2::text) = 'CJA'
+            AND u.c7::numeric > 0 AND floor(u.c4::numeric)::int > 1
+          ORDER BY floor(u.c4::numeric)::int ASC, u.c7::numeric ASC
+          LIMIT 1`,
+        { branch, sku },
+      );
+      if (kdpvRes.rows.length) {
+        boxVolume = volumeOf(kdpvRes.rows[0].min_qty, kdpvRes.rows[0].price);
+      }
+    }
+
     return {
       name: p.name ?? null,
       unit_base: p.unit_base ?? null,
@@ -212,10 +255,10 @@ export class QuotePricingService {
         },
         box: {
           rung: 'box',
-          label: p.box_size ? 'CJA' : null,
-          price: num(p.box_price),
-          size: num(p.box_size),
-          volume: null,
+          label: (boxSize || p.box_size) ? 'CJA' : null,
+          price: boxPrice,
+          size: boxSize,
+          volume: boxVolume,
         },
       },
     };
@@ -292,32 +335,41 @@ export class QuotePricingService {
 
     // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
     // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
-    if (step.volume && quantity >= step.volume.min_qty) {
-      if (step.volume.price < price) {
-        applied.push({
-          step: 'volumen',
-          source: 'kdpv_prod_util (via v_label_prices.wholesale_*)',
-          detail: `Precio por volumen desde ${step.volume.min_qty} ${step.label ?? 'u'}`,
-          before: price,
-          after: step.volume.price,
-        });
-        price = step.volume.price;
-        priceSource = 'volume_qty';
+    if (step.volume) {
+      if (quantity >= step.volume.min_qty) {
+        if (step.volume.price < price) {
+          applied.push({
+            step: 'volumen',
+            source: 'kdpv_prod_util (via v_label_prices.wholesale_*)',
+            detail: `Precio por volumen desde ${step.volume.min_qty} ${step.label ?? 'u'}`,
+            before: price,
+            after: step.volume.price,
+          });
+          price = step.volume.price;
+          priceSource = 'volume_qty';
+        } else {
+          // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
+          warnings.push(
+            `El precio por volumen del ERP (${step.volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
+          );
+        }
       } else {
-        // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
-        warnings.push(
-          `El precio por volumen del ERP (${step.volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
-        );
+        notApplied.push({
+          mechanism: 'volumen',
+          reason: `Precio por volumen de $${step.volume.price} disponible a partir de ${step.volume.min_qty} ${step.label ?? 'unidades'}.`,
+        });
       }
     }
 
     // ── Mecanismos 2b–5: las reglas de descuento de producto ────────────────────────────────
+    const unitName = rung === 'box' ? 'CJA' : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
     const rules = await knex.raw(
       `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
               umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
          FROM analytics.v_erp_discount_rules
-        WHERE tienda = :branch AND sku = :sku AND aplica_a = :aplica_a`,
-      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung] },
+        WHERE tienda = :branch AND sku = :sku
+          AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
+      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung], unitName },
     );
 
     let freeGoods: PricedLine['free_goods'] = null;
@@ -413,6 +465,7 @@ export class QuotePricingService {
       availability: productId ? 'available' : 'unmatched',
       applied,
       not_applied: notApplied,
+      volume_tier: step.volume ? { min_qty: step.volume.min_qty, price: step.volume.price } : null,
       free_goods: freeGoods,
       unpriced_reason: null,
       warnings,
@@ -444,6 +497,7 @@ export class QuotePricingService {
       availability: a.availability,
       applied: a.applied,
       not_applied: a.notApplied,
+      volume_tier: null,
       free_goods: null,
       unpriced_reason: a.reason,
       warnings: a.warnings,

@@ -11,11 +11,12 @@ import { TagModule } from 'primeng/tag';
 import { AuthService } from '../../../core/services/auth.service';
 import {
   FaltantesService, MOTIVOS, ETIQUETA_MOTIVO, ETIQUETA_DECISION,
-  type CodigoQueFalla, type Faltante, type ReportarResultado, type StockoutKind,
+  type CodigoQueFalla, type ConsultaFaltante, type Faltante, type MotivoUi,
+  type ReportarResultado, type StockoutDecision, type StockoutKind,
 } from '../faltantes.service';
 import { VerificadorService, type SucursalVerificador } from '../verificador.service';
 
-type Pestana = 'reportar' | 'buscar' | 'fallan';
+type Pestana = 'reportar' | 'nocat' | 'fallan';
 type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: string } | null;
 type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: string | null };
 
@@ -29,11 +30,25 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
  * cliente preguntó, no lo había, y se fue. **La persona del mostrador es el único instrumento
  * capaz de registrar ese hecho**, y por eso esta pantalla es de captura y no de reporte.
  *
+ * ── `[FLT.2x]` Lo que cambió después de medir cinco días en producción ──────────────────────
+ * La primera versión era un FORMULARIO: pedía capturar y contestaba "gracias". Todo el beneficio
+ * caía en Compras, tres días después. Medido: **9 reportes en 5 días, 3 de cuentas de prueba, y
+ * UNA sola persona de piso de 19 cajeras**. Nadie hace captura para beneficio ajeno con un cliente
+ * enfrente. Tres correcciones, cada una con su medición:
+ *
+ *  · **La pantalla contesta primero** (`[FLT.22]`): al resolver el producto dice si hay existencia,
+ *    que es la pregunta que trae a la cajera y al anaquelista — *¿vale la pena ir a la bodega?*
+ *    El reporte queda como consecuencia de una consulta útil, no como trámite.
+ *  · **Una sola caja** (`[FLT.20]`): código, clave y nombre entran por el mismo campo y el
+ *    catálogo se despliega para tocarlo. Antes el nombre vivía en otra pestaña que ni siquiera
+ *    llevaba a reportar.
+ *  · **«Producto no catalogado» con entrada directa** (`[FLT.20]`): antes el texto libre sólo
+ *    aparecía DESPUÉS de que un código fallara — y un producto que no vendemos no tiene código
+ *    que escanear. Medido: **0 de 9** reportes usaron ese motivo, el que justifica la fase.
+ *
  * ── Tres pestañas, un solo oficio ────────────────────────────────────────────────────────────
- *  1. **Reportar** — escanea o teclea, elige el motivo, listo. Un toque.
- *  2. **Buscar por nombre** — la salida cuando el código no pasa. Corre contra el catálogo que el
- *     verificador YA baja a IndexedDB, así que es instantánea, funciona sin red y no agregó ni un
- *     endpoint: el nombre estaba en el snapshot desde siempre, sin usarse.
+ *  1. **Reportar** — una caja para todo, la respuesta de existencia, y el motivo en un toque.
+ *  2. **Producto no catalogado** — lo único que ningún feed puede ver.
  *  3. **Los que no pasan** — la herramienta de caja. ⚠️ NO es "los productos sin código de barras":
  *     eso se midió (2026-09-19) y son **139 SKUs = 1.5% del catálogo** que valen **0.01% de la
  *     venta** de 90 días, y la mayoría ni son mercancía (códigos de promoción, etiquetas de
@@ -103,17 +118,22 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
       <!-- ══ 1. REPORTAR ═════════════════════════════════════════════════════════════ -->
       @if (pestana() === 'reportar') {
         <section class="fl-card">
-          <label class="fl-lbl" for="fl-code">Escanea o teclea el código</label>
+          <label class="fl-lbl" for="fl-code">¿Qué te pidieron?</label>
+
+          <!-- UNA sola caja: la pistola dispara y manda Enter, la clave se teclea, y el nombre
+               despliega el catálogo para tocar el producto. Antes eran dos pestañas distintas y
+               la de nombre ni siquiera llevaba a reportar. -->
           <div class="fl-capture">
-            <input #captura id="fl-code" type="text" class="fl-input" [(ngModel)]="codigo"
-                   (keyup.enter)="resolver()" [disabled]="buscando()"
-                   placeholder="Código de barras o clave" autocomplete="off"
-                   inputmode="numeric" aria-describedby="fl-capture-help" />
+            <input #captura id="fl-code" type="text" class="fl-input" [ngModel]="termino()"
+                   (ngModelChange)="alEscribir($event)" (keyup.enter)="resolver()"
+                   [disabled]="buscando()" placeholder="Escanea, o escribe la clave o el nombre"
+                   autocomplete="off" aria-describedby="fl-capture-help" />
             <p-button label="Buscar" icon="pi pi-search" (onClick)="resolver()"
-                      [loading]="buscando()" [disabled]="!codigo.trim()" styleClass="fl-btn-main" />
+                      [loading]="buscando()" [disabled]="!termino().trim()" styleClass="fl-btn-main" />
           </div>
           <small id="fl-capture-help" class="fl-help">
-            Si el código no pasa, usa <button type="button" class="fl-link" (click)="irA('buscar')">buscar por nombre</button>.
+            Si no aparece porque no lo vendemos, usa
+            <button type="button" class="fl-link" (click)="irA('nocat')">producto no catalogado</button>.
           </small>
 
           @if (avisoCaptura(); as a) {
@@ -123,7 +143,27 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
             </div>
           }
 
-          <!-- Producto resuelto -> los 4 motivos. Un toque y queda reportado. -->
+          <!-- Catálogo filtrado por nombre: se toca el producto y pasa a la respuesta. -->
+          @if (!encontrado() && resultados().length) {
+            <ul class="fl-res" role="list">
+              @for (r of resultados(); track r.codigo) {
+                <li>
+                  <button type="button" class="fl-res-row" (click)="usarResultado(r)">
+                    <span class="fl-res-sku">{{ r.codigo }}</span>
+                    <span class="fl-res-name">{{ r.nombre }}</span>
+                    <span class="fl-res-price">
+                      @if (r.precio !== null) {
+                        {{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
+                      } @else { <em class="fl-muted">sin precio</em> }
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+
+          <!-- ⭐ La RESPUESTA antes de pedir nada. Es lo que hace que la pantalla le sirva a
+               quien la abre: contesta si vale la pena caminar a la bodega. -->
           @if (encontrado(); as p) {
             <div class="fl-prod">
               <span class="fl-prod-sku">{{ p.codigo }}</span>
@@ -132,10 +172,49 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
                 <span class="fl-prod-price">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
               }
             </div>
+
+            @if (consulta(); as c) {
+              <div class="fl-veredicto" [class]="'v-' + (c.veredicto ?? 'no_medido')" role="status">
+                @switch (c.veredicto) {
+                  @case ('hay_en_tienda') {
+                    <i class="pi pi-check-circle" aria-hidden="true"></i>
+                    <div class="fl-ver-txt">
+                      <strong>Sí hay en la tienda: {{ c.existencia }}</strong>
+                      <span>Pídelo a piso o a bodega — la venta se puede salvar ahora.</span>
+                    </div>
+                  }
+                  @case ('sin_existencia') {
+                    <i class="pi pi-times-circle" aria-hidden="true"></i>
+                    <div class="fl-ver-txt">
+                      <strong>No hay en la tienda</strong>
+                      <span>Existencia 0. Esto le toca a Compras.</span>
+                    </div>
+                  }
+                  @case ('no_medido') {
+                    <!-- "no sé" NUNCA se dibuja como "no hay": mandan a hacer cosas opuestas. -->
+                    <i class="pi pi-question-circle" aria-hidden="true"></i>
+                    <div class="fl-ver-txt">
+                      <strong>No se pudo consultar la existencia</strong>
+                      <span>No es cero: es que no se pudo leer. Conviene ir a revisar.</span>
+                    </div>
+                  }
+                  @default {
+                    <!-- El verificador lo encontró y el catálogo del servidor no. Pasa, porque no
+                         resuelven por la misma tabla. Sin este caso el @switch no pinta nada y
+                         queda una caja de color VACÍA, que se lee como que ya contestó algo. -->
+                    <i class="pi pi-question-circle" aria-hidden="true"></i>
+                    <div class="fl-ver-txt">
+                      <strong>No se pudo confirmar la existencia</strong>
+                      <span>El catálogo del servidor no resolvió ese código. No es cero.</span>
+                    </div>
+                  }
+                }
+              </div>
+            }
           }
 
           @if (encontrado() || textoLibre().trim()) {
-            <p class="fl-lbl fl-lbl-sep">¿Por qué no se vendió?</p>
+            <p class="fl-lbl fl-lbl-sep">{{ encontrado() ? '¿Qué pasó?' : '¿Por qué no se vendió?' }}</p>
             <div class="fl-motivos">
               @for (m of motivosVisibles(); track m.kind) {
                 <button type="button" class="fl-motivo" (click)="reportar(m.kind)"
@@ -146,20 +225,11 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
                 </button>
               }
             </div>
-          }
-
-          <!-- No resolvió: el caso que ninguna fuente puede ver. Se escribe a mano. -->
-          @if (noResuelto()) {
-            <div class="fl-libre">
-              <label class="fl-lbl" for="fl-libre">¿Qué te pidieron? Escríbelo como lo dijo el cliente</label>
-              <!-- El valor vive en una SEÑAL, no en una propiedad suelta: de ella depende que
-                   aparezca el botón de motivo. Con ngModel de dos vías sobre una propiedad, el
-                   template leía una señal que nadie actualizaba y el botón no salía nunca.
-                   SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y lo cierran. -->
-              <input id="fl-libre" type="text" class="fl-input" [ngModel]="textoLibre()"
-                     (ngModelChange)="textoLibre.set($event)"
-                     placeholder="Ej: chicle rosa del norte" autocomplete="off" />
-            </div>
+            @if (encontrado()) {
+              <button type="button" class="fl-link fl-descartar" (click)="limpiarTodo()">
+                Ya lo resolví, no hace falta reportar
+              </button>
+            }
           }
         </section>
 
@@ -192,46 +262,39 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
         }
       }
 
-      <!-- ══ 2. BUSCAR POR NOMBRE ════════════════════════════════════════════════════ -->
-      @if (pestana() === 'buscar') {
+      <!-- ══ 2. PRODUCTO NO CATALOGADO ══════════════════════════════════════════════
+           Entrada DIRECTA, sin escaneo previo. Antes el texto libre sólo aparecía después de
+           que un código fallara — y un producto que no vendemos no tiene código que escanear.
+           Medido: 0 de 9 reportes usaron este motivo, el que justifica la fase entera. -->
+      @if (pestana() === 'nocat') {
         <section class="fl-card">
-          <label class="fl-lbl" for="fl-nom">Busca por nombre</label>
-          <input id="fl-nom" type="text" class="fl-input" [(ngModel)]="nombre"
-                 (ngModelChange)="buscarNombre($event)" placeholder="Ej: chiqui chile"
-                 autocomplete="off" aria-describedby="fl-nom-help" />
-          <small id="fl-nom-help" class="fl-help">
-            Escribe las palabras que recuerdes, en cualquier orden. Funciona sin internet.
-          </small>
+          <h2 class="fl-h2">El cliente pidió algo que no vendemos</h2>
+          <p class="fl-sub">
+            Escríbelo como lo dijo. Esto es lo único que ningún sistema puede ver solo: nadie lo
+            compra, así que no deja rastro en ninguna parte.
+          </p>
 
-          @if (sinRespaldo()) {
-            <!-- "no puedo buscar" nunca se dibuja como "no hay resultados": son cosas distintas. -->
-            <div class="fl-aviso t-warn">
-              <strong>No hay catálogo descargado en esta tableta.</strong>
-              <span>Abre el Verificador de precios una vez con internet y vuelve.</span>
+          <label class="fl-lbl" for="fl-nocat">¿Qué te pidieron?</label>
+          <input id="fl-nocat" type="text" class="fl-input" [ngModel]="textoLibre()"
+                 (ngModelChange)="textoLibre.set($event)"
+                 placeholder="Ej: gomitas de chamoy marca Lucas" autocomplete="off" />
+
+          @if (avisoNoCat(); as a) {
+            <div class="fl-aviso" [class]="'t-' + a.tono" role="status">
+              <strong>{{ a.texto }}</strong>
+              @if (a.detalle) { <span>{{ a.detalle }}</span> }
             </div>
-          } @else if (nombre.trim().length && !resultados().length) {
-            <div class="fl-empty sm">
-              <i class="pi pi-search" aria-hidden="true"></i>
-              <p><strong>Nada con ese nombre.</strong></p>
-              <span>Puede que no lo trabajemos — repórtalo en la pestaña anterior.</span>
-            </div>
-          } @else if (resultados().length) {
-            <ul class="fl-res" role="list">
-              @for (r of resultados(); track r.codigo) {
-                <li>
-                  <button type="button" class="fl-res-row" (click)="usarResultado(r)">
-                    <span class="fl-res-sku">{{ r.codigo }}</span>
-                    <span class="fl-res-name">{{ r.nombre }}</span>
-                    <span class="fl-res-price">
-                      @if (r.precio !== null) {
-                        {{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
-                      } @else { <em class="fl-muted">sin precio</em> }
-                    </span>
-                  </button>
-                </li>
-              }
-            </ul>
           }
+
+          <div class="fl-motivos">
+            <button type="button" class="fl-motivo" (click)="reportarNoCatalogado()"
+                    [disabled]="enviando() || !textoLibre().trim()"
+                    aria-label="Reportar producto no catalogado">
+              <i class="pi pi-question-circle" aria-hidden="true"></i>
+              <span class="fl-motivo-l">No lo trabajamos</span>
+              <span class="fl-motivo-a">Avisar a Compras para que lo evalúen</span>
+            </button>
+          </div>
         </section>
       }
 
@@ -392,6 +455,24 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
 
     .fl-libre { display: flex; flex-direction: column; gap: .35rem; }
 
+    /* La RESPUESTA. Es lo primero que la persona necesita leer, así que pesa más que el resto:
+       tipografía más grande y un borde de color que NUNCA va solo (siempre con icono y texto). */
+    .fl-veredicto { display: flex; align-items: flex-start; gap: .6rem; padding: .8rem 1rem;
+      border: 1px solid var(--border-color); border-left-width: 4px; border-radius: var(--r-sm, 8px); }
+    .fl-veredicto i { font-size: 1.25rem; margin-top: .1rem; }
+    .fl-ver-txt { display: flex; flex-direction: column; gap: .1rem; }
+    .fl-ver-txt strong { font-size: var(--fs-md, 1rem); color: var(--text-main); }
+    .fl-ver-txt span { font-size: var(--fs-sm, .82rem); color: var(--text-muted); }
+    .fl-veredicto.v-hay_en_tienda { border-left-color: var(--tone-ok); }
+    .fl-veredicto.v-hay_en_tienda i { color: var(--tone-ok); }
+    .fl-veredicto.v-sin_existencia { border-left-color: var(--tone-bad); }
+    .fl-veredicto.v-sin_existencia i { color: var(--tone-bad); }
+    /* "No sé" tiene su propio color a propósito: no es el rojo de "no hay" (ADR-056). */
+    .fl-veredicto.v-no_medido { border-left-color: var(--tone-warn); }
+    .fl-veredicto.v-no_medido i { color: var(--tone-warn); }
+
+    .fl-descartar { align-self: flex-start; font-size: var(--fs-sm, .8rem); margin-top: .2rem; }
+
     .fl-ok { border-color: color-mix(in srgb, var(--tone-ok) 45%, transparent); }
     .fl-ok-head { display: flex; align-items: center; gap: .45rem; font-size: var(--fs-md, .92rem); }
     .fl-ok-head i { color: var(--tone-ok); }
@@ -468,7 +549,10 @@ export class TiendaFaltantesComponent implements OnInit {
 
   readonly TABS: ReadonlyArray<{ id: Pestana; label: string; icon: string }> = [
     { id: 'reportar', label: 'Reportar', icon: 'pi pi-flag' },
-    { id: 'buscar', label: 'Buscar por nombre', icon: 'pi pi-search' },
+    // `[FLT.20]` Se llamaba "Buscar por nombre" y describía el MECANISMO, no el caso de uso. La
+    // búsqueda por nombre se fusionó a la caja de Reportar; acá queda el motivo que ninguna
+    // fuente puede ver, con su nombre de negocio.
+    { id: 'nocat', label: 'Producto no catalogado', icon: 'pi pi-question-circle' },
     { id: 'fallan', label: 'Los que no pasan', icon: 'pi pi-ban' },
   ];
   readonly MOTIVOS = MOTIVOS;
@@ -477,16 +561,20 @@ export class TiendaFaltantesComponent implements OnInit {
   readonly sucursales = signal<SucursalVerificador[]>([]);
   readonly sucursal = signal<string | null>(null);
 
-  codigo = '';
-  nombre = '';
+  /** El término de la caja única: código escaneado, clave tecleada o nombre. */
+  readonly termino = signal('');
 
   readonly buscando = signal(false);
   readonly enviando = signal(false);
   readonly encontrado = signal<Hallado | null>(null);
   readonly noResuelto = signal(false);
   readonly avisoCaptura = signal<Aviso>(null);
+  readonly avisoNoCat = signal<Aviso>(null);
   readonly ultimo = signal<ReportarResultado | null>(null);
   readonly textoLibre = signal('');
+
+  /** `[FLT.22]` La respuesta de existencia. `null` = todavía no se consultó. */
+  readonly consulta = signal<ConsultaFaltante | null>(null);
 
   readonly resultados = signal<Hallado[]>([]);
   readonly sinRespaldo = signal(false);
@@ -496,15 +584,40 @@ export class TiendaFaltantesComponent implements OnInit {
   readonly cargandoFallan = signal(false);
 
   /**
-   * Los motivos que tiene sentido ofrecer.
+   * `[FLT.21]` Los motivos que tiene sentido ofrecer, y que dependen de la RESPUESTA.
    *
-   * Cuando NO hay producto resuelto el único motivo honesto es «no lo trabajamos»: los otros tres
-   * afirman cosas sobre un producto del catálogo, y el backend rechazaría `no_en_catalogo` con
-   * producto. Ofrecer botones que van a dar error es enseñarle a la persona que la pantalla falla.
+   * Preguntarle a la cajera si está agotado o si sólo falta en el anaquel es pedirle algo que no
+   * puede saber — el sistema sí lo sabe. Así que la existencia decide qué se le ofrece:
+   *
+   *  · hay existencia  → «no estaba en el anaquel» (va a piso, se recupera hoy) y, como salida
+   *    secundaria, «busqué y no hay» — que es la ÚNICA forma honesta de afirmar un descuadre:
+   *    después de que alguien fue a buscarlo.
+   *  · sin existencia  → «no hay en la tienda» y «no se maneja aquí».
+   *  · sin producto    → sólo «no lo trabajamos»; los otros afirman cosas de un producto del
+   *    catálogo y el backend los rechazaría. Ofrecer botones que dan error enseña que la
+   *    pantalla falla.
    */
-  readonly motivosVisibles = computed(() =>
-    this.encontrado() ? MOTIVOS : MOTIVOS.filter((m) => m.kind === 'no_en_catalogo'),
-  );
+  readonly motivosVisibles = computed<ReadonlyArray<MotivoUi>>(() => {
+    // Sin producto identificado hay una sola verdad reportable: no está en el catálogo.
+    if (!this.encontrado()) return MOTIVOS.filter((m) => m.kind === 'no_en_catalogo');
+
+    const v = this.consulta()?.veredicto;   // undefined = la respuesta TODAVÍA viaja
+
+    // "El código no pasó" no depende de la existencia: es un problema de dato maestro. Lo necesita
+    // justo quien llegó acá porque el lector falló y tuvo que buscar por nombre, y a esa persona
+    // el producto le aparece CON existencia. Ofrecerlo sólo cuando no hay stock dejaba sin reportar
+    // la hoja de códigos que falla, que es la mitad de por qué existe esta pantalla.
+    const codigo = (m: MotivoUi) => m.kind === 'codigo_no_pasa';
+
+    if (v === 'sin_existencia') {
+      return MOTIVOS.filter((m) => m.kind === 'agotado' || m.kind === 'no_en_sucursal' || codigo(m));
+    }
+    // ⚠️ `undefined` cae ACÁ a propósito, junto con `no_medido` y `hay_en_tienda`. Mientras la
+    // existencia no contesta no se sabe si hay, y tratarlo como "no hay" escondía
+    // "no estaba en el anaquel" justo en la ventana en que la cajera está eligiendo — o sea que
+    // empujaba al motivo equivocado en el único caso que se recupera el mismo día (ADR-056).
+    return MOTIVOS.filter((m) => m.kind === 'no_en_anaquel' || m.kind === 'agotado' || codigo(m));
+  });
 
   private debounce?: ReturnType<typeof setTimeout>;
 
@@ -522,7 +635,7 @@ export class TiendaFaltantesComponent implements OnInit {
         // `[FLT.16]` Viene del verificador con el código que NO encontró. Se resuelve solo, para
         // que la persona no lo vuelva a teclear en el mostrador con el cliente esperando.
         const code = this.route.snapshot.queryParamMap.get('codigo');
-        if (code && elegida) { this.codigo = code; this.resolver(); }
+        if (code && elegida) { this.termino.set(code); this.resolver(); }
       },
       error: () => this.sucursales.set([]),
     });
@@ -554,18 +667,45 @@ export class TiendaFaltantesComponent implements OnInit {
     this.encontrado.set(null);
     this.noResuelto.set(false);
     this.avisoCaptura.set(null);
+    this.consulta.set(null);
     this.textoLibre.set('');
+  }
+
+  /** Lo que hace el enlace «ya lo resolví»: borra sin reportar. No todo hallazgo es un faltante. */
+  limpiarTodo(): void {
+    this.termino.set('');
+    this.resultados.set([]);
+    this.limpiar();
+    this.ultimo.set(null);
+    this.enfocar();
   }
 
   // ── Reportar ──────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * `[FLT.20]` La caja única. La pistola dispara y manda Enter, así que el código resuelve por
+   * `resolver()`; mientras la persona TECLEA, esto decide si además vale la pena buscar por nombre.
+   *
+   * El criterio es "tiene letras": un código de barras y una clave son dígitos, un nombre no. No se
+   * busca por nombre con menos de 3 caracteres, o el catálogo entero entra por la ventana.
+   */
+  alEscribir(v: string): void {
+    this.termino.set(v ?? '');
+    const q = (v ?? '').trim();
+    if (this.encontrado()) this.limpiar();      // cambió el término: la respuesta anterior ya no aplica
+    if (this.debounce) clearTimeout(this.debounce);
+    if (q.length < 3 || !/[a-zá-úñ]/i.test(q)) { this.resultados.set([]); return; }
+    this.debounce = setTimeout(() => { void this.buscarNombre(q); }, 250);
+  }
+
   resolver(): void {
-    const code = this.codigo.trim();
+    const code = this.termino().trim();
     const suc = this.sucursal();
     if (!code || !suc) return;
 
     this.buscando.set(true);
     this.limpiar();
+    this.resultados.set([]);
     this.ultimo.set(null);
 
     this.verificador.buscar(code, suc).subscribe({
@@ -579,15 +719,13 @@ export class TiendaFaltantesComponent implements OnInit {
             precio: base?.precio_con_iva ?? null,
             unidad: base?.u ?? null,
           });
+          this.preguntarSiLoTenemos(r.producto.codigo);
         } else if (r.estado === 'no_encontrado') {
-          // El servidor dijo que no existe: es autoritativo y se ofrece escribirlo a mano.
-          this.noResuelto.set(true);
-          this.avisoCaptura.set({
-            tono: 'warn',
-            texto: 'Ese código no está en el catálogo.',
-            detalle: 'Escribe qué te pidieron y repórtalo como "no lo trabajamos".',
-          });
-          this.enfocarLibre();
+          // ⚠️ "No existe como CÓDIGO" NO es "no existe". La caja es una sola y acepta nombres, y
+          // la pistola no es la única que escribe acá. Sin este paso, teclear "boing mango" y dar
+          // Enter declaraba fuera de catálogo un producto que sí está — y el reporte que salía de
+          // ahí era dato falso, que es peor que no tener el reporte.
+          void this.trasNoResolver(code);
         } else {
           // `sin_datos` = no se pudo consultar. NO es "no existe": no se ofrece darlo de alta.
           this.avisoCaptura.set({
@@ -606,8 +744,23 @@ export class TiendaFaltantesComponent implements OnInit {
     });
   }
 
-  private enfocarLibre(): void {
-    setTimeout(() => document.getElementById('fl-libre')?.focus(), 0);
+  /**
+   * `[FLT.22]` La pregunta que la pantalla le contesta a quien la abre: **¿lo tenemos?**
+   *
+   * Si falla, NO se inventa un cero. Se deja `no_medido`, que ofrece los mismos motivos que
+   * "sí hay" a propósito: ante la duda conviene que alguien vaya a mirar, no que se declare
+   * agotado algo que quizás está en la bodega (ADR-056).
+   */
+  private preguntarSiLoTenemos(sku: string): void {
+    const suc = this.sucursal();
+    if (!suc) return;
+    this.api.consultar(suc, sku).subscribe({
+      next: (c) => this.consulta.set(c),
+      error: () => this.consulta.set({
+        encontrado: true, termino: sku, warehouse_code: suc, warehouse_name: null,
+        existencia: null, veredicto: 'no_medido',
+      }),
+    });
   }
 
   reportar(kind: StockoutKind): void {
@@ -618,7 +771,6 @@ export class TiendaFaltantesComponent implements OnInit {
     const texto = this.textoLibre().trim();
     if (!p && !texto) {
       this.avisoCaptura.set({ tono: 'warn', texto: 'Escribe qué te pidieron antes de reportar.' });
-      this.enfocarLibre();
       return;
     }
 
@@ -630,14 +782,15 @@ export class TiendaFaltantesComponent implements OnInit {
       warehouse_code: suc,
       kind,
       sku: p?.codigo,
-      scanned_code: this.codigo.trim() || undefined,
+      scanned_code: this.termino().trim() || undefined,
       product_name: p ? undefined : texto,
       source: 'verificador',
     }).subscribe({
       next: (r) => {
         this.enviando.set(false);
         this.ultimo.set(r);
-        this.codigo = '';
+        this.termino.set('');
+        this.resultados.set([]);
         this.limpiar();
         this.enfocar();
       },
@@ -653,31 +806,102 @@ export class TiendaFaltantesComponent implements OnInit {
     });
   }
 
-  // ── Buscar por nombre ─────────────────────────────────────────────────────────────────────
+  // ── Buscar por nombre (dentro de la MISMA caja) ───────────────────────────────────────────
 
-  buscarNombre(texto: string): void {
+  /**
+   * `[FLT.23]` Busca en el catálogo local y, si no está, **lo baja sola**.
+   *
+   * Antes dependía de que alguien hubiera abierto el Verificador en esa tableta: esta pantalla
+   * sólo LEÍA el respaldo de IndexedDB y nunca lo descargaba. En una caja que nunca abrió el
+   * verificador, la búsqueda por nombre contestaba "no hay catálogo descargado" y ahí moría —
+   * un muro que no tenía por qué existir, porque el endpoint ya estaba.
+   */
+  private async buscarNombre(q: string): Promise<'hallado' | 'vacio' | 'no_pude'> {
     const suc = this.sucursal();
-    if (!suc) return;
-    if (this.debounce) clearTimeout(this.debounce);
-    // 200ms: corre en memoria, así que sólo hace falta no re-filtrar en cada tecla.
-    this.debounce = setTimeout(async () => {
-      const q = (texto || '').trim();
-      if (!q) { this.resultados.set([]); this.sinRespaldo.set(false); return; }
-      const r = await this.verificador.buscarPorNombre(suc, q);
-      if (r === null) { this.sinRespaldo.set(true); this.resultados.set([]); return; }
-      this.sinRespaldo.set(false);
-      this.resultados.set(r);
-    }, 200);
+    if (!suc || !q) { this.resultados.set([]); return 'no_pude'; }
+
+    let r = await this.verificador.buscarPorNombre(suc, q);
+    if (r === null) {
+      // Sin respaldo: se baja una vez y se reintenta. Si tampoco se puede, se DECLARA —
+      // "no puedo buscar" nunca se dibuja como "no hay resultados".
+      this.sinRespaldo.set(true);
+      try {
+        await new Promise<void>((ok, fail) =>
+          this.verificador.descargarSnapshot(suc).subscribe({ next: () => ok(), error: fail }));
+        r = await this.verificador.buscarPorNombre(suc, q);
+      } catch { r = null; }
+    }
+    if (r === null) { this.resultados.set([]); return 'no_pude'; }
+    this.sinRespaldo.set(false);
+    this.resultados.set(r);
+    return r.length ? 'hallado' : 'vacio';
+  }
+
+  /**
+   * Lo que pasa cuando el resolvedor de códigos dice que no. Tres respuestas distintas, porque
+   * son tres situaciones distintas y mezclarlas produce el dato falso:
+   *
+   *  · hay productos con ese nombre  → no era un código, era un nombre. Se muestra la lista.
+   *  · no hay ninguno                → ahí sí, el catálogo no lo tiene. Recién ahí se ofrece el
+   *                                    alta, que es la única puerta que crea un reporte sin producto.
+   *  · no se pudo buscar             → se DECLARA. "No pude preguntar" nunca se dibuja como
+   *                                    "no existe" (ADR-056), porque de ese dibujo sale un alta
+   *                                    de catálogo para algo que ya estaba dado de alta.
+   */
+  private async trasNoResolver(q: string): Promise<void> {
+    // Sólo tiene sentido reintentar por nombre si hay letras: un código puro no va a aparecer en
+    // una búsqueda por nombre, y el rodeo nada más retrasaría la respuesta en la caja.
+    if (/[a-zá-úñ]/i.test(q)) {
+      const r = await this.buscarNombre(q);
+      if (r === 'hallado') {
+        this.avisoCaptura.set({
+          tono: 'warn',
+          texto: 'Eso no es un código, pero hay productos con ese nombre.',
+          detalle: 'Elige abajo el que te pidieron.',
+        });
+        return;
+      }
+      if (r === 'no_pude') {
+        this.avisoCaptura.set({
+          tono: 'bad',
+          texto: 'No se pudo buscar por nombre.',
+          detalle: 'Revisa la conexión. No se da por hecho que no exista.',
+        });
+        return;
+      }
+    }
+    // El catálogo contestó que no, y se le pudo preguntar. Es autoritativo.
+    this.noResuelto.set(true);
+    this.avisoCaptura.set({
+      tono: 'warn',
+      texto: 'Eso no está en el catálogo.',
+      detalle: 'Repórtalo en «Producto no catalogado» — se lleva lo que escribas.',
+    });
+  }
+
+  /** `[FLT.20]` El reporte de la pestaña «Producto no catalogado»: sin escaneo previo. */
+  reportarNoCatalogado(): void {
+    const texto = this.textoLibre().trim();
+    if (!texto) {
+      this.avisoNoCat.set({ tono: 'warn', texto: 'Escribe qué te pidieron.' });
+      return;
+    }
+    this.avisoNoCat.set(null);
+    this.encontrado.set(null);   // por definición no hay producto: el backend lo exige
+    this.reportar('no_en_catalogo');
   }
 
   /** Elegir un resultado lleva su clave a la captura: buscar por nombre existe para poder reportar. */
   usarResultado(r: Hallado): void {
-    this.codigo = r.codigo;
+    this.termino.set(r.codigo);
+    this.resultados.set([]);
     this.pestana.set('reportar');
     this.encontrado.set(r);
     this.noResuelto.set(false);
     this.avisoCaptura.set(null);
     this.ultimo.set(null);
+    // Tocar un producto del catálogo tiene que contestar lo mismo que escanearlo.
+    this.preguntarSiLoTenemos(r.codigo);
   }
 
   // ── Los que no pasan ──────────────────────────────────────────────────────────────────────
@@ -699,7 +923,7 @@ export class TiendaFaltantesComponent implements OnInit {
   // ── Etiquetas ─────────────────────────────────────────────────────────────────────────────
 
   etiquetaMotivo(k: StockoutKind): string { return ETIQUETA_MOTIVO[k] ?? k; }
-  etiquetaDecision(d: string): string { return (ETIQUETA_DECISION as any)[d] ?? d; }
+  etiquetaDecision(d: string): string { return ETIQUETA_DECISION[d as StockoutDecision] ?? d; }
 
   /** Severidad del tag. El motivo, además del color, siempre viaja escrito. */
   severidad(k: StockoutKind): 'danger' | 'warn' | 'info' | 'secondary' {
