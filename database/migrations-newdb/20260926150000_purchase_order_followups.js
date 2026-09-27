@@ -61,10 +61,15 @@ exports.up = async function (knex) {
       COMMENT ON TABLE commercial.purchase_order_followups IS
         'RA-PRO.62 — estatus de seguimiento de una OC de Kepler (XA3501), capturado por Compras. '
         'Un renglón por orden; sin renglón = Sin revisar. NO cancela nada en Kepler (read-only).'`);
+    await knex.raw(`ALTER TABLE commercial.purchase_order_followups ENABLE ROW LEVEL SECURITY`);
+    await knex.raw(`ALTER TABLE commercial.purchase_order_followups FORCE ROW LEVEL SECURITY`);
+    await knex.raw(`DROP POLICY IF EXISTS tenant_isolation ON commercial.purchase_order_followups`);
+    await knex.raw(`
+      CREATE POLICY tenant_isolation ON commercial.purchase_order_followups
+        USING (tenant_id = public.current_tenant_id())
+        WITH CHECK (tenant_id = public.current_tenant_id())`);
+    await knex.raw(`GRANT SELECT, INSERT, UPDATE ON commercial.purchase_order_followups TO app_runtime`);
   }
-  // Fuera del `if`: RLS, política y grants se aplican SIEMPRE (son idempotentes). Si la tabla
-  // existiera por otro camino (creada a mano), igual queda protegida.
-  await blindar(knex, 'commercial.purchase_order_followups', 'SELECT, INSERT, UPDATE');
 
   if (!(await knex.schema.withSchema('commercial').hasTable('purchase_order_followup_history'))) {
     await knex.raw(`
@@ -94,22 +99,16 @@ exports.up = async function (knex) {
       COMMENT ON TABLE commercial.purchase_order_followup_history IS
         'RA-PRO.62 — cada cambio de estatus de seguimiento de una OC: quién, cuándo, de qué a qué y por qué. '
         'Sólo INSERT para app_runtime: la historia no se reescribe.'`);
+    await knex.raw(`ALTER TABLE commercial.purchase_order_followup_history ENABLE ROW LEVEL SECURITY`);
+    await knex.raw(`ALTER TABLE commercial.purchase_order_followup_history FORCE ROW LEVEL SECURITY`);
+    await knex.raw(`DROP POLICY IF EXISTS tenant_isolation ON commercial.purchase_order_followup_history`);
+    await knex.raw(`
+      CREATE POLICY tenant_isolation ON commercial.purchase_order_followup_history
+        USING (tenant_id = public.current_tenant_id())
+        WITH CHECK (tenant_id = public.current_tenant_id())`);
+    await knex.raw(`GRANT SELECT, INSERT ON commercial.purchase_order_followup_history TO app_runtime`);
   }
-  // La historia es sólo INSERT: no se reescribe.
-  await blindar(knex, 'commercial.purchase_order_followup_history', 'SELECT, INSERT');
 };
-
-/** RLS forzado por tenant + grants a app_runtime. Idempotente: se puede correr N veces. */
-async function blindar(knex, tabla, grants) {
-  await knex.raw(`ALTER TABLE ${tabla} ENABLE ROW LEVEL SECURITY`);
-  await knex.raw(`ALTER TABLE ${tabla} FORCE ROW LEVEL SECURITY`);
-  await knex.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${tabla}`);
-  await knex.raw(`
-    CREATE POLICY tenant_isolation ON ${tabla}
-      USING (tenant_id = public.current_tenant_id())
-      WITH CHECK (tenant_id = public.current_tenant_id())`);
-  await knex.raw(`GRANT ${grants} ON ${tabla} TO app_runtime`);
-}
 
 exports.down = async function (knex) {
   await knex.schema.withSchema('commercial').dropTableIfExists('purchase_order_followup_history');
