@@ -33,9 +33,10 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'pedido' | 'muerto';
+type Mode = 'pedido' | 'muerto' | 'flujo';
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -101,7 +102,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -131,9 +132,12 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
            verdad, y no promete nada sobre la edad del dato.
            ⚠️ Para poder pasar a 'measures="data"' el backend tiene que mandar un 'data_as_of'
            en 'WorkbookResponse'; hoy no lo manda (verificado 2026-09-14). Queda declarado. -->
-      <div class="pr-fresh">
-        <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
-      </div>
+      <!-- La píldora mide la carga del pedido/stock muerto: en "Flujo" daría una hora que no es la suya. -->
+      @if (mode() !== 'flujo') {
+        <div class="pr-fresh">
+          <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+        </div>
+      }
 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
@@ -704,7 +708,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             </div>
           }
         </p-dialog>
-      } @else {
+      } @else if (mode()==='muerto') {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
           <p-iconfield styleClass="pr-search">
@@ -737,6 +741,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <tr><td colspan="7" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin stock muerto.</p><span>Ningún producto activo con existencia y sin rotación.</span></td></tr>
           </ng-template>
         </p-table>
+      } @else {
+        <!-- [RA-PRO.63] FLUJO: requisición → OC Kepler → entrada, y productos negados. Componente propio. -->
+        <app-compras-flujo />
       }
     </div>
   `,
@@ -2102,7 +2109,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const qWh = qp.get('warehouse_ids');
     if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
-    else this.loadWorkbook();
+    else if (this.mode() === 'pedido') this.loadWorkbook();
     // (2026-09-14) Acá vivía un setInterval de 60s que refrescaba la etiqueta "hace N min" a mano.
     // `app-freshness-pill` trae el suyo (15s, limpiado en su propio DestroyRef), así que éste
     // quedó sin consumidor y se retira: un timer por minuto que no pinta nada es trabajo puro.
@@ -2126,6 +2133,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const s = JSON.parse(raw);
       // 'consolidado'/'excel' (versiones previas de 3 pestañas) migran a la única 'pedido'.
       if (s.mode === 'muerto') this.mode.set('muerto');
+      else if (s.mode === 'flujo') this.mode.set('flujo');
       else if (s.mode === 'pedido' || s.mode === 'consolidado' || s.mode === 'excel') this.mode.set('pedido');
       if ('fSupplier' in s) this.fSupplier = s.fSupplier;
       if ('fBrand' in s) this.fBrand = s.fBrand;
@@ -2145,7 +2153,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.mode() === m) return;
     this.mode.set(m);
     if (m === 'muerto') this.loadDead();
-    else this.loadWorkbook();
+    else if (m === 'pedido') this.loadWorkbook();
+    // 'flujo' se carga solo (su componente).
   }
 
   /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra) +, en
@@ -2300,7 +2309,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ];
   /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
   readonly modeOpts: SegOption[] = [
-    { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' },
+    { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' }, { label: 'Flujo', value: 'flujo' },
   ];
 
   /** Valor por default de la cobertura — el mismo que arranca `coverage`. */

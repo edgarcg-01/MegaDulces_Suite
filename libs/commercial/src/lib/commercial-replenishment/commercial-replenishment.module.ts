@@ -10,6 +10,8 @@ import { ReplenishmentExportService } from './replenishment-export.service';
 import { PurchaseAdjustmentsService } from './purchase-adjustments.service';
 import { PurchaseAdjustmentsController } from './purchase-adjustments.controller';
 import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments-findings-bridge.service';
+import { PurchaseFlowService } from './purchase-flow.service';
+import { PurchaseFlowController } from './purchase-flow.controller';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -19,8 +21,8 @@ import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments
  * TenantKnexService/TenantContextService vienen del módulo global de platform-core.
  */
 @Module({
-  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController],
-  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService],
+  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController],
+  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}
