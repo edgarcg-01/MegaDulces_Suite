@@ -16,6 +16,10 @@ describe('[RA-PRO.61] cajasDeRenglon — sólo cuando el costo confirma la unida
     expect(cajasDeRenglon({ cantidad: 1, unidades_por_caja: 1, costo_unitario: 69312.31, costo_caja: 128434.25 })).toBeNull();
   });
 
+  it('cantidad negativa (ajuste capturado como OC) → null, no "-2 cj"', () => {
+    expect(cajasDeRenglon({ cantidad: -40, unidades_por_caja: 20, costo_unitario: 5, costo_caja: 100 })).toBeNull();
+  });
+
   it('faltan datos → null', () => {
     expect(cajasDeRenglon({ cantidad: 10, unidades_por_caja: null, costo_unitario: 5, costo_caja: 50 })).toBeNull();
     expect(cajasDeRenglon({ cantidad: 10, unidades_por_caja: 10, costo_unitario: 0, costo_caja: 50 })).toBeNull();
@@ -30,10 +34,15 @@ describe('[RA-PRO.61] referencia y nombre de archivo', () => {
     expect(referenciaUtil('FAC-123')).toBe('FAC-123');
   });
 
-  it('OC_<SUC>-<FOLIO>_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf', () => {
-    expect(nombreArchivoOc('00', '0004409', 'Puro Relajo', new Date(2026, 8, 26, 14, 5)))
-      .toBe('OC_00-0004409_PURO-RELAJO_2026-09-26-14-05.pdf');
-    expect(nombreArchivoOc('01', '12', null, new Date(2026, 0, 2, 3, 4))).toBe('OC_01-12_SIN-PROVEEDOR_2026-01-02-03-04.pdf');
+  it('OC_<SUC>-<FOLIO>_<PROVEEDOR>_<PROVEEDOR|INTERNO>_AAAA-MM-DD-HH-MM.pdf', () => {
+    expect(nombreArchivoOc('00', '0004409', 'Puro Relajo', new Date(2026, 8, 26, 14, 5), false))
+      .toBe('OC_00-0004409_PURO-RELAJO_PROVEEDOR_2026-09-26-14-05.pdf');
+    expect(nombreArchivoOc('01', '12', null, new Date(2026, 0, 2, 3, 4), true)).toBe('OC_01-12_SIN-PROVEEDOR_INTERNO_2026-01-02-03-04.pdf');
+  });
+
+  it('⭐ NEGATIVA: la versión interna y la del proveedor NUNCA se llaman igual', () => {
+    const d = new Date(2026, 8, 26, 14, 5);
+    expect(nombreArchivoOc('00', '1', 'X', d, true)).not.toBe(nombreArchivoOc('00', '1', 'X', d, false));
   });
 });
 

@@ -2,7 +2,11 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+<<<<<<< origin/main
 import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
+=======
+import { OcSeguimiento, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+>>>>>>> origin/feat/oc-abiertas-seguimiento
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -229,6 +233,8 @@ export interface OpenOcResponse {
   viejas: number; valor_viejas: number;
   /** [RA-PRO.62] Órdenes por estatus de seguimiento (incluye 'sin_revisar'), sobre TODAS. */
   por_seguimiento?: Record<string, number>;
+  /** [RA-PRO.62] `false` mientras la migración del seguimiento no esté aplicada: no se puede editar. */
+  seguimiento_habilitado?: boolean;
   curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
 }
 export interface WorkbookRow {
@@ -912,7 +918,7 @@ export class ComprasService {
   }
 
   /** [RA-PRO.62] Guarda el estatus de seguimiento de una OC (registro de Compras; no toca Kepler). */
-  setPurchaseOrderFollowup(sucursal: string, folio: string, body: { estatus: OcSeguimientoEstatus; nota: string | null }) {
+  setPurchaseOrderFollowup(sucursal: string, folio: string, body: OcSeguimientoInputDto) {
     return this.http.put<OcSeguimientoGuardadoDto>(
       `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/seguimiento`, body);
   }

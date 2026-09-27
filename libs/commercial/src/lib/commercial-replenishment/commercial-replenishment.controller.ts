@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, Res, UseGuards } from '
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { OcDetalleDto, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
+import { OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
@@ -200,7 +200,8 @@ export class CommercialReplenishmentController {
   setPurchaseOrderFollowup(
     @Param('sucursal') sucursal: string,
     @Param('folio') folio: string,
-    @Body() body: { estatus?: string; nota?: string },
+    // Tipado con el contrato; igual se valida adentro (validarSeguimiento), porque el cuerpo llega sin garantías.
+    @Body() body: Partial<OcSeguimientoInputDto>,
   ): Promise<OcSeguimientoGuardadoDto> {
     return this.svc.setPurchaseOrderFollowup(sucursal, folio, body);
   }
