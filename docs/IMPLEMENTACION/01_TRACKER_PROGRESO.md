@@ -838,8 +838,75 @@ piel del verificador (Sniglet, paleta `--vf-*`, tema claro fijo) porque ésa es 
 autorizada explícitamente para esa pantalla, y su propio comentario dice *«no repetir el patrón en
 otro módulo sin la misma autorización»*. Si el mostrador las quiere idénticas, es decisión suya.
 
-⛔ **PENDIENTE prod:** 2 migraciones a Railway + redeploy `api`/`view` + **re-login** (los permisos
-viajan en el JWT). Sin el re-login, nadie ve el módulo aunque esté desplegado — la lección de LC.6.2.
+✅ **Las 2 migraciones SÍ están en prod y el módulo SÍ está en uso** (medido el 2026-09-26 contra
+Railway, read-only): la tabla existe con su CHECK, y trae **9 renglones / 9 reportes / 2 sucursales**.
+La línea que decía "pendiente prod" quedó vieja; se corrige acá porque una nota de pendiente que ya
+no es cierta hace que nadie vaya a mirar lo que sí está pasando.
+
+⛔ **Lo que la medición sí encontró, y es el problema real: la bandeja nació congelada.**
+**0 de 9 resueltas**, que es exactamente el riesgo declarado al abrir la fase ("hay bandejas con 0
+resueltas en 30 días"). Además: **3 días de silencio** desde el último reporte, **1 sola persona
+real** reportando (`tania_sanchez`, 6 de los 9 — cinco variantes de Boing, todas con existencia 0
+en el ERP), `no_en_catalogo` usado **0 de 9**, y **18 personas pueden responder y ninguna la abrió**.
+`piso_tienda` tiene el permiso con **0 personas**. Eso no se arregla con código.
+
+#### FLT.20–FLT.24 — la caja unificada y «¿lo tenemos?» · 2026-09-26
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[FLT.20]` | 🔨 | **Una sola caja**: código, clave y **nombre** en el mismo campo. Era el defecto que señaló el usuario — la búsqueda por nombre estaba encerrada en otra pestaña, o sea que había que saber de antemano cuál de las dos usar. Ahora se escribe y el campo decide: dígitos → resuelve; letras → despliega el catálogo con debounce de 250 ms. La pestaña sobreviviente se llama **«Producto no catalogado»** y ya **no exige un escaneo fallido previo** para llegar a ella |
+| `[FLT.21]` | 🔨 | Motivo nuevo **no_en_anaquel** ("no estaba en el anaquel", va PRIMERO en la lista) + **destino derivado**: piso · compras · inventario · catalogo. Es la mitad del pedido que faltaba: lo que el anaquelista revisa **sí existe en la tienda** y se recupera el mismo día; mandarlo a Compras era perder una venta que todavía no se había perdido. La regla vive en **un solo módulo puro** (`stockout-destino.ts`) porque la usan tres consumidores. **El destino NO se guarda**: se deriva al leer, y el smoke fija que nadie agregó la columna |
+| `[FLT.22]` | 🔨 | **«¿Lo tenemos?»** — `GET sucursal/:code/consulta` contesta existencia y precio **antes** de pedir nada, y el veredicto (`hay_en_tienda` / `sin_existencia` / **`no_medido`**) es lo que acota los motivos que se ofrecen. Sin esto la pantalla sólo le servía a Compras tres días después; con esto le sirve a quien la abre. Gateado con **anyOf(VER, CAPTURAR)**: la cajera tiene CAPTURAR y **no** VER (medido en `[FLT.2]`), y gatearlo sólo con VER le habría negado justo la pregunta que la trae |
+| `[FLT.23]` | 🔨 | El respaldo del catálogo **se baja solo** si falta. Antes la búsqueda por nombre leía IndexedDB y si estaba vacío contestaba "no se puede buscar" sin intentar nada |
+| `[FLT.24]` | 🔨 | Bandeja de Compras: KPI **«Recuperable HOY»** (va primero: es la única fila cuya venta aún no se perdió) + columna **«Le toca a»** |
+
+**Verificado:** `stockout-destino.spec.ts` **10/10** (vitest, sin base de datos — es una función pura)
+**con prueba negativa real**: quitando el guard por motivo de la rama de existencia, la aserción de
+«no se maneja aquí CON existencia» se pone roja; restaurado, verde. ⚠️ La primera versión de esa
+prueba negativa **refutó mi propio comentario**: estaba escrito que el orden de las ramas era lo que
+protegía el caso, y reordenarlas a propósito **no rompió nada** — lo que protege es el guard por
+motivo. El comentario se corrigió a lo que la medición dice, y la aserción que faltaba se agregó.
+Suite completa de `commercial` **224/224**, builds `api` + `view` OK, `check:templates` OK,
+boundary-gate limpio en los archivos de esta fase.
+
+**Lo que encontró el review a fondo (4 defectos reales, todos corregidos):**
+
+1. ⛔ **Escribir un NOMBRE y dar Enter declaraba «no está en el catálogo»** un producto que sí
+   existe. La caja quedó única pero `resolver()` seguía mandando todo al resolvedor de códigos, y
+   de ese falso negativo salía un alta de catálogo para algo ya dado de alta. Ahora, si el término
+   trae letras, se reintenta por nombre antes de declarar nada, y `buscarNombre` devuelve
+   **tri-estado**: hay / no hay / **no se pudo buscar** — que se declara, no se dibuja como "no existe".
+2. ⛔ **Mientras viajaba la respuesta de existencia, la pantalla se comportaba como «no hay»** y
+   escondía «no estaba en el anaquel» justo en la ventana en que la cajera elige — o sea que
+   empujaba al motivo equivocado en el único caso que se recupera el mismo día. `undefined` ahora
+   cae del lado de `no_medido`.
+3. ⛔ **«El código no pasó» dejó de ofrecerse cuando sí había existencia**, que es exactamente el
+   caso de quien llegó ahí porque el lector falló y tuvo que buscar por nombre. Es un problema de
+   dato maestro y no depende del stock: ahora se ofrece siempre que haya producto identificado.
+4. ⚠️ **La tarjeta de veredicto podía quedar vacía con borde de color**: el verificador y el
+   resolvedor del servidor no usan la misma tabla, así que pueden discrepar; sin caso por defecto
+   el `@switch` no pintaba nada y una caja de color vacía se lee como que ya contestó algo.
+
+**Dos cosas que el review quitó en vez de agregar:** el índice que traía la migración (ninguna
+consulta filtra por (motivo, sucursal) — medido contra los 7 existentes) y la tercera copia a mano
+de la regla del destino: `contradice_al_erp` **se deriva** de `destinoDe(...) === 'inventario'`, y
+la única copia que queda —la del SQL del resumen, que no puede llamar a TypeScript— está **fijada
+por una aserción** que compara las dos formas sobre todos los motivos.
+
+⚠️ **NO verificado, y se declara:** la migración `20260926120000` (que agrega el motivo nuevo al
+CHECK) **no se pudo aplicar ni probar** — la única base alcanzable en esta sesión es la de prod y
+responde **read-only** (`25006`). Sí se verificó **contra el esquema real** que el CHECK se llama
+como la migración espera, que todavía **no** trae el motivo nuevo (o sea que la guarda de
+idempotencia va a proceder). De paso se midieron los 7 índices que ya tiene la tabla y **se quitó
+el índice que esta migración iba a agregar**: ninguna consulta filtra por (motivo, sucursal), la
+bandeja ya la sirve `ix_floor_stockouts_bandeja`, y un índice sin consumidor es peso en cada INSERT. El
+smoke de base (`test-newdb-floor-stockouts.js`, ahora **17 aserciones**) quedó extendido pero **sin
+correr**. Tampoco se pudo abrir la pantalla: la API local no está arriba.
+
+⛔ **PENDIENTE prod:** migración `20260926120000` a Railway + redeploy `api`/`view`. **No** hace falta
+re-login esta vez: no hay permisos nuevos. ⚠️ **El orden importa**: si se despliega el código antes
+que la migración, reportar "no estaba en el anaquel" revienta con un `23514` que la pantalla muestra
+como un error genérico.
 
 ### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
 
