@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
+import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -892,6 +892,18 @@ export class ComprasService {
     if (q?.min_days) p.set('min_days', String(q.min_days));
     const qs = p.toString();
     return this.http.get<OpenOcResponse>(`${this.base}/open-purchase-orders${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * [RA-PRO.63] Flujo requisición → OC Kepler → entrada del periodo (liga sugerida, surtido y
+   * productos negados). Solo lectura.
+   */
+  purchaseFlow(q?: { dias?: number; sucursal?: string }): Observable<FlujoComprasDto> {
+    const p = new URLSearchParams();
+    if (q?.dias) p.set('dias', String(q.dias));
+    if (q?.sucursal) p.set('sucursal', q.sucursal);
+    const qs = p.toString();
+    return this.http.get<FlujoComprasDto>(`${this.base}/purchase-flow${qs ? '?' + qs : ''}`);
   }
 
   /** [RA-PRO.61] Una OC de Kepler completa (todos los renglones, recepciones, seguimiento) para su PDF. */
