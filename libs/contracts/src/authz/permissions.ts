@@ -254,6 +254,14 @@ export enum Permission {
   // que cada módulo tenga los suyos. Backfill determinista en la migración.
   // Ver docs/IMPLEMENTACION/FASES/FASE_AZ_AUTHZ_JERARQUICO.md.
   ROLES_VER = 'ROLES_VER',
+  // `[AZ.2]` Tres pantallas que colgaban de `USUARIOS_GESTIONAR` y NO son administrar personas.
+  // El permiso de dar de alta gente abria ademas la salud de la base de datos, el catalogo de
+  // areas de gasto de Finanzas y los promotores de marca: tres oficios distintos, tres riesgos
+  // distintos. Se reparten a quien hoy tiene `USUARIOS_GESTIONAR` (estado vivo), asi que nadie
+  // pierde acceso; lo que cambia es que a partir de ahora se pueden dar por separado.
+  PLATFORM_HEALTH_VER = 'PLATFORM_HEALTH_VER',
+  FINANCE_EXPENSE_AREAS_GESTIONAR = 'FINANCE_EXPENSE_AREAS_GESTIONAR',
+  COMMERCIAL_PROMOTERS_GESTIONAR = 'COMMERCIAL_PROMOTERS_GESTIONAR',
   // COMMERCIAL_ANALYTICS_VER = paraguas del Command Center + endpoints agregados
   // (overview/network/top-*/erp-*). Cada REPORTE tiene su propio permiso abajo
   // para poder acotar un rol a un solo reporte sin abrir todo el analytics.

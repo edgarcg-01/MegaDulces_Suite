@@ -19,14 +19,14 @@ export class DbHealthController {
 
   @Get()
   @ApiOperation({ summary: 'Reporte de frescura de las fuentes de datos críticas' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   getReport() {
     return this.service.getReport();
   }
 
   @Get('engine')
   @ApiOperation({ summary: 'Salud del MOTOR Postgres: hinchazón, peso, actividad, autovacuum' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   getEngine() {
     return this.service.getEngineReport();
   }
@@ -40,28 +40,28 @@ export class DbHealthController {
    */
   @Get('version')
   @ApiOperation({ summary: 'Versión que corre en prod + bitácora de despliegues' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   getVersion() {
     return this.service.getVersionReport();
   }
 
   @Get('alerts')
   @ApiOperation({ summary: 'Bandeja de alertas de salud (abiertas + resueltas recientes)' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   listAlerts() {
     return this.service.listAlerts();
   }
 
   @Post('alerts/:id/ack')
   @ApiOperation({ summary: 'Marcar una alerta de salud como reconocida' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   ack(@Param('id') id: string) {
     return this.service.ackAlert(id);
   }
 
   @Post('scan-now')
   @ApiOperation({ summary: 'Correr el scanner de salud ahora (manual)' })
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   scanNow() {
     return this.scanner.scanNow();
   }

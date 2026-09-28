@@ -16,7 +16,7 @@ export class CronController {
    * de sistema (`/admin/db-health` lo usa).
    */
   @Post('cleanup')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
   @ApiOperation({
     summary:
       'Ejecuta manualmente la limpieza de imágenes antiguas (más de 30 días)',

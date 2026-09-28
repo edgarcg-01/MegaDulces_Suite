@@ -417,11 +417,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // sidebar, para quien no conoce la pestaña, no existe.
     { label: 'Puestos',  icon: 'pi pi-sitemap', route: '/admin/puestos', permission: Permission.USUARIOS_VER },
     { label: 'Responsabilidades', icon: 'pi pi-flag', route: '/admin/responsabilidades', permission: Permission.USUARIOS_VER },
-    { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.USUARIOS_GESTIONAR },
+    { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.COMMERCIAL_PROMOTERS_GESTIONAR },
     // La ruta pide `ROLES_VER`; con `ROLES_CONFIGURAR` el ítem no se pintaba para
     // quien sí puede abrirla.
     { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_VER },
-    { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.USUARIOS_GESTIONAR },
+    { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.PLATFORM_HEALTH_VER },
   ];
 
   private logisticaNavGroups: { title: string; items: NavItem[] }[] = [

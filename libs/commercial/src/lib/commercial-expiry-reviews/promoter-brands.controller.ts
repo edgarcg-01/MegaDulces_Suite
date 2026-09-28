@@ -23,28 +23,28 @@ export class PromoterBrandsController {
   }
 
   @Get()
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)
   @ApiOperation({ summary: 'Admin — lista de promotores con sus marcas' })
   list() {
     return this.service.listPromoters();
   }
 
   @Get('brands')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)
   @ApiOperation({ summary: 'Admin — marcas asignables (con productos activos)' })
   brands(@Query('search') search?: string) {
     return this.service.assignableBrands(search);
   }
 
   @Get('users')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)
   @ApiOperation({ summary: 'Admin — usuarios candidatos a promotor' })
   users(@Query('search') search?: string) {
     return this.service.candidateUsers(search);
   }
 
   @Put(':userId')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)
   @ApiOperation({ summary: 'Admin — reemplaza el set de marcas de un usuario' })
   setBrands(@Param('userId') userId: string, @Body() body: { brand_ids?: string[] }) {
     return this.service.setUserBrands(userId, body?.brand_ids || []);

@@ -121,6 +121,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'scoring', label: 'Scoring', route: '/dashboard/admin/scoring', view: [Permission.SCORING_CONFIG_VER], manage: [Permission.SCORING_CONFIG_GESTIONAR] },
           { id: 'planograma', label: 'Planogramas', route: '/dashboard/admin/planograma', view: [], manage: [Permission.PLANOGRAMAS_GESTIONAR] },
           { id: 'route-plan', label: 'Agenda de rutas', route: '/dashboard/daily-assignments', view: [Permission.TRADE_ROUTE_PLAN_VER], manage: [Permission.TRADE_ROUTE_PLAN_GESTIONAR] },
+          // `[AZ.2]` Las tres existian en rutas y en el menu pero NO en el arbol: sin fila aca no
+          // hay casilla en /admin/roles, o sea que no habia forma de concederlas por separado
+          // aunque tuvieran permiso propio. Declararlas es la mitad del trabajo de partirlas.
+          { id: 'db-health', label: 'Salud de la plataforma', route: '/admin/db-health', view: [Permission.PLATFORM_HEALTH_VER], manage: [] },
+          { id: 'expense-areas', label: 'Áreas de gasto', route: '/admin/areas-gasto', view: [], manage: [Permission.FINANCE_EXPENSE_AREAS_GESTIONAR] },
+          { id: 'promoters', label: 'Promotores de marca', route: '/admin/promotores', view: [], manage: [Permission.COMMERCIAL_PROMOTERS_GESTIONAR] },
         ],
       },
       {
