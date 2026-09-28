@@ -714,6 +714,47 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     expect(GLOBAL).toMatch(/font-family:'Baloo 2'[^}]*font-weight:500 800/);
   });
 
+  /**
+   * ⭐⭐ `[ETQ-FIT.2]` LA CAUSA, NO EL SÍNTOMA: las tipografías se bajan AL INSTALAR.
+   *
+   * *"El dinamismo hace que las etiquetas salgan mal en otros equipos"*. Por qué en OTROS
+   * equipos: las tres familias caían en el grupo `assets` del service worker, que es
+   * **`installMode: lazy`** — el SW no las descarga en la instalación, sólo las guarda DESPUÉS de
+   * que el navegador las haya pedido una vez.
+   *
+   * En una app declaradamente offline (el verificador de mostrador lo es) eso significa que un
+   * equipo puede quedar instalado y **sin las tres familias, indefinidamente**. Y la etiqueta
+   * calcula sus tamaños midiendo texto: ahí imprime con la de respaldo. Medido sobre 220
+   * etiquetas reales sin las fuentes, antes de `[ETQ-FIT.1]`: **48 salían rotas**.
+   *
+   * Este candado deriva la lista de los `@font-face` de `styles.css` — no de una copia — y exige
+   * que un grupo `prefetch` las cubra. Agregar una familia sin prefetchearla pone el build en
+   * rojo, que es lo que hace que esto no pueda volver.
+   */
+  it('⭐⭐ el service worker PREFETCHEA las tipografías de la etiqueta, no las deja en lazy', () => {
+    const ngsw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', 'ngsw-config.json'), 'utf8'));
+    const archivos = [...GLOBAL.matchAll(/@font-face\{[^}]*src:url\('(\/assets\/fonts\/[^']+)'\)/g)].map((m) => m[1]);
+    expect(archivos.length).toBeGreaterThanOrEqual(3);
+
+    /** ⚠️ En ngsw gana el PRIMER grupo que casa: uno en prefetch DESPUÉS de un lazy que ya casó no sirve. */
+    const casa = (patron: string, url: string): boolean => {
+      const rx = new RegExp('^' + patron.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*') + '$');
+      return rx.test(url);
+    };
+    for (const url of archivos) {
+      const grupo = (ngsw.assetGroups as { name: string; installMode: string; resources: { files: string[] } }[])
+        .find((g) => (g.resources?.files ?? []).some((f) => casa(f, url)));
+      expect({ url, grupo: grupo?.name ?? 'NINGUNO', installMode: grupo?.installMode ?? 'ninguno' })
+        .toEqual({ url, grupo: grupo!.name, installMode: 'prefetch' });
+    }
+
+    // ⛔ NEGATIVA de la trampa del orden: el grupo de las fuentes va ANTES del genérico `assets`.
+    const nombres = (ngsw.assetGroups as { name: string }[]).map((g) => g.name);
+    expect(nombres.indexOf('fuentes-etiqueta')).toBeGreaterThanOrEqual(0);
+    expect(nombres.indexOf('fuentes-etiqueta')).toBeLessThan(nombres.indexOf('assets'));
+  });
+
   it('la cola tiene tope, es un número entero de hojas y se muestra antes de chocar con él', () => {
     // `resolve` acepta 1,000 códigos y `printLabels` renderizaba TODAS las etiquetas de golpe en
     // el DOM oculto; `PER_SHEET` sólo acotaba la vista previa. El tope es una decisión de lote
