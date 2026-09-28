@@ -20,6 +20,17 @@
       }
     },
     {
+      "//": "[ETQ-FIT.2] LAS TIPOGRAFIAS DE LA ETIQUETA SE BAJAN AL INSTALAR, NO CUANDO HAGAN FALTA. Caian en el grupo 'assets', que es installMode lazy: el service worker NO las descargaba en la instalacion, solo las guardaba DESPUES de que el navegador las pidiera una vez. En una app que esta hecha para trabajar sin red (el verificador de mostrador lo declara) eso significa que un equipo puede quedar instalado y SIN las tres familias, indefinidamente. Y la etiqueta calcula sus tamanos midiendo texto, asi que ahi imprime con la de respaldo: medido sobre 220 etiquetas reales, 48 salian rotas. Van en su propio grupo y en prefetch: 72 KB contra los 5.7 MB de 'assets' (5 MB son iconos), asi que prefetchear el grupo entero no era opcion. ANTES que 'assets' a proposito: en ngsw gana el PRIMER grupo que casa, y si queda despues sigue siendo lazy. El candado de etiqueta-hoja.spec deriva la lista de los @font-face de styles.css y exige que esten aca: agregar una familia sin prefetch pone el build en rojo.",
+      "name": "fuentes-etiqueta",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/assets/fonts/*.woff2"
+        ]
+      }
+    },
+    {
       "name": "chunks",
       "installMode": "lazy",
       "updateMode": "lazy",
