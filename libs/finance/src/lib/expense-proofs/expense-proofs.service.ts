@@ -1,5 +1,6 @@
 import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
@@ -13,6 +14,11 @@ import {
   KIND_REAPERTURA, SQL_OCULTA_RECHAZOS_VIEJOS, puedeAutorizarReapertura, puedePedirReapertura,
   type ValeParaReabrir,
 } from './reapertura';
+// `[GX.30]` La forma de lo que sale por el cable vive en `libs/contracts`: acá y en el
+// frontend estaba escrita dos veces a mano, que es como se desincroniza sin que nadie vea.
+import type {
+  ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
+} from '@megadulces/contracts';
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -310,7 +316,7 @@ export class ExpenseProofsService {
    * reapertura necesitan. Dos viajes y no un JOIN porque `analytics.expense_requests` es
    * una VISTA sobre el ODS y cruzarla con la tabla sale caro (medido en GX.15: >90 s).
    */
-  private async valeParaReabrir(trx: any, id: string): Promise<ValeParaReabrir | null> {
+  private async valeParaReabrir(trx: Knex.Transaction, id: string): Promise<ValeParaReabrir | null> {
     const v = await trx('finance.expense_proofs').where({ id })
       .first('id', 'status', 'validated_by', 'created_by', 'folio_solicitud', 'sucursal');
     if (!v) return null;
@@ -318,7 +324,7 @@ export class ExpenseProofsService {
     if (v.folio_solicitud) {
       const sol = await trx('analytics.expense_requests')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: v.folio_solicitud })
-        .modify((qb: any) => { if (v.sucursal) qb.where('sucursal', v.sucursal); })
+        .modify((qb: Knex.QueryBuilder) => { if (v.sucursal) qb.where('sucursal', v.sucursal); })
         .first('estado');
       estadoKepler = sol?.estado ?? null;
     }
@@ -332,7 +338,7 @@ export class ExpenseProofsService {
    * `finance.proposed_actions`, el molde que ya existia para «alguien propone, otro
    * decide, nada se ejecuta solo» — no se invento una tabla para lo mismo.
    */
-  async solicitarReapertura(id: string, actor: string, motivo: string) {
+  async solicitarReapertura(id: string, actor: string, motivo: string): Promise<SolicitudReaperturaCreada> {
     const tenantId = this.tenantCtx.requireTenantId();
     const razon = String(motivo || '').trim();
     if (razon.length < 10) throw new BadRequestException('Contá en una frase qué vas a agregar: quien autoriza decide con eso.');
@@ -376,7 +382,7 @@ export class ExpenseProofsService {
   }
 
   /** `[GX.29]` Las solicitudes de reapertura que le toca decidir a ESTA persona. */
-  async reaperturasPendientes(actor: string) {
+  async reaperturasPendientes(actor: string): Promise<ReaperturaPendiente[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!String(actor || '').trim()) return [];
     return this.tk.run(async (trx) => trx('finance.proposed_actions as a')
@@ -400,7 +406,7 @@ export class ExpenseProofsService {
    * nuevo que atender sin inventar un sexto estado que todas las consultas tendrian que
    * aprender. Al agregar la evidencia hay que autorizarlo otra vez, que es el pedido.
    */
-  async decidirReapertura(solicitudId: string, actor: string, aprueba: boolean, nota?: string) {
+  async decidirReapertura(solicitudId: string, actor: string, aprueba: boolean, nota?: string): Promise<ReaperturaDecidida> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const sol = await trx('finance.proposed_actions')
@@ -714,7 +720,7 @@ export class ExpenseProofsService {
      * desde cuando. Sin la marca, un vale asi era indistinguible de uno cerrado con su
      * factura, y ese numero no se podia contestar.
      */
-    provisional?: boolean; comprobante_esperado_at?: string }) {
+    provisional?: boolean; comprobante_esperado_at?: string }): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {

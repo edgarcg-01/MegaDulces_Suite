@@ -64,6 +64,7 @@ export * from './http/income.contract';
 // Dato chico (6 entradas + 4 funciones puras): no pega al bundle inicial, mismo criterio que GX.9.
 export * from './finance/forma-pago.contract';
 export * from './finance/aporte-solicitante.contract';
+export * from './finance/reapertura.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:

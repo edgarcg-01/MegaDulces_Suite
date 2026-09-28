@@ -1,6 +1,10 @@
 import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+// `[GX.30]` La forma del borde HTTP, compartida con el frontend (ADR-052).
+import type {
+  ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
+} from '@megadulces/contracts';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
 import type { CalendarioDelMes } from './calendario-gastos';
 
@@ -177,7 +181,7 @@ export class ExpenseProofsController {
    */
   @Post(':id/reapertura')
   @ApiOperation({ summary: '[GX.29] Solicita reabrir un vale aprobado para agregar evidencia. Decide quien lo aprobo.' })
-  solicitarReapertura(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req?: AuthedRequest) {
+  solicitarReapertura(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req?: AuthedRequest): Promise<SolicitudReaperturaCreada> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     return this.svc.solicitarReapertura(id, actor, body?.motivo || '');
   }
@@ -186,7 +190,7 @@ export class ExpenseProofsController {
   @Get('reaperturas/pendientes')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[GX.29] Solicitudes de reapertura que le toca decidir a quien pregunta.' })
-  reaperturasPendientes(@Req() req?: AuthedRequest) {
+  reaperturasPendientes(@Req() req?: AuthedRequest): Promise<ReaperturaPendiente[]> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     return this.svc.reaperturasPendientes(actor);
   }
@@ -195,7 +199,7 @@ export class ExpenseProofsController {
   @Post('reaperturas/:id/decidir')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[GX.29] Autoriza o niega una reapertura. Al autorizar, el vale vuelve a la bandeja del dia con vuelta+1.' })
-  decidirReapertura(@Param('id') id: string, @Body() body: { aprueba?: boolean; nota?: string }, @Req() req?: AuthedRequest) {
+  decidirReapertura(@Param('id') id: string, @Body() body: { aprueba?: boolean; nota?: string }, @Req() req?: AuthedRequest): Promise<ReaperturaDecidida> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     return this.svc.decidirReapertura(id, actor, body?.aprueba === true, body?.nota);
   }
@@ -239,7 +243,7 @@ export class ExpenseProofsController {
   approve(@Param('id') id: string,
     @Body() body: { clasificacion?: string; comprobacion_nota?: string;
                     provisional?: boolean; comprobante_esperado_at?: string },
-    @Req() req: AuthedRequest) {
+    @Req() req: AuthedRequest): Promise<{ id: string; status: string }> {
     return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body);
   }
 

@@ -324,18 +324,13 @@ export interface GastosDelDia {
   pendientes_fuera_del_dia: { n: number; monto: number };
 }
 
-/** `[GX.29]` Una solicitud de reapertura esperando la firma de quien aprobo el vale. */
-export interface ReaperturaPendiente {
-  id: string;
-  motivo: string | null;
-  solicita: string | null;
-  created_at: string;
-  proof_id: string;
-  folio_solicitud: string | null;
-  proveedor: string | null;
-  status: string;
-  importe: number;
-}
+/**
+ * `[GX.30]` La forma la manda el SERVIDOR: vive en `libs/contracts` y se re-exporta acá
+ * para no romperle el import a nadie. Estaba escrita a mano de los dos lados — empieza
+ * idéntica y termina distinta, y el día que se desincroniza compila igual.
+ */
+import type { ReaperturaPendiente } from '@megadulces/contracts';
+export type { ReaperturaPendiente };
 
 /** `[GX.27]` Un dia del calendario del historial. Solo viajan los dias CON movimiento. */
 export interface DiaDelCalendario { dia: string; n: number; monto: number }
@@ -465,8 +460,8 @@ export class ComprobacionesService {
   approve(id: string, body?: {
     clasificacion?: string; comprobacion_nota?: string;
     provisional?: boolean; comprobante_esperado_at?: string;
-  }): Observable<any> {
-    return this.http.post(`${this.base}/${id}/approve`, body || {});
+  }): Observable<{ id: string; status: string }> {
+    return this.http.post<{ id: string; status: string }>(`${this.base}/${id}/approve`, body || {});
   }
 
 
