@@ -25,13 +25,11 @@ import type { EstadoDePersona, PersonaFila, ResumenDelPadron } from '@megadulces
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AdminService, OpcionCatalogo } from '../admin.service';
-import { ADMIN_TABS } from '../admin-tabs';
 import { PersonaDetalleComponent } from '../components/persona-detalle.component';
 
 /**
@@ -47,7 +45,7 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
     ConfirmDialogModule, SelectModule, InputTextModule,
-    MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
+    MetricStripComponent, SidePeekComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent, PersonaDetalleComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,7 +54,6 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
     <div class="surf-page in ap-page">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="tabs"></app-page-tabs>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -216,7 +213,6 @@ export class AdminPersonasComponent implements OnInit {
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
 
-  readonly tabs = ADMIN_TABS;
   readonly puedeEscribir = this.perms.has$(Permission.USUARIOS_GESTIONAR);
 
   readonly filas = signal<PersonaFila[]>([]);
