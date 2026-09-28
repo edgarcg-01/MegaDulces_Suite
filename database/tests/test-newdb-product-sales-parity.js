@@ -87,12 +87,18 @@ function diferencias(filasDaily, filasMonthly) {
 
     // ── 1) CUADRE POR ALMACÉN × MES, sobre meses CERRADOS ────────────────────────────────────
     console.log('1) La mensual es el rollup exacto de la diaria (12 meses cerrados)');
+    // ⚠️ El `EXISTS` replica la exclusión que hace el importer, y tiene que estar: la FK a
+    // `catalog.products` está **NOT VALID** en la diaria y **validada** en la mensual, así que la
+    // diaria conserva filas de productos borrados del catálogo que la mensual no puede aceptar.
+    // Sin esta línea el candado daría rojo por una diferencia que NO es el defecto que vigila.
+    // El tamaño de esa exclusión se mide aparte (bloque 4) — se declara, no se esconde.
     const { rows: d } = await knex.raw(
       `SELECT w.code AS alm, to_char(date_trunc('month', s.sale_date),'YYYY-MM') AS mes,
               sum(s.units)::numeric AS u
          FROM analytics.product_sales_daily s JOIN commercial.warehouses w ON w.id = s.warehouse_id
         WHERE s.tenant_id = ? AND s.sale_date < ?
           AND s.sale_date >= (?::date - interval '12 months')
+          AND EXISTS (SELECT 1 FROM catalog.products p WHERE p.id = s.product_id)
         GROUP BY 1,2`, [MEGA, hasta, hasta]);
     const { rows: mo } = await knex.raw(
       `SELECT w.code AS alm, to_char(m.month,'YYYY-MM') AS mes, sum(m.units)::numeric AS u
@@ -137,8 +143,27 @@ function diferencias(filasDaily, filasMonthly) {
     if (!d_desde || !m_desde) noMedido('una de las dos tablas está vacía');
     else ok(m_desde <= d_desde, `la mensual arranca ${m_desde} y la diaria ${d_desde}`);
 
-    // ── 4) PRUEBA NEGATIVA — el comparador tiene que ponerse ROJO ────────────────────────────
-    console.log('\n4) Prueba negativa: el comparador detecta las tres formas de divergir');
+    // ── 4) LO QUE SE EXCLUYE, DECLARADO ──────────────────────────────────────────────────────
+    // La diaria guarda filas de productos que ya no están en `catalog.products` (su FK nació
+    // NOT VALID). La mensual no puede aceptarlas. Hoy son 6 filas / 8 u — ruido. Pero un ruido
+    // que crece sin que nadie lo vea deja de ser ruido, así que se MIDE y se imprime siempre.
+    console.log('\n4) La exclusión por producto fuera de catálogo está declarada y es chica');
+    const [{ filas, productos, u }] = await knex.raw(
+      `SELECT count(*)::int filas, count(DISTINCT s.product_id)::int productos,
+              COALESCE(round(sum(s.units)),0)::float u
+         FROM analytics.product_sales_daily s
+        WHERE s.tenant_id = ?
+          AND NOT EXISTS (SELECT 1 FROM catalog.products p WHERE p.id = s.product_id)`, [MEGA])
+      .then((r) => r.rows);
+    const [{ total }] = await knex.raw(
+      `SELECT count(*)::int total FROM analytics.product_sales_daily WHERE tenant_id = ?`, [MEGA])
+      .then((r) => r.rows);
+    const pctExcl = total ? (100 * filas) / total : 0;
+    ok(pctExcl < 1,
+      `${filas} filas excluidas (${productos} producto(s), ${u} u) = ${pctExcl.toFixed(3)} % de la diaria`);
+
+    // ── 5) PRUEBA NEGATIVA — el comparador tiene que ponerse ROJO ────────────────────────────
+    console.log('\n5) Prueba negativa: el comparador detecta las tres formas de divergir');
     const base = [{ alm: 'X1', mes: '2026-01', u: 100 }, { alm: 'X2', mes: '2026-01', u: 50 }];
     const sano = diferencias(base, [{ alm: 'X1', mes: '2026-01', u: 100 }, { alm: 'X2', mes: '2026-01', u: 50 }]);
     ok(sano.length === 0, 'con datos idénticos no inventa diferencias');
