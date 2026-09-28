@@ -1484,16 +1484,118 @@ export class UsersService {
     });
   }
 
+  /**
+   * `[AU.13]` — El catálogo de perfiles, con lo necesario para **elegir uno**.
+   *
+   * Devolvía sólo `role_name`, así que todo selector de perfil de la suite mostraba una lista
+   * plana de códigos: sin saber qué abre cada uno, quién lo usa ni de qué parte de la
+   * organización es. Se agregan tres campos DERIVADOS —nada que mantener a mano—:
+   *
+   *   · `permisos`      del mismo JSONB de la fila;
+   *   · `departamentos` de `identity.positions` (qué puestos lo declaran como base o complemento);
+   *   · `personas`      de `identity.user_roles` (quién lo tiene hoy, activo).
+   *
+   * ⚠️ **Sin SQL nueva, a propósito.** El agrupado se hace en JS sobre tres SELECT planos (son
+   * ~36 perfiles, ~57 puestos y ~120 personas: nada que justifique una consulta que no se pueda
+   * ejercer desde acá). Es consecuencia directa de `GOTCHAS §67`: un doble de knex no ejecuta
+   * SQL, así que una consulta nueva que no se puede correr contra Postgres no se puede declarar
+   * verificada — y este endpoint no exige permiso y lo consumen varios selects, o sea que un 500
+   * acá rompe varias pantallas a la vez.
+   *
+   * ⚠️ Las dos fuentes derivadas van en `try/catch` y devuelven **`null`, no `[]`/`0`**, cuando la
+   * tabla no existe en ese entorno: son cosas distintas y la pantalla dice cosas distintas
+   * (ADR-056). El mismo patrón que `PermissionsCacheService` usa con estas dos tablas.
+   */
   async getRoles() {
     // Filtro de tenant EXPLÍCITO: `KNEX_CONNECTION` conecta como superusuario, y
     // un superusuario bypassea RLS incluso con FORCE ROW LEVEL SECURITY. Sin
     // este WHERE el endpoint devolvía los roles de TODOS los tenants (verificado:
     // 47 filas para 30 roles reales).
-    return this.knex('role_permissions')
+    const base = await this.knex('role_permissions')
       .where({ tenant_id: this.tenantId })
       .whereNull('deleted_at')
-      .select('role_name')
+      .select('role_name', 'permissions')
       .orderBy('role_name', 'asc');
+
+    // `=== true` y no "truthy": el mapa guarda las claves NEGADAS en `false` (residuo de guardar
+    // el mapa completo desde /admin/roles) y esas no conceden nada.
+    const cuantosConcede = (permisos: unknown): number =>
+      permisos && typeof permisos === 'object'
+        ? Object.values(permisos as Record<string, unknown>).filter((v) => v === true).length
+        : 0;
+
+    // ── Qué parte de la organización declara cada perfil ────────────────────────
+    // El puesto lo propone de DOS formas (`[OR.7.0b]`): como base o dentro de sus complementos.
+    // Las dos cuentan, y se ordena por cuántos puestos lo declaran para que la pantalla pueda
+    // agrupar sin empates arbitrarios.
+    let deptosPorRol: Map<string, string[]> | null = null;
+    try {
+      const puestos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId })
+        .whereNull('deleted_at')
+        .select('department_code', 'default_role', 'default_complements');
+      const deptos = await this.knex('identity.departments')
+        .where({ tenant_id: this.tenantId })
+        .whereNull('deleted_at')
+        .select('code', 'name', 'orden');
+      const nombreDe = new Map(deptos.map((d: any) => [String(d.code), String(d.name)]));
+      const ordenDe = new Map(deptos.map((d: any) => [String(d.name), Number(d.orden ?? 0)]));
+
+      const cuenta = new Map<string, Map<string, number>>();
+      for (const q of puestos as any[]) {
+        const depto = nombreDe.get(String(q.department_code ?? ''));
+        if (!depto) continue; // puesto sin departamento: no puede agrupar a nadie
+        const declarados = [q.default_role, ...(q.default_complements ?? [])].filter(Boolean);
+        for (const rol of declarados as string[]) {
+          if (!cuenta.has(rol)) cuenta.set(rol, new Map());
+          const m = cuenta.get(rol)!;
+          m.set(depto, (m.get(depto) ?? 0) + 1);
+        }
+      }
+      deptosPorRol = new Map(
+        [...cuenta.entries()].map(([rol, m]) => [
+          rol,
+          [...m.entries()]
+            // El más declarado primero; a igual cantidad manda el orden del organigrama, y
+            // recién después el alfabeto. Sin el desempate, dos cargas seguidas podían agrupar
+            // el mismo perfil en departamentos distintos.
+            .sort((a, b) => b[1] - a[1]
+              || (ordenDe.get(a[0]) ?? 0) - (ordenDe.get(b[0]) ?? 0)
+              || a[0].localeCompare(b[0]))
+            .map(([nombre]) => nombre),
+        ]),
+      );
+    } catch (e: any) {
+      this.logger.warn(`positions/departments no disponible (${e?.message}); los perfiles van sin departamento MEDIDO`);
+    }
+
+    // ── Quién lo tiene hoy ──────────────────────────────────────────────────────
+    let personasPorRol: Map<string, number> | null = null;
+    try {
+      const filas = await this.knex('identity.user_roles as ur')
+        // Mismo idioma de join que el resto de este archivo (2 argumentos), no una variante
+        // nueva: la forma que ya corre en produccion es la que menos sorpresas trae.
+        .join('identity.users as u', (j) =>
+          j.on('u.tenant_id', 'ur.tenant_id').andOn('u.id', 'ur.user_id'))
+        .where('ur.tenant_id', this.tenantId)
+        .andWhere('u.activo', true)
+        .whereNull('u.deleted_at')
+        .select('ur.role_name');
+      personasPorRol = new Map();
+      for (const f of filas as any[]) {
+        const k = String(f.role_name);
+        personasPorRol.set(k, (personasPorRol.get(k) ?? 0) + 1);
+      }
+    } catch (e: any) {
+      this.logger.warn(`user_roles no disponible (${e?.message}); los perfiles van sin conteo de personas`);
+    }
+
+    return base.map((r: { role_name: string; permissions: unknown }) => ({
+      role_name: r.role_name,
+      permisos: cuantosConcede(r.permissions),
+      departamentos: deptosPorRol ? (deptosPorRol.get(r.role_name) ?? []) : null,
+      personas: personasPorRol ? (personasPorRol.get(r.role_name) ?? 0) : null,
+    }));
   }
 
   async findSupervisors(zona?: string) {

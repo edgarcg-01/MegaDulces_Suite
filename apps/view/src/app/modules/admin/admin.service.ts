@@ -8,6 +8,7 @@ import type {
   HistoriaDePuesto,
   PadronPagina,
   PersonaFila,
+  PerfilDelCatalogo,
   PropuestaDePuesto,
   PuestoDetalle,
   PuestoFila,
@@ -145,9 +146,15 @@ export class AdminService {
     >(`${this.org}/managers`);
   }
 
-  /** El catálogo de perfiles. `GET /users/roles` no exige permiso: lo consumen varios selects. */
-  roles(): Observable<Array<{ role_name: string }>> {
-    return this.http.get<Array<{ role_name: string }>>(`${this.users}/roles`);
+  /**
+   * El catálogo de perfiles. `GET /users/roles` no exige permiso: lo consumen varios selects.
+   *
+   * `[AU.13]` Desde ahora cada fila trae además **qué abre** (`permisos`), **de qué parte de la
+   * organización es** (`departamentos`) y **quién lo tiene hoy** (`personas`) — todo derivado.
+   * El tipo vive en `@megadulces/contracts`: es la forma que el backend promete, no una copia.
+   */
+  roles(): Observable<PerfilDelCatalogo[]> {
+    return this.http.get<PerfilDelCatalogo[]>(`${this.users}/roles`);
   }
 
   /**

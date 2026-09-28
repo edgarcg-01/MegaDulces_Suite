@@ -48,3 +48,41 @@
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
+
+/* `[AU.13]` La opcion de perfil: nombre arriba, y debajo el codigo + lo que abre. Mismo patron
+   que `.pa-perm` para los permisos — quien administra lee lo que el perfil HACE, no su codigo,
+   pero el codigo tiene que seguir a la vista porque es lo que se menciona en un soporte. */
+.pa-rol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.pa-rol-nom {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-main);
+}
+.pa-rol-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+/* Las cifras en mono tabular: dos opciones seguidas tienen que poder compararse de un vistazo. */
+.pa-rol-n {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* Lo que propone el puesto se marca con icono + texto, nunca solo con color (DESIGN §5). */
+.pa-rol-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: var(--fs-micro);
+  font-style: normal;
+  color: var(--ok-fg);
+}

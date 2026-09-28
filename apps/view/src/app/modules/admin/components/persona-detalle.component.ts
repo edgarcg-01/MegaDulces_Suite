@@ -344,6 +344,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
           <p class="pd-vacio">Los permisos se revisan una vez que la persona existe. Guardá primero.</p>
         } @else {
           <app-persona-acceso [userId]="persona.id" [puedeEscribir]="puedeEscribir"
+                              [positionCode]="fPuesto()"
                               (guardado)="aviso.emit($event)"></app-persona-acceso>
         }
       }
