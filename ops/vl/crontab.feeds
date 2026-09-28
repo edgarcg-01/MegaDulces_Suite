@@ -44,11 +44,24 @@
 # (27 s de LCP). Con las dos materializadas la consulta real bajo de 4,910 a 1,353 ms (3.6x),
 # medido con tablas TEMP dentro de un ROLLBACK ANTES de construir nada.
 #
-# Cada 5 min y no mas seguido, con motivo: el ciclo cuesta ~3.6 s (3,068 + 514 ms) y lo que
-# guarda es dato de CATALOGO -- factor de caja y costo unitario del ERP, que cambian por dia,
-# no por segundo. Ya hay un matview pagando ~4.5 s por minuto (caja-mv) sobre el MISMO
-# Postgres que atiende la pantalla.
+# Cada 5 min y no mas seguido, con motivo: lo que guarda es dato de CATALOGO -- factor de caja
+# y costo unitario del ERP, que cambian por dia, no por segundo. Ya hay un matview pagando
+# ~4.5 s por minuto (caja-mv) sobre el MISMO Postgres que atiende la pantalla.
 # Si alguien la acelera, que traiga la medicion del costo del ciclo, no la intuicion.
+#
+# [CPU.5 2026-09-28] EL COSTO DE ESTA LINEA ESTABA DESACTUALIZADO A LA MITAD. Decia "~3.6 s
+# (3,068 + 514 ms)"; medido en el log del carril son 5,076 + 1,010 + 647 = ~6.7 s por ciclo,
+# o sea ~1,930 s/dia. La diferencia es que [AX-PERF.1] le sumo una TERCERA foto y el numero
+# no se volvio a tomar. Un costo escrito invita a razonar sobre el; si esta a la mitad, la
+# proxima decision de cadencia se toma con el dato equivocado.
+#
+# SE EVALUO BAJARLA A 30 MIN Y SE DESCARTO, con las dos razones medidas:
+#   1. `mv_product_box_factor` es el divisor con el que el ANEXO AL CFDI imprime la
+#      equivalencia en cajas ([AX-PERF.1]): no es una pantalla interna, es papel del cliente.
+#   2. Su umbral en `CRON_JOBS` es `warnH: 0.5` (30 min). A cadencia de 30 min el latido
+#      viviria EN el umbral => warn permanente, y habria que mover el gate en el mismo cambio.
+# Ahorraba ~1,600 s/dia (0.019 nucleos). No se cambia frescura de un factor impreso al cliente
+# por eso. Si alguna vez se decide, van JUNTOS la cadencia y el umbral.
 */5 * * * * /app/ops/vl/run-feed.sh existencia-aux "node /app/database/importers/kepler/refresh-existencia-aux.js --apply"
 
 # ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
