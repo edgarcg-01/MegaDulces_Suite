@@ -1049,12 +1049,33 @@ export class FinanzasCapturarGastoComponent {
     if (!toUpload.length) { done(); return; }
     // [GX.14] El sello viaja con cada archivo. Sin él el backend lo trata como archivo
     // suelto y su propia compuerta lo rechaza — que es exactamente lo que queremos.
+    /**
+     * `[GX.37]` **El motivo del servidor VIAJA.** Acá el `catchError` se comía el error y
+     * la pantalla decía «No se pudo subir el archivo. Reintenta» para TODO. Medido en
+     * local: el servidor contestaba «Almacenamiento no configurado (faltan env S3_*)» —
+     * o sea, reintentar no iba a funcionar NUNCA, y la persona quedaba en un lazo
+     * dándole al botón. Un mensaje que pide reintentar ante un problema que no se
+     * arregla reintentando es peor que no decir nada: manda a perder el tiempo.
+     */
     const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r, this.sellos()[r]).pipe(
-      map((file) => ({ role: r, file: file as ProofFile | null })), catchError(() => of({ role: r, file: null as ProofFile | null })),
+      map((file) => ({ role: r, file: file as ProofFile | null, motivo: '' })),
+      catchError((e: { error?: { message?: string } }) => of({
+        role: r, file: null as ProofFile | null,
+        motivo: String(e?.error?.message || '').trim(),
+      })),
     ));
     forkJoin(ups).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((results) => {
       for (const res of results) { if (res.file) { this.uploaded[res.role] = res.file; delete this.fileData[res.role]; } }
-      if (results.some((r) => !r.file)) { this.saving.set(false); this.formError.set('No se pudo subir el archivo. Reintenta.'); return; }
+      const fallo = results.find((r) => !r.file);
+      if (fallo) {
+        this.saving.set(false);
+        // El nombre del archivo, para que con varios adjuntos se sepa CUÁL falló.
+        const cual = this.names()[fallo.role] ? ` («${this.names()[fallo.role]}»)` : '';
+        this.formError.set(fallo.motivo
+          ? `No se pudo subir el archivo${cual}: ${fallo.motivo}`
+          : `No se pudo subir el archivo${cual}. Reintentá.`);
+        return;
+      }
       done();
     });
   }
