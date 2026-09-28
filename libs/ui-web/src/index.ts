@@ -1,6 +1,13 @@
 export { installNumberWheelGuard } from './number-wheel-guard';
 
 /**
+ * `[SEG.2]` Borrar el rastro de la sesion que se va. Vive aca y no en una app porque las tres
+ * comparten el problema: el service worker cachea por URL y no mira quien pregunta.
+ */
+export { limpiarRastroDeSesion, CLAVES_DEL_APARATO } from './session-cleanup';
+export type { RastroLimpiado } from './session-cleanup';
+
+/**
  * `[COT.1b]` Aritmetica de la captura por presentacion (pieza / paquete / caja).
  *
  * Vivia en `apps/vendor/src/app/core/order/` con UN solo importador. Una app Nx no puede

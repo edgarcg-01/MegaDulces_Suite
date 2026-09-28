@@ -101,8 +101,8 @@ export class RepartoShellComponent {
   readonly verDespacho = computed(() => this.perms.has(Permission.REPARTO_DESPACHAR));
   readonly username = signal(this.auth.user()?.username || this.auth.user()?.role_name || 'Tienda');
 
+  /** `[SEG.2]` Cierre voluntario = derribo duro: borra el rastro y recarga (ver AuthService). */
   logout(): void {
-    this.auth.logout();
-    this.router.navigateByUrl('/login');
+    this.auth.logout({ derribar: true });
   }
 }

@@ -1285,9 +1285,9 @@ export class MiTrabajoComponent {
       });
   }
 
+  /** `[SEG.2]` Cierre voluntario = derribo duro: borra el rastro y recarga (ver AuthService). */
   logout(): void {
-    this.auth.logout();
-    void this.router.navigate(['/login']);
+    this.auth.logout({ derribar: true });
   }
 }
 

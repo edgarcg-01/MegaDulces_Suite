@@ -1297,10 +1297,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.isMobile()) this.closeSidebar();
   }
 
+  /**
+   * `[SEG.2]` El cierre de sesión VOLUNTARIO derriba la app: `logout({ derribar: true })` borra
+   * el rastro y recarga con una navegación dura. Con `router.navigate` el inyector sobrevive y
+   * los servicios `root` se quedan con los datos de quien se fue — y en un mostrador o una
+   * tablet compartida, el siguiente los ve.
+   */
   logout(): void {
     this.haptic.impact('medium');
-    this.authService.logout();
-    this.router.navigate(['/login']);
+    this.authService.logout({ derribar: true });
   }
 
   /**
