@@ -51,6 +51,16 @@ interface FormularioCajaUI {
   denominaciones: DenominacionCapturada[];
 }
 
+/** CS.3.7 — Suma piezas por denominación de varias fuentes (cajero + reja) y descarta las de 0. */
+function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): Array<{ denominacion: number; piezas: number }> {
+  const m = new Map<number, number>();
+  for (const d of fuentes) {
+    const den = Number(d.denominacion); const pz = Number(d.piezas) || 0;
+    if (pz > 0) m.set(den, (m.get(den) ?? 0) + pz);
+  }
+  return [...m.entries()].map(([denominacion, piezas]) => ({ denominacion, piezas })).sort((a, b) => b.denominacion - a.denominacion);
+}
+
 /**
  * CG.14 — Caja General: la pantalla donde la plataforma REGISTRA el efectivo (ADR-070).
  *
@@ -119,6 +129,10 @@ interface FormularioCajaUI {
     /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
        debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
     .fin-form { display:flex; flex-direction:column; gap:.85rem; }
+    /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
+    .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem 1.5rem; align-items:start; }
+    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:.7rem; min-width:0; }
+    @media (max-width:760px) { .cg-grid { grid-template-columns:1fr; } }
     .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
     .fin-row > label { min-width:6.5rem; font-size:var(--fs-sm); color:var(--text-muted); }
     .fin-row-col { flex-direction:column; align-items:stretch; gap:.35rem; }
@@ -222,8 +236,13 @@ interface FormularioCajaUI {
     .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
     .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
     .cg-cajero-head label { margin:0; }
+    /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja. */
+    .cg-caja-aparte { border:1px solid var(--action); border-radius:var(--r-md,8px); padding:.5rem .7rem;
+      display:flex; flex-direction:column; gap:.35rem; }
+    .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.4rem; }
+    .cg-caja-ico { color:var(--action); font-weight:700; }
+    .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
-    .cg-caos-motivos { flex:1 1 100%; font-size:var(--fs-micro); }
     .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
     .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
@@ -612,7 +631,7 @@ interface FormularioCajaUI {
     <p-toast position="bottom-right"></p-toast>
 
     <p-dialog [visible]="capturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(capturaAbierta)"
-              [modal]="true" [style]="{ width: '46rem', maxWidth: '96vw' }"
+              [modal]="true" [style]="{ width: '62rem', maxWidth: '96vw' }"
               header="Registrar movimiento de caja" [draggable]="false">
       <div class="fin-form">
         <div class="fin-row">
@@ -629,6 +648,11 @@ interface FormularioCajaUI {
           <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
                     (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
         </div>
+
+        <!-- CS.3.7 — Dos columnas para que TODO entre en una pantalla sin scroll. Izquierda: el
+             QUÉ/QUIÉN (documento, beneficiario, cuenta, glosa). Derecha: el CUÁNTO (cajero + arqueo). -->
+        <div class="cg-grid">
+        <div class="cg-col">
 
         <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
              ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
@@ -648,34 +672,21 @@ interface FormularioCajaUI {
                             placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
             @if (cobroElegido(); as c) {
               <small class="fin-hint-ok">
-                Tomado de Kepler: {{ c.doc_tipo }} {{ c.folio }} ·
-                {{ c.beneficiario || c.entidad_code }} · {{ money(c.monto) }}
-                @if (c.caja_nombre) { · {{ c.caja_nombre }} }.
-                Ese es el importe contra el que vas a contar: el monto del movimiento sale del
-                desglose de abajo, no del documento.
+                Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
+                {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
               </small>
               @if (contadoBandeja(); as cb) {
-                <small class="fin-dim">
-                  En la bandeja ya habías contado <span class="mono">{{ money(cb) }}</span>.
-                  Desglosalo abajo por denominación para que quede registrado.
-                </small>
+                <small class="fin-dim">Ya habías contado <span class="mono">{{ money(cb) }}</span> en la bandeja — desglosalo abajo.</small>
               }
-              <!-- La diferencia se DICE antes de guardar. Que el servidor levante el hallazgo no
-                   sirve si la persona no supo que estaba registrando un descuadre. -->
+              <!-- La diferencia se DICE antes de guardar: el hallazgo del servidor no sirve si la persona no la vio. -->
               @if (montoContado(); as mc) {
                 <small class="fin-hint-warn">
-                  Contaste {{ money(mc) }} y el documento dice {{ money(c.monto) }}:
-                  <strong>{{ money(mc - c.monto) }}</strong> de diferencia. Se registra lo que
-                  contaste —el efectivo no se rechaza— y queda un hallazgo con la diferencia.
+                  Contaste {{ money(mc) }} vs documento {{ money(c.monto) }}:
+                  <strong>{{ money(mc - c.monto) }}</strong> de diferencia — se registra y queda un hallazgo.
                 </small>
               }
             } @else {
-              <small class="fin-dim">
-                Sin documento elegido: esto se registra como captura manual y queda marcado así en
-                la cobertura. Está bien — cerca de la mitad del ingreso todavía no tiene documento
-                en el ERP —, pero si el movimiento ya está en Kepler, elegirlo hace que el importe
-                lo ponga el documento y no el teclado.
-              </small>
+              <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
             }
           </div>
 
@@ -748,6 +759,9 @@ interface FormularioCajaUI {
                  placeholder="Contá qué pasó — esto NO es el concepto contable" />
         </div>
 
+        </div><!-- /cg-col izquierda -->
+        <div class="cg-col"><!-- derecha: el CUÁNTO (cajero aparte + arqueo) -->
+
         <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
              Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
              Monto que se TECLEABA suelto. O sea: el camino facil era registrar efectivo sin
@@ -771,16 +785,6 @@ interface FormularioCajaUI {
                 {{ buscandoCajero() ? 'buscando…' : '¿salió del cajero? buscar retiros' }}
               </button>
             </div>
-            @if (caosVinculados().length) {
-              <div class="cg-chips">
-                @for (v of caosVinculados(); track v.external_id) {
-                  <span class="cg-chip cg-caos-in">del cajero {{ money(v.monto) }} · {{ v.ref || 's/ref' }}
-                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
-                  </span>
-                }
-              </div>
-              <small class="fin-hint-ok">Ya se agregaron {{ money(totalCajero()) }} del cajero al arqueo — agregá lo restante abajo.</small>
-            }
             @if (caosSugeridos().length) {
               <div class="cg-caos-list">
                 @for (c of caosSugeridos(); track c.external_id) {
@@ -788,7 +792,6 @@ interface FormularioCajaUI {
                     <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
                     <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
                     <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
-                    <span class="fin-dim cg-caos-motivos">{{ c.motivos.join(' · ') }}</span>
                     <span class="cg-caos-go" aria-hidden="true">agregar →</span>
                   </button>
                 }
@@ -796,14 +799,42 @@ interface FormularioCajaUI {
             }
           </div>
         }
+
+        <!-- CS.3.7 — El efectivo del cajero (CAOS) se muestra APARTE, ya contado por la máquina. NO
+             entra en la reja de abajo: ésa queda para la DIFERENCIA (morralla, un faltante). Sólo se
+             muestra o se menciona; nunca se re-teclea. -->
+        @if (hayCajero()) {
+          <div class="cg-caja-aparte">
+            <div class="cg-caja-aparte-top">
+              <span class="cg-caja-ico mono" aria-hidden="true">⇄</span>
+              <strong>Del cajero (CAOS): {{ money(aporteCajero()) }}</strong>
+              <span class="fin-dim">ya contado por la máquina</span>
+            </div>
+            @if (caosVinculados().length) {
+              <div class="cg-chips">
+                @for (v of caosVinculados(); track v.external_id) {
+                  <span class="cg-chip cg-caos-in">{{ money(v.monto) }} · {{ v.ref || 's/ref' }}
+                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
+                  </span>
+                }
+              </div>
+            }
+            <div class="cg-caja-denoms fin-dim mono">
+              @for (d of denominacionesCajero(); track d.denominacion) {
+                <span>{{ d.piezas }}×{{ money(d.denominacion) }}</span>
+              }
+            </div>
+          </div>
+        }
+
         <div class="cg-arqueo">
           <div class="cg-arqueo-head">
-            <strong>Contá el efectivo</strong>
+            <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Contá el efectivo' }}</strong>
             @if (cobroElegido(); as c) {
               <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
             }
-            @if (caosElegido()) {
-              <span class="fin-hint-ok">La caja fuerte ya contó los billetes — sólo la morralla se cuenta a mano.</span>
+            @if (hayCajero()) {
+              <span class="fin-hint-ok">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
             }
           </div>
           <table class="cg-arqueo-tbl">
@@ -826,7 +857,6 @@ interface FormularioCajaUI {
                   <th scope="row" class="mono">{{ b.label }}</th>
                   <td>
                     <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
-                           [readonly]="!!caosElegido()"
                            [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
                            (keydown.enter)="moverEnReja($event, 1)"
                            (keydown.arrowdown)="moverEnReja($event, 1)"
@@ -853,7 +883,7 @@ interface FormularioCajaUI {
             <tfoot>
               <tr>
                 <th scope="row">Monto del movimiento</th>
-                <td class="fin-dim cg-na">del conteo</td>
+                <td class="fin-dim cg-na">{{ hayCajero() ? 'cajero + a mano' : 'del conteo' }}</td>
                 <td>
                   <input pInputText id="cg-monto" class="mono cg-total" [value]="money(f().monto)"
                          disabled tabindex="-1" aria-label="Monto del movimiento, calculado del conteo" />
@@ -862,6 +892,9 @@ interface FormularioCajaUI {
             </tfoot>
           </table>
         </div>
+
+        </div><!-- /cg-col derecha -->
+        </div><!-- /cg-grid -->
 
         <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
              2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
@@ -1187,8 +1220,32 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   caosSugeridos = signal<CaosCandidato[]>([]);
   caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown> }>>([]);
   buscandoCajero = signal(false);
-  /** Cuánto del arqueo ya vino del cajero (para el aviso «ya se agregaron $X»). */
-  totalCajero = computed(() => this.caosVinculados().reduce((a, v) => a + Number(v.monto), 0));
+
+  /**
+   * CS.3.7 — El efectivo que el cajero (CAOS) YA contó, MOSTRADO aparte y NUNCA tecleado en la reja.
+   * Suma el origen (captura anclada a un movimiento de CAOS) + los vínculos (retiros de un cobro/gasto).
+   * La reja de abajo queda para la DIFERENCIA (morralla, monedas, un faltante), arrancando en cero.
+   */
+  denominacionesCajero = computed(() => {
+    const src: Array<{ denominacion: number; piezas: number }> = [];
+    const o = this.caosElegido();
+    if (o?.denominaciones) src.push(...o.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
+    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
+    return mergeDenoms(src);
+  });
+
+  /** El aporte del cajero, en pesos: la suma de sus billetes (origen + vínculos). */
+  aporteCajero = computed(() => this.denominacionesCajero().reduce((a, d) => a + d.denominacion * d.piezas, 0));
+
+  /** ¿Hay efectivo del cajero en esta captura? (para mostrar la mención aparte). */
+  hayCajero = computed(() => this.denominacionesCajero().length > 0);
+
+  /**
+   * Lo que se MANDA al servidor: el arqueo COMPLETO = el del cajero (aparte en la UI) + la reja
+   * manual. El servidor exige que el desglose cuadre con el monto (`assertArqueo`), así que las dos
+   * partes se fusionan sólo al guardar; en pantalla siguen separadas.
+   */
+  denominacionesParaGuardar = computed(() => mergeDenoms([...this.denominacionesCajero(), ...this.f().denominaciones]));
 
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
@@ -1351,7 +1408,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   /** Sin saldo no sabemos si hay corte abierto. No es lo mismo que saber que no hay. */
   saldoSinMedir = computed(() => this.saldoResp() === null);
-  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f()));
+  // CS.3.7 — El arqueo se valida contra el desglose COMPLETO (cajero + reja), que es lo que va al
+  // servidor y lo que cuadra con el monto. Validar sólo la reja (vacía cuando el cajero aportó todo)
+  // bloquearía el guardado con 'arqueo_no_cuadra' pese a que el arqueo real sí cuadra.
+  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo({ ...this.f(), denominaciones: this.denominacionesParaGuardar() }));
   /**
    * De dónde salió el concepto. Ahora depende TAMBIÉN de si se eligió a mano: antes sólo leía
    * `propuesta()`, así que después de elegir en el buscador seguía diciendo "Propuesto de la
@@ -1982,9 +2042,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       sucursal: m.sucursal || v.sucursal,
       beneficiario: m.user_external || v.beneficiario,
       glosa: v.glosa?.trim() || `CAOS ${m.type_label} #${m.external_id}${m.ref ? ' · ' + m.ref : ''}`.slice(0, 200),
-      // ⭐ El arqueo se precarga con las denominaciones de la máquina (500/200/100/50/20). La
-      // morralla arranca en 0 y es lo que se cuenta a mano si hace falta.
-      denominaciones: (m.denominaciones || []).map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })),
+      // ⭐ CS.3.7 — El arqueo de la máquina NO se teclea en la reja: cuenta como aporte del cajero
+      // (mostrado aparte, `denominacionesCajero`). La reja arranca VACÍA, para la diferencia a mano.
+      denominaciones: [],
       morralla: 0,
     }));
     this.recomputarMonto();
@@ -1995,6 +2055,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   soltarCaos(): void {
     this.caosElegido.set(null);
     this.caosSel = null;
+    // CS.3.7 — sin el origen del cajero, su aporte sale del monto: hay que recalcular (antes el
+    // efectivo vivía en la reja y quedaba; ahora va aparte y desaparece con el origen).
+    this.recomputarMonto();
   }
 
   /** CS.3.1b — Suelta la cuenta del documento y vuelve al buscador libre (por si Kepler se equivocó). */
@@ -2052,26 +2115,24 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** CS.3.4 — Vincula un retiro del cajero: suma sus billetes al arqueo y lo recuerda para el enlace. */
+  /**
+   * CS.3.4/3.7 — Vincula un retiro del cajero. Su efectivo NO se teclea en la reja: cuenta como
+   * aporte del cajero (mostrado aparte) y suma al monto. La reja de abajo queda para la diferencia.
+   */
   vincularCaos(c: CaosCandidato): void {
-    for (const d of c.denominaciones) {
-      this.setPiezas(Number(d.denominacion), this.piezasDe(Number(d.denominacion)) + Number(d.piezas));
-    }
     this.caosVinculados.update((v) => [...v, {
       device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref,
       denominaciones: c.denominaciones,
       senales: { score: c.score, confianza: c.confianza, motivos: c.motivos },
     }]);
     this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
+    this.recomputarMonto();
   }
 
-  /** CS.3.4 — Suelta un retiro vinculado: resta del arqueo lo que había sumado. */
+  /** CS.3.4/3.7 — Suelta un retiro vinculado: quita su aporte del cajero y recalcula el monto. */
   desvincularCaos(externalId: number): void {
-    const v = this.caosVinculados().find((x) => x.external_id === externalId);
-    if (v) for (const d of v.denominaciones) {
-      this.setPiezas(Number(d.denominacion), Math.max(0, this.piezasDe(Number(d.denominacion)) - Number(d.piezas)));
-    }
     this.caosVinculados.update((l) => l.filter((x) => x.external_id !== externalId));
+    this.recomputarMonto();
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -2465,8 +2526,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * importe". Un solo camino, sin copiar esa regla en dos lados.
    */
   private recomputarMonto(): void {
-    const f = this.f();
-    this.onMonto(sumaDesglose(f.denominaciones, Number(f.morralla || 0)));
+    // CS.3.7 — El monto = el arqueo COMPLETO (lo que aportó el cajero, mostrado aparte, + la reja
+    // manual) + morralla. La reja de abajo es SÓLO la diferencia; CAOS no se teclea ahí.
+    this.onMonto(sumaDesglose(this.denominacionesParaGuardar(), Number(this.f().morralla || 0)));
   }
 
   textoBloqueo(b: MotivoBloqueo): string { return TEXTO_BLOQUEO[b]; }
@@ -2485,6 +2547,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const declarar = this.declararRegla() && this.puedeDeclararRegla();
     this.svc.crear({
       ...f,
+      // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
+      // la reja manual, fusionados. El servidor exige que el desglose cuadre con el monto; por eso
+      // acá se manda todo junto aunque en pantalla el cajero y la reja se muestren separados.
+      denominaciones: this.denominacionesParaGuardar(),
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
       // descarta el del formulario, y el índice único impide que el mismo documento entre dos veces.
       // ⛔ Acá estaba clavado en 'cobro'. Con CG.21 el diálogo puede anclar TAMBIÉN un pago, y un
