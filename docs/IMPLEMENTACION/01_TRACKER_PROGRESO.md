@@ -6145,6 +6145,10 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 - [x] **`[VSO.4]`** ✅ `test-newdb-branch-cutover.js` deja de medir las piernas CRUDAS: 20 OK / 0
   fallas (antes 13 / **6**).
 - [x] **`[VSO.5]`** ✅ §5 de `VERDAD_ABSOLUTA.md` estrena los dos resolvedores que le faltaban.
+- [x] **`[VSO.6]`** ✅ La identidad de vendedor sobrevive al cambio de ERP (mig **561**): **cinco
+  personas tenían dos columnas** porque nadie actualizó `analytics.vendor_identity` cuando Madero y
+  Abastos migraron. La mayor es un vendedor de **$47.9M** cuya columna se corta el 18-sep y
+  reaparece con otro nombre al día siguiente. Candado `test-newdb-vendor-identity-cutover.js` (4/4).
 
 ### Las tres cosas que esto enseñó, y que valen más que el dinero recuperado
 
@@ -6162,6 +6166,13 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
    307 filas / **307 SKUs distintos** (una por SKU) estampadas en la fecha de arranque, con Wincaja
    —el POS vivo ese 1-ene— en $0. El candado lo imprime, y **falla si desaparece**, para que la
    declaración no envejezca en silencio.
+4. ⭐ **Un detector que busca «el mismo nombre» no puede encontrar lo que cambió de nombre.** En
+   `[VSO.6]` mi primer detector agrupaba por nombre idéntico y encontró **3 de 6**: se le escapaban
+   justo los interesantes (`MANUEL GARCIA ZURITA` → `MANUEL DI STEFANO GARCIA ZURIT`, `GLORIA` →
+   `GLORIA CALDERON`, `Plasencia` → `PLACENCIA`). El que sí los ve compara **tokens de apellido**
+   entre quien termina de un lado del corte y quien arranca del otro, en el mismo almacén. Y aun
+   así tiene un punto ciego **declarado**: cuando el lado Kepler se llama como la RUTA y no como la
+   persona (Candy Salgado, cero tokens en común), sólo lo encuentra un humano.
 
 ### ⬜ Pendiente
 
@@ -6172,10 +6183,15 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 - **La parte de meses CERRADOS de `[VSO.3]`** (PH jun-2026, Piedad oct-2025) se ve cuando corra
   `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para meses cerrados. El día
   de Abastos (mes en curso) ya se ve. No se refrescó a mano: 412 MB + 1.6 GB en horario hábil.
-- **`[VSO.6]` identidad de vendedor partida por el cutover** — ALBERTO AYALA (`30:74`+`30:75` →
-  `alberto-ayala-mor`, pero desde el 18-sep vende como `08:20003`), CANDY SALGADO (`candy-salgado`
-  vs `ph-vecinal-candy`: **dos claves canónicas para la misma persona**) y JOSEPH (hasta **3**
-  columnas). **79 de 123 códigos** no tienen fila en `analytics.vendor_identity`.
+- **`[VSO.6b]` lo que quedó declarado y NO se fusionó**: `30:94` "JOSEPH" (plaza 08) — hay **dos**
+  Joseph en Wincaja y **venden los mismos días**, así que no se puede afirmar que sean el mismo
+  humano (el código `94` coincide porque los códigos son por sucursal); y `32:51` MANUEL HERRERA
+  (**$2.05M**), que termina en el corte de Madero **sin sucesor Kepler** — o se fue, o su identidad
+  nueva tiene otro nombre. Hace falta que alguien de Morelia lo confirme.
+- **Siete «vendedores» que no son personas** (`SUCURSAL … PISO`, `E-COMMERCE`, `Otros Ingresos`…,
+  **$742,420** en canales con vendedor) siguen apareciendo como columna. ⛔ **A propósito**: el flag
+  `exclude` los TIRA del pivote, y esa plata es venta real. Si se quiere separarlos hace falta un
+  bucket visible, no una resta.
 - **`[VSO.7]`** `test-newdb-sellout-parity.js` sigue siendo un test de PRESENCIA (`count>0` de cada
   lado del corte), no de continuidad: da ✔ con 9 días de hueco. Su bloque 3 se puede retirar y
   delegar en `test-newdb-branch-cutover.js`, que ya lo mide bien.
