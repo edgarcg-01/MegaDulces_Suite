@@ -52,6 +52,16 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_WAREHOUSES_GESTIONAR, url: '/almacen/warehouses', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_INVENTORY_RECONCILIAR, url: '/almacen/inventory/sessions', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_INVENTORY_ASIGNAR, url: '/almacen/inventory/sessions', motivo: 'manage sin view' },
+  // `[AZ.3]` Las cuatro entraron al arbol para poder OTORGARSE (antes eran invisibles en
+  // /admin/roles y el candado [AUTHZ.5] las listaba en rojo). Caen en la misma deuda que sus
+  // vecinas de arriba: son facultades que se dan ADEMAS del permiso de ver, nunca solas, asi que
+  // el caso "su unica llave del proyecto es esta" es teorico. Se declara en vez de ensanchar la
+  // puerta: ensancharla daria acceso a la pantalla a quien hoy no lo tiene, y eso no se hace sin
+  // medir a quien se lo daria.
+  { perm: Permission.COMMERCIAL_INVENTORY_CANCELAR_CONTEO, url: '/almacen/inventory/sessions', motivo: 'manage sin view: cancelar un conteo se hace desde la pantalla que exige SUPERVISAR' },
+  { perm: Permission.AUTOABASTO_AUTORIZAR, url: '/almacen/autoabasto', motivo: 'facultad de firma: la ruta exige VER o SOLICITAR' },
+  { perm: Permission.AUTOABASTO_EXCEDER_TOPE, url: '/almacen/autoabasto', motivo: 'facultad de firma: idem' },
+  { perm: Permission.AUTOABASTO_POLITICA, url: '/almacen/autoabasto', motivo: 'facultad de firma: idem' },
   { perm: Permission.COMMERCIAL_PREVENTION_GESTIONAR, url: '/almacen/prevencion', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_EXPIRY_CAPTURAR, url: '/almacen/inventory/caducidades', motivo: 'la ruta de almacén exige EXPIRY_VER (la de tienda acepta las dos)' },
   // `[SM.9]` El Cuadre se mudó a Finanzas; la deuda viaja con él (sigue siendo la misma:
