@@ -13,7 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
-import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof,
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
   ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
   type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
@@ -232,7 +232,6 @@ interface SelSolicitud {
                           </button>
                         }
                         <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
-                        @if (photoLoading() && r === 'comprobante_1') { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
                         <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
                       </div>
                     }
@@ -241,11 +240,26 @@ interface SelSolicitud {
                     @if (cotizaciones().length < MAX_COTIZACIONES) {
                       <label class="cap-ev-b">
                         <i class="pi pi-upload" aria-hidden="true"></i> {{ cotizaciones().length ? 'Agregar otra' : 'Subir cotización' }}
-                        <input type="file" accept="image/*,application/pdf" (change)="onFileCotizacion($event)" hidden />
+                        <input type="file" (change)="onFileCotizacion($event)" hidden />
                       </label>
                       @if (!cotizaciones().length) {
-                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
+                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Cualquier archivo.</p>
                       }
+                    }
+                    <!--
+                      [GX.36] El vale ESCANEADO. Sube al mismo cajón que la foto
+                      (comprobante_1..4) porque ES el comprobante: acá los vales se escanean,
+                      y un escaneo del vale firmado vale lo mismo que la foto del vale
+                      firmado. Antes esto subía a evidencia_1..3 -- un cajón aparte que la
+                      compuerta no miraba, asi que el boton seguia diciendo «Falta: La foto
+                      del comprobante» con el documento ya adjunto.
+                    -->
+                    @if (comprobantes().length < MAX_COMPROBANTES) {
+                      <label class="cap-ev-b">
+                        <i class="pi pi-file" aria-hidden="true"></i> {{ comprobantes().length ? 'Subir otro archivo' : 'Subir vale escaneado' }}
+                        <input type="file" (change)="onFileComprobante($event)" hidden />
+                      </label>
+                      <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> El vale escaneado o su archivo. Cualquier tipo: PDF, Word, Excel, imagen…</p>
                     }
                     @for (r of cotizaciones(); track r) {
                       <div class="cap-done">
@@ -264,12 +278,10 @@ interface SelSolicitud {
                     }
                   </div>
                 </div>
-                  @if (photoResult(); as pr) {
-                    @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
-                    @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-                    @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
-                    @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
-                  }
+                  <!-- [GX.32] Acá iban los cuatro mensajes del cuadre por visión
+                       («el monto cuadra» / «no cuadra, quedará en revisión» / …). Se
+                       retiraron con la visión: la foto se toma y se manda, y quien firma
+                       decide mirándola. -->
 
                 <label class="cap-f"><span>Comentarios (opcional)</span>
                   <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
@@ -306,22 +318,16 @@ interface SelSolicitud {
               } @else {
                 <div class="cap-done">
                   <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-                  @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
                   <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
                 </div>
-                @if (photoResult(); as pr) {
-                  @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
-                  @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-                  @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
-                  @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
-                }
+
               }
               <label class="cap-f"><span>Comentarios (opcional)</span>
                 <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien valida…"></textarea></label>
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
               <button pButton type="button" class="cap-send" [loading]="saving()"
-                      [disabled]="!puedeEnviar() || saving() || photoLoading()" [title]="enviarTitle()" (click)="submit()">
+                      [disabled]="!puedeEnviar() || saving()" [title]="enviarTitle()" (click)="submit()">
                 <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Enviar evidencia</span>
               </button>
             }
@@ -701,7 +707,7 @@ export class FinanzasCapturarGastoComponent {
     switch (this.clasificacion()) {
       case 'fiscal': return 'Te dieron factura. Adjuntala.';
       case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Tomá la foto y subí la cotización.';
-      case 'no_comprobable': return 'Sacale foto al vale firmado. Se toma en el momento, como las otras.';
+      case 'no_comprobable': return 'Sacale foto al vale firmado, o subí el vale escaneado.';
       default: return '';
     }
   }
@@ -724,7 +730,7 @@ export class FinanzasCapturarGastoComponent {
 
   puedeEnviar(): boolean {
     if (!this.gasto()) return false;
-    if (this.modo() === 'evidencia') return !!this.names()['comprobante_1'] && !this.photoLoading();
+    if (this.modo() === 'evidencia') return !!this.names()['comprobante_1'];
     if (this.modo() !== 'capturar') return false;
     if (!this.clasificacion()) return false;
     // `[GX.31]` Acá había un `if (!this.names()['solicitud_kepler']) return false;`.
@@ -733,7 +739,6 @@ export class FinanzasCapturarGastoComponent {
     // «Enviar a aprobación» porque GX.18 también sacó de `enviarTitle()` la rama que lo
     // explicaba. El respaldo ahora es la foto en vivo del vale, y la exige `faltan()`
     // —la misma regla que devuelve el 400 del servidor—, dos líneas más abajo.
-    if (this.photoLoading()) return false;
     // GX.14 — la compuerta compartida cubre forma de pago + foto en vivo. El motivo del
     // no_comprobable NO está ahí a propósito: es una regla de ESTA pantalla (el backend la
     // valida aparte contra `comentarios`), y meterla en el contrato la haría depender de
@@ -807,9 +812,12 @@ export class FinanzasCapturarGastoComponent {
   readonly MAX_COMPROBANTES = ROLES_COMPROBANTE.length;
   readonly MAX_COTIZACIONES = ROLES_COTIZACION.length;
 
+
   /** Los roles de esta familia que YA tienen archivo, en el orden del catalogo. */
   readonly comprobantes = computed(() => ROLES_COMPROBANTE.filter((r) => !!this.names()[r]));
   readonly cotizaciones = computed(() => ROLES_COTIZACION.filter((r) => !!this.names()[r]));
+  // `[GX.36]` Se fue `evidencias()`: el archivo escaneado ya no vive en un cajón aparte,
+  // sube como comprobante — que es lo que es.
 
   /** El primer rol libre de la familia, o `null` si ya no queda. */
   private libre(roles: ProofFileRole[]): ProofFileRole | null {
@@ -834,8 +842,18 @@ export class FinanzasCapturarGastoComponent {
     this.onFile(ev, role);
   }
 
-  readonly photoLoading = signal(false);
-  readonly photoResult = signal<ProofPhotoOcr | null>(null);
+  /**
+   * `[GX.36]` El vale ESCANEADO, o el archivo que lo respalde. Va al mismo cajón que la
+   * foto: es el comprobante, sólo que entró por el escáner y no por la cámara.
+   */
+  onFileComprobante(ev: Event) {
+    const role = this.libre(ROLES_COMPROBANTE);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COMPROBANTES} comprobantes, el maximo.`); return; }
+    this.onFile(ev, role);
+  }
+
+  // `[GX.32]` Se fueron `photoLoading` y `photoResult`: eran la espera y el resultado de
+  // la lectura por visión. Sin visión no hay nada que esperar — la foto se adjunta y ya.
   readonly names = signal<Record<string, string>>({});
   private fileData: Record<string, string> = {};
   private uploaded: Record<string, ProofFile> = {};
@@ -950,7 +968,6 @@ export class FinanzasCapturarGastoComponent {
     // foto siguiente también se tomó en vivo aunque haya entrado por otro lado.
     this.sellos.update((m) => { const n = { ...m }; delete n[role]; return n; });
     this.miniaturas.update((m) => { const n = { ...m }; delete n[role]; return n; });
-    if (role === 'comprobante_1') this.photoResult.set(null);
   }
 
   /** `[GX.14]` Guarda la foto recién tomada y dispara su lectura por visión. */
@@ -962,7 +979,7 @@ export class FinanzasCapturarGastoComponent {
     this.names.update((m) => ({ ...m, [role]: `Foto tomada ${hora}` }));
     this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
     this.sellos.update((m) => ({ ...m, [role]: { live: true, captured_at: capturedAt } }));
-    if (role === 'comprobante_1') this.validate(dataUri);
+    // [GX.32] Acá se leía la foto recién tomada con Claude Vision. Se retiró.
     this.cdr.markForCheck();
   }
   clearPhoto() { this.clearFile('comprobante_1'); }
@@ -979,20 +996,13 @@ export class FinanzasCapturarGastoComponent {
       // [GX.24] La miniatura, solo si es imagen. Un PDF no la tiene y la pantalla lo DICE
       // con su icono: dejar el hueco se lee como «no cargo», que es otra cosa.
       if (dataUri.startsWith('data:image/')) this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
-      if (role === 'comprobante_1') this.validate(dataUri);
+      // `[GX.32]` Acá se llamaba a `validate()` para que Claude Vision leyera la foto y
+      // dijera si el monto cuadraba. Se retiró: la foto se adjunta y listo.
       this.cdr.markForCheck();
     };
     reader.readAsDataURL(file);
   }
 
-  private validate(dataUri: string) {
-    this.photoLoading.set(true);
-    this.photoResult.set(null);
-    this.svc.validatePhoto(dataUri, Number(this.gasto()?.importe) || 0).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.photoLoading.set(false); this.photoResult.set(r); this.cdr.markForCheck(); },
-      error: () => { this.photoLoading.set(false); },
-    });
-  }
 
   submit() {
     const g = this.gasto();
@@ -1018,6 +1028,8 @@ export class FinanzasCapturarGastoComponent {
      * que se la habia pedido a la persona.
      */
     // [GX.23] Todas las que haya, no la primera de cada una.
+    // `[GX.33]` Los documentos sueltos suben con el resto. Sin esto se quedaban en el
+    // navegador: la pantalla los mostraba adjuntos y el expediente llegaba sin ellos.
     this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION], () => this.createSolicitud(g));
   }
 
@@ -1026,7 +1038,6 @@ export class FinanzasCapturarGastoComponent {
     const id = this.existing()?.id;
     if (!id) { this.formError.set('No encuentro el expediente aprobado. Vuelve a elegir el folio.'); return; }
     if (!this.fileData['comprobante_1'] && !this.uploaded['comprobante_1']) { this.formError.set('Sube la evidencia.'); return; }
-    if (this.photoLoading()) { this.formError.set('Espera a que termine de leerse la foto…'); return; }
     this.formError.set('');
     this.saving.set(true);
     this.uploadThen(['comprobante_1'], () => this.enviarEvidencia(id, g));
@@ -1068,14 +1079,13 @@ export class FinanzasCapturarGastoComponent {
   }
 
   private enviarEvidencia(id: string, g: SelSolicitud) {
-    const pr = this.photoResult();
     const files = [this.uploaded['comprobante_1']].filter(Boolean) as ProofFile[];
+    // `[GX.32]` Ya no viajan `monto_ocr`, `subtotal_ocr` ni `receipt_legible`: los llenaba
+    // la lectura por visión, que se retiró. El servidor tampoco los recibe.
     this.svc.addEvidence(id, {
       files, comentarios: this.comentarios || undefined,
-      monto_ocr: pr?.monto_ocr ?? pr?.total ?? undefined, subtotal_ocr: pr?.subtotal ?? undefined,
-      receipt_legible: pr ? pr.ocr_status === 'ok' : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Evidencia enviada', detail: `Solicitud ${g.folio} · ${r.status === 'validada' ? 'validada' : 'en revisión'}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
+      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Evidencia enviada', detail: `Solicitud ${g.folio} · la revisa quien autoriza` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la evidencia.'); },
     });
   }

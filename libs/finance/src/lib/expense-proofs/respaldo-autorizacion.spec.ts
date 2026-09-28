@@ -53,13 +53,19 @@ describe('[GX.31] la regla compartida exige la foto SIEMPRE', () => {
     expect(faltan.map((f) => f.id)).toContain('evidencia');
   });
 
-  /** Una foto subida de la galería no es el vale que se firmó al gastar. */
-  it('la foto tiene que tener sello de cámara', () => {
+  /**
+   * `[GX.36]` **El sello de cámara dejó de ser obligatorio.** Acá esta prueba exigía que
+   * la foto viniera de la cámara; se retiró con la regla, porque en esta operación los
+   * vales se ESCANEAN y el escaneo del vale firmado vale lo mismo que su foto.
+   *
+   * ⚠️ El sello sigue viajando y Aprobación lo muestra: pasó de COMPUERTA a DATO.
+   */
+  it('un comprobante subido como archivo YA alcanza', () => {
     const faltan = faltaParaMandar({
       forma_pago: 'efectivo', forma_pago_detalle: 'caja chica',
       archivos: [foto(false)], exige_evidencia: true,
     });
-    expect(faltan.map((f) => f.id)).toContain('evidencia_en_vivo');
+    expect(faltan).toEqual([]);
   });
 
   it('con la foto en vivo y la forma de pago, pasa', () => {
