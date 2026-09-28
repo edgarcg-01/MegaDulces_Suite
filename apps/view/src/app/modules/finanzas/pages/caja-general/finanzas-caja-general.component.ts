@@ -22,6 +22,7 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
+import { imprimirComprobante as imprimirTicketComprobante, type ComprobanteCaja } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
@@ -242,6 +243,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.4rem; }
     .cg-caja-ico { color:var(--action); font-weight:700; }
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
+    /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
+    .ta-c { text-align:center; }
+    .cg-print { background:none; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      cursor:pointer; color:var(--action); padding:.25rem .55rem; min-height:2rem; min-width:2.2rem; }
+    .cg-print:hover { border-color:var(--action); }
+    .cg-print:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
     .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
@@ -548,6 +555,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <tr>
             <th>Folio</th><th>Fecha</th><th>Tipo</th><th>Cuenta / Concepto</th>
             <th>Qué pasó</th><th class="ta-r">Monto</th><th>Capturó</th><th>Origen</th>
+            <th class="ta-c">Comprobante</th>
           </tr>
         </ng-template>
         <ng-template #body let-m>
@@ -569,10 +577,20 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                 </span>
               } @else { <small class="fin-dim">manual</small> }
             </td>
+            <td class="ta-c">
+              <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
+                   recibido, total, firma). No para los cancelados: su comprobante ya no vale. -->
+              @if (m.estado !== 'cancelado') {
+                <button type="button" class="cg-print" (click)="imprimirComprobante(m)"
+                        title="Imprimir comprobante" aria-label="Imprimir comprobante">
+                  <i class="pi pi-print" aria-hidden="true"></i>
+                </button>
+              }
+            </td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="8" class="fin-empty">Sin movimientos en el periodo.</td></tr>
+          <tr><td colspan="9" class="fin-empty">Sin movimientos en el periodo.</td></tr>
         </ng-template>
       </p-table>
       </app-load-state>
@@ -2537,6 +2555,33 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return t === 'ingreso' ? 'success' : t === 'gasto' ? 'danger' : 'info';
   }
 
+  /** CS.3.8 — Arma el comprobante desde un movimiento + su desglose por denominación. */
+  private comprobanteDe(m: MovimientoCaja, dens: Array<{ denominacion: number; piezas: number }>): ComprobanteCaja {
+    return {
+      folio: m.folio, tipo: m.tipo, fecha: dmy(m.fecha), sucursal: m.sucursal,
+      beneficiario: m.beneficiario, kepler_cuenta: m.kepler_cuenta, kepler_concepto: m.kepler_concepto,
+      kepler_concepto_nombre: m.kepler_concepto_nombre, glosa: m.glosa,
+      denominaciones: dens, morralla: Number(m.morralla || 0), monto: Number(m.monto),
+      created_by_username: m.created_by_username, created_at: m.created_at,
+    };
+  }
+
+  /**
+   * CS.3.8 — Imprime (o re-imprime) el comprobante de un movimiento en la térmica: trae el detalle
+   * con las denominaciones y lo manda al ticket (folio nuestro, desglose, concepto, recibido, total,
+   * firma). Se usa desde la lista; al guardar se imprime solo con lo recién enviado.
+   */
+  imprimirComprobante(m: MovimientoCaja): void {
+    this.svc.detalle(m.id).subscribe({
+      next: (d) => {
+        if (!imprimirTicketComprobante(this.comprobanteDe(d, d.denominaciones ?? []))) {
+          this.avisarError(null, 'El navegador no dejó abrir la impresión del comprobante');
+        }
+      },
+      error: (e) => this.avisarError(e, 'No se pudo abrir el comprobante'),
+    });
+  }
+
   guardar(): void {
     if (this.bloqueos().length || this.guardando()) return;
     this.guardando.set(true);
@@ -2545,6 +2590,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const f = this.f();
     // Se lee ANTES de emitir: el `next` corre despues y para entonces el dialogo ya se cerro.
     const declarar = this.declararRegla() && this.puedeDeclararRegla();
+    // CS.3.8 — el desglose que va al servidor, capturado ACÁ para imprimir el comprobante en el
+    // `next` (después la reja ya se reseteó). Es el arqueo completo (cajero + reja).
+    const densComprobante = this.denominacionesParaGuardar();
     this.svc.crear({
       ...f,
       // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
@@ -2577,10 +2625,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: this.nuevoUuid(),
     }).subscribe({
-      next: () => {
+      next: (m) => {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
+        // CS.3.8 — el comprobante sale solo a la térmica con lo recién guardado (folio nuestro,
+        // desglose, concepto, recibido, total, firma). Se re-imprime cuando haga falta desde la lista.
+        if (m?.folio) imprimirTicketComprobante(this.comprobanteDe(m, densComprobante));
         // La regla va DESPUÉS de que el movimiento se guardó, y en su propia petición: si
         // declararla falla, el registro del efectivo ya está hecho y no se pierde.
         if (declarar) this.declararCuenta(f);
