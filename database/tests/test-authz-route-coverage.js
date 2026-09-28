@@ -38,6 +38,14 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓', msg); } els
  * operación sea self-scoped (el id sale del JWT, no del body) o que tenga su propio guard.
  * Agregar una fila sin motivo real es exactamente lo que este test existe para evitar.
  */
+/**
+ * ⚠️ **El valor puede ser una frase (exime el ARCHIVO entero) o un objeto `{ metodo: motivo }`
+ * (exime sólo ESE handler).** La forma de objeto se agregó el 2026-09-28 por un caso concreto:
+ * `expense-proofs.controller.ts` tiene UNA ruta self-scoped legítima y otras veinte que sí
+ * llevan permiso — eximir el archivo entero habría dejado ciego al candado sobre un controller
+ * que aprueba dinero, que es exactamente lo contrario de lo que este test existe para hacer.
+ * La llave es el NOMBRE DEL HANDLER y no el número de línea, que se corre con cualquier edición.
+ */
 const PERMITIDAS = {
   'libs/trade/src/lib/catalogs/catalogs.controller.ts':
     'valida adentro con checkCatalogManageAccess() (clave exacta + platform-admin)',
@@ -49,6 +57,17 @@ const PERMITIDAS = {
     'self-scoped: acuses que se resuelven contra @ReqUser(), nadie puede acusar por otro',
   'libs/trade/src/lib/reports/reports.controller.ts':
     'route-pings: telemetría self-scoped de campo (decisión documentada en el propio método)',
+  'libs/finance/src/lib/expense-proofs/expense-proofs.controller.ts': {
+    // Verificado antes de escribir esta línea, no aceptado de palabra: `solicitarReapertura`
+    // llama a `puedePedirReapertura(vale, actor)`, que exige `vale.created_by === quienPide`,
+    // y `quienPide` sale del JWT (`req.user`). Pedir la reapertura de un vale ajeno devuelve
+    // «no es tuyo». Gatearlo con `_VER` dejaría afuera a los ~140 que sólo capturan, que son
+    // justo quienes piden.
+    // ⚠️ Queda una debilidad declarada: la identidad se compara por NOMBRE (`created_by` contra
+    // `full_name || username`), no por id de usuario. Dos personas con el mismo nombre, o un
+    // renombre, rompen la comprobación. Se arregla en el módulo, no acá.
+    solicitarReapertura: 'self-scoped: el servicio exige created_by === quien pide (JWT)',
+  },
 };
 
 // ── 1. Cobertura de rutas ────────────────────────────────────────────────────
@@ -75,22 +94,32 @@ for (const f of controllers) {
   for (let i = 0; i < lineas.length; i++) {
     if (!VERBO.test(lineas[i])) continue;
     if (lineas[i].includes('@Get(')) continue; // esta suite vigila ESCRITURAS
-    let tienePerm = permClase, esPublic = false;
+    let tienePerm = permClase, esPublic = false, metodo = '';
     for (let k = i + 1; k < Math.min(i + 12, lineas.length); k++) {
       if (VERBO.test(lineas[k])) break;
       if (DECOR.test(lineas[k])) tienePerm = true;
       if (/@Public\(\)/.test(lineas[k])) esPublic = true;
-      if (/^\s*(async\s+)?[a-zA-Z_$]+\s*\(/.test(lineas[k]) && !/@/.test(lineas[k])) break;
+      // ⚠️ `!/@/.test(linea)` NO sirve para reconocer el handler: casi todos llevan parámetros
+      // decorados (`solicitarReapertura(@Param('id') ...)`) y la línea contiene una arroba. Lo
+      // que distingue a un decorador es que EMPIEZA con `@`.
+      const m = lineas[k].match(/^\s*(?:async\s+)?([a-zA-Z_$][\w$]*)\s*\(/);
+      if (m && !/^\s*@/.test(lineas[k])) { metodo = m[1]; break; }
     }
     for (let j = i - 1; j >= 0 && !VERBO.test(lineas[j]); j--) {
       if (DECOR.test(lineas[j])) tienePerm = true;
       if (/@Public\(\)/.test(lineas[j])) esPublic = true;
       if (/^\s*}\s*$/.test(lineas[j])) break;
     }
-    if (!tienePerm && !esPublic) abiertas.push({ rel, line: i + 1 });
+    if (!tienePerm && !esPublic) abiertas.push({ rel, line: i + 1, metodo });
   }
 }
-const sinExcusa = abiertas.filter((r) => !PERMITIDAS[r.rel]);
+// Una excusa de ARCHIVO (string) exime todo; una de OBJETO exime sólo el handler nombrado.
+const sinExcusa = abiertas.filter((r) => {
+  const excusa = PERMITIDAS[r.rel];
+  if (!excusa) return true;
+  if (typeof excusa === 'string') return false;
+  return !excusa[r.metodo];
+});
 console.log('\n[1] Cobertura de rutas de escritura');
 ok(sinExcusa.length === 0,
   `toda escritura declara permiso (abiertas sin motivo: ${sinExcusa.length}${sinExcusa.length ? ' → ' + sinExcusa.slice(0, 8).map((r) => `${r.rel}:${r.line}`).join(', ') : ''})`);
