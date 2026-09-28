@@ -28,12 +28,15 @@
  * Es el mismo criterio con el que este mismo `libs/` eligió un listener global antes que una
  * directiva para la guarda de la rueda: lo que hay que acordarse de agregar, no se agrega.
  *
- * ── Lo que NO hace, a propósito ──────────────────────────────────────────────────────────────
- * **No toca IndexedDB.** La base offline (`OfflineDatabaseService`) guarda visitas, fotos,
- * pings de ruta y conteos con una bandera `sincronizado`: puede haber **trabajo de campo que
- * todavía no llegó al servidor**, y borrarlo al cerrar sesión sería destruirlo. Eso necesita
- * decidirse aparte (¿se bloquea el cierre de sesión con pendientes? ¿se avisa?) y queda
- * declarado, no disimulado.
+ * ── IndexedDB: se borra, salvo a quien hace trabajo de campo ─────────────────────────────────
+ * Decisión del usuario (2026-09-28): **se borra para toda persona que no sea vendedor ni
+ * colaborador.** La base offline guarda visitas, fotos, pings de ruta y conteos, o sea el
+ * trabajo de quien anda en la calle; para quien trabaja en oficina no hay nada que conservar y
+ * sí hay una foto de la tienda de otra persona esperando a la siguiente.
+ *
+ * ⚠️ Esta función **no decide quién es de campo**: recibe `borrarIndexedDb` ya resuelto. La
+ * decisión vive en la app, que es la única que conoce los permisos de la persona y el esquema de
+ * su base (cuántas filas quedaron sin sincronizar). Acá sólo se ejecuta y se informa.
  */
 
 /**
@@ -68,8 +71,73 @@ export interface RastroLimpiado {
   sessionStorage: number;
   /** Caches de DATOS del service worker borrados (los de assets NO se tocan). */
   cachesApi: number;
+  /** Bases de IndexedDB efectivamente borradas. */
+  basesBorradas: string[];
+  /**
+   * Bases que el navegador NO pudo borrar porque alguien las tiene abiertas. Se DECLARAN: una
+   * base bloqueada sigue ahí, y decir `borradas: []` sin más se leería como «no había ninguna».
+   */
+  basesBloqueadas: string[];
   /** Lo que se DECLARA que sigue ahí y por qué. */
   declarado: string[];
+}
+
+export interface OpcionesDeLimpieza {
+  /**
+   * Borrar además las bases de IndexedDB. Lo decide el llamador: sólo él sabe si esta persona
+   * hace trabajo de campo y si quedó algo sin sincronizar.
+   */
+  borrarIndexedDb?: boolean;
+  /** Cuánto se espera a cada borrado antes de declararlo bloqueado. */
+  timeoutMs?: number;
+}
+
+/**
+ * Las bases que esta suite crea. Es el **respaldo** para navegadores sin `indexedDB.databases()`
+ * (Firefox no lo implementa): ahí no se pueden enumerar y hay que nombrarlas.
+ */
+const BASES_CONOCIDAS = ['TradeMarketingOfflineDB'];
+
+/** Borra las bases de IndexedDB. Nunca cuelga: lo que no se puede borrar se declara. */
+export async function borrarBasesIndexedDb(
+  timeoutMs = 3000,
+): Promise<{ borradas: string[]; bloqueadas: string[]; declarado: string[] }> {
+  const r = { borradas: [] as string[], bloqueadas: [] as string[], declarado: [] as string[] };
+  if (typeof indexedDB === 'undefined') return r;
+
+  let nombres: string[] = [];
+  try {
+    const api = indexedDB as IDBFactory & { databases?: () => Promise<{ name?: string }[]> };
+    if (typeof api.databases === 'function') {
+      nombres = (await api.databases()).map((d) => d.name ?? '').filter(Boolean);
+    } else {
+      // Sin enumeración sólo se puede borrar lo que se sabe de memoria. Se declara, porque la
+      // diferencia entre «no había bases» y «no se pudieron listar» es justamente el riesgo.
+      nombres = [...BASES_CONOCIDAS];
+      r.declarado.push('el navegador no enumera bases: se borraron solo las conocidas');
+    }
+  } catch {
+    nombres = [...BASES_CONOCIDAS];
+    r.declarado.push('fallo al enumerar bases: se borraron solo las conocidas');
+  }
+
+  for (const nombre of nombres) {
+    const ok = await new Promise<boolean>((resolve) => {
+      let resuelto = false;
+      const fin = (v: boolean) => { if (!resuelto) { resuelto = true; resolve(v); } };
+      // `deleteDatabase` se queda esperando si alguien tiene la base ABIERTA (Dexie la deja
+      // abierta). Por eso hay tope: un cierre de sesión no puede quedarse colgado.
+      const t = setTimeout(() => fin(false), timeoutMs);
+      try {
+        const req = indexedDB.deleteDatabase(nombre);
+        req.onsuccess = () => { clearTimeout(t); fin(true); };
+        req.onerror = () => { clearTimeout(t); fin(false); };
+        req.onblocked = () => { clearTimeout(t); fin(false); };
+      } catch { clearTimeout(t); fin(false); }
+    });
+    (ok ? r.borradas : r.bloqueadas).push(nombre);
+  }
+  return r;
 }
 
 /** Los caches de ngsw se nombran `ngsw:<scope>:<version>:data:...` y `...:assets`. */
@@ -80,8 +148,13 @@ const ES_CACHE_DE_DATOS = (nombre: string): boolean =>
  * Borra el rastro de la sesión que se va. Es idempotente y **nunca lanza**: un cierre de sesión
  * que falla a la mitad es peor que uno que limpia de menos y lo dice.
  */
-export async function limpiarRastroDeSesion(): Promise<RastroLimpiado> {
-  const out: RastroLimpiado = { localStorage: 0, sessionStorage: 0, cachesApi: 0, declarado: [] };
+export async function limpiarRastroDeSesion(
+  opts: OpcionesDeLimpieza = {},
+): Promise<RastroLimpiado> {
+  const out: RastroLimpiado = {
+    localStorage: 0, sessionStorage: 0, cachesApi: 0,
+    basesBorradas: [], basesBloqueadas: [], declarado: [],
+  };
 
   // ── localStorage: se conserva sólo lo declarado del aparato ────────────────
   try {
@@ -126,7 +199,19 @@ export async function limpiarRastroDeSesion(): Promise<RastroLimpiado> {
     out.declarado.push('CacheStorage inaccesible');
   }
 
-  // Lo que a propósito sigue ahí.
-  out.declarado.push('IndexedDB intacta: puede tener trabajo de campo sin sincronizar');
+  // ── IndexedDB ──────────────────────────────────────────────────────────────
+  if (opts.borrarIndexedDb) {
+    const r = await borrarBasesIndexedDb(opts.timeoutMs);
+    out.basesBorradas = r.borradas;
+    out.basesBloqueadas = r.bloqueadas;
+    out.declarado.push(...r.declarado);
+    if (r.bloqueadas.length) {
+      // Una base que no se pudo borrar SIGUE AHÍ con los datos de quien se fue. Decirlo es lo
+      // único que permite notar que hubo que cerrar la conexión antes.
+      out.declarado.push(`bases bloqueadas (siguen con datos): ${r.bloqueadas.join(', ')}`);
+    }
+  } else {
+    out.declarado.push('IndexedDB intacta: trabajo de campo que puede no estar sincronizado');
+  }
   return out;
 }
