@@ -14,6 +14,13 @@
 @import '../../../libs/ui-web/src/number-input.css';
 
 /*
+ * Tabla densa estrecha — [UIM.1]. El renglón se apila cuando su CONTENEDOR no da para una
+ * rejilla; la columna congelada se suelta. Es opt-in (.dt-scope + .dt-stack): importarlo no
+ * cambia ninguna tabla por sí solo. Medición y modo de uso en el encabezado del archivo.
+ */
+@import '../../../libs/ui-web/src/dense-table.css';
+
+/*
  * ⭐ Las tres tipografías de la ETIQUETA DE ANAQUEL (/tienda/etiquetas), acá y no en los estilos
  * del componente que las usa.
  *

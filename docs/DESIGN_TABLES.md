@@ -148,9 +148,50 @@ Estas son **vinculantes** (extienden las de `DESIGN.md §Operations`). En QA, ma
 
 ---
 
-## 6. Responsive
-- Default **`responsiveLayout="scroll"`** + **primera columna congelada** → en móvil/estrecho la columna identificadora no se pierde.
-- Evaluar vista "card/stack" por fila solo en pantallas muy chicas si el scroll horizontal se vuelve ilegible (no obligatorio por spec).
+## 6. Responsive — **Tabla estrecha** (reescrito 2026-09-28, [UIM.1])
+
+> ⛔ **Lo que decía esta sección era falso, y está medido.** Decía: *"Default `responsiveLayout="scroll"` + primera columna congelada → en móvil/estrecho la columna identificadora no se pierde"*, y dejaba la vista apilada como *"no obligatorio por spec"*. Por eso nadie la construyó en dos años.
+>
+> **La medición, en `/almacen/inventory/existencia` a 390 px:** las dos columnas congeladas miden `6.5rem` + `15rem` = **344 px de 390 = 88% de la pantalla**. Quedan **46 px** para el dato y una columna pide 88. **No cabe ni una cifra completa**, y desplazarse no ayuda porque lo congelado no se mueve: la ventana de dato mide 46 px en cualquier posición del scroll. La columna congelada, que existe para no perder de vista quién es el renglón, a esa anchura **se come justo el renglón**.
+>
+> No fue un descuido de esa pantalla: **la pantalla estaba obedeciendo esta regla**. Por eso se corrige acá primero.
+
+### La pregunta que decide, y es una sola
+
+**¿Qué son las columnas?**
+
+| Las columnas son… | Patrón | Cómo |
+|---|---|---|
+| **Campos de un mismo registro** (folio, cliente, fecha, importe, estado) | **Apilar** | `libs/ui-web/src/dense-table.css` — mecánico, sin decisiones |
+| **Valores de otra dimensión** (producto × almacén, vendedor × mes) = **pivote** | **Perder un eje** | Diseño de pantalla: la dimensión se elige arriba como *alcance*, la comparación se muda al detalle |
+
+⛔ **Apilar un pivote es el error que parece la solución.** Un producto × 9 almacenes apilado da 9 renglones por producto: más scroll vertical que el horizontal que venía a arreglar, y sin poder comparar. Una matriz en un teléfono **tiene que perder un eje**.
+
+### Caso A — columnas = campos: apilar
+
+1. El contenedor lleva `.dt-scope`. **Sin eso el CSS es inerte** y la pantalla se ve igual de rota con el build en verde — es el modo de falla que la compuerta vigila.
+2. La tabla lleva `.dt-stack` (apila por debajo de **34rem** = 544 px: teléfonos y plegables chicos; una tableta a 48rem sigue viendo la rejilla, que es lo correcto).
+   > Hubo una variante `.dt-stack-wide` a 48rem y **se retiró antes de entregar**: ninguna pantalla la usaba y sus 408 bytes rompían el presupuesto de bundle de `view`. Subir el presupuesto para que entre una variante sin consumidor es el atajo que esta sección vino a cerrar. Se agrega cuando una pantalla de la deuda la necesite.
+3. Cada `<td>` del cuerpo lleva **`data-label` y `role="cell"`**. El `role` no es decorativo: PrimeNG declara `role` explícito en `table`/`rowgroup`/`row` pero **no en `td`**, y el rol implícito de la celda se pierde en cuanto el `display` deja de ser de tabla.
+4. Clases de celda: `.dt-id` (identidad, sube al tope sin rótulo) · `.dt-num` · `.dt-actions` (recupera los 44 px) · `.dt-omit`.
+
+Sirve igual para `p-table` y para una `<table>` plana: los selectores son de anatomía, no de clases de PrimeNG.
+
+### Caso B — columnas = otra dimensión: perder un eje
+
+La dimensión del eje horizontal pasa a ser **alcance**, elegido arriba una vez. La tabla queda con los campos del registro y se apila con el Caso A. **La comparación entre valores de esa dimensión se muda al detalle**, en vertical.
+
+⚠️ Esto **no** lo puede hacer el CSS: hay que decidir *qué se le pide al servidor*. En `existencia` se resolvió reusando el filtro de almacenes que ya existía — el servidor ya filtraba las columnas por `codes`, así que no hubo camino nuevo. **Buscá primero el filtro que ya está**: casi siempre la dimensión ya es filtrable.
+
+Y **se anuncia**: un alcance que la pantalla se puso sola y no dice es un filtro que el operador no sabe que tiene.
+
+### Lo que hay que mirar además del ancho
+
+⛔ **El `title` muere en touch.** `existencia` tenía **11 `[title]`** con 9 explicaciones distintas (de qué ERP sale la cifra, con qué divisor, qué significa el punto): en un teléfono, **ninguna es alcanzable**. Ya lo decía `DESIGN.md` §646 y nadie lo aplicaba a tablas. Al estrechar, lo que vivía en un tooltip **pasa a texto visible**: `sin renglón` en vez de un punto, `divisor sin fuente` en vez de un grado.
+
+### Compuerta
+
+`npm run check:tables` (`scripts/check-dense-tables.js`). Una tabla con `min-width >= 48rem` tiene que declarar qué hace en estrecho: `.dt-stack` + `.dt-scope`, o `.dt-matrix-ok` si es un pivote que pierde el eje por su cuenta. Trae **prueba negativa** (`--self-test`, 7 casos) y **lista de deuda con nombre** — hoy **11 pantallas**, que se imprimen en cada corrida para que no se vuelvan invisibles. ⛔ Subir el umbral no es una de las salidas.
 
 ---
 
@@ -240,7 +281,9 @@ La táctica: **subir el piso en CSS compartido una vez** (sticky + frozen + zebr
 ## 9. Checklist "tabla pro" (criterio de done por tabla)
 
 - [ ] Header **sticky** + `<th scope="col">`.
-- [ ] **1ª columna congelada** si la tabla scrollea horizontal.
+- [ ] **1ª columna congelada** si la tabla scrollea horizontal **y el contenedor da para eso**. ⛔ Por debajo de ~34rem la columna congelada deja de ayudar y tapa: ver §6.
+- [ ] **Dice qué hace en estrecho**: `.dt-scope` + `.dt-stack` con `data-label`/`role="cell"` (columnas = campos), o pierde un eje (columnas = otra dimensión). Lo verifica `npm run check:tables`.
+- [ ] **Nada que importe vive sólo en un `title`**: en touch no hay hover.
 - [ ] Números en **`comm-num`** (mono + tabular + decimales constantes); texto a la izquierda.
 - [ ] **Divisor inferior fino + hover** (NO zebra — directiva quiet-luxury).
 - [ ] **Sort** con flecha + `aria-sort` en columnas ordenables.

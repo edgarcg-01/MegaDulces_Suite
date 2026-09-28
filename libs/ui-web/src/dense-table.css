@@ -1,0 +1,217 @@
+/* ============================================================================================
+ * TABLA DENSA ESTRECHA — el renglón se apila cuando el contenedor no da para una rejilla.
+ * [UIM.1] · libs/ui-web/src/dense-table.css · importado por las 3 apps desde su styles.css
+ * ============================================================================================
+ *
+ * POR QUÉ EXISTE, medido en /almacen/inventory/existencia a 390 px:
+ *
+ *   .ex-sku  = 6.5rem = 104 px   CONGELADA
+ *   .ex-name = 15rem  = 240 px   CONGELADA
+ *                       ------
+ *                       344 px de 390 = 88% de la pantalla ocupada por la IDENTIFICACIÓN
+ *
+ * Quedan 46 px para el dato y una columna de almacén pide 88 (.ex-wh = 5.5rem): no cabe ni una
+ * cifra completa. Y desplazarse no ayuda, porque lo congelado no se mueve: la ventana de dato
+ * sigue midiendo 46 px en cualquier posición del scroll. La columna congelada, que existe para
+ * NO perder de vista quién es el renglón, a esa anchura se come justo el renglón.
+ *
+ * ⛔ Esto NO era un descuido de esa pantalla: DESIGN.md §553 y DESIGN_TABLES.md §152 mandaban
+ * exactamente eso — "scroll horizontal con primera columna pegada". La pantalla obedecía. Por eso
+ * el arreglo empieza por la regla y sigue por acá, y no al revés.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────
+ * QUÉ RESUELVE, Y QUÉ NO
+ *
+ * Resuelve el caso en que las columnas son CAMPOS DE UN MISMO REGISTRO (folio, cliente, fecha,
+ * importe, estado): ahí apilar es correcto y mecánico — cada campo baja con su rótulo.
+ *
+ * ⛔ NO resuelve la MATRIZ (un pivote: producto × almacén, vendedor × mes). Ahí el eje horizontal
+ * no son campos, son valores de otra dimensión, y apilarlos da N renglones por registro: peor que
+ * el scroll. Una matriz en un teléfono tiene que PERDER UN EJE — la dimensión se elige arriba como
+ * alcance y la comparación se muda al detalle. Eso es diseño de pantalla, no una utilidad de CSS,
+ * y encima necesita decidir QUÉ SE LE PIDE AL SERVIDOR, cosa que el CSS no puede hacer. La regla
+ * completa, con el árbol de decisión, está en DESIGN_TABLES.md §"Tabla estrecha".
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────
+ * CÓMO SE USA (3 pasos, ninguno opcional)
+ *
+ *   1. El contenedor que envuelve la tabla lleva .dt-scope. Sin eso la consulta de contenedor no
+ *      tiene contra qué medir y el archivo entero es INERTE — y una pantalla inerte se ve igual
+ *      que una rota, pero con el build en verde. La compuerta check:tables lo exige por eso.
+ *   2. La tabla (o el envoltorio de p-table, vía styleClass) lleva .dt-stack.
+ *   3. CADA celda del cuerpo lleva data-label con el rótulo de su columna Y role="cell".
+ *
+ *      <td data-label="Folio" role="cell">{{ r.folio }}</td>
+ *
+ *      ⚠️ El role NO es decorativo. PrimeNG declara role explícito en table/rowgroup/row, pero NO
+ *      en td: la celda depende del rol IMPLÍCITO, y el rol implícito se pierde en cuanto el
+ *      display deja de ser de tabla. Sin ese atributo el lector de pantalla encuentra filas sin
+ *      celdas. Se agrega en la misma edición que el data-label, es el mismo renglón.
+ *
+ * Clases de celda, todas opcionales:
+ *   .dt-id      la línea de identidad (nombre, folio). Sube al tope y va sin rótulo.
+ *   .dt-num     cifra: conserva alineación tabular aunque ya no haya columna que la alinee.
+ *   .dt-actions la fila de botones: recupera el piso táctil de 44 px.
+ *   .dt-omit    la celda no aparece apilada. ⛔ NO para esconder un dato que estorba: si importa
+ *               en escritorio, importa en el teléfono. Es para relleno y separadores.
+ *
+ * ⚠️ LÍMITE DECLARADO, no disimulado: el rótulo se pinta con contenido generado (::before), y su
+ * anuncio por lector de pantalla NO es uniforme entre navegadores. Para una celda cuyo valor no
+ * se entiende sin el rótulo (un número suelto, una fecha suelta), poné además aria-label en la
+ * celda. Para una celda que se explica sola (el nombre del cliente) no hace falta.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────
+ * EL UMBRAL
+ *
+ * .dt-stack      apila por debajo de 34rem (544 px): teléfonos (390/414/430) y plegables chicos.
+ *                Una tableta a 48rem sigue viendo la tabla, que es lo correcto: ahí la rejilla
+ *                densa gana y el operador la quiere.
+ * ⛔ Hubo una segunda clase .dt-stack-wide (umbral 48rem, para las tablas que ni en tableta
+ * entran) y se RETIRÓ antes de entregar: ninguna pantalla la usaba todavía, y duplicaba el bloque
+ * entero porque una consulta de contenedor no puede leer una propiedad personalizada en su
+ * condición. Esos 408 bytes rompían el presupuesto de bundle de view — y subir el presupuesto para
+ * que entre una variante sin consumidor es exactamente el atajo que este archivo vino a cerrar.
+ * Cuando una pantalla de la deuda [UIM.2] la necesite de verdad, se agrega con su consumidor.
+ *
+ * ⚠️ Se mide el CONTENEDOR (@container), nunca la ventana (@media): la misma tabla vive dentro de
+ * un master-detail de 320 px en escritorio y a pantalla completa en un teléfono, y el ancho de la
+ * ventana no distingue esos dos casos. Es la regla §76 de DESIGN.md, que el repo mandaba desde
+ * julio de 2026 y casi no usaba.
+ *
+ * ⚠️ Los selectores son de ANATOMÍA (thead/tbody/tr/td), no de clases de PrimeNG, por dos razones:
+ * sirven igual para una <table> plana —que en este repo son mayoría fuera de p-table— y funcionan
+ * tanto si la clase va en la tabla como si va en su envoltorio. Lo único que sí nombra a PrimeNG
+ * es soltar la columna congelada, porque esa clase la pone la librería.
+ * ============================================================================================ */
+
+.dt-scope {
+  container-type: inline-size;
+  container-name: densetable;
+}
+
+/* Fuera del modo apilado no se toca nada: la tabla densa de escritorio queda igual. */
+
+@container densetable (max-width: 34rem) {
+  .dt-stack table,
+  table.dt-stack,
+  .dt-stack tbody,
+  .dt-stack tbody > tr > td {
+    display: block;
+    width: auto;
+  }
+
+  /* La fila es una COLUMNA flex, no un bloque, por una razón concreta: así `order` funciona sobre
+     las celdas y la identidad sube al tope SIN tocar el orden de las columnas en escritorio. Con
+     `display: block` el `order` no aplica (necesita padre flex o grid) y la única salida sería
+     reordenar el markup — que desalinea el encabezado y el pie de la tabla ancha. */
+  .dt-stack tbody > tr {
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    padding: 0.5rem 0 0.55rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  /* El encabezado desaparece porque su contenido viaja en cada celda (data-label). Dejarlo
+     visualmente oculto pero presente lo haría leer como una fila de texto suelto antes de la
+     primera ficha, que es ruido, no ayuda. El pie de totales tampoco sobrevive al apilado:
+     la pantalla que lo necesite pone una tira propia fuera de la tabla. */
+  .dt-stack thead,
+  .dt-stack tfoot {
+    display: none;
+  }
+
+  /* ⛔ La columna congelada se suelta. Es el punto del archivo: a esta anchura, 344 px pegados
+     no ayudan a no perder el renglón — lo tapan. */
+  .dt-stack .p-datatable-frozen-column,
+  .dt-stack .p-datatable-frozen-column-left {
+    position: static;
+    left: auto;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* El ancho mínimo que la pantalla declaraba en tableStyle deja de aplicar: si sobrevive, todo
+     lo de acá abajo se desplaza igual y el arreglo no se ve. Va con !important porque PrimeNG lo
+     escribe como estilo en línea sobre el elemento, y en línea le gana a cualquier hoja. */
+  .dt-stack table,
+  table.dt-stack {
+    min-width: 0 !important;
+  }
+
+  .dt-stack .p-datatable-table-container {
+    overflow-x: hidden;
+  }
+
+  /* Cada fila es un bloque separado por una línea de 1px. NO es una tarjeta: sin sombra, sin
+     radio, sin borde izquierdo de color (los tres son el mismo adorno y ninguno codifica dato). */
+  .dt-stack tbody > tr > td {
+    /* Rótulo a la izquierda, valor a la derecha: el ojo baja por una sola columna de valores. */
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 1.75rem;
+    padding: 0.15rem 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .dt-stack tbody > tr > td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    max-width: 45%;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  /* Una celda sin rótulo no reserva el hueco del rótulo. */
+  .dt-stack tbody > tr > td:not([data-label])::before {
+    content: none;
+  }
+
+  .dt-stack tbody > tr > td.dt-id {
+    order: -1;
+    justify-content: flex-start;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    line-height: 1.3;
+    padding-bottom: 0.3rem;
+  }
+
+  .dt-stack tbody > tr > td.dt-omit {
+    display: none;
+  }
+
+  /* En rejilla densa manda la densidad (32-40 px); acá manda Fitts, como dice DESIGN.md §716:
+     no se promedia, lo decide el puntero. */
+  .dt-stack tbody > tr > td.dt-actions {
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.4rem;
+  }
+
+  .dt-stack tbody > tr > td.dt-actions button,
+  .dt-stack tbody > tr > td.dt-actions a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .dt-stack tbody > tr > td.dt-num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Una fila vacía o de mensaje no se disfraza de registro. */
+  .dt-stack tbody > tr > td[colspan] {
+    display: block;
+    text-align: center;
+  }
+
+  .dt-stack tbody > tr > td[colspan]::before {
+    content: none;
+  }
+}

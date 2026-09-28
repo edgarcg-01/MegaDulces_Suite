@@ -12,6 +12,12 @@
  */
 @import '../../../libs/ui-web/src/number-input.css';
 
+/*
+ * Tabla densa estrecha — [UIM.1]. Opt-in (.dt-scope + .dt-stack). Portal es Storefront y casi no
+ * tiene rejillas densas, pero las que tenga se comportan igual que en las otras dos apps.
+ */
+@import '../../../libs/ui-web/src/dense-table.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
