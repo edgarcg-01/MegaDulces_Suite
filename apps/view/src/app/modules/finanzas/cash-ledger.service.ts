@@ -462,4 +462,9 @@ export interface SaldoResponse {
   sin_corte_abierto: boolean;
   movimientos_sueltos: number;
   totales: TotalesCorte;
+  /**
+   * CS.3.11 — Movimiento del CAJERO (CAOS) en el período del corte, para conciliar la caja chica
+   * (efectivo suelto) contra la bóveda. Sólo en oficinas (sucursal 00) con corte abierto; `null` si no.
+   */
+  cajero?: { depositado: number; dispensado: number; movimientos: number; desde: string } | null;
 }

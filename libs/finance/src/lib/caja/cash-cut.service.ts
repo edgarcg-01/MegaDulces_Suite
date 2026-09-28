@@ -308,12 +308,41 @@ export class CashCutService {
    * ⚠️ `saldo` también se recorta: es literalmente `t.esperado` con otro nombre. Dejarlo hubiera
    * sido tapar el campo y publicarlo en el de al lado — que es como se rompen estos candados.
    */
+  /**
+   * CS.3.11 — Conciliación con el CAJERO (CAOS) para el corte de OFICINAS (sucursal 00, el único con
+   * cajero). Desde que abrió el corte, cuánto se DEPOSITÓ en el cajero (salió de caja chica a la
+   * bóveda) y cuánto se DISPENSÓ (entró a caja chica). Modelo «cajas separadas»: la caja chica es
+   * efectivo suelto, el cajero es la bóveda. `null` si no es oficinas, no hay corte, o no está el feed.
+   * ⚠️ CAOS no tiene columna sucursal (un solo dispositivo en oficinas): el filtro es sólo por período.
+   * ⚠️ `abs(total)`: una dispensación puede venir con `total` negativo — acá interesa la MAGNITUD movida.
+   */
+  private async conciliacionCajero(trx: any, tenantId: string, sucursal: string, desde: string | Date | null) {
+    if (sucursal !== '00' || !desde) return null;
+    const existe = await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`);
+    if (!existe.rows?.[0]?.t) return null; // el feed del cajero puede no estar en este entorno
+    const [r] = await trx('analytics.caos_cash_movements')
+      .where('tenant_id', tenantId)
+      .where('occurred_at', '>=', desde)
+      .select(
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = 0), 0)::numeric AS depositado`),
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = 4), 0)::numeric AS dispensado`),
+        trx.raw(`count(*)::int AS movimientos`),
+      );
+    return {
+      depositado: Number(r?.depositado ?? 0),
+      dispensado: Number(r?.dispensado ?? 0),
+      movimientos: Number(r?.movimientos ?? 0),
+      desde: desde instanceof Date ? desde.toISOString() : String(desde),
+    };
+  }
+
   async saldo(sucursal: string, revela = false) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const abierto = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
+      const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
       const t = calcularCorte({ fondoInicial: Number(abierto?.fondo_inicial ?? 0), movimientos: movs });
       return {
         sucursal,
@@ -333,6 +362,10 @@ export class CashCutService {
         sin_corte_abierto: !abierto,
         movimientos_sueltos: t.movimientos,
         totales: proyectarCiego(t, revela),
+        // CS.3.11 — el movimiento del cajero (CAOS) en el período del corte, para conciliar la caja
+        // chica contra la bóveda. Los montos son hechos del cajero (no gateados); la caja chica
+        // conciliada la calcula el front sólo cuando `saldo` (esperado) se revela.
+        cajero,
       };
     });
   }
