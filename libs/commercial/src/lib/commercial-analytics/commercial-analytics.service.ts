@@ -2848,6 +2848,15 @@ export class CommercialAnalyticsService {
 
       const contable = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
         .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
+      // `[IG.4.1]` El puente: la venta BRUTA es lo que el feed nocturno puede cuadrar (él es sólo
+      // `UD1301`); la devolución es lo que este número resta y aquél no. Sin las dos piernas, el
+      // delta del feed se leería como descuadre cuando es justamente la corrección.
+      const bruta = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
+        .andWhere('e.doc_tipo', 'UD1301')
+        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
+      const devoluciones = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
+        .andWhereRaw("e.doc_tipo LIKE 'UA25%'")
+        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
 
       // El feed nocturno es MENSUAL: sólo se compara si el rango son meses enteros, o el Δ sería
       // un artefacto del recorte. Si no lo son, se DECLARA no comparable en vez de restar peras.
@@ -2882,12 +2891,17 @@ export class CommercialAnalyticsService {
       return {
         from, to,
         fuentes: [
-          { key: 'contable', label: 'Contable (pólizas 401, CEDIS · UD1301)', monto: contable, delta_pct: 0, comparable: true,
-            nota: 'Lo que publica esta pantalla. Derivado del ODS al minuto.' },
-          { key: 'canal', label: 'Por canal (feed nocturno)', monto: porCanal, delta_pct: pct(porCanal), comparable: true,
-            medido_al: edadFeed,
+          { key: 'venta_bruta', label: 'Venta bruta (UD1301)', monto: bruta, delta_pct: null, comparable: true,
+            nota: 'La venta antes de devoluciones. Es la pierna que el feed nocturno puede cuadrar, porque él sólo trae este documento.' },
+          { key: 'devoluciones', label: 'Devoluciones y notas de crédito (UA25xx)', monto: devoluciones, delta_pct: null, comparable: true,
+            nota: 'Se RESTAN del total, cada una en su canal y su plaza. Antes quedaban fuera y el ingreso salía inflado: −$1,505,625.79 en 12 meses.' },
+          { key: 'contable', label: 'Contable NETO (lo que publica esta pantalla)', monto: contable, delta_pct: 0, comparable: true,
+            nota: 'Venta bruta menos devoluciones. Derivado del ODS al minuto.' },
+          { key: 'canal', label: 'Por canal (feed nocturno)', monto: porCanal,
+            delta_pct: porCanal == null || !bruta ? null : +(((porCanal - bruta) / bruta) * 100).toFixed(1),
+            comparable: true, medido_al: edadFeed,
             nota: mesesEnteros
-              ? 'Mismo universo por otro camino (lee las réplicas, no el ODS). Debe cuadrar: en los 6 meses cerrados de feb–jul 2026 el delta fue $0.00 exacto.'
+              ? '⚠️ Se compara contra la venta BRUTA, no contra el neto: este feed es sólo UD1301 y no resta devoluciones. Contra la bruta debe dar $0.00 — así salió en los 6 meses cerrados de feb–jul 2026.'
               : 'NO MEDIDO: este feed es mensual y el rango no son meses enteros. Compararlo restaría peras con manzanas.' },
           { key: 'hecho_venta', label: 'Hecho de venta (mv_sales_blended)', monto: hechoVenta, delta_pct: pct(hechoVenta), comparable: true,
             nota: 'Testigo independiente: otra fuente y otro camino. Un ~3 % de diferencia es sano; una brecha grande es señal.' },
@@ -2895,9 +2909,6 @@ export class CommercialAnalyticsService {
             nota: '⚠️ NO comparable de frente: es lo que se COBRÓ, no lo que se devengó. La diferencia es plazo de crédito (DSO), no faltante.' },
           // Las tres de abajo NO son fuentes alternativas: son lo que el alcance deja fuera. Van
           // acá porque es donde alguien viene a preguntarse si el número está completo.
-          { key: 'devoluciones', label: 'Devoluciones y notas de crédito (NO restadas)', monto: fueraDeAlcance.devoluciones,
-            delta_pct: null, comparable: false,
-            nota: '⚠️ El ingreso de arriba NO les resta esto. Son «Nota Créd/Dev NoFis POS» (UA2501/UA2502) contra la cuenta 403. Decisión pendiente: restarlas cambia el número y lo separa del feed nocturno.' },
           { key: 'contado_nf', label: 'Factura Contado No Fiscal (NO sumada)', monto: fueraDeAlcance.contado_nf,
             delta_pct: null, comparable: false,
             nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },

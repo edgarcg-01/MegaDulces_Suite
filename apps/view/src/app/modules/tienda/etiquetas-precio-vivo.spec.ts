@@ -88,18 +88,43 @@ describe('etiquetera · el aviso en vivo de cambio de precio', () => {
     expect(PAGE).toMatch(/\[class\.etqp-row-changed\]="filaCambiada\(it\)"/);
   });
 
-  it('[NORM.3] NINGUNA resolución de etiqueta se pide sin la plaza', () => {
-    // El precio de Kepler es por tienda: medido en prod el 2026-09-11, 1,039 de 9,365 SKUs (11.1%)
-    // tienen precio de pieza distinto entre plazas retail y 1,164 grupos de mayoreo de paquete
-    // (6.3%) también. Un camino que llame a `resolve` sin pasar la sucursal imprime el precio de
-    // OTRA tienda, y no falla: sale una etiqueta con un número plausible y equivocado.
-    //
-    // Por eso la aserción es sobre TODAS las llamadas, no sobre las que hoy existen: lo que hay
-    // que impedir es la quinta, la que alguien agregue el mes que viene.
+  /**
+   * `[ETQ-PLAZA.1]` ⭐ ESTE BLOQUE ESTUVO VERDE MIENTRAS LA PANTALLA IMPRIMÍA MAL, Y ES LA LECCIÓN.
+   *
+   * La versión anterior exigía que cada `this.svc.resolve(` contuviera el texto
+   * `this.sucursalUsuario`. Lo contenía — y aun así, durante meses, **13 de 31 usuarios con
+   * permiso de etiquetas imprimieron la MODA de las nueve plazas**, porque `sucursalUsuario` era
+   * `null` para todo el que no tuviera `warehouse_code` (superadmin, compras, supervisión,
+   * dirección: justo los de oficina). En PH eso eran 95 productos mal, el peor **−94 %** ($90.82
+   * reales contra $5.86 impresos).
+   *
+   * O sea: la aserción comprobaba que **el NOMBRE de una variable aparecía**, no que una plaza
+   * viajara de verdad. Es exactamente lo que este proyecto ya tenía escrito — *un smoke por regex
+   * sobre el fuente se pone verde con lógica falsa*— y acá cobró en papel impreso.
+   *
+   * Se conserva el barrido estático, porque sí atrapa algo que ningún test de comportamiento ve:
+   * **la quinta llamada, la que alguien agregue el mes que viene**. Pero ahora exige pasar por el
+   * portón, no nombrar una variable. La prueba de COMPORTAMIENTO —que la plaza viaja y que sin
+   * plaza no se resuelve nada— vive en `tienda-etiquetas.component.spec.ts`, y las dos hacen falta.
+   */
+  it('[ETQ-PLAZA.1] NINGUNA resolución de etiqueta se pide sin pasar por el portón de plaza', () => {
     const llamadas = PAGE.match(/this\.svc\.resolve\([^)]*\)/g) || [];
     expect(llamadas.length).toBeGreaterThan(0);
-    const sinPlaza = llamadas.filter((c) => !c.includes('this.sucursalUsuario'));
-    expect(sinPlaza).toEqual([]);
+
+    // El 2º argumento tiene que ser `suc`, que es lo único que devuelve `plazaOAviso()`.
+    const sinPorton = llamadas.filter((c) => !/,\s*suc\s*\)/.test(c));
+    expect(sinPorton).toEqual([]);
+
+    // Y el portón tiene que existir y frenar: si alguien lo vacía, `suc` deja de significar nada
+    // y el barrido de arriba seguiría verde contra una variable cualquiera llamada `suc`.
+    expect(PAGE).toMatch(/private plazaOAviso\(\): string \| null \{/);
+    expect(PAGE).toMatch(/if \(suc\) return suc;/);
+    expect(PAGE).toMatch(/Elige primero la tienda/);
+
+    // Cada llamada va precedida de su guarda. Sin esto, un camino podría declarar `suc` y usarlo
+    // sin comprobar que no sea nulo — que es el defecto original con otro nombre.
+    const guardas = PAGE.match(/const suc = this\.plazaOAviso\(\);/g) || [];
+    expect(guardas.length).toBe(llamadas.length);
   });
 
   it('el precio nuevo se pide por el MISMO camino que el escaneo', () => {
@@ -107,7 +132,8 @@ describe('etiquetera · el aviso en vivo de cambio de precio', () => {
     // frescura medida. Un atajo daría un precio que el escaneo no habría dado.
     const fn = /refrescarPrecios\(\): void \{[\s\S]*?\n  \}/.exec(PAGE);
     expect(fn).not.toBeNull();
-    expect(fn![0]).toMatch(/this\.svc\.resolve\(codes, this\.sucursalUsuario\)/);
+    expect(fn![0]).toMatch(/this\.svc\.resolve\(codes, suc\)/);
+    expect(fn![0]).toMatch(/const suc = this\.plazaOAviso\(\);/);
     expect(fn![0]).toMatch(/lastFreshness\.set/);
   });
 });

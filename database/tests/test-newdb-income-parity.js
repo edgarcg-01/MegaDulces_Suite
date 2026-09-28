@@ -92,8 +92,12 @@ const ultimoDia = (ym) => {
   let mesesConDato = 0;
   for (const ym of mesesCerrados(6)) {
     const from = `${ym}-01`, to = ultimoDia(ym);
+    // `[IG.4.1]` Se compara la venta BRUTA (`UD1301`), no el total: desde que el ingreso resta
+    // devoluciones, el feed nocturno —que es sólo UD1301— ya no puede cuadrar con el neto. El
+    // alcance y el clasificador se siguen probando igual; lo que cambia es contra qué pierna.
     const [{ v: derivado }] = (await knex.raw(
-      `SELECT COALESCE(SUM(importe),0)::numeric AS v FROM analytics.income_entries_src(?::date, ?::date) WHERE tenant_id = ?`,
+      `SELECT COALESCE(SUM(importe),0)::numeric AS v FROM analytics.income_entries_src(?::date, ?::date)
+        WHERE tenant_id = ? AND doc_tipo = 'UD1301'`,
       [from, to, M])).rows;
     const [{ v: feed }] = (await knex.raw(
       `SELECT COALESCE(SUM(ventas),0)::numeric AS v FROM analytics.sales_by_channel_monthly WHERE tenant_id = ? AND anio_mes = ?`,
@@ -125,7 +129,7 @@ const ultimoDia = (ym) => {
   const ymRef = mesesCerrados(1)[0];
   const porCanal = (await knex.raw(
     `SELECT canal, COALESCE(SUM(importe),0)::numeric AS v FROM analytics.income_entries_src(?::date, ?::date)
-      WHERE tenant_id = ? GROUP BY 1`, [`${ymRef}-01`, ultimoDia(ymRef), M])).rows;
+      WHERE tenant_id = ? AND doc_tipo = 'UD1301' GROUP BY 1`, [`${ymRef}-01`, ultimoDia(ymRef), M])).rows;
   if (!porCanal.length) {
     declarar(`${ymRef}: la derivación no devolvió canales`);
   } else {
@@ -142,7 +146,7 @@ const ultimoDia = (ym) => {
     const porPlaza = (await knex.raw(
       `SELECT canal, plaza, COALESCE(SUM(importe),0)::numeric AS v
          FROM analytics.income_entries_src(?::date, ?::date)
-        WHERE tenant_id = ? GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10`,
+        WHERE tenant_id = ? AND doc_tipo = 'UD1301' GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10`,
       [`${ymRef}-01`, ultimoDia(ymRef), M])).rows;
     let plazasMal = 0;
     for (const p of porPlaza) {
@@ -153,6 +157,28 @@ const ultimoDia = (ym) => {
       if (Math.abs(Number(p.v) - Number(feed)) >= 0.005) plazasMal++;
     }
     ok(plazasMal === 0, `${ymRef}: las 10 plazas más grandes cuadran al centavo (${plazasMal} distinta(s))`);
+  }
+
+  // ── 2-bis. El ingreso publicado es NETO de devoluciones ──────────────────────────────────
+  // `[IG.4.1]`: hasta esta fase el total no restaba las «Nota Créd/Dev NoFis POS» y salía inflado
+  // (−$1,505,625.79 en 12 meses). Acá se comprueba que entran, que entran NEGATIVAS y que el total
+  // es exactamente la suma de las dos piernas — si alguien las vuelve a dejar fuera, esto se cae.
+  console.log('\n2-bis) El total es NETO: venta bruta + devoluciones');
+  const [neto] = (await knex.raw(
+    `SELECT COALESCE(SUM(importe),0)::numeric                                   AS total,
+            COALESCE(SUM(importe) FILTER (WHERE doc_tipo = 'UD1301'),0)::numeric AS bruta,
+            COALESCE(SUM(importe) FILTER (WHERE doc_tipo LIKE 'UA25%'),0)::numeric AS devol,
+            COUNT(*) FILTER (WHERE doc_tipo LIKE 'UA25%')::int                   AS n_devol
+       FROM analytics.income_entries_src(?::date, ?::date) WHERE tenant_id = ?`,
+    [`${ymRef}-01`, ultimoDia(ymRef), M])).rows;
+  if (Number(neto.n_devol) === 0) {
+    declarar(`${ymRef}: no hubo devoluciones en el mes — nada que comprobar`);
+  } else {
+    ok(Number(neto.devol) < 0, `las devoluciones entran NEGATIVAS (${money(neto.devol)}) — restan, no suman`);
+    ok(Math.abs(Number(neto.total) - (Number(neto.bruta) + Number(neto.devol))) < 0.005,
+      `total ${money(neto.total)} == bruta ${money(neto.bruta)} + devoluciones ${money(neto.devol)}`);
+    ok(Number(neto.total) < Number(neto.bruta),
+      'el neto es MENOR que la bruta — el ingreso ya no sale inflado');
   }
 
   // ── 3. Mes vivo: se DECLARA, no se afirma ────────────────────────────────────────────────
