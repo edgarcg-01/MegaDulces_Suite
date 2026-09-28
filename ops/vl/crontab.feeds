@@ -59,6 +59,26 @@
 # paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
 2,32 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
 
+# [PUB.1] EL CATÁLOGO DEL ODS → LA TIENDA MAYORISTA (Railway, proyecto `faithful-contentment`).
+# Esa base leía `kepler_ods.*` por `postgres_fdw` contra `trolley.proxy.rlwy.net` = la prod VIEJA,
+# que dejó de alimentarse cuando prod se mudó a `md` el 22-sep. Medido el 28-sep: última captura
+# `kdm1.c68` **23-sep del lado del FDW contra 28-sep en prod** — 21,404 movimientos y 910,676 piezas
+# de existencia de diferencia, publicadas con toda confianza. Tercera vez de la misma familia
+# ([VL.13] el respaldo, [VL.14] la Caja General): prod se muda y un consumidor queda apuntando al
+# fantasma, sin error.
+#
+# Railway NO alcanza a `md` (prod on-prem, sin Postgres público), así que el dato se EMPUJA.
+# ⛔ NO es otro carril de `replicate-ods-live.js`: el estado del CDC (`ods.ctl`/`ods.shadow`) vive en
+# las réplicas y NO tiene dimensión de destino — dos shippers se pisan el watermark y cada destino
+# pierde en silencio las filas que shipeó el otro. Éste lee prod (ya consolidada) y no lleva estado:
+# compara una HUELLA por tabla de los dos lados, y si difiere hace el diff exacto por llave.
+#
+# Fase +7 para no apilarse con `prices` (2,32) ni con el vigilante (*/5). Cada 10 min y no más
+# seguido con motivo: es dato de CATÁLOGO —precio, existencia, departamento— y el ciclo cuesta
+# ~5 s cuando no hay cambios (la huella corta antes de mover una sola fila).
+# ⚠️ Necesita `ODS_PUBLISH_DEST_URL` en /secrets/feeds.env (credencial: nunca al repo).
+7,17,27,37,47,57 * * * * /app/ops/vl/run-feed.sh publish-tienda "node /app/database/importers/kepler/publish-ods-remote.js --apply"
+
 # [VL.6.2] EL VIGILANTE. Vigila que el scanner de Salud BD del API siga vivo y, si no, toma el
 # control y abre las alertas el mismo. Se muda a `md` sin tocar una linea: ya viaja dentro de la
 # imagen y `pg` resuelve (verificado). Su env sale de /secrets/feeds.env como todos, via run-feed.sh.

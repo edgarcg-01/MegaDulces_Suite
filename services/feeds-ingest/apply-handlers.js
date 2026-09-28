@@ -340,7 +340,23 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     if (!exists) {
       const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
       await client.query(`CREATE TABLE ${rel} (${defs}, PRIMARY KEY (${conflict.map(odsQid).join(', ')}))`);
-      try { await client.query(`GRANT SELECT ON ${rel} TO app_runtime`); } catch { /* rol ausente en dev */ }
+      // ⛔ [PUB.1] ACÁ HABÍA UN `try { GRANT … } catch { /* rol ausente en dev */ }` Y NO FUNCIONA.
+      // Un statement que falla DENTRO de una transacción la deja ABORTADA: atrapar el error en JS
+      // no la revive, y todo lo que viene después muere con 25P02 «current transaction is aborted».
+      // O sea que el auto-create de este handler **no puede crear una tabla** en ninguna base que
+      // no tenga el rol `app_runtime`. Nunca se vio porque prod y la réplica de pruebas sí lo
+      // tienen; se midió el 2026-09-28 contra la base de la tienda mayorista, que no, y ahí el
+      // carril entero se caía al crear `kdil`. Reproducido a mano: el catch reporta 42704 y la
+      // transacción siguiente ya viene abortada.
+      // El GRANT condicional no falla nunca, así que no hay nada que atrapar.
+      // `schema` y `table` ya pasaron por `odsIdent()` (whitelist /^[a-z_][a-z0-9_]*$/), así que
+      // interpolarlos acá no abre nada que el CREATE TABLE de arriba no abriera antes.
+      await client.query(
+        `DO $do$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
+             EXECUTE 'GRANT SELECT ON ${rel} TO app_runtime';
+           END IF;
+         END $do$`);
     } else {
       const have = new Set((await client.query(
         `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2`, [schema, table]
@@ -408,7 +424,13 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
     // Los normalizadores son de Kepler (kdii…); wincaja_ods no matchea ninguno y no corre nada.
-    const cfg = schema === 'kepler_ods' ? ODS_NORMALIZERS[table] : null;
+    // [PUB.1] `meta.normalize === false` los apaga para destinos que NO son la Suite (la base de la
+    // tienda mayorista recibe el mismo `kepler_ods` crudo pero no tiene `catalog.*`/`commercial.*`).
+    // Sin esto correrían y fallarían en cada ciclo: el `catch` de abajo los deja pasar, pero el log
+    // se llena de errores que no son fallas — y un tablero con ruido se lee igual que uno apagado.
+    // Default sin cambios: si `normalize` no viene, se comporta exactamente como antes.
+    const normalizar = !(meta && meta.normalize === false);
+    const cfg = (schema === 'kepler_ods' && normalizar) ? ODS_NORMALIZERS[table] : null;
     if (cfg && Array.isArray(rows) && rows.length) {
       const skuCol = cfg.skuCol || pk[0];
       const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
@@ -426,7 +448,7 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     }
     // [DB-MEM.20] FUERA del `if (cfg…)` a propósito: si `kdm2` deja de embarcar un rato, lo que ya
     // se juntó igual tiene que salir. Es no-op mientras no le toque la ventana, y nunca tira.
-    if (schema === 'kepler_ods' && pendientes.size) {
+    if (schema === 'kepler_ods' && normalizar && pendientes.size) {
       try { await vaciarCoalescidos(client, tenantId); }
       catch (e) { console.error(`  [coalesce] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
     }

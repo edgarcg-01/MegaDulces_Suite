@@ -9,6 +9,29 @@
 ---
 
 ## [Unreleased]
+### Fixed — La tienda mayorista publicaba catálogo de una prod CONGELADA hace 5 días (PUB.1, 2026-09-28)
+- **El hallazgo:** la base de la tienda (`faithful-contentment` en Railway) leía `kepler_ods.*` por
+  `postgres_fdw` contra `trolley.proxy.rlwy.net` — la prod **VIEJA**, que dejó de alimentarse cuando
+  prod se mudó a `md` el 22-sep. Medido el 28-sep: última captura `kdm1.c68` **23-sep del lado del
+  FDW contra 28-sep en prod**; **21,404 movimientos** y **910,676 piezas** de existencia de
+  diferencia, servidas con toda confianza. Tercera vez de la misma familia ([VL.13] el respaldo,
+  [VL.14] la Caja General): prod se muda y un consumidor queda apuntando al fantasma, **sin error**.
+- **Added** `database/importers/kepler/publish-ods-remote.js` — empuja el catálogo del ODS
+  (`kdii, kdik, kdil, kdig, kdie, kdif, kdid, kdms`) de prod a esa base, que no puede alcanzar a
+  `md`. **Sin estado**: compara una huella por tabla (`count` + md5 del agregado de hashes de fila)
+  de los dos lados y, si difiere, hace el diff exacto por llave. No escribe una sola fila en prod.
+  Régimen medido: **69 filas en 12.7 s**, con 5 de 8 tablas cortando por huella sin mover nada.
+- **`kdm2` queda FUERA, con motivo medido:** son 4.66 M filas / **2,133 MB** contra los 124 MB que
+  medía la base destino entera. Es el detalle de ventas, no catálogo; "lo más vendido" es un
+  agregado derivable, no 2 GB de renglones por el proxy. **`kdid` entra sin haberse pedido**:
+  `kdii.c11` guarda el código de unidad (`PAQ`), y sin él la tienda muestra "PAQ" y no "Paquete".
+- **Fixed (código compartido):** `raw-upsert` **no podía crear una tabla** en ninguna base sin el rol
+  `app_runtime`. El `try { GRANT … } catch {}` atrapaba el error en JS pero Postgres dejaba la
+  transacción **abortada** (25P02) y todo lo siguiente moría. Reproducido a mano. Ahora el GRANT es
+  condicional y no falla nunca. Nunca se vio porque prod y la réplica de pruebas sí tienen el rol.
+- **Fixed:** `meta.normalize === false` apaga los normalizadores de la Suite (`kdii → catalog.*`)
+  para destinos que no son la Suite; antes correrían y fallarían en cada ciclo. Default sin cambios.
+
 ### Internal — Auditoría de CPU del servidor `md`: tres carriles dejan de quemar procesador (CPU.1–CPU.3, 2026-09-28)
 - **El intradía barría 120 días cada hora** cuando su ventana de diseño eran 15: la variable que lo
   decía vivía en un orquestador que **no es el que corre en producción**. El carril pasó de
