@@ -661,7 +661,7 @@ export class CashLedgerService {
         .orderBy([{ column: 'm.occurred_at', order: 'desc' }, { column: 'm.external_id', order: 'desc' }])
         .limit(limit)
         .select('m.id', 'm.device', 'm.external_id', 'm.type_id', 'm.type_label', 'm.occurred_at',
-          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref', 'm.sucursal');
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
 
       // Denominaciones de cada movimiento (una consulta, no N).
       const ids = movs.map((r: any) => r.id);
@@ -685,7 +685,7 @@ export class CashLedgerService {
         type_label: m.type_label,
         occurred_at: m.occurred_at,
         fecha_valor: String(m.occurred_at).slice(0, 10),
-        sucursal: m.sucursal || '00',
+        sucursal: '00', // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
         user_external: m.user_external,
         ref: m.ref,
         monto: Number(m.total),
@@ -747,7 +747,7 @@ export class CashLedgerService {
         .orderBy([{ column: 'm.occurred_at', order: 'desc' }])
         .limit(200) // candidatos crudos; el ranking recorta a `limit`
         .select('m.id', 'm.device', 'm.external_id', 'm.type_label', 'm.occurred_at',
-          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref', 'm.sucursal');
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
 
       const ids = movs.map((r: any) => r.id);
       const dens = ids.length
@@ -763,7 +763,7 @@ export class CashLedgerService {
       const candidatos: CaosCand[] = movs.map((m: any) => ({
         origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
         type_label: m.type_label, fecha_valor: String(m.accounting_date || m.occurred_at).slice(0, 10),
-        sucursal: m.sucursal || '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+        sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
         denominaciones: porMov.get(m.id) || [],
       }));
 
