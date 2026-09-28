@@ -34,6 +34,17 @@ export interface FinanceNotice {
    * genérico, que es como se pudre un filtro.
    */
   type?: string;
+  /**
+   * `[GX.26]` A QUIEN va, cuando el aviso es de una sola persona y no del area.
+   *
+   * Sin esto el unico destino posible era «todos los de Finanzas del tenant», que sirve
+   * para «se cayo un feed» y no para «tu vale fue rechazado». El valor es el nombre con
+   * el que la app registra a quien hizo la cosa -- hoy el username.
+   *
+   * ⚠️ Ausente = va al area, como siempre. La implementacion NO debe caer a tenant-wide
+   * cuando viene presente pero vacio: eso convierte un descuido en una fuga.
+   */
+  para_usuario?: string;
 }
 
 export interface FinanceNotifierPort {

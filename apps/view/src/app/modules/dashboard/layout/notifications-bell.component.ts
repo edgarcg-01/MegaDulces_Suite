@@ -242,6 +242,12 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (a.type === ('entradas_sla' as any) && !this.aplicaEntradas(a)) return;
     // `[PV.4]` Tipo de póliza incongruente: es trabajo de Contabilidad.
     if (a.type === ('polizas_tipo' as any) && !this.canSeeTipoPoliza()) return;
+    /**
+     * `[GX.26]` El vale resuelto NO se filtra acá, y es a propósito: el servidor ya lo
+     * mandó al cuarto de UNA persona, así que si llegó es porque es suyo. Filtrarlo por
+     * permiso además lo escondería justo a quien tiene que verlo -- el capturista, que
+     * por lo general no tiene ningún permiso de Finanzas.
+     */
     const at = Date.parse(a.emitted_at) || Date.now();
     this.feed.update((f) => [{ type: a.type, severity: a.severity, title: a.title, message: a.message, at, route: a.data?.route }, ...f].slice(0, 20));
     this.newSince.set(true);
@@ -310,6 +316,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'entradas_sla': return 'pi-clock';
       // `[PV.4]` Tipo de póliza: es una clasificación mal puesta, no un dato nuevo.
       case 'polizas_tipo': return 'pi-tags';
+      // `[GX.26]` La decisión sobre TU vale: llegó una respuesta, no una tarea.
+      case 'vale_resuelto': return 'pi-verified';
       default: return 'pi-bell';
     }
   }

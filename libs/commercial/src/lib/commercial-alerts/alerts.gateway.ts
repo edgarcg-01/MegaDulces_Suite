@@ -68,6 +68,19 @@ export class AlertsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const room = `tenant:${tenantId}`;
     client.join(room);
+    /**
+     * `[GX.26]` Y su cuarto PROPIO. Hasta aca toda alerta iba a todo el tenant, que
+     * sirve para «se cayo un feed» y no sirve para «TU vale fue rechazado»: eso es de
+     * una persona, y mandarselo a los 166 es ruido para 165 y una fuga para el dueño.
+     *
+     * ⚠️ La llave es el USERNAME porque es lo que el token trae -- `full_name` NO esta
+     * en el JWT (verificado decodificando uno). Y da la casualidad de que es tambien lo
+     * que termina en `expense_proofs.created_by`, que hace `full_name || username`.
+     * Si algun dia el token llevara `full_name`, esos dos valores se separarian y los
+     * avisos dejarian de llegar EN SILENCIO: por eso se unen los dos cuartos.
+     */
+    const personales = [payload.username, payload.full_name].filter(Boolean) as string[];
+    for (const quien of personales) client.join(`u:${tenantId}:${quien}`);
     client.data = {
       tenantId,
       userId: payload.sub,
@@ -105,6 +118,21 @@ export class AlertsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.debug(
       `Emitted ${alert.type} (${alert.severity}) to ${room} (clients=${this.tenantSockets.get(tenantId)?.size || 0})`,
     );
+  }
+
+  /**
+   * `[GX.26]` Emite a UNA persona del tenant. Si no hay nadie conectado con ese nombre
+   * el mensaje se pierde, y eso es correcto: es un aviso en vivo, no una bandeja. Lo que
+   * quedo registrado es el estado del expediente, que la persona ve en su historial.
+   */
+  emitToUser(tenantId: string, quien: string, alert: Alert): void {
+    if (!this.server || !quien) {
+      this.logger.warn(`emitToUser skipped: ${!this.server ? "server no inicializado" : "sin destinatario"}`);
+      return;
+    }
+    const room = `u:${tenantId}:${quien}`;
+    this.server.to(room).emit('alert', alert);
+    this.logger.debug(`Emitted ${alert.type} (${alert.severity}) to ${room}`);
   }
 
   /** Métricas para health/ops. */

@@ -37,7 +37,11 @@ class FinanceNotifierAdapter implements FinanceNotifierPort {
    * lo filtra a usuarios con permiso de finanzas y hace deep-link vía `data.route`.
    */
   async notify(tenantId: string, notice: FinanceNotice): Promise<void> {
-    this.alerts.emit(tenantId, {
+    // `[GX.26]` Con destinatario va a SU cuarto; sin el, al area como siempre.
+    const enviar = notice.para_usuario
+      ? (a: Parameters<typeof this.alerts.emit>[1]) => this.alerts.emitTo(tenantId, notice.para_usuario as string, a)
+      : (a: Parameters<typeof this.alerts.emit>[1]) => this.alerts.emit(tenantId, a);
+    enviar({
       // `[RE.27.C]` El emisor puede pedir su propio tipo: no todo lo que sale de
       // `libs/finance` es para Finanzas — la cola de órdenes de entrada la atiende
       // Compras, y el tipo es por donde la campana decide a quién le llega.
