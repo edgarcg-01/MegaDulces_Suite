@@ -147,9 +147,19 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         }
       </div>
 
-      <div class="ex-grid">
+      <!-- [UIM.1] Cuando el alcance se acota solo, se DICE. Un filtro que la pantalla se puso a
+           sí misma y no anuncia es un filtro que el operador no sabe que tiene. -->
+      @if (angosto() && alcanceAuto && columns().length === 1) {
+        <p class="ex-alcance">
+          <i class="pi pi-mobile" aria-hidden="true"></i>
+          <span>Pantalla angosta: se muestra <strong>{{ columns()[0].label }}</strong> sola.
+            Para comparar almacenes, abrí un producto.</span>
+        </p>
+      }
+
+      <div class="ex-grid dt-scope">
         <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
-                 dataKey="product_id" [tableStyle]="{ 'min-width': '60rem' }" styleClass="ex-table"
+                 dataKey="product_id" [tableStyle]="{ 'min-width': '60rem' }" styleClass="ex-table dt-stack"
                  (sortFunction)="onSort($event)" [customSort]="true">
           <ng-template #header>
             <tr>
@@ -168,15 +178,19 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </ng-template>
 
           <ng-template #body let-r>
+            <!-- [UIM.1] data-label + role="cell" en TODAS las celdas del cuerpo: el rótulo baja
+                 con el dato cuando el renglón se apila, y el role repone lo que el display de
+                 bloque le quita a la celda (PrimeNG declara role en table/rowgroup/row, en td no).
+                 El orden de las celdas es el orden de lectura en angosto: identidad primero. -->
             <tr (click)="open(r)" class="ex-row">
-              <td pFrozenColumn class="ex-sku">{{ r.sku }}</td>
-              <td pFrozenColumn class="ex-name" [title]="r.nombre">{{ r.nombre }}</td>
+              <td pFrozenColumn class="ex-sku" role="cell" data-label="SKU">{{ r.sku }}</td>
+              <td pFrozenColumn class="ex-name dt-id" role="cell" [title]="r.nombre">{{ r.nombre }}</td>
               @for (c of columns(); track c.code) {
                 @if (cell(r, c.code); as cl) {
                   @if (cl.rung) {
                     <!-- No se puede convertir a cajas: va la cantidad SUELTA con su rótulo, que
                          sí es verdad. Una cifra en cajas acá sería inventada. -->
-                    <td class="ex-r ex-rung" [title]="rungTitle(r, c.code, cl)">
+                    <td class="ex-r ex-rung dt-num" role="cell" [attr.data-label]="c.label" [title]="rungTitle(r, c.code, cl)">
                       {{ cl.nat | number:'1.0-0' }} {{ natU(cl) }}
                       <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                     </td>
@@ -184,7 +198,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     <!-- [EX.U] Unidad del ERP: la cantidad que el almacén guarda de verdad, con
                          su rótulo. Acá NO hay divisor, así que tampoco hay grado de "divisor sin
                          fuente": esa advertencia es de la vista en cajas. -->
-                    <td class="ex-r" [title]="natTitle(r, c.code, cl)">
+                    <td class="ex-r dt-num" role="cell" [attr.data-label]="c.label" [title]="natTitle(r, c.code, cl)">
                       <span [class]="'ex-q ' + bClass(cl.b)">{{ cl.nat | number:'1.0-0' }}</span>
                       <span class="ex-u">{{ natU(cl) }}</span>
                     </td>
@@ -193,7 +207,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                          del total de cada almacén y eso es decisión de negocio), pero cuando su
                          divisor no tiene fuente la celda lo DECLARA con un grado en vez de
                          presentarla como un dato verificado. -->
-                    <td class="ex-r" [title]="cl.nf ? nfTitle(cl) : ''">
+                    <td class="ex-r dt-num" role="cell" [attr.data-label]="c.label" [title]="cl.nf ? nfTitle(cl) : ''">
                       <span [class]="'ex-q ' + bClass(cl.b)">{{ cl.q | number:'1.0-1' }}</span>
                       @if (cl.nf) { <span class="ex-nf" aria-hidden="true">°</span>
                         <span class="ex-sr">{{ nfTitle(cl) }}</span> }
@@ -202,11 +216,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 } @else {
                   <!-- Sin fila en el ERP para ese almacén. Un punto y no un 0: "no hay renglón"
                        y "hay cero" no son lo mismo (Q.5 — jerarquía por tipo, no por color). -->
-                  <td class="ex-r ex-none">·</td>
+                  <td class="ex-r ex-none" role="cell" [attr.data-label]="c.label">·</td>
                 }
               }
-              <td class="ex-r ex-strong" [title]="totalTitulo()">{{ r.total_cajas | number:'1.0-1' }}@if (unidad() === 'nativa') { <span class="ex-u">cjs</span> }</td>
-              <td class="ex-r ex-val" [title]="valorTitle(r)">
+              <td class="ex-r ex-strong dt-num" role="cell" data-label="Total cajas" [title]="totalTitulo()">{{ r.total_cajas | number:'1.0-1' }}@if (unidad() === 'nativa') { <span class="ex-u">cjs</span> }</td>
+              <td class="ex-r ex-val dt-num" role="cell" data-label="Valor" [title]="valorTitle(r)">
                 @if (r.sin_valuar) {
                   <span class="ex-rung">
                     @if (r.valor) { {{ money(r.valor) }} } @else { sin valuar }
@@ -250,7 +264,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <app-side-peek [open]="peek()" (openChange)="peek.set($event)"
                      [title]="peekTitle()" [subtitle]="peekSub()">
         @if (detail().length) {
-          <table class="ex-detail">
+          <!-- [UIM.1] Caso de APILADO POR CAMPOS: las 8 columnas son campos de UN almacen, asi que
+               apilar es correcto (a diferencia de la matriz de arriba, que pierde un eje).
+               ⚠️ El .dt-scope va acá y NO en el <table>: un elemento no puede ser su propio
+               contenedor de consulta, se mediria a si mismo despues de encogerse. -->
+          <div class="dt-scope">
+          <table class="ex-detail dt-stack">
             <thead>
               <tr><th>Almacén</th><th class="ex-r">Existencia</th><th>Unidad</th><th class="ex-r">÷ caja</th>
                   <th class="ex-r">Mín</th><th class="ex-r">Reorden</th><th class="ex-r">Máx</th><th>ERP</th></tr>
@@ -258,10 +277,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <tbody>
               @for (d of detail(); track d.warehouse_code) {
                 <tr [class.ex-rung-row]="d.rung_veredicto">
-                  <td>{{ d.warehouse_code }} <span class="ex-none">{{ d.warehouse_name }}</span></td>
-                  <td class="ex-r">{{ d.nat | number:'1.0-2' }}</td>
-                  <td>{{ d.base_label || '—' }}</td>
-                  <td class="ex-r">
+                  <td class="dt-id" role="cell">{{ d.warehouse_code }} <span class="ex-none">{{ d.warehouse_name }}</span></td>
+                  <td class="ex-r dt-num" role="cell" data-label="Existencia">{{ d.nat | number:'1.0-2' }}</td>
+                  <td role="cell" data-label="Unidad">{{ d.base_label || '—' }}</td>
+                  <td class="ex-r dt-num" role="cell" data-label="÷ caja">
                     {{ d.dbf | number:'1.0-2' }}
                     @if (d.rung_veredicto) {
                       <span class="ex-rung" [title]="detailRungTitle(d)">
@@ -269,14 +288,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                       </span>
                     }
                   </td>
-                  <td class="ex-r ex-none">{{ d.min_stock | number:'1.0-0' }}</td>
-                  <td class="ex-r ex-none">{{ d.reorder_point | number:'1.0-0' }}</td>
-                  <td class="ex-r ex-none">{{ d.max_stock | number:'1.0-0' }}</td>
-                  <td class="ex-none">{{ d.erp || '—' }}</td>
+                  <td class="ex-r ex-none dt-num" role="cell" data-label="Mínimo">{{ d.min_stock | number:'1.0-0' }}</td>
+                  <td class="ex-r ex-none dt-num" role="cell" data-label="Reorden">{{ d.reorder_point | number:'1.0-0' }}</td>
+                  <td class="ex-r ex-none dt-num" role="cell" data-label="Máximo">{{ d.max_stock | number:'1.0-0' }}</td>
+                  <td class="ex-none" role="cell" data-label="ERP">{{ d.erp || '—' }}</td>
                 </tr>
               }
             </tbody>
           </table>
+          </div>
           <!-- Q.4 — todo dato accionable navega a su arreglo con el filtro puesto. -->
           <div class="ex-peek-actions">
             <button pButton type="button" size="small" severity="secondary" icon="pi pi-shopping-cart"
@@ -291,14 +311,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex { display: flex; flex-direction: column; gap: .75rem; padding: 1rem 1rem 0; min-height: 0; }
     .ex-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
     .ex-title h1 { margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
-    .ex-sub { margin: .15rem 0 0; font-size: .78rem; color: var(--text-color-secondary); max-width: 62ch; line-height: 1.45; }
+    .ex-sub { margin: .15rem 0 0; font-size: .78rem; color: var(--text-muted); max-width: 62ch; line-height: 1.45; }
     .ex-note { display: block; color: var(--text-faint); }
     .ex-actions { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 
     .ex-banner {
       display: flex; gap: .5rem; align-items: flex-start; margin: -.25rem 0 0;
       padding: .55rem .7rem; border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px);
-      background: var(--surface-hover, transparent); color: var(--text-color-secondary);
+      background: var(--surface-hover, transparent); color: var(--text-muted);
       font-size: .78rem; line-height: 1.45;
     }
     .ex-banner i { color: var(--warn-fg, #b45309); margin-top: .1rem; flex: none; }
@@ -308,18 +328,18 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     .ex-search { flex: 0 1 18rem; }
     .ex-search input { width: 100%; }
-    .ex-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-color-secondary); }
+    .ex-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted); }
     /* [EX.U] Selector de unidad: segmentado, las dos opciones SIEMPRE a la vista. Un desplegable
        esconderia en que unidad se esta leyendo, y esa es justo la informacion que faltaba. */
     .ex-unit { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-xs, 4px); overflow: hidden; }
     .ex-unit button { border: 0; background: transparent; cursor: pointer; padding: .28rem .6rem;
-      font-size: .74rem; font-weight: 600; color: var(--text-color-secondary); line-height: 1.4; }
+      font-size: .74rem; font-weight: 600; color: var(--text-muted); line-height: 1.4; }
     .ex-unit button + button { border-left: 1px solid var(--border-color); }
     .ex-unit button:hover { background: var(--surface-hover); }
     .ex-unit button.on { background: var(--surface-200, #e9e9e7); color: var(--text-color); }
     .ex-unit button:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
     /* El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
-    .ex-u { margin-left: .22rem; font-size: .68rem; color: var(--text-color-secondary); font-weight: 500; }
+    .ex-u { margin-left: .22rem; font-size: .68rem; color: var(--text-muted); font-weight: 500; }
     .ex-chip { cursor: pointer; }
 
     /* O.2 — full-width grid; el alto lo cede al viewport para que el pie quede a la vista. */
@@ -351,19 +371,36 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
     }
 
-    /* Estado por FORMA además de tono: el color no puede ser el único portador (Q.6). */
-    .ex-q.b-agotado { color: var(--danger-fg, #b91c1c); font-weight: 700; }
-    .ex-q.b-bajo_minimo { color: var(--danger-fg, #b91c1c); }
-    .ex-q.b-bajo_reorden { color: var(--warn-fg, #b45309); }
-    .ex-q.b-sobrestock { color: var(--text-color-secondary); font-style: italic; }
+    /* Estado por FORMA además de tono: el color no puede ser el único portador (Q.6).
+       ⛔ [UIM.1] Acá había dos tokens que NO EXISTEN en tokens.css — medido: cero declaraciones
+       de --danger-fg y de --text-color-secondary en todo el archivo de tokens.
+         · --danger-fg traía respaldo (#b91c1c), así que pintaba... pero un literal no voltea en
+           oscuro: "agotado" quedaba rojo oscuro sobre fondo oscuro.
+         · --text-color-secondary iba SIN respaldo. Una propiedad personalizada indefinida sin
+           fallback deja la declaración inválida al calcular el valor, y color es una propiedad
+           HEREDADA: el valor cae en inherit. O sea que "sobrestock" se veía IGUAL que una normal —
+           el estado no estaba atenuado, estaba ausente. Y el build nunca dijo nada.
+       Los nombres reales de la paleta son --bad-fg / --warn-fg / --text-muted. */
+    .ex-q.b-agotado { color: var(--bad-fg); font-weight: 700; }
+    .ex-q.b-bajo_minimo { color: var(--bad-fg); }
+    .ex-q.b-bajo_reorden { color: var(--warn-fg); }
+    .ex-q.b-sobrestock { color: var(--text-muted); font-style: italic; }
 
     .ex-tot td { font-weight: 700; border-top: 2px solid var(--border-color); background: var(--surface-section, transparent); }
-    .ex-empty { text-align: center; padding: 2rem; color: var(--text-color-secondary); }
+    .ex-empty { text-align: center; padding: 2rem; color: var(--text-muted); }
 
     .ex-detail { width: 100%; border-collapse: collapse; font-size: .76rem; }
-    .ex-detail th { text-align: left; font-weight: 600; padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); color: var(--text-color-secondary); }
+    .ex-detail th { text-align: left; font-weight: 600; padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); color: var(--text-muted); }
     .ex-detail td { padding: .3rem .4rem; border-bottom: 1px solid var(--surface-border, var(--border-color)); }
     .ex-peek-actions { margin-top: .9rem; display: flex; gap: .5rem; }
+
+    /* [UIM.1] El alcance que la pantalla se puso sola, anunciado. */
+    .ex-alcance {
+      display: flex; align-items: flex-start; gap: .45rem; margin: 0 0 .5rem;
+      padding: .45rem .6rem; border-radius: 6px; background: var(--surface-hover, var(--neutral-100));
+      font-size: .78rem; line-height: 1.4; color: var(--text-main);
+    }
+    .ex-alcance i { margin-top: .12rem; color: var(--text-muted); }
 
     @media (max-width: 48rem) { .ex { padding: .6rem .6rem 0; } .ex-search { flex: 1 1 100%; } }
   `],
@@ -381,6 +418,11 @@ export class AlmacenExistenciaComponent implements OnInit {
   readonly total = signal(0);
   readonly page = signal(1);
   readonly pageSize = signal(50);
+
+  /** [UIM.1] true = el contenedor no da para la rejilla; el almacén pasa a ser alcance. */
+  readonly angosto = signal(false);
+  /** true = el alcance de un solo almacén lo puso la pantalla, no la persona. Sólo eso se devuelve. */
+  alcanceAuto = false;
 
   fSearch = '';
   fWarehouses: string[] = [];
@@ -413,6 +455,58 @@ export class AlmacenExistenciaComponent implements OnInit {
     this.cargarUnidad();
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reload(1));
+    this.escucharAncho();
+    this.reload(1);
+  }
+
+  // ── [UIM.1] Alcance angosto ────────────────────────────────────────────────────────────────
+
+  /**
+   * ⚠️ Acá SÍ va `matchMedia` y no una consulta de contenedor, y no es un descuido de la regla
+   * §76 de DESIGN.md: una consulta de contenedor decide ESTILO, y lo que hace falta acá es
+   * decidir QUÉ SE PIDE AL SERVIDOR. CSS no puede elegir cuál de los 22 almacenes traer. El
+   * apilado —que sí es estilo— lo sigue resolviendo `@container` en dense-table.css; esto sólo
+   * decide el alcance del dato. Son dos decisiones distintas y por eso usan dos herramientas.
+   *
+   * 34rem = 544 px, el mismo umbral que `.dt-stack`. Si alguien mueve uno tiene que mover el otro.
+   */
+  private escucharAncho(): void {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 34rem)');
+    const aplicar = (angosto: boolean) => {
+      this.angosto.set(angosto);
+      if (angosto) this.acotarAlcance();
+      else this.soltarAlcance();
+    };
+    aplicar(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => aplicar(e.matches);
+    mq.addEventListener('change', onChange);
+    this.destroyRef.onDestroy(() => mq.removeEventListener('change', onChange));
+  }
+
+  /**
+   * Una matriz en un teléfono tiene que PERDER UN EJE: el almacén deja de ser columna y pasa a ser
+   * alcance. No se inventa un camino nuevo — se usa el filtro de almacenes que ya existía, así que
+   * el servidor devuelve UNA columna por el mismo camino de siempre (`existencia.service.ts`
+   * filtra las columnas por `codes`).
+   *
+   * ⛔ Si el operador ya eligió almacenes a mano, no se le toca la elección: sólo se acota cuando
+   * el alcance estaba abierto.
+   */
+  private acotarAlcance(): void {
+    if (this.fWarehouses.length >= 1) return;
+    const primero = this.columns()[0]?.code;
+    if (!primero) return; // todavía no llegaron las columnas: se reintenta al recibirlas
+    this.fWarehouses = [primero];
+    this.alcanceAuto = true;
+    this.reload(1);
+  }
+
+  /** Al volver a ancho se devuelve lo que la pantalla se puso sola, nunca lo que eligió la persona. */
+  private soltarAlcance(): void {
+    if (!this.alcanceAuto) return;
+    this.alcanceAuto = false;
+    this.fWarehouses = [];
     this.reload(1);
   }
 
@@ -439,6 +533,10 @@ export class AlmacenExistenciaComponent implements OnInit {
       this.totals.set(r.totals);
       this.freshness.set(r.freshness || []);
       this.total.set(r.total || 0);
+      // [UIM.1] En la primera carga las columnas todavía no existían, así que el alcance angosto
+      // no tenía cuál elegir. Acá ya llegaron: se reintenta una sola vez (el guard de
+      // `acotarAlcance` corta en cuanto hay alcance, así que no hay lazo).
+      if (this.angosto()) this.acotarAlcance();
     });
   }
 

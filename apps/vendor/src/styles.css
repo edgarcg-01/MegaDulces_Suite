@@ -13,6 +13,12 @@
  */
 @import '../../../libs/ui-web/src/number-input.css';
 
+/*
+ * Tabla densa estrecha — [UIM.1]. Opt-in (.dt-scope + .dt-stack). Acá pesa más que en las otras
+ * dos apps: vendor es mobile-first por definición (DESIGN.md, tabla de surfaces).
+ */
+@import '../../../libs/ui-web/src/dense-table.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
