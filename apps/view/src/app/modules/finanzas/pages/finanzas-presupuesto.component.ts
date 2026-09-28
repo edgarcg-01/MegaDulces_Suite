@@ -225,7 +225,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <div class="pres-assump-col">
                   <h4>Ventas — crecimiento por canal (%)</h4>
                   @for (ch of channelsList; track ch) {
-                    <label class="pres-assump-row"><span>{{ ch }}</span><input pInputText type="number" [(ngModel)]="asVentasGrowth[ch]" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                    <label class="pres-assump-row"><span>{{ channelLabels[ch] || ch }}</span><input pInputText type="number" [(ngModel)]="asVentasGrowth[ch]" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
                   }
                   <label class="pres-assump-row"><span>Respaldo</span><input pInputText type="number" [(ngModel)]="asVentasDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
                 </div>
@@ -1420,8 +1420,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
     // «Sin datos» ≠ cero (ADR-056): sin real (r=null) el CREC es desconocido, NO −100%.
     const crec = (r: number | null, p: number | null) => (r == null || p == null || p === 0 ? null : Math.round((((r - p) / p) * 100) * 10) / 10);
     const rows: SalesRow[] = [];
-    const channelOrder = ['mostrador', 'credito', 'ruta', 'preventa'];
     const entries = [...byEntity.entries()];
+    // [VSO.8] Se recorren TODOS los canales PRESENTES, ordenados por un orden conocido y con lo
+    // desconocido al final — **nunca se descarta uno**. Antes esto era la lista literal
+    // `['mostrador','credito','ruta','preventa']`, y como el bucle FILTRA por ella, las entidades
+    // de canal `mayoreo` y `contado_nf` no producían renglón. Medido en prod el 2026-09-28: eran
+    // **$21,754,366 de meta capturada** que esta pantalla no pintaba. Un canal nuevo entra solo.
+    const ORDEN = ['mostrador', 'contado_nf', 'credito', 'mayoreo', 'ruta', 'preventa'];
+    const pos = (c: string) => { const i = ORDEN.indexOf(c); return i < 0 ? ORDEN.length : i; };
+    const channelOrder = entries.map(([, e]) => e.channel)
+      .filter((v, i, a) => a.indexOf(v) === i)   // dedup sin spread de Set (bundle lo downlevelea mal)
+      .sort((a, b) => (pos(a) - pos(b)) || String(a).localeCompare(String(b)));
     for (const ch of channelOrder) {
       const inCh = entries.filter(([, e]) => e.channel === ch);
       if (!inCh.length) continue;
@@ -1499,8 +1508,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.http.get<GrowthProposal>(`${this.base}/budgets/${b.id}/sales-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (p) => {
         this.proposal.set(p);
-        const order = ['mostrador', 'credito', 'ruta', 'preventa'];
+        // [VSO.8] Los canales salen de lo que el backend DEVOLVIÓ, no de una lista de acá: con la
+        // lista literal, una propuesta de crecimiento para `mayoreo` se calculaba y no se mostraba.
+        const ORDENP = ['mostrador', 'contado_nf', 'credito', 'mayoreo', 'ruta', 'preventa'];
+        const posP = (c: string) => { const i = ORDENP.indexOf(c); return i < 0 ? ORDENP.length : i; };
         const labels: Record<string, string> = { mostrador: 'Mostrador', credito: 'Mayoreo / Crédito', ruta: 'Ruta directa (RD)', preventa: 'Vecinal / Preventa' };
+        const order = Object.keys(p.by_channel || {}).sort((a, b) => (posP(a) - posP(b)) || a.localeCompare(b));
         this.growthRows.set(order.filter((ch) => p.by_channel[ch]).map((ch) => ({
           channel: ch, channel_label: labels[ch] || ch,
           growth_pct: Math.round((p.by_channel[ch].growth_pct || 0) * 1000) / 10, // fracción → %
@@ -1553,7 +1566,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Supuestos del año (consolida las perillas de ventas + gastos) ──
   loadingAssump = signal(false); savingAssump = signal(false); assumpLoaded = signal(false);
-  channelsList = ['mostrador', 'credito', 'ruta', 'preventa'];
+  /** [VSO.8] Lo declara el backend (`sales-plan/settings.channels`, derivado de `v_sales_entity`).
+   *  Esta lista es sólo el respaldo del primer pintado: cuando era la fuente, las perillas de
+   *  crecimiento no alcanzaban a `mayoreo` ni a `contado_nf`, y al GUARDAR (`gbc`) tampoco los
+   *  escribía — o sea que ni siquiera se podía fijar un supuesto para ellos. */
+  channelsList: string[] = ['mostrador', 'credito', 'ruta', 'preventa'];
+  channelLabels: Record<string, string> = {};
   asVentasGrowth: Record<string, number> = { mostrador: 8, credito: 8, ruta: 8, preventa: 8 };
   asVentasDefault: number | null = 8;
   asGastosDefault: number | null = 8;
@@ -1564,8 +1582,18 @@ export class FinanzasPresupuestoComponent implements OnInit {
   loadAssumptions(): void {
     const b = this.selected(); if (!b) return;
     this.loadingAssump.set(true);
-    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number> }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; const g = s.growth_by_channel || {}; for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault; this.assumpLoaded.set(true); this.loadingAssump.set(false); },
+    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number>; channels?: { value: string; label: string }[] }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => {
+        // [VSO.8] El vocabulario llega del backend; el respaldo local queda sólo si no vino.
+        if (s.channels?.length) {
+          this.channelsList = s.channels.map((c) => c.value);
+          this.channelLabels = {}; for (const c of s.channels) this.channelLabels[c.value] = c.label;
+        }
+        this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10;
+        const g = s.growth_by_channel || {};
+        for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault;
+        this.assumpLoaded.set(true); this.loadingAssump.set(false);
+      },
       error: () => this.loadingAssump.set(false),
     });
     this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean; control_level?: 'informativo' | 'advertencia' | 'bloqueo' }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialAnalyticsService, SellOutExplainDim, SellOutExplainCompare } from './commercial-analytics.service';
+import { loadSelloutChannelMap, type SelloutChannelMap } from './sellout-channel-map';
 
 /**
  * BI.5 — "Pregúntale al Sell-Out": catálogo de tools deterministas + system prompt.
@@ -40,7 +41,9 @@ export class SelloutChatToolsService {
     };
     const filterProps = {
       brand: { type: 'string', description: 'Nombre (o parte) de la marca/empresa. Opcional.' },
-      channel: { type: 'string', enum: ['mostrador', 'ruta', 'credito', 'preventa'], description: 'Canal. credito = mayoreo. Opcional.' },
+      // [VSO.8] Canal de NEGOCIO. El enum decía `credito`, que del lado Kepler ya no existe: el
+      // modelo lo mandaba y la respuesta traía sólo la mitad Wincaja del mismo canal.
+      channel: { type: 'string', enum: ['mostrador', 'ruta', 'mayoreo', 'preventa'], description: 'Canal de NEGOCIO. mayoreo = mayoreo/telemarketing de los DOS ERPs (Kepler U-D-8 + caja 70 de Wincaja). `credito` se acepta como alias viejo. Opcional.' },
       warehouse: { type: 'string', description: 'Nombre (o parte) de la sucursal. Opcional.' },
     };
     return [
@@ -107,7 +110,7 @@ export class SelloutChatToolsService {
       'REGLA #2 — Las fechas SIEMPRE en ISO YYYY-MM-DD. "agosto 2026" = 2026-08-01 a 2026-08-31. "este mes"/"mes en curso" = el mes de hoy. Un mes completo va del día 01 al último día del mes.',
       'REGLA #3 — Elegí la tool correcta: "cuánto vendió X" -> sellout_total; "top/ranking/quién vendió más" -> sellout_top; "por qué subió/bajó / qué explica el cambio" -> sellout_explain (compare=prev si dicen "vs mes anterior", yoy si "vs año pasado"); "tendencia/evolución" -> sellout_series.',
       '',
-      'Vocabulario: canales = mostrador, ruta, credito (=mayoreo), preventa. Las marcas son las EMPRESAS/proveedores. El monto es venta con IVA (bruto de línea). Podés cruzar varias tools antes de responder.',
+      'Vocabulario: canales = mostrador, ruta, mayoreo, preventa (=vecinal). `mayoreo` incluye el telemarketing y junta las dos mitades del cambio de ERP; `credito` es un alias VIEJO del mismo canal, no un canal aparte. Las marcas son las EMPRESAS/proveedores. El monto es venta con IVA (bruto de línea). Podés cruzar varias tools antes de responder.',
       '',
       'Cuando ya tengas todo, llamá render_response con la respuesta en español (concisa, citando los números) y 2-3 suggested_follow_ups.',
     ].join('\n');
@@ -155,10 +158,23 @@ export class SelloutChatToolsService {
     if (aligned && closed) return { table: 'analytics.mv_sellout_monthly', dateCol: 's.year_month', lo: from.slice(0, 7), hi: to.slice(0, 7) };
     return { table: 'analytics.v_sellout_daily', dateCol: 's.business_date', lo: from, hi: to };
   }
-  private applyFilters(b: any, input: any) {
+  /**
+   * [VSO.8] El filtro de canal llega como canal de NEGOCIO y se traduce a sus canales CRUDOS.
+   *
+   * Antes hacía `andWhere('s.channel', input.channel)` contra el crudo, así que preguntarle al chat
+   * "cuánto vendió mayoreo" devolvía **sólo la pierna Wincaja** — y la respuesta salía con toda
+   * confianza porque el número sí venía de la DB. Un número real de un universo recortado es peor
+   * que un error: no se nota.
+   */
+  private applyFilters(b: any, input: any, chMap: SelloutChannelMap) {
     b.andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
     if (input?.brand) b.andWhereRaw('s.brand_nombre ILIKE ?', [`%${String(input.brand).trim()}%`]);
-    if (input?.channel) b.andWhere('s.channel', String(input.channel).trim().toLowerCase());
+    if (input?.channel) {
+      const raws = chMap.raws([chMap.normalize(input.channel)]);
+      // Un canal que el resolvedor no conoce se pasa TAL CUAL en vez de vaciar el filtro: mejor
+      // cero filas visibles que el total del universo disfrazado de "filtrado".
+      b.whereIn('s.channel', raws.length ? raws : [String(input.channel).trim().toLowerCase()]);
+    }
     if (input?.warehouse) b.andWhereRaw('s.branch_name ILIKE ?', [`%${String(input.warehouse).trim()}%`]);
   }
   private isoRange(input: any): { from: string; to: string } {
@@ -175,9 +191,10 @@ export class SelloutChatToolsService {
     const s = this.pickSource(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const chMap = await loadSelloutChannelMap(trx, tenantId);
       const r = await trx(`${s.table} as s`)
         .where('s.tenant_id', tenantId).andWhere(s.dateCol, '>=', s.lo).andWhere(s.dateCol, '<=', s.hi)
-        .modify((b: any) => this.applyFilters(b, input))
+        .modify((b: any) => this.applyFilters(b, input, chMap))
         .select(trx.raw('COALESCE(SUM(s.monto),0)::numeric as monto'), trx.raw('COALESCE(SUM(s.monto_neto),0)::numeric as monto_neto'), trx.raw('COALESCE(SUM(s.units),0)::numeric as units'))
         .first();
       return {
@@ -200,14 +217,28 @@ export class SelloutChatToolsService {
     const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : dim === 'product' ? 's.product_id' : 's.brand_id';
     const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? `max(s.channel)` : dim === 'product' ? 'max(s.nombre)' : 'max(s.brand_nombre)';
     return this.tk.run(async (trx) => {
+      const chMap = await loadSelloutChannelMap(trx, tenantId);
       const rows = await trx(`${s.table} as s`)
         .where('s.tenant_id', tenantId).andWhere(s.dateCol, '>=', s.lo).andWhere(s.dateCol, '<=', s.hi)
-        .modify((b: any) => this.applyFilters(b, input))
+        .modify((b: any) => this.applyFilters(b, input, chMap))
         .select(trx.raw(`COALESCE(${labelExpr}, ${keyExpr}::text, 'N/D') as label`), trx.raw('SUM(s.monto)::numeric as monto'), trx.raw('SUM(s.units)::numeric as units'))
         .groupByRaw(keyExpr)
         .orderByRaw(`SUM(s.monto) ${asc ? 'asc' : 'desc'} NULLS LAST`)
-        .limit(n);
-      return { period: { from, to }, dim, ...col(['Empresa/Item', 'Monto', 'Unidades'], rows.map((r: any) => [r.label, Math.round(Number(r.monto || 0)), Math.round(Number(r.units || 0))])) };
+        // [VSO.8] Con dim=canal NO se corta en SQL: el GROUP BY es por canal CRUDO y hay que
+        // colapsar a canal de NEGOCIO antes de rankear, o `credito` y `mayoreo` compiten entre sí
+        // como si fueran dos canales distintos. Son ≤6 filas, traerlas todas no cuesta nada.
+        .modify((b: any) => { if (dim !== 'channel') b.limit(n); });
+      const finales = dim !== 'channel' ? rows : (() => {
+        const acc = new Map<string, { label: string; monto: number; units: number }>();
+        for (const r of rows as any[]) {
+          const k = chMap.canon(undefined, r.label);
+          const cur = acc.get(k) || { label: chMap.label(k), monto: 0, units: 0 };
+          cur.monto += Number(r.monto || 0); cur.units += Number(r.units || 0);
+          acc.set(k, cur);
+        }
+        return [...acc.values()].sort((a, c) => (asc ? a.monto - c.monto : c.monto - a.monto)).slice(0, n);
+      })();
+      return { period: { from, to }, dim, ...col(['Empresa/Item', 'Monto', 'Unidades'], finales.map((r: any) => [r.label, Math.round(Number(r.monto || 0)), Math.round(Number(r.units || 0))])) };
     });
   }
 
@@ -219,9 +250,10 @@ export class SelloutChatToolsService {
     const s = this.pickSource(from, to);
     const monthExpr = s.table.includes('mv_sellout_monthly') ? 's.year_month' : `to_char(s.business_date, 'YYYY-MM')`;
     return this.tk.run(async (trx) => {
+      const chMap = await loadSelloutChannelMap(trx, tenantId);
       const rows = await trx(`${s.table} as s`)
         .where('s.tenant_id', tenantId).andWhere(s.dateCol, '>=', s.lo).andWhere(s.dateCol, '<=', s.hi)
-        .modify((b: any) => this.applyFilters(b, input))
+        .modify((b: any) => this.applyFilters(b, input, chMap))
         .select(trx.raw(`${monthExpr} as mes`), trx.raw('SUM(s.monto)::numeric as monto'))
         .groupByRaw(monthExpr).orderByRaw(monthExpr);
       return { period: { from, to }, ...col(['mes', 'Monto'], rows.map((r: any) => [r.mes, Math.round(Number(r.monto || 0))])) };

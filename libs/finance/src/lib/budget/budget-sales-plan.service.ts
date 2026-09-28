@@ -50,8 +50,21 @@ export interface UpsertSalesPlanSettingsDto {
   growth_by_channel?: Record<string, number>;
 }
 
-/** Canales canónicos del sell-out (taxonomía del proyecto). */
-const CHANNELS = ['mostrador', 'credito', 'ruta', 'preventa'] as const;
+/**
+ * ⚠️ [VSO.8] RESPALDO, no fuente. Los canales del presupuesto se LEEN de
+ * `analytics.v_sales_entity` (`canalesDelUniverso()`), que es la misma vista de la que salen las
+ * entidades — así el vocabulario no puede separarse de las entidades que gobierna.
+ *
+ * Esta lista era la fuente y tenía CUATRO canales cuando el universo publica SEIS. Medido en prod
+ * el 2026-09-28: el presupuesto tiene **$21,754,366 de meta capturada** en entidades de canal
+ * `mayoreo` y `contado_nf`, y la pantalla no las pintaba porque iteraba esta lista.
+ *
+ * ⛔ Y OJO con la tentación de alinearla con el vocabulario de NEGOCIO del sell-out (VSO.1, donde
+ * `credito`+`mayoreo` son un solo Mayoreo): acá el canal es parte del `entity_key` PERSISTIDO
+ * (`credito:01`), y hay **428 renglones de plan capturados**. Unificarlos dejaría metas huérfanas.
+ * La divergencia de vocabulario entre sell-out y presupuesto queda DECLARADA, no disimulada.
+ */
+const CHANNELS_FALLBACK = ['mostrador', 'credito', 'ruta', 'preventa'] as const;
 /** shrinkage de la estacionalidad de entidad hacia canal/global (n/(n+K)). */
 const SEASON_SHRINK_K = 4;
 /** periodos apareados mínimos para confiar en un YoY (menos = tendencia no confiable → default).
@@ -206,6 +219,27 @@ export class BudgetSalesPlanService {
   }
 
   /**
+   * [VSO.8] Los canales que el presupuesto reconoce, leídos de la MISMA vista que le da las
+   * entidades. Ordenados por un orden de presentación conocido; lo que no esté en ese orden va al
+   * final, alfabético — **nunca se descarta**, que es como se perdieron $21.75M de meta.
+   */
+  private async canalesDelUniverso(trx: import('knex').Knex): Promise<{ value: string; label: string }[]> {
+    let rows: { channel: string; channel_label: string }[] = [];
+    try {
+      rows = await trx('analytics.v_sales_entity')
+        .distinct('channel', 'channel_label') as any;
+    } catch {
+      rows = [];
+    }
+    if (!rows.length) return CHANNELS_FALLBACK.map((c) => ({ value: c, label: c }));
+    const ORDEN = ['mostrador', 'contado_nf', 'credito', 'mayoreo', 'ruta', 'preventa'];
+    const pos = (c: string) => { const i = ORDEN.indexOf(c); return i < 0 ? ORDEN.length : i; };
+    return rows
+      .map((r) => ({ value: r.channel, label: r.channel_label || r.channel }))
+      .sort((a, b) => (pos(a.value) - pos(b.value)) || a.value.localeCompare(b.value));
+  }
+
+  /**
    * Propone el crecimiento (CREC) por canal desde la tendencia histórica (YoY del par de años más reciente,
    * sobre periodos APAREADOS). Escalera de fallback: canal → global → default. Declara la cobertura.
    */
@@ -216,12 +250,14 @@ export class BudgetSalesPlanService {
       if (!b) throw new NotFoundException('Presupuesto no encontrado');
       const fy = Number(b.fiscal_year);
       const years = await this.yearsWithRealBefore(trx, tenantId, fy);
-      const settings = await this.getSettings(budgetId);
+      const settings = await this.getSettingsTx(trx, budgetId);
       const def = Number(settings.default_growth_pct) || 0;
+      // [VSO.8] El vocabulario sale de la vista de entidades, no de una lista de este archivo.
+      const canales = settings.channels.map((c) => c.value);
 
       const empty = { by_channel: {} as Record<string, { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }>, global: { growth_pct: def, basis: 'default', paired_periods: 0 }, years_available: years, fiscal_year: fy };
       if (years.length < 2) {
-        for (const ch of CHANNELS) empty.by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [] };
+        for (const ch of canales) empty.by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [] };
         return empty; // sin par de años → todo default, declarado
       }
       const y1 = years[years.length - 1];
@@ -246,7 +282,7 @@ export class BudgetSalesPlanService {
       const g = yoy(() => true);
       const global = g ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_periods: g.paired } : { growth_pct: def, basis: 'default' as const, paired_periods: 0 };
       const by_channel: Record<string, { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }> = {};
-      for (const ch of CHANNELS) {
+      for (const ch of canales) {
         const c = yoy((x) => x === ch);
         if (c) by_channel[ch] = { growth_pct: c.growth_pct, basis: 'yoy_paired', paired_periods: c.paired, years_used: [y0, y1] };
         else if (global.basis === 'yoy_paired') by_channel[ch] = { growth_pct: global.growth_pct, basis: 'global', paired_periods: global.paired_periods, years_used: [y0, y1] };
@@ -394,11 +430,27 @@ export class BudgetSalesPlanService {
   }
 
   // ── Supuestos anuales (la perilla del humano) ──
-  async getSettings(budgetId: string) {
+  /**
+   * [VSO.8] La respuesta lleva el VOCABULARIO, para que la pantalla no lo enumere por su cuenta:
+   * tenía cuatro canales clavados y el universo publica seis, así que sus perillas de crecimiento
+   * no alcanzaban a `mayoreo` ni a `contado_nf` — justo los que nadie veía.
+   *
+   * Versión `…Tx` para los llamadores que YA están dentro de una transacción: `proposeGrowth` la
+   * llamaba por el método público, que abría un `tk.run` ANIDADO (otra conexión del pool). Acá es
+   * sólo lectura, así que no llegaba a morder como en `commercial-receiving` —una tx anidada no ve
+   * los writes sin commitear de la de afuera—, pero la regla es la misma: dentro de un `tk.run`
+   * se pasa el `trx`, no se abre otro.
+   */
+  private async getSettingsTx(trx: import('knex').Knex, budgetId: string) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const row = await this.tk.run((trx) => trx('budget.sales_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first());
-    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, exists: false };
-    return { ...row, growth_by_channel: row.growth_by_channel || {}, exists: true };
+    const row = await trx('budget.sales_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first();
+    const channels = await this.canalesDelUniverso(trx);
+    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, channels, exists: false };
+    return { ...row, growth_by_channel: row.growth_by_channel || {}, channels, exists: true };
+  }
+
+  async getSettings(budgetId: string) {
+    return this.tk.run((trx) => this.getSettingsTx(trx, budgetId));
   }
 
   async upsertSettings(budgetId: string, dto: UpsertSalesPlanSettingsDto, username: string) {

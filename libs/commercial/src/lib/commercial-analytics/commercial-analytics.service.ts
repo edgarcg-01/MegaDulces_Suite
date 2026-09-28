@@ -3,6 +3,7 @@ import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, step
 // [CPU.2] El resolvedor de unidad se LEE de la copia materializada, y la copia declara su edad.
 // Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
 import { unitTruth } from '../shared/unit-truth';
+import { loadSelloutChannelMap, type SelloutChannelMap } from './sellout-channel-map';
 import type { MaterializedProvenance } from '@megadulces/platform-core';
 // [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
 // god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
@@ -655,63 +656,10 @@ export interface SellOutBrandRow {
 }
 
 const RS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/**
- * [VSO.1] CANAL del sell-out — el vocabulario ya NO se escribe acá. Sale de
- * `analytics.sellout_channel_map`, que mapea (fuente, canal crudo) → canal de NEGOCIO + rótulo +
- * orden. Este archivo sólo lo LEE (`loadChannelMap`).
- *
- * ⛔ Por qué se retiraron los literales: el universo publica SEIS canales crudos y este mapa tenía
- * CUATRO. Medido en prod el 2026-09-28, `mayoreo` ($21,373,739/90 d) y `contado_nf` ($381,787) no
- * tenían rótulo, ni casilla de filtro, ni hoja en el árbol — y el árbol arma un `cellFilter`, así
- * que abrirlo TIRABA esos $21.4M en silencio. Es la R7 de `docs/VERDAD_ABSOLUTA.md`: nadie
- * verificaba que lo publicado concordara con el resolvedor.
- *
- * Lo de abajo es el RESPALDO DEGRADADO, para un destino donde la tabla todavía no existe: conserva
- * el comportamiento viejo (identidad + estos rótulos) en vez de reventar. No es la fuente: si se
- * usa, el canal nuevo vuelve a quedar sin rótulo — por eso avisa por Logger y el candado
- * `test-newdb-sellout-channel-parity.js` es el que de verdad lo vigila.
- */
-const CHANNEL_LABELS_FALLBACK: Record<string, string> = {
-  mostrador: 'Mostrador',
-  preventa: 'Vecinal',
-  ruta: 'Ruta',
-  mayoreo: 'Mayoreo',
-  credito: 'Mayoreo',
-  contado_nf: 'Mostrador',
-  otro: 'Otro',
-};
-const CHANNEL_ORDER_FALLBACK: Record<string, number> = {
-  mostrador: 0,
-  preventa: 1,
-  ruta: 2,
-  mayoreo: 3,
-  credito: 3,
-  otro: 4,
-};
-/** Canal de negocio al que pertenece cada canal crudo, cuando no hay tabla que preguntar. */
-const CHANNEL_CANON_FALLBACK: Record<string, string> = {
-  mostrador: 'mostrador', contado_nf: 'mostrador',
-  preventa: 'preventa', ruta: 'ruta',
-  mayoreo: 'mayoreo', credito: 'mayoreo',
-};
+// [VSO.1] El vocabulario de canal del sell-out vive en `sellout-channel-map.ts`, que lee
+// `analytics.sellout_channel_map`. Acá NO se re-declara: el mismo resolvedor lo usa el chat del
+// sell-out, que consultaba el canal CRUDO y por eso contestaba mal sobre mayoreo.
 
-/** [VSO.1] Lo que el resto del servicio usa para hablar de canales. */
-export interface SelloutChannelMap {
-  /** (fuente, canal crudo) → canal de NEGOCIO. Desconocido → el crudo, nunca se descarta. */
-  canon(source: any, raw: any): string;
-  /** rótulo de pantalla de un canal de NEGOCIO. */
-  label(canonical: string): string;
-  /** orden de pantalla de un canal de NEGOCIO. */
-  orden(canonical: string): number;
-  /** canales de negocio que existen, en orden — la lista que puede ofrecer un filtro. */
-  canales(): { value: string; label: string }[];
-  /** canales CRUDOS que componen estos canales de negocio — para filtrar en SQL sin perder ninguno. */
-  raws(canonicals: string[]): string[];
-  /** normaliza lo que llega por querystring; acepta el vocabulario viejo (`credito` → `mayoreo`). */
-  normalize(v: any): string;
-  /** true si el mapa salió de la DB; false si es el respaldo degradado. */
-  fromDb: boolean;
-}
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
@@ -724,10 +672,9 @@ const SALES_FACT = 'analytics.mv_sales_blended';
 // Canales CRUDOS que NO son venta real. VACÍO a propósito (SD.3): `mv_sales_blended`
 // sólo contiene ventas reales — los no-venta (`traspaso`/devoluciones) ya se excluyen
 // aguas arriba en `mv_kepler_sales_daily`. `mayoreo` **es venta de telemarketing** (K.3:
-// Factura Telemarketing U-D-8, $9.56M/30d; la suposición vieja "mayoreo=TI% traspaso, la
-// venta real vive en credito" fue REFUTADA — TI001/TI002 no existen en kdud, y el
-// telemarketing aterriza en `mayoreo`, no en `credito`). SD-CH lo preservó en el blend
-// y en Sell-Out, así que incluirlo REALINEA con la definición actual de Sell-Out.
+// Factura Telemarketing U-D-8; la suposición vieja "mayoreo=TI% traspaso, la venta real
+// vive en credito" fue REFUTADA — TI001/TI002 no existen en kdud, y el telemarketing
+// aterriza en `mayoreo`, no en `credito`). SD-CH lo preservó en el blend y en Sell-Out.
 // `whereNotIn('channel', [])` es no-op seguro → los call-sites del filtro quedan inertes.
 const NON_SALE_RAW_CHANNELS: string[] = [];
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
@@ -4146,70 +4093,10 @@ export class CommercialAnalyticsService {
     };
   }
 
-  /**
-   * [VSO.1] Lee `analytics.sellout_channel_map` — el resolvedor ÚNICO del canal del sell-out.
-   *
-   * Son 9 filas; se lee una vez por request y se resuelve en Node, NO con un join en las piernas:
-   * `selloutPivotLeg` está afinado para ser INDEX-ONLY (medido: FULL 7-10 s vs LEAN 3.8 s del
-   * full-year) y `source` no está en el índice covering — un join lo mandaría al heap.
-   *
-   * El lookup acepta (fuente, crudo) y también el crudo a secas, porque hay call-sites donde la
-   * fuente no viaja (los árboles agregan por canal). Que eso sea válido NO se asume: el candado
-   * verifica que ningún canal crudo caiga en dos canales de negocio distintos según la fuente.
-   *
-   * ⚠️ Un canal crudo que el mapa no explica se devuelve TAL CUAL, nunca se descarta: preferimos
-   * una columna con rótulo feo a dinero que desaparece (ADR-056 R4). Quien lo detecta y lo nombra
-   * con su monto es `analytics.v_sellout_channel_coverage`.
-   */
-  private async loadChannelMap(trx: any, tenantId: string): Promise<SelloutChannelMap> {
-    let rows: any[] = [];
-    try {
-      rows = await trx('analytics.sellout_channel_map').where('tenant_id', tenantId)
-        .select('source', 'raw_channel', 'canonical_channel', 'label', 'orden');
-    } catch {
-      rows = [];
-    }
-    const fromDb = rows.length > 0;
-    if (!fromDb) {
-      this.logger.warn('[VSO.1] analytics.sellout_channel_map vacío o ausente — el canal cae al respaldo degradado; correr la migración 20260928190000');
-    }
-    const byPair = new Map<string, string>();   // 'source:raw' → canónico
-    const byRaw = new Map<string, string>();    // 'raw'        → canónico
-    const labels = new Map<string, string>();
-    const ordenes = new Map<string, number>();
-    for (const r of rows) {
-      byPair.set(`${r.source}:${r.raw_channel}`, r.canonical_channel);
-      byRaw.set(String(r.raw_channel), r.canonical_channel);
-      labels.set(r.canonical_channel, r.label);
-      ordenes.set(r.canonical_channel, Number(r.orden) || 0);
-    }
-    const canon = (source: any, raw: any): string => {
-      const k = String(raw ?? '');
-      if (!k) return k;
-      return byPair.get(`${source}:${k}`) ?? byRaw.get(k) ?? CHANNEL_CANON_FALLBACK[k] ?? k;
-    };
-    const label = (c: string) => labels.get(c) ?? CHANNEL_LABELS_FALLBACK[c] ?? c;
-    const orden = (c: string) => ordenes.get(c) ?? CHANNEL_ORDER_FALLBACK[c] ?? 99;
-    const canales = () => {
-      const set = fromDb ? Array.from(new Set(rows.map((r) => r.canonical_channel)))
-        : Array.from(new Set(Object.values(CHANNEL_CANON_FALLBACK)));
-      return set.sort((a, b) => orden(a) - orden(b)).map((v) => ({ value: v, label: label(v) }));
-    };
-    // El querystring viejo manda `credito` para Mayoreo (y hay enlaces guardados). Se acepta y se
-    // traduce; romperlos no aporta nada y esconde el cambio detrás de un filtro que "no hace nada".
-    const normalize = (v: any) => canon(undefined, String(v ?? '').trim().toLowerCase());
-    // Los crudos que componen un canal de negocio. Se usa para acotar EN SQL sin enumerar a mano
-    // (enumerar a mano es exactamente lo que dejó a `mayoreo` fuera del árbol). El respaldo cubre
-    // el caso de tabla ausente para que los árboles no queden vacíos.
-    const raws = (canonicals: string[]): string[] => {
-      const want = new Set(canonicals);
-      const src = fromDb
-        ? rows.map((r) => ({ raw: String(r.raw_channel), canon: String(r.canonical_channel) }))
-        : Object.entries(CHANNEL_CANON_FALLBACK).map(([raw, c]) => ({ raw, canon: c }));
-      const out = src.filter((x) => want.has(x.canon)).map((x) => x.raw);
-      return Array.from(new Set(out));
-    };
-    return { canon, label, orden, canales, raws, normalize, fromDb };
+  /** [VSO.1] Delega en el resolvedor compartido (`sellout-channel-map.ts`). Se dejó este envoltorio
+   *  para no tocar los ~10 call-sites y para que el `logger` del servicio viaje al aviso de respaldo. */
+  private loadChannelMap(trx: any, tenantId: string): Promise<SelloutChannelMap> {
+    return loadSelloutChannelMap(trx, tenantId, this.logger);
   }
 
   /**
@@ -4784,11 +4671,10 @@ export class CommercialAnalyticsService {
     return { from: this.selloutShiftDay(from, -lenDays), to: this.selloutShiftDay(from, -1) };
   }
 
-  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null, chMap?: SelloutChannelMap): string {
-    if (dim === 'channel') {
-      // [VSO.1] El rótulo sale del resolvedor; el respaldo sólo cubre el caso sin mapa cargado.
-      return chMap ? chMap.label(k) : (CHANNEL_LABELS_FALLBACK[k] || k);
-    }
+  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null, chMap: SelloutChannelMap): string {
+    // [VSO.1] El rótulo sale del resolvedor, que es obligatorio: los tres call-sites lo cargan, y
+    // dejarlo opcional invitaba a un cuarto que rotulara con el crudo sin que nadie lo notara.
+    if (dim === 'channel') return chMap.label(k);
     if (dim === 'brand' && k === '__none__') return 'Sin marca';
     if (dim === 'branch' && k === '__none__') return 'Sin sucursal';
     return raw || k;
