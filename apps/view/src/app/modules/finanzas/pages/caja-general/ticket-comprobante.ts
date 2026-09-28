@@ -170,3 +170,97 @@ export function imprimirComprobante(c: ComprobanteCaja): boolean {
   else marco.onload = () => setTimeout(lanzar, 120);
   return true;
 }
+
+// ── CS.3.10 — Reporte diario de movimientos (mismo ticket térmico, mismos helpers) ────────────────
+
+export interface ReporteDiaMovimiento {
+  folio: string;
+  tipo: 'ingreso' | 'gasto' | 'deposito' | string;
+  monto: number;
+  kepler_concepto_nombre?: string | null;
+  beneficiario?: string | null;
+}
+
+export interface ReporteDia {
+  desde: string;                 // YYYY-MM-DD
+  hasta: string;                 // YYYY-MM-DD
+  tipo?: string | null;          // filtro de tipo activo, si hay
+  busqueda?: string | null;      // término de búsqueda activo, si hay
+  movimientos: ReporteDiaMovimiento[];
+  totales: { movimientos: number; ingresos: number; gastos: number; depositos: number };
+  generado_por?: string | null;
+  truncado?: boolean;            // si la lista vino topada (hay más de los que caben)
+}
+
+const ABBR: Record<string, string> = { ingreso: 'ING', gasto: 'GAS', deposito: 'DEP' };
+const fdmy = (ymd: string) => {
+  const m = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(ymd);
+};
+
+/** Cuerpo del reporte diario. Función pura (sin DOM) para poder probarlo. */
+export function cuerpoReporteDia(r: ReporteDia): string {
+  const L: string[] = [];
+  L.push('MEGA DULCES');
+  L.push('REPORTE DE MOVIMIENTOS');
+  L.push(linea('='));
+  L.push(r.desde === r.hasta ? fila('Dia', fdmy(r.desde)) : fila('Del', fdmy(r.desde) + ' al ' + fdmy(r.hasta)));
+  if (r.tipo) L.push(fila('Tipo', ABBR[r.tipo] ?? r.tipo));
+  if (r.busqueda) L.push(...envolver('Busqueda: ' + r.busqueda));
+  L.push(fila('Movimientos', String(r.totales.movimientos)));
+  L.push(linea());
+
+  // Un renglón por movimiento: folio + monto (con signo: ingreso +, gasto/depósito salen de la caja),
+  // y debajo el tipo + concepto/beneficiario. Sin acentos ni × (térmicas de 203 dpi).
+  for (const m of r.movimientos) {
+    const sale = m.tipo === 'gasto' || m.tipo === 'deposito';
+    L.push(fila(m.folio, (sale ? '-' : '') + money(m.monto)));
+    const det = `${ABBR[m.tipo] ?? m.tipo} ${m.kepler_concepto_nombre || m.beneficiario || ''}`.trim();
+    if (det) L.push('  ' + envolver(det)[0].slice(0, ANCHO - 2));
+  }
+  if (r.truncado) { L.push(''); L.push('* Lista topada: hay mas movimientos'); L.push('  de los que caben. Acota el rango.'); }
+  L.push(linea());
+
+  // Totales: el mismo criterio que el corte (NETO = ingresos - gastos - depositos).
+  L.push(fila('Ingresos', money(r.totales.ingresos)));
+  L.push(fila('Gastos', money(r.totales.gastos)));
+  L.push(fila('Depositos', money(r.totales.depositos)));
+  L.push(linea());
+  const neto = r.totales.ingresos - r.totales.gastos - r.totales.depositos;
+  L.push(fila('NETO', money(neto)));
+
+  L.push('');
+  L.push(linea());
+  if (r.generado_por) L.push(...etiqueta('Genero', r.generado_por));
+  L.push('');
+  L.push(esc(new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })));
+  return L.join('\n');
+}
+
+/** Imprime el reporte diario desde un iframe oculto (mismo mecanismo que el comprobante). */
+export function imprimirReporteDia(r: ReporteDia): boolean {
+  const marco = document.createElement('iframe');
+  marco.setAttribute('aria-hidden', 'true');
+  marco.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(marco);
+  const doc = marco.contentDocument;
+  const win = marco.contentWindow;
+  if (!doc || !win) { marco.remove(); return false; }
+  doc.open();
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Reporte ${esc(r.desde)}</title>
+<style>
+  @page { size: 80mm auto; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body { width: 72mm; padding: 3mm; color: #000;
+         font-family: "Courier New", ui-monospace, monospace; font-size: 14px; line-height: 1.35; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+</style></head><body><pre>${cuerpoReporteDia(r)}</pre></body></html>`);
+  doc.close();
+  const lanzar = () => {
+    try { win.focus(); win.print(); } catch { /* queda el botón manual */ }
+    setTimeout(() => marco.remove(), 1500);
+  };
+  if (doc.readyState === 'complete') setTimeout(lanzar, 120);
+  else marco.onload = () => setTimeout(lanzar, 120);
+  return true;
+}

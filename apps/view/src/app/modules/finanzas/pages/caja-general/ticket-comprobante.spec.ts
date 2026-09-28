@@ -3,7 +3,7 @@
  * para probar que trae lo que operación pidió: folio nuestro, desglose, concepto, recibido, total y
  * espacio para firma — y que el signo cambia el encabezado y la etiqueta de "recibido".
  */
-import { cuerpoComprobante, type ComprobanteCaja } from './ticket-comprobante';
+import { cuerpoComprobante, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 
 const base = (o: Partial<ComprobanteCaja> = {}): ComprobanteCaja => ({
   folio: 'ING-2026-00042', tipo: 'ingreso', fecha: '25/09/2026', sucursal: '00',
@@ -55,5 +55,44 @@ describe('cuerpoComprobante — lo que pidió operación', () => {
     // "Recibi"/"Capturo" van sin acento a propósito.
     expect(t).not.toContain('Recibí');
     expect(t).not.toContain('Capturó');
+  });
+});
+
+const rep = (o: Partial<ReporteDia> = {}): ReporteDia => ({
+  desde: '2026-09-25', hasta: '2026-09-25',
+  movimientos: [
+    { folio: 'ING-2026-00001', tipo: 'ingreso', monto: 1300, kepler_concepto_nombre: 'CLIENTES' },
+    { folio: 'GAS-2026-00007', tipo: 'gasto', monto: 200, beneficiario: 'CUERITOS' },
+  ],
+  totales: { movimientos: 2, ingresos: 1300, gastos: 200, depositos: 0 },
+  generado_por: 'maria', truncado: false, ...o,
+});
+
+describe('cuerpoReporteDia — reporte diario de movimientos', () => {
+  it('trae encabezado, día, movimientos y totales con NETO = ingresos − gastos − depósitos', () => {
+    const t = cuerpoReporteDia(rep());
+    expect(t).toContain('MEGA DULCES');
+    expect(t).toContain('REPORTE DE MOVIMIENTOS');
+    expect(t).toContain('Dia');
+    expect(t).toContain('25/09/2026');
+    expect(t).toContain('ING-2026-00001');
+    expect(t).toContain('GAS-2026-00007');
+    expect(t).toMatch(/-\$200\.00/);              // el gasto sale con signo negativo
+    expect(t).toContain('Ingresos');
+    expect(t).toContain('Gastos');
+    expect(t).toContain('Depositos');
+    expect(t).toContain('NETO');
+    expect(t).toContain('$1,100.00');             // 1300 − 200 − 0
+  });
+
+  it('un rango de fechas dice «Del … al …», un solo día dice «Dia»', () => {
+    expect(cuerpoReporteDia(rep({ hasta: '2026-09-27' }))).toContain('Del');
+    expect(cuerpoReporteDia(rep({ hasta: '2026-09-27' }))).toContain('al ');
+    expect(cuerpoReporteDia(rep())).toContain('Dia');
+  });
+
+  it('avisa cuando la lista viene topada', () => {
+    expect(cuerpoReporteDia(rep({ truncado: true }))).toContain('topada');
+    expect(cuerpoReporteDia(rep({ truncado: false }))).not.toContain('topada');
   });
 });
