@@ -101,14 +101,57 @@ Sobrantes: **0**. Latido `ods_publish_tienda` con umbral en `CRON_JOBS` (sin umb
   las réplicas. `_sync_status` sí aparece en el destino, pero **escrita por el handler** como marca
   de frescura real, que es lo que se quería.
 
-### Pendiente humano
+### Puesto en producción el mismo día
 
-- ⛔ **Apagar del lado de `Ecommerce-Mayorista` la recarga desde `kepler_ods_fdw`** (y retirar las
-  `*_staging`): mientras exista, puede pisar lo fresco con lo viejo. Desde la primera publicación no
-  volvió a correr (medido por `n_tup_ins`), pero eso es observación, no garantía.
-- `ODS_PUBLISH_DEST_URL` en `/home/superoot/secrets/feeds.env` de `md` + `ops/vl/deploy.sh`, para
-  que la línea nueva de `crontab.feeds` empiece a correr allá. Hasta entonces la publicación es
-  manual.
+`ODS_PUBLISH_DEST_URL` en `/home/superoot/secrets/feeds.env` de `md`, imagen reconstruida y los **8
+carriles recreados** (el arreglo del `GRANT` está en `apply-handlers.js`, que usan todos). Verificado
+por la ruta real del cron (`run-feed.sh publish-tienda`): **`✓ ok en 17s`**, 26 filas, y el latido
+`ods_publish_tienda` aterrizó en `analytics.cron_runs` de prod con `status=ok`. El umbral ya viaja en
+el `prod-api` desplegado. Los 9 carriles laten sanos tras el reinicio.
+
+### ⭐ La medición corrigió el diagnóstico: el camino vivo NO era el FDW
+
+Al ir a apagar la recarga apareció algo que el primer análisis no tenía. En `pg_stat_statements` de
+la prod vieja, la consulta que corre **51 veces** es un CTE escrito a mano
+(`WITH ex AS (SELECT TRIM(c2), SUM(c5) FROM kepler_ods.kdik WHERE sucursal=$1 …)` que une `kdii`,
+`kdie` y `kdig`) — **eso no es forma de consulta que genere `postgres_fdw`**: es la app conectándose
+**directo** por `DATABASE_URL_KEPLER_LIVE`, que en el servicio `Ecommerce-Mayorista` de Railway sigue
+apuntando a `trolley.proxy.rlwy.net:39023`. O sea el FDW y las `*_staging` son el camino **viejo y
+dormido** (último `last_autovacuum` 24-sep), y lo que de verdad sirve existencia y precio a la tienda
+es esa conexión directa.
+
+**Superficie real de lectura, medida por `last_seq_scan`/`last_idx_scan` posteriores a la mudanza:**
+
+| tabla | último acceso | scans | ¿publicada? |
+|---|---|---:|---|
+| `kdik` `kdii` `kdie` `kdig` | 2026-09-28 17:34 (mismo instante: una consulta) | 50–60 | ✅ las 4 |
+| `kdms` | 17:07 | 1 | ✅ |
+| `ctl` | 17:07 | 9 | ❌ a propósito |
+| **`kdm2`** | **nunca** | **0** | ❌ **y esto lo confirma** |
+
+Dos cosas que esto zanja:
+
+- **`kdm2` nunca fue leída desde ahí.** La decisión de dejarlo fuera por tamaño (2,133 MB) deja de
+  ser un argumento y pasa a ser un hecho medido.
+- **`ctl` tampoco la lee la app**: sus 9 accesos son `SELECT * … LIMIT $1` y `count(*)` — la firma de
+  un cliente gráfico y de las sondas de esta sesión, no de tráfico de aplicación. Y es **estado
+  muerto**: su `last_run_at` máximo es **2026-08-27** en las DOS prods, o sea que cualquier pantalla
+  que la use como marca de frescura lleva un mes mostrando agosto. No se publica: copiarla sería
+  mudar la mentira de lugar. La marca honesta es `kepler_ods._sync_status`, que el handler escribe
+  con la hora real de cada empuje.
+
+### Pendiente — necesita autorización (toca la base y el servicio de la tienda)
+
+1. **Reemplazar las 4 tablas foráneas de `kepler_ods_fdw` por vistas sobre las locales frescas.**
+   Verificado que se puede: mismas 104/110/5/6 columnas, mismo tipo y mismo orden, y **ningún objeto
+   depende de ellas**. Con esto, si la recarga vieja despierta, copia fresco sobre fresco — un no-op
+   en vez de una vuelta atrás de 5 días. No hace falta borrar las `*_staging`.
+2. **Repuntar `DATABASE_URL_KEPLER_LIVE` del servicio `Ecommerce-Mayorista`** de `trolley` a su
+   propia base (`postgres.railway.internal:5432/railway`), donde `kepler_ods.*` ya está fresco.
+   Reinicia el servicio. Reversible en segundos: el valor viejo es el mismo `trolley` de siempre.
+
+⚠️ Mientras el punto 2 no se haga, **la tienda sigue sirviendo existencia y precio de hace 5 días**,
+aunque su propia base ya tenga el dato bueno.
 
 ---
 ## 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`)
