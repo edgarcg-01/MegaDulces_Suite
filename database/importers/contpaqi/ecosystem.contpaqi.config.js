@@ -38,6 +38,21 @@ const path = require('path');
 // ⚠️ Ya pasó: `ops/README.md:110` documenta que este README los daba por mudados y en `pm2 stop`
 // cuando estaban ONLINE — `PM2 Resurrect ODS` los revivió tras un reinicio de Windows, y el
 // incremental corrió DUPLICADO y mudo.
+//
+// ⛔⛔ Y ESTE `throw` NO LO IMPEDÍA — guardaba la puerta equivocada, y quedó medido el 2026-09-28.
+// `pm2 resurrect` **no lee este archivo**: lee `~/.pm2/dump.pm2`, que guarda la config YA RESUELTA
+// de cada proceso. El dump traía los dos carriles desde el 2026-09-23 17:08 —un día ANTES de que
+// se escribiera este retiro— y nadie lo volvió a guardar, así que durante cuatro días la máquina
+// estuvo a un reinicio de Windows de repetir el incidente que este comentario describe.
+//
+// Desarmado el 2026-09-28: `pm2 delete contpaqi-cfdis-inc contpaqi-cfdis-full && pm2 save`. El dump
+// quedó en 5 apps (3 Wincaja + 2 Caja General, ecosystems NO retirados) y cero `contpaqi-*`.
+//
+// ⭐ LA REGLA QUE FALTABA, para el próximo carril que se mude a `md`: retirar un carril de PM2 son
+// TRES pasos, no dos. (1) `pm2 stop`, (2) el freno en su ecosystem, y (3) **`pm2 delete` + `pm2
+// save`**. Sin el tercero el carril sigue armado: un `stop` no lo saca del dump, y el dump es lo
+// único que `PM2 Resurrect ODS` mira. Un freno que no está en el camino que se recorre de verdad
+// no es un freno — es un comentario.
 throw new Error(
   'ecosystem.contpaqi.config.js está RETIRADO (2026-09-22). Los dos carriles corren en `feeds-cron` ' +
   'del servidor md: ops/vl/crontab.feeds líneas `contpaqi-cfdis` (3-58/5) y `contpaqi-cfdis-full` ' +
