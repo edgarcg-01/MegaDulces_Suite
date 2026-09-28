@@ -34,6 +34,7 @@ const etiqueta = argv.find((a) => !a.startsWith('--')) || 'medicion';
 const arg = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null; };
 const PDF = arg('--pdf');
 const PNG = arg('--png');
+const SIN_FUENTES = argv.includes('--sin-fuentes');
 const SKUS = (arg('--skus') || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 const STYLES_CSS = path.join(RAIZ, 'apps/view/src/styles.css');
@@ -60,6 +61,19 @@ const num = (re, def) => { const m = re.exec(src); return m ? Number(m[1]) : def
  * Se EXTRAEN de `styles.css`, no se copian: un literal acá se separaría del original en silencio.
  */
 function fontFaceCss() {
+  /**
+   * ⭐ `--sin-fuentes` — mide la etiqueta COMO SALE EN UN EQUIPO QUE NO TIENE LAS TIPOGRAFÍAS.
+   *
+   * Es el escenario que reportó el mostrador: *"el dinamismo hace que salgan mal en otros
+   * equipos"*. La etiqueta decide sus tamaños MIDIENDO texto en el navegador, así que si Anton /
+   * Bebas Neue / Baloo 2 no llegaron —caché frío, red cortada, build viejo servido por el service
+   * worker— se mide con la de respaldo y el papel sale con otras proporciones.
+   *
+   * ⚠️ NO es un modo "bonito": es el peor caso realista, y el arnés tiene que poder decir si la
+   * etiqueta AGUANTA sin sus fuentes o si se rompe. Una etiqueta que sólo es correcta cuando todo
+   * cargó no es correcta: es afortunada.
+   */
+  if (SIN_FUENTES) return '/* --sin-fuentes: se mide con la cadena de respaldo */';
   const hoja = fs.readFileSync(STYLES_CSS, 'utf8');
   const caras = hoja.match(/@font-face\s*\{[\s\S]*?\}/g) || [];
   if (!caras.length) throw new Error('etiqueta-geometria: styles.css no declara ninguna @font-face');
@@ -295,11 +309,19 @@ function html(v) {
   }, FUENTES_SPECS);
   // ⛔ Lo que no se puede medir se DECLARA, no se publica (ADR-056). Medir con la tipografía de
   // respaldo y reportar los números como si fueran los de la etiqueta es justo lo que hacía antes.
-  if (faltan.length) {
+  if (faltan.length && !SIN_FUENTES) {
     console.error(`\n⛔ No se pudieron cargar las tipografias: ${faltan.join(', ')}.`);
     console.error('   El arnes NO reporta: con la de respaldo el ancho cambia hasta 18.6% y los numeros no serian los de la etiqueta.');
     await browser.close();
     process.exit(1);
+  }
+  // Con `--sin-fuentes` la ausencia es el PUNTO de la corrida, no un motivo para abortar: se
+  // declara arriba del reporte para que ningún número de esta pasada se confunda con el de la
+  // etiqueta buena.
+  if (SIN_FUENTES) {
+    console.log(`\n⚠️  CORRIDA SIN TIPOGRAFIAS (faltan: ${faltan.join(', ') || 'ninguna declarada'}).`);
+    console.log('   Simula un equipo donde Anton/Bebas/Baloo no llegaron. Los milimetros de abajo NO son');
+    console.log('   los de la etiqueta buena: lo que vale de esta pasada son los INVARIANTES.');
   }
 
   const filas = await page.evaluate((K) => {
