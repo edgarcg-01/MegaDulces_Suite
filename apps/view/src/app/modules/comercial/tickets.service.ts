@@ -75,6 +75,23 @@ export interface ReporteDocumento {
   descuento: number;
   /** NEGATIVO en las notas de crédito. */
   total: number;
+  /** ⚠️ `null` = no se pidió el detalle · `[]` = se pidió y el documento no tiene partidas. */
+  lineas?: ReporteLinea[] | null;
+}
+
+/** [TK.11] Una partida, con las mismas cinco columnas de dinero que el ticket en carta. */
+export interface ReporteLinea {
+  linea: number;
+  sku: string | null;
+  descripcion: string | null;
+  unidad: string | null;
+  cantidad: number;
+  precio_lista: number;
+  lista_conocida: boolean;
+  precio_pagado: number;
+  descuento_unitario: number;
+  descuento_linea: number;
+  importe: number;
 }
 
 export interface ReporteCliente {
@@ -102,6 +119,8 @@ export interface ReporteFiltrosUI {
   brand_id?: string;
   supplier_id?: string;
   solo_con_descuento?: boolean;
+  /** [TK.11] Trae las partidas de cada compra. Alarga el papel: se declara en pantalla. */
+  detalle?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
