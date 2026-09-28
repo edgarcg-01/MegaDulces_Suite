@@ -82,6 +82,7 @@ export class CommercialTicketsController {
   @ApiQuery({ name: 'atendio', required: false, description: 'Clave de quien atendio: cajero en mostrador, vendedor en facturas.' })
   @ApiQuery({ name: 'brand_id', required: false, description: 'El documento entra COMPLETO si alguna partida es de esa marca.' })
   @ApiQuery({ name: 'supplier_id', required: false, description: '⚠️ Solo alcanza al 84.2% del catalogo: 1,777 productos no tienen proveedor.' })
+  @ApiQuery({ name: 'detalle', required: false, description: '[TK.11] true = trae las partidas de cada documento. Alarga el papel.' })
   @ApiQuery({ name: 'solo_con_descuento', required: false })
   @ApiOperation({ summary: 'Los documentos de UN cliente en TODAS las plazas que alcanzas, de los dos universos (mostrador y facturas/credito/notas). La clave de cliente es global: el catalogo esta replicado en las nueve sucursales (1,862 de 2,395 claves existen en las nueve), asi que la sucursal es un filtro, no parte de la identidad. Las notas de credito entran en NEGATIVO para que el total sea lo que el cliente pago.' })
   async reporteCliente(
@@ -100,6 +101,8 @@ export class CommercialTicketsController {
       brand_id: raw.brand_id || undefined,
       supplier_id: raw.supplier_id || undefined,
       solo_con_descuento: raw.solo_con_descuento === 'true',
+      // [TK.11] Igual que `solo_con_descuento`: SOLO el literal 'true' lo prende.
+      detalle: raw.detalle === 'true',
     };
     return this.reporte.reporte(code, f, await this.alcance(raw, 'reporte'));
   }

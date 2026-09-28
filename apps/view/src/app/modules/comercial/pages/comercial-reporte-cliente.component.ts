@@ -148,6 +148,9 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
           <label class="rc-check">
             <input type="checkbox" [(ngModel)]="f.solo_con_descuento"> Sólo con descuento
           </label>
+          <label class="rc-check">
+            <input type="checkbox" [(ngModel)]="f.detalle"> Detalle por producto
+          </label>
         </div>
         <div class="rc-fila">
           <label for="f7">Folio</label>
@@ -356,6 +359,7 @@ export class ComercialReporteClienteComponent {
     if (f.min) out.push({ clave: 'min', texto: `Desde $${f.min}` });
     if (f.max) out.push({ clave: 'max', texto: `Hasta $${f.max}` });
     if (f.solo_con_descuento) out.push({ clave: 'solo_con_descuento', texto: 'Sólo con descuento' });
+    if (f.detalle) out.push({ clave: 'detalle', texto: 'Con detalle por producto' });
     return out;
   });
 

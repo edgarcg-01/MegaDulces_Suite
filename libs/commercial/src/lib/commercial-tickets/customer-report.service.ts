@@ -103,6 +103,26 @@ export interface ClienteCandidato {
   score: number;
 }
 
+/**
+ * [TK.11] Una partida del documento, con las MISMAS cinco columnas de dinero que el ticket en
+ * carta: precio original, precio con descuento, descuento por pieza, descuento total y total a
+ * pagar. Ni netos ni impuesto por renglon — el papel los saco porque revolvian al cliente.
+ */
+export interface ReporteLinea {
+  linea: number;
+  sku: string | null;
+  descripcion: string | null;
+  unidad: string | null;
+  cantidad: number;
+  precio_lista: number;
+  /** false ⇒ el ERP no guarda con que precio se comparaba. No es «no hubo descuento». */
+  lista_conocida: boolean;
+  precio_pagado: number;
+  descuento_unitario: number;
+  descuento_linea: number;
+  importe: number;
+}
+
 export interface ReporteDocumento {
   id: string;
   origen: ReporteOrigen;
@@ -116,6 +136,14 @@ export interface ReporteDocumento {
   descuento: number;
   /** NEGATIVO en las notas de crédito: el total del periodo es lo que se pagó de verdad. */
   total: number;
+  /**
+   * [TK.11] Las partidas, SOLO cuando se pidio el detalle (`detalle: true`).
+   *
+   * ⚠️ `null` y `[]` NO son lo mismo, y el papel los imprime distinto: `null` = no se pidio el
+   * detalle; `[]` = se pidio y este documento no tiene partidas en el sistema. Un arreglo vacio
+   * donde deberia haber `null` le diria al cliente que su compra no tuvo productos.
+   */
+  lineas: ReporteLinea[] | null;
 }
 
 export interface ReporteFiltros {
@@ -131,6 +159,12 @@ export interface ReporteFiltros {
   brand_id?: string;
   supplier_id?: string;
   solo_con_descuento?: boolean;
+  /**
+   * [TK.11] Trae las partidas de cada documento. Cuesta una consulta mas por universo, y
+   * ALARGA el papel: medido, un cliente con 37 compras y ~4 partidas son ~150 renglones, de una
+   * hoja a cinco o seis. Por eso es opcional y el papel declara cuantas partidas trae.
+   */
+  detalle?: boolean;
 }
 
 export interface ReporteCliente {
@@ -276,6 +310,80 @@ export class CustomerReportService {
   }
 
   /** El reporte: los documentos del cliente, de los DOS universos y de todas sus plazas. */
+  /**
+   * [TK.11] Las partidas de un lote de documentos, adjuntadas en su sitio.
+   *
+   * ⚠️ NO se busca por `folio_digital`: es una CONCATENACION y no usa el indice del ODS — el
+   * mismo motivo por el que el EXISTS de marca/proveedor se correlaciona por la terna. Aca se
+   * arma la terna `(sucursal, doc_prefix, folio)`, que si entra por indice.
+   *
+   * El `doc_prefix` no viaja en el documento, pero sale EXACTO de su identidad: `folio_digital`
+   * es `<sucursal><doc_prefix>-<folio>` por construccion de la vista, asi que se recorta con los
+   * dos campos que el documento si trae. Hay una prueba que lo fija.
+   *
+   * Dos universos, dos consultas: mostrador va a `erp_sale_ticket_lines` y todo lo demas
+   * (telemarketing, credito, abonos) a `erp_sales_invoice_lines`.
+   */
+  private async partidas(
+    trx: Knex,
+    tenantId: string,
+    docs: ReporteDocumento[],
+  ): Promise<void> {
+    const terna = (d: ReporteDocumento): [string, string, string] => [
+      d.sucursal,
+      d.id.slice(d.sucursal.length, d.id.length - d.folio.length - 1),
+      d.folio,
+    ];
+
+    const universos: { vista: string; docs: ReporteDocumento[] }[] = [
+      { vista: 'analytics.erp_sale_ticket_lines', docs: docs.filter((d) => d.origen === 'mostrador') },
+      { vista: 'analytics.erp_sales_invoice_lines', docs: docs.filter((d) => d.origen !== 'mostrador') },
+    ];
+
+    const porDoc = new Map<string, ReporteLinea[]>();
+    for (const u of universos) {
+      if (!u.docs.length) continue;
+      const ternas = u.docs.map(terna);
+      const filas = await trx
+        .select('folio_digital', 'linea', 'sku', 'descripcion', 'unidad', 'cantidad',
+          'precio_lista', 'precio_unitario', 'descuento_unitario', 'descuento_linea', 'importe')
+        .from(trx.raw('?? as l', [u.vista]))
+        .where('l.tenant_id', tenantId)
+        .whereRaw(
+          `(l.sucursal, l.doc_prefix, l.folio) IN (${ternas.map(() => '(?,?,?)').join(',')})`,
+          ternas.flat(),
+        )
+        .orderBy(['folio_digital', 'linea']);
+
+      for (const r of filas as Record<string, unknown>[]) {
+        const id = String(r['folio_digital']);
+        // `precio_lista` llega NULL cuando el ERP no lo guarda (nada anterior al 2026-08-13).
+        // Se distingue de «lista = pagado», que si es una afirmacion.
+        const listaRaw = r['precio_lista'];
+        const conocida = listaRaw != null && num(listaRaw) > 0;
+        const pagado = r2(num(r['precio_unitario']));
+        if (!porDoc.has(id)) porDoc.set(id, []);
+        (porDoc.get(id) as ReporteLinea[]).push({
+          linea: Number(r['linea'] ?? 0),
+          sku: (r['sku'] as string) ?? null,
+          descripcion: (r['descripcion'] as string) ?? null,
+          unidad: (r['unidad'] as string) ?? null,
+          cantidad: num(r['cantidad']),
+          precio_lista: conocida ? r2(num(listaRaw)) : pagado,
+          lista_conocida: conocida,
+          precio_pagado: pagado,
+          descuento_unitario: r2(num(r['descuento_unitario'])),
+          descuento_linea: r2(num(r['descuento_linea'])),
+          importe: r2(num(r['importe'])),
+        });
+      }
+    }
+
+    // ⚠️ Se asigna a TODOS, incluso a los que no trajeron filas: `[]` dice «se pidio el detalle
+    // y este documento no tiene partidas», que no es lo mismo que el `null` de «no se pidio».
+    for (const d of docs) d.lineas = porDoc.get(d.id) ?? [];
+  }
+
   async reporte(
     clienteCode: string, f: ReporteFiltros, alcance: string[] | null,
   ): Promise<ReporteCliente> {
@@ -324,6 +432,7 @@ export class CustomerReportService {
           caja: r.caja != null ? Number(r.caja) : null,
           folio: String(r.folio), fecha: fecha(r.fecha), atendio: (r.atendio as string) ?? null,
           descuento: r2(num(r.descuento_documento)), total: r2(num(r.total)),
+          lineas: null,
         });
       }
       for (const r of filasFac) {
@@ -339,6 +448,7 @@ export class CustomerReportService {
           // ⭐ El abono RESTA. Sin el signo, el total del periodo diría de más y el papel
           // afirmaría que el cliente pagó mercancía que devolvió.
           total: esAbono ? -Math.abs(r2(num(r.total))) : r2(num(r.total)),
+          lineas: null,
         });
       }
 
@@ -346,6 +456,10 @@ export class CustomerReportService {
       // Más reciente primero, con el folio de desempate: dos documentos del mismo día no pueden
       // quedar en un orden que cambie entre dos cargas de la misma pantalla.
       sel.sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? '') || b.id.localeCompare(a.id));
+
+      // [TK.11] El detalle se pide aparte y DESPUES de filtrar: no tiene sentido traer las
+      // partidas de documentos que el usuario ya descarto.
+      if (f.detalle && sel.length) await this.partidas(trx, tenantId, sel);
 
       const importe = r2(sel.reduce((s, d) => s + d.total, 0));
       const descuento = r2(sel.reduce((s, d) => s + d.descuento, 0));
