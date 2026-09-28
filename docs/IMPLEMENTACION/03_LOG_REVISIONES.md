@@ -5,6 +5,27 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — Cotizaciones: Desbloqueo de Crear cotización, asignación de folio y retorno a mesa (`[COT.15]`)
+
+**Cómo se llegó:** el usuario reportó que el botón de crear cotización no trabajaba, y solicitó que genere la cotización con su folio asignado y la envíe al estatus correspondiente en `/telemarketing/cotizaciones`.
+
+### El hallazgo, medido
+1. En `televenta-quote-new.component.ts`, la condición reactiva `puedeCrear` exigía estrictamente `!!this.cliente() && !!this.sucursal()`. Si el vendedor escribía un código (ej. `C1086`) o texto en el buscador de cliente pero no daba clic en la sugerencia desplegable, `cliente()` permanecía en `null`, dejando el botón deshabilitado sin ninguna retroalimentación.
+2. Al crearse la cotización, el flujo navegaba a `router.navigate(['/telemarketing/cotizaciones', quote.id])` (la vista individual de detalle), en lugar de volver a la mesa de cotizaciones `/telemarketing/cotizaciones` con el estatus y folio del documento recién creado.
+3. En backend (`commercial-quotes.service.ts`), las columnas `salesperson_code` y `salesperson_name` (creadas por la migración `20260926170000`) no estaban incluidas en las columnas del `INSERT INTO commercial.quotes`. Asimismo, transacciones con usuario de solo lectura (`25006` / `42501`) reventaban con 500 no controlado en vez de un 503 explicativo.
+
+### Qué se construyó
+1. **Frontend (`televenta-quote-new.component.ts`)**:
+   - `puedeCrear` se flexibilizó para validar si hay destinatario o término escrito. Si el vendedor pulsa `Enter` en el campo o da clic en "Crear cotización", se auto-selecciona el primer resultado coincidente.
+   - Si falta sucursal o destinatario, el botón emite un toast de advertencia detallado en vez de comportarse como botón inerte.
+   - Al generarse la cotización (`COT-YYYY-NNNNN`), se redirige a `/telemarketing/cotizaciones` pasando `?created=COT-YYYY-NNNNN`.
+2. **Frontend (`televenta-quotes.component.ts`)**:
+   - `TeleventaQuotesComponent` recibe el queryParam `created`, emite toast de éxito y ubica la cotización en la lista de 'Abiertas' (estatus `draft`).
+3. **Backend (`commercial-quotes.service.ts` y `quote-pricing.service.ts`)**:
+   - Inserción y retorno explícito de `salesperson_code` y `salesperson_name`.
+   - Mapeo de errores `25006` y `42501` hacia `ServiceUnavailableException`.
+
+---
 ## 2026-09-28 — La tienda mayorista publicaba catálogo de una prod congelada (`[PUB.1]`)
 
 **Cómo se llegó:** el usuario pidió "mandar estas tablas a la ingesta del ODS a

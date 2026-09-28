@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { TableModule } from 'primeng/table';
@@ -337,6 +337,7 @@ export class TeleventaQuotesComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly filters = FILTERS;
 
@@ -351,6 +352,14 @@ export class TeleventaQuotesComponent implements OnInit {
   readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_QUOTES_GESTIONAR));
 
   ngOnInit(): void {
+    const created = this.route.snapshot.queryParamMap.get('created');
+    if (created) {
+      this.toast.add({
+        severity: 'success',
+        summary: `Cotización ${created}`,
+        detail: 'Cotización creada con folio asignado en estatus Borrador (abierta).',
+      });
+    }
     this.reload();
   }
 
