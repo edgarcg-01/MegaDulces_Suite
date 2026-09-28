@@ -844,9 +844,64 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
    * tipografías no cargan (y está bien: publicar milímetros medidos con la de respaldo fue un
    * defecto real), pero entonces nadie podía medir cómo sale la etiqueta en un equipo sin ellas.
    */
+  /**
+   * ⛔ `[ETQ-FIT.4]` Lo que vigila a `scripts/` NO vive acá — vive en
+   * `scripts/check-etiqueta-gate.js`, que corre en `npm run check`.
+   *
+   * Medido: un caso de este spec que leía `scripts/etiqueta-geometria.js` **se quedaba verde con
+   * la comprobación rota**. Este spec lo corre Nx con caché y un cambio en `scripts/` no la
+   * invalida; sólo se ponía rojo con `--skip-nx-cache`. Declarar el archivo en `sharedGlobals`
+   * de `nx.json` tampoco alcanzó (probado y revertido).
+   *
+   * Un guardián que puede quedar cacheado sobre una versión vieja de lo que vigila no guarda
+   * nada, y es peor que no tenerlo: da la sensación de que alguien está mirando.
+   */
   it('el arnés puede correr a propósito SIN las tipografías, y lo declara', () => {
-    expect(HARNESS).toContain("const SIN_FUENTES = argv.includes('--sin-fuentes')");
-    expect(HARNESS).toMatch(/if \(faltan\.length && !SIN_FUENTES\)/);
     expect(HARNESS).toContain('CORRIDA SIN TIPOGRAFIAS');
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.3]` EL NOMBRE COMPLETO, AUNQUE NO ENTRE EN UN RENGLÓN.
+   *
+   * Los nombres que no entraban a 2.3 mm salían con puntos suspensivos, y los cinco casos eran
+   * descripciones de promoción de 55-83 caracteres (*"2 CJS TRIDENT VALUPACK = GRATIS 1 CJ GREEN
+   * PACK 60 X 90 /10"*) — o sea justo donde el nombre ES lo que se vende.
+   *
+   * La banda mide 6.8 mm fijos, así que dos renglones entran hasta 3.23 mm de cuerpo. El
+   * `line-clamp:2` es lo que impide que un tercero desborde: el alto de la banda no lo decide el
+   * texto, ni en un modo ni en el otro.
+   */
+  it('⭐⭐ el encabezado usa DOS renglones antes que recortar el nombre', () => {
+    expect(LABEL).toMatch(/\.etq-head\.es-doble \.etq-head-txt\{[^}]*-webkit-line-clamp:2/);
+    expect(LABEL).toMatch(/\.etq-head\.es-doble \.etq-head-txt\{[^}]*white-space:normal/);
+    const fh = /private fitHead\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    // Anti-trinquete: cada pase vuelve a decidir el modo, no hereda el anterior.
+    expect(fh).toContain("head.classList.remove('es-doble')");
+    expect(fh).toContain("head.classList.add('es-doble')");
+    // 3.2 mm: dos renglones a 1.05 de interlínea entran en los 6.8 mm de la banda.
+    expect(fh).toMatch(/Math\.min\(size, 3\.2\)/);
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.4]` CERO INVARIANTES ROTOS, **CERO EXCEPCIONES** — y la compuerta corre sola.
+   *
+   * Dos cosas que este caso sostiene, y las dos son la respuesta a *"no se pueden seguir
+   * imprimiendo mal las etiquetas"*:
+   *
+   * 1. `CONOCIDOS` está VACÍO. Tenía cinco etiquetas declaradas como "no tienen arreglo", y el
+   *    efecto real era que el arnés salía verde con cinco imprimiéndose recortadas. Las cinco se
+   *    arreglaron. Una entrada acá es decir *"esta etiqueta sale mal y lo aceptamos"*.
+   * 2. El arnés es una COMPUERTA de `npm run check`, en sus dos escenarios. Estaba escrito y
+   *    había que acordarse de correrlo: se corrió dos veces en toda su vida, las dos por un
+   *    reporte del mostrador.
+   */
+  it('⭐⭐ existe una compuerta PLANA que vigila al arnés (no cacheable)', () => {
+    // La comprobación de fondo —`CONOCIDOS` vacío y las dos corridas en `npm run check`— vive en
+    // node plano justamente porque acá quedaba cacheada. Lo que este caso asegura es que ese
+    // guardián EXISTA y esté enchufado; el contenido lo comprueba él, corriendo.
+    const gate = join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'check-etiqueta-gate.js');
+    expect(existsSync(gate)).toBe(true);
+    const check = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'check-all.js'), 'utf8');
+    expect(check).toContain('check-etiqueta-gate.js');
   });
 });

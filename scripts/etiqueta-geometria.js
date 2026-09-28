@@ -112,15 +112,26 @@ const K = {
  * igual antes del rediseño. Lo que no se puede arreglar se DECLARA, no se pinta de verde
  * (ADR-056); si aparece un sku nuevo en cualquiera de estas banderas, el arnés se pone rojo.
  */
-const CONOCIDOS = {
-  '01001': 'GLOBO PARA 120KG: base $18,345 y caja $342,299.99 — 6 cifras no caben en la celda de 22 mm ni al piso de 2.4 mm, así que ese monto se encoge solo y rompe la uniformidad',
-  '00422': 'promo de 83 caracteres de nombre ("3 EXH SUIZO... = GRATIS...") — la banda tiene 78 mm y ni al piso de 2.3 mm entra',
-  '59325': 'promo de 79 caracteres de nombre',
-  '62253': 'promo de 81 caracteres de nombre',
-  '89037': 'el "nombre" son 60 caracteres de nota al capturista del ERP ("**DUPLICADO 89004 NO BORRAR '
-    + 'PURO TAMARINDO CHICO /4 JHONY $5"), no el nombre del producto — la banda tiene 78 mm y no entra '
-    + 'ni al piso. Es un dato a limpiar en Kepler, no un defecto del layout',
-};
+/**
+ * ⭐⭐ `[ETQ-FIT.4]` VACÍO, Y ES EL PUNTO: **cero invariantes rotos, cero excepciones.**
+ *
+ * Acá vivían cinco. Cuatro eran nombres de promoción de 60-83 caracteres que "no entraban ni al
+ * piso de 2.3 mm", y una era un monto de 6 cifras. Se declaraban porque se creía que no tenían
+ * arreglo — y el efecto de declararlas era que el arnés salía en verde con cinco etiquetas que se
+ * imprimían recortadas.
+ *
+ * Las cinco se arreglaron:
+ *   · los nombres, con el encabezado de DOS renglones (`[ETQ-FIT.3]`): la banda mide 6.8 mm
+ *     fijos y dos renglones entran hasta 3.23 mm de cuerpo, así que el nombre completo cabe;
+ *   · el monto, con el techo que sale de la caja (`[ETQ-FIT.1]`), que además los iguala.
+ *
+ * Verificado con el corpus entero, en los DOS escenarios (con y sin las tipografías): los ocho
+ * invariantes en 0 y esta lista vacía.
+ *
+ * ⛔ Agregar una entrada acá es decir *"esta etiqueta se imprime mal y lo aceptamos"*. Antes de
+ * hacerlo hay que poder explicar por qué no tiene arreglo — y las cinco que había, lo tenían.
+ */
+const CONOCIDOS = {};
 
 const n = (v) => (typeof v === 'number' && isFinite(v) ? v : Number(v) || 0);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -341,8 +352,14 @@ function html(v) {
 
       // ── nombre
       const head = lab.querySelector('.etq-head'), htxt = lab.querySelector('.etq-head-txt');
-      let hs = 3.9; head.style.fontSize = hs + 'mm';
+      let hs = 3.9; head.classList.remove('es-doble'); head.style.fontSize = hs + 'mm';
       for (let g = 0; htxt.scrollWidth > htxt.clientWidth && hs > 2.3 && g < 40; g++) { hs -= 0.12; head.style.fontSize = hs + 'mm'; }
+      // `[ETQ-FIT.3]` Espejo de `fitHead`: si ni al piso entra en un renglon, pasa a DOS.
+      if (htxt.scrollWidth > htxt.clientWidth) {
+        head.classList.add('es-doble');
+        hs = Math.min(hs, 3.2); head.style.fontSize = hs + 'mm';
+        for (let g = 0; htxt.scrollHeight > htxt.clientHeight + 1 && hs > 2.3 && g < 40; g++) { hs -= 0.12; head.style.fontSize = hs + 'mm'; }
+      }
 
       // ── franja de unidad (sólo si el CSS trae el marcado nuevo)
       const ptxt = lab.querySelector('.etq-pieza-txt');
@@ -460,7 +477,17 @@ function html(v) {
         monto_desborda: amts.some((a) => a.parentElement.scrollWidth > a.parentElement.clientWidth + 1),
         tiers_recortado: extension() > tb.clientHeight + 1,
         unidad_recortada: !!(ptxt && ptxt.scrollWidth > ptxt.clientWidth + 1),
-        nombre_recortado: htxt.scrollWidth > htxt.clientWidth + 1,
+        // `[ETQ-FIT.3]` El nombre se pierde por DOS caminos y hay que mirar los dos: en un
+        // renglon desborda a lo ANCHO (puntos suspensivos) y en dos desborda a lo ALTO (el
+        // clamp se come la tercera linea). Medir solo el ancho volveria el invariante ciego
+        // justo al agregar el modo de dos renglones -- seria apagar la alarma, no apagar el fuego.
+        // Cada modo tiene SU direccion de perdida: en un renglon el nombre desborda a lo ANCHO
+        // (puntos suspensivos) y en dos a lo ALTO (el clamp se come la tercera linea). Se mira la
+        // que corresponde -- mirar las dos siempre daba 219 falsos, porque en modo de un renglon
+        // el alto del span redondea por encima del suyo y no significa nada.
+        nombre_recortado: head.classList.contains('es-doble')
+          ? htxt.scrollHeight > htxt.clientHeight + 1
+          : htxt.scrollWidth > htxt.clientWidth + 1,
         precio_toca_brote: !!(rs && !(rb.right < rs.left || rb.left > rs.right || rb.bottom < rs.top || rb.top > rs.bottom)),
         precio_tapa_franja: rb.bottom > rf.top + 1,
         jerarquia_ok: finales.length === 0 || Math.max(...finales) <= s * 0.7 + 0.01,
