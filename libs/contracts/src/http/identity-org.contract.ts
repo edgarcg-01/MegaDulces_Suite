@@ -328,3 +328,33 @@ export interface PropuestaDePuesto {
     mode_write: string | null;
   }>;
 }
+
+/**
+ * `[AU.13]` — Una fila del catálogo de perfiles (`GET /users/roles`).
+ *
+ * El endpoint devolvía **sólo `role_name`**, y con eso los selectores de perfil de toda la suite
+ * mostraban una lista plana de códigos (`finanzas_operativo`, `almacenista`…): sin saber qué abre
+ * cada uno, quién lo usa, ni de qué parte de la organización es. Elegir un complemento era elegir
+ * a ciegas.
+ *
+ * Los tres campos nuevos son **derivados**, no un catálogo nuevo que mantener:
+ * `permisos` sale del mismo JSONB, y `departamentos`/`personas` de `identity.positions` y
+ * `identity.user_roles`, que ya son la fuente de esas dos preguntas.
+ *
+ * ⚠️ `null` NO es `[]` ni `0`: `null` = **no se pudo medir** (la tabla de origen no existe en ese
+ * entorno), `[]`/`0` = se midió y no hay. La pantalla tiene que decir cosas distintas para cada
+ * uno — dibujar "sin departamento" sobre una medición que falló es exactamente lo que ADR-056
+ * prohíbe.
+ */
+export interface PerfilDelCatalogo {
+  role_name: string;
+  /** Cuántos permisos concede (claves en `true` del JSONB). */
+  permisos: number;
+  /**
+   * Departamentos cuyos PUESTOS declaran este perfil (como base o como complemento), del más
+   * declarado al menos. `[]` = ningún puesto lo declara · `null` = no se pudo medir.
+   */
+  departamentos: string[] | null;
+  /** Personas activas que hoy lo tienen. `null` = no se pudo medir. */
+  personas: number | null;
+}

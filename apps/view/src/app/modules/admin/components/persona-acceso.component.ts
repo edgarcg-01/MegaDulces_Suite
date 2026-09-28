@@ -21,6 +21,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { InputTextModule } from 'primeng/inputtext';
 
 import { AdminService, PermisosDePersona } from '../admin.service';
+import { PerfilDelCatalogo } from '@megadulces/contracts';
 import {
   PERMISSION_META,
   PERMISSION_CATEGORY_ORDER,
@@ -87,11 +88,44 @@ interface Excepcion {
           Perfiles que se SUMAN al base. El acceso es la unión de los dos, así que quitar el
           complemento es lo único que quita lo que el complemento daba.
         </p>
+        <!-- [AU.13] Agrupado y con lo que hace falta para ELEGIR. Antes era una lista plana de
+             codigos (finanzas_operativo, almacenista...): sin saber que abre cada uno, quien lo
+             usa, ni de que parte de la organizacion es. El grupo sale de los PUESTOS que lo
+             declaran (identity.positions), no de un mapa escrito a mano.
+             PrimeNG 22: la plantilla del item se declara con #item, NO con pTemplate -- con el
+             nombre viejo no se proyecta nada y la lista se ve igual que antes (GOTCHAS 59).
+             SIN acentos graves aca adentro: esto vive en un template literal. -->
         <p-multiselect [options]="rolOpts()" [ngModel]="complementos()"
                        (ngModelChange)="complementos.set($event)" optionLabel="label"
-                       optionValue="value" appendTo="body" [filter]="true" display="chip"
+                       optionValue="value" [group]="true" optionGroupLabel="label"
+                       optionGroupChildren="items"
+                       appendTo="body" [filter]="true" filterBy="label,code" display="chip"
+                       filterPlaceholder="Buscar perfil o codigo..."
                        [disabled]="!puedeEscribir || !!permisos()?.platform_admin"
-                       placeholder="Ninguno" ariaLabel="Complementos de perfil"></p-multiselect>
+                       placeholder="Ninguno" ariaLabel="Complementos de perfil">
+          <ng-template #item let-opt>
+            <span class="pa-rol">
+              <span class="pa-rol-nom">
+                {{ opt.label }}
+                @if (opt.propuesto) {
+                  <em class="pa-rol-tag"><i class="pi pi-check" aria-hidden="true"></i> lo propone su puesto</em>
+                }
+              </span>
+              <span class="pa-rol-meta">
+                <code class="comm-code">{{ opt.code }}</code>
+                <span class="pa-rol-n">{{ opt.permisos }}</span> permisos@if (opt.personas !== null) {
+                  · <span class="pa-rol-n">{{ opt.personas }}</span> {{ opt.personas === 1 ? 'persona' : 'personas' }}
+                }
+              </span>
+            </span>
+          </ng-template>
+        </p-multiselect>
+        @if (!agrupacionMedida()) {
+          <p class="pd-hint">
+            No se pudo leer de que departamento es cada perfil, asi que van todos juntos. Es una
+            falla de lectura, no que los perfiles no tengan departamento.
+          </p>
+        }
         @if (complementosCambiaron()) {
           <div class="pa-acc">
             <button pButton type="button" class="p-button-sm p-button-text" (click)="resetComplementos()">
@@ -213,6 +247,12 @@ export class PersonaAccesoComponent implements OnChanges {
   private perms = inject(PermissionsService);
 
   @Input() userId: string | null = null;
+  /**
+   * `[AU.13]` El puesto que ocupa, para poder marcar **cuales complementos PROPONE**. El dato ya
+   * existia (`GET /users/positions/:code/propuesta`) y esta pantalla no lo llamaba: se elegia el
+   * complemento a ciegas teniendo la respuesta a un endpoint de distancia.
+   */
+  @Input() positionCode: string | null = null;
   @Input() puedeEscribir = false;
   @Output() guardado = new EventEmitter<string>();
 
@@ -230,18 +270,84 @@ export class PersonaAccesoComponent implements OnChanges {
 
   private readonly complementosOriginal = signal<string[]>([]);
   private readonly excepcionesOriginal = signal<Excepcion[]>([]);
-  private readonly roles = signal<string[]>([]);
+  private readonly roles = signal<PerfilDelCatalogo[]>([]);
+  /** `[AU.13]` Los complementos que declara su puesto. Vacio = no propone ninguno. */
+  private readonly propuestos = signal<string[]>([]);
 
   readonly signoOpts = [
     { label: 'Le concede', value: true },
     { label: 'Le quita', value: false },
   ];
 
-  readonly rolOpts = computed(() =>
-    this.roles()
-      .filter((r) => r !== this.perfilBase())
-      .map((r) => ({ label: r, value: r })),
+  /**
+   * `[AU.13]` ¿Se pudo medir de que departamento es cada perfil? `null` en el backend significa
+   * que la fuente no estaba, y eso NO es lo mismo que "no tiene departamento": lo primero lo
+   * arregla Sistemas, lo segundo lo arregla quien administra los puestos (ADR-056).
+   */
+  readonly agrupacionMedida = computed(
+    () => !this.roles().some((r) => r.departamentos === null),
   );
+
+  /**
+   * `[AU.13]` Los complementos, agrupados por la parte de la organizacion que los declara.
+   *
+   * El orden contesta la pregunta de quien elige, no el alfabeto:
+   *   1. lo que PROPONE su puesto (si algo hay) -- la respuesta antes de la lista;
+   *   2. los departamentos cuyos puestos lo declaran, alfabeticos;
+   *   3. los que ningun puesto declara, al final y dichos asi.
+   *
+   * Un perfil aparece en UN solo grupo: repetir el mismo `value` en dos grupos rompe la
+   * seleccion del multiselect (marca uno y el otro queda suelto).
+   */
+  readonly rolOpts = computed(() => {
+    const base = this.perfilBase();
+    const propone = new Set(this.propuestos().filter((r) => r !== base));
+    const filas = this.roles().filter((r) => r.role_name !== base);
+
+    const item = (r: PerfilDelCatalogo) => ({
+      label: this.nombreDePerfil(r.role_name),
+      code: r.role_name,
+      value: r.role_name,
+      permisos: r.permisos,
+      personas: r.personas,
+      propuesto: propone.has(r.role_name),
+    });
+
+    const delPuesto = filas.filter((r) => propone.has(r.role_name)).map(item);
+    const resto = filas.filter((r) => !propone.has(r.role_name));
+
+    const porDepto = new Map<string, ReturnType<typeof item>[]>();
+    const SIN = 'Ningun puesto lo declara';
+    for (const r of resto) {
+      // El backend los devuelve del mas declarado al menos: el primero es el departamento
+      // donde ese perfil de verdad vive. `null` (no medido) cae en el mismo cajon que el
+      // vacio, pero la pantalla lo declara arriba con otra frase.
+      const dep = (r.departamentos && r.departamentos[0]) || SIN;
+      porDepto.set(dep, [...(porDepto.get(dep) ?? []), item(r)]);
+    }
+
+    const grupos = [...porDepto.entries()]
+      .sort((a, b) => (a[0] === SIN ? 1 : b[0] === SIN ? -1 : a[0].localeCompare(b[0])))
+      .map(([label, items]) => ({
+        label,
+        items: items.sort((a, b) => a.label.localeCompare(b.label)),
+      }));
+
+    return delPuesto.length
+      ? [{ label: 'Lo propone su puesto', items: delPuesto }, ...grupos]
+      : grupos;
+  });
+
+  /**
+   * `[AU.13]` El codigo, legible. NO inventa un nombre: cambia `_` por espacio y pone mayuscula
+   * inicial, y el codigo sigue a la vista debajo (misma forma que `[AU.6]` para los permisos).
+   * Los perfiles no tienen columna `name`; ponerles uno a mano seria un catalogo nuevo que
+   * mantener y que se desincroniza al primer renombre.
+   */
+  nombreDePerfil(code: string): string {
+    const txt = code.replace(/_/g, ' ').trim();
+    return txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : code;
+  }
 
   /** Lo que esta persona YA abre. Decide el signo por default y marca la opción. */
   readonly yaTiene = computed(() => new Set(this.permisos()?.efectivos ?? []));
@@ -358,8 +464,18 @@ export class PersonaAccesoComponent implements OnChanges {
 
     if (!this.roles().length) {
       this.api.roles().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => this.roles.set(r.map((x) => x.role_name)),
+        next: (r) => this.roles.set(r),
         error: () => this.roles.set([]),
+      });
+    }
+
+    // `[AU.13]` Lo que el PUESTO propone. Sin puesto no hay propuesta, y eso no es un error:
+    // las cuentas de dispositivo y de sistema no ocupan un puesto del organigrama.
+    this.propuestos.set([]);
+    if (this.positionCode) {
+      this.api.propuesta(this.positionCode).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (pr) => this.propuestos.set(pr.complementos ?? []),
+        error: () => this.propuestos.set([]),
       });
     }
   }
