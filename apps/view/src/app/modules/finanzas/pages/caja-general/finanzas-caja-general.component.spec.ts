@@ -99,6 +99,16 @@ const CON_DOS: PendientesResponse = {
   desde: '2026-09-21', ventana_dias: 1,
 };
 
+/** CS.3.13 — Un cobro de un cliente de CRÉDITO (kdud días/límite > 0), listo para capturar. */
+const COBRO_CREDITO: MovimientoPendiente = {
+  origen_ref: '00|U-A-5|0002100|0011', tipo: 'ingreso', origen_tipo: 'cobro', clave_banco: '0011',
+  caja_nombre: 'CAJA GENERAL', sucursal: '00', doc_tipo: 'U-A-5', folio: '0002100',
+  fecha_valor: '2026-09-28', entidad_code: '40-00', beneficiario: 'P.V. 8 Esquinas',
+  concepto: null, metodo: null, monto: 1000,
+  confirmable: true, kepler_cuenta: '115', kepler_concepto: '001',
+  cliente_credito: true, credito_limite: 400000, credito_dias: 0,
+};
+
 const FRECUENTE: Frecuente = {
   kepler_cuenta: '601-001', kepler_concepto: 'PAPELERIA', glosa: 'hojas',
   beneficiario: 'PAPELERA SA', usos: 9, ultimo_uso: '2026-09-20', rango: 1,
@@ -1026,5 +1036,48 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.desvincularCaos(1420);
     expect(comp.f().monto).toBe(0);            // el efectivo del cajero se fue con el enlace
     expect(comp.caosVinculados().length).toBe(0);
+  });
+
+  // ── CS.3.13 · VENTA A CRÉDITO (cliente de crédito) ──────────────────────────────────────────
+  it('CS.3.13 — capturar un cobro de cliente de crédito auto-rellena «venta a crédito» = el total', () => {
+    montar();
+    comp.capturarDesde(COBRO_CREDITO);
+    expect(comp.clienteCredito()).toBe(true);
+    expect(comp.ventaCredito()).toBe(1000);        // todo a crédito, auto-rellenado
+    expect(comp.f().monto).toBe(1000);             // monto = efectivo(0) + crédito(1000)
+  });
+
+  it('CS.3.13 — toda la venta a crédito (sin efectivo) NO se bloquea: el crédito explica el total', () => {
+    montar();
+    comp.capturarDesde(COBRO_CREDITO);
+    expect(comp.bloqueos()).not.toContain('falta_desglose');
+    expect(comp.bloqueos()).not.toContain('monto_invalido');
+    expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
+  });
+
+  it('CS.3.13 — editable: bajar el crédito y contar efectivo mantiene efectivo + crédito = total', () => {
+    montar();
+    comp.capturarDesde(COBRO_CREDITO);
+    comp.setVentaCredito(300);                      // 300 a crédito
+    comp.setPiezas(500, 1); comp.setPiezas(200, 1); // 700 en efectivo
+    expect(comp.f().monto).toBe(1000);             // 700 efectivo + 300 crédito
+    expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
+  });
+
+  it('CS.3.13 — un cobro de cliente SIN crédito no auto-rellena', () => {
+    montar();
+    comp.capturarDesde({ ...COBRO_CREDITO, cliente_credito: false });
+    expect(comp.clienteCredito()).toBe(false);
+    expect(comp.ventaCredito()).toBe(0);
+  });
+
+  it('CS.3.13 — guardar manda venta_credito', () => {
+    montar();
+    comp.capturarDesde(COBRO_CREDITO);
+    comp.setF('glosa', 'cobro ruta a credito');
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['venta_credito']).toBe(1000);
   });
 });

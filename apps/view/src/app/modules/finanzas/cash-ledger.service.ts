@@ -310,6 +310,10 @@ export interface MovimientoPendiente {
   concepto: string | null;
   metodo: string | null;
   monto: number;
+  /** CS.3.13 — el cliente del cobro es de crédito (`kdud` días/límite > 0): auto-rellena «venta a crédito». */
+  cliente_credito?: boolean;
+  credito_limite?: number | null;
+  credito_dias?: number | null;
   /**
    * CG.20/CG.21 — `true` = se puede confirmar sin elegir NADA (la cuenta contable ya viene
    * resuelta: del mapa declarado si es ingreso, de una regla si es egreso). `false` viene SIEMPRE

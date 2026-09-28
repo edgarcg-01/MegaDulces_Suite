@@ -256,6 +256,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-conc-row { display:flex; justify-content:space-between; gap:1rem; font-size:var(--fs-sm); }
     .cg-conc-row .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:.3rem; font-weight:600; }
+    /* CS.3.13 — campo «venta a crédito» (se descuenta del efectivo esperado). */
+    .cg-credito { display:flex; flex-direction:column; gap:.3rem; border:1px solid var(--border-color);
+      border-radius:var(--r-md,8px); padding:.5rem .7rem; }
+    .cg-credito-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; flex-wrap:wrap; }
+    .cg-credito-head label { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
+    input.cg-vcredito { width:9rem; text-align:right; font-variant-numeric:tabular-nums; padding:.25rem .5rem; }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
     .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
@@ -875,6 +881,27 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           </div>
         }
 
+        <!-- CS.3.13 — Venta a crédito: la parte que NO llega en efectivo (queda como saldo del cliente).
+             Se auto-rellena con el total cuando el cliente es de crédito; SIEMPRE editable. Se descuenta
+             del efectivo esperado. Sólo con un cobro anclado (que trae el cliente). -->
+        @if (cobroElegido(); as c) {
+          <div class="cg-credito">
+            <div class="cg-credito-head">
+              <label for="cg-vcredito">Venta a crédito</label>
+              @if (clienteCredito()) {
+                <span class="fin-hint-ok">cliente de crédito — auto-rellenado, editable</span>
+              }
+            </div>
+            <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
+                   [ngModel]="ventaCredito()" (ngModelChange)="setVentaCredito($event)"
+                   aria-label="Monto de la venta a crédito" />
+            <small class="fin-dim">
+              Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
+              <strong>{{ money(c.monto - ventaCredito()) }}</strong>
+            </small>
+          </div>
+        }
+
         <div class="cg-arqueo">
           <div class="cg-arqueo-head">
             <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Contá el efectivo' }}</strong>
@@ -1233,6 +1260,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   montoContado = signal<number | null>(null);
   /**
+   * CS.3.13 — La parte del movimiento que quedó A CRÉDITO (no llegó en efectivo). El monto del
+   * movimiento = efectivo (arqueo) + venta a crédito. Se auto-rellena cuando el cliente del cobro es
+   * de crédito (`cliente_credito`), pero SIEMPRE queda editable (decisión del usuario).
+   */
+  ventaCredito = signal<number>(0);
+  /** ¿El cliente del cobro anclado es de crédito? (para mostrar el campo y el aviso del auto-relleno). */
+  clienteCredito = signal<boolean>(false);
+  /**
    * Lo que la persona ya había tecleado como total en la bandeja, si vino de ahí. NO es el
    * monto: es una referencia para que no pierda ese trabajo al desglosarlo por denominación.
    */
@@ -1470,7 +1505,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // CS.3.7 — El arqueo se valida contra el desglose COMPLETO (cajero + reja), que es lo que va al
   // servidor y lo que cuadra con el monto. Validar sólo la reja (vacía cuando el cajero aportó todo)
   // bloquearía el guardado con 'arqueo_no_cuadra' pese a que el arqueo real sí cuadra.
-  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo({ ...this.f(), denominaciones: this.denominacionesParaGuardar() }));
+  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo({ ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito() }));
   /**
    * De dónde salió el concepto. Ahora depende TAMBIÉN de si se eligió a mano: antes sólo leía
    * `propuesta()`, así que después de elegir en el buscador seguía diciendo "Propuesto de la
@@ -1922,6 +1957,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroElegido.set(null);
     this.montoContado.set(null);
     this.contadoBandeja.set(null);
+    // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
+    this.ventaCredito.set(0);
+    this.clienteCredito.set(false);
     this.cobros.set([]);
     // CS.3 — la fuente CAOS tampoco sobrevive al diálogo anterior.
     this.caosSel = null;
@@ -2045,6 +2083,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // El desglose de otro documento no es el de éste: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
+    // CS.3.13 — Cliente de crédito: se auto-rellena «venta a crédito» con el TOTAL (a este cliente
+    // siempre se le vende a crédito → nada llega en efectivo), SIEMPRE editable. El monto pasa a ser
+    // efectivo (0) + crédito. Si no es de crédito, el campo arranca en 0.
+    this.clienteCredito.set(!!c.cliente_credito);
+    this.ventaCredito.set(c.cliente_credito ? Number(c.monto) || 0 : 0);
+    this.recomputarMonto();
     // CS.3.1b — Si la cuenta salió de la PROPIA póliza del documento, es autoritativa: se muestra
     // y se BLOQUEA (el buscador se acota a los conceptos de esa cuenta). No se pide propuesta por
     // historia — el dato de Kepler manda.
@@ -2091,6 +2135,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroElegido.set(null);
     this.montoContado.set(null);
     this.contadoBandeja.set(null);
+    // CS.3.13 — sin cobro anclado no hay cliente de crédito: la venta a crédito vuelve a 0.
+    this.ventaCredito.set(0);
+    this.clienteCredito.set(false);
     this.recomputarMonto();
   }
 
@@ -2134,6 +2181,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroSel = null;
     this.contadoBandeja.set(null);
     this.montoContado.set(null);
+    // CS.3.13 — un movimiento de CAOS no es un cobro a cliente de crédito: sin venta a crédito.
+    this.ventaCredito.set(0);
+    this.clienteCredito.set(false);
     // CAOS no tiene póliza de Kepler para estos movimientos: su clasificación no se bloquea.
     this.cuentaFuenteDoc.set(null);
     this.caosElegido.set(m);
@@ -2638,7 +2688,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private recomputarMonto(): void {
     // CS.3.7 — El monto = el arqueo COMPLETO (lo que aportó el cajero, mostrado aparte, + la reja
     // manual) + morralla. La reja de abajo es SÓLO la diferencia; CAOS no se teclea ahí.
-    this.onMonto(sumaDesglose(this.denominacionesParaGuardar(), Number(this.f().morralla || 0)));
+    // CS.3.13 — + la VENTA A CRÉDITO (no llegó en efectivo pero es parte del total): monto = efectivo
+    // + crédito. Así el monto>0 se cumple aunque la venta sea toda a crédito (efectivo 0).
+    const efectivo = sumaDesglose(this.denominacionesParaGuardar(), Number(this.f().morralla || 0));
+    this.onMonto(efectivo + (Number(this.ventaCredito()) || 0));
+  }
+
+  /** CS.3.13 — La parte a crédito. Recalcula el monto (efectivo + crédito). Siempre editable. */
+  setVentaCredito(v: number | null): void {
+    this.ventaCredito.set(Math.max(0, Number(v) || 0));
+    this.recomputarMonto();
   }
 
   textoBloqueo(b: MotivoBloqueo): string { return TEXTO_BLOQUEO[b]; }
@@ -2708,6 +2767,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya
       // tenía `monto_contado` resuelto; lo que faltaba era que la pantalla lo mandara.
       monto_contado: this.montoContado() ?? undefined,
+      // CS.3.13 — la parte a crédito (no efectivo). El servidor la persiste y el arqueo la cuenta como
+      // parte del total (efectivo + crédito = monto).
+      venta_credito: this.ventaCredito() || undefined,
       // CS.3.4 — los retiros del cajero (CAOS) que financiaron este gasto: el servidor los enlaza
       // (consume, no se cuentan dos veces) y aprende de ellos. Sólo si el capturista vinculó alguno.
       caos_links: this.caosVinculados().length

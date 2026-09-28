@@ -108,12 +108,17 @@ export function estadoArqueo(
   monto: number,
   dens: DenominacionCapturada[] | null | undefined,
   morralla = 0,
+  ventaCredito = 0,
 ): ResultadoArqueo {
+  // CS.3.13 — El monto = EFECTIVO (denominaciones + morralla) + VENTA A CRÉDITO. La parte a crédito
+  // no se cuenta en billetes pero es parte del total; por eso «cuenta» como desglose y su ausencia de
+  // efectivo NO es «sin desglose» cuando hay crédito. `efectivo + crédito = monto`.
+  const credito = Math.max(0, Number(ventaCredito) || 0);
   const conPiezas = (dens ?? []).filter((d) => d && Number(d.piezas) > 0);
-  if (conPiezas.length === 0 && !Number(morralla)) {
+  if (conPiezas.length === 0 && !Number(morralla) && credito <= 0) {
     return { estado: 'sin_desglose', desglosado: 0, diferencia: 0 };
   }
-  const desglosado = sumaDesglose(dens, morralla);
+  const desglosado = sumaDesglose(dens, morralla) + credito;
   const diferencia = redondea(desglosado - Number(monto || 0));
   return { estado: Math.abs(diferencia) <= ARQUEO_EPSILON ? 'cuadra' : 'difiere', desglosado, diferencia };
 }
@@ -128,6 +133,8 @@ export interface FormularioCaja {
   monto?: number | null;
   morralla?: number | null;
   denominaciones?: DenominacionCapturada[] | null;
+  /** CS.3.13 — parte a crédito (no efectivo). `efectivo + venta_credito = monto`. */
+  venta_credito?: number | null;
 }
 
 export type MotivoBloqueo =
@@ -168,7 +175,7 @@ export function motivosDeBloqueo(f: FormularioCaja): MotivoBloqueo[] {
   // tecleaba suelto, así que el caso normal era registrar efectivo SIN contarlo y `sin_desglose`
   // no frenaba nada. Ahora el monto SALE del conteo, así que "no contó" y "monto en cero" son
   // la misma situación — y se dice UNA vez, con el texto que sirve ("contá"), no dos.
-  const arqueo = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0));
+  const arqueo = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0), Number(f.venta_credito || 0));
   if (arqueo.estado === 'sin_desglose') {
     m.push('falta_desglose');
   } else if (!(Number(f.monto) > 0)) {
