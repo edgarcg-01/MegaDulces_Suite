@@ -56,7 +56,7 @@
  * POS. No pide contraseña: la credencial de la réplica ya vive en `kepler-branches`.
  */
 const { Client } = require('pg');
-const { BRANCHES, replicaDbName } = require('../importers/lib/kepler-branches');
+const { BRANCHES, replicaDbName, stockMap } = require('../importers/lib/kepler-branches');
 const hb = require('../importers/lib/cron-heartbeat');
 
 // ⚠️ DOS destinos distintos y no se pueden confundir (GOTCHAS §17/§18): las réplicas salen de
@@ -99,6 +99,63 @@ const SQL_LECTORES = `
    WHERE r.rolname <> 'postgres' AND NOT r.rolsuper
      AND has_table_privilege(r.rolname, $1, 'SELECT') ORDER BY 1`;
 
+/**
+ * `[AUD-DAT.9]` Último recurso: el DDL sale del **ORIGEN** cuando NINGUNA réplica lo tiene.
+ *
+ * ── Por qué esto contradice la cabecera, y por qué igual va ─────────────────────────────────
+ * El encabezado dice que el DDL sale de otra réplica «no del origen: las contraseñas de los POS
+ * no son uniformes … y acá no hace falta tocarlos». Las dos mitades eran ciertas cuando se
+ * escribió y una dejó de serlo:
+ *
+ *   · «no hace falta tocarlos» valía mientras la tabla existiera en ALGUNA réplica. El
+ *     2026-09-25 el POS estrenó `md_prom_comb` y `md_prom_comb2` en las 8 sucursales A LA VEZ,
+ *     así que no hubo donante posible y el carril quedó en rojo con las 9 ramas trabadas.
+ *   · «las contraseñas no son uniformes» sigue siendo cierto — y por eso NO se inventa una
+ *     conexión: se usa el MISMO mapa que ya usan los importers (`stockMap()` /
+ *     `STOCK_BRANCH_MAP`), que alcanza a las 8 ramas todos los días desde `feeds-cron`.
+ *
+ * ⛔ LO QUE ESTO EVITABA NO ERA UN ROJO COSMÉTICO. `REFRESH PUBLICATION` es ATÓMICO: una tabla
+ * publicada que la réplica no tiene aborta el refresh ENTERO y no suscribe ninguna. Kepler crea
+ * una tabla de póliza POR MES (`kdc2YYMM`), así que el bloqueo del 25-sep se habría comido la
+ * suscripción de `kdc22610` el 1-oct **en las nueve ramas**: la contabilidad de octubre, sin
+ * replicar. Medido al destrabarlo a mano: +18 tablas suscritas (2 × 9).
+ *
+ * Misma disciplina que el donante, sin excepciones: se compara la firma en TODOS los orígenes
+ * alcanzables y si difieren **no se adivina**. Verificado el 2026-09-28 en las dos tablas: firma
+ * idéntica en las 8 ramas, 0 filas en todas.
+ *
+ * Devuelve {cols, pk, donantes} · {motivo} · o null si el mapa no está disponible.
+ */
+async function buscarEnOrigen(tabla) {
+  let MAP;
+  try {
+    MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap();
+  } catch { return null; }
+  if (!Array.isArray(MAP) || !MAP.length) return null;
+
+  const vistas = new Map();
+  for (const m of MAP) {
+    const suc = (String(m.url).match(/md_(\d{2})\b/) || [])[1] || m.code;
+    const c = new Client({ connectionString: m.url, connectionTimeoutMillis: 6000, statement_timeout: 20000 });
+    try { await c.connect(); } catch { continue; } // una plaza sin red no es un error DE ESTA TABLA
+    try {
+      const r = (await c.query(SQL_FIRMA, [tabla])).rows[0];
+      if (r) {
+        const k = `${r.pk || '(sin pk)'}|${r.cols}`;
+        if (!vistas.has(k)) vistas.set(k, { cols: r.cols, pk: r.pk, ramas: [] });
+        vistas.get(k).ramas.push(suc);
+      }
+    } catch { /* la rama no contesta: no vota */ }
+    finally { await c.end().catch(() => {}); }
+  }
+  if (!vistas.size) return null;
+  if (vistas.size > 1) {
+    return { motivo: `el DDL DIFIERE entre ORÍGENES (${[...vistas.values()].map((v) => v.ramas.join('+')).join(' vs ')}) — no se adivina` };
+  }
+  const v = [...vistas.values()][0];
+  return { cols: v.cols, pk: v.pk, donantes: v.ramas.map((x) => `origen:${x}`) };
+}
+
 /** Busca el DDL de una tabla en las demás réplicas. Devuelve {cols, pk, donantes} o {motivo}. */
 async function buscarDonante(tabla, excluir) {
   const vistas = new Map();
@@ -115,7 +172,12 @@ async function buscarDonante(tabla, excluir) {
     } catch { /* la rama no contesta: no es donante, y no es un error de esta tabla */ }
     finally { await c.end().catch(() => {}); }
   }
-  if (!vistas.size) return { motivo: 'ninguna otra réplica la tiene — hace falta el DDL del POS' };
+  if (!vistas.size) {
+    // Ninguna réplica la tiene: se le pregunta al ORIGEN antes de rendirse (ver `[AUD-DAT.9]`).
+    const org = await buscarEnOrigen(tabla);
+    if (org) return org;
+    return { motivo: 'ninguna réplica ni origen alcanzable la tiene — hace falta el DDL del POS' };
+  }
   if (vistas.size > 1) {
     return { motivo: `el DDL DIFIERE entre réplicas (${[...vistas.values()].map((v) => v.ramas.join('+')).join(' vs ')}) — no se adivina` };
   }
