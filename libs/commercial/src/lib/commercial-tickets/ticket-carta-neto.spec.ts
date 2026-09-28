@@ -59,51 +59,59 @@ const html = (lineas: TicketLinea[] = [L()], cascada: Partial<TicketCascada> = {
     .html(doc, { rfc: 'XAXX010101000', nombre: 'MEGA DULCES', cp: '59600' });
 };
 
-describe('TK.10 · las columnas de neto en la hoja carta', () => {
-  it('imprime los dos encabezados y los dos valores', () => {
+describe('TK.11 · la tabla de la carta: cinco columnas de dinero y ni una mas', () => {
+  it('imprime las cinco, con los dos descuentos juntos', () => {
     const h = html();
-    expect(h).toContain('>Neto<');
-    expect(h).toContain('>Neto c/desc<');
-    expect(h).toContain('5.17');
-    expect(h).toContain('4.31');
+    expect(h).toContain('>Precio original<');
+    expect(h).toContain('>Precio con desc.<');
+    expect(h).toContain('>Desc. por pieza<');
+    expect(h).toContain('>Descuento total<');
+    expect(h).toContain('>Total a pagar<');
+    // lista 6.00 · pagado 5.00 · por pieza 1.00 · total 12.00 · importe 60.00
+    expect(h).toContain('1.00');
+    expect(h).toContain('12.00');
   });
 
-  it('el resumen gana el importe neto y CIERRA contra el total', () => {
+  /** ⛔ Lo que el usuario senalo en el papel impreso: cuatro columnas de precio compitiendo. */
+  it('NO imprime Neto ni Neto c/desc', () => {
     const h = html();
-    expect(h).toContain('Importe neto');
-    expect(h).toContain('51.72');
-    expect(r2((CASCADA.importe_neto as number) + (CASCADA.iva as number))).toBe(CASCADA.total);
-  });
-
-  /** ⛔ Sin cuadre desaparecen las DOS columnas y el renglón del resumen. */
-  it('sin cuadre del impuesto no imprime ninguna de las dos columnas', () => {
-    const h = html([L()], { impuesto_desglosado: false });
     expect(h).not.toContain('>Neto<');
     expect(h).not.toContain('>Neto c/desc<');
     expect(h).not.toContain('Importe neto');
   });
 
-  it('con importe_neto en null tampoco las imprime (null no es cero)', () => {
-    const h = html([L()], { importe_neto: null });
-    expect(h).not.toContain('>Neto c/desc<');
-  });
-
-  it('un renglón sin precio de lista dice «sin dato», no un número', () => {
-    const h = html([L({ lista_conocida: false, descuento_linea: 0, descuento_unitario: 0 })],
-      { lineas_con_lista: 0, lineas_sin_lista: 1, descuento_precio: 0 });
-    expect(h).toContain('sin dato');
+  /** El impuesto no desaparece del papel: baja al pie, donde ya vivia. */
+  it('IEPS e IVA salen de la TABLA pero siguen en el pie', () => {
+    const h = html();
+    const tabla = (h.match(/<table class="det[\s\S]*?<\/table>/) ?? [''])[0];
+    expect(tabla).not.toContain('>IEPS<');
+    expect(tabla).not.toContain('>IVA<');
+    expect(h).toContain('ya incluyen impuestos');
+    expect(h).toContain('IVA');
   });
 
   /**
-   * ⚠️ Con los netos son DIEZ columnas: la tabla tiene que declararlo para que el CSS reparta
-   * los anchos. Sin la clase, las columnas nuevas se comen el nombre del producto sin avisar.
+   * ⚠️ El descuento por pieza se DERIVA del precio de lista. Sin lista conocida no se sabe
+   * cuanto se bajo por unidad, y un 0.00 afirmaria que no hubo descuento.
    */
-  it('la tabla se marca con-neto para que el CSS reparta los anchos', () => {
-    // ⚠️ Se mira la ETIQUETA de la tabla, no el documento: el nombre de la clase tambien vive
-    // en el bloque de CSS, asi que buscarlo suelto da verdadero siempre. La primera version de
-    // esta prueba fallaba por eso — y habria pasado igual con la clase sin poner.
-    const tag = (h: string): string => (h.match(/<table class="det[^"]*"/) ?? [''])[0];
-    expect(tag(html())).toContain('con-neto');
-    expect(tag(html([L()], { impuesto_desglosado: false }))).not.toContain('con-neto');
+  it('sin precio de lista no inventa un descuento por pieza', () => {
+    const h = html([L({ lista_conocida: false, descuento_linea: 0, descuento_unitario: 0 })],
+      { lineas_con_lista: 0, lineas_sin_lista: 1, descuento_precio: 0 });
+    expect(h).not.toContain('Desc. por pieza');
+  });
+
+  it('un documento sin ningun descuento no imprime las dos columnas', () => {
+    const h = html([L({ descuento_linea: 0, descuento_unitario: 0, precio_lista: 5 })],
+      { descuento_precio: 0 });
+    expect(h).not.toContain('>Desc. por pieza<');
+    expect(h).not.toContain('>Descuento total<');
+    expect(h).toContain('sin-desc');
+  });
+
+  it('el resumen queda en tres renglones: original, descuento y total', () => {
+    const h = html();
+    expect(h).toContain('Precio de lista');
+    expect(h).toContain('Descuento en precio');
+    expect(h).toContain('Total pagado');
   });
 });

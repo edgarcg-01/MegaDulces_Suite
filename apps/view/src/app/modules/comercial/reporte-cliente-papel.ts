@@ -1,4 +1,4 @@
-import type { ClienteCandidato, ReporteDocumento, ReporteFiltrosUI } from './tickets.service';
+import type { ClienteCandidato, ReporteDocumento, ReporteLinea, ReporteFiltrosUI } from './tickets.service';
 
 /**
  * TK.8 — El **papel** del reporte por cliente, tamaño carta.
@@ -67,7 +67,39 @@ export function cuerpoReporteCliente(
   const plazas = new Set(docs.map((d) => d.sucursal)).size;
   const ac = acotes(f);
 
-  const filas = docs.map((d) => `<tr>
+  // [TK.11] Cada compra es su propia fila, y cuando viene el detalle arrastra las partidas
+  // debajo, con las MISMAS cinco columnas de dinero que el ticket en carta.
+  //
+  // ⚠️ `lineas` distingue tres estados y los tres se imprimen distinto:
+  //   · `null`/ausente  → no se pidió el detalle: la compra va sola, como siempre.
+  //   · `[]`            → se pidió y el ERP no tiene partidas: se DICE, no se calla.
+  //   · con elementos   → se listan.
+  const partidas = (d: ReporteDocumento): string => {
+    if (d.lineas == null) return '';
+    if (!d.lineas.length) {
+      return `<tr class="sub"><td colspan="7" class="vacio">Esta compra no tiene detalle de productos en el sistema.</td></tr>`;
+    }
+    const enc = `<tr class="sub subh"><td></td><td>Producto</td><td class="r">Cantidad</td>
+      <td class="r">Precio original</td><td class="r">Precio con desc.</td>
+      <td class="r">Desc. por pieza</td><td class="r">Descuento total</td></tr>`;
+    const filas = (d.lineas as ReporteLinea[]).map((l) => {
+      const rebaja = l.descuento_linea > 0;
+      // Sin precio de lista no se sabe cuánto se bajó por unidad; un 0.00 diría que no hubo.
+      const pieza = l.lista_conocida && rebaja ? '-' + money(l.descuento_unitario) : '—';
+      return `<tr class="sub">
+        <td></td>
+        <td>${esc(l.descripcion || l.sku || '')}</td>
+        <td class="m r">${l.cantidad}${l.unidad ? ' ' + esc(l.unidad) : ''}</td>
+        <td class="m r">${l.lista_conocida ? money(l.precio_lista) : '<i>sin dato</i>'}</td>
+        <td class="m r">${money(l.precio_pagado)}</td>
+        <td class="m r ahorro">${pieza}</td>
+        <td class="m r ahorro">${rebaja ? '-' + money(l.descuento_linea) : '—'}</td>
+      </tr>`;
+    }).join('');
+    return enc + filas;
+  };
+
+  const filas = docs.map((d) => `<tr class="doc">
       <td class="m">${esc(d.id)}</td>
       <td class="m">${fechaCorta(d.fecha)}</td>
       <td>${esc(d.origen_label)}</td>
@@ -75,7 +107,7 @@ export function cuerpoReporteCliente(
       <td>${esc(d.atendio || '—')}</td>
       <td class="m r">${d.descuento > 0 ? money(d.descuento) : '—'}</td>
       <td class="m r${d.total < 0 ? ' neg' : ''}">${money(d.total)}</td>
-    </tr>`).join('');
+    </tr>${partidas(d)}`).join('');
 
   return `
 <div class="hoja">
@@ -185,6 +217,12 @@ export function imprimirReporteCliente(
   .pie { margin-top: 12px; padding-top: 8px; border-top: 1px solid #E4E4E7;
          font-size: 7.5pt; line-height: 1.5; color: #71717A; }
   tr { break-inside: avoid; }
+/* [TK.11] Las partidas van indentadas bajo su compra: mismo peso visual que una nota al pie,
+   para que el ojo siga viendo la lista de COMPRAS y el detalle no compita con ella. */
+.sub td{font-size:7.5pt;color:#3f3f46;border-bottom:1px solid #f1f1ef;padding-top:2px;padding-bottom:2px}
+.subh td{font-size:6.5pt;text-transform:uppercase;letter-spacing:.05em;color:#6b6b6b;font-weight:700}
+.ahorro{color:#155e35}
+tr.doc td{border-top:1px solid #c9c9c9}
 </style></head><body>${cuerpoReporteCliente(c, docs, f, fuera)}</body></html>`);
   doc.close();
 
