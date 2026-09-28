@@ -22,7 +22,7 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
-import { imprimirComprobante as imprimirTicketComprobante, type ComprobanteCaja } from './ticket-comprobante';
+import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
@@ -540,6 +540,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="buscar()"
                placeholder="Busca en TODO: realizados y por confirmar (folio, concepto, beneficiario, usuario…)" />
+        <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
+        <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
+                  [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
       </div>
 
       <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
@@ -1834,6 +1837,37 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   buscar(): void {
     this.cargar();
     this.cargarPendientes();
+  }
+
+  /**
+   * CS.3.10 — Imprime el reporte diario de movimientos en la térmica: los del rango/filtros actuales
+   * (hasta 500, no el tope de 100 de la pantalla) + los totales del período (ingresos/gastos/depósitos/
+   * neto), con el mismo criterio que el corte. Es un reporte de lo REALIZADO (el libro), no de la bandeja.
+   */
+  imprimiendoReporte = signal(false);
+  imprimirReporteDia(): void {
+    this.imprimiendoReporte.set(true);
+    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined, limit: 500 })
+      .subscribe({
+        next: (r) => {
+          this.imprimiendoReporte.set(false);
+          const rep: ReporteDia = {
+            desde: this.from, hasta: this.to, tipo: this.tipo, busqueda: this.search || null,
+            movimientos: (r.rows ?? []).map((m) => ({
+              folio: m.folio, tipo: m.tipo, monto: Number(m.monto),
+              kepler_concepto_nombre: m.kepler_concepto_nombre, beneficiario: m.beneficiario,
+            })),
+            totales: {
+              movimientos: r.kpi?.movimientos ?? (r.rows?.length ?? 0),
+              ingresos: Number(r.kpi?.ingresos ?? 0), gastos: Number(r.kpi?.gastos ?? 0), depositos: Number(r.kpi?.depositos ?? 0),
+            },
+            generado_por: this.auth.user()?.username ?? null,
+            truncado: !!r.has_more,
+          };
+          if (!imprimirTicketReporte(rep)) this.avisarError(null, 'El navegador no dejó abrir la impresión del reporte');
+        },
+        error: (e) => { this.imprimiendoReporte.set(false); this.avisarError(e, 'No se pudo generar el reporte del día'); },
+      });
   }
 
   abrirCaptura(): void {
