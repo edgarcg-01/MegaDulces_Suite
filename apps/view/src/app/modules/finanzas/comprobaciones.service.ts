@@ -324,6 +324,19 @@ export interface GastosDelDia {
   pendientes_fuera_del_dia: { n: number; monto: number };
 }
 
+/** `[GX.29]` Una solicitud de reapertura esperando la firma de quien aprobo el vale. */
+export interface ReaperturaPendiente {
+  id: string;
+  motivo: string | null;
+  solicita: string | null;
+  created_at: string;
+  proof_id: string;
+  folio_solicitud: string | null;
+  proveedor: string | null;
+  status: string;
+  importe: number;
+}
+
 /** `[GX.27]` Un dia del calendario del historial. Solo viajan los dias CON movimiento. */
 export interface DiaDelCalendario { dia: string; n: number; monto: number }
 
@@ -442,9 +455,34 @@ export class ComprobacionesService {
     return this.http.post(`${this.base}/${id}/validate`, body || {});
   }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
-  /** MOMENTO 2 — aprueba la solicitud capturada. Comprobable → aprobada; no comprobable → validada. */
-  approve(id: string, body?: { clasificacion?: string; comprobacion_nota?: string }): Observable<any> {
+  /**
+   * MOMENTO 2 — aprueba la solicitud capturada. Comprobable → aprobada; no comprobable → validada.
+   *
+   * `[GX.30]` `provisional` = «apruebo, pero lo que trae es una prefactura o una cotizacion,
+   * no el comprobante». El dinero sale igual; lo que cambia es que la deuda documental queda
+   * DECLARADA con su fecha esperada, en vez de confundirse con un vale ya cerrado.
+   */
+  approve(id: string, body?: {
+    clasificacion?: string; comprobacion_nota?: string;
+    provisional?: boolean; comprobante_esperado_at?: string;
+  }): Observable<any> {
     return this.http.post(`${this.base}/${id}/approve`, body || {});
+  }
+
+
+  /** `[GX.29]` El capturista PIDE que le reabran su vale. No lo reabre: deja la solicitud. */
+  pedirReapertura(id: string, motivo: string): Observable<{ id: string; estado: string }> {
+    return this.http.post<{ id: string; estado: string }>(`${this.base}/${id}/reapertura`, { motivo });
+  }
+
+  /** `[GX.29]` Lo que le toca decidir a QUIEN PREGUNTA: solo los vales que esa persona aprobo. */
+  reaperturasPendientes(): Observable<ReaperturaPendiente[]> {
+    return this.http.get<ReaperturaPendiente[]>(`${this.base}/reaperturas/pendientes`);
+  }
+
+  /** `[GX.29]` La decision. Al autorizar, el vale vuelve a la bandeja del dia con `vuelta + 1`. */
+  decidirReapertura(solicitudId: string, aprueba: boolean, nota?: string): Observable<{ proof_id: string; reabierto: boolean }> {
+    return this.http.post<{ proof_id: string; reabierto: boolean }>(`${this.base}/reaperturas/${solicitudId}/decidir`, { aprueba, nota });
   }
   /** MOMENTO 3 — sube la evidencia de un gasto ya aprobado y comprobable (cuadre por visión → validada/revision). */
   addEvidence(id: string, body: CreateExpenseProof): Observable<{ id: string; folio_solicitud: string; status: string }> {

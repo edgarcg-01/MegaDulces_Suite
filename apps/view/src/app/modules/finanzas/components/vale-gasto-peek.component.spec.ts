@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { LOCALE_ID } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
-import { ValeGastoPeekComponent } from './vale-gasto-peek.component';
+import { ValeGastoPeekComponent, type AprobacionVale } from './vale-gasto-peek.component';
 import type { ValeGasto } from '../comprobaciones.service';
 
 /**
@@ -190,11 +190,96 @@ describe('ValeGastoPeekComponent', () => {
     /** El visor NO resuelve: avisa. Quien llama al servidor es la página. */
     it('el botón emite el vale, no hace nada por su cuenta', () => {
       montar(V(), ['aprobar', 'rechazar']);
-      const emitidos: ValeGasto[] = [];
-      c.aprobar.subscribe((v) => emitidos.push(v));
+      const emitidos: AprobacionVale[] = [];
+      c.aprobar.subscribe((a) => emitidos.push(a));
       const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
         .find((b: Element) => b.textContent?.trim() === 'Aprobar') as HTMLButtonElement;
       btn.click();
+      expect(emitidos).toHaveLength(1);
+      expect(emitidos[0].vale.id).toBe('v1');
+      // Sin marcar nada, la aprobación es la de siempre.
+      expect(emitidos[0].provisional).toBe(false);
+      expect(emitidos[0].comprobante_esperado_at).toBeNull();
+    });
+
+    /**
+     * `[GX.30]` **La marca provisional.** Quien firma dice que lo que está viendo es una
+     * prefactura o una cotización, no el comprobante definitivo.
+     */
+    describe('la marca provisional', () => {
+      const marcar = () => {
+        const chk = fix.nativeElement.querySelector('.vp-prov-chk input') as HTMLInputElement;
+        chk.checked = true;
+        chk.dispatchEvent(new Event('change'));
+        fix.detectChanges();
+      };
+
+      it('sólo se ofrece cuando se puede aprobar', () => {
+        montar(V({ status: 'aprobada' }), ['comprobar', 'rechazar']);
+        expect(fix.nativeElement.querySelector('.vp-prov-chk')).toBeNull();
+        montar(V(), ['aprobar', 'rechazar']);
+        expect(fix.nativeElement.querySelector('.vp-prov-chk')).not.toBeNull();
+      });
+
+      /** La fecha aparece recién al marcar: sin marca no significa nada. */
+      it('la fecha esperada aparece al marcar', () => {
+        montar(V(), ['aprobar', 'rechazar']);
+        expect(fix.nativeElement.querySelector('#vp-esperado')).toBeNull();
+        marcar();
+        expect(fix.nativeElement.querySelector('#vp-esperado')).not.toBeNull();
+      });
+
+      it('marcada, el botón lo dice y la marca viaja', () => {
+        montar(V(), ['aprobar', 'rechazar']);
+        marcar();
+        const emitidos: AprobacionVale[] = [];
+        c.aprobar.subscribe((a) => emitidos.push(a));
+        const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
+          .find((b: Element) => b.textContent?.trim() === 'Aprobar como provisional') as HTMLButtonElement;
+        expect(btn).toBeTruthy();
+        btn.click();
+        expect(emitidos[0].provisional).toBe(true);
+      });
+
+      it('la fecha que se escribe es la que viaja', () => {
+        montar(V(), ['aprobar', 'rechazar']);
+        marcar();
+        c.esperado.set('2026-10-15');
+        const emitidos: AprobacionVale[] = [];
+        c.aprobar.subscribe((a) => emitidos.push(a));
+        c.emitirAprobacion(c.vale()!);
+        expect(emitidos[0].comprobante_esperado_at).toBe('2026-10-15');
+      });
+
+      /**
+       * ⭐ La prueba que sostiene la regla: **la marca no se pega de un vale al otro.**
+       * Quien aprueba uno con prefactura y abre el de al lado se lo encontraría tildado,
+       * y firmaría una deuda documental que nunca declaró.
+       */
+      it('al abrir otro vale, la marca se limpia', () => {
+        montar(V(), ['aprobar', 'rechazar']);
+        marcar();
+        c.esperado.set('2026-10-15');
+        expect(c.provisional()).toBe(true);
+        fix.componentRef.setInput('vale', V({ id: 'v2' }));
+        fix.detectChanges();
+        expect(c.provisional()).toBe(false);
+        expect(c.esperado()).toBe('');
+      });
+    });
+
+    /**
+     * `[GX.29]` El capturista no reabre su vale: **pide** que se lo reabran, y decide
+     * quien lo aprobó. Por eso acá no hay ni «Rechazar» ni «Aprobar».
+     */
+    it('con «pedir_reapertura» ofrece sólo ese botón', () => {
+      montar(V({ status: 'validada' }), ['pedir_reapertura']);
+      const botones = [...fix.nativeElement.querySelectorAll('.vp-act button')]
+        .map((b: Element) => b.textContent?.trim());
+      expect(botones).toEqual(['Pedir que lo reabran']);
+      const emitidos: ValeGasto[] = [];
+      c.pedirReapertura.subscribe((v) => emitidos.push(v));
+      (fix.nativeElement.querySelector('.vp-act button') as HTMLButtonElement).click();
       expect(emitidos).toHaveLength(1);
       expect(emitidos[0].id).toBe('v1');
     });

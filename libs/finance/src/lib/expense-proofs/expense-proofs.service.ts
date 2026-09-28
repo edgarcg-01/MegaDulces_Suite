@@ -703,13 +703,29 @@ export class ExpenseProofsService {
    * En ambos casos la solicitud firmada es obligatoria (respalda la salida de dinero).
    * Puede RECLASIFICAR si el capturista se equivocó de naturaleza.
    */
-  async approve(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }) {
+  async approve(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string;
+    /**
+     * [GX.30] **Apruebo, pero esto es provisional.** La evidencia que trae el vale es una
+     * prefactura o una cotizacion, no el comprobante: el dinero sale y queda una DEUDA
+     * documental declarada, con su fecha esperada.
+     *
+     * No es un error ni una excepcion -- es el curso normal de ese tipo de gasto. Lo que
+     * cambia es que ahora se puede CONTAR: cuanto dinero esta aprobado sin comprobar y
+     * desde cuando. Sin la marca, un vale asi era indistinguible de uno cerrado con su
+     * factura, y ese numero no se podia contestar.
+     */
+    provisional?: boolean; comprobante_esperado_at?: string }) {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
       throw new BadRequestException('clasificación inválida');
     }
     const notaIn = (dto?.comprobacion_nota || '').trim();
+    const prov = dto?.provisional === true;
+    const esperado = String(dto?.comprobante_esperado_at || '').trim() || null;
+    if (esperado && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(esperado)) {
+      throw new BadRequestException('La fecha esperada va como YYYY-MM-DD.');
+    }
 
     // Lee el estado actual + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
@@ -767,6 +783,12 @@ export class ExpenseProofsService {
           revision_nota: nextStatus === 'revision' ? (ocr.revision_nota ?? null) : null,
           ...(('monto_ocr' in ocr) ? { monto_ocr: ocr.monto_ocr, monto_match: ocr.monto_match } : {}),
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
+          // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
+          // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
+          provisional: prov,
+          comprobante_esperado_at: prov
+            ? (esperado || trx.raw("(now() + interval '15 days')::date"))
+            : null,
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');

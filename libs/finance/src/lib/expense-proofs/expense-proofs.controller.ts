@@ -133,7 +133,7 @@ export class ExpenseProofsController {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolvería el calendario de la empresa entera a
     // quien sólo pidió el suyo. Se acota a un nombre que no existe → mes vacío, declarado.
-    return this.svc.calendarioMes(mes, { mine: actor || ' sin-actor' });
+    return this.svc.calendarioMes(mes, { mine: actor || '\u0000sin-actor' });
   }
 
   @Get('status-by-folio')
@@ -236,7 +236,10 @@ export class ExpenseProofsController {
   @Post(':id/approve')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Aprueba la solicitud capturada (con reclasificación opcional). Comprobable → aprobada (falta evidencia); no comprobable → validada. Auditado.' })
-  approve(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
+  approve(@Param('id') id: string,
+    @Body() body: { clasificacion?: string; comprobacion_nota?: string;
+                    provisional?: boolean; comprobante_esperado_at?: string },
+    @Req() req: AuthedRequest) {
     return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body);
   }
 

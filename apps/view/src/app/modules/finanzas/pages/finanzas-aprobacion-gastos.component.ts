@@ -9,9 +9,10 @@ import { MessageService } from 'primeng/api';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
   type ExpenseClasificacion, type ExpedienteDelDia, type GastosDelDia, type PestanaGasto,
+  type ReaperturaPendiente,
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
@@ -120,6 +121,40 @@ const ESTADO_LABEL: Record<string, string> = {
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
             <span>«{{ d.fecha_pedida }}» no es una fecha. Se está mostrando hoy.</span>
           </div>
+        }
+
+        <!-- [GX.29] **Lo que te piden reabrir.** Va ARRIBA de las pestañas y fuera de
+             ellas a propósito: las tres particionan EL DÍA, y esto es de cualquier fecha
+             y de una sola persona — la que firmó ese vale. Meterlo de cuarta pestaña
+             rompería que los tres contadores sumen el día completo.
+
+             ⚠️ Se pinta sólo si hay algo. Un panel vacío permanente enseña a saltearlo,
+             y el día que traiga algo nadie lo va a mirar. -->
+        @if (reaperturas().length) {
+          <section class="ap-reap">
+            <div class="ap-reap-t">
+              <i class="pi pi-lock-open" aria-hidden="true"></i>
+              <strong>Te piden reabrir {{ reaperturas().length === 1 ? 'un vale' : reaperturas().length + ' vales' }}</strong>
+              <span class="ap-faint">vos los aprobaste, así que la decisión es tuya</span>
+            </div>
+            @for (r of reaperturas(); track r.id) {
+              <article class="ap-reap-it">
+                <div class="ap-reap-head">
+                  <span class="ap-folio">{{ r.folio_solicitud || 'sin folio' }}</span>
+                  <span class="ap-faint">lo pide {{ r.solicita || '—' }}</span>
+                  <span class="ap-grow"></span>
+                  <span class="ap-imp">{{ money(r.importe) }}</span>
+                </div>
+                <div class="ap-it-nota">“{{ r.motivo || 'sin motivo' }}”</div>
+                <div class="ap-reap-act">
+                  <button pButton type="button" class="p-button-text" [disabled]="actuando() !== null"
+                          (click)="decidirReapertura(r, false)">No reabrir</button>
+                  <button pButton type="button" class="p-button-outlined" [loading]="actuando() === r.id"
+                          (click)="decidirReapertura(r, true)">Reabrir</button>
+                </div>
+              </article>
+            }
+          </section>
         }
 
         <!-- ── Las tres pestañas ────────────────────────────────────────────────── -->
@@ -274,6 +309,17 @@ const ESTADO_LABEL: Record<string, string> = {
       border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
     .ap-aviso.warn { color: var(--warn-fg); border-color: var(--warn-border); }
 
+    /* [GX.29] Lo que te piden reabrir. Borde de aviso: es dinero ya firmado que
+       alguien quiere volver a tocar, no un renglón más de la lista. */
+    .ap-reap { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3);
+      background: var(--card-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); }
+    .ap-reap-t { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-sm); }
+    .ap-reap-t .pi { color: var(--warn-fg); }
+    .ap-reap-it { display: flex; flex-direction: column; gap: 4px; padding: var(--sp-2) var(--sp-3);
+      background: var(--layout-bg); border-radius: var(--r-sm); }
+    .ap-reap-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+    .ap-reap-act { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+
     /* Sin capitalizar: el dia va EN MEDIO de la frase («Los levantamientos del viernes 25
        de septiembre»). Ponerle mayuscula ahi es tan incorrecto como el «De Septiembre» que
        daba "capitalize" a secas cuando esto era el titulo de una barra. */
@@ -367,6 +413,8 @@ export class FinanzasAprobacionGastosComponent {
   readonly actuando = signal<string | null>(null);
   /** El vale que se está mirando. `null` = el panel está cerrado. */
   readonly abierto = signal<ExpedienteDelDia | null>(null);
+  /** `[GX.29]` Lo que ESTA persona tiene que decidir. El servidor sólo manda lo suyo. */
+  readonly reaperturas = signal<ReaperturaPendiente[]>([]);
   /** El día que muestra la pantalla: siempre hoy, y quién es hoy lo decide el SERVIDOR
    *  (hora de México). Se retiró la barra que dejaba elegir otro — ver el doc de la clase. */
   private readonly fecha = signal<string>('');
@@ -392,6 +440,18 @@ export class FinanzasAprobacionGastosComponent {
         // Un error NO se pinta como «ese día no se levantó nada»: es otra afirmación, y la
         // equivocada deja dinero esperando sin que nadie lo sepa.
         error: () => { this.error.set('No se pudo cargar el día. Reintentá.'); this.cargando.set(false); },
+      });
+
+    // `[GX.29]` Las reaperturas van en su propio viaje: son de cualquier fecha, mientras
+    // que el día es de este día. ⚠️ Su error NO tumba la pantalla — que falle la consulta
+    // de reaperturas no puede impedir firmar los gastos de hoy. Queda la lista vacía, que
+    // es exactamente lo que se ve cuando no hay ninguna: acá eso es aceptable porque el
+    // panel no afirma «no hay», se esconde.
+    this.svc.reaperturasPendientes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rs) => this.reaperturas.set(rs ?? []),
+        error: () => this.reaperturas.set([]),
       });
   }
 
@@ -491,17 +551,54 @@ export class FinanzasAprobacionGastosComponent {
    *  se guarda, no cómo se dice. */
   tipoGasto(c: string): string { return CLASIFICACION_LABEL[c as ExpenseClasificacion] ?? c; }
 
-  aprobar(p: ExpedienteDelDia): void {
+  /**
+   * `[GX.30]` Aprobar. El visor manda **la marca junto con el vale**: quien firma puede
+   * decir que lo que vio es una prefactura o una cotización, no el comprobante.
+   *
+   * ⚠️ El aviso lo dice: aprobado NO es comprobado. Sin eso, el vale sale de la bandeja
+   * y la deuda desaparece de la vista de quien la acaba de crear.
+   */
+  aprobar(a: AprobacionVale): void {
+    const p = a.vale;
     this.actuando.set(p.id);
-    this.svc.approve(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    const body = a.provisional
+      ? { provisional: true, ...(a.comprobante_esperado_at ? { comprobante_esperado_at: a.comprobante_esperado_at } : {}) }
+      : undefined;
+    this.svc.approve(p.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.actuando.set(null);
         this.abierto.set(null);
-        this.toast.add({ severity: 'success', summary: 'Aprobado', detail: `Solicitud ${p.folio_solicitud}` });
+        this.toast.add(a.provisional
+          ? { severity: 'warn', summary: 'Aprobado como provisional',
+              detail: `Solicitud ${p.folio_solicitud} — queda esperando el comprobante`, life: 6000 }
+          : { severity: 'success', summary: 'Aprobado', detail: `Solicitud ${p.folio_solicitud}` });
         this.cargar();
       },
       error: (e) => this.falla('No se pudo aprobar', e),
     });
+  }
+
+  /**
+   * `[GX.29]` La decisión sobre una reapertura. Al conceder, el vale vuelve a la bandeja
+   * del día con `vuelta + 1` — el **mismo** expediente, no uno nuevo: uno nuevo contaría
+   * ese dinero dos veces en el total del día y en lo que se reporta.
+   */
+  decidirReapertura(r: ReaperturaPendiente, aprueba: boolean): void {
+    const nota = aprueba ? '' : (globalThis.prompt?.(`¿Por qué no se reabre el vale ${r.folio_solicitud}?`) ?? '').trim();
+    // Negar sin decir por qué deja a quien pidió sin nada que corregir: vuelve a pedir lo mismo.
+    if (!aprueba && !nota) return;
+    this.actuando.set(r.id);
+    this.svc.decidirReapertura(r.id, aprueba, nota || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => {
+          this.actuando.set(null);
+          this.toast.add({ severity: aprueba ? 'success' : 'info',
+            summary: aprueba ? 'Reabierto' : 'No se reabrió',
+            detail: aprueba ? `${r.folio_solicitud} vuelve a la bandeja: hay que autorizarlo de nuevo` : `${r.folio_solicitud}` });
+          this.cargar();
+        },
+        error: (e) => this.falla('No se pudo decidir', e),
+      });
   }
 
   /**

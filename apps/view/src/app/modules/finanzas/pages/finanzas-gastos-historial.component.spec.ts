@@ -252,6 +252,79 @@ describe('FinanzasGastosHistorialComponent', () => {
     });
   });
 
+  /**
+   * `[GX.29]` **Pedir que te reabran el vale.** El capturista no reabre nada: deja una
+   * solicitud, y decide quien lo aprobó. Acá se cuida que la pantalla no ofrezca el
+   * botón donde el servidor lo va a rebotar — y sobre todo, que no lo ofrezca sobre el
+   * vale de otro.
+   */
+  describe('pedir la reapertura', () => {
+    const abrirVale = (status: string) => {
+      montar('superadmin');
+      c.valeAbierto.set({
+        id: 'p1', folio_solicitud: '0009901', sucursal: '00', fecha_gasto: D1,
+        created_at: `${D1}T15:00:00.000Z`, importe: 1250.5, departamento: 'LOGISTICA',
+        proveedor: 'CAPUFE', comentarios: null, created_by: 'demo', status,
+        motivo_rechazo: null, validated_by: 'maria', files: [],
+      });
+      fix.detectChanges();
+    };
+
+    it('un vale ya aprobado ofrece pedir la reapertura', () => {
+      abrirVale('validada');
+      expect(c.accionesDelVale()).toEqual(['pedir_reapertura']);
+    });
+
+    /** Un vale que todavía espera firma ya está abierto: no hay nada que reabrir. */
+    it('lo que todavía espera firma no la ofrece', () => {
+      abrirVale('recibida');
+      expect(c.accionesDelVale()).toEqual([]);
+    });
+
+    /**
+     * ⭐ En «Todos» se está mirando el gasto AJENO. Ofrecer ahí el botón sería invitar a
+     * pedir la reapertura del vale de otro — el servidor lo rebota, pero la pantalla no
+     * tiene por qué ofrecer una puerta que da 400.
+     */
+    it('⛔ en «Todos» no se ofrece: son vales ajenos', () => {
+      abrirVale('validada');
+      c.ambito.set('todos');
+      expect(c.accionesDelVale()).toEqual([]);
+    });
+
+    /** Sin motivo no se manda nada: quien decide lo hace leyendo eso. */
+    it('sin motivo no manda nada', () => {
+      abrirVale('validada');
+      const orig = globalThis.prompt;
+      globalThis.prompt = () => '';
+      try { c.pedirReapertura(c.valeAbierto()!); } finally { globalThis.prompt = orig; }
+      http.expectNone((r) => r.method === 'POST');
+    });
+
+    it('con motivo lo manda y cierra el panel', () => {
+      abrirVale('validada');
+      const orig = globalThis.prompt;
+      globalThis.prompt = () => 'ya llegó la factura definitiva';
+      try { c.pedirReapertura(c.valeAbierto()!); } finally { globalThis.prompt = orig; }
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/p1/reapertura'));
+      expect(req.request.body).toEqual({ motivo: 'ya llegó la factura definitiva' });
+      req.flush({ id: 's1', estado: 'pending_approval' });
+      expect(c.pidiendo()).toBe(false);
+      expect(c.valeAbierto()).toBeNull();
+    });
+
+    /** ⚠️ Si el servidor la rebota, el panel NO se cierra: el vale sigue sin pedirse. */
+    it('si el servidor la rebota, el panel sigue abierto', () => {
+      abrirVale('validada');
+      const orig = globalThis.prompt;
+      globalThis.prompt = () => 'quiero agregar la factura';
+      try { c.pedirReapertura(c.valeAbierto()!); } finally { globalThis.prompt = orig; }
+      http.expectOne((r) => r.url.endsWith('/p1/reapertura'))
+        .flush({ message: 'Ese gasto ya se aplicó en Kepler' }, { status: 400, statusText: 'Bad Request' });
+      expect(c.pidiendo()).toBe(false);
+      expect(c.valeAbierto()).not.toBeNull();
+    });
+  });
   /** ⛔ Un error NO se pinta como mes vacío: eso diría «no se levantó nada». */
   it('un error del mes se dice con todas las letras', () => {
     montar('superadmin', {}, null);

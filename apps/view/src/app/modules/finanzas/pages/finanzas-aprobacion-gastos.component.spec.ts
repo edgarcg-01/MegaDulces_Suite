@@ -86,11 +86,17 @@ describe('FinanzasAprobacionGastosComponent', () => {
   let c: FinanzasAprobacionGastosComponent;
   let http: HttpTestingController;
 
-  const montar = (d: GastosDelDia | null = DIA()) => {
+  /**
+   * Montar dispara DOS viajes: el día y las reaperturas que le toca decidir a quien mira
+   * (`[GX.29]`). Van separados a propósito — el día es de HOY y las reaperturas de
+   * cualquier fecha — así que la prueba responde los dos.
+   */
+  const montar = (d: GastosDelDia | null = DIA(), reap: unknown[] = []) => {
     fix = TestBed.createComponent(FinanzasAprobacionGastosComponent);
     c = fix.componentInstance;
     const req = http.expectOne((r) => r.url.includes('/finance/expenses/proofs/del-dia'));
     if (d) req.flush(d); else req.flush('boom', { status: 500, statusText: 'Server Error' });
+    http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush(reap);
     fix.detectChanges();
     return req;
   };
@@ -400,13 +406,98 @@ describe('FinanzasAprobacionGastosComponent', () => {
     });
   });
 
+  /**
+   * `[GX.29]` **Lo que te piden reabrir.** Va fuera de las tres pestañas porque no es una
+   * etapa del día: es de cualquier fecha y de una sola persona — la que firmó ese vale.
+   */
+  describe('las reaperturas que te toca decidir', () => {
+    const REAP = {
+      id: 's1', motivo: 'llegó la factura definitiva', solicita: 'tania',
+      created_at: '2026-09-26T10:00:00Z', proof_id: 'a1', folio_solicitud: '0071199',
+      proveedor: 'OXXO', status: 'validada', importe: 340,
+    };
+
+    /** ⭐ Un panel vacío permanente enseña a saltearlo: sin nada que decidir, no se pinta. */
+    it('sin solicitudes, el panel no existe', () => {
+      montar();
+      expect(fix.nativeElement.querySelector('.ap-reap')).toBeNull();
+    });
+
+    it('con una solicitud, la muestra con su motivo y su monto', () => {
+      montar(DIA(), [REAP]);
+      const panel = fix.nativeElement.querySelector('.ap-reap');
+      expect(panel).not.toBeNull();
+      expect(panel.textContent).toContain('Te piden reabrir un vale');
+      expect(panel.textContent).toContain('llegó la factura definitiva');
+      expect(panel.textContent).toContain('0071199');
+      expect(panel.textContent).toContain('lo pide tania');
+    });
+
+    it('conceder la reapertura la manda y recarga', () => {
+      montar(DIA(), [REAP]);
+      c.decidirReapertura(REAP, true);
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/reaperturas/s1/decidir'));
+      expect(req.request.body).toEqual({ aprueba: true, nota: undefined });
+      req.flush({ proof_id: 'a1', reabierto: true });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(c.actuando()).toBeNull();
+    });
+
+    /**
+     * ⭐ Negar sin decir por qué deja a quien pidió sin nada que corregir: vuelve a pedir
+     * lo mismo, y la bandeja de quien firma se hace eterna.
+     */
+    it('negar sin motivo no manda nada', () => {
+      montar(DIA(), [REAP]);
+      const orig = globalThis.prompt;
+      globalThis.prompt = () => '';
+      try { c.decidirReapertura(REAP, false); } finally { globalThis.prompt = orig; }
+      http.expectNone((r) => r.method === 'POST');
+    });
+
+    it('negar con motivo lo manda', () => {
+      montar(DIA(), [REAP]);
+      const orig = globalThis.prompt;
+      globalThis.prompt = () => 'ese vale ya cerró con su factura';
+      try { c.decidirReapertura(REAP, false); } finally { globalThis.prompt = orig; }
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/reaperturas/s1/decidir'));
+      expect(req.request.body).toEqual({ aprueba: false, nota: 'ese vale ya cerró con su factura' });
+      req.flush({ proof_id: 'a1', reabierto: false });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+    });
+
+    /**
+     * ⚠️ Que falle la consulta de reaperturas NO puede impedir firmar los gastos de hoy:
+     * son dos preguntas distintas y una no depende de la otra.
+     */
+    it('si las reaperturas fallan, el día se sigue viendo', () => {
+      fix = TestBed.createComponent(FinanzasAprobacionGastosComponent);
+      c = fix.componentInstance;
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes'))
+        .flush('boom', { status: 500, statusText: 'Server Error' });
+      fix.detectChanges();
+      expect(c.error()).toBe('');
+      expect(c.reaperturas()).toEqual([]);
+      expect(fix.nativeElement.textContent).toContain('Bandeja de entrada');
+    });
+  });
+
   describe('las acciones', () => {
     it('aprobar llama a su endpoint y recarga el día', () => {
       montar();
       c.abrir(c.visibles()[0]);
-      c.aprobar(c.visibles()[0]);
-      http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/a1/approve')).flush({ ok: true });
+      c.aprobar({ vale: c.visibles()[0], provisional: false, comprobante_esperado_at: null });
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/a1/approve'));
+      // ⭐ Sin marca, el cuerpo va VACÍO. Mandar `provisional: false` escribiría la
+      // columna en cada aprobación normal, y un vale que nunca fue provisional quedaría
+      // tocado por esta pantalla sin que nadie lo haya dicho.
+      expect(req.request.body).toEqual({});
+      req.flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
       expect(c.actuando()).toBeNull();
       // El panel se cierra: el vale que se miraba ya no está en ese estado.
       expect(c.abierto()).toBeNull();
@@ -418,6 +509,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
       c.darPorComprobado(c.visibles()[0]);
       http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/e1/validate')).flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
     });
 
     /** Sin motivo, quien capturó recibe un «no» sin saber qué corregir. */
@@ -438,14 +530,44 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(req.request.body).toEqual({ motivo: 'falta el ticket' });
       req.flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
     });
 
     it('si la acción falla, la fila se desbloquea y no se recarga el día en falso', () => {
       montar();
-      c.aprobar(c.visibles()[0]);
+      c.aprobar({ vale: c.visibles()[0], provisional: false, comprobante_esperado_at: null });
       http.expectOne((r) => r.url.endsWith('/a1/approve')).flush({ message: 'ya no está recibida' }, { status: 400, statusText: 'Bad Request' });
       expect(c.actuando()).toBeNull();
       http.expectNone((r) => r.url.includes('/del-dia'));
+    });
+
+    /**
+     * `[GX.30]` **La marca provisional.** El dinero sale igual; lo que cambia es que la
+     * deuda documental queda declarada en vez de confundirse con un vale ya cerrado.
+     */
+    it('aprobar como provisional manda la marca y su fecha', () => {
+      montar();
+      c.aprobar({ vale: c.visibles()[0], provisional: true, comprobante_esperado_at: '2026-10-15' });
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/a1/approve'));
+      expect(req.request.body).toEqual({ provisional: true, comprobante_esperado_at: '2026-10-15' });
+      req.flush({ ok: true });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+    });
+
+    /**
+     * ⚠️ Sin fecha NO se manda el campo: la pone el servidor (15 días). Mandar cadena
+     * vacía haría que la columna quede en NULL y la deuda no envejezca nunca — o sea,
+     * declarada pero invisible, que es peor que no declararla.
+     */
+    it('provisional sin fecha deja que la ponga el servidor', () => {
+      montar();
+      c.aprobar({ vale: c.visibles()[0], provisional: true, comprobante_esperado_at: null });
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/a1/approve'));
+      expect(req.request.body).toEqual({ provisional: true });
+      req.flush({ ok: true });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
     });
 
     /** Lo cerrado no ofrece botones: no hay nada que hacerle. */

@@ -6,7 +6,9 @@ import { parseLocalDate, todayMx } from '../../../core/utils/mx-date';
 import {
   ComprobacionesService, type CalendarioDelMes, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
 } from '../comprobaciones.service';
-import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { DIAS_SEMANA, mesDe, semanasDelMes, sumarMeses, type CeldaCalendario } from '../calendario-mes.util';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
@@ -49,7 +51,8 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-gastos-historial',
   standalone: true,
-  imports: [CommonModule, ValeGastoPeekComponent],
+  imports: [CommonModule, ToastModule, ValeGastoPeekComponent],
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in hist">
@@ -172,9 +175,12 @@ const ESTADO_LABEL: Record<string, string> = {
         }
       }
 
-      <!-- El mismo visor que usa Aprobación. Acá SIN acciones: esto es consulta. -->
+      <p-toast />
+      <!-- El mismo visor que usa Aprobación. Acá la única acción posible es PEDIR que te
+           reabran tu propio vale [GX.29]: no se firma nada desde el historial. -->
       <app-vale-gasto-peek [open]="valeAbierto() !== null" (openChange)="cerrarVale($event)"
-                           [vale]="valeAbierto()" />
+                           [vale]="valeAbierto()" [acciones]="accionesDelVale()"
+                           [ocupado]="pidiendo()" (pedirReapertura)="pedirReapertura($any($event))" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -271,6 +277,7 @@ export class FinanzasGastosHistorialComponent {
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly toast = inject(MessageService);
 
   readonly diasSemana = DIAS_SEMANA;
 
@@ -297,6 +304,8 @@ export class FinanzasGastosHistorialComponent {
   readonly errorDia = signal('');
 
   readonly valeAbierto = signal<ValeGasto | null>(null);
+  /** `[GX.29]` Hay una solicitud de reapertura en vuelo: el botón se bloquea. */
+  readonly pidiendo = signal(false);
 
   constructor() { this.cargarMes(); }
 
@@ -386,6 +395,49 @@ export class FinanzasGastosHistorialComponent {
    */
   abrirVale(r: ExpenseProof): void { this.valeAbierto.set(r as ValeGasto); }
   cerrarVale(abierto: boolean): void { if (!abierto) this.valeAbierto.set(null); }
+
+  /**
+   * `[GX.29]` Qué ofrece el visor acá. **Sólo** pedir la reapertura, y sólo sobre lo
+   * propio: en el ámbito «Todos» se están mirando vales ajenos.
+   *
+   * ⚠️ Esto es la puerta, no la cerradura. Quién puede reabrir qué lo decide el servidor
+   * (`reapertura.ts`, con sus pruebas): acá sólo se evita ofrecer un botón que va a dar
+   * 400. Un vale rechazado o ya aplicado en Kepler lo rebota el servidor igual.
+   */
+  accionesDelVale(): readonly AccionVale[] {
+    const v = this.valeAbierto();
+    if (!v || this.ambito() !== 'mios') return [];
+    // Un vale que todavía espera firma no necesita reapertura: ya está abierto.
+    return ['aprobada', 'validada', 'revision'].includes(String(v.status)) ? ['pedir_reapertura'] : [];
+  }
+
+  /**
+   * `[GX.29]` Pedir que te reabran el vale para agregar la evidencia definitiva.
+   *
+   * El motivo es obligatorio **del lado del servidor** (mínimo una frase): quien decide
+   * lo hace leyendo eso, y «reabrir» a secas no le dice si lo que falta es la factura o
+   * si alguien se equivocó de vale.
+   */
+  pedirReapertura(v: ValeGasto): void {
+    const motivo = (globalThis.prompt?.(`¿Qué le vas a agregar al vale ${v.folio_solicitud || ''}?`) ?? '').trim();
+    if (!motivo) return;
+    this.pidiendo.set(true);
+    this.svc.pedirReapertura(v.id, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.pidiendo.set(false);
+        this.valeAbierto.set(null);
+        this.toast.add({ severity: 'success', summary: 'Pedido enviado', life: 6000,
+          detail: 'Le llegó a quien aprobó el vale. Cuando te lo reabra, te avisamos.' });
+        this.cdr.markForCheck();
+      },
+      error: (e) => {
+        this.pidiendo.set(false);
+        const detail = (e as { error?: { message?: string } })?.error?.message || 'Reintentá';
+        this.toast.add({ severity: 'error', summary: 'No se pudo pedir', detail });
+        this.cdr.markForCheck();
+      },
+    });
+  }
 
   etiquetaDia(c: CeldaCalendario): string {
     if (!c.delMes) return `${c.numero}, de otro mes`;
