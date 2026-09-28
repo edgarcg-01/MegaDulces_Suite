@@ -6,6 +6,7 @@ import { Observable, firstValueFrom } from 'rxjs';
 import { Permission } from '../constants/permissions';
 import { DataScopeService } from './data-scope.service';
 import { PermissionsService } from './permissions.service';
+import { limpiarRastroDeSesion } from '@megadulces/ui-web';
 
 export interface JwtPayload {
   sub: string;
@@ -179,7 +180,21 @@ export class AuthService {
       );
   }
 
-  logout(): void {
+  /**
+   * `[SEG.2]` Cerrar sesión borra el rastro de quien se va, y con `derribar` además **recarga**.
+   *
+   * ── Por qué la recarga, y por qué no alcanza con limpiar servicio por servicio ──────────────
+   * Medido el 2026-09-28: hay **25 servicios `providedIn: 'root'` con estado cacheado** y este
+   * método limpiaba **2** (permisos y alcance). Ir a buscar los otros 23 a mano deja el problema
+   * abierto para el servicio número 26, que nadie va a acordarse de registrar — es el mismo
+   * motivo por el que la guarda de la rueda se hizo listener global y no directiva. Una
+   * navegación DURA destruye el inyector entero: los 25 y los que vengan, sin lista que mantener.
+   *
+   * `derribar` es del llamador porque no todo cierre de sesión es voluntario: el interceptor
+   * llama acá ante un 401, y recargar ahí puede dejar un bucle. El borrado del rastro, en
+   * cambio, corre **siempre**: un 401 por token vencido deja el mismo cache que un logout.
+   */
+  logout(opts: { derribar?: boolean } = {}): void {
     this.token.set(null);
     this.user.set(null);
     this.perms.clear();
@@ -194,6 +209,20 @@ export class AuthService {
     // Limpiar cookie legacy si quedó alguno
     if (typeof document !== 'undefined') {
       document.cookie = 'auth_token=; max-age=0; path=/; SameSite=Lax;';
+    }
+
+    // `[SEG.2]` El resto del rastro: localStorage de la persona, sessionStorage y —lo que más
+    // importa— los caches de DATOS del service worker, que se llavean por URL y no miran quién
+    // pregunta. Sin esto, `/api/users/**` y `/api/commercial/warehouses/**` se sirven hasta 24 h
+    // con la respuesta que bajó la persona anterior, sin tocar la red.
+    const limpieza = limpiarRastroDeSesion();
+
+    if (opts.derribar && typeof window !== 'undefined') {
+      // Se espera a que el borrado termine ANTES de recargar: si la navegación gana la carrera,
+      // el `caches.delete()` queda a medias y el cache sobrevive — que es exactamente el defecto.
+      limpieza
+        .catch(() => undefined)
+        .then(() => window.location.assign('/login'));
     }
   }
 
