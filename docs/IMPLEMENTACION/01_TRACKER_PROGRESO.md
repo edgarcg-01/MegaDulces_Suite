@@ -3122,6 +3122,107 @@ los que sostienen una decisión van en un test que se pone rojo.
 
 ---
 
+## GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26
+
+- [x] **[GX.28.1]** El estado que Kepler le puso al vale (`c43`: N por ejercer · A autorizada ·
+  F aplicada · C cancelada) se muestra en el visor, con su valor crudo como respaldo cuando no se
+  reconoce — un estado que no entendemos se **declara**, no se esconde.
+- [x] **[GX.28.2]** ⛔ **Lo que se pidió NO se pudo dar, y se midió antes de prometerlo.** El pedido
+  era *"que salga qué usuario de Kepler lo autorizó"*. Medido: `c30` es el **área** que autoriza y
+  viene sucia (`FINANZAS` / `DPTO FINANZAS` / `DEPARTAMENTO DE FINANSAS` conviven), y `c67` es quien
+  **capturó**, no quien autorizó. La persona que da el visto bueno **no está en la fila**. Queda la
+  sonda `database/scripts/kepler-que-columna-autoriza.js` (antes/después sobre un vale real) para el
+  día que alguien pueda mirar un vale mientras lo autorizan.
+
+---
+
+## GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26
+
+> **Decisión del usuario, textual:** *"¿Quién autoriza la reapertura? Sólo aquellos que le dieron
+> aprobación a los vales... cuando ellos vuelvan a agregar esa documentación les aparezca como un
+> vale nuevo en la jornada del día... un vale rechazado no se reabre... un vale ya aplicado en
+> Kepler ya no se toca"*. Y sobre la forma: **"mismo expediente y ocultar"**.
+
+- [x] **[GX.29.1]** Reglas puras en `libs/finance/.../reapertura.ts`, sin knex: deciden quién puede
+  tocar dinero ya aprobado, y eso se prueba sin levantar una base. **15 pruebas**, con las cuatro
+  negativas que sostienen cada regla.
+- [x] **[GX.29.2]** ⛔ **El orden de las negativas importa.** A quien tiene un vale ya aplicado en
+  Kepler NO se le dice «no es tuyo»: eso lo manda a buscar al dueño para nada. Gana siempre lo que
+  cierra el caso.
+- [x] **[GX.29.3]** La solicitud vive en `finance.proposed_actions` — el molde que ya existía para
+  *«alguien propone, otro decide, nada se ejecuta solo»*. **No se inventó una tabla** para lo mismo.
+- [x] **[GX.29.4]** Migración `20260926130000`: `provisional`, `comprobante_esperado_at`, `vuelta`,
+  `reabierto_por/_at/_motivo` + índice parcial. ⛔ **Ningún estado nuevo** (el vale vuelve a
+  `recibida`, que es lo que la bandeja ya lista) y **ninguna columna «oculto»**: el rechazo deja de
+  verse a las 24 h **derivándolo** de `validated_at`, porque un flag necesita un cron que lo prenda
+  y un cron que falla en silencio deja vales visibles creyendo que se ocultaron.
+- [x] **[GX.29.5]** ⛔ **Un solo expediente, con `vuelta + 1`.** Crear una fila nueva contaría ese
+  dinero **dos veces** en el total del día, en el historial y en lo que se le reporta a Dirección.
+
+---
+
+## GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27
+
+- [x] **[GX.30.1]** La marca provisional al aprobar (prefactura o cotización) + la fecha esperada.
+  Sin fecha la pone el servidor a 15 días: **sin fecha la deuda no envejece y nadie la reclama**.
+- [x] **[GX.30.2]** ⚠️ **Medido en pantalla:** la casilla puesta antes del pie **se iba con el
+  scroll** mientras los botones quedaban pegados — quien firma veía «Aprobar» y no veía la marca.
+  Un control que no está a la vista en el momento de decidir **no existe**. Marca y botones pasaron
+  a ser un solo bloque pegajoso.
+- [x] **[GX.30.3]** La marca **se limpia al abrir el siguiente vale**. Si se pegara, alguien firmaría
+  una deuda documental que nunca declaró. Con su prueba negativa.
+- [x] **[GX.30.4]** Panel de reaperturas **arriba de las tres pestañas y fuera de ellas**: las tres
+  particionan EL DÍA y esto es de cualquier fecha y de una sola persona. De cuarta pestaña rompería
+  que los tres contadores sumen el día. No se pinta si no hay nada — *un panel vacío permanente
+  enseña a saltearlo*.
+- [x] **[GX.30.5]** ⛔ **Bug de ruta encontrado al pasar:** `@Get('por-comprobar')` había quedado
+  declarado **después** de `@Get(':id')` y la paramétrica se lo tragaba. Misma trampa que
+  `sin-folio`. (Ese endpoint terminó retirado por pedido del usuario; el orden quedó documentado.)
+- [x] **[GX.30.6]** El borde tipado y **la forma deja de estar escrita dos veces**:
+  `ReaperturaPendiente` nació en el servicio y **el mismo día** ya estaba copiada campo por campo en
+  el frontend. Subió a `libs/contracts/src/finance/reapertura.contract.ts` (ADR-056).
+
+---
+
+## GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28
+
+> Lo reportó la sesión del módulo de aprobación; se verificó contra el código y la regla compartida
+> antes de tocar nada. **Desde GX.18 nadie podía levantar un gasto, y la pantalla se veía perfecta.**
+
+- [x] **[GX.31.1]** **La traba.** GX.18 retiró el paso «Sube la solicitud firmada» y lo reemplazó por
+  la foto en vivo del vale, pero el candado viejo quedó en pie en **cuatro** lugares:
+  `puedeEnviar()` exigía `solicitud_kepler` y **ninguna pantalla lo sube ya** (`dropSol()` quedó
+  huérfano, sin nada en el template) → el botón apagado de por vida **diciendo «Enviar a
+  aprobación»**, porque GX.18 también sacó de `enviarTitle()` la rama que lo explicaba; y
+  `create()`, `approve()` y `validate()` lo exigían igual.
+- [x] **[GX.31.2]** ⛔ **Y lo peor no era la traba.** Quitar el candado a secas abría un agujero:
+  `faltaParaMandar` sólo pide la foto cuando `exige_evidencia` es true, y GX.19 fija la captura en
+  `no_comprobable` → **se podía crear un gasto sin un solo documento**. El frontend no lo tenía
+  porque su `llevaEvidencia` es `!!clasificacion()` y el backend usa `requiereEvidencia(...)`: la
+  misma regla escrita distinto de los dos lados, que es lo que esa función existe para evitar.
+- [x] **[GX.31.3]** El respaldo sigue siendo obligatorio; **cambió cuál es**. La foto en vivo se
+  exige **siempre**: lo que la clasificación decide es qué CLASE de papel es, no si hay papel.
+  `tieneRespaldo()` —un solo predicado— acepta los **dos**: la solicitud firmada de los expedientes
+  viejos y la foto del vale de los nuevos. Aceptar uno solo rompía una mitad del historial.
+- [x] **[GX.31.4]** `tiene_solicitud` del reporte → `tiene_respaldo`: miraba sólo la solicitud vieja
+  y pintaba «sin firmada» sobre expedientes **perfectamente aprobables**. Un campo que miente es
+  peor que uno que falta.
+- [x] **[GX.31.5]** El mismo gasto dejaba de tener **dos nombres**: GX.18 renombró `no_comprobable`
+  a «Vale autorizado» sólo en la lista local de la captura, y el `CLASIFICACION_LABEL` canónico —el
+  que leen Aprobación y el Historial— seguía diciendo «Sin comprobante», que además es **falso**
+  desde GX.18. Lo que no lleva es comprobante FISCAL.
+- [x] **[GX.31.6]** ⭐ **LA PRUEBA QUE FALTABA.** Las cinco pruebas de la captura comprobaban que el
+  botón **dice qué falta**; ninguna que, sin faltar nada, el gasto **se pueda mandar**. Por eso el
+  módulo estuvo inutilizable y verde. Se agregó, y las dos compuertas nuevas se **rompieron a
+  propósito** para verlas en rojo antes de darlas por buenas.
+
+⚠️ **Supuesto declarado:** que la foto del vale reemplace a la solicitud firmada sale de GX.18 y
+GX.19, que son pedidos explícitos del usuario. Si además se quiere conservar el archivo firmado, lo
+que hay que reponer es **el paso en la captura**, no el candado — el candado solo, sin pantalla que
+lo alimente, es lo que dejó el módulo muerto.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
