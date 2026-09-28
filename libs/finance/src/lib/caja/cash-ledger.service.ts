@@ -591,8 +591,12 @@ export class CashLedgerService {
           'doc_tipo', 'folio', 'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'metodo', 'monto');
 
       const conCuenta = await this.resolverCuentas(trx, tenantId, rows);
+      // CS.3.6 — el motor UNE solo: a cada pendiente de Kepler le pega su match del cajero (CAOS),
+      // para que su arqueo se autorellene con el efectivo que la máquina ya contó. CAOS no se
+      // captura aparte; se ADJUNTA al movimiento de Kepler.
+      const conCaos = await this.emparejarCaos(trx, tenantId, conCuenta);
       return {
-        rows: conCuenta, limit, has_more: rows.length === limit,
+        rows: conCaos, limit, has_more: rows.length === limit,
         // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
         // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
         // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
@@ -784,6 +788,79 @@ export class CashLedgerService {
       };
       const rows = rankearCaos(g, candidatos, aprendido).slice(0, limit);
       return { rows, fecha, datos_al: await this.frescuraCaos(trx, tenantId) };
+    });
+  }
+
+  /**
+   * CS.3.6 — El motor UNE solo: a cada pendiente de Kepler le ADJUNTA su match del cajero (CAOS)
+   * para autorrellenar PARTE de su arqueo. CAOS no se captura aparte. Batch: un fetch de CAOS sin
+   * consumir + ranking por fila con la llave real (ruta + fecha de negocio; el efectivo del cajero es
+   * ≤ el movimiento de Kepler, la diferencia es lo retenido). Cada fila sale con `caos_match` o null.
+   */
+  private async emparejarCaos(trx: any, tenantId: string, rows: any[]) {
+    if (!rows.length) return rows;
+    const fechas = rows.map((r) => String(r.fecha_valor).slice(0, 10)).filter(Boolean).sort();
+    const t0 = Date.parse(`${fechas[0]}T00:00:00Z`);
+    const t1 = Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`);
+    const desde = new Date(t0 - 10 * 86400000).toISOString().slice(0, 10);
+    const hasta = new Date(t1 + 3 * 86400000).toISOString().slice(0, 10);
+    let qb = trx('analytics.caos_cash_movements as m')
+      .where('m.tenant_id', tenantId).whereIn('m.type_id', [0, 4])
+      .where('m.occurred_at', '>=', desde).where('m.occurred_at', '<', hasta)
+      .whereNotExists((sub: any) => sub.select(trx.raw('1')).from('finance.cash_ledger as l')
+        .whereRaw(`l.tenant_id=m.tenant_id AND l.origen_tipo='caos'
+           AND l.origen_ref=m.device||'|'||m.external_id AND l.deleted_at IS NULL AND l.estado<>'cancelado'`));
+    if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
+      .select(trx.raw('1')).from('finance.caos_cash_links as k')
+      .whereRaw(`k.tenant_id=m.tenant_id AND k.caos_device=m.device
+         AND k.caos_external_id=m.external_id AND k.deleted_at IS NULL`));
+    const movs = await qb.limit(500)
+      .select('m.id', 'm.device', 'm.external_id', 'm.type_id', 'm.type_label', 'm.occurred_at',
+        'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
+    if (!movs.length) return rows.map((r: any) => ({ ...r, caos_match: null }));
+    const ids = movs.map((r: any) => r.id);
+    const dens = await trx('analytics.caos_cash_denominations').where('tenant_id', tenantId).whereIn('movement_id', ids)
+      .select('movement_id', 'denom', 'quantity');
+    const porMov = new Map<string, Array<{ denominacion: number; piezas: number }>>();
+    for (const d of dens as any[]) {
+      const a = porMov.get(d.movement_id) || [];
+      a.push({ denominacion: Number(d.denom), piezas: Number(d.quantity) });
+      porMov.set(d.movement_id, a);
+    }
+    const cand = movs.map((m: any) => ({
+      origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
+      type_label: m.type_label, fecha_valor: String(m.accounting_date || m.occurred_at).slice(0, 10),
+      sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+      denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
+    }));
+    let aprendido: Map<string, PatronAprendido> | undefined;
+    try {
+      const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
+        .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
+      aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
+        ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
+        concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
+      }]));
+    } catch { /* sin aprendido: cold-start */ }
+    // Un CAOS se ofrece a UN solo pendiente (greedy por orden de la bandeja): no se une a dos.
+    const usados = new Set<string>();
+    return rows.map((r: any) => {
+      const typeId = r.tipo === 'ingreso' ? 0 : 4;
+      const pool = cand.filter((c: any) => c.type_id === typeId && !usados.has(c.origen_ref));
+      const g: CaosGastoCtx = {
+        monto: Number(r.monto), fecha: String(r.fecha_valor).slice(0, 10),
+        beneficiario: r.beneficiario, concepto: r.concepto, sucursal: '00',
+      };
+      const best = rankearCaos(g, pool as any, aprendido)[0];
+      if (best && best.confianza !== 'baja') {
+        usados.add(best.origen_ref);
+        return { ...r, caos_match: {
+          origen_ref: best.origen_ref, device: best.device, external_id: best.external_id,
+          monto: best.monto, ref: best.ref, type_label: best.type_label,
+          denominaciones: best.denominaciones, confianza: best.confianza, motivos: best.motivos,
+        } };
+      }
+      return { ...r, caos_match: null };
     });
   }
 

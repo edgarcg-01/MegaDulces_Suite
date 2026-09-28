@@ -5,7 +5,7 @@
  * NUNCA premie lo improbable (un retiro mayor que el gasto no es parte de ese gasto).
  */
 import {
-  norm, tokensRef, diasEntre, rutaDe, puntuarCaos, rankearCaos,
+  norm, tokensRef, diasEntre, rutaDe, fechaNegocio, puntuarCaos, rankearCaos,
   type CaosCandidato, type GastoCtx, type PatronAprendido,
 } from './caja-caos-match.engine';
 
@@ -37,8 +37,7 @@ describe('puntuarCaos — la señal medida manda', () => {
   it('mismo día + monto exacto + ref que coincide = confianza ALTA', () => {
     const g: GastoCtx = { monto: 20000, fecha: '2026-09-24', beneficiario: 'CUERITOS LUPITA', concepto: 'compra' };
     const r = puntuarCaos(g, cand());
-    expect(r.confianza).toBe('alta');           // 50 + 40 + 30 = 120
-    expect(r.motivos).toContain('mismo día');
+    expect(r.confianza).toBe('alta');           // ref 40 + exacto 30 + registro mismo día 12 = 82
     expect(r.motivos).toContain('monto exacto');
     expect(r.motivos.some((m) => m.includes('cueritos'))).toBe(true);
   });
@@ -46,14 +45,14 @@ describe('puntuarCaos — la señal medida manda', () => {
   it('[parcial] retiro MENOR que el gasto suma como "financia una parte" (el caso 20k de 25k)', () => {
     const g: GastoCtx = { monto: 25000, fecha: '2026-09-24', beneficiario: 'CUERITOS LUPITA' };
     const r = puntuarCaos(g, cand({ monto: 20000 }));
-    expect(r.motivos).toContain('financia una parte');
+    expect(r.motivos).toContain('parte del arqueo');
     expect(r.score).toBeGreaterThan(0);
   });
 
   it('[negativa] un retiro MAYOR que el gasto se penaliza (no es parte de ese gasto)', () => {
     const g: GastoCtx = { monto: 5000, fecha: '2026-09-24', beneficiario: 'otro' };
     const chico = puntuarCaos(g, cand({ monto: 20000, ref: 'zzz' }));
-    expect(chico.motivos).toContain('monto mayor que el objetivo');
+    expect(chico.motivos).toContain('monto mayor que el movimiento');
   });
 
   it('[negativa] lejos en el tiempo y sin ninguna otra señal no llega a confianza', () => {
@@ -70,7 +69,7 @@ describe('puntuarCaos — la señal medida manda', () => {
     ]);
     const conApr = puntuarCaos(g, cand({ fecha_valor: '2026-09-24' }), aprendido);
     expect(conApr.score).toBeGreaterThan(base.score);
-    expect(conApr.motivos.some((m) => m.includes('confirmado antes'))).toBe(true);
+    expect(conApr.motivos.some((m) => m.includes('confirmado'))).toBe(true);
   });
 });
 
@@ -88,13 +87,24 @@ describe('rutaDe — la ruta como llave (depósitos↔cobros)', () => {
 });
 
 describe('puntuarCaos — el lado DEPÓSITO (ruta como llave)', () => {
-  it('CS.3.5 — depósito ↔ cobro por RUTA + mismo día + monto ≈5% = confianza ALTA', () => {
-    const g: GastoCtx = { monto: 14294, fecha: '2026-09-23', beneficiario: 'R.D. 28 PH Valadez', concepto: 'VENTA RD 28 23-09-2026' };
-    const dep = cand({ type_label: 'Deposito', ref: 'rd28', monto: 14300, fecha_valor: '2026-09-23', denominaciones: [] });
+  it('CS.3.6 — depósito ↔ cobro por RUTA + FECHA DE NEGOCIO + depósito≤cobro = confianza ALTA', () => {
+    // Caso REAL medido (ruta 21): la venta del 19-09 se registra/deposita el 24, y el depósito es
+    // PARTE del cobro (16,640 ≤ 19,026). La llave es ruta + fecha de negocio (del texto), no la de registro.
+    const g: GastoCtx = { monto: 19026, fecha: '2026-09-24', beneficiario: 'R.D. 21 PH Urbano', concepto: 'VENTA RD 21 19-09-2026' };
+    const dep = cand({ type_label: 'Deposito', ref: 'rd21 19/09', monto: 16640, fecha_valor: '2026-09-24', denominaciones: [] });
     const r = puntuarCaos(g, dep);
-    expect(r.motivos).toContain('ruta 28');
-    expect(r.motivos.some((m) => m.includes('±5%') || m === 'monto exacto')).toBe(true);
-    expect(r.confianza).toBe('alta');   // 50 mismo día + 45 ruta + 22 ≈5% = 117
+    expect(r.motivos).toContain('ruta 21');
+    expect(r.motivos).toContain('fecha 19-09');
+    expect(r.motivos).toContain('parte del arqueo');
+    expect(r.confianza).toBe('alta');   // 45 ruta + 40 fecha + 15 parte + 12 registro = 112
+  });
+
+  it('fechaNegocio saca la fecha de negocio de ambos formatos y descarta la ruta', () => {
+    expect(fechaNegocio('VENTA RD 21 19-09-2026')).toBe('19-09');
+    expect(fechaNegocio('rd21 19/09')).toBe('19-09');
+    expect(fechaNegocio('ruta 21 23 09 26')).toBe('23-09');   // 23-09, el 26 es año
+    expect(fechaNegocio('ruta 21 09 26')).toBeNull();          // incompleto/ambiguo: no inventa
+    expect(fechaNegocio('cueritos')).toBeNull();
   });
 
   it('[negativa] rutas DISTINTAS no dan el bono de ruta', () => {

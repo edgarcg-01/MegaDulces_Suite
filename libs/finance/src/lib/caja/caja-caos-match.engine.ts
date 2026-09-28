@@ -88,6 +88,25 @@ export function rutaDe(texto: string | null | undefined): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * CS.3.6 — La FECHA DE NEGOCIO embebida en el texto (no la de registro). Es la llave real del
+ * emparejamiento de ruta: el cobro trae `VENTA RD 21 19-09-2026` y el depósito `rd21 19/09` — la
+ * venta del 19 puede registrarse/depositarse el 24 en ambos lados. Se quita primero el prefijo de
+ * ruta (para no leer el nº de ruta como día) y se toma la primera fecha DD-MM VÁLIDA. Salida `DD-MM`.
+ * `null` si no hay fecha inequívoca (ej. `ruta 21 09 26` incompleto, `ruta22250926` concatenado).
+ */
+function fechaValida(dd: string, mm: string): boolean {
+  const d = Number(dd); const m = Number(mm);
+  return d >= 1 && d <= 31 && m >= 1 && m <= 12;
+}
+export function fechaNegocio(texto: string | null | undefined): string | null {
+  const t = norm(texto).replace(/\br\s*d?\s*(?:uta)?\s*0*\d{1,3}\b/, ' ');
+  const full = t.match(/\b(\d{2})[ -](\d{2})[ -]\d{4}\b/); // DD-MM-YYYY (concepto de Kepler)
+  if (full && fechaValida(full[1], full[2])) return `${full[1]}-${full[2]}`;
+  for (const m of t.matchAll(/\b(\d{2})[ /](\d{2})\b/g)) if (fechaValida(m[1], m[2])) return `${m[1]}-${m[2]}`;
+  return null;
+}
+
 /** Días absolutos entre dos fechas YYYY-MM-DD (sin TZ: ambas son fechas de negocio). */
 export function diasEntre(a: string, b: string): number {
   const da = Date.parse(`${String(a).slice(0, 10)}T00:00:00Z`);
@@ -103,39 +122,50 @@ export function diasEntre(a: string, b: string): number {
 export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<string, PatronAprendido>): PuntajeCaos {
   const motivos: string[] = [];
   let score = 0;
+  const gtxt = `${g.beneficiario ?? ''} ${g.concepto ?? ''}`;
 
-  // 1) Fecha — la señal más fuerte (medido).
-  const lag = diasEntre(g.fecha, c.fecha_valor);
-  if (lag === 0) { score += 50; motivos.push('mismo día'); }
-  else if (lag === 1) { score += 25; motivos.push('±1 día'); }
-  else if (lag <= 3) { score += 10; motivos.push(`±${lag} días`); }
-  else { score -= 10; }
-
-  // 2) Ref ↔ beneficiario/concepto del gasto — la señal estructural del lado GASTO.
-  const txt = norm(`${g.beneficiario ?? ''} ${g.concepto ?? ''}`);
-  const hit = txt ? tokensRef(c.ref).find((t) => txt.includes(t)) : undefined;
-  if (hit) { score += 40; motivos.push(`ref «${hit}» coincide`); }
-
-  // 2b) RUTA ↔ ruta — la señal del lado DEPÓSITO (ingresos). Llave casi limpia: el `ref` del cajero
-  // y el `entidad_code`/concepto del cobro traen el mismo nº de ruta. Medido: ruta+día+monto≈ = 94%.
+  // 1) RUTA — llave estructural del lado INGRESO (depósito de ruta ↔ cobro de ruta). El nº de ruta
+  //    está limpio en ambos: `entidad_code='RUTA 21'`/concepto en Kepler, `rd21` en el ref de CAOS.
   const rc = rutaDe(c.ref);
-  const rg = rutaDe(`${g.beneficiario ?? ''} ${g.concepto ?? ''}`);
-  if (rc != null && rc === rg) { score += 45; motivos.push(`ruta ${rc}`); }
+  const rg = rutaDe(gtxt);
+  const rutaOk = rc != null && rc === rg;
+  if (rutaOk) { score += 45; motivos.push(`ruta ${rc}`); }
 
-  // 3) Monto — exacto fuerte; ≈5% (depósito de ruta: el efectivo ≈ el cobro, no al peso); parcial
-  // (retiro ≤ gasto) plausible; mayor que el objetivo, improbable.
-  if (g.monto != null && g.monto > 0) {
-    const cm = Math.abs(c.monto);
-    const rel = Math.abs(cm - g.monto) / g.monto;
-    if (cm === g.monto) { score += 30; motivos.push('monto exacto'); }
-    else if (rel <= 0.05) { score += 22; motivos.push('monto ≈ (±5%)'); }
-    else if (cm < g.monto) { score += 10; motivos.push('financia una parte'); }
-    else { score -= 20; motivos.push('monto mayor que el objetivo'); }
+  // 2) FECHA DE NEGOCIO — la del TEXTO, no la de registro. Medido: `VENTA RD 21 19-09` se deposita
+  //    como `rd21 19/09` aunque ambos se registren el 24. ruta + fecha de negocio + depósito≤cobro =
+  //    ~98% de precisión (90 real / 2 placebo). Es la llave real del emparejamiento de ruta.
+  const fg = fechaNegocio(gtxt);
+  const fc = fechaNegocio(c.ref);
+  if (fg && fc && fg === fc) { score += 40; motivos.push(`fecha ${fg}`); }
+
+  // 3) REF ↔ beneficiario/concepto — señal del lado GASTO (proveedor/propósito). Sólo si NO casó por
+  //    ruta: una dispensación (`cueritos`, `nomina`) no trae ruta y se ata por el nombre del proveedor.
+  if (!rutaOk) {
+    const txt = norm(gtxt);
+    const hit = txt ? tokensRef(c.ref).find((t) => txt.includes(t)) : undefined;
+    if (hit) { score += 40; motivos.push(`ref «${hit}» coincide`); }
   }
 
-  // 4) Aprendido — lo que ya se confirmó para ese ref sube la confianza.
+  // 4) MONTO — el efectivo del cajero es PARTE del movimiento de Kepler: el depósito es SIEMPRE ≤ el
+  //    cobro (medido 53/53), y la diferencia es lo retenido/gastos de ruta. Por eso «≤» SUMA (no un
+  //    ≈5% que rechazaba diferencias reales de hasta 12%). Exacto es más fuerte; MAYOR es improbable.
+  if (g.monto != null && g.monto > 0) {
+    const cm = Math.abs(c.monto);
+    if (cm === g.monto) { score += 30; motivos.push('monto exacto'); }
+    else if (cm <= g.monto) { score += 15; motivos.push('parte del arqueo'); }
+    else if (cm <= g.monto * 1.05) { score += 8; motivos.push('monto ≈'); }
+    else { score -= 25; motivos.push('monto mayor que el movimiento'); }
+  }
+
+  // 5) Fecha de REGISTRO — respaldo DÉBIL (NO es la llave; la de negocio manda y puede diferir).
+  const lag = diasEntre(g.fecha, c.fecha_valor);
+  if (lag === 0) { score += 12; }
+  else if (lag <= 3) { score += 5; }
+  else if (lag > 15) { score -= 10; }
+
+  // 6) Aprendido — lo ya confirmado para ese ref sube la confianza.
   const ap = aprendido?.get(norm(c.ref));
-  if (ap && ap.casos > 0) { score += Math.min(20, ap.casos * 5); motivos.push(`ya confirmado antes (${ap.casos})`); }
+  if (ap && ap.casos > 0) { score += Math.min(15, ap.casos * 5); motivos.push(`ya confirmado (${ap.casos})`); }
 
   const confianza: PuntajeCaos['confianza'] = score >= 80 ? 'alta' : score >= 45 ? 'media' : 'baja';
   return { score, motivos, confianza };
