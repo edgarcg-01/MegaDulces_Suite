@@ -40,6 +40,7 @@
       "@megadulces/contracts/authz/permission-meta": ["libs/contracts/src/authz/permission-meta.ts"],
       "@megadulces/contracts/authz/role-presets": ["libs/contracts/src/authz/role-presets.ts"],
       "@megadulces/contracts/authz/suite-map": ["libs/contracts/src/authz/suite-map.ts"],
+      "@megadulces/contracts/authz/divergencia": ["libs/contracts/src/authz/divergencia.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],

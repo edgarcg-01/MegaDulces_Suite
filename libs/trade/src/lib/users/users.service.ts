@@ -34,6 +34,7 @@ import {
   // padrón: si saliera por `getDataScope`, degradarlo degradaría a superadmin.
   isPlatformAdminRole,
 } from '@megadulces/platform-core';
+import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
 
 interface RequesterContext {
   sub: string;
@@ -700,10 +701,15 @@ export class UsersService {
      * prod, todos vacantes hoy — o sea el hueco se abre justo el día que alguien
      * los ocupe. `propone: null` lo DECLARA en vez de dibujarlo como «en orden».
      */
+    // `[OR.2.1]` La regla la decide `evaluarDivergencia`, la MISMA que usan los dos
+    // formularios. Estaba escrita tres veces y una de las tres decía lo contrario: el
+    // formulario del alta concluía "no diverge" cuando el puesto no propone perfil, así que
+    // no pedía el motivo que acá abajo se exige — y con 20 de los 57 puestos el alta era
+    // imposible desde la pantalla.
     const elegido = roleName.toLowerCase();
-    if (!pos.default_role) return { position_code: pos.code, propone: null, elegido };
-    if (pos.default_role.toLowerCase() === elegido) return null;
-    return { position_code: pos.code, propone: pos.default_role, elegido };
+    const d = evaluarDivergencia({ propone: pos.default_role, elegido });
+    if (!d.diverge) return null;
+    return { position_code: pos.code, propone: d.sinPropuesta ? null : pos.default_role, elegido };
   }
 
   /**

@@ -391,14 +391,28 @@
          teléfono sería cobrarles una decisión que tomó otro hace meses. -->
     @if (desviacionNueva()) {
       <div class="au-field">
-        <label for="motivo_desvio">Motivo de apartarse del puesto</label>
+        <!-- [OR.2.1] Dos casos distintos y dos textos distintos: apartarse de lo que el puesto
+             propone no es lo mismo que elegir a dedo porque el puesto no propone nada. El
+             segundo tiene ademas un arreglo de fondo, y la pantalla lo dice. -->
+        <label for="motivo_desvio">
+          {{ puestoSinPropuesta() ? 'Motivo de este perfil' : 'Motivo de apartarse del puesto' }}
+        </label>
         <input id="motivo_desvio" type="text" pInputText formControlName="motivo_desvio"
                class="w-full" maxlength="300"
-               placeholder="Por qué este perfil y no el que propone el puesto" />
+               [placeholder]="puestoSinPropuesta()
+                 ? 'Por qué este perfil, si el puesto no propone ninguno'
+                 : 'Por qué este perfil y no el que propone el puesto'" />
         <small class="au-err">
-          El puesto propone <b class="mono">{{ perfilPropuesto() }}</b> y elegiste
-          <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribí por qué: queda
-          en la bitácora de la persona.
+          @if (puestoSinPropuesta()) {
+            Este puesto <b>no propone ningún perfil</b>, así que
+            <b class="mono">{{ userForm.get('role_name')?.value }}</b> es una elección a dedo y no
+            hay contra qué contrastarla. Escribí por qué: queda en la bitácora de la persona.
+            Lo que lo cierra de raíz es darle un perfil al puesto en Puestos.
+          } @else {
+            El puesto propone <b class="mono">{{ perfilPropuesto() }}</b> y elegiste
+            <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribí por qué: queda
+            en la bitácora de la persona.
+          }
         </small>
       </div>
     }
