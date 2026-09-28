@@ -18,6 +18,12 @@ export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'comprobante_3' 
 /** [GX.23] Los roles de cada familia, en orden: la pantalla toma el primero libre. */
 export const ROLES_COMPROBANTE: ProofFileRole[] = ['comprobante_1', 'comprobante_2', 'comprobante_3', 'comprobante_4'];
 export const ROLES_COTIZACION: ProofFileRole[] = ['cotizacion', 'cotizacion_2', 'cotizacion_3'];
+/**
+ * `[GX.33]` Los adjuntos de CUALQUIER tipo. Los roles ya existían en el contrato y no los
+ * usaba ninguna pantalla: acá entran el `.pdf` del proveedor, el `.xlsx` del presupuesto o
+ * el `.docx` del convenio — lo que el gasto traiga y no sea una foto ni una cotización.
+ */
+export const ROLES_EVIDENCIA: ProofFileRole[] = ['evidencia_1', 'evidencia_2', 'evidencia_3'];
 export interface ProofFile {
   role: ProofFileRole | string; url: string; public_id?: string; kind?: string; name?: string;
   /** `[GX.14]` Salió de la cámara, no de un archivo. Ver el límite en `aporte-solicitante.contract.ts`. */
