@@ -61,9 +61,27 @@ Todo medido contra prod (`pg-prod` en `md`, sysid `7688376744939610156`).
   `32:51` MANUEL HERRERA ($2.05M, termina sin sucesor). **Ni se marcaron `exclude`** los 7
   "vendedores" que no son personas ($742,420): ese flag los tira del pivote, y esa plata es venta
   real — restársela a un reporte para que se vea limpio es lo contrario de lo que esta fase arregla.
-- **Internal** `test-newdb-sellout-channel-parity.js` (8/8) y `test-newdb-vendor-identity-cutover.js`
-  (4/4), los dos contra prod y con prueba negativa real (rompen el dato en una transacción revertida
-  y comprueban que el detector lo señale) · §5 de [`VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md)
+- **Fixed (VSO.8) — sincronía con el frontend: el hueco grande no estaba en Sell-Out.**
+  **Presupuesto** tenía tres listas de canales clavadas, y la primera es un **filtro por
+  iteración**: una entidad cuyo canal no esté en la lista **nunca produce renglón**. Medido sobre
+  428 renglones capturados — $312,870,188 se veían · **$21,754,366 en canales que no recorría** ·
+  **$134,911,911 huérfanos** en `*:MD-30` (la llave quedó apuntando al código viejo de Morelia
+  Abastos cuando `[RL.10]` lo pasó a `08`). O sea **33.4 % del presupuesto de ventas capturado
+  ($156.7M de $469.5M) no se veía**. Ahora se recorren todos los canales presentes y el backend
+  **deriva** el vocabulario de `v_sales_entity` — la misma vista que le da las entidades.
+  **Chat del Sell-Out**: filtraba el canal CRUDO, así que "cuánto vendió mayoreo" (jul–sep)
+  devolvía **$20,069,745** cuando son **$41,443,464** — subdeclaraba **51.6 %** con un número real
+  de un universo recortado, que es peor que un error porque no se nota.
+  ⭐ **El resolvedor salió del service**: nació privado y a las pocas horas hizo falta en el chat;
+  copiarlo allá habría reconstruido en un día la divergencia que vino a eliminar (ADR-056). Vive en
+  `sellout-channel-map.ts`. ⛔ El presupuesto **no** se alinea con el vocabulario de negocio del
+  sell-out: ahí el canal es parte del `entity_key` **persistido** y unificarlo dejaría metas
+  huérfanas — queda declarado, no disimulado.
+- **Internal** `test-newdb-sellout-channel-parity.js` (8/8), `test-newdb-vendor-identity-cutover.js`
+  (4/4) y `test-newdb-budget-entity-sync.js` (4/4; un borrador **reporta** sus huérfanos y no falla,
+  uno firme falla) — los tres contra prod y con **prueba negativa real** (rompen el dato en una
+  transacción revertida y comprueban que el detector lo señale) · §5 de
+  [`VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md)
   estrena los dos resolvedores que le faltaban (canal y corte) · migraciones **556/557/558/561** en
   prod.
 - ⚠️ **Pendiente de deploy:** el código de `apps/api`/`apps/view` está commiteado y con `tsc` limpio,
