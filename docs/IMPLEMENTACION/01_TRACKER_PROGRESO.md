@@ -6145,6 +6145,18 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 - [x] **`[VSO.4]`** ✅ `test-newdb-branch-cutover.js` deja de medir las piernas CRUDAS: 20 OK / 0
   fallas (antes 13 / **6**).
 - [x] **`[VSO.5]`** ✅ §5 de `VERDAD_ABSOLUTA.md` estrena los dos resolvedores que le faltaban.
+- [x] **`[VSO.9]`** ✅ Las metas de Morelia Abastos vuelven a su entidad (mig **564**): 30 renglones
+  re-llaveados `*:MD-30` → `*:08`. El presupuesto capturado pasa de **$156.7M invisibles (33.4 %)**
+  a **100 % con entidad válida** (418 renglones, $468,804,497). La colisión de `mostrador` la
+  resolvió el dato: los dos juegos salieron de la MISMA corrida y `MD-30` traía $10.4–13.9M por
+  periodo (`historico_ajustado`, con base) contra $32–40k (`estacional`, sin base) de `08`.
+- [x] **`[VSO.10]`** ✅ **Los dos trinquetes rotos — y por qué nadie actuó.** ⭐ La causa de fondo:
+  `test-newdb-truth-parity.js` **no estaba en el runner** (191 registrados contra 211 en disco).
+  Un candado que no corre no protege nada. **Factor de caja**: 50 discrepancias contra un baseline
+  de CERO; 35 eran productos nuevos que `repoint-catalog-presence` inserta sin `factor_sale` —
+  ahora el propio importer los rellena desde el árbitro. **ABC**: el umbral era inalcanzable por
+  construcción (foto nocturna contra vista viva); el desacuerdo es **simétrico** y de **una** clase,
+  así que ahora mide el salto de **dos** e imprime el jitter con su dirección y la edad de la foto.
 - [x] **`[VSO.8]`** ✅ **Sincronía con el frontend — y el hueco grande no estaba en Sell-Out.**
   **Presupuesto** tenía tres listas de canales clavadas, y la primera es un **filtro por iteración**:
   una entidad cuyo canal no esté en la lista **nunca produce renglón**. Medido sobre 428 renglones
@@ -6191,11 +6203,20 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 - **La parte de meses CERRADOS de `[VSO.3]`** (PH jun-2026, Piedad oct-2025) se ve cuando corra
   `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para meses cerrados. El día
   de Abastos (mes en curso) ya se ve. No se refrescó a mano: 412 MB + 1.6 GB en horario hábil.
-- **`[VSO.6b]` lo que quedó declarado y NO se fusionó**: `30:94` "JOSEPH" (plaza 08) — hay **dos**
-  Joseph en Wincaja y **venden los mismos días**, así que no se puede afirmar que sean el mismo
-  humano (el código `94` coincide porque los códigos son por sucursal); y `32:51` MANUEL HERRERA
-  (**$2.05M**), que termina en el corte de Madero **sin sucesor Kepler** — o se fue, o su identidad
-  nueva tiene otro nombre. Hace falta que alguien de Morelia lo confirme.
+- ✅ **`[VSO.6b]` resuelto sin preguntarle a Morelia** (mig **563**): el catálogo de vendedores tenía
+  la respuesta. **MANUEL HERRERA** no tiene sucesor porque **GUILLERMO HERNÁNDEZ tomó su ruta** —
+  Manuel venía de $730,238 en agosto y $137,215 en los 7 días previos al corte (a su mismo ritmo);
+  Guillermo, que en Wincaja tenía $2,302, arranca el 08-sep con $639,196 en 19 días, y el total
+  vecinal de la plaza no se movió. **No se fusionan: son dos personas.** Los **dos JOSEPH** siguen
+  separados con mejor argumento: el catálogo de Kepler replica el mismo código en las nueve ramas
+  cuando la persona es la misma (Manuel, Gloria, Yadira, Humberto están en 07 **y** 08) y con
+  Joseph no lo hizo. ⭐ **La regla es mismo NOMBRE, no mismo código**, y no es teórica: el código
+  `3` es **BENJAMIN ALONZO ZARAGOZA** en la rama 05 y **JOSE ANTONIO ESPINOZA CASTELLA** en la 04.
+- **Riesgo latente declarado**: `vendor_code` es `sucursal:codigo` pero el catálogo de Kepler está
+  replicado en las nueve ramas, así que quien venda en dos plazas se parte **sin cutover de por
+  medio**. Medido: **17 códigos** venden en >1 rama, pero en el alcance del reporte por vendedor
+  casi no muerde (CINTHIA, $4.21M, tiene mayoreo en UNA sola plaza). Cuando muerda, la regla es la
+  de arriba.
 - **Siete «vendedores» que no son personas** (`SUCURSAL … PISO`, `E-COMMERCE`, `Otros Ingresos`…,
   **$742,420** en canales con vendedor) siguen apareciendo como columna. ⛔ **A propósito**: el flag
   `exclude` los TIRA del pivote, y esa plata es venta real. Si se quiere separarlos hace falta un
@@ -6204,9 +6225,11 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   lado del corte), no de continuidad: da ✔ con 9 días de hueco. Su bloque 3 se puede retirar y
   delegar en `test-newdb-branch-cutover.js`, que ya lo mide bien.
 - **Ajeno pero medido:** `commercial.sales_targets` está **VACÍA** en prod → el trabajo «vs Objetivo»
-  del sell-out no tiene una sola meta que mostrar. Y en `test-newdb-truth-parity.js` hay **dos
-  trinquetes rotos** de otros dominios (factor de caja **50** contra baseline 0 · clase ABC **2**
-  contra 0); con objetivo CERO, eso son bugs, no pendientes.
+  del sell-out no tiene una sola meta que mostrar.
+- **`[VSO.11]` las otras ~19 pruebas huérfanas**: al registrar `test-newdb-truth-parity.js` se midió
+  que el runner tiene **191** entradas contra **211** archivos de test en disco. Cada una de esas
+  19 es un candado que alguien escribió y que no corre nunca — la misma forma del problema que dejó
+  dos trinquetes rotos sin que nadie actuara. Revisarlas una por una es trabajo aparte.
 
 ---
 ## 📋 BACKLOG — Fases G, H, I
