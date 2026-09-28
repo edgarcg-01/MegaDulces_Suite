@@ -14,7 +14,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
-  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
+  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION, ROLES_EVIDENCIA,
   type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
@@ -240,11 +240,33 @@ interface SelSolicitud {
                     @if (cotizaciones().length < MAX_COTIZACIONES) {
                       <label class="cap-ev-b">
                         <i class="pi pi-upload" aria-hidden="true"></i> {{ cotizaciones().length ? 'Agregar otra' : 'Subir cotización' }}
-                        <input type="file" accept="image/*,application/pdf" (change)="onFileCotizacion($event)" hidden />
+                        <input type="file" (change)="onFileCotizacion($event)" hidden />
                       </label>
                       @if (!cotizaciones().length) {
-                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
+                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Cualquier archivo.</p>
                       }
+                    }
+                    <!--
+                      [GX.33] El tercer camino, por pedido del usuario: subir CUALQUIER tipo
+                      de documento. No reemplaza a la foto del vale -- ésa sigue siendo el
+                      respaldo de la autorización (GX.31) y la compuerta la exige igual.
+                      Esto es para lo que el gasto traiga además: un convenio, una hoja de
+                      cálculo, el correo del proveedor.
+                    -->
+                    @if (evidencias().length < MAX_EVIDENCIAS) {
+                      <label class="cap-ev-b">
+                        <i class="pi pi-file" aria-hidden="true"></i> {{ evidencias().length ? 'Agregar otro documento' : 'Subir documento' }}
+                        <input type="file" (change)="onFileEvidencia($event)" hidden />
+                      </label>
+                      @if (!evidencias().length) {
+                        <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Cualquier tipo: PDF, Word, Excel, imagen…</p>
+                      }
+                    }
+                    @for (r of evidencias(); track r) {
+                      <div class="cap-done">
+                        <i class="pi pi-file cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
+                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
+                      </div>
                     }
                     @for (r of cotizaciones(); track r) {
                       <div class="cap-done">
@@ -796,10 +818,12 @@ export class FinanzasCapturarGastoComponent {
   /** [GX.23] Tope de cada familia. Vienen del catalogo de roles: no se inventan aca. */
   readonly MAX_COMPROBANTES = ROLES_COMPROBANTE.length;
   readonly MAX_COTIZACIONES = ROLES_COTIZACION.length;
+  readonly MAX_EVIDENCIAS = ROLES_EVIDENCIA.length;
 
   /** Los roles de esta familia que YA tienen archivo, en el orden del catalogo. */
   readonly comprobantes = computed(() => ROLES_COMPROBANTE.filter((r) => !!this.names()[r]));
   readonly cotizaciones = computed(() => ROLES_COTIZACION.filter((r) => !!this.names()[r]));
+  readonly evidencias = computed(() => ROLES_EVIDENCIA.filter((r) => !!this.names()[r]));
 
   /** El primer rol libre de la familia, o `null` si ya no queda. */
   private libre(roles: ProofFileRole[]): ProofFileRole | null {
@@ -821,6 +845,13 @@ export class FinanzasCapturarGastoComponent {
   onFileCotizacion(ev: Event) {
     const role = this.libre(ROLES_COTIZACION);
     if (!role) { this.formError.set(`Ya hay ${this.MAX_COTIZACIONES} cotizaciones, el maximo.`); return; }
+    this.onFile(ev, role);
+  }
+
+  /** `[GX.33]` Un documento de cualquier tipo. Mismo camino, otra familia de roles. */
+  onFileEvidencia(ev: Event) {
+    const role = this.libre(ROLES_EVIDENCIA);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_EVIDENCIAS} documentos, el maximo.`); return; }
     this.onFile(ev, role);
   }
 
@@ -1000,7 +1031,9 @@ export class FinanzasCapturarGastoComponent {
      * que se la habia pedido a la persona.
      */
     // [GX.23] Todas las que haya, no la primera de cada una.
-    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION], () => this.createSolicitud(g));
+    // `[GX.33]` Los documentos sueltos suben con el resto. Sin esto se quedaban en el
+    // navegador: la pantalla los mostraba adjuntos y el expediente llegaba sin ellos.
+    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION, ...ROLES_EVIDENCIA], () => this.createSolicitud(g));
   }
 
   // MOMENTO 3 — el gasto ya está aprobado y comprobable: sube la evidencia.
@@ -1031,7 +1064,7 @@ export class FinanzasCapturarGastoComponent {
 
   private createSolicitud(g: SelSolicitud) {
     const lleva = this.llevaEvidencia();
-    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION]
+    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION, ...ROLES_EVIDENCIA]
       .map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,

@@ -83,6 +83,44 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     const t = FINANZAS_TABS.find((x) => x.route === '/finanzas/aprobacion-gastos');
     expect(t?.permission).toBe(Permission.FINANCE_EXPENSES_COMPROBAR);
   });
+
+  /**
+   * `[GX.33]` **El reparto entre las dos pantallas de consulta.** Medido en prod antes de
+   * moverlo: el Historial lo veían 80 personas y 57 sólo capturan — a ésas el servidor ya
+   * les acotaba a lo suyo, así que la pantalla prometía el historial de la empresa y
+   * entregaba el propio. Esas 57 pasan a «Mis gastos».
+   */
+  describe('[GX.33] Mis gastos vs Historial', () => {
+    const mis = () => FINANZAS_TABS.find((x) => x.route === '/finanzas/mis-gastos');
+    const hist = () => FINANZAS_TABS.find((x) => x.route === '/finanzas/gastos-historial');
+
+    it('quien sólo captura tiene «Mis gastos»', () => {
+      expect(mis()?.label).toBe('Mis gastos');
+      expect(mis()?.anyOf).toContain(Permission.FINANCE_EXPENSES_CAPTURAR);
+    });
+
+    /** ⛔ La razón de ser del cambio: CAPTURAR ya no abre el Historial. */
+    it('CAPTURAR ya NO abre el Historial', () => {
+      expect(hist()?.anyOf).not.toContain(Permission.FINANCE_EXPENSES_CAPTURAR);
+      expect(hist()?.anyOf).toContain(Permission.FINANCE_EXPENSES_COMPROBAR);
+    });
+
+    /**
+     * ⛔ Y `VER` se queda. Con COMPROBAR a secas el Historial quedaba en UNA persona, y
+     * `credito_cobranza`, `direccion` y `finanzas` (4 usuarios medidos en prod) se quedaban
+     * sin ninguna de las dos: no capturan, así que «Mis gastos» tampoco los cubre.
+     */
+    it('quien sólo consulta (VER) NO se queda sin pantalla', () => {
+      expect(hist()?.anyOf).toContain(Permission.FINANCE_EXPENSES_VER);
+    });
+
+    /** Ninguna de las dos lleva `permission` suelto: con `anyOf` el filtro devuelve antes
+     *  y esa clave es letra muerta — se leía como una segunda compuerta que no existía. */
+    it('no arrastran un permission muerto junto al anyOf', () => {
+      expect(mis()?.permission).toBeUndefined();
+      expect(hist()?.permission).toBeUndefined();
+    });
+  });
 });
 
 /**

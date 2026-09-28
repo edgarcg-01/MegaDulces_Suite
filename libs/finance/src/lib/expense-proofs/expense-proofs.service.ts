@@ -1,7 +1,7 @@
 import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
@@ -76,6 +76,27 @@ export function requiereEvidencia(c?: string | null): boolean {
 }
 /** El archivo de evidencia que puede faltar (condicional a la clasificación). */
 const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
+/**
+ * `[GX.33]` Lo que se le dice a quien autoriza cuando la visión NO pudo leer el
+ * comprobante. Se DECLARA en vez de callar: un expediente sin aviso se lee como «lo
+ * miraron y estaba bien», y acá nadie lo miró.
+ */
+const AVISO_ILEGIBLE = 'No se pudo leer el comprobante automáticamente — revíselo a mano.';
+
+const money = (v: number | null) => (v == null ? '—'
+  : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+
+/**
+ * `[GX.33]` El tipo REAL del archivo, desde su data URI. `putFile` sólo sabe de pdf e
+ * imagen, así que todo lo demás volvía como `image` y el visor lo pintaba con `<img>`.
+ */
+function tipoDeArchivo(dataUri: string): 'pdf' | 'image' | 'otro' {
+  const ct = (/^data:([^;,]+)[;,]/.exec(dataUri || '')?.[1] || '').toLowerCase();
+  if (ct === 'application/pdf') return 'pdf';
+  if (ct.startsWith('image/')) return 'image';
+  return 'otro';
+}
+
 /** La solicitud de gasto firmada. Respaldo de los expedientes anteriores a GX.18. */
 const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
 
@@ -249,8 +270,8 @@ export class ExpenseProofsService {
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
-    // `[GX.32]` Se fue `LlmExtractorService`: era la visión. Dejarlo inyectado obliga al
-    // módulo a seguir importando quien lo exporta, y hace creer que el OCR sigue vivo.
+    // `[GX.33]` Vuelve el lector, pero **sólo para avisar**: ver `leerParaAvisar()`.
+    private readonly ocr: LlmExtractorService,
     @Optional() private readonly gateway?: ExpenseProofsGateway,
     /**
      * `[GX.26]` El canal que llega a la CAMPANA de quien levanto el gasto. `@Optional`
@@ -513,18 +534,66 @@ export class ExpenseProofsService {
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!PROOF_FILE_ROLES.includes(role as ProofFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      // putFile: imagen o PDF (antes solo PDF). El comprobante suele ser FOTO y Claude
-      // Vision necesita leerla para el cuadre; los demás roles también aceptan ambos.
       const f = await this.storage.putFile(dataUri, `finance/${tenantId}/expense-proofs`);
       // [GX.14] El sello viaja CON el archivo, no en una tabla aparte: quien revisa abre el
       // expediente y ve de donde salio cada foto sin tener que cruzar nada.
-      const out: ProofFile = { role, url: f.key, public_id: f.key, kind: f.kind };
+      // `[GX.33]` El tipo se deduce del ARCHIVO, no del almacenamiento. `putFile` sólo
+      // distingue pdf/imagen, así que un `.docx` volvía como `image` y el visor lo pintaba
+      // con `<img>`: un recuadro roto que se lee como «el archivo no existe».
+      const out: ProofFile = { role, url: f.key, public_id: f.key, kind: tipoDeArchivo(dataUri) };
       if (sello?.live === true) { out.live = true; out.captured_at = sello.captured_at || new Date().toISOString(); }
       return out;
     } catch (e: any) {
       if (e?.status === 400) throw e; // "no configurado"
       this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
+    }
+  }
+
+  /**
+   * `[GX.33]` **La visión vuelve, y esta vez sólo AVISA.**
+   *
+   * ## El contrato, que es lo que cambió
+   * Antes decidía: si el monto cuadraba, el expediente cerraba solo en `validada` y
+   * quedaba firmado `validated_by: 'Claude Vision'`. Eso se retiró en `[GX.32]` y **no
+   * vuelve**. Lo que vuelve es la lectura, con tres reglas duras:
+   *
+   *   1. **Nunca decide el estado.** Quién cierra y en qué estado lo sigue resolviendo
+   *      una persona; esto sólo escribe una leyenda.
+   *   2. **Nunca frena.** Si no hay API key, si el archivo no se puede leer, si el modelo
+   *      falla o si lo que subieron no es una imagen — el gasto se manda igual. Cualquier
+   *      excepción se traga acá: pedido explícito del usuario.
+   *   3. **Lo que no pudo leer se DECLARA.** No devuelve `null` en silencio: dice «no se
+   *      pudo leer» para que quien autoriza sepa que nadie miró ese número (ADR-056).
+   *
+   * ⚠️ Corre FUERA de la transacción: es I/O de segundos contra un modelo.
+   */
+  private async leerParaAvisar(files: ProofFile[], esperado: number): Promise<string | null> {
+    const comp = files.find((f) => String(f.role).startsWith('comprobante') && f.url);
+    if (!comp) return null;                       // sin comprobante no hay nada que leer
+    if (!process.env.ANTHROPIC_API_KEY) return null;  // sin lector no se inventa un aviso
+    // Sólo se le pide a una imagen o a un PDF. Un `.docx` no es ilegible: es otra cosa.
+    if (comp.kind && comp.kind !== 'image' && comp.kind !== 'pdf') return null;
+    try {
+      const key = comp.public_id || comp.url || '';
+      const dataUri = key ? await this.storage.getDataUri(key) : null;
+      if (!dataUri) return AVISO_ILEGIBLE;
+      const m = /^data:([^;,]+)[;,]/.exec(dataUri);
+      const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
+      const f = await this.ocr.extractExpenseReceipt(dataUri.replace(/^data:[^,]*,/, ''), mediaType as never);
+      const legible = f.legible && (f.total != null || f.subtotal != null);
+      if (!legible) return AVISO_ILEGIBLE;
+      if (!(esperado > 0)) return null;           // sin importe esperado no hay con qué comparar
+      const tol = Math.max(1, Math.abs(esperado) * 0.01);  // $1 o 1%, para redondeo e IVA
+      const candidatos = [f.total, f.subtotal].filter((v): v is number => v != null && Number.isFinite(v));
+      if (candidatos.some((v) => Math.abs(v - esperado) <= tol)) return null;  // cuadra: sin ruido
+      const usado = candidatos[0] ?? null;
+      return `⚠ El comprobante dice ${money(usado)} y la solicitud ${money(esperado)}`
+        + ` (difieren ${money(Math.abs((usado ?? 0) - esperado))}). Reviselo antes de autorizar.`;
+    } catch (e) {
+      // ⛔ Que la visión falle NO puede impedir levantar un gasto. Se declara y sigue.
+      this.logger.warn(`visión falló (el gasto sigue): ${(e as Error)?.message || e}`);
+      return AVISO_ILEGIBLE;
     }
   }
 
@@ -747,6 +816,10 @@ export class ExpenseProofsService {
       nextStatus = 'validada';
     }
 
+    // `[GX.33]` La visión mira el comprobante y deja su leyenda para quien firma. NO toca
+    // `nextStatus`: esa decisión ya está tomada arriba, por la persona.
+    const aviso = hasEvidence ? await this.leerParaAvisar(files, Number(base.cur.importe) || 0) : null;
+
     return this.tk.run(async (trx) => {
       const cierra = nextStatus === 'validada';
       const [row] = await trx('finance.expense_proofs').where({ id }).where('status', 'recibida')
@@ -755,10 +828,10 @@ export class ExpenseProofsService {
           validated_by: cierra ? (actor || null) : null,
           validated_at: cierra ? trx.fn.now() : null,
           motivo_rechazo: null,
-          // `[GX.32]` `revision_nota`, `monto_ocr` y `monto_match` dejan de escribirse acá:
-          // los tres los llenaba la visión. Las COLUMNAS se conservan — hay expedientes
-          // cerrados con esos números y borrarlos reescribiría el historial.
-          revision_nota: null,
+          // `[GX.33]` La leyenda de la visión, si tuvo algo que decir. `null` cuando el
+          // comprobante cuadró — no se escribe «todo bien»: un aviso que siempre aparece
+          // deja de leerse, y el silencio acá significa «la visión no objetó nada».
+          revision_nota: aviso,
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
           // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
           // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
@@ -831,7 +904,11 @@ export class ExpenseProofsService {
      * sexto estado para lo mismo — las consultas y la bandeja ya lo listan.
      */
     const status = 'revision';
-    const revisionNota = 'Evidencia subida por quien capturó — falta que alguien la revise';
+    // `[GX.33]` La leyenda base dice QUÉ falta hacer; si la visión objeta algo, se suma.
+    // Las dos cosas caben en el mismo renglón porque quien revisa lee una sola línea.
+    const aviso = await this.leerParaAvisar(nuevos, importe);
+    const revisionNota = ['Evidencia subida por quien capturó — falta que alguien la revise', aviso]
+      .filter(Boolean).join(' · ');
 
     return this.tk.run(async (trx) => {
       const [row] = await trx('finance.expense_proofs').where({ id }).where('status', 'aprobada')

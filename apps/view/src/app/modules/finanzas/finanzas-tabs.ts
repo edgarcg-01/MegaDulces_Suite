@@ -130,11 +130,18 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_COMPROBAR,
   },
   {
-    // `[GX.25]` De todas las fechas. Lo ve quien captura (lo suyo) y quien revisa (todo).
+    // `[GX.33]` Lo que levantó uno mismo, con su estado. Para quien sólo captura.
+    label: 'Mis gastos',
+    route: '/finanzas/mis-gastos',
+    icon: 'pi pi-wallet',
+    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
+  },
+  {
+    // `[GX.33]` De todas las fechas y de toda la empresa: es para quien REVISA.
     label: 'Historial',
     route: '/finanzas/gastos-historial',
     icon: 'pi pi-history',
-    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
+    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR],
   },
   // `[GX.18]` La pestaña del tablero salió por pedido del usuario. La ruta sigue viva.
   {

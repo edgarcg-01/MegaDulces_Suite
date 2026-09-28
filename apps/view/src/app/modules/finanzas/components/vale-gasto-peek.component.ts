@@ -57,6 +57,12 @@ interface DocDelExpediente {
   label: string;
   url: string;
   isPdf: boolean;
+  /**
+   * `[GX.33]` No es imagen ni PDF: el navegador no lo puede pintar. Se ofrece para
+   * abrirlo, no se intenta mostrar — un `<img>` con un `.docx` adentro da un recuadro
+   * roto, y un recuadro roto se lee como «el archivo no está».
+   */
+  esOtro: boolean;
   safeUrl: SafeResourceUrl | null;
 }
 
@@ -141,6 +147,13 @@ interface DocDelExpediente {
               </figcaption>
               @if (d.isPdf) {
                 <iframe [src]="d.safeUrl" [title]="d.label" loading="lazy"></iframe>
+              } @else if (d.esOtro) {
+                <!-- [GX.33] Un documento que el navegador no pinta. Se dice qué es y se
+                     ofrece abrirlo, en vez de dejar un recuadro roto. -->
+                <a class="vp-otro" [href]="d.url" target="_blank" rel="noopener">
+                  <i class="pi pi-file" aria-hidden="true"></i>
+                  <span>Este documento no se puede ver acá — abrilo para revisarlo</span>
+                </a>
               } @else {
                 <img [src]="d.url" [alt]="d.label" loading="lazy" (error)="fallo(d.url)" />
               }
@@ -237,6 +250,10 @@ interface DocDelExpediente {
   .vp-doc img { display: block; width: 100%; height: auto; background: var(--layout-bg); }
   .vp-doc iframe { display: block; width: 100%; height: 62vh; border: 0; background: var(--layout-bg); }
   .vp-fallo { font-size: var(--fs-xs); color: var(--warn-fg); padding: var(--sp-2) var(--sp-3); margin: 0; }
+  .vp-otro { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-4);
+    font-size: var(--fs-sm); color: var(--fg-2); text-decoration: none; background: var(--layout-bg); }
+  .vp-otro:hover { color: var(--action); }
+  .vp-otro .pi { font-size: 1.3rem; }
   /* El pie completo se pega abajo: la marca y los botones son UNA sola decisión. */
   .vp-pie { position: sticky; bottom: 0; margin-top: var(--sp-2); padding-top: var(--sp-2);
     display: flex; flex-direction: column; gap: var(--sp-2); background: var(--card-bg);
@@ -317,11 +334,16 @@ export class ValeGastoPeekComponent {
     return (p.files ?? []).filter((f: ProofFile) => f?.url).map((f: ProofFile) => {
       const role = String(f.role ?? '');
       const isPdf = f.kind === 'pdf' || /\.pdf(\?|$)/i.test(f.url);
+      // ⚠️ `kind` sólo dice 'otro' desde `[GX.33]`. Los adjuntos ANTERIORES lo traen como
+      // 'image' aunque no lo fueran, así que para ésos sigue valiendo el `(error)` del
+      // `<img>`: se pinta el fallo, no se los da por perdidos.
+      const esOtro = f.kind === 'otro';
       return {
         role,
         label: ARCHIVO_LABEL[role] ?? role ?? 'Archivo',
         url: f.url,
         isPdf,
+        esOtro,
         safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
       };
     });
