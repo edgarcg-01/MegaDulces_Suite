@@ -289,8 +289,11 @@ export class ExpenseCaptureLinksService {
       throw new BadRequestException('falta la foto del ticket');
     }
 
-    // Visión contra el importe DECLARADO. Fuera de la transacción: es I/O de segundos.
-    const ocr = lleva ? await this.leerTicket(link, files, importe) : null;
+    // `[GX.32]` Acá corría el cuadre por visión contra el importe declarado. Se retiró con
+    // el resto: ⚠️ este camino YA no cerraba solo (`status: 'recibida'`, lo mira un humano),
+    // así que lo único que hacía era llenar tres columnas que ningún otro camino llena más.
+    // El PRELLENADO de campos por visión (`leerTicketPreview`) se conserva: es una propuesta
+    // editable para el trabajador, no una regla que decida sobre el dinero.
 
     return this.inScope(link, () => this.tk.run(async (trx) => {
       const [row] = await trx('finance.expense_proofs')
@@ -307,12 +310,8 @@ export class ExpenseCaptureLinksService {
           comprobacion_nota: lleva ? null : motivo,
           comentarios: motivo || concepto,
           files: JSON.stringify(files),
-          // Aunque el OCR cuadre al centavo NO se cierra solo: superficie pública, la ve un
-          // humano. El cuadre se guarda igual, para que quien revise lo encuentre hecho.
+          // Superficie pública: SIEMPRE la ve un humano.
           status: 'recibida',
-          monto_ocr: ocr?.usado ?? null,
-          monto_match: ocr ? ocr.match : null,
-          revision_nota: ocr && !ocr.match ? ocr.nota : null,
           origen: 'link',
           capture_link_id: link.id,
           capture_meta: JSON.stringify({
@@ -378,35 +377,11 @@ export class ExpenseCaptureLinksService {
     }
   }
 
-  /** Lee el ticket con Claude Vision y lo cuadra contra el importe esperado. */
-  private async leerTicket(link: LiveLink, files: ProofFile[], esperado: number) {
-    const comp = files.find((f) => f.role === 'comprobante_1') || files.find((f) => String(f.role).startsWith('comprobante'));
-    const key = comp?.public_id || comp?.url || '';
-    if (!key || !process.env.ANTHROPIC_API_KEY) return null;
-    try {
-      const dataUri = await this.inScope(link, () => this.storage.getDataUri(key));
-      if (!dataUri) return null;
-      const m = /^data:([^;,]+)[;,]/.exec(dataUri);
-      const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
-      const f = await this.ocr.extractExpenseReceipt(dataUri.replace(/^data:[^,]*,/, ''), mediaType as any);
-      const legible = f.legible && (f.total != null || f.subtotal != null);
-      const tol = Math.max(1, Math.abs(esperado) * 0.01);
-      let usado: number | null = null; let match = false;
-      for (const v of [f.total, f.subtotal]) {
-        if (v != null && Number.isFinite(v)) { usado = usado ?? v; if (Math.abs(v - esperado) <= tol) { usado = v; match = true; break; } }
-      }
-      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
-      return {
-        usado, match: legible && match,
-        nota: !legible ? 'Foto ilegible — validar a mano'
-          : `Declaró ${fmt(esperado)} y el ticket dice ${fmt(usado)}`,
-      };
-    } catch (e: any) {
-      this.logger.warn(`visión falló en captura por link: ${e?.message || e}`);
-      return null;
-    }
-  }
-
+  /**
+   * `[GX.32]` Acá vivía `leerTicket()`: releía el comprobante con visión y lo cuadraba
+   * contra el importe declarado, con su propia tolerancia ($1 o 1%) escrita a mano — una
+   * cuarta copia de la misma regla. Se retiró entera, no se dejó muerta.
+   */
   /** Huella del archivo, para cazar el mismo ticket subido dos veces. */
   private hashKey(f: ProofFile): string {
     return createHash('sha256').update(String(f.public_id || f.url)).digest('hex').slice(0, 16);
