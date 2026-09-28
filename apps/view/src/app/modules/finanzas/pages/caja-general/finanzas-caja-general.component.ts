@@ -249,6 +249,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
       cursor:pointer; color:var(--action); padding:.25rem .55rem; min-height:2rem; min-width:2.2rem; }
     .cg-print:hover { border-color:var(--action); }
     .cg-print:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
+    .cg-conc { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .8rem;
+      display:flex; flex-direction:column; gap:.3rem; max-width:34rem; }
+    .cg-conc-h { font-size:var(--fs-sm); }
+    .cg-conc-row { display:flex; justify-content:space-between; gap:1rem; font-size:var(--fs-sm); }
+    .cg-conc-row .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:.3rem; font-weight:600; }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
     .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
@@ -335,6 +342,25 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                     [disabled]="abriendo()" (onClick)="abrirApertura()"></p-button>
         }
       </div>
+
+      <!-- CS.3.11 — Arqueo final: conciliación de la caja chica contra el CAJERO (CAOS). Sólo en
+           oficinas (00), con corte abierto. Modelo «cajas separadas»: el cajero es la bóveda. -->
+      @if (conciliacionCajero(); as cj) {
+        <div class="cg-conc">
+          <strong class="cg-conc-h">Conciliación con el cajero (CAOS)</strong>
+          <div class="cg-conc-row"><span>Depositado al cajero <small class="fin-dim">(salió de caja chica)</small></span>
+            <span class="mono">− {{ money(cj.depositado) }}</span></div>
+          <div class="cg-conc-row"><span>Dispensado del cajero <small class="fin-dim">(entró a caja chica)</small></span>
+            <span class="mono">+ {{ money(cj.dispensado) }}</span></div>
+          @if (cajaChicaConciliada(); as z) {
+            <div class="cg-conc-row cg-conc-tot"><span>Caja chica conciliada <small class="fin-dim">(esperado − depositado + dispensado)</small></span>
+              <span class="mono">{{ money(z) }}</span></div>
+          } @else {
+            <small class="fin-dim">La caja chica conciliada se muestra al revelar el esperado (permiso de cierre).</small>
+          }
+          <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero desde que abrió el corte. El cajero es la bóveda; la caja chica es el efectivo suelto.</small>
+        </div>
+      }
 
       <app-metric-strip [items]="kpis()"></app-metric-strip>
 
@@ -1407,6 +1433,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
   textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
+  /**
+   * CS.3.11 — Conciliación con el CAJERO (CAOS): el movimiento de la bóveda desde que abrió el corte.
+   * `cajaChicaConciliada` = esperado − depositado al cajero + dispensado del cajero (modelo cajas
+   * separadas). Sólo cuando el esperado está REVELADO (`saldo != null`); si no, se declara.
+   */
+  conciliacionCajero = computed(() => this.saldoResp()?.cajero ?? null);
+  cajaChicaConciliada = computed<number | null>(() => {
+    const s = this.saldoResp(); const cj = s?.cajero;
+    if (!cj || s?.saldo == null) return null;
+    return Number(s.saldo) - Number(cj.depositado) + Number(cj.dispensado);
+  });
   /**
    * ⛔ CG.19 Capa 1b — acá estaba la fuga. esperadoCorte leía saldoResp().totales.esperado y
    * veredicto calculaba la diferencia EN EL NAVEGADOR mientras la persona tecleaba: se contaba
