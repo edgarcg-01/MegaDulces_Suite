@@ -14,7 +14,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
-  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION, ROLES_EVIDENCIA,
+  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
   type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
@@ -247,26 +247,19 @@ interface SelSolicitud {
                       }
                     }
                     <!--
-                      [GX.33] El tercer camino, por pedido del usuario: subir CUALQUIER tipo
-                      de documento. No reemplaza a la foto del vale -- ésa sigue siendo el
-                      respaldo de la autorización (GX.31) y la compuerta la exige igual.
-                      Esto es para lo que el gasto traiga además: un convenio, una hoja de
-                      cálculo, el correo del proveedor.
+                      [GX.36] El vale ESCANEADO. Sube al mismo cajón que la foto
+                      (comprobante_1..4) porque ES el comprobante: acá los vales se escanean,
+                      y un escaneo del vale firmado vale lo mismo que la foto del vale
+                      firmado. Antes esto subía a evidencia_1..3 -- un cajón aparte que la
+                      compuerta no miraba, asi que el boton seguia diciendo «Falta: La foto
+                      del comprobante» con el documento ya adjunto.
                     -->
-                    @if (evidencias().length < MAX_EVIDENCIAS) {
+                    @if (comprobantes().length < MAX_COMPROBANTES) {
                       <label class="cap-ev-b">
-                        <i class="pi pi-file" aria-hidden="true"></i> {{ evidencias().length ? 'Agregar otro documento' : 'Subir documento' }}
-                        <input type="file" (change)="onFileEvidencia($event)" hidden />
+                        <i class="pi pi-file" aria-hidden="true"></i> {{ comprobantes().length ? 'Subir otro archivo' : 'Subir vale escaneado' }}
+                        <input type="file" (change)="onFileComprobante($event)" hidden />
                       </label>
-                      @if (!evidencias().length) {
-                        <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Cualquier tipo: PDF, Word, Excel, imagen…</p>
-                      }
-                    }
-                    @for (r of evidencias(); track r) {
-                      <div class="cap-done">
-                        <i class="pi pi-file cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
-                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
-                      </div>
+                      <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> El vale escaneado o su archivo. Cualquier tipo: PDF, Word, Excel, imagen…</p>
                     }
                     @for (r of cotizaciones(); track r) {
                       <div class="cap-done">
@@ -714,7 +707,7 @@ export class FinanzasCapturarGastoComponent {
     switch (this.clasificacion()) {
       case 'fiscal': return 'Te dieron factura. Adjuntala.';
       case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Tomá la foto y subí la cotización.';
-      case 'no_comprobable': return 'Sacale foto al vale firmado. Se toma en el momento, como las otras.';
+      case 'no_comprobable': return 'Sacale foto al vale firmado, o subí el vale escaneado.';
       default: return '';
     }
   }
@@ -818,12 +811,13 @@ export class FinanzasCapturarGastoComponent {
   /** [GX.23] Tope de cada familia. Vienen del catalogo de roles: no se inventan aca. */
   readonly MAX_COMPROBANTES = ROLES_COMPROBANTE.length;
   readonly MAX_COTIZACIONES = ROLES_COTIZACION.length;
-  readonly MAX_EVIDENCIAS = ROLES_EVIDENCIA.length;
+
 
   /** Los roles de esta familia que YA tienen archivo, en el orden del catalogo. */
   readonly comprobantes = computed(() => ROLES_COMPROBANTE.filter((r) => !!this.names()[r]));
   readonly cotizaciones = computed(() => ROLES_COTIZACION.filter((r) => !!this.names()[r]));
-  readonly evidencias = computed(() => ROLES_EVIDENCIA.filter((r) => !!this.names()[r]));
+  // `[GX.36]` Se fue `evidencias()`: el archivo escaneado ya no vive en un cajón aparte,
+  // sube como comprobante — que es lo que es.
 
   /** El primer rol libre de la familia, o `null` si ya no queda. */
   private libre(roles: ProofFileRole[]): ProofFileRole | null {
@@ -848,10 +842,13 @@ export class FinanzasCapturarGastoComponent {
     this.onFile(ev, role);
   }
 
-  /** `[GX.33]` Un documento de cualquier tipo. Mismo camino, otra familia de roles. */
-  onFileEvidencia(ev: Event) {
-    const role = this.libre(ROLES_EVIDENCIA);
-    if (!role) { this.formError.set(`Ya hay ${this.MAX_EVIDENCIAS} documentos, el maximo.`); return; }
+  /**
+   * `[GX.36]` El vale ESCANEADO, o el archivo que lo respalde. Va al mismo cajón que la
+   * foto: es el comprobante, sólo que entró por el escáner y no por la cámara.
+   */
+  onFileComprobante(ev: Event) {
+    const role = this.libre(ROLES_COMPROBANTE);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COMPROBANTES} comprobantes, el maximo.`); return; }
     this.onFile(ev, role);
   }
 
@@ -1033,7 +1030,7 @@ export class FinanzasCapturarGastoComponent {
     // [GX.23] Todas las que haya, no la primera de cada una.
     // `[GX.33]` Los documentos sueltos suben con el resto. Sin esto se quedaban en el
     // navegador: la pantalla los mostraba adjuntos y el expediente llegaba sin ellos.
-    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION, ...ROLES_EVIDENCIA], () => this.createSolicitud(g));
+    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION], () => this.createSolicitud(g));
   }
 
   // MOMENTO 3 — el gasto ya está aprobado y comprobable: sube la evidencia.
@@ -1064,7 +1061,7 @@ export class FinanzasCapturarGastoComponent {
 
   private createSolicitud(g: SelSolicitud) {
     const lleva = this.llevaEvidencia();
-    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION, ...ROLES_EVIDENCIA]
+    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION]
       .map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
