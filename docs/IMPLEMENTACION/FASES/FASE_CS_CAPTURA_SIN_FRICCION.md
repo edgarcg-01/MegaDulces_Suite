@@ -328,20 +328,27 @@ backend**: sale del `detalle(id)` que ya existía. Se imprime solo al guardar (`
 y se re-imprime por fila desde la lista (botón, no para cancelados). Gates: templates, ticket 5/5,
 componente 60/60, build view OK. **Validación visual + deploy pendientes.**
 
-## Temas nuevos (backlog, 2026-09-28) — investigados contra el código
+## Temas nuevos (2026-09-28) — los 4 ✅, investigados contra el código
 
-1. **Buscador universal** — PARCIAL: `GET /cash-ledger` ya busca por nuestro folio/beneficiario/glosa +
-   filtros. Falta sumar **folio de Kepler** (`origen_ref`), **usuario** (`created_by_username`, ya se
-   guarda) y **concepto**. Extensión del `WHERE`.
-2. **Comprobante en ticket** — ✅ CS.3.8.
-3. **Reporte diario** — CASI todo existe: `list()` ya devuelve movimientos del día + totales
-   (ingresos/gastos/depósitos). Falta la vista/impresión diaria dedicada (se apoya en el motor de #2).
-4. **Arqueo final / caja chica** — el CORTE DE CAJA ya ES el arqueo (`esperado = fondo + ingresos −
-   gastos − depósitos` vs conteo, en `cash-cut.engine.ts`). Lo nuevo: conciliar contra el CAJERO (CAOS).
-   **Decisión del usuario (2026-09-28): cajas SEPARADAS** — CAOS es la bóveda (cobros se depositan ahí,
-   pagos se dispensan de ahí), la caja chica es efectivo suelto. El arqueo debe conciliar:
-   `caja chica = fondo + recibido − depositado al cajero + dispensado − pagos`. Usa
-   `analytics.caos_cash_movements` (depósitos/dispensaciones del período). Cierra el gate CS.0.
+1. **Buscador universal** — ✅ CS.3.9. `GET /cash-ledger` ya buscaba por nuestro folio/beneficiario/glosa;
+   se sumó **folio de Kepler** (`origen_ref`), **usuario** (`created_by_username`), **concepto/cuenta**,
+   y se escapó `%/_`. **Fix**: también busca en «por confirmar» (la bandeja) — `buscar()` recarga libro +
+   pendientes; el backend de `movimientos-pendientes` suma `origen_ref`+`doc_tipo`. Verificado en prod.
+2. **Comprobante en ticket** — ✅ CS.3.8 (`ticket-comprobante.ts`).
+3. **Reporte diario** — ✅ CS.3.10. Botón «Reporte del día» → ticket con movimientos del rango/filtros +
+   totales (NETO = ingresos − gastos − depósitos, mismo criterio que el corte). `cuerpoReporteDia()`.
+4. **Arqueo final / caja chica** — ✅ CS.3.11. El CORTE DE CAJA ya ES el arqueo (`esperado = fondo +
+   ingresos − gastos − depósitos`). Lo nuevo: conciliar contra el CAJERO (CAOS), **modelo cajas
+   SEPARADAS** (decisión del usuario): CAOS es la bóveda, la caja chica es efectivo suelto. `saldo()` de
+   oficinas (00) trae del cajero, desde que abrió el corte, `depositado` (type_id 0) y `dispensado`
+   (type_id 4) de `analytics.caos_cash_movements`; panel front: `caja chica conciliada = esperado −
+   depositado + dispensado`. Cierra el gate CS.0. ⚠️ Asume que los movimientos del cajero NO están en el
+   libro (estado actual de prod, 1 fila en `cash_ledger` vs 993 en CAOS); si a futuro se capturan como
+   movimientos, revisar doble conteo. Verificado en prod (30d: dep $2.44M / disp $2.30M).
+
+**Tanda CS.3.x completa en código (commits 1ba0e71a → 41efea81), gates verdes.** Pendiente: UN deploy
+(api+view) + validación visual de todo (layout sin scroll, CAOS aparte, ticket, buscador, reporte,
+conciliación). No se ha desplegado ninguno.
 
 ## Estado (2026-09-25)
 
