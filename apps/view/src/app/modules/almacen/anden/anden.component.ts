@@ -8,6 +8,9 @@ import { firstValueFrom } from 'rxjs';
 import { ErpOrderMatch, ErpPendingBranch, ReceivingSessionService } from '../receiving-session.service';
 import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { BinLocationService, WarehouseBin, WarehouseFreeze } from '../bin-location.service';
 import { siguientePaso, avance, motivoNoCerrable, FlujoEstado, FlujoAvance } from './anden-flujo';
 import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.state';
@@ -20,6 +23,7 @@ import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './co
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
 import { AndenUbicacionComponent, UbicacionNueva, UbicadoConfirmado } from './components/anden-ubicacion.component';
 import { AndenCartelComponent, CartelUbicacion } from './components/anden-cartel.component';
+import { AndenCongeladoComponent } from './components/anden-congelado.component';
 import { motivoHttp } from '../shared/http-motivo';
 import { ScanFieldComponent } from './components/scan-field.component';
 import { formatExpiryEcho } from '../shared/expiry-short';
@@ -56,7 +60,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
   imports: [
     DecimalPipe, ButtonModule, ToastModule,
     RouterLink,
-    AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent,
+    AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent, AndenCongeladoComponent,
     AndenSegmentedComponent, AndenCaducidadComponent,
     AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
   ],
@@ -109,31 +113,15 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           @if (cg.frozen) {
             <!-- R1 — se sabe ANTES de capturar. El guard del servidor sigue siendo
                  la red de seguridad; esto sólo evita que el operario escriba una
-                 captura entera para que el guardado la rechace. -->
-            <div class="an-frio">
-              <div class="an-frio-hd">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="11" width="18" height="10" rx="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-                <div>
-                  <h2>Este almacén está congelado</h2>
-                  <p>Hay un inventario físico en curso. Mientras se cuenta, nada puede entrar ni fecharse.</p>
-                </div>
-              </div>
-              <div class="an-frio-fol">
-                <span class="an-frio-lbl">Folio que lo frena</span>
-                <strong>{{ cg.folio || 'sin folio' }}</strong>
-              </div>
-              <p class="an-frio-sal">
-                Sólo se destraba <b>conciliando</b> el conteo (se cierra aplicando lo contado) o
-                <b>cancelándolo</b>. Las dos las hace el encargado desde Conteo; el congelamiento no se pausa.
-              </p>
-              <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
-                Salir
-              </button>
-            </div>
+                 captura entera para que el guardado la rechace.
+                 WMS-REC.16: además de explicar, ahora OFRECE LA SALIDA. Antes el único
+                 botón era Salir, y el folio que motivó esto llevaba 100 días acá. -->
+            <app-anden-congelado
+              [freeze]="cg"
+              [puedeCancelar]="puedeCancelarConteo()"
+              [cancelando]="cancelandoConteo()"
+              (cancelar)="cancelarConteo($event)"
+              (salir)="otroCamion()" />
           }
         }
         @if (congelado()?.frozen) {
@@ -479,6 +467,8 @@ export class AndenComponent implements OnInit {
   private readonly drafts = inject(AndenDraftService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
 
   readonly s = new AndenState();
   readonly minShelfLife = signal<number | null>(null);
@@ -539,6 +529,26 @@ export class AndenComponent implements OnInit {
    * el guard del servidor sigue siendo el que frena de verdad).
    */
   readonly congelado = signal<WarehouseFreeze | null>(null);
+  /** Cancelando el conteo que congela el almacén. */
+  readonly cancelandoConteo = signal(false);
+
+  /**
+   * Si quien mira puede destrabar el almacén él mismo.
+   *
+   * Dos llaves a propósito: `RECONCILIAR` (quien siempre pudo) y `CANCELAR_CONTEO`
+   * (WMS-REC.16, la llave acotada que sólo abandona y nunca ajusta). El servidor
+   * vuelve a decidir — esto sólo evita ofrecer un botón que iba a dar 403.
+   *
+   * ⚠️ Lee del JWT, así que un permiso recién repartido **exige re-loguear** para
+   * que el botón aparezca. El backend lo honra antes, porque lee de la DB.
+   */
+  readonly puedeCancelarConteo = computed(() => {
+    const p = this.auth.user()?.permissions;
+    return this.perms.isAdmin()
+      || p?.[Permission.COMMERCIAL_INVENTORY_RECONCILIAR] === true
+      || p?.[Permission.COMMERCIAL_INVENTORY_CANCELAR_CONTEO] === true;
+  });
+
   /** Resolviendo un código que no está en el vale contra el catálogo. */
   readonly resolviendo = signal(false);
 
@@ -878,6 +888,43 @@ export class AndenComponent implements OnInit {
       next: (r) => this.congelado.set(r),
       error: () => this.congelado.set(null),
     });
+  }
+
+  /**
+   * **Destraba el almacén: abandona el conteo que lo congela.**
+   *
+   * No ajusta ni una pieza de existencia — eso es reconciliar, y se queda donde
+   * estaba. Al volver se re-pregunta por el congelamiento en vez de asumir que
+   * se destrabó: si el servidor rechazó (un conteo con movimiento reciente sólo
+   * lo cancela quien reconcilia), la pantalla tiene que seguir mostrando el muro.
+   */
+  cancelarConteo(motivo: string): void {
+    const id = this.congelado()?.count_id;
+    if (!id || this.cancelandoConteo()) return;
+    this.cancelandoConteo.set(true);
+    this.binsSvc.cancelInventoryCount(id, motivo)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.cancelandoConteo.set(false);
+          this.toast.add({
+            severity: 'success',
+            summary: 'Almacén destrabado',
+            detail: `Se canceló el folio ${r?.folio || ''}. Ya se puede fechar.`.trim(),
+          });
+          this.consultarCongelamiento();
+        },
+        error: (e) => {
+          this.cancelandoConteo.set(false);
+          this.toast.add({
+            severity: 'warn',
+            summary: 'No se canceló',
+            detail: motivoHttp(e, 'No se pudo cancelar el conteo.'),
+          });
+          // El muro se re-mide igual: si otro lo cerró mientras tanto, se cae solo.
+          this.consultarCongelamiento();
+        },
+      });
   }
 
   /** Las ubicaciones que ya existen. Sin esto, el panel no puede decir si un código existe. */

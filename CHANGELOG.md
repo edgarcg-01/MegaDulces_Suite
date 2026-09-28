@@ -9,6 +9,26 @@
 ---
 
 ## [Unreleased]
+### Added — Andén: el almacén congelado se puede destrabar desde donde aparece el problema (WMS-REC.16, 2026-09-28)
+- Cuando un inventario físico congela el almacén, el Andén ahora dice **desde cuándo** y permite
+  **cancelar el conteo** con un motivo. Cancelar **abandona** el folio: no ajusta ni una pieza de
+  existencia — eso es reconciliar, y se queda donde estaba.
+- Permiso nuevo `COMMERCIAL_INVENTORY_CANCELAR_CONTEO`. Quien ya podía reconciliar **no pierde
+  nada**; se suma quien recibe mercancía, que es a quien el congelamiento frena.
+- Quien no tiene la llave ve a quién pedírselo, en vez de un muro con un solo botón de *Salir*.
+
+### Fixed — Fechar en una sucursal congelada fallaba en silencio desde hacía meses (WMS-REC.16, 2026-09-28)
+- Medido en producción: **10 de las 22 capturas de caducidad de toda la historia estaban
+  revertidas, las 10 del mismo almacén**, por un folio de conteo abierto hacía **100 días** con 3
+  artículos contados de 2,094. Nadie podía destrabarlo porque abandonar el conteo exigía la misma
+  llave que aplicarlo — y aplicarlo habría puesto el inventario de la sucursal casi en cero.
+
+### Security — Abandonar un conteo ya no exige el poder de ajustar el saldo (WMS-REC.16, 2026-09-28)
+- `POST /commercial/inventory/counts/:id/cancel` acepta la llave acotada **o** la de reconciliar;
+  `reconcile` **no se abre** y sigue exigiendo `COMMERCIAL_INVENTORY_RECONCILIAR` a secas.
+- Quien sólo tiene la llave acotada sólo puede cancelar folios **sin un escaneo en 7 días**: puede
+  tirar lo que nadie toca, no el trabajo de un equipo que está contando.
+
 
 ### Added — `/telemarketing/cotizaciones`: Mayoreo por volumen en caja (CJA), vendedor por sucursal y entregables PDF/XLSX con marca de agua (COT.10–COT.14, 2026-09-26)
 - **Descuento por volumen en caja (CJA)**: lectura e integración directa de las escalas de mayoreo
