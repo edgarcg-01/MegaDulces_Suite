@@ -116,6 +116,23 @@ export function diasEntre(a: string, b: string): number {
 }
 
 /**
+ * CS.3.6 — Coacciona a 'YYYY-MM-DD' cualquier fecha que devuelva el driver de Postgres. Los tipos
+ * `date` y `timestamptz` llegan como OBJETO Date (node-postgres, sin parser custom), NO string → el
+ * viejo `String(date).slice(0,10)` daba "Wed Sep 27" → `Date.parse` NaN → `new Date(NaN).toISOString()`
+ * TIRABA y reventaba la bandeja entera (medido en prod: movimientos-pendientes → 500 cada minuto).
+ * Devuelve null si no es una fecha usable (se DECLARA, no se inventa). Los mocks del spec pasaban
+ * strings, por eso los 60 tests verdes no lo cacharon.
+ */
+export function ymd(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
+  // Sólo un prefijo ISO YYYY-MM-DD (cubre 'date' y 'timestamp' ISO). NADA de `Date.parse` sobre texto
+  // suelto: `Date.parse('Sun Sep 27')` inventa año 2001 — coaccionar basura a una fecha es inventar.
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+/**
  * Puntúa un candidato de CAOS contra el gasto. Devuelve score + motivos legibles + confianza.
  * `aprendido` es opcional (cold-start funciona sin él; con él, sube la precisión).
  */

@@ -5,7 +5,7 @@
  * NUNCA premie lo improbable (un retiro mayor que el gasto no es parte de ese gasto).
  */
 import {
-  norm, tokensRef, diasEntre, rutaDe, fechaNegocio, puntuarCaos, rankearCaos,
+  norm, tokensRef, diasEntre, rutaDe, fechaNegocio, puntuarCaos, rankearCaos, ymd,
   type CaosCandidato, type GastoCtx, type PatronAprendido,
 } from './caja-caos-match.engine';
 
@@ -23,6 +23,36 @@ describe('norm / tokensRef', () => {
     expect(tokensRef('pagos cueritos')).toEqual(['cueritos']); // "pagos" es stopword
     expect(tokensRef('gnf ma')).toEqual([]);                    // ambos <4
     expect(tokensRef('lic omar')).toEqual(['omar']);            // "lic" <4, "omar" ok
+  });
+});
+
+describe('ymd — el driver devuelve Date, no string (el bug que reventó la bandeja en prod)', () => {
+  it('[EL BUG] un OBJETO Date (lo que pg devuelve para `date`/`timestamptz`) NO revienta: da YYYY-MM-DD', () => {
+    // Antes: String(new Date('2026-09-27')) = "Sun Sep 27 2026 ..." -> slice(0,10) = "Sun Sep 27"
+    // -> Date.parse NaN -> new Date(NaN).toISOString() TIRABA. Ahora se coacciona bien.
+    expect(ymd(new Date('2026-09-27T00:00:00Z'))).toBe('2026-09-27');
+  });
+  it('un timestamptz con hora cae al día calendario correcto', () => {
+    expect(ymd(new Date('2026-09-26T18:41:22Z'))).toBe('2026-09-26'); // 12:41 MX = 18:41Z, mismo día
+  });
+  it('string YYYY-MM-DD y timestamp ISO pasan a su parte de fecha', () => {
+    expect(ymd('2026-09-27')).toBe('2026-09-27');
+    expect(ymd('2026-09-27T13:05:00-06:00')).toBe('2026-09-27');
+  });
+  it('null/undefined y basura -> null (se declara, no se inventa)', () => {
+    expect(ymd(null)).toBeNull();
+    expect(ymd(undefined)).toBeNull();
+    expect(ymd('Sun Sep 27')).toBeNull();          // el viejo String(Date).slice que causaba el NaN
+    expect(ymd(new Date('no-es-fecha'))).toBeNull(); // Invalid Date
+  });
+  it('[regresión] construir la ventana desde Date-objects (como emparejarCaos) YA NO tira', () => {
+    const rows = [{ fecha_valor: new Date('2026-09-27T00:00:00Z') }, { fecha_valor: new Date('2026-09-25T00:00:00Z') }];
+    const fechas = rows.map((r) => ymd(r.fecha_valor)).filter((d): d is string => !!d).sort();
+    const t0 = Date.parse(`${fechas[0]}T00:00:00Z`);
+    const t1 = Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`);
+    expect(() => new Date(t0 - 10 * 86400000).toISOString()).not.toThrow();
+    expect(() => new Date(t1 + 3 * 86400000).toISOString()).not.toThrow();
+    expect(fechas).toEqual(['2026-09-25', '2026-09-27']);
   });
 });
 

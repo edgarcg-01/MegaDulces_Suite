@@ -10,7 +10,7 @@ import {
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
 import {
-  rankearCaos, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
+  rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
 
 /**
@@ -688,7 +688,7 @@ export class CashLedgerService {
         tipo: m.type_id === 0 ? 'ingreso' : 'gasto',
         type_label: m.type_label,
         occurred_at: m.occurred_at,
-        fecha_valor: String(m.occurred_at).slice(0, 10),
+        fecha_valor: ymd(m.occurred_at) || '',
         sucursal: '00', // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
         user_external: m.user_external,
         ref: m.ref,
@@ -726,7 +726,7 @@ export class CashLedgerService {
    */
   async caosCandidatos(q: { fecha?: string; monto?: number; beneficiario?: string; concepto?: string; sucursal?: string; tipo?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const fecha = (q.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const fecha = ymd(q.fecha) || new Date().toISOString().slice(0, 10);
     const limit = Math.min(Math.max(Number(q.limit) || 8, 1), 50);
     const typeId = q.tipo === 'ingreso' ? 0 : 4;
     const t0 = Date.parse(`${fecha}T00:00:00Z`);
@@ -766,7 +766,7 @@ export class CashLedgerService {
       }
       const candidatos: CaosCand[] = movs.map((m: any) => ({
         origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
-        type_label: m.type_label, fecha_valor: String(m.accounting_date || m.occurred_at).slice(0, 10),
+        type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
         sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
         denominaciones: porMov.get(m.id) || [],
       }));
@@ -799,7 +799,9 @@ export class CashLedgerService {
    */
   private async emparejarCaos(trx: any, tenantId: string, rows: any[]) {
     if (!rows.length) return rows;
-    const fechas = rows.map((r) => String(r.fecha_valor).slice(0, 10)).filter(Boolean).sort();
+    const fechas = rows.map((r) => ymd(r.fecha_valor)).filter((d): d is string => !!d).sort();
+    // Sin ni una fecha válida no hay ventana que consultar: se devuelve sin match, NO se revienta.
+    if (!fechas.length) return rows.map((r: any) => ({ ...r, caos_match: null }));
     const t0 = Date.parse(`${fechas[0]}T00:00:00Z`);
     const t1 = Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`);
     const desde = new Date(t0 - 10 * 86400000).toISOString().slice(0, 10);
@@ -829,7 +831,7 @@ export class CashLedgerService {
     }
     const cand = movs.map((m: any) => ({
       origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
-      type_label: m.type_label, fecha_valor: String(m.accounting_date || m.occurred_at).slice(0, 10),
+      type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
       sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
       denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
     }));
@@ -848,7 +850,7 @@ export class CashLedgerService {
       const typeId = r.tipo === 'ingreso' ? 0 : 4;
       const pool = cand.filter((c: any) => c.type_id === typeId && !usados.has(c.origen_ref));
       const g: CaosGastoCtx = {
-        monto: Number(r.monto), fecha: String(r.fecha_valor).slice(0, 10),
+        monto: Number(r.monto), fecha: ymd(r.fecha_valor) || '',
         beneficiario: r.beneficiario, concepto: r.concepto, sucursal: '00',
       };
       const best = rankearCaos(g, pool as any, aprendido)[0];
