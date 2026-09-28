@@ -1459,8 +1459,50 @@ export class InventoryCountService {
     });
   }
 
-  async cancel(countId: string, reason?: string) {
+  /**
+   * Dias sin un solo escaneo tras los cuales un folio se considera ABANDONADO.
+   *
+   * Es el umbral que separa "nadie lo esta trabajando" de "hay gente contando ahora".
+   * Un conteo real se hace en horas o en un par de dias; el que motivo esta regla
+   * (`INV-2026-00009`) llevaba **67 dias sin escaneos y 3 articulos contados de 2,094**.
+   */
+  static readonly DIAS_ABANDONADO = 7;
+
+  /**
+   * **¿Este folio está abandonado?** Pura a propósito: es la regla que decide si alguien
+   * sin la llave de reconciliar puede tirarlo, así que tiene que poder probarse con
+   * fechas y sin base de datos (mismo criterio que `ReceivingAuditorService.computeVerdict`).
+   *
+   * `ultimoMovimiento` es el último escaneo del folio; cuando no hubo ninguno, el llamador
+   * pasa la fecha de apertura — un folio abierto hoy y todavía vacío es trabajo por empezar,
+   * no basura. Una fecha ausente o ilegible devuelve **false**: ante la duda no se deja
+   * cancelar, que es el lado seguro (el dueño del conteo siempre puede).
+   */
+  static estaAbandonado(ultimoMovimiento: Date | string | null | undefined, ahora = Date.now()): boolean {
+    if (!ultimoMovimiento) return false;
+    const t = new Date(ultimoMovimiento).getTime();
+    if (Number.isNaN(t)) return false;
+    return ahora - t >= InventoryCountService.DIAS_ABANDONADO * 86400000;
+  }
+
+  /**
+   * Cancelar = ABANDONAR el folio. No ajusta stock (eso es `reconcile`).
+   *
+   * `soloSiEstaAbandonado` lo manda el controller cuando quien llama tiene la llave
+   * acotada (`CANCELAR_CONTEO`) y NO la de reconciliar. Es lo que vuelve segura esa
+   * llave: el del Anden puede destrabar un conteo que nadie toca hace una semana,
+   * pero NO puede tirar el trabajo de un equipo que esta contando ahora mismo.
+   * Quien tiene `RECONCILIAR` cancela sin restriccion, igual que siempre.
+   */
+  async cancel(
+    countId: string,
+    reason?: string,
+    opts?: { soloSiEstaAbandonado?: boolean },
+  ): Promise<{ status: string; folio: string }> {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    const acotado = opts?.soloSiEstaAbandonado === true;
+    if (acotado && !String(reason || '').trim())
+      throw new BadRequestException('Escribí el motivo: es lo único que explica por qué se descartó el conteo.');
     return this.tk.run(async (trx) => {
       const count = await trx('commercial.inventory_counts')
         .where({ id: countId })
@@ -1469,6 +1511,24 @@ export class InventoryCountService {
       if (!count) throw new NotFoundException('Folio no encontrado');
       if (count.status === 'reconciled')
         throw new ConflictException('No se puede cancelar un folio reconciliado.');
+
+      if (acotado) {
+        const { rows } = await trx.raw(
+          `SELECT max(GREATEST(i.counted_at_1, i.counted_at_2, i.counted_at_3)) AS ultimo
+             FROM commercial.inventory_count_items i
+            WHERE i.count_id = ? AND i.tenant_id = ?`,
+          [countId, count.tenant_id],
+        );
+        // Sin ningun escaneo, la referencia es la apertura del folio: uno abierto hoy y
+        // todavia vacio es trabajo por empezar, no basura.
+        const desde = rows?.[0]?.ultimo ?? count.created_at;
+        if (!InventoryCountService.estaAbandonado(desde)) {
+          throw new ConflictException(
+            `El folio ${count.folio} tuvo movimiento hace menos de ${InventoryCountService.DIAS_ABANDONADO} días: ` +
+            'parece un conteo en curso. Sólo quien reconcilia puede cancelarlo.',
+          );
+        }
+      }
       await trx('commercial.inventory_counts')
         .where({ id: countId })
         .update({

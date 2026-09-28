@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -15,7 +16,13 @@ import type {
   SubmitCountDto,
   ResolveItemDto,
 } from './inventory-count.service';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import {
+  RolesGuard,
+  RequirePermissions,
+  RequireAnyPermission,
+  Permission,
+  isPlatformAdminRole,
+} from '@megadulces/platform-core';
 
 /**
  * Inventario físico (Fase I). Endpoints gateados por la jerarquía:
@@ -235,10 +242,36 @@ export class InventoryCountController {
     return this.service.reconcile(id);
   }
 
+  /**
+   * **Cancelar = ABANDONAR el folio. No toca stock** — eso es `reconcile`.
+   *
+   * Acepta CUALQUIERA de las dos llaves a propósito (WMS-REC.16). Hasta acá sólo
+   * `RECONCILIAR` abría esta puerta, y como esa misma llave también aplica el ajuste,
+   * la acción segura quedaba encerrada detrás de la peligrosa. Medido en producción
+   * el 2026-09-28: `INV-2026-00009` llevaba 100 días congelando Padre Hidalgo, y de las
+   * 5 personas que entran al Andén sólo 1 podía destrabarlo.
+   *
+   * ⚠️ `reconcile` (el de arriba) NO se abre: sigue pidiendo `RECONCILIAR` a secas. Ese
+   * folio tiene 8 escaneos sobre 2,094 artículos — aplicarlo pondría el inventario de la
+   * sucursal casi en cero. Separar las dos llaves es justamente para que abandonar no
+   * exija el poder de vaciar un almacén.
+   */
   @Post(':id/cancel')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
-  @ApiOperation({ summary: 'Cancelar folio' })
-  cancel(@Param('id') id: string, @Body() body: { reason?: string }) {
-    return this.service.cancel(id, body?.reason);
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_RECONCILIAR,
+    Permission.COMMERCIAL_INVENTORY_CANCELAR_CONTEO,
+  )
+  @ApiOperation({ summary: 'Cancelar folio (abandona el conteo; no ajusta stock)' })
+  cancel(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<{ status: string; folio: string }> {
+    // `req.user.permissions` lo escribe RolesGuard con el mapa FRESCO de la DB (no el del
+    // token), asi que un permiso recien repartido se honra sin re-loguear del lado del server.
+    const puedeReconciliar =
+      req?.user?.permissions?.[Permission.COMMERCIAL_INVENTORY_RECONCILIAR] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.service.cancel(id, body?.reason, { soloSiEstaAbandonado: !puedeReconciliar });
   }
 }

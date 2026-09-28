@@ -5,6 +5,100 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — `[WMS-REC.16]` Abandonar un conteo deja de exigir el poder de vaciar un almacén
+
+**Cómo se llegó:** un 504 al intentar fechar en el Andén. Investigando aparecieron **dos
+problemas distintos**, y el que se veía en pantalla era el menor.
+
+### El 504 no escribió nada
+
+Cero capturas en 24 h contra prod, o sea que la petición murió antes de persistir: no quedó
+mercancía a medias ni existencia fantasma. La base estaba sana (sin bloqueos, sin transacciones
+colgadas) y la API contesta en 0.5 s. **No se pudo probar la causa y se declara**: no se encontró
+en la cuenta de Railway el servicio que sirve `megadulcessuite.com`, así que no hubo registros de
+ese momento. La única sospecha con base en el código: `evaluate` sube la foto a object storage
+**antes** de tocar la base, con un cliente S3 **sin tiempo límite** — lo único en ese endpoint
+que puede esperar para siempre, y encaja con "504 sin fila escrita". Queda como deuda: una
+llamada externa sin límite dentro de una petición es un defecto aunque hoy no haya sido eso.
+
+### El de fondo llevaba meses
+
+De las **22 capturas de caducidad de toda la historia, 10 están revertidas y las 10 son del
+almacén 01**. Causa: `INV-2026-00009`, `freeze_movements = true`, abierto el 19-jun (**100
+días**), con **3 artículos contados de 2,094** y el último escaneo hacía **67 días**. Cada intento
+de fechar se guardaba, chocaba con el congelamiento y la compensación lo marcaba `rejected`. El
+mecanismo funciona — por eso no hay existencia inventada — pero Padre Hidalgo no podía recibir.
+
+### Por qué nadie lo destrabó (lo medido, que cambió el diseño)
+
+El botón de cancelar **ya existía**, en `/comercial` → Inventario físico. Dos cosas lo volvían
+inalcanzable: vive en una pantalla a la que el bodeguero no llega, y **cancelar y reconciliar
+colgaban de la misma llave**, así que la acción *segura* estaba encerrada detrás de la
+*peligrosa*.
+
+| rol | RECONCILIAR | RECIBIR (entra al Andén) | usuarios |
+|---|---|---|---|
+| `almacenista` | false | true | 4 |
+| `supervisor` | true | true | 1 |
+
+**4 de las 5 personas que entran al Andén no podían destrabarse**, y la única asignada a Padre
+Hidalgo (`luis_espino`) era una de ellas. Un botón con la compuerta vieja habría sido invisible
+justo para quien choca con el error — o sea, no habría arreglado nada.
+
+### Lo que se construyó
+
+Llave nueva `COMMERCIAL_INVENTORY_CANCELAR_CONTEO` (molde TP.6: **fuera de todo `MODULE_GROUP`**,
+se reparte por migración y no "de paquete"). `POST /counts/:id/cancel` acepta **cualquiera de las
+dos** — nadie pierde lo que tenía — y **`reconcile` NO se abre**: sigue exigiendo `RECONCILIAR`
+a secas, con candado propio. Aplicar ese folio habría puesto la sucursal casi en cero; separar las
+llaves existe justamente para que abandonar no exija ese poder.
+
+En pantalla, `anden-congelado.component` reemplaza al bloque que sólo ofrecía *Salir*: dice
+**desde cuándo** está congelado (un folio de dos horas es trabajo vivo; uno de meses, basura),
+pide **motivo obligatorio**, y a quien no tiene la llave le dice a quién pedírselo.
+`warehouseFreeze` gana `opened_at` para eso.
+
+### El freno, que es lo que vuelve segura la llave
+
+Quien **no** tiene `RECONCILIAR` sólo puede cancelar un folio **sin un solo escaneo en 7 días**
+(`InventoryCountService.estaAbandonado`, estática y pura como `computeVerdict`). Puede tirar lo
+que nadie toca; **no** puede tirar el trabajo de un equipo contando ahora. Ante una fecha ausente
+o ilegible devuelve `false`: ante la duda no se cancela, que es el lado seguro. **Van juntos** —
+si el freno se quita, repartir la llave al del Andén deja de ser seguro.
+
+### Lecciones
+
+- **Un botón gateado por el permiso equivocado no es una función, es un adorno.** Antes de
+  escribirlo se midió quién podría apretarlo; de no hacerlo, habría servido a 1 de 5 personas y a
+  ninguna de las que choca con el error.
+- **Dos candados ajenos atajaron errores míos antes del PR.** `SN.4` rechazó meter la llave en
+  `AUTHZ_TREE` — tenía razón: esa ruta exige `SUPERVISAR`, así que le habría ofrecido al
+  portador una página que le rebota; esa llave no abre pantalla, habilita una acción.
+  `permission-meta.spec` pegó con la categoría escrita **sin acento**, que la habría tirado a un
+  grupo sin nombre en `/admin/roles` — declarada pero imposible de encontrar para asignarla.
+- **Escribí el bug de CG.22 y el repo me lo cobró:** `motivoValido` nació como `computed()` sobre
+  un campo plano — nunca se recalcula, el botón queda inhabilitado de por vida. Se corrigió a
+  `signal` y el candado que lo fija **escribe el motivo de verdad** y exige que el botón se
+  habilite: probar que un control se VE no prueba que SIRVE.
+- **Nx volvió a dar verde sobre el checkout equivocado:** `nx test commercial` corrió contra el
+  checkout principal e imprimió *"No test files found"* con código 0. Las suites se corren con
+  `npx vitest run --root .` desde el worktree.
+
+**Verificación:** `ngc` (view) y `tsc` (api) **0 errores** · **21 candados nuevos** (9 backend + 12
+del componente) con **4 sabotajes vistos en ROJO a propósito** (estrechar la puerta · dar por
+abandonado lo que no tiene fecha · el extractor vacío · volver `motivo` a campo plano) · suites
+`commercial` **259**, `contracts` **152**, `view` **1065** pasan.
+
+⚠️ **`main` llega con 3 pruebas en rojo que NO son de este trabajo** — verificado con el árbol
+limpio: `tienda/etiquetas-precio-vivo.spec` (2) y `finanzas/caja-general/caja-captura.util.spec`
+(1).
+
+**Pendiente prod:** migración `20260928120000` + redeploy api/view + **re-loguear** (el botón sale
+del JWT; el backend la honra antes porque `RolesGuard` lee de la DB) + **cancelar
+`INV-2026-00009`**, que es lo único que destraba Padre Hidalgo hoy.
+
+---
+
 ## 2026-09-25 — `[GX.19]` El número de egresos estaba bien; lo que faltaba era decir con qué se calculó
 
 **Cómo se llegó:** *"analiza /finanzas/egresos"*. Sin hipótesis previa.

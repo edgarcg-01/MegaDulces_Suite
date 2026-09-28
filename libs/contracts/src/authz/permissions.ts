@@ -130,6 +130,20 @@ export enum Permission {
   COMMERCIAL_INVENTORY_SUPERVISAR = 'COMMERCIAL_INVENTORY_SUPERVISAR',
   COMMERCIAL_INVENTORY_RECONCILIAR = 'COMMERCIAL_INVENTORY_RECONCILIAR',
   COMMERCIAL_INVENTORY_ASIGNAR = 'COMMERCIAL_INVENTORY_ASIGNAR',
+  // Fase WMS-REC.16 — ABANDONAR un folio de conteo NO es aplicarlo. Hasta acá las dos
+  // acciones colgaban de RECONCILIAR, o sea que la accion SEGURA (cancelar: no toca stock)
+  // estaba encerrada detras de la PELIGROSA (reconciliar: ajusta el saldo al fisico contado).
+  // Medido el 2026-09-28 en produccion: eso dejo a `INV-2026-00009` congelando Padre Hidalgo
+  // 100 dias, y a 4 de las 5 personas que entran al Anden sin forma de destrabarse.
+  // Molde TP.6: clave propia, FUERA de todo MODULE_GROUP — se reparte por migracion, no
+  // 'de paquete'. Quien tiene RECONCILIAR sigue pudiendo cancelar: el gate acepta cualquiera
+  // de las dos, asi que nadie pierde nada.
+  // ⛔ NO va en `AUTHZ_TREE`, y no es un olvido: se intento y el candado SN.4 lo rechazo con
+  //    razon — `physical-inventory` apunta a /almacen/inventory/sessions, que exige SUPERVISAR,
+  //    asi que listarla ahi le ofreceria a su portador una pagina que le rebota. Esta llave no
+  //    abre una pantalla: habilita UNA accion dentro del Anden. Se asigna desde /admin/roles,
+  //    que enumera por PERMISSION_META, no por el arbol.
+  COMMERCIAL_INVENTORY_CANCELAR_CONTEO = 'COMMERCIAL_INVENTORY_CANCELAR_CONTEO',
   // Auditor de recepción por caducidad (Fase WMS-REC, ADR-044): captura foto+OCR + semáforo en la puerta
   COMMERCIAL_INVENTORY_RECIBIR = 'COMMERCIAL_INVENTORY_RECIBIR',
   // Control de Caducidades (Fase P2.6): inspección de anaquel + captura de caducidad → FEFO
