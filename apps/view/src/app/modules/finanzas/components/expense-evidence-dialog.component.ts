@@ -8,7 +8,7 @@ import { DialogModule } from 'primeng/dialog';
 import { FileUploadModule } from 'primeng/fileupload';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
-import { ComprobacionesService, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
+import { ComprobacionesService, ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { ExpenseRequestRow } from '../../comercial/comercial.service';
 import { money } from '../../../shared/util';
 import { dmy } from '../pages/finanzas-format';
@@ -23,9 +23,9 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
  * subir el comprobante. Antes esto vivía en `/finanzas/comprobaciones` con un formulario
  * de 8 campos que duplicaba —y podía contradecir— al ERP.
  *
- * El comprobante se lee con Claude Vision AL ADJUNTARLO, contra el importe de la
- * solicitud, y el veredicto se ve antes de enviar. El servidor vuelve a leerlo por su
- * cuenta (esa es la lectura autoritativa); esta viaja como respaldo por si allá no puede.
+ * `[GX.32]` **El comprobante ya no se lee con visión.** Antes, al adjuntarlo, Claude Vision
+ * lo cuadraba contra el importe de la solicitud y el veredicto se veía acá mismo antes de
+ * enviar. Se retiró: la foto se adjunta y quien autoriza decide mirándola.
  */
 @Component({
   selector: 'app-expense-evidence-dialog',
@@ -107,16 +107,8 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
                         chooseStyleClass="p-button-sm p-button-outlined"
                         (onSelect)="onFilePicked($event, slot.role)" />
           @if (fileNames()[slot.role]) { <span class="ev-pick"><i class="pi pi-paperclip" aria-hidden="true"></i> {{ fileNames()[slot.role] }}</span> }
-          @if (vision()[slot.role]; as v) {
-            @if (v === 'cargando') {
-              <span class="ev-vision"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo con Claude Vision…</span>
-            } @else {
-              <span class="ev-vision" [class.is-ok]="visionTone(v) === 'ok'" [class.is-warn]="visionTone(v) === 'warn'">
-                <i class="pi" [class.pi-check-circle]="visionTone(v) === 'ok'" [class.pi-exclamation-triangle]="visionTone(v) === 'warn'" aria-hidden="true"></i>
-                {{ visionMsg(v) }}
-              </span>
-            }
-          }
+          <!-- [GX.32] Acá se mostraba el veredicto de Claude Vision sobre la foto
+               («leyó $X y cuadra» / «entra en revisión»). Se retiró con la visión. -->
         </div>
       </ng-template>
 
@@ -242,7 +234,7 @@ export class ExpenseEvidenceDialogComponent {
   }
 
   readonly fileNames = signal<Record<string, string>>({});
-  readonly vision = signal<Record<string, ProofPhotoOcr | 'cargando' | null>>({});
+  // [GX.32] Se fue la señal `vision`: guardaba el veredicto del cuadre por visión.
   readonly error = signal<string>('');
   readonly saving = signal(false);
   comentarios = '';
@@ -264,7 +256,7 @@ export class ExpenseEvidenceDialogComponent {
   descartar() { this.confirmClose.set(false); this.onToggle(false); }
   private reset() {
     this.fileData = {}; this.uploaded = {}; this.comentarios = '';
-    this.fileNames.set({}); this.vision.set({}); this.error.set(''); this.saving.set(false);
+    this.fileNames.set({}); this.error.set(''); this.saving.set(false);
     this.extraAbiertos.set(false); this.confirmClose.set(false);
     this.clasificacion.set(null); this.clasificacionV = null;
   }
@@ -281,32 +273,11 @@ export class ExpenseEvidenceDialogComponent {
       this.fileData[role] = dataUri;      // data URI (el backend detecta PDF vs imagen)
       delete this.uploaded[role];          // archivo nuevo → re-subir
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
-      this.leerConVision(role, dataUri);
+      // [GX.32] Acá se leía la foto con Claude Vision para adelantar el veredicto.
     };
     reader.readAsDataURL(file);
   }
 
-  /** Vista previa de Vision contra el importe de la solicitud: el veredicto se ve ANTES de enviar. */
-  private leerConVision(role: string, dataUri: string) {
-    if (!role.startsWith('comprobante')) return;
-    const importe = Number(this.solicitud()?.importe || 0);
-    if (!importe) return; // sin importe esperado no hay nada que cuadrar
-    this.vision.update((m) => ({ ...m, [role]: 'cargando' }));
-    this.svc.validatePhoto(dataUri, importe).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.vision.update((m) => ({ ...m, [role]: r })),
-      // Que falle la lectura no impide capturar: el backend la reintenta al guardar.
-      error: () => this.vision.update((m) => ({ ...m, [role]: null })),
-    });
-  }
-  visionMsg(v: ProofPhotoOcr): string {
-    if (v.ocr_status === 'sin_key') return 'Claude Vision no está configurado en el servidor — se validará a mano.';
-    if (v.ocr_status === 'ilegible') return 'Claude Vision no pudo leer el importe en la foto — se validará a mano.';
-    const leido = money(v.monto_ocr ?? v.total ?? v.subtotal ?? 0);
-    if (v.monto_match) return `Claude Vision leyó ${leido} y cuadra con la solicitud (${money(v.importe_esperado)}).`;
-    return `Claude Vision leyó ${leido} y la solicitud dice ${money(v.importe_esperado)}` +
-      `${v.diff != null ? ` — difieren ${money(Math.abs(v.diff))}` : ''}. Entra en revisión.`;
-  }
-  visionTone(v: ProofPhotoOcr): 'ok' | 'warn' { return v.ocr_status === 'ok' && v.monto_match ? 'ok' : 'warn'; }
 
   enviar() {
     const s = this.solicitud();
@@ -360,8 +331,7 @@ export class ExpenseEvidenceDialogComponent {
     const s = this.solicitud()!;
     const lleva = this.llevaEvidencia();
     const files = lleva ? (roles.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[]) : [];
-    const v = lleva ? (this.vision()['comprobante_1'] ?? this.vision()['comprobante_2']) : null;
-    const ocr = v && v !== 'cargando' ? v : null;
+
     this.svc.create({
       folio_solicitud: s.folio,
       solicitante: s.solicitante || undefined,
@@ -372,9 +342,6 @@ export class ExpenseEvidenceDialogComponent {
       clasificacion: this.clasificacion()!,
       comentarios: this.comentarios || (lleva ? s.concepto || undefined : undefined),
       files,
-      monto_ocr: ocr ? ocr.monto_ocr ?? ocr.total : undefined,
-      subtotal_ocr: ocr ? ocr.subtotal : undefined,
-      receipt_legible: ocr ? ocr.ocr_status === 'ok' : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.saving.set(false); this.saved.emit(s.folio); this.onToggle(false); },
       error: (e) => { this.saving.set(false); this.error.set(e?.error?.message || 'No se pudo enviar la evidencia.'); },

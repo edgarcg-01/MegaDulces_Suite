@@ -1,7 +1,7 @@
 import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
@@ -215,19 +215,9 @@ export interface CreateExpenseProofDto {
   /** `[GX.14]` El dato que pide la forma elegida (caja, últimos 4, referencia, cheque). */
   forma_pago_detalle?: string;
   files?: ProofFile[];
-  // Validación por vision de la foto del comprobante (preview vía validate-photo):
-  monto_ocr?: number | null;    // total leído de la foto
-  subtotal_ocr?: number | null; // subtotal leído (se compara si el total no cuadra)
-  receipt_legible?: boolean;    // false si la foto era ilegible / no era comprobante
-}
-
-/** Resultado de validar la foto del comprobante contra el importe de la solicitud. */
-interface ValidatePhotoResult {
-  ocr_status: 'ok' | 'ilegible' | 'sin_key';
-  importe_esperado: number;
-  monto_ocr: number | null;
-  monto_match: boolean;
-  diff: number | null;
+  // `[GX.32]` Se fueron `monto_ocr`, `subtotal_ocr` y `receipt_legible`: los mandaba la
+  // vista previa por visión, que ya no existe. Un campo del borde que nadie llena es un
+  // contrato que miente — el siguiente que lo lea va a creer que trae algo.
 }
 
 export interface ListExpenseProofsQuery {
@@ -259,7 +249,8 @@ export class ExpenseProofsService {
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
     private readonly storage: ObjectStorageService,
-    private readonly ocr: LlmExtractorService,
+    // `[GX.32]` Se fue `LlmExtractorService`: era la visión. Dejarlo inyectado obliga al
+    // módulo a seguir importando quien lo exporta, y hace creer que el OCR sigue vivo.
     @Optional() private readonly gateway?: ExpenseProofsGateway,
     /**
      * `[GX.26]` El canal que llega a la CAMPANA de quien levanto el gasto. `@Optional`
@@ -537,79 +528,23 @@ export class ExpenseProofsService {
     }
   }
 
-  /** Tolerancia del cuadre: $1 o 1% del importe (lo mayor), para absorber redondeo/IVA. */
-  private tolerancia(importe: number): number {
-    return Math.max(1, Math.abs(importe) * 0.01);
-  }
-
-  /** ¿El monto leído de la foto cuadra contra el importe esperado (total, o subtotal)? */
-  private montoCuadra(esperado: number, total: number | null, subtotal: number | null): { match: boolean; usado: number | null; diff: number | null } {
-    if (!(esperado > 0)) return { match: false, usado: total ?? subtotal, diff: null };
-    const tol = this.tolerancia(esperado);
-    for (const v of [total, subtotal]) {
-      if (v != null && Number.isFinite(v)) {
-        const d = Math.abs(v - esperado);
-        if (d <= tol) return { match: true, usado: v, diff: d };
-      }
-    }
-    const usado = total ?? subtotal;
-    return { match: false, usado, diff: usado != null ? Math.abs(usado - esperado) : null };
-  }
-
   /**
-   * Vision AUTORITATIVO en el servidor: re-lee el comprobante YA SUBIDO (bucket) con
-   * Claude Vision, en vez de confiar en el `monto_ocr` que reporta el cliente. Si no hay
-   * `ANTHROPIC_API_KEY` o el archivo no se puede leer, cae a lo que reportó el cliente
-   * (best-effort). Se corre FUERA de la transacción (I/O de segundos).
+   * `[GX.32]` **Acá vivía el cuadre por visión, y se retiró por pedido del usuario.**
+   *
+   * Eran cuatro piezas: `tolerancia()` ($1 o 1% del importe), `montoCuadra()` (total o
+   * subtotal contra la solicitud), `serverReadReceipt()` (Claude Vision releía en el
+   * servidor el comprobante ya subido, para no confiar en el `monto_ocr` del cliente) y
+   * `validatePhoto()` (la vista previa «cuadra / en revisión» que el front mostraba al
+   * adjuntar la foto).
+   *
+   * ⛔ Se van **enteras**, no se dejan muertas: un método sin quien lo llame se lee como
+   * que el mecanismo sigue vivo, y el siguiente que pase lo vuelve a cablear.
+   *
+   * ⚠️ Lo que NO se fue: las columnas `monto_ocr`, `monto_match` y `revision_nota`. Hay
+   * expedientes cerrados con esos números y borrarlas reescribiría el historial — se
+   * conservan, dejan de escribirse, y el módulo hermano `expense-comprobaciones` (GX.8)
+   * mantiene su propio `validate-photo`, que es otra pantalla y no se tocó.
    */
-  private async serverReadReceipt(
-    files: ProofFile[],
-    dto: CreateExpenseProofDto,
-  ): Promise<{ total: number | null; subtotal: number | null; legible: boolean; source: 'servidor' | 'cliente' }> {
-    const fallback = {
-      total: dto.monto_ocr ?? null,
-      subtotal: dto.subtotal_ocr ?? null,
-      legible: dto.receipt_legible !== false && (dto.monto_ocr != null || dto.subtotal_ocr != null),
-      source: 'cliente' as const,
-    };
-    if (!process.env.ANTHROPIC_API_KEY) return fallback;
-    const comp = files.find((f) => f.role === 'comprobante_1') || files.find((f) => f.role === 'comprobante_2') || files[0];
-    const key = comp?.public_id || comp?.url || '';
-    const dataUri = key ? await this.storage.getDataUri(key) : null;
-    if (!dataUri) return fallback;
-    const m = /^data:([^;,]+)[;,]/.exec(dataUri);
-    const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
-    const base64 = dataUri.replace(/^data:[^,]*,/, '');
-    try {
-      const f = await this.ocr.extractExpenseReceipt(base64, mediaType as any);
-      return { total: f.total, subtotal: f.subtotal, legible: f.legible && (f.total != null || f.subtotal != null), source: 'servidor' };
-    } catch (e: any) {
-      this.logger.warn(`Vision servidor falló, uso OCR del cliente: ${e?.message || e}`);
-      return fallback;
-    }
-  }
-
-  /**
-   * Preview de la validación: lee la foto del comprobante con Claude Vision y la cuadra
-   * contra el importe esperado (de la solicitud). El front la llama al adjuntar para
-   * mostrar "cuadra / en revisión" antes de enviar. No guarda.
-   */
-  async validatePhoto(dataUri: string, importeEsperado: number): Promise<ValidatePhotoResult & { total: number | null; subtotal: number | null }> {
-    this.tenantCtx.requireTenantId();
-    if (!dataUri) throw new BadRequestException('archivo requerido');
-    const esperado = Number(importeEsperado) || 0;
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return { total: null, subtotal: null, ocr_status: 'sin_key', importe_esperado: esperado, monto_ocr: null, monto_match: false, diff: null };
-    }
-    const m = /^data:([^;,]+)[;,]/.exec(dataUri || '');
-    const mediaType = (m ? m[1] : 'image/jpeg').toLowerCase();
-    const base64 = dataUri.replace(/^data:[^,]*,/, '');
-    const f = await this.ocr.extractExpenseReceipt(base64, mediaType as any);
-    const legible = f.legible && (f.total != null || f.subtotal != null);
-    const { match, usado, diff } = this.montoCuadra(esperado, f.total, f.subtotal);
-    return { total: f.total, subtotal: f.subtotal, ocr_status: legible ? 'ok' : 'ilegible', importe_esperado: esperado, monto_ocr: usado, monto_match: legible && match, diff };
-  }
-
   /** Alta del expediente de gasto (con los archivos ya subidos vía uploadFile). */
   async create(dto: CreateExpenseProofDto, actor?: string) {
     this.tenantCtx.requireTenantId();
@@ -796,26 +731,20 @@ export class ExpenseProofsService {
     // Estado destino:
     //   no comprobable            → validada (la aprobación ES la validación).
     //   comprobable SIN evidencia → aprobada (el capturista la sube luego).
-    //   comprobable CON evidencia → cuadre por visión y cierra directo (validada/revision).
-    //     Este último cubre el camino "captura todo de una" (diálogo del tablero).
-    const ocr: Record<string, any> = {};
+    //   comprobable CON evidencia → validada. **La cierra quien firma**, que la está
+    //     mirando en ese momento: es el camino "captura todo de una".
+    //
+    // `[GX.32]` Acá corría el cuadre por visión (Claude Vision leía la foto y comparaba
+    // el monto) y de ahí salía `validada` o `revision`. Se retiró por pedido del usuario.
+    // ⛔ Y con él se va el `validated_by: 'Claude Vision'`: **ninguna decisión sobre
+    // dinero queda firmada por una máquina**. Cierra la persona que aprobó, con su nombre.
     let nextStatus: string;
     if (!lleva) {
       nextStatus = 'validada';
     } else if (!hasEvidence) {
       nextStatus = 'aprobada';
     } else {
-      const importe = Number(base.cur.importe) || 0;
-      const srv = await this.serverReadReceipt(files, {} as CreateExpenseProofDto);
-      const { match, usado, diff } = this.montoCuadra(importe, srv.total, srv.subtotal);
-      const cuadra = srv.legible && match;
-      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      nextStatus = cuadra ? 'validada' : 'revision';
-      ocr.monto_ocr = usado;
-      ocr.monto_match = srv.legible ? match : null;
-      ocr.revision_nota = cuadra ? null
-        : (!srv.legible ? 'Foto ilegible o sin lectura — validar a mano'
-          : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+      nextStatus = 'validada';
     }
 
     return this.tk.run(async (trx) => {
@@ -823,11 +752,13 @@ export class ExpenseProofsService {
       const [row] = await trx('finance.expense_proofs').where({ id }).where('status', 'recibida')
         .update({
           status: nextStatus, updated_at: trx.fn.now(),
-          validated_by: cierra ? (ocr.monto_match ? 'Claude Vision' : (actor || null)) : null,
+          validated_by: cierra ? (actor || null) : null,
           validated_at: cierra ? trx.fn.now() : null,
           motivo_rechazo: null,
-          revision_nota: nextStatus === 'revision' ? (ocr.revision_nota ?? null) : null,
-          ...(('monto_ocr' in ocr) ? { monto_ocr: ocr.monto_ocr, monto_match: ocr.monto_match } : {}),
+          // `[GX.32]` `revision_nota`, `monto_ocr` y `monto_match` dejan de escribirse acá:
+          // los tres los llenaba la visión. Las COLUMNAS se conservan — hay expedientes
+          // cerrados con esos números y borrarlos reescribiría el historial.
+          revision_nota: null,
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
           // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
           // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
@@ -852,9 +783,7 @@ export class ExpenseProofsService {
 
   /**
    * MOMENTO 3 — el capturista sube la EVIDENCIA de un gasto ya APROBADO y comprobable.
-   * Corre el cuadre por visión (Claude Vision, autoritativo en el servidor) y cierra:
-   *   - cuadra → 'validada' (por Claude Vision)
-   *   - no     → 'revision' (la ve un humano)
+   * `[GX.32]` Queda en 'revision' — la mira una persona. El cuadre por visión se retiró.
    * Sólo aplica sobre 'aprobada' comprobable (no_comprobable ya cerró al aprobar).
    */
   async addEvidence(id: string, dto: CreateExpenseProofDto, actor?: string) {
@@ -889,35 +818,38 @@ export class ExpenseProofsService {
     const files = [...prev, ...nuevos];
     const importe = Number(base.cur.importe) || Number(dto.importe) || 0;
 
-    // Vision autoritativo: re-lee el comprobante recién subido.
-    const srv = await this.serverReadReceipt(nuevos, dto);
-    const legible = srv.legible;
-    const { match, usado, diff } = this.montoCuadra(importe, srv.total, srv.subtotal);
-    const cuadra = legible && match;
-    const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-    const status = cuadra ? 'validada' : 'revision';
-    const revisionNota = cuadra ? null
-      : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
-        : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+    /**
+     * `[GX.32]` **Acá la evidencia SIEMPRE pasa por un humano.**
+     *
+     * Antes la leía Claude Vision y, si el monto cuadraba, cerraba sola en `validada`.
+     * Retirada la visión, cerrar sola dejaría que **quien gastó cierre su propio
+     * expediente**: esta evidencia llega DESPUÉS de aprobar y nadie la miró todavía.
+     *
+     * Por eso queda en `revision`, que es el estado que la pantalla de Aprobación ya
+     * sabe resolver con «Dar por comprobado». ⚠️ Cambia lo que ese estado SIGNIFICA:
+     * era «el cuadre no dio» y pasa a ser «falta que alguien la mire». No se inventó un
+     * sexto estado para lo mismo — las consultas y la bandeja ya lo listan.
+     */
+    const status = 'revision';
+    const revisionNota = 'Evidencia subida por quien capturó — falta que alguien la revise';
 
     return this.tk.run(async (trx) => {
       const [row] = await trx('finance.expense_proofs').where({ id }).where('status', 'aprobada')
         .update({
           files: JSON.stringify(files),
           status,
-          monto_ocr: usado,
-          monto_match: legible ? match : null,
           revision_nota: revisionNota,
-          validated_by: cuadra ? 'Claude Vision' : null,
-          validated_at: cuadra ? trx.fn.now() : null,
+          // Nadie la validó todavía: el expediente espera a una persona.
+          validated_by: null,
+          validated_at: null,
           updated_at: trx.fn.now(),
         })
         .returning(['id', 'folio_solicitud', 'status']);
       if (!row) throw new BadRequestException('el gasto no está aprobado y a la espera de evidencia');
-      this.logger.log(`evidencia de gasto folio ${row.folio_solicitud} → ${status} [vision:${srv.source}]${revisionNota ? ` (${revisionNota})` : ''}, por ${actor || '?'}`);
+      this.logger.log(`evidencia de gasto folio ${row.folio_solicitud} → ${status}, por ${actor || '?'}`);
       const [full] = await trx('finance.expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
-      if (full) this.emit(cuadra ? 'validated' : 'captured', full, actor);
+      if (full) this.emit('captured', full, actor);
       return row;
     });
   }
@@ -1856,19 +1788,13 @@ export class ExpenseProofsService {
     const real = Number(sol.importe) || 0;
     const files: ProofFile[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
 
-    // Cuadre bueno: contra el importe de Kepler. Fuera de la trx (visión es I/O de segundos).
-    let ocr: { usado: number | null; match: boolean | null; nota: string | null } = { usado: null, match: null, nota: null };
-    if (requiereEvidencia(cur.clasificacion) && files.length) {
-      const srv = await this.serverReadReceipt(files, {} as CreateExpenseProofDto);
-      const { match, usado, diff } = this.montoCuadra(real, srv.total, srv.subtotal);
-      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      ocr = {
-        usado, match: srv.legible ? match : null,
-        nota: (srv.legible && match) ? null
-          : (!srv.legible ? 'Foto ilegible o sin lectura — validar a mano'
-            : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(real)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`),
-      };
-    }
+    // `[GX.32]` Acá corría el cuadre por visión contra el importe de Kepler. Se retiró con
+    // el resto. ⚠️ La brecha entre lo declarado y lo que dice Kepler NO se pierde: se sigue
+    // guardando en `capture_meta.importe_declarado` y sale en el log de abajo, que es lo que
+    // de verdad importaba de este cuadre — el número de la foto era el intermediario.
+    const nota = requiereEvidencia(cur.clasificacion) && files.length
+      ? 'Casada sin cuadre automático — falta que alguien revise la evidencia'
+      : null;
 
     return this.tk.run(async (trx) => {
       const meta = typeof cur.capture_meta === 'string' ? JSON.parse(cur.capture_meta || '{}') : (cur.capture_meta || {});
@@ -1878,9 +1804,7 @@ export class ExpenseProofsService {
           importe: real || declarado,
           solicitante: trx.raw('COALESCE(NULLIF(?, \'\'), solicitante)', [sol.solicitante || '']),
           fecha_gasto: sol.fecha || trx.raw('fecha_gasto'),
-          monto_ocr: ocr.usado,
-          monto_match: ocr.match,
-          revision_nota: ocr.nota,
+          revision_nota: nota,
           capture_meta: JSON.stringify({
             ...meta,
             importe_declarado: declarado,
