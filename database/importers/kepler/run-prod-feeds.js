@@ -235,8 +235,12 @@ const STEPS = {
     path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
     // RETIRADO 2026-08-20: import-erp-shipments — analytics.erp_shipments es VISTA derive-no-copy
     // sobre kepler_ods.kdpord (anti-réplica c19=sucursal, mig 20260820170000). No correr contra la vista.
-    path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto (lee 6 sucursales live U/D/10)
+    // ⛔ [AUD-DAT.10] EL ORDEN IMPORTA Y ANTES ESTABA AL REVÉS. La mensual dejó de leer
+    // Kepler: ahora es el ROLLUP de la diaria, así que la diaria va PRIMERO. Invertirlas
+    // publica la mensual con el dato de ayer — y "ordenar no es depender" (ADR-056): si la
+    // diaria falla, la mensual se queda con lo de ayer, no se inventa nada.
     path.join(K, 'import-product-sales-daily.js'), // SAL.5 venta DIARIA x producto (rango 7/15/30d; upsert acumulativo 180d)
+    path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto ← rollup LOCAL de la diaria
     path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
     path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
     path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)

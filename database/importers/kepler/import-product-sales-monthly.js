@@ -1,16 +1,53 @@
 /* eslint-disable no-console */
 /**
- * SAL.1 — Feed de VENTA REAL por producto × sucursal × mes → Railway
- * (analytics.product_sales_monthly). Base del reporte /comercial/salidas.
+ * `[AUD-DAT.10]` — **La venta mensual por producto DEJA DE SER UNA SEGUNDA LECTURA
+ * y pasa a DERIVARSE de la diaria.** `analytics.product_sales_monthly` ya no lee los
+ * 6 servidores Kepler: es el rollup de `analytics.product_sales_daily`.
  *
- * Lee los 6 servidores Kepler de sucursal EN VIVO (192.168.x) — NO el snapshot
- * localhost:5433 (desfasado) ni mart.ventas (duplica ×2 por el fanout c4=6/10).
- * Venta = docs `c2='U' c3='D' c4=10`, cantidad = kdm2.c9 (unidades), mes =
- * kdm1.c9. Agrega por (sucursal, sku, mes) y hace DELETE-año + INSERT en Railway.
+ * ── POR QUÉ CAMBIÓ (medido en prod, 2026-09-28) ─────────────────────────────────
+ * Las dos tablas son hermanas, corren en el mismo carril nocturno y llevaban meses
+ * contradiciéndose. Medido por mes cerrado:
  *
- *   DST_URL=postgresql://…railway node database/importers/kepler/import-product-sales-monthly.js          # dry-run
- *   DST_URL=…                     node database/importers/kepler/import-product-sales-monthly.js --apply   # commit
- *   ... [--year 2026]
+ *      mes        diaria      mensual     falta
+ *      2026-06    720,533     398,622     44.7 %
+ *      2026-07    978,698     623,677     36.3 %
+ *      2026-08    955,432     760,468     20.4 %
+ *
+ * ⭐ Y la clave estaba en 2025: **cuadra al peso, mes por mes** (452,018 = 452,018,
+ * 356,829 = 356,829, las doce). La divergencia vive SÓLO en 2026, y **no es de
+ * unidades sino de FILAS**: enero-2026 tiene 89,358 filas en la diaria y **5,033**
+ * en la mensual.
+ *
+ * ⛔ La causa era este mismo archivo. Su `DELETE` estaba acotado al **año en curso**
+ * (`--year`, default `getFullYear()`) y borraba cada noche TODO 2026 que la
+ * consulta Kepler-sola no devolviera — o sea, toda fila escrita por otro ERP.
+ * 2025 sobrevive intacto justamente porque **ya nadie lo borra**.
+ *
+ * El daño concreto, agosto-2026:
+ *   · `06` (Canindo) migró de Wincaja a Kepler el **2026-08-15** →  el mes está
+ *     partido. Kepler sólo tiene del 15 al 31, así que el DELETE se comía los
+ *     primeros 14 días: 100,037 u publicadas contra 198,248 en la diaria.
+ *   · `MD-32` quedó en **0** con 94,400 u en la diaria.
+ *
+ * ⛔ Y la frontera de cada sucursal **es un dato**, no un literal:
+ * `analytics.v_branch_erp_cutover`. Este importer la tenía hardcodeada como
+ * `IN ('MD-30','MD-32')` y por eso `06` y `MD-50` se caían por la rendija.
+ * Derivando de la diaria el problema **desaparece por construcción**: no hay dos
+ * lecturas que reconciliar, hay una sola y su rollup.
+ *
+ * ── QUÉ NO ARREGLA (declarado, no disimulado) ───────────────────────────────────
+ * ⚠️ Hereda lo bueno y lo malo de `product_sales_daily`, que hace UPSERT con
+ * `GREATEST` y **nunca borra**: una corrección a la baja no se propaga. Es el modo
+ * de falla más benigno de los dos (retiene historia de la era Wincaja en vez de
+ * destruirla), pero es real y no se tapa acá.
+ *
+ * ⚠️ `product_sales_daily` NO cuadra con `analytics.sales_daily`, que además **no
+ * tiene una sola fila de `MD-32` en ningún mes**. O sea: ninguna de las tres tiene
+ * la verdad completa. Esa reconciliación es otro item; acá sólo se garantiza que
+ * la mensual **no puede** volver a contradecir a la diaria.
+ *
+ *   DATABASE_URL_NEW=…  node database/importers/kepler/import-product-sales-monthly.js           # dry-run: mide el diff
+ *   DATABASE_URL_NEW=…  node database/importers/kepler/import-product-sales-monthly.js --apply
  */
 
 const { Client } = require('pg');
@@ -18,15 +55,18 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
-const yi = process.argv.indexOf('--year');
-const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear();
 
-// code = code de commercial.warehouses/dim.sucursales (00..05)
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { salesMap, clientConfig } = require('../lib/kepler-branches');
-const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
-
-const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
+/**
+ * Freno del `DELETE`. La diaria es superset de la mensual en TODA la historia
+ * medida (2025 y anteriores cuadran fila por fila), así que un huérfano legítimo
+ * es rarísimo. Si de golpe aparecen muchos, es que la diaria se vació o se movió
+ * de llave — y entonces borrar sería propagar el daño, no limpiarlo.
+ *
+ * ⛔ Un freno sin prueba negativa es una intención: el candado
+ * `database/tests/test-newdb-product-sales-parity.js` lo rompe a propósito.
+ */
+const MAX_HUERFANOS_PCT = 5;
+const MAX_HUERFANOS_PISO = 500; // por debajo de esto no vale la pena frenar
 
 (async () => {
   const db = new Client({
@@ -35,91 +75,78 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
   });
   await db.connect();
   try {
-    console.log(`\n=== VENTA mensual por producto → analytics.product_sales_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}, año ${YEAR}) ===\n`);
-
-    // Tabla (idempotente) — permite correr antes de aplicar la migración formal.
-    await db.query(`CREATE SCHEMA IF NOT EXISTS analytics`);
-    await db.query(`CREATE TABLE IF NOT EXISTS analytics.product_sales_monthly (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
-      product_id uuid NOT NULL, warehouse_id uuid NOT NULL, month date NOT NULL,
-      units numeric NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())`);
-    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_psm ON analytics.product_sales_monthly (tenant_id, product_id, warehouse_id, month)`);
-
-    // Lookups destino.
-    const prods = (await db.query(`SELECT id, sku FROM catalog.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
-    const skuTo = new Map(prods.map((p) => [p.sku, p.id]));
-    const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
-    const whTo = new Map(whs.map((w) => [w.code, w.id]));
-    console.log(`  lookup: ${skuTo.size} products c/sku · ${whTo.size} warehouses`);
-
-    const from = `${YEAR}-01-01`;
-    const to = `${YEAR + 1}-01-01`;
-    const all = []; // [product_id, warehouse_id, month(date), units]
-    let noSku = 0;
-
-    for (const b of BRANCHES) {
-      const wid = whTo.get(b.code);
-      if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 120000 }));
-      const t0 = Date.now();
-      try {
-        await src.connect();
-        const { rows } = await src.query(
-          `SELECT d.c8 AS sku, date_trunc('month', h.c9)::date AS mes, sum(d.c9)::numeric AS units
-             FROM md.kdm2 d JOIN md.kdm1 h ON h.c1=d.c1 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
-            WHERE ${SALES} AND h.c9 >= $1 AND h.c9 < $2
-            GROUP BY d.c8, 2`, [from, to]);
-        let matched = 0;
-        for (const r of rows) {
-          const pid = skuTo.get(r.sku);
-          if (!pid) { noSku++; continue; }
-          all.push([pid, wid, r.mes, r.units]);
-          matched++;
-        }
-        console.log(`  ✅ ${b.db} (${b.code}): ${rows.length} filas sku×mes → ${matched} match (${Date.now() - t0}ms)`);
-      } catch (e) {
-        console.log(`  ❌ ${b.db} (${b.code}): ${e.message}`);
-      } finally {
-        try { await src.end(); } catch { /* noop */ }
-      }
-    }
-    console.log(`\n  total a cargar: ${all.length} (sku sin catálogo: ${noSku})`);
-
-    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
+    console.log(`\n=== VENTA mensual x producto ← rollup de product_sales_daily (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`CREATE TEMP TABLE stg_psm (product_id uuid, warehouse_id uuid, month date, units numeric) ON COMMIT DROP`);
-    const BATCH = 2000;
-    for (let i = 0; i < all.length; i += BATCH) {
-      const chunk = all.slice(i, i + BATCH);
-      const vals = [], params = [];
-      chunk.forEach((row, ri) => { const b = ri * 4; vals.push(`($${b+1},$${b+2},$${b+3},$${b+4})`); params.push(...row); });
-      await db.query(`INSERT INTO stg_psm VALUES ${vals.join(',')}`, params);
+
+    // El origen, agregado una sola vez. Temp table (no CTE) para que el DELETE
+    // de abajo pueda usar índice en vez de re-agregar 1.7 M filas por cada fila
+    // del destino.
+    await db.query(
+      `CREATE TEMP TABLE stg_psm ON COMMIT DROP AS
+         SELECT product_id, warehouse_id,
+                date_trunc('month', sale_date)::date AS month,
+                sum(units) AS units
+           FROM analytics.product_sales_daily
+          WHERE tenant_id = $1
+          GROUP BY product_id, warehouse_id, 3`, [M]);
+    await db.query(`CREATE INDEX ON stg_psm (product_id, warehouse_id, month)`);
+    const { rows: [org] } = await db.query(`SELECT count(*)::int n, round(sum(units)) u FROM stg_psm`);
+    const { rows: [dst] } = await db.query(
+      `SELECT count(*)::int n, round(sum(units)) u FROM analytics.product_sales_monthly WHERE tenant_id=$1`, [M]);
+    console.log(`  origen (rollup de la diaria): ${org.n} filas · ${Number(org.u).toLocaleString('es-MX')} u`);
+    console.log(`  destino (mensual hoy):       ${dst.n} filas · ${Number(dst.u).toLocaleString('es-MX')} u`);
+
+    // Diff por año, que es donde se lee la historia de esta contradicción.
+    const { rows: diff } = await db.query(
+      `SELECT to_char(COALESCE(s.month, t.month),'YYYY') anio,
+              count(*) FILTER (WHERE t.month IS NULL)::int nuevas,
+              count(*) FILTER (WHERE t.month IS NOT NULL AND t.units IS DISTINCT FROM s.units)::int cambian,
+              count(*) FILTER (WHERE s.month IS NULL)::int huerfanas
+         FROM stg_psm s
+         FULL JOIN analytics.product_sales_monthly t
+           ON t.tenant_id = $1 AND t.product_id = s.product_id
+          AND t.warehouse_id = s.warehouse_id AND t.month = s.month
+        GROUP BY 1 HAVING count(*) FILTER (WHERE t.month IS NULL)
+                       + count(*) FILTER (WHERE t.month IS NOT NULL AND t.units IS DISTINCT FROM s.units)
+                       + count(*) FILTER (WHERE s.month IS NULL) > 0
+        ORDER BY 1`, [M]);
+    console.log('\n  año    nuevas  cambian  huérfanas');
+    for (const r of diff) {
+      console.log(`  ${r.anio}  ${String(r.nuevas).padStart(7)}  ${String(r.cambian).padStart(7)}  ${String(r.huerfanas).padStart(9)}`);
     }
-    // Merge SIN churn: UPSERT solo-cambios + DELETE solo lo que ya no viene, en la ventana del
-    // año. Antes: DELETE-año+INSERT reescribía todo el año cada noche. NO toca las tiendas
-    // SOLO-Wincaja (MD-30/32) — las alimenta import-wincaja-product-sales.js (aditivo).
-    // Canindo migró a Kepler ('06') → SÍ lo alimenta este feed (ya no es SOLO-Wincaja).
+
+    const huerfanas = diff.reduce((a, r) => a + r.huerfanas, 0);
+    const pct = dst.n ? (100 * huerfanas) / dst.n : 0;
+    if (huerfanas > MAX_HUERFANOS_PISO && pct > MAX_HUERFANOS_PCT) {
+      throw new Error(
+        `ABORTADO: el DELETE se llevaría ${huerfanas} filas (${pct.toFixed(1)} % del destino, tope ${MAX_HUERFANOS_PCT} %). `
+        + 'La diaria es superset de la mensual en toda la historia medida, así que esto significa que la diaria '
+        + 'se vació o cambió de llave — borrar propagaría el daño. Revisar product_sales_daily antes de reintentar.');
+    }
+
+    if (!APPLY) {
+      await db.query('ROLLBACK');
+      console.log('\n[DRY-RUN] nada cambió.');
+      return;
+    }
+
     const up = await db.query(
-      `INSERT INTO analytics.product_sales_monthly AS t (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
-       SELECT gen_random_uuid(), $1, product_id, warehouse_id, month, sum(units), now()
-         FROM stg_psm GROUP BY product_id, warehouse_id, month
+      `INSERT INTO analytics.product_sales_monthly AS t
+             (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
+       SELECT gen_random_uuid(), $1, product_id, warehouse_id, month, units, now() FROM stg_psm
        ON CONFLICT (tenant_id, product_id, warehouse_id, month) DO UPDATE SET
-         units=EXCLUDED.units, updated_at=now()
+         units = EXCLUDED.units, updated_at = now()
        WHERE t.units IS DISTINCT FROM EXCLUDED.units`, [M]);
     const del = await db.query(
       `DELETE FROM analytics.product_sales_monthly t
-        WHERE t.tenant_id=$1 AND t.month >= $2 AND t.month < $3
-          AND t.warehouse_id NOT IN (
-            SELECT id FROM commercial.warehouses
-             WHERE tenant_id=$1 AND code IN ('MD-30','MD-32') AND deleted_at IS NULL)
-          AND NOT EXISTS (
-            SELECT 1 FROM (SELECT product_id, warehouse_id, month FROM stg_psm GROUP BY product_id, warehouse_id, month) s
-             WHERE s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id AND s.month=t.month)`,
-      [M, from, to]);
+        WHERE t.tenant_id = $1
+          AND NOT EXISTS (SELECT 1 FROM stg_psm s
+                           WHERE s.product_id = t.product_id
+                             AND s.warehouse_id = t.warehouse_id AND s.month = t.month)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (huérfanas).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
