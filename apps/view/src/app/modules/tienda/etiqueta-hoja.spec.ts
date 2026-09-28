@@ -19,6 +19,8 @@ const LABEL = readFileSync(join(__dirname, 'components', 'label.component.ts'), 
 const PAGE = readFileSync(join(__dirname, 'pages', 'tienda-etiquetas.component.ts'), 'utf8');
 /** CSS global de la app: ahí se declaran las tipografías de la etiqueta (ver el candado de abajo). */
 const GLOBAL = readFileSync(join(__dirname, '..', '..', '..', 'styles.css'), 'utf8');
+/** El arnés de geometría: el que mide el papel, y el único que puede medir el peor caso. */
+const HARNESS = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'etiqueta-geometria.js'), 'utf8');
 
 /**
  * ⛔ El mismo archivo SIN COMENTARIOS — para toda aserción que pregunte "¿el código dice X?".
@@ -719,5 +721,43 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     expect(PAGE).toContain('pi-chevron-left');
     expect(PAGE).toContain('pi-chevron-right');
     expect(PAGE).toMatch(/Math\.min\(this\.sheetPage\(\), this\.totalSheets\(\)\)/);
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FUENTE.1]` SIN TIPOGRAFÍA NO SE IMPRIME — y el freno tiene que estar en los DOS
+   * lados.
+   *
+   * Reporte del mostrador: *"el dinamismo hace que las etiquetas salgan mal en otros equipos"*.
+   * La etiqueta calcula sus tamaños midiendo texto, así que la medida sólo vale para la
+   * tipografía con la que se midió. Medido con el arnés sobre el mismo corpus de 220:
+   * **48 etiquetas (21.8%) rompen un invariante sin las fuentes** — 14 con un renglón recortado,
+   * 33 con los montos a distinto tamaño. Correr `node scripts/etiqueta-geometria.js x
+   * --sin-fuentes` lo reproduce.
+   *
+   * El diagnóstico YA existía (el chip "tipografía de respaldo") y no frenaba nada. Un aviso sin
+   * consecuencia es una decoración: el papel salía mal igual.
+   */
+  it('⭐⭐ con la tipografía de respaldo el botón de imprimir se bloquea, y `print()` también', () => {
+    expect(PAGE).toMatch(/readonly bloqueoTipografia = computed<string \| null>/);
+    // El botón no puede ser el único freno: `print()` es público y se llega por teclado.
+    expect(PAGE).toMatch(/\[disabled\]="!totalLabels\(\) \|\| !!bloqueoTipografia\(\)"/);
+    const fn = /async print\(\): Promise<void> \{[\s\S]*?\n  \}/.exec(PAGE)![0];
+    expect(fn).toContain('this.bloqueoTipografia()');
+    // ⛔ Y frena SÓLO por 'respaldo'. `sin_medir` es "este navegador no deja preguntar": bloquear
+    // por no saber dejaría a esa tienda sin poder etiquetar, que es peor que el riesgo.
+    const g = /readonly bloqueoTipografia = computed<string \| null>\(\(\) => \{[\s\S]*?\n  \}\);/.exec(PAGE)![0];
+    expect(g).toContain("this.fuenteEtiqueta() !== 'respaldo'");
+    expect(g).not.toContain('sin_medir');
+  });
+
+  /**
+   * El arnés tiene que PODER medir el peor caso. Sin `--sin-fuentes` aborta cuando las
+   * tipografías no cargan (y está bien: publicar milímetros medidos con la de respaldo fue un
+   * defecto real), pero entonces nadie podía medir cómo sale la etiqueta en un equipo sin ellas.
+   */
+  it('el arnés puede correr a propósito SIN las tipografías, y lo declara', () => {
+    expect(HARNESS).toContain("const SIN_FUENTES = argv.includes('--sin-fuentes')");
+    expect(HARNESS).toMatch(/if \(faltan\.length && !SIN_FUENTES\)/);
+    expect(HARNESS).toContain('CORRIDA SIN TIPOGRAFIAS');
   });
 });

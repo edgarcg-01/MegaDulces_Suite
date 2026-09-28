@@ -326,8 +326,18 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
           placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones"
           ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiselect>
         <p-button [label]="printBtnLabel()" icon="pi pi-print" [loading]="printing()"
-          [disabled]="!totalLabels()" (onClick)="print()"></p-button>
+          [disabled]="!totalLabels() || !!bloqueoTipografia()" (onClick)="print()"></p-button>
       </div>
+
+      <!-- [ETQ-FUENTE.1] El aviso que FRENA. La pantalla ya sabía que faltaba una tipografia y lo
+           decia en un chip de 11 px en el subtitulo; el boton imprimia igual. Un diagnostico que
+           no tiene consecuencia es una decoracion: el papel salia mal lo mismo. -->
+      @if (bloqueoTipografia(); as b) {
+        <div class="etqp-msg is-error" role="alert">
+          <i class="pi pi-exclamation-triangle"></i>
+          <span>{{ b }}</span>
+        </div>
+      }
 
       @if (msg(); as m) {
         <div class="etqp-msg" role="alert"
@@ -870,6 +880,43 @@ export class TiendaEtiquetasComponent {
     return f.slice(0, -1).join(', ') + ' y ' + f[f.length - 1];
   });
 
+  /**
+   * ⭐⭐ `[ETQ-FUENTE.1]` SIN SUS TIPOGRAFÍAS, LA ETIQUETA NO SE IMPRIME.
+   *
+   * Reporte del mostrador: *"el dinamismo de las etiquetas hace que salgan mal en otros equipos"*.
+   * La etiqueta decide sus tamaños MIDIENDO texto en el navegador, así que la medida vale para la
+   * tipografía con la que se midió. Si Anton / Bebas Neue / Baloo 2 no llegaron, se mide con la
+   * de respaldo — que es más ancha— y el papel sale con otras proporciones.
+   *
+   * ── Medido con el arnés sobre el mismo corpus de 220 etiquetas ──────────────────────────────
+   *
+   *                          con tipografías    SIN tipografías
+   *   renglón recortado ....        0                 14
+   *   nombre recortado .....        1 (declarado)      3
+   *   montos disparejos ....        0                 33
+   *   ───────────────────────────────────────────────────────────
+   *   etiquetas rotas ......        0            **48 de 220 (21.8%)**
+   *
+   * Y un renglón recortado no es un detalle estético: es un precio a medio imprimir en un papel
+   * que el cliente lee en el anaquel.
+   *
+   * ⛔ Por qué FRENA en vez de avisar: el aviso ya existía —un chip de 11 px en el subtítulo— y el
+   * botón imprimía igual. Las fuentes VIAJAN CON LA APP (`assets/fonts`), así que "falta" no
+   * significa "esta tienda no tiene internet": significa que este navegador no las pudo cargar, y
+   * eso se arregla recargando. Frenar empuja al arreglo; avisar produce papel malo.
+   *
+   * ⚠️ `sin_medir` NO frena. Es el navegador que no deja preguntar por las fuentes: ahí no sé si
+   * están o no, y bloquear por no saber dejaría a esa tienda sin poder etiquetar. Se declara.
+   */
+  readonly bloqueoTipografia = computed<string | null>(() => {
+    if (this.fuenteEtiqueta() !== 'respaldo') return null;
+    const f = this.fuentesFaltantesTexto();
+    return `No se puede imprimir: este equipo no pudo cargar ${f || 'la tipografía de la etiqueta'}. `
+      + 'La etiqueta calcula los tamaños midiendo el texto, así que con la tipografía de respaldo '
+      + 'salen renglones cortados y montos de distinto tamaño (medido: 48 de 220 etiquetas). '
+      + 'Recargá la página con Ctrl+F5; si sigue igual, reportalo con una foto de esta línea.';
+  });
+
   private checkPrintGuard(): void {
     let found = false;
     for (const sheet of Array.from(document.styleSheets)) {
@@ -1319,6 +1366,11 @@ export class TiendaEtiquetasComponent {
   async print(): Promise<void> {
     const all = this.expanded();
     if (!all.length || this.printing()) return;
+    // `[ETQ-FUENTE.1]` El botón ya está deshabilitado, pero esto no es redundante: `print()` es
+    // público y la barra de acciones se toca desde el teclado y desde la vista de hoja. Un freno
+    // que sólo vive en un `[disabled]` es un freno que se salta sin querer.
+    const bloqueo = this.bloqueoTipografia();
+    if (bloqueo) { this.msg.set({ kind: 'error', text: bloqueo }); return; }
     this.msg.set(null);
     this.printing.set(true);
     this.printProgress.set(0);
