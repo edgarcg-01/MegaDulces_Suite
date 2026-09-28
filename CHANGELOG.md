@@ -9,6 +9,26 @@
 ---
 
 ## [Unreleased]
+### Internal — Auditoría de CPU del servidor `md`: tres carriles dejan de quemar procesador (CPU.1–CPU.3, 2026-09-28)
+- **El intradía barría 120 días cada hora** cuando su ventana de diseño eran 15: la variable que lo
+  decía vivía en un orquestador que **no es el que corre en producción**. El carril pasó de
+  **836 s a 164–171 s** y el barrido de **769 s a 145 s** — que producía **1.6 s de escritura**.
+  Recupera ~15,360 s/día (0.18 núcleos) y el núcleo clavado bajó de ~14 a ~3 min por hora.
+  Tercera vez que se pierde una variable de esa misma línea (antes `SALES_FACT_DAYS` y
+  `SKIP_AUTOLINK`).
+- **La bandeja de Caja General se refrescaba 1,440 veces al día para ~40 movimientos.** Ahora
+  pregunta antes de refrescar, comparando la firma del corte (conteo + folio + **suma de
+  importes**). **La cadencia de un minuto no se tocó**: la bandeja sigue tan viva como antes.
+  Medido en una ventana real de 35 min: **~1,885 s/día contra 7,487 = 75 % menos**. Un piso de
+  30 min refresca sí o sí, para que un error de la sonda no pueda congelar la bandeja con el
+  tablero en verde.
+- **El resolvedor de unidad se lee de su copia materializada**, que ya existía y estaba poblada
+  mientras tres pantallas derivaban la vista viva. La copia pasa de refrescarse de noche a cada
+  30 min, y cada respuesta ahora **declara de cuándo es** el dato con el que convirtió a cajas.
+  ⚠️ El ahorro de CPU que se le atribuyó **no está probado**: el llamador principal de esa vista
+  sigue sin identificar (detalle en el log de revisiones).
+- Los 8 carriles de ingesta quedaron en la misma imagen, con entrega verificada por latido.
+
 ### Added — Andén: el almacén congelado se puede destrabar desde donde aparece el problema (WMS-REC.16, 2026-09-28)
 - Cuando un inventario físico congela el almacén, el Andén ahora dice **desde cuándo** y permite
   **cancelar el conteo** con un motivo. Cancelar **abandona** el folio: no ajusta ni una pieza de
