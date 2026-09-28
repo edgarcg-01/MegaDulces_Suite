@@ -178,7 +178,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // vive arriba, en Existencia, que lee el ODS.
           { id: 'inventory', label: 'Ajustes de stock', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
           { id: 'warehouses', label: 'Almacenes', route: '/almacen/warehouses', view: [Permission.COMMERCIAL_WAREHOUSES_VER], manage: [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR] },
-          { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR] },
+          // `[AZ.3]` `_CANCELAR_CONTEO` estaba en el enum y en el guard pero NO acá: nadie podía
+          // otorgarlo. Cancelar un conteo es una acción del inventario físico, así que va a su
+          // `manage` — junto a contar, reconciliar y asignar.
+          { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR, Permission.COMMERCIAL_INVENTORY_CANCELAR_CONTEO] },
           { id: 'receiving-auditor', label: 'Recepción (caducidad)', route: '/almacen/inventory/recepcion', view: [Permission.COMMERCIAL_INVENTORY_RECIBIR], manage: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] },
           { id: 'prevention', label: 'Prevención de inventarios', route: '/almacen/prevencion', view: [Permission.COMMERCIAL_PREVENTION_VER], manage: [Permission.COMMERCIAL_PREVENTION_GESTIONAR] },
           { id: 'caducidades', label: 'Control de Caducidades', route: '/almacen/inventory/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
@@ -196,11 +199,23 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // EXCEDER_TOPE no van acá porque no son "ver ni gestionar la pantalla", son facultades
           // de firma y se piden en el endpoint que firma.
           //
-          // **Nivelación NO se declara todavía**, aunque sus claves ya existan en el enum: su
-          // ruta `/almacen/nivelacion` no existe en `app.routes.ts` hasta el PR 4 de la fase, y
-          // un nodo del árbol que apunta a una ruta inexistente es un candidato de aterrizaje
-          // que manda a la nada — SN.4 lo acusa, con razón. Entra junto con su pantalla.
-          { id: 'autoabasto', label: 'Autoabasto', route: '/almacen/autoabasto', view: [Permission.AUTOABASTO_VER], manage: [Permission.AUTOABASTO_SOLICITAR] },
+          // 🔸 **Corregido `[AZ.3]` (2026-09-28).** Las dos decisiones de arriba eran razonables y
+          // las dos producían el MISMO defecto medido: `AUTOABASTO_AUTORIZAR`, `_EXCEDER_TOPE`,
+          // `_POLITICA`, `NIVELACION_VER` y `_GESTIONAR` quedaban **invisibles en /admin/roles**,
+          // o sea imposibles de otorgar — el candado `[AUTHZ.5]` bloque [2] las venía listando en
+          // rojo. Una facultad de firma que nadie puede conceder es una facultad que nadie tiene
+          // (es el defecto que `[LC.6.2]` pagó con un módulo entregado y sin dueño un día entero).
+          //
+          //   · Las tres de Autoabasto entran a `manage`, que es donde el modelo dice que van:
+          //     «acciones finas cuelgan de Gestionar» (cabecera de este archivo). Que se pidan en
+          //     el endpoint que firma no las saca del árbol: el árbol es **cómo se otorgan**, no
+          //     dónde se exigen.
+          //   · Nivelación entra **SIN `route`** — que es la forma que este mismo archivo ya usa
+          //     para el checador (`[CH.1.2]`) y para Fase CV. Así se puede conceder sin volverse
+          //     un candidato de aterrizaje hacia una ruta que todavía no existe, que era la
+          //     preocupación correcta. Cuando llegue su pantalla, se le pone la ruta.
+          { id: 'autoabasto', label: 'Autoabasto', route: '/almacen/autoabasto', view: [Permission.AUTOABASTO_VER], manage: [Permission.AUTOABASTO_SOLICITAR, Permission.AUTOABASTO_AUTORIZAR, Permission.AUTOABASTO_EXCEDER_TOPE, Permission.AUTOABASTO_POLITICA] },
+          { id: 'nivelacion', label: 'Nivelación de inventarios', view: [Permission.NIVELACION_VER], manage: [Permission.NIVELACION_GESTIONAR] },
           // Fase CV — absorbido de 0SistemasMD/catalogo-kp. SIN `route`, igual que el checador
           // de `[CH.1.2]`: la pantalla en apps/view no existe (hoy el frontend sigue siendo el
           // HTML estático del repo standalone, deuda abierta desde el PR #62). Tenía puesta
