@@ -449,6 +449,8 @@ divergir.
 | factor de caja por almacén × producto | `analytics.v_warehouse_box_factor` | un factor por producto |
 | la unidad resuelta, con testigo | `analytics.v_unit_truth` (+ `_coverage`) | — |
 | sell-out Kepler a grano día | `analytics.mv_kepler_sales_daily` | `analytics.sales_daily` para sell-out |
+| ⭐ **el CANAL de una fila de sell-out** (de negocio, no el crudo del ERP) | `analytics.sellout_channel_map` (+ `v_sellout_channel_coverage`) | enumerar canales a mano en el service o en el front: el universo publica SEIS crudos y las listas literales tenían CUATRO — `mayoreo` (U-D-8 telemarketing, $21.4M/90 d) y `contado_nf` quedaban sin rótulo, sin filtro y **sin hoja en el árbol**, que es lo que los tiraba. ⚠️ `wincaja:credito` (caja 70 «Mayoreo a credito») y `kepler:mayoreo` son EL MISMO canal a los dos lados del cutover. VSO.1 · §15 |
+| ⭐ **desde cuándo manda Kepler en una sucursal** (y hasta cuándo Wincaja) | `analytics.v_branch_erp_cutover` | escribir la fecha como literal en una vista (se copió 3 veces y divergió — SB.1), o **inferirla** de `last_movement_date`: es una DECISIÓN, y en La Piedad las dos piernas se traslapan 9 meses. La fecha correcta es el **traspaso real** del POS, no un fin de mes. VSO.3 · §15 |
 | costo pagado al proveedor | `analytics.v_supplier_cost_ladder` | un peldaño fijo de la escalera |
 | venta mensual por ruta | `analytics.sales_by_route_monthly` filtrando `route_code LIKE 'WIN-%'` | las series `c63` `UD100N` que hay en la misma tabla — son **cajas de mostrador**, no rutas |
 | quién escribió cada llave de venta-ruta | `analytics.v_route_monthly_provenance` | suponer que el gold es el universo más fresco |
