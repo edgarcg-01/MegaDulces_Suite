@@ -140,12 +140,12 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
     .mo-detail { display: flex; flex-direction: column; }
     .mo-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .25rem; }
     .mo-h3 { font-size: .85rem; font-weight: 700; margin: 1rem 0 .5rem; }
-    .mo-sub { font-size: .82rem; color: var(--text-color-secondary); margin: 0; }
+    .mo-sub { font-size: .82rem; color: var(--text-muted); margin: 0; }
     .mo-detail-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: .75rem; }
     .mo-count-form { display: flex; flex-direction: column; gap: .5rem; background: var(--surface-ground, var(--surface-50)); border-radius: 8px; padding: .75rem; }
     .mo-row { display: flex; gap: .5rem; align-items: center; }
     .mo-field { display: flex; flex-direction: column; gap: .25rem; }
-    .mo-field > span { font-size: .8rem; color: var(--text-color-secondary); font-weight: 600; }
+    .mo-field > span { font-size: .8rem; color: var(--text-muted); font-weight: 600; }
     .mo-field input[pInputText] { width: 100%; }
     .mo-grow { flex: 1; }
     .mo-notes { width: 100%; }

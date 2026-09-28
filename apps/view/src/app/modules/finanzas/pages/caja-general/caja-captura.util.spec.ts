@@ -108,7 +108,7 @@ describe('motivosDeBloqueo — la pantalla frena lo mismo que el servidor', () =
   });
 
   it('[negativa] sin cuenta Y concepto no se puede guardar — media cuenta no contabiliza', () => {
-    expect(motivosDeBloqueo(formOk({ kepler_concepto: null }))).toContain('falta_concepto');
+    expect(motivosDeBloqueo(formOk({ kepler_concepto: null }))).toContain('falta_concepto_de_cuenta');
     expect(motivosDeBloqueo(formOk({ kepler_cuenta: null }))).toContain('falta_concepto');
   });
 

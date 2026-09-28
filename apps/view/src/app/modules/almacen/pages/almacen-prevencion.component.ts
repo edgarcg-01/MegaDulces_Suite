@@ -159,11 +159,11 @@ import { MonitoreoService } from '../monitoreo.service';
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1rem; }
     .pv-detail { display: flex; flex-direction: column; }
     .pv-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .25rem; }
-    .pv-sub { font-size: .82rem; color: var(--text-color-secondary); margin: 0; }
+    .pv-sub { font-size: .82rem; color: var(--text-muted); margin: 0; }
     .pv-detail-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: .75rem; }
     .pv-facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-bottom: 1rem; }
     .pv-fact { display: flex; flex-direction: column; background: var(--surface-ground, var(--surface-50)); border-radius: 8px; padding: .5rem .6rem; }
-    .pv-fact-l { font-size: .72rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .03em; }
+    .pv-fact-l { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .pv-fact-n { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .pv-neg { color: var(--bad-fg, #b91c1c); }
     .pv-actions { display: flex; flex-direction: column; gap: .5rem; }
@@ -176,7 +176,7 @@ import { MonitoreoService } from '../monitoreo.service';
     .pv-row-click { cursor: pointer; }
     .pv-form { display: flex; flex-direction: column; gap: .25rem; }
     .pv-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }
-    .pv-field > span { font-size: .8rem; color: var(--text-color-secondary); font-weight: 600; }
+    .pv-field > span { font-size: .8rem; color: var(--text-muted); font-weight: 600; }
     .pv-field input[pInputText] { width: 100%; }
     .pv-placeholder { min-height: 200px; display: flex; align-items: center; justify-content: center; }
   `],

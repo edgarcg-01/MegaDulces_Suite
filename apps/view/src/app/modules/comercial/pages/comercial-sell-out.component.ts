@@ -37,21 +37,30 @@ type Measure = 'cajas' | 'monto' | 'ambas';
 /** Entrada por pregunta (B): cada trabajo fija reportMode + agrupado por default. */
 type SellOutJob = 'sucursales' | 'canales' | 'vendedores' | 'objetivo';
 
+/**
+ * ⚠️ [VSO.1] RESPALDO, no fuente. El vocabulario de canal lo declara
+ * `analytics.sellout_channel_map` y llega por `GET sell-out/channels`; estas listas sólo cubren el
+ * primer pintado y un backend viejo.
+ *
+ * Por qué dejaron de ser la fuente: tenían CUATRO canales y el universo publica SEIS. Medido en
+ * prod el 2026-09-28, `mayoreo` (el telemarketing Kepler, U-D-8 — $21,373,739 en 90 días) y
+ * `contado_nf` ($381,787) no tenían casilla, y "Mayoreo" mandaba `credito`, que del lado Kepler ya
+ * no existe: el filtro traía sólo la mitad Wincaja del mismo canal.
+ */
 const CHANNEL_OPTS = [
   { label: 'Mostrador', value: 'mostrador' },
-  { label: 'Preventa', value: 'preventa' },
+  { label: 'Vecinal', value: 'preventa' },
   { label: 'Ruta', value: 'ruta' },
-  { label: 'Mayoreo', value: 'credito' },
+  { label: 'Mayoreo', value: 'mayoreo' },
   { label: 'Otro', value: 'otro' },
 ];
 
-/** Canales seleccionables en el filtro Canal (vocabulario real de venta, sin `otro`).
- *  Vecinal = `preventa`, Mayoreo = `credito` (etiquetas de negocio). */
+/** Canales seleccionables en el filtro Canal (respaldo del de arriba, sin `otro`). */
 const CHANNEL_SEL_OPTS = [
   { label: 'Mostrador', value: 'mostrador' },
   { label: 'Ruta', value: 'ruta' },
   { label: 'Vecinal', value: 'preventa' },
-  { label: 'Mayoreo', value: 'credito' },
+  { label: 'Mayoreo', value: 'mayoreo' },
 ];
 
 /** RS — Generador de reportes Sell-Out por empresa (marca/proveedor). */
@@ -181,7 +190,7 @@ const CHANNEL_SEL_OPTS = [
             </div>
             <div class="so-field so-ms">
               <label>Canal</label>
-              <p-multiselect [options]="channelSelOpts" [ngModel]="channels()" (ngModelChange)="channels.set($event)"
+              <p-multiselect [options]="channelSelOpts()" [ngModel]="channels()" (ngModelChange)="channels.set($event)"
                              optionLabel="label" optionValue="value" placeholder="Todos" appendTo="body"
                              styleClass="w-full" [maxSelectedLabels]="2" selectedItemsLabel="{0} canales"
                              (onPanelHide)="onChannelMultiChange()" />
@@ -1091,7 +1100,9 @@ export class ComercialSellOutComponent {
   warehouses = signal<string[]>([]);
   byChannel = false; // default = trabajo "Sucursales" (una columna por plaza, sin abrir canal)
   includeZeros = false;
-  readonly channelSelOpts = CHANNEL_SEL_OPTS;
+  /** [VSO.1] Los canales los declara el backend (`analytics.sellout_channel_map`), no este archivo.
+   *  `CHANNEL_SEL_OPTS` queda SÓLO como respaldo para el primer pintado y para un backend viejo. */
+  channelSelOpts = signal(CHANNEL_SEL_OPTS);
 
   warehouseOpts = signal<SellOutWarehouseRow[]>([]);
   loadingWarehouses = signal(false);
@@ -1149,7 +1160,7 @@ export class ComercialSellOutComponent {
     for (const w of this.warehouses()) out.push({ kind: 'wh', type: 'Sucursal', label: this.warehouseOpts().find((o) => o.code === w)?.name ?? w, key: w });
     const forcedRuta = this.concentrar() === 'ruta';
     for (const c of this.effectiveChannels()) {
-      const lbl = this.channelSelOpts.find((o) => o.value === c)?.label ?? c;
+      const lbl = this.channelSelOpts().find((o) => o.value === c)?.label ?? c;
       out.push(forcedRuta && c === 'ruta'
         ? { kind: 'conc', type: 'Concentrado', label: lbl, key: c }
         : { kind: 'ch', type: 'Canal', label: lbl, key: c });
@@ -1222,9 +1233,22 @@ export class ComercialSellOutComponent {
     this.syncPeriod();
     this.loadBrands();
     this.loadWarehouses();
+    this.loadChannelOpts();
     this.loadTrees();
     // Al entrar: despacha según el trabajo restaurado (matriz general, o metas si era 'objetivo').
     if (this.job() === 'objetivo') this.loadTargets(); else this.generate();
+  }
+
+  /**
+   * [VSO.1] Trae los canales de NEGOCIO del resolvedor. Si el backend es viejo o falla, se queda
+   * con el respaldo estático — degradar es correcto; lo que no puede pasar es que el filtro ofrezca
+   * un vocabulario que el reporte ya no habla (así se perdieron $21.4M de Mayoreo Kepler).
+   */
+  private loadChannelOpts(): void {
+    this.svc.sellOutChannels().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { if (r?.channels?.length) this.channelSelOpts.set(r.channels); },
+      error: () => { /* respaldo estático ya cargado */ },
+    });
   }
 
   // Los árboles se piden ACOTADOS AL RANGO (from/to) → sus hojas reflejan exactamente lo que el reporte
@@ -1585,7 +1609,10 @@ export class ComercialSellOutComponent {
       }
       if (typeof s.quarter === 'number') this.quarter = s.quarter;
       if (typeof s.year === 'number') this.year = s.year;
-      if (Array.isArray(s.channels)) this.channels.set(s.channels);
+      // [VSO.1] Los filtros guardados traen el vocabulario viejo (`credito` por Mayoreo). El
+      // backend lo normaliza igual, pero el multiselect no lo pintaría marcado — quedaría un
+      // filtro ACTIVO e invisible, que es peor que uno que no se aplica.
+      if (Array.isArray(s.channels)) this.channels.set(s.channels.map((c: string) => (c === 'credito' ? 'mayoreo' : c)));
       if (Array.isArray(s.warehouses)) this.warehouses.set(s.warehouses);
       if (typeof s.byChannel === 'boolean') this.byChannel = s.byChannel;
       if (typeof s.includeZeros === 'boolean') this.includeZeros = s.includeZeros;

@@ -311,7 +311,7 @@ import { Permission } from '../../../core/constants/permissions';
     :host ::ng-deep .status-timeline { padding: .25rem 0; }
     .event { padding:.5rem 0; }
     .event-headline { display:flex; align-items:center; gap:.75rem; margin-bottom:.25rem; }
-    .event-meta { display:flex; gap:1rem; font-size:.8rem; color:var(--text-color-secondary); }
+    .event-meta { display:flex; gap:1rem; font-size:.8rem; color:var(--text-muted); }
     .event-meta i { margin-right:.25rem; }
     .event-reason { margin-top:.25rem; font-size:.85rem; font-style:italic; }
     .hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:.375rem; }
