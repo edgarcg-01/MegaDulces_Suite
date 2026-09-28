@@ -36,7 +36,12 @@ export function requiereEvidencia(c?: string | null): boolean {
 export const CLASIFICACION_LABEL: Record<ExpenseClasificacion, string> = {
   fiscal: 'Con factura',
   no_fiscal_comprobable: 'Sólo ticket o recibo',
-  no_comprobable: 'Sin comprobante',
+  // `[GX.31]` «Vale autorizado», no «Sin comprobante». GX.18 lo renombró en la lista
+  // local de la captura y NO acá, que es la que leen Aprobación y el Historial: la
+  // persona capturaba «Vale autorizado» y quien firma veía «Sin comprobante» — el mismo
+  // gasto con dos nombres, y el segundo además miente, porque desde GX.18 ese tipo SÍ
+  // lleva foto. Lo que no lleva es comprobante FISCAL.
+  no_comprobable: 'Vale autorizado',
 };
 
 export interface Departamento { code: string; nombre: string; sucursal: string; }

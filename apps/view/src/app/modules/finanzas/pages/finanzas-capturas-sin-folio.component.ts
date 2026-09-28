@@ -133,7 +133,7 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
 
                 <td>
                   <span class="cf-fotos">{{ r.fotos }}</span>
-                  @if (!r.tiene_solicitud) { <span class="cf-bad cf-nosol" title="Sin la solicitud firmada no se puede aprobar">sin firmada</span> }
+                  @if (!r.tiene_respaldo) { <span class="cf-bad cf-nosol" title="Sin respaldo de la autorización no se puede aprobar: la solicitud firmada o la foto del vale">sin respaldo</span> }
                   @if (r.camara === 'file') { <span class="cf-meta" title="La foto salió del selector de archivos, no de la cámara en vivo">de galería</span> }
                 </td>
 

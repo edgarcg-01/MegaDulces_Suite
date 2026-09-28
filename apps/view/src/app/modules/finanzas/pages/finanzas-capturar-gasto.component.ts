@@ -727,7 +727,12 @@ export class FinanzasCapturarGastoComponent {
     if (this.modo() === 'evidencia') return !!this.names()['comprobante_1'] && !this.photoLoading();
     if (this.modo() !== 'capturar') return false;
     if (!this.clasificacion()) return false;
-    if (!this.names()['solicitud_kepler']) return false;   // la firma va en los 3 tipos
+    // `[GX.31]` Acá había un `if (!this.names()['solicitud_kepler']) return false;`.
+    // GX.18 retiró la ÚNICA pantalla que subía ese archivo, así que la condición no se
+    // podía cumplir nunca: el botón quedaba apagado de por vida, y encima diciendo
+    // «Enviar a aprobación» porque GX.18 también sacó de `enviarTitle()` la rama que lo
+    // explicaba. El respaldo ahora es la foto en vivo del vale, y la exige `faltan()`
+    // —la misma regla que devuelve el 400 del servidor—, dos líneas más abajo.
     if (this.photoLoading()) return false;
     // GX.14 — la compuerta compartida cubre forma de pago + foto en vivo. El motivo del
     // no_comprobable NO está ahí a propósito: es una regla de ESTA pantalla (el backend la

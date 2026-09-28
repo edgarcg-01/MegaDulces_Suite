@@ -76,8 +76,25 @@ export function requiereEvidencia(c?: string | null): boolean {
 }
 /** El archivo de evidencia que puede faltar (condicional a la clasificación). */
 const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
-/** La solicitud de gasto firmada: **obligatoria siempre**, en los tres tipos de gasto. */
+/** La solicitud de gasto firmada. Respaldo de los expedientes anteriores a GX.18. */
 const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
+
+/**
+ * `[GX.31]` **¿Este archivo respalda que alguien autorizó la salida de dinero?**
+ *
+ * Son dos, y conviven a propósito: `solicitud_kepler` es el papel que se subía hasta
+ * GX.17 y que los expedientes viejos traen; el `comprobante*` es la foto del vale
+ * autorizado que la captura toma desde GX.18. Aceptar sólo uno rompe una de las dos
+ * mitades del historial — y el que se rompía era el de hoy.
+ *
+ * ⚠️ No mira `live`: eso lo juzga `faltaParaMandar` al CREAR, que es donde se puede
+ * exigir. Acá, con el expediente ya guardado, repetirlo dejaría sin aprobar lo que el
+ * propio sistema aceptó — un gasto trabado para siempre, sin nadie que pueda destrabarlo.
+ */
+function tieneRespaldo(f: { role?: unknown; url?: unknown }): boolean {
+  const role = String(f?.role || '');
+  return !!f?.url && (role === REQUEST_ROLE || role.startsWith('comprobante'));
+}
 
 export interface ProofFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -626,12 +643,23 @@ export class ExpenseProofsService {
     if (!proveedor) throw new BadRequestException('proveedor requerido (no vino en la solicitud ni en el formulario)');
     if (!departamento) throw new BadRequestException('departamento o sucursal requerido');
 
-    const roles = new Set(files.map((f) => f.role));
-    // La solicitud firmada respalda la salida de dinero: va en los TRES tipos de gasto.
-    // Un gasto puede no ser comprobable; la autorización nunca deja de existir.
-    if (!roles.has(REQUEST_ROLE)) {
-      throw new BadRequestException('falta la solicitud de gasto firmada (se adjunta siempre, incluso si el gasto no es comprobable)');
-    }
+    // `[GX.31]` **El respaldo de la salida de dinero sigue siendo obligatorio — cambió
+    // cuál es.** Hasta GX.17 era el archivo `solicitud_kepler`, que se subía en un paso
+    // propio. GX.18 retiró ese paso por pedido del usuario y lo reemplazó por la FOTO EN
+    // VIVO del vale autorizado, que ahora se toma en los tres tipos de gasto.
+    //
+    // ⛔ El candado viejo quedó en pie y **dejó la captura inutilizable**: ninguna
+    // pantalla adjuntaba ya ese rol, así que todo POST moría en este 400. Medido contra
+    // la API con exactamente lo que manda hoy la captura.
+    //
+    // ⚠️ Y su reemplazo NO estaba cubierto: `faltaParaMandar` sólo exige la foto cuando
+    // `exige_evidencia` es true, y GX.19 fija la captura en `no_comprobable` — o sea que
+    // quitar el candado a secas dejaba crear un gasto SIN NINGÚN documento. Por eso la
+    // foto se exige ahora SIEMPRE (ver `exige_evidencia: true` abajo), y no por la
+    // clasificación: lo que la clasificación decide es qué CLASE de papel es, no si hay.
+    //
+    // Los expedientes viejos conservan su `solicitud_kepler` y se siguen aprobando: las
+    // puertas de `approve()` y `validate()` aceptan cualquiera de los dos respaldos.
     // GX.11 — la EVIDENCIA vuelve a exigirse en la captura. El diseño de «dos momentos»
     // (mig 20260827120000) la difería hasta después de aprobar, y existía para el caso
     // *pedir dinero → gastar → comprobar*. Decisión del PM (2026-09-15): acá el expediente
@@ -660,7 +688,16 @@ export class ExpenseProofsService {
       forma_pago: formaPago,
       forma_pago_detalle: formaPagoDetalle,
       archivos: files,
-      exige_evidencia: llevaEvidencia,
+      // `[GX.31]` SIEMPRE, no `llevaEvidencia`. La foto del vale autorizado es el
+      // respaldo de que alguien autorizó la salida de dinero, y eso no depende de que
+      // el gasto lleve factura. Con `llevaEvidencia` acá, un `no_comprobable` —que es
+      // lo que la captura genera desde GX.19— pasaba sin una sola imagen.
+      //
+      // ⚠️ Es además lo que el FRONTEND ya hacía: su `llevaEvidencia` es
+      // `!!clasificacion()`, no `requiereEvidencia(...)`, así que su compuerta pedía la
+      // foto y la del servidor no. Las dos reglas escritas distinto se separan, que es
+      // justo lo que esta función existe para evitar.
+      exige_evidencia: true,
     } satisfies EstadoAporte);
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 
@@ -745,8 +782,11 @@ export class ExpenseProofsService {
 
     const finalClas = clasIn || (base.clasCol ? base.cur.clasificacion : null);
     const files: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
-    const hasRequest = files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url);
-    if (!hasRequest) throw new BadRequestException('no se puede aprobar sin la solicitud de gasto firmada adjunta');
+    // `[GX.31]` Cualquiera de los DOS respaldos: la solicitud firmada de los expedientes
+    // viejos, o la foto del vale autorizado de los nuevos. Exigir sólo el primero dejaba
+    // sin aprobar todo lo que se levante desde GX.18 para adelante.
+    const hasRequest = files.some((f) => tieneRespaldo(f));
+    if (!hasRequest) throw new BadRequestException('no se puede aprobar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
 
     const lleva = requiereEvidencia(finalClas);
     const motivo = notaIn || (base.clasCol ? (base.cur.comprobacion_nota || '') : '');
@@ -1660,11 +1700,12 @@ export class ExpenseProofsService {
 
       const finalClas = clasIn || (clasCol ? cur.clasificacion : null);
       const files: any[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
-      // La solicitud firmada es obligatoria SIEMPRE (los 3 tipos): el gate del aprobador
-      // debe ser el mismo que el de la captura, o un expediente sin firma se colaría por API.
-      const hasRequest = files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url);
+      // `[GX.31]` El respaldo es obligatorio SIEMPRE (los 3 tipos): el gate del que cierra
+      // debe ser el mismo que el de la captura, o un expediente sin respaldo se colaría
+      // por API. Vale cualquiera de los dos — ver `tieneRespaldo`.
+      const hasRequest = files.some((f) => tieneRespaldo(f));
       if (!hasRequest) {
-        throw new BadRequestException('no se puede validar sin la solicitud de gasto firmada adjunta');
+        throw new BadRequestException('no se puede validar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
       }
       const hasEvidence = files.some((f) => String(f?.role || '').startsWith('comprobante') && f?.url);
       if (requiereEvidencia(finalClas) && !hasEvidence) {
@@ -1770,7 +1811,10 @@ export class ExpenseProofsService {
             importe: Number(r.importe) || 0,
             monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
             fotos: files.length,
-            tiene_solicitud: files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url),
+            // `[GX.31]` Antes `tiene_solicitud`, y miraba SÓLO la solicitud firmada: desde
+            // GX.18 la foto del vale autoriza igual, así que el chip que colgaba de esto
+            // marcaba «sin firmada» a expedientes perfectamente aprobables.
+            tiene_respaldo: files.some((f) => tieneRespaldo(f)),
             camara: meta.camera ?? null,
             captured_at: meta.captured_at ?? null,
           };

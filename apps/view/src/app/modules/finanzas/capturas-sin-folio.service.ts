@@ -25,7 +25,8 @@ export interface CapturaSinFolio {
   monto_match: boolean | null;
   revision_nota: string | null;
   fotos: number;
-  tiene_solicitud: boolean;
+  /** `[GX.31]` La solicitud firmada (expedientes viejos) **o** la foto del vale autorizado. */
+  tiene_respaldo: boolean;
   /** 'live' = la foto se tomó con la cámara en vivo; 'file' = salió del selector. */
   camara: 'live' | 'file' | null;
   captured_at: string | null;

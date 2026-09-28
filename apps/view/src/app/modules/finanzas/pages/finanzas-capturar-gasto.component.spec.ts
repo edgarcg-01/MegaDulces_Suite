@@ -76,4 +76,39 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.saving.set(true);
     expect(comp.enviarLabel()).toBe('Enviando…');
   });
+
+  /**
+   * ⭐ `[GX.31]` **LA PRUEBA QUE FALTABA.** Todas las de arriba comprueban que el botón
+   * dice qué falta; NINGUNA comprobaba que, sin faltar nada, el gasto se pueda mandar.
+   * Por eso pasó desapercibido que `puedeEnviar()` seguía exigiendo el archivo
+   * `solicitud_kepler` después de que GX.18 retirara la única pantalla que lo subía: el
+   * botón quedó apagado de por vida **diciendo «Enviar a aprobación»**, porque GX.18
+   * también sacó de `enviarTitle()` la rama que lo explicaba. La captura estuvo
+   * inutilizable y verde.
+   */
+  it('con todo puesto, el gasto SE PUEDE ENVIAR', () => {
+    comp.gasto.set({
+      folio: '0049641', beneficiario: 'PREVENCION', importe: 387.25, sucursal: '01',
+      solicitante: 'PREVENCION', fecha: '2026-09-27', concepto: 'BALATAS',
+    } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    // La foto EN VIVO del vale autorizado: es el respaldo desde GX.18. El sello de
+    // camara viaja aparte de `names` — `faltan()` los lee a los dos.
+    comp.names.set({ comprobante_1: 'vale.jpg' });
+    comp.sellos.set({ comprobante_1: { live: true } } as never);
+
+    expect(comp.faltan()).toEqual([]);
+    expect(comp.puedeEnviar()).toBe(true);
+    expect(comp.enviarLabel()).toBe('Enviar a aprobación');
+  });
+
+  /** Y sin la foto NO se puede: el respaldo no es opcional, sólo cambió cuál es. */
+  it('sin la foto del vale, no se puede enviar', () => {
+    comp.gasto.set({ folio: '0049641', importe: 387.25, sucursal: '01' } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    expect(comp.puedeEnviar()).toBe(false);
+    expect(comp.enviarLabel()).toContain('Falta');
+  });
 });
