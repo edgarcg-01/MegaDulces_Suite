@@ -6197,13 +6197,24 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 
 ### ⬜ Pendiente
 
-- **Redeploy api+view.** El código está commiteado con `tsc --noEmit` limpio, pero prod corre el
-  build anterior: la DB ya habla el vocabulario nuevo y la pantalla todavía no. Sin migraciones de
-  permisos → **sin re-login**.
-- **Validación visual** del filtro Canal, del árbol Avanzado y del layout «Por plaza».
+- ✅ **Redeploy api+view — HECHO 2026-09-28 17:10.** ⚠️ Esta línea decía *"prod corre el build
+  anterior"* y **quedó mintiendo**: el deploy ocurrió a las 17:07/17:10, después de la última
+  migración (16:25). Verificado en `md`, no deducido — imagen `trade-prod-api` creada
+  `17:07:51-06:00`, bundle del front `17:06`, y el log de arranque mapea
+  `{/api/commercial/analytics/sell-out/channels, GET}`. ⛔ **La ruta cuelga de `analytics`**: sondear
+  `/api/commercial/sell-out/channels` da 404 y se lee como "no está desplegado" — el 404 es la sonda,
+  no el deploy. Los 4 candados de la fase corren verdes DENTRO de `prod-api` (8+4+4+20, 0 fallas);
+  desde afuera las **pruebas negativas fallan** con `cannot execute DELETE in a read-only
+  transaction` porque la credencial de lectura no puede ejercerlas — eso no es un candado roto.
+- **Validación visual** del filtro Canal, del árbol Avanzado y del layout «Por plaza». **Es lo único
+  de la fase que nadie ha mirado con ojos.**
 - **La parte de meses CERRADOS de `[VSO.3]`** (PH jun-2026, Piedad oct-2025) se ve cuando corra
   `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para meses cerrados. El día
   de Abastos (mes en curso) ya se ve. No se refrescó a mano: 412 MB + 1.6 GB en horario hábil.
+  **Medido 2026-09-28, vista viva contra rollup** (el refresh corrió 06:28, la migración entró
+  13:42 — o sea el rollup es anterior al corte): PH 2026-06 `$9,267,116.58` vs `$8,350,486.85` →
+  **$916,629.73**; La Piedad 2025-10 `$2,508,791.79` vs `$1,888,590.28` → **$620,201.51**.
+  **Total todavía invisible: $1,536,831.24.**
 - ✅ **`[VSO.6b]` resuelto sin preguntarle a Morelia** (mig **563**): el catálogo de vendedores tenía
   la respuesta. **MANUEL HERRERA** no tiene sucesor porque **GUILLERMO HERNÁNDEZ tomó su ruta** —
   Manuel venía de $730,238 en agosto y $137,215 en los 7 días previos al corte (a su mismo ritmo);
@@ -6243,6 +6254,44 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   No aborta, imprime — voltear la regresión por un archivo en curso entrenaría a saltarse el aviso.
   El propio censo destapó que `test-newdb-logistics-tracking.js` **corría duplicada**.
   Estado: **278 = 273 registradas + 5 excluidas**, cero huérfanas/fantasmas/duplicadas.
+- [x] **`[VSO.12]`** ✅ **La alarma que le mentía a esta misma pantalla.** Al verificar el deploy
+  apareció, en **cada** arranque de prod:
+  `WARN [KeplerDatabaseModule] DATABASE_URL_KEPLER_CONSOLIDADO no configurada — reportes Sell-Out
+  sin fuente (degradan a vacío)`. Cualquiera que leyera ese log concluía que el Sell-Out estaba sin
+  datos — justo lo que la fase acababa de certificar.
+  **Era falsa en las DOS direcciones, y eso se midió antes de borrar nada:** (1) `KNEX_KEPLER_RO`
+  estaba *provisto y exportado* por un módulo `@Global()` y **nadie lo inyectaba** — nació en
+  `e2e08b41` para la primera UI de Sell-Out, que después pasó a leer `analytics.v_sellout_daily`;
+  **se fue el consumidor y quedó el módulo**; (2) la consolidación está **sana**: la refresca el
+  carril `refresh-consolidado` de `ops/vl/crontab.feeds` cada 2 min — latido `consolidado_refresh`
+  en `ok`, `4/9 sucursales` minutos antes de mirar.
+  ⛔ **Mi primera hipótesis era la contraria y el código la refutó**: pensé *"ahora que prod vive
+  en `md`, la variable DEBERÍA estar seteada"*. `kepler-consolidado.service.ts` ya lo había previsto
+  por escrito ([NORM.3], 23-sep): **no setearla es deliberado**, porque el consolidado vive en la
+  misma caja que el worker y agregarla haría que **dos agendas** llamen `refresh_si_cambio` sobre la
+  misma base sin saber una de la otra. *Un comentario que anticipa el error del próximo que pase
+  vale más que el código que protege.*
+  **Retirado** el módulo, su export del barrel de `platform-core` y su registro en `app.module.ts`.
+  Verificado contra el artefacto, no contra la intención: en `dist/apps/api/main.js` la clase y el
+  `logger.warn` **ya no existen** (lo único que queda del nombre son mis dos comentarios), y el
+  aviso **legítimo** de `KeplerConsolidadoModule` sigue en pie.
+  ⭐ **Censo completo de WARN/ERROR del arranque de prod** (para no arreglar una y dejar cinco):
+  eran **8 líneas**, y ésta era la **única que mentía**. Las otras dicen la verdad — dos canales
+  apagados que se declaran (`KeplerConsolidadoModule`, y `HealthNotifier`: el WhatsApp de Salud BD
+  sin `DB_HEALTH_ALERT_PHONES`/`DB_HEALTH_WA_TEMPLATE`, que es **OBS.5, BLOCKED por plantilla
+  Meta** — la detección funciona y la alarma no sale del edificio, igual que el incidente que fundó
+  la Fase OBS), cuatro `RolesGuard` 403 de `mario_ventura` (`auxiliar_compras`) sin
+  `COMMERCIAL_*_VER`, y un `TenantContextInterceptor tx failed`.
+  ⛔ **NO se agregó compuerta, a propósito y con motivo.** Lo mecanizable sería un regex sobre el
+  fuente («todo `provide:` tiene un `@Inject`»), y este repo ya midió que **un smoke por regex no
+  prueba nada**: se pone verde con lógica falsa. Una compuerta débil sobre un defecto de *"la
+  advertencia nombra la pantalla equivocada"* sería exactamente la alarma-que-no-significa-nada que
+  este item vino a matar. Se declara en vez de dibujarse.
+  **Colateral ajeno, arreglado porque tenía el typecheck en rojo:** `npm run typecheck:fast` fallaba
+  con `TS2307 Cannot find module '@megadulces/contracts/authz/divergencia'` — el alias existía en
+  `tsconfig.base.json` y **faltaba en `tsconfig.ts7.json`** (residuo de `[OR.2.1]`). El gate del
+  propio repo (`scripts/check-ts7-paths.js`) ya lo diagnosticaba al pie de la letra y **estaba rojo
+  sin que nadie lo corriera**. Una línea: 16→**17 alias, los dos mapas coinciden**, gate en verde.
 
 ---
 ## 📋 BACKLOG — Fases G, H, I

@@ -14,7 +14,6 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from '@megadulces/platform-core';
 import { VectorDatabaseModule } from '@megadulces/platform-core';
 import { Neo4jModule } from '@megadulces/platform-core';
-import { KeplerDatabaseModule } from '@megadulces/platform-core';
 import { AbilityModule } from '@megadulces/platform-core';
 import { ScopeModule } from '@megadulces/platform-core';
 import { UsersModule } from '@megadulces/trade';
@@ -395,8 +394,21 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // rutas inexistentes, que es lo correcto.
     DatabaseModule,
     VectorDatabaseModule,
+    // ⛔ RETIRADO 2026-09-28 [VSO.12]: `KeplerDatabaseModule` (token `KNEX_KEPLER_RO`)
+    // era código muerto que gritaba en CADA arranque de prod
+    // «DATABASE_URL_KEPLER_CONSOLIDADO no configurada — reportes Sell-Out sin fuente
+    // (degradan a vacío)». Medido antes de borrarlo: NADIE inyectaba el token (nació
+    // en `e2e08b41` para la primera UI de Sell-Out, que después pasó a leer
+    // `analytics.v_sellout_daily` y se llevó al consumidor sin llevarse el módulo), y
+    // la consolidación está SANA — la refresca el carril `refresh-consolidado` de
+    // `ops/vl/crontab.feeds` cada 2 min (latido `consolidado_refresh`, verde).
+    // O sea: la alarma era falsa en las dos direcciones y nombraba justo la pantalla
+    // que esta fase acababa de certificar. Misma lección que los sensores retirados en
+    // `db-health` (EXT_SOURCES): una alarma que no se puede apagar enseña a ignorar el
+    // tablero. ⚠️ Que `DATABASE_URL_KEPLER_CONSOLIDADO` NO esté en prod es DELIBERADO
+    // ([NORM.3], `kepler-consolidado.service.ts`): setearla haría que dos agendas
+    // llamen `refresh_si_cambio` sobre la misma base sin saber una de la otra.
     Neo4jModule,
-    KeplerDatabaseModule,
     AbilityModule,
     AuthModule,
     UsersModule,

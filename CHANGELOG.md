@@ -9,6 +9,39 @@
 ---
 
 ## [Unreleased]
+### Removed — una alarma que le mentía al Sell-Out en cada arranque de prod (VSO.12, 2026-09-28)
+Apareció verificando el deploy de la fase VSO, en el log de `prod-api`:
+`WARN [KeplerDatabaseModule] DATABASE_URL_KEPLER_CONSOLIDADO no configurada — reportes Sell-Out sin
+fuente (degradan a vacío)`. Quien leyera el log concluía que el Sell-Out estaba sin datos: justo la
+pantalla que la fase acababa de certificar.
+
+**Era falsa en las dos direcciones, medido antes de borrar:** `KNEX_KEPLER_RO` lo *proveía y
+exportaba* un módulo `@Global()` que **nadie inyectaba** (nació en `e2e08b41` para la primera UI de
+Sell-Out; ésta pasó luego a leer `analytics.v_sellout_daily` y **se fue el consumidor, quedó el
+módulo**), y la consolidación está **sana** — la refresca el carril `refresh-consolidado` de
+`ops/vl/crontab.feeds` cada 2 min (latido `consolidado_refresh` en `ok`).
+
+⛔ **La hipótesis intuitiva era la contraria y el código la refutó.** Parecía que *"ahora que prod
+vive en `md`, la variable debería estar seteada"*; `kepler-consolidado.service.ts` ya lo había
+previsto por escrito ([NORM.3]): **no setearla es deliberado**, porque el consolidado vive en la
+misma caja que el worker y agregarla pondría **dos agendas** llamando `refresh_si_cambio` sobre la
+misma base sin saber una de la otra.
+
+- **Removed** `libs/platform-core/src/lib/database/kepler-database.module.ts`, su export del barrel
+  y su registro en `app.module.ts`. Verificado **contra el artefacto**: en `dist/apps/api/main.js`
+  la clase y el `logger.warn` ya no existen, y el aviso legítimo de `KeplerConsolidadoModule` sigue.
+- **Internal** — censo de WARN/ERROR del arranque de prod: **8 líneas, una sola mentía**. Las demás
+  declaran la verdad, incluida `HealthNotifier` (el WhatsApp de Salud BD apagado = **OBS.5, BLOCKED**
+  por plantilla Meta: la detección funciona y la alarma no sale del edificio).
+- **Fixed** (ajeno, tenía el typecheck del repo en rojo) — `npm run typecheck:fast` fallaba con
+  `TS2307 … '@megadulces/contracts/authz/divergencia'`: el alias estaba en `tsconfig.base.json` y
+  faltaba en `tsconfig.ts7.json` (residuo de `[OR.2.1]`). El gate `scripts/check-ts7-paths.js` ya lo
+  diagnosticaba exacto y **estaba rojo sin que nadie lo corriera**. 16 → **17 alias**, gate en verde.
+- ⛔ **Sin compuerta nueva, a propósito**: lo único mecanizable sería un regex sobre el fuente, y
+  este repo ya midió que un smoke por regex se pone verde con lógica falsa. Una compuerta débil
+  contra *"la advertencia nombra la pantalla equivocada"* sería la misma alarma-sin-significado que
+  este cambio vino a matar. Se declara en vez de dibujarse.
+
 ### Fixed — Sell-Out: el 13.5 % de la venta no tenía canal, y tres cortes dejaban $1.95M sin publicar (VSO.1–VSO.3, 2026-09-28)
 Pedido de Edgar: *"necesito que encontremos verdad absoluta en /comercial/sell-out — canales, sucursales y vendedores"*.
 Todo medido contra prod (`pg-prod` en `md`, sysid `7688376744939610156`).

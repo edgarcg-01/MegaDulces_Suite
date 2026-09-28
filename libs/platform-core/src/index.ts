@@ -8,7 +8,9 @@ export * from './lib/database/new-database.module';
 export * from './lib/database/tenant-knex.service';
 export * from './lib/database/vector-database.module';
 export * from './lib/database/neo4j.module';
-export * from './lib/database/kepler-database.module';
+// ⛔ RETIRADO 2026-09-28 [VSO.12]: `kepler-database.module` (`KNEX_KEPLER_RO`) — provider
+// global sin un solo consumidor, cuyo único efecto observable era una advertencia falsa
+// sobre el Sell-Out en cada arranque. Ver el comentario en `apps/api/src/app.module.ts`.
 export * from './lib/database/pg-listen.service';
 
 // ── queue (worker-tier, pg-boss) ──
