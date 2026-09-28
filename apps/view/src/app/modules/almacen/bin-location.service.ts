@@ -131,6 +131,9 @@ export interface WarehouseFreeze {
   folio: string | null;
   count_id: string | null;
   status: string | null;
+  /** Cuando se abrio el folio que congela (ISO), o null. Lo usa el panel para decir
+   *  hace cuanto: un conteo de dos horas es trabajo vivo, uno de cien dias no. */
+  opened_at: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -174,6 +177,24 @@ export class BinLocationService {
   warehouseFreeze(warehouseId: string): Observable<WarehouseFreeze> {
     const params = new HttpParams().set('warehouse_id', warehouseId);
     return this.http.get<WarehouseFreeze>(`${this.base}/warehouse-freeze`, { params });
+  }
+
+  /**
+   * **Abandona el folio de conteo que congela el almacen.** No ajusta stock.
+   *
+   * Gemelo de `ComercialService.inventoryCancelCount` — mismo endpoint, dos
+   * llamadores. Vive tambien aca para que el Anden no tenga que importar el
+   * servicio entero de Comercial por una linea de HTTP. Si aparece un tercero,
+   * toca subirlo a un lugar compartido.
+   *
+   * El `reason` NO es opcional en la practica: queda en `notes` del folio y es lo
+   * unico que explica por que se tiro un conteo.
+   */
+  cancelInventoryCount(countId: string, reason: string) {
+    return this.http.post<{ status: string; folio: string }>(
+      `${this.base}/counts/${countId}/cancel`,
+      { reason },
+    );
   }
 
   /**

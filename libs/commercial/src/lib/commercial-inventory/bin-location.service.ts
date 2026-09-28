@@ -127,6 +127,8 @@ export interface WarehouseFreeze {
   folio: string | null;
   count_id: string | null;
   status: string | null;
+  /** Cuando se abrio el folio que congela (ISO), o null si no hay. */
+  opened_at: string | null;
 }
 
 /** Lo que deja un movimiento entre ubicaciones. */
@@ -467,13 +469,16 @@ export class BinLocationService {
       const frozen = await trx('commercial.inventory_counts')
         .where({ warehouse_id: warehouseId, freeze_movements: true })
         .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
-        .first('id', 'folio', 'status');
+        .first('id', 'folio', 'status', 'created_at');
       return {
         warehouse_id: warehouseId,
         frozen: !!frozen,
         folio: frozen?.folio ?? null,
         count_id: frozen?.id ?? null,
         status: frozen?.status ?? null,
+        // Desde cuando. Sin esto, quien decide si abandonar el conteo decide a ciegas:
+        // un folio de dos horas es trabajo vivo, uno de cien dias es basura olvidada.
+        opened_at: frozen?.created_at ? new Date(frozen.created_at).toISOString() : null,
       };
     });
   }
