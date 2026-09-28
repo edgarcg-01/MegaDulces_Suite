@@ -5,6 +5,167 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`)
+
+**Cómo se llegó:** una pregunta del usuario —*"¿por qué tenemos el ODS y la base en dos mundos
+distintos consumiendo más recursos?"*— que la medición **respondió al revés de lo esperado**.
+
+### La respuesta a la pregunta original
+
+Los dos mundos (el concentrador `:5433` con las 9 réplicas, y `pg-prod` `:5434`) **no son el
+problema de CPU**. Medido sobre 19.5 h:
+
+| | seg-CPU | ≈ núcleos | % de la máquina (8 hilos) |
+|---|---:|---:|---:|
+| `pg-prod` | 77,743 | 1.10 | 13.8 % |
+| `pgvector-md` (la fuente) | 33,516 | 0.48 | 5.9 % |
+| **los 4 carriles del ODS juntos** | **10,172** | **0.14** | **1.8 %** |
+| `pg-rag` (0 tablas) | 193 | 0.003 | — |
+
+El shipping cuesta **1.8 % de la máquina**. Lo de `pgvector-md` son los 9 *apply workers* de la
+replicación lógica, que ninguna arquitectura elimina: la replicación lógica de Postgres aplica a
+la tabla **con el mismo nombre calificado del publicador**, y las 9 sucursales publican `md.*` —
+nueve `md.kdm1` no caben en una base. El ODS, en cambio, es **una** `kepler_ods.kdm1` con columna
+`sucursal`. Alguien tiene que leer 9 y escribir 1; eso es el shipper, y es cambio de forma, no
+desperdicio. Lo que **sí** caducó es el motivo que forzaba el doble salto: hasta `[VL.11]` prod
+vivía en Railway y un Kepler en `192.168.32.32` no es alcanzable desde ahí. Hoy los dos extremos
+están en el mismo NVMe. La arquitectura sobrevivió a su motivo, pero lo que queda es chico.
+
+### `[CPU.1]` El intradía barría 120 días cada hora — la ventana de diseño era 15
+
+`STOCK_MOVEMENTS_DAYS: '15'` estaba declarado **sólo** en `orchestrator/schedules.js:27`, que
+consume `feed-worker.js` (pg-boss). El sustrato que corre desde la Fase VL es
+`crontab.feeds` → `run-feed.sh` → `run-prod-feeds.js`, y ahí nunca se seteó → el importer caía a
+su default de **120 d, cada hora**.
+
+⭐ **Tercera vez que ese mismo bloque `env` cobra**: antes fueron `SALES_FACT_DAYS` (`[NORM.3]`,
+13 meses cada 30 min) y `SKIP_AUTOLINK` (`[DB-MEM.7]`, ~5 h de CPU/día). `[DB-MEM.7]` construyó
+`ENV_POR_MODO` para exactamente esto y dejó escrito *"si mañana aparece otra mitigación por modo,
+va acá"* — **se trajo una de las dos variables de esa línea y dejó la hermana allá**.
+
+| | antes | después |
+|---|---:|---:|
+| carril `feed_intraday` | **836 s** (13 corridas: 770–1,013) | **193 s** agendada · **164–171 s** a 3 días |
+| `INSERT INTO stg_mov` | 769 s | **145 s** (`min_exec_time` lo confirma) |
+
+El desglose delata la naturaleza del desperdicio: el barrido costaba **769 s** y el merge escribía
+**1.6 s**. El diseño *churn-free* funciona; lo que sobraba era escanear 120 d de `kdm1⋈kdm2` cada
+hora para descubrir que no cambió nada. **~15,360 s/día = 0.18 núcleos**, y el núcleo clavado bajó
+de ~14 a ~3 min por hora. Historia intacta (el merge es aditivo por bloque): 54,748 filas ≤15 d ·
+589,854 de 16–120 d · 3,097,674 de más de 120 d, desde 2020-03-20.
+
+### `[CPU.2]` El resolvedor de unidad se lee de la copia — y una atribución que NO se probó
+
+`commercial-analytics.service.ts` tenía `analytics.v_unit_truth` **clavada a mano en tres lugares**
+(3524, 4380, 4905) con `mv_unit_truth` poblada al lado. El módulo hermano `commercial-bi-almacen`
+lo hacía bien desde `[WMS-BI.4.3]`, pero el primitivo vivía en UNA rebanada — el patrón de ADR-056.
+
+Medido: un scan **completo** de la vista cuesta **1.32 s** para sus 180,272 filas, y una llamada
+**filtrada por SKU** cuesta **1.55 s**. Filtrar no ahorra nada — el filtro cae sobre
+`btrim(columna)`, que ningún índice atiende. No es una caché que evita trabajo repetido: es la
+diferencia entre derivar una vez y derivar miles.
+
+El hueco se midió **antes** de mover un número (copia vs vista, ~6 h de rezago): llaves idénticas
+(180,272 = 180,272), **cero** diferencias en `box_factor`/`metodo_cajas`/`base_label`/`is_weight`,
+y **32 filas (0.018 %)** en `cja_price`. El rezago no rompía conversiones: movía precios de caja.
+Por eso la matvista salió del grupo solo-nocturno a `everyMin: 30` (`REFRESH CONCURRENTLY` = 9.0 s
+medido) **y sigue además en el nocturno**, porque su latido dedicado sólo lo escribe ese loop y
+sacarla dejaría `analytics_refresh_unit_truth` registrado en `CRON_JOBS` sin nadie que lo escriba
+= rojo permanente, que entrena a ignorar el tablero igual que un verde falso.
+
+El primitivo subió a `platform-core/provenance/materialized.ts` (`preferMaterialized`), junto a
+`freshness` y `cron-heartbeat`. Dos defectos del original, corregidos al subirlo: la caché de
+existencia cacheaba el `false` **de por vida** (aplicar la migración exigía reiniciar la API), y la
+lectura de `refreshed_at` corría suelta dentro de la transacción del reporte — un error suyo
+abortaba el reporte entero; ahora va bajo `SAVEPOINT`.
+
+⚠️⚠️ **CORRECCIÓN HONESTA, y es la lección más importante de esta auditoría.** Al cerrar `[CPU.2]`
+se le atribuyeron **0.14 núcleos** al arreglo. **Eso no está probado.** Verificado el 28-sep: el
+call site nuevo corre en **102 ms** contra los 1,550 ms de la vista viva (15×, real), pero
+`v_unit_truth` **sigue siendo el #1 del servidor** (40,541 s · 24,062 llamadas · 23.3 %) y el
+tráfico continúa. No quedan call sites en TypeScript, sólo dos objetos de la DB dependen de la
+vista (`mv_unit_truth` y `v_unit_truth_coverage`), y **180 s muestreando `pg_stat_activity` cada
+2 s no atraparon ni una ejecución**. Los tres sitios arreglados se usaron **14 veces** desde el
+despliegue. ⇒ La mayor parte de ese 23 % **tiene otro dueño, sin identificar**. El arreglo es
+correcto; el ahorro que se le puso en el mensaje de commit, no. *`pg_stat_statements` dice qué se
+ejecuta, nunca quién lo pide: atribuir sin medir el llamador es adivinar con números al lado.*
+
+### `[CPU.3]` La caja preguntaba 1,440 veces al día para ~40 movimientos
+
+`analytics.mv_caja_movimientos` se refrescaba cada minuto: **5,349 refrescos / 27,551 s en 3.68 d
+= 7,487 s/día = 0.087 núcleos**, para capturar ~40 movimientos diarios. ~36 refrescos por cada
+movimiento nuevo.
+
+Se **descartó** bajar la cadencia a 5 min: no es un reporte, es la **bandeja de trabajo** de Caja
+General, con un puente `NOTIFY`→WebSocket (`[CG.23.2]`) hecho para que se sienta viva; y obligaría
+a mover el umbral de `db-health` en el mismo cambio. En su lugar: **preguntar antes de refrescar**.
+
+| | costo medido |
+|---|---:|
+| firma ventana 2 d sobre la COPIA | 4.7 ms |
+| firma ventana 2 d sobre la FUENTE | 638 ms |
+| `REFRESH CONCURRENTLY` | 5,151 ms |
+
+**Resultado en una ventana real de 35 min (08:44→09:19):** 3 refrescos (18.5 s) + 32 saltos
+(27.3 s) = **45.8 s ⇒ 1.31 s/ciclo × 1,440 = ~1,885 s/día contra 7,487 = 75 % menos**, con la
+cadencia de 1 minuto **intacta**.
+
+⛔ **El piso de 30 min es lo que hace seguro al resto, y no es decoración.** Una sonda mete un modo
+de falla PEOR que el que resuelve: si dice "sin cambios" estando equivocada, la bandeja se congela
+y **nadie se entera** — el latido sigue verde y `datos_al` sigue diciendo "hace un minuto", porque
+la pantalla lee la edad del **latido**, no del matview (`[CG.22.4]`). Por eso se refresca sí o sí
+cada 30 min, medido contra la última corrida que refrescó **de verdad** (`note IS NULL`), no contra
+la última corrida — confundirlas dejaría el piso satisfecho para siempre.
+
+⭐ Esa ventana trajo **la prueba que no se podía fabricar**: los 3 refrescos ejercitaron los DOS
+mecanismos con dato de producción — `piso de 30 min (último hace 30.7)` y `la sonda vio cambios`
+×2, con la bandeja creciendo 12,429 → 12,432 filas. Una sonda que dijera "sin cambios" para
+siempre habría pasado igual las pruebas de humo.
+
+### Hallazgos colaterales, medidos
+
+1. ⛔ **El auto-deploy recrea la BASE DE PRODUCCIÓN y su log no lo dice.** La corrida de las 08:30
+   del 28-sep registró `servicios: api worker`; `pg-prod` quedó con `Created == StartedAt ==
+   14:34:17Z` y `RestartCount=0` ⇒ **contenedor nuevo**, Postgres apagado y levantado. También
+   recreó `portal` y `vendor`. Es la causa de los **27 reinicios** de `ods-live-hot`/`mirror`:
+   mueren con `the database system is shutting down` → `ECONNRESET` → `getaddrinfo EAI_AGAIN
+   pg-prod`, y `restart: unless-stopped` los revive. Se auto-curan y no pierden filas (el
+   watermark vive en `ods.ctl`), pero ocurre **4+ veces al día sin estar declarado**.
+2. ⭐ **`deploy.sh --estado` compara ID DE IMAGEN, no código, y por eso grita en falso.** Decía
+   *"7 carriles con código VIEJO"*; comparando `md5sum` archivo por archivo **dentro de los
+   contenedores**, 6 de los 7 corrían código **byte-idéntico** (`replicate-ods-live.js`,
+   `reconcile-ods-window.js`, `live-tickets-poller.js`, `kepler-branches.js`, `sink.js`,
+   `cron-heartbeat.js`, `apply-handlers.js`). El único que difería de verdad era `feeds-livefast`,
+   por `run-prod-feeds.js`. La imagen cambia de ID cuando **cualquier** sesión agrega un archivo al
+   contexto de build. `[CT.1]` documentó una deriva REAL; con este chequeo no se puede distinguir
+   una de la otra, que es justo cómo se termina ignorando la real. Los 8 quedaron alineados en
+   `05917ce87173` y con entrega verificada por latido.
+3. `pg-rag` es un Postgres entero con **0 tablas** reservando 512 MB de `shared_buffers`.
+4. `wincaja` ocupa **35 GB** en el concentrador con **21 transacciones acumuladas** (contra 595,950
+   de `kepler_md_03`): el sistema se apagó y nadie lee esa copia.
+5. Los `effective_cache_size` suman **26 GB declarados** contra ~10 GB de page cache real
+   compartido: dos planificadores dimensionándose como si cada uno fuera dueño de la máquina.
+
+### Lecciones
+
+- **Un bloque `env` que vive en el sustrato equivocado no falla: gasta.** Tres variables de la
+  MISMA línea se perdieron en la misma mudanza, en tres momentos distintos. Rescatar una no
+  arregla el bloque.
+- **`pg_stat_statements` dice QUÉ se ejecuta, nunca QUIÉN lo pide.** Atribuir un ahorro a un
+  arreglo sin medir el llamador es adivinar con un número al lado — y acá se hizo.
+- **Una sonda que evita trabajo introduce un falso verde**; sólo es aceptable con un piso que
+  acote el daño **sin depender de que la sonda sea correcta**.
+- **Un chequeo de deriva que compara identidad de artefacto en vez de identidad de contenido
+  grita en falso**, y una alarma que grita en falso enseña a ignorar el tablero.
+
+### Pendiente
+
+- ⛔ Atribuir quién llama a `v_unit_truth` (vía `application_name` en las conexiones).
+- Declarar o corregir que el auto-deploy recree `pg-prod` en cada despliegue.
+- Decidir qué pasa con los 35 GB de `wincaja` y con `pg-rag` (requiere autorización: no se borra).
+- Bajar los `effective_cache_size` a lo que existe de verdad.
+
+---
 ## 2026-09-28 — `[WMS-REC.16]` Abandonar un conteo deja de exigir el poder de vaciar un almacén
 
 **Cómo se llegó:** un 504 al intentar fechar en el Andén. Investigando aparecieron **dos
