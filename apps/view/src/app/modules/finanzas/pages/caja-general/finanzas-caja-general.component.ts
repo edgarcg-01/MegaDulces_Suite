@@ -538,7 +538,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
-        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()" placeholder="Folio, glosa o beneficiario" />
+        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
+               placeholder="Folio nuestro o de Kepler, concepto, beneficiario, usuario…" />
       </div>
 
       <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
