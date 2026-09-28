@@ -733,8 +733,9 @@ export class CommercialQuotesService {
         }
         return row;
       });
-    } catch (err: any) {
-      if (err?.code === '25006' || err?.code === '42501') {
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === '25006' || code === '42501') {
         throw new ServiceUnavailableException(
           'Base de datos en modo solo lectura para este usuario (conexión de desarrollo local). La persistencia de cotizaciones requiere permisos de escritura (app_runtime/producción).',
         );
