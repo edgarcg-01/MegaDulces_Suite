@@ -6125,6 +6125,66 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
+## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
+
+Pedido de Edgar: *"necesito que encontremos verdad absoluta en `/comercial/sell-out`; para empezar,
+en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en `md`, sysid
+`7688376744939610156`), no contra la réplica.
+
+- [x] **`[VSO.0]`** ✅ Auditoría de las tres dimensiones contra prod.
+- [x] **`[VSO.1]`** ✅ El CANAL pasa a ser DATO — `analytics.sellout_channel_map` +
+  `v_sellout_channel_coverage` (mig **556**, prod). El universo publica **seis** canales crudos y la
+  pantalla conocía **cuatro**: `mayoreo` (Kepler `U-D-8` Factura Telemarketing, **$21,373,739/90 d**)
+  y `contado_nf` ($381,787) sin rótulo, sin casilla y **sin hoja en el árbol** — y el árbol arma un
+  `cellFilter`, así que abrirlo tiraba esos $21.4M. Service, front, plantilla de plaza, whitelists y
+  metas dejan de enumerar canales y leen el resolvedor (`GET sell-out/channels`).
+- [x] **`[VSO.2]`** ✅ `v_sellout_vs_facturacion` en canal de negocio (mig **557**): sep-2026 pasa de
+  **338.7 % `revisar`** a **80.7 % `concilia`**.
+- [x] **`[VSO.3]`** ✅ Los tres cortes al traspaso REAL (mig **558**): **+$1,953,784.56** de venta que
+  ningún reporte mostraba. PH `07-01`→`06-27` · La Piedad `10-01`→`10-10` · Abastos `09-18`→`09-19`.
+- [x] **`[VSO.4]`** ✅ `test-newdb-branch-cutover.js` deja de medir las piernas CRUDAS: 20 OK / 0
+  fallas (antes 13 / **6**).
+- [x] **`[VSO.5]`** ✅ §5 de `VERDAD_ABSOLUTA.md` estrena los dos resolvedores que le faltaban.
+
+### Las tres cosas que esto enseñó, y que valen más que el dinero recuperado
+
+1. **La taxonomía correcta vivía en la base y en ningún lado más.** SD-CH entró por un *script
+   suelto* que reescribe la vista viva; las **seis** migraciones de `v_sellout_daily` siguen diciendo
+   `mayoreo → credito`, o sea que un `DROP CASCADE` la revertía sola. Un cambio que no pasa por la
+   cadena de migraciones no existe para nadie más que para la base.
+2. ⛔ **El hueco de sucursales NO estaba sin detectar: estaba detectado y desatendido.** El candado
+   llevaba **6 fallas** nombrándolo. Lo que falló fue que su rojo *no significaba nada*, porque dos
+   de sus mediciones eran falsos positivos que lo tenían permanentemente encendido. **Una alarma que
+   no se puede apagar enseña a ignorar el tablero** — la misma lección que ya estaba escrita para
+   `banco_saldo_no_cuadra`, pagada otra vez.
+3. **Un residuo se DECLARA con nombre, día, monto y razón medida — y se verifica que siga
+   existiendo.** El único hueco que queda ($21,938.45) es la carga inicial de Kepler en La Piedad:
+   307 filas / **307 SKUs distintos** (una por SKU) estampadas en la fecha de arranque, con Wincaja
+   —el POS vivo ese 1-ene— en $0. El candado lo imprime, y **falla si desaparece**, para que la
+   declaración no envejezca en silencio.
+
+### ⬜ Pendiente
+
+- **Redeploy api+view.** El código está commiteado con `tsc --noEmit` limpio, pero prod corre el
+  build anterior: la DB ya habla el vocabulario nuevo y la pantalla todavía no. Sin migraciones de
+  permisos → **sin re-login**.
+- **Validación visual** del filtro Canal, del árbol Avanzado y del layout «Por plaza».
+- **La parte de meses CERRADOS de `[VSO.3]`** (PH jun-2026, Piedad oct-2025) se ve cuando corra
+  `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para meses cerrados. El día
+  de Abastos (mes en curso) ya se ve. No se refrescó a mano: 412 MB + 1.6 GB en horario hábil.
+- **`[VSO.6]` identidad de vendedor partida por el cutover** — ALBERTO AYALA (`30:74`+`30:75` →
+  `alberto-ayala-mor`, pero desde el 18-sep vende como `08:20003`), CANDY SALGADO (`candy-salgado`
+  vs `ph-vecinal-candy`: **dos claves canónicas para la misma persona**) y JOSEPH (hasta **3**
+  columnas). **79 de 123 códigos** no tienen fila en `analytics.vendor_identity`.
+- **`[VSO.7]`** `test-newdb-sellout-parity.js` sigue siendo un test de PRESENCIA (`count>0` de cada
+  lado del corte), no de continuidad: da ✔ con 9 días de hueco. Su bloque 3 se puede retirar y
+  delegar en `test-newdb-branch-cutover.js`, que ya lo mide bien.
+- **Ajeno pero medido:** `commercial.sales_targets` está **VACÍA** en prod → el trabajo «vs Objetivo»
+  del sell-out no tiene una sola meta que mostrar. Y en `test-newdb-truth-parity.js` hay **dos
+  trinquetes rotos** de otros dominios (factor de caja **50** contra baseline 0 · clase ABC **2**
+  contra 0); con objetivo CERO, eso son bugs, no pendientes.
+
+---
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
