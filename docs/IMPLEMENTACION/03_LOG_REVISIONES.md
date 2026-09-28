@@ -140,18 +140,35 @@ Dos cosas que esto zanja:
   mudar la mentira de lugar. La marca honesta es `kepler_ods._sync_status`, que el handler escribe
   con la hora real de cada empuje.
 
-### Pendiente — necesita autorización (toca la base y el servicio de la tienda)
+### El corte, ejecutado y probado desde afuera (autorizado por el usuario)
 
-1. **Reemplazar las 4 tablas foráneas de `kepler_ods_fdw` por vistas sobre las locales frescas.**
-   Verificado que se puede: mismas 104/110/5/6 columnas, mismo tipo y mismo orden, y **ningún objeto
-   depende de ellas**. Con esto, si la recarga vieja despierta, copia fresco sobre fresco — un no-op
-   en vez de una vuelta atrás de 5 días. No hace falta borrar las `*_staging`.
-2. **Repuntar `DATABASE_URL_KEPLER_LIVE` del servicio `Ecommerce-Mayorista`** de `trolley` a su
-   propia base (`postgres.railway.internal:5432/railway`), donde `kepler_ods.*` ya está fresco.
-   Reinicia el servicio. Reversible en segundos: el valor viejo es el mismo `trolley` de siempre.
+1. **Las 4 tablas foráneas de `kepler_ods_fdw` son ahora VISTAS sobre las locales frescas.** Se pudo
+   porque tenían las mismas 104/110/5/6 columnas, mismo tipo, mismo orden, y **ningún objeto dependía
+   de ellas** (medido antes de tocar). Efecto buscado: si la recarga vieja despierta, ahora copia
+   fresco sobre fresco —un no-op— en vez de retroceder 5 días. **No hizo falta borrar las
+   `*_staging`**, y no se borraron: neutralizar el origen es más barato y más reversible que
+   desmantelar el destino.
+2. **`DATABASE_URL_KEPLER_LIVE` del servicio `Ecommerce-Mayorista` apunta a su propia base.** Se usó
+   una **referencia de Railway** (`${{Postgres.DATABASE_URL}}`) en vez del valor literal, así la
+   credencial no pasó por la línea de comando. Despliegue `891e97eb` → `SUCCESS`.
 
-⚠️ Mientras el punto 2 no se haga, **la tienda sigue sirviendo existencia y precio de hace 5 días**,
-aunque su propia base ya tenga el dato bueno.
+**La prueba que no admite interpretación.** Se buscó un SKU cuya existencia difiera entre las dos
+bases (hay **236** en la sucursal 03) y se le preguntó a la **API pública** de la tienda:
+
+| | |
+|---|---:|
+| SKU `01079` BOT DORITOS NACHO, sucursal 01 — prod FRESCA | **3,675** |
+| la misma consulta contra la prod CONGELADA | 2,425 |
+| lo que publica `GET /api/tienda/catalogo?q=01079` | **3,675** ✅ |
+
+Y los contadores de lectura lo confirman por el otro lado: en la prod vieja `kdii`, `kdie` y `kdig`
+quedaron clavados en `17:46:07` y no volvieron a moverse. ⚠️ `kdik` sí avanzó +2 a las 17:50 — son
+**las sondas de esta sesión**, que leen esa tabla; la firma de la tienda toca **las cuatro en el
+mismo instante** y eso no volvió a ocurrir. Se declara en vez de presentarse como silencio perfecto.
+
+Cabo suelto cerrado sin borrar nada: el servidor `bd_centralizado` sigue existiendo (camino de
+rollback) pero ahora lleva un `COMMENT` que dice que apunta a una prod congelada y que no se le
+cuelguen foráneas. **No queda ninguna tabla foránea viva** en toda la base.
 
 ---
 ## 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`)
