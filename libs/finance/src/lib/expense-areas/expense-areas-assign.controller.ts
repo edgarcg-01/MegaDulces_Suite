@@ -21,14 +21,14 @@ export class ExpenseAreasAssignController {
   constructor(private readonly svc: ExpenseAreasAssignService) {}
 
   @Get('asignacion')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSE_AREAS_GESTIONAR)
   @ApiOperation({ summary: '[GX.16] Quién captura o revisa gastos, qué áreas tiene hoy y cuál se le propone. La propuesta exige que el nombre del área esté contenido ENTERO en el de la persona: aflojarla propone el área de un homónimo.' })
   estado(@Query('dias') dias?: string) {
     return this.svc.estado(dias ? Number(dias) : undefined);
   }
 
   @Post('asignacion')
-  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @RequirePermissions(Permission.FINANCE_EXPENSE_AREAS_GESTIONAR)
   @ApiOperation({ summary: '[GX.16] Aplica las asignaciones confirmadas. Reemplaza la lista completa de cada usuario (sirve para agregar y para quitar).' })
   asignar(@Body() body: { asignaciones?: AsignacionPedida[] }, @Req() req?: AuthedRequest) {
     return this.svc.asignar(body?.asignaciones || [], req?.user?.full_name || req?.user?.username);

@@ -1508,7 +1508,7 @@ export const routes: Routes = [
          */
         path: 'areas-gasto',
         loadComponent: () => import('./modules/dashboard/admin-users/areas-gasto.component').then(m => m.AreasGastoComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSE_AREAS_GESTIONAR)]
       },
       {
         // `[AU.3]` El catálogo de puestos y la cadena de mando. Hasta ahora sólo
@@ -1528,7 +1528,7 @@ export const routes: Routes = [
         // P2.6 — asignar marcas a promotores (scoping del Control de Caducidades)
         path: 'promotores',
         loadComponent: () => import('./modules/dashboard/admin-promoters/admin-promoters.component').then(m => m.AdminPromotersComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)]
       },
       {
         // La cartera de ventas vive en /comercial/cartera (dominio comercial).
@@ -1545,7 +1545,7 @@ export const routes: Routes = [
       {
         path: 'db-health',
         loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
       },
       {
         path: 'roles/:role_name/permissions',

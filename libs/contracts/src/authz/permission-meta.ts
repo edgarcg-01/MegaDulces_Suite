@@ -125,6 +125,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.LOGISTICS_CARTAPORTE_GESTIONAR]: { label: 'Timbrar Carta Porte', description: 'Validar y timbrar Carta Porte (CFDI Traslado) ante el SAT.', category: 'Logística' },
 
   // ── Fase AZ — permisos jerárquicos nuevos ─────────────────────────────
+  [Permission.PLATFORM_HEALTH_VER]: { label: 'Ver Salud de la plataforma', description: 'Estado de la base de datos (motor, version, alertas) y el tablero de carriles/cron. Es infraestructura, no administracion de personas: no abre ni el padron ni los puestos.', category: 'Configuración' },
+  [Permission.FINANCE_EXPENSE_AREAS_GESTIONAR]: { label: 'Gestionar Áreas de gasto', description: 'El catalogo de areas de gasto de Finanzas y a quien se le asigna cada una. Antes lo abria el permiso de administrar usuarios.', category: 'Finanzas' },
+  [Permission.COMMERCIAL_PROMOTERS_GESTIONAR]: { label: 'Gestionar Promotores de marca', description: 'Que promotor revisa que marcas (caducidades). Ver lo propio va con Ver Caducidades; esto es la asignacion.', category: 'Comercial' },
   [Permission.ROLES_VER]: { label: 'Ver Roles', description: 'Consultar roles y sus permisos (solo lectura).', category: 'Configuración' },
   [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta. (Sell-Out tiene su propio permiso.)', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_PROFITABILITY_VER]: { label: 'Ver Rentabilidad', description: 'Sólo la cascada de margen (MR): margen por sucursal/marca/producto, palancas por proveedor y valuación de inventario. Abre COSTO y margen, que el resto de la analítica no muestra.', category: 'Comercial · Analítica' },
