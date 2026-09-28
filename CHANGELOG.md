@@ -31,6 +31,16 @@
   condicional y no falla nunca. Nunca se vio porque prod y la réplica de pruebas sí tienen el rol.
 - **Fixed:** `meta.normalize === false` apaga los normalizadores de la Suite (`kdii → catalog.*`)
   para destinos que no son la Suite; antes correrían y fallarían en cada ciclo. Default sin cambios.
+- **El corte quedó hecho y probado el mismo día.** El publicador corre en `md` cada 10 min con latido
+  `ods_publish_tienda` (`ok`, verificado por la ruta real del cron). Las 4 tablas foráneas de
+  `kepler_ods_fdw` pasaron a ser **vistas** sobre las locales frescas —con lo que la recarga vieja,
+  si despierta, es un no-op— y `DATABASE_URL_KEPLER_LIVE` del servicio dejó de apuntar a la prod
+  congelada. **Probado desde afuera:** `GET /api/tienda/catalogo?q=01079` publica **3,675**, que es
+  el valor de prod fresca; la congelada decía 2,425.
+- ⚠️ **Y la medición corrigió el diagnóstico:** el camino vivo no era el FDW sino la app conectada
+  **directo** por `DATABASE_URL_KEPLER_LIVE`. Su superficie real son 4 tablas; **`kdm2` nunca fue
+  leída**, lo que convierte la decisión de dejarlo fuera en un hecho medido y no un argumento de
+  tamaño.
 
 ### Internal — Auditoría de CPU del servidor `md`: tres carriles dejan de quemar procesador (CPU.1–CPU.3, 2026-09-28)
 - **El intradía barría 120 días cada hora** cuando su ventana de diseño eran 15: la variable que lo
