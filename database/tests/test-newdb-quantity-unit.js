@@ -39,6 +39,23 @@ const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
 // `counted|contado|conteo` y agarraba `counted_at`/`counted_by`, que son fecha y usuario.
 const BASELINE_SIN_UNIDAD = 10;
 
+/**
+ * ⭐ [VSO.11] Tablas que entraron DESPUÉS del baseline, con nombre y motivo. No suben el número:
+ * salen de la cuenta y se IMPRIMEN, así que una TERCERA sigue rompiendo el trinquete.
+ *
+ * Subir el baseline de 10 a 12 habría sido deuda formalizada con forma de número — al mes nadie
+ * recuerda qué dos tablas lo movieron ni por qué. Esto se descubrió el 2026-09-28 al registrar
+ * este archivo en la suite: llevaba fuera del runner, o sea que el trinquete existía y no corría.
+ */
+const SIN_SELLO_DECLARADAS = {
+  'commercial.wave_allocations': 'mig 20260918120000 (picking por olas). Su `qty` es la del renglón '
+    + 'a surtir y hereda la unidad base del producto, pero no lo DICE. Le toca el sello.',
+  'analytics.caos_cash_denominations': 'mig 20260925140000 (CAOS, caja fuerte). Su cantidad es un '
+    + 'CONTEO DE BILLETES de una denominación, y la denominación viaja en la fila de al lado: es el '
+    + 'único caso del censo donde la unidad ya está, con otro nombre. Decidir si se sella o si el '
+    + 'censo debe reconocer `denominacion` como columna de unidad.',
+};
+
 const SCHEMAS = `('commercial','inventory','analytics','catalog','logistics','trade')`;
 const RX_QTY = `'^(quantity|qty|cantidad|units|counted_qty|conteo|piezas|cajas)([_a-z]+)?$'`;
 const RX_UNIT = `'^(unit|unidad|uom|unit_kind|base_label|rung_factor|qty_unit|unit_sale|unit_base)([_a-z]+)?$'`;
@@ -81,19 +98,32 @@ const nomedido = (label, why) => { skip++; console.log(`  ○ NO MEDIDO — ${la
     SELECT qty.sch, qty.tab, (uni.tab IS NOT NULL) AS declara
       FROM qty LEFT JOIN uni ON uni.sch = qty.sch AND uni.tab = qty.tab`;
   const censo = await q(CENSO);
-  const sin = censo.filter((r) => !r.declara);
+  const todasSin = censo.filter((r) => !r.declara);
   const con = censo.filter((r) => r.declara);
+  // [VSO.11] Las declaradas salen de la CUENTA pero no de la vista: se imprimen con su motivo.
+  const sin = todasSin.filter((r) => !SIN_SELLO_DECLARADAS[`${r.sch}.${r.tab}`]);
+  const declaradasVivas = todasSin.filter((r) => SIN_SELLO_DECLARADAS[`${r.sch}.${r.tab}`]);
   console.log(`     ${censo.length} tablas con columna de cantidad · declaran unidad ${con.length}`
-    + ` · SIN unidad ${sin.length} (baseline ${BASELINE_SIN_UNIDAD})`);
+    + ` · SIN unidad ${todasSin.length} (${declaradasVivas.length} declarada(s)) · cuentan ${sin.length}`
+    + ` (baseline ${BASELINE_SIN_UNIDAD})`);
   if (sin.length) {
     console.log(`     sin unidad: ${sin.map((r) => `${r.sch}.${r.tab}`).slice(0, 12).join(' · ')}`
       + (sin.length > 12 ? ` … y ${sin.length - 12} más` : ''));
+  }
+  for (const r of declaradasVivas) {
+    console.log(`     ⓘ declarada · ${r.sch}.${r.tab} — ${SIN_SELLO_DECLARADAS[`${r.sch}.${r.tab}`]}`);
   }
   check('⭐ el censo de cantidad-sin-unidad NO crece (trinquete)',
     sin.length <= BASELINE_SIN_UNIDAD,
     `${sin.length} contra un baseline de ${BASELINE_SIN_UNIDAD}: entró una tabla nueva con una `
     + 'cantidad y sin decir en qué unidad está. Agregarle el sello de `quantity-unit.contract.ts`, '
-    + 'o si de verdad no aplica, bajar el baseline con el motivo escrito');
+    + 'o declararla en SIN_SELLO_DECLARADAS con el motivo escrito');
+  // Una declaración que ya no describe nada es un comentario que envejeció sin avisar.
+  const fantasmas = Object.keys(SIN_SELLO_DECLARADAS)
+    .filter((k) => !todasSin.some((r) => `${r.sch}.${r.tab}` === k));
+  check('⭐ toda tabla DECLARADA sigue existiendo sin sello (la declaración no envejeció)',
+    fantasmas.length === 0,
+    `${fantasmas.join(', ')} ya no aparece(n) en el censo — BORRAR su entrada de SIN_SELLO_DECLARADAS`);
   if (sin.length < BASELINE_SIN_UNIDAD) {
     console.log(`     ⬇️  bajó a ${sin.length}: actualizar BASELINE_SIN_UNIDAD en este archivo.`);
   }
