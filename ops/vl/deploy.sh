@@ -67,23 +67,61 @@ estado() {
   # lo mismo que que esté dicho: nadie lo dedujo en 13 días.
   #
   # Un contenedor con imagen huérfana (sin tag) imprime su ID y no coincide con `latest`.
+  #
+  # ⭐⭐ [CPU.4 2026-09-28] AHORA COMPARA CÓDIGO, NO SÓLO IDENTIDAD DE IMAGEN — y la diferencia
+  # no es teórica: este bloque marcó **7 carriles con código VIEJO** y, comparando `md5sum`
+  # archivo por archivo DENTRO de los contenedores, **6 de los 7 corrían código byte-idéntico**
+  # (`replicate-ods-live.js`, `reconcile-ods-window.js`, `live-tickets-poller.js`,
+  # `kepler-branches.js`, `sink.js`, `cron-heartbeat.js`, `apply-handlers.js`). El único que
+  # difería de verdad era `feeds-livefast`, por `run-prod-feeds.js`.
+  #
+  # La causa es estructural: la imagen cambia de ID cuando **cualquier** sesión agrega un archivo
+  # al contexto de build, aunque el código de los carriles no se haya tocado. Con ~10 sesiones
+  # sobre el mismo repo eso pasa varias veces al día.
+  #
+  # ⛔ Y por qué importa arreglarlo en vez de convivir con el ruido: `[CT.1]` documentó una deriva
+  # REAL —4 versiones conviviendo, 13 días sin que nadie lo notara— y con el chequeo por ID no se
+  # puede distinguir una de la otra. Una alarma que grita en falso enseña a ignorar el tablero,
+  # que es exactamente cómo la próxima deriva real vuelve a pasar 13 días inadvertida.
+  #
+  # El digest cubre lo que los carriles EJECUTAN (los .js/.sh que el Dockerfile copia). No cubre
+  # `node_modules` a propósito: eso lo fija `package.json`, que si cambia sí cambia el código.
   echo "── Versión por carril ──"
   ssh_md '
+    # ⚠️ Los comodines van ESCAPADOS: sin eso el shell de afuera los expande contra su CWD antes
+    # de que `find` los vea, y el digest sale de un conjunto distinto en cada contenedor.
+    DIG="find /app/database/importers /app/services/feeds-ingest /app/ops/vl /app/libs -type f \( -name \*.js -o -name \*.sh \) | sort | xargs md5sum | md5sum | cut -c1-12"
     ACT=$(docker image inspect -f "{{.Id}}" trade-ingest:latest 2>/dev/null | cut -c8-19)
     echo "  trade-ingest:latest = ${ACT:-NO EXISTE}"
+    REF=$(docker run --rm trade-ingest:latest sh -c "$DIG" 2>/dev/null)
+    echo "  digest del codigo   = ${REF:-NO MEDIDO}"
     echo
-    viejos=0
+    viejos=0; cosmeticos=0
     for c in feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror \
              ods-reconcile ods-reconcile-chicas ods-reconcile-full; do
       ID=$(docker inspect -f "{{.Image}}" "$c" 2>/dev/null | cut -c8-19)
-      if [ -z "$ID" ]; then M="(no existe)"
-      elif [ "$ID" = "$ACT" ]; then M="al dia"
-      else M="** ATRASADO **"; viejos=$((viejos + 1)); fi
+      if [ -z "$ID" ]; then
+        M="(no existe)"
+      elif [ "$ID" = "$ACT" ]; then
+        M="al dia"
+      else
+        D=$(docker exec "$c" sh -c "$DIG" 2>/dev/null)
+        if [ -z "$D" ] || [ -z "$REF" ]; then
+          M="** NO MEDIDO ** (no se pudo sacar el digest)"; viejos=$((viejos + 1))
+        elif [ "$D" = "$REF" ]; then
+          M="imagen vieja, MISMO codigo"; cosmeticos=$((cosmeticos + 1))
+        else
+          M="** CODIGO VIEJO ** ($D)"; viejos=$((viejos + 1))
+        fi
+      fi
       printf "  %-22s %-14s %s\n" "$c" "${ID:--}" "$M"
     done
     echo
     if [ "$viejos" -gt 0 ]; then
-      echo "  ⛔ $viejos carril(es) con codigo VIEJO — corré: ops/vl/deploy.sh --todo"
+      echo "  ⛔ $viejos carril(es) con CODIGO viejo — corré: ops/vl/deploy.sh --todo"
+    elif [ "$cosmeticos" -gt 0 ]; then
+      echo "  ✓ los 8 corren el MISMO codigo ($cosmeticos con imagen vieja: deriva cosmetica,"
+      echo "    la imagen cambio de ID por archivos ajenos al contexto de build. No urge)."
     else
       echo "  ✓ los 8 carriles en la misma imagen"
     fi'
