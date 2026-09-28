@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, Injector, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { tap, timeout } from 'rxjs/operators';
@@ -7,6 +7,9 @@ import { Permission } from '../constants/permissions';
 import { DataScopeService } from './data-scope.service';
 import { PermissionsService } from './permissions.service';
 import { limpiarRastroDeSesion } from '@megadulces/ui-web';
+import type { RastroLimpiado } from '@megadulces/ui-web';
+import { OfflineDatabaseService } from './offline-database.service';
+import { decidirBorradoOffline } from './offline-wipe';
 
 export interface JwtPayload {
   sub: string;
@@ -50,6 +53,8 @@ export class AuthService {
     private http: HttpClient,
     private perms: PermissionsService,
     private scope: DataScopeService,
+    /** `[SEG.3]` Para resolver la base offline PEREZOSAMENTE — ver `decidirYLimpiar`. */
+    private injector: Injector,
   ) {
     this.restoreSession();
   }
@@ -195,6 +200,10 @@ export class AuthService {
    * cambio, corre **siempre**: un 401 por token vencido deja el mismo cache que un logout.
    */
   logout(opts: { derribar?: boolean } = {}): void {
+    // `[SEG.3]` La decisión de borrar la base offline necesita saber QUIÉN se va, así que se
+    // toma ANTES de vaciar `user`. Dos líneas más abajo ya no habría a quién preguntarle.
+    const quienSeVa = this.user();
+
     this.token.set(null);
     this.user.set(null);
     this.perms.clear();
@@ -215,7 +224,10 @@ export class AuthService {
     // importa— los caches de DATOS del service worker, que se llavean por URL y no miran quién
     // pregunta. Sin esto, `/api/users/**` y `/api/commercial/warehouses/**` se sirven hasta 24 h
     // con la respuesta que bajó la persona anterior, sin tocar la red.
-    const limpieza = limpiarRastroDeSesion();
+    // `[SEG.3]` La base offline se borra para toda persona que NO sea de campo (decisión del
+    // usuario). Guarda visitas, FOTOS de tienda, pings de GPS y conteos: en un equipo compartido
+    // la siguiente persona los heredaba. Quien sí es de campo la conserva — es su trabajo.
+    const limpieza = this.decidirYLimpiar(quienSeVa);
 
     if (opts.derribar && typeof window !== 'undefined') {
       // Se espera a que el borrado termine ANTES de recargar: si la navegación gana la carrera,
@@ -224,6 +236,44 @@ export class AuthService {
         .catch(() => undefined)
         .then(() => window.location.assign('/login'));
     }
+  }
+
+  /**
+   * `[SEG.3]` Cuenta lo pendiente, decide, y limpia. Separado de `logout()` porque es `async` y
+   * el cierre de sesión no puede esperar a una base de datos para vaciar los signals.
+   *
+   * ⚠️ `OfflineDatabaseService` se resuelve **perezosamente** por el inyector: pedirlo como
+   * dependencia de `AuthService` abriría la base offline en cada arranque, también para las
+   * personas de oficina que nunca la usan.
+   */
+  private async decidirYLimpiar(quienSeVa: JwtPayload | null): Promise<RastroLimpiado> {
+    let pendientes: number | null = null;
+    let db: OfflineDatabaseService | null = null;
+    try {
+      db = this.injector.get(OfflineDatabaseService);
+      const e = await db.getEstadisticasOffline();
+      // Las MUERTAS también cuentan: que hayan agotado los reintentos no las vuelve basura,
+      // las vuelve trabajo que alguien tiene que rescatar a mano.
+      pendientes = (e.visitasPendientes ?? 0) + (e.visitasMuertas ?? 0);
+    } catch {
+      pendientes = null; // no se pudo contar ⇒ no se borra (ver `decidirBorradoOffline`)
+    }
+
+    const veredicto = decidirBorradoOffline(quienSeVa, pendientes);
+    if (veredicto.borrar && db) {
+      // Dexie deja la conexión ABIERTA y `deleteDatabase` se queda esperando: sin este cierre el
+      // borrado sale `onblocked` y la base sobrevive al cierre de sesión.
+      try { db.close(); } catch { /* ya estaba cerrada */ }
+    }
+
+    const r = await limpiarRastroDeSesion({ borrarIndexedDb: veredicto.borrar });
+    r.declarado.push(`offline: ${veredicto.motivo}`);
+    if (!veredicto.borrar && pendientes) {
+      // Un rol que no es de campo dejando trabajo sin sincronizar es una sorpresa, no una
+      // rutina: o su pantalla no debería capturar, o el rol tiene que entrar a la excepción.
+      console.warn(`[SEG.3] ${pendientes} registro(s) sin sincronizar de alguien que no es de campo: la base offline NO se borró.`);
+    }
+    return r;
   }
 
   private setSession(token: string, persist: boolean = true): void {

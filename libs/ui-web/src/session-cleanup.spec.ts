@@ -137,3 +137,79 @@ describe('[SEG.2] limpiarRastroDeSesion', () => {
     expect(CLAVES_DEL_APARATO.every((k) => !!k.trim())).toBe(true);
   });
 });
+
+/**
+ * `[SEG.3]` El borrado de IndexedDB. Lo que se vigila acá NO es a quién borrarle —eso lo decide
+ * la app, que conoce los permisos— sino que el borrado **no cuelgue** y que **diga la verdad**
+ * sobre lo que no pudo borrar.
+ */
+describe('[SEG.3] limpiarRastroDeSesion · IndexedDB', () => {
+  const montarIdb = (bases: string[], comportamiento: 'ok' | 'blocked' | 'mudo' = 'ok') => {
+    const borradas: string[] = [];
+    (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+      databases: async () => bases.map((name) => ({ name })),
+      deleteDatabase: (nombre: string) => {
+        const req: Record<string, unknown> = {};
+        queueMicrotask(() => {
+          if (comportamiento === 'ok') { borradas.push(nombre); (req['onsuccess'] as () => void)?.(); }
+          else if (comportamiento === 'blocked') (req['onblocked'] as () => void)?.();
+          // 'mudo' = nunca contesta: es el caso real de una conexión abierta sin evento.
+        });
+        return req;
+      },
+    };
+    return { borradas };
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    delete (globalThis as unknown as { caches?: unknown }).caches;
+    delete (globalThis as unknown as { indexedDB?: unknown }).indexedDB;
+  });
+
+  it('⭐ con borrarIndexedDb borra las bases; sin la opción NO las toca', async () => {
+    const a = montarIdb(['TradeMarketingOfflineDB']);
+    const sin = await limpiarRastroDeSesion();
+    expect(a.borradas).toHaveLength(0);
+    expect(sin.declarado.some((d) => /IndexedDB intacta/i.test(d))).toBe(true);
+
+    const b = montarIdb(['TradeMarketingOfflineDB']);
+    const con = await limpiarRastroDeSesion({ borrarIndexedDb: true });
+    expect(b.borradas).toEqual(['TradeMarketingOfflineDB']);
+    expect(con.basesBorradas).toEqual(['TradeMarketingOfflineDB']);
+  });
+
+  it('⭐ una base BLOQUEADA no se cuenta como borrada: sigue con los datos de quien se fue', async () => {
+    montarIdb(['TradeMarketingOfflineDB'], 'blocked');
+    const r = await limpiarRastroDeSesion({ borrarIndexedDb: true });
+
+    expect(r.basesBorradas).toHaveLength(0);
+    expect(r.basesBloqueadas).toEqual(['TradeMarketingOfflineDB']);
+    expect(r.declarado.some((d) => /bloqueadas/i.test(d))).toBe(true);
+  });
+
+  it('⭐ NO se cuelga si el navegador nunca contesta', async () => {
+    // Es el caso real: Dexie deja la conexión abierta y `deleteDatabase` se queda esperando.
+    // Un cierre de sesión que no termina es peor que uno que limpia de menos y lo dice.
+    montarIdb(['TradeMarketingOfflineDB'], 'mudo');
+    const r = await limpiarRastroDeSesion({ borrarIndexedDb: true, timeoutMs: 40 });
+
+    expect(r.basesBloqueadas).toEqual(['TradeMarketingOfflineDB']);
+  });
+
+  it('sin `databases()` se borra lo conocido y se DECLARA que no se pudo enumerar', async () => {
+    const borradas: string[] = [];
+    (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+      deleteDatabase: (nombre: string) => {
+        const req: Record<string, unknown> = {};
+        queueMicrotask(() => { borradas.push(nombre); (req['onsuccess'] as () => void)?.(); });
+        return req;
+      },
+    };
+    const r = await limpiarRastroDeSesion({ borrarIndexedDb: true });
+
+    expect(borradas).toEqual(['TradeMarketingOfflineDB']);
+    expect(r.declarado.some((d) => /no enumera bases/i.test(d))).toBe(true);
+  });
+});
