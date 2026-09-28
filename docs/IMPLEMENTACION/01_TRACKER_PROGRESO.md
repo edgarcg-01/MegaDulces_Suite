@@ -2656,6 +2656,312 @@ tiene un hueco en `kdc2` y por eso NO se puede retirar todavía el importer de e
 
 ---
 
+## GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código)
+
+Pedido del usuario: que Aprobación **muestre los levantamientos de gasto que se hicieron al día**,
+con tres apartados — **Aprobar · Ejercer · Todos**.
+
+La pantalla de `[GX.17]` era una bandeja atemporal («todo lo que espera firma, de cualquier
+fecha»). Ahora es **el día**, partido por lo que falta hacer con cada expediente. El reparto sale
+del ciclo que ya existía en la tabla, no de una invención: el `CHECK` de
+`finance.expense_proofs.status` tiene exactamente cinco estados, y los cinco caen en su lugar.
+
+El corte es **la decisión**, no el avance del trámite:
+
+| Pestaña | Estados | Qué es |
+|---|---|---|
+| **Bandeja de entrada** | `recibida` | Llegó y **nadie decidió todavía**. |
+| **Aprobados** | `aprobada`, `revision`, `validada` | Se dijo que sí. |
+| **Rechazados** | `rechazada` | Se dijo que no, con su motivo. |
+
+Las tres **particionan** el día: cada expediente se ve en una y sólo una.
+
+⚠️ Los tres estados de *Aprobados* son **el mismo hecho en tres momentos del cierre**: falta
+ejercerlo (`aprobada`), volvió con evidencia que no cuadró (`revision`), o ya cerró (`validada`).
+El renglón dice en cuál está **y qué botón ofrece**; la pestaña dice que la decisión fue que sí.
+Separarlos en pestañas distintas partiría en tres una sola respuesta.
+
+⚠️ Las tres tardaron **tres iteraciones** en quedar: arrancaron como «Aprobar · Ejercer · Todos»
+(el pedido literal), pasaron por «Aprobar · Ejercer · Rechazados y aprobados» —una lectura
+**equivocada** de la corrección— y aterrizaron acá. Ver `[GX.20.8]`.
+
+⭐ **`revision` está en *Aprobados*, no en *Rechazados*.** Es el expediente que volvió con su
+evidencia y **el cuadre por visión no dio**. La decisión sobre él ya fue que sí: lo que falta es
+cerrar, no autorizar. Mandarlo a *Rechazados* diría que se le negó — lo contrario de lo que pasó.
+
+⛔ **Acotar por día NO puede esconder lo que espera firma.** Un expediente que nadie aprobó
+anteayer no puede dejar de existir porque hoy miramos hoy. Por eso `delDia()` devuelve
+`pendientes_fuera_del_dia`, que la pestaña *Aprobar* dice con su monto. **Medido en local:** el día
+mostraba 9 expedientes y el aviso decía «otros días tienen 9 esperando firma ($68,865.50)» — que
+son exactamente los 6 del 24-sep ($65,385.00) más los 3 del 14-sep ($3,480.50).
+
+⚠️ **El día es el de CAPTURA, y el de México.** «Los levantamientos que se hicieron al día» es
+cuándo se **levantó** el expediente (`created_at`), no cuándo ocurrió el gasto (`fecha_gasto`), que
+puede ser de la semana pasada — cada renglón muestra las dos, justo porque no coinciden. Y el corte
+va contra el día de México: a las 20:00 de acá ya es el día siguiente en UTC.
+
+⛔ **El filtro por día va como RANGO de timestamps, no envolviendo la columna en `to_char`.**
+Envolverla anula el índice de `created_at`. Es la otra mitad de la trampa de `porAprobar`: ahí
+`to_char` es gratis porque está en la lista de selección; en el `WHERE` sería carísimo.
+
+- [x] **[GX.20.1]** `etapas-del-dia.ts` — el reparto como **función pura** (patrón de
+  `aprobacion-agrupar.ts`): `etapaDe()`, `visibleEn()`, `particionarDelDia()`, `diaValido()`,
+  `hoyMx()`. ⛔ **Un estado que el mapa no conoce cae en `sin_etapa`**, no en «cerrado»: si mañana
+  alguien agrega un estado a la tabla y olvida esta línea, tiene que **salir a la luz**, no
+  desaparecer. `diaValido()` devuelve `null` —no «hoy»— ante una fecha rota: caer a hoy en silencio
+  haría que un parámetro ilegible se vea igual que un día sin movimiento. 15 pruebas. ✅ 2026-09-25
+- [x] **[GX.20.2]** `delDia()` + `GET /finance/expenses/proofs/del-dia?fecha=` con
+  `FINANCE_EXPENSES_COMPROBAR` (el mismo de `por-aprobar`: quien no puede firmar no necesita la
+  bandeja). Reusa `agruparParaAprobacion` para los grupos por departamento del bucket que se firma.
+  ✅ 2026-09-25
+- [x] **[GX.20.3]** La pantalla: tres pestañas con su conteo y su monto, navegación de día
+  (‹ › + selector + rail de 14 días con el punto de pendientes), aviso de lo que quedó fuera del
+  día, y por renglón **qué falta y de quién** — incluido «la evidencia la sube quien lo levantó»,
+  que es el botón que el aprobador **no** tiene. ✅ 2026-09-25
+- [x] **[GX.20.4]** Pruebas: 15 (motor puro) + 32 (componente, montado con `TestBed`) = **47**.
+  **Prueba negativa corrida**: al romper a propósito el filtro por pestaña, 10 pruebas se ponen en
+  rojo. Suites completas verdes: `view/finanzas` 169 · `libs/finance` 190. ✅ 2026-09-25
+- [x] **[GX.20.5]** ⚠️ Atrapado en el acto: un acento grave dentro de un comentario **CSS** del
+  bloque `styles` — la OCTAVA vez en este repo. `check:templates` lo confirmó limpio después.
+  ✅ 2026-09-25
+- [x] **[GX.20.6]** **La barra de navegación de días se retiró por pedido del usuario.** Con ella
+  se fueron el rail, el selector de fecha y el código que ya no podía alcanzarse (`mover()`,
+  `irADia()`, `irAHoy()`, `railVisible()`, `sumarDias()`, `FormsModule` y dos clases de CSS que
+  quedaban huérfanas). La pantalla muestra **siempre hoy**. ⚠️ Arrastró tres cosas que habrían
+  quedado mintiendo: el aviso decía «están marcados en el rail de arriba» (un control que ya no
+  existe), el vacío decía «probá otro día del rail», y **el día dejaba de estar escrito en
+  ningún lado** — una pantalla que dice «del día» sin decir cuál no se puede auditar, así que el
+  día pasó al subtítulo. El aviso de lo que quedó afuera **se conserva a propósito**: ahora que no
+  hay cómo ir a buscarlo, callarlo lo borraría de todas las pantallas. `delDia()` sigue aceptando
+  `fecha` — se fue el control, no la capacidad. ✅ 2026-09-25
+- [x] **[GX.20.8]** **Las tres pestañas pasan a ser «Bandeja de entrada · Aprobados ·
+  Rechazados»**, por pedido del usuario. ⚠️ **En el medio hubo una lectura equivocada mía**: con
+  la primera corrección entendí «Aprobar · Ejercer · Rechazados y aprobados» y lo entregué así.
+  Lo que el usuario quería era partir por **la decisión**, no por el avance del trámite — así que
+  *Ejercer* desaparece como pestaña y sus dos estados se reparten: `aprobada` y `revision` van a
+  *Aprobados*, porque la decisión sobre ellos ya fue que sí. ⛔ **Las acciones dejaron de salir de
+  la pestaña y salen del ESTADO**: dentro de *Aprobados* conviven tres momentos del cierre y cada
+  uno ofrece otra cosa (`aprobada`/`revision` → Rechazar + Dar por comprobado; `validada` → nada,
+  y el renglón se atenúa). Atenuar o pintar botones por pestaña los habría hecho ver todos
+  iguales. ⛔ **`sin_etapa` entra por la bandeja de entrada** —la que significa «alguien tiene que
+  mirar esto»— con su marca «estado desconocido», y **se cuenta ahí**; sin esa red no saldría en
+  ninguna de las tres, o sea que el expediente no existiría en la aplicación. Tampoco ofrece
+  botones: no se sabe qué se le puede hacer. Dos candados: que las tres **particionen** (cada
+  estado en exactamente una) y que **los tres contadores sumen el día completo**.
+  **Dos pruebas negativas corridas**: dejar a `sin_etapa` sin casa pone 2 en rojo; mover
+  `revision` a *Rechazados* pone 4. Pruebas: 17 (motor) + 29 (componente) = **46**. ✅ 2026-09-25
+- [x] **[GX.20.9]** Se retiró `dias_recientes` del endpoint: alimentaba el rail, que se fue en
+  `[GX.20.6]`, y quedó viajando sin lector. Era un `GROUP BY` de 21 días por request — **un
+  payload que nadie lee es una consulta que nadie paga**. ✅ 2026-09-25
+- [x] **[GX.20.10]** ⛔ **No se firma desde la lista: se firma mirando el vale.** Por pedido del
+  usuario, el renglón **pierde sus botones** y se vuelve clickeable; la decisión vive en un panel
+  lateral (`app-side-peek`, 820 px) que muestra el expediente **completo con su evidencia** —los
+  comprobantes pintados, no un enlace. Vale para las tres pestañas: en *Rechazados* también se
+  abre, porque **mirar un vale no es lo mismo que poder cambiarlo** (ahí el panel no ofrece
+  botones). El motivo de fondo: un «Aprobar» al pie de una tarjeta deja autorizar dinero **sin
+  haber abierto el comprobante**, que es justo lo que esta pantalla existe para impedir.
+  ⚠️ **No se reusó `app-expense-evidence-peek`**, que ya hace algo parecido: su autoridad es la
+  fila de Kepler (`ExpenseRequestRow`, 23 campos) y su veredicto compara ese importe contra el
+  del expediente. Esta pantalla **no tiene esa fila** — sintetizarla habría sido inventar el
+  veredicto. Se reusó el cascarón compartido (`SidePeekComponent`), que es la parte que sí
+  corresponde. ⚠️ **Tampoco vuelve a pedir el expediente**: usa la fila que la lista ya trajo,
+  con sus archivos firmados a 30 min. Un segundo viaje agregaría una fuente que puede
+  contradecir a la primera, y `GET /:id` exige `FINANCE_EXPENSES_VER` — que quien firma **no
+  necesariamente tiene** (la pantalla se gatea con `_COMPROBAR`). ⚠️ El `safeUrl` de los PDF se
+  sanitiza **una vez, en el `computed`**: hacerlo en el template recrea el `iframe` en cada
+  ciclo de detección y el documento se recarga solo, sin parar. ⛔ «No se pudo mostrar el
+  archivo» y «este vale no trae ningún archivo» se dicen **por separado**: son dos cosas
+  distintas y confundirlas haría pasar por vacío un expediente que sí tiene papeles.
+  Accesible por teclado (`role="button"`, `tabindex`, Enter y Espacio).
+  **Prueba negativa corrida**: al devolver un botón al renglón, 2 pruebas se ponen en rojo.
+  Pruebas: 17 (motor) + 37 (componente) = **54**. ✅ 2026-09-25
+- [x] **[GX.20.7]** ⚠️ La prueba del día **pasaba en verde mostrando el día en inglés**: el
+  `TestBed` corre en `en-US` y el pipe daba «Friday 25 de September» mientras `textContent` seguía
+  conteniendo lo que la aserción buscaba. Se registró `es-MX` en el spec como en `app.config.ts`.
+  Y la revisión visual encontró lo que ninguna prueba vio: `::first-letter` en mayúscula daba
+  «Los levantamientos del **V**iernes 25» — correcto cuando era el título de una barra, incorrecto
+  en medio de una frase. ✅ 2026-09-25
+
+**Pruebas al cierre:** 17 (motor puro) + 37 (componente) = **54**. `view/finanzas` 175 ·
+`libs/finance` 192, verde. **Medido en pantalla:** los tres contadores dan 3 · 5 · 1 = 9 y
+$3,945.75 + $25,580.50 + $220.00 = **$29,746.25**, el total del día, al centavo. Dentro de
+*Aprobados*, los dos `validada` salen sin botones y atenuados, y los tres restantes con los suyos.
+
+**Verificado en el 4200** contra `platform_local`, con un día sembrado a propósito (9 expedientes
+repartidos en los cinco estados, marcados `created_by='demo_gx20'`): el servidor cuadra al centavo
+(4 + 3 + 2 = 9 · $5,196.25 + $21,180.00 + $3,370.00 = $29,746.25), y **aprobar un expediente lo
+movió de pestaña con su importe exacto**: Aprobar 4/$5,196.25 → 3/$3,945.75 y Ejercer
+3/$21,180.00 → 4/$22,430.50, con el total del día intacto. Claro y oscuro revisados, consola limpia.
+
+⛔ **HALLAZGO AJENO — `[GX.18]` dejó la captura de gastos ROTA.** Se topó al ejercitar el botón
+Aprobar y **está medido contra la API, no deducido del código**:
+
+- `create()` (`expense-proofs.service.ts:405`) y `approve()` **exigen** el archivo
+  `solicitud_kepler`. Un `POST` con exactamente lo que la captura manda hoy responde
+  `400 falta la solicitud de gasto firmada`.
+- `[GX.18]` retiró de la pantalla de captura el paso «Sube la solicitud firmada» — la **única** UI
+  que adjuntaba ese rol. La zona que quedó (`cap-drop`) es la de `cotizacion`.
+- Pero `puedeEnviar()` (`finanzas-capturar-gasto.component.ts:522`) **todavía** pide
+  `names()['solicitud_kepler']`, y `[GX.18]` sacó de `enviarTitle()` la rama que lo explicaba →
+  el botón queda **deshabilitado diciendo «Enviar a aprobación»**, sin decir qué falta. Que es
+  justo el modo de fallar que `[GX.17]` construyó ese mecanismo para evitar.
+
+**No se corrigió acá a propósito:** quitar esa guarda es una **decisión de negocio**, no un bug de
+código — el comentario del servicio dice «la solicitud firmada respalda la salida de dinero: va en
+los TRES tipos de gasto». O `[GX.18]` gana y hay que retirar el control de los tres lugares
+(`create`, `approve`, `puedeEnviar`), o el control gana y el paso vuelve. Lo decide quien pidió
+`[GX.18]`.
+
+⚠️ **Segundo hallazgo, menor:** `no_comprobable` tiene **dos nombres**. `[GX.18]` lo renombró a
+«Vale autorizado» sólo en la lista local de la captura; el `CLASIFICACION_LABEL` canónico de
+`comprobaciones.service.ts` —el que lee Aprobación, y que `comprobaciones-etiquetas.spec.ts` tiene
+**clavado**— sigue diciendo «Sin comprobante». La persona captura una cosa y quien firma lee otra.
+Tampoco se tocó: cambiarlo mueve la prueba clavada de `[GX.17]` y dos listas duplicadas más.
+
+**Pendiente:** validación visual del usuario · resolver los dos hallazgos de arriba · redeploy
+api+view. **Sin migraciones ni permisos nuevos** → no hace falta re-login.
+
+**Limpieza de la demo local:** `node tmp/gx20-limpiar.js` borra los 9 expedientes sembrados y el
+usuario `demo_gx20`. Nada de esto existe fuera de `platform_local`.
+
+---
+
+## GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código)
+
+Pedido del usuario, sobre la pantalla de `[GX.25]` (**Historial de levantamientos**,
+`/finanzas/gastos-historial`). Su apartado **«Todos»** —el gasto de todas las personas, de
+todas las fechas— exigía `FINANCE_EXPENSES_VER`. Ahora exige **god-mode** (`admin`/`superadmin`).
+
+**Medido en `platform_local` antes de tocar nada**, que es lo que disparó el cambio: lo veían
+**25 personas**, y **9 de ellas eran cuentas de administración** (`superadmin`) — más de un
+tercio del acceso al historial completo no venía del área que revisa gastos. Con el recorte
+quedan esos 9 y **pierden el apartado 16**: `finanzas_operativo` 6, `contabilidad` 2,
+`credito_cobranza` 2, `tesoreria` 2, y una persona en `direccion`, `finanzas`,
+`gerente_compras` y `marketing`.
+
+⚠️ **Nadie pierde lo suyo.** `GET /mine` sigue acotado por token y no se tocó: quien captura —y
+quien revisa— sigue viendo sus propios levantamientos. Lo que se cerró es mirar los ajenos.
+
+- [x] **[GX.26.1]** ⛔ **El recorte va en el SERVIDOR, no sólo escondiendo la pestaña.**
+  `GET /finance/expenses/proofs` devuelve los expedientes de todas las personas; con el candado
+  sólo en el front, cualquiera con `_VER` la seguiría pudiendo pedir a mano y el «recorte» sería
+  una decoración. ⚠️ **El decorador de permiso no alcanza para expresar «sólo god-mode»**:
+  `RolesGuard` deja pasar a admin/superadmin **y** a quien tenga la clave, así que
+  `@RequirePermissions(_VER)` por sí solo abre la puerta a los 25. El rol se comprueba explícito
+  con `isPlatformAdminRole`; `_VER` queda como primer filtro para que quien no lo tenga se vaya
+  antes, en el guard. ✅ 2026-09-25
+- [x] **[GX.26.2]** Front: `puedeVerTodos()` mira el **ROL** (`perms.isAdmin()`, espejo de
+  `isPlatformAdminRole`), no una clave del mapa. Usar una clave volvería a abrirlo a quien la
+  tenga marcada — justo lo que se acaba de cerrar. Se retiraron `AuthService` y el import de
+  `Permission`, que quedaron huérfanos. ✅ 2026-09-25
+- [x] **[GX.26.3]** Pruebas nuevas en las **dos capas**, porque el candado vive en las dos:
+  `historial-god-mode.spec.ts` (7, ejercita el controller de verdad) y
+  `finanzas-gastos-historial.component.spec.ts` (9, monta el componente — **la pantalla de
+  `[GX.25]` no tenía ninguna**). Cubren que `_VER` ya no alcanza, que sin rol **no** se cae del
+  lado permisivo, y que forzar el ámbito a «todos» sin god-mode igual pide `/mine`.
+  **Prueba negativa corrida**: al aflojar el `if` del controller, 4 se ponen en rojo.
+  ✅ 2026-09-25
+- [x] **[GX.26.4]** ⚠️ `libs/finance/vitest.config.ts` gana un `JWT_SECRET` **de pruebas**:
+  importar cualquier controller arrastra `platform-core`, y su `TenantModule` exige el secreto
+  **al cargar el módulo** (fail-fast a propósito). Sin eso, un spec que monte un controller no
+  falla por lo que prueba — falla antes de correr, en el import. No afloja nada: el fail-fast de
+  producción queda intacto. ✅ 2026-09-25
+- [x] **[GX.26.5]** El boundary gate se puso **rojo** con el cambio y atrapó algo que no era mío:
+  `mine()` de `[GX.25]` estaba sin tipo de retorno en el boundary. Se tipó contra el servicio
+  (`ReturnType<ExpenseProofsService['list']>`) en vez de repetir la forma a mano — si allá cambia,
+  acá deja de compilar en vez de mentir. ✅ 2026-09-25
+
+**Verificado contra el servidor real** (API reconstruida, `platform_local`):
+
+| Usuario | Rol | `GET /proofs` (todos) | `GET /proofs/mine` |
+|---|---|---|---|
+| `demo_gx20` | tesoreria (tiene `_VER`) | **403** | 200 |
+| `demo_gx26_admin` | superadmin | **200** — 18 expedientes de 7 personas | 200 |
+
+Y en la UI: con `tesoreria` el interruptor **no se dibuja**; con god-mode aparece «Míos · Todos»
+y «Todos» carga 19 renglones sin error. `libs/finance` 199 · `view/finanzas` 184, verde.
+check:templates OK · boundary gate OK · `nx build api` OK.
+
+⚠️ **Decisión que queda abierta:** que el historial completo sea de administradores de
+plataforma y **no** del área que revisa gastos es lo que se pidió, pero deja a `tesoreria`
+—que es quien aprueba— sin ver el gasto ajeno. Si la intención era lo contrario (sacárselo a
+las cuentas de administración y dárselo al área), es cambiar una línea.
+
+---
+
+## GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código)
+
+Pedido del usuario: que el Historial (`[GX.25]`) sea **un calendario**, con un mini número por
+día que diga cuántos gastos se levantaron, y que al abrir una fecha se pueda entrar a un vale y
+ver su información.
+
+La tabla de 200 renglones se fue. Ahora el mes está a la vista: cada casilla dice **cuántos**
+levantamientos hubo y **cuánto** sumaron; al abrir un día salen sus vales; al abrir un vale, el
+expediente completo con su evidencia. Es como la gente recuerda un gasto —«fue el martes
+pasado»— y no por número de folio.
+
+⚠️ **El mes y el día son los de México.** Un gasto levantado a las 20:00 de acá ya es el día
+siguiente en UTC: con el corte en UTC caería en la casilla de mañana, y el último día de cada
+mes se mudaría al siguiente.
+
+- [x] **[GX.27.1]** `calendario-gastos.ts` (backend, puro): `mesValido`, `rangoDelMes`,
+  `totalDelMes`. ⛔ El rango es **medio abierto**, del 1 al 1 del mes siguiente — calcular «el
+  último día del mes» a mano es de donde salen los febreros rotos y los gastos del 31 perdidos;
+  una prueba comprueba que meses consecutivos **se tocan sin hueco ni traslape**. 12 pruebas.
+  ✅ 2026-09-26
+- [x] **[GX.27.2]** `GET /calendario?mes=&alcance=` (agregado por día) y `dia=` en la colección
+  y en `/mine`. ⚠️ `dia` existe **porque `from`/`to` no sirven**: comparan `created_at` contra un
+  string suelto, y `'2026-09-26'` es medianoche **UTC** — o sea las 18:00 del 25 en México. Para
+  «lo del 26» eso mete seis horas del día anterior y pierde seis del propio. ⛔ El **alcance** lo
+  decide la ruta, no el cliente: `alcance=todos` es god-mode, la misma regla de `[GX.26]` — si se
+  resolviera por parámetro, bastaría pedir el calendario para saber cuánto gastó cada área.
+  ✅ 2026-09-26
+- [x] **[GX.27.3]** `calendario-mes.util.ts` (frontend, puro): la rejilla del mes. ⛔ **Nada de
+  `new Date(iso)`** — es medianoche UTC y la rejilla arrancaría el día equivocado; se arma con
+  `Date.UTC` y se lee con los getters `UTC*`, así que es aritmética de casilleros, sin husos.
+  Una prueba verifica que **están todos los días del mes, una sola vez**, en seis meses
+  distintos (el 31 perdido es el clásico). 17 pruebas. ✅ 2026-09-26
+- [x] **[GX.27.4]** ⭐ **El visor del vale se extrajo a `vale-gasto-peek.component.ts`**, y esto
+  es lo que más importa del sprint: nació dentro de Aprobación en `[GX.20.10]` y el Historial
+  necesitaba **lo mismo**. Duplicarlo serían dos lugares donde arreglar el mismo error y dos que
+  pueden empezar a mostrar cosas distintas del mismo expediente — justo lo que ADR-056 prohíbe.
+  El visor **no decide ni pide nada**: recibe el expediente y la lista de acciones permitidas, y
+  emite; quien manda es la página, que es la que conoce el permiso. Por eso el Historial lo usa
+  de **sólo lectura** sin apagar botones uno por uno. 15 pruebas propias. ✅ 2026-09-26
+- [x] **[GX.27.5]** ⚠️ **Encontré un duplicado MÍO al extraer**: `isoADiaLocal`, que escribí en
+  `[GX.20]`, era idéntico a `parseLocalDate` de `core/utils/mx-date.ts` — el helper compartido
+  que el repo ya tenía. Se retiró y ahora los dos usan el compartido. ✅ 2026-09-26
+- [x] **[GX.27.6]** ⛔ **Medido en pantalla: el visor decía «sin clasificar» en un vale que SÍ
+  estaba clasificado**, porque la colección no seleccionaba `clasificacion` (ni `forma_pago`).
+  Se arregló en los dos lados: el endpoint ahora las manda, **y** el visor distingue
+  `undefined` («este endpoint no lo manda») de `null` («vino vacío») y en el primer caso
+  **omite la fila** en vez de afirmar un hueco que no existe. ✅ 2026-09-26
+- [x] **[GX.27.7]** Revisión visual, dos defectos corregidos: el peso visual estaba **invertido**
+  (los días sin gasto se veían llenos y el día con gasto, vacío) y el encabezado del día salía
+  «Domingo 27 **De** Septiembre» — `capitalize` a secas otra vez, ahora `::first-letter`.
+  ✅ 2026-09-26
+
+**Verificado contra el servidor real** (API reconstruida, `platform_local`): el calendario de
+septiembre devuelve **17 días con movimiento, 46 levantamientos, $293,794.33**, y la suma de los
+días **cuadra exacto** con el total del encabezado. Tesorería pidiendo `alcance=todos` → **403**;
+lo suyo → **200**. Un mes ilegible (`13-2026`) se **declara** en `mes_pedido` y cae al actual, en
+vez de verse igual que un mes sin gasto. En pantalla: el día 26 muestra **19** y **$85k**, abre
+sus 19 vales, y el vale abre con su evidencia y **cero botones** (el Historial es consulta).
+
+`view/finanzas` 224 · `libs/finance` 211, verde. check:templates OK.
+
+⚠️ **El boundary gate está en rojo con 8 violaciones que NO son de esta fase**: todas en
+`apps/api/src/modules/store/*`, staged por otra sesión mientras yo trabajaba. Mis archivos salen
+limpios. No las toqué: es trabajo en curso ajeno.
+
+⚠️ **Deuda que dejé anotada:** `expense-proofs.service.ts` y su controller quedaron con finales
+de línea **mezclados** por un script mío de `[GX.26]`; lo normalicé a LF (que es como los guarda
+git) y el diff volvió de 229 líneas a 37. La lección es la de siempre acá: un script que
+reescribe un archivo tiene que respetar su final de línea, o el diff se vuelve irrevisable y el
+gate empieza a marcar como nuevas líneas que nadie tocó.
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del
@@ -2813,6 +3119,107 @@ los que sostienen una decisión van en un test que se pone rojo.
 
 ---
 
+
+---
+
+## GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26
+
+- [x] **[GX.28.1]** El estado que Kepler le puso al vale (`c43`: N por ejercer · A autorizada ·
+  F aplicada · C cancelada) se muestra en el visor, con su valor crudo como respaldo cuando no se
+  reconoce — un estado que no entendemos se **declara**, no se esconde.
+- [x] **[GX.28.2]** ⛔ **Lo que se pidió NO se pudo dar, y se midió antes de prometerlo.** El pedido
+  era *"que salga qué usuario de Kepler lo autorizó"*. Medido: `c30` es el **área** que autoriza y
+  viene sucia (`FINANZAS` / `DPTO FINANZAS` / `DEPARTAMENTO DE FINANSAS` conviven), y `c67` es quien
+  **capturó**, no quien autorizó. La persona que da el visto bueno **no está en la fila**. Queda la
+  sonda `database/scripts/kepler-que-columna-autoriza.js` (antes/después sobre un vale real) para el
+  día que alguien pueda mirar un vale mientras lo autorizan.
+
+---
+
+## GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26
+
+> **Decisión del usuario, textual:** *"¿Quién autoriza la reapertura? Sólo aquellos que le dieron
+> aprobación a los vales... cuando ellos vuelvan a agregar esa documentación les aparezca como un
+> vale nuevo en la jornada del día... un vale rechazado no se reabre... un vale ya aplicado en
+> Kepler ya no se toca"*. Y sobre la forma: **"mismo expediente y ocultar"**.
+
+- [x] **[GX.29.1]** Reglas puras en `libs/finance/.../reapertura.ts`, sin knex: deciden quién puede
+  tocar dinero ya aprobado, y eso se prueba sin levantar una base. **15 pruebas**, con las cuatro
+  negativas que sostienen cada regla.
+- [x] **[GX.29.2]** ⛔ **El orden de las negativas importa.** A quien tiene un vale ya aplicado en
+  Kepler NO se le dice «no es tuyo»: eso lo manda a buscar al dueño para nada. Gana siempre lo que
+  cierra el caso.
+- [x] **[GX.29.3]** La solicitud vive en `finance.proposed_actions` — el molde que ya existía para
+  *«alguien propone, otro decide, nada se ejecuta solo»*. **No se inventó una tabla** para lo mismo.
+- [x] **[GX.29.4]** Migración `20260926130000`: `provisional`, `comprobante_esperado_at`, `vuelta`,
+  `reabierto_por/_at/_motivo` + índice parcial. ⛔ **Ningún estado nuevo** (el vale vuelve a
+  `recibida`, que es lo que la bandeja ya lista) y **ninguna columna «oculto»**: el rechazo deja de
+  verse a las 24 h **derivándolo** de `validated_at`, porque un flag necesita un cron que lo prenda
+  y un cron que falla en silencio deja vales visibles creyendo que se ocultaron.
+- [x] **[GX.29.5]** ⛔ **Un solo expediente, con `vuelta + 1`.** Crear una fila nueva contaría ese
+  dinero **dos veces** en el total del día, en el historial y en lo que se le reporta a Dirección.
+
+---
+
+## GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27
+
+- [x] **[GX.30.1]** La marca provisional al aprobar (prefactura o cotización) + la fecha esperada.
+  Sin fecha la pone el servidor a 15 días: **sin fecha la deuda no envejece y nadie la reclama**.
+- [x] **[GX.30.2]** ⚠️ **Medido en pantalla:** la casilla puesta antes del pie **se iba con el
+  scroll** mientras los botones quedaban pegados — quien firma veía «Aprobar» y no veía la marca.
+  Un control que no está a la vista en el momento de decidir **no existe**. Marca y botones pasaron
+  a ser un solo bloque pegajoso.
+- [x] **[GX.30.3]** La marca **se limpia al abrir el siguiente vale**. Si se pegara, alguien firmaría
+  una deuda documental que nunca declaró. Con su prueba negativa.
+- [x] **[GX.30.4]** Panel de reaperturas **arriba de las tres pestañas y fuera de ellas**: las tres
+  particionan EL DÍA y esto es de cualquier fecha y de una sola persona. De cuarta pestaña rompería
+  que los tres contadores sumen el día. No se pinta si no hay nada — *un panel vacío permanente
+  enseña a saltearlo*.
+- [x] **[GX.30.5]** ⛔ **Bug de ruta encontrado al pasar:** `@Get('por-comprobar')` había quedado
+  declarado **después** de `@Get(':id')` y la paramétrica se lo tragaba. Misma trampa que
+  `sin-folio`. (Ese endpoint terminó retirado por pedido del usuario; el orden quedó documentado.)
+- [x] **[GX.30.6]** El borde tipado y **la forma deja de estar escrita dos veces**:
+  `ReaperturaPendiente` nació en el servicio y **el mismo día** ya estaba copiada campo por campo en
+  el frontend. Subió a `libs/contracts/src/finance/reapertura.contract.ts` (ADR-056).
+
+---
+
+## GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28
+
+> Lo reportó la sesión del módulo de aprobación; se verificó contra el código y la regla compartida
+> antes de tocar nada. **Desde GX.18 nadie podía levantar un gasto, y la pantalla se veía perfecta.**
+
+- [x] **[GX.31.1]** **La traba.** GX.18 retiró el paso «Sube la solicitud firmada» y lo reemplazó por
+  la foto en vivo del vale, pero el candado viejo quedó en pie en **cuatro** lugares:
+  `puedeEnviar()` exigía `solicitud_kepler` y **ninguna pantalla lo sube ya** (`dropSol()` quedó
+  huérfano, sin nada en el template) → el botón apagado de por vida **diciendo «Enviar a
+  aprobación»**, porque GX.18 también sacó de `enviarTitle()` la rama que lo explicaba; y
+  `create()`, `approve()` y `validate()` lo exigían igual.
+- [x] **[GX.31.2]** ⛔ **Y lo peor no era la traba.** Quitar el candado a secas abría un agujero:
+  `faltaParaMandar` sólo pide la foto cuando `exige_evidencia` es true, y GX.19 fija la captura en
+  `no_comprobable` → **se podía crear un gasto sin un solo documento**. El frontend no lo tenía
+  porque su `llevaEvidencia` es `!!clasificacion()` y el backend usa `requiereEvidencia(...)`: la
+  misma regla escrita distinto de los dos lados, que es lo que esa función existe para evitar.
+- [x] **[GX.31.3]** El respaldo sigue siendo obligatorio; **cambió cuál es**. La foto en vivo se
+  exige **siempre**: lo que la clasificación decide es qué CLASE de papel es, no si hay papel.
+  `tieneRespaldo()` —un solo predicado— acepta los **dos**: la solicitud firmada de los expedientes
+  viejos y la foto del vale de los nuevos. Aceptar uno solo rompía una mitad del historial.
+- [x] **[GX.31.4]** `tiene_solicitud` del reporte → `tiene_respaldo`: miraba sólo la solicitud vieja
+  y pintaba «sin firmada» sobre expedientes **perfectamente aprobables**. Un campo que miente es
+  peor que uno que falta.
+- [x] **[GX.31.5]** El mismo gasto dejaba de tener **dos nombres**: GX.18 renombró `no_comprobable`
+  a «Vale autorizado» sólo en la lista local de la captura, y el `CLASIFICACION_LABEL` canónico —el
+  que leen Aprobación y el Historial— seguía diciendo «Sin comprobante», que además es **falso**
+  desde GX.18. Lo que no lleva es comprobante FISCAL.
+- [x] **[GX.31.6]** ⭐ **LA PRUEBA QUE FALTABA.** Las cinco pruebas de la captura comprobaban que el
+  botón **dice qué falta**; ninguna que, sin faltar nada, el gasto **se pueda mandar**. Por eso el
+  módulo estuvo inutilizable y verde. Se agregó, y las dos compuertas nuevas se **rompieron a
+  propósito** para verlas en rojo antes de darlas por buenas.
+
+⚠️ **Supuesto declarado:** que la foto del vale reemplace a la solicitud firmada sale de GX.18 y
+GX.19, que son pedidos explícitos del usuario. Si además se quiere conservar el archivo firmado, lo
+que hay que reponer es **el paso en la captura**, no el candado — el candado solo, sin pantalla que
+lo alimente, es lo que dejó el módulo muerto.
 
 ---
 

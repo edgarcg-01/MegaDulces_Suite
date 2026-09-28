@@ -37,6 +37,9 @@ describe('[GX.17] etiquetas de la clasificación del gasto', () => {
   it('dice en palabras qué documento respalda el gasto', () => {
     expect(CLASIFICACION_LABEL.fiscal).toBe('Con factura');
     expect(CLASIFICACION_LABEL.no_fiscal_comprobable).toBe('Sólo ticket o recibo');
-    expect(CLASIFICACION_LABEL.no_comprobable).toBe('Sin comprobante');
+    // `[GX.31]` «Vale autorizado» desde GX.18: ese tipo SÍ lleva foto (la del vale que
+    // se firma al gastar). Decirle «Sin comprobante» a quien firma era falso, y además
+    // no coincidía con lo que había elegido quien capturó.
+    expect(CLASIFICACION_LABEL.no_comprobable).toBe('Vale autorizado');
   });
 });

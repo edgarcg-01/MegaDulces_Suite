@@ -3776,3 +3776,35 @@ El barrido se corrió el 2026-09-25 contra prod: **una sola función afectada**,
 ⚠️ **Y la lección que vale más que el bug:** el candado de paridad comparaba el TOTAL y también
 **por canal**. El total salió verde. Si sólo hubiera comparado totales, esto entraba a producción
 sin un solo ruido — y el número grande de la pantalla habría estado bien todo el tiempo.
+
+---
+
+## 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro
+
+**Medido el 2026-09-28, dos features distintas el mismo día.** Al preparar el PR del módulo de
+gastos, `npx tsc --noEmit` de api y view, `nx build view` y `nx build api` dieron **los cuatro
+verdes**. `node scripts/lint-boundary-gate.js` dio **19 violaciones en líneas nuevas** — 11 mías y
+8 de otra sesión, que también había pasado los tres builds en verde sin enterarse.
+
+Ninguno de los builds corre ese gate. `tsc` no se queja de un `any` explícito ni de una función del
+borde sin tipo de retorno: **son reglas de ESLint, no del compilador**.
+
+```bash
+node scripts/lint-boundary-gate.js   # va aparte, y no lo dispara ningún build
+```
+
+⭐ **La lección que vale más que el gate.** Arreglar las 11 violaciones destapó lo de fondo: el tipo
+`ReaperturaPendiente` había nacido en el servicio y **el mismo día** ya estaba copiado campo por
+campo en el servicio del frontend. La otra sesión encontró **exactamente el mismo defecto** en su
+feature, el mismo día. No es casualidad: el camino corto siempre es escribir el tipo de los dos
+lados, compila igual de los dos lados, y **el día que se desincronizan nadie se entera**. Es lo que
+ADR-056 midió y lo que `libs/contracts` existe para impedir.
+
+⚠️ **Por qué el mensaje del gate puede llevarte a lo contrario:** dice *«Tipalo con el contrato de
+`libs/contracts`»*, y en un checkout compartido `libs/contracts/src/index.ts` suele estar modificado
+por otra sesión — no se puede stagear parcial, así que agregar ahí tu export se lleva trabajo ajeno
+a medias. Si te pasa, **coordiná con quien lo tenga tomado** (o commiteá tu contrato primero y
+avisá) en vez de tipar local y dejar la duplicación viva.
+
+**Regla:** antes de abrir un PR, correr el gate. Verde en `tsc` y en los builds **no dice nada**
+sobre el tipado del borde — misma familia que **§68** (`nx build` verde no dice nada sobre si la app arranca).

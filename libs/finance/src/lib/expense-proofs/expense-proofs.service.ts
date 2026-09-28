@@ -1,12 +1,32 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
-import { esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
+import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
+// [GX.29] Las reglas de la reapertura viven aparte, sin knex: deciden quien puede tocar
+// dinero ya aprobado, y eso se prueba sin levantar una base.
+import {
+  KIND_REAPERTURA, SQL_OCULTA_RECHAZOS_VIEJOS, puedeAutorizarReapertura, puedePedirReapertura,
+  type ValeParaReabrir,
+} from './reapertura';
+// `[GX.30]` La forma de lo que sale por el cable vive en `libs/contracts`: acá y en el
+// frontend estaba escrita dos veces a mano, que es como se desincroniza sin que nadie vea.
+import type {
+  ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
+} from '@megadulces/contracts';
+import {
+  diaValido, etapaDe, hoyMx, particionarDelDia,
+  type EtapaGasto, type ParticionDelDia,
+} from './etapas-del-dia';
+import {
+  mesValido, rangoDelMes, totalDelMes,
+  type CalendarioDelMes, type DiaDelCalendario,
+} from './calendario-gastos';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -22,7 +42,18 @@ import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendient
  * ya los tenemos de Kepler por folio— sino porque la firma es la evidencia de que alguien
  * autorizó. Por eso es OPCIONAL: lo que no puede faltar es el comprobante del gasto.
  */
-export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'solicitud_kepler', 'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
+/**
+ * [GX.23] Un gasto puede llevar VARIAS evidencias: el vale de ida y el de vuelta, el
+ * ticket y su detalle, dos cotizaciones que se compararon. Antes cabian dos
+ * comprobantes y una cotizacion, y la pantalla solo dejaba subir uno de cada.
+ *
+ * La lista es CERRADA a proposito, con un tope explicito (4 y 3), en vez de aceptar
+ * `comprobante_<n>` por patron: el rol viaja en un JSONB sin CHECK, asi que la unica
+ * barrera contra un rol inventado es esta lista. Un patron abierto no seria barrera.
+ */
+export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'comprobante_3', 'comprobante_4',
+  'solicitud_kepler', 'cotizacion', 'cotizacion_2', 'cotizacion_3',
+  'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
 
 /**
@@ -45,8 +76,25 @@ export function requiereEvidencia(c?: string | null): boolean {
 }
 /** El archivo de evidencia que puede faltar (condicional a la clasificación). */
 const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
-/** La solicitud de gasto firmada: **obligatoria siempre**, en los tres tipos de gasto. */
+/** La solicitud de gasto firmada. Respaldo de los expedientes anteriores a GX.18. */
 const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
+
+/**
+ * `[GX.31]` **¿Este archivo respalda que alguien autorizó la salida de dinero?**
+ *
+ * Son dos, y conviven a propósito: `solicitud_kepler` es el papel que se subía hasta
+ * GX.17 y que los expedientes viejos traen; el `comprobante*` es la foto del vale
+ * autorizado que la captura toma desde GX.18. Aceptar sólo uno rompe una de las dos
+ * mitades del historial — y el que se rompía era el de hoy.
+ *
+ * ⚠️ No mira `live`: eso lo juzga `faltaParaMandar` al CREAR, que es donde se puede
+ * exigir. Acá, con el expediente ya guardado, repetirlo dejaría sin aprobar lo que el
+ * propio sistema aceptó — un gasto trabado para siempre, sin nadie que pueda destrabarlo.
+ */
+function tieneRespaldo(f: { role?: unknown; url?: unknown }): boolean {
+  const role = String(f?.role || '');
+  return !!f?.url && (role === REQUEST_ROLE || role.startsWith('comprobante'));
+}
 
 export interface ProofFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -95,6 +143,42 @@ export interface ExpedienteParaAprobar extends ExpedientePendiente {
 
 export interface RespuestaPorAprobar extends AgrupadoAprobacion {
   filas: ExpedienteParaAprobar[];
+}
+
+/**
+ * `[GX.20]` Un expediente del dia, con todo lo que la pantalla necesita para decir **que
+ * falta y de quien**. Extiende el de aprobacion: es el mismo expediente, en cualquier etapa.
+ */
+export interface ExpedienteDelDiaDetallado extends ExpedienteParaAprobar {
+  /** El estado crudo de la tabla. La etapa se deriva de el, pero el estado se muestra. */
+  status: string;
+  etapa: EtapaGasto;
+  /** Hora de captura (`HH:MM`, Mexico). El dia ya viene en `created_at`. */
+  created_hora: string;
+  motivo_rechazo: string | null;
+  revision_nota: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  /** Este gasto debe llevar evidencia? Derivado de la clasificacion. */
+  requiere_evidencia: boolean;
+  /** Ya la subieron? Es lo que separa "falta ejercer" de "falta firmar el cierre". */
+  tiene_evidencia: boolean;
+}
+
+/** `[GX.20]` Lo que devuelve `delDia()`. Cruza el boundary REST (ADR-052), asi que se declara. */
+export interface RespuestaDelDia extends ParticionDelDia {
+  /** El dia que se esta mirando (`YYYY-MM-DD`, Mexico). */
+  fecha: string;
+  es_hoy: boolean;
+  /** Hoy en Mexico, para que la pantalla no lo calcule con el reloj del navegador. */
+  hoy: string;
+  /** La fecha que pidieron cuando era ilegible y se cayo a hoy. `null` = todo en orden. */
+  fecha_pedida: string | null;
+  filas: ExpedienteDelDiaDetallado[];
+  /** Los grupos por departamento de lo que espera decision ESE dia (la bandeja de entrada). */
+  entrada: AgrupadoAprobacion;
+  /** Lo que espera firma y NO cayo en este dia. El dia filtra lo que se lee, no lo que existe. */
+  pendientes_fuera_del_dia: { n: number; monto: number };
 }
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
@@ -154,6 +238,15 @@ export interface ListExpenseProofsQuery {
   to?: string;
   /** Sólo lo que capturó este usuario (para la vista del capturista). */
   mine?: string;
+  /**
+   * `[GX.27]` Un día de calendario **de México** (`YYYY-MM-DD`).
+   *
+   * ⚠️ Es distinto de `from`/`to`, que comparan `created_at` contra un string suelto y por eso
+   * arrastran el corrimiento de zona: `'2026-09-26'` es medianoche **UTC**, o sea las 18:00 del
+   * 25 en México. Para «lo del día 26» eso mete seis horas del día anterior y pierde seis del
+   * propio. `dia` se resuelve como rango en hora de México.
+   */
+  dia?: string;
   limit?: number;
 }
 
@@ -168,6 +261,12 @@ export class ExpenseProofsService {
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
     @Optional() private readonly gateway?: ExpenseProofsGateway,
+    /**
+     * `[GX.26]` El canal que llega a la CAMPANA de quien levanto el gasto. `@Optional`
+     * como manda el port: si no hay binding, la decision se guarda igual y el aviso no
+     * sale -- nunca al reves.
+     */
+    @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
   /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
@@ -182,6 +281,193 @@ export class ExpenseProofsService {
         importe: row.importe == null ? null : Number(row.importe), actor: actor ?? null,
       });
     } catch { /* el aviso no debe tumbar la operación */ }
+  }
+
+  /**
+   * `[GX.26]` **El aviso a QUIEN LEVANTO el gasto.**
+   *
+   * El `emit` de arriba avisa al AUTORIZADOR que llego algo. Este es el camino de vuelta:
+   * la persona que tomo la foto mandó el vale y se quedo sin saber en que quedo. Ahora le
+   * llega a su campana cuando se aprueba o se rechaza, con el motivo si lo hubo.
+   *
+   * ⚠️ Va a SU cuarto, no al del tenant: «tu vale fue rechazado» es de una persona, y
+   * mandarselo a los 166 seria ruido para 165 y una fuga para el dueño.
+   *
+   * ⛔ Los expedientes que entraron por LINK no tienen a quien avisarle: su `created_by`
+   * es `link:<quien firmo>`, que no es un usuario de la app. Se DECLARA en el log en vez
+   * de intentar adivinar a quien mandarselo.
+   */
+  private avisarAlSolicitante(
+    decision: 'aprobado' | 'rechazado',
+    row: { folio_solicitud?: string | null; created_by?: string | null; proveedor?: string | null;
+           importe?: number | null; motivo_rechazo?: string | null },
+  ): void {
+    try {
+      const quien = String(row.created_by || '').trim();
+      if (!quien) return;
+      if (quien.startsWith('link:')) {
+        this.logger.debug(`sin aviso: ${row.folio_solicitud} lo levanto un link (${quien}), no un usuario`);
+        return;
+      }
+      const tenantId = this.tenantCtx.requireTenantId();
+      const folio = row.folio_solicitud || 'sin folio';
+      const monto = row.importe == null ? '' : ` · $${Number(row.importe).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+      const aprobado = decision === 'aprobado';
+      void this.notifier?.notify?.(tenantId, {
+        key: `vale_${decision}:${folio}`,
+        type: 'vale_resuelto',
+        severity: aprobado ? 'info' : 'warn',
+        title: aprobado ? `Aprobaron tu vale ${folio}` : `Rechazaron tu vale ${folio}`,
+        message: aprobado
+          ? `${row.proveedor || 'Sin proveedor'}${monto}`
+          : `${row.proveedor || 'Sin proveedor'}${monto} — ${row.motivo_rechazo || 'sin motivo declarado'}`,
+        route: '/finanzas/gastos-historial',
+        para_usuario: quien,
+        data: { folio_solicitud: folio, decision, importe: row.importe ?? null },
+      });
+    } catch { /* el aviso no debe tumbar la decision */ }
+  }
+
+  /**
+   * `[GX.29]` Lee el vale + el estado que Kepler le puso, que es lo que las reglas de
+   * reapertura necesitan. Dos viajes y no un JOIN porque `analytics.expense_requests` es
+   * una VISTA sobre el ODS y cruzarla con la tabla sale caro (medido en GX.15: >90 s).
+   */
+  private async valeParaReabrir(trx: Knex.Transaction, id: string): Promise<ValeParaReabrir | null> {
+    const v = await trx('finance.expense_proofs').where({ id })
+      .first('id', 'status', 'validated_by', 'created_by', 'folio_solicitud', 'sucursal');
+    if (!v) return null;
+    let estadoKepler: string | null = null;
+    if (v.folio_solicitud) {
+      const sol = await trx('analytics.expense_requests')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: v.folio_solicitud })
+        .modify((qb: Knex.QueryBuilder) => { if (v.sucursal) qb.where('sucursal', v.sucursal); })
+        .first('estado');
+      estadoKepler = sol?.estado ?? null;
+    }
+    return { ...v, estado_kepler: estadoKepler };
+  }
+
+  /**
+   * `[GX.29]` **El capturista pide que le reabran su vale.**
+   *
+   * No lo reabre: deja una solicitud que decide quien lo aprobo. Vive en
+   * `finance.proposed_actions`, el molde que ya existia para «alguien propone, otro
+   * decide, nada se ejecuta solo» — no se invento una tabla para lo mismo.
+   */
+  async solicitarReapertura(id: string, actor: string, motivo: string): Promise<SolicitudReaperturaCreada> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const razon = String(motivo || '').trim();
+    if (razon.length < 10) throw new BadRequestException('Contá en una frase qué vas a agregar: quien autoriza decide con eso.');
+    return this.tk.run(async (trx) => {
+      const vale = await this.valeParaReabrir(trx, id);
+      const v = puedePedirReapertura(vale, actor);
+      if (!v.puede) throw new BadRequestException(v.explicacion);
+
+      // Una sola solicitud viva por vale: pedirlo tres veces no lo hace mas urgente, y le
+      // llena la bandeja a quien decide con el mismo caso repetido.
+      const yaHay = await trx('finance.proposed_actions')
+        .where({ tenant_id: tenantId, kind: KIND_REAPERTURA, estado: 'pending_approval' })
+        .whereRaw("payload->>'proof_id' = ?", [id]).first('id');
+      if (yaHay) throw new BadRequestException('Ya hay una solicitud esperando respuesta para este vale.');
+
+      const [row] = await trx('finance.proposed_actions').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        kind: KIND_REAPERTURA,
+        titulo: `Reabrir el vale ${vale!.id}`,
+        descripcion: razon,
+        payload: JSON.stringify({ proof_id: id, aprobador: vale!.validated_by, solicita: actor }),
+        estado: 'pending_approval',
+        origen: 'humano',
+        created_by: actor || null,
+      }).returning(['id']);
+
+      // Le llega a QUIEN APROBO, a su campana. No al area: es su firma la que se toca.
+      void this.notifier?.notify?.(tenantId, {
+        key: `reapertura:${id}`,
+        type: 'vale_resuelto',
+        severity: 'warn',
+        title: 'Te piden reabrir un vale que aprobaste',
+        message: razon,
+        route: '/finanzas/aprobacion-gastos',
+        para_usuario: vale!.validated_by || '',
+        data: { proof_id: id, solicitud_id: row.id },
+      });
+      this.logger.log(`reapertura solicitada para ${id} por ${actor} → decide ${vale!.validated_by}`);
+      return { id: row.id, estado: 'pending_approval' };
+    });
+  }
+
+  /** `[GX.29]` Las solicitudes de reapertura que le toca decidir a ESTA persona. */
+  async reaperturasPendientes(actor: string): Promise<ReaperturaPendiente[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!String(actor || '').trim()) return [];
+    return this.tk.run(async (trx) => trx('finance.proposed_actions as a')
+      .join('finance.expense_proofs as p', trx.raw("p.id::text = a.payload->>'proof_id'"))
+      .where({ 'a.tenant_id': tenantId, 'a.kind': KIND_REAPERTURA, 'a.estado': 'pending_approval' })
+      .where('p.validated_by', actor)
+      .orderBy('a.created_at', 'desc')
+      .select('a.id', 'a.descripcion as motivo', 'a.created_by as solicita', 'a.created_at',
+        'p.id as proof_id', 'p.folio_solicitud', 'p.proveedor', 'p.status',
+        trx.raw('p.importe::numeric AS importe')));
+  }
+
+  /**
+   * `[GX.29]` **Quien aprobo decide.** Si acepta, el vale vuelve a la bandeja del dia.
+   *
+   * ⛔ Vuelve el MISMO expediente, con `vuelta + 1` — no se crea uno nuevo. Un registro
+   * nuevo contaria ese dinero dos veces en el total del dia, en el historial y en lo que
+   * se le reporta a Direccion, y duplicaria el folio de Kepler de este lado.
+   *
+   * ⛔ Y vuelve a `recibida`, que es el estado que la bandeja ya lista: se ve como algo
+   * nuevo que atender sin inventar un sexto estado que todas las consultas tendrian que
+   * aprender. Al agregar la evidencia hay que autorizarlo otra vez, que es el pedido.
+   */
+  async decidirReapertura(solicitudId: string, actor: string, aprueba: boolean, nota?: string): Promise<ReaperturaDecidida> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const sol = await trx('finance.proposed_actions')
+        .where({ id: solicitudId, tenant_id: tenantId, kind: KIND_REAPERTURA, estado: 'pending_approval' })
+        .first('id', 'payload', 'descripcion', 'created_by');
+      if (!sol) throw new BadRequestException('Esa solicitud ya no está esperando respuesta.');
+      const payload = typeof sol.payload === 'string' ? JSON.parse(sol.payload || '{}') : (sol.payload || {});
+      const proofId = String(payload.proof_id || '');
+
+      const vale = await this.valeParaReabrir(trx, proofId);
+      const v = puedeAutorizarReapertura(vale, actor);
+      if (!v.puede) throw new BadRequestException(v.explicacion);
+
+      await trx('finance.proposed_actions').where({ id: solicitudId }).update({
+        estado: aprueba ? 'approved' : 'rejected',
+        decided_by: actor || null, decided_at: trx.fn.now(),
+        resultado: String(nota || '').trim() || null, updated_at: trx.fn.now(),
+      });
+
+      if (aprueba) {
+        await trx('finance.expense_proofs').where({ id: proofId }).update({
+          status: 'recibida',
+          vuelta: trx.raw('COALESCE(vuelta, 1) + 1'),
+          reabierto_por: actor || null, reabierto_at: trx.fn.now(),
+          reapertura_motivo: sol.descripcion || null,
+          updated_at: trx.fn.now(),
+        });
+      }
+
+      void this.notifier?.notify?.(tenantId, {
+        key: `reapertura_resuelta:${proofId}`,
+        type: 'vale_resuelto',
+        severity: aprueba ? 'info' : 'warn',
+        title: aprueba ? 'Te reabrieron el vale' : 'No te reabrieron el vale',
+        message: aprueba
+          ? 'Agregá la evidencia y mandalo otra vez: hay que autorizarlo de nuevo.'
+          : (String(nota || '').trim() || 'Sin motivo declarado.'),
+        route: '/finanzas/gastos',
+        para_usuario: String(sol.created_by || ''),
+        data: { proof_id: proofId },
+      });
+      this.logger.log(`reapertura ${aprueba ? 'concedida' : 'negada'} para ${proofId} por ${actor}`);
+      return { proof_id: proofId, reabierto: aprueba };
+    });
   }
 
   /**
@@ -357,12 +643,23 @@ export class ExpenseProofsService {
     if (!proveedor) throw new BadRequestException('proveedor requerido (no vino en la solicitud ni en el formulario)');
     if (!departamento) throw new BadRequestException('departamento o sucursal requerido');
 
-    const roles = new Set(files.map((f) => f.role));
-    // La solicitud firmada respalda la salida de dinero: va en los TRES tipos de gasto.
-    // Un gasto puede no ser comprobable; la autorización nunca deja de existir.
-    if (!roles.has(REQUEST_ROLE)) {
-      throw new BadRequestException('falta la solicitud de gasto firmada (se adjunta siempre, incluso si el gasto no es comprobable)');
-    }
+    // `[GX.31]` **El respaldo de la salida de dinero sigue siendo obligatorio — cambió
+    // cuál es.** Hasta GX.17 era el archivo `solicitud_kepler`, que se subía en un paso
+    // propio. GX.18 retiró ese paso por pedido del usuario y lo reemplazó por la FOTO EN
+    // VIVO del vale autorizado, que ahora se toma en los tres tipos de gasto.
+    //
+    // ⛔ El candado viejo quedó en pie y **dejó la captura inutilizable**: ninguna
+    // pantalla adjuntaba ya ese rol, así que todo POST moría en este 400. Medido contra
+    // la API con exactamente lo que manda hoy la captura.
+    //
+    // ⚠️ Y su reemplazo NO estaba cubierto: `faltaParaMandar` sólo exige la foto cuando
+    // `exige_evidencia` es true, y GX.19 fija la captura en `no_comprobable` — o sea que
+    // quitar el candado a secas dejaba crear un gasto SIN NINGÚN documento. Por eso la
+    // foto se exige ahora SIEMPRE (ver `exige_evidencia: true` abajo), y no por la
+    // clasificación: lo que la clasificación decide es qué CLASE de papel es, no si hay.
+    //
+    // Los expedientes viejos conservan su `solicitud_kepler` y se siguen aprobando: las
+    // puertas de `approve()` y `validate()` aceptan cualquiera de los dos respaldos.
     // GX.11 — la EVIDENCIA vuelve a exigirse en la captura. El diseño de «dos momentos»
     // (mig 20260827120000) la difería hasta después de aprobar, y existía para el caso
     // *pedir dinero → gastar → comprobar*. Decisión del PM (2026-09-15): acá el expediente
@@ -391,7 +688,16 @@ export class ExpenseProofsService {
       forma_pago: formaPago,
       forma_pago_detalle: formaPagoDetalle,
       archivos: files,
-      exige_evidencia: llevaEvidencia,
+      // `[GX.31]` SIEMPRE, no `llevaEvidencia`. La foto del vale autorizado es el
+      // respaldo de que alguien autorizó la salida de dinero, y eso no depende de que
+      // el gasto lleve factura. Con `llevaEvidencia` acá, un `no_comprobable` —que es
+      // lo que la captura genera desde GX.19— pasaba sin una sola imagen.
+      //
+      // ⚠️ Es además lo que el FRONTEND ya hacía: su `llevaEvidencia` es
+      // `!!clasificacion()`, no `requiereEvidencia(...)`, así que su compuerta pedía la
+      // foto y la del servidor no. Las dos reglas escritas distinto se separan, que es
+      // justo lo que esta función existe para evitar.
+      exige_evidencia: true,
     } satisfies EstadoAporte);
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 
@@ -440,13 +746,29 @@ export class ExpenseProofsService {
    * En ambos casos la solicitud firmada es obligatoria (respalda la salida de dinero).
    * Puede RECLASIFICAR si el capturista se equivocó de naturaleza.
    */
-  async approve(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }) {
+  async approve(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string;
+    /**
+     * [GX.30] **Apruebo, pero esto es provisional.** La evidencia que trae el vale es una
+     * prefactura o una cotizacion, no el comprobante: el dinero sale y queda una DEUDA
+     * documental declarada, con su fecha esperada.
+     *
+     * No es un error ni una excepcion -- es el curso normal de ese tipo de gasto. Lo que
+     * cambia es que ahora se puede CONTAR: cuanto dinero esta aprobado sin comprobar y
+     * desde cuando. Sin la marca, un vale asi era indistinguible de uno cerrado con su
+     * factura, y ese numero no se podia contestar.
+     */
+    provisional?: boolean; comprobante_esperado_at?: string }): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
       throw new BadRequestException('clasificación inválida');
     }
     const notaIn = (dto?.comprobacion_nota || '').trim();
+    const prov = dto?.provisional === true;
+    const esperado = String(dto?.comprobante_esperado_at || '').trim() || null;
+    if (esperado && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(esperado)) {
+      throw new BadRequestException('La fecha esperada va como YYYY-MM-DD.');
+    }
 
     // Lee el estado actual + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
@@ -460,8 +782,11 @@ export class ExpenseProofsService {
 
     const finalClas = clasIn || (base.clasCol ? base.cur.clasificacion : null);
     const files: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
-    const hasRequest = files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url);
-    if (!hasRequest) throw new BadRequestException('no se puede aprobar sin la solicitud de gasto firmada adjunta');
+    // `[GX.31]` Cualquiera de los DOS respaldos: la solicitud firmada de los expedientes
+    // viejos, o la foto del vale autorizado de los nuevos. Exigir sólo el primero dejaba
+    // sin aprobar todo lo que se levante desde GX.18 para adelante.
+    const hasRequest = files.some((f) => tieneRespaldo(f));
+    if (!hasRequest) throw new BadRequestException('no se puede aprobar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
 
     const lleva = requiereEvidencia(finalClas);
     const motivo = notaIn || (base.clasCol ? (base.cur.comprobacion_nota || '') : '');
@@ -504,12 +829,22 @@ export class ExpenseProofsService {
           revision_nota: nextStatus === 'revision' ? (ocr.revision_nota ?? null) : null,
           ...(('monto_ocr' in ocr) ? { monto_ocr: ocr.monto_ocr, monto_match: ocr.monto_match } : {}),
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
+          // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
+          // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
+          provisional: prov,
+          comprobante_esperado_at: prov
+            ? (esperado || trx.raw("(now() + interval '15 days')::date"))
+            : null,
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit(cierra ? 'validated' : 'captured', full, actor);
+      // `[GX.26]` Se avisa cuando la decision CIERRA el vale. Aprobar un gasto comprobable
+      // no lo cierra -- deja al capturista con algo mas que hacer (subir la evidencia), y ese
+      // aviso es otro mensaje, no este. Avisar «aprobado» ahi diria que ya termino.
+      if (full && cierra) this.avisarAlSolicitante('aprobado', full);
       this.logger.log(`solicitud de gasto folio ${base.cur.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
       return row;
     });
@@ -597,9 +932,26 @@ export class ExpenseProofsService {
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
           'files', 'comentarios', 'status',
+          // `[GX.27]` La forma de pago viaja porque el visor del vale la muestra. Sin ella,
+          // el visor diría «sin forma de pago» en un vale que SI la tiene -- que es afirmar
+          // algo falso, no omitir un dato.
+          // Lo mismo vale para la clasificacion: sin ella el visor decia «sin clasificar»
+          // en un vale que SI estaba clasificado. Medido en pantalla.
+          'forma_pago', 'forma_pago_detalle', 'clasificacion',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
       if (q.status) b.where('status', q.status);
+      // [GX.29] Un rechazo deja de verse a las 24 h. Se DERIVA de la hora del rechazo, no
+      // de un flag: un flag necesita un proceso que lo prenda, y uno que falla en silencio
+      // deja vales visibles creyendo que se ocultaron. ⚠️ Ocultar NO es borrar: la fila queda.
+      b.whereRaw(SQL_OCULTA_RECHAZOS_VIEJOS);
+      // `[GX.27]` El día, como RANGO en hora de México -- no envolviendo la columna en
+      // `to_char`, que anularía el índice de `created_at`.
+      const dia = diaValido(q.dia);
+      if (dia) {
+        b.whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia])
+         .whereRaw(`created_at <  ((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+      }
       if (q.folio_solicitud) b.where('folio_solicitud', q.folio_solicitud.trim());
       if (q.mine) b.where('created_by', q.mine);
       if (q.from) b.where('created_at', '>=', q.from);
@@ -618,6 +970,58 @@ export class ExpenseProofsService {
       return {
         kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         rows,
+      };
+    });
+  }
+
+  /**
+   * `[GX.27]` **El mes del historial**: cuántos levantamientos hubo cada día y cuánto sumaron.
+   *
+   * Es lo que dibuja el calendario. Devuelve **sólo los días con movimiento** — la rejilla
+   * pinta los vacíos igual, y mandar 30 ceros por la red no agrega información.
+   *
+   * ⚠️ El corte del mes va en hora de **México**: un gasto levantado el 30 a las 20:00 de acá
+   * ya es día 1 en UTC, y con el corte en UTC el total de octubre se comería el último día de
+   * septiembre.
+   *
+   * ⚠️ `mine` NO es un filtro opcional de conveniencia: es el alcance. Cuando viene, la
+   * consulta se acota a esa persona; cuando no, devuelve el de toda la empresa — y eso lo
+   * decide el controller, que es quien sabe si hay god-mode.
+   */
+  async calendarioMes(mesPedido: string | undefined, opts: { mine?: string } = {}): Promise<CalendarioDelMes> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const pedido = mesPedido == null || String(mesPedido).trim() === '' ? null : String(mesPedido).trim();
+    const mes = mesValido(pedido) ?? hoyMx().slice(0, 7);
+    const { desde, hasta } = rangoDelMes(mes);
+
+    return this.tk.run(async (trx) => {
+      interface FilaCruda { dia: string; n: number; monto: string | number }
+      const b = trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
+        .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta])
+        .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
+        .orderByRaw('1 ASC')
+        .select(
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
+          trx.raw('COUNT(*)::int AS n'),
+          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+      if (opts.mine) b.where('created_by', opts.mine);
+
+      const filas: FilaCruda[] = await b;
+      const dias: DiaDelCalendario[] = filas.map((f) => ({
+        dia: f.dia,
+        n: Number(f.n) || 0,
+        monto: Math.round((Number(f.monto) || 0) * 100) / 100,
+      }));
+
+      return {
+        mes,
+        // No-null = el mes que pidieron era ilegible y se cayó al actual. La pantalla lo dice.
+        mes_pedido: pedido != null && mesValido(pedido) == null ? pedido : null,
+        dias,
+        total: totalDelMes(dias),
+        alcance: opts.mine ? 'mios' : 'todos',
       };
     });
   }
@@ -724,6 +1128,16 @@ export class ExpenseProofsService {
       // el monto con la misma manga dejaría pescar el gasto ajeno tecleando cifras hasta
       // que caiga algo. Por eso el monto cuelga de `veTodo || claves.length` y el folio no.
       const montoBuscable = (veTodo || claves.length > 0) && Number(q) > 0;
+    /**
+     * `[GX.18]` **Sólo las solicitudes de HOY.** Pedido del usuario: el levantamiento se hace
+     * el mismo día, así que una solicitud vieja en el desplegable es ruido — y peor, invita a
+     * capturar contra el folio equivocado cuando dos se parecen.
+     *
+     * El día es el de México, no el del servidor: `fecha` es un `date` de Kepler y a las 19:00
+     * de Morelia ya es el día siguiente en UTC. Con `current_date` pelado, media tarde de
+     * trabajo desaparecería del buscador.
+     */
+    b.andWhereRaw("r.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date");
       if (soloNumeros) {
         // Igualdad numérica: '23' encuentra '0000023' y nada más.
         b.andWhere((w: any) => {
@@ -763,8 +1177,18 @@ export class ExpenseProofsService {
       }
       const rows = await b
         .orderBy('r.fecha', 'desc').limit(lim)
+        /**
+         * [GX.21] Se suman las columnas que la vista YA calculaba y nadie pedia: el RFC,
+         * el IVA, quien autoriza, la referencia y la cuenta contable. Son para la vista
+         * previa del alta -- «todos los datos que se jalan de Kepler».
+         *
+         * No cuesta una consulta mas: `analytics.expense_requests` las trae en la misma
+         * fila. Lo que costaba era NO traerlas: la pantalla mostraba cinco campos de una
+         * solicitud que tiene quince, y nadie podia comprobar que fuera la correcta.
+         */
         .select('r.folio', 'r.sucursal', 'r.fecha', 'r.solicitante', 'r.concepto', 'r.estado', 'r.aplicada',
-          trx.raw('r.importe::numeric AS importe'),
+          'r.rfc', 'r.autoriza', 'r.referencia', 'r.cuenta_clave', 'r.usuario', 'r.forma_pago',
+          trx.raw('r.importe::numeric AS importe'), trx.raw('r.iva::numeric AS iva'),
           trx.raw(conAcreedor ? 'COALESCE(r.acreedor, r.beneficiario) AS beneficiario' : 'r.beneficiario AS beneficiario'));
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0 }));
     });
@@ -986,6 +1410,171 @@ export class ExpenseProofsService {
   }
 
   /**
+   * `[GX.20]` **El dia del gasto.** Todo lo que se levanto un dia, partido en las tres
+   * pestanas de la pantalla de Aprobacion: *Aprobar*, *Ejercer* y *Todos*.
+   *
+   * ## (!) El dia es el de CAPTURA, y el de Mexico
+   * "Los levantamientos que se hicieron al dia" habla de cuando se **levanto** el
+   * expediente (`created_at`), no de cuando ocurrio el gasto (`fecha_gasto`) -- que puede
+   * ser de la semana pasada y que cada renglon muestra aparte, justo porque no coinciden.
+   *
+   * El corte se hace contra el dia de **Mexico**: a las 20:00 de aca ya es el dia siguiente
+   * en UTC, y un gasto levantado de noche no apareceria en "hoy".
+   *
+   * (X) El filtro va como **rango de timestamps**, no envolviendo la columna en `to_char`:
+   * envolverla anula el indice de `created_at` y obliga a leer la tabla entera. Es la otra
+   * mitad de la trampa de `porAprobar` -- ahi `to_char` es gratis porque esta en la lista
+   * de seleccion, aca seria carisimo porque estaria en el `WHERE`.
+   *
+   * ## (X) Acotar por dia NO puede esconder lo que espera firma
+   * Una pantalla que solo mire "hoy" haria desaparecer el expediente que nadie aprobo
+   * anteayer. Por eso la respuesta trae `pendientes_fuera_del_dia` con lo que quedo afuera
+   * del rango, y la pantalla lo dice con su monto. El dia filtra lo que se LEE, nunca lo
+   * que existe.
+   *
+   * (!) El rail de dias que acompanaba a este numero se retiro de la pantalla, y con el la
+   * consulta que lo alimentaba: un payload que nadie lee es una consulta que nadie paga.
+   */
+  async delDia(fecha?: string, limit = 500): Promise<RespuestaDelDia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const lim = Math.min(2000, Math.max(1, Number(limit) || 500));
+    const hoy = hoyMx();
+    // Una fecha ilegible NO se convierte en "hoy" en silencio: se declara en `fecha_pedida`
+    // para que la pantalla pueda decir que el parametro venia roto.
+    const pedida = fecha == null || String(fecha).trim() === '' ? null : String(fecha).trim();
+    const dia = diaValido(pedida) ?? hoy;
+
+    return this.tk.run(async (trx) => {
+      interface FilaCruda {
+        id: string; folio_solicitud: string | null; sucursal: string | null;
+        fecha_gasto: string | null; created_dia: string; created_hora: string;
+        departamento: string | null; proveedor: string | null; clasificacion: string | null;
+        forma_pago: string | null; forma_pago_detalle: string | null;
+        files: string | ProofFile[] | null; comentarios: string | null;
+        created_by: string | null; importe: string | number; status: string;
+        motivo_rechazo: string | null; revision_nota: string | null;
+        validated_by: string | null; validated_at: string | Date | null;
+      }
+
+      // El dia de Mexico como rango de timestamps: [00:00, 00:00 del siguiente).
+      const desde = trx.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+      const hasta = trx.raw(`((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+
+      const filas: FilaCruda[] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .where('created_at', '>=', desde)
+        .where('created_at', '<', hasta)
+        .orderBy('created_at', 'desc')
+        .limit(lim)
+        .select('id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
+          'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
+          'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at',
+          trx.raw('importe::numeric AS importe'),
+          trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`));
+
+      // Lo que espera firma y NO cayo en el dia que se mira. Sin este numero, un expediente
+      // parado hace un mes no existe en ninguna pantalla.
+      const [fuera] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId, status: 'recibida' })
+        .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
+        .select(trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+
+      const particion = particionarDelDia(filas.map((f) => ({
+        id: f.id, status: f.status, importe: Number(f.importe) || 0,
+      })));
+
+      const base = {
+        ...particion,
+        fecha: dia,
+        es_hoy: dia === hoy,
+        hoy,
+        // No-null = la fecha pedida era ilegible y se cayo a hoy. La pantalla lo dice.
+        fecha_pedida: pedida != null && diaValido(pedida) == null ? pedida : null,
+        pendientes_fuera_del_dia: {
+          n: Number(fuera?.n) || 0,
+          monto: Math.round((Number(fuera?.monto) || 0) * 100) / 100,
+        },
+      };
+
+      if (!filas.length) {
+        return { ...base, filas: [], entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] } };
+      }
+
+      // Segundo viaje: el area y el concepto de la solicitud de Kepler, por (sucursal, folio).
+      // Mismo criterio que `porAprobar`: sin folio no hay llave, y no se inventa.
+      const porSucursal = new Map<string, Set<string>>();
+      for (const f of filas) {
+        const suc = String(f.sucursal ?? '');
+        const folio = f.folio_solicitud ? String(f.folio_solicitud).trim() : '';
+        if (!suc || !folio) continue;
+        if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
+        porSucursal.get(suc)!.add(folio);
+      }
+      interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null }
+      const sol = new Map<string, SolicitudMinima>();
+      for (const [suc, folios] of porSucursal) {
+        if (!suc) continue;
+        const rows = await trx('analytics.expense_requests')
+          .where({ tenant_id: tenantId, sucursal: suc })
+          .whereRaw('folio = ANY(?::text[])', [[...folios]])
+          .select('sucursal', 'folio', 'solicitante', 'concepto');
+        for (const r of rows) sol.set(`${r.sucursal}|${r.folio}`, r);
+      }
+
+      const detalladas: ExpedienteDelDiaDetallado[] = await Promise.all(filas.map(async (f) => {
+        const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
+        const s = sol.get(`${f.sucursal}|${f.folio_solicitud}`);
+        const clasificacion = f.clasificacion ?? null;
+        return {
+          id: f.id,
+          folio_solicitud: f.folio_solicitud ?? '',
+          sucursal: f.sucursal,
+          fecha_gasto: f.fecha_gasto ?? null,
+          created_at: f.created_dia,
+          created_hora: f.created_hora,
+          importe: Number(f.importe) || 0,
+          departamento: f.departamento,
+          solicitante: s?.solicitante ?? null,
+          concepto: s?.concepto ?? null,
+          proveedor: f.proveedor,
+          clasificacion,
+          forma_pago: f.forma_pago ?? null,
+          forma_pago_detalle: f.forma_pago_detalle ?? null,
+          comentarios: f.comentarios ?? null,
+          created_by: f.created_by ?? null,
+          status: f.status,
+          etapa: etapaDe(f.status),
+          motivo_rechazo: f.motivo_rechazo ?? null,
+          revision_nota: f.revision_nota ?? null,
+          validated_by: f.validated_by ?? null,
+          validated_at: f.validated_at == null ? null : String(f.validated_at),
+          requiere_evidencia: requiereEvidencia(clasificacion),
+          // Lo que decide si "Ejercer" ya tiene con que cerrarse. Que exista un comprobante
+          // de la captura no alcanza: la evidencia del gasto es otro rol de archivo.
+          tiene_evidencia: arch.some((a) => String(a?.role ?? '').startsWith('evidencia') && !!a?.url),
+          evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
+          files: await this.storage.signFiles(arch, 1800),
+        };
+      }));
+
+      // Los grupos por departamento de la bandeja de entrada. Quien autoriza no revisa
+      // renglones sueltos: revisa "lo de Logistica". Se reusa el agrupador de GX.17.
+      const entrada = agruparParaAprobacion(
+        detalladas.filter((d) => d.etapa === 'entrada').map((d) => ({
+          id: d.id, folio_solicitud: d.folio_solicitud, sucursal: d.sucursal,
+          fecha_gasto: d.fecha_gasto, created_at: d.created_at, importe: d.importe,
+          departamento: d.departamento, solicitante: d.solicitante, proveedor: d.proveedor,
+          clasificacion: d.clasificacion, forma_pago: d.forma_pago,
+          evidencia_en_vivo: d.evidencia_en_vivo,
+        })));
+
+      return { ...base, filas: detalladas, entrada };
+    });
+  }
+
+  /**
    * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/gastos.
    *
    * Devuelve el id (para poder resolver desde donde se ve), el estado, y qué documentos
@@ -1111,11 +1700,12 @@ export class ExpenseProofsService {
 
       const finalClas = clasIn || (clasCol ? cur.clasificacion : null);
       const files: any[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
-      // La solicitud firmada es obligatoria SIEMPRE (los 3 tipos): el gate del aprobador
-      // debe ser el mismo que el de la captura, o un expediente sin firma se colaría por API.
-      const hasRequest = files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url);
+      // `[GX.31]` El respaldo es obligatorio SIEMPRE (los 3 tipos): el gate del que cierra
+      // debe ser el mismo que el de la captura, o un expediente sin respaldo se colaría
+      // por API. Vale cualquiera de los dos — ver `tieneRespaldo`.
+      const hasRequest = files.some((f) => tieneRespaldo(f));
       if (!hasRequest) {
-        throw new BadRequestException('no se puede validar sin la solicitud de gasto firmada adjunta');
+        throw new BadRequestException('no se puede validar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
       }
       const hasEvidence = files.some((f) => String(f?.role || '').startsWith('comprobante') && f?.url);
       if (requiereEvidencia(finalClas) && !hasEvidence) {
@@ -1136,8 +1726,10 @@ export class ExpenseProofsService {
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit('validated', full, actor);
+      // `[GX.26]` Y el camino de vuelta: a quien levanto el gasto, a su campana.
+      if (full) this.avisarAlSolicitante('aprobado', full);
       return row;
     });
   }
@@ -1151,8 +1743,11 @@ export class ExpenseProofsService {
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya rechazada');
       const [full] = await trx('finance.expense_proofs').where({ id })
-        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by', 'motivo_rechazo');
       if (full) this.emit('rejected', full, actor);
+      // `[GX.26]` El rechazo SIEMPRE viaja con su motivo: un «te lo rechazaron» sin por que
+      // obliga a la persona a ir a preguntar, que es justo lo que el aviso deberia evitar.
+      if (full) this.avisarAlSolicitante('rechazado', full);
       return row;
     });
   }
@@ -1216,7 +1811,10 @@ export class ExpenseProofsService {
             importe: Number(r.importe) || 0,
             monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
             fotos: files.length,
-            tiene_solicitud: files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url),
+            // `[GX.31]` Antes `tiene_solicitud`, y miraba SÓLO la solicitud firmada: desde
+            // GX.18 la foto del vale autoriza igual, así que el chip que colgaba de esto
+            // marcaba «sin firmada» a expedientes perfectamente aprobables.
+            tiene_respaldo: files.some((f) => tieneRespaldo(f)),
             camara: meta.camera ?? null,
             captured_at: meta.captured_at ?? null,
           };

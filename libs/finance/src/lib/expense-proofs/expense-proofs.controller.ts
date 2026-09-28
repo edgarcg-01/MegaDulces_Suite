@@ -1,7 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar } from './expense-proofs.service';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+// `[GX.30]` La forma del borde HTTP, compartida con el frontend (ADR-052).
+import type {
+  ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
+} from '@megadulces/contracts';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
+import type { CalendarioDelMes } from './calendario-gastos';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
@@ -17,9 +22,27 @@ interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: 
 export class ExpenseProofsController {
   constructor(private readonly svc: ExpenseProofsService) {}
 
+  /**
+   * El historial de gasto de TODA la empresa, sin acotar por persona.
+   *
+   * `[GX.26]` **Sólo god-mode**, por pedido del usuario (2026-09-25). Antes bastaba
+   * `FINANCE_EXPENSES_VER` — 25 personas, de las cuales 9 eran cuentas de administración.
+   *
+   * ⛔ El recorte va **acá**, no sólo escondiendo la pestaña en la UI. Esta ruta devuelve
+   * los expedientes de todos: si el candado viviera sólo en el front, cualquiera con `_VER`
+   * la seguiría pudiendo pedir a mano y el «recorte» sería una decoración.
+   *
+   * ⚠️ El decorador de permiso NO alcanza para expresar «sólo god-mode»: `RolesGuard` deja
+   * pasar a admin/superadmin **y** a quien tenga la clave, así que la clave sola abre la
+   * puerta. Por eso el rol se comprueba explícito. Se conserva `_VER` como primer filtro:
+   * quien no lo tiene se va antes, en el guard.
+   *
+   * ⚠️ Quien sólo captura NO pierde nada: `GET /mine` le sigue dando lo suyo, acotado por
+   * su token.
+   */
   @Get()
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Lista solicitudes de reembolso + KPIs.' })
+  @ApiOperation({ summary: '[GX.26] Historial de gasto de toda la empresa + KPIs. SÓLO god-mode (admin/superadmin): devuelve los expedientes de todas las personas. Lo propio se pide por /mine.' })
   list(
     @Query('status') status?: string,
     @Query('folio_solicitud') folio_solicitud?: string,
@@ -27,8 +50,13 @@ export class ExpenseProofsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
-  ) {
-    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, limit: limit ? Number(limit) : undefined };
+    @Query('dia') dia?: string,
+    @Req() req?: AuthedRequest,
+  ): ReturnType<ExpenseProofsService['list']> {
+    if (!isPlatformAdminRole(req?.user?.role_name)) {
+      throw new ForbiddenException('el historial de toda la empresa es sólo para administradores de la plataforma; lo tuyo está en /mine');
+    }
+    const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, dia, limit: limit ? Number(limit) : undefined };
     return this.svc.list(q);
   }
 
@@ -49,12 +77,15 @@ export class ExpenseProofsController {
   @Get('mine')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
-  mine(@Query('limit') limit?: string, @Req() req?: AuthedRequest) {
+  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['list']> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
     if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] };
-    return this.svc.list({ mine: actor, limit: limit ? Number(limit) : undefined });
+    // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
+    // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
+    // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
+    return this.svc.list({ mine: actor, search, dia, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('resumen')
@@ -71,6 +102,42 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: '[GX.17] Lo que espera luz verde, agrupado por fecha y por departamento. Mismo permiso que aprobar/validar/rechazar: quien no puede firmar tampoco necesita la bandeja.' })
   porAprobar(@Query('limit') limit?: string): Promise<RespuestaPorAprobar> {
     return this.svc.porAprobar(limit ? Number(limit) : undefined);
+  }
+
+  @Get('del-dia')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.20] Los levantamientos de gasto de UN dia (captura, hora de Mexico), partidos en Aprobar / Ejercer / Todos. Sin `fecha` devuelve hoy. Trae el rail de dias con sus pendientes y lo que espera firma FUERA del dia: acotar por dia no puede esconder trabajo.' })
+  delDia(@Query('fecha') fecha?: string, @Query('limit') limit?: string): Promise<RespuestaDelDia> {
+    return this.svc.delDia(fecha, limit ? Number(limit) : undefined);
+  }
+
+  /**
+   * `[GX.27]` El mes del historial: cuántos levantamientos hubo cada día y cuánto sumaron.
+   *
+   * ⚠️ El **alcance** lo decide esta ruta, no el cliente. `alcance=todos` es el calendario de
+   * toda la empresa y por lo tanto **god-mode**, la misma regla que `[GX.26]` puso en la
+   * colección: si acá se resolviera por un parámetro, el recorte de allá sería inútil —
+   * bastaría pedir el calendario para saber cuánto gastó cada área.
+   *
+   * Cualquier otro valor cae en «lo mío», que es lo que todos pueden ver de sí mismos.
+   */
+  @Get('calendario')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: '[GX.27] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode; cualquier otro valor devuelve lo del propio usuario.' })
+  calendario(
+    @Query('mes') mes?: string,
+    @Query('alcance') alcance?: string,
+    @Req() req?: AuthedRequest,
+  ): Promise<CalendarioDelMes> {
+    const esGod = isPlatformAdminRole(req?.user?.role_name);
+    if (alcance === 'todos' && !esGod) {
+      throw new ForbiddenException('el calendario de toda la empresa es sólo para administradores de la plataforma');
+    }
+    if (alcance === 'todos') return this.svc.calendarioMes(mes);
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    // Sin actor NO se cae a sin-filtro: eso devolvería el calendario de la empresa entera a
+    // quien sólo pidió el suyo. Se acota a un nombre que no existe → mes vacío, declarado.
+    return this.svc.calendarioMes(mes, { mine: actor || '\u0000sin-actor' });
   }
 
   @Get('status-by-folio')
@@ -103,6 +170,38 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Detalle de una solicitud con los adjuntos re-firmados (para el visor de quien revisa).' })
   detail(@Param('id') id: string) {
     return this.svc.detail(id);
+  }
+
+  /**
+   * `[GX.29]` El capturista PIDE que le reabran su vale ya aprobado, para agregar la
+   * evidencia definitiva cuando el vale se aprobo con prefactura o cotizacion.
+   *
+   * ⚠️ Sin permiso especial: es su propio vale, y el servicio comprueba que lo sea. Gatearlo
+   * con `_VER` dejaria afuera a los ~140 que solo capturan, que son justo quienes piden.
+   */
+  @Post(':id/reapertura')
+  @ApiOperation({ summary: '[GX.29] Solicita reabrir un vale aprobado para agregar evidencia. Decide quien lo aprobo.' })
+  solicitarReapertura(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req?: AuthedRequest): Promise<SolicitudReaperturaCreada> {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.solicitarReapertura(id, actor, body?.motivo || '');
+  }
+
+  /** `[GX.29]` Lo que ESTA persona tiene que decidir: solo los vales que ella aprobo. */
+  @Get('reaperturas/pendientes')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.29] Solicitudes de reapertura que le toca decidir a quien pregunta.' })
+  reaperturasPendientes(@Req() req?: AuthedRequest): Promise<ReaperturaPendiente[]> {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.reaperturasPendientes(actor);
+  }
+
+  /** `[GX.29]` La decision. Solo quien aprobo el vale puede tomarla (lo valida el servicio). */
+  @Post('reaperturas/:id/decidir')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.29] Autoriza o niega una reapertura. Al autorizar, el vale vuelve a la bandeja del dia con vuelta+1.' })
+  decidirReapertura(@Param('id') id: string, @Body() body: { aprueba?: boolean; nota?: string }, @Req() req?: AuthedRequest): Promise<ReaperturaDecidida> {
+    const actor = req?.user?.full_name || req?.user?.username || '';
+    return this.svc.decidirReapertura(id, actor, body?.aprueba === true, body?.nota);
   }
 
   @Post('upload')
@@ -141,7 +240,10 @@ export class ExpenseProofsController {
   @Post(':id/approve')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Aprueba la solicitud capturada (con reclasificación opcional). Comprobable → aprobada (falta evidencia); no comprobable → validada. Auditado.' })
-  approve(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
+  approve(@Param('id') id: string,
+    @Body() body: { clasificacion?: string; comprobacion_nota?: string;
+                    provisional?: boolean; comprobante_esperado_at?: string },
+    @Req() req: AuthedRequest): Promise<{ id: string; status: string }> {
     return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body);
   }
 

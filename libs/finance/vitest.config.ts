@@ -21,6 +21,16 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.spec.ts'],
     passWithNoTests: true,
+    // `[GX.26]` Un secreto SOLO para las pruebas.
+    //
+    // Importar cualquier controller arrastra `@megadulces/platform-core`, y su
+    // `TenantModule` exige `JWT_SECRET` **al cargar el modulo** (fail-fast a proposito: la
+    // app no debe arrancar sin secreto de firma). Sin esto, un spec que monte un controller
+    // no falla por lo que prueba -- falla antes de correr, en el import.
+    //
+    // No afloja nada: es un valor de proceso de prueba, no se firma nada real con el, y el
+    // fail-fast de produccion queda intacto.
+    env: { JWT_SECRET: 'secreto-de-pruebas-no-usar-fuera-de-vitest-0123456789' },
     coverage: {
       provider: 'v8',
       reportsDirectory: '../../coverage/libs/finance',

@@ -674,15 +674,21 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // acceso todos», GX.17). Con el `anyOf` que traía, 66 de los 166 activos podían
         // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
         // ruta. El dato sigue acotado por áreas del lado del backend.
-        { label: 'Gastos', icon: 'pi pi-file-edit', route: '/finanzas/gastos' },
+        // `[GX.18]` Se llama LEVANTAMIENTO: es el acto de levantar el gasto, no el gasto.
+        { label: 'Levantamiento de gasto', icon: 'pi pi-file-edit', route: '/finanzas/gastos' },
         // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
         // approve/validate/reject — no se inventó un permiso para la misma puerta.
         { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
           permission: Permission.FINANCE_EXPENSES_COMPROBAR },
-        // El tablero de GX.10 no se borró: 25 personas con `_VER` lo usan para revisar y
-        // buscar. Dejó de ser lo que sirve `/finanzas/gastos` y tiene ruta propia.
-        { label: 'Tablero de gastos', icon: 'pi pi-table', route: '/finanzas/gastos-tablero',
-          permission: Permission.FINANCE_EXPENSES_VER },
+        // `[GX.25]` El historial de lo levantado. `anyOf` porque quien SOLO captura tiene
+        // que poder ver lo suyo: el endpoint lo acota por token.
+        { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
+          permission: Permission.FINANCE_EXPENSES_VER,
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
+        // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
+        // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
+        // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder
+        // la puerta; borrar la ruta es romperle el enlace a alguien.
       ],
     },
     {

@@ -21,6 +21,16 @@ export class AlertsService {
     this.gateway.emitToTenant(tenantId, full);
   }
 
+  /**
+   * `[GX.26]` Emisión dirigida a UNA persona. Misma forma que `emit`, otro destinatario.
+   * Sin destinatario NO cae a tenant-wide: eso convertiria un descuido en una fuga.
+   */
+  emitTo(tenantId: string, quien: string, alert: Omit<Alert, 'emitted_at'>): void {
+    if (!quien) return;
+    const full: Alert = { ...alert, emitted_at: new Date().toISOString() };
+    this.gateway.emitToUser(tenantId, quien, full);
+  }
+
   // ─────────── builders por tipo ───────────
 
   emitLargeOrder(tenantId: string, params: {

@@ -386,6 +386,14 @@ export const routes: Routes = [
         // `[GX.17]` El tablero de GX.10 NO se borra: 25 personas con `FINANCE_EXPENSES_VER`
         // lo usan para revisar y buscar. Deja de ser lo que sirve `/finanzas/gastos` (que
         // ahora es sólo captura) y pasa a tener ruta propia.
+        // `[GX.25]` El historial: de TODAS las fechas, y con dos ambitos segun el permiso.
+        // `anyOf` porque quien solo CAPTURA tiene que poder ver lo suyo -- el endpoint
+        // `mine` lo acota por token, asi que no hay forma de pedir el de otro.
+        path: 'gastos-historial',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+      {
         path: 'gastos-tablero',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]

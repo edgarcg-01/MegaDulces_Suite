@@ -10,9 +10,12 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
-import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof, ExpenseClasificacion, ProofByFolio, requiereEvidencia, type ListasParaComprobar } from '../comprobaciones.service';
+import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ProofPhotoOcr, ExpenseProof,
+  ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
+  type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
@@ -22,7 +25,13 @@ import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component'
 type CapMode = 'checking' | 'capturar' | 'evidencia' | 'esperando' | 'revision' | 'cerrada';
 
 /** Solicitud de Kepler elegida (read-only) — el capturista sólo confirma que es la correcta. */
-interface SelSolicitud { folio: string; beneficiario: string | null; importe: number; sucursal: string | null; solicitante: string | null; fecha: string | null; concepto: string | null; }
+interface SelSolicitud {
+  folio: string; beneficiario: string | null; importe: number; sucursal: string | null;
+  solicitante: string | null; fecha: string | null; concepto: string | null;
+  /** [GX.21] Lo demas que Kepler trae, para la vista previa del alta. */
+  rfc?: string | null; iva?: number | null; autoriza?: string | null; referencia?: string | null;
+  cuenta_clave?: string | null; usuario?: string | null; estado?: string | null;
+}
 
 /**
  * GX.8 — Vista del CAPTURISTA (rol `FINANCE_EXPENSES_CAPTURAR`). Superficie mínima:
@@ -33,7 +42,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, CapturaEnVivoComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -42,7 +51,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Capturar gasto</h1>
-          <p class="surf-page-sub">Pega el folio de la solicitud (Kepler), sube la solicitud firmada y —si aplica— el comprobante. Lo demás lo llena el sistema.</p>
+          <p class="surf-page-sub">Pegá el folio de la solicitud de HOY, decí cómo se pagó y tomá la foto. Lo demás lo llena el sistema.</p>
         </div>
       </header>
 
@@ -96,7 +105,32 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               @if (gasto()!.fecha) { <span><i class="pi pi-calendar" aria-hidden="true"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
             @if (gasto()!.concepto) { <div class="cap-g-meta"><span><i class="pi pi-align-left" aria-hidden="true"></i> {{ gasto()!.concepto }}</span></div> }
-            <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
+            <!--
+              [GX.28] Lo que Kepler decidió sobre este vale. Alguien lo abre allá y le pone
+              N o A; ese flag es «c43» y ya viajaba en la vista sin que nadie lo mostrara.
+
+              ⚠️ «Autoriza» es un ÁREA, no una persona: la migración que trajo esa columna
+              (20260821200000) la midió y conviven «FINANZAS / DPTO FINANZAS /
+              DEPARTAMENTO DE FINANSAS». Se rotula como área a propósito -- ponerle «por»
+              delante la haría leer como el nombre de quien firmó, que es otra cosa y
+              todavía no sabemos en qué columna vive.
+            -->
+            <div class="cap-g-meta">
+              @if (estadoKepler(); as e) {
+                <span class="cap-g-est" [class]="'k-' + e.clave"><i class="pi pi-verified" aria-hidden="true"></i> Kepler: {{ e.label }}</span>
+              }
+              @if (gasto()!.autoriza) { <span><i class="pi pi-sitemap" aria-hidden="true"></i> área que autoriza: {{ gasto()!.autoriza }}</span> }
+            </div>
+            <div class="cap-g-acc">
+              <button type="button" class="cap-link" (click)="reset()">cambiar solicitud</button>
+              <!--
+                [GX.21] El disparador de la vista previa es DISCRETO a proposito: un enlace
+                de texto al pie de la ficha, no un boton que compita con «Enviar». Quien
+                captura no necesita abrirlo: es para cuando alguien duda de si el folio es
+                el correcto, o de como va a quedar el alta.
+              -->
+              <button type="button" class="cap-link" (click)="verPrevia()">ver alta completa</button>
+            </div>
           </div>
 
           @switch (modo()) {
@@ -107,36 +141,29 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
               @if (yaRechazada()) {
                 <div class="cap-val warn"><i class="pi pi-replay" aria-hidden="true"></i> Esta solicitud fue devuelta. Vuelve a capturarla.</div>
               }
-              <!-- 2) Solicitud firmada: OBLIGATORIA siempre (la autorización que respalda la
-                   salida de dinero). Va en los tres tipos de gasto, incluso no comprobable. -->
-              <div class="cap-step">2 · Sube la solicitud firmada</div>
-              @if (!names()['solicitud_kepler']) {
-                <div class="cap-drop" [class.drag]="dragSol()" (dragover)="overSol($event)" (dragleave)="leaveSol($event)" (drop)="dropSol($event)">
-                  <i class="pi pi-file-edit cap-drop-ic" aria-hidden="true"></i>
-                  <div>Arrastra la <strong>solicitud de gasto firmada</strong> (foto o PDF)</div>
-                  <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
-                    <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'solicitud_kepler')" hidden />
-                  </label>
-                </div>
-              } @else {
-                <div class="cap-done">
-                  <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['solicitud_kepler'] }}</span>
-                  <button type="button" class="cap-link" (click)="clearFile('solicitud_kepler')">cambiar</button>
-                </div>
-              }
+              <!--
+                [GX.18] Se retiro el paso «Sube la solicitud firmada». Pedido del usuario:
+                de este lado solo hace falta la FOTO de la evidencia. El rol
+                «solicitud_kepler» sigue existiendo en el contrato de archivos -- los
+                expedientes viejos lo tienen y el expediente en PDF lo sigue mostrando.
+              -->
+              <!--
+                [GX.19] Se retiro el paso «¿Que tipo de gasto es?». De la solicitud, Kepler ya
+                sabe TODO: que se compro, a quien, cuanto y de que cuenta sale. Lo unico que
+                el ERP no tiene -- y por eso existe esta pantalla -- son tres cosas:
 
-              <!-- 3) Clasificación del gasto: decide si lleva ticket o motivo. -->
-              <div class="cap-step">3 · ¿Qué tipo de gasto es?</div>
-              <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
-                              optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
-                              ariaLabel="Tipo de gasto" />
-              @if (clasificacion()) { <em class="cap-hint">{{ clasHint() }}</em> }
+                  1. como se pago            (Kepler tiene la columna y nadie la llena)
+                  2. la foto del vale autorizado
+                  3. la cotizacion, cuando el gasto la tiene
 
-              @if (clasificacion()) {
+                Pedirle ademas que clasifique el gasto era hacerle repetir lo que el sistema
+                ya sabe, y de paso trababa el formulario: sin elegir tipo no aparecia nada.
+              -->
+              @if (true) {
                 <!-- [GX.14] Paso propio, y ANTES de la foto: se pregunta en los tres tipos
                      de gasto, porque el dinero salió de algún lado aunque no haya papel.
                      Kepler tiene la columna y nadie la llena — 5,410 de 10,082 vacías. -->
-                <div class="cap-step">4 · ¿Cómo se pagó?</div>
+                <div class="cap-step">2 · Método de pago</div>
                 <div class="cap-fp">
                   @for (f of formasPago; track f.id) {
                     <button type="button" class="cap-fp-b" [class.on]="formaPago() === f.id"
@@ -149,43 +176,103 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                 @if (formaSel(); as fs) {
                   @if (fs.detalle_label) {
                     <label class="cap-f"><span>{{ fs.detalle_label }}</span>
-                      <input pInputText [(ngModel)]="formaPagoDetalleV" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
+                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
                     </label>
                   }
                 }
 
-                @if (llevaEvidencia()) {
-                  <!-- GX.11 — la evidencia se sube ACÁ. Antes se difería hasta después de
-                       aprobar; como el expediente siempre se captura DESPUÉS de gastar, el
-                       ticket ya existe y diferirlo sólo dejaba expedientes a medias. -->
-                  <div class="cap-step">5 · Tomá {{ clasificacion() === 'fiscal' ? 'la factura' : 'el ticket' }}</div>
-                  @if (!names()['comprobante_1']) {
-                    <!-- [GX.14] Se fue el input de archivo y el arrastrar-y-soltar. El
-                         atributo capture="environment" de antes era una sugerencia: en escritorio
-                         abría el explorador y en móvil la galería seguía disponible. -->
-                    <md-captura-en-vivo (capturada)="onCaptura($event)" />
-                  } @else {
-                    <div class="cap-done">
-                      <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
-                      @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
-                      <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
-                    </div>
-                    @if (photoResult(); as pr) {
-                      @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
-                      @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
-                      @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
-                      @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
+                <!--
+                  GX.11 -- la evidencia se sube ACA. [GX.18] Y ahora en los TRES tipos: el
+                  «Vale autorizado» tambien se fotografia en el momento, por pedido del
+                  usuario. Antes ese caso se registraba sin ninguna imagen, solo con un
+                  motivo escrito -- o sea, sin nada que mirar.
+                -->
+                <!--
+                  [GX.20] Un solo paso, dos botones. Antes eran dos pasos numerados -- el vale
+                  y la cotizacion -- y eso los ponia al mismo nivel: la persona contaba cuatro
+                  obligaciones cuando en realidad hay UNA evidencia que dar, por dos caminos.
+
+                  La diferencia entre los dos botones es real y por eso no se puede fundir en
+                  uno: el VALE se toma en el momento (es el papel que se firma al gastar) y la
+                  COTIZACION se adjunta (existe antes, llega por correo o en PDF). Pedirle
+                  camara a la cotizacion seria pedir la foto de una pantalla.
+
+                  La cotizacion no muestra su zona de arrastre: es un boton que abre el
+                  explorador y, elegido el archivo, ya esta. Sin superficie que ocupe alto
+                  esperando algo que la mayoria de los gastos no tiene.
+                -->
+                <div class="cap-step">3 · Capturá la evidencia de tu gasto</div>
+                <div class="cap-ev">
+                  <div class="cap-ev-c">
+                    <!--
+                      [GX.23] Varias fotos, no una. Un gasto puede llevar el vale de ida y el
+                      de vuelta, o el ticket y su detalle. El boton sigue siendo el mismo y
+                      cambia de texto: la primera vez «Tomar foto del vale», despues «Agregar
+                      otra foto» -- la accion es la misma, lo que cambia es que ya hay una.
+                    -->
+                    @if (comprobantes().length < MAX_COMPROBANTES) {
+                      <md-captura-en-vivo [etiqueta]="comprobantes().length ? 'Agregar otra foto' : 'Tomar foto del vale'"
+                                          (capturada)="onCaptura($event)" />
+                    } @else {
+                      <p class="cap-ev-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Ya hay {{ MAX_COMPROBANTES }} fotos, el máximo.</p>
                     }
+                    @for (r of comprobantes(); track r) {
+                      <div class="cap-done">
+                        <!--
+                          [GX.24] La miniatura. Antes el unico rastro de la foto era el texto
+                          «Foto tomada 18:42»: la persona no podia comprobar que hubiera
+                          salido el ticket y no el mostrador, ni el dedo sobre el lente.
+                          Se abre en grande al tocarla -- en un telefono, 48 px no alcanzan
+                          para leer un total.
+                        -->
+                        @if (miniaturas()[r]; as src) {
+                          <button type="button" class="cap-mini" (click)="verFoto(r)"
+                                  [attr.aria-label]="'Ver ' + names()[r] + ' en grande'">
+                            <img [src]="src" alt="" />
+                          </button>
+                        }
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
+                        @if (photoLoading() && r === 'comprobante_1') { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
+                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
+                      </div>
+                    }
+                  </div>
+                  <div class="cap-ev-c">
+                    @if (cotizaciones().length < MAX_COTIZACIONES) {
+                      <label class="cap-ev-b">
+                        <i class="pi pi-upload" aria-hidden="true"></i> {{ cotizaciones().length ? 'Agregar otra' : 'Subir cotización' }}
+                        <input type="file" accept="image/*,application/pdf" (change)="onFileCotizacion($event)" hidden />
+                      </label>
+                      @if (!cotizaciones().length) {
+                        <p class="cap-ev-nota"><i class="pi pi-paperclip" aria-hidden="true"></i> Si el gasto la tiene. Archivo o PDF.</p>
+                      }
+                    }
+                    @for (r of cotizaciones(); track r) {
+                      <div class="cap-done">
+                        <!-- Un PDF no tiene miniatura: se DICE con su icono, no se deja el hueco. -->
+                        @if (miniaturas()[r]; as src) {
+                          <button type="button" class="cap-mini" (click)="verFoto(r)"
+                                  [attr.aria-label]="'Ver ' + names()[r] + ' en grande'">
+                            <img [src]="src" alt="" />
+                          </button>
+                        } @else {
+                          <span class="cap-mini cap-mini-pdf" aria-hidden="true"><i class="pi pi-file-pdf"></i></span>
+                        }
+                        <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()[r] }}</span>
+                        <button type="button" class="cap-link" (click)="clearFile(r)">quitar</button>
+                      </div>
+                    }
+                  </div>
+                </div>
+                  @if (photoResult(); as pr) {
+                    @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
+                    @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
+                    @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
+                    @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
                   }
-                  <label class="cap-f"><span>Comentarios (opcional)</span>
-                    <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
-                } @else {
-                  <!-- No comprobable: sin foto nunca, pero el motivo es obligatorio y auditable. -->
-                  <div class="cap-step">4 · ¿Por qué no se puede comprobar?</div>
-                  <textarea pTextarea [(ngModel)]="comentarios" rows="3" class="w-full"
-                            placeholder="Ej. propina, gasto en efectivo sin recibo, viático sin factura…"></textarea>
-                  <em class="cap-hint">Este gasto se registra <strong>sin evidencia</strong>. El motivo lo lee quien aprueba.</em>
-                }
+
+                <label class="cap-f"><span>Comentarios (opcional)</span>
+                  <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
               }
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
@@ -256,73 +343,93 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
         }
       </div>
 
-      <!-- [GX.15] Lo que Kepler ya autorizo y aplico: la comprobacion queda lista sola. -->
-      <div class="cap-mine">
-        <div class="cap-mine-h">
-          <h2>Listas para comprobar</h2>
-          <button type="button" class="cap-link" (click)="loadListas()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button>
-        </div>
-        @if (listasLoading()) { <div class="cap-muted">Cargando…</div> }
-        @else if (listas(); as lp) {
-          @if (!lp.medido) {
-            <div class="cap-muted">No se puede saber cuáles son tuyas: {{ lp.motivo }}</div>
-          } @else if (!lp.rows.length) {
-            <div class="cap-muted">Nada por comprobar en los últimos {{ lp.ventana_dias }} días.</div>
-          } @else {
-            <p class="cap-muted">{{ lp.rows.length }} gasto(s) ya aplicados en Kepler, esperando su comprobación.</p>
-            <div class="cap-list">
-              @for (g of lp.rows; track g.folio_gasto) {
-                <div class="cap-item">
-                  <div class="cap-it-main">
-                    <strong>{{ g.concepto || g.beneficiario || "—" }}</strong>
-                    <span class="cap-it-prov">gasto {{ g.folio_gasto }} · solicitud {{ g.solicitud_folio }}</span>
-                    <span class="cap-it-date">{{ g.fecha_gasto | date: "dd/MM/yy" }}</span>
-                  </div>
-                  <div class="cap-it-side">
-                    <span class="cap-it-imp">{{ moneyFull(g.importe) }}</span>
-                    @if (g.cuadra_con_solicitud === false) {
-                      <span class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        no cuadra con lo solicitado ({{ moneyFull(g.solicitud_importe) }})</span>
-                    }
-                    <button type="button" class="cap-link" [disabled]="pdfCargando() === g.solicitud_folio"
-                            (click)="verExpediente(g.sucursal, g.solicitud_folio)">
-                      <i class="pi pi-file-pdf" aria-hidden="true"></i>
-                      {{ pdfCargando() === g.solicitud_folio ? "armando…" : "expediente" }}
-                    </button>
-                  </div>
-                </div>
-              }
-            </div>
-          }
-        }
-      </div>
+      <!-- [GX.24] La foto en grande. Sin recortes: se mira para comprobar que se lee. -->
+      <p-dialog [(visible)]="fotoAbierta" [modal]="true" [draggable]="false" [dismissableMask]="true"
+                [style]="{ width: 'min(42rem, 94vw)' }" [header]="fotoTitulo()">
+        @if (fotoSrc(); as src) { <img [src]="src" class="cap-foto-grande" alt="" /> }
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text" (click)="fotoAbierta = false">Cerrar</button>
+        </ng-template>
+      </p-dialog>
 
-      <!-- Mis capturas -->
-      <div class="cap-mine">
-        <div class="cap-mine-h"><h2>Mis últimas capturas</h2><button type="button" class="cap-link" (click)="loadMine()"><i class="pi pi-refresh" aria-hidden="true"></i> actualizar</button></div>
-        @if (mineLoading()) { <div class="cap-muted">Cargando…</div> }
-        @else if (!mine().length) { <div class="cap-muted">Aún no has capturado comprobantes.</div> }
-        @else {
-          <div class="cap-list">
-            @for (m of mine(); track m.id) {
-              <div class="cap-item">
-                <div class="cap-it-main">
-                  <span class="mono">{{ m.folio_solicitud }}</span>
-                  <span class="cap-it-prov">{{ m.proveedor }}</span>
-                </div>
-                <div class="cap-it-side">
-                  <span class="cap-it-imp">{{ moneyFull(m.importe) }}</span>
-                  <p-tag [value]="statusLabel(m.status)" [severity]="statusSev(m.status)" />
-                  <span class="cap-it-date">{{ m.created_at | date:'dd/MM HH:mm' }}</span>
-                </div>
-                @if (m.status === 'rechazada' && m.motivo_rechazo) { <div class="cap-it-note bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ m.motivo_rechazo }} — vuelve a capturar el folio {{ m.folio_solicitud }}.</div> }
-                @else if (m.status === 'revision' && m.revision_nota) { <div class="cap-it-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ m.revision_nota }}</div> }
-              </div>
-            }
+      <!--
+        [GX.21] La vista previa del alta: a la izquierda lo que Kepler ya sabe, a la derecha
+        lo que esta pantalla agrega. Puestas lado a lado se ve de un golpe que el trabajo de
+        la persona son tres renglones y el resto viene solo.
+
+        ⚠️ Un campo que Kepler no trae sale con un GUION, nunca vacio ni en cero: un espacio
+        en blanco se lee como «no hay dato» igual que como «no se cargo», y son cosas
+        distintas. El guion dice que se miro y no habia.
+      -->
+      <p-dialog [(visible)]="previaAbierta" [modal]="true" [draggable]="false" [style]="{ width: '44rem' }"
+                header="Vista previa del alta">
+        @if (gasto(); as g) {
+          <div class="cap-prev">
+            <section>
+              <h3><i class="pi pi-database" aria-hidden="true"></i> Lo que trae Kepler</h3>
+              <dl>
+                <dt>Folio</dt><dd class="mono">{{ g.folio }}</dd>
+                <dt>Sucursal</dt><dd>{{ g.sucursal || '—' }}</dd>
+                <dt>Fecha</dt><dd>{{ g.fecha ? (g.fecha | date:'dd/MM/yy') : '—' }}</dd>
+                <dt>Beneficiario</dt><dd>{{ g.beneficiario || '—' }}</dd>
+                <dt>RFC</dt><dd class="mono">{{ g.rfc || '—' }}</dd>
+                <dt>Concepto</dt><dd>{{ g.concepto || '—' }}</dd>
+                <dt>Cuenta</dt><dd class="mono">{{ g.cuenta_clave || '—' }}</dd>
+                <dt>Solicita</dt><dd>{{ g.solicitante || '—' }}</dd>
+                <dt>Autoriza</dt><dd>{{ g.autoriza || '—' }}</dd>
+                <dt>Referencia</dt><dd class="mono">{{ g.referencia || '—' }}</dd>
+                <dt>Capturo</dt><dd>{{ g.usuario || '—' }}</dd>
+                <dt>IVA</dt><dd class="mono">{{ g.iva ? moneyFull(g.iva) : '—' }}</dd>
+                <dt>Importe</dt><dd class="mono cap-prev-imp">{{ moneyFull(g.importe) }}</dd>
+              </dl>
+            </section>
+            <section>
+              <h3><i class="pi pi-pencil" aria-hidden="true"></i> Lo que agregas vos</h3>
+              <dl>
+                <dt>Método de pago</dt>
+                <dd>
+                  @if (formaSel(); as fs) { {{ fs.label }} <span class="cap-prev-cod mono">{{ fs.codigo_kepler }}</span> }
+                  @else { <span class="cap-prev-falta">sin elegir</span> }
+                </dd>
+                <dt>Evidencia</dt>
+                <dd>
+                  @if (names()['comprobante_1']; as n) { <span class="cap-prev-ok">✓</span> {{ n }} }
+                  @else { <span class="cap-prev-falta">falta la foto</span> }
+                </dd>
+                <dt>Cotización</dt>
+                <dd>
+                  @if (names()['cotizacion']; as n) { <span class="cap-prev-ok">✓</span> {{ n }} }
+                  @else { <span class="cap-prev-opt">no se adjuntó — es opcional</span> }
+                </dd>
+                <dt>Comentarios</dt>
+                <dd>{{ comentarios.trim() || '—' }}</dd>
+              </dl>
+              @if (faltan().length) {
+                <p class="cap-prev-pend"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                  Así como está <strong>no se puede enviar</strong>: {{ faltan()[0].label }}.</p>
+              } @else {
+                <p class="cap-prev-listo"><i class="pi pi-check-circle" aria-hidden="true"></i>
+                  Listo para enviar a aprobación.</p>
+              }
+            </section>
           </div>
         }
-      </div>
-    </div>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text" (click)="previaAbierta = false">Cerrar</button>
+        </ng-template>
+      </p-dialog>
+
+      <!--
+        [GX.18] Se retiro el bloque «Listas para comprobar» (lo que Kepler ya autorizo y
+        aplico). Pedido del usuario: esta pantalla es para LEVANTAR el gasto, y esa lista
+        era una bandeja de seguimiento -- otro oficio, y empujaba la captura hacia abajo.
+        El endpoint «listasParaComprobar» sigue existiendo: se quito la vista, no el dato.
+      -->
+      <!--
+        [GX.18] Se retiro «Mis ultimas capturas». Pedido del usuario. Era la bitacora de lo
+        ya enviado -- seguimiento, no levantamiento -- y ocupaba mas alto que el formulario
+        que la persona viene a llenar. El endpoint «mine» sigue vivo: se quito la vista, no el dato.
+      -->
   `,
   styles: [`
     :host { display: block; }
@@ -352,6 +459,11 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
     .cap-g-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
       font-size: var(--fs-xs); color: var(--fg-2); }
     .cap-g-meta span { display: inline-flex; align-items: center; gap: var(--sp-1); }
+    /* [GX.28] El estado de Kepler se lee por PALABRA; el color solo acompaña. */
+    .cap-g-est { padding: 1px var(--sp-2); border-radius: var(--r-sm);
+      border: 1px solid var(--border-color); color: var(--fg-2); }
+    .cap-g-est.k-a { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .cap-g-est.k-c { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
     .cap-cuadre { display: inline-flex; align-items: center; gap: var(--sp-1);
       padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs);
       border: 1px solid var(--border-color); border-radius: var(--r-sm); color: var(--fg-2); }
@@ -394,6 +506,56 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
     .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
       letter-spacing: .04em; }
 
+    /* [GX.24] La miniatura de lo capturado. Es un boton: se abre en grande al tocarla. */
+    .cap-mini { flex-shrink: 0; width: 40px; height: 40px; padding: 0; overflow: hidden;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: var(--surface-ground); cursor: pointer; display: flex;
+      align-items: center; justify-content: center; }
+    .cap-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cap-mini:hover { border-color: var(--action); }
+    .cap-mini:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-mini-pdf { cursor: default; color: var(--fg-3); }
+    .cap-foto-grande { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
+
+    /* [GX.21] La vista previa: dos columnas que se apilan en movil. */
+    .cap-g-acc { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+    .cap-prev { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+    @media (max-width: 40rem) { .cap-prev { grid-template-columns: 1fr; } }
+    .cap-prev h3 { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2);
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .cap-prev dl { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3);
+      margin: 0; font-size: var(--fs-xs); }
+    .cap-prev dt { color: var(--fg-3); white-space: nowrap; }
+    .cap-prev dd { margin: 0; color: var(--fg-1); overflow-wrap: anywhere; }
+    .cap-prev-imp { font-weight: var(--fw-bold); }
+    .cap-prev-cod { color: var(--fg-3); font-size: var(--fs-micro); }
+    .cap-prev-ok { color: var(--ok-fg); font-weight: var(--fw-bold); }
+    /* Lo que falta y lo que es opcional NO se pintan igual: uno frena el envio, el otro no. */
+    .cap-prev-falta { color: var(--bad-fg); }
+    .cap-prev-opt { color: var(--fg-3); font-style: italic; }
+    .cap-prev-pend, .cap-prev-listo { display: flex; align-items: flex-start; gap: var(--sp-2);
+      margin: var(--sp-3) 0 0; font-size: var(--fs-xs); line-height: 1.45; }
+    .cap-prev-pend { color: var(--bad-fg); }
+    .cap-prev-listo { color: var(--ok-fg); }
+
+    /* [GX.20] Los dos caminos de la evidencia, lado a lado. El de la camara es el
+       primario (lo pinta el propio componente); el de la cotizacion es secundario,
+       porque la mayoria de los gastos no la tiene. */
+    .cap-ev { display: flex; gap: var(--sp-2); align-items: flex-start; }
+    .cap-ev-c { flex: 1 1 0; min-width: 0; }
+    .cap-ev-b { display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; height: 40px; box-sizing: border-box;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: transparent; color: var(--fg-1); font-size: var(--fs-body);
+      font-weight: var(--fw-medium); cursor: pointer; }
+    .cap-ev-b:hover { border-color: var(--action); color: var(--action); }
+    .cap-ev-b:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-ev-nota { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0;
+      font-size: var(--fs-xs); line-height: 1.45; color: var(--fg-3); }
+    /* [GX.19] El paso opcional se ve distinto del obligatorio: si los cuatro pesan igual,
+       la persona cree que le falta uno y se queda esperando. */
+    .cap-step-opt span { margin-left: var(--sp-2); font-weight: var(--fw-regular);
+      font-size: var(--fs-xs); color: var(--fg-3); }
     .cap-step { padding-top: var(--sp-3); border-top: 1px solid var(--border-color);
       font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
     /* Clasificación: que las 3 opciones quepan y envuelvan en móvil. */
@@ -466,6 +628,24 @@ export class FinanzasCapturarGastoComponent {
 
   readonly gasto = signal<SelSolicitud | null>(null);
   readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
+  /** [GX.21] La vista previa del alta. Se abre desde el enlace discreto de la ficha. */
+  previaAbierta = false;
+  verPrevia() { this.previaAbierta = true; }
+
+  /**
+   * [GX.24] Lo que se ve de cada archivo, como data URI. Solo imagenes: un PDF no tiene
+   * miniatura y eso se dice con su icono en vez de dejar el hueco.
+   *
+   * ⚠️ Vive en una senal aparte de `fileData` porque esa es privada y se VACIA al subir
+   * (`uploadThen` borra el data URI cuando el archivo ya esta en el bucket). La miniatura
+   * tiene que sobrevivir a eso: la persona sigue viendo su foto mientras el envio corre.
+   */
+  readonly miniaturas = signal<Record<string, string>>({});
+  fotoAbierta = false;
+  readonly fotoRol = signal<string>('');
+  fotoSrc() { return this.miniaturas()[this.fotoRol()] ?? null; }
+  fotoTitulo() { return this.names()[this.fotoRol()] ?? 'Foto'; }
+  verFoto(role: string) { this.fotoRol.set(role); this.fotoAbierta = true; }
   sel: (SolicitudSug & { label: string }) | string | null = null;
   comentarios = '';
 
@@ -495,15 +675,33 @@ export class FinanzasCapturarGastoComponent {
   readonly clasOpts = [
     { label: 'Con factura', value: 'fiscal' },
     { label: 'Sólo ticket o recibo', value: 'no_fiscal_comprobable' },
-    { label: 'Sin comprobante', value: 'no_comprobable' },
+    { label: 'Vale autorizado', value: 'no_comprobable' },
   ];
-  readonly llevaEvidencia = computed(() => requiereEvidencia(this.clasificacion()));
+  /**
+   * [GX.18] Los TRES tipos llevan foto. El «Vale autorizado» (antes «Sin comprobante»)
+   * tambien se fotografia en el momento: era el unico que se registraba sin ninguna
+   * imagen, solo con un motivo escrito. `requiereEvidencia()` del servicio NO se toca --
+   * lo leen otras pantallas y significa otra cosa ahi.
+   */
+  readonly llevaEvidencia = computed(() => !!this.clasificacion());
   onClasChange() { this.clasificacion.set(this.clasificacionV); this.formError.set(''); }
+  /**
+   * [GX.18] Que se le pide fotografiar, segun el tipo. Los tres piden foto EN VIVO -- lo
+   * que cambia es el papel: la factura, el ticket, o el vale firmado.
+   */
+  tituloEvidencia(): string {
+    switch (this.clasificacion()) {
+      case 'fiscal': return 'Tomá la factura';
+      case 'no_comprobable': return 'Tomá el vale autorizado';
+      default: return 'Tomá el ticket';
+    }
+  }
+
   clasHint(): string {
     switch (this.clasificacion()) {
       case 'fiscal': return 'Te dieron factura. Adjuntala.';
-      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Adjunta la foto.';
-      case 'no_comprobable': return 'No hay documento que lo respalde. Se registra con un motivo, sin foto.';
+      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Tomá la foto y subí la cotización.';
+      case 'no_comprobable': return 'Sacale foto al vale firmado. Se toma en el momento, como las otras.';
       default: return '';
     }
   }
@@ -518,7 +716,7 @@ export class FinanzasCapturarGastoComponent {
    */
   readonly faltan = computed<Faltante[]>(() => faltaParaMandar({
     forma_pago: this.formaPago(),
-    forma_pago_detalle: this.formaPagoDetalleV,
+    forma_pago_detalle: this.formaPagoDetalle(),
     // El sello viaja por rol: `names` sólo dice que hay archivo, no de dónde salió.
     archivos: Object.keys(this.names()).map((role) => ({ role, live: this.sellos()[role]?.live === true })),
     exige_evidencia: this.llevaEvidencia(),
@@ -529,7 +727,12 @@ export class FinanzasCapturarGastoComponent {
     if (this.modo() === 'evidencia') return !!this.names()['comprobante_1'] && !this.photoLoading();
     if (this.modo() !== 'capturar') return false;
     if (!this.clasificacion()) return false;
-    if (!this.names()['solicitud_kepler']) return false;   // la firma va en los 3 tipos
+    // `[GX.31]` Acá había un `if (!this.names()['solicitud_kepler']) return false;`.
+    // GX.18 retiró la ÚNICA pantalla que subía ese archivo, así que la condición no se
+    // podía cumplir nunca: el botón quedaba apagado de por vida, y encima diciendo
+    // «Enviar a aprobación» porque GX.18 también sacó de `enviarTitle()` la rama que lo
+    // explicaba. El respaldo ahora es la foto en vivo del vale, y la exige `faltan()`
+    // —la misma regla que devuelve el 400 del servidor—, dos líneas más abajo.
     if (this.photoLoading()) return false;
     // GX.14 — la compuerta compartida cubre forma de pago + foto en vivo. El motivo del
     // no_comprobable NO está ahí a propósito: es una regla de ESTA pantalla (el backend la
@@ -558,7 +761,7 @@ export class FinanzasCapturarGastoComponent {
 
   enviarTitle(): string {
     if (this.modo() === 'evidencia') return this.names()['comprobante_1'] ? 'Enviar evidencia' : 'Falta capturar la evidencia';
-    if (!this.names()['solicitud_kepler']) return 'Falta la solicitud firmada';
+    // [GX.18] El paso de la solicitud firmada se retiro: el boton ya no lo puede pedir.
     if (!this.clasificacion()) return 'Elige el tipo de gasto';
     // [GX.14] El primer faltante de la compuerta manda el texto: es el que hay que
     // resolver primero, y sale de la misma lista que ve la persona en pantalla.
@@ -572,7 +775,16 @@ export class FinanzasCapturarGastoComponent {
   readonly formasPago = FORMAS_PAGO;
   readonly formaPago = signal<FormaPagoId | null>(null);
   /** ngModel del detalle (caja, últimos 4, referencia…). */
-  formaPagoDetalleV = '';
+  /**
+   * [GX.22] SENAL, no campo suelto. Estaba como propiedad plana y la leia el `computed`
+   * de la compuerta -- que solo se recalcula cuando cambia una SENAL que leyo. O sea:
+   * escribir la referencia del banco no invalidaba nada, el boton seguia diciendo
+   * «Falta: El dato del pago» y **no se podia enviar el gasto**.
+   *
+   * Lo agarro `scripts/check-signal-reactivity.js`, que ya venia en rojo por esta misma
+   * linea. Un candado que nadie mira es un candado apagado.
+   */
+  readonly formaPagoDetalle = signal('');
   readonly formaSel = computed(() => FORMAS_PAGO.find((f) => f.id === this.formaPago()) ?? null);
 
   /**
@@ -587,15 +799,39 @@ export class FinanzasCapturarGastoComponent {
   elegirForma(id: FormaPagoId) {
     // Cambiar de forma borra el detalle: un número de cheque no sirve como referencia
     // de transferencia, y dejarlo ahí lo mandaría con la etiqueta equivocada.
-    if (this.formaPago() !== id) this.formaPagoDetalleV = '';
+    if (this.formaPago() !== id) this.formaPagoDetalle.set('');
     this.formaPago.set(id);
   }
 
-  /** `[GX.14]` Llega una foto recién tomada: se guarda como el comprobante, con su sello. */
+  /** [GX.23] Tope de cada familia. Vienen del catalogo de roles: no se inventan aca. */
+  readonly MAX_COMPROBANTES = ROLES_COMPROBANTE.length;
+  readonly MAX_COTIZACIONES = ROLES_COTIZACION.length;
+
+  /** Los roles de esta familia que YA tienen archivo, en el orden del catalogo. */
+  readonly comprobantes = computed(() => ROLES_COMPROBANTE.filter((r) => !!this.names()[r]));
+  readonly cotizaciones = computed(() => ROLES_COTIZACION.filter((r) => !!this.names()[r]));
+
+  /** El primer rol libre de la familia, o `null` si ya no queda. */
+  private libre(roles: ProofFileRole[]): ProofFileRole | null {
+    return roles.find((r) => !this.names()[r]) ?? null;
+  }
+
+  /**
+   * `[GX.14]` Llega una foto recien tomada. [GX.23] Va al primer hueco libre, no siempre
+   * a `comprobante_1`: un gasto puede llevar varias.
+   */
   onCaptura(ev: { dataUrl: string; capturedAt: string }) {
-    const role = 'comprobante_1';
+    const role = this.libre(ROLES_COMPROBANTE);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COMPROBANTES} fotos, el maximo.`); return; }
     this.formError.set('');
     this.guardarCaptura(role, ev.dataUrl, ev.capturedAt);
+  }
+
+  /** Lo mismo del lado de la cotizacion, que entra por archivo. */
+  onFileCotizacion(ev: Event) {
+    const role = this.libre(ROLES_COTIZACION);
+    if (!role) { this.formError.set(`Ya hay ${this.MAX_COTIZACIONES} cotizaciones, el maximo.`); return; }
+    this.onFile(ev, role);
   }
 
   readonly photoLoading = signal(false);
@@ -647,8 +883,21 @@ export class FinanzasCapturarGastoComponent {
     const g = (ev as { value: SolicitudSug & { label: string } }).value ?? (ev as SolicitudSug & { label: string });
     if (!g || typeof g === 'string') return;
     this.gasto.set({ folio: g.folio, beneficiario: g.beneficiario, importe: Number(g.importe) || 0,
-      sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto });
+      sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto,
+      rfc: g.rfc, iva: g.iva, autoriza: g.autoriza, referencia: g.referencia,
+      cuenta_clave: g.cuenta_clave, usuario: g.usuario, estado: g.estado });
     this.sel = null;
+    /**
+     * [GX.19] La clasificacion deja de preguntarse y se fija en `no_comprobable`, que es
+     * exactamente lo que la persona aporta: el VALE AUTORIZADO fotografiado.
+     *
+     * ⚠️ La columna sigue existiendo con su CHECK de tres valores y su chip en Aprobacion,
+     * asi que todo lo que se levante por esta pantalla va a decir «Vale autorizado». Si mas
+     * adelante hace falta distinguir factura de ticket, la distincion NO se recupera sola:
+     * hay que volver a preguntarla o derivarla de la cuenta de Kepler.
+     */
+    this.clasificacionV = 'no_comprobable';
+    this.clasificacion.set('no_comprobable');
     this.checkFolio(g.folio, g.sucursal ?? undefined);
   }
 
@@ -677,7 +926,7 @@ export class FinanzasCapturarGastoComponent {
   reset() {
     this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios = '';
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
-    this.formaPago.set(null); this.formaPagoDetalleV = ''; this.sellos.set({});
+    this.formaPago.set(null); this.formaPagoDetalle.set(''); this.sellos.set({});
     this.existing.set(null); this.checking.set(false);
   }
 
@@ -700,6 +949,7 @@ export class FinanzasCapturarGastoComponent {
     // [GX.14] El sello se va con el archivo. Si quedara, la compuerta creería que la
     // foto siguiente también se tomó en vivo aunque haya entrado por otro lado.
     this.sellos.update((m) => { const n = { ...m }; delete n[role]; return n; });
+    this.miniaturas.update((m) => { const n = { ...m }; delete n[role]; return n; });
     if (role === 'comprobante_1') this.photoResult.set(null);
   }
 
@@ -710,6 +960,7 @@ export class FinanzasCapturarGastoComponent {
     // El nombre lo ponemos nosotros: no hay archivo de origen del cual tomarlo.
     const hora = new Date(capturedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     this.names.update((m) => ({ ...m, [role]: `Foto tomada ${hora}` }));
+    this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
     this.sellos.update((m) => ({ ...m, [role]: { live: true, captured_at: capturedAt } }));
     if (role === 'comprobante_1') this.validate(dataUri);
     this.cdr.markForCheck();
@@ -725,6 +976,9 @@ export class FinanzasCapturarGastoComponent {
       this.fileData[role] = dataUri;
       delete this.uploaded[role];
       this.names.update((m) => ({ ...m, [role]: file.name }));
+      // [GX.24] La miniatura, solo si es imagen. Un PDF no la tiene y la pantalla lo DICE
+      // con su icono: dejar el hueco se lee como «no cargo», que es otra cosa.
+      if (dataUri.startsWith('data:image/')) this.miniaturas.update((m) => ({ ...m, [role]: dataUri }));
       if (role === 'comprobante_1') this.validate(dataUri);
       this.cdr.markForCheck();
     };
@@ -747,15 +1001,24 @@ export class FinanzasCapturarGastoComponent {
     if (this.modo() !== 'capturar') return;
     // MOMENTO 1 — capturar la solicitud (firmada + clasificación). Sin evidencia.
     if (!this.clasificacion()) { this.formError.set('Elige el tipo de gasto.'); return; }
-    if (!this.fileData['solicitud_kepler'] && !this.uploaded['solicitud_kepler']) { this.formError.set('Sube la solicitud firmada.'); return; }
-    if (!this.llevaEvidencia() && !this.comentarios.trim()) { this.formError.set('Escribe por qué no se puede comprobar.'); return; }
+    // [GX.18] Se fue el freno de la solicitud firmada: ese paso ya no existe en la pantalla.
+    // Y se fue el del motivo obligatorio, porque el «Vale autorizado» ahora lleva su foto.
     // [GX.14] Se frena ANTES de subir nada al bucket: mandar los bytes para que el 400
     // los rechace después deja archivos huérfanos pagados y a la persona esperando.
     const faltan = this.faltan();
     if (faltan.length) { this.formError.set(faltan.map((f) => f.motivo).join('. ')); return; }
     this.formError.set('');
     this.saving.set(true);
-    this.uploadThen(['solicitud_kepler'], () => this.createSolicitud(g));
+    /**
+     * [GX.18] Sube lo que de verdad viaja: la foto del comprobante y -- si es ticket o
+     * recibo -- la cotizacion.
+     *
+     * ⚠️ Antes esto subia SOLO `solicitud_kepler`, asi que la foto que la compuerta EXIGIA
+     * se quedaba en memoria y `reset()` la tiraba: el expediente nacia sin la imagen por la
+     * que se la habia pedido a la persona.
+     */
+    // [GX.23] Todas las que haya, no la primera de cada una.
+    this.uploadThen([...ROLES_COMPROBANTE, ...ROLES_COTIZACION], () => this.createSolicitud(g));
   }
 
   // MOMENTO 3 — el gasto ya está aprobado y comprobable: sube la evidencia.
@@ -787,14 +1050,15 @@ export class FinanzasCapturarGastoComponent {
 
   private createSolicitud(g: SelSolicitud) {
     const lleva = this.llevaEvidencia();
-    const files = [this.uploaded['solicitud_kepler']].filter(Boolean) as ProofFile[];
+    const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION]
+      .map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
       folio_solicitud: g.folio, sucursal: g.sucursal || undefined,
       solicitante: g.solicitante || undefined, proveedor: g.beneficiario || undefined,
       fecha_gasto: g.fecha ? String(g.fecha).slice(0, 10) : undefined, importe: g.importe || undefined,
       clasificacion: this.clasificacion()!,
       forma_pago: this.formaPago() ?? undefined,
-      forma_pago_detalle: this.formaPagoDetalleV.trim() || undefined,
+      forma_pago_detalle: this.formaPagoDetalle().trim() || undefined,
       // No comprobable: el motivo ES el comentario (obligatorio). Comprobable: nota opcional.
       comentarios: this.comentarios || (lleva ? g.concepto || undefined : undefined), files,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -861,5 +1125,25 @@ export class FinanzasCapturarGastoComponent {
 
   statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada', revision: 'En revisión' } as Record<string, string>)[s] || s; }
   statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'secondary', validada: 'success', rechazada: 'danger', revision: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary'; }
+  /**
+   * [GX.28] El estado que Kepler le puso al vale. «c43» en el ERP, `estado` en la vista.
+   *
+   * Los cuatro valores están decodificados y documentados (`derivarEtapa` del expediente
+   * usa los mismos). Un valor que no sea uno de esos se muestra CRUDO en vez de caer a
+   * «desconocido»: si Kepler empieza a mandar una quinta letra, queremos verla, no que la
+   * pantalla la esconda detrás de una palabra tranquilizadora.
+   */
+  estadoKepler(): { clave: string; label: string } | null {
+    const e = String(this.gasto()?.estado || '').trim().toUpperCase();
+    if (!e) return null;
+    switch (e) {
+      case 'N': return { clave: 'n', label: 'por ejercer' };
+      case 'A': return { clave: 'a', label: 'autorizada' };
+      case 'F': return { clave: 'f', label: 'aplicada' };
+      case 'C': return { clave: 'c', label: 'cancelada' };
+      default: return { clave: 'x', label: e };
+    }
+  }
+
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 }
