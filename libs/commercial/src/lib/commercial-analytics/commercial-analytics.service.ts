@@ -5301,8 +5301,21 @@ export class CommercialAnalyticsService {
   /**
    * SAL — Reporte Salidas/Ventas por Producto: fila por (sucursal, producto)
    * con venta+costo mensual, existencia actual, costos y proveedor/marca.
-   * Venta mensual = unidades reales (analytics.product_sales_monthly, feed live
-   * Kepler U/D/10). Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   * Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   *
+   * ⚠️ [AUD-DAT.1] ESTE COMENTARIO DECÍA `analytics.product_sales_monthly` Y ES FALSO: `salidasReport`
+   * lee `analytics.sales_boxes_monthly` (modo AÑO) y `analytics.sales_daily` (modo RANGO) — ver la
+   * nota "Fuente CANÓNICA" adentro del método. Mandaba al que viniera a leer a la tabla equivocada.
+   * `product_sales_monthly` NO tiene un solo consumidor en la app (medido 2026-09-28: sus únicos
+   * lectores son sus propios importers y `database/scripts/deactivate-legacy-skus.js`), y además
+   * está incompleta — cero filas de Canindo (06) en jun/jul-2026 y la mitad en ago, porque es
+   * Kepler-only y esa sucursal cortó de Wincaja el 2026-08-15.
+   *
+   * ⚠️ Y el ALCANCE, que sí aplica acá: las dos fuentes reales cuelgan de `sales_daily`, que cubre
+   * **6 de las 8 sucursales** — Morelia (07/08) sólo aparece desde su corte a Kepler (sep-2026).
+   * Este reporte las excluye antes de esa fecha. Es el mismo hueco que `[AUD-DAT.1]` cerró en
+   * presupuestos migrando a `mv_sales_blended`; acá NO se migró porque `sales_boxes_monthly` trae
+   * la conversión a cajas (`v_product_box_factor`) que el blend no tiene. Queda DECLARADO, no tapado.
    */
   /** SAL — categorías de compra con productos activos (para el filtro de Salidas). */
   async salidasCategories() {
