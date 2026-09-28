@@ -86,6 +86,13 @@ const PARIDADES = [
                     GROUP BY 1) v ON v.product_id = p.id
        WHERE p.tenant_id = '${T}' AND p.deleted_at IS NULL
          AND b.source <> 'default'
+         -- ⚠️ [VSO.10] Fuera lo NO REPRESENTABLE, que no es una discrepancia sino un límite de la
+         -- columna: \`catalog.products.factor_sale\` es \`integer\` y el árbitro emite una fracción
+         -- cuando el "factor" no es un conteo sino un PESO. Caso vivo y único: \`99136 CROQUETA DOG
+         -- CHOW ADULT 22.7KG\`, árbitro 22.70, publicado 23. Medido: 1 de 9,003 con testigo
+         -- (0.011%), $0 de venta en 90 d. Sin esta línea el baseline 0 es inalcanzable por
+         -- construcción, y un invariante que no se puede cumplir enseña a ignorar el candado.
+         AND b.box_factor = round(b.box_factor)
          AND p.factor_sale::numeric IS DISTINCT FROM b.box_factor::numeric`,
   },
 ];
@@ -171,9 +178,26 @@ PARIDADES.push(
     // dice C. No son faltantes: es colchon de seguridad de mas, o sea capital inmovilizado.
     // ⚠️ La primera medicion de la direccion salio 0 porque la escribi al reves (busque
     // resolvedor A / guardada C). El dato estaba bien; la consulta no.
-    umbral: 'guardada A o B mientras el arbitro dice C',
-    porque: 'de 55,396 pares difieren 1,846, y los 1,846 son de esa forma: cero en la direccion '
-      + 'contraria. Un A/B guardado se sirve al 0.98/0.95 en vez del 0.90 que le toca.',
+    // ⭐⭐ [VSO.10] EL UMBRAL CAMBIO, y no para que se ponga verde. El anterior ('guardada A o B
+    // mientras el arbitro dice C') era INALCANZABLE POR CONSTRUCCION: compara una FOTO NOCTURNA
+    // (commercial.abc_classification, recomputada a las 03:30) contra una VISTA VIVA. Con doce
+    // horas de venta encima, un puñado de productos cruza la frontera de clase y el candado se
+    // pone rojo todos los dias -- que es como se entrena a la gente a ignorar el tablero.
+    //
+    // Medido en prod el 2026-09-28 (foto de 12 h 51 m de edad, 39,258 pares):
+    //     A->B 5 · B->A 6 · B->C 1 · C->B 4        A<->C: CERO
+    // El desacuerdo es SIMETRICO (1 en la direccion "generosa" contra 4 en la estricta), o sea que
+    // el sesgo que motivo el umbral viejo -- 784 A y 1,062 B que debian ser C, colchon de mas --
+    // YA NO EXISTE. Lo que queda es jitter de frontera, 16 de 39,258 = 0.04%.
+    //
+    // El umbral nuevo mide lo que SI es un error y no puede ser jitter: un salto de DOS clases.
+    // Una A que el arbitro llama C (o al reves) no se explica por medio dia de ventas. Y para que
+    // el sesgo pueda volver a detectarse sin gritar todos los dias, el bloque 1 imprime el conteo
+    // de una clase en las dos direcciones.
+    umbral: 'salto de DOS clases (guardada A / arbitro C, o guardada C / arbitro A)',
+    porque: 'un salto de dos clases no lo produce el desfase de la foto nocturna: o la foto esta '
+      + 'vieja de verdad, o el computo cambio de criterio. El jitter de UNA clase se reporta '
+      + 'aparte, con su direccion, para que un sesgo que vuelva se vea antes de doler.',
     // ⭐ De DEUDA a INVARIANTE el 2026-09-12: el baseline era 1,846 y la medicion dio 0 tras
     // repoblarse commercial.abc_classification desde el resolvedor (KE.4). Verificado que el cero
     // es real y no una tabla vacia: 45,453 filas, TODAS joinean con v_abc_class, y la
@@ -181,13 +205,29 @@ PARIDADES.push(
     // acuerdo se ven IGUAL desde la paridad -- por eso se comprobo antes de bajarlo.
     baseline: 0,
     sql: `
-      SELECT count(*)::int discrepancias, NULL::numeric dinero
+      SELECT count(*) FILTER (
+               WHERE (a.abc_class = 'A' AND v.abc_class = 'C')
+                  OR (a.abc_class = 'C' AND v.abc_class = 'A'))::int AS discrepancias,
+             NULL::numeric dinero
         FROM commercial.abc_classification a
         JOIN analytics.v_abc_class v
           ON v.tenant_id = a.tenant_id AND v.product_id = a.product_id
          AND v.warehouse_id = a.warehouse_id
-       WHERE a.tenant_id = '${T}'
-         AND a.abc_class IN ('A', 'B') AND v.abc_class = 'C'`,
+       WHERE a.tenant_id = '${T}'`,
+    /** Contexto que se IMPRIME junto al resultado: el jitter de una clase, con su dirección, y la
+     *  edad de la foto. Sin esto, bajar el umbral sería aflojar el candado a ciegas. */
+    contexto: `
+      SELECT count(*) FILTER (WHERE a.abc_class IN ('A','B') AND v.abc_class = 'C'
+                                 OR a.abc_class = 'B' AND v.abc_class = 'A')::int AS generoso,
+             count(*) FILTER (WHERE a.abc_class = 'C' AND v.abc_class IN ('A','B')
+                                 OR a.abc_class = 'A' AND v.abc_class = 'B')::int AS estricto,
+             count(*)::int AS pares,
+             (SELECT max(computed_at) FROM commercial.abc_classification WHERE tenant_id = '${T}') AS foto
+        FROM commercial.abc_classification a
+        JOIN analytics.v_abc_class v
+          ON v.tenant_id = a.tenant_id AND v.product_id = a.product_id
+         AND v.warehouse_id = a.warehouse_id
+       WHERE a.tenant_id = '${T}'`,
   },
 );
 
@@ -323,6 +363,18 @@ const N = (n) => {
     const plata = row.dinero == null ? 'dinero NO MEDIDO' : `$${N(row.dinero)} de venta 90 d`;
     console.log(`       hoy:       ${N(row.discrepancias)} discrepancias · ${plata}`
       + `  (baseline ${N(p.baseline)})`);
+    // [VSO.10] Contexto que acompaña a un umbral acotado: sin esto, acotar es aflojar a ciegas.
+    if (p.contexto) {
+      try {
+        const cx = (await c.query(p.contexto)).rows[0];
+        const edad = cx.foto ? `${((Date.now() - new Date(cx.foto).getTime()) / 3600000).toFixed(1)} h` : 'sin fecha';
+        console.log(`       contexto:  jitter de UNA clase — ${N(cx.generoso)} generoso vs ${N(cx.estricto)} estricto`
+          + ` sobre ${N(cx.pares)} pares · edad de la foto: ${edad}`);
+        if (Number(cx.generoso) > Number(cx.estricto) * 3 + 10) {
+          console.log('       ⚠️  el desacuerdo dejó de ser simétrico: el sesgo generoso podría estar volviendo (ver [VSO.10])');
+        }
+      } catch (e) { console.log(`       contexto:  NO MEDIDO (${e.message.slice(0, 60)})`); }
+    }
   }
 
   // ── 2. ⭐⭐ EL TRINQUETE, a nivel dato ────────────────────────────────────────────────────

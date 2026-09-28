@@ -125,8 +125,17 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
     const insN = Number((await dst.query(
       `SELECT count(*)::int n FROM (SELECT DISTINCT t.brand_id, t.nombre FROM tmp_pres t WHERE ${INS_WHERE}) x`, [M])).rows[0].n);
 
+    // [VSO.10] Lo que hoy ya está sin factor de caja y el árbitro sí sabe. No incluye a los que
+    // están por insertarse (todavía no existen), así que en APPLY el número puede ser mayor.
+    const facN = Number((await dst.query(
+      `SELECT count(*)::int n FROM catalog.products p
+         JOIN analytics.v_product_box_factor b ON b.product_id = p.id AND b.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.factor_sale IS NULL
+          AND b.source <> 'default' AND b.box_factor = round(b.box_factor)`, [M])).rows[0].n);
+
     console.log(`  a REACTIVAR (borrado→vivo): ${reactN}`);
     console.log(`  a INSERTAR (nuevo): ${insN}`);
+    console.log(`  a RELLENAR factor de caja (vacío + el árbitro tiene testigo): ${facN}`);
 
     if (!APPLY) { await dst.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
@@ -143,8 +152,36 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
              FROM tmp_pres t WHERE ${INS_WHERE}
             ORDER BY t.brand_id, t.nombre, t.sku
          ) d`, [M]);
+
+    // ── [VSO.10] El FACTOR DE CAJA de lo que acaba de entrar ────────────────────────────────
+    // Este script insertaba con `factor_sale` en NULL confiando en que «los enriquecen sus feeds»
+    // — y de `factor_sale` NINGÚN carril agendado se hace cargo (§5bis.4 de VERDAD_ABSOLUTA: sus
+    // cuatro escritores están todos fuera de todo carril). La ausencia entraba sola: cuando se
+    // midió eran 22 productos, el 2026-09-28 eran 35, y rompían el trinquete de paridad, que tiene
+    // baseline CERO a propósito. Un invariante con una gotera abierta no es un invariante.
+    //
+    // Se puede resolver en la MISMA corrida porque el resolvedor cruza `kepler_ods.kdii` por SKU
+    // (`l.sku = p.sku`): un producto recién insertado ya tiene testigo, no hay que esperar a nadie.
+    //
+    // ⛔ Sólo rellena lo VACÍO — nunca pisa un valor escrito, que es una decisión de otro y se
+    // audita en su propio candado. ⛔ Sólo con testigo (`source <> 'default'`): un `default` es
+    // ausencia de testigo, y escribirlo convertiría «no sé» en un número.
+    // ⚠️ Y sólo si el valor es ENTERO: `factor_sale` es `integer` y el árbitro emite fracción
+    // cuando el factor es un PESO (`99136 CROQUETA DOG CHOW 22.7KG` → 22.70). Redondearlo sería
+    // inventar un conteo; se deja NULL y el candado lo declara.
+    const r3 = await dst.query(
+      `UPDATE catalog.products p
+          SET factor_sale = b.box_factor::int, updated_at = now()
+         FROM analytics.v_product_box_factor b
+        WHERE b.product_id = p.id AND b.tenant_id = p.tenant_id
+          AND p.tenant_id = $1 AND p.deleted_at IS NULL
+          AND p.factor_sale IS NULL
+          AND b.source <> 'default'
+          AND b.box_factor = round(b.box_factor)`, [M]);
+
     await dst.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${r1.rowCount} reactivados + ${r2.rowCount} insertados. (precio/uom/costo los enriquecen sus feeds)`);
+    console.log(`\n[APPLY] COMMIT — ${r1.rowCount} reactivados + ${r2.rowCount} insertados`
+      + ` + ${r3.rowCount} con factor de caja del árbitro. (precio/uom/costo los enriquecen sus feeds)`);
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
