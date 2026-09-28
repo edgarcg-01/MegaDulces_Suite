@@ -53,6 +53,7 @@ consulta escrita contra una rama **puede no compilar en otra**.
 | **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · **`c2/c3/c4/c5`=género/naturaleza/grupo/tipo** (4 ejes → `kdmm.c1/c2/c3/c4`; ver §3) · `c9`=fecha del documento ⚠️ **puede venir en el FUTURO** (medido: hasta 2026-12-31) · `c10`=forma de pago · **`c68`=fecha de CAPTURA** ← la que sirve para ventanas |
 | **`kdm2`** | Detalle/líneas de documentos (1.26M filas) | `c8`=SKU · `c9`=cantidad · `c32`=fecha (≈ header) |
 | **`kdmm`** | **Catálogo de tipos de documento** (la piedra Rosetta) — PK `(c1,c2,c3,c4)`, 170 filas | **`c1`=género · `c2`=naturaleza · `c3`=grupo · `c4`=tipo** · `c5`=descripción · **`c8`=¿afecta inventario?** · `c19/c20`=cuenta cargo/abono · ⚠️ **NO confundir con la tabla `doctype`** (§3) |
+| **`kdud`** | **Maestro de CLIENTES** (31 cols) — PK `(sucursal, c2)`, replicado a las 9 ramas | `c2`=clave · `c3`=nombre · `c4`/`c5`/`c6`=dirección/colonia/estado · `c10`=RFC · `c12`=vendedor · `c13`=grupo · `c14`=zona · `c15`=límite de crédito · `c16`=días de crédito · **⭐ `c17`=% de DESCUENTO DEL CLIENTE** (ver §2.6) · `c18`=% descuento 2 (**vacío o 0 en las 19,908 filas: muerto**) · `c27`=CP · ⚠️ `c28`/`c29` = `0.0000` en el 100%, no son descuento |
 | **`kdudp`** | **Prospectos del CRM** — gemelo de `kdud` (clientes), 110 cols · ver §3.c | **`c2`=clave (PK)** · `c3`/`c43`=nombre · `c13`=sector→`kduj` · `c14`=zona→`kduk` · `c31`=medio→`kdvmedios` · `c52`=tamaño→`kdvtamano` · `c49`=contacto · `c81`=alta · `c82`=estatus · ⚠️ llave real `(sucursal, c2)`: el catálogo se propaga a las 7 ramas |
 | `kdvcontactos` · `kdvavance` | CRM: contactos del prospecto · **embudo con % de cierre** | `kdvcontactos.c1`=clave del prospecto · `kdvavance` = A1 CONTACTO 10 … A7 CIERRE 100 · A8 RECHAZO 0 — ⛔ `kdvcontactos` **NO está en el ODS**; `kdvavance` **no existe en la rama 01** (§3.c) |
 | `kdid/kdie/kdif/kdig` | Catálogos: unidad / depto / línea / **proveedor** | `kdig` = proveedores (línea de negocio ≈ marca) |
@@ -318,6 +319,45 @@ también **`500` y `250`** (números como unidad) — la misma patología de ró
 Lo mismo aplica a **`orglogtbl_YY`**, la bitácora nativa de cambios por tabla (`k_table`, `k_mode`,
 `k_date`, `k_user`): **2.48M filas de 2026** en el ODS, y tampoco la consulta nadie. Las dos son
 candidatas directas del hueco *"cero historia de datos maestros"* que declara la Fase VP.3.
+
+---
+
+### 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28)
+
+El descuento comercial que un cliente trae negociado **no se teclea en cada venta**: está en el
+maestro, en **`kdud.c17`**, y Kepler lo **copia a la cabecera de cada documento** como `kdm1.c19`
+(el %) y `kdm1.c13` (el monto). Es un descuento **de documento**, no de renglón.
+
+**Cómo se verificó** (contra prod, no contra una copia):
+
+| prueba | resultado |
+|---|---|
+| ¿El valor del maestro llega al documento? (`kdud.c17` vs `kdm1.c19`, sep-2026, `U-D-8/10/12` con cliente) | **533 de 578 exacto = 92.2%** |
+| ¿Los que no cuadran son ruido? | No: **45** documentos salieron con `c19='0'` teniendo el maestro `2` o `3` — *el descuento no se aplicó*. Otros 70 llevan % sin que su rama lo tenga (el maestro **difiere entre sucursales**) |
+| ¿Es un nivel de lista o un porcentaje? | **Porcentaje.** Los valores son `2`, `2.5`, `3`, `5` — un `2.5` descarta "lista 2 / lista 3" |
+| ¿Cuánto se descontó de verdad? | `Σ importe − total` del documento. Medido en `07 U-D-10 s4 f0000513`: **$147.43 sobre $4,914.44 = 3.0000%** exacto |
+
+⛔ **`kdm1.c13` NO es lo que se descontó.** En ese mismo documento `c13` dice **$135.26** y lo
+realmente descontado fue **$147.43**: `c13` está **sin impuesto** y el total está **con** impuesto.
+Es la evidencia concreta detrás de la regla de la Fase TK — *el descuento se mide como diferencia,
+el declarado sólo se imprime al lado*.
+
+⚠️ **El descuento del cliente NO toca el renglón.** En ese documento `kdm2.c66 = c12` en 42 de 51
+renglones: el precio de lista del renglón y el cobrado son el mismo. Las dos capas conviven y son
+independientes — la del renglón es precio negociado por producto, la del documento es la del
+cliente. Por eso `kdm1.c13` y la suma del descuento de renglón **no se explican entre sí**
+(Fase TK §2.4: 435 de 609 facturas difieren, error medio $183).
+
+**Universo, medido sobre las 19,908 filas de `kdud`:** 993 filas (cliente × rama) traen descuento
+— `2%` (708), `3%` (274), `2.5%` (9), `5%` (2). `c18` ("descuento 2") está **vacío o en 0 en el
+100%**: está muerto, no lo leas. `c28`/`c29` tampoco son descuento (`0.0000` en todas).
+
+⚠️⚠️ **La vista `analytics.v_erp_wholesale_customers` sólo ve una parte.** Filtra
+`c2 ~ '^C[0-9]{4}$'` (el padrón de mayoreo de telemarketing) y con eso deja fuera **136 de las 993
+filas con descuento (13.7%)** — entre ellas toda la familia SUPER TOMY, cuyas claves son numéricas
+(`20361`). No es un defecto de esa vista, que nació acotada a su padrón a propósito: es que **hoy
+no existe ningún resolvedor del descuento del cliente para el resto de los canales**. Detalle y
+consecuencias en [`FASE_DC`](IMPLEMENTACION/FASES/FASE_DC_DESCUENTOS_CLIENTE.md).
 
 ---
 

@@ -9,6 +9,26 @@
 ---
 
 ## [Unreleased]
+### Internal — dónde viven los descuentos de cliente, y auditoría de `/comercial/tickets` (DC, 2026-09-28)
+Investigación, **sin código**. El descuento negociado de un cliente vive en **`kdud.c17`** (%, en el
+maestro de Kepler) y el ERP lo copia a cada documento (`kdm1.c19` = %, `kdm1.c13` = monto),
+descontándolo **del documento, no del renglón**. Verificado contra prod: coincide en **533 de 578
+(92.2%)** de las ventas de sep-2026 con cliente. ⛔ **`kdm1.c13` no es lo descontado** — en el
+documento de SUPER TOMY dice $135.26 y lo real fue **$147.43 = 3.0000%** (`c13` va sin impuesto).
+⭐ **De nuestros 5 flujos de captura, sólo 1 lo aplica** (cotizaciones de telemarketing); preventa
+escribe `discount_percent: 0` clavado, y `commercial.customers` **ni siquiera tiene la columna**.
+El resolvedor que existe (`v_erp_wholesale_customers`) filtra `c2 ~ '^C[0-9]{4}$'` y deja fuera
+**13.7%** de los clientes con descuento, SUPER TOMY entre ellos. Decode en
+[`ERP_KEPLER §2.6`](docs/ERP_KEPLER.md), plan y decisiones abiertas en
+[`FASE_DC`](docs/IMPLEMENTACION/FASES/FASE_DC_DESCUENTOS_CLIENTE.md).
+
+De paso, auditoría de `/comercial/tickets` (6 hallazgos, ninguno arreglado todavía, en
+[`FASE_TK §7`](docs/IMPLEMENTACION/FASES/FASE_TK_TICKETS_VENTA.md)): la **lista de candidatos sale
+mutilada en toda búsqueda** (la fecha viaja como `Date` y el `DatePipe` tira), el orden *"lo más
+reciente primero"* **ordena por día de la semana**, y bajo el encabezado **"Importe" se lee el
+IEPS**. Además caducó la medición *"`kdm1.c13` es 0.00 en el 100% del mostrador"*: se hizo **sin
+Morelia**, y ahí sí cobra el descuento del cliente.
+
 ### Removed — una alarma que le mentía al Sell-Out en cada arranque de prod (VSO.12, 2026-09-28)
 Apareció verificando el deploy de la fase VSO, en el log de `prod-api`:
 `WARN [KeplerDatabaseModule] DATABASE_URL_KEPLER_CONSOLIDADO no configurada — reportes Sell-Out sin
