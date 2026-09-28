@@ -106,6 +106,80 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
   });
 
   /**
+   * `[GX.38]` **Que cada botón deje el archivo en SU familia de roles.**
+   *
+   * No había ninguna prueba del enrutado, y es justo lo que `[GX.36]` cambió: «Subir
+   * documento» pasó de `evidencia_*` —un cajón que la compuerta no miraba, así que el
+   * archivo entraba y no contaba para nada— a `comprobante_*`. Si alguien lo devuelve,
+   * el síntoma es el de entonces: el documento adjunto y el botón diciendo que falta.
+   */
+  describe('[GX.38] a dónde va cada archivo', () => {
+    /** Un `change` como el que dispara el explorador al elegir un archivo. */
+    const elegir = (nombre: string, tipo: string) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      const file = new File([new Uint8Array([1, 2, 3])], nombre, { type: tipo });
+      Object.defineProperty(input, 'files', { value: [file] });
+      return { target: input } as unknown as Event;
+    };
+
+    /**
+     * ⚠️ El archivo se lee con `FileReader`, que es ASÍNCRONO: el nombre aparece recién en
+     * su `onload`. Comprobarlo en la línea siguiente da vacío y parece un bug del enrutado
+     * — la primera versión de estas pruebas se puso roja justo por eso.
+     *
+     * ⛔ Y esperar «un ratito» tampoco sirve: con dos intentos seguidos el segundo elegía
+     * el MISMO hueco, porque `libre()` mira `names()` y todavía no se había llenado. Se
+     * espera la CONDICIÓN — cuántos archivos hay — no un tiempo.
+     */
+    const conArchivos = async (n: number) => {
+      for (let i = 0; i < 200 && Object.keys(comp.names()).length < n; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(Object.keys(comp.names()).length).toBe(n);
+    };
+
+    it('«Subir vale escaneado» deja el archivo como COMPROBANTE', async () => {
+      comp.onFileComprobante(elegir('vale.pdf', 'application/pdf'));
+      await conArchivos(1);
+      expect(Object.keys(comp.names())).toEqual(['comprobante_1']);
+    });
+
+    it('«Subir cotización» deja el archivo como COTIZACIÓN', async () => {
+      comp.onFileCotizacion(elegir('cotiza.pdf', 'application/pdf'));
+      await conArchivos(1);
+      expect(Object.keys(comp.names())).toEqual(['cotizacion']);
+    });
+
+    /** ⛔ Un PDF no es una excepción: los dos botones aceptan cualquier tipo desde GX.33. */
+    it('los dos aceptan un .docx igual que un PDF', async () => {
+      const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      comp.onFileComprobante(elegir('convenio.docx', docx));
+      await conArchivos(1);
+      comp.onFileCotizacion(elegir('presupuesto.xlsx', 'application/vnd.ms-excel'));
+      await conArchivos(2);
+      expect(Object.keys(comp.names()).sort()).toEqual(['comprobante_1', 'cotizacion']);
+    });
+
+    /** Cada archivo nuevo toma el siguiente hueco libre: no se pisan entre sí. */
+    it('varios archivos ocupan huecos distintos', async () => {
+      comp.onFileComprobante(elegir('vale-1.pdf', 'application/pdf'));
+      await conArchivos(1);
+      comp.onFileComprobante(elegir('vale-2.pdf', 'application/pdf'));
+      await conArchivos(2);
+      expect(Object.keys(comp.names()).sort()).toEqual(['comprobante_1', 'comprobante_2']);
+    });
+
+    /** ⚠️ Lleno el cajón, lo DICE — no se traga el archivo en silencio. */
+    it('con los huecos llenos avisa, y no pierde el archivo callado', async () => {
+      for (let i = 0; i < comp.MAX_COTIZACIONES; i++) { comp.onFileCotizacion(elegir(`c${i}.pdf`, 'application/pdf')); await conArchivos(i + 1); }
+      expect(comp.formError()).toBe('');
+      comp.onFileCotizacion(elegir('una-mas.pdf', 'application/pdf'));
+      expect(comp.formError()).toContain('maximo');
+    });
+  });
+
+  /**
    * ⭐ `[GX.37]` **El motivo del servidor tiene que llegar a la pantalla.**
    *
    * Medido en local: subir un PDF fallaba y la pantalla decía «No se pudo subir el
