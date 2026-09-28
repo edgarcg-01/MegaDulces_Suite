@@ -538,8 +538,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
-        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
-               placeholder="Folio nuestro o de Kepler, concepto, beneficiario, usuario…" />
+        <input pInputText [(ngModel)]="search" (keyup.enter)="buscar()"
+               placeholder="Busca en TODO: realizados y por confirmar (folio, concepto, beneficiario, usuario…)" />
       </div>
 
       <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
@@ -1826,6 +1826,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       });
   }
 
+  /**
+   * CS.3.9 — El buscador es UNIVERSAL: recarga el libro (realizados) Y la bandeja (por confirmar) con
+   * el mismo término. Antes sólo tocaba el libro, así que buscar un cobro que todavía no se había
+   * arqueado no devolvía nada aunque estuviera en «por confirmar».
+   */
+  buscar(): void {
+    this.cargar();
+    this.cargarPendientes();
+  }
+
   abrirCaptura(): void {
     this.f.set(this.formVacio());
     this.conceptoSel = null;
@@ -2221,6 +2231,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       tipo: this.signoBandeja() || undefined,
       caja: this.cajaActiva() || undefined,
       from: desde,
+      // CS.3.9 — el buscador universal también filtra «por confirmar», no sólo el libro.
+      search: this.search || undefined,
       limit: 100,
     }).subscribe({
       next: (r) => {

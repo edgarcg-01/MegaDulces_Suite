@@ -565,7 +565,10 @@ export class CashLedgerService {
           .whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s]));
+          .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
+          // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
+          .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]));
       }
       const rows = await qb
         // ⛔ CG.23.1 — El orden salía INVERSO para lo que la bandeja es: una cola de trabajo.
