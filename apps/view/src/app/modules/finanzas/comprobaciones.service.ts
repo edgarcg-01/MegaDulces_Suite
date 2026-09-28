@@ -76,8 +76,11 @@ export interface ExpenseProof {
   comentarios: string | null;
   status: ProofStatus;
   clasificacion?: ExpenseClasificacion | string | null; // naturaleza del gasto (decide la evidencia)
-  monto_ocr?: number | null;      // total leído de la foto (Claude Vision)
-  monto_match?: boolean | null;   // cuadró vs el importe de la solicitud
+  // `[GX.32]` Los sigue devolviendo el servidor para los expedientes VIEJOS, cerrados
+  // cuando existía el cuadre por visión. Para los nuevos llegan en null — la columna se
+  // conserva, dejó de escribirse.
+  monto_ocr?: number | null;
+  monto_match?: boolean | null;
   tiene_comprobacion?: boolean | null; // (XA1001, dormante) lo declaraba quien valida
   comprobacion_nota?: string | null;
   /** `[GX.27]` La forma de pago viaja en el listado porque el visor del vale la muestra. */
@@ -96,16 +99,6 @@ export interface ExpenseProofsReport {
   rows: ExpenseProof[];
 }
 
-/** Resultado del preview de validación por vision del comprobante. */
-export interface ProofPhotoOcr {
-  ocr_status: 'ok' | 'ilegible' | 'sin_key';
-  importe_esperado: number;
-  monto_ocr: number | null;
-  monto_match: boolean;
-  diff: number | null;
-  total: number | null;
-  subtotal: number | null;
-}
 
 export interface CreateExpenseProof {
   solicitante?: string;
@@ -124,9 +117,8 @@ export interface CreateExpenseProof {
   /** `[GX.14]` El dato que pide la forma elegida (caja, últimos 4, referencia, cheque). */
   forma_pago_detalle?: string;
   files?: ProofFile[];
-  monto_ocr?: number | null;
-  subtotal_ocr?: number | null;
-  receipt_legible?: boolean;
+  // `[GX.32]` Se fueron `monto_ocr`, `subtotal_ocr` y `receipt_legible`: los llenaba el
+  // preview por visión y el servidor ya no los recibe.
 }
 
 /** Una solicitud de Kepler como candidata para adjuntarle el comprobante. */
@@ -436,10 +428,8 @@ export class ComprobacionesService {
   resumen(periodo: '12m' | 'mes' = '12m'): Observable<ResumenSolicitante> {
     return this.http.get<ResumenSolicitante>(`${this.base}/resumen`, { params: new HttpParams().set('periodo', periodo) });
   }
-  /** Preview: valida la foto del comprobante con Claude Vision contra el importe de la solicitud. */
-  validatePhoto(file_base64: string, importe: number): Observable<ProofPhotoOcr> {
-    return this.http.post<ProofPhotoOcr>(`${this.base}/validate-photo`, { file_base64, importe });
-  }
+  // `[GX.32]` Se fue `validatePhoto()`: era el preview del cuadre por visión, y su
+  // endpoint ya no existe en `expense-proofs`. Llamarlo ahora daría 404.
   create(body: CreateExpenseProof): Observable<{ id: string; folio_solicitud: string; status: string }> {
     return this.http.post<{ id: string; folio_solicitud: string; status: string }>(this.base, body);
   }
