@@ -486,7 +486,17 @@ export interface RenglonEtiqueta {
     .etq-label *{ box-sizing:border-box; margin:0; padding:0; }
     .etq-head{ background:var(--green); color:#fff; height:6.8mm; min-height:6.8mm; display:flex; align-items:center;
       padding:0 2mm; font-weight:800; font-size:3.9mm; letter-spacing:.2px; text-transform:uppercase; overflow:hidden; }
-    .etq-head-txt{ display:block; min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .etq-head-txt{ display:block; min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      line-height:1.05; }
+    /* ⭐⭐ [ETQ-FIT.3] DOS RENGLONES cuando el nombre no entra en uno al piso de legibilidad.
+       Medido: 3 de 220 no entraban ni a 2.3 mm y salian con puntos suspensivos, y los tres son
+       descripciones de promocion de 55-60 caracteres ("2 CJS TRIDENT VALUPACK = GRATIS 1 CJ
+       GREEN PACK 60 X 90 /10"), o sea el caso en que el nombre importa MAS, no menos.
+       La banda mide 6.8 mm fijos: dos renglones a 1.05 de interlinea entran hasta 3.23 mm de
+       cuerpo, y el ajuste no pasa de 3.2. El clamp a 2 es el que garantiza que un tercer renglon
+       no pueda desbordar la banda -- el alto sigue siendo fijo, no lo decide el texto. */
+    .etq-head.es-doble .etq-head-txt{ white-space:normal; display:-webkit-box; -webkit-box-orient:vertical;
+      -webkit-line-clamp:2; line-clamp:2; text-overflow:clip; overflow-wrap:anywhere; }
     /* El brote se mudó acá desde la caja del precio (ver el comentario del template). Ocupa
        5.6 de los 78 mm del nombre, que ya se auto-encoge. */
     .etq-head .etq-sprout{ position:static; flex:0 0 auto; width:5.6mm; height:5.6mm; margin-left:1.4mm; }
@@ -1650,11 +1660,35 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const txt = this.headtxt?.nativeElement;
     if (!head || !txt) return;
     let size = 3.9;
+    head.classList.remove('es-doble');            // anti-trinquete: cada pase decide de nuevo
     head.style.fontSize = size + 'mm';
     let guard = 0;
     while (txt.scrollWidth > txt.clientWidth && size > 2.3 && guard++ < 40) {
       size -= 0.12;
       head.style.fontSize = size + 'mm';
+    }
+    /**
+     * ⭐⭐ `[ETQ-FIT.3]` Si ni al piso de legibilidad entra en UN renglón, pasa a DOS.
+     *
+     * Medido sobre el corpus de 220: 3 nombres no entran a 2.3 mm, y los tres son descripciones
+     * de promoción de 55-60 caracteres (`"2 CJS TRIDENT VALUPACK = GRATIS 1 CJ GREEN PACK..."`).
+     * Salían con puntos suspensivos justo donde el nombre es lo que se está vendiendo.
+     *
+     * La banda mide 6.8 mm fijos, así que dos renglones entran hasta 3.23 mm de cuerpo: se
+     * arranca en 3.2 y se vuelve a encoger. El `-webkit-line-clamp:2` del CSS es lo que impide
+     * que un tercer renglón desborde — el alto de la banda NO lo decide el texto, ni acá ni allá.
+     *
+     * ⚠️ Esto sólo puede MEJORAR: si este método no corre, queda el renglón único con puntos
+     * suspensivos, que es el degradado seguro de siempre.
+     */
+    if (txt.scrollWidth > txt.clientWidth) {
+      head.classList.add('es-doble');
+      size = Math.min(size, 3.2);
+      head.style.fontSize = size + 'mm';
+      for (let g = 0; txt.scrollHeight > txt.clientHeight + 1 && size > 2.3 && g < 40; g++) {
+        size -= 0.12;
+        head.style.fontSize = size + 'mm';
+      }
     }
   }
 

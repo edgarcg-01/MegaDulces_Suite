@@ -98,6 +98,33 @@ const COMPUERTAS = [
   // que reporta "no se pudo medir", o sea un bug disfrazado de dato ausente. El repo YA lo tenía
   // escrito en un comentario de `store.service.ts` — un comentario no frena nada.
   { nombre: 'set-bind', cmd: 'node scripts/check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)' },
+  /**
+   * ⭐⭐ `[ETQ-FIT.4]` LA ETIQUETA SE MIDE RENDERIZADA, Y EN LOS DOS ESCENARIOS.
+   *
+   * La etiqueta de anaquel es **papel**: sale de la impresora, se pega en el mostrador y el
+   * cliente le cree. Un renglón cortado ahí no es un defecto visual, es un precio a medio
+   * imprimir. Y no se puede juzgar leyendo el código —el defecto vive en la geometría—, así que
+   * el único juez es el arnés, que la renderiza de verdad sobre un corpus congelado de 220
+   * etiquetas reales de prod.
+   *
+   * ⛔ Estaba escrito y había que acordarse de correrlo. Se corrió dos veces en toda su vida, y
+   * las dos por un reporte del mostrador: *"salen mal en otros equipos"*. Un arnés que depende de
+   * que alguien se acuerde no es una compuerta, es una herramienta.
+   *
+   * ⭐ Van LOS DOS escenarios. El segundo (`--sin-fuentes`) mide la etiqueta como sale en un
+   * equipo que no tiene las tres tipografías, que es exactamente el reporte que abrió esto:
+   * medido antes de arreglarlo, **48 de 220 salían rotas**. Con una sola de las dos corridas, la
+   * mitad del riesgo queda sin vigilar.
+   *
+   * Cuesta ~40 s cada una y no toca red ni base: el corpus está congelado en el repo y las
+   * tipografías se incrustan desde `assets/fonts`.
+   */
+  { nombre: 'etiqueta-gate', cmd: 'node scripts/check-etiqueta-gate.js',
+    que: 'el arnés de la etiqueta sigue sin excepciones y sigue siendo compuerta' },
+  { nombre: 'etiqueta', cmd: 'node scripts/etiqueta-geometria.js compuerta',
+    que: 'la etiqueta impresa no recorta un renglón ni un precio (220 reales, renderizadas)' },
+  { nombre: 'etiqueta-sin-fuentes', cmd: 'node scripts/etiqueta-geometria.js compuerta --sin-fuentes',
+    que: 'y sigue entera en un equipo SIN las tres tipografías — el reporte que abrió esto' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
   // `[NX.7]` `apps/api` compila con SWC, que borra los tipos SIN comprobarlos: `build` no
