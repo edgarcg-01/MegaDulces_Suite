@@ -300,6 +300,49 @@ la ruta como día) + `puntuarCaos` (ruta 45 + fecha-negocio 40 + depósito≤cob
 (⇄ del cajero … · retiene … · confianza) y capturar lo vincula solo; la sección CAOS es informativa.
 Motor spec 13/13, build api. **Pendiente: validación visual + deploy.**
 
+## CS.3.7 — CAOS aparte + reja en cero + captura en UNA pantalla (2026-09-28)
+
+Pedido: que la captura entre sin scroll, el arqueo del cajero (CAOS) **se muestre APARTE** (sólo se
+menciona, ya lo contó la máquina) y la reja quede **en cero** para agregar sólo la diferencia.
+
+- El efectivo del cajero deja de teclearse en la reja. Va aparte (`denominacionesCajero`, mención con
+  total + ref + denominaciones read-only). La reja «La diferencia, a mano» arranca vacía.
+- `monto = aporte del cajero + reja`. Al guardar se **fusionan** las denominaciones
+  (`denominacionesParaGuardar`) para que el servidor cuadre (`assertArqueo`) — el contrato del backend
+  no cambia. `bloqueos()` valida el arqueo COMPLETO (si validara sólo la reja, bloquearía el guardado).
+- Layout a **2 columnas** (izq: qué/quién; der: cajero + arqueo), diálogo 46→62rem, apila <760px.
+- Bug de fondo cazado en prod (dependía de esto): la bandeja tiraba 500 porque pg devuelve `date` como
+  **objeto Date**; `String(date).slice(0,10)`→NaN→`toISOString()` tiraba. Fix `ymd()` en el engine
+  ([[feedback_pg_date_is_date_object_not_string]]). Commits `1ba0e71a`+`71124409`+`e7c5036c`+`7a37c7ac`.
+  Gates: build view (bajo presupuesto), spec 60/60, templates. **Validación visual + deploy pendientes.**
+
+## CS.3.8 — Comprobante en máquina de tickets (2026-09-28)
+
+`ticket-comprobante.ts` (calcado de `modules/tienda/ticket-arqueo.ts`: térmica 80 mm / útil 72 mm,
+maquetación por caracteres `ANCHO=32` en Courier 14px, impresión desde iframe oculto sin `window.open`).
+`cuerpoComprobante()` (función pura, testeada 5/5) arma: **folio NUESTRO**, sucursal, fecha, **concepto**
+(cuenta/concepto + nombre + glosa), **recibido** (beneficiario, etiqueta por signo: Recibido de / Pagado
+a / Depositado por), **desglose** por denominación + morralla, **TOTAL**, y **espacio de firma** («Recibí
+conforme»). El desglose ya incluye los billetes del cajero (se fusionan al guardar, CS.3.7). **Cero
+backend**: sale del `detalle(id)` que ya existía. Se imprime solo al guardar (`crear` devuelve el folio)
+y se re-imprime por fila desde la lista (botón, no para cancelados). Gates: templates, ticket 5/5,
+componente 60/60, build view OK. **Validación visual + deploy pendientes.**
+
+## Temas nuevos (backlog, 2026-09-28) — investigados contra el código
+
+1. **Buscador universal** — PARCIAL: `GET /cash-ledger` ya busca por nuestro folio/beneficiario/glosa +
+   filtros. Falta sumar **folio de Kepler** (`origen_ref`), **usuario** (`created_by_username`, ya se
+   guarda) y **concepto**. Extensión del `WHERE`.
+2. **Comprobante en ticket** — ✅ CS.3.8.
+3. **Reporte diario** — CASI todo existe: `list()` ya devuelve movimientos del día + totales
+   (ingresos/gastos/depósitos). Falta la vista/impresión diaria dedicada (se apoya en el motor de #2).
+4. **Arqueo final / caja chica** — el CORTE DE CAJA ya ES el arqueo (`esperado = fondo + ingresos −
+   gastos − depósitos` vs conteo, en `cash-cut.engine.ts`). Lo nuevo: conciliar contra el CAJERO (CAOS).
+   **Decisión del usuario (2026-09-28): cajas SEPARADAS** — CAOS es la bóveda (cobros se depositan ahí,
+   pagos se dispensan de ahí), la caja chica es efectivo suelto. El arqueo debe conciliar:
+   `caja chica = fondo + recibido − depositado al cajero + dispensado − pagos`. Usa
+   `analytics.caos_cash_movements` (depósitos/dispensaciones del período). Cierra el gate CS.0.
+
 ## Estado (2026-09-25)
 
 - **CS.3.1a Medición** ✅ (prod read-only): contra limpia 99.75%, grano mayor 201/115/103, `cash_ledger`
