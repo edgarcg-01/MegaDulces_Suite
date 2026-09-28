@@ -43,7 +43,7 @@ Cobertura del trimestral de sep-2026 contra los SKUs con existencia > 0 en el OD
 
 | Sucursal | Contados con existencia | **Con existencia, NO contados** | Contados sin existencia |
 |---|---:|---:|---:|
-| `00` | **0** | **4,647** | 0 |
+| `00` (⚠️ ver §1.3b) | **0** | 4,647 | 0 |
 | `01` | 2,561 | 754 | 379 |
 | `02` | 2,251 | 616 | 119 |
 | `03` | 2,068 | 923 | 163 |
@@ -53,9 +53,34 @@ Cobertura del trimestral de sep-2026 contra los SKUs con existencia > 0 en el OD
 | `07` | 2,207 | 263 | 332 |
 | `08` | 2,582 | 192 | 327 |
 
-- ⛔ **La sucursal `00` no tiene ni una sola captura en toda la historia del ODS.** 4,647 SKUs con existencia jamás contados por esta vía.
-- **4,022 SKUs con existencia** quedaron fuera en el resto (7% a 31% por sucursal).
+- **4,022 SKUs con existencia** quedaron fuera en el resto (7% a 31% por sucursal). **Ése es el hueco real de cobertura.**
 - Los "contados sin existencia" son sobrantes puros: mercancía física que el teórico no conocía.
+
+### 1.3b ⚠️ Corrección: la `00` de Kepler es OFICINAS, y el CEDIS no está en Kepler
+
+Aclarado por Edgar (2026-09-28) y confirmado contra la plataforma, que **ya lo tenía bien**: `commercial.warehouses` code `00` trae `kepler_code = NULL` y `wincaja_source_branch = '00'`.
+
+- **`kepler_ods` sucursal `00` = OFICINAS.** Su "existencia" son **122,798,871 unidades en 4,652 SKUs** (26,397 por SKU en promedio): no es un almacén físico, es un artefacto del bug conocido `c4 = 0` (la fórmula degenera en *entradas − salidas acumuladas desde siempre*). ⛔ **No se cuenta y no entra a ninguna métrica.** Mi primera lectura la trató como hueco de cobertura: era un error.
+- ⛔ **El CEDIS es Wincaja (`MD-00`) y NUNCA ha tenido un inventario físico.** No está en Kepler, y en Wincaja **no existe el conteo masivo**: los movimientos tipo `I`/`X`/`M` del CEDIS traen **1 a 4 líneas**, y **el ajuste más grande de toda la historia de Wincaja, en cualquier sucursal, tiene 40 líneas**. Son correcciones puntuales, no conteos.
+  - Tamaño: **253 SKUs con existencia, $7.6M** (`wincaja.v_stock.valor_inventario`; 15,559 en catálogo). Es un almacén de flujo, no de guarda — pero es $7.6M que **nadie ha contado nunca**.
+  - ⭐ **Consecuencia para el plan: para el CEDIS, nuestro parcial/top no es un refuerzo del trimestral — es la ÚNICA vía posible.** Kepler no va a contarlo nunca porque no lo conoce.
+
+### 1.3c El cutover Wincaja→Kepler, con fecha
+
+`analytics.v_branch_erp_cutover` (resolvedor que **ya existe** — usarlo, no reescribirlo) fecha la migración de cada sucursal:
+
+| Sucursal | Cutover a Kepler | Su "conteo" de sep-2026 |
+|---|---|---|
+| `07` Morelia Madero | **2026-09-08** | 2026-09-07 — el día ANTES |
+| `08` Morelia Abastos | **2026-09-19** | 2026-09-18 — el día ANTES |
+| `01` Padre Hidalgo | 2026-06-27 | primer trimestral post-migración |
+| `06` Canindo | 2026-08-15 | primer trimestral post-migración |
+| `02` La Piedad | 2025-10-10 | ya estabilizada |
+| `03` · `04` · `05` | siempre Kepler | — |
+
+⭐ **`07`/`08` quedan explicadas con fecha, no por inferencia**: contaron el día antes de migrar porque eso es una **carga inicial**, no un inventario.
+
+⚠️ **Lo que NO se sostiene:** la tentación es culpar al cutover del descuadre. Normalizado por SKU contado, `01` da **$1,348/SKU** contra $273 de `06` (que migró **después**) y $334 de `03` (que nunca migró). **`01` es un outlier por sí misma**, no por haber migrado. Su explicación sigue abierta.
 
 ### 1.4 El descuadre de septiembre
 
@@ -125,11 +150,13 @@ El conteo compara contra `commercial.stock`. Medido contra el POS en vivo: **`ke
 
 | Ritmo | Quién | Cadencia | Alcance | Fuente de la diferencia |
 |---|---|---|---|---|
-| **Completo** | **Kepler** (no nosotros) | trimestral | catálogo con existencia de la sucursal | `N-A-30`/`N-D-30` del ODS — **ya existe, hoy invisible** |
+| **Completo** | **Kepler** (no nosotros) | trimestral | catálogo con existencia de la sucursal — **sólo las 8 de Kepler** | `N-A-30`/`N-D-30` del ODS — **ya existe, hoy invisible** |
 | **Parcial** | nosotros | mensual | un tercio rotativo, cubre el trimestre | nuestro folio contra `v_erp_stock_truth` |
 | **Top** | nosotros | mensual, encima del rotativo | score de 4 señales, con tope por almacén | nuestro folio contra `v_erp_stock_truth` |
 
 **Cómo encajan:** el rotativo reparte **todo** el catálogo en 3 olas; el top se cuenta **además**, cada mes. Lo caro o riesgoso se cuenta 3 veces por trimestre, el resto 1 vez, y cuando llega el conteo de Kepler ya no hay sorpresas — que es exactamente el KPI de la fase (§5).
+
+⭐ **El CEDIS es la excepción y hay que decirlo fuerte:** no tiene ritmo "completo" porque **Kepler no lo conoce** y Wincaja no sabe hacer conteos masivos (§1.3b). Para `MD-00`, el parcial y el top **no refuerzan nada: son el único inventario que va a existir**. Su teórico sale de `wincaja.v_stock`, no del ODS Kepler, y el export de D1 **no aplica** (no hay documento Kepler que emitir) — el ajuste del CEDIS se captura en Wincaja o se declara pendiente.
 
 ---
 
@@ -140,8 +167,9 @@ Orden por valor entregado, no por dependencia técnica. **IC.0 entrega valor sin
 | Sprint | Entrega | Por qué |
 |---|---|---|
 | **IC.0** ⭐ | **Ver la diferencia que ya existe.** Vista `analytics.v_erp_physical_count_variance` (derive-no-copy sobre `kdm1`/`kdm2`) y página `/almacen/inventory/diferencias`: sobrante/faltante por sucursal × mes × SKU, con drill al SKU. **Marca `07`/`08` como carga inicial** para que no contaminen. **Prototipo ya corrido: 117 ms sobre todo el histórico.** | El descuadre de $6.65M del trimestral **no se ve en ninguna pantalla**. Cero conteo nuevo, valor el día 1 |
-| **IC.0b** | **La cobertura, declarada.** En la misma pantalla: qué NO se contó y cuánto vale (los 4,647 de `00` más los 4,022 del resto) | Un conteo sin cobertura declarada se lee como "todo está bien". Regla de la casa: lo que no se midió se declara, nunca se dibuja como cero |
-| **IC.1** | **El teórico correcto.** Mover el conteo de `commercial.stock` a `analytics.v_erp_stock_truth`; estampar en el item la unidad resuelta por `v_unit_truth` y el método; `NULL` con motivo cuando no se resuelve | 91% a 100%. Sin esto seguimos mandando gente al anaquel por diferencias falsas |
+| **IC.0b** | **La cobertura, declarada.** En la misma pantalla: qué NO se contó y cuánto vale — los **4,022** SKUs del hueco real, **más el CEDIS entero** ($7.6M sin contar jamás), **más** la marca de que `07`/`08` fueron carga inicial y `00`-Kepler es oficinas | Un conteo sin cobertura declarada se lee como "todo está bien". Regla de la casa: lo que no se midió se declara, nunca se dibuja como cero |
+| **IC.1** | **El teórico correcto.** Mover el conteo de `commercial.stock` a `analytics.v_erp_stock_truth` (Kepler) y a `wincaja.v_stock` (CEDIS y rutas), resolviendo el ERP con `v_branch_erp_cutover`; estampar en el item la unidad resuelta por `v_unit_truth` y el método; `NULL` con motivo cuando no se resuelve. ⚠️ **`v_erp_stock_truth` hace timeout al agregarla entera** — acotar por almacén o materializar (medir antes de elegir) | 91% a 100%. Sin esto seguimos mandando gente al anaquel por diferencias falsas |
+| **IC.1c** ⭐ | **El CEDIS, primer conteo de su historia.** Es el caso más chico (253 SKUs con existencia) y el de mayor valor simbólico y real: $7.6M que nadie verificó nunca | Cabe en un día, no depende de Kepler, y prueba el circuito completo con riesgo mínimo. **Es el mejor candidato a piloto de toda la fase** |
 | **IC.1b** | **Probar (o descartar) la unidad.** Medir si el descuadre de §1.5 se explica por el factor de caja | $3.28M de sobrante en `PZA` lo exige. Si es unidad, no es merma y nadie debe investigarlo como robo |
 | **IC.2** | **Permisos y segregación.** `CONTAR` al `almacenista`; quitar `RECONCILIAR` a `marketing`; **prueba negativa** (romper la compuerta a propósito y verificar el rojo) | Desbloquea a las 4 personas que cuentan. Un gate sin prueba negativa es una intención |
 | **IC.3** | **Histórico de descuadre por SKU.** Vista derivada de los 4 trimestres de ajustes (2025-Q4 a 2026-Q3) por (sucursal, SKU): veces que descuadró, pesos, signo | Es la 4ª señal de D2 **y** la más preventiva: contar seguido lo que siempre falla |
@@ -171,8 +199,9 @@ Si el parcial rotativo y el top hacen su trabajo, el trimestral de dic-2026 debe
 - **Escritura directa en Kepler** — descartada por D1. Se reevalúa sólo si el acuse de IC.7 demuestra que la recaptura manual es el cuello de botella.
 - **Pasillos y equipos de conteo** — el módulo existe (Fase PA) pero los pasillos **no están dados de alta** y el ERP no los trae (`location = Z000` en los 11,109 productos). Es alta manual: fuera del MVP, disponible cuando alguien la capture.
 - **Conteo offline (Fase OFF)** — existe a medias; se activa cuando el conteo con celular tenga uso real y la señal del almacén lo exija. Encenderlo antes es optimizar algo que nadie usa.
-- **La sucursal `00`** — no se contará en este alcance; su hueco (4,647 SKUs) **se declara en pantalla** (IC.0b). Si entra o no es decisión de operación, no técnica.
-- **Por qué el sobrante neto es +$4.35M** — no se sabe. IC.1b prueba la hipótesis de unidad; si la descarta, queda abierto con nombre y monto.
+- **La `00` de Kepler (oficinas)** — **no se cuenta**: sus 122.8M de unidades son un artefacto del bug `c4 = 0`, no mercancía (§1.3b). Se excluye de toda métrica, no se declara como hueco.
+- **El export de D1 para el CEDIS** — no aplica: no hay documento Kepler que emitir. El ajuste del CEDIS se captura en Wincaja o **se declara pendiente**; decidir cuál es pregunta de operación (§8).
+- **Por qué el sobrante neto es +$4.35M** — no se sabe. IC.1b prueba la hipótesis de unidad; si la descarta, queda abierto con nombre y monto. ⚠️ Y **el cutover no lo explica**: `01` es outlier contra sucursales que migraron después y contra las que nunca migraron (§1.3c).
 
 ---
 
@@ -190,7 +219,9 @@ Si el parcial rotativo y el top hacen su trabajo, el trimestral de dic-2026 debe
 
 ## 8. Preguntas abiertas para operación
 
-1. **`00`**: ¿es CEDIS u OFICINAS? `commercial.warehouses` la llama "CEDIS BPIRAPUATO", la memoria del proyecto dice OFICINAS. Cambia si sus 4,647 SKUs deben contarse.
-2. **¿Quién captura el archivo en Kepler** (IC.7) y en qué ventana? Sin dueño, el ciclo no cierra.
-3. **¿El parcial congela movimientos?** Hoy `openCycleCount` va con `freeze = false` por default — razonable para no parar el almacén, pero hay que confirmarlo.
-4. **Morelia (`07`/`08`)**: ¿ya operan normal o siguen en carga? Define desde qué trimestre entran al KPI.
+1. ~~¿La `00` es CEDIS u OFICINAS?~~ **Resuelto (Edgar, 2026-09-28):** la `00` de Kepler es **oficinas**; el CEDIS es **Wincaja `0 BPIRAPUATO`** (`MD-00`). Ver §1.3b — cambió el alcance de la fase.
+2. ⭐ **El ajuste del CEDIS, ¿dónde se captura?** No hay documento Kepler que emitir. ¿Se captura en Wincaja, o el CEDIS vive con la diferencia declarada y sin ajustar? Es la única pieza del circuito que D1 no cubre.
+3. **¿Quién captura el archivo en Kepler** (IC.7) y en qué ventana? Sin dueño, el ciclo no cierra.
+4. **¿El parcial congela movimientos?** Hoy `openCycleCount` va con `freeze = false` por default — razonable para no parar el almacén, pero hay que confirmarlo.
+5. **Morelia (`07`/`08`)**: migraron el 2026-09-08 y el 09-19 (§1.3c). ¿Desde qué trimestre entran al KPI — dic-2026 o mar-2027?
+6. **El CEDIS tiene 253 SKUs con existencia de 15,559 en catálogo.** ¿Es real (almacén de flujo) o la réplica está incompleta? El primer conteo (IC.1c) lo responde solo.
