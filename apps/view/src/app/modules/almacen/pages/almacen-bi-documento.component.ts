@@ -78,15 +78,15 @@ import { money } from '../../../shared/util/money.util';
   `,
   styles: [`
     .abd-page { max-width: 52rem; margin: 0 auto; }
-    .abd-state { padding: 3rem; text-align: center; color: var(--text-color-secondary); }
+    .abd-state { padding: 3rem; text-align: center; color: var(--text-muted); }
     .abd-error { color: var(--bad-fg, #b91c1c); }
     .abd-head h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
-    .abd-folio { font-family: var(--font-mono, monospace); font-weight: 400; color: var(--text-color-secondary); }
+    .abd-folio { font-family: var(--font-mono, monospace); font-weight: 400; color: var(--text-muted); }
     .abd-head-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .5rem; margin-bottom: 1rem; }
-    .abd-l { display: block; font-size: .7rem; text-transform: uppercase; color: var(--text-color-secondary); }
+    .abd-l { display: block; font-size: .7rem; text-transform: uppercase; color: var(--text-muted); }
     .abd-v { font-size: .9rem; }
     .abd-mono { font-family: var(--font-mono, monospace); font-size: .82rem; }
-    .abd-lock { margin-left: .3rem; color: var(--text-color-secondary); }
+    .abd-lock { margin-left: .3rem; color: var(--text-muted); }
     .abd-totals td { font-weight: 700; }
     .abd-cp { margin-top: 1.25rem; }
     .abd-cp h3 { font-size: .85rem; margin: 0 0 .4rem; }

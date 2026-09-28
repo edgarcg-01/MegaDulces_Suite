@@ -324,20 +324,20 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-pickbtn.busy { opacity: .6; cursor: default; }
     .erd-photo { position: relative; display: inline-block; }
     .erd-photo img { max-height: 80px; border-radius: var(--radius-md, 8px); display: block; }
-    .erd-lbl-em { font-style: normal; font-weight: 400; color: var(--text-color-secondary); font-size: .72rem; }
-    .erd-hint { display: flex; align-items: center; gap: .3rem; font-size: .72rem; color: var(--text-color-secondary); margin-top: .25rem; }
+    .erd-lbl-em { font-style: normal; font-weight: 400; color: var(--text-muted); font-size: .72rem; }
+    .erd-hint { display: flex; align-items: center; gap: .3rem; font-size: .72rem; color: var(--text-muted); margin-top: .25rem; }
     .erd-qtyrow { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     .erd-qtyrow > *:first-child { flex: 1 1 130px; }
     .erd-units { display: inline-flex; border: 1px solid var(--surface-border); border-radius: 8px; overflow: hidden; }
     .erd-unit { appearance: none; background: transparent; border: 0; border-right: 1px solid var(--surface-border);
-      padding: .4rem .6rem; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--text-color-secondary); }
+      padding: .4rem .6rem; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--text-muted); }
     .erd-unit:last-child { border-right: 0; }
     .erd-unit.on { background: var(--overlay-selected, rgba(0,0,0,.06)); color: var(--text-color); }
     .erd-unit:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
     /* Plazo — el veredicto que da el sistema desde la fecha */
     .erd-plazo { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; font-size: .78rem; }
     .erd-plazo strong { font-weight: 700; }
-    .erd-plazo span { color: var(--text-color-secondary); }
+    .erd-plazo span { color: var(--text-muted); }
     .erd-plazo[data-p="bueno"] { color: var(--ok-fg, #15803d); }
     .erd-plazo[data-p="intermedio"] { color: var(--warn-fg, #b45309); }
     .erd-plazo[data-p="riesgoso"], .erd-plazo[data-p="vencido"] { color: var(--bad-fg, #b91c1c); }
@@ -349,10 +349,10 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       padding: .4rem .55rem; border-radius: 8px; color: var(--bad-fg, #b91c1c);
       border: 1px solid var(--bad-border, #fecaca); background: var(--bad-soft-bg, #fef2f2); }
     @media (pointer: coarse) { .erd-unit { min-height: 44px; padding-inline: .8rem; } }
-    .erd-exp { font-size: .78rem; color: var(--text-color-secondary); font-variant-numeric: tabular-nums; }
+    .erd-exp { font-size: .78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .erd-photo-noprev { display: inline-flex; align-items: center; gap: .3rem; font-size: .74rem; color: var(--ok-fg, #15803d); }
     .erd-photo-missing { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem;
-      color: var(--text-color-secondary); white-space: nowrap; }
+      color: var(--text-muted); white-space: nowrap; }
     .erd-photo button { position: absolute; top: -8px; right: -8px; }
     .erd-form-actions { margin-top: 1rem; display: flex; justify-content: flex-end; }
     .erd-lines-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }

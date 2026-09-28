@@ -147,7 +147,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   styles: [`
     :host { display:block; }
     .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
+    .muted { color: var(--text-muted); font-size:.85rem; margin:0; }
     .new-row { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
     .checklist-card { margin-top:1rem; }
     .cl-header { display:flex; justify-content:space-between; align-items:center; }
@@ -156,13 +156,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .item-row { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.5rem; border:1px solid var(--surface-200); border-radius:6px; flex-wrap:wrap; }
     .item-label { display:flex; flex-direction:column; gap:.15rem; }
     .req { color: var(--bad-fg); margin-left:.25rem; }
-    .group-tag { background: var(--surface-100); padding:.1rem .4rem; border-radius:4px; font-size:.7rem; color: var(--text-color-secondary); }
+    .group-tag { background: var(--surface-100); padding:.1rem .4rem; border-radius:4px; font-size:.7rem; color: var(--text-muted); }
     .item-controls { display:flex; gap:.5rem; align-items:center; }
     .comment-input { min-width: 200px; }
     .item-result { display:flex; gap:.5rem; align-items:center; }
-    .comment-shown { font-size:.85rem; color: var(--text-color-secondary); }
+    .comment-shown { font-size:.85rem; color: var(--text-muted); }
     .cl-footer { display:flex; gap:1rem; align-items:flex-end; margin-top:1rem; flex-wrap:wrap; }
-    .cl-footer label { flex:1; display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); min-width:240px; }
+    .cl-footer label { flex:1; display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-muted); min-width:240px; }
     .cl-footer textarea { width:100%; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

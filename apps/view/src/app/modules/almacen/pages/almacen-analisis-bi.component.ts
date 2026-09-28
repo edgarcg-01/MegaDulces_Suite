@@ -409,49 +409,49 @@ const DEFAULT_EXPLORE_FIELDS = [
   `,
   styles: [`
     .abi-head-actions { display: flex; align-items: center; gap: .6rem; }
-    .abi-updated { font-size: .78rem; color: var(--text-color-secondary); }
+    .abi-updated { font-size: .78rem; color: var(--text-muted); }
     .abi-filters { display: flex; flex-direction: column; gap: .5rem; margin: .75rem 0 1rem; padding: .75rem 1rem; background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; }
     .abi-filter-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     :host ::ng-deep .abi-fld { min-width: 11rem; }
     :host ::ng-deep .abi-fld-wide { min-width: 20rem; flex: 1 1 20rem; }
     .abi-filter-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-    .abi-scope-note { font-size: .78rem; color: var(--text-color-secondary); display: inline-flex; align-items: center; gap: .3rem; }
+    .abi-scope-note { font-size: .78rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .abi-ac-item { display: flex; justify-content: space-between; gap: .5rem; }
-    .abi-ac-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-color-secondary); }
-    .abi-ac-empty { padding: .5rem .75rem; color: var(--text-color-secondary); }
+    .abi-ac-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
+    .abi-ac-empty { padding: .5rem .75rem; color: var(--text-muted); }
 
     .abi-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem; margin-bottom: 1rem; }
     .abi-kpi { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .75rem .9rem; display: flex; flex-direction: column; gap: .15rem; }
-    .abi-kpi-l { font-size: .74rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .03em; }
+    .abi-kpi-l { font-size: .74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .abi-kpi-n { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .abi-kpi-n.abi-na { color: var(--text-color-secondary); font-size: 1rem; font-weight: 600; }
-    .abi-kpi-sub { font-size: .72rem; color: var(--text-color-secondary); }
+    .abi-kpi-n.abi-na { color: var(--text-muted); font-size: 1rem; font-weight: 600; }
+    .abi-kpi-sub { font-size: .72rem; color: var(--text-muted); }
     .abi-kpi-sub.abi-na-reason { text-decoration: underline dotted; cursor: help; }
     .abi-ok { color: var(--ok-fg, #16a34a); } .abi-bad { color: var(--bad-fg, #b91c1c); }
 
-    .abi-banner { display: flex; gap: .5rem; align-items: flex-start; background: var(--surface-100, #f5f5f4); border: 1px solid var(--surface-border); border-radius: 8px; padding: .6rem .8rem; font-size: .82rem; color: var(--text-color-secondary); margin-bottom: 1rem; }
+    .abi-banner { display: flex; gap: .5rem; align-items: flex-start; background: var(--surface-100, #f5f5f4); border: 1px solid var(--surface-border); border-radius: 8px; padding: .6rem .8rem; font-size: .82rem; color: var(--text-muted); margin-bottom: 1rem; }
     .abi-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
     .abi-chart-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .85rem; }
     .abi-chart-card h3 { margin: 0 0 .5rem; font-size: .88rem; }
-    .abi-chart-unit { font-weight: 400; color: var(--text-color-secondary); font-size: .78rem; }
+    .abi-chart-unit { font-weight: 400; color: var(--text-muted); font-size: .78rem; }
     .abi-section h3 { font-size: .88rem; margin: 0 0 .5rem; }
-    .abi-empty-inline { padding: 1.25rem; text-align: center; color: var(--text-color-secondary); font-size: .85rem; }
+    .abi-empty-inline { padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: .85rem; }
     .abi-mono { font-family: var(--font-mono, monospace); font-size: .82rem; }
     .abi-link { text-decoration: underline dotted; }
 
-    .abi-skeleton { padding: 3rem; text-align: center; color: var(--text-color-secondary); }
+    .abi-skeleton { padding: 3rem; text-align: center; color: var(--text-muted); }
     .abi-error { display: flex; gap: .5rem; align-items: center; padding: 1rem; color: var(--bad-fg, #b91c1c); }
 
     .abi-mov-toolbar { display: flex; justify-content: flex-end; margin-bottom: .5rem; }
     /* La fila ya NO es clicable (el enlace vive en el folio): sin cursor pointer, que prometia
        un click que no existe. */
-    .abi-unavailable-note { font-size: .76rem; color: var(--text-color-secondary); margin-top: .5rem; display: flex; gap: .35rem; align-items: flex-start; }
+    .abi-unavailable-note { font-size: .76rem; color: var(--text-muted); margin-top: .5rem; display: flex; gap: .35rem; align-items: flex-start; }
 
     .abi-explore-layout { display: grid; grid-template-columns: 16rem 1fr; gap: 1rem; }
     @media (max-width: 900px) { .abi-explore-layout { grid-template-columns: 1fr; } }
     .abi-explore-fields { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .75rem; max-height: 32rem; overflow-y: auto; }
     .abi-fg { margin-bottom: .85rem; }
-    .abi-fg h4 { margin: 0 0 .35rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-color-secondary); }
+    .abi-fg h4 { margin: 0 0 .35rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
     .abi-fg-item { display: flex; align-items: center; gap: .4rem; padding: .2rem 0; font-size: .82rem; cursor: pointer; }
     .abi-fg-disabled { opacity: .5; cursor: not-allowed; }
     /* [WMS-BI.4.7] El folio es lo clicable, no la fila entera. Botón real (no un <td> con click):
@@ -463,10 +463,10 @@ const DEFAULT_EXPLORE_FIELDS = [
     /* [WMS-BI.4.2] "No aplica" se atenúa: es una celda que no corresponde a este documento, no un
        hueco que alguien deba salir a llenar. Lo que queda en el color normal es el dato real y lo
        que SÍ falta — que es lo que se tiene que poder barrer con la vista. */
-    .abi-na-cell { color: var(--text-color-secondary); font-style: italic; }
+    .abi-na-cell { color: var(--text-muted); font-style: italic; }
 
     .abi-explore-actions { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
-    .abi-explore-count { font-size: .78rem; color: var(--text-color-secondary); }
+    .abi-explore-count { font-size: .78rem; color: var(--text-muted); }
   `],
 })
 export class AlmacenAnalisisBiComponent {

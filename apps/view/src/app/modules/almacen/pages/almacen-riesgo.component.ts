@@ -82,7 +82,7 @@ import { RiesgoService, RiskRow } from '../riesgo.service';
     .rk-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin: 0 0 1rem; }
     .rk-kpi { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .6rem .8rem; display: flex; flex-direction: column; }
     .rk-kpi-n { font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .rk-kpi-l { font-size: .74rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
+    .rk-kpi-l { font-size: .74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
     .rk-critico .rk-kpi-n { color: var(--bad-fg, #b91c1c); }
     .rk-alto .rk-kpi-n { color: var(--warn-fg, #b45309); }
     .rk-mono { font-family: var(--font-mono, monospace); }

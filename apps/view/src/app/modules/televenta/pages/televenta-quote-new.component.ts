@@ -853,10 +853,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
     `
       .section { padding: 1rem 1.25rem; max-width: 950px; margin: 0 auto; }
       .top-bar { margin-bottom: 0.5rem; }
-      .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-color-secondary); text-decoration: none; }
+      .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; }
       .back:hover { color: var(--text-color); }
       .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.15rem; }
-      .section-header p { color: var(--text-color-secondary); font-size: 0.8125rem; margin: 0 0 0.85rem; }
+      .section-header p { color: var(--text-muted); font-size: 0.8125rem; margin: 0 0 0.85rem; }
 
       .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
       .mt-card { margin-top: 1rem; }
@@ -873,19 +873,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: inline-flex; align-items: center; justify-content: center;
         font-size: 0.75rem; font-weight: 700;
       }
-      .captura-sub { font-size: 0.75rem; color: var(--text-color-secondary); }
-      .badge-count { font-size: 0.75rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-color-secondary); }
+      .captura-sub { font-size: 0.75rem; color: var(--text-muted); }
+      .badge-count { font-size: 0.75rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
 
       .pills { display: inline-flex; gap: 0.25rem; background: var(--neutral-100, #f1f5f9); padding: 2px; border-radius: 9999px; }
       .pill {
         border: 0; background: none; border-radius: 9999px; padding: 0.2rem 0.65rem;
-        font-size: 0.75rem; cursor: pointer; color: var(--text-color-secondary); font-weight: 500;
+        font-size: 0.75rem; cursor: pointer; color: var(--text-muted); font-weight: 500;
       }
       .pill-active { background: #fff; color: var(--text-color); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 
       /* Sucursal desplegable pegada arriba a la derecha */
       .sucursal-dropdown-box { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
-      .suc-label { font-size: 0.75rem; font-weight: 700; color: var(--text-color-secondary); display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+      .suc-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
       .input-select {
         padding: 0.3rem 0.6rem; font-size: 0.8125rem; border: 1px solid var(--border-color);
         border-radius: 6px; background: var(--card-bg); color: var(--text-color); font-weight: 700; min-height: 32px;
@@ -898,12 +898,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         background: var(--neutral-50, #f8fafc); border-bottom: 1px solid var(--border-color);
         font-size: 0.75rem; flex-wrap: wrap;
       }
-      .terms-bar-generic { color: var(--text-color-secondary); font-style: italic; }
+      .terms-bar-generic { color: var(--text-muted); font-style: italic; }
       .term-item { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-      .t-k { color: var(--text-color-secondary); }
+      .t-k { color: var(--text-muted); }
       .t-v { font-weight: 700; font-variant-numeric: tabular-nums; }
       .t-accent { color: var(--primary-color, var(--action)); font-weight: 800; }
-      .t-muted { font-style: italic; color: var(--text-color-secondary); font-weight: 400; }
+      .t-muted { font-style: italic; color: var(--text-muted); font-weight: 400; }
       .term-sep { width: 1px; height: 12px; background: var(--border-color); }
       .term-warn { margin-left: auto; color: var(--yellow-700, #a16207); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
 
@@ -912,8 +912,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
       .search-container { position: relative; width: 100%; max-width: 600px; }
       .search-box { position: relative; display: flex; align-items: center; }
-      .search-icon { position: absolute; left: 0.65rem; color: var(--text-color-secondary); font-size: 0.8125rem; pointer-events: none; }
-      .search-spinner { position: absolute; right: 0.65rem; color: var(--text-color-secondary); font-size: 0.8125rem; }
+      .search-icon { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
+      .search-spinner { position: absolute; right: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; }
       .search-input { padding-left: 2rem; width: 100%; }
 
       .results-dropdown {
@@ -930,9 +930,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .result-row:hover { background: var(--neutral-100, #f1f5f9); }
       .r-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--text-color); width: 60px; flex: none; }
       .r-name { flex: 1; font-weight: 600; }
-      .r-state { font-size: 0.7rem; color: var(--text-color-secondary); flex: none; }
+      .r-state { font-size: 0.7rem; color: var(--text-muted); flex: none; }
       .r-badge-warn { font-size: 0.65rem; background: var(--yellow-100, #fef08a); color: var(--yellow-800, #854d0e); padding: 1px 4px; border-radius: 4px; }
-      .search-empty { font-size: 0.75rem; color: var(--text-color-secondary); margin: 0.35rem 0 0; }
+      .search-empty { font-size: 0.75rem; color: var(--text-muted); margin: 0.35rem 0 0; }
 
       .chosen-row {
         display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
@@ -942,7 +942,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .chosen-details { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
       .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--primary-color, var(--action)); }
       .chosen-name { font-size: 0.875rem; font-weight: 600; }
-      .chosen-meta { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .chosen-meta { font-size: 0.75rem; color: var(--text-muted); }
       .btn-change {
         background: none; border: 0; color: var(--primary-color, var(--action));
         cursor: pointer; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;
@@ -952,7 +952,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .contact-fields { display: grid; grid-template-columns: 2fr 1.2fr 1.2fr; gap: 0.6rem; }
       @media (max-width: 640px) { .contact-fields { grid-template-columns: 1fr; } }
       .field-item { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; }
-      .field-item span { color: var(--text-color-secondary); font-weight: 500; }
+      .field-item span { color: var(--text-muted); font-weight: 500; }
       .field-item span b { color: var(--red-600, #dc2626); }
       .full-width { width: 100%; }
       .mt-field { margin-top: 0.6rem; }
@@ -963,14 +963,14 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       }
       .vendedor-inner { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
       .vendedor-label {
-        font-size: 0.75rem; font-weight: 700; color: var(--text-color-secondary);
+        font-size: 0.75rem; font-weight: 700; color: var(--text-muted);
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
       }
       .vendedor-label i { color: var(--primary-color, var(--action)); }
       .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 420px; }
       .vendedor-select { width: 100%; cursor: pointer; font-weight: 600; min-height: 32px; }
       .v-spinner { position: absolute; right: 0.65rem; font-size: 0.75rem; color: var(--primary-color, var(--action)); }
-      .vendedor-hint { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .vendedor-hint { font-size: 0.75rem; color: var(--text-muted); }
       .vendedor-hint strong { color: var(--text-color); }
 
       .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
@@ -980,7 +980,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .f-lbl { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-color); }
       .search-step { position: relative; margin-bottom: 0.5rem; }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
-      .search-ico { position: absolute; left: 0.75rem; color: var(--text-color-secondary); font-size: 0.875rem; pointer-events: none; }
+      .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
       .search-prod-input { padding-left: 2.25rem; font-size: 0.875rem; min-height: 40px; border-radius: 6px; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
@@ -999,15 +999,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .cat-row:hover, .cat-row-active { background: var(--neutral-100, #f1f5f9); }
       .cat-col-nom { flex: 1 1 auto; min-width: 0; }
       .cat-nom { font-size: 0.875rem; display: inline-block; font-weight: 600; }
-      .cat-cont { color: var(--text-color-secondary); font-size: 0.75rem; margin-left: 0.35rem; }
-      .cat-col-meta { display: flex; gap: 0.5rem; font-size: 0.75rem; color: var(--text-color-secondary); flex: 0 0 auto; }
+      .cat-cont { color: var(--text-muted); font-size: 0.75rem; margin-left: 0.35rem; }
+      .cat-col-meta { display: flex; gap: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex: 0 0 auto; }
       .cat-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .cat-bc { font-variant-numeric: tabular-nums; }
       .cat-un { font-weight: 600; background: var(--neutral-100, #f1f5f9); padding: 1px 4px; border-radius: 4px; }
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-      .cat-precio-lbl { font-size: 0.65rem; color: var(--text-color-secondary); }
-      .search-hint { font-size: 0.8125rem; color: var(--text-color-secondary); margin: 0.5rem 0 0; }
+      .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
+      .search-hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0.5rem 0 0; }
 
       /* Tarjeta de producto descargado */
       .descargado-box {
@@ -1028,7 +1028,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .descargado-info { display: flex; flex-direction: column; gap: 0.35rem; }
       .descargado-name { font-size: 1rem; font-weight: 700; color: var(--text-color); }
       .descargado-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .pill-meta { font-size: 0.75rem; color: var(--text-color-secondary); background: var(--card-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border-color); }
+      .pill-meta { font-size: 0.75rem; color: var(--text-muted); background: var(--card-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border-color); }
       .pill-meta b { color: var(--text-color); }
 
       /* Pregunta: Caja o Pieza */
@@ -1041,12 +1041,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         background: var(--card-bg); cursor: pointer; min-height: 48px; text-align: center; gap: 0.1rem;
         transition: border-color 0.15s, background-color 0.15s;
       }
-      .unit-toggle-btn i { font-size: 0.95rem; color: var(--text-color-secondary); }
+      .unit-toggle-btn i { font-size: 0.95rem; color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--primary-color, var(--action)); }
       .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: rgba(14, 116, 144, 0.06); }
       .unit-toggle-active i { color: var(--primary-color, var(--action)); }
       .unit-title { font-weight: 700; font-size: 0.875rem; color: var(--text-color); }
-      .unit-sub { font-size: 0.7rem; color: var(--text-color-secondary); }
+      .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
 
       /* Stepper táctil para móvil 16:9 */
       .touch-qty-seccion { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -1065,18 +1065,18 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         justify-content: center; font-variant-numeric: tabular-nums;
       }
       .qty-num { font-size: 1.25rem; font-weight: 800; line-height: 1.1; color: var(--text-color); }
-      .qty-lbl { font-size: 0.65rem; color: var(--text-color-secondary); text-transform: uppercase; font-weight: 600; }
+      .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.2rem; }
       .preset-btn {
         min-height: 34px; padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-color);
-        background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-color-secondary);
+        background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-muted);
       }
       .preset-btn:hover, .preset-btn:active { background: var(--neutral-100, #f1f5f9); color: var(--text-color); }
       .preset-active { background: var(--primary-color, var(--action)); color: #fff; border-color: var(--primary-color, var(--action)); }
 
       /* Previa del precio y volumen */
-      .previa-loading { font-size: 0.8125rem; color: var(--text-color-secondary); padding: 0.4rem 0; }
+      .previa-loading { font-size: 0.8125rem; color: var(--text-muted); padding: 0.4rem 0; }
       .previa-card {
         border-radius: 8px; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color);
         border-left: 4px solid var(--green-600, #16a34a); background: var(--card-bg);
@@ -1094,11 +1094,11 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         .previa-action-box { width: 100%; margin-left: 0; margin-top: 0.35rem; }
         .btn-agregar-inline { width: 100%; justify-content: center; }
       }
-      .previa-label { font-size: 0.7rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
+      .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
       .previa-amount { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-color); }
-      .previa-unit-sub { font-size: 0.75rem; color: var(--text-color-secondary); }
-      .previa-menor-sub { font-size: 0.75rem; color: var(--text-color-secondary); font-weight: 600; margin-left: 0.25rem; }
+      .previa-unit-sub { font-size: 0.75rem; color: var(--text-muted); }
+      .previa-menor-sub { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
       .previa-total-amount { font-size: 1.2rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
       .previa-none { font-size: 0.875rem; font-style: italic; color: var(--red-600, #dc2626); }
 
@@ -1147,17 +1147,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       }
       .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; margin-top: 0.2rem; flex-wrap: wrap; }
       .step-tag { font-weight: 700; color: var(--text-color); }
-      .step-detail { color: var(--text-color-secondary); }
+      .step-detail { color: var(--text-muted); }
       .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green-700, #15803d); }
       .p-why-bad { color: var(--red-600, #dc2626); font-size: 0.75rem; margin: 0.3rem 0 0; }
 
       .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
       .p-unit-main { font-weight: 700; }
-      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-color-secondary); font-weight: 500; }
+      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; }
       .source-tag-volumen { background: #dcfce7 !important; color: #15803d !important; font-weight: 700; }
 
       /* Bandeja de productos agregados */
-      .empty-bandeja { padding: 2rem 1rem; text-align: center; color: var(--text-color-secondary); }
+      .empty-bandeja { padding: 2rem 1rem; text-align: center; color: var(--text-muted); }
       .empty-icon { font-size: 2rem; margin-bottom: 0.4rem; opacity: 0.5; }
       .empty-title { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; color: var(--text-color); }
       .empty-hint { font-size: 0.8125rem; margin: 0; }
@@ -1166,22 +1166,22 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .bandeja-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
       .bandeja-table th {
         background: var(--neutral-50, #f8fafc); padding: 0.5rem 0.65rem; text-align: left;
-        border-bottom: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-color-secondary);
+        border-bottom: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted);
         font-weight: 600; white-space: nowrap;
       }
       .bandeja-table td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
       .num { text-align: right; }
-      .mono { font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-color-secondary); }
+      .mono { font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
       .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
 
       .item-name { font-size: 0.875rem; display: block; }
-      .item-sub { font-size: 0.7rem; color: var(--text-color-secondary); display: flex; gap: 0.4rem; margin-top: 0.1rem; }
+      .item-sub { font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 0.4rem; margin-top: 0.1rem; }
       .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-top: 0.2rem; font-weight: 600; }
 
       .pres-badge { font-weight: 700; background: var(--neutral-100, #f1f5f9); padding: 1px 5px; border-radius: 4px; font-size: 0.75rem; }
-      .pres-factor { font-size: 0.7rem; color: var(--text-color-secondary); margin-left: 0.25rem; }
+      .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
 
       .table-qty-control { display: inline-flex; align-items: center; gap: 0.25rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 1px 3px; }
       .btn-table-step {
@@ -1191,7 +1191,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .btn-table-step:hover { background: var(--neutral-100, #f1f5f9); border-radius: 4px; }
       .table-qty-val { min-width: 24px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-      .source-tag { font-size: 0.7rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 4px; color: var(--text-color-secondary); white-space: nowrap; }
+      .source-tag { font-size: 0.7rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 4px; color: var(--text-muted); white-space: nowrap; }
       .btn-quitar {
         border: 0; background: none; color: var(--red-600, #dc2626); cursor: pointer;
         padding: 0.3rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;
@@ -1203,7 +1203,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         border-top: 2px solid var(--border-color); padding: 0.75rem 1rem; display: flex;
         flex-direction: column; gap: 0.25rem; align-items: flex-end; background: var(--neutral-50, #f8fafc);
       }
-      .tot-row { display: flex; gap: 1.5rem; font-size: 0.8125rem; color: var(--text-color-secondary); }
+      .tot-row { display: flex; gap: 1.5rem; font-size: 0.8125rem; color: var(--text-muted); }
       .tot-row b { color: var(--text-color); font-variant-numeric: tabular-nums; min-width: 7rem; text-align: right; }
       .tot-dto { color: var(--green-700, #15803d); }
       .tot-dto b { color: var(--green-700, #15803d); }
