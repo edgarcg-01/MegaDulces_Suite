@@ -511,6 +511,11 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
       }
 
       <footer class="pd-acc">
+        <!-- [AU.33] La razon ANTES del boton: un boton apagado sin explicacion se lee como
+             que la pantalla esta rota. Sale del mismo computo que lo apaga. -->
+        @if (puedeEscribir && pestana() === 'persona' && faltaParaGuardar(); as falta) {
+          <span class="pd-falta" role="status">{{ falta }}</span>
+        }
         <button pButton type="button" class="p-button-sm p-button-text" (click)="cancelado.emit()">
           <span class="p-button-label">Cerrar</span>
         </button>
@@ -726,9 +731,21 @@ export class PersonaDetalleComponent implements OnChanges {
   readonly puedeCerrarSesiones = computed(() => this.perms.has(Permission.USUARIOS_PASSWORDS));
   readonly cerrandoSesiones = signal(false);
 
-  readonly puedeGuardar = computed(() => {
-    // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta
-    // antes de leer uno deja el computed sin esa dependencia.
+  /**
+   * `[AU.33]` ⛔ **Qué falta para poder guardar, dicho con palabras.**
+   *
+   * El botón se apagaba y la pantalla no decía por qué. Reportado tal cual: *«sigue sin
+   * dejar»* — con el puesto puesto, el perfil elegido y el motivo vacío, o sea que todo se
+   * veía lleno menos el campo que faltaba, y el único indicio era un asterisco.
+   *
+   * Es el MISMO defecto que el comentario de `[AU.31]` doce líneas más abajo dice haber
+   * arreglado («el botón quedaba gris sin decir por qué») — se corrigió la condición de
+   * entonces y no la clase de problema. Acá se cierra: la razón sale de la misma lista de
+   * condiciones que apaga el botón, así que no pueden discrepar.
+   *
+   * `null` = no falta nada.
+   */
+  readonly faltaParaGuardar = computed<string | null>(() => {
     const usuario = this.fUsername().trim();
     const puesto = this.fPuesto();
     const depto = this.fDepto();
@@ -737,25 +754,40 @@ export class PersonaDetalleComponent implements OnChanges {
     const motivo = this.fMotivo().trim();
     const desvio = this.hayDesvio();
     const persona = this.esPersona();
-    if (!usuario || !rol) return false;
+
+    if (!usuario) return 'Falta el usuario.';
+    if (!rol) return 'Falta elegir el perfil de acceso.';
     /*
      * ⛔ `[AU.31]` El puesto se exige SÓLO a una persona.
      *
-     * Antes era `if (!usuario || !puesto || !rol)`, y dejaba **16 cuentas sin
-     * poder guardarse**: 12 dispositivos, 3 clientes del portal y 1 de servicio
-     * —medido en prod—. Una etiquetera no ocupa un puesto del organigrama, y el
-     * backend nunca lo pidió: ni `CreateUserDto` ni `UpdateUserDto` declaran
-     * `position_code` como obligatorio. El requisito lo inventó esta pantalla, y
-     * el botón quedaba gris sin decir por qué.
+     * Antes era `if (!usuario || !puesto || !rol)`, y dejaba **16 cuentas sin poder
+     * guardarse**: 12 dispositivos, 3 clientes del portal y 1 de servicio —medido en prod—.
+     * Una etiquetera no ocupa un puesto del organigrama, y el backend nunca lo pidió: ni
+     * `CreateUserDto` ni `UpdateUserDto` declaran `position_code` como obligatorio. El
+     * requisito lo inventó esta pantalla, y el botón quedaba gris sin decir por qué.
      */
-    if (persona && !puesto) return false;
-    // `department_code` y `password` los exige el DTO del alta: sin ellos el POST
-    // vuelve 400 antes de tocar el servicio.
-    if (!depto) return false;
-    if (!this.persona && pass.trim().length < 6) return false;
-    if (desvio && !motivo) return false;
-    return true;
+    if (persona && !puesto) return 'Falta el puesto.';
+    // `department_code` y `password` los exige el DTO del alta: sin ellos el POST vuelve 400
+    // antes de tocar el servicio.
+    if (!depto) return 'Falta el departamento.';
+    if (!this.persona && pass.trim().length < 6) {
+      return 'La contraseña necesita al menos 6 caracteres.';
+    }
+    if (desvio && !motivo) {
+      return this.sinPropuesta()
+        ? `Falta el motivo: este puesto no propone perfil, así que hay que decir por qué ${rol}.`
+        : `Falta el motivo de apartarse del perfil que propone el puesto.`;
+    }
+    return null;
   });
+
+  /**
+   * `[AU.33]` Una sola lista de condiciones: el botón se apaga **porque** falta algo, y ese algo
+   * es lo que la pantalla dice. Antes esto tenía su propia copia de las condiciones, y dos
+   * compuertas para lo mismo terminan discrepando — es el riesgo que `persona-acceso` ya nombra
+   * en su propio comentario. Acá no pueden: es la misma.
+   */
+  readonly puedeGuardar = computed(() => this.faltaParaGuardar() === null);
 
   ngOnChanges(): void {
     this.pestana.set('persona');

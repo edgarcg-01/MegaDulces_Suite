@@ -224,10 +224,20 @@
 
 .pd-acc {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--sp-2);
   padding-top: var(--sp-3);
   border-top: 1px solid var(--table-border);
+}
+
+/* `[AU.33]` Lo que falta para poder guardar. Va a la IZQUIERDA y empuja a los botones al
+   borde: es la razon de que el boton este apagado, asi que se lee antes de llegar a el.
+   Sin color de estado -- no es un error de quien captura, es una condicion que falta. */
+.pd-falta {
+  margin-right: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
 .pd-pass {
