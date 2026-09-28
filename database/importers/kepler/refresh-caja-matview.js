@@ -39,8 +39,64 @@ const { Client } = require('pg');
 // `argv.includes('--apply')` —comparación exacta— no matcheaba `--apply\r`, así que NUEVE carriles
 // corrieron en seco diciendo "ok" durante horas. Que no vuelva a depender de un retorno de carro.
 const APPLY = process.argv.slice(2).some((a) => a.trim() === '--apply');
+// `[CPU.3]` Escape para operación: refresca sí o sí, sin preguntarle a la sonda.
+const FORZAR = process.argv.slice(2).some((a) => a.trim() === '--forzar');
 const KEY = 'mv_caja_refresh';
 const MV = 'analytics.mv_caja_movimientos';
+const FUENTE = 'analytics.kepler_bank_movements';
+
+// ── `[CPU.3]` LA SONDA: preguntar antes de refrescar ────────────────────────────────────────
+//
+// Medido en prod el 2026-09-28 sobre 5,349 corridas: este carril gastaba **27,551 s en 3.7 días
+// = 7,487 s/día = 0.087 núcleos** refrescando cada minuto — para capturar **~40 movimientos al
+// día** (medidos: 14·82·58·74·16·57·1·20 en días consecutivos). Son ~36 refrescos por cada
+// movimiento nuevo, y el resto son no-ops caros.
+//
+// ⛔ La salida FÁCIL era bajar la cadencia a 5 min, y se descartó con motivo: esto NO es un
+// reporte, es la BANDEJA DE TRABAJO de Caja General, con un puente `NOTIFY`→WebSocket (CG.23.2)
+// construido justamente para que se sienta viva. Bajar la cadencia desharía esa inversión y
+// además obligaría a mover el umbral de `db-health` (`mv_caja_refresh`, warn al saltarse ~6
+// corridas) en el mismo cambio, o el gate dejaría de medir lo que dice.
+//
+// Lo que se hace en cambio: comparar la FIRMA del corte entre la fuente y la copia, y refrescar
+// sólo si difieren. La cadencia de un minuto NO se toca, así que la latencia tampoco.
+//
+// Costos medidos (prod, 2026-09-28):
+//   firma ventana 2 d sobre la COPIA ......    4.7 ms
+//   firma ventana 2 d sobre la FUENTE ......  638 ms
+//   firma COMPLETA sobre la COPIA ..........    4.6 ms
+//   firma COMPLETA sobre la FUENTE ........ 2,720 ms
+//   REFRESH CONCURRENTLY .................. 5,151 ms   ← lo que hoy se paga 1,440 veces al día
+// ⇒ ~1,390 ciclos con sonda de ventana + 48 con sonda completa + ~40-70 refrescos reales
+//   ≈ **1,230-1,390 s/día contra 7,487** = ~82 % menos, con la misma latencia.
+//
+// ⚠️ LA FIRMA LLEVA LA SUMA DE IMPORTES, no sólo el conteo. Con `count(*)` solo, un movimiento
+// corregido en su monto —misma fila, otro importe— sería invisible para la sonda y la bandeja
+// mostraría el importe viejo para siempre. Es el mismo razonamiento que ya está escrito para el
+// `NOTIFY` de abajo; acá pesa más, porque de esto depende que el refresco ocurra.
+const VENTANA_DIAS = 2;
+
+// ── EL PISO: cada cuánto se refresca SÍ O SÍ, haya dicho lo que haya dicho la sonda ─────────
+//
+// ⛔⛔ ESTO ES LO QUE HACE SEGURO AL RESTO DEL ARCHIVO, y no es una red "por si acaso".
+//
+// Agregar una sonda mete un modo de falla NUEVO y peor que el que resuelve: si la sonda se
+// equivoca y dice "no hay cambios" cuando sí los hay, la bandeja se congela **y nadie se entera**
+// — el latido sigue en verde (el ciclo corrió bien), y `datos_al` sigue diciendo "hace un minuto"
+// porque la pantalla lee la edad del LATIDO, no del matview (CG.22.4). Es el verde falso perfecto:
+// exactamente lo que este carril fue construido para evitar.
+//
+// El piso acota ese daño a 30 minutos **sin depender de que la sonda sea correcta**: si la última
+// corrida que REFRESCÓ DE VERDAD es más vieja que esto, se refresca y punto. Una sonda rota deja
+// de ser un congelamiento indefinido y pasa a ser un rezago de 30 min con el costo de antes.
+//
+// ⭐ Y reemplaza —no acompaña— a la idea de "cada 30 min sondeá el universo completo": un refresh
+// de verdad reconcilia TODO, incluso lo que la ventana no ve (una corrección tardía, una fila con
+// `fecha_captura` nula). Sondear completo habría costado casi lo mismo y sólo habría servido si la
+// sonda funciona, que es justo lo que no se puede asumir.
+//
+// Costo: 48 refrescos/día × 5.15 s = 247 s. Contra los 7,487 s/día de hoy, es ruido.
+const PISO_MIN = 30;
 
 function conexion() {
   const cs = process.env.DATABASE_URL_NEW || process.env.DATABASE_URL;
@@ -106,6 +162,23 @@ async function avisar(c, al) {
   return n;
 }
 
+/**
+ * `[CPU.3]` Firma del corte: conteo + último folio + suma de importes.
+ *
+ * Los tres juntos detectan las tres formas de cambiar: una fila NUEVA mueve el conteo y el folio,
+ * una fila BORRADA mueve el conteo, y una fila CORREGIDA en su monto mueve sólo la suma. Quitar
+ * cualquiera de los tres deja un agujero por el que la bandeja se queda vieja sin avisar.
+ *
+ * `where` viene armado con constantes de este archivo — nunca con entrada de usuario.
+ */
+async function firma(c, rel, where) {
+  const q = await c.query(
+    `SELECT count(*)::int AS n, max(folio) AS f, round(coalesce(sum(importe), 0), 2)::text AS s
+       FROM ${rel} WHERE ${where}`);
+  const r = q.rows[0];
+  return { sig: `${r.n}|${r.f || ''}|${r.s || ''}`, n: r.n };
+}
+
 async function ciclo() {
   const c = conexion();
   await c.connect();
@@ -113,6 +186,53 @@ async function ciclo() {
     const existe = await c.query(`SELECT to_regclass($1) AS t`, [MV]);
     if (!existe.rows[0] || !existe.rows[0].t) {
       return { filas: null, nota: `${MV} todavía no existe (migración sin aplicar en este entorno)` };
+    }
+
+    // ── `[CPU.3]` EL PISO, primero ──────────────────────────────────────────────────────────
+    // Se pregunta ANTES que la sonda y a propósito: si toca refrescar por piso, sondear sería
+    // pagar 643 ms para llegar igual al refresh. Y se mide contra la última corrida que refrescó
+    // DE VERDAD (`note IS NULL`) — no contra la última corrida, que con la sonda puesta es casi
+    // siempre un salto. Confundirlas dejaría el piso permanentemente satisfecho: el bug que
+    // convierte esta protección en un adorno.
+    const piso = await c.query(
+      `SELECT extract(epoch FROM now() - max(finished_at))/60 AS min
+         FROM analytics.cron_run_log
+        WHERE tenant_id = $1 AND job_key = $2 AND note IS NULL AND status = 'ok'`,
+      [process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c', KEY]);
+    // `null` = nunca refrescó (o no hay historial) ⇒ se refresca. Un piso que no se puede medir
+    // se resuelve refrescando, nunca saltando: lo barato es el refresh, lo caro es la bandeja vieja.
+    const minDesdeRefresh = piso.rows[0] && piso.rows[0].min != null ? Number(piso.rows[0].min) : null;
+    const tocaPorPiso = FORZAR || minDesdeRefresh === null || minDesdeRefresh >= PISO_MIN;
+
+    // ── ¿Y si no toca por piso, hace falta por dato? ─────────────────────────────────────────
+    // La COPIA se filtra por `fecha_captura` y la FUENTE por lo mismo MÁS `tipo_cuenta='caja'`,
+    // que es exactamente el `WHERE` con el que la migración define el matview. Si ese filtro
+    // cambiara allá y no acá, la sonda compararía dos universos distintos y pediría refrescar
+    // para siempre — ruidoso, pero nunca silencioso, que es el lado correcto del error.
+    let msSonda = 0;
+    let sigCopia = null;
+    if (!tocaPorPiso) {
+      const ventana = `fecha_captura >= current_date - ${VENTANA_DIAS}`;
+      const tSonda = Date.now();
+      const fFuente = await firma(c, FUENTE, `tipo_cuenta = 'caja' AND (${ventana})`);
+      const fCopia = await firma(c, MV, ventana);
+      msSonda = Date.now() - tSonda;
+      sigCopia = fCopia.sig;
+
+      if (fFuente.sig === fCopia.sig) {
+        // ⚠️ El latido reporta las filas REALES del matview, no 0. El contrato de este carril dice
+        // que cero filas es `error` (un refresh que vacía la bandeja no es un éxito), así que
+        // informar 0 en un ciclo sano lo pintaría de rojo — un arreglo de CPU inventando una alarma.
+        const r = await c.query(`SELECT count(*)::int n FROM ${MV}`);
+        return {
+          filas: r.rows[0].n, ms: msSonda, saltado: true,
+          // ⚠️ `note` NO NULO es lo que distingue un salto de un refresh de verdad, y es de lo que
+          // se agarra el piso de arriba. Si algún día alguien "limpia" esta nota, el piso queda
+          // satisfecho para siempre y la protección desaparece sin que nada se ponga rojo.
+          nota: `sin cambios (ventana ${VENTANA_DIAS}d: ${sigCopia}) en ${msSonda} ms`
+            + `; último refresh real hace ${minDesdeRefresh === null ? '?' : minDesdeRefresh.toFixed(1)} min`,
+        };
+      }
     }
 
     const t0 = Date.now();
@@ -146,7 +266,13 @@ async function ciclo() {
     if (!filas) throw new Error(`${MV} quedó con 0 filas: eso no es un refresh exitoso`);
 
     const avisados = await avisar(c, al);
-    return { filas, ms, al, avisados };
+    // `[CPU.3]` El MOTIVO va al log y no al `note` del latido: `note` es la señal binaria de la
+    // que depende el piso (nulo = refrescó de verdad), así que cargarle texto acá lo rompería.
+    const motivo = FORZAR ? '--forzar'
+      : minDesdeRefresh === null ? 'sin historial de refresh'
+        : tocaPorPiso ? `piso de ${PISO_MIN} min (último hace ${minDesdeRefresh.toFixed(1)})`
+          : `la sonda vio cambios en ${msSonda} ms`;
+    return { filas, ms, al, avisados, motivo };
   } finally {
     await c.end().catch(() => {});
   }
@@ -166,7 +292,16 @@ async function ciclo() {
       await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {});
       return;
     }
-    console.log(`refrescado: ${r.filas} filas en ${r.ms} ms (al ${r.al}) · ${r.avisados} aviso(s) NOTIFY`);
+    // `[CPU.3]` Un ciclo que no refrescó SIGUE SIENDO un ciclo sano, y el latido tiene que decir
+    // eso: `ok` con las filas reales. La nota deja el rastro de POR QUÉ no se refrescó, para que
+    // el día que alguien vea la bandeja vieja pueda distinguir "la sonda dijo que no hacía falta"
+    // de "el carril no corrió" — que es justo la confusión que el latido existe para cortar.
+    if (r.saltado) {
+      console.log(`sin refrescar: ${r.nota} · ${r.filas} filas`);
+      await hb.end(KEY, { status: 'ok', rows: r.filas, note: r.nota }).catch(() => {});
+      return;
+    }
+    console.log(`refrescado: ${r.filas} filas en ${r.ms} ms (al ${r.al}) · ${r.avisados} aviso(s) NOTIFY · motivo: ${r.motivo}`);
     await hb.end(KEY, { status: 'ok', rows: r.filas }).catch(() => {});
   } catch (e) {
     console.error('falló:', e.message);
