@@ -88,6 +88,11 @@ Todo medido contra prod (`pg-prod` en `md`, sysid `7688376744939610156`).
   pero prod corre el build anterior. Y la parte de **meses cerrados** de VSO.3 se ve cuando corra el
   refresh nocturno de `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para
   meses cerrados, y no se refrescó a mano (412 MB + 1.6 GB en horario hábil).
+### Fixed — `/telemarketing/cotizaciones`: Desbloqueo del botón "Crear cotización", asignación de folio y redirección a mesa de trabajo (COT.15, 2026-09-28)
+- **El hallazgo:** Al capturar una cotización en `/telemarketing/cotizaciones/nueva`, el botón "Crear cotización" permanecía silenciosamente deshabilitado cuando el usuario escribía un código o término de cliente en el buscador pero no hacía clic en el resultado del desplegable. Además, si se creaba con éxito, redirigía al detalle interno `cotizaciones/:id` en vez de regresar a la mesa de trabajo (`/telemarketing/cotizaciones`) mostrando el folio y su estatus.
+- **Fixed (frontend):** Se flexibilizó `puedeCrear` en `televenta-quote-new.component.ts` para no dejar botones muertos: permite presionar Enter o dar clic en "Crear cotización" auto-seleccionando el cliente coincidente. Si faltan campos requeridos (sucursal o destinatario), emite un toast de advertencia claro en lugar de congelarse sin respuesta.
+- **Fixed (redirección y estatus):** Al crear la cotización con su folio (`COT-YYYY-NNNNN`) y sus líneas, la aplicación regresa inmediatamente a `/telemarketing/cotizaciones` con el queryParam `?created=COT-YYYY-NNNNN`, el cual activa un toast de confirmación y sitúa la cotización creada en la pestaña 'Abiertas' (estatus `draft`).
+- **Fixed (backend):** En `commercial-quotes.service.ts` se agregaron las columnas `salesperson_code` y `salesperson_name` al `INSERT INTO commercial.quotes`. En `commercial-quotes.service.ts` y `quote-pricing.service.ts` se envolvieron las operaciones de inserción con mapeo de errores de permisos de solo lectura (`25006` / `42501`) hacia `ServiceUnavailableException`, impidiendo caídas con error genérico 500.
 
 ### Fixed — La tienda mayorista publicaba catálogo de una prod CONGELADA hace 5 días (PUB.1, 2026-09-28)
 - **El hallazgo:** la base de la tienda (`faithful-contentment` en Railway) leía `kepler_ods.*` por
