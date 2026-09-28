@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.component';
 
 /**
@@ -18,6 +18,7 @@ import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.compon
  */
 describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => {
   let comp: FinanzasCapturarGastoComponent;
+  let http: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -25,6 +26,7 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
       providers: [provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
     comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
+    http = TestBed.inject(HttpTestingController);
   });
 
   /**
@@ -101,6 +103,49 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     expect(comp.faltan()).toEqual([]);
     expect(comp.puedeEnviar()).toBe(true);
     expect(comp.enviarLabel()).toBe('Enviar a aprobación');
+  });
+
+  /**
+   * ⭐ `[GX.37]` **El motivo del servidor tiene que llegar a la pantalla.**
+   *
+   * Medido en local: subir un PDF fallaba y la pantalla decía «No se pudo subir el
+   * archivo. Reintenta» — mientras el servidor contestaba «Almacenamiento no configurado
+   * (faltan env S3_*)». Reintentar no iba a funcionar nunca, y la persona quedaba dándole
+   * al botón. Un mensaje que pide reintentar ante algo que no se arregla reintentando es
+   * peor que no decir nada.
+   */
+  it('cuando el servidor dice POR QUÉ falló la subida, se muestra', () => {
+    comp.gasto.set({ folio: '0049650', importe: 1622.5, sucursal: '01' } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.names.set({ comprobante_1: 'vale.pdf' });
+    (comp as unknown as { fileData: Record<string, string> })
+      .fileData['comprobante_1'] = 'data:application/pdf;base64,JVBERi0=';
+
+    comp.submit();
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/upload'))
+      .flush({ message: 'Almacenamiento no configurado (faltan env S3_*).' },
+        { status: 400, statusText: 'Bad Request' });
+
+    expect(comp.formError()).toContain('Almacenamiento no configurado');
+    // Y NO manda a reintentar algo que no se arregla reintentando.
+    expect(comp.formError()).not.toContain('Reintentá');
+    // Dice CUÁL archivo, que con varios adjuntos es la mitad del dato.
+    expect(comp.formError()).toContain('vale.pdf');
+  });
+
+  /** Sin motivo del servidor sí cae al genérico: inventar una causa sería peor. */
+  it('sin motivo, cae al mensaje genérico', () => {
+    comp.gasto.set({ folio: '0049650', importe: 1622.5, sucursal: '01' } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.names.set({ comprobante_1: 'vale.pdf' });
+    (comp as unknown as { fileData: Record<string, string> })
+      .fileData['comprobante_1'] = 'data:application/pdf;base64,JVBERi0=';
+
+    comp.submit();
+    http.expectOne((r) => r.url.endsWith('/upload')).flush(null, { status: 500, statusText: 'Server Error' });
+    expect(comp.formError()).toContain('Reintentá');
   });
 
   /** Y sin la foto NO se puede: el respaldo no es opcional, sólo cambió cuál es. */
