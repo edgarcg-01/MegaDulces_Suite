@@ -5,6 +5,51 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — Auditoría de la capa de datos: la venta mensual por producto se DERIVA de la diaria (`[AUD-DAT.10]`)
+
+**Cómo se llegó:** la auditoría de la capa de datos midió que **21 objetos de `analytics` responden "¿cuánto se vendió?"** y se contradicen. El par `product_sales_daily` / `product_sales_monthly` era el caso más claro: mismo schema, mismo carril nocturno, nombres hermanos, y el encabezado de la diaria afirmaba textualmente *"MISMO join + filtro que el mensual (para que el diario sume EXACTO al mensual)"*.
+
+### El hallazgo, medido en prod
+
+| mes cerrado | diaria | mensual | falta |
+|---|---|---|---|
+| 2026-06 | 720,533 | 398,622 | **44.7 %** |
+| 2026-07 | 978,698 | 623,677 | **36.3 %** |
+| 2026-08 | 955,432 | 760,468 | **20.4 %** |
+
+⭐ **Lo que lo resolvió fue mirar 2025: cuadra al peso, los doce meses** (452,018 = 452,018, 356,829 = 356,829…). O sea que la divergencia vivía **sólo en 2026** — y no era de unidades sino de **filas**: enero-2026 tenía 89,358 en la diaria y **5,033** en la mensual.
+
+**Causa:** el `DELETE` de `import-product-sales-monthly.js` estaba acotado al año en curso (`--year`, default `getFullYear()`) y barría cada noche todo 2026 que la consulta Kepler-sola no devolviera — o sea, toda fila escrita por otro ERP. **2025 sobrevivió intacto porque ya nadie lo borra.**
+
+Y la frontera de cada sucursal **es un dato** (`analytics.v_branch_erp_cutover`), no el literal `IN ('MD-30','MD-32')` que el importer tenía hardcodeado. Por eso:
+- `06` (Canindo) migró de Wincaja a Kepler el **2026-08-15** → agosto está partido y la mensual publicaba **sólo del 15 en adelante**: 100,037 contra 198,249.
+- `MD-32` salía en **cero** con 94,400 u vendidas.
+
+### Lo que se hizo
+1. **La mensual deja de leer los 6 servidores Kepler y pasa a ser el rollup de la diaria**, con **un solo dueño** — la escritura mensual salió también de `import-wincaja-product-sales.js` (eran **tres** escritores). La contradicción queda **imposible por construcción**.
+2. **Orden del carril invertido**: la diaria va antes que la mensual (antes estaba al revés).
+3. **Freno `MAX_HUERFANOS_PCT`**: si la diaria se vacía, el `DELETE` aborta en vez de propagar el vaciado.
+4. **Candado** `database/tests/test-newdb-product-sales-parity.js`, con **comparador único** para el veredicto real y la prueba negativa.
+
+### Medición antes/después
+- La derivación reproduce **2025 y anteriores idéntico**: 0 nuevas / 0 cambian / 0 huérfanas. Riesgo cero sobre la historia.
+- Recupera **2,559,709 unidades de 2026** (8,814,478 → 11,374,187).
+- Aplicado: **50,051 escritas · 83 huérfanas borradas**. Los 8 meses cerrados de 2026 cuadran exacto.
+- Candado: **rojo antes** (48 diferencias, `06` ausente en enero/abril/junio) → **7 ✓ / 0 ✗** después.
+
+### Hallazgo colateral: las dos copias no admitían las mismas filas
+El primer `APPLY` falló con violación de FK. Las dos tablas tienen la misma foreign key a `catalog.products` **con distinta fuerza**: la de la diaria es `NOT VALID` (se la pusieron sin escanear lo existente) y la de la mensual está validada. Resultado: la diaria conserva filas de un producto borrado del catálogo que la mensual rechaza. Medido: **1 producto, 6 filas, 8 unidades**. Se **excluyen y se declaran** en cada corrida — no se afloja la restricción buena para que pase la mala.
+
+### Consecuencia aguas abajo
+`database/scripts/thot-build-features.js` arma `zone_demand` leyendo **sólo** la mensual → venía calculando la demanda por zona sobre una fuente a la que le faltaba ~22 % de 2026. Se corrige solo en su próxima corrida.
+`database/scripts/deactivate-legacy-skus.js` exige ausencia en **ambas** tablas, así que la diaria lo protegió: **no desactivó nada por este defecto.**
+
+### Lecciones
+- **Un comentario que afirma un invariante no es el invariante.** «MISMO join + filtro… para que sume EXACTO» llevaba meses siendo falso por 44.7 %, escrito en el archivo que lo incumplía.
+- **El año que CUADRA dice más que el que falla.** Perseguir 2026 llevaba a la unidad y al ERP; ver que 2025 cerraba al peso señaló al `DELETE` en una consulta.
+- **Una frontera que es un dato no se escribe como literal.** `v_branch_erp_cutover` existe justamente porque esto ya pasó (`[SD.3]`), y aun así el literal reapareció en otro archivo.
+
+---
 ## 2026-09-28 — Cotizaciones: Desbloqueo de Crear cotización, asignación de folio y retorno a mesa (`[COT.15]`)
 
 **Cómo se llegó:** el usuario reportó que el botón de crear cotización no trabajaba, y solicitó que genere la cotización con su folio asignado y la envíe al estatus correspondiente en `/telemarketing/cotizaciones`.
