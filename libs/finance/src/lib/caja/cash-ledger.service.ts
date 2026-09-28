@@ -1262,8 +1262,20 @@ export class CashLedgerService {
         if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
         if (q.cuenta) qb = qb.where('kepler_cuenta', q.cuenta);
         if (q.search) {
-          const s = `%${q.search.trim()}%`;
-          qb = qb.where((b: any) => b.whereILike('glosa', s).orWhereILike('beneficiario', s).orWhereILike('folio', s));
+          // CS.3.9 — Buscador universal: nuestro folio, folio/doc de Kepler (origen_ref), beneficiario,
+          // descripción (glosa + nombre de concepto), usuario que capturó, y cuenta/concepto contable.
+          // Escapar %/_/\: sin esto, buscar "100%" devuelve TODO (el backslash es el escape default de
+          // ILIKE en Postgres, así que alcanza con anteponerlo — no hace falta cláusula ESCAPE).
+          const s = `%${q.search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+          qb = qb.where((b: any) => b
+            .whereILike('glosa', s)
+            .orWhereILike('beneficiario', s)
+            .orWhereILike('folio', s)
+            .orWhereILike('origen_ref', s)
+            .orWhereILike('created_by_username', s)
+            .orWhereILike('kepler_concepto_nombre', s)
+            .orWhereILike('kepler_concepto', s)
+            .orWhereILike('kepler_cuenta', s));
         }
         return qb;
       };
