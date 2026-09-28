@@ -38,6 +38,22 @@ const { Client } = require('pg');
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW'); })();
 
+/**
+ * [VSO.3] Huecos DECLARADOS — no son una tolerancia, son hechos medidos con nombre, día y monto.
+ * Cualquier hueco que no esté acá sigue poniendo el candado en rojo, y si uno de éstos DESAPARECE
+ * el candado también falla: una declaración que ya no describe nada es un comentario que envejeció
+ * sin avisar.
+ */
+const HUECOS_DECLARADOS = [
+  {
+    kepler: '02', dia: '2025-01-01', monto: 21938.45,
+    razon: 'carga inicial de Kepler en La Piedad — 307 filas y 307 SKUs DISTINTOS (una por SKU) '
+      + 'estampadas en la fecha de arranque de esa rama, que es la única fecha suya anterior a su '
+      + 'operación real; Wincaja, que era el POS vivo ese 1-ene, registró $0. No es venta, y traerla '
+      + 'exigiría mover el corte 9 meses atrás y doble-contar contra Wincaja.',
+  },
+];
+
 let ok = 0; let fail = 0; let nm = 0;
 const check = (label, cond, detail = '') => {
   if (cond) { ok++; console.log(`  ✔ ${label}`); }
@@ -133,27 +149,80 @@ const LITERAL_CORTE = /source_branch\s*=\s*'[^']+'(::text)?\s*AND\s*\w*\.?busine
       continue;
     }
 
-    // TRASLAPE: Kepler antes del corte, o Wincaja desde el corte. Ambos son doble conteo.
-    const [tr] = await q(
-      `SELECT (SELECT count(*)::int FROM analytics.mv_kepler_sales_daily
-                WHERE source_branch = $1 AND business_date < $3::date) AS kep_antes,
-              (SELECT count(*)::int FROM analytics.mv_wincaja_sales_daily
-                WHERE source_branch = $2 AND business_date >= $3::date) AS win_desde`,
+    // ⚠️ [VSO.3] Estos dos bloques medían las piernas CRUDAS, y por eso vivían en rojo sin que el
+    // rojo significara nada — lo que entrena a ignorar el tablero. Dos correcciones, medidas:
+    //
+    //  · «traslape» preguntaba si Kepler tiene filas ANTES del corte. En La Piedad eso es cierto
+    //    por NUEVE MESES (Kepler `02` arranca 2025-01-01 y Wincaja `42` siguió siendo el POS vivo
+    //    hasta 2025-10-09) y NO es doble conteo: la vista los excluye. El doble conteo real es que
+    //    el MISMO (almacén, día) salga PUBLICADO por las dos piernas — eso es lo que se mide ahora.
+    //
+    //  · «días descartados» contaba lo que el corte tira, sin mirar si la otra pierna lo cubre.
+    //    En la zona de traslape descartar es justamente lo correcto. El hueco real es un día con
+    //    venta en alguna pierna cruda y NADA publicado — que es como se midieron los $1,953,784.56
+    //    que [VSO.3] recuperó. El traslape se ve; el hueco no.
+    const [cmp] = await q(
+      `WITH k AS (SELECT business_date d, sum(monto) m FROM analytics.mv_kepler_sales_daily
+                   WHERE product_deleted = false AND source_branch = $1 GROUP BY 1),
+            w AS (SELECT business_date d, sum(monto) m FROM analytics.mv_wincaja_sales_daily
+                   WHERE product_deleted = false AND source_branch = $2 GROUP BY 1),
+            pk AS (SELECT d, m FROM k WHERE d >= $3::date),
+            pw AS (SELECT d, m FROM w WHERE d <  $3::date),
+            j AS (SELECT COALESCE(k.d, w.d) AS d,
+                         GREATEST(COALESCE(k.m, 0), COALESCE(w.m, 0)) AS crudo,
+                         COALESCE(pk.m, 0) + COALESCE(pw.m, 0)        AS pub
+                    FROM k FULL JOIN w ON k.d = w.d
+                    LEFT JOIN pk ON pk.d = COALESCE(k.d, w.d)
+                    LEFT JOIN pw ON pw.d = COALESCE(k.d, w.d))
+       SELECT (SELECT count(*)::int FROM pk JOIN pw ON pk.d = pw.d)              AS dias_dobles,
+              (SELECT count(*)::int      FROM j WHERE crudo - pub > 1)            AS dias_hueco,
+              (SELECT COALESCE(sum(crudo - pub), 0)::numeric(16,2) FROM j WHERE crudo - pub > 1) AS monto_hueco`,
       [r.kepler_code, r.wc, r.d]);
-    check(`${etq} · sin traslape en ${r.d}`, tr.kep_antes === 0 && tr.win_desde === 0,
-      `kepler antes del corte: ${tr.kep_antes} · wincaja desde el corte: ${tr.win_desde}`);
 
-    // HUECO: el traslape se ve, el hueco no. Días con venta en la fuente que el corte descarta.
-    const [hu] = await q(
-      `SELECT (SELECT count(DISTINCT business_date)::int FROM analytics.mv_wincaja_sales_daily
-                WHERE source_branch = $2 AND business_date >= $3::date) AS win_descartado,
-              (SELECT count(DISTINCT business_date)::int FROM analytics.mv_kepler_sales_daily
-                WHERE source_branch = $1 AND business_date < $3::date) AS kep_descartado`,
-      [r.kepler_code, r.wc, r.d]);
-    check(`${etq} · sin días descartados alrededor de ${r.d}`,
-      hu.win_descartado === 0 && hu.kep_descartado === 0,
-      `wincaja con venta >= corte: ${hu.win_descartado} días · kepler con venta < corte: ${hu.kep_descartado} días`
-      + ' (venta real que ninguna pierna publica)');
+    check(`${etq} · ningún día publicado por las DOS piernas (cero doble conteo) en ${r.d}`,
+      Number(cmp.dias_dobles) === 0,
+      `${cmp.dias_dobles} día(s) con las dos piernas publicando el mismo almacén`);
+
+    // Residuo DECLARADO (no una tolerancia genérica): un día concreto, de una sucursal concreta,
+    // con su monto y su razón MEDIDA. Todo lo demás sigue fallando. Y se comprueba que el residuo
+    // declarado SIGA EXISTIENDO: una declaración que ya no describe nada es un comentario que
+    // envejeció sin avisar, que es justo lo que este archivo existe para evitar.
+    const decl = HUECOS_DECLARADOS.filter((h) => h.kepler === r.kepler_code);
+    const declDias = decl.map((h) => h.dia);
+    const [res] = declDias.length
+      ? await q(
+        `WITH k AS (SELECT business_date d, sum(monto) m FROM analytics.mv_kepler_sales_daily
+                     WHERE product_deleted = false AND source_branch = $1 GROUP BY 1),
+              w AS (SELECT business_date d, sum(monto) m FROM analytics.mv_wincaja_sales_daily
+                     WHERE product_deleted = false AND source_branch = $2 GROUP BY 1),
+              pk AS (SELECT d, m FROM k WHERE d >= $3::date),
+              pw AS (SELECT d, m FROM w WHERE d <  $3::date),
+              j AS (SELECT COALESCE(k.d, w.d) AS d,
+                           GREATEST(COALESCE(k.m, 0), COALESCE(w.m, 0)) AS crudo,
+                           COALESCE(pk.m, 0) + COALESCE(pw.m, 0)        AS pub
+                      FROM k FULL JOIN w ON k.d = w.d
+                      LEFT JOIN pk ON pk.d = COALESCE(k.d, w.d)
+                      LEFT JOIN pw ON pw.d = COALESCE(k.d, w.d))
+         SELECT (SELECT count(*)::int FROM j WHERE crudo - pub > 1 AND d::date  = ANY($4::date[])) AS declarados,
+                (SELECT count(*)::int FROM j WHERE crudo - pub > 1 AND d::date <> ALL($4::date[])) AS nuevos,
+                (SELECT COALESCE(sum(crudo - pub), 0)::numeric(16,2) FROM j
+                  WHERE crudo - pub > 1 AND d::date <> ALL($4::date[]))                            AS monto_nuevo`,
+        [r.kepler_code, r.wc, r.d, declDias])
+      : [{ declarados: 0, nuevos: Number(cmp.dias_hueco), monto_nuevo: cmp.monto_hueco }];
+
+    check(`${etq} · ningún hueco NUEVO (día con venta cruda y nada publicado)`,
+      Number(res.nuevos) === 0,
+      `${res.nuevos} día(s) · $${Number(res.monto_nuevo).toLocaleString('en-US')} que ninguna pierna publica`
+      + ' (mover el corte al traspaso real los cierra — ver [VSO.3])');
+
+    for (const h of decl) {
+      console.log(`  ⓘ residuo DECLARADO · ${etq} ${h.dia} · $${h.monto.toLocaleString('en-US')} — ${h.razon}`);
+    }
+    if (declDias.length) {
+      check(`${etq} · el residuo declarado sigue existiendo (la declaración no envejeció)`,
+        Number(res.declarados) === declDias.length,
+        `declarados ${declDias.length}, encontrados ${res.declarados} — si ya no está, BORRAR la entrada de HUECOS_DECLARADOS`);
+    }
   }
 
   // ── 4 · Del lado del RESULTADO, no sólo del SQL ───────────────────────────────────────────
