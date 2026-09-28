@@ -6226,10 +6226,22 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   delegar en `test-newdb-branch-cutover.js`, que ya lo mide bien.
 - **Ajeno pero medido:** `commercial.sales_targets` está **VACÍA** en prod → el trabajo «vs Objetivo»
   del sell-out no tiene una sola meta que mostrar.
-- **`[VSO.11]` las otras ~19 pruebas huérfanas**: al registrar `test-newdb-truth-parity.js` se midió
-  que el runner tiene **191** entradas contra **211** archivos de test en disco. Cada una de esas
-  19 es un candado que alguien escribió y que no corre nunca — la misma forma del problema que dejó
-  dos trinquetes rotos sin que nadie actuara. Revisarlas una por una es trabajo aparte.
+- [x] **`[VSO.11]`** ✅ **Las pruebas huérfanas — y el censo que evita que vuelvan.**
+  ⚠️ **Corrección de mis propios números**: dije «191 registradas contra 211» y «64 fantasmas»; las
+  dos estaban mal (mi regex sólo tomaba `test-*` y dejaba fuera los `http-*`). Lo real: **281
+  archivos · 256 registradas · CERO fantasmas · 23 huérfanas** + 3 scratch.
+  Corrí las 9 de sólo lectura contra prod: 6 verdes, 2 que escanean el **código fuente** y por eso
+  no corren dentro de `prod-api` (no están rotas), y **`quantity-unit` con un trinquete roto de
+  verdad** — 12 tablas con cantidad y sin unidad contra baseline 10. Las dos nuevas identificadas
+  por su migración: `commercial.wave_allocations` y `analytics.caos_cash_denominations`. **No se
+  subió el baseline**: se DECLARAN por nombre y motivo, salen de la cuenta, se imprimen, y una
+  tercera sigue rompiendo. El lote `budget` (9) trae `assert-safe-target` y por diseño no corre
+  contra prod — como otras **47** suites ya registradas.
+  ⭐ **El arreglo durable**: el runner estrena un **censo** al arrancar (archivos vs registradas vs
+  excluidas) que avisa de lo no registrado, lo registrado sin archivo y lo registrado **dos veces**.
+  No aborta, imprime — voltear la regresión por un archivo en curso entrenaría a saltarse el aviso.
+  El propio censo destapó que `test-newdb-logistics-tracking.js` **corría duplicada**.
+  Estado: **278 = 273 registradas + 5 excluidas**, cero huérfanas/fantasmas/duplicadas.
 
 ---
 ## 📋 BACKLOG — Fases G, H, I
