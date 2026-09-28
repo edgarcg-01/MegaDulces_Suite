@@ -59,32 +59,42 @@ describe('[GX.14] la compuerta de quien gasta', () => {
   });
 
   /**
-   * ⭐ El caso que da nombre a la fase: hay foto, pero entró como archivo. Es un faltante
-   * DISTINTO de «no hay foto» — si el mensaje fuera el mismo, la persona vuelve a subir
-   * exactamente el mismo archivo y no entiende por qué se lo rechazan otra vez.
+   * ⭐⭐ `[GX.36]` **EL VALE ESCANEADO VALE LO MISMO QUE LA FOTO.**
+   *
+   * Acá vivían dos pruebas que exigían el sello de cámara: un comprobante subido como
+   * archivo frenaba el envío con el faltante `evidencia_en_vivo`. Se retiraron por
+   * decisión del usuario, con el defecto medido en pantalla: **en esta operación los
+   * vales se ESCANEAN**, así que la persona adjuntaba el vale firmado escaneado y el
+   * botón le seguía diciendo «Falta: La foto del comprobante». Por esa vía el gasto no
+   * se podía enviar nunca.
+   *
+   * ⚠️ Lo que se perdió se DECLARA, no se esconde: `live` sigue viajando con cada
+   * archivo y Aprobación lo muestra («foto en vivo» / «foto sin sello de cámara»). Dejó
+   * de ser COMPUERTA y pasó a ser DATO — quien firma lo ve y decide con eso a la vista.
    */
-  it('frena si el comprobante existe pero NO se tomó en vivo, y lo dice distinto', () => {
-    const faltan = faltaParaMandar({
+  it('un comprobante subido como ARCHIVO alcanza: el vale escaneado cuenta', () => {
+    expect(faltaParaMandar({
       ...completo(),
-      archivos: [{ role: 'solicitud_kepler', live: false }, { role: 'comprobante_1', live: false }],
-    });
-    expect(faltan.map((f) => f.id)).toEqual(['evidencia_en_vivo']);
-    expect(faltan[0].motivo).toContain('cámara');
-    expect(faltan[0].motivo).not.toBe(
-      faltaParaMandar({ ...completo(), archivos: [] })[0].motivo,
-    );
+      archivos: [{ role: 'comprobante_1', live: false }],
+    })).toEqual([]);
   });
 
-  it('un comprobante sin el campo `live` cuenta como NO en vivo (el default no perdona)', () => {
-    // Importa: si `undefined` pasara, bastaría con no mandar el campo para saltarse la regla.
-    const faltan = faltaParaMandar({
+  /** Ni siquiera hace falta que el campo venga: un escaneo no lo trae. */
+  it('sin el campo `live` también alcanza', () => {
+    expect(faltaParaMandar({
       ...completo(),
       archivos: [{ role: 'comprobante_1' }],
-    });
-    expect(faltan.map((f) => f.id)).toEqual(['evidencia_en_vivo']);
+    })).toEqual([]);
   });
 
-  it('con VARIOS comprobantes basta con que uno sea en vivo', () => {
+  /** ⛔ Pero SIGUE haciendo falta un comprobante: lo que se relajó es CÓMO entra, no si hay. */
+  it('la solicitud firmada sola no alcanza: falta el comprobante', () => {
+    const faltan = faltaParaMandar({ ...completo(), archivos: [{ role: 'solicitud_kepler', live: true }] });
+    expect(faltan.map((f) => f.id)).toEqual(['evidencia']);
+    expect(faltan[0].motivo).toContain('escaneado');
+  });
+
+  it('con VARIOS comprobantes, cualquiera alcanza', () => {
     expect(faltaParaMandar({
       ...completo(),
       archivos: [{ role: 'comprobante_1', live: false }, { role: 'comprobante_2', live: true }],

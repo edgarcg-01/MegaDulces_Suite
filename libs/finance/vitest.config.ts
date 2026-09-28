@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { defineConfig } from 'vitest/config';
 import { aliasDeTsconfig, raizCanonica } from '../../vitest.shared';
 
@@ -21,7 +22,7 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.spec.ts'],
     passWithNoTests: true,
-    // `[GX.26]` Un secreto SOLO para las pruebas.
+    // `[GX.26]` Un secreto SOLO para las pruebas, GENERADO en cada corrida.
     //
     // Importar cualquier controller arrastra `@megadulces/platform-core`, y su
     // `TenantModule` exige `JWT_SECRET` **al cargar el modulo** (fail-fast a proposito: la
@@ -30,7 +31,13 @@ export default defineConfig({
     //
     // No afloja nada: es un valor de proceso de prueba, no se firma nada real con el, y el
     // fail-fast de produccion queda intacto.
-    env: { JWT_SECRET: 'secreto-de-pruebas-no-usar-fuera-de-vitest-0123456789' },
+    //
+    // ⚠️ `[GX.32]` Va GENERADO, no escrito. Antes era una cadena literal y el escaneo de
+    // secretos del CI la marco como `generic-api-key` -- con razon: un gate no puede
+    // distinguir un secreto de mentira de uno de verdad, y la unica forma de que no cante
+    // es que no haya literal que cantar. Un valor aleatorio por corrida ademas no se puede
+    // copiar a ningun lado "porque ya estaba ahi".
+    env: { JWT_SECRET: `pruebas-${randomUUID()}-${randomUUID()}` },
     coverage: {
       provider: 'v8',
       reportsDirectory: '../../coverage/libs/finance',

@@ -24,7 +24,7 @@ const FORMA_PAGO_LABEL: Record<string, string> = {
 const ESTADO_LABEL: Record<string, string> = {
   recibida: 'Espera firma',
   aprobada: 'Aprobado · falta ejercer',
-  revision: 'El cuadre no dio',
+  revision: 'Falta revisarla',
   validada: 'Comprobado',
   rechazada: 'Rechazado',
 };
