@@ -389,8 +389,24 @@ export const routes: Routes = [
         // `[GX.25]` El historial: de TODAS las fechas, y con dos ambitos segun el permiso.
         // `anyOf` porque quien solo CAPTURA tiene que poder ver lo suyo -- el endpoint
         // `mine` lo acota por token, asi que no hay forma de pedir el de otro.
+        // `[GX.33]` El Historial deja de ser de TODOS los que capturan y pasa a ser de
+        // quien REVISA. Medido en prod: lo veían 80 personas, y 57 de ellas sólo capturan
+        // -- para ésas el servidor ya acotaba a lo suyo, así que la pantalla les prometía
+        // un historial de la empresa y les daba el propio. Esas 57 pasan a «Mis gastos».
+        //
+        // ⛔ Va `VER` además de `COMPROBAR` a propósito: con COMPROBAR a secas quedaba en
+        // UNA persona, y `credito_cobranza`, `direccion` y `finanzas` (4 usuarios) se
+        // quedaban sin ninguna de las dos pantallas -- no capturan, así que «Mis gastos»
+        // tampoco los cubre. Consultar no es aprobar, pero tampoco es no tener nada.
         path: 'gastos-historial',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
+        // servidor acota por token: acá no se filtra del lado del cliente.
+        path: 'mis-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
       },
       {

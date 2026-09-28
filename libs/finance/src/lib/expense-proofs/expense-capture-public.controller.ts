@@ -50,8 +50,11 @@ export class ExpenseCapturePublicController {
 
   /**
    * GX.13 — lee el ticket con Claude Vision y devuelve lo que ve, para llenarle los campos
-   * al trabajador. Es una PROPUESTA editable, no un veredicto: el cuadre autoritativo sigue
-   * corriendo en el servidor al enviar.
+   * al trabajador. Es una PROPUESTA editable, no un veredicto.
+   *
+   * `[GX.32]` ⚠️ Decía «el cuadre autoritativo sigue corriendo en el servidor al enviar» y
+   * eso ya NO es cierto: ese cuadre se retiró. Esto es lo ÚNICO que queda de visión en el
+   * camino del gasto, y es un prellenado — quien revisa decide mirando la foto.
    *
    * Límite más apretado que el de subir: cada llamada es una consulta a visión, y acá el
    * disparador es tomar una foto — algo que se repite al reencuadrar.

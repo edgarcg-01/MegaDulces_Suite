@@ -214,12 +214,9 @@ export class ExpenseProofsController {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || '', { live: body?.live === true, captured_at: body?.captured_at });
   }
 
-  @Post('validate-photo')
-  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
-  @ApiOperation({ summary: 'Valida la FOTO del comprobante con Claude Vision contra el importe de la solicitud. Preview (cuadra/en revisión).' })
-  validatePhoto(@Body() body: { file_base64?: string; importe?: number }) {
-    return this.svc.validatePhoto(body?.file_base64 || '', Number(body?.importe) || 0);
-  }
+  // `[GX.32]` Acá vivía `POST /validate-photo`, la vista previa del cuadre por visión.
+  // Se retiró con la visión: su ÚNICA pantalla era la captura de gastos. ⚠️ El endpoint
+  // homónimo de `expense-comprobaciones` es otro módulo y sigue en pie.
 
   @Post()
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
@@ -231,7 +228,7 @@ export class ExpenseProofsController {
   // MOMENTO 3 — el capturista sube la evidencia DESPUÉS de aprobar (gasto comprobable).
   @Post(':id/evidence')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
-  @ApiOperation({ summary: 'Sube la evidencia de un gasto ya APROBADO y comprobable; corre el cuadre por visión y cierra (validada/revision).' })
+  @ApiOperation({ summary: '[GX.32] Sube la evidencia de un gasto ya APROBADO y comprobable. Queda en revision: la mira una persona.' })
   addEvidence(@Param('id') id: string, @Body() body: CreateExpenseProofDto, @Req() req: AuthedRequest) {
     return this.svc.addEvidence(id, body, req?.user?.full_name || req?.user?.username);
   }
