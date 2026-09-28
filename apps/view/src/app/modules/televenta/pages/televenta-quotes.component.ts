@@ -264,14 +264,14 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .section { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
       .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
       .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.25rem; }
-      .section-header p { color: var(--text-color-secondary); font-size: 0.875rem; margin: 0; max-width: 72ch; }
+      .section-header p { color: var(--text-muted); font-size: 0.875rem; margin: 0; max-width: 72ch; }
 
       .scope-note {
         display: flex; gap: 0.75rem; align-items: flex-start;
         margin: 1rem 0; padding: 0.75rem 1rem;
         border: 1px solid var(--border-color); border-left-width: 3px;
         border-radius: 8px; background: var(--card-bg);
-        font-size: 0.8125rem; color: var(--text-color-secondary);
+        font-size: 0.8125rem; color: var(--text-muted);
       }
       .scope-note i { color: var(--primary-color, var(--action)); margin-top: 0.1rem; }
       .scope-note p { margin: 0; }
@@ -284,9 +284,9 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
         background: var(--card-bg); border: 1px solid var(--border-color);
         border-radius: 8px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.15rem;
       }
-      .kpi-label { font-size: 0.75rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+      .kpi-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
       .kpi-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
-      .kpi-foot { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .kpi-foot { font-size: 0.75rem; color: var(--text-muted); }
       .kpi-warn .kpi-value { color: var(--yellow-600, #b45309); }
       .kpi-danger .kpi-value { color: var(--red-600, #b91c1c); }
 
@@ -295,7 +295,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .chip {
         border: 1px solid var(--border-color); background: var(--card-bg);
         border-radius: 9999px; padding: 0.35rem 0.85rem; font-size: 0.8125rem;
-        cursor: pointer; color: var(--text-color-secondary); min-height: 32px;
+        cursor: pointer; color: var(--text-muted); min-height: 32px;
       }
       .chip:hover { background: var(--neutral-100); }
       .chip-active { background: var(--primary-color, var(--action)); border-color: var(--primary-color, var(--action)); color: #fff; font-weight: 600; }
@@ -312,13 +312,13 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .mono { font-family: var(--font-mono, monospace); font-size: 0.8125rem; }
       .lineage { display: block; font-size: 0.75rem; color: var(--green-600, #15803d); }
       .recipient { display: block; font-size: 0.875rem; }
-      .cust-code { display: block; font-size: 0.75rem; color: var(--text-color-secondary); }
+      .cust-code { display: block; font-size: 0.75rem; color: var(--text-muted); }
       .prospect { font-style: italic; }
-      .days { display: block; font-size: 0.75rem; color: var(--text-color-secondary); }
+      .days { display: block; font-size: 0.75rem; color: var(--text-muted); }
       .overdue { color: var(--red-600, #b91c1c); font-weight: 600; }
       .unmatched { display: block; font-size: 0.75rem; color: var(--yellow-700, #a16207); }
-      .muted { color: var(--text-color-secondary); font-size: 0.8125rem; }
-      .table-foot { margin: 0; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--text-color-secondary); border-top: 1px solid var(--border-color); }
+      .muted { color: var(--text-muted); font-size: 0.8125rem; }
+      .table-foot { margin: 0; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--text-muted); border-top: 1px solid var(--border-color); }
 
       /* [COT.1b] La fila es navegable: cursor, hover y foco visible. Sin el :focus-visible,
          quien navega con teclado tiene una fila clickeable que no puede ver que tiene el foco. */
@@ -328,7 +328,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
 
       .empty { padding: 2.5rem 1rem; text-align: center; }
       .empty-title { margin: 0 0 0.35rem; font-weight: 600; }
-      .empty-hint { margin: 0; font-size: 0.8125rem; color: var(--text-color-secondary); }
+      .empty-hint { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
     `,
   ],
 })

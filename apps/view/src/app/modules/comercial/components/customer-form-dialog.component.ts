@@ -163,7 +163,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../shared/consta
     :host ::ng-deep .p-select.store-select { width: 100%; }
     .fa-fiscal-head { border-top: 1px solid var(--c-divider, var(--surface-200)); padding-top: .75rem; margin-top: .25rem; }
     .fa-fiscal-head span { font-weight: var(--fw-bold, 600); }
-    .fa-opt { font-weight: 400; font-style: normal; color: var(--c-text-3, var(--text-color-secondary)); }
+    .fa-opt { font-weight: 400; font-style: normal; color: var(--c-text-3, var(--text-muted)); }
   `],
 })
 export class CustomerFormDialogComponent {

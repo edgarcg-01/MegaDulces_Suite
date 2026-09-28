@@ -276,7 +276,7 @@ const OUTCOMES: OutcomeOption[] = [
       .lead { display: flex; flex-direction: column; gap: 1rem; }
       .back-link {
         display: inline-flex; align-items: center; gap: 0.4rem;
-        color: var(--text-color-secondary); font-size: 0.875rem;
+        color: var(--text-muted); font-size: 0.875rem;
         text-decoration: none; min-height: 36px;
       }
       .back-link:hover { color: var(--primary-color); }
@@ -287,10 +287,10 @@ const OUTCOMES: OutcomeOption[] = [
         padding: 1.25rem;
       }
       .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--text-color); display: flex; align-items: center; gap: 0.5rem; }
-      .count { font-size: 0.8rem; color: var(--text-color-secondary); font-weight: 400; }
+      .count { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; }
       .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
       .head h1 { font-size: 1.5rem; font-weight: 700; margin: 0.25rem 0; color: var(--text-color); }
-      .code { font-size: 0.75rem; color: var(--text-color-secondary); margin: 0; font-weight: 600; letter-spacing: 0.04em; }
+      .code { font-size: 0.75rem; color: var(--text-muted); margin: 0; font-weight: 600; letter-spacing: 0.04em; }
       .contact { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
       .contact a { color: var(--primary-color); text-decoration: none; font-size: 0.875rem; min-height: 28px; display: inline-flex; align-items: center; gap: 0.3rem; }
       .contact a:hover { text-decoration: underline; }
@@ -300,22 +300,22 @@ const OUTCOMES: OutcomeOption[] = [
       .actions-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin: 0; }
       .kv > div { background: var(--neutral-50); padding: 0.75rem; border-radius: 10px; }
-      .kv dt { font-size: 0.7rem; color: var(--text-color-secondary); margin: 0; letter-spacing: 0.03em; }
+      .kv dt { font-size: 0.7rem; color: var(--text-muted); margin: 0; letter-spacing: 0.03em; }
       .kv dd { font-size: 1rem; font-weight: 600; margin: 0.2rem 0 0; color: var(--text-color); }
       .kv dd.over { color: var(--bad-fg); }
       .notes { font-size: 0.85rem; color: var(--text-color); background: var(--info-soft-bg); padding: 0.6rem; border-radius: 8px; margin: 0.75rem 0 0; display: flex; gap: 0.4rem; align-items: flex-start; }
       .notes i { color: var(--info-fg); margin-top: 0.15rem; }
-      .empty-mini { font-size: 0.85rem; color: var(--text-color-secondary); font-style: italic; }
+      .empty-mini { font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
       .orders, .calls { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
       .order { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; background: var(--neutral-50); border-radius: 10px; flex-wrap: wrap; }
       .o-code { font-weight: 600; font-size: 0.85rem; font-family: ui-monospace, monospace; }
       .o-total { font-weight: 600; margin-left: auto; font-size: 0.95rem; }
-      .o-date { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .o-date { font-size: 0.75rem; color: var(--text-muted); }
       .call { padding: 0.75rem; background: var(--neutral-50); border-radius: 10px; }
       .call-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
-      .call-head time { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .call-head time { font-size: 0.75rem; color: var(--text-muted); }
       .call-notes { font-size: 0.85rem; margin: 0.5rem 0 0; color: var(--text-color); white-space: pre-wrap; }
-      .call-meta { font-size: 0.7rem; color: var(--text-color-secondary); margin: 0.3rem 0 0; }
+      .call-meta { font-size: 0.7rem; color: var(--text-muted); margin: 0.3rem 0 0; }
       .loading { display: flex; justify-content: center; padding: 4rem 0; }
       .log-form { display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem; }
       .log-form label { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.875rem; }

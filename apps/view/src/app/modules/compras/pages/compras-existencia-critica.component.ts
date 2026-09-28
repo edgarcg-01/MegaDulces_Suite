@@ -330,7 +330,7 @@ interface DraftLine {
     .ec-rung-banner {
       display:flex; gap:.5rem; align-items:flex-start; margin:-.5rem 0 1rem;
       padding:.55rem .7rem; border:1px solid var(--border-color); border-radius:var(--radius-md, 8px);
-      background:var(--surface-hover, transparent); color:var(--text-color-secondary);
+      background:var(--surface-hover, transparent); color:var(--text-muted);
       font-size:.78rem; line-height:1.45;
     }
     .ec-rung-banner i { color:var(--warn-fg, #b45309); margin-top:.1rem; flex:none; }

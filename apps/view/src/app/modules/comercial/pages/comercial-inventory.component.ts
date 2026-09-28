@@ -295,7 +295,7 @@ import { Permission } from '../../../core/constants/permissions';
     /* Aviso de fuente: tono informativo, no de error — el dato sirve para lo que sirve. */
     .in-source-note {
       display: flex; gap: .45rem; align-items: flex-start; margin: .4rem 0 0; max-width: 68ch;
-      font-size: .74rem; line-height: 1.45; color: var(--text-color-secondary);
+      font-size: .74rem; line-height: 1.45; color: var(--text-muted);
     }
     .in-source-note i { margin-top: .15rem; flex: none; opacity: .7; }
     .in-source-note a { color: var(--action, #c2410c); }
