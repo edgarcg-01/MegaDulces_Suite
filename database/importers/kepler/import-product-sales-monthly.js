@@ -83,14 +83,36 @@ const MAX_HUERFANOS_PISO = 500; // por debajo de esto no vale la pena frenar
     // El origen, agregado una sola vez. Temp table (no CTE) para que el DELETE
     // de abajo pueda usar índice en vez de re-agregar 1.7 M filas por cada fila
     // del destino.
+    // ⛔ EL `EXISTS` NO ES COSMÉTICO — sin él la derivación no commitea.
+    // Las dos tablas tienen la MISMA foreign key a `catalog.products` con distinta fuerza:
+    //   product_sales_daily   → fk_..._product  ... ON DELETE RESTRICT **NOT VALID**
+    //   product_sales_monthly → fk_..._product  ... ON DELETE RESTRICT (validada)
+    // La diaria se la agregaron sin escanear lo que ya tenía, así que conserva filas de un
+    // producto que ya no está en el catálogo; la mensual las rechaza. O sea que las dos copias
+    // del mismo hecho **ni siquiera admiten el mismo conjunto de filas** — otro síntoma de lo
+    // mismo que este commit arregla.
+    //
+    // Se excluyen, NO se afloja la restricción buena. Y se DECLARAN abajo: el día que esto crezca
+    // tiene que verse en el log, no desaparecer en un redondeo (ADR-056).
     await db.query(
       `CREATE TEMP TABLE stg_psm ON COMMIT DROP AS
-         SELECT product_id, warehouse_id,
-                date_trunc('month', sale_date)::date AS month,
-                sum(units) AS units
-           FROM analytics.product_sales_daily
-          WHERE tenant_id = $1
-          GROUP BY product_id, warehouse_id, 3`, [M]);
+         SELECT d.product_id, d.warehouse_id,
+                date_trunc('month', d.sale_date)::date AS month,
+                sum(d.units) AS units
+           FROM analytics.product_sales_daily d
+          WHERE d.tenant_id = $1
+            AND EXISTS (SELECT 1 FROM catalog.products p WHERE p.id = d.product_id)
+          GROUP BY d.product_id, d.warehouse_id, 3`, [M]);
+    const { rows: [orf] } = await db.query(
+      `SELECT count(*)::int filas, count(DISTINCT d.product_id)::int productos,
+              COALESCE(round(sum(d.units)),0) u
+         FROM analytics.product_sales_daily d
+        WHERE d.tenant_id = $1
+          AND NOT EXISTS (SELECT 1 FROM catalog.products p WHERE p.id = d.product_id)`, [M]);
+    if (orf.filas > 0) {
+      console.log(`  ⚠️  EXCLUIDAS ${orf.filas} filas (${orf.productos} producto(s), ${Number(orf.u).toLocaleString('es-MX')} u): `
+        + 'su product_id ya no existe en catalog.products y la FK de la mensual las rechaza.');
+    }
     await db.query(`CREATE INDEX ON stg_psm (product_id, warehouse_id, month)`);
     const { rows: [org] } = await db.query(`SELECT count(*)::int n, round(sum(units)) u FROM stg_psm`);
     const { rows: [dst] } = await db.query(
