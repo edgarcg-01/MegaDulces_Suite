@@ -61,6 +61,11 @@ export interface CreateMovementInput {
    * diferencia se levanta como hallazgo; nunca se rechaza el efectivo.
    */
   monto_contado?: number;
+  /**
+   * CS.3.13 — La parte del movimiento que quedó A CRÉDITO (no llegó en efectivo): queda como saldo
+   * del cliente. `efectivo esperado = documento − venta_credito`. El `monto` sigue siendo el efectivo.
+   */
+  venta_credito?: number;
   morralla?: number;
   denominaciones?: DenominationInput[];
   /**
@@ -205,14 +210,21 @@ export class CashLedgerService {
     return buildFolio(tipo, year, r.rows[0].current_value);
   }
 
-  /** El arqueo cuadra o no se guarda. Que no cuadre es un error del capturista, no un aviso. */
-  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[]) {
-    if (!dens?.length) return;
-    const suma = dens.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + Number(morralla || 0);
+  /**
+   * El arqueo cuadra o no se guarda. Que no cuadre es un error del capturista, no un aviso.
+   *
+   * CS.3.13 — El monto se explica por EFECTIVO (denominaciones + morralla) + VENTA A CRÉDITO: la parte
+   * a crédito no llegó en efectivo pero es parte del total. `efectivo + venta_credito = monto`. Si no
+   * hay ni efectivo ni crédito, no hay nada que validar (el CHECK `monto > 0` lo frena por otro lado).
+   */
+  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[], ventaCredito = 0) {
+    const credito = Math.max(0, Number(ventaCredito) || 0);
+    if (!dens?.length && credito <= 0) return;
+    const suma = dens.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + Number(morralla || 0) + credito;
     const dif = Math.abs(suma - Number(monto));
     if (dif > ARQUEO_EPSILON) {
       throw new BadRequestException(
-        `El desglose no cuadra con el monto: ${suma.toFixed(2)} contra ${Number(monto).toFixed(2)} (diferencia ${dif.toFixed(2)}).`,
+        `El desglose (efectivo + crédito) no cuadra con el monto: ${suma.toFixed(2)} contra ${Number(monto).toFixed(2)} (diferencia ${dif.toFixed(2)}).`,
       );
     }
   }
@@ -394,7 +406,7 @@ export class CashLedgerService {
       // ⚠️ El arqueo se comprueba contra el monto RESUELTO, no contra el que llegó. Si se validara
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
       // contra la cifra del formulario y NO contra la del documento.
-      this.assertArqueo(monto, input.morralla ?? 0, dens);
+      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
       // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y
@@ -425,6 +437,8 @@ export class CashLedgerService {
         beneficiario_rfc: input.beneficiario_rfc ?? null,
         monto,
         morralla: input.morralla ?? 0,
+        // CS.3.13 — la parte a crédito (no efectivo), registrada aparte. Nunca negativa.
+        venta_credito: Math.max(0, Number(input.venta_credito) || 0),
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
@@ -598,8 +612,11 @@ export class CashLedgerService {
       // para que su arqueo se autorellene con el efectivo que la máquina ya contó. CAOS no se
       // captura aparte; se ADJUNTA al movimiento de Kepler.
       const conCaos = await this.emparejarCaos(trx, tenantId, conCuenta);
+      // CS.3.13 — a cada cobro le marcamos si su cliente es de CRÉDITO (para auto-rellenar «venta a
+      // crédito» en la captura, siempre editable). La condición sale de `analytics.v_cliente_credito`.
+      const conCredito = await this.marcarClientesCredito(trx, conCaos);
       return {
-        rows: conCaos, limit, has_more: rows.length === limit,
+        rows: conCredito, limit, has_more: rows.length === limit,
         // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
         // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
         // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
@@ -866,6 +883,34 @@ export class CashLedgerService {
         } };
       }
       return { ...r, caos_match: null };
+    });
+  }
+
+  /**
+   * CS.3.13 — Marca qué cobros son de un cliente de CRÉDITO, leyendo su condición de
+   * `analytics.v_cliente_credito` (derivada del ODS: `kdud` días/límite > 0). Batch por página, como
+   * `contraDeDocumentos`. Guard: la vista puede faltar si el código va por delante de su migración o
+   * el entorno no tiene el ODS — ahí simplemente ningún cobro sale marcado (no rompe la bandeja).
+   */
+  private async marcarClientesCredito(trx: any, rows: any[]): Promise<any[]> {
+    const claves = rows
+      .filter((r) => r.tipo === 'ingreso' && r.entidad_code)
+      .map((r) => [String(r.sucursal), String(r.entidad_code)] as [string, string]);
+    if (!claves.length) return rows.map((r) => ({ ...r, cliente_credito: false }));
+    const existe = await trx.raw(`SELECT to_regclass('analytics.v_cliente_credito') AS t`);
+    if (!existe.rows?.[0]?.t) return rows.map((r) => ({ ...r, cliente_credito: false }));
+    // Tuplas únicas (sucursal, cliente_code) — sólo las de crédito.
+    const vistos = new Set<string>();
+    const tuplas = claves.filter(([s, c]) => { const k = `${s}\u0001${c}`; if (vistos.has(k)) return false; vistos.add(k); return true; });
+    const filas = await trx('analytics.v_cliente_credito')
+      .whereIn(['sucursal', 'cliente_code'], tuplas)
+      .andWhere('es_credito', true)
+      .select('sucursal', 'cliente_code', 'limite', 'dias');
+    const m = new Map<string, { limite: number; dias: number }>();
+    for (const f of filas) m.set(`${f.sucursal}|${f.cliente_code}`, { limite: Number(f.limite), dias: Number(f.dias) });
+    return rows.map((r) => {
+      const cc = r.tipo === 'ingreso' && r.entidad_code ? m.get(`${r.sucursal}|${r.entidad_code}`) : undefined;
+      return { ...r, cliente_credito: !!cc, credito_limite: cc?.limite ?? null, credito_dias: cc?.dias ?? null };
     });
   }
 
