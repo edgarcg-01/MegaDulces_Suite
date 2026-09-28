@@ -961,40 +961,63 @@ export class ExpenseProofsService {
           'forma_pago', 'forma_pago_detalle', 'clasificacion',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
-      if (q.status) b.where('status', q.status);
+      /**
+       * `[GX.35]` **Los filtros, en UN solo lugar.** Antes vivían pegados al query de las
+       * filas y los contadores se calculaban con `groupBy` sobre la tabla PELADA — sin
+       * `mine`, sin la regla de los rechazos, sin nada. Medido en «Mis gastos» de
+       * `demo_captura`: 21 vales propios y el encabezado decía **77 esperando firma, 30
+       * aprobados, 16 devueltos** — los del tenant entero.
+       *
+       * ⛔ Es justo lo que el usuario pidió que no pasara («no deben aparecer los de
+       * todos»), y es peor que una lista mal filtrada: la lista se ve y se puede contar,
+       * el número grande de arriba se cree.
+       *
+       * Se aplica a los dos. Que se puedan separar otra vez cuesta borrar una llamada.
+       */
+      const filtros = (qb: Knex.QueryBuilder): Knex.QueryBuilder => {
+        if (q.status) qb.where('status', q.status);
       // [GX.29] Un rechazo deja de verse a las 24 h. Se DERIVA de la hora del rechazo, no
       // de un flag: un flag necesita un proceso que lo prenda, y uno que falla en silencio
       // deja vales visibles creyendo que se ocultaron. ⚠️ Ocultar NO es borrar: la fila queda.
-      b.whereRaw(SQL_OCULTA_RECHAZOS_VIEJOS);
+        qb.whereRaw(SQL_OCULTA_RECHAZOS_VIEJOS);
       // `[GX.27]` El día, como RANGO en hora de México -- no envolviendo la columna en
       // `to_char`, que anularía el índice de `created_at`.
-      const dia = diaValido(q.dia);
-      if (dia) {
-        b.whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia])
-         .whereRaw(`created_at <  ((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
-      }
-      if (q.folio_solicitud) b.where('folio_solicitud', q.folio_solicitud.trim());
+        const dia = diaValido(q.dia);
+        if (dia) {
+          qb.whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia])
+            .whereRaw(`created_at <  ((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
+        }
+        if (q.folio_solicitud) qb.where('folio_solicitud', q.folio_solicitud.trim());
       // `[GX.34]` Es MÍO si lo levanté **o** si subí su evidencia. El `OR` no es una
       // concesión: sin la primera mitad, un vale aprobado que espera que YO suba su
       // comprobante desaparecería de mi lista justo cuando me toca actuar; sin la
       // segunda, el que sube la evidencia de un vale ajeno (o de uno capturado por link,
       // cuyo `created_by` es `link:NOMBRE` y no es un usuario) no lo ve en ningún lado.
-      if (q.mine) b.where((w: Knex.QueryBuilder) => w.where('created_by', q.mine).orWhere('evidencia_por', q.mine));
-      if (q.from) b.where('created_at', '>=', q.from);
-      if (q.to) b.where('created_at', '<=', `${q.to} 23:59:59`);
-      if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        b.where((w) => w.whereILike('proveedor', s).orWhereILike('folio_solicitud', s).orWhereILike('solicitante', s));
-      }
+        if (q.mine) qb.where((w: Knex.QueryBuilder) => w.where('created_by', q.mine).orWhere('evidencia_por', q.mine));
+        if (q.from) qb.where('created_at', '>=', q.from);
+        if (q.to) qb.where('created_at', '<=', `${q.to} 23:59:59`);
+        if (q.search) {
+          const s = `%${q.search.trim()}%`;
+          qb.where((w: Knex.QueryBuilder) => w.whereILike('proveedor', s).orWhereILike('folio_solicitud', s).orWhereILike('solicitante', s));
+        }
+        return qb;
+      };
+      filtros(b);
       const rows = await Promise.all((await b).map(async (r: any) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
         files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
       })));
 
-      const agg = await trx('finance.expense_proofs').groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
-      const by = Object.fromEntries(agg.map((r: any) => [r.status, Number(r.n)]));
+      const agg = await filtros(trx('finance.expense_proofs'))
+        .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
+      const by = Object.fromEntries(agg.map((r: Record<string, unknown>) => [String(r.status), Number(r.n)]));
+      /**
+       * ⚠️ `total` es el total que CUMPLE el filtro, no el largo de la página. Antes era
+       * `rows.length`, o sea el `limit`: a quien tenía 340 gastos le decía «200».
+       */
+      const total = Object.values(by).reduce((a: number, n) => a + Number(n), 0);
       return {
-        kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
+        kpis: { total, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         rows,
       };
     });
