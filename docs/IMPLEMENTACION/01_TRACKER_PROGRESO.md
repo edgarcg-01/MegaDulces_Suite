@@ -6145,6 +6145,14 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 - [x] **`[VSO.4]`** ✅ `test-newdb-branch-cutover.js` deja de medir las piernas CRUDAS: 20 OK / 0
   fallas (antes 13 / **6**).
 - [x] **`[VSO.5]`** ✅ §5 de `VERDAD_ABSOLUTA.md` estrena los dos resolvedores que le faltaban.
+- [x] **`[VSO.8]`** ✅ **Sincronía con el frontend — y el hueco grande no estaba en Sell-Out.**
+  **Presupuesto** tenía tres listas de canales clavadas, y la primera es un **filtro por iteración**:
+  una entidad cuyo canal no esté en la lista **nunca produce renglón**. Medido sobre 428 renglones
+  capturados: **$21,754,366** en canales que no recorría + **$134,911,911** huérfanos en `*:MD-30`
+  = **33.4 % del presupuesto de ventas capturado ($156.7M de $469.5M) invisible**. **Chat del
+  Sell-Out**: filtraba el canal crudo, así que "cuánto vendió mayoreo" devolvía **$20,069,745**
+  cuando son **$41,443,464** (−51.6 %). El resolvedor salió del service a
+  `sellout-channel-map.ts`. Candado `test-newdb-budget-entity-sync.js` (4/4).
 - [x] **`[VSO.6]`** ✅ La identidad de vendedor sobrevive al cambio de ERP (mig **561**): **cinco
   personas tenían dos columnas** porque nadie actualizó `analytics.vendor_identity` cuando Madero y
   Abastos migraron. La mayor es un vendedor de **$47.9M** cuya columna se corta el 18-sep y
