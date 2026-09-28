@@ -1851,6 +1851,13 @@ export class ComercialService {
     if (to) params = params.set('to', to);
     return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`, { params });
   }
+  /** [VSO.1] Canales de NEGOCIO del resolvedor. El front no los enumera: enumerarlos acá y en el
+   *  backend fue lo que dejó `mayoreo` ($21.4M/90d) sin casilla de filtro durante semanas. */
+  sellOutChannels() {
+    return this.http.get<{ channels: { value: string; label: string }[]; from_db: boolean }>(
+      `${this.base}/analytics/sell-out/channels`,
+    );
+  }
   sellOutVendors(from?: string, to?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
