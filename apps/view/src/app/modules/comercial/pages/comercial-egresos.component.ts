@@ -176,9 +176,11 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                   <span [class.strong]="rowData.level === 'familia'" [class.muted]="rowData.level === 'cuenta'">{{ rowData.label }}</span>
                   @if (rowData.level === 'cuenta') { <span class="mono ex-code">{{ rowData.key }}</span> }
                 </td>
-                <td class="ta-r">{{ rowData.movs | number }}</td>
-                <td class="ta-r strong">{{ money(rowData.total) }}</td>
-                <td class="ta-r muted">{{ rowData.share_pct }}%</td>
+                <!-- El ancho va también acá: con [scrollable] el <th> y el <td> son de tablas
+                     distintas y el del encabezado no llega al cuerpo. -->
+                <td class="ta-r" style="width:8rem">{{ rowData.movs | number }}</td>
+                <td class="ta-r strong" style="width:12rem">{{ money(rowData.total) }}</td>
+                <td class="ta-r muted" style="width:7rem">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>

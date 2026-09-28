@@ -10,6 +10,224 @@
 
 ## [Unreleased]
 
+### Added — `/telemarketing/cotizaciones`: Mayoreo por volumen en caja (CJA), vendedor por sucursal y entregables PDF/XLSX con marca de agua (COT.10–COT.14, 2026-09-26)
+- **Descuento por volumen en caja (CJA)**: lectura e integración directa de las escalas de mayoreo
+  definidas en el ERP Kepler (`analytics.v_label_presentations` y `kepler_ods.kdpv_prod_util`).
+  - El peldaño `box` expone `volume_tier: { min_qty, price }`.
+  - Distintivo visual en el selector de unidad con el precio mayorista disponible.
+  - Banner de oportunidad por volumen cuando la cantidad ingresada está por debajo del umbral,
+    con botón de 1-clic para alcanzar el volumen y ahorrar.
+  - Banner de confirmación de mayoreo aplicado con desglose del ahorro unitario y total.
+- **Desglose de unidad menor en unidad mayor**:
+  - En líneas cotizadas en CJA, cálculo automático del precio unitario equivalente en unidad menor
+    mostrado en la misma celda de P. Unitario: ej. `$969.84 (12PZS 80.82)`.
+  - Desglose de P. Unitario Neto e Importe Neto con descuentos aplicados.
+- **Vendedor asignado por sucursal**:
+  - Selector desplegable de vendedor filtrado por la plantilla de vendedores de cada sucursal en Kepler (`kepler_ods.kduv`).
+  - Migración `20260926170000_quotes_salesperson.js` para persistencia en `commercial.quotes`.
+- **Entregables formales en PDF y XLSX**:
+  - Botones de exportación rápida en captura y detalle de cotización.
+  - Nomenclatura exacta de archivo: `(NUMERO CLIENTE)(NOMBRE CLIENTE)(AAAA,MM,DD,HH,MM).pdf` y `.xlsx`.
+  - Marca de agua obligatoria con la leyenda: `"ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"`.
+  - Formato membretado profesional con logo, datos fiscales, desglose de líneas y resumen de importes.
+
+### Added — `/compras/pedido`: pestaña **Flujo** — requisición → OC de Kepler → entrada (RA-PRO.63, 2026-09-26)
+Solo lectura. Por cada requisición de proveedor del periodo (30/60/90 días): hasta dónde llegó
+(*con entrada · en OC sin entrada · esperando OC · sin OC*), qué OC de Kepler la cubrió, cuánto
+surtió la entrada y qué productos no vinieron. Más la tabla de **productos negados recurrentes**.
+- ⚠️ **La liga requisición→OC es SUGERIDA, no capturada**: hoy nadie registra qué OC cubrió cada
+  requisición (medido: las **310** requisiciones de prod siguen en `pending_approval`). Se toma la OC
+  de la misma sucursal y proveedor, en los 14 días siguientes, que trae más productos de la
+  requisición; con menos de la mitad no se liga. La confianza (alta ≥80% / media) y el empate
+  (`ambigua`) se muestran.
+- **No se compara la cantidad**: la OC no es la requisición copiada (de 0.1× a 94× lo pedido del
+  mismo producto; 22 de 66 OC juntan 2–4 requisiciones). Requisición→OC se mide como "¿vino el
+  producto?" y OC→entrada en dinero.
+- El surtido principal es la **mediana por OC** (100%); el ponderado por dinero (32%) se da al lado:
+  una sola OC de Mondelez de $10 M recibida al 19% lo arrastraba.
+- Medido en prod (60 días): 238 requisiciones · 99 con OC · 97 sin OC · 42 en espera · 92.1% de los
+  productos vinieron · Trident, Oreo display y Ricolino Payaso **negados 3 de 3**.
+- Endpoint `GET /commercial/replenishment/purchase-flow` (`COMPRAS_PEDIDO_VER`, alcance por
+  sucursal; tenant explícito porque las vistas `analytics.erp_*` no tienen RLS). Sin migración.
+- Decisiones en `flujo-compras.ts` con 19 pruebas (incluidas las negativas: liga <50%, fuera de
+  ventana, requisición en espera, OC sin monto, almacén Wincaja sin fuente).
+
+### Added — `/compras/oc-abiertas`: PDF de cada orden y estatus de seguimiento (RA-PRO.61–62, 2026-09-26)
+- **PDF por orden de compra de Kepler** (botones `Prov.` e `Int.` en cada renglón): copia de consulta
+  (el oficial es Kepler) con proveedor, fechas, condición de pago, **todos** los renglones con cajas,
+  lo que ya llegó y el % surtido en dinero. Nombre: `OC_<SUC>-<FOLIO>_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf`.
+  - **Dos versiones**: *para el proveedor* (sin notas internas) e *interna* (con el seguimiento, su
+    historia y las notas sobre calidad de datos). Una nota como "detenida por pago" no sale al
+    proveedor por descuido.
+  - **Cajas sólo cuando el costo las confirma**: `costo_caja = costo_unitario × unidades_por_caja`
+    (medido: 98.9% de 95,555 renglones). Si no cuadra, se muestra la cantidad en su unidad y las
+    cajas "sin verificar"; el resto de caja va en la unidad del renglón ("44 cj + 10 paq").
+  - ⚠️ **Surtido sin ligas falsas**: la cadena de Kepler a veces liga recepciones de OTRO proveedor
+    con el mismo folio (OC 00-0003095 de BARCEL salía 229% por dos recepciones de BIMBO). Sólo
+    cuentan las del mismo proveedor y no anteriores a la orden; las demás se declaran aparte.
+  - Endpoint nuevo `GET /commercial/replenishment/open-purchase-orders/:sucursal/:folio`
+    (`COMPRAS_PEDIDO_VER`, respeta el alcance por sucursal).
+- **Estatus de seguimiento** por orden: *Vigente · Detenida por pago · Detenida por logística ·
+  Backorder vigente · No surtida / cancelada*. Sin registro = **Sin revisar** (no "Vigente").
+  Nota **obligatoria** salvo Vigente. Queda quién y cuándo, con historial. Conteo por estatus sobre
+  todas las órdenes, que además filtra la tabla. **Es registro de Compras: no toca Kepler.**
+  - Tablas nuevas `commercial.purchase_order_followups` y `purchase_order_followup_history`
+    (mig `20260926150000`, RLS forzado; la historia es sólo INSERT). Endpoint
+    `PUT …/:sucursal/:folio/seguimiento` (`COMPRAS_PEDIDO_GESTIONAR`). Sin la migración aplicada, la
+    lista sigue funcionando y todas salen "Sin revisar".
+  - La lista de estatus y la regla de la nota viven en `@megadulces/contracts`
+    (`oc-seguimiento.contract.ts`): la misma regla en la pantalla, el servidor y los CHECK de la base.
+- Las piezas comunes de los PDF de Compras (encabezado, logo, recuadros, pie, nombre de archivo)
+  pasan a `compras-pdf-comun.ts`; la requisición las usa sin cambiar su resultado.
+
+### Fixed — `/compras/oc-abiertas`: alcance por sucursal, filtro desde la base y tope declarado (RA-PRO.60, 2026-09-26)
+- ⚠️ **Alcance (`[ZN.3.3]`)**: `open-purchase-orders` no recortaba por sucursal. Quien tenía
+  `COMPRAS_PEDIDO_VER` con alcance acotado (encargadas de tienda) veía las órdenes de las nueve
+  sucursales. Ahora pasa por `ScopeService.readParam`: sin sucursal pedida, lo que la persona
+  alcanza; con una ajena, nada. El alcance vacío (`[]`) no se lee como "todas".
+- **Filtro de sucursal desde la base** (el lookup del pedido, ya recortado al alcance). La lista
+  escrita a mano no tenía **07 Morelia Madero ni 08 Morelia Abastos**, que sí tienen órdenes
+  abiertas, y dejaba 02/04/05 sin nombre.
+- **Tope declarado**: la tabla corta en 500 renglones (las más antiguas), pero los indicadores
+  (órdenes, valor en papel, esperado, para barrer) ahora cuentan **todas**; antes se calculaban
+  sobre esos 500 sin avisar. Si hay recorte, la pantalla lo dice. Si hasta la consulta llegara a
+  su tope (5,000), el total se marca como mínimo (`+`).
+- Si la consulta falla, los indicadores se limpian junto con la tabla (antes quedaban los de la
+  carga anterior).
+- Decisiones en `oc-abiertas.ts` (`filtroSucursalOc`, `resumenOcAbiertas`) con pruebas, incluidas
+  las negativas de alcance vacío y de tope.
+
+### Fixed — `/compras/oc-abiertas`: correcciones de la revisión (RA-PRO.60–62, 2026-09-26)
+- ⚠️ **Tenant explícito** en la consulta de órdenes abiertas y sus renglones: las vistas
+  `analytics.erp_purchase_*` no tienen RLS, así que el filtro por empresa lo pone la consulta.
+- Sucursal validada (dos dígitos) en el filtro y en el detalle/seguimiento; renglones del detalle
+  ordenados por número de línea (9, 10, 11), no como texto.
+- El primer estatus de una orden ya no puede chocar si dos personas guardan a la vez (candado por orden).
+- Migración: RLS, política y permisos se aplican **siempre**, aunque la tabla ya exista.
+- PDF para el proveedor: un solo importe (la suma de renglones), sin el "concepto" interno, y
+  nombre de archivo distinto de la copia interna (`_PROVEEDOR` / `_INTERNO`). Cantidades negativas
+  ya no dan cajas negativas. Si el historial llega al tope de 50 cambios, se dice.
+- Pantalla: sin permiso, el estatus se ve como texto (y el lector de pantalla lee la nota); el
+  diálogo no se cierra a medio guardar; una recarga vieja ya no pisa a la nueva.
+
+### Changed — `/compras/pedido` en celular vertical (RA-PRO.59, 2026-09-26)
+Sólo pantallas de menos de 40rem (celular en vertical); tableta y escritorio no cambian.
+- **Barra de abajo en un renglón**: resumen corto (`12 sel · $184 mil`) y botones con texto corto
+  (`PDF (12)`, `Req. (12)`, XLSX sólo ícono). Antes la leyenda completa tapaba ~35% de la pantalla;
+  ahora se abre al tocar el resumen.
+- **Tabla principal sin scroll lateral**: quedan Producto, Exist. red, Suma Ped. cajas y $ Pedido;
+  las otras 11 columnas siguen en tableta y escritorio. Sin proveedor en la celda (ya está en el
+  desglose). El ancho mínimo de 82rem pasa de estilo en línea a CSS para poder anularlo.
+- **Desglose en tarjetas**: cada sucursal es una tarjeta (sucursal y valor · venta, existencia y
+  días · − cantidad + y cj/pz · entrega), así la sucursal nunca se pierde al llegar a la cantidad.
+  Son las mismas celdas acomodadas con CSS grid, no una segunda copia del template. Igual en Traspasos.
+- Pie del desglose en dos renglones y botones cortos (`XLSX`, `PDF`).
+- `dineroCorto()` (`pedido-redondeo.ts`) con pruebas, incluida la frontera 999,600 → `$1 M`.
+
+### Changed — `/compras/pedido`: ajustar el pedido sin teclear (RA-PRO.57, 2026-09-26)
+- **Escritorio: `← →` restan / suman un paso** en el campo Pedido (y en Traspasos), en la unidad de
+  captura (`cj` = una caja, `pz` = una pieza). `↑ ↓` siguen moviendo de renglón; `Alt + ↑ ↓` hace
+  el mismo paso. Con decimales el paso cae al entero (`147.4` → 148 / 147); nunca baja de 0.
+- **Celular y tableta: botones `−` / `+`** de 44px a los lados del campo, sólo con puntero táctil.
+  No enfocan el campo, así que **no abren el teclado** que tapa media pantalla; mantener presionado
+  repite. Tocar la cifra abre el teclado **numérico** (no el completo) para cantidades grandes.
+- Regla D.5 de `DESIGN.md` enmendada (antes `← →` movían el cursor dentro del número). Paso en
+  `pasoCantidad()` (`pedido-redondeo.ts`), con pruebas.
+
+### Changed — PDF requisición global: orden alfabético + nombre de archivo con control (RA-PRO.56, 2026-09-26)
+- **Productos en orden alfabético** en el pedido al proveedor y en cada repartición (antes: en el
+  orden de selección). Con el papel en la mano frente a la mercancía se busca por nombre. Orden en
+  español: sin distinguir mayúsculas ni acentos, números en orden natural (`15X25` antes que
+  `120X90`), empate por código.
+- **Nombre del archivo**: `Requisicion-global_<PROVEEDOR>_AAAA-MM-DD-HH-MM.pdf` (antes
+  `requisicion-global-AAAA-MM-DD.pdf`), para llevar control de los PDF emitidos. Con varios
+  proveedores dice `VARIOS-PROVEEDORES`. El proveedor se limpia (sin acentos, signos ni espacios)
+  y se recorta a 40 caracteres.
+- `[RA-PRO.58]` **PDF del producto con el mismo control**: `Requisicion_<CODIGO>_<NOMBRE>_AAAA-MM-DD-HH-MM.pdf`
+  (antes `requisicion-<sku>-AAAA-MM-DD.pdf`). Los dos nombres usan la misma limpieza
+  (`textoParaArchivo`) y la misma fecha-hora local.
+
+### Added — `/compras/pedido`: PDF de requisición por producto y global + selección (RA-PRO.52–55, 2026-09-25)
+- **El acuse "Se entrega en" dice cajas cerradas + piezas** (`6 cj 6 pz`, no `6.5 cj`): se redondea
+  una vez sobre el total en piezas, así que piezas de varias sucursales que completan una caja se
+  juntan. Sin factor de caja válido se muestra como antes.
+- **PDF del producto** (botón en el desglose): orden de requisición en borrador —el folio lo asigna
+  el sistema al registrar—, cabe en una hoja. Proveedor, producto, recuadros de pedido / precio /
+  importe, tabla de **puntos de entrega con la O. Compra en blanco** para anotarla a mano, y una
+  sola tabla de **repartición** (quién recibe consolidado y a quién le toca qué) con venta 30 d,
+  existencia y días de inventario hoy y con el pedido.
+- **Selección de productos**: casilla por producto (sólo si tiene pedido) y casilla general que
+  marca **toda la consulta** —todas las páginas— con pedido. La selección sobrevive al paginar y se
+  limpia al cambiar de filtro.
+- ⚠️ **"Requisiciones" (global) registra SÓLO lo marcado** — antes registraba la página abierta, que
+  no es algo que el comprador elija. Los traspasos también se filtran por la selección.
+- **PDF requisición (global)**: una hoja por proveedor (y un resumen si hay varios), con sus puntos
+  de entrega y la O. Compra en blanco, el pedido por punto de entrega con totales **por almacén**
+  (cajas cerradas + piezas sueltas, sin convertir piezas de productos distintos, e importe) y la
+  repartición en cuadrícula producto × sucursal. Cada punto de entrega = una requisición del sistema.
+- Se genera en el navegador (jsPDF, carga perezosa): no escribe en la base ni toca el backend.
+- Lógica de números en módulos puros con pruebas: `pedido-redondeo.ts` (`textoCajasPiezas`,
+  `textoSumaCajasPiezas`, `diasInventario`) y `pedido-requisicion-global.ts` (`agruparPorProveedor`,
+  `repartoProducto`). `diasInv` y los días "hoy" del PDF comparten la misma función (antes los días
+  "hoy" no respetaban la unidad no confiable).
+
+### Changed — `/compras/pedido`: sugerido listo para pedir + "todo a 00" (RA-PRO.50/51, 2026-09-25)
+- **El sugerido llega redondeado** en el desglose por sucursal: de **media caja para arriba**, cajas
+  cerradas al entero más cercano (147.1 → 147, 1.5 → 2, 0.6 → 1); **por debajo de media caja**, se
+  propone en **piezas** enteras con el selector ya en `pz` (0.4 cj × 20 → 8 pz, mínimo 1). Sólo
+  cambia el valor inicial: lo que el comprador escriba se respeta. Días, valor, totales de la fila,
+  requisición y Excel por sucursal leen el mismo número.
+  ⚠️ El export del libro completo (`workbook.xlsx`) lo arma el servidor y **sigue sin redondear**.
+- **Atajo "todo a 00"** en cada zona del desglose: consolida la zona en el CEDIS principal (que baja
+  después por traspaso). El CEDIS principal sale del grupo `CEDIS` del orden canónico de
+  `@megadulces/contracts` + `is_purchase_hub`, no de un `'00'` clavado.
+
+### Added — Crédito por día: la agenda de cobranza (CXC.26, 2026-09-25)
+- Tercer chip en `/finanzas/cartera` → **`/finanzas/cartera/dia`**: la misma cartera con el
+  **calendario como eje**. Contesta «¿quiénes me deben estos días?» y «¿qué día debo cobrar?».
+  Mismo dato y mismo permiso que la vista por cliente.
+- ⛔ **El eje va a los DOS lados, y eso no es una preferencia de diseño.** Medido contra prod:
+  **$7.92M vencen hoy o después (13.0%)** contra **$53.02M ya vencidos (87.1%) repartidos en 273
+  días**. Un calendario sólo-futuro habría publicado «$7.9M por cobrar» sobre una cartera de $61M.
+  Hacia atrás el día dice *desde cuándo*, hacia adelante *cuándo*.
+- **Sin ventana:** la respuesta trae los 292 días, las 6,913 facturas y los 1,307 clientes, así que abrir
+  un día es instantáneo y no dispara requests. Se midió antes de decidirlo — traer todo cuesta lo
+  mismo que traer un mes (la pirámide de CTEs domina) y comprime a **131 KB**. Una ventana de ±30
+  días sólo habría escondido **$29.7M** detrás de un «ampliá para ver el resto».
+- Lo que ningún día puede colocar se **declara al pie**: `sin_documento` **$612,428.11 (1.0%)**,
+  que es saldo sin documento abierto que le ponga fecha.
+- **El drill llega a la FACTURA** (CXC.26.1): día → clientes → sus folios, con documento, fecha de
+  emisión, importe y saldo. El monto del cliente pasa a ser la **suma de sus propias facturas**, así
+  que no puede discrepar del desglose. Y cada cliente avisa lo que debe en **otros días**, o el que
+  llama lo llama dos veces.
+- **Plaza y zona con NOMBRE, no con número.** La zona tenía catálogo en Kepler (`kduk`) y nadie lo
+  usaba. ⚠️ El join va **por código**, no por (sucursal, código): el catálogo está replicado por
+  plaza pero ninguna tiene los seis códigos, así que el estricto dejaba **$3,685,841.18 sin nombre**.
+  El de código resuelve todas y es seguro porque el código→nombre es unívoco — comprobado en el
+  smoke, no supuesto. Lo que no tiene zona dice **«Sin zona»**, que es otra ausencia; y un código
+  que el catálogo no tenga se muestra **marcado**, nunca escondido.
+- Bajar a factura costó **12 KB**: 6,913 documentos contra 5,652 pares, y la respuesta pasa de
+  119 a **131 KB** gzipeados porque va normalizada (los 1,307 clientes en su propia lista).
+- El CSV pasa a una fila por factura, con plaza y zona por nombre **y** su código en columna aparte.
+
+
+### Fixed
+- **El selector de vista de Crédito marcaba la pestaña equivocada.** Resolvía por
+  `startsWith` y `/finanzas/cartera` es prefijo de `/finanzas/cartera/dia`, así que en la vista por
+  día se encendía «Por cliente». Ahora gana el prefijo más largo y el corte es por segmento.
+- **`/finanzas/cartera` ignoraba los query params.** Se agregó el deep link `?suc=&cliente=`, que
+  filtra por ese cliente y abre su auxiliar — sin eso, el enlace del drill habría sido un enlace
+  que se ve bien y no hace nada.
+
+### Internal
+- `GET /finance/receivables/por-dia` (una pasada, reusa el constructor de opciones de filtro de la
+  vista por cliente en vez de escribir un segundo).
+- Candado `database/tests/test-newdb-cartera-por-dia.js` (**14 ✔ contra prod**) en la regresión, con
+  techo de payload: el día que la agenda crezca se pone rojo un test, no lenta una pantalla.
+- Specs de front (**21 ✔**): el del chip con prueba negativa; el del componente hace **clic** en un
+  día y exige el desglose y el banner de error en el DOM.
+
+
 ### Added — Ingresos contables: el otro lado del libro (IG, 2026-09-25)
 - Pantalla nueva **`/finanzas/ingresos`**, hermana de Egresos: árbol **canal → plaza**, tabla,
   tendencia y una pestaña **¿Cuadra?** que pone las cuatro fuentes del mismo peso de venta lado a

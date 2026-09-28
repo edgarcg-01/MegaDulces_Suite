@@ -1,4 +1,5 @@
 import { Global, Module, Logger } from '@nestjs/common';
+import { poolMax } from './pool-size';
 import knex, { Knex } from 'knex';
 
 /**
@@ -41,7 +42,7 @@ function buildKeplerRoConfig(): Knex.Config | null {
       connectionTimeoutMillis: 8000,
       statement_timeout: 25000,
     },
-    pool: { min: 0, max: 4 },
+    pool: { min: 0, max: poolMax(4) },
     acquireConnectionTimeout: 8000,
   };
 }

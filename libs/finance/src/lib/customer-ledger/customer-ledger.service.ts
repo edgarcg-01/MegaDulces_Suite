@@ -100,6 +100,138 @@ const emptyPorTipo = (): PorTipoCuenta => ({
   ruta: { saldo: 0, vencido: 0, clientes: 0 },
 });
 
+/* ── `[CXC.26]` Cartera por DÍA ──────────────────────────────────────────────────────────── */
+
+export interface PorDiaQuery {
+  sucursal?: string; vendedor?: string; grupo?: string; zona?: string; cuenta?: string; search?: string;
+}
+
+/** Tres estados, no un booleano `vencido`: «vence hoy» no es ni una cosa ni la otra. */
+export type DiaEstado = 'vencido' | 'hoy' | 'futuro';
+
+export interface DiaCartera {
+  fecha: string;
+  estado: DiaEstado;
+  /** Negativo = ya venció hace N días · 0 = hoy · positivo = vence en N días. */
+  dias_offset: number;
+  monto: number; docs: number; clientes: number;
+}
+
+/**
+ * ⭐ Una FACTURA viva con fecha de vencimiento. El renglón del cliente se deriva sumando éstas,
+ * nunca al revés: «qué facturas tiene vencidas» es la pregunta del que sale a cobrar, y un
+ * agregado no se puede desarmar.
+ *
+ * Lleva sólo lo que es PROPIO de la factura; quién la debe está en `DiaClienteRef`, unido por `k`.
+ */
+export interface DiaDocumento {
+  /** El vencimiento. Es el eje de la pantalla, por eso se llama `fecha` a secas. */
+  fecha: string;
+  /** Negativo = venció hace N días · 0 = hoy · positivo = vence en N días. Lo emite el servidor. */
+  dias_offset: number;
+  estado: DiaEstado;
+  /** `sucursal|cliente_code` — la llave al cliente. La arma el SERVIDOR, no la pantalla. */
+  k: string;
+  folio_digital: string; doc_label: string;
+  /** Fecha de emisión, para leer «se facturó el X y vencía el Y». */
+  fecha_doc: string | null;
+  importe: number;
+  /** Lo que queda por cobrar de ESTA factura, ya clampeado. Es lo que suma la agenda. */
+  saldo: number;
+}
+
+/**
+ * El cliente, UNA vez; sus facturas lo referencian por `k`.
+ *
+ * Con los nombres repetidos en cada una de las 6,913 facturas la respuesta pesaba **205 KB
+ * gzipeados**; separando los 1,307 clientes baja a la mitad. Y un nombre en un solo lugar es un
+ * nombre que no puede discrepar consigo mismo.
+ */
+export interface DiaClienteRef {
+  k: string;
+  sucursal: string;
+  /** El NOMBRE de la plaza (`commercial.warehouses`), no su número. `null` = no está en catálogo. */
+  sucursal_nombre: string | null;
+  cliente_code: string; cliente_nombre: string;
+  telefono: string | null;
+  /** El código de Kepler y su nombre contra `kduk`. `zona: null` = el cliente no tiene zona. */
+  zona: string | null; zona_nombre: string | null;
+  vendedor: string | null; vendedor_nombre: string | null;
+  cuenta_kind: CuentaKind; dias_credito: number | null;
+}
+
+/** El nombre de una zona de Kepler (`kduk`). `ambigua` viaja aunque hoy sea false. */
+export interface ZonaCatalogo { code: string; nombre: string; ambigua: boolean }
+
+/**
+ * Lo que `cobertura` dice y lo que NO puede decir. El eje del calendario es `vencimiento`, que
+ * sólo existe a nivel documento; el canónico es el de `kdue` por cliente. La resta no tiene fecha.
+ */
+export interface PorDiaCobertura {
+  canonico: number; repartible: number; sin_documento: number; sin_vencimiento: number; clientes: number;
+}
+
+export interface PorDiaTotales {
+  vencido: number; hoy: number; futuro: number;
+  dias_vencidos: number; dias_futuros: number;
+}
+
+/**
+ * Las opciones de los selects. Las arma `opciones()`, el MISMO constructor que usa la vista por
+ * cliente — acá sólo se le pone nombre al tipo para que el boundary no necesite un `any`.
+ */
+export interface CarteraFiltroOpts {
+  sucursales: { code: string; label: string; nombre: string | null; sin_catalogo: boolean; orden: number | null }[];
+  grupos: string[];
+  zonas: string[];
+  vendedores: { code: string; sucursal: string; label: string }[];
+  cuentas: { code: string; label: string }[];
+}
+
+export interface PorDiaResp {
+  hoy: string;
+  freshness: Freshness;
+  dias: DiaCartera[];
+  /** Las facturas, no un agregado. El renglón del cliente se deriva sumando éstas. */
+  documentos: DiaDocumento[];
+  /** Los clientes, una vez cada uno. Las facturas los referencian por `k`. */
+  clientes: DiaClienteRef[];
+  totales: PorDiaTotales;
+  cobertura: PorDiaCobertura;
+  filtros: CarteraFiltroOpts;
+  catalogos: { zonas: ZonaCatalogo[] };
+}
+
+/** Lo que `?` acepta como parámetro ligado en esta consulta: nada exótico, y nada `any`. */
+type BindValue = string | number;
+
+/** Las filas tal como salen del `jsonb_agg`: números que vienen como texto, nulos posibles. */
+interface FilaDiaCruda { fecha: string; monto: string | number; docs: number; clientes: number }
+interface FilaDocCruda {
+  fecha: string; k: string;
+  folio_digital: string | null; doc_label: string | null; fecha_doc: string | null;
+  importe: string | number; saldo: string | number;
+}
+interface FilaClienteCruda {
+  k: string; sucursal: string; cliente_code: string; cliente_nombre: string | null;
+  telefono: string | null; zona: string | null; zona_nombre: string | null;
+  vendedor: string | null; vendedor_nombre: string | null; cuenta_kind: string | null;
+  dias_credito: number | string | null;
+}
+
+/**
+ * Diferencia en días entre dos fechas `YYYY-MM-DD`, **en UTC a propósito**.
+ *
+ * ⚠️ `new Date('2026-09-25')` se parsea como medianoche UTC, pero `new Date(2026, 8, 25)` es
+ * medianoche LOCAL: restar una de otra da ±1 día según dónde corra el proceso. Acá los dos lados
+ * salen del mismo `Date.UTC`, así que la resta es exacta y no depende del reloj del servidor.
+ * Las dos fechas ya vienen de Postgres calculadas en `America/Mexico_City`.
+ */
+function diasEntre(hoy: string, fecha: string): number {
+  const p = (s: string) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+  return Math.round((p(fecha) - p(hoy)) / 86400000);
+}
+
 @Injectable()
 export class CustomerLedgerService {
   constructor(
@@ -515,7 +647,16 @@ export class CustomerLedgerService {
     const sucursales = codes
       .map((code) => {
         const n = nombres.get(code);
-        return { code, label: n ? `${code} · ${n.name}` : code, sin_catalogo: !n, orden: n?.orden ?? null };
+        return {
+          code,
+          label: n ? `${code} · ${n.name}` : code,
+          // `[CXC.26]` El nombre SOLO, además del label. La vista por día muestra «La Piedad» en la
+          // tabla, no «01 · La Piedad», y partir el label por el «·» sería resolver un nombre
+          // parseando una etiqueta de presentación. Es aditivo: quien ya usa `label` no se entera.
+          nombre: n ? n.name : null,
+          sin_catalogo: !n,
+          orden: n?.orden ?? null,
+        };
       })
       .sort((x, y) => (x.orden ?? 999) - (y.orden ?? 999) || x.code.localeCompare(y.code));
 
@@ -565,6 +706,322 @@ export class CustomerLedgerService {
   async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; cuenta?: string; search?: string } = {}) {
     const { resumen } = await this.cartera({ ...q, limit: 1 });
     return resumen;
+  }
+
+  /**
+   * ⭐ `[CXC.26]` **La cartera vista por DÍA** — el mismo dinero, con el calendario como eje.
+   *
+   * La vista por cliente contesta «¿quién me debe?». Ésta contesta las otras dos preguntas del
+   * que cobra: **«¿quiénes me deben estos días?»** y **«¿qué día debo cobrar?»**.
+   *
+   * ── ⛔ LA TRAMPA, MEDIDA EN PROD (2026-09-25) ──────────────────────────────────────────────
+   * La lectura ingenua de «qué día debo cobrar» es un calendario **hacia adelante**. Ese
+   * calendario existe, y es casi vacío:
+   *
+   *     vence hoy o después ....   $7,897,657.69  (  667 docs,  19 días)   12.9%
+   *     YA VENCIÓ ..............  $53,015,537.54  (6,240 docs, 273 días)   87.1%
+   *
+   * Publicar sólo lo de adelante diría «tenés $7.9M por cobrar» sobre una cartera de $61M. Por
+   * eso el eje va **a los dos lados**: hacia atrás el día contesta *¿desde cuándo me deben?* y
+   * hacia adelante *¿cuándo me van a deber?*. Es la misma corrección que `cobranza-prevista.ts`
+   * ya declaró para la curva semanal, aplicada al día.
+   *
+   * ── ⛔ EL TIPO DE CUENTA NO ES COSMÉTICO ACÁ ──────────────────────────────────────────────
+   * Medido el mismo día: de los $26,081,506.31 `interno` (plaza contra plaza), **CERO están por
+   * vencer** — el 100% ya venció. Sin separar cuentas, la agenda se llena de saldos entre plazas
+   * propias que nadie va a cobrar por teléfono.
+   *
+   * ── Lo que NINGÚN día puede mostrar, y por eso se declara ─────────────────────────────────
+   * El eje es `vencimiento`, que sólo existe a nivel DOCUMENTO; el saldo canónico es el de `kdue`
+   * por CLIENTE. La resta no tiene fecha: medido hoy, **$612,428.11 sobre $61,525,623.34 (1.0%)**.
+   * Va en `cobertura`, nunca repartido a dedo (ADR-056). ⚠️ `sin_vencimiento` se calcula aunque
+   * hoy mida 0: una ausencia que hoy vale cero no autoriza a dejar de medirla.
+   *
+   * ⛔ **La promesa de pago NO es el eje.** `finance.collection_promises` sería la respuesta más
+   * literal a «qué día debo cobrar» — y está **VACÍA en prod (0 filas, medido)**. Una agenda
+   * montada ahí abriría en blanco. Cuando se empiece a usar, se superpone; no se reemplaza.
+   *
+   * ⚠️ **Pasada propia, no la de `cartera()`.** Se consideró colgarlo del mismo `SELECT` (que es
+   * lo que `[CXC.20]` hizo con el resumen), y se descartó midiendo: las filas (día × cliente) son
+   * **5,652 para la cartera completa** y viajarían en cada carga de la vista por cliente, que no
+   * las usa. Acá la pirámide se paga una vez al abrir (**2.4 s medidos en prod**) y **todos los
+   * drills por día son locales, sin más requests**. Esos 2.4 s son la deuda ya bautizada
+   * `[CXC.21]`, no un costo nuevo.
+   *
+   * ── ⛔ NO HAY VENTANA, Y ESO SE DECIDIÓ MIDIENDO ──────────────────────────────────────────
+   * La primera versión traía el desglose sólo de una ventana (±30 días) para no cargar de más.
+   * Medido en prod, esa ventana **no ahorraba nada y sí escondía $29.7M**:
+   *
+   *     ventana -30/+30 ....... 2,890 filas ·   787 KB ·  2,311 ms
+   *     ventana -90/+30 ....... 4,405 filas · 1,184 KB ·  2,374 ms
+   *     TODO ................. 5,652 filas · 1,480 KB ·  2,413 ms   ← gzip: 119 KB (12.4×)
+   *
+   * El costo es **la pirámide**, no el recorte: pedir todo sale igual de caro que pedir un mes.
+   * Y la app comprime (`compression({ threshold: 1024 })` en `main.ts`), así que la agenda
+   * COMPLETA viaja en **119 KB**. Una ventana acá sólo compraba un botón de «ampliá para ver el
+   * resto» sobre la mitad del dinero. ⚠️ El tamaño es una medición, no una garantía: el smoke
+   * `test-newdb-cartera-por-dia.js` tiene el techo puesto, así que el día que crezca se pone
+   * rojo un test en vez de ponerse lenta una pantalla.
+   */
+  async porDia(q: PorDiaQuery = {}): Promise<PorDiaResp> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cond: string[] = [];
+    const bind: BindValue[] = [tenantId];
+    const add = (sql: string, ...v: BindValue[]): void => { cond.push(sql); bind.push(...v); };
+    if (q.sucursal) add('d.sucursal = ?', q.sucursal);
+    if (q.vendedor) add('d.vendedor = ?', q.vendedor);
+    if (q.grupo) add('d.grupo = ?', q.grupo);
+    if (q.zona) add('d.zona = ?', q.zona);
+    if (q.cuenta) add('d.cuenta_kind = ?', q.cuenta);
+    if (q.search) {
+      const s = `%${q.search.trim()}%`;
+      add('(d.cliente_code ILIKE ? OR d.cliente_nombre ILIKE ? OR d.rfc ILIKE ?)', s, s, s);
+    }
+    const filtros = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+
+    const sql = `
+      WITH h AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+      cuenta AS MATERIALIZED (SELECT cliente_code, kind FROM analytics.v_customer_account_kind),
+      doc AS MATERIALIZED (
+        SELECT r.sucursal, r.cliente_code, NULLIF(btrim(r.vendedor), '') AS vendedor,
+               r.grupo, NULLIF(btrim(COALESCE(r.zona, '')), '') AS zona,
+               r.telefono, r.vencimiento, r.saldo_cliente, r.dias_credito,
+               r.fecha, r.folio_digital, r.doc_label, r.importe,
+               GREATEST(COALESCE(r.saldo_ajustado, 0), 0) AS res,
+               c.name AS cliente_nombre, c.rfc AS rfc,
+               COALESCE(k.kind, analytics.customer_account_kind(r.cliente_code, NULL)) AS cuenta_kind
+          FROM analytics.customer_receivables r
+          LEFT JOIN analytics.erp_customers c
+                 ON c.tenant_id = r.tenant_id AND c.erp_code = r.cliente_code
+          LEFT JOIN cuenta k ON k.cliente_code = btrim(r.cliente_code)
+         WHERE r.tenant_id = ? AND r.cargo_abono = 'C'
+      ),
+      vnd AS (
+        SELECT DISTINCT ON (btrim(sucursal), btrim(c2))
+               btrim(sucursal) AS suc, btrim(c2) AS code, NULLIF(btrim(c3), '') AS nombre
+          FROM kepler_ods.kduv
+         WHERE btrim(COALESCE(c2, '')) <> '' ORDER BY 1, 2
+      ),
+      /*
+       * ⭐ El catálogo de ZONAS de Kepler (\`kduk\`), que nadie estaba resolviendo: la cartera
+       * mostraba el código pelado (\`10000\`, \`30000\`, \`01\`) en el filtro, en la tabla y en el
+       * rollup por zona.
+       *
+       * ⚠️ **Se junta por CÓDIGO, no por (sucursal, código), y eso se midió.** El catálogo está
+       * replicado por sucursal —35 filas para 6 códigos— pero **ninguna sucursal tiene las seis**.
+       * Medido en prod (2026-09-25):
+       *
+       *     join estricto (sucursal, código) ... 4,223 filas · $42,379,856.93
+       *     ...sin resolver, TENIENDO zona ..... 1,390 filas ·  $3,211,076.61  ← se perdían
+       *     join por código solo ............... 5,613 filas · $45,590,933.54  ← todas
+       *
+       * El join por código es seguro porque el código→nombre es **unívoco en todo el catálogo**:
+       * códigos con más de un nombre = **0**. Si algún día deja de serlo, \`ambigua\` lo delata y
+       * hay que volver a (sucursal, código) — no elegir un nombre a dedo.
+       *
+       * ⛔ DEUDA CON NOMBRE (ADR-056): esto es un resolvedor y hoy vive dentro de una consulta.
+       * Cuando aparezca el segundo consumidor —el filtro y el rollup por zona de la vista por
+       * cliente son los candidatos obvios— sube a \`analytics.v_kepler_zone\`. No se creó la vista
+       * ya porque exigiría aplicar una migración a prod para que este código funcione allá, y eso
+       * es una acción aparte de esta entrega.
+       */
+      zon AS MATERIALIZED (
+        SELECT btrim(c1) AS code, min(btrim(c2)) AS nombre,
+               count(DISTINCT btrim(c2)) > 1 AS ambigua
+          FROM kepler_ods.kduk WHERE btrim(COALESCE(c1, '')) <> '' GROUP BY 1
+      ),
+      -- ⚠️ El filtro se aplica ANTES de recortar por saldo vivo: la cobertura tiene que medirse
+      -- sobre el MISMO universo que la agenda, si no el denominador es otro y el % miente.
+      fil AS (SELECT d.* FROM doc d ${filtros}),
+      -- El canónico es por CLIENTE (kdue), el repartible es por DOCUMENTO.
+      -- ⚠️ El residual va FILTRADO a \`res > 0.005\`, exactamente como el \`bucket('true')\` de
+      -- \`cartera()\`. Hoy las dos formas dan lo mismo al centavo (medido), pero si acá se sumaran
+      -- también las migajas sub-centavo, las dos pantallas publicarían totales distintos el día
+      -- que aparezca una — y nadie sabría cuál mira.
+      cli AS (SELECT sucursal, cliente_code, max(saldo_cliente) AS sc,
+                     COALESCE(sum(res) FILTER (WHERE res > 0.005), 0) AS res
+                FROM fil GROUP BY 1, 2),
+      viva AS (SELECT * FROM fil WHERE res > 0.005),
+      dias AS (
+        SELECT f.vencimiento AS fecha, round(sum(f.res), 2) AS monto,
+               count(*)::int AS docs,
+               count(DISTINCT f.sucursal || '|' || f.cliente_code)::int AS clientes
+          FROM viva f WHERE f.vencimiento IS NOT NULL GROUP BY 1
+      ),
+      /*
+       * ⭐ El desglose baja a **FACTURA**, no a cliente-por-día. El agregado por (día, cliente) se
+       * puede derivar de acá sumando; al revés no, y «qué facturas tiene vencidas» es la pregunta
+       * que hace el que va a cobrar.
+       *
+       * ⛔ **Ni un signo de interrogación en estos comentarios.** Están DENTRO del string que va a
+       * knex.raw(), y knex cuenta los signos de interrogación como placeholders de binding sin
+       * mirar si están en un comentario: una pregunta escrita acá adentro suma DOS binds fantasma
+       * (el de apertura y el de cierre) y la consulta revienta con *could not determine data type
+       * of parameter*. Es la misma trampa que \`[CXC.25]\` pagó con un regex y \`[CV.7]\` con otro.
+       * La escribí y caí en ella dos veces seguidas: la segunda, redactando este mismo aviso.
+       *
+       * Medido antes de cambiarlo: 6,913 documentos contra 5,652 pares (día × cliente) — apenas
+       * 22% más filas, y gzipeado son **126 KB contra 119 KB**. Siete kilobytes por pasar de un
+       * número a los folios que lo componen. Y el renglón del cliente pasa a ser la SUMA DE SUS
+       * PROPIAS FACTURAS: ya no puede discrepar de su desglose, porque es su desglose.
+       */
+      /*
+       * ⚠️ **La respuesta va NORMALIZADA: el cliente una vez, la factura muchas.** No es
+       * elegancia, es tamaño medido: con el nombre del cliente, el del vendedor, el de la zona y
+       * el teléfono repetidos en cada una de las 6,913 facturas, la respuesta pesaba
+       * **205 KB gzipeados**; separando los 1,307 clientes en su propia lista baja a la mitad.
+       * Y de paso el nombre vive en UN lugar, así que no puede discrepar consigo mismo.
+       *
+       * La llave que las une es \`suc|code\`, armada acá y no en la pantalla: si cada lado la
+       * construyera por su cuenta, el día que una cambie de forma el join falla en silencio y
+       * el drill sale vacío en vez de romperse.
+       */
+      cliente AS (
+        SELECT DISTINCT ON (f.sucursal, f.cliente_code)
+               f.sucursal || '|' || f.cliente_code AS k,
+               f.sucursal, f.cliente_code, f.cliente_nombre, f.telefono, f.zona,
+               f.cuenta_kind, f.dias_credito, f.vendedor
+          FROM viva f WHERE f.vencimiento IS NOT NULL
+         ORDER BY f.sucursal, f.cliente_code, f.fecha DESC
+      )
+      SELECT (SELECT d FROM h)::text AS hoy,
+        COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.fecha) FROM (
+            SELECT fecha::text AS fecha, monto, docs, clientes FROM dias) x), '[]'::jsonb) AS dias,
+        COALESCE((SELECT jsonb_agg(to_jsonb(y) ORDER BY y.fecha, y.saldo DESC) FROM (
+            SELECT f.vencimiento::text AS fecha,
+                   f.sucursal || '|' || f.cliente_code AS k,
+                   f.folio_digital, f.doc_label, f.fecha::text AS fecha_doc,
+                   round(f.importe, 2) AS importe, round(f.res, 2) AS saldo
+              FROM viva f WHERE f.vencimiento IS NOT NULL) y),
+          '[]'::jsonb) AS documentos,
+        COALESCE((SELECT jsonb_agg(to_jsonb(w) ORDER BY w.cliente_nombre) FROM (
+            SELECT c.k, c.sucursal, c.cliente_code, c.cliente_nombre, c.telefono,
+                   c.zona, z.nombre AS zona_nombre, c.vendedor, n.nombre AS vendedor_nombre,
+                   c.cuenta_kind, c.dias_credito
+              FROM cliente c
+              LEFT JOIN vnd n ON n.suc = c.sucursal AND n.code = c.vendedor
+              LEFT JOIN zon z ON z.code = c.zona) w),
+          '[]'::jsonb) AS clientes,
+        jsonb_build_object(
+          -- Va aunque hoy no haya ninguna ambigua: una compuerta que sólo se sirve cuando ya
+          -- falló no es una compuerta.
+          'zonas', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+              'code', z.code, 'nombre', z.nombre, 'ambigua', z.ambigua) ORDER BY z.nombre)
+            FROM zon z), '[]'::jsonb)
+        ) AS catalogos,
+        jsonb_build_object(
+          'sucursales', COALESCE((SELECT jsonb_agg(DISTINCT d.sucursal) FROM doc d WHERE d.sucursal IS NOT NULL), '[]'::jsonb),
+          'grupos',     COALESCE((SELECT jsonb_agg(DISTINCT d.grupo)    FROM doc d WHERE d.grupo    IS NOT NULL), '[]'::jsonb),
+          'zonas',      COALESCE((SELECT jsonb_agg(DISTINCT d.zona)     FROM doc d WHERE d.zona     IS NOT NULL), '[]'::jsonb),
+          'cuentas',    COALESCE((SELECT jsonb_agg(DISTINCT d.cuenta_kind) FROM doc d WHERE d.cuenta_kind IS NOT NULL), '[]'::jsonb),
+          'vendedores', COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+                            'sucursal', d.sucursal, 'code', d.vendedor, 'nombre', n.nombre))
+                          FROM doc d LEFT JOIN vnd n ON n.suc = d.sucursal AND n.code = d.vendedor
+                         WHERE d.vendedor IS NOT NULL), '[]'::jsonb)
+        ) AS opciones,
+        jsonb_build_object(
+          'canonico',        (SELECT round(COALESCE(sum(GREATEST(sc, 0)), 0), 2) FROM cli),
+          'repartible',      (SELECT round(COALESCE(sum(res), 0), 2) FROM cli),
+          -- CON SIGNO y con el mismo umbral que \`cartera()\`: si en algún cliente el desglose por
+          -- documento supera al saldo de kdue, eso RESTA. Clampearlo a 0 inflaría la cobertura
+          -- justo en el caso raro que hay que ver. Hoy no hay ninguno (medido: 0 clientes).
+          'sin_documento',   (SELECT round(COALESCE(sum(GREATEST(sc, 0) - res)
+                                 FILTER (WHERE abs(GREATEST(sc, 0) - res) > 0.005), 0), 2) FROM cli),
+          'sin_vencimiento', (SELECT round(COALESCE(sum(res), 0), 2) FROM viva WHERE vencimiento IS NULL),
+          'clientes',        (SELECT count(*)::int FROM cli WHERE GREATEST(sc, 0) > 0.005)
+        ) AS cobertura,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'code', w.code,
+            'name', COALESCE(NULLIF(btrim(w.name), ''), NULLIF(btrim(w.short_label), ''), w.code),
+            'orden', w.display_order) ORDER BY w.display_order NULLS LAST, w.code)
+          FROM commercial.warehouses w
+         WHERE w.tenant_id = ? AND w.deleted_at IS NULL AND w.code ~ '^[0-9]{2}$'), '[]'::jsonb)
+          AS almacenes`;
+
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(sql, [...bind, tenantId]);
+      const a = r.rows[0];
+      const freshness = await this.freshness(trx);
+      const hoy: string = a.hoy;
+
+      // ⚠️ El veredicto (vencido / hoy / futuro) lo emite el SERVIDOR, no la pantalla. Restar
+      // fechas en el navegador es donde un equipo en otra zona horaria cambia de día — el mismo
+      // error que la Fase VP midió en 21 de 24 píldoras de frescura.
+      const dias: DiaCartera[] = ((a.dias as FilaDiaCruda[]) || []).map((x) => {
+        const off = diasEntre(hoy, x.fecha);
+        return {
+          fecha: x.fecha as string,
+          estado: (off < 0 ? 'vencido' : off === 0 ? 'hoy' : 'futuro') as DiaEstado,
+          dias_offset: off,
+          monto: M2(x.monto), docs: Number(x.docs) || 0, clientes: Number(x.clientes) || 0,
+        };
+      });
+
+      const documentos: DiaDocumento[] = ((a.documentos as FilaDocCruda[]) || []).map((x) => {
+        const off = diasEntre(hoy, x.fecha);
+        return {
+          fecha: x.fecha, dias_offset: off,
+          estado: (off < 0 ? 'vencido' : off === 0 ? 'hoy' : 'futuro') as DiaEstado,
+          k: x.k,
+          folio_digital: x.folio_digital || '—',
+          doc_label: x.doc_label || 'Documento',
+          fecha_doc: x.fecha_doc || null,
+          importe: M2(x.importe), saldo: M2(x.saldo),
+        };
+      });
+
+      // El nombre de la plaza sale del MISMO catálogo que alimenta el desplegable de sucursal —
+      // `commercial.warehouses` vía `opciones()`—, no de una segunda lista. Un código que no esté
+      // ahí llega `null` y la pantalla muestra el número: ocultarlo volvería a esconder dinero.
+      const filtros = this.opciones(a);
+      const nombreSuc = new Map<string, string>();
+      for (const s of filtros.sucursales) if (s.nombre) nombreSuc.set(s.code, s.nombre);
+
+      const clientes: DiaClienteRef[] = ((a.clientes as FilaClienteCruda[]) || []).map((x) => ({
+        k: x.k, sucursal: x.sucursal,
+        sucursal_nombre: nombreSuc.get(x.sucursal) ?? null,
+        cliente_code: x.cliente_code, cliente_nombre: x.cliente_nombre || x.cliente_code,
+        telefono: x.telefono || null,
+        zona: x.zona || null, zona_nombre: x.zona_nombre || null,
+        vendedor: x.vendedor || null, vendedor_nombre: x.vendedor_nombre || null,
+        // Un `kind` que llegue vacío NO se asume nada raro: cae a `cliente_final`, igual que en
+        // `cartera()`, para que las dos vistas repartan por tipo con el mismo criterio.
+        cuenta_kind: (CUENTA_KINDS.includes(x.cuenta_kind as CuentaKind) ? x.cuenta_kind : 'cliente_final') as CuentaKind,
+        dias_credito: x.dias_credito != null ? Number(x.dias_credito) : null,
+      }));
+
+      // Los totales salen de `dias`, o sea de la MISMA suma que la tabla: no pueden discrepar de
+      // lo que el usuario está viendo.
+      const sum = (p: (x: DiaCartera) => boolean) => r2(dias.filter(p).reduce((s, x) => s + x.monto, 0));
+      const cob = a.cobertura || {};
+
+      return {
+        hoy, freshness,
+        dias, documentos, clientes,
+        totales: {
+          vencido: sum((x) => x.estado === 'vencido'),
+          hoy: sum((x) => x.estado === 'hoy'),
+          futuro: sum((x) => x.estado === 'futuro'),
+          // Cuántos días tiene cada lado: «$53M vencidos» no dice lo mismo que «$53M repartidos
+          // en 273 días», y la segunda es la que explica por qué no se cobra de un tirón.
+          dias_vencidos: dias.filter((x) => x.estado === 'vencido').length,
+          dias_futuros: dias.filter((x) => x.estado === 'futuro').length,
+        },
+        cobertura: {
+          canonico: M2(cob.canonico), repartible: M2(cob.repartible),
+          sin_documento: M2(cob.sin_documento), sin_vencimiento: M2(cob.sin_vencimiento),
+          clientes: Number(cob.clientes) || 0,
+        },
+        // El MISMO constructor de opciones que la vista por cliente: un segundo builder acá
+        // sería el primitivo duplicado que ADR-056 manda no volver a escribir.
+        filtros,
+        catalogos: {
+          zonas: (((a.catalogos || {}).zonas as ZonaCatalogo[]) || []).map((z) => ({
+            code: z.code, nombre: z.nombre, ambigua: !!z.ambigua,
+          })),
+        },
+      };
+    });
   }
 
   /** CXC.12 — tendencia de cartera (snapshots diarios). Sin sucursal = red (suma por día). */

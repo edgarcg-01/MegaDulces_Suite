@@ -9,6 +9,9 @@ import {
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
+import {
+  rankearCaos, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
+} from './caja-caos-match.engine';
 
 /**
  * CG.13 — El libro de caja. La plataforma como FUENTE PRINCIPAL del efectivo (ADR-070).
@@ -60,6 +63,12 @@ export interface CreateMovementInput {
   monto_contado?: number;
   morralla?: number;
   denominaciones?: DenominationInput[];
+  /**
+   * CS.3.4 — Retiros del cajero (CAOS) que financiaron esta captura. Se escriben en
+   * `finance.caos_cash_links`: consumen el movimiento (no se cuenta dos veces) y alimentan el
+   * aprendizaje del detector.
+   */
+  caos_links?: Array<{ device: string; external_id: number; monto: number; senales?: Record<string, unknown> }>;
   origen_tipo?: string;
   origen_ref?: string;
   origen_uuid?: string;
@@ -430,6 +439,22 @@ export class CashLedgerService {
           dens.map((d) => ({ tenant_id: tenantId, cash_ledger_id: mov.id, denominacion: d.denominacion, piezas: d.piezas })),
         );
       }
+      // CS.3.4 — Enlaces al cajero (CAOS): registran qué retiros financiaron esta captura, CONSUMEN
+      // el movimiento (candado ux_caos_link_vivo → un 23505 = ya estaba enlazado, y la captura entera
+      // se revierte, que es lo correcto: no se consume dos veces) y alimentan el aprendizaje. Guard:
+      // la tabla puede no existir si el código va por delante de su migración.
+      const links = input.caos_links ?? [];
+      if (links.length && await this.tablaCaosLinks(trx)) {
+        await trx('finance.caos_cash_links').insert(links.map((k) => ({
+          tenant_id: tenantId,
+          cash_ledger_id: mov.id,
+          caos_device: k.device,
+          caos_external_id: k.external_id,
+          monto_enlazado: k.monto,
+          senales: k.senales ? JSON.stringify(k.senales) : null,
+          confirmed_by: user.id,
+        })));
+      }
       // Que el monto del formulario NO coincidiera con el del documento se DICE. Es un dato de
       // diagnóstico, no un error: el que manda es el de Kepler y ya se guardó ése. Si esto aparece
       // seguido, el front está mandando una cifra propia y hay que ir a verlo.
@@ -617,6 +642,12 @@ export class CashLedgerService {
              AND l.origen_tipo = 'caos'
              AND l.origen_ref = m.device || '|' || m.external_id
              AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`));
+      // CS.3.3 — excluye lo ya ENLAZADO a un gasto (consumido). Guarda: la tabla puede no existir
+      // todavía si el código va por delante de su migración.
+      if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
+        .select(trx.raw('1')).from('finance.caos_cash_links as k')
+        .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
+           AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`));
       if (q.to) qb = qb.where('m.occurred_at', '<=', new Date(new Date(q.to).getTime() + 86400000).toISOString().slice(0, 10));
       if (q.tipo === 'ingreso') qb = qb.where('m.type_id', 0);
       if (q.tipo === 'gasto') qb = qb.where('m.type_id', 4);
@@ -663,6 +694,96 @@ export class CashLedgerService {
       }));
 
       return { rows, limit, has_more: movs.length === limit, desde, datos_al: await this.frescuraCaos(trx, tenantId) };
+    });
+  }
+
+  /** ¿Existe ya `finance.caos_cash_links`? El código puede ir por delante de su migración. Cacheado. */
+  private caosLinksTabla: boolean | null = null;
+  private async tablaCaosLinks(trx: any): Promise<boolean> {
+    if (this.caosLinksTabla !== null) return this.caosLinksTabla;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('finance.caos_cash_links') AS t`);
+      this.caosLinksTabla = !!(r?.rows?.[0]?.t);
+    } catch { this.caosLinksTabla = false; }
+    return this.caosLinksTabla;
+  }
+
+  /**
+   * CS.3.3 — PROPONE qué retiros del cajero (CAOS) pudieron pagar el gasto que se está capturando.
+   *
+   * El "detecta automático" hecho honesto: rankea las dispensaciones SIN consumir por los patrones
+   * MEDIDOS (mismo día ≫ ±días · ref↔beneficiario · monto ≤ gasto) y por lo APRENDIDO
+   * (`v_caos_link_patterns`), y devuelve el top con score + motivos + confianza. NO aplica nada: el
+   * humano confirma con un toque (1 de 3 "matches" por monto es falso — medido). Excluye lo ya
+   * capturado (`cash_ledger` origen='caos') y lo ya enlazado (`caos_cash_links`).
+   *
+   * Para un gasto busca DISPENSACIONES (type 4); para un ingreso, DEPÓSITOS (0). Ventana ±7 días
+   * (la señal vive en ±3; el ranking penaliza lo lejano). `analytics.*` sin RLS → tenant explícito.
+   */
+  async caosCandidatos(q: { fecha?: string; monto?: number; beneficiario?: string; concepto?: string; sucursal?: string; tipo?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fecha = (q.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const limit = Math.min(Math.max(Number(q.limit) || 8, 1), 50);
+    const typeId = q.tipo === 'ingreso' ? 0 : 4;
+    const t0 = Date.parse(`${fecha}T00:00:00Z`);
+    const desde = new Date(t0 - 7 * 86400000).toISOString().slice(0, 10);
+    const hasta = new Date(t0 + 8 * 86400000).toISOString().slice(0, 10); // +7d, exclusivo (+1)
+    return this.tk.run(async (trx) => {
+      let qb = trx('analytics.caos_cash_movements as m')
+        .where('m.tenant_id', tenantId)
+        .where('m.type_id', typeId)
+        .where('m.occurred_at', '>=', desde)
+        .where('m.occurred_at', '<', hasta)
+        .whereNotExists((sub: any) => sub.select(trx.raw('1')).from('finance.cash_ledger as l')
+          .whereRaw(`l.tenant_id = m.tenant_id AND l.origen_tipo='caos'
+             AND l.origen_ref = m.device || '|' || m.external_id
+             AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`));
+      // Guarda: excluye lo ya enlazado sólo si la tabla existe (código puede ir por delante de la mig).
+      if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
+        .select(trx.raw('1')).from('finance.caos_cash_links as k')
+        .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
+           AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`));
+      const movs = await qb
+        .orderBy([{ column: 'm.occurred_at', order: 'desc' }])
+        .limit(200) // candidatos crudos; el ranking recorta a `limit`
+        .select('m.id', 'm.device', 'm.external_id', 'm.type_label', 'm.occurred_at',
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref', 'm.sucursal');
+
+      const ids = movs.map((r: any) => r.id);
+      const dens = ids.length
+        ? await trx('analytics.caos_cash_denominations').where('tenant_id', tenantId).whereIn('movement_id', ids)
+          .select('movement_id', 'denom', 'quantity')
+        : [];
+      const porMov = new Map<string, Array<{ denominacion: number; piezas: number }>>();
+      for (const d of dens as any[]) {
+        const a = porMov.get(d.movement_id) || [];
+        a.push({ denominacion: Number(d.denom), piezas: Number(d.quantity) });
+        porMov.set(d.movement_id, a);
+      }
+      const candidatos: CaosCand[] = movs.map((m: any) => ({
+        origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
+        type_label: m.type_label, fecha_valor: String(m.accounting_date || m.occurred_at).slice(0, 10),
+        sucursal: m.sucursal || '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+        denominaciones: porMov.get(m.id) || [],
+      }));
+
+      // Lo APRENDIDO: si la vista aún no existe (deploy por delante de la migración), se sigue sin ella.
+      let aprendido: Map<string, PatronAprendido> | undefined;
+      try {
+        const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
+          .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
+        aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
+          ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
+          concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
+        }]));
+      } catch { aprendido = undefined; }
+
+      const g: CaosGastoCtx = {
+        monto: q.monto != null ? Number(q.monto) : null, fecha,
+        beneficiario: q.beneficiario, concepto: q.concepto, sucursal: q.sucursal,
+      };
+      const rows = rankearCaos(g, candidatos, aprendido).slice(0, limit);
+      return { rows, fecha, datos_al: await this.frescuraCaos(trx, tenantId) };
     });
   }
 
@@ -735,6 +856,21 @@ export class CashLedgerService {
       : new Map<string, MapaRuta>();
     const reglas = hayGasto ? await this.reglasDeGasto(trx, tenantId) : [];
 
+    // CS.3.1b — Piso de resolución: la contra-cuenta del PROPIO documento (su póliza de Kepler),
+    // traída por página. Sólo se usa cuando regla/ruta NO resolvieron. Su cuenta es AUTORITATIVA
+    // (lo que Kepler posteó) → la pantalla la muestra BLOQUEADA. El concepto se fija si la cuenta
+    // tiene uno solo; si tiene varios, queda una elección ACOTADA a esa cuenta (no un buscador en
+    // blanco). Medido: contra limpia 99.75%, la consulta batch 19 ms/100 docs.
+    const contra = await this.contraDeDocumentos(trx, tenantId, rows);
+    const paresCuenta = new Map<string, { sucursal: string; cuenta: string }>();
+    for (const r of rows) {
+      const cc = contra.get(this.claveDoc(r));
+      if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
+        paresCuenta.set(`${r.sucursal}|${cc.contra_cuenta}`, { sucursal: String(r.sucursal), cuenta: cc.contra_cuenta });
+      }
+    }
+    const conceptos = await this.conceptosDeCuenta(trx, tenantId, [...paresCuenta.values()]);
+
     return rows.map((r: any) => {
       const v: Confirmable = r.tipo === 'ingreso'
         ? esConfirmable(
@@ -743,14 +879,89 @@ export class CashLedgerService {
         : cuentaPorRegla(
             { tipo: r.tipo, glosa: r.concepto, beneficiario: r.beneficiario ?? r.entidad_code, monto: Number(r.monto) },
             reglas);
-      return v.ok
-        ? { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto }
-        // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
-        // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
-        // cuenta contable.
-        : { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
-            motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
+      if (v.ok) {
+        return { ...r, confirmable: true, kepler_cuenta: v.kepler_cuenta, kepler_concepto: v.kepler_concepto,
+          cuenta_fuente: r.tipo === 'ingreso' ? 'ruta' : 'regla' };
+      }
+      // Piso CS.3.1b — la contra del propio documento, cuando regla/ruta no alcanzaron.
+      const cc = contra.get(this.claveDoc(r));
+      if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
+        const cs = conceptos.get(`${r.sucursal}|${cc.contra_cuenta}`) ?? [];
+        if (cs.length === 1) {
+          return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
+            kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
+        }
+        // La CUENTA es autoritativa (del documento) → se bloquea. El CONCEPTO es una elección
+        // acotada a esa cuenta (o manual, si la cuenta no está en el catálogo de conceptos). NO es
+        // "faltan datos": el dato de Kepler ya está, sólo se afina el concepto.
+        return { ...r, confirmable: false, kepler_cuenta: cc.contra_cuenta, kepler_concepto: null,
+          kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento', cuenta_bloqueada: true,
+          conceptos_cuenta: cs, motivo: 'elegir_concepto',
+          motivo_texto: cs.length
+            ? `La cuenta ${cc.contra_cuenta} viene del documento; elegí el concepto (${cs.length} ${cs.length === 1 ? 'opción' : 'opciones'}).`
+            : `La cuenta ${cc.contra_cuenta} viene del documento; falta el concepto.` };
+      }
+      // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
+      // por qué la deja fuera obliga a la pantalla a adivinar, y adivinar acá es inventar una
+      // cuenta contable.
+      return { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+        motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
     });
+  }
+
+  /** CS.3.1b — Llave del documento de caja = la misma que la póliza usa (doc_tipo COMPACTO). */
+  private claveDoc(r: { sucursal: any; doc_tipo: any; folio: any }): string {
+    return `${r.sucursal}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
+  }
+
+  /**
+   * doc_tipo (`X-D-26`) → tipo_pol compacto de la póliza (`XD2601`). Formato Kepler:
+   * `c2 c3 lpad(c4,2) c5`, y para estos doctypes de caja `c5='01'`. Verificado en prod:
+   * XD2601 / XD6001 / XD2501 / XA4501 / UA0501.
+   */
+  private tipoPolCompacto(docTipo: any): string {
+    const p = String(docTipo ?? '').split('-');
+    if (p.length < 3) return '';
+    return p[0] + p[1] + String(p[2]).padStart(2, '0') + '01';
+  }
+
+  /**
+   * CS.3.1b — La contra-cuenta del propio documento, por página (batch). Medido 19 ms / 100 docs
+   * contra `analytics.v_caja_doc_contracuenta`. `contra_n>1` (split) NO se usa: se declara y cae a
+   * manual, nunca se inventa una sola cuenta para una póliza repartida.
+   */
+  private async contraDeDocumentos(trx: any, tenantId: string, rows: any[]) {
+    const m = new Map<string, { contra_n: number; contra_cuenta: string; contra_cuenta_nombre: string | null }>();
+    const tuplas = rows
+      .map((r) => [String(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
+      .filter((t) => t[1]);
+    if (!tuplas.length) return m;
+    const filas = await trx('analytics.v_caja_doc_contracuenta')
+      .where('tenant_id', tenantId)
+      .whereIn(['sucursal', 'tipo_pol', 'folio'], tuplas)
+      .select('sucursal', 'tipo_pol', 'folio', 'contra_n', 'contra_cuenta', 'contra_cuenta_nombre');
+    for (const f of filas as any[]) {
+      m.set(`${f.sucursal}|${f.tipo_pol}|${f.folio}`,
+        { contra_n: Number(f.contra_n), contra_cuenta: f.contra_cuenta, contra_cuenta_nombre: f.contra_cuenta_nombre });
+    }
+    return m;
+  }
+
+  /** CS.3.1b — Los conceptos válidos de cada (sucursal, cuenta), para la elección acotada. */
+  private async conceptosDeCuenta(trx: any, tenantId: string, pares: Array<{ sucursal: string; cuenta: string }>) {
+    const m = new Map<string, Array<{ concepto: string; concepto_nombre: string | null }>>();
+    if (!pares.length) return m;
+    const filas = await trx('analytics.v_kepler_conceptos')
+      .where('tenant_id', tenantId)
+      .whereIn(['sucursal', 'cuenta'], pares.map((p) => [p.sucursal, p.cuenta]))
+      .select('sucursal', 'cuenta', 'concepto', 'concepto_nombre')
+      .orderBy(['cuenta', 'concepto']);
+    for (const f of filas as any[]) {
+      const k = `${f.sucursal}|${f.cuenta}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push({ concepto: f.concepto, concepto_nombre: f.concepto_nombre });
+    }
+    return m;
   }
 
   /**

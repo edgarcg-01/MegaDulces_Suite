@@ -172,6 +172,100 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         compuerta de 5 casos de la propia migración. Es `[CV.7]` con otra cara → todos los
         cuantificadores se escriben **`{0,1}`**, nunca `?`.
       · Candado `test-newdb-cartera-tipo-cuenta.js`, **14 ✔ contra prod**, en la regresión.
+- [x] **[CXC.26]** 🧪 ⭐ **La cartera por DÍA: «¿quiénes me deben estos días?» y «¿qué día debo
+      cobrar?».** Tercer segmento del control de Crédito → `/finanzas/cartera/dia`. Mismo dato,
+      mismo permiso (`FINANCE_RECEIVABLES_VER`), el calendario como eje.
+      · ⛔ **La lectura ingenua del pedido era un calendario hacia adelante, y ese calendario está
+        casi vacío.** Medido contra el prod real (`md`/`pg-prod`, 2026-09-25): **$7,919,882.92
+        vencen hoy o después (13.0%)** contra **$53,015,537.54 ya vencidos (87.1%), repartidos en
+        273 días distintos**. Una pantalla sólo-futuro habría dicho «tenés $7.9M por cobrar» sobre
+        una cartera de $61M. Por eso el eje va **a los dos lados**: hacia atrás el día contesta
+        *¿desde cuándo me deben?*, hacia adelante *¿cuándo me van a deber?*. Es la corrección que
+        `[CXC.22]` ya había declarado para la curva semanal, aplicada al día.
+      · ⛔ **No hay ventana, y eso se decidió midiendo.** La primera versión traía el desglose de
+        ±30 días «para no cargar de más». Medido en prod: `-30/+30` = 2,890 filas / 787 KB /
+        2,311 ms · `-90/+30` = 4,405 / 1,184 KB / 2,374 ms · **TODO = 5,652 / 1,480 KB /
+        2,413 ms**. El costo es **la pirámide de CTEs, no el recorte**: pedir todo sale igual que
+        pedir un mes, y con el `compression()` del API la agenda completa viaja en **119 KB
+        (12.4×)**. La ventana sólo compraba un botón de «ampliá para ver el resto» sobre
+        **$29.7M**. El techo quedó puesto en el smoke: el día que crezca se pone rojo un test, no
+        lenta una pantalla.
+      · ⛔ **La promesa de pago NO puede ser el eje**, aunque sea la respuesta más literal a «qué
+        día debo cobrar»: `finance.collection_promises` tiene **0 filas** en prod. Una agenda
+        montada ahí abriría en blanco. Cuando se empiece a usar, se superpone; no reemplaza al
+        vencimiento.
+      · **El tipo de cuenta pesa más acá que en la vista por cliente**: de los **$26,081,506.31**
+        entre plazas propias (`interno`), **CERO están por vencer** — el 100% ya venció. Sin
+        separarlas, la agenda de cobranza se llena de saldos que nadie va a cobrar por teléfono.
+        Abre en «Todas», igual que `[CXC.25]` y por el mismo motivo: el reparto se ve siempre y
+        filtrar es un clic.
+      · **El puente con la vista por cliente cierra al centavo**: `repartible + sin_documento ==
+        canónico` y `Σ días + sin_vencimiento == repartible`. El residual usa el **mismo umbral**
+        (`res > 0.005`) que el `bucket('true')` de `cartera()`, para que las dos vistas no puedan
+        publicar totales distintos. Lo que ningún día puede colocar se **declara**:
+        `sin_documento` **$612,428.11 (1.0%)** con su monto, y `sin_vencimiento` se mide aunque
+        hoy valga 0 (ADR-056).
+      · ⛔ **El chip marcaba la pestaña equivocada.** `actual()` resolvía con
+        `find(url.startsWith(o.value))`: estando en `/finanzas/cartera/dia` se encendía **«Por
+        cliente»**, porque es la primera opción y su ruta es prefijo de la otra. Ahora gana el
+        prefijo **más largo** y el corte es **por segmento** (`/finanzas/carteras` ya no casa).
+      · ⛔ **`/finanzas/cartera` ignoraba por completo los query params**, así que el enlace del
+        drill al auxiliar habría sido un enlace que se ve bien y no hace nada. Se agregó el deep
+        link `?suc=&cliente=`. Y **no** usa `multitarea.enlaceDetalle()`: en pantalla partida
+        devuelve un `UrlTree`, y el `RouterLink` de Angular **ignora `queryParams`** cuando su
+        entrada ya es un `UrlTree` (verificado en el fuente de `@angular/router`:
+        `isUrlTree(input)` → `return input`).
+      · El veredicto `vencido|hoy|futuro` lo emite el **servidor**: restar fechas en el navegador
+        es donde un equipo en otra zona horaria cambia de día — el defecto que la Fase VP midió
+        en 21 de 24 píldoras de frescura. Mismo motivo por el que el día de la semana se arma con
+        `Date.UTC`.
+      · Candado `database/tests/test-newdb-cartera-por-dia.js`, **21 ✔ contra prod**, en la
+        regresión. Specs de front **27 ✔**: el del chip lleva prueba negativa y el del componente
+        hace **clic** en un día, **clic** en un cliente y exige sus folios y el banner de error en
+        el DOM. (Conteos finales, ya con `[CXC.26.1]`.)
+      · ⚠️ **Falta validación visual y reinicio del API.** El endpoint
+        `/finance/receivables/por-dia` está construido y probado contra la base, pero la API de
+        dev responde 404 porque corre el build anterior. Sin push.
+      · **[CXC.26.1]** ⭐ **El drill baja a FACTURA, y plaza y zona dejan de ser números.**
+        Pedido de Edgar sobre la pantalla ya construida.
+        · **Tres niveles**: día → clientes → **sus facturas** (folio, documento, fecha de emisión,
+          importe, saldo). El monto del renglón del cliente pasa a ser **la suma de sus propias
+          facturas**, así que por construcción no puede discrepar del desglose que abre debajo.
+        · Medido antes de cambiarlo: **6,913 facturas** contra 5,652 pares (día × cliente) — 22%
+          más filas. Con los nombres repetidos en cada factura la respuesta pesaba **205 KB**
+          gzipeados; **normalizada** (los 1,307 clientes en su propia lista, unidos por
+          `sucursal|cliente_code`) baja a **131 KB**, contra los 119 KB del agregado viejo. Doce
+          kilobytes por pasar de un número a los folios que lo componen.
+        · Cada cliente avisa **lo que debe en OTROS días** — sin eso, el que llama lo llama dos
+          veces.
+        · ⭐ **La zona tenía catálogo y nadie lo estaba usando.** `kepler_ods.kduk` (35 filas,
+          6 códigos). ⚠️ **El join va por CÓDIGO, no por (sucursal, código), y eso se midió:** el
+          catálogo está replicado por sucursal pero **ninguna tiene los seis códigos**, así que el
+          join estricto dejaba **1,227 filas / $3,685,841.18** sin nombre. El de código resuelve
+          **todas** y es seguro porque el código→nombre es **unívoco en todo el catálogo**
+          (`códigos con más de un nombre = 0`, comprobado en el smoke, no supuesto). Las **1,448
+          filas / $15,708,789.44 sin zona asignada** se declaran «Sin zona»: es otra ausencia.
+        · La plaza sale de `commercial.warehouses` (las 9 con cartera están). ⚠️ **Un código que
+          el catálogo no tenga se muestra MARCADO, no escondido**: ocultarlo sería esconder dinero
+          que nadie puede ubicar, que es justo el error que esta pantalla existe para no cometer.
+        · El CSV pasa a **una fila por factura**, con plaza y zona por nombre **y** su código en
+          columna aparte, para que siga siendo cruzable con el ERP.
+        · ⛔ **Tercera vez en este archivo: `knex.raw()` cuenta los signos de interrogación de los
+          COMENTARIOS como binds.** Un «¿…?» dentro del SQL sumó dos binds fantasma y la consulta
+          reventó con *could not determine data type of parameter*; caí dos veces seguidas, la
+          segunda **redactando el aviso**. Ahora hay compuerta en el smoke: el SQL tiene que tener
+          exactamente 2 signos de interrogación.
+        · ⚠️ **Una aserción atada a la forma de un renglón mide el renglón**: la que exigía
+          `filtros: this.opciones(a)` se puso roja sola cuando esa línea pasó a ser
+          `const filtros = this.opciones(a)`. Ahora busca la llamada.
+        · ⛔ DEUDA CON NOMBRE (ADR-056): el resolvedor de zona vive dentro de la consulta. Cuando
+          aparezca el segundo consumidor —el filtro y el rollup por zona de la vista por cliente,
+          que hoy siguen mostrando `10000`— sube a `analytics.v_kepler_zone`. No se creó la vista
+          ya porque exigiría aplicar una migración a prod para que este código funcione allá.
+        · Smoke **21 ✔ contra prod** (suma de facturas == suma de días al centavo, cero facturas
+          huérfanas, cero zonas sin resolver) · specs de front **27 ✔** (el gesto completo: clic en
+          el día, clic en el cliente, los folios en el DOM).
+
 - [x] **[CC.8]** 🧪 ⭐ **El cruce banco↔cobro miraba el 30% del dinero.** `listUnmatchedBank` y
       `cobroCandidates` buscaban candidatos **sólo** entre `forma_pago IN (deposito,
       transferencia, tarjeta)`. Pero `forma_pago` es un **regex sobre el concepto capturado a
@@ -744,8 +838,87 @@ piel del verificador (Sniglet, paleta `--vf-*`, tema claro fijo) porque ésa es 
 autorizada explícitamente para esa pantalla, y su propio comentario dice *«no repetir el patrón en
 otro módulo sin la misma autorización»*. Si el mostrador las quiere idénticas, es decisión suya.
 
-⛔ **PENDIENTE prod:** 2 migraciones a Railway + redeploy `api`/`view` + **re-login** (los permisos
-viajan en el JWT). Sin el re-login, nadie ve el módulo aunque esté desplegado — la lección de LC.6.2.
+✅ **Las 2 migraciones SÍ están en prod y el módulo SÍ está en uso** (medido el 2026-09-26 contra
+Railway, read-only): la tabla existe con su CHECK, y trae **9 renglones / 9 reportes / 2 sucursales**.
+La línea que decía "pendiente prod" quedó vieja; se corrige acá porque una nota de pendiente que ya
+no es cierta hace que nadie vaya a mirar lo que sí está pasando.
+
+⛔ **Lo que la medición sí encontró, y es el problema real: la bandeja nació congelada.**
+**0 de 9 resueltas**, que es exactamente el riesgo declarado al abrir la fase ("hay bandejas con 0
+resueltas en 30 días"). Además: **3 días de silencio** desde el último reporte, **1 sola persona
+real** reportando (`tania_sanchez`, 6 de los 9 — cinco variantes de Boing, todas con existencia 0
+en el ERP), `no_en_catalogo` usado **0 de 9**, y **18 personas pueden responder y ninguna la abrió**.
+`piso_tienda` tiene el permiso con **0 personas**. Eso no se arregla con código.
+
+#### FLT.20–FLT.24 — la caja unificada y «¿lo tenemos?» · 2026-09-26
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[FLT.20]` | 🔨 | **Una sola caja**: código, clave y **nombre** en el mismo campo. Era el defecto que señaló el usuario — la búsqueda por nombre estaba encerrada en otra pestaña, o sea que había que saber de antemano cuál de las dos usar. Ahora se escribe y el campo decide: dígitos → resuelve; letras → despliega el catálogo con debounce de 250 ms. La pestaña sobreviviente se llama **«Producto no catalogado»** y ya **no exige un escaneo fallido previo** para llegar a ella |
+| `[FLT.21]` | 🔨 | Motivo nuevo **no_en_anaquel** ("no estaba en el anaquel", va PRIMERO en la lista) + **destino derivado**: piso · compras · inventario · catalogo. Es la mitad del pedido que faltaba: lo que el anaquelista revisa **sí existe en la tienda** y se recupera el mismo día; mandarlo a Compras era perder una venta que todavía no se había perdido. La regla vive en **un solo módulo puro** (`stockout-destino.ts`) porque la usan tres consumidores. **El destino NO se guarda**: se deriva al leer, y el smoke fija que nadie agregó la columna |
+| `[FLT.22]` | 🔨 | **«¿Lo tenemos?»** — `GET sucursal/:code/consulta` contesta existencia y precio **antes** de pedir nada, y el veredicto (`hay_en_tienda` / `sin_existencia` / **`no_medido`**) es lo que acota los motivos que se ofrecen. Sin esto la pantalla sólo le servía a Compras tres días después; con esto le sirve a quien la abre. Gateado con **anyOf(VER, CAPTURAR)**: la cajera tiene CAPTURAR y **no** VER (medido en `[FLT.2]`), y gatearlo sólo con VER le habría negado justo la pregunta que la trae |
+| `[FLT.23]` | 🔨 | El respaldo del catálogo **se baja solo** si falta. Antes la búsqueda por nombre leía IndexedDB y si estaba vacío contestaba "no se puede buscar" sin intentar nada |
+| `[FLT.24]` | 🔨 | Bandeja de Compras: KPI **«Recuperable HOY»** (va primero: es la única fila cuya venta aún no se perdió) + columna **«Le toca a»** |
+
+**Verificado:** `stockout-destino.spec.ts` **10/10** (vitest, sin base de datos — es una función pura)
+**con prueba negativa real**: quitando el guard por motivo de la rama de existencia, la aserción de
+«no se maneja aquí CON existencia» se pone roja; restaurado, verde. ⚠️ La primera versión de esa
+prueba negativa **refutó mi propio comentario**: estaba escrito que el orden de las ramas era lo que
+protegía el caso, y reordenarlas a propósito **no rompió nada** — lo que protege es el guard por
+motivo. El comentario se corrigió a lo que la medición dice, y la aserción que faltaba se agregó.
+Suite completa de `commercial` **224/224**, builds `api` + `view` OK, `check:templates` OK,
+boundary-gate limpio en los archivos de esta fase.
+
+**Lo que encontró el review a fondo (4 defectos reales, todos corregidos):**
+
+1. ⛔ **Escribir un NOMBRE y dar Enter declaraba «no está en el catálogo»** un producto que sí
+   existe. La caja quedó única pero `resolver()` seguía mandando todo al resolvedor de códigos, y
+   de ese falso negativo salía un alta de catálogo para algo ya dado de alta. Ahora, si el término
+   trae letras, se reintenta por nombre antes de declarar nada, y `buscarNombre` devuelve
+   **tri-estado**: hay / no hay / **no se pudo buscar** — que se declara, no se dibuja como "no existe".
+2. ⛔ **Mientras viajaba la respuesta de existencia, la pantalla se comportaba como «no hay»** y
+   escondía «no estaba en el anaquel» justo en la ventana en que la cajera elige — o sea que
+   empujaba al motivo equivocado en el único caso que se recupera el mismo día. `undefined` ahora
+   cae del lado de `no_medido`.
+3. ⛔ **«El código no pasó» dejó de ofrecerse cuando sí había existencia**, que es exactamente el
+   caso de quien llegó ahí porque el lector falló y tuvo que buscar por nombre. Es un problema de
+   dato maestro y no depende del stock: ahora se ofrece siempre que haya producto identificado.
+4. ⚠️ **La tarjeta de veredicto podía quedar vacía con borde de color**: el verificador y el
+   resolvedor del servidor no usan la misma tabla, así que pueden discrepar; sin caso por defecto
+   el `@switch` no pintaba nada y una caja de color vacía se lee como que ya contestó algo.
+
+**Dos cosas que el review quitó en vez de agregar:** el índice que traía la migración (ninguna
+consulta filtra por (motivo, sucursal) — medido contra los 7 existentes) y la tercera copia a mano
+de la regla del destino: `contradice_al_erp` **se deriva** de `destinoDe(...) === 'inventario'`, y
+la única copia que queda —la del SQL del resumen, que no puede llamar a TypeScript— está **fijada
+por una aserción** que compara las dos formas sobre todos los motivos.
+
+⚠️ **NO verificado, y se declara:** la migración `20260926120000` (que agrega el motivo nuevo al
+CHECK) **no se pudo aplicar ni probar** — la única base alcanzable en esta sesión es la de prod y
+responde **read-only** (`25006`). Sí se verificó **contra el esquema real** que el CHECK se llama
+como la migración espera, que todavía **no** trae el motivo nuevo (o sea que la guarda de
+idempotencia va a proceder). De paso se midieron los 7 índices que ya tiene la tabla y **se quitó
+el índice que esta migración iba a agregar**: ninguna consulta filtra por (motivo, sucursal), la
+bandeja ya la sirve `ix_floor_stockouts_bandeja`, y un índice sin consumidor es peso en cada INSERT. El
+smoke de base (`test-newdb-floor-stockouts.js`, ahora **17 aserciones**) quedó extendido pero **sin
+correr**. Tampoco se pudo abrir la pantalla: la API local no está arriba.
+
+⛔ **PENDIENTE prod:** migración `20260926120000` a Railway + redeploy `api`/`view`. **No** hace falta
+re-login esta vez: no hay permisos nuevos. ⚠️ **El orden importa**: si se despliega el código antes
+que la migración, reportar "no estaba en el anaquel" revienta con un `23514` que la pantalla muestra
+como un error genérico.
+
+#### COT.10–COT.14 — Cotizaciones Telemarketing: Descuento por Volumen CJA, Vendedor por Sucursal y Entregables Formales (PDF/XLSX) · 2026-09-26
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[COT.10]` | 🔨 | **Mayoreo / volumen en caja (CJA) desde ERP**: integración directa con `analytics.v_label_presentations` y `kepler_ods.kdpv_prod_util` (modal *Margen de Utilidad por Cantidad de Venta*). Peldaño `box` expone `volume_tier: { min_qty, price }`. Badge de oportunidad en botón Caja, banners de umbral con botón 1-click para completar volumen y desglose de ahorro |
+| `[COT.11]` | 🔨 | **Desglose de unidad menor dentro del precio unitario**: en líneas de unidad mayor (CJA), se calcula y muestra automáticamente el precio equivalente por unidad menor, ej. `$969.84 (12PZS 80.82)`. Columna de descuento neto y desglose de precio unitario neto e importe neto tanto en pantalla como en entregables |
+| `[COT.12]` | 🔨 | **Vendedor por sucursal**: selector de vendedor responsable filtrado estrictamente por sucursal Kepler (`kepler_ods.kduv`). Migración `20260926170000_quotes_salesperson.js` agrega `salesperson_code` y `salesperson_name` a `commercial.quotes` (idempotente) |
+| `[COT.13]` | 🔨 | **Entregable formal al cliente en PDF y XLSX**: exportación descargable desde la captura de cotización y vista de detalle. Módulo puro `quote-deliverable-export.ts` con carga perezosa de `jspdf` y `exceljs` |
+| `[COT.14]` | 🔨 | **Estándar comercial y marca de agua**: nombre de archivo estricto `(NUMERO CLIENTE)(NOMBRE CLIENTE)(AAAA,MM,DD,HH,MM).ext` y leyenda oficial en marca de agua: `"ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"` en PDF y Excel |
+
+**Verificado:** `quote-deliverable-export.spec.ts` 4/4 ok; `quote-pricing.spec.ts` 2/2 ok; suite `commercial` 21/21 suites (231 pruebas) ok; suite `contracts` 10/10 suites (152 pruebas) ok; compuertas `check-template-literals` (344 componentes ok), `lint-changed` (32 archivos limpios), `lint-boundary-gate` (10 archivos ok) y `check-provenance` ok; `nx build api` y `nx build view` pasan limpios con exit code 0. Endpoint live probado en caliente contra `127.0.0.1:3334` devolviendo `volume_tier` y `price_source: 'volume_qty'`.
 
 ### Fase NX — Nx y Nx Cloud a profundidad (local y prod) · 2026-09-18 · plan en [`FASE_NX_CLOUD`](FASES/FASE_NX_CLOUD.md)
 

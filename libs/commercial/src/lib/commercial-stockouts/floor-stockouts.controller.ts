@@ -15,6 +15,7 @@ import {
   FaltanteSalida,
   CodigoQueFalla,
   ResumenFaltantes,
+  ConsultaResultado,
 } from './floor-stockouts.service';
 
 /**
@@ -51,6 +52,21 @@ export class FloorStockoutsController {
   @ApiOperation({ summary: 'Reportar un faltante de piso (agotado / no se maneja / no está en catálogo / el código no pasó)' })
   reportar(@Body() dto: ReportarDto): Promise<ReportarResult> {
     return this.service.reportar(dto);
+  }
+
+  @Get('sucursal/:code/consulta')
+  // `[FLT.22]` Es una CONSULTA, no una captura: la abre quien reporta y quien supervisa. Gatearla
+  // sólo con VER dejaría a la cajera —que tiene CAPTURAR y no VER, medido— sin poder preguntar si
+  // hay existencia, que es justo lo que la trae a esta pantalla.
+  @RequireAnyPermission(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)
+  @ApiOperation({
+    summary: '¿Lo tenemos? — resuelve el producto y contesta la existencia ANTES de reportar',
+    description:
+      'Devuelve `veredicto`: hay_en_tienda (va a piso, se recupera hoy) · sin_existencia (va a ' +
+      'Compras) · no_medido (no se pudo leer la existencia; NO es cero).',
+  })
+  consultar(@Param('code') code: string, @Query('q') q: string): Promise<ConsultaResultado> {
+    return this.service.consultar(code, q);
   }
 
   @Get('sucursal/:code')

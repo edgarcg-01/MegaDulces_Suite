@@ -207,7 +207,13 @@ export function computePeriodCoverage(
 
   const partes: string[] = [];
   if (parciales.length) {
-    const nom = parciales.map((p) => `${p.grupo} (desde ${p.desde})`).join(', ');
+    // ⚠️ La nota NOMBRA a los grupos, y eso se vuelve un muro en cuanto hay muchos: la primera
+    // versión de ingresos publicó *«237 plazas no están en todos los meses»* seguido de 237
+    // nombres de clientes. Un aviso que no se puede leer no avisa. Se nombran los que PESAN —ya
+    // vienen ordenados por monto— y el resto se cuenta.
+    const MUESTRA = 5;
+    const nom = parciales.slice(0, MUESTRA).map((p) => `${p.grupo} (desde ${p.desde})`).join(', ')
+      + (parciales.length > MUESTRA ? ` y ${parciales.length - MUESTRA} más` : '');
     const n = parciales.length;
     partes.push(
       `${n} ${n > 1 ? etiqueta.plural : etiqueta.singular} no está${n > 1 ? 'n' : ''} en todos los meses del rango: ${nom}. ` +

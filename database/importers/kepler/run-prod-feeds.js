@@ -577,8 +577,40 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   // ⚠️ El `nightly` NO lleva el skip a propósito: ahí es donde el auto-ligado debe correr (y ya
   // va acotado a su ventana). Si mañana aparece otra mitigación por modo, va acá, no en el
   // orchestrator — o vuelve a quedar escrita para un sustrato que no es el que corre.
+  //
+  // [CPU.1 2026-09-25] Y "mañana" era la MISMA LÍNEA. `STOCK_MOVEMENTS_DAYS: '15'` es la otra
+  // mitad del bloque `env` de `orchestrator/schedules.js:27`
+  // (`{ …, STOCK_MOVEMENTS_DAYS: '15', SKIP_AUTOLINK: '1' }`): DB-MEM.7 se trajo una de las dos
+  // variables y dejó la hermana allá. Es la TERCERA vez que ese bloque cobra — antes fueron
+  // `SALES_FACT_DAYS` (NORM.3: 13 meses cada 30 min) y `SKIP_AUTOLINK` (DB-MEM.7: ~5 h/día).
+  // Rescatar UNA variable de un bloque perdido no es arreglar el bloque; hay que traerlo entero.
+  //
+  // Verificado en `md` antes de tocar nada: `feeds.env` NO la define y `docker exec feeds-cron
+  // echo $STOCK_MOVEMENTS_DAYS` devuelve vacío → el importer caía a su default de 120 d, o sea
+  // 8× la ventana de diseño, cada hora.
+  //
+  // Medido en prod con `pg_stat_statements` (ventana de 21 h 12 min; total SQL = 58,952 s):
+  //   INSERT INTO stg_mov          16,152 s · 21 llamadas · 769 s c/u · 27.4 % = 0.21 núcleos
+  //   CREATE TEMP mov_changed          63 s   ← el fingerprint que decide qué cambió
+  //   INSERT INTO stock_movements      33 s   ← lo que REALMENTE se escribe
+  // O sea 769 s de barrido para 1.6 s de escritura: el merge churn-free funciona perfecto, lo
+  // que sobraba era escanear 120 d de kdm1⋈kdm2 cada hora para descubrir que no cambió nada,
+  // con un núcleo clavado ~13 de cada 60 min (la corrida de las 12:15 llevaba 13 m 20 s en vivo).
+  //
+  // ⚠️ Tampoco va en `nightly`: ahí el default de 120 d ES el pase de backfill. El precio
+  // declarado de la ventana corta: una corrección a un documento de más de 15 días deja de
+  // aterrizar en la hora y aterriza esa noche. Es el reparto que `schedules.js` ya había elegido.
+  //
+  // DESPUÉS, medido el mismo día por el MISMO wrapper del cron (`run-feed.sh intraday`, que es
+  // lo único que reproduce flock + env + CWD — una corrida a mano con `docker exec node …` no):
+  //   carril `feed_intraday`   836 s → **196 s**   (baseline: 13 corridas entre 770 y 1,013 s)
+  //   INSERT INTO stg_mov      769 s → **145 s**   (confirmado por `min_exec_time` = 144,917 ms)
+  //   7/7 pasos OK · el importer rotula «(kepler_ods, APPLY, 15d)» · 24 corridas/día ⇒ se
+  //   recuperan ~15,360 s/día = **0.18 núcleos** de los 8 de `md`.
+  // Historia intacta tras la ventana corta (el merge es aditivo por bloque, no borra fuera de
+  // ventana): 54,748 filas ≤15 d · 589,854 de 16-120 d · 3,097,674 de más de 120 d (desde 2020).
   const ENV_POR_MODO = {
-    intraday: { SKIP_AUTOLINK: '1' },
+    intraday: { SKIP_AUTOLINK: '1', STOCK_MOVEMENTS_DAYS: '15' },
     stock:    { SKIP_AUTOLINK: '1' },
     live:     { SKIP_AUTOLINK: '1' },
     livefast: { SKIP_AUTOLINK: '1' },

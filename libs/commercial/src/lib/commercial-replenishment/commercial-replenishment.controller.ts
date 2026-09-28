@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
+import { OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
@@ -184,6 +185,25 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'RA-PRO.45 — OCs de Kepler abiertas (X-A-35 sin X-A-40), por antigüedad, con la probabilidad de que lleguen. La vista inversa de "En camino": lo que compras tiene que cerrar o cancelar.' })
   openPurchaseOrders(@Query('sucursal') sucursal?: string, @Query('min_days') min_days?: string) {
     return this.svc.openPurchaseOrders({ sucursal, min_days: min_days ? Number(min_days) : undefined });
+  }
+
+  @Get('open-purchase-orders/:sucursal/:folio')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'RA-PRO.61 — Una OC de Kepler completa (encabezado, todos los renglones, recepciones, % surtido en dinero y seguimiento con historia) para su PDF de consulta. Respeta el alcance por sucursal.' })
+  openPurchaseOrderDetail(@Param('sucursal') sucursal: string, @Param('folio') folio: string): Promise<OcDetalleDto> {
+    return this.svc.openPurchaseOrderDetail(sucursal, folio);
+  }
+
+  @Put('open-purchase-orders/:sucursal/:folio/seguimiento')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.62 — Estatus de seguimiento de una OC de Kepler (vigente / detenida por pago / detenida por logística / backorder / no surtida-cancelada). Registro de Compras: NO toca Kepler. Nota obligatoria salvo vigente.' })
+  setPurchaseOrderFollowup(
+    @Param('sucursal') sucursal: string,
+    @Param('folio') folio: string,
+    // Tipado con el contrato; igual se valida adentro (validarSeguimiento), porque el cuerpo llega sin garantías.
+    @Body() body: Partial<OcSeguimientoInputDto>,
+  ): Promise<OcSeguimientoGuardadoDto> {
+    return this.svc.setPurchaseOrderFollowup(sucursal, folio, body);
   }
 
   @Get('workbook/:productId')

@@ -2,6 +2,9 @@ import { Controller, Get, Post, Param, Query, Body, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
+// ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
+// un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
+import type { PorDiaResp } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 
 interface AuthedRequest { user?: { username?: string } }
@@ -65,6 +68,26 @@ export class CustomerLedgerController {
     @Query('vendedor') vendedor?: string, @Query('cuenta') cuenta?: string, @Query('search') search?: string,
   ) {
     return this.svc.resumen({ sucursal, grupo, zona, vendedor, cuenta, search });
+  }
+
+  /**
+   * `[CXC.26]` La misma cartera con el DÍA como eje: quiénes deben cada día y qué día cobrar.
+   *
+   * ⚠️ De UN segmento, así que va antes de `:sucursal/:cliente` — misma nota que encabeza
+   * `filtros` y `producto`. Se repite porque es el error que este controller invita a cometer.
+   *
+   * Mismo permiso que la vista por cliente: **es el mismo dato, reagrupado**. Un permiso nuevo
+   * acá sería una puerta que nadie pidió sobre información que el rol ya puede ver.
+   */
+  @Get('por-dia')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Cartera por día de vencimiento: agenda de cobranza (vencido + por vencer) con sus clientes.' })
+  porDia(
+    @Query('sucursal') sucursal?: string, @Query('vendedor') vendedor?: string,
+    @Query('grupo') grupo?: string, @Query('zona') zona?: string,
+    @Query('cuenta') cuenta?: string, @Query('search') search?: string,
+  ): Promise<PorDiaResp> {
+    return this.svc.porDia({ sucursal, vendedor, grupo, zona, cuenta, search });
   }
 
   @Get('tendencia')

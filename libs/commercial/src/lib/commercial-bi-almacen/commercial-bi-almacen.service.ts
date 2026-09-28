@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService, branchKeyFilterSql } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import { unitTruth } from '../shared/unit-truth';
 import { CommercialMovementsService } from '../commercial-movements/commercial-movements.service';
 import {
   BiCostDeviation,
@@ -77,8 +79,6 @@ import {
 export class CommercialBiAlmacenService {
   private readonly logger = new Logger(CommercialBiAlmacenService.name);
   private erpCostViewExists?: boolean;
-  /** [WMS-BI.4.3] `undefined` = todavía no se preguntó. Ver `unitTruthRel()`. */
-  private unitTruthMvExists?: boolean;
 
   constructor(
     private readonly tk: TenantKnexService,
@@ -159,18 +159,16 @@ export class CommercialBiAlmacenService {
    * todavía en un entorno donde el código sí está desplegado. Sin él, la pestaña entera tiraría
    * `relation does not exist` — un despliegue parcial no debe apagar la pantalla, debe degradarla
    * y decirlo.
+   *
+   * ⭐ [CPU.2 2026-09-25] Este método era el ÚNICO lugar del repo que lo hacía bien, y por eso se
+   * mudó a `libs/` en vez de copiarse: `commercial-analytics` tenía `analytics.v_unit_truth`
+   * clavada a mano en tres lugares con la MV poblada al lado (9,694 s de CPU en 21 h, 16.4 % de
+   * todo el SQL de prod). El comportamiento acá no cambia; lo que cambia es que ahora hay un solo
+   * dueño de la decisión. La caché de existencia también dejó de ser de instancia y de por vida:
+   * el `false` ahora vence, así que aplicar la migración ya no exige reiniciar la API.
    */
-  private async unitTruthRel(trx: any): Promise<'analytics.mv_unit_truth' | 'analytics.v_unit_truth'> {
-    if (this.unitTruthMvExists === undefined) {
-      const r = await trx.raw(`SELECT to_regclass('analytics.mv_unit_truth') IS NOT NULL AS ok`);
-      this.unitTruthMvExists = !!r.rows[0]?.ok;
-      if (!this.unitTruthMvExists) {
-        this.logger.warn(
-          'analytics.mv_unit_truth no existe: se lee la vista viva (correcta pero ~8× más lenta). '
-          + 'Falta aplicar la migración 20260914130000_mv_unit_truth.');
-      }
-    }
-    return this.unitTruthMvExists ? 'analytics.mv_unit_truth' : 'analytics.v_unit_truth';
+  private async unitTruthChoice(trx: Knex.Transaction) {
+    return unitTruth(trx, this.logger);
   }
 
   /**
@@ -675,7 +673,7 @@ export class CommercialBiAlmacenService {
 
     return this.tk.run(async (trx) => {
       const ids = await this.resolveWarehouseIds(trx, tenantId, query);
-      const unitRel = await this.unitTruthRel(trx);
+      const { rel: unitRel, provenance: unitProv } = await this.unitTruthChoice(trx);
       const base = () => trx('analytics.stock_movements as m')
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
@@ -745,16 +743,12 @@ export class CommercialBiAlmacenService {
       // [WMS-BI.4.3] La edad del resolvedor de unidad va EN LA RESPUESTA, no en un comentario:
       // una copia que nadie fecha se lee igual que un dato en vivo (ADR-056). Se pregunta una vez
       // por página, no por fila — son 50 timestamps idénticos.
-      const unit_provenance: BiUnitProvenance = unitRel === 'analytics.mv_unit_truth'
-        ? {
-            source: 'mv',
-            // `LIMIT 1` y no `max()`: `now()` es el timestamp de la transacción del REFRESH, así
-            // que las 179,824 filas traen el MISMO valor — agregarlas sería escanear la MV entera
-            // para obtener un dato que está en cualquier fila.
-            refreshed_at: (await trx.raw(
-              `SELECT refreshed_at::text AS t FROM analytics.mv_unit_truth LIMIT 1`)).rows[0]?.t ?? null,
-          }
-        : { source: 'view', refreshed_at: null };
+      // [CPU.2] La edad la trae ya resuelta el primitivo compartido, que además CONTIENE su propio
+      // fallo: ese `SELECT … LIMIT 1` corría suelto dentro de la transacción del reporte, así que
+      // un error suyo abortaba la transacción entera — una medición de procedencia tumbando el
+      // reporte que venía a describir. Ahora va bajo SAVEPOINT y lo peor que devuelve es `null`
+      // (= no medido, que nunca se pinta como fresco).
+      const unit_provenance: BiUnitProvenance = unitProv;
 
       return { page, pageSize, total: Number(count), rows, unit_provenance };
     });
@@ -1078,7 +1072,7 @@ export class CommercialBiAlmacenService {
 
     return this.tk.run(async (trx) => {
       const ids = await this.resolveWarehouseIds(trx, tenantId, query);
-      const unitRel = await this.unitTruthRel(trx);
+      const { rel: unitRel } = await this.unitTruthChoice(trx);
       const base = () => trx('analytics.stock_movements as m')
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')

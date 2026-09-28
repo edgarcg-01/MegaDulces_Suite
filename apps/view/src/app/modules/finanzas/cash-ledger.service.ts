@@ -152,6 +152,18 @@ export class CashLedgerService {
   }
 
   /**
+   * CS.3.3 — Retiros del cajero (CAOS) que PUDIERON pagar un gasto, rankeados por patrones + lo
+   * aprendido. El detector de la captura: se muestran con score/motivos y el humano confirma.
+   */
+  caosCandidatos(
+    f: { fecha?: string; monto?: number; beneficiario?: string; concepto?: string; sucursal?: string; tipo?: string; limit?: number } = {},
+  ): Observable<CaosCandidatosResponse> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<CaosCandidatosResponse>(`${this.base}/caos-candidatos`, { params: p });
+  }
+
+  /**
    * CG.21 — Las cajas de efectivo del catálogo de Kepler, con su volumen medido.
    *
    * Viene del catálogo y no de los movimientos: una caja dormida tiene que poder verse en el
@@ -307,7 +319,15 @@ export interface MovimientoPendiente {
   confirmable: boolean;
   kepler_cuenta: string | null;
   kepler_concepto: string | null;
-  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla';
+  /** CS.3.1b — El NOMBRE de la contra-cuenta cuando viene del documento (para mostrarla). */
+  kepler_cuenta_nombre?: string | null;
+  /** CS.3.1b — De dónde salió la cuenta: `ruta` | `regla` | `documento` (su propia póliza). */
+  cuenta_fuente?: 'ruta' | 'regla' | 'documento' | null;
+  /** CS.3.1b — `true` = la cuenta es autoritativa (del documento) y la pantalla la BLOQUEA. */
+  cuenta_bloqueada?: boolean;
+  /** CS.3.1b — Los conceptos válidos de esa cuenta, para la elección ACOTADA (no buscador libre). */
+  conceptos_cuenta?: Array<{ concepto: string; concepto_nombre: string | null }>;
+  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto';
   motivo_texto?: string;
 }
 
@@ -368,6 +388,28 @@ export interface CaosCapturablesResponse {
   has_more: boolean;
   desde: string;
   datos_al?: string | null;
+}
+
+/** CS.3.3 — Un candidato del detector: un retiro de CAOS con su puntaje y por qué (para confirmar). */
+export interface CaosCandidato {
+  origen_ref: string;
+  external_id: number;
+  device: string;
+  type_label: string;
+  fecha_valor: string;
+  sucursal: string;
+  user_external: string | null;
+  ref: string | null;
+  monto: number;
+  denominaciones: Array<{ denominacion: number; piezas: number }>;
+  score: number;
+  motivos: string[];
+  confianza: 'alta' | 'media' | 'baja';
+}
+export interface CaosCandidatosResponse {
+  rows: CaosCandidato[];
+  fecha: string;
+  datos_al: string | null;
 }
 
 /** Resultado del lote: por fila, porque una que falla no tumba a las demás. */

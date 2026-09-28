@@ -44,6 +44,12 @@ export interface SucursalOpt {
   code: string;
   /** `código · nombre`, con el nombre de `commercial.warehouses`. */
   label: string;
+  /**
+   * `[CXC.26]` El nombre SOLO, para cuando hay que mostrar «La Piedad» y no «01 · La Piedad».
+   * Partir el `label` por el «·» sería resolver un nombre parseando una etiqueta de presentación.
+   * `null` = el código no está en el catálogo de almacenes.
+   */
+  nombre: string | null;
   /** El código existe en la cartera pero no en el catálogo de almacenes: se muestra pelado. */
   sin_catalogo: boolean;
 }
@@ -80,6 +86,114 @@ export interface CarteraResp {
   /** `[CXC.20]` Viajan en la MISMA respuesta: una sola pasada, imposible que se contradigan. */
   resumen: CarteraResumen;
   filtros: CarteraFiltros;
+}
+
+/* ── `[CXC.26]` Cartera por DÍA — la agenda de cobranza ──────────────────────────────────── */
+
+export interface PorDiaQuery {
+  sucursal?: string; vendedor?: string; grupo?: string; zona?: string; cuenta?: string; search?: string;
+}
+
+/**
+ * Tres estados, no un booleano `vencido`. «Vence hoy» no es ni una cosa ni la otra, y es
+ * justamente el día que la cobranza tiene que mirar primero.
+ */
+export type DiaEstado = 'vencido' | 'hoy' | 'futuro';
+
+export interface DiaCartera {
+  fecha: string;
+  /** ⭐ Lo emite el SERVIDOR. La pantalla NO vuelve a restar fechas: un `new Date()` local le
+   *  cambiaría el día al equipo que esté en otra zona horaria. */
+  estado: DiaEstado;
+  /** Negativo = venció hace N días · 0 = hoy · positivo = vence en N días. */
+  dias_offset: number;
+  monto: number; docs: number; clientes: number;
+}
+
+/**
+ * ⭐ Una FACTURA viva. El renglón del cliente se deriva sumando éstas, nunca al revés: «qué
+ * facturas tiene vencidas» es la pregunta del que sale a cobrar, y un agregado no se desarma.
+ *
+ * Lleva sólo lo PROPIO de la factura; quién la debe está en `DiaClienteRef`, unido por `k`.
+ */
+export interface DiaDocumento {
+  /** El vencimiento — el eje de la pantalla. */
+  fecha: string;
+  /** Negativo = venció hace N días · 0 = hoy · positivo = vence en N. Lo emite el SERVIDOR. */
+  dias_offset: number;
+  estado: DiaEstado;
+  /** `sucursal|cliente_code`. La arma el servidor: si cada lado la construyera, el join
+   *  fallaría en silencio el día que una cambie de forma. */
+  k: string;
+  folio_digital: string; doc_label: string;
+  /** Fecha de emisión, para leer «se facturó el X y vencía el Y». */
+  fecha_doc: string | null;
+  importe: number;
+  /** Lo que queda por cobrar de ESTA factura. Es lo que suma la agenda. */
+  saldo: number;
+}
+
+/**
+ * El cliente, UNA vez. Con los nombres repetidos en cada una de las 6,913 facturas la respuesta
+ * pesaba 205 KB gzipeados; así son 131 KB — y el nombre vive en un solo lugar.
+ */
+export interface DiaClienteRef {
+  k: string;
+  sucursal: string;
+  /** El NOMBRE de la plaza, no su número. `null` = el código no está en el catálogo de almacenes
+   *  y la pantalla muestra el número: ocultarlo escondería dinero. */
+  sucursal_nombre: string | null;
+  cliente_code: string; cliente_nombre: string;
+  telefono: string | null;
+  /** Código de Kepler + nombre contra `kduk`. `zona: null` = el cliente no tiene zona asignada. */
+  zona: string | null; zona_nombre: string | null;
+  vendedor: string | null; vendedor_nombre: string | null;
+  cuenta_kind: CuentaKind; dias_credito: number | null;
+}
+
+export interface ZonaCatalogo { code: string; nombre: string; ambigua: boolean }
+
+/** Lo que la pantalla arma en memoria: un cliente con SUS facturas de un día. */
+export interface ClienteDelDia {
+  ref: DiaClienteRef;
+  docs: DiaDocumento[];
+  /** Suma de `docs` — o sea, la suma de sus propias facturas. No puede discrepar del desglose. */
+  monto: number;
+  /** Lo que el mismo cliente debe en OTROS días, para no llamarlo dos veces. */
+  otros_dias_monto: number;
+  otros_dias_docs: number;
+}
+
+/**
+ * ⭐ Lo que el calendario NO puede mostrar, con su monto. El eje es `vencimiento`, que sólo
+ * existe a nivel documento; el saldo canónico es el de `kdue` por cliente. La resta no tiene
+ * fecha y **se declara, no se reparte a dedo** (ADR-056).
+ */
+export interface PorDiaCobertura {
+  canonico: number; repartible: number; sin_documento: number; sin_vencimiento: number; clientes: number;
+}
+
+/**
+ * ⚠️ **Viene la agenda COMPLETA, sin ventana.** Medido en prod: 292 días, 6,913 facturas y 1,307
+ * clientes = 1,448 KB crudos = **131 KB gzipeados**, y pedir todo cuesta lo mismo que pedir un mes
+ * (2.5 s, que es la pirámide de CTEs). Una ventana sólo habría comprado un botón de «ampliá para
+ * ver el resto» sobre la mitad del dinero. Todos los drills son locales.
+ */
+export interface PorDiaResp {
+  hoy: string;
+  freshness: Freshness;
+  dias: DiaCartera[];
+  /** Las facturas, no un agregado. */
+  documentos: DiaDocumento[];
+  /** Los clientes, una vez cada uno; las facturas los referencian por `k`. */
+  clientes: DiaClienteRef[];
+  totales: {
+    vencido: number; hoy: number; futuro: number;
+    dias_vencidos: number; dias_futuros: number;
+  };
+  cobertura: PorDiaCobertura;
+  filtros: CarteraFiltros;
+  catalogos: { zonas: ZonaCatalogo[] };
 }
 
 export interface Aplicacion { tipo: string; label: string; folio: string; fecha: string | null; monto: number }
@@ -150,6 +264,17 @@ export class CarteraService {
     for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
     const qs = p.toString();
     return this.http.get<CarteraResumen>(`${this.base}/resumen${qs ? '?' + qs : ''}`);
+  }
+  /**
+   * `[CXC.26]` La cartera con el DÍA como eje. Una sola llamada trae la agenda completa: los
+   * días con su monto **y** los clientes de cada día dentro de la ventana, así que abrir un día
+   * no dispara otro request.
+   */
+  porDia(q: PorDiaQuery = {}): Observable<PorDiaResp> {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== '') p.set(k, String(v));
+    const qs = p.toString();
+    return this.http.get<PorDiaResp>(`${this.base}/por-dia${qs ? '?' + qs : ''}`);
   }
   tendencia(q: { sucursal?: string; dias?: number } = {}): Observable<CarteraTendencia[]> {
     const p = new URLSearchParams();

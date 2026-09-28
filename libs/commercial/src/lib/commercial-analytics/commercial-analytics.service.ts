@@ -1,5 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, stepAt, tableAt } from '../shared/freshness';
+// [CPU.2] El resolvedor de unidad se LEE de la copia materializada, y la copia declara su edad.
+// Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
+import { unitTruth } from '../shared/unit-truth';
+import type { MaterializedProvenance } from '@megadulces/platform-core';
 // [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
 // god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
 // sucursal) y a ingresos (grupo = plaza) — ver el encabezado del módulo.
@@ -36,6 +40,8 @@ interface TreePlaza { key: string; label: string; level: string; total: number; 
 type Agregado = { v: string } | undefined;
 interface TreeCanal { key: string; label: string; level: string; total: number; movs: number; children: Map<string, TreePlaza> }
 /** Fila cruda de la serie mensual de ingresos: knex devuelve los numéricos como texto. */
+/** Cómo se nombra el bucket residual cuando se lo cuenta como UN grupo en la cobertura. */
+const RESIDUO_LABEL = 'Sin canal declarado (crédito individual)';
 interface IncomeSeriesRaw {
   mes: string; total: string;
   mostrador: string; telemarketing: string; ruta: string; vecinal: string; contado: string; otro: string;
@@ -530,6 +536,18 @@ export interface SellOutReport {
    * igual de fresco. Son las dos preguntas que la fase OBS separó.
    */
   freshness: Freshness;
+  /**
+   * [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD (ADR-057) con el que se convirtió a cajas.
+   *
+   * Va aparte de `freshness` y no como un eslabón suyo, con motivo: `freshness` compone la edad de
+   * los HECHOS y se queda con el tramo MÁS VIEJO a propósito. El resolvedor es una DIMENSIÓN de
+   * catálogo —factor de caja, método, rótulo— que cambia por día, no por segundo; meterlo ahí
+   * pintaría de rezagada la pantalla entera por algo que no lo está. Son dos preguntas distintas.
+   *
+   * `source: 'view'` = se leyó la vista viva (es en vivo, pero paga la derivación completa por
+   * llamada). Pasa cuando la migración de la MV no está aplicada en ese entorno.
+   */
+  unit_provenance: MaterializedProvenance;
   /**
    * [U.7] Venta que NO se pudo expresar en cajas, declarada en vez de dibujada. Hasta hoy esas
    * celdas caían a `units / 1` y se publicaban como "cajas" siendo PIEZAS: medido, 716,742
@@ -2629,16 +2647,30 @@ export class CommercialAnalyticsService {
     }
   }
 
-  /** Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos. */
+  /**
+   * Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos.
+   *
+   * ⚠️ **El residuo cuenta como UN grupo, no como sus 233 "plazas".** Medido en el rango por
+   * defecto: de 261 plazas, **233 son el bucket `otro`** — crédito individual cuyo concepto trae
+   * nombre de cliente y ningún prefijo de canal. Contarlas una por una hacía que la cobertura
+   * dijera *«237 plazas no están en todos los meses»*, que es un muro de nombres de clientes y
+   * además es FALSO como medición: un cliente que compró en agosto y no en julio **no es deriva
+   * de universo**, es un cliente. Las plazas reales parciales son **4**.
+   *
+   * Colapsarlo acá y no en la pantalla es a propósito: el `pct` y el Δ comparable se calculan con
+   * esto, así que si el residuo entra partido, el número —no sólo el texto— queda mal.
+   */
   private async incomeMonthPlaza(
     trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters,
   ): Promise<PeriodSlice[]> {
+    const grupoSql = `CASE WHEN e.canal = '${SALES_CANAL_RESIDUO}' THEN '${RESIDUO_LABEL}'
+                           ELSE COALESCE(NULLIF(e.plaza,''),'(sin plaza)') END`;
     const rows: Array<{ mes: string; plaza: string; total: string }> =
       await this.incomeQuery(trx, tenantId, from, to, q)
-        .groupByRaw('e.anio_mes, e.plaza')
+        .groupByRaw(`e.anio_mes, ${grupoSql}`)
         .select(
           trx.raw('e.anio_mes AS mes'),
-          trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+          trx.raw(`${grupoSql} AS plaza`),
           trx.raw('SUM(e.importe)::numeric AS total'),
         );
     return rows.map((r) => ({ mes: r.mes, grupo: r.plaza, total: Number(r.total) }));
@@ -2770,8 +2802,16 @@ export class CommercialAnalyticsService {
         const P = C.children.get(p)!;
         P.total += Number(r.total); P.movs += Number(r.movs);
       }
+      // ⚠️ El residuo va SIEMPRE al final, no donde lo ponga su monto. Ordenar por importe lo
+      // dejaba ENCABEZANDO la tabla (73.2 % con el clasificador roto, ~12 % con el arreglado), y
+      // un bucket que significa «no pude clasificar esto» liderando el ranking se lee como si
+      // fuera la categoría más grande del negocio. No es una categoría: es lo que falta clasificar.
       const tree = [...canales.values()]
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => {
+          if (a.key === SALES_CANAL_RESIDUO) return 1;
+          if (b.key === SALES_CANAL_RESIDUO) return -1;
+          return b.total - a.total;
+        })
         .map((c) => ({
           ...c, share_pct: share(c.total),
           children: [...c.children.values()].sort((a, b) => b.total - a.total)
@@ -2825,6 +2865,17 @@ export class CommercialAnalyticsService {
         .where('tenant_id', tenantId).andWhereBetween('cobro_date', [from, to])
         .select(trx.raw('COALESCE(SUM(monto),0)::numeric AS v')).first() as Agregado)?.v);
 
+      // `[IG.3.1]` **Lo que queda FUERA del alcance, medido y declarado.** La pregunta «¿no nos
+      // estamos saltando ningún tipo de ingreso?» no la contesta el candado de paridad: ése compara
+      // contra un feed que usa LAS MISMAS tres reglas, así que es un espejo (ADR-059 regla 5).
+      //
+      // Medido en prod sobre 12 meses, familia 4 del CEDIS fuera de `UD1301`:
+      //   · `UA2501`/`UA2502` «Nota Créd/Dev NoFis POS» = **−$1,505,625.79** que NO se restan.
+      //   · `UD1201` «Factura Cont No Fiscal» = **$4,809,937.99** que NO se suman.
+      //   · `UD4102` «Embarque Sucursal» con concepto «TRASPASO A SUCURSAL…» — traspaso interno,
+      //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
+      const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
+
       const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
       const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
 
@@ -2842,9 +2893,49 @@ export class CommercialAnalyticsService {
             nota: 'Testigo independiente: otra fuente y otro camino. Un ~3 % de diferencia es sano; una brecha grande es señal.' },
           { key: 'cobranza', label: 'Cobranza (UA0501)', monto: cobranza, delta_pct: pct(cobranza), comparable: false,
             nota: '⚠️ NO comparable de frente: es lo que se COBRÓ, no lo que se devengó. La diferencia es plazo de crédito (DSO), no faltante.' },
+          // Las tres de abajo NO son fuentes alternativas: son lo que el alcance deja fuera. Van
+          // acá porque es donde alguien viene a preguntarse si el número está completo.
+          { key: 'devoluciones', label: 'Devoluciones y notas de crédito (NO restadas)', monto: fueraDeAlcance.devoluciones,
+            delta_pct: null, comparable: false,
+            nota: '⚠️ El ingreso de arriba NO les resta esto. Son «Nota Créd/Dev NoFis POS» (UA2501/UA2502) contra la cuenta 403. Decisión pendiente: restarlas cambia el número y lo separa del feed nocturno.' },
+          { key: 'contado_nf', label: 'Factura Contado No Fiscal (NO sumada)', monto: fueraDeAlcance.contado_nf,
+            delta_pct: null, comparable: false,
+            nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },
+          { key: 'traspasos', label: 'Traspasos a sucursal (excluidos a propósito)', monto: fueraDeAlcance.traspasos,
+            delta_pct: null, comparable: false,
+            nota: 'UD4102 «Embarque Sucursal» con concepto de traspaso: mercancía que se mueve dentro de la empresa, no venta externa. Se declara para que cuadre contra la balanza, que sí los tiene.' },
         ],
       };
     });
+  }
+
+  /**
+   * `[IG.3.1]` Lo que el alcance del ingreso deja fuera, en el mismo rango y con el mismo filtro de
+   * CEDIS. Se lee del ODS directo porque justamente son las filas que `income_entries_src()`
+   * descarta.
+   *
+   * ⚠️ No se suma al total ni se resta: se DECLARA. Cambiar el número es una decisión de negocio
+   * (restar devoluciones lo separa del feed nocturno que hoy es el árbitro), y esta capa no la
+   * toma sola.
+   */
+  private async incomeOutOfScope(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ devoluciones: number | null; contado_nf: number | null; traspasos: number | null }> {
+    const vacio = { devoluciones: null, contado_nf: null, traspasos: null };
+    try {
+      const { rows } = await trx.raw(
+        `SELECT
+           COALESCE(SUM(v) FILTER (WHERE dt LIKE 'UA25%'), 0)::numeric  AS devoluciones,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD1201'), 0)::numeric    AS contado_nf,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD4102'), 0)::numeric    AS traspasos
+         FROM analytics.income_out_of_scope(?::date, ?::date)`, [from, to]);
+      const r = rows?.[0];
+      return r
+        ? { devoluciones: Number(r.devoluciones), contado_nf: Number(r.contado_nf), traspasos: Number(r.traspasos) }
+        : vacio;
+    } catch {
+      return vacio; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
   }
 
   /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
@@ -3433,7 +3524,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -3520,8 +3611,16 @@ export class CommercialAnalyticsService {
       // terminaba en `factor_sale ?? box_size ?? 1`: medido, ese último recurso publicaba
       // **716,742 PIEZAS rotuladas como cajas** en 710 SKUs ($14,279,457 = 2.2% de la venta).
       // El grano es (producto × almacén) porque el divisor lo es; se indexa por las dos claves.
+      //
+      // [CPU.2] Se lee la COPIA materializada, no la vista viva. Medido el 2026-09-25: filtrar por
+      // SKU no ahorraba nada — el filtro cae sobre `btrim(columna)`, que ningún índice atiende, así
+      // que cada llamada pagaba la derivación COMPLETA (1.55 s filtrada contra 1.32 s escaneando
+      // las 180,272 filas enteras). Entre este sitio y los otros dos eran 9,694 s de CPU en 21 h =
+      // el 16.4 % de TODO el SQL de producción. La MV tiene UNIQUE (tenant, almacén, producto), así
+      // que acá pasa a ser una búsqueda indexada. Su edad viaja en `unit_provenance`.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
       const boxMethods = pids.length
-        ? await trx('analytics.v_unit_truth')
+        ? await trx(unitRel)
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [pids])
             .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
@@ -3567,7 +3666,11 @@ export class CommercialAnalyticsService {
           if (r.route_warehouse_code && r.parent_warehouse_code) routePlaza.set(r.route_warehouse_code, r.parent_warehouse_code);
         }
       }
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, uxcRows, identMap, freshness, routePlaza };
+      return {
+        brand: b, products: ps, raw: rawRows,
+        retail: retailRows.map((r: { branch_name: string }) => r.branch_name),
+        boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv,
+      };
     });
     // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
     // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
@@ -3616,7 +3719,9 @@ export class CommercialAnalyticsService {
 
     // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
     // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
-    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo'> = {
+    // [CPU.2] `unit_provenance` se suma a los que se resuelven al final: la edad del resolvedor
+    // sale de la misma sonda que eligió la relación, o sea dentro del `tk.run`, no acá.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo' | 'unit_provenance'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -3942,6 +4047,12 @@ export class CommercialAnalyticsService {
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
       freshness,
+      // [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD con el que se convirtió a cajas. Va aparte de
+      // `freshness` a propósito: ése compone la edad de los HECHOS (la venta) y se queda con el
+      // eslabón más viejo, así que meter acá una dimensión de catálogo que se refresca cada media
+      // hora pintaría de rezagada la pantalla entera por algo que cambia por día, no por segundo.
+      // Son dos preguntas distintas y se responden por separado.
+      unit_provenance: unitProv,
       // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
       // divisor inventado. El total baja respecto de ayer y eso es el arreglo, no el defecto.
       sin_metodo: {
@@ -4362,7 +4473,14 @@ export class CommercialAnalyticsService {
 
   /** Un tramo → filas con el SHAPE de `sellOutByVendor()`. Scoped a canales con vendedor: crédito
    *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
-  private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+  // [CPU.2] `unitRel` llega RESUELTA por parámetro y no se resuelve acá adentro: esta función NO es
+  // async (devuelve el query builder para que el llamador lo componga), así que no puede esperar la
+  // sonda. El llamador la resuelve una vez y la pasa a las dos piernas.
+  private selloutVendorLeg(
+    trx: Knex.Transaction, table: string, dateCol: string, lo: string, hi: string,
+    o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo },
+    unitRel: string,
+  ) {
     return trx(`${table} as s`)
       // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
       // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
@@ -4376,8 +4494,12 @@ export class CommercialAnalyticsService {
       // por (producto × almacén) y acá no hay almacén, así que se toma el método del producto con
       // `bool_or`. Sólo se usa para la rama `unidad_es_caja`, que NO depende del almacén (es una
       // propiedad del empaque: no hay paquete ni caja en la escalera del ERP).
+      // [CPU.2] Acá el cambio pesa MÁS que en los otros dos sitios: esta subconsulta NO filtra —
+      // agrupa el resolvedor ENTERO por producto. Contra la vista viva eso es derivar las 180,272
+      // filas desde `kepler_ods` en cada pierna y en cada corrida; contra la copia es un scan de
+      // 106 MB ya materializados.
       .leftJoin(
-        trx('analytics.v_unit_truth')
+        trx(unitRel)
           .select('tenant_id', 'product_id')
           .select(trx.raw(`bool_or(metodo_cajas = 'unidad_es_caja') AS unidad_es_caja`))
           .groupBy('tenant_id', 'product_id')
@@ -4427,9 +4549,13 @@ export class CommercialAnalyticsService {
     const plan = this.planSellOutSources(o.from, o.to);
     const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
-    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    // [CPU.2] Una sola sonda para las dos piernas: la sonda está cacheada por proceso, pero
+    // resolverla acá deja explícito que las dos leen LA MISMA relación — si una leyera la copia y
+    // la otra la vista viva, el mismo reporte mezclaría dos edades del resolvedor sin decirlo.
+    const { rel: unitRel } = await unitTruth(trx, this.logger);
+    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, unitRel));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
-    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, unitRel));
     return out;
   }
 
@@ -4871,7 +4997,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, uxcRows, baseRows, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, raw, uxcRows, baseRows, identMap, freshness, unitProv } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -4901,15 +5027,18 @@ export class CommercialAnalyticsService {
       // rotula PZA todo lo que no es peso — y `sales_daily.units` de Kepler está en la unidad
       // base real del renglón (`c11`), que también puede ser PAQ o un gramaje. Rotular por
       // conveniencia es inventar la unidad, que es el defecto que esta fase persigue.
+      // [CPU.2] De la copia materializada, igual que el pivote principal — y por el mismo motivo:
+      // el filtro por SKU cae sobre `btrim(columna)` y no ahorra derivación.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
       const baseRows = vpids.length
-        ? await trx('analytics.v_unit_truth')
+        ? await trx(unitRel)
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [vpids])
             .select('product_id', 'warehouse_code', 'base_label')
         : [];
       // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
       const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
-      return { brand: b, raw, uxcRows, baseRows, identMap, freshness };
+      return { brand: b, raw, uxcRows, baseRows, identMap, freshness, unitProv };
     });
     // [SO.U] Índice del rótulo por celda y por producto (el segundo para los almacenes que el
     // resolvedor no cubre). Sin fila NO se rotula: una ausencia no se dibuja como 'PZA'.
@@ -5007,6 +5136,8 @@ export class CommercialAnalyticsService {
           + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
       },
       freshness,
+      // [CPU.2] La edad del resolvedor de unidad, declarada igual que en el pivote principal.
+      unit_provenance: unitProv,
       sin_metodo: {
         skus: sinMetodo.skus.size,
         unidades: round(sinMetodo.unidades, 3),

@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -200,6 +200,31 @@ interface FormularioCajaUI {
     .cg-chip:hover { border-color:var(--action); color:var(--action); }
     .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); }
+    .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
+      color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
+    .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .cg-caos { border-color:var(--action); }
+    .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
+    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left;
+      cursor:pointer; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      background:transparent; padding:.5rem .7rem; min-height:var(--tap-min,44px); color:inherit; }
+    .cg-caos-row:hover { border-color:var(--action); }
+    .cg-caos-row:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .cg-caos-tag { font-size:var(--fs-micro); font-weight:600; padding:.1rem .45rem; border-radius:999px;
+      border:1px solid var(--border-color); color:var(--text-muted); white-space:nowrap; }
+    .cg-caos-in { color:var(--action); border-color:var(--action); }
+    .cg-caos-monto { font-variant-numeric:tabular-nums; }
+    .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
+    .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
+    .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
+    .cg-cajero-head label { margin:0; }
+    .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
+    .cg-caos-motivos { flex:1 1 100%; font-size:var(--fs-micro); }
+    .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
+    /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
+    .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
+      background:color-mix(in srgb, var(--border-color) 22%, transparent); }
 
     /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
     @media (pointer: coarse) {
@@ -451,6 +476,30 @@ interface FormularioCajaUI {
         }
       </section>
 
+      <!-- CS.3.1c — La caja fuerte (CAOS) entra SOLA a la bandeja: sus movimientos se ven sin
+           buscarlos (antes eran un autocompletado opcional dentro del diálogo). Un clic abre la
+           captura con el arqueo de la máquina ya cargado y BLOQUEADO; sólo se clasifica lo faltante. -->
+      @if (caosPendientes().length) {
+        <section class="cg-bandeja cg-caos">
+          <header class="cg-bandeja-head">
+            <h2 class="fin-h2"><i class="pi pi-lock" aria-hidden="true"></i> Caja fuerte (CAOS)</h2>
+            <span class="cg-bandeja-sp"></span>
+            <small class="fin-dim">{{ caosPendientes().length }} por capturar — el arqueo lo trae la máquina</small>
+          </header>
+          <div class="cg-caos-list">
+            @for (m of caosPendientes(); track m.origen_ref) {
+              <button type="button" class="cg-caos-row" (click)="capturarDesdeCaos(m)">
+                <span class="cg-caos-tag" [class.cg-caos-in]="m.tipo === 'ingreso'">{{ m.type_label }}</span>
+                <span class="mono cg-caos-monto">{{ money(m.monto) }}</span>
+                <span class="fin-dim cg-caos-ref">{{ m.ref || 'sin referencia' }}</span>
+                <span class="fin-dim">{{ m.user_external || '' }}</span>
+                <span class="cg-caos-go" aria-hidden="true">Capturar →</span>
+              </button>
+            }
+          </div>
+        </section>
+      }
+
       <div class="fin-filters">
         <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
         <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
@@ -673,12 +722,16 @@ interface FormularioCajaUI {
           <label for="cg-concepto">Cuenta y concepto de Kepler</label>
           <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
                           (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
-                          optionLabel="label" [delay]="250" [minQueryLength]="2" [showClear]="true"
+                          optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
+                          [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
                           placeholder="Buscá por nombre, cuenta o código" appendTo="body"
                           class="cg-full"></p-autocomplete>
           <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
             {{ etiquetaConcepto().texto }}
           </small>
+          @if (cuentaFuenteDoc()) {
+            <button type="button" class="cg-link" (click)="corregirCuentaDoc()">Corregir la cuenta</button>
+          }
         </div>
 
         <div class="fin-row">
@@ -700,11 +753,50 @@ interface FormularioCajaUI {
              Con eso "arqueo_no_cuadra" ya no puede ocurrir por construccion.
              Billetes de 500 a 20 (los que circulan en la caja); el metal entero va en Morralla,
              que es lo unico editable de la columna de importes porque es un importe, no piezas. -->
+        <!-- CS.3.4 — El detector: ¿este gasto salió del cajero (CAOS)? Propone los retiros por
+             patrones (mismo día + ref + monto + aprendido); al vincular uno, su efectivo se suma al
+             arqueo y el resto se cuenta a mano. NO aparece si la captura YA es un movimiento de CAOS. -->
+        @if (!caosElegido()) {
+          <div class="fin-row fin-row-col cg-cajero">
+            <div class="cg-cajero-head">
+              <label>Del cajero (CAOS)</label>
+              <button type="button" class="cg-link" (click)="buscarEnCajero()" [disabled]="buscandoCajero()">
+                {{ buscandoCajero() ? 'buscando…' : '¿salió del cajero? buscar retiros' }}
+              </button>
+            </div>
+            @if (caosVinculados().length) {
+              <div class="cg-chips">
+                @for (v of caosVinculados(); track v.external_id) {
+                  <span class="cg-chip cg-caos-in">del cajero {{ money(v.monto) }} · {{ v.ref || 's/ref' }}
+                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
+                  </span>
+                }
+              </div>
+              <small class="fin-hint-ok">Ya se agregaron {{ money(totalCajero()) }} del cajero al arqueo — agregá lo restante abajo.</small>
+            }
+            @if (caosSugeridos().length) {
+              <div class="cg-caos-list">
+                @for (c of caosSugeridos(); track c.external_id) {
+                  <button type="button" class="cg-caos-row" (click)="vincularCaos(c)">
+                    <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
+                    <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
+                    <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
+                    <span class="fin-dim cg-caos-motivos">{{ c.motivos.join(' · ') }}</span>
+                    <span class="cg-caos-go" aria-hidden="true">agregar →</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
         <div class="cg-arqueo">
           <div class="cg-arqueo-head">
             <strong>Contá el efectivo</strong>
             @if (cobroElegido(); as c) {
               <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
+            }
+            @if (caosElegido()) {
+              <span class="fin-hint-ok">La caja fuerte ya contó los billetes — sólo la morralla se cuenta a mano.</span>
             }
           </div>
           <table class="cg-arqueo-tbl">
@@ -727,6 +819,7 @@ interface FormularioCajaUI {
                   <th scope="row" class="mono">{{ b.label }}</th>
                   <td>
                     <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                           [readonly]="!!caosElegido()"
                            [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
                            (keydown.enter)="moverEnReja($event, 1)"
                            (keydown.arrowdown)="moverEnReja($event, 1)"
@@ -1062,6 +1155,24 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   caosSel: (CaosCapturable & { label: string }) | null = null;
   caosElegido = signal<CaosCapturable | null>(null);
 
+  /**
+   * CS.3.1c — Los movimientos de CAOS PENDIENTES de capturar, mostrados SOLOS en la bandeja (no un
+   * buscador opcional): el capturista los ve sin buscarlos. Al elegir uno, el arqueo de la máquina
+   * se precarga y se BLOQUEA, y sólo queda clasificar lo faltante.
+   */
+  caosPendientes = signal<CaosCapturable[]>([]);
+  cargandoCaosPend = signal(false);
+
+  /**
+   * CS.3.4 — El detector DENTRO de la captura: candidatos del cajero propuestos para ESTE gasto y
+   * los que el capturista ya vinculó (su efectivo se suma al arqueo y se enlaza al guardar).
+   */
+  caosSugeridos = signal<CaosCandidato[]>([]);
+  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown> }>>([]);
+  buscandoCajero = signal(false);
+  /** Cuánto del arqueo ya vino del cajero (para el aviso «ya se agregaron $X»). */
+  totalCajero = computed(() => this.caosVinculados().reduce((a, v) => a + Number(v.monto), 0));
+
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
@@ -1231,14 +1342,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * propuesto de tecleado; diciendo lo contrario era peor que no estar.
    */
   etiquetaConcepto = computed(() => {
-    // El signal se lee PRIMERO e incondicional: un `&&` que corte antes dejaría al computed sin
-    // dependencias, que es la misma familia de bug que tenía `bloqueos`.
+    // Los signals se leen PRIMERO e incondicionales: un `&&` que corte antes dejaría al computed
+    // sin dependencias, que es la misma familia de bug que tenía `bloqueos`.
+    const doc = this.cuentaFuenteDoc();
     const manual = this.conceptoManual();
+    // La cuenta del documento manda sobre todo: es el dato de Kepler, no una propuesta.
+    if (doc) return { tono: 'propuesto' as const,
+      texto: `Cuenta ${doc.cuenta} de la póliza del documento (Kepler)${doc.conceptos.length > 1 ? ' — elegí el concepto' : ''}.` };
     if (manual) return etiquetaManual();
     return etiquetaProcedencia(this.propuesta()?.concepto);
   });
   /** `true` en cuanto la persona elige o teclea el concepto ella misma. */
   conceptoManual = signal(false);
+
+  /**
+   * CS.3.1b — Cuando el movimiento anclado trae su cuenta de la PROPIA póliza del documento, la
+   * cuenta es autoritativa y se BLOQUEA: el buscador de conceptos se acota a los de esa cuenta (no
+   * busca en todo el catálogo). `corregirCuentaDoc()` lo suelta si de verdad hace falta. `null` =
+   * captura normal (regla/propuesta/manual).
+   */
+  cuentaFuenteDoc = signal<{ cuenta: string; cuenta_nombre: string | null; conceptos: Array<{ concepto: string; concepto_nombre: string | null }> } | null>(null);
   /**
    * CG.22.6 - ¿esta cuenta vale para este beneficiario de ahora en adelante?
    *
@@ -1336,6 +1459,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // algo que aparezca después de un clic.
     this.cargarCajas();
     this.cargarPendientes();
+    this.cargarCaosPendientes();
     this.cargarFrecuentes();
     this.enVivo();
   }
@@ -1377,7 +1501,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
     // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
     // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
-    encuestarVisible(60000, () => this.cargarPendientes(), { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => { this.cargarPendientes(); this.cargarCaosPendientes(); }, { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
@@ -1391,6 +1515,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       if (e.origen === 'feed' && firma === this.firmaVista) return;
       this.firmaVista = firma;
       this.cargarPendientes();
+      this.cargarCaosPendientes();
       this.cargarSaldo();
     });
   }
@@ -1609,6 +1734,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.f.set(this.formVacio());
     this.conceptoSel = null;
     this.conceptoManual.set(false);
+    this.cuentaFuenteDoc.set(null);
     this.declararRegla.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
@@ -1622,6 +1748,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.caosSel = null;
     this.caosElegido.set(null);
     this.caosOpciones.set([]);
+    // CS.3.4 — el detector del cajero tampoco sobrevive al diálogo anterior.
+    this.caosSugeridos.set([]);
+    this.caosVinculados.set([]);
+    this.buscandoCajero.set(false);
     this.abrirConFoco(this.capturaAbierta);
     // Los frecuentes son POR SUCURSAL y se pedían una sola vez en ngOnInit: al cambiar de
     // sucursal seguían siendo los de la 00. Se refrescan al abrir, con la sucursal en curso.
@@ -1736,6 +1866,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // El desglose de otro documento no es el de éste: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
+    // CS.3.1b — Si la cuenta salió de la PROPIA póliza del documento, es autoritativa: se muestra
+    // y se BLOQUEA (el buscador se acota a los conceptos de esa cuenta). No se pide propuesta por
+    // historia — el dato de Kepler manda.
+    if (c.cuenta_fuente === 'documento' && c.kepler_cuenta) {
+      const conceptos = c.conceptos_cuenta ?? [];
+      this.cuentaFuenteDoc.set({ cuenta: c.kepler_cuenta, cuenta_nombre: c.kepler_cuenta_nombre ?? null, conceptos });
+      this.conceptoSel = c.kepler_concepto
+        ? { cuenta: c.kepler_cuenta, concepto: c.kepler_concepto, concepto_nombre: conceptos[0]?.concepto_nombre ?? '',
+            sucursal: c.sucursal, cuenta_mayor: '', label: `${c.kepler_cuenta} / ${c.kepler_concepto}` }
+        : null;
+      this.conceptoManual.set(false);
+      return;
+    }
+    this.cuentaFuenteDoc.set(null);
     this.pedirPropuesta();
   }
 
@@ -1808,6 +1952,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroSel = null;
     this.contadoBandeja.set(null);
     this.montoContado.set(null);
+    // CAOS no tiene póliza de Kepler para estos movimientos: su clasificación no se bloquea.
+    this.cuentaFuenteDoc.set(null);
     this.caosElegido.set(m);
     this.f.update((v) => ({
       ...v,
@@ -1829,6 +1975,83 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   soltarCaos(): void {
     this.caosElegido.set(null);
     this.caosSel = null;
+  }
+
+  /** CS.3.1b — Suelta la cuenta del documento y vuelve al buscador libre (por si Kepler se equivocó). */
+  corregirCuentaDoc(): void {
+    this.cuentaFuenteDoc.set(null);
+    this.conceptoSel = null;
+    this.conceptoManual.set(true);
+    this.conceptos.set([]);
+    this.f.update((v) => ({ ...v, kepler_cuenta: null, kepler_concepto: null }));
+  }
+
+  /**
+   * CS.3.1c — Trae los movimientos de CAOS pendientes para mostrarlos SOLOS en la bandeja. Se pide
+   * al cargar y en el repaso en vivo, igual que los de Kepler. Un fallo deja la sección vacía (no es
+   * la fuente de verdad del libro), pero no tumba la pantalla.
+   */
+  cargarCaosPendientes(): void {
+    this.cargandoCaosPend.set(true);
+    this.svc.caosCapturables({ limit: 50 }).subscribe({
+      next: (r) => { this.caosPendientes.set(r.rows ?? []); this.cargandoCaosPend.set(false); },
+      error: () => { this.caosPendientes.set([]); this.cargandoCaosPend.set(false); },
+    });
+  }
+
+  /**
+   * CS.3.1c — Abre la captura desde un movimiento de CAOS de la bandeja: el arqueo de la máquina se
+   * precarga y se bloquea; sólo queda clasificar lo faltante. Espeja `capturarDesde` (Kepler).
+   */
+  capturarDesdeCaos(m: CaosCapturable): void {
+    this.abrirCaptura();
+    this.tomarMovimientoCaos(m);
+  }
+
+  /**
+   * CS.3.4 — Busca en el cajero (CAOS) qué retiros pudieron pagar ESTE gasto. Llama al detector con
+   * lo que ya se sabe del gasto (fecha, monto del documento anclado si hay, beneficiario, glosa).
+   */
+  buscarEnCajero(): void {
+    const f = this.f();
+    const doc = this.cobroElegido();
+    this.buscandoCajero.set(true);
+    this.svc.caosCandidatos({
+      fecha: f.fecha, tipo: f.tipo,
+      monto: doc?.monto ?? undefined,
+      beneficiario: f.beneficiario || undefined,
+      concepto: f.glosa || undefined,
+      sucursal: f.sucursal || undefined,
+    }).subscribe({
+      next: (r) => {
+        const ya = new Set(this.caosVinculados().map((v) => v.external_id));
+        this.caosSugeridos.set((r.rows ?? []).filter((c) => !ya.has(c.external_id)));
+        this.buscandoCajero.set(false);
+      },
+      error: (err) => { this.buscandoCajero.set(false); this.avisarError(err, 'No se pudo buscar en el cajero (CAOS)'); },
+    });
+  }
+
+  /** CS.3.4 — Vincula un retiro del cajero: suma sus billetes al arqueo y lo recuerda para el enlace. */
+  vincularCaos(c: CaosCandidato): void {
+    for (const d of c.denominaciones) {
+      this.setPiezas(Number(d.denominacion), this.piezasDe(Number(d.denominacion)) + Number(d.piezas));
+    }
+    this.caosVinculados.update((v) => [...v, {
+      device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref,
+      denominaciones: c.denominaciones,
+      senales: { score: c.score, confianza: c.confianza, motivos: c.motivos },
+    }]);
+    this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
+  }
+
+  /** CS.3.4 — Suelta un retiro vinculado: resta del arqueo lo que había sumado. */
+  desvincularCaos(externalId: number): void {
+    const v = this.caosVinculados().find((x) => x.external_id === externalId);
+    if (v) for (const d of v.denominaciones) {
+      this.setPiezas(Number(d.denominacion), Math.max(0, this.piezasDe(Number(d.denominacion)) - Number(d.piezas)));
+    }
+    this.caosVinculados.update((l) => l.filter((x) => x.external_id !== externalId));
   }
 
   // ── CG.20/CG.21 — bandeja de movimientos, los dos signos ─────────────────────────────────────
@@ -2117,6 +2340,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   buscarConceptos(e: AutoCompleteCompleteEvent): void {
+    // CS.3.1b — Con la cuenta anclada al documento, el buscador se ACOTA a los conceptos de esa
+    // cuenta (no busca en todo el catálogo): la cuenta no se cambia sin "corregir".
+    const doc = this.cuentaFuenteDoc();
+    if (doc) {
+      const suc = this.f().sucursal;
+      this.conceptos.set(doc.conceptos.map((x) => {
+        const c: ConceptoKepler = { cuenta: doc.cuenta, concepto: x.concepto, concepto_nombre: x.concepto_nombre ?? '', sucursal: suc, cuenta_mayor: '' };
+        return { ...c, label: this.conceptoLabel(c) };
+      }));
+      return;
+    }
     this.svc.conceptos(this.f().sucursal || undefined, e.query || '', 30).subscribe({
       // `label` es lo que el autocomplete pinta: la vista no arma texto en la plantilla.
       next: (r) => this.conceptos.set((r.rows ?? []).map((c) => ({ ...c, label: this.conceptoLabel(c) }))),
@@ -2248,6 +2482,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya
       // tenía `monto_contado` resuelto; lo que faltaba era que la pantalla lo mandara.
       monto_contado: this.montoContado() ?? undefined,
+      // CS.3.4 — los retiros del cajero (CAOS) que financiaron este gasto: el servidor los enlaza
+      // (consume, no se cuentan dos veces) y aprende de ellos. Sólo si el capturista vinculó alguno.
+      caos_links: this.caosVinculados().length
+        ? this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales }))
+        : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: this.nuevoUuid(),

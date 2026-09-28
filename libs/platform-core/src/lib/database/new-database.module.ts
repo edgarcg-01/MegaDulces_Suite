@@ -1,4 +1,5 @@
 import { Global, Module, Logger } from '@nestjs/common';
+import { poolMax, poolMin } from './pool-size';
 import knex, { Knex } from 'knex';
 import * as path from 'path';
 import { TenantKnexService } from './tenant-knex.service';
@@ -55,7 +56,7 @@ function buildNewDbConfig(): Knex.Config {
             ? { rejectUnauthorized: false }
             : false,
       },
-      pool: { min: 2, max: 10 },
+      pool: { min: poolMin(2, poolMax(10)), max: poolMax(10) },
       migrations: {
         directory: path.resolve(__dirname, '../../../../../database/migrations-newdb'),
         tableName: 'knex_migrations',
@@ -84,7 +85,7 @@ function buildNewDbConfig(): Knex.Config {
           ? { rejectUnauthorized: false }
           : false,
     },
-    pool: { min: 2, max: 10 },
+    pool: { min: poolMin(2, poolMax(10)), max: poolMax(10) },
     migrations: {
       directory: path.resolve(__dirname, '../../../../../database/migrations-newdb'),
       tableName: 'knex_migrations',

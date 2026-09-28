@@ -18,6 +18,11 @@ import {
   PricedLine,
   Rung,
 } from '../quotes.service';
+import {
+  exportQuotePdf,
+  exportQuoteXlsx,
+  type QuoteDeliverableData,
+} from '../quote-deliverable-export';
 
 /**
  * `[COT.1b]` — El renglon de una cotizacion.
@@ -108,7 +113,35 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               <h1>{{ q.code }}</h1>
               <p class="sub">{{ q.recipient_name }}</p>
             </div>
-            <p-tag [value]="estadoLabel(q.status)" [severity]="estadoTono(q.status)"></p-tag>
+            <div class="head-right-actions">
+              <p-tag [value]="estadoLabel(q.status)" [severity]="estadoTono(q.status)"></p-tag>
+              <button
+                pButton
+                severity="success"
+                [outlined]="true"
+                type="button"
+                class="btn-export-xlsx"
+                [disabled]="!q.lines.length || exportando()"
+                (click)="descargarXlsx()"
+                title="Descargar entregable en Excel (.xlsx)"
+              >
+                <span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span>
+                <span class="p-button-label">Excel (.xlsx)</span>
+              </button>
+              <button
+                pButton
+                severity="danger"
+                [outlined]="true"
+                type="button"
+                class="btn-export-pdf"
+                [disabled]="!q.lines.length || exportando()"
+                (click)="descargarPdf()"
+                title="Descargar entregable formal en PDF"
+              >
+                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+                <span class="p-button-label">PDF</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -141,6 +174,12 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
             <span class="t-lbl">Condiciones</span>
             <span class="t-val t-sm">{{ fuenteTerms(q.terms_source) }}</span>
           </div>
+          @if (vendedorAsignado(q); as vend) {
+            <div class="t">
+              <span class="t-lbl">Vendedor seguimiento</span>
+              <span class="t-val t-strong">{{ vend }}</span>
+            </div>
+          }
         </div>
 
         @if (!editable()) {
@@ -153,175 +192,363 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           </div>
         }
 
-        <!-- ── Agregar renglon ─────────────────────────────────────────────────────────── -->
+        <!-- ── MÓDULO: Captura manual ─────────────────────────────────────────────── -->
         @if (editable()) {
-          <div class="alta">
-            <div class="alta-row">
-              <label class="f f-sku">
-                <span>Producto</span>
-                <input
-                  type="search"
-                  class="input"
-                  [(ngModel)]="termino"
-                  (ngModelChange)="onTermino($event)"
-                  (focus)="onFoco()"
-                  placeholder="Nombre, SKU o codigo de barras..."
-                  autocorrect="off"
-                  spellcheck="false"
-                  [disabled]="guardando()"
-                />
-              </label>
-              <label class="f f-qty">
-                <span>Cantidad</span>
-                <input
-                  type="number"
-                  class="input num"
-                  [(ngModel)]="cantidad"
-                  (ngModelChange)="onCantidad()"
-                  min="1"
-                  step="1"
-                  inputmode="numeric"
-                  [disabled]="guardando()"
-                />
-              </label>
-              <div class="f f-rung">
-                <span>Presentacion</span>
-                <div class="chips" role="group" aria-label="Presentacion">
-                  @for (p of peldanos; track p.rung) {
-                    <button
-                      type="button"
-                      class="chip"
-                      [class.chip-active]="rung() === p.rung"
-                      [attr.aria-pressed]="rung() === p.rung"
-                      [disabled]="guardando()"
-                      (click)="setRung(p.rung)"
-                    >{{ p.label }}</button>
-                  }
+          <div class="captura-card">
+            <div class="captura-head">
+              <div class="captura-title-box">
+                <span class="captura-badge"><i class="pi pi-pencil" aria-hidden="true"></i></span>
+                <div>
+                  <h2 class="captura-title">Captura manual</h2>
+                  <p class="captura-sub">
+                    Buscá artículos por código, código de barras o nombre y agregalos uno a uno con precio del ERP.
+                  </p>
                 </div>
               </div>
             </div>
 
-            <!-- El catalogo de la sucursal. Solo sale lo que ESA plaza puede cotizar: si saliera
-                 el catalogo entero, el operador elegiria un producto y recien despues se comeria
-                 un "el ERP no publica precio aca". -->
-            @if (buscando()) {
-              <p class="hint"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando en la sucursal {{ cot()?.source_branch }}...</p>
-            } @else if (catalogoAbierto() && resultados().length > 0) {
-              <ul class="cat" role="listbox" aria-label="Productos de la sucursal">
-                @for (p of resultados(); track p.sku) {
-                  <li>
-                    <button
-                      type="button"
-                      class="cat-row"
-                      role="option"
-                      [attr.aria-selected]="elegido()?.sku === p.sku"
-                      [class.cat-row-active]="elegido()?.sku === p.sku"
-                      (click)="elegir(p)"
-                    >
-                      <span class="cat-nom">
-                        {{ p.name || p.sku }}
-                        @if (p.content) { <span class="cat-cont">{{ p.content }}</span> }
-                      </span>
-                      <span class="cat-meta">
-                        <span class="cat-sku">{{ p.sku }}</span>
-                        @if (p.barcode) { <span class="cat-bc">{{ p.barcode }}</span> }
-                        @if (p.unit_base) { <span class="cat-un">{{ p.unit_base }}</span> }
-                      </span>
-                      <!-- Precio de LISTA, para reconocer el producto. El que vale es el de la
-                           previa, que ya trae cantidad, peldano y descuentos. -->
-                      <span class="cat-precio">{{ dinero(p.piece_price) }}</span>
-                    </button>
-                  </li>
-                }
-              </ul>
-            } @else if (catalogoAbierto() && termino.trim().length > 0) {
-              <p class="hint">
-                Ningun producto de la sucursal {{ cot()?.source_branch }} casa con
-                <strong>{{ termino }}</strong>. Si el cliente lo pidio igual, guardalo como no casado:
-                queda como demanda, no se pierde.
-              </p>
-            }
-
-            @if (elegido(); as e) {
-              <p class="elegido">
-                <i class="pi pi-check-circle" aria-hidden="true"></i>
-                <strong>{{ e.name || e.sku }}</strong>
-                <span class="cat-sku">{{ e.sku }}</span>
-                <button type="button" class="linkish" (click)="limpiarEleccion()">cambiar</button>
-              </p>
-            }
-
-            <!-- El precio ANTES de agregar, con su desglose. Es lo que evita que el operador
-                 tenga que confiar en un numero sin origen. -->
-            @if (cotizando()) {
-              <p class="hint"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando el precio del ERP...</p>
-            } @else if (previa(); as p) {
-              <div class="previa" [class.previa-bad]="p.unit_price === null">
-                <div class="p-head">
-                  <span class="p-name">{{ p.name || p.sku }}</span>
-                  @if (p.unit_price !== null) {
-                    <span class="p-price">{{ p.unit_price | currency:'MXN':'symbol-narrow':'1.2-4' }}
-                      <span class="p-unit">/ {{ p.unit_label || 'u' }}</span>
-                    </span>
-                  } @else {
-                    <!-- NULL, nunca $0: un cero se leeria como "no cuesta nada" (ADR-056). -->
-                    <span class="p-price p-none">sin precio</span>
+            <div class="captura-body">
+              <!-- Buscador de artículos por código, código de barras o nombre -->
+              <div class="search-step">
+                <label class="f-lbl" for="prodSearchInput">
+                  <span>Artículo a cotizar (Código, código de barras o nombre)</span>
+                </label>
+                <div class="search-input-wrap">
+                  <i class="pi pi-search search-ico" aria-hidden="true"></i>
+                  <input
+                    id="prodSearchInput"
+                    type="search"
+                    class="input search-prod-input"
+                    [(ngModel)]="termino"
+                    (ngModelChange)="onTermino($event)"
+                    (focus)="onFoco()"
+                    placeholder="Escribí código SKU, código de barras o nombre del producto..."
+                    autocorrect="off"
+                    spellcheck="false"
+                    [disabled]="guardando()"
+                  />
+                  @if (buscando()) {
+                    <i class="pi pi-spin pi-spinner search-spinner" aria-hidden="true"></i>
                   }
                 </div>
-                @if (p.unpriced_reason) {
-                  <p class="p-why p-why-bad">{{ p.unpriced_reason }}</p>
-                }
-                @for (s of p.applied; track s.step) {
-                  <p class="p-why">
-                    <strong>{{ s.step }}</strong> — {{ s.detail }}
-                    @if (s.before !== null && s.after !== null && s.before !== s.after) {
-                      <span class="p-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                        → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+
+                <!-- Desplegable ordenado por orden alfabético del nombre del producto -->
+                @if (catalogoAbierto() && resultados().length > 0) {
+                  <ul class="cat-dropdown" role="listbox" aria-label="Productos de la sucursal en orden alfabético">
+                    @for (p of resultados(); track p.sku) {
+                      <li>
+                        <button
+                          type="button"
+                          class="cat-row"
+                          role="option"
+                          [attr.aria-selected]="elegido()?.sku === p.sku"
+                          [class.cat-row-active]="elegido()?.sku === p.sku"
+                          (click)="elegir(p)"
+                        >
+                          <div class="cat-col-nom">
+                            <strong class="cat-nom">{{ p.name || p.sku }}</strong>
+                            @if (p.content) { <span class="cat-cont">({{ p.content }})</span> }
+                          </div>
+                          <div class="cat-col-meta">
+                            <span class="cat-sku">{{ p.sku }}</span>
+                            @if (p.barcode) { <span class="cat-bc">EAN: {{ p.barcode }}</span> }
+                            <span class="cat-un">{{ p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA') }}</span>
+                          </div>
+                          <div class="cat-col-precio">
+                            <span class="cat-precio-val">{{ dinero(p.piece_price) }}</span>
+                            <span class="cat-precio-lbl">base</span>
+                          </div>
+                        </button>
+                      </li>
                     }
+                  </ul>
+                } @else if (catalogoAbierto() && termino.trim().length > 0 && !buscando()) {
+                  <p class="search-hint">
+                    Ningún producto de la sucursal {{ cot()?.source_branch }} coincide con <strong>"{{ termino }}"</strong>.
+                    Podés guardarlo como no casado para registrar la demanda rechazada.
                   </p>
-                }
-                @if (p.free_goods) {
-                  <p class="p-why p-why-ok">
-                    <i class="pi pi-gift" aria-hidden="true"></i>
-                    Se regalan {{ p.free_goods.quantity }} de {{ p.free_goods.sku }} — nace como renglon propio.
-                  </p>
-                }
-                @for (w of p.warnings; track w) { <p class="p-why p-why-warn">{{ w }}</p> }
-                @for (na of p.not_applied; track na.mechanism) {
-                  <p class="p-why p-why-muted">{{ na.mechanism }}: {{ na.reason }}</p>
                 }
               </div>
-            } @else if (elegido() && !cotizando()) {
-              <p class="hint">Sin previa todavia.</p>
-            }
 
-            <div class="alta-acc">
-              <button pButton [disabled]="!puedeAgregar() || guardando()" (click)="agregar()">
-                <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span>
-                <span class="p-button-label">Agregar renglon</span>
-              </button>
-              <button
-                pButton
-                severity="secondary"
-                [outlined]="true"
-                [disabled]="!termino.trim() || guardando()"
-                (click)="agregarSinCasar()"
-              >
-                <span class="p-button-label">Guardar como no casado</span>
-              </button>
-              <span class="hint alta-hint">
-                Lo que el cliente pidio y no manejamos <strong>no se borra</strong>: se guarda como demanda.
-              </span>
+              <!-- Producto seleccionado ("descargado") -->
+              @if (elegido(); as e) {
+                <div class="descargado-box">
+                  <div class="descargado-header">
+                    <div class="descargado-tag">
+                      <i class="pi pi-check-circle" aria-hidden="true"></i>
+                      <span>Artículo seleccionado</span>
+                    </div>
+                    <button type="button" class="btn-change-prod" (click)="limpiarEleccion()" [disabled]="guardando()">
+                      <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar artículo
+                    </button>
+                  </div>
+
+                  <div class="descargado-info">
+                    <strong class="descargado-name">{{ e.name || e.sku }}</strong>
+                    <div class="descargado-pills">
+                      <span class="pill-meta">SKU: <b>{{ e.sku }}</b></span>
+                      @if (e.barcode) { <span class="pill-meta">EAN: {{ e.barcode }}</span> }
+                      @if (e.content) { <span class="pill-meta">Contenido: {{ e.content }}</span> }
+                      <span class="pill-meta">Unidad base: <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
+                    </div>
+                  </div>
+
+                  <!-- PREGUNTA: ¿El precio es por caja o por pieza? -->
+                  <div class="pregunta-seccion">
+                    <span class="pregunta-lbl">¿El precio es por caja o por pieza?</span>
+                    <div class="unit-toggle-group" role="group" aria-label="Seleccionar si el precio es por caja o pieza">
+                      <!-- Opción Pieza (o KG) -->
+                      <button
+                        type="button"
+                        class="unit-toggle-btn"
+                        [class.unit-toggle-active]="rung() === 'base'"
+                        (click)="setRung('base')"
+                        [disabled]="guardando()"
+                      >
+                        <i class="pi pi-tag" aria-hidden="true"></i>
+                        <span class="unit-title">{{ e.sold_by_kg ? 'Kilo (KG)' : 'Pieza' }}</span>
+                        <span class="unit-sub">Unidad individual</span>
+                      </button>
+
+                      <!-- Opción Caja -->
+                      <button
+                        type="button"
+                        class="unit-toggle-btn"
+                        [class.unit-toggle-active]="rung() === 'box'"
+                        (click)="setRung('box')"
+                        [disabled]="guardando()"
+                      >
+                        <i class="pi pi-box" aria-hidden="true"></i>
+                        <span class="unit-title">Caja</span>
+                        <span class="unit-sub">
+                          @if (e.box_size) {
+                            {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / caja
+                          } @else {
+                            Por empaque mayor
+                          }
+                        </span>
+                        @if (rung() === 'box' && previa()?.volume_tier; as vt) {
+                          <span class="unit-badge-mayoreo">
+                            Mayoreo: {{ dinero(vt.price) }} ({{ vt.min_qty }}+ cjas)
+                          </span>
+                        }
+                      </button>
+
+                      <!-- Opción Paquete (si tiene pack_size) -->
+                      @if (e.pack_size && e.pack_size > 1) {
+                        <button
+                          type="button"
+                          class="unit-toggle-btn"
+                          [class.unit-toggle-active]="rung() === 'pack'"
+                          (click)="setRung('pack')"
+                          [disabled]="guardando()"
+                        >
+                          <i class="pi pi-clone" aria-hidden="true"></i>
+                          <span class="unit-title">Paquete</span>
+                          <span class="unit-sub">{{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
+                        </button>
+                      }
+                    </div>
+                  </div>
+
+                  <!-- CONTROL TÁCTIL DE CANTIDAD (MOBILE 16:9 - Sin teclado en pantalla) -->
+                  <div class="touch-qty-seccion">
+                    <span class="pregunta-lbl">Cantidad de {{ labelUnidadActiva() }}s:</span>
+
+                    <div class="touch-stepper">
+                      <button
+                        type="button"
+                        class="btn-touch-step btn-minus"
+                        (click)="ajustarCantidad(-1)"
+                        [disabled]="cantidad <= 1 || guardando()"
+                        aria-label="Restar una unidad"
+                      >
+                        <i class="pi pi-minus" aria-hidden="true"></i>
+                      </button>
+
+                      <div class="touch-qty-readout" aria-live="polite">
+                        <span class="qty-num">{{ cantidad }}</span>
+                        <span class="qty-lbl">{{ labelUnidadActiva() }}{{ cantidad > 1 ? (rung() === 'box' ? 's' : (rung() === 'base' && e.sold_by_kg ? '' : 's')) : '' }}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        class="btn-touch-step btn-plus"
+                        (click)="ajustarCantidad(1)"
+                        [disabled]="guardando()"
+                        aria-label="Sumar una unidad"
+                      >
+                        <i class="pi pi-plus" aria-hidden="true"></i>
+                      </button>
+                    </div>
+
+                    <!-- Presets táctiles para no desplegar teclado en pantalla -->
+                    <div class="touch-presets" role="group" aria-label="Incrementos rápidos de cantidad">
+                      <button type="button" class="preset-btn" (click)="setCantidad(1)" [class.preset-active]="cantidad === 1" [disabled]="guardando()">1</button>
+                      <button type="button" class="preset-btn" (click)="ajustarCantidad(5)" [disabled]="guardando()">+5</button>
+                      <button type="button" class="preset-btn" (click)="ajustarCantidad(10)" [disabled]="guardando()">+10</button>
+                      <button type="button" class="preset-btn" (click)="ajustarCantidad(25)" [disabled]="guardando()">+25</button>
+                      <button type="button" class="preset-btn" (click)="ajustarCantidad(50)" [disabled]="guardando()">+50</button>
+                      <button type="button" class="preset-btn" (click)="ajustarCantidad(100)" [disabled]="guardando()">+100</button>
+                    </div>
+                  </div>
+
+                  <!-- PREVIA DEL PRECIO Y DESCUENTOS POR VOLUMEN -->
+                  @if (cotizando()) {
+                    <div class="previa-loading">
+                      <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando precio y escaleras de volumen en ERP...
+                    </div>
+                  } @else if (previa(); as p) {
+                    <div class="previa-card" [class.previa-card-bad]="p.unit_price === null">
+                      <div class="previa-top">
+                        <div class="previa-unit-box">
+                          <span class="previa-label">Precio unitario calculado</span>
+                          @if (p.unit_price !== null) {
+                            <div class="previa-price-row">
+                              <span class="previa-amount">{{ p.unit_price | currency:'MXN':'symbol-narrow':'1.2-4' }}</span>
+                              <span class="previa-unit-sub">/ {{ p.unit_label || labelUnidadActiva() }}</span>
+                              @if (p.unit_factor && p.unit_factor > 1) {
+                                <span class="previa-menor-sub">({{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                              }
+                            </div>
+                          } @else {
+                            <span class="previa-none">Sin precio en esta sucursal</span>
+                          }
+                        </div>
+
+                        <div class="previa-total-box">
+                          <span class="previa-label">Importe del renglón</span>
+                          @if (p.line_total !== null) {
+                            <span class="previa-total-amount">{{ p.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                          } @else {
+                            <span class="previa-none">—</span>
+                          }
+                        </div>
+
+                        <div class="previa-action-box">
+                          <button
+                            pButton
+                            class="btn-agregar-inline"
+                            [disabled]="!puedeAgregar() || guardando()"
+                            (click)="agregar()"
+                          >
+                            <span class="p-button-icon p-button-icon-left pi pi-plus-circle" aria-hidden="true"></span>
+                            <span class="p-button-label">Agregar a la cotización</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- AVISO DESTACADO DE ESCALÓN DE VOLUMEN (ERP kdpv_prod_util) -->
+                      @if (p.volume_tier; as vt) {
+                        @if (cantidad < vt.min_qty) {
+                          <div class="banner-oportunidad-volumen">
+                            <div class="b-vol-left">
+                              <i class="pi pi-sparkles b-vol-icon" aria-hidden="true"></i>
+                              <div class="b-vol-text">
+                                <strong class="b-vol-title">¡Descuento por volumen disponible en {{ labelUnidadActiva() }}!</strong>
+                                <span class="b-vol-desc">
+                                  A partir de <b>{{ vt.min_qty }} {{ labelUnidadActiva() }}s</b> el precio baja de
+                                  <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
+                                  (Ahorro de <b>{{ dinero((p.list_price || 0) - vt.price) }}</b> por {{ labelUnidadActiva() }}).
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              class="btn-aplicar-volumen"
+                              (click)="setCantidad(vt.min_qty)"
+                              [disabled]="guardando()"
+                            >
+                              <i class="pi pi-check" aria-hidden="true"></i>
+                              Aplicar {{ vt.min_qty }} {{ labelUnidadActiva() }}s con mayoreo
+                            </button>
+                          </div>
+                        } @else {
+                          <div class="banner-volumen-exito">
+                            <div class="b-vol-left">
+                              <i class="pi pi-check-circle b-vol-icon-ok" aria-hidden="true"></i>
+                              <div class="b-vol-text">
+                                <strong class="b-vol-title">✅ PRECIO DE MAYOREO POR VOLUMEN APLICADO</strong>
+                                <span class="b-vol-desc">
+                                  Precio lista: <span class="strikethrough">{{ dinero(p.list_price) }}</span> →
+                                  Con descuento por volumen: <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
+                                  @if (p.unit_factor && p.unit_factor > 1) {
+                                    ({{ p.unit_factor }}PZS {{ (p.unit_price! / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})
+                                  }
+                                  · Ahorro total: <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidad) }}</b>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      } @else if (esDescuentoVolumen()) {
+                        <div class="banner-volumen">
+                          <i class="pi pi-bolt" aria-hidden="true"></i>
+                          <span><strong>Descuento por volumen activo</strong> para {{ cantidad }} {{ labelUnidadActiva() }}s</span>
+                        </div>
+                      }
+
+                      @for (s of p.applied; track s.step) {
+                        <div class="p-step-row">
+                          <span class="step-tag">{{ s.step }}</span>
+                          <span class="step-detail">{{ s.detail }}</span>
+                          @if (s.before !== null && s.after !== null && s.before !== s.after) {
+                            <span class="step-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }} → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                          }
+                        </div>
+                      }
+
+                      @if (p.free_goods) {
+                        <div class="banner-regalo">
+                          <i class="pi pi-gift" aria-hidden="true"></i>
+                          <span>Regalo del ERP: <strong>{{ p.free_goods.quantity }} de {{ p.free_goods.sku }}</strong></span>
+                        </div>
+                      }
+
+                      @for (na of p.not_applied; track na.mechanism) {
+                        @if (na.mechanism !== 'volumen' || !p.volume_tier) {
+                          <div class="p-step-row p-step-hint">
+                            <span class="step-tag step-tag-hint">Escalón</span>
+                            <span class="step-detail">{{ na.reason }}</span>
+                          </div>
+                        }
+                      }
+
+                      @if (p.unpriced_reason) {
+                        <p class="p-why-bad">{{ p.unpriced_reason }}</p>
+                      }
+                    </div>
+                  }
+                </div>
+              } @else {
+                <!-- Botón secundario para guardar sin casar si buscó y no encontró -->
+                @if (termino.trim().length > 0) {
+                  <div class="sin-casar-box">
+                    <button
+                      pButton
+                      severity="secondary"
+                      [outlined]="true"
+                      [disabled]="guardando()"
+                      (click)="agregarSinCasar()"
+                    >
+                      <span class="p-button-label">Guardar "{{ termino }}" como no casado (demanda)</span>
+                    </button>
+                    <span class="sin-casar-hint">
+                      Si el cliente lo pidió y no existe en catálogo, queda registrado como demanda rechazada.
+                    </span>
+                  </div>
+                }
+              }
             </div>
           </div>
         }
 
-        <!-- ── Los renglones ───────────────────────────────────────────────────────────── -->
+        <!-- ── Los renglones agregados ─────────────────────────────────────────────────── -->
         <div class="table-card">
           @if (!q.lines.length) {
             <div class="empty">
-              <p class="empty-title">Esta cotizacion todavia no tiene renglones.</p>
-              <p class="empty-hint">Agregá el primero con el SKU y la cantidad de arriba.</p>
+              <p class="empty-title">Esta cotización todavía no tiene renglones.</p>
+              <p class="empty-hint">Usá la Captura manual arriba para buscar artículos y agregarlos uno a uno.</p>
             </div>
           } @else {
             <p-table [value]="q.lines" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '64rem' }">
@@ -329,11 +556,11 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 <tr>
                   <th class="num">#</th>
                   <th>Producto</th>
-                  <th>Presentacion</th>
+                  <th>Presentación</th>
                   <th class="num">Cantidad</th>
                   <th class="num">Lista</th>
                   <th class="num">Precio</th>
-                  <th>De donde sale</th>
+                  <th>De dónde sale</th>
                   <th class="num">Importe</th>
                   <th><span class="sr-only">Acciones</span></th>
                 </tr>
@@ -347,8 +574,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     }
                     <span class="p-name">{{ l.product_name || l.requested_text || '—' }}</span>
                     @if (!l.product_id) {
-                      <!-- No es un error de captura: es demanda que estamos rechazando. -->
-                      <span class="sin-casar">sin casar con el catalogo</span>
+                      <span class="sin-casar">sin casar con el catálogo</span>
                     }
                   </td>
                   <td>
@@ -356,23 +582,24 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       {{ l.qty_unit }}
                       @if (num(l.qty_factor)) { <span class="factor">x{{ num(l.qty_factor) }}</span> }
                     } @else {
-                      <!-- NULL no es pieza: es "no se registro" (VU.0). -->
                       <span class="t-none">sin registrar</span>
                     }
                   </td>
                   <td class="num">
                     @if (editable() && l.parent_line_number === null) {
-                      <input
-                        type="number"
-                        class="input num qty-inline"
-                        [ngModel]="num(l.quantity)"
-                        (ngModelChange)="pedirCambio(l, $event)"
-                        min="1"
-                        step="1"
-                        inputmode="numeric"
-                        [disabled]="guardando()"
-                        [attr.aria-label]="'Cantidad del renglon ' + l.line_number"
-                      />
+                      <div class="inline-qty-box">
+                        <input
+                          type="number"
+                          class="input num qty-inline"
+                          [ngModel]="num(l.quantity)"
+                          (ngModelChange)="pedirCambio(l, $event)"
+                          min="1"
+                          step="1"
+                          inputmode="numeric"
+                          [disabled]="guardando()"
+                          [attr.aria-label]="'Cantidad del renglón ' + l.line_number"
+                        />
+                      </div>
                     } @else {
                       {{ num(l.quantity) }}
                     }
@@ -380,7 +607,12 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <td class="num muted">{{ dinero(l.list_price) }}</td>
                   <td class="num">
                     @if (num(l.unit_price) !== null) {
-                      {{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-4' }}
+                      <div class="p-unit-cell">
+                        <span class="p-unit-main">{{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        @if (num(l.qty_factor) && num(l.qty_factor)! > 1) {
+                          <span class="p-unit-sub-breakdown">({{ num(l.qty_factor) }}PZS {{ (num(l.unit_price)! / num(l.qty_factor)!) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                        }
+                      </div>
                     } @else {
                       <span class="t-none">sin precio</span>
                     }
@@ -399,7 +631,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                         size="small"
                         [disabled]="guardando()"
                         (click)="quitar(l)"
-                        [attr.aria-label]="'Quitar el renglon ' + l.line_number"
+                        [attr.aria-label]="'Quitar el renglón ' + l.line_number"
                       ><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
                     }
                   </td>
@@ -407,8 +639,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               </ng-template>
             </p-table>
 
-            <!-- Los totales salen del SERVIDOR. Recalcularlos aca seria inventar el numero: el
-                 descuento del cliente entra sobre el subtotal, no sobre el precio unitario. -->
+            <!-- Los totales salen del SERVIDOR -->
             <div class="totales">
               <div class="tot"><span>Subtotal</span><b>{{ num(q.subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
               <div class="tot"><span>Impuestos</span><b>{{ num(q.tax_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
@@ -416,17 +647,16 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               @if (num(q.terms_discount_pct)) {
                 <p class="tot-nota">
                   Incluye el {{ num(q.terms_discount_pct) }}% del cliente, aplicado sobre el subtotal —
-                  no sobre el precio de cada renglon.
+                  no sobre el precio de cada renglón.
                 </p>
               }
             </div>
           }
         </div>
 
-        <!-- Lo que el cliente mando, tal cual. Es la evidencia de que se le cotizo lo que pidio. -->
         @if (q.customer_request) {
           <div class="cruda">
-            <p class="cruda-lbl">La lista del cliente, como llego</p>
+            <p class="cruda-lbl">La lista del cliente, como llegó</p>
             <pre>{{ q.customer_request }}</pre>
           </div>
         }
@@ -435,11 +665,16 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
   `,
   styles: [
     `
-      .section { padding: 1.25rem; max-width: 1100px; margin: 0 auto; }
+      .section { padding: 1rem 1.25rem; max-width: 1100px; margin: 0 auto; }
       .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; margin-bottom: 0.75rem; }
       .back:hover { color: var(--text-main); }
       .back:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 4px; }
       .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+      .head-right-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; font-weight: 600; }
+      .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
+      .btn-export-pdf { border-color: #dc2626 !important; color: #dc2626 !important; font-weight: 600; }
+      .btn-export-pdf:hover:not(:disabled) { background: rgba(220, 38, 38, 0.08) !important; }
       .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0; font-family: var(--font-mono, monospace); }
       .sub { color: var(--text-muted); font-size: 0.9375rem; margin: 0.15rem 0 0; }
 
@@ -451,80 +686,219 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .aviso-bad { border-left-color: var(--bad-fg); }
       .aviso-bad i { color: var(--bad-fg); }
 
-      .terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin: 1rem 0; }
-      .t { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.8rem;
+      .terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin: 0.85rem 0; }
+      .t { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem;
            display: flex; flex-direction: column; gap: 0.1rem; }
       .t-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-      .t-val { font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+      .t-val { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
       .t-val.t-sm { font-size: 0.8125rem; }
       .t-strong { font-weight: 700; color: var(--action); }
       .t-none { font-style: italic; color: var(--text-muted); font-size: 0.8125rem; }
       .t-sub { font-size: 0.7rem; color: var(--text-muted); }
       .vencida { color: var(--bad-fg); font-weight: 600; }
 
-      .alta { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-      .alta-row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
-      .f { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8125rem; }
-      .f > span { color: var(--text-muted); }
-      .f-sku { flex: 1 1 16rem; }
-      .f-qty { flex: 0 0 8rem; }
-      .input { width: 100%; padding: 0.45rem 0.7rem; box-sizing: border-box; border: 1px solid var(--border-color);
-               border-radius: 6px; font-size: 0.875rem; background: var(--card-bg); color: var(--text-main); min-height: 36px; }
-      .input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
-      .input.num { text-align: right; font-variant-numeric: tabular-nums; }
-      .qty-inline { width: 6rem; min-height: 30px; padding: 0.2rem 0.4rem; }
+      /* ── MÓDULO: Captura manual ─────────────────────────────────────────── */
+      .captura-card {
+        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px;
+        margin-bottom: 1.25rem; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      }
+      .captura-head {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); background: var(--surface-ground);
+      }
+      .captura-title-box { display: flex; align-items: center; gap: 0.6rem; }
+      .captura-badge {
+        width: 28px; height: 28px; border-radius: 6px; background: var(--action);
+        color: var(--action-ink, #fff); display: inline-flex; align-items: center; justify-content: center;
+        font-size: 0.875rem;
+      }
+      .captura-title { font-size: 1rem; font-weight: 700; margin: 0; }
+      .captura-sub { font-size: 0.75rem; color: var(--text-muted); margin: 0.1rem 0 0; }
+      .captura-body { padding: 1rem; }
 
-      /* [COT.1c] El catalogo de la sucursal. Lista densa (superficie Operations): lo que
-         importa es barrerla rapido, no que cada renglon sea una tarjeta.
-         NO poner acentos graves aca: cierran el template literal y rompen el build. */
-      .cat { list-style: none; margin: 0.6rem 0 0; padding: 0; max-height: 17rem; overflow-y: auto;
-             border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); }
-      .cat li + li { border-top: 1px solid var(--border-color); }
-      .cat-row { width: 100%; display: flex; align-items: baseline; gap: 0.75rem; text-align: left;
-                 padding: 0.45rem 0.7rem; background: none; border: 0; cursor: pointer;
-                 color: var(--text-main); font-size: 0.8125rem; }
-      .cat-row:hover { background: var(--hover-bg); }
-      .cat-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
-      .cat-row-active { background: var(--hover-bg); }
-      .cat-nom { flex: 1 1 auto; min-width: 0; }
-      .cat-cont { margin-left: 0.4rem; color: var(--text-muted); }
-      .cat-meta { flex: 0 0 auto; display: flex; gap: 0.5rem; color: var(--text-muted); font-size: 0.75rem; }
-      .cat-sku { font-family: var(--font-mono, monospace); }
+      .f-lbl { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-main); }
+      .search-step { position: relative; margin-bottom: 0.75rem; }
+      .search-input-wrap { position: relative; display: flex; align-items: center; }
+      .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
+      .search-spinner { position: absolute; right: 0.75rem; color: var(--action); font-size: 0.875rem; }
+      .search-prod-input { padding-left: 2.25rem; font-size: 0.9375rem; min-height: 42px; border-radius: 8px; width: 100%; }
+
+      /* Desplegable ordenado alfabéticamente */
+      .cat-dropdown {
+        position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+        list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto;
+        border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      }
+      .cat-dropdown li + li { border-top: 1px solid var(--border-color); }
+      .cat-row {
+        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        padding: 0.6rem 0.85rem; background: none; border: 0; cursor: pointer; text-align: left;
+        color: var(--text-main); font-size: 0.8125rem;
+      }
+      .cat-row:hover, .cat-row-active { background: var(--hover-bg); }
+      .cat-col-nom { flex: 1 1 auto; min-width: 0; }
+      .cat-nom { font-size: 0.875rem; display: inline-block; }
+      .cat-cont { color: var(--text-muted); font-size: 0.75rem; margin-left: 0.35rem; }
+      .cat-col-meta { display: flex; gap: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex: 0 0 auto; }
+      .cat-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .cat-bc { font-variant-numeric: tabular-nums; }
-      .cat-un { text-transform: uppercase; letter-spacing: 0.04em; }
-      .cat-precio { flex: 0 0 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+      .cat-un { font-weight: 600; background: var(--neutral-100, #f1f5f9); padding: 1px 4px; border-radius: 4px; }
+      .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
+      .cat-precio-val { font-weight: 700; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+      .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
+      .search-hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0.5rem 0 0; }
 
-      .elegido { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0; font-size: 0.8125rem; }
-      .linkish { background: none; border: 0; padding: 0; color: var(--action); cursor: pointer;
-                 font-size: 0.8125rem; text-decoration: underline; }
-      .linkish:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+      /* Tarjeta de producto descargado */
+      .descargado-box {
+        background: var(--surface-ground); border: 1px solid var(--border-color);
+        border-radius: 8px; padding: 1rem; margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem;
+      }
+      .descargado-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+      .descargado-tag {
+        display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
+        font-weight: 700; color: var(--ok-fg, #15803d); text-transform: uppercase; letter-spacing: 0.03em;
+      }
+      .btn-change-prod {
+        background: none; border: 0; color: var(--action); cursor: pointer; font-size: 0.8125rem;
+        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.4rem;
+      }
+      .btn-change-prod:hover { text-decoration: underline; }
 
-      .chips { display: flex; gap: 0.3rem; }
-      .chip { border: 1px solid var(--border-color); background: var(--card-bg); border-radius: 9999px;
-              padding: 0.35rem 0.8rem; font-size: 0.8125rem; cursor: pointer; color: var(--text-muted); min-height: 36px; }
-      .chip:hover { background: var(--hover-bg); }
-      .chip:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-      .chip-active { background: var(--action); border-color: var(--action); color: var(--action-ink); font-weight: 600; }
+      .descargado-info { display: flex; flex-direction: column; gap: 0.35rem; }
+      .descargado-name { font-size: 1.05rem; font-weight: 700; color: var(--text-main); }
+      .descargado-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .pill-meta { font-size: 0.75rem; color: var(--text-muted); background: var(--card-bg); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color); }
+      .pill-meta b { color: var(--text-main); }
 
-      .previa { margin-top: 0.85rem; padding: 0.7rem 0.9rem; border: 1px solid var(--border-color);
-                border-left: 3px solid var(--ok-fg); border-radius: 8px; background: var(--surface-ground); }
-      .previa-bad { border-left-color: var(--warn-fg); }
-      .p-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
-      .p-name { font-weight: 600; font-size: 0.9375rem; }
-      .p-price { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-      .p-unit { font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
-      .p-none { color: var(--warn-fg); font-style: italic; font-size: 0.875rem; font-weight: 600; }
-      .p-why { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
-      .p-why-ok { color: var(--ok-fg); }
-      .p-why-warn { color: var(--warn-fg); }
-      .p-why-bad { color: var(--bad-fg); }
-      .p-why-muted { opacity: 0.75; }
-      .p-delta { margin-left: 0.35rem; font-variant-numeric: tabular-nums; }
+      /* Pregunta: Caja o Pieza */
+      .pregunta-seccion { display: flex; flex-direction: column; gap: 0.4rem; }
+      .pregunta-lbl { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); }
+      .unit-toggle-group { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .unit-toggle-btn {
+        flex: 1 1 130px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 0.65rem 0.8rem; border-radius: 8px; border: 2px solid var(--border-color);
+        background: var(--card-bg); cursor: pointer; min-height: 52px; text-align: center; gap: 0.15rem;
+        transition: border-color 0.15s, background-color 0.15s;
+      }
+      .unit-toggle-btn i { font-size: 1rem; color: var(--text-muted); }
+      .unit-toggle-btn:hover { border-color: var(--action); }
+      .unit-toggle-active { border-color: var(--action); background: rgba(var(--action-rgb, 14, 116, 144), 0.06); }
+      .unit-toggle-active i { color: var(--action); }
+      .unit-title { font-weight: 700; font-size: 0.9375rem; color: var(--text-main); }
+      .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
 
-      .alta-acc { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.85rem; flex-wrap: wrap; }
-      .alta-hint { flex: 1 1 14rem; }
-      .hint { font-size: 0.75rem; color: var(--text-muted); margin: 0.4rem 0 0; }
+      /* Stepper táctil para móvil 16:9 */
+      .touch-qty-seccion { display: flex; flex-direction: column; gap: 0.4rem; }
+      .touch-stepper { display: flex; align-items: center; gap: 0.5rem; max-width: 320px; }
+      .btn-touch-step {
+        width: 48px; height: 48px; flex: none; border-radius: 8px; border: 1px solid var(--border-color);
+        background: var(--card-bg); font-size: 1.15rem; font-weight: 700; color: var(--text-main);
+        cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+        user-select: none; -webkit-tap-highlight-color: transparent;
+      }
+      .btn-touch-step:active { background: var(--hover-bg); transform: scale(0.96); }
+      .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
+      .touch-qty-readout {
+        flex: 1; height: 48px; border-radius: 8px; border: 1px solid var(--border-color);
+        background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
+        justify-content: center; font-variant-numeric: tabular-nums;
+      }
+      .qty-num { font-size: 1.35rem; font-weight: 800; line-height: 1.1; color: var(--text-main); }
+      .qty-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
+      .touch-presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem; }
+      .preset-btn {
+        min-height: 36px; padding: 0.3rem 0.65rem; border-radius: 6px; border: 1px solid var(--border-color);
+        background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-muted);
+      }
+      .preset-btn:hover, .preset-btn:active { background: var(--hover-bg); color: var(--text-main); }
+      .preset-active { background: var(--action); color: var(--action-ink, #fff); border-color: var(--action); }
+
+      /* Previa del precio y volumen */
+      .previa-loading { font-size: 0.8125rem; color: var(--text-muted); padding: 0.5rem 0; }
+      .previa-card {
+        border-radius: 8px; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
+        border-left: 4px solid var(--ok-fg, #15803d); background: var(--card-bg);
+      }
+      .previa-card-bad { border-left-color: var(--bad-fg, #dc2626); }
+      .previa-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+      .previa-unit-box { flex: 0 1 auto; }
+      .previa-total-box { flex: 0 1 auto; }
+      .previa-action-box { margin-left: auto; display: flex; align-items: center; }
+      .btn-agregar-inline {
+        min-height: 40px; font-size: 0.875rem; font-weight: 700; border-radius: 6px;
+        padding: 0.45rem 1.15rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+      @media (max-width: 640px) {
+        .previa-action-box { width: 100%; margin-left: 0; margin-top: 0.4rem; }
+        .btn-agregar-inline { width: 100%; justify-content: center; }
+      }
+      .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
+      .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
+      .previa-amount { font-size: 1.2rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      .previa-unit-sub { font-size: 0.75rem; color: var(--text-muted); }
+      .previa-menor-sub { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
+      .previa-total-amount { font-size: 1.25rem; font-weight: 800; color: var(--action); font-variant-numeric: tabular-nums; }
+      .previa-none { font-size: 0.875rem; font-style: italic; color: var(--bad-fg); }
+
+      .banner-oportunidad-volumen {
+        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+        padding: 0.6rem 0.85rem; background: #eff6ff; border: 1.5px dashed #3b82f6;
+        border-radius: 8px; font-size: 0.8125rem; color: #1e40af; margin: 0.5rem 0; flex-wrap: wrap;
+      }
+      .b-vol-left { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; }
+      .b-vol-icon { font-size: 1.15rem; color: #2563eb; flex-shrink: 0; }
+      .b-vol-icon-ok { font-size: 1.25rem; color: #059669; flex-shrink: 0; }
+      .b-vol-text { display: flex; flex-direction: column; gap: 0.15rem; }
+      .b-vol-title { font-weight: 700; color: #1e3a8a; }
+      .b-vol-desc { font-size: 0.75rem; color: #1e40af; }
+      .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
+      .btn-aplicar-volumen {
+        background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+        padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 700;
+        cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      }
+      .btn-aplicar-volumen:hover { background: #1d4ed8; }
+
+      .banner-volumen-exito {
+        display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem;
+        background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 8px;
+        font-size: 0.8125rem; color: #065f46; margin: 0.5rem 0;
+      }
+      .banner-volumen-exito .b-vol-title { color: #065f46; }
+      .banner-volumen-exito .b-vol-desc { color: #047857; }
+
+      .unit-badge-mayoreo {
+        font-size: 0.6875rem; font-weight: 700; color: #047857; background: #d1fae5;
+        padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 0.2rem;
+      }
+
+      .banner-volumen {
+        display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.65rem;
+        background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: 6px; font-size: 0.8125rem; color: var(--ok-fg, #15803d); margin: 0.5rem 0;
+      }
+      .banner-regalo {
+        display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.65rem;
+        background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 6px; font-size: 0.8125rem; color: #1d4ed8; margin: 0.5rem 0;
+      }
+      .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; margin-top: 0.25rem; flex-wrap: wrap; }
+      .step-tag { font-weight: 700; color: var(--text-main); }
+      .step-detail { color: var(--text-muted); }
+      .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ok-fg, #15803d); }
+      .p-why-bad { color: var(--bad-fg, #dc2626); font-size: 0.75rem; margin: 0.3rem 0 0; }
+
+      .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
+      .p-unit-main { font-weight: 700; }
+      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; }
+
+      .sin-casar-box { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .sin-casar-hint { font-size: 0.75rem; color: var(--text-muted); }
+
+      /* Tabla de renglones */
       .table-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow-x: auto; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); }
@@ -534,6 +908,8 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .sin-casar { display: block; font-size: 0.7rem; color: var(--warn-fg); }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { display: block; font-size: 0.7rem; color: var(--ok-fg); }
+      .inline-qty-box { display: flex; justify-content: flex-end; }
+      .qty-inline { width: 5.5rem; min-height: 32px; padding: 0.2rem 0.4rem; }
 
       .totales { border-top: 1px solid var(--border-color); padding: 0.75rem 1rem; display: flex;
                  flex-direction: column; gap: 0.2rem; align-items: flex-end; }
@@ -550,6 +926,11 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .cruda { margin-top: 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.8rem 1rem; }
       .cruda-lbl { margin: 0 0 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
       .cruda pre { margin: 0; white-space: pre-wrap; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
+
+      .input { width: 100%; padding: 0.45rem 0.7rem; box-sizing: border-box; border: 1px solid var(--border-color);
+               border-radius: 6px; font-size: 0.875rem; background: var(--card-bg); color: var(--text-main); min-height: 36px; }
+      .input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+      .input.num { text-align: right; font-variant-numeric: tabular-nums; }
 
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
                  clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
@@ -571,14 +952,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly previa = signal<PricedLine | null>(null);
   readonly rung = signal<Rung>('base');
 
-  /** `[COT.1c]` El catalogo de la sucursal. */
+  /** El catálogo de la sucursal, ordenado alfabéticamente por nombre de producto. */
   readonly resultados = signal<QuoteCatalogRow[]>([]);
   readonly buscando = signal(false);
   readonly catalogoAbierto = signal(false);
-  /** El producto ELEGIDO. La previa cuelga de esto, no del texto tecleado. */
   readonly elegido = signal<QuoteCatalogRow | null>(null);
 
-  /** Lo que el operador teclea. Si no casa con nada, es el `requested_text` del renglon suelto. */
   termino = '';
   cantidad = 1;
 
@@ -586,10 +965,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly previa$ = new Subject<void>();
   private readonly buscar$ = new Subject<void>();
 
-  /** Sólo un borrador se edita. Una cotización enviada que cambia es otra versión, no la misma. */
   readonly editable = computed(() => this.cot()?.status === 'draft');
-
-  /** Agregar exige que el motor haya podido cotizar: sin precio va por el otro botón, declarado. */
   readonly puedeAgregar = computed(() => !!this.previa() && this.previa()!.unit_price !== null);
 
   ngOnInit(): void {
@@ -610,12 +986,10 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             .pricePreview({ branch: q.source_branch, sku, quantity: qty, rung: this.rung() })
             .pipe(
               catchError((err) => {
-                // Un 403 tragado en silencio se lee como "no hay precio" cuando es "no hay
-                // permiso" (GOTCHAS §4). Se avisa.
                 this.toast.add({
                   severity: err?.status === 403 ? 'warn' : 'error',
                   summary: err?.status === 403 ? 'Sin permiso' : 'No se pudo cotizar',
-                  detail: err?.error?.message || 'El motor de precio no respondio.',
+                  detail: err?.error?.message || 'El motor de precio no respondió.',
                 });
                 return of(null);
               }),
@@ -628,8 +1002,6 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.cotizando.set(false);
       });
 
-    // `[COT.1c]` El buscador del catalogo. `switchMap` y no `mergeMap`: al teclear rapido, la
-    // respuesta de un termino viejo llegando tarde pisaria la lista del termino actual.
     this.buscar$
       .pipe(
         debounceTime(250),
@@ -640,12 +1012,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             return of([] as QuoteCatalogRow[]);
           }
           this.buscando.set(true);
-          return this.svc.searchCatalog(branch, this.termino.trim()).pipe(
+          return this.svc.searchCatalog(branch, this.termino.trim(), 50).pipe(
             catchError((err) => {
               this.toast.add({
                 severity: err?.status === 403 ? 'warn' : 'error',
                 summary: err?.status === 403 ? 'Sin permiso' : 'No se pudo buscar',
-                detail: err?.error?.message || 'El catalogo de la sucursal no respondio.',
+                detail: err?.error?.message || 'El catálogo de la sucursal no respondió.',
               });
               return of([] as QuoteCatalogRow[]);
             }),
@@ -653,17 +1025,19 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         }),
       )
       .subscribe((rows) => {
-        this.resultados.set(rows);
+        // Orden alfabético estricto por nombre del producto (solicitud PM)
+        const ordenados = [...rows].sort((a, b) => {
+          const nomA = (a.name || a.sku).trim();
+          const nomB = (b.name || b.sku).trim();
+          return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
+        });
+        this.resultados.set(ordenados);
         this.buscando.set(false);
         this.catalogoAbierto.set(true);
 
-        // Lector de codigo de barras: manda el EAN completo y espera no tener que clickear.
-        // ⛔ Solo auto-elige si la respuesta es UNA sola fila Y el termino es exactamente su SKU
-        // o su codigo. Con dos candidatos elige el humano: resolver por "sku O barcode" a ciegas
-        // es justo la ambiguedad que ya nos costo antes.
         const t = this.termino.trim();
-        if (rows.length === 1 && t && (rows[0].sku.toUpperCase() === t.toUpperCase() || rows[0].barcode === t)) {
-          this.elegir(rows[0]);
+        if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
+          this.elegir(ordenados[0]);
         }
       });
 
@@ -682,24 +1056,19 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.cargando.set(false);
         this.error.set(
           err?.status === 404
-            ? 'Esa cotizacion no existe o fue borrada.'
-            : err?.error?.message || 'No se pudo abrir la cotizacion.',
+            ? 'Esa cotización no existe o fue borrada.'
+            : err?.error?.message || 'No se pudo abrir la cotización.',
         );
       },
     });
   }
 
-  /**
-   * Teclear busca en el catalogo; NO cotiza. La previa cuelga del producto elegido, porque
-   * cotizar un texto a medio escribir seria pedirle precio a algo que todavia no es un producto.
-   */
   onTermino(_v: string): void {
     this.elegido.set(null);
     this.previa.set(null);
     this.buscar$.next();
   }
 
-  /** Entrar al campo sin escribir nada muestra los primeros N: el operador tambien hojea. */
   onFoco(): void {
     this.catalogoAbierto.set(true);
     if (this.resultados().length === 0) this.buscar$.next();
@@ -717,28 +1086,67 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.catalogoAbierto.set(true);
   }
 
-  onCantidad(): void { this.previa$.next(); }
-  setRung(r: Rung): void { this.rung.set(r); this.previa$.next(); }
+  setRung(r: Rung): void {
+    this.rung.set(r);
+    this.previa$.next();
+  }
+
+  ajustarCantidad(delta: number): void {
+    const actual = Number(this.cantidad) || 1;
+    this.cantidad = Math.max(1, actual + delta);
+    this.previa$.next();
+  }
+
+  setCantidad(val: number): void {
+    this.cantidad = Math.max(1, Math.floor(val));
+    this.previa$.next();
+  }
+
+  labelUnidadActiva(): string {
+    const r = this.rung();
+    const e = this.elegido();
+    if (r === 'box') return 'Caja';
+    if (r === 'pack') return 'Paquete';
+    return e?.sold_by_kg ? 'KG' : 'Pieza';
+  }
+
+  esDescuentoVolumen(): boolean {
+    const p = this.previa();
+    if (!p) return false;
+    if (p.price_source === 'volume_qty' || p.price_source === 'volume_amount' || p.price_source === 'promo_qty') return true;
+    return p.applied.some(
+      (s) =>
+        s.step.toLowerCase().includes('volumen') ||
+        s.step.toLowerCase().includes('promo') ||
+        s.source.toLowerCase().includes('volume') ||
+        (s.before !== null && s.after !== null && s.after < s.before),
+    );
+  }
 
   agregar(): void {
-    if (this.guardando()) return;
+    if (this.guardando() || !this.elegido()) return;
     this.guardando.set(true);
+    const itemNom = this.elegido()?.name || this.elegido()?.sku || 'Artículo';
+    const unidadNom = this.labelUnidadActiva();
+    const qty = Number(this.cantidad);
+
     this.svc
-      .addLine(this.id, { sku: this.elegido()!.sku, quantity: Number(this.cantidad), rung: this.rung() })
+      .addLine(this.id, { sku: this.elegido()!.sku, quantity: qty, rung: this.rung() })
       .subscribe({
         next: () => {
+          this.toast.add({
+            severity: 'success',
+            summary: 'Renglón agregado',
+            detail: `${qty} ${unidadNom}${qty > 1 ? 's' : ''} de ${itemNom}`,
+          });
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
         },
-        error: (err) => this.falla(err, 'No se pudo agregar el renglon'),
+        error: (err) => this.falla(err, 'No se pudo agregar el renglón'),
       });
   }
 
-  /**
-   * Guarda lo que el cliente pidió y NO manejamos. No es un error de captura: es demanda que
-   * estamos rechazando, y desaparece si la tabla exige un producto del catálogo.
-   */
   agregarSinCasar(): void {
     if (this.guardando()) return;
     this.guardando.set(true);
@@ -746,19 +1154,19 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       .addLine(this.id, { requested_text: this.termino.trim(), quantity: Number(this.cantidad) })
       .subscribe({
         next: () => {
+          this.toast.add({
+            severity: 'info',
+            summary: 'Demanda registrada',
+            detail: `${this.termino.trim()} guardado como no casado.`,
+          });
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
         },
-        error: (err) => this.falla(err, 'No se pudo guardar el renglon'),
+        error: (err) => this.falla(err, 'No se pudo guardar el renglón'),
       });
   }
 
-  /**
-   * Corrige la cantidad de un renglón guardado. Va por `PATCH`, que CONSERVA el
-   * `line_number`: borrar y re-agregar mandaría el renglón al final y la cotización dejaría de
-   * estar en el orden de la lista que mandó el cliente.
-   */
   pedirCambio(l: QuoteLine, valor: number): void {
     const qty = Math.floor(Number(valor));
     if (!Number.isFinite(qty) || qty <= 0 || qty === this.numOr0(l.quantity)) return;
@@ -766,13 +1174,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.svc.updateLine(this.id, l.id, { quantity: qty }).subscribe({
       next: (r) => {
         this.guardando.set(false);
-        // El motor vuelve a correr: si el precio se movio, se dice. Un precio que cambia solo
-        // y en silencio es justo lo que hace sospechoso a un descuento.
         const p = r.priced;
         if (p && p.unit_price !== null && this.numOr0(l.unit_price) !== p.unit_price) {
           this.toast.add({
             severity: 'info',
-            summary: 'El precio se movio',
+            summary: 'El precio se movió',
             detail: `${p.name || p.sku}: ahora ${p.unit_price} (${this.fuenteLabel(p.price_source)}).`,
           });
         }
@@ -789,8 +1195,16 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     if (this.guardando()) return;
     this.guardando.set(true);
     this.svc.removeLine(this.id, l.id).subscribe({
-      next: () => { this.guardando.set(false); this.recargar(); },
-      error: (err) => this.falla(err, 'No se pudo quitar el renglon'),
+      next: () => {
+        this.guardando.set(false);
+        this.toast.add({
+          severity: 'info',
+          summary: 'Renglón quitado',
+          detail: `Se eliminó el renglón ${l.line_number}.`,
+        });
+        this.recargar();
+      },
+      error: (err) => this.falla(err, 'No se pudo quitar el renglón'),
     });
   }
 
@@ -801,6 +1215,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.elegido.set(null);
     this.resultados.set([]);
     this.catalogoAbierto.set(false);
+    this.rung.set('base');
   }
 
   private falla(err: { status?: number; error?: { message?: string } }, summary: string): void {
@@ -812,12 +1227,6 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     });
   }
 
-  // ── Formato ────────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * ⚠️ Los `numeric` de Postgres llegan como STRING por JSON (GOTCHAS §6): el tipo de TS miente.
-   * Devuelve `null` cuando no hay dato — **no 0**, que es una afirmación distinta.
-   */
   num(v: number | string | null | undefined): number | null {
     if (v === null || v === undefined || v === '') return null;
     const n = Number(v);
@@ -825,7 +1234,6 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
   private numOr0(v: number | string | null | undefined): number { return this.num(v) ?? 0; }
 
-  /** El precio de lista se muestra sólo si existe: un guion dice más que un cero. */
   dinero(v: number | string | null | undefined): string {
     const n = this.num(v);
     return n === null ? '—' : n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
@@ -859,17 +1267,117 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   vigenciaHint(q: QuoteDetail): string {
     if (q.status !== 'draft' && q.status !== 'sent') return '';
-    if (q.days_to_expiry < 0) return `vencio hace ${Math.abs(q.days_to_expiry)} d`;
+    if (q.days_to_expiry < 0) return `venció hace ${Math.abs(q.days_to_expiry)} d`;
     if (q.days_to_expiry === 0) return 'vence hoy';
     return `en ${q.days_to_expiry} d`;
   }
 
-  /**
-   * ⚠️ Reservado para cuando el detalle publique la escalera del producto: la aritmética de
-   * presentación ya está compartida en `libs/ui-web` (misma que usa take-order), así que el
-   * selector no se vuelve a implementar. Hoy los tres peldaños son fijos porque es lo que el
-   * motor acepta (`base` | `pack` | `box`).
-   */
+  vendedorAsignado(q: QuoteDetail): string | null {
+    if (!q.notes) return null;
+    const m = q.notes.match(/Vendedor(?: asignado| de seguimiento)?:?\s*([^\n;]+)/i);
+    return m ? m[1].trim() : null;
+  }
+
   protected escaleraDe(units: readonly Presentacion[] | null): Presentacion[] { return escalera(units); }
   protected factor(p: Presentacion | null): number { return factorDe(p); }
+
+  // ── Generación de Entregables (XLSX / PDF) ───────────────────────────────────
+  exportando = signal(false);
+  exportandoTipo = signal<'xlsx' | 'pdf' | null>(null);
+
+  obtenerDatosEntregable(q: QuoteDetail): QuoteDeliverableData {
+    const sucursalCod = q.source_branch || '01';
+    const items = q.lines.map((l) => ({
+      sku: l.requested_text || 'ART',
+      name: l.product_name || l.requested_text || 'Artículo',
+      barcode: null,
+      content: null,
+      unit_label: l.qty_unit || 'PZA',
+      rung: l.qty_unit === 'CJA' || l.qty_unit === 'Caja' ? 'box' : (l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base'),
+      factor: this.num(l.qty_factor),
+      quantity: Number(l.quantity) || 1,
+      unit_price: this.num(l.unit_price),
+      line_total: Number(l.line_total) || 0,
+      price_source: this.fuenteLabel(l.price_source),
+      free_goods: null,
+      discount_pct: this.num(l.discount_pct) ?? (Number(q.terms_discount_pct) || null),
+    }));
+
+    const subtotal = Number(q.subtotal) || 0;
+    const discountPct = Number(q.terms_discount_pct) || 0;
+    const discountAmount = discountPct > 0 ? (subtotal * discountPct) / 100 : 0;
+    const total = Number(q.total) || subtotal - discountAmount;
+
+    return {
+      customerCode: q.customer_code || q.erp_customer_code || null,
+      customerName: q.recipient_name || 'CLIENTE',
+      customerPhone: null,
+      customerEmail: null,
+      branchCode: sucursalCod,
+      branchName: `Sucursal ${sucursalCod}`,
+      salespersonCode: null,
+      salespersonName: this.vendedorAsignado(q) || null,
+      quoteDate: q.quote_date || new Date(),
+      validUntil: q.valid_until,
+      items,
+      subtotal,
+      discountPct,
+      discountAmount,
+      total,
+      notes: q.customer_request || q.notes || null,
+    };
+  }
+
+  async descargarXlsx(): Promise<void> {
+    const q = this.cot();
+    if (!q || !q.lines.length || this.exportando()) return;
+
+    this.exportando.set(true);
+    this.exportandoTipo.set('xlsx');
+    try {
+      const data = this.obtenerDatosEntregable(q);
+      await exportQuoteXlsx(data);
+      this.toast.add({
+        severity: 'success',
+        summary: 'Excel generado',
+        detail: 'El archivo .xlsx de la cotización se descargó correctamente.',
+      });
+    } catch (err: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error al exportar Excel',
+        detail: err?.message || 'Ocurrió un error al generar la hoja de cálculo.',
+      });
+    } finally {
+      this.exportando.set(false);
+      this.exportandoTipo.set(null);
+    }
+  }
+
+  async descargarPdf(): Promise<void> {
+    const q = this.cot();
+    if (!q || !q.lines.length || this.exportando()) return;
+
+    this.exportando.set(true);
+    this.exportandoTipo.set('pdf');
+    try {
+      const data = this.obtenerDatosEntregable(q);
+      await exportQuotePdf(data);
+      this.toast.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El archivo PDF formal de la cotización se descargó correctamente.',
+      });
+    } catch (err: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error al exportar PDF',
+        detail: err?.message || 'Ocurrió un error al generar el archivo PDF.',
+      });
+    } finally {
+      this.exportando.set(false);
+      this.exportandoTipo.set(null);
+    }
+  }
 }
+

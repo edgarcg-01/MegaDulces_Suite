@@ -58,6 +58,8 @@ export * from './http/expense-family.contract';
 // [IG.1] El hermano del lado ingreso: canales de venta (el canal vive en c6, no en la cuenta).
 export * from './http/sales-channel.contract';
 export * from './http/income.contract';
+export * from './http/oc-seguimiento.contract';
+export * from './http/flujo-compras.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
