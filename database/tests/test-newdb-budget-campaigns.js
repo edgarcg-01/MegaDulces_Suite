@@ -6,7 +6,10 @@
  *   1. Schema: budget.campaigns + campaign_contributions (RLS forzado) + budget_lines.campaign_id.
  *   2. Costo de campaña = ejercido de las partidas etiquetadas (reusa el ledger).
  *   3. Aportaciones: la CONFIRMADA reduce el gasto; la INCIERTA NO (spec §9).
- *   4. Ventas vinculadas por VENTANA desde analytics.sales_daily (atribución declarada, no incremental).
+ *   4. Ventas vinculadas por VENTANA desde analytics.mv_sales_blended (atribución declarada, no incremental).
+ *      ⛔ Era `analytics.sales_daily`, que cubre 6 de 8 sucursales (`[AUD-DAT.1]`): una campaña corrida
+ *      EN Morelia mostraba ventas vinculadas ~0. El invariante de cobertura lo guarda
+ *      `test-newdb-sales-source-coverage.js` (sólo lectura, contra prod).
  *   5. Retorno: null sin margen_incremental explícito; computado con él (spec §10).
  *   6. descuento_comercial → warning "puede estar ya en ventas netas" (spec §9).
  *
@@ -60,7 +63,7 @@ const ROLLBACK = Symbol('rollback');
       ok(costoNeto === 10000, 'Costo neto = costo − confirmada = 10,000 (la incierta NO se resta, spec §9)');
 
       // ── 4. Ventas vinculadas por ventana ─────────────────────────────────────
-      const [s] = await trx('analytics.sales_daily').where({ tenant_id: T }).whereBetween('sale_date', ['2026-01-01', '2026-03-31'])
+      const [s] = await trx('analytics.mv_sales_blended').where({ tenant_id: T }).whereBetween('sale_date', ['2026-01-01', '2026-03-31'])
         .select(trx.raw('count(*)::int n'), trx.raw('coalesce(sum(revenue),0) ventas'));
       ok(Number(s.n) > 0 && Number(s.ventas) > 0, `Ventas vinculadas por ventana = ${round2(Number(s.ventas))} (atribución declarada, no incremental)`);
 
