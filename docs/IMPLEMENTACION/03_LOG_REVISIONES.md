@@ -86,9 +86,40 @@ call site nuevo corre en **102 ms** contra los 1,550 ms de la vista viva (15×, 
 tráfico continúa. No quedan call sites en TypeScript, sólo dos objetos de la DB dependen de la
 vista (`mv_unit_truth` y `v_unit_truth_coverage`), y **180 s muestreando `pg_stat_activity` cada
 2 s no atraparon ni una ejecución**. Los tres sitios arreglados se usaron **14 veces** desde el
-despliegue. ⇒ La mayor parte de ese 23 % **tiene otro dueño, sin identificar**. El arreglo es
-correcto; el ahorro que se le puso en el mensaje de commit, no. *`pg_stat_statements` dice qué se
-ejecuta, nunca quién lo pide: atribuir sin medir el llamador es adivinar con números al lado.*
+despliegue. ⇒ La mayor parte de ese 23 % **tiene otro dueño**. El arreglo es correcto; el ahorro
+que se le puso en el mensaje de commit, no. *`pg_stat_statements` dice qué se ejecuta, nunca quién
+lo pide: atribuir sin medir el llamador es adivinar con números al lado.*
+
+⭐ **DUEÑO IDENTIFICADO el 2026-09-28, y la premisa de `[CPU.2]` era errónea de entrada.** El error
+de método fue no probar cómo guarda el texto `pg_stat_statements`. Se probó con un marcador:
+
+```sql
+SELECT 1 AS marcador_cpu4_zzz FROM analytics.v_unit_truth LIMIT 1;
+-- queda guardado como:  SELECT $1 AS marcador_cpu4_zzz FROM analytics.v_unit_truth LIMIT $2
+```
+
+⇒ **guarda el texto SUBMITIDO y NO expande la vista** (y `track = top`, así que tampoco cuenta
+anidadas). O sea que el renglón `WITH base_unit AS (…)` nunca fueron las pantallas consultando la
+vista: es SQL que alguien **manda con el CTE adentro**. Estaba en el único lugar que la búsqueda
+inicial no cubrió —se grepeó `libs/` y `apps/` en TS y `database/importers/` en JS—:
+**`services/feeds-ingest/ods-derived.js`**, en `salePriceCtes()` → `normalizeSalePrice()`. O sea
+**el carril de INGESTA**, no el de las pantallas. El log del carril caliente lo venía diciendo en
+voz alta todo el tiempo: `[coalesce:kdm2:normalizeSalePrice] … 10662ms`.
+
+Medido en `ods-live-hot` sobre **una hora real** (2026-09-28):
+
+| | |
+|---|---|
+| corridas de `coalesce:kdm2:normalizeSalePrice` | **43** |
+| CPU total | **477.4 s/hora** (11.10 s de media) ⇒ **11,450 s/día ≈ 0.13 núcleos** |
+| corridas que escribieron **CERO** filas | **33 de 43 (77 %)** |
+
+Corrobora con `pg_stat_statements` (41,661 s sobre ~4 d = 10,415 s/día). Es **el mayor consumidor
+de CPU de la máquina** y ya tiene historia: `[DB-MEM.20]` lo bajó del **92.8 %** al 23 %.
+
+⚠️ **Es la MISMA forma que `[CPU.1]` y `[CPU.3]`, por tercera vez**: un barrido caro para descubrir
+que no cambió nada. Los tres casos de esta auditoría son la misma enfermedad — y éste, el único
+que queda sin tratar, es más grande que los dos que sí se trataron.
 
 ### `[CPU.3]` La caja preguntaba 1,440 veces al día para ~40 movimientos
 
@@ -160,8 +191,15 @@ siempre habría pasado igual las pruebas de humo.
 
 ### Pendiente
 
-- ⛔ Atribuir quién llama a `v_unit_truth` (vía `application_name` en las conexiones).
-- Declarar o corregir que el auto-deploy recree `pg-prod` en cada despliegue.
+- ⛔⛔ **`normalizeSalePrice` del carril de ingesta: 0.13 núcleos, 77 % de sus corridas escriben
+  CERO filas.** Es el mayor consumidor de CPU de la máquina y el único de los tres de esta
+  auditoría que queda sin tratar. Mismo remedio conceptual que `[CPU.1]`/`[CPU.3]`: no barrer para
+  descubrir que no hay nada. ⚠️ `[DB-MEM.20]` ya lo optimizó una vez (92.8 % → 23 %), así que lo
+  que queda **no** es la optimización obvia — hay que medir por qué la ventana se vuelve a llenar
+  (`quedan ~3,400 para la próxima ventana`, batch de 125 SKUs) antes de tocar nada.
+- ⛔ **El auto-deploy recrea `pg-prod` en cada despliegue** (verificado dos veces el 28-sep: 08:34
+  y 09:34, `Created == StartedAt`), y los carriles del ODS mueren y renacen con él — 5-6 reinicios
+  en una hora. Declararlo o corregirlo.
 - Decidir qué pasa con los 35 GB de `wincaja` y con `pg-rag` (requiere autorización: no se borra).
 - Bajar los `effective_cache_size` a lo que existe de verdad.
 
