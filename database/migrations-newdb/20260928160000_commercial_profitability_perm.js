@@ -59,7 +59,7 @@ exports.up = async function up(knex) {
 
   const bf = await knex.raw(
     `UPDATE role_permissions
-        SET permissions = permissions || jsonb_build_object(?, COALESCE((permissions->>?)::boolean, false))
+        SET permissions = permissions || jsonb_build_object(?::text, COALESCE((permissions->>?)::boolean, false))
       WHERE permissions -> ? IS NULL`,
     [KEY, ANCLA, KEY],
   );
