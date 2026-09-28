@@ -1,6 +1,6 @@
 /**
  * W (gold) — Feed: venta por PRODUCTO de las tiendas CIEGAS Wincaja (30/32/50) →
- * `analytics.product_sales_monthly` + `analytics.product_sales_daily`, las tablas
+ * `analytics.product_sales_daily`, la tabla
  * que consume /comercial/salidas (Fase SAL). Hoy esas tablas solo traen Kepler
  * (01-05) → 30/32/50 quedaban invisibles en Salidas.
  *
@@ -47,22 +47,16 @@ const STORES = ['MD-30', 'MD-32']; // Canindo migró a Kepler ('06') → sus ven
     await db.transaction(async (trx) => {
       // Merge SIN churn: UPSERT solo-cambios + delete-not-seen (scope = warehouses Wincaja).
       // Antes: DELETE-por-warehouse+INSERT reescribía todo cada corrida.
-      const iM = await trx.raw(
-        `INSERT INTO analytics.product_sales_monthly AS t (tenant_id, product_id, warehouse_id, month, units, updated_at)
-         SELECT ?, product_id, warehouse_id, date_trunc('month', sale_date)::date, sum(units), now()
-         FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)
-         GROUP BY product_id, warehouse_id, date_trunc('month', sale_date)
-         ON CONFLICT (tenant_id, product_id, warehouse_id, month) DO UPDATE SET units=EXCLUDED.units, updated_at=now()
-         WHERE t.units IS DISTINCT FROM EXCLUDED.units`, [TENANT, TENANT, ids]);
-      const dM = await trx.raw(
-        `DELETE FROM analytics.product_sales_monthly t
-          WHERE t.tenant_id=? AND t.warehouse_id = ANY(?)
-            AND NOT EXISTS (SELECT 1 FROM analytics.sales_daily s
-                             WHERE s.tenant_id=t.tenant_id AND s.channel LIKE 'wincaja%'
-                               AND s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id
-                               AND date_trunc('month', s.sale_date)::date = t.month)`, [TENANT, ids]);
-      console.log(`  product_sales_monthly: ${iM.rowCount} escritas, ${dM.rowCount} borradas`);
-
+      // ⛔ [AUD-DAT.10] ACÁ SE ESCRIBÍA TAMBIÉN `product_sales_monthly`. Se retiró: esa tabla
+      // pasó a ser el ROLLUP de `product_sales_daily` y tiene UN SOLO DUEÑO
+      // (`kepler/import-product-sales-monthly.js`). Eran TRES escritores para dos tablas
+      // hermanas, y se contradecían hasta 44.7 % en un mes cerrado.
+      //
+      // ⚠️ Este importer sigue siendo dueño de la pierna Wincaja de la DIARIA — y ahora la
+      // mensual lo sigue. O sea que el `DELETE` de abajo se volvió más caro: si `sales_daily`
+      // pierde estas warehouses (le pasó a `MD-32`: no tiene UNA fila en ningún mes), el
+      // borrado se propaga a la mensual. El freno vive en el importer mensual
+      // (`MAX_HUERFANOS_PCT`), que aborta antes de replicar un vaciado.
       const iD = await trx.raw(
         `INSERT INTO analytics.product_sales_daily AS t (tenant_id, product_id, warehouse_id, sale_date, units, updated_at)
          SELECT ?, product_id, warehouse_id, sale_date, sum(units), now()
@@ -81,9 +75,9 @@ const STORES = ['MD-30', 'MD-32']; // Canindo migró a Kepler ('06') → sus ven
 
     const chk = (await db.raw(
       `SELECT w.code, count(*)::int filas, count(distinct m.product_id)::int prods, round(sum(m.units)::numeric,0) u
-       FROM analytics.product_sales_monthly m JOIN commercial.warehouses w ON w.id=m.warehouse_id
+       FROM analytics.product_sales_daily m JOIN commercial.warehouses w ON w.id=m.warehouse_id
        WHERE m.tenant_id=? AND w.code = ANY(?) GROUP BY 1 ORDER BY 1`, [TENANT, STORES])).rows;
-    console.log('✅ product_sales_monthly Wincaja:');
+    console.log('✅ product_sales_daily Wincaja:');
     for (const r of chk) console.log(`   ${r.code}: ${r.prods} productos, ${r.filas} filas, ${Number(r.u).toLocaleString()} u`);
     await db.destroy();
   } catch (e) {
