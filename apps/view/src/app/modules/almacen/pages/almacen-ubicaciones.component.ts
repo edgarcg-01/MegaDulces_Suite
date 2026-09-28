@@ -507,7 +507,7 @@ interface UbicacionFila extends WarehouseBin {
       display: flex; flex-direction: column; gap: 2px;
     }
     .ub-kpi-n { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .ub-kpi-l { font-size: .75rem; color: var(--text-color-secondary); }
+    .ub-kpi-l { font-size: .75rem; color: var(--text-muted); }
     .ub-kpi-warn .ub-kpi-n { color: var(--bad-fg, #b91c1c); }
     .ub-layout { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 1rem; align-items: start; }
     @media (max-width: 960px) { .ub-layout { grid-template-columns: 1fr; } }
@@ -515,13 +515,13 @@ interface UbicacionFila extends WarehouseBin {
     .ub-left, .ub-right { display: flex; flex-direction: column; }
     .ub-h2 { font-size: .95rem; font-weight: 700; margin: 0; }
     .ub-h3 { font-size: .85rem; font-weight: 700; margin: 0 0 .5rem; }
-    .ub-sub { margin: 2px 0 0; font-size: .78rem; color: var(--text-color-secondary); font-variant-numeric: tabular-nums; }
+    .ub-sub { margin: 2px 0 0; font-size: .78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .ub-side-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; }
     .ub-buscar { width: 100%; margin-bottom: .5rem; }
     .ub-chips { display: flex; gap: .35rem; margin-bottom: .75rem; flex-wrap: wrap; }
     .ub-chip {
       padding: .25rem .7rem; cursor: pointer; font: inherit; font-size: .78rem;
-      background: transparent; color: var(--text-color-secondary);
+      background: transparent; color: var(--text-muted);
       border: 1px solid var(--surface-border); border-radius: 999px;
     }
     .ub-chip-on { border-color: var(--action); color: var(--action); font-weight: 700; }
@@ -534,23 +534,23 @@ interface UbicacionFila extends WarehouseBin {
     .ub-row:hover { background: var(--surface-hover); }
     .ub-row-on { border-color: var(--action); background: var(--surface-hover); }
     .ub-row-code { font-family: var(--font-mono, monospace); font-weight: 700; font-size: .85rem; }
-    .ub-row-lbl { font-size: .78rem; color: var(--text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ub-row-lbl { font-size: .78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ub-row-qty { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .ub-row-vacia { font-weight: 400; font-size: .75rem; color: var(--text-color-secondary); }
-    .ub-hint-card { display: flex; align-items: center; gap: .75rem; color: var(--text-color-secondary); font-size: .85rem; }
+    .ub-row-vacia { font-weight: 400; font-size: .75rem; color: var(--text-muted); }
+    .ub-hint-card { display: flex; align-items: center; gap: .75rem; color: var(--text-muted); font-size: .85rem; }
     .ub-badge {
       min-width: 22px; padding: 0 6px; border-radius: 999px; font-size: .75rem; font-weight: 700;
       background: var(--warn-soft-bg, var(--surface-ground)); color: var(--warn-fg, inherit); text-align: center;
     }
     .ub-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }
-    .ub-field > span { font-size: .8rem; color: var(--text-color-secondary); font-weight: 600; }
+    .ub-field > span { font-size: .8rem; color: var(--text-muted); font-weight: 600; }
     .ub-field input[pInputText], .ub-field input[type=number], .ub-field input[type=date] { width: 100%; }
     .ub-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-    .ub-hint { font-size: .78rem; color: var(--text-color-secondary); margin: .25rem 0 0; }
+    .ub-hint { font-size: .78rem; color: var(--text-muted); margin: .25rem 0 0; }
     .ub-mono { font-family: var(--font-mono, monospace); }
     .ub-strong { font-weight: 700; }
     .ub-name { max-width: 260px; }
-    .ub-name small { display: block; font-size: .72rem; color: var(--text-color-secondary); font-family: var(--font-mono, monospace); }
+    .ub-name small { display: block; font-size: .72rem; color: var(--text-muted); font-family: var(--font-mono, monospace); }
     .ub-sku { font-family: var(--font-mono, monospace); }
     .ub-row-click { cursor: pointer; }
     .ub-putaway { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--surface-border); }

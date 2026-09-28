@@ -46,6 +46,13 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
  *                                                         idéntico al primario: la jerarquía que
  *                                                         el código creía tener no existía
  *
+ * ⭐ Este diagnóstico era CORRECTO y se quedó corto: se arregló acá y nadie barrió el resto.
+ * Medido el 2026-09-28, dos meses después: `var(--text-color-secondary)` seguía vivo en
+ * **164 declaraciones de `color` repartidas en 25 archivos, NINGUNA con respaldo**. O sea que
+ * la jerarquía atenuada no existía en 25 pantallas, exactamente por esta razón, ya escrita acá.
+ * [UIM.1] las renombró todas a `--text-muted`, que es el nombre real. Lección: un token que no
+ * existe no es un defecto DE UNA PANTALLA — hay que contarlo en todo el repo el mismo día.
+ *
  * Más 6 hex crudos (pre-vuelo §2) que además rompían en oscuro (pre-vuelo §12b): un chip
  * rosa claro sobre zinc `#111`. Y faltaban tres cosas que el doc marca BINDING: el veredicto
  * arriba (§Q.1 — abría directo en el grid crudo, que es su antipatrón textual), la frescura

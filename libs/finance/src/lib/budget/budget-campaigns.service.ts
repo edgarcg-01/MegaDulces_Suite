@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, evalInput, composeFreshness, laneAt } from '@megadulces/platform-core';
 
 /**
  * Fase PU.5 — Presupuestos: Marketing (campañas) (ADR-066, spec §9/§6/§10).
  *
  * Una campaña es una DIMENSIÓN sobre las partidas (reusa el ledger de PU.1): sus partidas se etiquetan
  * con `campaign_id` y su gasto real = el ejercido de esas partidas. La EVALUACIÓN es honesta:
- *   - «ventas vinculadas» se sacan de `analytics.sales_daily` por la VENTANA de la campaña, y se
+ *   - «ventas vinculadas» se sacan de `analytics.mv_sales_blended` por la VENTANA de la campaña, y se
  *     DECLARA la regla de atribución — las ventas vinculadas NO prueban efecto incremental (spec §6/§10).
  *   - El «retorno» solo se calcula si se entrega un `margen_incremental` explícito y costo > 0 (spec §10).
  *   - Las aportaciones de proveedor NO reducen el gasto salvo las CONFIRMADAS/APLICADAS (spec §9).
@@ -15,6 +15,21 @@ import { TenantKnexService, TenantContextService, evalInput, composeFreshness } 
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? round2((num / den) * 100) : null);
+
+/**
+ * ⛔ [AUD-DAT.1] ERA `analytics.sales_daily`, que cubre **6 de las 8 sucursales** — su importer lo
+ * declara en la primera línea (*"mart.ventas_enriched … 6 sucursales"*) y no lo declaraba nadie
+ * aguas abajo. Acá dolía doble: una campaña corrida EN Morelia mostraba ventas vinculadas ≈ 0, y
+ * una campaña de toda la empresa las subdeclaraba ~48% (medido en prod 2026-09-28: 2026 ene-sep
+ * $313.4M vs $464.3M). Se engancha al linaje que `[SD.3]` ya eligió el 2026-09-14, con su candado.
+ *
+ * ⚠️ El `as_of` NO puede salir de `max(updated_at)`: en esta matvista esa columna es la FECHA DE
+ * VENTA truncada a medianoche, no el sello del refresco (medido: máximo `2026-09-28 00:00:00`
+ * mientras el refresco real había cerrado 06:33). Sale del latido de entrega del carril (ADR-053).
+ */
+const SALES_FACT = 'analytics.mv_sales_blended';
+const SALES_FACT_LANE = 'analytics_refresh_blended';
+const SALES_FACT_LANE_WARN_H = 26;
 
 export interface CreateCampaignDto {
   name: string;
@@ -147,14 +162,15 @@ export class BudgetCampaignsService {
       // Ventas vinculadas: por la VENTANA de la campaña (atribución declarada, NO prueba incremental).
       let ventas: { available: boolean; monto: number | null; as_of: string | null; source: string; attribution: string; reason?: string };
       if (c.start_date && c.end_date) {
-        const [s] = await trx('analytics.sales_daily').where({ tenant_id: tenantId })
+        const [s] = await trx(SALES_FACT).where({ tenant_id: tenantId })
           .whereBetween('sale_date', [this.dOnly(c.start_date), this.dOnly(c.end_date)])
-          .select(trx.raw('count(*)::int AS n'), trx.raw('coalesce(sum(revenue),0) AS ventas'), trx.raw('max(updated_at) AS as_of'));
+          .select(trx.raw('count(*)::int AS n'), trx.raw('coalesce(sum(revenue),0) AS ventas'));
+        const asOf = await laneAt(trx, SALES_FACT_LANE);
         ventas = Number(s.n) > 0
-          ? { available: true, monto: round2(Number(s.ventas)), as_of: s.as_of, source: 'analytics.sales_daily', attribution: 'ventana temporal de la campaña (NO prueba efecto incremental)' }
-          : { available: false, monto: null, as_of: null, source: 'analytics.sales_daily', attribution: 'ventana temporal', reason: 'Sin ventas en la ventana' };
+          ? { available: true, monto: round2(Number(s.ventas)), as_of: asOf, source: SALES_FACT, attribution: 'ventana temporal de la campaña (NO prueba efecto incremental)' }
+          : { available: false, monto: null, as_of: null, source: SALES_FACT, attribution: 'ventana temporal', reason: 'Sin ventas en la ventana' };
       } else {
-        ventas = { available: false, monto: null, as_of: null, source: 'analytics.sales_daily', attribution: 'n/a', reason: 'La campaña no tiene vigencia (start/end) para atribuir ventas' };
+        ventas = { available: false, monto: null, as_of: null, source: SALES_FACT, attribution: 'n/a', reason: 'La campaña no tiene vigencia (start/end) para atribuir ventas' };
       }
 
       // Retorno SOLO con margen incremental explícito (spec §10). Si no, se declara.
@@ -172,7 +188,7 @@ export class BudgetCampaignsService {
         aportaciones: { confirmada: aport_confirmada, incierta: aport_incierta, nota: 'La incierta NO reduce el gasto (spec §9).' },
         ventas_vinculadas: ventas,
         // [PU-VP] Procedencia declarada por el SERVER (ADR-056): frescura del fact de ventas vinculado.
-        freshness: composeFreshness([evalInput('sales_daily', 'Ventas vinculadas (ODS)', ventas.as_of ?? null, 26)]),
+        freshness: composeFreshness([evalInput(SALES_FACT_LANE, 'Ventas vinculadas (ODS)', ventas.as_of ?? null, SALES_FACT_LANE_WARN_H)]),
         intensidad_gasto_ventas_pct: ventas.available ? pct(costo, ventas.monto as number) : null, // gasto/ventas (§10: intensidad, NO retorno)
         retorno,
         warnings: esDescuento ? ['Tipo descuento_comercial: su costo puede estar YA deducido en ventas netas — no sumar otra vez como gasto (spec §9).'] : [],

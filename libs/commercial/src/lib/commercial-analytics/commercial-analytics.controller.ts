@@ -686,6 +686,16 @@ export class CommercialAnalyticsController {
     return this.service.sellOutCanales(from, to);
   }
 
+  @Get('sell-out/channels')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({
+    summary:
+      'VSO.1 — Canales de NEGOCIO que el filtro puede ofrecer, del resolvedor analytics.sellout_channel_map. El front NO los enumera: el vocabulario duplicado fue lo que dejó `mayoreo` ($21.4M/90d) sin casilla. `from_db=false` = respaldo degradado.',
+  })
+  sellOutChannels() {
+    return this.service.sellOutChannels();
+  }
+
   @Get('sell-out/vendors')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR (Mayoreo/RD/RV → vendedores) para el slicer, acotado al rango.' })

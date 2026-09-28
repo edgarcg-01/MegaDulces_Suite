@@ -655,20 +655,63 @@ export interface SellOutBrandRow {
 }
 
 const RS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CHANNEL_LABELS: Record<string, string> = {
+/**
+ * [VSO.1] CANAL del sell-out — el vocabulario ya NO se escribe acá. Sale de
+ * `analytics.sellout_channel_map`, que mapea (fuente, canal crudo) → canal de NEGOCIO + rótulo +
+ * orden. Este archivo sólo lo LEE (`loadChannelMap`).
+ *
+ * ⛔ Por qué se retiraron los literales: el universo publica SEIS canales crudos y este mapa tenía
+ * CUATRO. Medido en prod el 2026-09-28, `mayoreo` ($21,373,739/90 d) y `contado_nf` ($381,787) no
+ * tenían rótulo, ni casilla de filtro, ni hoja en el árbol — y el árbol arma un `cellFilter`, así
+ * que abrirlo TIRABA esos $21.4M en silencio. Es la R7 de `docs/VERDAD_ABSOLUTA.md`: nadie
+ * verificaba que lo publicado concordara con el resolvedor.
+ *
+ * Lo de abajo es el RESPALDO DEGRADADO, para un destino donde la tabla todavía no existe: conserva
+ * el comportamiento viejo (identidad + estos rótulos) en vez de reventar. No es la fuente: si se
+ * usa, el canal nuevo vuelve a quedar sin rótulo — por eso avisa por Logger y el candado
+ * `test-newdb-sellout-channel-parity.js` es el que de verdad lo vigila.
+ */
+const CHANNEL_LABELS_FALLBACK: Record<string, string> = {
   mostrador: 'Mostrador',
-  preventa: 'Preventa',
+  preventa: 'Vecinal',
   ruta: 'Ruta',
-  credito: 'Mayoreo',   // Wincaja caja 70 (mayoreo_credito) + crédito numérico Kepler = venta de mayoreo/telemarketing
+  mayoreo: 'Mayoreo',
+  credito: 'Mayoreo',
+  contado_nf: 'Mostrador',
   otro: 'Otro',
 };
-const CHANNEL_ORDER: Record<string, number> = {
+const CHANNEL_ORDER_FALLBACK: Record<string, number> = {
   mostrador: 0,
   preventa: 1,
   ruta: 2,
+  mayoreo: 3,
   credito: 3,
   otro: 4,
 };
+/** Canal de negocio al que pertenece cada canal crudo, cuando no hay tabla que preguntar. */
+const CHANNEL_CANON_FALLBACK: Record<string, string> = {
+  mostrador: 'mostrador', contado_nf: 'mostrador',
+  preventa: 'preventa', ruta: 'ruta',
+  mayoreo: 'mayoreo', credito: 'mayoreo',
+};
+
+/** [VSO.1] Lo que el resto del servicio usa para hablar de canales. */
+export interface SelloutChannelMap {
+  /** (fuente, canal crudo) → canal de NEGOCIO. Desconocido → el crudo, nunca se descarta. */
+  canon(source: any, raw: any): string;
+  /** rótulo de pantalla de un canal de NEGOCIO. */
+  label(canonical: string): string;
+  /** orden de pantalla de un canal de NEGOCIO. */
+  orden(canonical: string): number;
+  /** canales de negocio que existen, en orden — la lista que puede ofrecer un filtro. */
+  canales(): { value: string; label: string }[];
+  /** canales CRUDOS que componen estos canales de negocio — para filtrar en SQL sin perder ninguno. */
+  raws(canonicals: string[]): string[];
+  /** normaliza lo que llega por querystring; acepta el vocabulario viejo (`credito` → `mayoreo`). */
+  normalize(v: any): string;
+  /** true si el mapa salió de la DB; false si es el respaldo degradado. */
+  fromDb: boolean;
+}
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
@@ -701,19 +744,27 @@ const SELLOUT_STMT_TIMEOUT = '45s';
  * Lo que no matchee cae en 'OTROS' → nada se pierde y el TOTAL de columnas cuadra con el total fila.
  */
 type PlazaCol = { key: string; label: string; branches?: string[]; routeParents?: string[]; channels: string[] | '*' };
+/**
+ * ⚠️ [VSO.1] `branches`/`routeParents` son códigos de ALMACÉN (`warehouse_code`), que es la
+ * identidad que funde las dos piernas del cutover — NO el `source_branch` de cada ERP. Medido en
+ * prod el 2026-09-28: `MD-30` **no existe** como almacén y `MD-32` tiene **0 filas** de sell-out
+ * (toda Morelia vive en `07`/`08` desde que `[RL.10]` cerró su cutover), así que las columnas de
+ * Morelia matcheaban NADA y su venta caía en OTROS — $22.66M de $49.88M (45.4%) en sep-2026,
+ * sumando el mayoreo Kepler que tampoco tenía columna. `channels` va en canal de NEGOCIO.
+ */
 const SELLOUT_PLAZA_COLUMNS: PlazaCol[] = [
   { key: 'suc_padre_hidalgo',  label: 'SUCURSAL PADRE HIDALGO',    branches: ['01'],          channels: ['mostrador', 'preventa'] },
-  { key: 'may_la_piedad',      label: 'MAYOREO LA PIEDAD',         branches: ['01', '02'],    channels: ['credito'] },
+  { key: 'may_la_piedad',      label: 'MAYOREO LA PIEDAD',         branches: ['01', '02'],    channels: ['mayoreo'] },
   { key: 'rutas_la_piedad',    label: 'RUTAS LA PIEDAD',           routeParents: ['01', '02'], channels: ['ruta'] },
-  { key: 'suc_mor_abastos',    label: 'SUCURSAL MORELIA ABASTOS',  branches: ['MD-30'],       channels: ['mostrador', 'preventa'] },
-  { key: 'may_morelia',        label: 'MAYOREO MORELIA',           branches: ['MD-30', 'MD-32'], channels: ['credito'] },
-  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['MD-32', '07'], channels: ['mostrador', 'preventa'] },
-  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeParents: ['MD-30', 'MD-32', '07'], channels: ['ruta'] },
+  { key: 'suc_mor_abastos',    label: 'SUCURSAL MORELIA ABASTOS',  branches: ['08'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_morelia',        label: 'MAYOREO MORELIA',           branches: ['08', '07'],    channels: ['mayoreo'] },
+  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['07'],          channels: ['mostrador', 'preventa'] },
+  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeParents: ['08', '07'], channels: ['ruta'] },
   { key: 'suc_8esq',           label: 'SUCURSAL 8 ESQUINAS',       branches: ['03'],          channels: '*' },
   { key: 'suc_abastos_piedad', label: 'SUCURSAL ABASTOS LA PIEDAD', branches: ['02'],         channels: ['mostrador', 'preventa'] },
   { key: 'suc_yurecuaro',      label: 'SUCURSAL YURECUARO',        branches: ['04'],          channels: '*' },
   { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['06'],          channels: ['mostrador', 'preventa'] },
-  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['06'],          channels: ['credito'] },
+  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['06'],          channels: ['mayoreo'] },
   { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeParents: ['06'],      channels: ['ruta'] },
   { key: 'suc_zam_centro',     label: 'SUCURSAL ZAM CENTRO',       branches: ['05'],          channels: '*' },
 ];
@@ -3535,7 +3586,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -3668,6 +3719,8 @@ export class CommercialAnalyticsService {
         (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
+      // [VSO.1] El vocabulario de canal sale del resolvedor, no de constantes de este archivo.
+      const chMap = await this.loadChannelMap(trx, tenantId);
       // RS.13 — layout plaza: mapa canónico RUTA-NN → almacén de la sucursal padre (v_route_plaza).
       // Sólo se necesita en el layout plaza (agrupa camionetas por plaza); en otros modos se salta.
       const routePlaza = new Map<string, string>();
@@ -3680,7 +3733,7 @@ export class CommercialAnalyticsService {
       return {
         brand: b, products: ps, raw: rawRows,
         retail: retailRows.map((r: { branch_name: string }) => r.branch_name),
-        boxMethods, uxcRows, identMap, freshness, routePlaza, unitProv,
+        boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv,
       };
     });
     // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
@@ -3746,6 +3799,19 @@ export class CommercialAnalyticsService {
       generated_at: new Date().toISOString(),
     };
 
+    // [VSO.1] Los filtros llegan en el vocabulario DEL CLIENTE, que puede ser el viejo (`credito`
+    // por Mayoreo, en enlaces guardados y en la app desplegada). Se traducen a canal de NEGOCIO
+    // una sola vez acá; romperlos sería esconder el cambio detrás de un filtro que "no hace nada".
+    const channelFilterCanon = channelFilter
+      ? new Set(Array.from(channelFilter).map((c) => chMap.normalize(c)))
+      : null;
+    const cellFilterCanon = cellFilter
+      ? new Set(Array.from(cellFilter).map((c) => {
+          const i = String(c).indexOf('|');
+          return i < 0 ? String(c) : `${chMap.normalize(String(c).slice(0, i))}|${String(c).slice(i + 1)}`;
+        }))
+      : null;
+
     // Paso 3 — pivote en Node
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
@@ -3772,18 +3838,22 @@ export class CommercialAnalyticsService {
         excludedTransfers += Number(r.monto) || 0;
         continue;
       }
+      // [VSO.1] De acá para abajo se habla en canal de NEGOCIO: `wincaja:credito` y
+      // `kepler:mayoreo` son el mismo Mayoreo a los dos lados del cutover, y `kepler:contado_nf`
+      // (U-D-12) es mostrador. El crudo (`channel`) ya no decide nada salvo el corte de arriba.
+      const canal = chMap.canon(r.source, channel);
 
       // RS.13 — layout "por plaza": mapear (almacén, canal) → columna fija del template. Fila =
       // producto; sin desglose por vendedor. SÍ honra los filtros de canal y de celda (Avanzado):
       // un filtro puesto DEBE aplicar en todo layout (sincronía de filtros). Lo que no matchea el
       // template cae en OTROS y el total cuadra.
       if (plaza) {
-        if (channelFilter && !channelFilter.has(channel)) continue;
-        if (cellFilter) {
-          const leafKey = `${channel}|${String(r.branch_code).toLowerCase()}`;
-          if (!cellFilter.has(leafKey) && !cellFilter.has(`${channel}|*`)) continue;
+        if (channelFilterCanon && !channelFilterCanon.has(canal)) continue;
+        if (cellFilterCanon) {
+          const leafKey = `${canal}|${String(r.branch_code).toLowerCase()}`;
+          if (!cellFilterCanon.has(leafKey) && !cellFilterCanon.has(`${canal}|*`)) continue;
         }
-        const colKey = plazaColKey(r.branch_code, channel, routePlaza) ?? PLAZA_OTROS_KEY;
+        const colKey = plazaColKey(r.branch_code, canal, routePlaza) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
           colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
@@ -3820,25 +3890,27 @@ export class CommercialAnalyticsService {
         continue;
       }
 
-      if (channelFilter && !channelFilter.has(channel)) continue;
-      // RS.10 / PARIDAD — Mayoreo (credito) se desglosa POR VENDEDOR. Wincaja SIEMPRE trae vendedor;
-      // Kepler AHORA también (kdm1.c12 horneado en mv_kepler) → el telemarketing Kepler (Sergio/Cinthia)
-      // se abre por persona, simétrico a Wincaja, y el mismo humano colapsa a UNA columna a través del
+      if (channelFilterCanon && !channelFilterCanon.has(canal)) continue;
+      // RS.10 / PARIDAD — Mayoreo se desglosa POR VENDEDOR. Wincaja SIEMPRE trae vendedor; Kepler
+      // también (kdm1.c12 horneado en mv_kepler) → el telemarketing Kepler (Sergio/Cinthia) se abre
+      // por persona, simétrico a Wincaja, y el mismo humano colapsa a UNA columna a través del
       // cutover vía la identidad canónica. Sólo las filas sin vendedor caen en un bucket 'Sin vendedor'.
-      const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
+      // [VSO.1] La condición es el canal de NEGOCIO: con el crudo, `kepler:mayoreo` (U-D-8, los
+      // $21.4M del telemarketing) no entraba acá y se perdía el desglose por persona.
+      const isMayoreo = canal === 'mayoreo' && groupBy === 'branch_channel';
       // RS.11 — identidad canónica del vendedor (une fragmentos Wincaja+Kepler + nombre limpio).
       const mayId = isMayoreo && r.vendor_code ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
       // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
       if (isMayoreo && r.vendor_code && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
       const mayoreoLeaf = isMayoreo
-        ? (mayId ? mayId.key : 'sin-vendedor')   // fix D: bucket ÚNICO seleccionable (el árbol emite credito|sin-vendedor)
+        ? (mayId ? mayId.key : 'sin-vendedor')   // fix D: bucket ÚNICO seleccionable (el árbol emite mayoreo|sin-vendedor)
         : null;
       // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
-      if (cellFilter) {
+      if (cellFilterCanon) {
         const leafKey = isMayoreo
-          ? `credito|${mayoreoLeaf!.toLowerCase()}`
-          : `${channel}|${String(r.branch_code).toLowerCase()}`;
-        if (!cellFilter.has(leafKey) && !cellFilter.has(`${channel}|*`)) continue;
+          ? `mayoreo|${mayoreoLeaf!.toLowerCase()}`
+          : `${canal}|${String(r.branch_code).toLowerCase()}`;
+        if (!cellFilterCanon.has(leafKey) && !cellFilterCanon.has(`${canal}|*`)) continue;
       }
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
@@ -3884,8 +3956,8 @@ export class CommercialAnalyticsService {
         : (src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)');
       const colKey = monthCols
         ? r.sale_month
-        : isMayoreo ? `credito|${mayoreoLeaf}`
-        : groupBy === 'branch' ? `${r.branch_code}|${colTail}` : `${r.branch_code}|${channel}|${colTail}`;
+        : isMayoreo ? `mayoreo|${mayoreoLeaf}`
+        : groupBy === 'branch' ? `${r.branch_code}|${colTail}` : `${r.branch_code}|${canal}|${colTail}`;
       if (!columns.has(colKey)) {
         columns.set(colKey, monthCols
           ? {
@@ -3908,8 +3980,8 @@ export class CommercialAnalyticsService {
               key: colKey,
               branch_code: r.branch_code,
               branch_name: r.branch_name,
-              channel: groupBy === 'branch' ? undefined : channel,
-              channel_label: groupBy === 'branch' ? undefined : CHANNEL_LABELS[channel] ?? channel,
+              channel: groupBy === 'branch' ? undefined : canal,
+              channel_label: groupBy === 'branch' ? undefined : chMap.label(canal),
               source: src,
               source_label: srcLabel,
             });
@@ -4024,12 +4096,12 @@ export class CommercialAnalyticsService {
       if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
       // RS.10 — Mayoreo (credito) forma su propio bloque, DESPUÉS de las sucursales, ordenado
       // por nombre de vendedor. Así queda separado y comprensible (sucursales | vendedores mayoreo).
-      const aMay = a.channel === 'credito' ? 1 : 0;
-      const bMay = b.channel === 'credito' ? 1 : 0;
+      const aMay = a.channel === 'mayoreo' ? 1 : 0;
+      const bMay = b.channel === 'mayoreo' ? 1 : 0;
       if (aMay !== bMay) return aMay - bMay;
       if (aMay === 1) return a.branch_name.localeCompare(b.branch_name, 'es');
       if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
-      const ch = (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
+      const ch = chMap.orden(a.channel ?? '') - chMap.orden(b.channel ?? '');
       if (ch !== 0) return ch;
       return (a.source ?? '').localeCompare(b.source ?? '');
     });
@@ -4072,6 +4144,72 @@ export class CommercialAnalyticsService {
         monto: round(sinMetodo.monto, 2),
       },
     };
+  }
+
+  /**
+   * [VSO.1] Lee `analytics.sellout_channel_map` — el resolvedor ÚNICO del canal del sell-out.
+   *
+   * Son 9 filas; se lee una vez por request y se resuelve en Node, NO con un join en las piernas:
+   * `selloutPivotLeg` está afinado para ser INDEX-ONLY (medido: FULL 7-10 s vs LEAN 3.8 s del
+   * full-year) y `source` no está en el índice covering — un join lo mandaría al heap.
+   *
+   * El lookup acepta (fuente, crudo) y también el crudo a secas, porque hay call-sites donde la
+   * fuente no viaja (los árboles agregan por canal). Que eso sea válido NO se asume: el candado
+   * verifica que ningún canal crudo caiga en dos canales de negocio distintos según la fuente.
+   *
+   * ⚠️ Un canal crudo que el mapa no explica se devuelve TAL CUAL, nunca se descarta: preferimos
+   * una columna con rótulo feo a dinero que desaparece (ADR-056 R4). Quien lo detecta y lo nombra
+   * con su monto es `analytics.v_sellout_channel_coverage`.
+   */
+  private async loadChannelMap(trx: any, tenantId: string): Promise<SelloutChannelMap> {
+    let rows: any[] = [];
+    try {
+      rows = await trx('analytics.sellout_channel_map').where('tenant_id', tenantId)
+        .select('source', 'raw_channel', 'canonical_channel', 'label', 'orden');
+    } catch {
+      rows = [];
+    }
+    const fromDb = rows.length > 0;
+    if (!fromDb) {
+      this.logger.warn('[VSO.1] analytics.sellout_channel_map vacío o ausente — el canal cae al respaldo degradado; correr la migración 20260928190000');
+    }
+    const byPair = new Map<string, string>();   // 'source:raw' → canónico
+    const byRaw = new Map<string, string>();    // 'raw'        → canónico
+    const labels = new Map<string, string>();
+    const ordenes = new Map<string, number>();
+    for (const r of rows) {
+      byPair.set(`${r.source}:${r.raw_channel}`, r.canonical_channel);
+      byRaw.set(String(r.raw_channel), r.canonical_channel);
+      labels.set(r.canonical_channel, r.label);
+      ordenes.set(r.canonical_channel, Number(r.orden) || 0);
+    }
+    const canon = (source: any, raw: any): string => {
+      const k = String(raw ?? '');
+      if (!k) return k;
+      return byPair.get(`${source}:${k}`) ?? byRaw.get(k) ?? CHANNEL_CANON_FALLBACK[k] ?? k;
+    };
+    const label = (c: string) => labels.get(c) ?? CHANNEL_LABELS_FALLBACK[c] ?? c;
+    const orden = (c: string) => ordenes.get(c) ?? CHANNEL_ORDER_FALLBACK[c] ?? 99;
+    const canales = () => {
+      const set = fromDb ? Array.from(new Set(rows.map((r) => r.canonical_channel)))
+        : Array.from(new Set(Object.values(CHANNEL_CANON_FALLBACK)));
+      return set.sort((a, b) => orden(a) - orden(b)).map((v) => ({ value: v, label: label(v) }));
+    };
+    // El querystring viejo manda `credito` para Mayoreo (y hay enlaces guardados). Se acepta y se
+    // traduce; romperlos no aporta nada y esconde el cambio detrás de un filtro que "no hace nada".
+    const normalize = (v: any) => canon(undefined, String(v ?? '').trim().toLowerCase());
+    // Los crudos que componen un canal de negocio. Se usa para acotar EN SQL sin enumerar a mano
+    // (enumerar a mano es exactamente lo que dejó a `mayoreo` fuera del árbol). El respaldo cubre
+    // el caso de tabla ausente para que los árboles no queden vacíos.
+    const raws = (canonicals: string[]): string[] => {
+      const want = new Set(canonicals);
+      const src = fromDb
+        ? rows.map((r) => ({ raw: String(r.raw_channel), canon: String(r.canonical_channel) }))
+        : Object.entries(CHANNEL_CANON_FALLBACK).map(([raw, c]) => ({ raw, canon: c }));
+      const out = src.filter((x) => want.has(x.canon)).map((x) => x.raw);
+      return Array.from(new Set(out));
+    };
+    return { canon, label, orden, canales, raws, normalize, fromDb };
   }
 
   /**
@@ -4489,9 +4627,22 @@ export class CommercialAnalyticsService {
   // sonda. El llamador la resuelve una vez y la pasa a las dos piernas.
   private selloutVendorLeg(
     trx: Knex.Transaction, table: string, dateCol: string, lo: string, hi: string,
-    o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo },
+    o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; chMap: SelloutChannelMap },
     unitRel: string,
   ) {
+    // [VSO.1] El alcance y la traducción a `sale_channel` salen del resolvedor, no de literales.
+    // El literal `s.channel='credito'` dejaba fuera a `kepler:mayoreo` (U-D-8): $21,373,739 y 16
+    // vendedores que el reporte por vendedor no podía mostrar.
+    const rawsVend = o.chMap.raws(['mayoreo', 'preventa', 'ruta']);
+    // `sale_channel` conserva el vocabulario que el pivote por-vendedor ya usa aguas abajo
+    // (mayoreo_credito / ruta_venta / preventa_vecinal); lo que cambia es de dónde sale el mapeo.
+    const LEGACY: Record<string, string> = { mayoreo: 'mayoreo_credito', ruta: 'ruta_venta', preventa: 'preventa_vecinal' };
+    const caseBinds: string[] = [];
+    const caseSql = rawsVend.map((rawCh) => {
+      caseBinds.push(rawCh, LEGACY[o.chMap.canon(undefined, rawCh)] ?? rawCh);
+      return 'WHEN s.channel = ? THEN ?';
+    }).join(' ');
+    const saleChannelCase = trx.raw(`CASE ${caseSql} END as sale_channel`, caseBinds);
     return trx(`${table} as s`)
       // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
       // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
@@ -4525,7 +4676,7 @@ export class CommercialAnalyticsService {
       // fuentes también: las camionetas 21-28 de PH pasaron de Wincaja (hasta jun-2026) a Kepler
       // (jul+) en el cutover, comparten warehouse_code RUTA-2N y NO se traslapan → se funden por
       // almacén (abajo, en el pivote). Kepler ruta = camionetas puras (la vecinal ya es preventa).
-      .andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR s.channel='ruta')`)
+      .whereIn('s.channel', rawsVend)
       .modify((b: any) => {
         if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
         else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
@@ -4536,7 +4687,7 @@ export class CommercialAnalyticsService {
         's.vendor_code as vendor_code', 's.vendor_name as vendor_name',
         // Almacén: para RD (ruta) la identidad es la RUTA, no la persona (Kepler no trae vendedor).
         's.warehouse_code as warehouse_code', trx.raw('max(s.branch_name) as branch_name'),
-        trx.raw(`CASE s.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
+        saleChannelCase,
         's.product_id as product_id',
         trx.raw('max(s.sku) as sku'), trx.raw('max(s.nombre) as nombre'), trx.raw('max(s.factor_sale) as factor_sale'),
         's.brand_id as brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
@@ -4556,7 +4707,7 @@ export class CommercialAnalyticsService {
   }
 
   /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
-  private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo }): Promise<any[]> {
+  private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; chMap: SelloutChannelMap }): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
     const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
@@ -4584,7 +4735,9 @@ export class CommercialAnalyticsService {
         if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
         else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
         if (o.brandId) b.andWhere('s.brand_id', o.brandId);
-        if (o.channel) b.andWhere('s.channel', o.channel);
+        // [VSO.1] El filtro llega como canal de NEGOCIO y se traduce a sus canales CRUDOS: pedir
+        // "Mayoreo" tiene que traer `wincaja:credito` Y `kepler:mayoreo`, no uno de los dos.
+        if (o.channelRaws && o.channelRaws.length) b.whereIn('s.channel', o.channelRaws);
         if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
         if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
       })
@@ -4606,6 +4759,10 @@ export class CommercialAnalyticsService {
     for (const r of dailyRanges) rows.push(...await this.selloutExplainLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
     const m = new Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>();
     for (const r of rows) {
+      // [VSO.1] Con dim=canal, los miembros son canales de NEGOCIO: si no, `wincaja:credito` y
+      // `kepler:mayoreo` salían como dos renglones distintos del mismo Mayoreo, y "qué cambió"
+      // atribuía a un canal inexistente la caída del otro en el mes del cutover.
+      if (o.dim === 'channel') r.k = o.chMap.canon(undefined, r.k);
       const cur = m.get(r.k) || { label: null, code: null, monto: 0, monto_neto: 0, units: 0 };
       cur.monto += Number(r.monto) || 0;
       cur.monto_neto += Number(r.monto_neto) || 0;
@@ -4627,10 +4784,10 @@ export class CommercialAnalyticsService {
     return { from: this.selloutShiftDay(from, -lenDays), to: this.selloutShiftDay(from, -1) };
   }
 
-  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null): string {
+  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null, chMap?: SelloutChannelMap): string {
     if (dim === 'channel') {
-      const map: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa', otro: 'Otro' };
-      return map[k] || k;
+      // [VSO.1] El rótulo sale del resolvedor; el respaldo sólo cubre el caso sin mapa cargado.
+      return chMap ? chMap.label(k) : (CHANNEL_LABELS_FALLBACK[k] || k);
     }
     if (dim === 'brand' && k === '__none__') return 'Sin marca';
     if (dim === 'branch' && k === '__none__') return 'Sin sucursal';
@@ -4677,13 +4834,19 @@ export class CommercialAnalyticsService {
     const to = q.to.slice(0, 10);
     if (from > to) throw new BadRequestException('from posterior a to');
     const warehouseFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
-    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    // [VSO.1] Ya no hay lista blanca literal: el vocabulario válido lo define el resolvedor, y el
+    // valor se normaliza (acepta `credito` de enlaces viejos). Antes, pedir el canal `mayoreo`
+    // —$21.4M— caía al `else null`, o sea "sin filtro", y el usuario veía TODO creyendo que filtró.
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
     const mirror = this.selloutMirrorRange(from, to, compare);
     const tenantId = this.tenantCtx.requireTenantId();
 
     return this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
-      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter, channel };
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
+      if (channelIn && (!channelRaws || !channelRaws.length)) throw new BadRequestException(`canal inválido: ${channelIn}`);
+      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter, channelRaws, chMap };
       const cur = await this.fetchExplainDims(trx, { ...base, from, to });
       const prev = await this.fetchExplainDims(trx, { ...base, from: mirror.from, to: mirror.to });
       const usaRollup = await this.selloutUsesRollup(trx, this.planSellOutSources(from, to));
@@ -4701,7 +4864,7 @@ export class CommercialAnalyticsService {
         const kind: SellOutMover['kind'] = pv === 0 && cv > 0 ? 'nuevo' : cv === 0 && pv > 0 ? 'perdido' : delta > 0 ? 'crecio' : delta < 0 ? 'cayo' : 'igual';
         all.push({
           key: k,
-          label: this.explainDimLabel(dim, k, (c?.label ?? p?.label) ?? null),
+          label: this.explainDimLabel(dim, k, (c?.label ?? p?.label) ?? null, chMap),
           code: (c?.code ?? p?.code) ?? null,
           prev: pv, curr: cv, delta,
           delta_pct: pv > 0 ? (delta / pv) * 100 : null,
@@ -4757,6 +4920,7 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
 
     return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
       const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
       const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
       const rows = await trx('analytics.mv_sellout_monthly as s')
@@ -4767,10 +4931,14 @@ export class CommercialAnalyticsService {
 
       const mem = new Map<string, { label: string | null; by: Record<string, number> }>();
       for (const r of rows) {
-        const e = mem.get(r.k) || { label: null, by: {} };
-        e.by[r.year_month] = Number(r.monto) || 0;
+        // [VSO.1] dim=canal ⇒ miembros en canal de NEGOCIO. Sin esto, el mes del cutover marcaba
+        // `credito` como "perdido" y `mayoreo` como "nuevo": dos anomalías inventadas por la
+        // etiqueta, sobre una venta que no se movió.
+        const k = dim === 'channel' ? chMap.canon(undefined, r.k) : r.k;
+        const e = mem.get(k) || { label: null, by: {} };
+        e.by[r.year_month] = (e.by[r.year_month] || 0) + (Number(r.monto) || 0);
         if (!e.label && r.label) e.label = r.label;
-        mem.set(r.k, e);
+        mem.set(k, e);
       }
 
       const R = (n: number) => Math.round(n);
@@ -4782,7 +4950,7 @@ export class CommercialAnalyticsService {
         const baseline = baselineMonths.reduce((a, m) => a + (e.by[m] || 0), 0) / baselineMonths.length;
         const deviation = current - baseline;
         const dpct = baseline > 0 ? deviation / baseline : null;
-        const label = this.explainDimLabel(dim, k, e.label);
+        const label = this.explainDimLabel(dim, k, e.label, chMap);
         let kind: SelloutAnomaly['kind'] | null = null;
         let reason = '';
         // Baseline < $5k = sin historial real: el % es ruido (un baseline de $8 da "+1166763%").
@@ -4818,12 +4986,15 @@ export class CommercialAnalyticsService {
     for (let i = n - 1; i >= 0; i--) monthsArr.push(this.selloutMonthMinus(toM, i));
     const brandId = (q.brand_id || '').trim();
     if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
-    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // [VSO.1] canal de NEGOCIO → sus canales crudos (ver `loadChannelMap`).
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
       const rows = await trx('analytics.mv_sellout_monthly as s')
         .where('s.tenant_id', tenantId).whereIn('s.year_month', monthsArr).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
-        .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channel) b.andWhere('s.channel', channel); })
+        .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channelRaws && channelRaws.length) b.whereIn('s.channel', channelRaws); })
         .select('s.year_month', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.year_month');
       const map = new Map<string, number>(rows.map((r: any) => [r.year_month, Number(r.monto) || 0]));
       const freshness = await this.selloutFreshness(trx, true); // [VP.2.2] lee el rollup mensual
@@ -4838,18 +5009,33 @@ export class CommercialAnalyticsService {
     let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.selloutMonthMinus(openYm, 1);
     if (month >= openYm) month = this.selloutMonthMinus(openYm, 1);
     const topN = Math.min(50, Math.max(5, Number(q.n) || 20));
-    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
       const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
       const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
-      const rows = await trx('analytics.mv_sellout_monthly as s')
+      const rawRows = await trx('analytics.mv_sellout_monthly as s')
         .where('s.tenant_id', tenantId).andWhere('s.year_month', month).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
-        .modify((b: any) => { if (channel) b.andWhere('s.channel', channel); })
+        .modify((b: any) => { if (channelRaws && channelRaws.length) b.whereIn('s.channel', channelRaws); })
         .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), trx.raw('SUM(s.monto)::numeric as monto'))
         .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`)
         .havingRaw('SUM(s.monto) > 0')
         .orderByRaw('SUM(s.monto) desc');
+      // [VSO.1] Con dim=canal el GROUP BY de SQL es por canal CRUDO; los canales de negocio que se
+      // componen de dos crudos (Mayoreo = wincaja:credito + kepler:mayoreo) se colapsan acá. Sin
+      // esto el Pareto partía Mayoreo en dos miembros y le calculaba mal la clase ABC a los dos.
+      const rows = dim !== 'channel' ? rawRows : (() => {
+        const acc = new Map<string, { k: string; label: string; monto: number }>();
+        for (const r of rawRows as any[]) {
+          const k = chMap.canon(undefined, r.k);
+          const cur = acc.get(k) || { k, label: k, monto: 0 };
+          cur.monto += Number(r.monto) || 0;
+          acc.set(k, cur);
+        }
+        return [...acc.values()].sort((a, b) => b.monto - a.monto);
+      })();
       const total = rows.reduce((a: number, r: any) => a + (Number(r.monto) || 0), 0) || 1;
       let cum = 0;
       const out: SelloutParetoRow[] = rows.slice(0, topN).map((r: any) => {
@@ -4857,7 +5043,7 @@ export class CommercialAnalyticsService {
         cum += monto;
         const cumShare = cum / total;
         return {
-          key: r.k, label: this.explainDimLabel(dim, r.k, r.label),
+          key: r.k, label: this.explainDimLabel(dim, r.k, r.label, chMap),
           monto: Math.round(monto), share: Number(((monto / total) * 100).toFixed(1)), cum_share: Number((cumShare * 100).toFixed(1)),
           abc: (cumShare <= 0.8 ? 'A' : cumShare <= 0.95 ? 'B' : 'C') as 'A' | 'B' | 'C',
         };
@@ -4882,6 +5068,7 @@ export class CommercialAnalyticsService {
     const { from, to } = this.selloutMonthRange(month);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const chMapT = await this.loadChannelMap(trx, tenantId);
       const baseActual = () => trx('analytics.v_sellout_daily as s')
         .where('s.tenant_id', tenantId).andWhere('s.business_date', '>=', from).andWhere('s.business_date', '<=', to)
         .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
@@ -4913,8 +5100,19 @@ export class CommercialAnalyticsService {
       };
       const total = mk('total', '', 'Total', Number(totRow?.monto || 0));
       const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
-      const chLabels: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa' };
-      const channels = channelRows.map((r: any) => mk('channel', r.k, chLabels[r.k] || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      // [VSO.1] El `scope_key` de una meta por canal es el canal de NEGOCIO, no el crudo: si no,
+      // Mayoreo necesitaría DOS metas (una por ERP) y ninguna se cumpliría sola. Verificado antes
+      // de cambiar la llave: `commercial.sales_targets` está VACÍA en prod, así que no hay metas
+      // capturadas que se queden huérfanas. ⚠️ Si alguna vez se capturan con el vocabulario viejo,
+      // migrarlas (`credito` → `mayoreo`) en el mismo commit que las introduzca.
+      const chAcc = new Map<string, number>();
+      for (const r of channelRows as any[]) {
+        const k = chMapT.canon(undefined, r.k);
+        chAcc.set(k, (chAcc.get(k) || 0) + Number(r.monto || 0));
+      }
+      const channels = [...chAcc.entries()]
+        .map(([k, monto]) => mk('channel', k, chMapT.label(k), monto))
+        .sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
       // [RD.7] Metas por ruta. Se listan también las rutas con meta capturada y SIN venta en
       // el mes: una ruta que no vendió nada es justo lo que hay que ver, y si sólo saliera
       // lo que tiene venta el cumplimiento en cero quedaría invisible.
@@ -5020,7 +5218,8 @@ export class CommercialAnalyticsService {
       // CON vendedor: crédito (ambas fuentes: Kepler telemarketing Sergio/Cinthia + Wincaja) + ruta/preventa
       // SÓLO de Wincaja (RD/RV; kepler ruta = decisión RD-vs-RV, diferida). Rutas numeradas → sin vendedor
       // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
-      const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode, chMap });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
       // [UXC.1] Mismo resolvedor canónico que el pivote principal, mismo motivo: esta columna
       // salía de `catalog.products.factor_sale` y publicaba 1 donde el ERP y lo pagado al
@@ -5163,19 +5362,23 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
     const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
-    const { chanRows, credRows, identMap } = await this.tk.run(async (trx) => {
+    const { chanRows, credRows, identMap, chMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      if (!(await this.selloutViewReady(trx))) return { chanRows: [] as any[], credRows: [] as any[], identMap };
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { chanRows: [] as any[], credRows: [] as any[], identMap, chMap };
       // Hojas Sucursal/RD/RV = canal×almacén, de la MISMA fuente/dedup/rango que el pivote → sintonía
       // (fix A/B/F: mismo origen, dedup aplicado, vocabulario unificado, acotado al rango elegido).
+      // [VSO.1] Los canales CRUDOS a traer salen del resolvedor, no de una lista literal: la lista
+      // literal era `['mostrador','ruta','preventa']` y por eso `contado_nf` (que ES mostrador) no
+      // tenía hoja, y `mayoreo` tampoco — y sin hoja, el `cellFilter` del árbol los DESCARTA.
       const chanRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
-        's.channel, s.warehouse_code, s.branch_name',
-        (qb) => qb.whereIn('s.channel', ['mostrador', 'ruta', 'preventa']));
-      // Mayoreo (credito) = por VENDEDOR (ambas fuentes vía canonVendor).
+        's.source, s.channel, s.warehouse_code, s.branch_name',
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mostrador', 'ruta', 'preventa'])));
+      // Mayoreo = por VENDEDOR (ambas fuentes vía canonVendor): `wincaja:credito` + `kepler:mayoreo`.
       const credRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
         's.vendor_code, s.vendor_name',
-        (qb) => qb.andWhere('s.channel', 'credito'));
-      return { chanRows, credRows, identMap };
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mayoreo'])));
+      return { chanRows, credRows, identMap, chMap };
     });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
@@ -5183,24 +5386,31 @@ export class CommercialAnalyticsService {
       preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
     };
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    const vistos = new Set<string>();
     for (const r of chanRows as any[]) {
-      const meta = GROUP[r.channel]; if (!meta) continue;
+      // El grupo y la hoja hablan en canal de NEGOCIO; si no, `contado_nf` abriría una hoja gemela
+      // de la misma sucursal que el pivote (que ya canoniza) nunca podría casar.
+      const canal = chMap.canon(r.source, r.channel);
+      const meta = GROUP[canal]; if (!meta) continue;
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
-      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.warehouse_code, name: r.branch_name });
+      const dedup = `${canal}|${r.warehouse_code}`;
+      if (vistos.has(dedup)) continue;
+      vistos.add(dedup);
+      map.get(meta.g)!.leaves.push({ channel: canal, code: r.warehouse_code, name: r.branch_name });
     }
     // Mayoreo = vendedores canónicos (Wincaja+Kepler colapsados por canonVendor) + bucket ÚNICO
-    // 'sin-vendedor' seleccionable (fix D) cuando hay crédito sin vendedor real con venta.
+    // 'sin-vendedor' seleccionable (fix D) cuando hay mayoreo sin vendedor real con venta.
     const seen = new Map<string, { channel: string; code: string; name: string }>();
     let sinVend = 0;
     for (const v of credRows as any[]) {
       if (this.isNoiseVendor(v.vendor_code)) { sinVend += Number(v._m) || 0; continue; }
       const id = this.canonVendor(identMap, v.vendor_code, v.vendor_name);
       if (id.exclude) continue;
-      if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
+      if (!seen.has(id.key)) seen.set(id.key, { channel: 'mayoreo', code: id.key, name: id.name });
     }
     const credLeaves = Array.from(seen.values());
-    if (sinVend > 0) credLeaves.push({ channel: 'credito', code: 'sin-vendedor', name: 'Sin vendedor' });
-    if (credLeaves.length) map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves: credLeaves });
+    if (sinVend > 0) credLeaves.push({ channel: 'mayoreo', code: 'sin-vendedor', name: 'Sin vendedor' });
+    if (credLeaves.length) map.set('mayoreo', { group: 'mayoreo', group_label: 'Mayoreo', ord: 3, leaves: credLeaves });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
@@ -5211,22 +5421,27 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
     const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
+    // [VSO.1] Los grupos van en canal de NEGOCIO. Antes la llave era `credito`, así que el
+    // telemarketing Kepler (`mayoreo`, U-D-8) no entraba: 16 vendedores y $21,373,739 (jul-sep 2026)
+    // sin columna en el trabajo "Vendedores" — SERGIO MENDOZA $7.83M, DANIEL FRANCO $6.50M,
+    // CINTHIA DEL VALLE $4.13M entre ellos.
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
-      credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
+      mayoreo: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
       ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
       preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
     };
-    const { rows, identMap } = await this.tk.run(async (trx) => {
+    const { rows, identMap, chMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      if (!(await this.selloutViewReady(trx))) return { rows: [] as any[], identMap };
-      // Vendedores del universo unificado, scoped como el reporte by-vendor: crédito (ambas fuentes) +
-      // ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida).
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { rows: [] as any[], identMap, chMap };
+      // Vendedores del universo unificado, scoped como el reporte by-vendor: mayoreo (ambas fuentes)
+      // + ruta/preventa.
       const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
-        's.channel, s.vendor_code, s.vendor_name, s.warehouse_code, s.branch_name',
+        's.source, s.channel, s.vendor_code, s.vendor_name, s.warehouse_code, s.branch_name',
         // RV (preventa) y RD (ruta) = AMBAS fuentes. Las camionetas kepler no traen vendedor → la
-        // RUTA (almacén) es la identidad, y se funde con su yo Wincaja por warehouse_code. Crédito ambas.
-        (qb) => qb.andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR s.channel='ruta')`));
-      return { rows, identMap };
+        // RUTA (almacén) es la identidad, y se funde con su yo Wincaja por warehouse_code.
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mayoreo', 'preventa', 'ruta'])));
+      return { rows, identMap, chMap };
     });
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
     const addLeaf = (g: string, label: string, ord: number, id: { key: string; name: string }) => {
@@ -5237,14 +5452,15 @@ export class CommercialAnalyticsService {
     const routeIdent = this.buildRouteIdent(identMap);
     let sinVend = 0;
     for (const r of rows as any[]) {
-      const meta = GROUP[r.channel]; if (!meta) continue;
+      const canal = chMap.canon(r.source, r.channel);
+      const meta = GROUP[canal]; if (!meta) continue;
       // RD (ruta→almacén) y RV (vecinal Kepler→código de ruta): misma regla que el pivote.
-      if (r.channel === 'ruta' || r.channel === 'preventa') {
-        const id = this.resolveByVendorId(r.channel, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
+      if (canal === 'ruta' || canal === 'preventa') {
+        const id = this.resolveByVendorId(canal, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
         if (id) addLeaf(meta.g, meta.label, meta.ord, id);
         continue;
       }
-      // Mayoreo (crédito): ruido → bucket ÚNICO 'sin-vendedor' (fix D); si no, por persona.
+      // Mayoreo: ruido → bucket ÚNICO 'sin-vendedor' (fix D); si no, por persona.
       if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
       const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
       if (id.exclude) continue;
@@ -5253,6 +5469,21 @@ export class CommercialAnalyticsService {
     if (sinVend > 0) addLeaf('mayoreo', 'Mayoreo', 0, { key: 'sin-vendedor', name: 'Sin vendedor' });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
+  }
+
+  /**
+   * [VSO.1] Los canales de NEGOCIO que el filtro puede ofrecer, del resolvedor.
+   *
+   * Existe para que el vocabulario no viva DOS veces (acá y en una constante del front): esa
+   * duplicación es exactamente la que dejó `mayoreo` sin casilla mientras la base ya lo publicaba.
+   * `from_db=false` avisa que se está sirviendo el respaldo degradado.
+   */
+  async sellOutChannels(): Promise<{ channels: { value: string; label: string }[]; from_db: boolean }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      return { channels: chMap.canales(), from_db: chMap.fromDb };
+    });
   }
 
   /** Marcas/proveedores con al menos 1 producto — para el selector de empresa. */
@@ -5301,8 +5532,21 @@ export class CommercialAnalyticsService {
   /**
    * SAL — Reporte Salidas/Ventas por Producto: fila por (sucursal, producto)
    * con venta+costo mensual, existencia actual, costos y proveedor/marca.
-   * Venta mensual = unidades reales (analytics.product_sales_monthly, feed live
-   * Kepler U/D/10). Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   * Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   *
+   * ⚠️ [AUD-DAT.1] ESTE COMENTARIO DECÍA `analytics.product_sales_monthly` Y ES FALSO: `salidasReport`
+   * lee `analytics.sales_boxes_monthly` (modo AÑO) y `analytics.sales_daily` (modo RANGO) — ver la
+   * nota "Fuente CANÓNICA" adentro del método. Mandaba al que viniera a leer a la tabla equivocada.
+   * `product_sales_monthly` NO tiene un solo consumidor en la app (medido 2026-09-28: sus únicos
+   * lectores son sus propios importers y `database/scripts/deactivate-legacy-skus.js`), y además
+   * está incompleta — cero filas de Canindo (06) en jun/jul-2026 y la mitad en ago, porque es
+   * Kepler-only y esa sucursal cortó de Wincaja el 2026-08-15.
+   *
+   * ⚠️ Y el ALCANCE, que sí aplica acá: las dos fuentes reales cuelgan de `sales_daily`, que cubre
+   * **6 de las 8 sucursales** — Morelia (07/08) sólo aparece desde su corte a Kepler (sep-2026).
+   * Este reporte las excluye antes de esa fecha. Es el mismo hueco que `[AUD-DAT.1]` cerró en
+   * presupuestos migrando a `mv_sales_blended`; acá NO se migró porque `sales_boxes_monthly` trae
+   * la conversión a cajas (`v_product_box_factor`) que el blend no tiene. Queda DECLARADO, no tapado.
    */
   /** SAL — categorías de compra con productos activos (para el filtro de Salidas). */
   async salidasCategories() {

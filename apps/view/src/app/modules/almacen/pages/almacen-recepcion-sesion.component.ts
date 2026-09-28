@@ -307,7 +307,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rsd-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin: 0 0 1rem; }
     .rsd-kpi { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .6rem .8rem; display: flex; flex-direction: column; }
     .rsd-kpi-n { font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .rsd-kpi-l { font-size: .74rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
+    .rsd-kpi-l { font-size: .74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
     .rsd-kpi.rsd-warn .rsd-kpi-n { color: var(--warn-fg, #b45309); }
     .rsd-kpi.rsd-bad .rsd-kpi-n { color: var(--bad-fg, #b91c1c); }
     /* Rejilla compartida por la fila de escaneo y la de alta manual, para que
@@ -319,7 +319,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
       gap: .5rem .75rem; align-items: end; }
     .rsd-scan-grid > button { justify-self: start; }
     .rsd-f { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
-    .rsd-f > span { font-size: .75rem; color: var(--text-color-secondary); font-weight: 600; }
+    .rsd-f > span { font-size: .75rem; color: var(--text-muted); font-weight: 600; }
     .rsd-code { font-size: 1.05rem; }
     .rsd-qty { width: 100%; }
     /* El autocomplete trae min-width propio: acá lo dejamos ceder a la columna. */
@@ -327,7 +327,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     :host ::ng-deep .rsd-f .ps-ac,
     :host ::ng-deep .rsd-f .ps-ac .p-autocomplete-input { min-width: 0; width: 100%; }
     .rsd-add-sep { display: flex; align-items: center; gap: .5rem; margin: .875rem 0 .625rem;
-      font-size: .75rem; color: var(--text-color-secondary); }
+      font-size: .75rem; color: var(--text-muted); }
     .rsd-add-sep::after { content: ''; flex: 1; height: 1px; background: var(--surface-border); }
     @media (max-width: 640px) {
       .rsd-scan-grid { grid-template-columns: 1fr 7.5rem; }
@@ -346,17 +346,17 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rsd-actions { display: flex; gap: .25rem; align-items: center; }
     :host ::ng-deep .rsd-mark { min-width: 64px; }
     .rsd-row-disc { background: var(--warn-soft-bg, #fffbeb); }
-    .rsd-unit { font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--text-color-secondary); }
+    .rsd-unit { font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--text-muted); }
     .rsd-unit-amb { color: var(--warn-fg, #b45309); font-weight: 600; font-family: inherit; }
     .rsd-vale { margin-bottom: 1rem; }
     .rsd-vale-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
     .rsd-vale-head h2 { font-size: .95rem; margin: 0; }
     .rsd-vale-monto { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
     .rsd-vale-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem 1rem; margin: 0; }
-    .rsd-vale-grid dt { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-color-secondary); }
+    .rsd-vale-grid dt { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .rsd-vale-grid dd { margin: .1rem 0 0; font-size: .86rem; }
-    .rsd-vale-code { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-color-secondary); margin-left: .3rem; }
-    .rsd-vale-serv { display: flex; align-items: center; gap: .4rem; margin: .7rem 0 0; font-size: .76rem; color: var(--text-color-secondary); }
+    .rsd-vale-code { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); margin-left: .3rem; }
+    .rsd-vale-serv { display: flex; align-items: center; gap: .4rem; margin: .7rem 0 0; font-size: .76rem; color: var(--text-muted); }
     .rsd-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     @media (max-width: 900px) { .rsd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     .rsd-hold-banner { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding: .6rem .8rem;
@@ -374,15 +374,15 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
       background: var(--surface-card, var(--surface-0)); font-variant-numeric: tabular-nums; }
     .rlp-tally-gap { border-color: var(--warn-border, #fde68a); }
     .rlp-tally-gap .rlp-pend { color: var(--warn-fg, #b45309); }
-    .rlp h3 { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-color-secondary); margin: 0 0 .6rem; }
+    .rlp h3 { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 0 0 .6rem; }
     .rlp-f { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .7rem; }
     .rlp-f > span { font-size: .8rem; font-weight: 600; }
-    .rlp-f em, .rlp-hint { font-weight: 400; font-style: normal; color: var(--text-color-secondary); font-size: .72rem; }
+    .rlp-f em, .rlp-hint { font-weight: 400; font-style: normal; color: var(--text-muted); font-size: .72rem; }
     .rlp-date { display: flex; gap: .5rem; align-items: center; }
     .rlp-date > input { flex: 1; }
-    .rlp-ocr { font-size: .78rem; color: var(--text-color-secondary); margin: 0 0 .6rem; }
+    .rlp-ocr { font-size: .78rem; color: var(--text-muted); margin: 0 0 .6rem; }
     .rlp-file { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-    .rlp-file-name { font-size: .74rem; color: var(--text-color-secondary); overflow: hidden;
+    .rlp-file-name { font-size: .74rem; color: var(--text-muted); overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
     .rlp-actions { display: flex; gap: .5rem; margin-top: .3rem; }
     .rlp-item { border: 1px solid var(--surface-border); border-radius: 10px; padding: .55rem .7rem; margin-bottom: .5rem; }
@@ -390,10 +390,10 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rlp-item-head { display: flex; align-items: center; gap: .5rem; }
     .rlp-item-lot { font-family: var(--font-mono, monospace); font-weight: 700; }
     .rlp-item-qty { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
-    .rlp-item-meta { display: flex; gap: .75rem; flex-wrap: wrap; font-size: .74rem; color: var(--text-color-secondary); margin-top: .25rem; }
+    .rlp-item-meta { display: flex; gap: .75rem; flex-wrap: wrap; font-size: .74rem; color: var(--text-muted); margin-top: .25rem; }
     .rlp-rule { color: var(--bad-fg, #b91c1c); }
     .rlp-item-hold { display: flex; align-items: center; gap: .5rem; margin-top: .5rem; font-size: .76rem; color: var(--bad-fg, #b91c1c); flex-wrap: wrap; }
-    .rlp-none { font-size: .8rem; color: var(--text-color-secondary); }
+    .rlp-none { font-size: .8rem; color: var(--text-muted); }
     @media (pointer: coarse) {
       .rlp-f input[pInputText] { min-height: 44px; }
       .rlp-actions button { min-height: 44px; }

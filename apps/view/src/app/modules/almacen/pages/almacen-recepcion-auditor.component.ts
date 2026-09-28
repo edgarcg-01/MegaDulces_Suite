@@ -287,10 +287,10 @@ interface ValePendiente extends ReceivingLine {
     .rec-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .75rem; }
     .rec-side-head { display: flex; justify-content: space-between; align-items: center; }
     .rec-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }
-    .rec-field > span { font-size: .8rem; color: var(--text-color-secondary); font-weight: 600; }
+    .rec-field > span { font-size: .8rem; color: var(--text-muted); font-weight: 600; }
     .rec-field input[pInputText], .rec-field input[type=number], .rec-field input[type=date] { width: 100%; }
     .rec-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-    .rec-hint { font-size: .78rem; color: var(--text-color-secondary); }
+    .rec-hint { font-size: .78rem; color: var(--text-muted); }
     .rec-lowconf { color: var(--bad-fg, #b91c1c); font-weight: 600; }
     :host ::ng-deep .rec-w { width: 100%; }
     .rec-photo { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
@@ -301,7 +301,7 @@ interface ValePendiente extends ReceivingLine {
     .rec-verdict--yellow { background: var(--warn-soft-bg, #fffbeb); }
     .rec-verdict--red { background: var(--bad-soft-bg, #fef2f2); }
     .rec-verdict-body p { margin: 0 0 .25rem; font-size: .85rem; }
-    .rec-verdict-body small { color: var(--text-color-secondary); }
+    .rec-verdict-body small { color: var(--text-muted); }
     .rec-mono { font-family: var(--font-mono, monospace); }
     .rec-name { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rec-actions { display: flex; gap: .25rem; }

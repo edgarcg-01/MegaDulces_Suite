@@ -367,7 +367,7 @@ type Paso = 'pool' | 'recorrido';
     :host ::ng-deep .su-w { width: 100%; min-width: 180px; }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1rem; }
     .su-h2 { font-size: .95rem; font-weight: 700; margin: 0; }
-    .su-sub { font-size: .8rem; color: var(--text-color-secondary); margin: .15rem 0 0; }
+    .su-sub { font-size: .8rem; color: var(--text-muted); margin: .15rem 0 0; }
     .su-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; margin-bottom: .75rem; flex-wrap: wrap; }
     .su-sel { font-size: .8rem; font-weight: 700; color: var(--action, var(--primary-color)); }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -375,7 +375,7 @@ type Paso = 'pool' | 'recorrido';
 
     /* Pasos */
     .su-steps { display: flex; gap: .5rem; margin-bottom: 1rem; }
-    .su-step { flex: 1; display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .5rem .75rem; background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); cursor: pointer; color: var(--text-color-secondary); font-family: inherit; font-size: .85rem; font-weight: 600; }
+    .su-step { flex: 1; display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .5rem .75rem; background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); cursor: pointer; color: var(--text-muted); font-family: inherit; font-size: .85rem; font-weight: 600; }
     .su-step.on { border-color: var(--action, var(--primary-color)); color: var(--text-color); }
     .su-step:disabled { opacity: .5; cursor: not-allowed; }
     .su-step:focus-visible { outline: 2px solid var(--action, var(--primary-color)); outline-offset: 2px; }
@@ -384,7 +384,7 @@ type Paso = 'pool' | 'recorrido';
     .su-step-t { flex: 1; text-align: left; }
     .su-step-b { font-size: .75rem; font-weight: 700; }
 
-    .su-note { display: flex; align-items: flex-start; gap: .4rem; font-size: .78rem; line-height: 1.4; color: var(--text-color-secondary); margin: 0 0 .75rem; }
+    .su-note { display: flex; align-items: flex-start; gap: .4rem; font-size: .78rem; line-height: 1.4; color: var(--text-muted); margin: 0 0 .75rem; }
     .su-note i { margin-top: .15rem; flex-shrink: 0; }
     .su-note-sm { margin-top: .5rem; margin-bottom: 0; }
     .su-err h3 { margin-bottom: .25rem; }
@@ -398,14 +398,14 @@ type Paso = 'pool' | 'recorrido';
     /* Olas vivas */
     .su-olas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
     .su-ola { width: 100%; min-height: 44px; display: flex; align-items: center; gap: .6rem; padding: .5rem .75rem; background: var(--surface-ground); border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); cursor: pointer; font-family: inherit; font-size: .85rem; color: var(--text-color); }
-    .su-ola-meta { flex: 1; text-align: left; color: var(--text-color-secondary); font-size: .8rem; }
+    .su-ola-meta { flex: 1; text-align: left; color: var(--text-muted); font-size: .8rem; }
 
     /* Avance */
     .su-avance { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-bottom: .9rem; }
     .su-av-item { display: flex; flex-direction: column; }
     .su-av-n { font-size: 1.35rem; font-weight: 700; line-height: 1; }
     .su-av-item.bad .su-av-n { color: var(--warn-fg, var(--orange-600)); }
-    .su-av-l { font-size: .72rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
+    .su-av-l { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
     .su-av-bar { flex: 1; min-width: 8rem; height: 6px; border-radius: 999px; background: var(--surface-ground); overflow: hidden; }
     .su-av-bar > span { display: block; height: 100%; background: var(--action, var(--primary-color)); transition: width 250ms ease-out; }
 
@@ -416,11 +416,11 @@ type Paso = 'pool' | 'recorrido';
     .su-linea.warn { border-color: var(--warn-fg, var(--orange-500)); opacity: 1; }
     .su-li-main { flex: 1; min-width: 0; }
     .su-li-nombre { font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
-    .su-li-meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .75rem; color: var(--text-color-secondary); margin-top: .15rem; }
+    .su-li-meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .75rem; color: var(--text-muted); margin-top: .15rem; }
     .su-bin { display: inline-flex; align-items: center; gap: .2rem; }
     .su-li-qty { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
     .su-li-pide { font-size: 1.15rem; font-weight: 700; line-height: 1; }
-    .su-li-unit { font-size: .7rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .03em; }
+    .su-li-unit { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
 
     .su-reparto { display: flex; gap: .3rem; flex-wrap: wrap; }
     .su-chip { font-size: .72rem; padding: .1rem .4rem; border-radius: var(--radius-sm, 6px); background: var(--surface-ground); border: 1px solid var(--surface-border); }
@@ -432,7 +432,7 @@ type Paso = 'pool' | 'recorrido';
     /* Diálogo de marca */
     .su-marca-pide { font-size: .9rem; margin: 0 0 .75rem; }
     .su-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }
-    .su-field > span { font-size: .8rem; font-weight: 600; color: var(--text-color-secondary); }
+    .su-field > span { font-size: .8rem; font-weight: 600; color: var(--text-muted); }
     .su-field input { width: 100%; min-height: 44px; font-family: var(--font-mono); font-size: 1.1rem; }
     .su-quick { display: flex; gap: .5rem; margin-bottom: .75rem; }
 

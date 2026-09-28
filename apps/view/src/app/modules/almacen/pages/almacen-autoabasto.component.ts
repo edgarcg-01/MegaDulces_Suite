@@ -239,13 +239,13 @@ const BUCKET_LABEL: Record<string, string> = {
 
     .ab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .ab-title { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; color: var(--text-color); }
-    .ab-sub { margin: .3rem 0 0; max-width: 62ch; font-size: .85rem; line-height: 1.5; color: var(--text-color-secondary); }
+    .ab-sub { margin: .3rem 0 0; max-width: 62ch; font-size: .85rem; line-height: 1.5; color: var(--text-muted); }
 
     .ab-scope, .ab-retenido {
       display: flex; align-items: flex-start; gap: .55rem; margin: 0;
       padding: .6rem .8rem; border-radius: 8px; font-size: .82rem; line-height: 1.45;
     }
-    .ab-scope { background: var(--surface-100); color: var(--text-color-secondary); }
+    .ab-scope { background: var(--surface-100); color: var(--text-muted); }
     .ab-retenido { background: var(--yellow-50, var(--surface-100)); color: var(--text-color); }
     .ab-scope i, .ab-retenido i { margin-top: .12rem; }
 
@@ -255,13 +255,13 @@ const BUCKET_LABEL: Record<string, string> = {
 
     /* Cifras alineadas: tabular-nums para que las columnas comparen de un vistazo. */
     .ab-c-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .ab-dim { color: var(--text-color-secondary); }
+    .ab-dim { color: var(--text-muted); }
     .ab-strong { font-weight: 650; }
     .ab-transfer { color: var(--primary-color); }
     .ab-buy { font-weight: 600; }
 
     .ab-c-sku { min-width: 16rem; }
-    .ab-sku { display: block; font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; color: var(--text-color-secondary); }
+    .ab-sku { display: block; font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; color: var(--text-muted); }
     .ab-name { display: block; font-size: .85rem; }
 
     .ab-c-wh { white-space: nowrap; }
@@ -270,7 +270,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-b-agotado { background: var(--red-100, #fee); color: var(--red-700, #a00); }
     .ab-b-bajo_minimo { background: var(--orange-100, #fef0e0); color: var(--orange-700, #a65300); }
     .ab-b-bajo_reorden { background: var(--yellow-100, #fdf5d8); color: var(--yellow-800, #8a6d00); }
-    .ab-b-sano { background: var(--surface-100); color: var(--text-color-secondary); }
+    .ab-b-sano { background: var(--surface-100); color: var(--text-muted); }
     .ab-b-sobrestock { background: var(--blue-100, #e3f0ff); color: var(--blue-700, #0b5fb0); }
 
     .ab-c-acc { white-space: nowrap; }
@@ -279,7 +279,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-ac-parcial { background: var(--teal-100, #ddf3f1); color: var(--teal-700, #0f6f68); }
     .ab-ac-comprar { background: var(--orange-100, #fef0e0); color: var(--orange-700, #a65300); }
     .ab-ac-sobrante { background: var(--blue-100, #e3f0ff); color: var(--blue-700, #0b5fb0); }
-    .ab-ac-ok { background: var(--surface-100); color: var(--text-color-secondary); }
+    .ab-ac-ok { background: var(--surface-100); color: var(--text-muted); }
 
     .ab-c-sup { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -291,10 +291,10 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-o-transfer { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); font-weight: 600; }
     .ab-o-buy { background: var(--surface-100); color: var(--text-color); }
     /* Sin ruta configurada NO es compra: se ve distinto a propósito (ADR-056). */
-    .ab-o-none { background: transparent; color: var(--text-color-secondary); font-style: italic; }
+    .ab-o-none { background: transparent; color: var(--text-muted); font-style: italic; }
     .ab-why { text-decoration: underline dotted var(--surface-400, #b9b9b9); text-underline-offset: 3px; cursor: help; }
 
-    .ab-foot { margin: 0; font-size: .78rem; color: var(--text-color-secondary); }
+    .ab-foot { margin: 0; font-size: .78rem; color: var(--text-muted); }
 
     @media (max-width: 900px) {
       .ab-filters ::ng-deep .ab-f, .ab-search { min-width: 100%; }
