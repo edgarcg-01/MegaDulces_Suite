@@ -67,8 +67,23 @@ const FUENTE = 'analytics.kepler_bank_movements';
 //   firma COMPLETA sobre la COPIA ..........    4.6 ms
 //   firma COMPLETA sobre la FUENTE ........ 2,720 ms
 //   REFRESH CONCURRENTLY .................. 5,151 ms   ← lo que hoy se paga 1,440 veces al día
-// ⇒ ~1,390 ciclos con sonda de ventana + 48 con sonda completa + ~40-70 refrescos reales
-//   ≈ **1,230-1,390 s/día contra 7,487** = ~82 % menos, con la misma latencia.
+//
+// ── DESPUÉS, medido en una ventana REAL de 35 min en prod (2026-09-28 08:44→09:19) ─────────
+//   3 refrescos reales ....... 18.5 s  (6,174 ms de media)
+//  32 saltos por sonda ....... 27.3 s  (  853 ms de media — el proceso entero, no sólo la sonda)
+//  ───────────────────────────────────
+//  35 ciclos ................. 45.8 s  ⇒ 1.31 s por ciclo × 1,440 = **~1,885 s/día**
+// contra los **7,487 s/día** de antes = **75 % menos · 0.065 núcleos recuperados**.
+// (Quedó por debajo del 82 % proyectado porque la sonda promedia 853 ms y no 638: la diferencia
+// es arrancar node, conectar y latir. El número honesto es el del ciclo completo, no el de la
+// consulta sola.)
+//
+// ⭐ Y esa ventana trajo la prueba que no se podía fabricar, con dato de producción:
+//   · `motivo: piso de 30 min (último hace 30.7)` ....... el piso disparó solo, como se diseñó;
+//   · `motivo: la sonda vio cambios` ×2 ................. la sonda DETECTÓ movimientos reales y
+//     refrescó dentro del mismo minuto (12,429 → 12,430 → 12,431 → 12,432 filas).
+// O sea que no es una sonda que dice «sin cambios» para siempre: se probó contra cambios de
+// verdad, que es lo único que descarta el falso verde que el piso viene a acotar.
 //
 // ⚠️ LA FIRMA LLEVA LA SUMA DE IMPORTES, no sólo el conteo. Con `count(*)` solo, un movimiento
 // corregido en su monto —misma fila, otro importe— sería invisible para la sonda y la bandeja
