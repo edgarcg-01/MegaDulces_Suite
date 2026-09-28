@@ -16,6 +16,7 @@ const path = require('path');
 // lanzar nada. Los tests hijos lo cargan igual por su cuenta, así que esto no
 // les cambia el entorno — sólo le da al runner con qué clasificar la base.
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const fs = require('fs'); // [VSO.11] para el censo de pruebas registradas vs archivos en disco
 const { assertSafeTarget } = require('./tests/_lib/assert-safe-target');
 
 const TESTS = [
@@ -272,7 +273,6 @@ const TESTS = [
   { file: 'test-newdb-doble-caja.js', label: 'SM.38 dos cajas abiertas con el mismo usuario bloquean todo, y el bloqueo se levanta SOLO cuando Kepler cierra una (derivado del ODS en vivo, sin bandera que alguien tenga que apagar a mano). El candado mira el MISMO DIA y no "2 o mas abiertas" a secas, y eso lo decidio la medicion: de las 5 cajeras con dos cajas abiertas solo DOS son el caso real (C02 y C04, cada una con una caja en la sucursal 07 y otra en la 08, ambas de hoy); las otras tres arrastran turnos que nadie va a cerrar -- 40VMC tiene uno abierto desde el 31 de ENERO, 233 dias -- y con la regla literal quedarian bloqueadas para siempre por un problema de datos. Verificado contra prod: dispara en C02/C04 y NO en 40VMC/26VHGH/21VUO. Trae CONTROL POSITIVO porque un candado que bloquea a todo el mundo pasaria la prueba negativa igual de verde', needsApi: false },
   { file: 'test-newdb-arqueo-cuadre.js', label: 'SM.35 el retiro deja de ser un faltante (la identidad retiros+cajon=esperado vivia escrita TRES veces a mano -armarComparacion, list, porCajera- y solo una estaba bien: la pantalla sumaba $387,085.43 de faltante contra -$13,564.57 real y marcaba en rojo 11 de 11 filas, con las tres de arriba cuadrando al centavo -$0.30/+$0.01/+$9.77; de porCajera salia ademas el diff_real que imprimirTicket estampa en PAPEL con la etiqueta FALTANTE) + la clave unica gana cajero_cierre porque el folio c3 se REUSA el mismo dia en la misma caja (15 claves duplicadas, las 15 con dinero distinto: suc01 caja1 03/09 folio 68 son DOS turnos, y el DISTINCT ON descartaba 16 filas por $485,076.32 de esperado y $278,900 de retiro) + PRUEBA NEGATIVA de la clave (mismo folio+mismo cajero RECHAZADO, con el control positivo de que otro cajero SI entra) y de la formula (la vieja da otro total, y la brecha es exactamente el retiro) + el diff derivable del PROPIO Kepler (c15-(c43+c44+c48)), que existe sin que nadie arquee y coincide al centavo con nuestro conteo en los 7 turnos donde contamos el mismo cajon: destapa 1,066 cortes (30%) por $2,204,552 que el ERP publica como cuadrados, porque c35=c15-c25 en el 100% de los cortes (una resta, no una medicion) y c25=c15 exacto en el 75.8% -1,700 de ellos con retiro- + los bloques sin datos reportan NO MEDIDO y NO se pintan verde', needsApi: false },
   { file: 'verify-no-transfer-leak.js', label: 'T.1 los TRASPASOS no se filtran a los reportes de VENTA (mover mercancía entre sucursales no es vender: si se cuela, la venta se infla sin que nada falle)', needsApi: false },
-  { file: 'test-newdb-logistics-tracking.js', label: 'LT.0/LT.1 rastreo de flota (MagniTracking → logistics.trackers/vehicle_positions)', needsApi: false },
   // EMB — la cabecera logística del embarque Kepler (U-D-41). Las trampas que cubre están
   // todas medidas, no supuestas: el catálogo tiene la MISMA unidad dada de alta dos veces
   // (00018 y 018) así que un LEFT JOIN crudo duplicaría embarques; documento y catálogo
@@ -305,6 +305,36 @@ const TESTS = [
   { file: 'test-newdb-poliza-type-audit.js', label: "PV.4 tipo de póliza (D/E/I) contra las cuentas que mueve. El caso que lo origino era una premisa FALSA -- se creia que XA1001 'Gastos' estaba mal en Diario por contrastarlo con un TXT de ContPAQi tipo 2 Egresos -- y el smoke la deja clavada: XA1001 abona a proveedores (203), no a efectivo, o sea es devengo y Diario es correcto; lo que si esta mal son X-A-9-3/4/5, que estan en Egresos abonando a 210. Las negativas son el punto: (1) el criterio ingenuo 'mueve banco 102' marca 24 doctypes y el correcto 11, porque un pago en efectivo mueve CAJA (110) -- 13 falsos positivos que habrian hecho que el tablero se ignore en una semana; (2) la incongruencia VIVA (2 doctypes con uso) se separa del catalogo dormido (9 sin un solo documento), que no es trabajo pendiente; (3) los 66 doctypes sin cuentas declaradas se CUENTAN como no juzgables en vez de sumarse a 'ok', que seria dibujar un verde sobre algo que no se miro; (4) ADR-056: con analytics.gl_polizas vacia el bloque del cruce reporta not_measured CON MOTIVO y no una lista vacia, porque 'no encontre nada' y 'no busque' se leen igual en una pantalla y significan lo contrario", needsApi: false },
   { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
   { file: 'test-ods-enrolamiento.js', label: 'OBS.7 una tabla PUBLICADA que la suscripcion no enrola se pierde EN SILENCIO. Medido 2026-09-12: la poliza contable de SEPTIEMBRE (md.kdc22609) llevaba 12 dias sin replicar en 6 de 8 ramas con TODO en verde -- suscripciones enabled, apply worker sano, lag en segundos, latido de los carriles ok -- y sub_md_00 acumulaba 9,568 sync_error_count sin que ningun tablero lo mostrara. Causa raiz medida identica en los 6 POS alcanzables: el ALTER DEFAULT PRIVILEGES quedo CRUZADO (sa->platform_ro, postgres->ods_repl) y Kepler crea sus tablas como `sa`, asi que CADA TABLA NUEVA nace ilegible para ods_repl, el usuario del tablesync: el COPY falla, reintenta para siempre y la tabla queda en srsubstate=d. Peor, la mitigacion lo empeoro: ensure-monthly-tables pre-crea la tabla del periodo nuevo para evitar el crash-loop del apply worker, y al existir localmente el worker ya no muere -- convirtio una falla RUIDOSA en una MUDA. Candadea: ninguna tabla en srsubstate<>r + el default privilege cuelga del rol que CREA (no de postgres) + ods_repl puede leer la tabla del periodo EN CURSO y la del SIGUIENTE, que es donde detona el 1 de cada mes + sync_error_count que crece es falla. Lee las REPLICAS (KEPLER_REPLICA_BASE) y los POS; lo que no alcanza lo declara NO MEDIDO, nunca verde. NACE EN ROJO a proposito (13 tablas trabadas al escribirlo): si sale verde sin que nadie haya corrido el GRANT, el roto es el test', needsApi: false },
+
+  // ── [VSO.11] Candados que existian en disco y NO estaban en este runner ───────────────
+  // Medido el 2026-09-28: 281 archivos de prueba, 256 registrados. Un candado que no corre no
+  // protege nada -- fue la causa de fondo de que dos trinquetes de test-newdb-truth-parity
+  // llevaran rotos sin que nadie actuara. Se registran los 23 reales (3 archivos _*_tmp.js son
+  // basura de trabajo, no pruebas). Los del lote `budget` traen assert-safe-target y por diseno
+  // NO corren contra prod: ahi abortan solos, como ya lo hacen otras 47 suites registradas.
+  { file: 'test-newdb-sellout-filter-sync.js', label: 'RS sintonia de filtros del sell-out: toda camioneta RUTA-% con venta tiene plaza en v_route_plaza + round-trip (la ruta que agrega el filtro de una sucursal vuelve a ESA sucursal) + PRUEBA NEGATIVA con una ruta fabricada. Verificado 3/3 contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-kepler-unit-ladder.js', label: 'ADR-063 la escalera de unidades que KEPLER declara (mv_kepler_unit_ladder): no arbitra, REPRODUCE su aritmetica (c9 = c56 x c58). 7/7 contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-uxc-consensus.js', label: 'UXC el consenso del factor de caja (v_product_box_factor_consensus) y su veredicto. 9/9 contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-unit-display.js', label: 'U la unidad que se MUESTRA (cajas por almacen x producto, ADR-055): el divisor de presentacion es el del ERP que manda en ESE almacen. 6/6 contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-pricing-truth.js', label: 'el precio publicado contra el que cobra el PdV. 6/6 contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-label-source-truth.js', label: 'la etiquetera contra su fuente. 4 OK + 1 NO MEDIDO contra prod el 2026-09-28', needsApi: false },
+  { file: 'test-newdb-quantity-unit.js', label: 'VU.1 la unidad viaja con la cantidad: censo de tablas con columna de cantidad y SIN unidad al lado, con trinquete. [VSO.11] las tablas que entraron despues del baseline se DECLARAN por nombre y motivo (wave_allocations, caos_cash_denominations) en vez de subir el numero -- un baseline que sube es deuda con forma de cifra -- y una declaracion que deja de describir algo tambien falla', needsApi: false },
+  { file: 'test-newdb-resolver-adoption.js', label: '5bis quien DEBERIA leer cada resolvedor canonico y quien no lo lee. ⚠️ Escanea el CODIGO FUENTE: corre desde el repo, no dentro de prod-api (ahi no hay .ts y falla con 0 archivos)', needsApi: false },
+  { file: 'test-newdb-verificador-precio-correcto.js', label: 'el verificador de mostrador publica el precio correcto. ⚠️ Requiere services/feeds-ingest/* del repo: no corre dentro de prod-api', needsApi: false },
+  { file: 'test-newdb-budget-planning.js', label: 'PU plan de ventas del presupuesto (entidades, periodos 13x4, metodos)', needsApi: false },
+  { file: 'test-newdb-budget-ledger.js', label: 'PU motor de egresos: vigente/reserva/compromiso/ejercido/disponible', needsApi: false },
+  { file: 'test-newdb-budget-cashflow.js', label: 'PU flujo de efectivo del presupuesto', needsApi: false },
+  { file: 'test-newdb-budget-comparison.js', label: 'PU presupuesto vs real por el calendario 13x4', needsApi: false },
+  { file: 'test-newdb-budget-materialize.js', label: 'PU materializacion del plan a renglones', needsApi: false },
+  { file: 'test-newdb-budget-automations.js', label: 'PU automatizaciones del presupuesto', needsApi: false },
+  { file: 'test-newdb-budget-campaigns.js', label: 'PU campanas y sus contribuciones', needsApi: false },
+  { file: 'test-newdb-budget-unify.js', label: 'PU unificacion de presupuestos', needsApi: false },
+  { file: 'test-newdb-expense-plan.js', label: 'PU plan de gastos', needsApi: false },
+  { file: 'test-newdb-expense-capture-link.js', label: 'PU liga entre la captura de gasto y su renglon de plan. ⚠️ Unico del lote que ESCRIBE sin rollback: correr solo contra destino no-prod (ya trae assert-safe-target)', needsApi: false },
+  { file: 'test-newdb-sales-plan-project-targets.js', label: 'PU metas por proyecto del plan de ventas', needsApi: false },
+  { file: 'http-budget-unify-test.js', label: 'PU HTTP: unificacion de presupuestos por endpoint', needsApi: true },
+  { file: 'http-cash-ledger-test.js', label: 'CG HTTP: libro de caja', needsApi: true },
+  { file: 'http-bin-locations-test.js', label: 'WMS HTTP: ubicaciones de anaquel', needsApi: true },
 ];
 
 /**
@@ -346,6 +376,43 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
   // el destino está mal, está mal para las ~170 suites.
   const destino = assertSafeTarget('run-all-tests');
   console.log(`Destino de la regresión: ${destino.kind} (${destino.host}/${destino.db})`);
+
+  // `[VSO.11]` ⭐ EL CENSO: ningún archivo de prueba se queda FUERA de esta lista sin decirlo.
+  //
+  // Medido el 2026-09-28: 281 archivos en `database/tests/` y 256 registrados acá. Las 23 que
+  // faltaban no eran pruebas muertas — entre ellas estaba `test-newdb-truth-parity.js`, cuyo
+  // trinquete llevaba roto sin que nadie actuara **porque no corría**. Un candado que no se
+  // ejecuta no protege nada, y la unica forma de que eso no vuelva a pasar es que agregar un
+  // archivo y no registrarlo se vea de inmediato.
+  //
+  // No aborta: IMPRIME. Un archivo nuevo sin registrar suele ser trabajo en curso, y voltear la
+  // regresión entera por eso entrenaría a saltarse el aviso. Los `_*` quedan fuera del censo a
+  // propósito: son scratch de una corrida, no pruebas (hoy `_after2_tmp`, `_lanes_tmp`,
+  // `_verifyfusion_tmp`, dos de ellos trackeados en git por accidente).
+  try {
+    const enDisco = fs.readdirSync(path.join(root, 'tests'))
+      .filter((f) => f.endsWith('.js') && !f.startsWith('_'));
+    const registradas = new Set(TESTS.map((t) => t.file).concat(EXCLUIDAS.map((e) => e.file)));
+    const sinRegistrar = enDisco.filter((f) => !registradas.has(f));
+    const sinArchivo = [...registradas].filter((f) => !enDisco.includes(f));
+    console.log(`Censo de pruebas: ${enDisco.length} en disco · ${TESTS.length} registradas`
+      + ` · ${EXCLUIDAS.length} excluidas con motivo`);
+    if (sinRegistrar.length) {
+      console.log(`⚠️  ${sinRegistrar.length} archivo(s) de prueba NO registrado(s) — no se van a correr:`);
+      for (const f of sinRegistrar) console.log(`     ${f}`);
+      console.log('    Agregalo a TESTS, o a EXCLUIDAS con el motivo. Un candado que no corre no protege nada.');
+    }
+    if (sinArchivo.length) {
+      console.log(`⚠️  ${sinArchivo.length} registrada(s) SIN archivo en disco: ${sinArchivo.join(', ')}`);
+    }
+    // Una prueba registrada dos veces corre dos veces y nadie lo nota en 270 líneas de salida.
+    // Lo destapó este mismo censo: `test-newdb-logistics-tracking.js` estaba duplicada.
+    const vistos = new Set(); const dups = [];
+    for (const t of TESTS) { if (vistos.has(t.file)) dups.push(t.file); else vistos.add(t.file); }
+    if (dups.length) console.log(`⚠️  ${dups.length} registrada(s) DOS veces (corren duplicadas): ${dups.join(', ')}`);
+  } catch (e) {
+    console.log(`Censo de pruebas: NO MEDIDO (${e.message})`);
+  }
 
   // [VP.5.3] `--solo-db` corre SÓLO las suites que hablan con la base directo (`needsApi: false`).
   // Es lo que hace posible el gate de CI: las HTTP necesitan el API arriba, sembrado y con el
