@@ -34,6 +34,14 @@ O sea: por el camino obvio —el que usa el anexo de telemarketing (Fase AX)— 
 mostrador no existe**. Si la fase se hubiera construido asumiendo el patrón del hermano, habría
 publicado "Descuento $0.00" en todos los tickets y nadie lo habría notado.
 
+> ⛔ **CADUCÓ — 2026-09-28.** El "100%" se midió **sin Morelia**. Contra prod, mostrador de
+> septiembre 2026: las ramas `06`, `07` y `08` sí traen `c13 ≠ 0` (20 tickets, $1,948.15), porque
+> ahí el mostrador cobra el **descuento del cliente** (`kdud.c17` → `kdm1.c19`/`c13`). El comentario
+> *"Siempre 0.00 en el mostrador (medido, 100%)"* que la vista `analytics.erp_sale_tickets` lleva
+> en el código dice lo mismo y también caducó. La conclusión de diseño **no cambia** (`c66` sigue
+> siendo el testigo del descuento de renglón), pero la afirmación sí. Detalle en
+> [`FASE_DC`](FASE_DC_DESCUENTOS_CLIENTE.md) §6.
+
 ### 2.2 ⭐ Dónde sí está: `kdm2.c66` = precio de lista de la unidad base
 
 | doctype | renglones | cobran lista | con descuento | **cobran de más** |
@@ -180,3 +188,112 @@ con sólo 3 agregadas al final, que es lo que `CREATE OR REPLACE VIEW` exige.
 - Los tickets anteriores al **13-ago-2026** no pueden mostrar descuento. Si se necesita, habría
   que buscar un testigo del precio vigente en esa fecha — hoy **no existe** (ver Fase VP.3:
   "cero historia de datos maestros").
+
+---
+
+## 7. Auditoría de la pantalla `/comercial/tickets` (2026-09-28)
+
+Revisión pedida sobre la entrega ya hecha. **Todo medido**: el payload contra prod, el
+comportamiento montando el componente real con ese payload, y **con control** en cada caso (la
+misma prueba con el dato en la forma que el código asume). Lo que no se pudo comprobar se declara.
+
+### 7.1 ⛔ `[TK.a1]` La lista de candidatos sale mutilada en TODA búsqueda
+
+`buscar()` selecciona `t.fecha` cruda. `analytics.erp_sale_tickets.fecha` es `date` → `pg` la
+entrega como objeto `Date` → NestJS la serializa entera. Payload real (folio `0018665`, el que
+cita el docblock del servicio):
+
+```json
+{"id":"02UD1003-0018665","fecha":"2026-01-25T06:00:00.000Z","total":"73.72"}
+```
+
+y la plantilla hace `c.fecha + 'T12:00:00'` → `NG02311: Unable to convert … into a date`.
+
+Montando `ComercialTicketsComponent` con ese payload, contra el control:
+
+| | tarjeta 1 | tarjeta 2 |
+|---|---|---|
+| control (`2026-01-25`) | `Mostrador · $73.72 · ZAMORA UNO · caja 3 · 0018665 · 25/01/26 · CLIENTE UNO` | completa |
+| **hoy** | `$73.72 ZAMORA UNO 0018665` | **vacía** |
+
+El tiro corta el pase de binding: la primera tarjeta pierde **canal, caja, fecha y cliente**; de la
+segunda en adelante quedan cajas en blanco. ⭐ **Es peor que una pantalla rota: parece que
+funciona.** Y lo que falta es exactamente lo que la pantalla pide para elegir bien — su propio
+aviso dice *"Elige el correcto por fecha e importe"*.
+
+⭐ El hermano `customer-report.service.ts:190` **ya tiene** el helper `fecha()` que normaliza esto,
+y `armar()` lo hace bien en el detalle. Sólo `buscar()` quedó fuera: es un olvido, no un criterio.
+El `select` crudo viene del primer commit (`e66739f7`).
+
+### 7.2 ⛔ `[TK.a2]` "Lo más reciente primero" ordena por DÍA DE LA SEMANA
+
+`out.sort(… String(b.fecha).localeCompare(String(a.fecha)))` sobre un `Date` compara
+`"Sun Mar 15 2026…"`. Con los 7 documentos reales del folio `0018665`:
+
+```
+Thu 2026-03-12 · Thu 2026-06-11 · Sun 2026-07-12 · Sun 2026-01-25
+Sun 2026-04-12 · Sat 2026-03-07 · Sat 2026-08-29   ← el más reciente, ÚLTIMO
+```
+
+Es la misma trampa que la Fase LC.16 ya pagó. Agrava que `MAX_CANDIDATOS = 50` recorta *"los más
+recientes"* sobre ese orden falso.
+
+### 7.3 ⛔ `[TK.a3]` Bajo el encabezado "Importe" se lee el IEPS
+
+`[TK.4]` (`75abf7a4`) agregó al cuerpo `@if (hayImpuesto()) { <td>IEPS</td><td>IVA</td> }` y
+**nunca agregó los dos `<th>`**. Medido en el componente:
+
+```
+TH (6): Producto · Cant. · Lista · Pagado · Descuento · Importe
+TD (8): PALETA · 2 PZA · $12.00 · $10.00 · -$4.00 · "—" · "$2.76 16%" · $20.00
+                                            └── bajo "Importe" se lee ESTO
+```
+
+El importe real y el IVA quedan en columnas **sin encabezado**. Como `impuesto_desglosado` es
+verdadero casi siempre (el propio servicio midió 100% en los tres doctipos), aplica a
+prácticamente todo documento. **La carta en PDF está bien** — tiene `colgroup` y encabezados
+consistentes; el defecto es sólo de la pantalla.
+
+### 7.4 ⚠️ `[TK.a4]` La optimización declarada "NO MEDIDA" no compró nada, y sí costó el orden
+
+`LIMITE_POR_UNIVERSO` declara honestamente que quitar el `ORDER BY` se hizo sobre una hipótesis,
+sin antes/después. Medido ahora (`EXPLAIN ANALYZE, BUFFERS`, prod):
+
+| consulta | hoy (sin `ORDER BY`) | antes (con `ORDER BY`) |
+|---|---|---|
+| mostrador, folio `18665` | 5 ms · 228 pág | 2 ms · 226 pág |
+| mostrador, folio bajo `0000001` (39 filas) | 7 ms · 353 pág | 3 ms · 353 pág |
+| facturas, folio `18665` | 1 ms · 103 pág | 0 ms · 103 pág |
+
+**Mismo plan, mismas páginas.** La hipótesis del *nested loop* venía de una consulta **por rango de
+fechas**; ésta filtra por folio exacto y el plan ya estaba bien. O sea: se cambió un orden correcto
+en SQL por uno roto en JS (7.2) a cambio de **cero**.
+
+### 7.5 ⚠️ `[TK.a5]` No hay spec del componente — y es justo lo que dejó pasar 7.1 y 7.3
+
+`comercial-reporte-cliente.component.spec.ts` existe, y su propio docblock dice que ese archivo
+*"también existe para COMPILAR el template — `tsc` no mira dentro de una plantilla"*.
+`comercial-tickets.component` **no tiene ninguno**. Los tres defectos de pantalla los caza un
+`TestBed` de 30 líneas, con su prueba negativa.
+
+### 7.6 ⚠️ `[TK.a6]` Seis colores en duro donde hay tokens con dark mode
+
+`.tk-aviso` / `.tk-warn` usan `#fdf6e3 / #5c4803 / #d6b45a`; existen `--warn-soft-bg`,
+`--warn-soft-fg` y `--warn-border` **con override de oscuro** en `tokens.css`. Ídem el verde de
+`.tk-ahorro` / `.tk-ahorraste`. Son justo las dos cajas que el módulo usa para **declarar lo que no
+puede afirmar** (ADR-056).
+
+### 7.7 Lo que está sólido
+
+`parseFolioBuscado` y su candado del guion opcional; la cascada que cierra exacto por construcción
+usando el descuento **medido** y no el declarado (⭐ confirmado por la Fase DC: en `07 U-D-10 s4
+f0000513` el real es $147.43 y `kdm1.c13` dice $135.26); el desglose de impuesto que se verifica
+contra la cabecera antes de publicarse; los avisos que distinguen las tres ausencias; el alcance
+por sucursal en el controller con el 404 **antes** de consultar; y no auto-resolver con ≥2
+candidatos.
+
+### 7.8 Límite de esta auditoría
+
+**No se ejerció en navegador.** `localhost:4200` y la API `:3334` estaban arriba, pero el perfil de
+Chrome no tiene sesión y rebota a `/login`. La evidencia es el componente real montado con el
+payload medido de prod, con control — no una sesión con clic humano.
