@@ -53,6 +53,8 @@ export interface EstadoAporte {
 }
 
 /** Cada cosa que falta, con el texto que se le muestra a la persona. */
+// `[GX.36]` `evidencia_en_vivo` se conserva en el tipo: hay expedientes y pruebas que lo
+// nombran, y quitarlo del union rompe a quien lo lea sin agregar nada.
 export type FaltanteId = 'forma_pago' | 'forma_pago_detalle' | 'evidencia' | 'evidencia_en_vivo';
 
 export interface Faltante {
@@ -98,19 +100,25 @@ export function faltaParaMandar(estado: EstadoAporte): Faltante[] {
     if (comprobantes.length === 0) {
       faltan.push({
         id: 'evidencia',
-        label: 'La foto del comprobante',
-        motivo: 'falta la foto del comprobante (el ticket o la factura)',
-      });
-    } else if (!comprobantes.some((f) => f.live === true)) {
-      // Hay comprobante, pero ninguno con el sello de cámara. Es un faltante DISTINTO de
-      // «no hay foto»: el mensaje tiene que decir por qué no sirve la que subió, o la
-      // persona vuelve a subir la misma.
-      faltan.push({
-        id: 'evidencia_en_vivo',
-        label: 'Tomarla con la cámara',
-        motivo: 'el comprobante tiene que tomarse con la cámara en el momento; un archivo guardado no cuenta',
+        label: 'El comprobante',
+        motivo: 'falta el comprobante del gasto (la foto del vale, o el vale escaneado)',
       });
     }
+    /**
+     * `[GX.36]` **Acá se exigía el sello de cámara, y se retiró por decisión del usuario.**
+     *
+     * El faltante `evidencia_en_vivo` decía «un archivo guardado no cuenta». La razón
+     * original (GX.14) era impedir que alguien adjuntara una foto vieja. Pero en esta
+     * operación **los vales se escanean**: lo que sube la gente ES el vale firmado, sólo
+     * que pasado por el escáner en vez de por la cámara. Con la regla puesta, el botón
+     * decía «Falta: La foto del comprobante» con el vale escaneado ya adjunto — o sea, el
+     * gasto no se podía enviar nunca por esa vía.
+     *
+     * ⚠️ Lo que se pierde se DECLARA, no se esconde: el sello `live` sigue viajando con
+     * cada archivo y la pantalla de Aprobación lo muestra («foto en vivo» / «foto sin
+     * sello de cámara»). Deja de ser una COMPUERTA y pasa a ser un DATO — quien firma ve
+     * de dónde salió cada imagen y decide con eso a la vista.
+     */
   }
 
   return faltan;

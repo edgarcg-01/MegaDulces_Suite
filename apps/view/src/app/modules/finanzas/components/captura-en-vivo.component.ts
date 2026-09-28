@@ -32,7 +32,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inj
       </button>
       <p class="cv-nota">
         <i class="pi pi-lock" aria-hidden="true"></i>
-        Se toma en el momento. No se puede subir un archivo guardado ni un PDF.
+        Se toma en el momento, y queda con sello de cámara.
       </p>
     }
 
