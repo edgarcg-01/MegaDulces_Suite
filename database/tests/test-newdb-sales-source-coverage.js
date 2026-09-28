@@ -128,7 +128,41 @@ const noMedido = (m) => { nm++; console.log('  ·', 'NO MEDIDO —', m); };
       ok(horas !== null, `latido '${SALES_FACT_LANE}': ${lane.status}, hace ${horas === null ? '—' : horas.toFixed(1)} h`);
     }
 
-    console.log(`\nCobertura de la fuente de venta [AUD-DAT.1]: ${pass} ✓ / ${fail} ✗ / ${nm} NO MEDIDO`);
+    // ── 6. `[AUD-DAT.2]` El piso de fecha del hecho base ────────────────────────────────────
+    // 4 filas fechadas en el futuro fabricaron un bucket «2026-12» en sales_boxes_monthly y en
+    // sales_by_vendor_monthly: cualquier gráfica de «últimos 12 meses» pinta una barra de diciembre.
+    const [def] = await knex.raw(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conname = 'sales_daily_sale_date_piso_check'
+          AND conrelid = 'analytics.sales_daily'::regclass`).then((r) => r.rows);
+    if (!def) {
+      noMedido('el CHECK sales_daily_sale_date_piso_check no está aplicado todavía (mig 20260928190000) — el hecho base sigue aceptando cualquier fecha');
+    } else {
+      // PRUEBA NEGATIVA SIN ESCRIBIR EN PROD: se saca el predicado REAL del catálogo y se evalúa
+      // contra valores sintéticos. Un test que sólo comprueba que la fila existe en pg_constraint
+      // se pone verde con un CHECK que no rechaza nada.
+      const expr = String(def.def).replace(/^CHECK\s*\(/i, '').replace(/\)\s*(NOT VALID)?\s*$/i, '');
+      const [ev] = await knex.raw(
+        `WITH v(sale_date) AS (VALUES (DATE '2000-01-01'), (DATE '2014-06-08'), (current_date))
+         SELECT count(*) FILTER (WHERE ${expr})::int AS aceptadas,
+                count(*) FILTER (WHERE NOT (${expr}))::int AS rechazadas FROM v`).then((r) => r.rows);
+      ok(Number(ev.rechazadas) === 2 && Number(ev.aceptadas) === 1,
+        `el predicado REAL del CHECK rechaza 2000-01-01 y 2014-06-08 y acepta hoy (${ev.rechazadas} rechazadas / ${ev.aceptadas} aceptada)`);
+    }
+
+    // Lo que el CHECK NO puede cubrir se DECLARA: `current_date` es STABLE y Postgres no lo admite
+    // dentro de un CHECK, y un tope fijo caduca. Las fechas futuras se cuentan y se publican acá.
+    const [futuro] = await knex.raw(
+      `SELECT count(*)::int AS filas, coalesce(round(sum(revenue)::numeric,2),0) AS dinero,
+              max(sale_date)::text AS hasta
+         FROM analytics.sales_daily WHERE sale_date > current_date`).then((r) => r.rows);
+    if (Number(futuro.filas) === 0) {
+      ok(true, 'analytics.sales_daily no tiene ninguna fila fechada en el futuro');
+    } else {
+      noMedido(`${futuro.filas} filas de sales_daily fechadas en el FUTURO (hasta ${futuro.hasta}, $${futuro.dinero}) — ningún CHECK puede atajarlas (current_date no es IMMUTABLE); quedan declaradas`);
+    }
+
+    console.log(`\nCobertura de la fuente de venta [AUD-DAT.1/2]: ${pass} ✓ / ${fail} ✗ / ${nm} NO MEDIDO`);
     await knex.destroy();
     process.exit(fail === 0 ? 0 : 1);
   } catch (e) {

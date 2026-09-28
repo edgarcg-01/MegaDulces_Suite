@@ -92,7 +92,26 @@ async function upsert(db, rows) {
     const wid = whMap.get(String(r.warehouse_code).trim()) || null;
     await db('analytics.cash_cuts')
       .insert({ tenant_id: TENANT, ...r, warehouse_id: wid, cerrado: true, source: 'kepler' })
-      .onConflict(['tenant_id', 'warehouse_code', 'caja', 'business_date', 'folio'])
+      // ⛔ [AUD-DAT.3] SEIS columnas, no cinco — y la sexta no es opcional. `[SM.35]`
+      // (mig 20260915210000) le sumó `cajero_cierre` a la clave única porque el folio de Kepler
+      // se REUSA dentro del mismo día y la misma caja (15 claves duplicadas, $485,076 de turnos
+      // que se perdían). Este `onConflict` se quedó en cinco, y Postgres exige que la lista
+      // matchee un índice único EXACTAMENTE: desde la primera noche posterior a esa migración
+      // —2026-09-16— este importer muere en 2.9 s con `42P10, there is no unique or exclusion
+      // constraint matching the ON CONFLICT specification`. Doce noches seguidas.
+      //
+      // Verificado contra prod dentro de un ROLLBACK, en las dos direcciones: con cinco columnas
+      // da 42P10; con seis, `INSERT 0 1`.
+      //
+      // ⚠️ POR QUÉ NADIE LO VIO: `analytics.cash_cuts` tiene OTRO escritor —el `@Cron` de 10 min
+      // de `cash-ledger`/`cash-cuts-sync.service.ts`— así que la tabla siguió fresca (escrita hoy
+      // 12:30, con las 8 sucursales) mientras este carril moría todas las noches. Un latido que
+      // mide "¿el proceso corrió?" no lo habría atajado tampoco: lo atajó `[DH.1]`, que sube la
+      // falla del PASO al estado del padre. Sin dueño único por tabla, una falla se vuelve muda.
+      //
+      // `cajero_cierre` se queda además en el `.merge()` de abajo: al ser parte del target es
+      // provablemente un no-op, y dejarlo protege el día que alguien saque la columna de la clave.
+      .onConflict(['tenant_id', 'warehouse_code', 'caja', 'business_date', 'folio', 'cajero_cierre'])
       .merge({
         warehouse_id: wid,
         efectivo_esperado: r.efectivo_esperado, efectivo_contado: r.efectivo_contado, efectivo_diff: r.efectivo_diff,
