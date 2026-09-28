@@ -5,6 +5,112 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — La tienda mayorista publicaba catálogo de una prod congelada (`[PUB.1]`)
+
+**Cómo se llegó:** el usuario pidió "mandar estas tablas a la ingesta del ODS a
+`mainline.proxy.rlwy.net:21681`". Antes de mover nada se midió **qué es** ese destino y **de dónde
+come hoy**, y ahí apareció el problema real.
+
+### El hallazgo, medido
+
+`mainline.proxy.rlwy.net:21681` es el Postgres del proyecto Railway **`faithful-contentment`**
+(sysid `7686553094202912833`), donde vive `Ecommerce-Mayorista`. Leía `kepler_ods.*` por
+`postgres_fdw` contra **`trolley.proxy.rlwy.net`** — la prod **VIEJA**, que dejó de alimentarse
+cuando prod se mudó a `md` el **22-sep**.
+
+| | prod REAL (`md:5434`) | fuente del FDW (Railway) | diferencia |
+|---|---:|---:|---:|
+| última captura `kdm1.c68` | **2026-09-28** | **2026-09-23** | 5 días |
+| filas `kdm1` | 690,883 | 669,479 | 21,404 |
+| existencia total `kdik` | 135,853,785 | 134,943,109 | 910,676 piezas |
+| `kdii` (artículos) | 86,578 | 86,475 | 103 |
+
+El FDW **no falla**: devuelve filas viejas con toda confianza. Es la **tercera** de la misma
+familia — `[VL.13]` (el respaldo volcando Railway) y `[VL.14]` (la Caja General escribiendo a la
+prod vieja): prod se muda y un consumidor queda apuntando al fantasma, sin una sola señal.
+
+Encima, del lado del destino alguien había materializado el FDW en tablas `*_staging` + su gemela:
+`n_tup_ins = 14,008,066` sobre **86,475 filas vivas**, `n_tup_upd = 0`, `n_tup_del = 0` — la firma
+de **≈162 recargas completas TRUNCATE+INSERT**. Copia de una copia, y las dos viejas.
+
+### Qué se construyó
+
+`database/importers/kepler/publish-ods-remote.js`. Railway **no alcanza** a `md` (prod on-prem, sin
+Postgres público), así que el dato se **empuja**.
+
+⛔ **No es otro carril de `replicate-ods-live.js`, y el motivo está en el esquema:** el estado del
+CDC (`ods.ctl` PK por `table_name` a secas, `ods.sink_ident` una sola fila `id=1`) **no tiene
+dimensión de destino**. Dos shippers contra el mismo origen se pisan watermark y shadow: el que
+ship primero marca la fila como enviada y el otro destino **no la ve nunca**. El compose ya lo
+decía («NUNCA dos shippers a la vez»); acá se verificó en el DDL.
+
+**Sin estado, a propósito.** La primera versión llevaba un shadow de hashes en prod y se descartó
+por dos razones medidas: (1) la credencial de prod desde fuera de `md` es de **sólo lectura**, y (2)
+**un shadow puede mentir** — si el destino se recrea, sigue diciendo "ya te lo mandé" y la tienda se
+queda vieja para siempre, que es exactamente el incidente que esto viene a cerrar. En su lugar se
+compara una **huella por tabla** (`count(*)` + md5 del agregado de hashes de fila) de los dos lados:
+es a la vez el detector de cambios y la compuerta de completitud, y se recalcula cada ciclo.
+Comparable entre clústeres porque **columnas, tipos y orden son idénticos** (verificado en las 8).
+
+El diff viaja **hacia arriba** (se suben los hashes a una temp del destino y allá se calcula la
+diferencia) porque en Railway se cobra el **egreso**: subir 86 k hashes es gratis, bajarlos no.
+
+### Tres cosas que sólo aparecieron al correrlo de verdad
+
+1. **El destino no tenía llave primaria en ninguna tabla** (coherente con TRUNCATE+INSERT: nunca la
+   necesitaron) → `ON CONFLICT` sin restricción que lo respalde. Se midió que la llave del origen es
+   única allá (**0 duplicados** en las 4) y se agregó la PK. Sin llave no existe "actualizar las
+   distintas".
+2. ⛔ **`raw-upsert` no puede crear una tabla en ninguna base sin el rol `app_runtime`.** El
+   `try { GRANT … } catch { /* rol ausente en dev */ }` atrapaba el error en JS, pero **Postgres deja
+   la transacción abortada** (25P02) y todo lo siguiente muere. Reproducido a mano: el catch reporta
+   42704 y la consulta siguiente ya viene abortada. Nunca se vio porque prod y la réplica de pruebas
+   **sí** tienen el rol. Ahora el GRANT es condicional y no falla nunca. *Atrapar un error de SQL en
+   el lenguaje no revive la transacción.*
+3. **La prueba negativa se estaba haciendo contra un origen que se mueve.** Comparar la huella del
+   destino contra la del origen leída al empezar da «NO CUADRA» perpetuo con todo sano — prod cambia
+   cada 15 s. Se corrigió a comparar contra **el snapshot que realmente se envió** (las lecturas del
+   origen van en un `REPEATABLE READ READ ONLY`), que es la pregunta correcta: *el destino quedó
+   igual a lo que le mandé*.
+
+### Resultado
+
+| tabla | origen | destino | veredicto |
+|---|---:|---:|---|
+| kdii | 86,578 | 86,578 | cuadra |
+| kdik | 37,912 | 37,912 | cuadra |
+| kdil | 37,912 | 37,912 | cuadra (no existía) |
+| kdig | 4,974 | 4,974 | cuadra |
+| kdie | 108 | 108 | igual |
+| kdif | 2,079 | 2,079 | cuadra (no existía) |
+| kdid | 108 | 108 | cuadra (no existía) |
+| kdms | 9 | 9 | cuadra (no existía) |
+
+Régimen (segunda pasada): **69 filas en 12.7 s**, 5 de 8 tablas cortando por huella sin mover nada.
+Sobrantes: **0**. Latido `ods_publish_tienda` con umbral en `CRON_JOBS` (sin umbral registrado, el
+`cfg ? classify : 'ok'` lo pintaría verde incondicional — la trampa de la Fase VP).
+
+### Decisiones de alcance
+
+- **`kdm2` queda FUERA.** Son 4.66 M filas / **2,133 MB** contra los 124 MB que medía la base destino
+  entera. Es el detalle de ventas, no catálogo; lo que un e-commerce quiere de ahí ("lo más
+  vendido") es un agregado de unos miles de filas, derivable en prod.
+- **`kdid` entra sin haberse pedido**: `kdii.c11` guarda el *código* de unidad (`PAQ`/`PZA`/`KG`) y
+  sin `kdid` la tienda muestra "PAQ" en vez de "Paquete". Pesa 32 kB.
+- **`ctl` y `_sync_status` no se mandan porque no son tablas de Kepler** — no existen en `md.*` de
+  las réplicas. `_sync_status` sí aparece en el destino, pero **escrita por el handler** como marca
+  de frescura real, que es lo que se quería.
+
+### Pendiente humano
+
+- ⛔ **Apagar del lado de `Ecommerce-Mayorista` la recarga desde `kepler_ods_fdw`** (y retirar las
+  `*_staging`): mientras exista, puede pisar lo fresco con lo viejo. Desde la primera publicación no
+  volvió a correr (medido por `n_tup_ins`), pero eso es observación, no garantía.
+- `ODS_PUBLISH_DEST_URL` en `/home/superoot/secrets/feeds.env` de `md` + `ops/vl/deploy.sh`, para
+  que la línea nueva de `crontab.feeds` empiece a correr allá. Hasta entonces la publicación es
+  manual.
+
+---
 ## 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`)
 
 **Cómo se llegó:** una pregunta del usuario —*"¿por qué tenemos el ODS y la base en dos mundos

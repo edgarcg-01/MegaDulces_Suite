@@ -968,6 +968,14 @@ const CRON_JOBS: CronCfg[] = [
   // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
   { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
   { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // [PUB.1] El carril que PUBLICA el catálogo del ODS a la tienda mayorista (Railway), que no puede
+  // alcanzar a prod on-prem. Se registra ACÁ, antes de agendarlo, porque un latido sin umbral cae en
+  // el `cfg ? classify : 'ok'` y se pinta verde incondicional — y este carril nace justo de eso: la
+  // tienda leía por FDW la prod VIEJA de Railway y estuvo publicando catálogo del 23-sep hasta el
+  // 28-sep (21,404 movimientos y 910,676 piezas de diferencia) sin que nada se pusiera en rojo.
+  // Su `error` significa «la huella del destino NO cuadra con la del origen después de publicar»,
+  // o sea pérdida de dato — no «el proceso se cayó».
+  { key: 'ods_publish_tienda',  label: 'ODS → tienda mayorista (prod→Railway)', cadence: 'continuo ~10 min', warnH: 1, critH: 4 },
   // [RL.11] La COBERTURA de la suscripción — un modo de falla que NINGÚN latido de arriba puede
   // ver, porque no hay nada que falle. La publicación de los POS es `FOR TABLES IN SCHEMA md`, así
   // que una tabla nueva entra sola a la publicación, pero el suscriptor no la escucha hasta que
