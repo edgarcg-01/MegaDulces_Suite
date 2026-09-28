@@ -68,6 +68,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { AreaMeta } from '../../../core/constants/role-presets';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { Permission } from '../../../core/constants/permissions';
+import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
 
 /**
  * Icono por departamento. El catálogo `identity.departments` guarda code/name/
@@ -889,18 +890,52 @@ export class AdminUsersComponent implements OnInit {
    * mirara el estado, editarle el teléfono a cualquiera de ellas pediría un
    * motivo por una decisión que tomó otro hace meses.
    */
+  /**
+   * `[OR.2.1]` ⛔ **Acá vivia el bug que impedia dar de alta con 20 de los 57 puestos.**
+   *
+   * La linea decia `if (!propuesto || ...) return false`, o sea: **si el puesto no propone
+   * perfil, no hay divergencia**. El backend piensa lo contrario y tiene razon —
+   * `detectarDesvio()` devuelve `{ propone: null }` justamente ahi, y `exigirMotivo()` responde
+   * *«el puesto no propone ningun perfil, asi que ese perfil es una eleccion a dedo y no hay
+   * contra que contrastarla: deci por que»*.
+   *
+   * Resultado: el formulario concluia "no hay desvio" -> no pedia el motivo, no lo mostraba y lo
+   * mandaba vacio; el backend lo exigia y devolvia 400. **Sin forma de cumplirlo desde la
+   * pantalla.** Medido en el catalogo: 20 de 57 puestos tienen `default_role = null`, y con
+   * cualquiera de ellos el alta era imposible.
+   *
+   * Ahora espeja al backend: sin propuesta, elegir un perfil ES una decision que hay que
+   * explicar. La pantalla hermana (`persona-detalle`, `sinPropuesta()`) ya lo hacia bien — esta
+   * se quedo atras.
+   */
   readonly desviacionNueva = computed(() => {
-    const propuesto = this.puestoPropuesta()?.default_role ?? null;
-    const rol = this.rolePick();
-    if (!propuesto || !rol || rol.toLowerCase() === propuesto.toLowerCase()) return false;
+    // La regla la decide `evaluarDivergencia`, compartida con el backend: acá sólo queda el
+    // "¿la crea ESTE cambio?", que es propio del formulario.
+    const d = evaluarDivergencia({
+      propone: this.puestoPropuesta()?.default_role ?? null,
+      elegido: this.rolePick(),
+    });
+    if (!d.diverge) return false;
     if (!this.isEditing()) return true;
     return (
-      (rol ?? '').toLowerCase() !== (this.origenRol() ?? '').toLowerCase() ||
+      (this.rolePick() ?? '').toLowerCase() !== (this.origenRol() ?? '').toLowerCase() ||
       (this.positionPick() ?? null) !== (this.origenPuesto() ?? null)
     );
   });
   /** El perfil que el puesto propone, para poder nombrarlo en la pantalla. */
   readonly perfilPropuesto = computed(() => this.puestoPropuesta()?.default_role ?? null);
+  /**
+   * `[OR.2.1]` El puesto elegido NO propone perfil. No es lo mismo que proponer otro: no hay
+   * contra que contrastar, asi que el texto tiene que decir otra cosa — y lo que lo cierra de
+   * raiz es darle un perfil al puesto en /admin/puestos, no escribir un motivo cada alta.
+   */
+  readonly puestoSinPropuesta = computed(
+    () => !!this.positionPick()
+      && evaluarDivergencia({
+        propone: this.puestoPropuesta()?.default_role ?? null,
+        elegido: this.rolePick(),
+      }).sinPropuesta,
+  );
   readonly departamentoNombre = computed(() => {
     const code = this.deptPick();
     if (!code) return '—';
