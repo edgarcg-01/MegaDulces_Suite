@@ -895,7 +895,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     monto: 1300, denominaciones: [{ denominacion: 500, piezas: 2 }, { denominacion: 100, piezas: 3 }],
   };
 
-  it('elegir un movimiento de CAOS precarga el arqueo y el monto sale del conteo', () => {
+  it('CS.3.7 — elegir un movimiento de CAOS lo pone APARTE; la reja arranca en cero y el monto sale del cajero', () => {
     montar();
     comp.abrirCaptura();
     comp.elegirCaos({ value: CAOS_DEP } as any);
@@ -903,11 +903,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
     expect(comp.f().tipo).toBe('ingreso');
     expect(comp.f().sucursal).toBe('00');
-    expect(comp.piezasDe(500)).toBe(2);
-    expect(comp.piezasDe(100)).toBe(3);
-    // 500×2 + 100×3 = 1300, sale del arqueo.
-    expect(comp.f().monto).toBe(1300);
+    // El efectivo de la máquina va APARTE (denominacionesCajero), NO en la reja.
+    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.aporteCajero()).toBe(1300);   // 500×2 + 100×3 = 1300
+    expect(comp.f().monto).toBe(1300);        // monto = aporte del cajero + reja (0)
+    // El arqueo (el del cajero) YA cuadra → no falta desglose ni descuadra.
     expect(comp.bloqueos()).not.toContain('falta_desglose');
+    expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
   });
 
   it('guardar con origen CAOS manda origen_tipo="caos" y origen_ref=device|external_id', () => {
@@ -951,17 +953,20 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   // ── CS.3.1c · CAOS ENTRA SOLO A LA BANDEJA + ARQUEO BLOQUEADO ──────────────────────────────
-  it('CAOS aparece SOLO en la bandeja y capturar desde ahí precarga el arqueo', () => {
+  it('CS.3.7 — capturar desde la bandeja pone el efectivo de la máquina APARTE; la reja arranca en cero', () => {
     montar({ caosCapturables: vi.fn(() => of({ rows: [CAOS_DEP], limit: 100, has_more: false, desde: '2026-09-24' })) });
     // Se ve sin buscarlo: la fuente ya no es un autocompletado opcional.
     expect(comp.caosPendientes().length).toBe(1);
     comp.capturarDesdeCaos(CAOS_DEP);
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
-    expect(comp.piezasDe(500)).toBe(2);
-    expect(comp.f().monto).toBe(1300);
+    // El efectivo de la máquina va APARTE, no en la reja: la reja queda en cero (para la diferencia).
+    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.hayCajero()).toBe(true);
+    expect(comp.aporteCajero()).toBe(1300);
+    expect(comp.f().monto).toBe(1300);   // monto = aporte del cajero + reja (0)
   });
 
-  it('[negativa] el arqueo de CAOS queda BLOQUEADO: la máquina ya contó, sólo la morralla se teclea', async () => {
+  it('CS.3.7 — el arqueo de la máquina va APARTE y la reja queda EDITABLE para la diferencia', async () => {
     const fx = await capturaEnPantalla();
     comp.elegirCaos({ value: CAOS_DEP } as any);
     fx.detectChanges();
@@ -969,8 +974,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const billetes = piezas.filter((i) => !i.classList.contains('cg-morralla-in'));
     const morralla = piezas.find((i) => i.classList.contains('cg-morralla-in'))!;
     expect(billetes.length).toBe(5);
-    expect(billetes.every((i) => i.readOnly)).toBe(true);   // los cinco billetes, bloqueados
-    expect(morralla.readOnly).toBe(false);                  // "lo faltante" se cuenta a mano
+    expect(billetes.every((i) => !i.readOnly)).toBe(true);  // editables: la reja es la DIFERENCIA
+    expect(morralla.readOnly).toBe(false);
+    expect(comp.hayCajero()).toBe(true);                     // el cajero se muestra aparte
   });
 
   // ── CS.3.4 · EL DETECTOR: "ya se agregaron 20 mil del cajero" + agregá lo restante ──────────
@@ -985,19 +991,20 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(svc['caosCandidatos']).toHaveBeenCalled();
   });
 
-  it('CS.3.4 — vincular un retiro suma su efectivo al arqueo y se ENLAZA al guardar', () => {
+  it('CS.3.7 — vincular un retiro pone su efectivo APARTE (no en la reja) y lo FUSIONA al guardar', () => {
     montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
     comp.setF('sucursal', '00');
     comp.buscarEnCajero();
     comp.vincularCaos(comp.caosSugeridos()[0] as any);
-    // "ya se agregaron X del cajero": su efectivo entró al arqueo.
-    expect(comp.piezasDe(500)).toBe(2);
-    expect(comp.piezasDe(100)).toBe(3);
-    expect(comp.f().monto).toBe(1300);
-    expect(comp.totalCajero()).toBe(1300);
-    // "agregá lo restante" + clasificar, y guardar lleva el enlace.
+    // El efectivo del cajero va APARTE; la reja NO se toca (queda en cero, para la diferencia).
+    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.aporteCajero()).toBe(1300);
+    expect(comp.f().monto).toBe(1300);   // monto = cajero + reja
+    // El arqueo que va al servidor FUSIONA cajero + reja, para que cuadre con el monto (assertArqueo).
+    expect(comp.denominacionesParaGuardar().reduce((a, d) => a + d.denominacion * d.piezas, 0)).toBe(1300);
+    // Sin desglose tecleado, el arqueo YA cuadra (el del cajero) → no bloquea.
     comp.setF('kepler_cuenta', '201'); comp.setF('kepler_concepto', '001'); comp.setF('glosa', 'pago a cueritos');
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
@@ -1005,6 +1012,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const links = body['caos_links'] as Array<{ external_id: number }>;
     expect(links.length).toBe(1);
     expect(links[0].external_id).toBe(1420);
+    // El arqueo enviado incluye el efectivo del cajero (para que el servidor cuadre).
+    const dens = body['denominaciones'] as Array<{ denominacion: number; piezas: number }>;
+    expect(dens.reduce((a, d) => a + d.denominacion * d.piezas, 0)).toBe(1300);
   });
 
   it('[negativa] soltar un retiro vinculado RESTA su efectivo del arqueo', () => {
