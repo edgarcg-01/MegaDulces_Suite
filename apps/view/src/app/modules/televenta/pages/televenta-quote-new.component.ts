@@ -189,6 +189,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     class="input search-input"
                     [(ngModel)]="terminoCliente"
                     (ngModelChange)="onBuscarCliente($event)"
+                    (keyup.enter)="onEnterCliente()"
                     placeholder="Buscar código (ej. C1086) o nombre de cliente de mayoreo..."
                     aria-label="Buscar cliente de mayoreo"
                     autocapitalize="characters"
@@ -1318,10 +1319,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   /** Habilitación de guardado */
   readonly puedeCrear = computed(() => {
+    if (this.guardando()) return false;
+    if (!this.sucursal()) return false;
     if (this.modo() === 'contacto') {
-      return this.contactoNombre.trim().length > 0 && !!this.sucursal();
+      return this.contactoNombre.trim().length > 0;
     }
-    return !!this.cliente() && !!this.sucursal();
+    return !!this.cliente() || this.terminoCliente.trim().length > 0;
   });
 
   readonly puedeAgregarArticulo = computed(() => {
@@ -1440,6 +1443,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   onBuscarCliente(t: string): void {
     this.busquedaCliente$.next((t || '').trim());
+  }
+
+  onEnterCliente(): void {
+    const r = this.resultadosClientes();
+    if (r.length > 0) {
+      this.elegirCliente(r[0]);
+    }
   }
 
   elegirCliente(c: WholesaleCustomer): void {
@@ -1665,6 +1675,48 @@ export class TeleventaQuoteNewComponent implements OnInit {
   // ── Guardado Final ──────────────────────────────────────────────────────────
   crear(): void {
     if (this.guardando()) return;
+
+    if (!this.sucursal()) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Falta sucursal',
+        detail: 'Por favor selecciona la sucursal Kepler con cuyas condiciones se cotiza.',
+      });
+      return;
+    }
+
+    if (this.modo() === 'mayoreo') {
+      if (!this.cliente()) {
+        const matches = this.resultadosClientes();
+        if (matches.length > 0) {
+          this.elegirCliente(matches[0]);
+        } else if (this.terminoCliente.trim().length > 0) {
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Falta seleccionar cliente',
+            detail: `Selecciona un cliente de la lista de resultados o usa "Todavía no es cliente" si "${this.terminoCliente.trim()}" es un contacto nuevo.`,
+          });
+          return;
+        } else {
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Falta cliente de mayoreo',
+            detail: 'Por favor busca y selecciona un cliente de mayoreo (C####) o cambia a la pestaña "Todavía no es cliente".',
+          });
+          return;
+        }
+      }
+    } else {
+      if (!this.contactoNombre.trim()) {
+        this.toast.add({
+          severity: 'warn',
+          summary: 'Falta destinatario',
+          detail: 'Por favor escribe el nombre de la persona o negocio que solicita la cotización.',
+        });
+        return;
+      }
+    }
+
     this.guardando.set(true);
 
     const esMayoreo = this.modo() === 'mayoreo';
@@ -1712,13 +1764,15 @@ export class TeleventaQuoteNewComponent implements OnInit {
           this.guardando.set(false);
           this.toast.add({
             severity: 'success',
-            summary: `Cotización ${quote.code}`,
+            summary: `Cotización ${quote.code} generada`,
             detail:
               linesAdded > 0
-                ? `Creada exitosamente con ${linesAdded} renglón(es) de la bandeja.`
-                : `Creada en borrador, vigente hasta ${quote.valid_until}.`,
+                ? `Folio asignado exitosamente con ${linesAdded} renglón(es) de la bandeja en estatus Borrador.`
+                : `Folio asignado en borrador (abierta), vigente hasta ${quote.valid_until}.`,
           });
-          this.router.navigate(['/telemarketing/cotizaciones', quote.id]);
+          this.router.navigate(['/telemarketing/cotizaciones'], {
+            queryParams: { created: quote.code },
+          });
         },
         error: (err) => {
           this.guardando.set(false);

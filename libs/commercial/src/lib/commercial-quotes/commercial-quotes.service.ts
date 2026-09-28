@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
@@ -579,8 +580,9 @@ export class CommercialQuotesService {
 
     // `tk.run()` YA abre la transacción con `SET LOCAL app.tenant_id` (GOTCHAS §2: el request
     // entero va en UNA trx). Abrir otra acá anidaría un savepoint sin ganar nada.
-    return this.tk.run(async (trx) => {
-      const year = new Date().getFullYear();
+    try {
+      return await this.tk.run(async (trx) => {
+        const year = new Date().getFullYear();
 
       // ── Las condiciones se LEEN del ERP y se congelan; NO se aceptan del request ────────
       // Si el cliente las mandara, la cotización podría afirmar un descuento que el ERP nunca
@@ -671,6 +673,7 @@ export class CommercialQuotesService {
             origin, user_id, warehouse_id, price_list_id, status,
             quote_date, valid_until, customer_request, notes, internal_notes,
             source_branch, terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days,
+            salesperson_code, salesperson_name,
             created_by, updated_by
           ) VALUES (
             :tenant_id, :code, :customer_id, :erp_code, :erp_name,
@@ -680,11 +683,13 @@ export class CommercialQuotesService {
             :valid_until::date,
             :customer_request, :notes, :internal_notes,
             :branch, :terms_source, :discount, :credit_limit, :payment_days,
+            :salesperson_code, :salesperson_name,
             :user_id, :user_id
           )
           RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until,
                     erp_customer_code, erp_customer_name, source_branch,
-                    terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days
+                    terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days,
+                    salesperson_code, salesperson_name
           `,
           {
             tenant_id: tenantId,
@@ -715,6 +720,8 @@ export class CommercialQuotesService {
             discount: terms.discount,
             credit_limit: terms.credit_limit,
             payment_days: terms.payment_days,
+            salesperson_code: dto.salesperson_code ?? null,
+            salesperson_name: dto.salesperson_name ?? null,
           },
         );
 
@@ -725,7 +732,15 @@ export class CommercialQuotesService {
           row.salesperson_name = dto.salesperson_name || null;
         }
         return row;
-    });
+      });
+    } catch (err: any) {
+      if (err?.code === '25006' || err?.code === '42501') {
+        throw new ServiceUnavailableException(
+          'Base de datos en modo solo lectura para este usuario (conexión de desarrollo local). La persistencia de cotizaciones requiere permisos de escritura (app_runtime/producción).',
+        );
+      }
+      throw err;
+    }
   }
 
   /**

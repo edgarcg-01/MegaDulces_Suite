@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 
@@ -518,96 +518,105 @@ export class QuotePricingService {
   ): Promise<AddLineResult> {
     const userId = this.tenantCtx.get()?.userId ?? null;
 
-    return this.tk.run(async (trx) => {
-      const q = await trx.raw(
-        `SELECT id, status, source_branch FROM commercial.quotes
-          WHERE id = :id AND deleted_at IS NULL`,
-        { id: quoteId },
-      );
-      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
-      const quote = q.rows[0];
-      if (quote.status !== 'draft') {
-        throw new BadRequestException(
-          `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
+    try {
+      return await this.tk.run(async (trx) => {
+        const q = await trx.raw(
+          `SELECT id, status, source_branch FROM commercial.quotes
+            WHERE id = :id AND deleted_at IS NULL`,
+          { id: quoteId },
         );
-      }
-
-      const sku = (input.sku || '').trim();
-      let priced: PricedLine | null = null;
-      if (sku) {
-        if (!quote.source_branch) {
+        if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+        const quote = q.rows[0];
+        if (quote.status !== 'draft') {
           throw new BadRequestException(
-            'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+            `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
           );
         }
-        priced = await this.priceLine(trx, {
-          branch: quote.source_branch,
-          sku,
-          quantity: input.quantity,
-          rung: input.rung,
+
+        const sku = (input.sku || '').trim();
+        let priced: PricedLine | null = null;
+        if (sku) {
+          if (!quote.source_branch) {
+            throw new BadRequestException(
+              'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+            );
+          }
+          priced = await this.priceLine(trx, {
+            branch: quote.source_branch,
+            sku,
+            quantity: input.quantity,
+            rung: input.rung,
+          });
+        } else if (!input.requested_text || !input.requested_text.trim()) {
+          throw new BadRequestException(
+            'Un renglón necesita un SKU o el texto de lo que pidió el cliente. Lo que no casó con el catálogo es información, no basura: se guarda.',
+          );
+        }
+
+        /**
+         * `[COT.1b]` El `max+1` iba SIN candado: dos `addLine` a la vez sobre la misma cotización
+         * leían el mismo número y el segundo moría contra
+         * `commercial_quote_lines_quote_linenum_unique`. No es teórico — la pantalla nueva agrega
+         * renglones de a uno y rápido.
+         *
+         * El `FOR UPDATE` va sobre la fila de la COTIZACIÓN (que ya está en esta transacción), no
+         * sobre los renglones: bloquear renglones no impide que otro inserte el primero. Serializa
+         * los `addLine` de una misma cotización y no toca a las demás.
+         */
+        await trx.raw(`SELECT id FROM commercial.quotes WHERE id = :id FOR UPDATE`, { id: quoteId });
+        const next = await trx.raw(
+          `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+          { id: quoteId },
+        );
+        let lineNumber = Number(next.rows[0].n);
+
+        await this.insertLine(trx, quoteId, lineNumber, priced, input, userId, null);
+
+        // El regalo es un renglón propio, a precio cero LEGÍTIMO, colgado del que se lo ganó.
+        if (priced?.free_goods && priced.free_goods.quantity > 0) {
+          const parent = lineNumber;
+          lineNumber += 1;
+          await trx.raw(
+            // `[COT.1b]` El regalo lleva su rótulo pero NO factor: la regla del ERP dice qué unidad
+            // se regala (`kdpv_gratisxq.c12`) y no cuántas bases trae. Se guarda lo que se sabe y
+            // se declara ausente lo que no — rellenar con 1 sería inventar la conversión.
+            `INSERT INTO commercial.quote_lines
+               (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
+                unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
+                availability, notes, qty_unit, created_by, updated_by)
+             VALUES
+               (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
+                0, 0, 0, 0, 'free_goods', :parent,
+                :availability, :notes, :qty_unit, :user_id, :user_id)`,
+            {
+              quote_id: quoteId,
+              line_number: lineNumber,
+              product_id: priced.free_goods.product_id,
+              requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
+              quantity: priced.free_goods.quantity,
+              parent,
+              availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+              notes: `Producto gratis del ERP por el renglón ${parent}`,
+              qty_unit: priced.free_goods.unit_label ?? null,
+              user_id: userId,
+            },
+          );
+        }
+
+        await this.recalcTotals(trx, quoteId);
+        const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
+          id: quoteId,
         });
-      } else if (!input.requested_text || !input.requested_text.trim()) {
-        throw new BadRequestException(
-          'Un renglón necesita un SKU o el texto de lo que pidió el cliente. Lo que no casó con el catálogo es información, no basura: se guarda.',
-        );
-      }
-
-      /**
-       * `[COT.1b]` El `max+1` iba SIN candado: dos `addLine` a la vez sobre la misma cotización
-       * leían el mismo número y el segundo moría contra
-       * `commercial_quote_lines_quote_linenum_unique`. No es teórico — la pantalla nueva agrega
-       * renglones de a uno y rápido.
-       *
-       * El `FOR UPDATE` va sobre la fila de la COTIZACIÓN (que ya está en esta transacción), no
-       * sobre los renglones: bloquear renglones no impide que otro inserte el primero. Serializa
-       * los `addLine` de una misma cotización y no toca a las demás.
-       */
-      await trx.raw(`SELECT id FROM commercial.quotes WHERE id = :id FOR UPDATE`, { id: quoteId });
-      const next = await trx.raw(
-        `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
-        { id: quoteId },
-      );
-      let lineNumber = Number(next.rows[0].n);
-
-      await this.insertLine(trx, quoteId, lineNumber, priced, input, userId, null);
-
-      // El regalo es un renglón propio, a precio cero LEGÍTIMO, colgado del que se lo ganó.
-      if (priced?.free_goods && priced.free_goods.quantity > 0) {
-        const parent = lineNumber;
-        lineNumber += 1;
-        await trx.raw(
-          // `[COT.1b]` El regalo lleva su rótulo pero NO factor: la regla del ERP dice qué unidad
-          // se regala (`kdpv_gratisxq.c12`) y no cuántas bases trae. Se guarda lo que se sabe y
-          // se declara ausente lo que no — rellenar con 1 sería inventar la conversión.
-          `INSERT INTO commercial.quote_lines
-             (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
-              unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-              availability, notes, qty_unit, created_by, updated_by)
-           VALUES
-             (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
-              0, 0, 0, 0, 'free_goods', :parent,
-              :availability, :notes, :qty_unit, :user_id, :user_id)`,
-          {
-            quote_id: quoteId,
-            line_number: lineNumber,
-            product_id: priced.free_goods.product_id,
-            requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
-            quantity: priced.free_goods.quantity,
-            parent,
-            availability: priced.free_goods.product_id ? 'available' : 'unmatched',
-            notes: `Producto gratis del ERP por el renglón ${parent}`,
-            qty_unit: priced.free_goods.unit_label ?? null,
-            user_id: userId,
-          },
-        );
-      }
-
-      await this.recalcTotals(trx, quoteId);
-      const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
-        id: quoteId,
+        return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
       });
-      return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
-    });
+    } catch (err: any) {
+      if (err?.code === '25006' || err?.code === '42501') {
+        throw new ServiceUnavailableException(
+          'Base de datos en modo solo lectura para este usuario (conexión de desarrollo local). La persistencia de renglones requiere permisos de escritura (app_runtime/producción).',
+        );
+      }
+      throw err;
+    }
   }
 
   private async insertLine(
