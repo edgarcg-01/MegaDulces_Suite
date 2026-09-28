@@ -48,9 +48,24 @@ Todo medido contra prod (`pg-prod` en `md`, sysid `7688376744939610156`).
   de sus mediciones eran **falsos positivos** (marcaba "traslape" cuando Kepler tiene datos que la
   vista ya excluye, cosa que en La Piedad pasa por nueve meses). Corregido a medir el RESULTADO:
   **20 OK / 0 fallas** (antes 13/6), con un residuo DECLARADO con nombre, día, monto y razón.
-- **Internal** `test-newdb-sellout-channel-parity.js` (8/8 contra prod, con prueba negativa que borra
-  una fila del mapa en una transacción revertida) · §5 de [`VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md)
-  estrena los dos resolvedores que le faltaban (canal y corte) · migraciones **556/557/558** en prod.
+- **Fixed (VSO.6) — cinco vendedores tenían dos columnas.** Al cruzar el cutover el mismo humano
+  cambia de código (Wincaja `30:74` → Kepler `08:20003`) y `analytics.vendor_identity` existe para
+  colapsarlos; nadie la actualizó cuando Madero y Abastos migraron hace días. El mayor es un vendedor
+  de **$47.9M** cuya columna se corta el 18-sep y reaparece con otro nombre al día siguiente.
+  ⭐ **Lo que más importa es cómo se encontraron:** el detector por *nombre igual* encuentra **3 de
+  6** —está mal por construcción, porque lo que cambia al cruzar de ERP es justamente el nombre
+  (`MANUEL GARCIA ZURITA` → `MANUEL DI STEFANO GARCIA ZURIT`, `GLORIA` → `GLORIA CALDERON`,
+  `Plasencia` → `PLACENCIA`)—. El que sí los ve compara **tokens de apellido** entre quien termina
+  del lado Wincaja y quien arranca del lado Kepler en el mismo almacén.
+  **No se fusionó, declarado:** `30:94` "JOSEPH" (hay **dos** Joseph y venden los mismos días) y
+  `32:51` MANUEL HERRERA ($2.05M, termina sin sucesor). **Ni se marcaron `exclude`** los 7
+  "vendedores" que no son personas ($742,420): ese flag los tira del pivote, y esa plata es venta
+  real — restársela a un reporte para que se vea limpio es lo contrario de lo que esta fase arregla.
+- **Internal** `test-newdb-sellout-channel-parity.js` (8/8) y `test-newdb-vendor-identity-cutover.js`
+  (4/4), los dos contra prod y con prueba negativa real (rompen el dato en una transacción revertida
+  y comprueban que el detector lo señale) · §5 de [`VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md)
+  estrena los dos resolvedores que le faltaban (canal y corte) · migraciones **556/557/558/561** en
+  prod.
 - ⚠️ **Pendiente de deploy:** el código de `apps/api`/`apps/view` está commiteado y con `tsc` limpio,
   pero prod corre el build anterior. Y la parte de **meses cerrados** de VSO.3 se ve cuando corra el
   refresh nocturno de `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para
