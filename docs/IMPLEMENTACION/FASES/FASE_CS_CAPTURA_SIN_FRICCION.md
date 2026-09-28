@@ -279,6 +279,27 @@ clic real (dev server). El motor y las consultas están verificados; el cableado
 aprendizaje afina) + validación visual con clic real. Seguir minando: fecha embebida en el `ref`,
 depósitos↔cobros de ruta, precisión por señal (con feedback negativo).
 
+## CS.3.6 — Modelo CORREGIDO (2026-09-28): CAOS se ADJUNTA a Kepler, no se captura aparte
+
+Investigando el proceso REAL (no asumiendo) se corrigió el modelo de la unión — reemplaza a R1/CS.3.5:
+- **CAOS no es una captura aparte.** La máquina ya contó el efectivo; el movimiento de CAOS se
+  **adjunta a un movimiento de Kepler existente y autorrellena PARTE de su arqueo**. La bandeja son
+  los Kepler; cada uno trae su CAOS **ya emparejado por el motor**. La sección «Caja fuerte (CAOS)»
+  dejó de ser «por capturar» → es informativa («sin conciliar»: los que aún no encontraron su Kepler).
+- **La llave real es RUTA + FECHA DE NEGOCIO** (la del TEXTO: `VENTA RD 21 19-09` ↔ `rd21 19/09`),
+  NO la de registro (`occurred_at`). Medido: **~98% precisión (90 real / 2 placebo)**. La venta del 19
+  se registra/deposita el 24 en ambos lados.
+- **El depósito es PARTE del cobro** (depósito ≤ cobro, **53/53** medido; diferencia ~2.5% = lo
+  retenido/gastos de ruta). Se reemplazó el `monto≈5%` (rechazaba diferencias reales de 12%) por `≤`.
+- **Cardinalidad NO 1:1**: varios cobros/depósitos por ruta por día de registro (distintas fechas de
+  negocio). El motor empareja greedy sin repetir un CAOS.
+
+Motor (`caja-caos-match.engine.ts`): `rutaDe` + `fechaNegocio` (quita el prefijo de ruta para no leer
+la ruta como día) + `puntuarCaos` (ruta 45 + fecha-negocio 40 + depósito≤cobro 15 + registro débil).
+`emparejarCaos` (servicio) adjunta el `caos_match` a cada pendiente. Frontend: la fila lo muestra
+(⇄ del cajero … · retiene … · confianza) y capturar lo vincula solo; la sección CAOS es informativa.
+Motor spec 13/13, build api. **Pendiente: validación visual + deploy.**
+
 ## Estado (2026-09-25)
 
 - **CS.3.1a Medición** ✅ (prod read-only): contra limpia 99.75%, grano mayor 201/115/103, `cash_ledger`

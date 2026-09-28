@@ -216,6 +216,9 @@ interface FormularioCajaUI {
     .cg-caos-monto { font-variant-numeric:tabular-nums; }
     .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
+    .cg-caos-attach { color:var(--text-muted); font-size:var(--fs-micro); }
+    .cg-caos-attach.cg-caos-alta { color:var(--action); }
+    .cg-caos-info { cursor:default; }
     .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
     .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
     .cg-cajero-head label { margin:0; }
@@ -408,6 +411,11 @@ interface FormularioCajaUI {
                   <td>
                     {{ p.beneficiario || p.entidad_code || '—' }}
                     @if (!p.confirmable) { <small class="fin-hint-warn d-block">{{ p.motivo_texto }}</small> }
+                    @if (p.caos_match; as cm) {
+                      <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
+                        ⇄ del cajero {{ cm.ref || 's/ref' }} {{ money(cm.monto) }}@if (p.monto - cm.monto > 0.5) { · retiene {{ money(p.monto - cm.monto) }} } · {{ cm.confianza }}
+                      </small>
+                    }
                   </td>
                   <td class="mono">{{ p.doc_tipo }} {{ p.folio }}</td>
                   <td class="mono">{{ p.kepler_cuenta || '—' }}</td>
@@ -476,25 +484,24 @@ interface FormularioCajaUI {
         }
       </section>
 
-      <!-- CS.3.1c — La caja fuerte (CAOS) entra SOLA a la bandeja: sus movimientos se ven sin
-           buscarlos (antes eran un autocompletado opcional dentro del diálogo). Un clic abre la
-           captura con el arqueo de la máquina ya cargado y BLOQUEADO; sólo se clasifica lo faltante. -->
-      @if (caosPendientes().length) {
+      <!-- CS.3.6 — El cajero (CAOS) YA lo contó la máquina y se ADJUNTA solo a su cobro/gasto de
+           Kepler arriba (no se captura aparte). Acá sólo se MENCIONAN los que el motor aún no pudo
+           conciliar — esperan su movimiento de Kepler, o se adjuntan a mano desde la captura. -->
+      @if (caosSinConciliar().length) {
         <section class="cg-bandeja cg-caos">
           <header class="cg-bandeja-head">
-            <h2 class="fin-h2"><i class="pi pi-lock" aria-hidden="true"></i> Caja fuerte (CAOS)</h2>
+            <h2 class="fin-h2"><i class="pi pi-lock" aria-hidden="true"></i> Cajero (CAOS) — sin conciliar</h2>
             <span class="cg-bandeja-sp"></span>
-            <small class="fin-dim">{{ caosPendientes().length }} por capturar — el arqueo lo trae la máquina</small>
+            <small class="fin-dim">{{ caosSinConciliar().length }} ya contados por la máquina, aún sin su movimiento de Kepler</small>
           </header>
           <div class="cg-caos-list">
-            @for (m of caosPendientes(); track m.origen_ref) {
-              <button type="button" class="cg-caos-row" (click)="capturarDesdeCaos(m)">
+            @for (m of caosSinConciliar(); track m.origen_ref) {
+              <div class="cg-caos-row cg-caos-info">
                 <span class="cg-caos-tag" [class.cg-caos-in]="m.tipo === 'ingreso'">{{ m.type_label }}</span>
                 <span class="mono cg-caos-monto">{{ money(m.monto) }}</span>
                 <span class="fin-dim cg-caos-ref">{{ m.ref || 'sin referencia' }}</span>
                 <span class="fin-dim">{{ m.user_external || '' }}</span>
-                <span class="cg-caos-go" aria-hidden="true">Capturar →</span>
-              </button>
+              </div>
             }
           </div>
         </section>
@@ -1162,6 +1169,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   caosPendientes = signal<CaosCapturable[]>([]);
   cargandoCaosPend = signal(false);
+
+  /**
+   * CS.3.6 — Los movimientos del cajero que el motor NO pudo adjuntar a ningún pendiente de Kepler
+   * (sin conciliar). Informativos: ya los contó la máquina y esperan su cobro/gasto (o se adjuntan a
+   * mano desde la captura). Los que SÍ casaron aparecen pegados a su fila de Kepler, no acá.
+   */
+  caosSinConciliar = computed(() => {
+    const emparejados = new Set(this.pendientes().map((p) => p.caos_match?.origen_ref).filter(Boolean));
+    return this.caosPendientes().filter((c) => !emparejados.has(c.origen_ref));
+  });
 
   /**
    * CS.3.4 — El detector DENTRO de la captura: candidatos del cajero propuestos para ESTE gasto y
@@ -1895,6 +1912,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.setF('tipo', (p.tipo === 'ingreso' ? 'ingreso' : 'gasto') as TipoMovimiento);
     this.cobroSel = { ...p, label: this.cobroLabel(p) };
     this.tomarDocumento(p, contado);
+    // CS.3.6 — si el motor ya le adjuntó su CAOS, se vincula solo: su efectivo autorellena parte del
+    // arqueo y se enlaza al guardar. La unión ya viene hecha; el capturista sólo revisa y guarda.
+    if (p.caos_match) this.vincularCaos(p.caos_match as unknown as CaosCandidato);
   }
 
   /**

@@ -327,6 +327,16 @@ export interface MovimientoPendiente {
   cuenta_bloqueada?: boolean;
   /** CS.3.1b — Los conceptos válidos de esa cuenta, para la elección ACOTADA (no buscador libre). */
   conceptos_cuenta?: Array<{ concepto: string; concepto_nombre: string | null }>;
+  /**
+   * CS.3.6 — El match del cajero (CAOS) que el motor ADJUNTÓ a este movimiento, para autorrellenar
+   * PARTE de su arqueo. `null` si no hay. El efectivo del cajero es ≤ el movimiento de Kepler (la
+   * diferencia es lo retenido/gastos de ruta).
+   */
+  caos_match?: {
+    origen_ref: string; device: string; external_id: number; monto: number; ref: string | null;
+    type_label: string; denominaciones: Array<{ denominacion: number; piezas: number }>;
+    confianza: 'alta' | 'media' | 'baja'; motivos: string[];
+  } | null;
   motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto';
   motivo_texto?: string;
 }
