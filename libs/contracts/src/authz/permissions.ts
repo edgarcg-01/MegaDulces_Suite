@@ -259,6 +259,13 @@ export enum Permission {
   // para poder acotar un rol a un solo reporte sin abrir todo el analytics.
   COMMERCIAL_ANALYTICS_VER = 'COMMERCIAL_ANALYTICS_VER',
   COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
+  // `[MR.PERM]` Rentabilidad (`/comercial/rentabilidad`, Fase MR) era el ÚNICO reporte de esta
+  // familia sin permiso propio: lo abría el paraguas `COMMERCIAL_ANALYTICS_VER`, o sea que dárselo
+  // a alguien para que viera el margen le abría además Command Center, Ventas generales y Wincaja.
+  // Es la regla que esta misma sección ya declaraba —«cada REPORTE tiene su propio permiso abajo»—
+  // y que a esta pantalla no se le había aplicado. Se reparte a quien hoy tiene el paraguas, leído
+  // del estado vivo: nadie pierde acceso.
+  COMMERCIAL_PROFITABILITY_VER = 'COMMERCIAL_PROFITABILITY_VER',
   // BI — sub-modulo "Analisis" (Sell-Out BI): explica el cambio, preguntale,
   // radar de anomalias. Lee el mismo SellOutReport; se reparte a los roles que
   // ya tienen COMMERCIAL_SELLOUT_VER (mig 20260907130000). El reporte base no se toca.

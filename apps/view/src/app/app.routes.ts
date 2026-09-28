@@ -269,7 +269,7 @@ export const routes: Routes = [
         // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
         path: 'rentabilidad',
         loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROFITABILITY_VER)]
       },
       {
         path: 'pricing',
