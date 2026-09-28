@@ -217,6 +217,22 @@ const SIN_PARIDAD_CON_MOTIVO = {
   mv_kepler_sales_daily: 'su paridad existe y vive en su propio candado '
     + '(test-newdb-sellout-parity.js, VP.1): mide doble conteo, hueco y rollup==vista al peso. '
     + 'Duplicarla aca seria un segundo primitivo del mismo control',
+  // [VSO.1] Mismo caso que el de arriba, y por la misma razon: la paridad de este resolvedor NO es
+  // "dos numeros que se comparan" sino "el vocabulario PUBLICADO contra el arbitrado", que es una
+  // pregunta de COBERTURA y no de monto. Ya esta medida, con prueba negativa, en su propio candado.
+  sellout_channel_map: 'su paridad no es entre dos valores sino entre dos VOCABULARIOS: que todo '
+    + '(source, canal crudo) que el universo publica tenga fila en el mapa. Eso se mide en '
+    + 'test-newdb-sellout-channel-parity.js (bloque 1, con prueba negativa que borra una fila '
+    + 'dentro de una transaccion revertida). Para que hubiera paridad "de monto" tendria que '
+    + 'existir una segunda tabla con el canal ya resuelto, y crearla seria justo la copia que este '
+    + 'resolvedor vino a eliminar',
+  // [VSO.3] Idem: lo que se compara no son dos cifras del mismo hecho sino el RESULTADO del corte
+  // contra las piernas crudas -- doble conteo y hueco por (almacen, dia).
+  v_branch_erp_cutover: 'no publica una cantidad: publica una FECHA de la que depende que pierna '
+    + 'manda. Su comprobacion es de resultado (cero dias publicados por las dos piernas, cero dias '
+    + 'con venta cruda y nada publicado) y vive en test-newdb-branch-cutover.js, que ademas prohibe '
+    + 'que el corte vuelva a escribirse como literal. Compararlo contra "otra fecha de corte" seria '
+    + 'inventar la copia que SB.1 elimino',
   sales_by_route_monthly: 'el "nunca" de §5 no es otra FUENTE sino un filtro (route_code LIKE '
     + 'WIN-%): no hay dos valores que comparar, hay un universo mal recortado. Lo que haria falta '
     + 'es un candado de recorte, no de paridad',

@@ -9,6 +9,53 @@
 ---
 
 ## [Unreleased]
+### Fixed — Sell-Out: el 13.5 % de la venta no tenía canal, y tres cortes dejaban $1.95M sin publicar (VSO.1–VSO.3, 2026-09-28)
+Pedido de Edgar: *"necesito que encontremos verdad absoluta en /comercial/sell-out — canales, sucursales y vendedores"*.
+Todo medido contra prod (`pg-prod` en `md`, sysid `7688376744939610156`).
+
+- **Canales (VSO.1).** El universo publica **seis** canales crudos y la pantalla conocía **cuatro**:
+  `mayoreo` (Kepler `U-D-8` Factura Telemarketing, **$21,373,739/90 d**) y `contado_nf` ($381,787)
+  no tenían rótulo, ni casilla de filtro, ni **hoja en el árbol Avanzado** — y como el árbol arma un
+  `cellFilter`, abrirlo y elegir cualquier hoja **descartaba esos $21.4M en silencio**. El filtro
+  "Mayoreo" mandaba `credito`, que del lado Kepler ya no existe: traía sólo la mitad Wincaja.
+  **Causa:** la decisión SD-CH entró por un script suelto que reescribe la vista viva, así que quedó
+  bien en la base y en ningún lado más (las **seis** migraciones de `v_sellout_daily` siguen diciendo
+  `mayoreo → credito`: un `DROP CASCADE` la revertía sola).
+  **Added** `analytics.sellout_channel_map` + `v_sellout_channel_coverage`: el canal pasa a ser DATO,
+  con la evidencia por fila. El decode que lo decide, medido: `wincaja.caja_channels` dice que la
+  **caja 70 = "Mayoreo a credito"** y `kdmm` que **`U-D-8` = "Factura Telemarketing"** → son el mismo
+  canal a los dos lados del cutover (prueba: almacén `08` en sep-2026 trae `credito` $2,920,676 de
+  Wincaja *y* `mayoreo` $1,327,515 de Kepler). Y `contado_nf` es **mostrador**: 11 de sus 13
+  vendedores son "SUCURSAL … PISO".
+- **Vendedores (VSO.1).** El alcance del reporte era `credito`, así que **16 vendedores y
+  $21,373,739** quedaban fuera (SERGIO MENDOZA $7.83M, DANIEL FRANCO $6.50M, CINTHIA DEL VALLE
+  $4.13M). Ahora el alcance sale del resolvedor.
+- **Fixed** `SELLOUT_PLAZA_COLUMNS` referenciaba `MD-30` (que **no existe** como almacén) y `MD-32`
+  (0 filas de sell-out): toda Morelia vive en `07`/`08` desde `[RL.10]`. Con eso más el mayoreo sin
+  columna, en sep-2026 caían a **OTROS $22.66M de $49.88M (45.4 %)**.
+- **Fixed (VSO.2)** `v_sellout_vs_facturacion` cruzaba la subcuenta `%MAYOREO%` contra medio
+  sell-out. Sep-2026 pasa de **338.7 % `revisar`** a **80.7 % `concilia`**; se acabaron los canales
+  fantasma en `sin_facturacion` (27 renglones → 12). ⚠️ **No arregla la conciliación, la vuelve
+  medible**: agosto sigue en 22.5 % y `ruta` con $0 de facturación en 4 de 5 meses — el lado contable
+  necesita su propia auditoría, y queda DECLARADO.
+- **Fixed (VSO.3) — $1,953,784.56 de venta real que ningún reporte mostraba.** Tres cortes
+  Wincaja→Kepler no estaban en el día en que el POS cambió de manos: PH `2026-07-01`→**`06-27`**
+  (4 días, $916,629.73) · La Piedad `2025-10-01`→**`10-10`** (9 días, $620,201.51, **no estaba
+  declarado**) · Abastos `2026-09-18`→**`09-19`** (1 día, $416,953.32). La migración comprueba su
+  propio antes/después y aborta si el delta no es el esperado.
+  ⛔ **El candado ya estaba rojo y nadie actuó**: `test-newdb-branch-cutover.js` llevaba 6 fallas
+  nombrando estos huecos. No falló la detección — falló que su rojo no significaba nada, porque dos
+  de sus mediciones eran **falsos positivos** (marcaba "traslape" cuando Kepler tiene datos que la
+  vista ya excluye, cosa que en La Piedad pasa por nueve meses). Corregido a medir el RESULTADO:
+  **20 OK / 0 fallas** (antes 13/6), con un residuo DECLARADO con nombre, día, monto y razón.
+- **Internal** `test-newdb-sellout-channel-parity.js` (8/8 contra prod, con prueba negativa que borra
+  una fila del mapa en una transacción revertida) · §5 de [`VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md)
+  estrena los dos resolvedores que le faltaban (canal y corte) · migraciones **556/557/558** en prod.
+- ⚠️ **Pendiente de deploy:** el código de `apps/api`/`apps/view` está commiteado y con `tsc` limpio,
+  pero prod corre el build anterior. Y la parte de **meses cerrados** de VSO.3 se ve cuando corra el
+  refresh nocturno de `analytics_refresh_sellout_monthly` (~06:28): el pivote lee el rollup para
+  meses cerrados, y no se refrescó a mano (412 MB + 1.6 GB en horario hábil).
+
 ### Fixed — La tienda mayorista publicaba catálogo de una prod CONGELADA hace 5 días (PUB.1, 2026-09-28)
 - **El hallazgo:** la base de la tienda (`faithful-contentment` en Railway) leía `kepler_ods.*` por
   `postgres_fdw` contra `trolley.proxy.rlwy.net` — la prod **VIEJA**, que dejó de alimentarse cuando
