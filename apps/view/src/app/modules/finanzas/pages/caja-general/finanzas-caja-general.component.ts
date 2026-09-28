@@ -1637,7 +1637,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
     // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
     // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
-    encuestarVisible(60000, () => { this.cargarPendientes(); this.cargarCaosPendientes(); }, { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => { this.cargarPendientes(true); this.cargarCaosPendientes(true); }, { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
@@ -1650,8 +1650,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // acaba de guardar acá, y ahí sí hay que ir a ver sí o sí.
       if (e.origen === 'feed' && firma === this.firmaVista) return;
       this.firmaVista = firma;
-      this.cargarPendientes();
-      this.cargarCaosPendientes();
+      // Refresco de fondo (llegó un aviso): en silencio, sin prender el indicador de carga (evita el
+      // micro-parpadeo de la bandeja en cada NOTIFY). El saldo no tiene indicador, va normal.
+      this.cargarPendientes(true);
+      this.cargarCaosPendientes(true);
       this.cargarSaldo();
     });
   }
@@ -2174,8 +2176,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * al cargar y en el repaso en vivo, igual que los de Kepler. Un fallo deja la sección vacía (no es
    * la fuente de verdad del libro), pero no tumba la pantalla.
    */
-  cargarCaosPendientes(): void {
-    this.cargandoCaosPend.set(true);
+  cargarCaosPendientes(bg = false): void {
+    if (!bg) this.cargandoCaosPend.set(true);
     this.svc.caosCapturables({ limit: 50 }).subscribe({
       next: (r) => { this.caosPendientes.set(r.rows ?? []); this.cargandoCaosPend.set(false); },
       error: () => { this.caosPendientes.set([]); this.cargandoCaosPend.set(false); },
@@ -2288,8 +2290,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return `Kepler no registró movimientos de esta caja en el corte elegido${filtro}. Ampliá la ventana o cambiá el signo.`;
   }
 
-  cargarPendientes(): void {
-    this.cargandoPend.set(true);
+  /**
+   * CS.3.12 — `bg=true` en refrescos de FONDO (el poll de 60 s y el socket): NO prende el indicador
+   * de carga, así la bandeja se actualiza en silencio. Prenderlo en cada repaso hacía que
+   * `app-load-state` mostrara el estado de carga un instante = **micro-parpadeo cada 60 s**. Los
+   * refrescos del usuario (filtro, búsqueda, inicial) sí lo prenden: ahí el "cargando" es feedback.
+   */
+  cargarPendientes(bg = false): void {
+    if (!bg) this.cargandoPend.set(true);
     // `0` = «Todo»: se manda una fecha muy vieja en vez de omitir `from`, porque omitirlo le
     // devolvería el default del servidor y la persona habría pedido otra cosa.
     const dias = this.ventanaDias();
