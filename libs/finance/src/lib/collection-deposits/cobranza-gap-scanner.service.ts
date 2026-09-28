@@ -67,7 +67,32 @@ export class CobranzaGapScannerService {
     const fallas: string[] = [];
     let m = { abonos: 0, con_candidato: 0, huerfanos: 0, monto_huerfano: 0 };
     try {
-      const r = await this.knex.raw(`
+      // El resultado se asigna DENTRO de la transacción: `knex.transaction()` no infiere el tipo
+      // de retorno de `trx.raw()` y devolverlo daría `void` (TS2339). Tiparlo con `any` arreglaría
+      // el síntoma y rompería la compuerta de tipado del boundary — así no hace falta ninguno.
+      await this.knex.transaction(async (trx) => {
+        // ⛔ [AUD-DAT.8] SIN ESTA LÍNEA EL UNIVERSO ES CERO, Y EL CERO ERA REAL PERO NO SIGNIFICABA
+        // LO QUE PARECÍA. `finance.bank_movements`, `bank_recon_matches` y `movement_categories`
+        // tienen RLS **forzado**; este servicio corre desde un `@Cron`, sin request, así que no hay
+        // `TenantContextService` que fije `app.tenant_id` — y el filtro `m.tenant_id = ?` de abajo
+        // NO alcanza: RLS se aplica ANTES, y sin la variable de sesión la política no deja pasar
+        // ninguna fila. Resultado: 0 abonos, 87 ms, todos los días.
+        //
+        // Medido en prod el 2026-09-28 con `SET ROLE app_runtime`:
+        //     sin app.tenant_id en sesión ....... 0 filas
+        //     con app.tenant_id puesto .......... 15,094 abonos de cobranza sin ligar
+        //
+        // ⚠️ La instrumentación ya lo había dicho. El latido venía en `error` desde al menos el
+        // 25-sep con el texto «cero entregado: el job corrió y no escribió una sola fila (fuente
+        // vacía, **sin acceso**, o filtro que no matchea)» — nombró la causa correcta entre las
+        // tres y nadie la leyó. El defecto no fue de detección: fue de triaje.
+        //
+        // `set_config(k, v, true)` y no `SET LOCAL app.tenant_id = '<literal>'`: Postgres rechaza
+        // parámetros ligados en `SET` (42601), así que la forma literal obliga a interpolar el
+        // UUID a mano. `set_config` acepta el bind y el `true` lo hace LOCAL a la transacción —
+        // por eso la consulta va adentro de una, no suelta.
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
+        const r = await trx.raw(`
         -- [CC.13] Mismo arreglo que en listUnmatchedBank: el cobro se identifica por
         -- (sucursal, doc_tipo, folio). El literal 'UA0501' casaba 1 de 19,020 filas porque CB
         -- escribe la forma con guiones, asi que esta CTE venia vacia y el latido contaba como
@@ -109,7 +134,8 @@ export class CobranzaGapScannerService {
                count(*) FILTER (WHERE c.id IS NULL)::int huerfanos,
                round(COALESCE(sum(m.amount_in) FILTER (WHERE c.id IS NULL), 0), 2)::float monto_huerfano
           FROM mov m LEFT JOIN cand c ON c.id = m.id`, [MEGA, MEGA, MEGA]);
-      m = r.rows[0];
+        m = r.rows[0];
+      });
       this.logger.log(`cobranza gap: ${m.abonos} sin ligar · ${m.con_candidato} con candidato · `
         + `${m.huerfanos} huerfanos ($${m.monto_huerfano})`);
     } catch (e) {
