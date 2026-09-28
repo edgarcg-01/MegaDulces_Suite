@@ -41,8 +41,10 @@ describe('[GX.34] «Mis gastos» no puede devolver los de todos', () => {
    * respondiendo 200 y con datos — pero con los de la empresa entera.
    */
   it('la lista filtra por persona cuando se pide «lo mío»', () => {
-    expect(SERVICIO).toContain("if (q.mine) b.where(");
+    expect(SERVICIO).toContain("if (q.mine) qb.where(");
     expect(SERVICIO).toContain("w.where('created_by', q.mine).orWhere('evidencia_por', q.mine)");
+    // Y que ese filtro se APLIQUE al query de las filas, no sólo que exista.
+    expect(SERVICIO).toContain('filtros(b);');
   });
 
   it('el calendario usa EL MISMO criterio que la lista', () => {
@@ -58,6 +60,29 @@ describe('[GX.34] «Mis gastos» no puede devolver los de todos', () => {
     const cuerpo = metodo(CONTROLLER, 'async mine(');
     expect(cuerpo).toContain('if (!actor) return');
     expect(cuerpo).toContain('rows: []');
+  });
+
+  /**
+   * ⭐⭐ `[GX.35]` **LOS CONTADORES TAMBIÉN.** Esto se encontró probando en local, no
+   * leyendo el código: las FILAS venían acotadas pero el `groupBy` de los KPI corría
+   * sobre la tabla PELADA. «Mis gastos» de `demo_captura` mostraba 20 vales propios y el
+   * encabezado decía **77 esperando firma, 30 aprobados, 16 devueltos** — los del tenant
+   * entero. Es peor que una lista mal filtrada: la lista se ve y se puede contar; el
+   * número grande de arriba se cree.
+   */
+  it('los contadores pasan por LOS MISMOS filtros que las filas', () => {
+    expect(SERVICIO).toContain("const agg = await filtros(trx('finance.expense_proofs'))");
+    // La forma vieja: agregar sobre la tabla sin un solo filtro.
+    expect(SERVICIO).not.toContain("await trx('finance.expense_proofs').groupBy('status')");
+  });
+
+  /**
+   * ⚠️ Y `total` es el total que CUMPLE el filtro, no el largo de la página: era
+   * `rows.length`, o sea el `limit`, así que a quien tiene 340 gastos le decía «200».
+   */
+  it('el total no es el largo de la página', () => {
+    expect(SERVICIO).not.toContain('total: rows.length');
+    expect(SERVICIO).toContain('const total = Object.values(by).reduce(');
   });
 
   /** El recorte vive en el SERVIDOR: el cliente no manda a quién mirar. */
