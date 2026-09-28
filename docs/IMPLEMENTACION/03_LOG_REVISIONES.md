@@ -155,13 +155,27 @@ siempre habría pasado igual las pruebas de humo.
 
 ### Hallazgos colaterales, medidos
 
-1. ⛔ **El auto-deploy recrea la BASE DE PRODUCCIÓN y su log no lo dice.** La corrida de las 08:30
-   del 28-sep registró `servicios: api worker`; `pg-prod` quedó con `Created == StartedAt ==
-   14:34:17Z` y `RestartCount=0` ⇒ **contenedor nuevo**, Postgres apagado y levantado. También
-   recreó `portal` y `vendor`. Es la causa de los **27 reinicios** de `ods-live-hot`/`mirror`:
-   mueren con `the database system is shutting down` → `ECONNRESET` → `getaddrinfo EAI_AGAIN
-   pg-prod`, y `restart: unless-stopped` los revive. Se auto-curan y no pierden filas (el
-   watermark vive en `ods.ctl`), pero ocurre **4+ veces al día sin estar declarado**.
+1. ⚠️ **Algunos despliegues recrean la BASE DE PRODUCCIÓN, y el log del deploy no lo dice.**
+   `pg-prod` quedó con `Created == StartedAt` y `RestartCount=0` —contenedor **nuevo**, Postgres
+   apagado y levantado— en los despliegues de las **08:34 y 09:34** del 28-sep, que registraron
+   `servicios: api worker`. Es la causa de los **27 reinicios** de `ods-live-hot`/`mirror`: mueren
+   con `the database system is shutting down` → `ECONNRESET` → `getaddrinfo EAI_AGAIN pg-prod`, y
+   `restart: unless-stopped` los revive. Se auto-curan y no pierden filas (el watermark vive en
+   `ods.ctl`).
+
+   ⛔ **CORRECCIÓN de este mismo informe, medida después: NO es "en cada despliegue".** La primera
+   redacción decía eso con **dos** observaciones; el despliegue de las **10:21 NO la recreó**
+   (`Created` siguió en 15:34:21Z) y `docker compose config --hash pg-prod` coincide con el hash
+   del contenedor vivo, o sea que Compose la ve al día. *Dos puntos no son una tendencia, y yo
+   los publiqué como si lo fueran — el mismo defecto que este informe le señala a `[CPU.2]`.*
+
+   **Lo que sí está medido:** aparecen imágenes `trade-prod-pg` nuevas a las **08:33:45** y
+   **09:33:56**, ~1 min antes de cada recreación — y una imagen nueva es exactamente lo que hace
+   que Compose recree el servicio. **Quién la construye quedó sin identificar:** el bucle de build
+   de `auto-deploy.sh` es `for s in api worker portal vendor` e `img_de()` devuelve vacío para
+   cualquier otra cosa; `pg-prod` no tiene sección `build:` en el compose; y los dos scripts del
+   servidor que nombran `trade-prod-pg` son `podar-disco.sh` (poda) y `probar-pitr.sh` (restaura).
+   Queda abierto con su evidencia, no cerrado con una hipótesis.
 2. ⭐ **`deploy.sh --estado` compara ID DE IMAGEN, no código, y por eso grita en falso.** Decía
    *"7 carriles con código VIEJO"*; comparando `md5sum` archivo por archivo **dentro de los
    contenedores**, 6 de los 7 corrían código **byte-idéntico** (`replicate-ods-live.js`,
@@ -171,6 +185,13 @@ siempre habría pasado igual las pruebas de humo.
    contexto de build. `[CT.1]` documentó una deriva REAL; con este chequeo no se puede distinguir
    una de la otra, que es justo cómo se termina ignorando la real. Los 8 quedaron alineados en
    `05917ce87173` y con entrega verificada por latido.
+
+   ✅ **CORREGIDO (`[CPU.4]`)**: `--estado` ahora compara un **digest del código** (md5 de los
+   `.js`/`.sh` que el Dockerfile copia) además del ID, y distingue tres estados: `al dia`,
+   `imagen vieja, MISMO codigo` (cosmético, no urge) y `** CODIGO VIEJO **` (deriva real).
+   Probado en los dos sentidos: el digest de un contenedor vivo coincide con el de `docker run`
+   sobre `latest` (`e766824d90ee`, que era el riesgo verdadero — que las dos formas de medir no
+   fueran comparables), y una imagen fabricada con **una sola línea cambiada** da `033bc78f4246`.
 3. `pg-rag` es un Postgres entero con **0 tablas** reservando 512 MB de `shared_buffers`.
 4. `wincaja` ocupa **35 GB** en el concentrador con **21 transacciones acumuladas** (contra 595,950
    de `kepler_md_03`): el sistema se apagó y nadie lee esa copia.
@@ -193,13 +214,26 @@ siempre habría pasado igual las pruebas de humo.
 
 - ⛔⛔ **`normalizeSalePrice` del carril de ingesta: 0.13 núcleos, 77 % de sus corridas escriben
   CERO filas.** Es el mayor consumidor de CPU de la máquina y el único de los tres de esta
-  auditoría que queda sin tratar. Mismo remedio conceptual que `[CPU.1]`/`[CPU.3]`: no barrer para
-  descubrir que no hay nada. ⚠️ `[DB-MEM.20]` ya lo optimizó una vez (92.8 % → 23 %), así que lo
-  que queda **no** es la optimización obvia — hay que medir por qué la ventana se vuelve a llenar
-  (`quedan ~3,400 para la próxima ventana`, batch de 125 SKUs) antes de tocar nada.
-- ⛔ **El auto-deploy recrea `pg-prod` en cada despliegue** (verificado dos veces el 28-sep: 08:34
-  y 09:34, `Created == StartedAt`), y los carriles del ODS mueren y renacen con él — 5-6 reinicios
-  en una hora. Declararlo o corregirlo.
+  auditoría que queda sin tratar.
+
+  ⭐ **Y el remedio que el propio código proponía quedó REFUTADO con medición.** `apply-handlers.js`
+  lo dejó escrito como deuda con nombre: *"si de todos modos se recorre el catálogo entero, la
+  forma barata es UNA consulta sin filtro cada N minutos, no 3,164 búsquedas scoped"*. El camino
+  sin filtro ya existe (`salePriceCtes(scoped=false)`), así que se generó y se cronometró **en
+  lectura, sin escribir**: pasó de **413 s y hubo que cancelarla**. O sea que UNA pasada sin filtro
+  cuesta lo mismo que **una hora entera** del método actual (477 s/hora medidos). **No es la forma
+  barata.** Quien vaya a pagar esa deuda tiene que empezar por otro lado — y ahora lo sabe sin
+  volver a tropezar.
+
+  La palanca que sí está a mano es la cadencia: el gasto lo fija `ODS_PRICE_COALESCE_SEC=60` con
+  `ODS_PRICE_COALESCE_BUDGET_MS=10000` ⇒ (3600/60) × 10 s = 600 s/hora, que cuadra con los 477
+  medidos. A 300 s serían ~120 s/hora (**75 % menos**), a cambio de que el catálogo se recorra en
+  ~5 h en vez de ~1 h. ⚠️ **NO se tocó**: el comentario original dice que ese "~1 hora" es *"el
+  'minutos' que se pidió"* — es un requisito de negocio sobre la frescura del precio derivado, y
+  cambiarlo es decisión de quien lo pidió, no de una auditoría de CPU. (El precio que cambia **en
+  Kepler** llega en vivo por otro camino: `kdii` y `kdpv_prod_util` NO se coalescen, `[TDA.1]`.)
+- ⚠️ **Identificar quién construye las imágenes `trade-prod-pg`** que disparan la recreación de la
+  base (ver hallazgo 1, con la corrección). No es `auto-deploy.sh` ni una sección `build:`.
 - Decidir qué pasa con los 35 GB de `wincaja` y con `pg-rag` (requiere autorización: no se borra).
 - Bajar los `effective_cache_size` a lo que existe de verdad.
 
