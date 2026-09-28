@@ -734,6 +734,12 @@ export class ExpenseProofsService {
           comentarios: motivo || null,
           status: 'recibida',
           created_by: actor || null,
+          // `[GX.34]` Quien SUBE la evidencia se queda con el vale. En este camino es la
+          // misma persona que lo levanta, pero se escribe igual: así la regla es UNA
+          // —«es tuyo si subiste su evidencia»— y no «depende de por dónde entró».
+          ...(files.some((f) => String(f.role).startsWith('comprobante'))
+            ? { evidencia_por: actor || null, evidencia_at: trx.fn.now() }
+            : {}),
         })
         .returning(['id', 'folio_solicitud', 'status']);
       this.logger.log(`solicitud de gasto folio ${row.folio_solicitud} [${clasificacion}/${formaPago}] capturada → recibida · ${files.length} archivos (${files.filter((f) => f.live).length} en vivo), por ${actor || '?'}`);
@@ -919,6 +925,12 @@ export class ExpenseProofsService {
           // Nadie la validó todavía: el expediente espera a una persona.
           validated_by: null,
           validated_at: null,
+          // `[GX.34]` **Acá el vale cambia de manos.** Este es el camino que `created_by`
+          // no cubría: el gasto se aprobó sin comprobante y lo sube alguien después —
+          // puede no ser quien lo levantó, y hasta hoy esa persona no lo veía en ningún
+          // lado. ⛔ `created_by` NO se toca: es el rastro de quién levantó el gasto.
+          evidencia_por: actor || null,
+          evidencia_at: trx.fn.now(),
           updated_at: trx.fn.now(),
         })
         .returning(['id', 'folio_solicitud', 'status']);
@@ -962,7 +974,12 @@ export class ExpenseProofsService {
          .whereRaw(`created_at <  ((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
       }
       if (q.folio_solicitud) b.where('folio_solicitud', q.folio_solicitud.trim());
-      if (q.mine) b.where('created_by', q.mine);
+      // `[GX.34]` Es MÍO si lo levanté **o** si subí su evidencia. El `OR` no es una
+      // concesión: sin la primera mitad, un vale aprobado que espera que YO suba su
+      // comprobante desaparecería de mi lista justo cuando me toca actuar; sin la
+      // segunda, el que sube la evidencia de un vale ajeno (o de uno capturado por link,
+      // cuyo `created_by` es `link:NOMBRE` y no es un usuario) no lo ve en ningún lado.
+      if (q.mine) b.where((w: Knex.QueryBuilder) => w.where('created_by', q.mine).orWhere('evidencia_por', q.mine));
       if (q.from) b.where('created_at', '>=', q.from);
       if (q.to) b.where('created_at', '<=', `${q.to} 23:59:59`);
       if (q.search) {
@@ -1015,7 +1032,9 @@ export class ExpenseProofsService {
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
           trx.raw('COUNT(*)::int AS n'),
           trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
-      if (opts.mine) b.where('created_by', opts.mine);
+      // `[GX.34]` Mismo criterio que la lista: el calendario de «Míos» y «Mis gastos»
+      // tienen que contar lo mismo, o el mes dice 6 y la lista muestra 8.
+      if (opts.mine) b.where((w: Knex.QueryBuilder) => w.where('created_by', opts.mine).orWhere('evidencia_por', opts.mine));
 
       const filas: FilaCruda[] = await b;
       const dias: DiaDelCalendario[] = filas.map((f) => ({
