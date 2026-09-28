@@ -3,8 +3,12 @@
  * Fase PU.2 — Presupuestos: presupuesto vs real (ADR-066 / ADR-056 / ADR-059). Smoke DB-direct.
  *
  * Verifica contra la DB real:
- *   1. La fuente real del ODS `analytics.sales_daily` es legible (tenant × periodo) y trae ventas/costo.
- *   2. Frescura declarable: `max(updated_at)` existe (la tabla es ETL, no vista viva).
+ *   1. La fuente real del ODS `analytics.mv_sales_blended` es legible (tenant × periodo) y trae ventas/costo.
+ *   2. Frescura declarable por el LATIDO del refresco (`analytics_refresh_blended`), no por la fila:
+ *      `mv_sales_blended.updated_at` es la fecha de venta truncada a medianoche, no el sello de
+ *      materialización — usarla de reloj es el defecto que VP.0 midió en 21 de 24 píldoras.
+ *      ⛔ La fuente era `analytics.sales_daily`, que cubre 6 de 8 sucursales (`[AUD-DAT.1]`); el
+ *      invariante de cobertura lo guarda `test-newdb-sales-source-coverage.js`, que corre contra prod.
  *   3. «Sin datos» ≠ cero (ADR-056): un periodo sin ventas devuelve 0 filas → el servicio va a null.
  *   4. Roll-up interno por tipo (vigente + buckets + ocupación + disponible), exacto, sin ODS.
  *   5. KPI cumplimiento = real/presupuesto: finito con base > 0, y «sin base» (null) cuando presupuesto = 0.
@@ -15,6 +19,9 @@
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-budget-comparison');
 const T = '00000000-0000-0000-0000-00000000d01c';
+/** Misma constante que declara el servicio (`budget-comparison.service.ts`). */
+const SALES_FACT = 'analytics.mv_sales_blended';
+const SALES_FACT_LANE = 'analytics_refresh_blended';
 
 let pass = 0, fail = 0;
 function ok(cond, msg) { if (cond) { pass++; console.log('  ✓', msg); } else { fail++; console.log('  ✗', msg); } }
@@ -26,14 +33,17 @@ const ROLLBACK = Symbol('rollback');
   try {
     // ── 1-3. Real del ODS + «sin datos» ─────────────────────────────────────
     const realAgg = async (from, to) => {
-      const [a] = await knex('analytics.sales_daily').where({ tenant_id: T }).whereBetween('sale_date', [from, to])
-        .select(knex.raw('count(*)::int n'), knex.raw('coalesce(sum(revenue),0) ventas'), knex.raw('coalesce(sum(cost),0) costo'), knex.raw('max(updated_at) as_of'));
+      const [a] = await knex(SALES_FACT).where({ tenant_id: T }).whereBetween('sale_date', [from, to])
+        .select(knex.raw('count(*)::int n'), knex.raw('coalesce(sum(revenue),0) ventas'), knex.raw('coalesce(sum(cost),0) costo'));
       return a;
     };
     const y2026 = await realAgg('2026-01-01', '2026-12-31');
-    ok(Number(y2026.n) > 0, `analytics.sales_daily legible: ${y2026.n} filas 2026 (tenant demo)`);
+    ok(Number(y2026.n) > 0, `${SALES_FACT} legible: ${y2026.n} filas 2026 (tenant demo)`);
     ok(Number(y2026.ventas) > 0, `real ventas 2026 = ${round2(Number(y2026.ventas))} (> 0)`);
-    ok(!!y2026.as_of, `frescura declarable: max(updated_at) = ${y2026.as_of ? new Date(y2026.as_of).toISOString().slice(0, 10) : 'null'}`);
+    // La frescura sale del latido de ENTREGA, no de la fila (ADR-053). `laneAt` devuelve null si el
+    // carril no reporta, y eso vale «unknown», no «al día» — por eso se acepta null DECLARÁNDOLO.
+    const [lane] = await knex('analytics.cron_runs').where({ job_key: SALES_FACT_LANE }).select('last_finish', 'status');
+    ok(!!lane, `frescura declarable por latido: '${SALES_FACT_LANE}' existe en analytics.cron_runs (${lane ? lane.status + ', ' + new Date(lane.last_finish).toISOString().slice(0, 16) : 'AUSENTE → el servicio declara unknown'})`);
 
     const vacio = await realAgg('2099-01-01', '2099-12-31');
     ok(Number(vacio.n) === 0, '«Sin datos»: periodo 2099 devuelve 0 filas → el servicio va a null (no 0)');
