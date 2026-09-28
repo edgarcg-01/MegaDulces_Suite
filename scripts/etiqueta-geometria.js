@@ -268,7 +268,7 @@ function html(v) {
       </div>
     </div>
     <div class="etq-right${v.tiers.length === 0 ? ' is-solo' : ''}">
-      <div class="etq-tiers">${v.tiers.map((t) => `<div class="etq-tier${t.may ? ' is-mayoreo' : ''}">
+      <div class="etq-tiers" style="--n:${v.tiers.length || 1}">${v.tiers.map((t) => `<div class="etq-tier${t.may ? ' is-mayoreo' : ''}">
         <div class="txt">${t.txt}</div>
         <div class="pricecell"><span class="amt">${dinero(t.amt)}</span>${t.cu ? '<span class="unit">c/u</span>' : ''}</div></div>`).join('')}</div>
       <div class="etq-barcode">${BARRAS}${v.bcDigits ? `<div class="etq-bc-digits">${v.bcDigits}</div>` : ''}</div>
@@ -392,12 +392,23 @@ function html(v) {
         return h.reduce((a, e) => a + altoFila(e), 0) + (h.length - 1) * gap;
       };
       const set = (v) => amts.forEach((a) => { a.style.fontSize = v + 'mm'; });
-      let t = K.MONTO_MM;
+      // `[ETQ-FIT.1]` El arranque es el techo que puso el CSS (`min(5.4mm, alto/n)`), no la
+      // constante: arrancar de `MONTO_MM` pisa ese techo con un inline mas grande y devuelve el
+      // desborde. Se lee el CALCULADO con el inline vacio, igual que `fitTiers` en el componente.
+      amts.forEach((a) => { a.style.fontSize = ''; });
+      const cssMm = amts.length ? parseFloat(getComputedStyle(amts[0]).fontSize) / 96 * 25.4 : 0;
+      const techoBase = cssMm > 0 ? Math.min(K.MONTO_MM, cssMm) : K.MONTO_MM;
+      let t = techoBase;
       if (amts.length && tb.clientHeight > 0) {
         set(t);
-        const techoMonto = K.MONTO_MAX_MM ? Math.min(K.MONTO_MAX_MM, s * 0.7) : K.MONTO_MM;
-        if (extension() > tb.clientHeight + 1) {
-          for (let g = 0; extension() > tb.clientHeight + 1 && t > 2.6 && g < 80; g++) { t -= 0.2; set(t); }
+        const techoMonto = Math.min(techoBase, K.MONTO_MAX_MM ? Math.min(K.MONTO_MAX_MM, s * 0.7) : K.MONTO_MM);
+        // ⚠️ El ANCHO entra en el encogido, igual que en `fitTiers`. El arnes miraba SOLO el alto:
+        // un monto que no entraba en su celda bajaba despues por su cuenta en el paso individual
+        // y el veredicto lo reportaba como "montos no uniformes" -- un rojo que el componente no
+        // tenia, porque el componente si encoge a todos juntos. Era la replica desviandose.
+        const cabeAncho = () => amts.every((a) => a.parentElement.scrollWidth <= a.parentElement.clientWidth);
+        if (extension() > tb.clientHeight + 1 || !cabeAncho()) {
+          for (let g = 0; (extension() > tb.clientHeight + 1 || !cabeAncho()) && t > 2.6 && g < 80; g++) { t -= 0.2; set(t); }
         } else if (K.MONTO_MAX_MM) {
           for (let g = 0; g < 80; g++) {
             const v = t + 0.2; if (v > techoMonto) break;

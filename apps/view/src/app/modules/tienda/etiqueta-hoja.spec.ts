@@ -130,9 +130,43 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // Si divergen, el número arranca de un tamaño y se mide contra otro. Están duplicados
     // porque el CSS lo necesita antes de que corra el TS (primer render y clon de impresión).
     const precioCss = Number(/\.etq-price\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
-    const montoCss = Number(/\.etq-tier \.amt\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    // `[ETQ-FIT.1]` El monto ya no arranca de un literal suelto: arranca de
+    // `min(5.4mm, alto de la caja / n)`. El 5.4 sigue teniendo que ser el mismo número.
+    const montoCss = Number(/\.etq-tier \.amt\{[^}]*font-size:min\(([\d.]+)mm/.exec(LABEL)![1]);
     expect(precioCss).toBe(Number(/const PRECIO_MM = ([\d.]+)/.exec(LABEL)![1]));
     expect(montoCss).toBe(Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]));
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.1]` LOS RENGLONES CABEN SIN QUE CORRA JAVASCRIPT.
+   *
+   * Reporte del mostrador: *"el dinamismo hace que las etiquetas salgan mal en otros equipos"*.
+   * La causa medida: el alto del renglón dependía de la tipografía por DOS caminos —el rótulo
+   * envolvía a dos líneas con una fuente más ancha, y el monto arrancaba de una constante en vez
+   * del alto disponible—. Ahora el techo lo calcula el navegador con `cqh` y el rótulo es de una
+   * sola línea, así que el ajuste pasó a ser una MEJORA y no el motivo por el que la etiqueta
+   * cabe.
+   *
+   * Medido con el arnés sobre el mismo corpus de 220, SIN las tipografías:
+   * `tiers_recortado` 14 → **0** · montos disparejos 33 → **0** · rotas 48 → **2**.
+   */
+  it('⭐⭐ el alto del renglón NO depende de la tipografía', () => {
+    const amt = /\.etq-tier \.amt\{[\s\S]*?\}/.exec(LABEL)![0];
+    // El techo sale de la caja (cqh) y del número de renglones, no de un literal.
+    expect(amt).toContain('100cqh');
+    expect(amt).toContain('var(--n,1)');
+    // Sin line-height explícito el alto lo decide la métrica de la familia (normal = 1.15..1.35).
+    expect(amt).toMatch(/line-height:1\s*;/);
+    // Y el contenedor tiene que declararse como tal, o `cqh` no resuelve contra él.
+    expect(LABEL).toMatch(/\.etq-tiers\{[^}]*container-type:size/);
+    // ⛔ El rótulo, en UNA línea: es el que crecía y hacía desbordar la caja.
+    const txt = /\.etq-tier \.txt\{[\s\S]*?\}/.exec(LABEL)![0];
+    expect(txt).toContain('white-space:nowrap');
+    expect(txt).toContain('text-overflow:ellipsis');
+    // Y el componente tiene que publicar el número de renglones que DIBUJA (no el que cuenta el
+    // ahorro, que vive en su propia barra).
+    expect(LABEL).toContain('[style.--n]="renglonesImpresos"');
+    expect(LABEL).toMatch(/get renglonesImpresos\(\): number/);
   });
 
   it('⭐ se mide cuando cambia LO QUE SE MIDE, no cuando un hook cree que algo cambió', () => {
@@ -243,7 +277,21 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // `layout()` corre 2-4 veces por etiqueta (dos hooks + render + el pase de fuentes). Crecer
     // desde el tamaño ACTUAL subiría en cada pasada. El defecto no existía cuando todo encogía.
     expect(/private fitPrice\(\): void \{[\s\S]*?let size = PRECIO_MM;/.test(LABEL)).toBe(true);
-    expect(/private fitTiers\(\): void \{[\s\S]*?let size = MONTO_MM;/.test(LABEL)).toBe(true);
+    /**
+     * ⭐ `[ETQ-FIT.1]` El monto ya NO arranca de `MONTO_MM`: arranca del techo que puso el CSS,
+     * que es `min(5.4mm, alto de la caja / n)`. Arrancar de la constante **pisaba ese techo** con
+     * un inline más grande y devolvía el desborde — medido apenas se puso.
+     *
+     * El anti-trinquete sigue vivo, y es lo que este caso cuida: se BORRA el tamaño inline antes
+     * de leer el calculado. Sin eso se leería el del pase anterior y el ajuste subiría en cada
+     * pasada, que es exactamente el defecto que la constante estaba evitando.
+     */
+    const ft = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(ft).toMatch(/amts\.forEach\(\(r\) => \{ r\.nativeElement\.style\.fontSize = ''; \}\);/);
+    expect(ft).toContain('getComputedStyle(amts.first.nativeElement).fontSize');
+    expect(ft).toMatch(/let size = techoBase;/);
+    // Y el crecimiento tampoco puede pasarse del techo del CSS.
+    expect(ft).toMatch(/const techo = Math\.min\(techoBase,/);
   });
 
   it('sólo se CRECE con las fuentes usables — y "usables" se lee AL MEDIR, nunca de una bandera de una vez', () => {

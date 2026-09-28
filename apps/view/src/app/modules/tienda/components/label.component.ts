@@ -545,7 +545,14 @@ export interface RenglonEtiqueta {
        lo que se lee de lejos. Medido sobre los 9,013 productos con precios de etiqueta, el
        **76.1% tiene 2 renglones** y sólo el **2.0% tiene 4**, así que el caso común se imprime
        al tamaño grande y los de 4 bajan lo que haga falta (fitTiers). */
-    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.5mm; }
+    /* ⭐⭐ [ETQ-FIT.1] EL BLOQUE DE RENGLONES CABE POR CONSTRUCCION, NO PORQUE ALGUIEN LO MIDIO.
+       Es un CONTENEDOR de consulta por tamano: eso habilita las unidades cqh de abajo, con las
+       que el propio navegador calcula cuanto alto le toca a cada renglon. Ver .etq-tier .amt. */
+    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.5mm;
+      container-type:size; }
+    /* Sin renglones la caja se dimensiona por contenido (flex:0 0 auto, mas abajo) y el
+       size containment la colapsaria a cero. Ahi no hay nada que acotar, asi que se retira. */
+    .etq-right.is-solo .etq-tiers{ container-type:normal; }
     /* SIN min-height:0 a proposito. El renglon es flex item de .etq-tiers; con min-height:0 se
        APLASTA por debajo de su contenido en vez de desbordar, y entonces la suma de los rects de
        los renglones nunca puede superar la caja: noCabe() queda estructuralmente en falso, la rama
@@ -558,7 +565,16 @@ export interface RenglonEtiqueta {
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
-    .etq-tier .txt{ font-family:var(--font-cond); font-size:2.6mm; font-weight:400; line-height:1; letter-spacing:.3px; }
+    /* ⭐⭐ [ETQ-FIT.1] UNA SOLA LINEA, SIEMPRE. Este rotulo no tenia nowrap: en la columna
+       1fr auto se lleva el sobrante, y con una tipografia mas ancha que la prevista "Mayoreo 3+
+       paquetes" envuelve a DOS lineas. Ahi el renglon crece, la suma pasa el alto de la caja y el
+       ultimo renglon sale cortado -- da igual cuanto se achique el monto, porque el que crecio no
+       es el monto. Medido: de las 14 etiquetas que se recortaban sin las fuentes, es la causa de
+       la mayoria. Con nowrap el alto del renglon deja de depender de la tipografia; si el texto
+       no entra a lo ancho se recorta con puntos suspensivos, que es perder un adjetivo en vez de
+       perder un precio entero. */
+    .etq-tier .txt{ font-family:var(--font-cond); font-size:2.6mm; font-weight:400; line-height:1; letter-spacing:.3px;
+      min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     /* ── [ETQ-PROMO.2] Estado OFERTA ──────────────────────────────────────────────────────
        El precio de promocion tiene que ganar la mirada a un metro, no empatar con el normal.
        Que el numero CAMBIE DE COLOR es la senal: verde = precio de siempre, rojo = oferta. El
@@ -614,7 +630,19 @@ export interface RenglonEtiqueta {
     /* ⚠️ 5.4mm duplicado en MONTO_MM (el TS arranca de ahí el ajuste); el spec lo verifica.
        El PESO va por trazo, no por font-weight: Bebas Neue no tiene bold real y el navegador
        no la sintetiza — medido, font-weight:700 daba el MISMO ancho al píxel, o sea nada. */
-    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5.4mm; white-space:nowrap;
+    /* ⭐⭐ [ETQ-FIT.1] EL TECHO DEL MONTO SALE DE LA CAJA, NO DE MEDIR TEXTO.
+       100cqh es el alto del bloque de renglones; --n los renglones que se van a imprimir. El
+       navegador reparte: cada renglon se lleva (alto - los gaps) / n, menos su propio padding.
+       Con esto N renglones ENTRAN siempre, con cualquier tipografia y sin que corra una linea de
+       JavaScript -- que era la condicion que faltaba. Medido antes: sin las fuentes se recortaban
+       14 de 220 etiquetas y 33 imprimian los montos a distinto tamano.
+       --n cae en 1 si nadie lo puso (defensa: un 0 haria una division por cero). */
+    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; white-space:nowrap;
+      font-size:min(5.4mm, calc((100cqh - (var(--n,1) - 1) * .5mm) / var(--n,1) - .4mm));
+      /* ⚠️ line-height EXPLICITO. Sin el, el alto del renglon lo decide la metrica de la fuente
+         (normal va de 1.15 a 1.35 segun la familia) y la cuenta de arriba deja de cerrar justo
+         en el caso que este arreglo existe para cubrir: cuando la tipografia NO es la prevista. */
+      line-height:1;
       letter-spacing:.3px; font-variant-numeric:tabular-nums; -webkit-text-stroke:.09mm currentColor; }
     .etq-tier .unit{ font-family:var(--font); font-size:1.7mm; font-weight:600; }
     /* MAYOREO: es el renglón por el que el cliente decide comprar más, así que se realza —
@@ -708,7 +736,9 @@ export interface RenglonEtiqueta {
           <!-- Rótulos CORTOS ("Mayoreo 3+ cajas" en vez de "Mayoreo desde 3 cajas:"): el
                rótulo era lo que se comía el ancho de la columna y obligaba a encoger el monto
                hasta dejarlo ilegible. Acortarlo es lo que permite el monto grande. -->
-          <div class="etq-tiers" #tiers>
+          <!-- [ETQ-FIT.1] --n es lo unico que el CSS necesita para que los renglones quepan.
+               Va como variable y no como clase porque el numero es dato, no estado. -->
+          <div class="etq-tiers" #tiers [style.--n]="renglonesImpresos">
             <!-- [ETQ-PROMO.1] El precio de LISTA, tachado, cuando el grande ya lleva el descuento
                  por cantidad de Kepler. Va primero para que se lea junto al numero grande.
                  "desde N" solo si el umbral es real (medido: 496 de 498 promos arrancan en 1). -->
@@ -1032,6 +1062,18 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   get tierCount(): number {
     return (this.precioNormal !== null ? 1 : 0) + (this.ahorro !== null ? 1 : 0)
       + (this.escalonOferta ? 1 : 0) + this.renglones.length;
+  }
+
+  /**
+   * ⭐ `[ETQ-FIT.1]` Los renglones que de verdad se dibujan DENTRO de `.etq-tiers`. Es el número
+   * con el que el CSS reparte el alto, así que tiene que ser exacto.
+   *
+   * ⛔ NO sirve `tierCount`: ése suma el AHORRO, que se imprime en su propia barra dentro del
+   * panel amarillo y no ocupa un renglón de esta caja. Contarlo de más achicaría los montos sin
+   * motivo; contarlo de menos los dejaría sin lugar, que es el defecto que esto cierra.
+   */
+  get renglonesImpresos(): number {
+    return (this.escalonOferta ? 1 : 0) + (this.precioNormal !== null ? 1 : 0) + this.renglones.length;
   }
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
@@ -1796,7 +1838,25 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const amts = this.amtEls;
     if (!box || !amts?.length) return;
     if (!(box.clientHeight > 0)) return; // sin medida no se toca (ver fitPrice)
-    let size = MONTO_MM; // anti-trinquete: siempre desde el arranque (ver fitPrice)
+    /**
+     * ⭐⭐ `[ETQ-FIT.1]` EL ARRANQUE ES EL TECHO QUE PUSO EL CSS, NO LA CONSTANTE.
+     *
+     * El CSS ya acota el monto a `min(5.4mm, alto de la caja / n)`: con eso los renglones entran
+     * por construcción, sin que corra una línea de JS. Arrancar de `MONTO_MM` **pisaba ese
+     * techo** con un tamaño inline más grande y devolvía el problema — medido apenas se puso:
+     * `tiers_recortado` bajó a 0 pero aparecieron 3 etiquetas con los montos disparejos.
+     *
+     * Se lee el tamaño CALCULADO antes de tocar nada, así que este ajuste pasa a ser lo que
+     * siempre debió ser: una MEJORA sobre una base que ya es correcta, no el único motivo por el
+     * que la etiqueta cabe. Si la medición falla, se queda la base.
+     *
+     * ⚠️ Se BORRA el tamaño inline antes de leer: si no, se leería el del pase anterior y el
+     * ajuste haría trinquete —exactamente lo que `MONTO_MM` estaba evitando acá—.
+     */
+    amts.forEach((r) => { r.nativeElement.style.fontSize = ''; });
+    const techoCss = parseFloat(getComputedStyle(amts.first.nativeElement).fontSize) / 96 * 25.4;
+    const techoBase = techoCss > 0 ? Math.min(MONTO_MM, techoCss) : MONTO_MM;
+    let size = techoBase;
     const set = (mm: number) => amts.forEach((r) => { r.nativeElement.style.fontSize = mm + 'mm'; });
     set(size);
     const noCabe = () => this.altoTiers(box) > box.clientHeight + 1;
@@ -1826,7 +1886,11 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     // sea ~2x el texto de apoyo, y el 0.7 general permitia que la barra de beneficio EMPATARA con
     // el precio — que es lo que se vio en la primera version.
     const k = this.enPromo ? MONTO_MAX_PROMO_K : 0.7;
-    const techo = this.fuentesOk ? Math.min(MONTO_MAX_MM, heroMm * k) : MONTO_MM;
+    // `[ETQ-FIT.1]` `techoBase` acota TAMBIÉN el crecimiento. El bucle de abajo mide y no crece
+    // más de lo que entra, pero mide con la tipografía de ESTE instante: si después cambia, lo
+    // único que sostiene el papel es el techo del CSS. Crecer por encima de él sería volver a
+    // apoyar la etiqueta en que la medición haya sido la correcta.
+    const techo = Math.min(techoBase, this.fuentesOk ? Math.min(MONTO_MAX_MM, heroMm * k) : MONTO_MM);
     while (size + 0.2 <= techo && guard++ < 60) {
       set(size + 0.2);
       if (noCabe() || !anchoOk()) { set(size); return; }
