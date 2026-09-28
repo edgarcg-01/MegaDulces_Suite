@@ -82,6 +82,7 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
   ],
   analytics: [
     Permission.COMMERCIAL_ANALYTICS_VER,
+    Permission.COMMERCIAL_PROFITABILITY_VER,
     Permission.COMMERCIAL_SELLOUT_VER,
     Permission.COMMERCIAL_SALIDAS_VER,
     Permission.COMMERCIAL_ROUTE_SALES_VER,
