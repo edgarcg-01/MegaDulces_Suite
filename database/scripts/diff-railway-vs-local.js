@@ -16,9 +16,10 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
 const { Client } = require('pg');
 
+const { knexfileNewdbFallback } = require('../importers/lib/knexfile-newdb-fallback');
 const RAILWAY_URL = process.env.RAILWAY_DATABASE_URL || process.env.DATABASE_URL_NEW;
 if (!RAILWAY_URL) { console.error('Falta RAILWAY_DATABASE_URL / DATABASE_URL_NEW en .env'); process.exit(1); }
-const LOCAL_CFG = require('../knexfile-newdb.js').development.connection;
+const LOCAL_CFG = knexfileNewdbFallback('diff-railway-vs-local').connection;
 
 (async () => {
   const railway = new Client({ connectionString: RAILWAY_URL, ssl: { rejectUnauthorized: false } });
