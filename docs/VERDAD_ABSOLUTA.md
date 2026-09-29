@@ -1493,3 +1493,40 @@ por día no produce el molino de *falta-y-sobra-la-misma-fila*.
 históricas a `+6 h`, **cada edición futura de una fila anterior al 2026-09-23 crea un gemelo nuevo**.
 El dedup es la limpieza; el arreglo de raíz es normalizar esos timestamps al mismo renderizado, y
 eso es una escritura masiva que se decide aparte.
+
+### 15.6 ⭐ Lo que se APLICÓ (2026-09-29, autorizado)
+
+Limpieza corrida a mano sobre las 9 tablas contables con duplicados, todas las ramas:
+
+```
+                  ANTES        DESPUÉS
+grupos duplicados  1,737            0
+filas extra        1,737            0
+ingreso ago      55,940,323.96   55,863,192.60   (el feed dice 55,863,192.60)
+delta vs árbitro     77,131.36         0.00
+```
+
+El folio 25097 quedó con una sola fila, la que Kepler reconoce (`BAJA`, $0.00). Y el candado del
+ingreso, contra prod, pasó de **20 ✓ / 1 ✗** a **21 ✓ / 0 ✗ / 2 ⊘**, con agosto leyendo
+`ODS 1341 = ERP 1341 · fantasma 0`.
+
+**Para que no vuelva** se agendó como carril propio (`[OBS.12]`): segunda línea en
+[`ops/vl/crontab.reconcile-full`](../ops/vl/crontab.reconcile-full) a las **02:25 MX**, con latido
+propio `cdc_dedupe_fecha` y su umbral en `CRON_JOBS`. ⚠️ Latido SEPARADO a propósito: dos carriles
+escribiendo la misma fila de `cron_runs` ya fue un incidente acá (`ods-reconcile-chicas`,
+2026-09-24) y el tablero mantenía fresco el renglón ajeno. Y el `resumen()` del script ahora suma
+`dup_stale`/`dup_borrados`, porque un carril de limpieza que late "sobrantes 0" **se lee como sano
+aunque el dedup nunca haya corrido**.
+
+⚠️ **La agenda es código, todavía no corre**: el crontab se hornea en la imagen, así que entra con
+el próximo deploy de `trade-ingest`. La limpieza de hoy fue manual.
+
+⛔ **Sigue abierto el origen**: mientras `c2` esté en la PK y queden filas históricas a `+6 h`
+(23,527 sólo en `kdc22608`), cada edición de una fila anterior al 2026-09-23 crea un gemelo nuevo.
+El dedup lo limpia a la noche siguiente; normalizar esos timestamps a un solo renderizado es una
+escritura masiva y una decisión aparte.
+
+⛔ **Y septiembre todavía tiene 6 filas fantasma ($245,655.94)** que sí son sobrantes de verdad —
+la fila ya no está en el origen. Ésas las resuelve `--delete-sobrantes`, que hoy sólo cubre
+`kdpord`/`kdm2`/`kdij`. Es el mismo defecto que este documento describe en §15.2 como
+`pendiente`/`fantasma`, y queda declarado.

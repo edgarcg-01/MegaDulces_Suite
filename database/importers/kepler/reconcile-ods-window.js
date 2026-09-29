@@ -472,7 +472,12 @@ const resumen = (out) => ({
   sobrantes: out.reduce((a, r) => a + (r.sobrantes || 0), 0),
   borrados: out.reduce((a, r) => a + (r.borrados || 0), 0),
   borrarian: out.reduce((a, r) => a + (r.borrarian || 0), 0),
-  abortados: out.filter((r) => r.delete_abortado).length,
+  // [OBS.12] Un carril de limpieza que no declara CUANTO limpio es mudo: su latido diria
+  // 'sobrantes 0' y se leeria como sano aunque el dedup nunca hubiera corrido.
+  dup_stale: out.reduce((a, r) => a + (r.dup_stale || 0), 0),
+  dup_borrados: out.reduce((a, r) => a + (r.dup_borrados || 0), 0),
+  dup_sin_original: out.reduce((a, r) => a + (r.dup_sin_original || 0), 0),
+  abortados: out.filter((r) => r.delete_abortado || r.dedupe_abortado).length,
   errores: out.filter((r) => r.error).length,
 });
 
@@ -535,7 +540,7 @@ async function latir(destUrl, r, ms) {
         rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
         note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
     [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
-      `ventana ${FULL ? 'FULL' : CHICAS ? 'CHICAS' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
+      `ventana ${FULL ? 'FULL' : CHICAS ? 'CHICAS' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${DEDUPE ? ` · duplicados ${r.dup_stale} · dedup ${r.dup_borrados}${r.dup_sin_original ? ` · SIN-ORIGINAL ${r.dup_sin_original}` : ''}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
       malo ? [
         sinReponer > 0 ? `${sinReponer} de ${r.huecos} filas ausentes NO se repusieron — el carril esta perdiendo filas` : null,
         r.huecos > ALERTA ? `${r.huecos} huecos en la ventana (se repusieron ${r.repuestas}) — muy por encima del regimen medido (p99=503 sobre 1217 corridas de 14 dias): revisar el carril PRIMARIO, no este` : null,

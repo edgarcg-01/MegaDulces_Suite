@@ -54,8 +54,22 @@ limpieza; normalizar esos timestamps es una escritura masiva que se decide apart
 ⚠️ **Sexta vez que un backtick rompe algo acá**: esta vez bash expandió `` `[OBS.12]` `` dentro de un
 comentario y lo dejó vacío en el archivo.
 
-**Pendiente: correr `--dedupe-fecha --apply` (borra 1,737 filas de prod) — sin autorizar, y fuera de
-horario hábil.**
+**APLICADO (autorizado por el usuario).** 1,737 → **0** duplicados. El ingreso de agosto pasó de
+$55,940,323.96 a **$55,863,192.60** y ahora cuadra **al centavo** con el árbitro (Δ $77,131.36 →
+**$0.00**). El candado contra prod: **20 ✓ / 1 ✗ → 21 ✓ / 0 ✗ / 2 ⊘**.
+
+Agendado como carril propio a las **02:25 MX** (2ª línea de `crontab.reconcile-full`) con latido
+propio `cdc_dedupe_fecha` y umbral en `CRON_JOBS` — separado a propósito del carril de las 02:10,
+porque dos lanes sobre la misma fila de `cron_runs` ya fue un incidente acá. El `resumen()` ahora
+suma `dup_stale`/`dup_borrados`: un carril de limpieza que late «sobrantes 0» se lee como sano
+aunque el dedup nunca haya corrido.
+
+⚠️ **La agenda es código y todavía no corre**: el crontab se hornea en la imagen → entra con el
+próximo deploy de `trade-ingest`. La limpieza de hoy fue manual.
+
+⛔ **Queda abierto el origen** (normalizar los timestamps históricos, escritura masiva, decisión
+aparte) **y 6 filas fantasma de septiembre ($245,655.94)** que sí son sobrantes reales y las
+resuelve `--delete-sobrantes`, hoy limitado a `kdpord`/`kdm2`/`kdij`.
 
 Detalle en [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md) §15.5 y §9.17.
 

@@ -40,6 +40,7 @@ en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`,
 | `ods-reconcile` | **La única alarma de COMPLETITUD**: compara llaves y repone el delta | @900 s | `cdc_reconcile` |
 | `ods-reconcile-chicas` | Lo mismo sobre 16 catálogos chicos. Cadencia aparte porque ninguna es de movimiento vivo | @1800 s | `cdc_reconcile_chicas` |
 | `ods-reconcile-full` | Reconciliación FULL de `kdpord`/`kdm2`/`kdij` **con borrado de sobrantes** — el único carril que propaga DELETE. Agenda en [`crontab.reconcile-full`](vl/crontab.reconcile-full) | 02:10 MX | `cdc_reconcile_full` |
+| `ods-reconcile-full` (2ª línea) | **Dedup** de las contables `kdc2YYMM`. Defecto DISTINTO del de arriba: ahí la fila ya no está en el origen, acá **sí está y el ODS tiene dos copias** porque `c2` está en la PK y hay dos renderizados del mismo instante (+6 h hasta el 2026-09-23) → un UPDATE entra como INSERT. Ventana de 4 meses, declarada | 02:25 MX | `cdc_dedupe_fecha` |
 | `feeds-cron` | Los **17 carriles agendados** (§2.2) | ver abajo | uno por carril |
 | `feeds-livefast` | Venta del día + cajas abiertas. Sub-minuto, por eso **no** va en cron | @60 s | `feed_livefast` |
 | `store-poller` | Tickets en vivo → `/tienda/live` | @25 s | `store_poller` |
