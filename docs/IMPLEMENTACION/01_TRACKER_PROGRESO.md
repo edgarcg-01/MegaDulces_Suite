@@ -6232,8 +6232,10 @@ fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra cap
   Mig `20260929120000_vk_consolida_rutas_rv`: pasa la liga Kepler a las RV\*, baja lógica de las 3
   duplicadas SOLO si no tienen nada colgado (medido: 0 usuarios/agenda/clientes/tiendas/capturas),
   Yurécuaro (sin RV\*) se renombra `RVYUR01`, `jlh_lopez.route_id = RVYUR01`, y **agenda L–S** de los 4
-  (decisión Francisco). No pisa un día ya asignado: `candelaria_salgado` trae "RUTA 21" los martes
-  (alta a mano 29-sep 00:59) → queda y se declara en el log.
+  (decisión Francisco). No pisa un día ya asignado, salvo la corrección explícita: `candelaria_salgado`
+  traía "RUTA 21" los martes (auto-asignada 29-sep 00:59, 0 visitas) y **no tiene nada que ver con RUTA 21**
+  (Francisco) → esa MISMA fila se reasigna a RVPH01 (una baja lógica no alcanza: el UNIQUE
+  (tenant, user, dow) incluye las bajas y el martes ya no se podría insertar).
 - [ ] 🔨 `[VK.2.1]` La vista trae lo que Kepler ya tiene (mig `20260929120100`): estado, CP, zona, RFC
   (sin genérico), **teléfono `kdud.c7`** y correo `c11` (decode nuevo). Cobertura sobre los 496: domicilio
   **495**, RFC real 35, teléfono **12 (2.4 %)** → el teléfono lo sigue capturando el vendedor.
@@ -6245,12 +6247,12 @@ fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra cap
 - 🧪 **Validado en copia desechable, NO en prod** (2026-09-29): `francisco` es solo lectura
   (`default_transaction_read_only=on`), así que se levantó un Postgres 17 local y se le clonaron (lectura
   desde prod) las 17 tablas y 5 vistas que tocan las migs y el sync. Se corrieron **las migs reales y el
-  sync real compilado del repo**: **31/31** — migs idempotentes (2ª corrida no cambia nada), candado
-  negativo (duplicada con 1 cliente NO se da de baja), 4 RV\* ligadas con surtido, agenda L–S, martes de
-  Candelaria intacto, `security_invoker` + GRANT tras el REPLACE, **496 anclas** `K<suc>-<clave>` (2ª corrida
-  0/0/0), teléfono capturado y GPS no se pisan, Kepler cambia nombre → refresca, Kepler saca de ruta →
-  se suelta sin borrar, y "Mi ruta" hoy: PH 2 **115**, Abastos **158**, Yurécuaro **137**; Candelaria **0**
-  (martes = RUTA 21, declarado). ⚠️ **Yurécuaro son 137, no 143**: los 6 que faltan se llaman "NO TOCAR …"
+  sync real compilado del repo**: **33/33** — migs idempotentes (2ª corrida no cambia nada), 2 candados
+  negativos (duplicada con 1 cliente NO se da de baja; choque de agenda fuera de la corrección NO se
+  pisa), 4 RV\* ligadas con surtido, agenda L–S, martes de Candelaria reasignado en la MISMA fila,
+  `security_invoker` + GRANT tras el REPLACE, **496 anclas** `K<suc>-<clave>` (2ª corrida 0/0/0), teléfono
+  capturado y GPS no se pisan, Kepler cambia nombre → refresca, Kepler saca de ruta → se suelta sin
+  borrar, y "Mi ruta" hoy (martes): PH 1 **86**, PH 2 **115**, Abastos **158**, Yurécuaro **137**. ⚠️ **Yurécuaro son 137, no 143**: los 6 que faltan se llaman "NO TOCAR …"
   (el personal defendiéndose de la colisión de claves) y la vista los excluye a propósito; el 143 del
   dry-run de VK.2 era el conteo crudo de la ficha. **Aplicar: migs ANTES que el código.**
 
