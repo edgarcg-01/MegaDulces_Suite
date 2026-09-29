@@ -1,6 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InventoryVarianceService } from './inventory-variance.service';
+import { InventoryCountPlanService } from './inventory-count-plan.service';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
 /**
@@ -16,7 +17,10 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 @UseGuards(RolesGuard)
 @Controller('commercial/inventory/variance')
 export class InventoryVarianceController {
-  constructor(private readonly service: InventoryVarianceService) {}
+  constructor(
+    private readonly service: InventoryVarianceService,
+    private readonly plan: InventoryCountPlanService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
@@ -56,6 +60,37 @@ export class InventoryVarianceController {
     @Query('fecha') fecha: string,
   ) {
     return this.service.coverage({ warehouse_id: warehouseId, fecha });
+  }
+
+  // ── [IC.5] El plan del mes ───────────────────────────────────────────────────────────
+  @Get('plan')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary: 'Qué contar este mes: la ola rotativa (un tercio del catálogo) + el top. '
+      + 'La ola sale del mes salvo que se pase ?ola=1|2|3.',
+  })
+  monthlyPlan(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('ola') ola?: string,
+    @Query('top_n') topN?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.plan.monthlyPlan({
+      warehouse_id: warehouseId,
+      ola: ola ? Number(ola) : undefined,
+      top_n: topN ? Number(topN) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('plan/coverage')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary: 'Las 3 olas, ¿cubren TODO el catálogo? Si una quedara vacía, un tercio no se '
+      + 'contaría nunca y cada mes el plan se vería normal.',
+  })
+  waveCoverage(@Query('warehouse_id') warehouseId: string) {
+    return this.plan.waveCoverage(warehouseId);
   }
 
   @Get('detail')
