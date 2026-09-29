@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — centro operativo del catálogo de Compras (`[CAT-OPS.1]`, 2026-09-29)
+- El catálogo suma rutas propias para Resumen, Solicitudes, Incidencias, Costos y precios y Listas
+  de precios de proveedores, integradas a la misma navegación que Productos, Códigos y Reportes.
+- Las rutas nuevas declaran el alcance previsto sin simular información todavía; el contenido se
+  conectará por etapas. `Precios distintos` permanece disponible y queda agrupado bajo Costos y
+  precios.
+- Sin migraciones ni permisos nuevos: todo conserva `COMMERCIAL_PRODUCTS_VER`.
+
 ### Fixed — el motor de PROMOS era ciego a Kepler, y pagaba sobre el 31.7% de la venta (VSO.18, 2026-09-29)
 Nace de un reporte: *"$6.00 por cliente distinto al que se le venda el 97191, todas las rutas, del
 11/08 al 11/09 — no funciona"*.
