@@ -11,7 +11,7 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql, vendorTodayRouteIdsSql } from '../shared/vendor-cartera.sql';
-import { syncErpCarteraForToday, isErpGovernedRoute } from '../shared/vendor-cartera-erp';
+import { syncErpCarteraForToday, syncErpCarteraForRoutes, isErpGovernedRoute } from '../shared/vendor-cartera-erp';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
@@ -635,6 +635,10 @@ export class CommercialVendorRoutesService {
       if (r.is_today) v.today = true;
       o.vendors.set(r.user_id, v);
     }
+
+    // [VK.4.1] Las rutas Kepler del equipo se ponen al día ANTES de contar: si no, una ruta que
+    // nadie ha abierto hoy saldría con 0 clientes aunque en Kepler tenga 158.
+    await syncErpCarteraForRoutes(trx, [...byRoute.keys()]);
 
     const counts = await trx('commercial.customers')
       .whereNull('deleted_at')
