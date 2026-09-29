@@ -26,8 +26,14 @@ export interface ArqueoDue {
   cajero_code: string; warehouse_code: string; caja: string;
   business_date: string; folio: string;
   hora_cierre?: string | null; cerrado_hace_min: number; vencido: boolean;
-  /** `retiro` = sangría con el turno abierto · `cierre` = corte del cajón. */
-  motivo?: 'cierre' | 'retiro';
+  /** SM.40 — hora de apertura del turno. Solo llega con `motivo: 'apertura'`. */
+  hora_apertura?: string | null;
+  /**
+   * `retiro` = sangría con el turno abierto · `cierre` = corte del cajón ·
+   * `apertura` = Kepler acaba de abrirte la caja (SM.40). Ninguno es una orden:
+   * el arqueo no tiene horario ni orden obligatorio.
+   */
+  motivo?: 'cierre' | 'retiro' | 'apertura';
 }
 /**
  * TDA.P — palancas de la política comercial, calculadas en el servidor sobre TODOS

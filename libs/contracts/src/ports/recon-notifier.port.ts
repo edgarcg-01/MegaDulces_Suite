@@ -22,7 +22,7 @@ export interface ReconBadCutItem {
   incidencia_tipo?: string | null;
 }
 
-/** SM.23 — Kepler cerró el turno y toca contar. Va dirigido a UNA cajera. */
+/** SM.23 — Kepler movió tu caja y toca contar. Va dirigido a UNA cajera. */
 export interface ReconArqueoDueItem {
   /** Código de cajera de Kepler = su username. Es la llave del aviso. */
   cajero_code: string;
@@ -31,6 +31,8 @@ export interface ReconArqueoDueItem {
   business_date: string;          // 'YYYY-MM-DD'
   folio: string;                  // turno de Kepler
   hora_cierre?: string | null;
+  /** SM.40 — hora a la que Kepler abrió el turno. Solo viaja con `apertura`. */
+  hora_apertura?: string | null;
   /** Minutos desde que Kepler cerró: distingue "recién" de "ya te pasaste". */
   cerrado_hace_min: number;
   /** true cuando ya venció el plazo y el supervisor lo está viendo. */
@@ -39,8 +41,13 @@ export interface ReconArqueoDueItem {
    * Qué te está pidiendo Kepler. `cierre` = el corte del cajón al terminar el
    * turno; `retiro` = la sangría del límite de caja, que se cuenta **con el turno
    * abierto** y es donde va el 63-81% del efectivo.
+   *
+   * SM.40 — `apertura` = Kepler acaba de abrirte la caja. Es un AVISO de que ya
+   * podés arquear cuando quieras, no una orden ni un plazo: desde SM.40 el arqueo
+   * no tiene horario ni orden obligatorio. Se manda una vez que el turno está
+   * abierto y todavía no tiene ningún conteo.
    */
-  motivo?: 'cierre' | 'retiro';
+  motivo?: 'cierre' | 'retiro' | 'apertura';
 }
 
 export interface ReconNotifierPort {
