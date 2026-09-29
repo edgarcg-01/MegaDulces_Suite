@@ -1,0 +1,739 @@
+<div class="surf-page in an-page">
+  <!-- ── 1. Encabezado de Página ────────────────────────────────────── -->
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <div class="surf-page-crumbs">
+        <span>Comercial</span>
+        <span class="crumb-sep">/</span>
+        <span>Venta al detalle</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-current">Análisis de ventas</span>
+      </div>
+      <h1>Análisis de ventas al detalle</h1>
+      <p class="surf-page-sub">
+        Cómo se comportan las rutas de detalle y cómo va cambiando la operación. Elige el período, canal y sucursal: todas las secciones miran el mismo recorte.
+      </p>
+    </div>
+    <span class="an-scope">
+      <i class="pi pi-truck"></i> Rutas Directas (RD) & Preventa Vecinal
+    </span>
+  </header>
+
+  <!-- ── 2. Pestañas de Navegación (estilo Piso de Venta) ───────────── -->
+  <nav class="an-tabs-nav" role="tablist">
+    @for (tab of tabs; track tab.id) {
+      <button
+        type="button"
+        role="tab"
+        class="an-tab-btn"
+        [class.is-active]="activeTab() === tab.id"
+        [attr.aria-selected]="activeTab() === tab.id"
+        (click)="setTab(tab.id)"
+      >
+        <i [class]="tab.icon"></i>
+        <span>{{ tab.label }}</span>
+      </button>
+    }
+  </nav>
+
+  <!-- ── 3. Barra de Filtros Unificada ──────────────────────────────── -->
+  <div class="an-filters card-premium card-flat">
+    <!-- Período Preset -->
+    <label class="an-ctl">
+      <span class="an-ctl-lbl">Período</span>
+      <p-select
+        [options]="presetOptions"
+        optionLabel="label"
+        optionValue="value"
+        [ngModel]="preset()"
+        (ngModelChange)="onPresetChange($event)"
+        class="sel-liquid an-select"
+        appendTo="body"
+      />
+    </label>
+
+    <!-- Rango Custom Datepicker -->
+    @if (preset() === 'custom') {
+      <label class="an-ctl">
+        <span class="an-ctl-lbl">Fechas</span>
+        <p-datepicker
+          [(ngModel)]="customRange"
+          selectionMode="range"
+          [readonlyInput]="true"
+          dateFormat="dd/mm/yy"
+          [showIcon]="true"
+          [maxDate]="hoy"
+          appendTo="body"
+          (onSelect)="applyCustom()"
+          class="an-dp"
+          placeholder="Elige el rango"
+        />
+      </label>
+    }
+
+    <!-- Canal / Modalidad -->
+    <label class="an-ctl">
+      <span class="an-ctl-lbl">Canal de Detalle</span>
+      <p-select
+        [options]="canalOptions"
+        optionLabel="label"
+        optionValue="value"
+        [ngModel]="canalFilter()"
+        (ngModelChange)="canalFilter.set($event); onFilterChange()"
+        class="sel-liquid an-select an-select-md"
+        appendTo="body"
+      />
+    </label>
+
+    <!-- Sucursal Madre -->
+    <label class="an-ctl">
+      <span class="an-ctl-lbl">Sucursal Madre</span>
+      <p-select
+        [options]="branchOptions"
+        optionLabel="label"
+        optionValue="value"
+        [ngModel]="storeFilter()"
+        (ngModelChange)="storeFilter.set($event); onFilterChange()"
+        class="sel-liquid an-select an-select-md"
+        appendTo="body"
+      />
+    </label>
+
+    <!-- Ruta Específica -->
+    @if (routeCatalog().length > 1) {
+      <label class="an-ctl">
+        <span class="an-ctl-lbl">Ruta</span>
+        <p-select
+          [options]="routeCatalog()"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="routeFilter()"
+          (ngModelChange)="routeFilter.set($event); onFilterChange()"
+          [filter]="true"
+          filterPlaceholder="Buscar ruta…"
+          class="sel-liquid an-select an-select-md"
+          appendTo="body"
+        />
+      </label>
+    }
+
+    <!-- Rótulo de Fechas -->
+    @if (from() && to()) {
+      <div class="an-rangelbl-wrap">
+        <p class="an-rangelbl">
+          {{ from() | date: 'dd/MM/yy' }} – {{ to() | date: 'dd/MM/yy' }}
+          <span class="an-muted">({{ days() }} {{ days() === 1 ? 'día' : 'días' }})</span>
+        </p>
+      </div>
+    }
+  </div>
+
+  <!-- ── 4. Estado de Error ─────────────────────────────────────────── -->
+  @if (error()) {
+    <div class="tf-banner">
+      <i class="pi pi-exclamation-triangle"></i>
+      <span>No se pudo cargar el análisis de venta al detalle.</span>
+      <button pButton type="button" class="p-button-text p-button-sm" (click)="loadData()">
+        <span class="p-button-label">Reintentar</span>
+      </button>
+    </div>
+  }
+
+  <!-- ── 5. Skeleton Loading ────────────────────────────────────────── -->
+  @if (loading()) {
+    <div class="tf-skeleton-matrix">
+      @for (idx of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track idx) {
+        <div class="card-premium card-flat p-4 flex flex-col gap-2">
+          <p-skeleton width="40%" height="0.8rem"></p-skeleton>
+          <p-skeleton width="70%" height="1.8rem"></p-skeleton>
+          <p-skeleton width="50%" height="0.7rem"></p-skeleton>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- ── 6. Contenido Principal con Datos ───────────────────────────── -->
+  @if (!loading() && report(); as r) {
+    <!--
+      MATRIZ 5 × 2 (Piso de Ventas):
+      Columna 1: VENTA / MARGEN
+      Columna 2: TICKETS / TICKET PROMEDIO
+      Columna 3: PARTIDAS POR TICKET / VALOR POR PARTIDA
+      Columna 4: UNIDADES POR TICKET / VALOR UNITARIO PROMEDIO
+      Columna 5: CLIENTES / VENTA POR CLIENTE
+    -->
+    <div class="tf-kpi-matrix">
+      <!-- Columna 1 -->
+      <app-metric-card
+        label="VENTA"
+        [value]="r.kpis.revenue.cur"
+        format="currency"
+        tone="brand"
+        [delta]="r.kpis.revenue.delta_pct"
+        sub="lo que entró en el período en ruta"
+      ></app-metric-card>
+      <app-metric-card
+        label="MARGEN"
+        [value]="r.kpis.margin.cur"
+        format="currency"
+        [delta]="r.kpis.margin.delta_pct"
+        [sub]="margenSub(r)"
+      ></app-metric-card>
+
+      <!-- Columna 2 -->
+      <app-metric-card
+        label="TICKETS"
+        [value]="r.kpis.tickets.cur"
+        format="number"
+        [accent]="'var(--chart-1)'"
+        [delta]="r.kpis.tickets.delta_pct"
+        sub="cuántas veces se cobró en ruta"
+      ></app-metric-card>
+      <app-metric-card
+        label="TICKET PROMEDIO"
+        [value]="r.kpis.avg_ticket.cur"
+        format="currency"
+        [accent]="'var(--chart-4)'"
+        [delta]="r.kpis.avg_ticket.delta_pct"
+        sub="partidas × valor por partida"
+      ></app-metric-card>
+
+      <!-- Columna 3 -->
+      <app-metric-card
+        label="PARTIDAS POR TICKET"
+        [value]="r.kpis.basket.cur"
+        format="number"
+        [decimals]="2"
+        [accent]="'var(--chart-2)'"
+        [delta]="r.kpis.basket.delta_pct"
+        sub="renglones distintos por venta"
+      ></app-metric-card>
+      @if (r.kpis.avg_line.cur !== null) {
+        <app-metric-card
+          label="VALOR POR PARTIDA"
+          [value]="r.kpis.avg_line.cur!"
+          format="currency"
+          [decimals]="2"
+          [accent]="'var(--chart-3)'"
+          [delta]="r.kpis.avg_line.delta_pct"
+          sub="cuánto deja cada renglón"
+        ></app-metric-card>
+      } @else {
+        <app-metric-card
+          label="VALOR POR PARTIDA"
+          format="text"
+          valueText="—"
+          [accent]="'var(--chart-3)'"
+          sub="sin cobertura suficiente"
+        ></app-metric-card>
+      }
+
+      <!-- Columna 4 -->
+      @if (r.kpis.units_per_ticket.cur !== null) {
+        <app-metric-card
+          label="UNIDADES POR TICKET"
+          [value]="r.kpis.units_per_ticket.cur!"
+          format="number"
+          [decimals]="1"
+          [accent]="'var(--chart-5)'"
+          [delta]="r.kpis.units_per_ticket.delta_pct"
+          sub="piezas o kg por venta"
+        ></app-metric-card>
+      } @else {
+        <app-metric-card
+          label="UNIDADES POR TICKET"
+          format="text"
+          valueText="—"
+          [accent]="'var(--chart-5)'"
+          sub="sin cobertura suficiente"
+        ></app-metric-card>
+      }
+      @if (r.kpis.avg_unit.cur !== null) {
+        <app-metric-card
+          label="VALOR UNITARIO PROMEDIO"
+          [value]="r.kpis.avg_unit.cur!"
+          format="currency"
+          [decimals]="2"
+          [accent]="'var(--chart-6)'"
+          [delta]="r.kpis.avg_unit.delta_pct"
+          sub="cuánto vale cada pieza o kg"
+        ></app-metric-card>
+      } @else {
+        <app-metric-card
+          label="VALOR UNITARIO PROMEDIO"
+          format="text"
+          valueText="—"
+          [accent]="'var(--chart-6)'"
+          sub="no hubo venta en el período"
+        ></app-metric-card>
+      }
+
+      <!-- Columna 5 -->
+      <app-metric-card
+        label="CLIENTES"
+        [value]="r.kpis.customers.cur"
+        format="number"
+        [accent]="'var(--chart-7)'"
+        [delta]="r.kpis.customers.delta_pct"
+        sub="con compra en ruta en el período"
+      ></app-metric-card>
+      @if (r.kpis.revenue_per_customer.cur !== null) {
+        <app-metric-card
+          label="VENTA POR CLIENTE"
+          [value]="r.kpis.revenue_per_customer.cur!"
+          format="currency"
+          [accent]="'var(--chart-7)'"
+          [delta]="r.kpis.revenue_per_customer.delta_pct"
+          sub="promedio de lo que compró cada uno"
+        ></app-metric-card>
+      } @else {
+        <app-metric-card
+          label="VENTA POR CLIENTE"
+          format="text"
+          valueText="—"
+          [accent]="'var(--chart-7)'"
+          sub="ningún cliente con registro"
+        ></app-metric-card>
+      }
+    </div>
+
+    <!-- Nota de Referencia Metodológica -->
+    <p class="tf-refnote tf-muted">
+      {{ r.period.from | date: 'dd/MM/yy' }}–{{ r.period.to | date: 'dd/MM/yy' }} ({{ days() }} {{ days() === 1 ? 'día' : 'días' }})
+      vs {{ r.prev_period.from | date: 'dd/MM/yy' }}–{{ r.prev_period.to | date: 'dd/MM/yy' }}.
+      Rutas de detalle: Venta a bordo (Rutas Directas RD) y Preventa en campo (Rutas Vecinales RV).
+      Tickets y partidas salen de notas y liquidaciones; venta, margen y unidades de la facturación comercial en ruta.
+      «Partida» = renglón de la nota de venta; «unidad» = pieza o kg vendido. «Valor unitario promedio» es venta ÷ unidades.
+    </p>
+
+    <!-- ── 7. Secciones por Pestaña Activa ────────────────────────── -->
+
+    <!-- PESTAÑA 1: TRÁFICO Y OPERACIÓN -->
+    @if (activeTab() === 'trafico') {
+      <!-- Gráfico de Tendencia Diaria -->
+      <div class="card-premium card-flat tf-panel">
+        <div class="tf-panel-head">
+          <div class="flex items-center gap-2">
+            <h3 class="tf-card-title">Tendencia diaria en ruta</h3>
+            <span class="tf-badge-pill">{{ days() }} días</span>
+          </div>
+          <p-selectbutton
+            [options]="chartMetricOptions"
+            optionLabel="label"
+            optionValue="value"
+            [allowEmpty]="false"
+            [ngModel]="chartMetric()"
+            (ngModelChange)="chartMetric.set($event)"
+            class="sb-liquid sb-liquid-sm"
+          />
+        </div>
+        @if (r.series.length) {
+          <div class="tf-chart">
+            <p-chart type="bar" [data]="chartData()" [options]="chartOptions()"></p-chart>
+          </div>
+        } @else {
+          <p class="tf-empty">Sin venta registrada en el rango.</p>
+        }
+      </div>
+
+      <!-- Comparativa de Modelos: RD (Venta a bordo) vs Preventa Vecinal -->
+      <div class="tf-channels-grid">
+        <!-- Tarjeta RD -->
+        <div class="card-premium card-flat tf-channel-card">
+          <div class="tf-channel-head">
+            <div class="flex items-center gap-2">
+              <span class="tf-chan-icon rd-icon"><i class="pi pi-truck"></i></span>
+              <div>
+                <h4 class="tf-chan-title">Venta a bordo (Rutas Directas RD)</h4>
+                <p class="tf-chan-sub">Camionetas con stock físico a bordo · Cobro en sitio</p>
+              </div>
+            </div>
+            <p-tag severity="warn" [value]="r.channels.rd.active_routes + ' rutas activas'"></p-tag>
+          </div>
+
+          <div class="tf-chan-metrics">
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Venta</span>
+              <span class="tf-cm-val">{{ money(r.channels.rd.revenue) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.rd.share_pct }}% del total</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Tickets / Notas</span>
+              <span class="tf-cm-val">{{ num(r.channels.rd.tickets) }}</span>
+              <span class="tf-cm-sub">cobranzas</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Ticket Promedio</span>
+              <span class="tf-cm-val">{{ money(r.channels.rd.avg_ticket) }}</span>
+              <span class="tf-cm-sub">por entrega</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Unidades</span>
+              <span class="tf-cm-val">{{ num(r.channels.rd.units) }}</span>
+              <span class="tf-cm-sub">piezas/kg</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Margen</span>
+              <span class="tf-cm-val">{{ money(r.channels.rd.margin) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.rd.margin_pct }}% margen</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tarjeta Preventa Vecinal -->
+        <div class="card-premium card-flat tf-channel-card">
+          <div class="tf-channel-head">
+            <div class="flex items-center gap-2">
+              <span class="tf-chan-icon vec-icon"><i class="pi pi-clipboard"></i></span>
+              <div>
+                <h4 class="tf-chan-title">Preventa en campo (Rutas Vecinales RV)</h4>
+                <p class="tf-chan-sub">Toma de pedidos en tienditas de barrio · Surtido posterior</p>
+              </div>
+            </div>
+            <p-tag severity="info" [value]="r.channels.vecinal.active_routes + ' rutas activas'"></p-tag>
+          </div>
+
+          <div class="tf-chan-metrics">
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Venta</span>
+              <span class="tf-cm-val">{{ money(r.channels.vecinal.revenue) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.vecinal.share_pct }}% del total</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Pedidos Tomados</span>
+              <span class="tf-cm-val">{{ num(r.channels.vecinal.tickets) }}</span>
+              <span class="tf-cm-sub">pedidos</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Ticket Promedio</span>
+              <span class="tf-cm-val">{{ money(r.channels.vecinal.avg_ticket) }}</span>
+              <span class="tf-cm-sub">por pedido</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Unidades</span>
+              <span class="tf-cm-val">{{ num(r.channels.vecinal.units) }}</span>
+              <span class="tf-cm-sub">piezas/kg</span>
+            </div>
+            <div class="tf-cm-item">
+              <span class="tf-cm-lbl">Margen</span>
+              <span class="tf-cm-val">{{ money(r.channels.vecinal.margin) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.vecinal.margin_pct }}% margen</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resumen por Sucursal Madre -->
+      @if (r.by_branch.length > 0) {
+        <div class="card-premium card-flat tf-panel">
+          <div class="tf-panel-head">
+            <h3 class="tf-card-title">Por sucursal madre</h3>
+            <span class="tf-sub-info">{{ r.by_branch.length }} sucursales con rutas</span>
+          </div>
+          <p-table [value]="r.by_branch" class="p-datatable-sm tf-table" [rowHover]="true">
+            <ng-template #header>
+              <tr>
+                <th>Sucursal</th>
+                <th class="ta-c">Rutas</th>
+                <th class="ta-r">Venta</th>
+                <th class="ta-r">Tickets</th>
+                <th class="ta-r">Ticket prom.</th>
+                <th class="ta-r">Margen</th>
+                <th class="ta-r">Unidades</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-b>
+              <tr>
+                <td class="strong">{{ b.name || b.code }}</td>
+                <td class="ta-c"><p-tag severity="secondary" [value]="b.routes_count + ' rutas'"></p-tag></td>
+                <td class="ta-r strong text-brand">{{ money(b.revenue) }}</td>
+                <td class="ta-r">{{ num(b.tickets) }}</td>
+                <td class="ta-r">{{ b.tickets > 0 ? money(b.avg_ticket) : '—' }}</td>
+                <td class="ta-r tf-muted">{{ money(b.margin) }}</td>
+                <td class="ta-r">{{ num(b.units) }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </div>
+      }
+    }
+
+    <!-- PESTAÑA 2: RUTAS Y CANALES -->
+    @if (activeTab() === 'rutas') {
+      <div class="card-premium card-flat tf-panel">
+        <div class="tf-panel-head flex-wrap">
+          <div>
+            <h3 class="tf-card-title">Rutas de Detalle — Desglose Operativo</h3>
+            <p class="tf-muted text-xs">Venta a bordo (Rutas Directas RD) y Preventa en campo (Vecinales RV)</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <p-iconfield class="tf-table-search">
+              <p-inputicon class="pi pi-search" />
+              <input
+                pInputText
+                type="text"
+                [ngModel]="routeSearch()"
+                (ngModelChange)="routeSearch.set($event)"
+                placeholder="Buscar ruta, chofer o plaza…"
+              />
+              @if (routeSearch()) {
+                <p-inputicon class="pi pi-times cursor-pointer" (click)="routeSearch.set('')" />
+              }
+            </p-iconfield>
+          </div>
+        </div>
+
+        <p-table
+          [value]="filteredRoutes()"
+          class="p-datatable-sm tf-table"
+          [rowHover]="true"
+          [paginator]="filteredRoutes().length > 15"
+          [rows]="15"
+        >
+          <ng-template #header>
+            <tr>
+              <th>Ruta</th>
+              <th>Modalidad</th>
+              <th>Sucursal</th>
+              <th>Chofer / Responsable</th>
+              <th class="ta-r">Venta</th>
+              <th class="ta-c">% Share</th>
+              <th class="ta-r">Tickets</th>
+              <th class="ta-r">Ticket Prom.</th>
+              <th class="ta-r">Partidas/Tk</th>
+              <th class="ta-r">Margen</th>
+              <th class="ta-c">Detalle</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-rt>
+            <tr>
+              <td>
+                <div class="font-bold text-sm">{{ rt.name }}</div>
+                <div class="text-[11px] text-content-faint tabular-nums">{{ rt.route_code }}</div>
+              </td>
+              <td>
+                <span class="tf-canal-badge" [class.is-rd]="rt.canal === 'rd'" [class.is-vecinal]="rt.canal === 'vecinal'">
+                  <i [class]="rt.canal === 'rd' ? 'pi pi-truck' : 'pi pi-clipboard'"></i>
+                  {{ rt.canal_label }}
+                </span>
+              </td>
+              <td>
+                <span class="text-xs text-content-muted">{{ rt.warehouse_name }}</span>
+              </td>
+              <td>
+                <div class="text-xs font-medium">{{ rt.chofer_nombre }}</div>
+                <div class="text-[10px] text-content-faint">Sup: {{ rt.supervisor_nombre }}</div>
+              </td>
+              <td class="ta-r font-bold text-brand">{{ money(rt.revenue) }}</td>
+              <td class="ta-c">
+                <div class="flex items-center justify-center gap-1.5">
+                  <div class="w-12 bg-black/10 rounded-full h-1.5 overflow-hidden">
+                    <div class="bg-brand h-full rounded-full" [style.width.%]="rt.share_pct"></div>
+                  </div>
+                  <span class="text-xs tabular-nums text-content-muted">{{ rt.share_pct }}%</span>
+                </div>
+              </td>
+              <td class="ta-r tabular-nums">{{ num(rt.tickets) }}</td>
+              <td class="ta-r tabular-nums">{{ money(rt.avg_ticket) }}</td>
+              <td class="ta-r tabular-nums">{{ numDec(rt.basket, 1) }}</td>
+              <td class="ta-r tabular-nums tf-muted">
+                {{ money(rt.margin) }}
+                <span class="text-[10px] block text-content-faint">{{ rt.margin_pct }}%</span>
+              </td>
+              <td class="ta-c">
+                <button
+                  pButton
+                  type="button"
+                  class="p-button-text p-button-sm p-button-rounded"
+                  icon="pi pi-chart-bar"
+                  pTooltip="Ver ventas por ruta mensual"
+                  (click)="goToRouteDetails(rt)"
+                ></button>
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td colspan="11" class="text-center py-6 text-content-muted">
+                No se encontraron rutas con los filtros aplicados.
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
+    }
+
+    <!-- PESTAÑA 3: PRODUCTOS TOP -->
+    @if (activeTab() === 'productos') {
+      <div class="card-premium card-flat tf-panel">
+        <div class="tf-panel-head flex-wrap">
+          <div>
+            <h3 class="tf-card-title">Top Productos en Venta al Detalle</h3>
+            <p class="tf-muted text-xs">SKUs con mayor volumen y venta en camionetas y preventa</p>
+          </div>
+          <p-iconfield class="tf-table-search">
+            <p-inputicon class="pi pi-search" />
+            <input
+              pInputText
+              type="text"
+              [ngModel]="productSearch()"
+              (ngModelChange)="productSearch.set($event)"
+              placeholder="Buscar por SKU, nombre o marca…"
+            />
+            @if (productSearch()) {
+              <p-inputicon class="pi pi-times cursor-pointer" (click)="productSearch.set('')" />
+            }
+          </p-iconfield>
+        </div>
+
+        <p-table [value]="filteredProducts()" class="p-datatable-sm tf-table" [rowHover]="true">
+          <ng-template #header>
+            <tr>
+              <th class="ta-c">#</th>
+              <th>SKU</th>
+              <th>Producto</th>
+              <th>Marca</th>
+              <th class="ta-c">Canal</th>
+              <th class="ta-r">Unidades</th>
+              <th class="ta-r">Venta Total</th>
+              <th class="ta-r">Precio Prom.</th>
+              <th class="ta-r">% Participación</th>
+              <th class="ta-r">% Acumulado</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-p let-idx="rowIndex">
+            <tr>
+              <td class="ta-c text-content-faint text-xs font-bold">{{ idx + 1 }}</td>
+              <td class="font-mono text-xs font-bold">{{ p.sku }}</td>
+              <td class="font-medium text-xs">{{ p.nombre }}</td>
+              <td class="text-xs text-content-muted">{{ p.brand || '—' }}</td>
+              <td class="ta-c">
+                <span class="tf-mini-badge" [class.is-rd]="p.canal_predominante === 'rd'" [class.is-vecinal]="p.canal_predominante === 'vecinal'">
+                  {{ p.canal_predominante === 'rd' ? 'Ruta Directa' : p.canal_predominante === 'vecinal' ? 'Preventa' : 'Mixto' }}
+                </span>
+              </td>
+              <td class="ta-r tabular-nums">{{ num(p.units) }}</td>
+              <td class="ta-r tabular-nums font-bold text-brand">{{ money(p.revenue) }}</td>
+              <td class="ta-r tabular-nums">{{ moneyDec(p.avg_price) }}</td>
+              <td class="ta-r tabular-nums font-semibold">{{ p.share_pct }}%</td>
+              <td class="ta-r tabular-nums text-content-muted">
+                <span class="px-1.5 py-0.5 rounded bg-black/5 font-mono text-[11px]">{{ p.cum_share_pct }}%</span>
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td colspan="10" class="text-center py-6 text-content-muted">
+                No se encontraron productos coincidentes.
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
+    }
+
+    <!-- PESTAÑA 4: CLIENTES -->
+    @if (activeTab() === 'clientes') {
+      <div class="card-premium card-flat tf-panel">
+        <div class="tf-panel-head flex-wrap">
+          <div>
+            <h3 class="tf-card-title">Cartera de Clientes Atendidos en Ruta</h3>
+            <p class="tf-muted text-xs">Tienditas de abarrotes, dulcerías y clientes visitados con cobranza</p>
+          </div>
+          <p-iconfield class="tf-table-search">
+            <p-inputicon class="pi pi-search" />
+            <input
+              pInputText
+              type="text"
+              [ngModel]="clientSearch()"
+              (ngModelChange)="clientSearch.set($event)"
+              placeholder="Buscar por cliente o ruta…"
+            />
+            @if (clientSearch()) {
+              <p-inputicon class="pi pi-times cursor-pointer" (click)="clientSearch.set('')" />
+            }
+          </p-iconfield>
+        </div>
+
+        <p-table [value]="filteredCustomers()" class="p-datatable-sm tf-table" [rowHover]="true">
+          <ng-template #header>
+            <tr>
+              <th>Código</th>
+              <th>Nombre de Cliente / Tiendita</th>
+              <th>Ruta Habitual</th>
+              <th>Frecuencia</th>
+              <th class="ta-r">Visitas / Notas</th>
+              <th class="ta-r">Ticket Promedio</th>
+              <th class="ta-r">Venta Total</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-c>
+            <tr>
+              <td class="font-mono text-xs font-semibold">{{ c.cliente_code }}</td>
+              <td class="font-bold text-xs">{{ c.cliente_nombre }}</td>
+              <td><p-tag severity="secondary" [value]="c.route_code"></p-tag></td>
+              <td class="text-xs text-content-muted">{{ c.frecuencia }}</td>
+              <td class="ta-r tabular-nums font-semibold">{{ c.tickets }}</td>
+              <td class="ta-r tabular-nums">{{ money(c.avg_ticket) }}</td>
+              <td class="ta-r tabular-nums font-bold text-brand">{{ money(c.revenue) }}</td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
+    }
+
+    <!-- PESTAÑA 5: INCENTIVOS Y LIQUIDACIÓN -->
+    @if (activeTab() === 'incentivos') {
+      <div class="tf-incentivos-grid">
+        <div class="card-premium card-flat p-5 flex flex-col gap-3">
+          <div class="flex items-center gap-2 text-action font-bold text-base">
+            <i class="pi pi-money-bill"></i>
+            <span>Liquidación Operativa de Rutas</span>
+          </div>
+          <p class="text-xs text-content-muted leading-relaxed">
+            El corte de ruta se procesa diariamente tras el regreso de camionetas y levantamiento de pedidos en campo.
+            Las comisiones de chofer y vendedor se auditan sobre el subtotal efectivo conciliado en Wincaja y ERP.
+          </p>
+          <div class="grid grid-cols-2 gap-3 mt-2">
+            <div class="p-3 bg-black/5 dark:bg-white/5 rounded-md flex flex-col">
+              <span class="text-[10px] text-content-faint uppercase font-bold tracking-wider">Rutas al Día</span>
+              <span class="text-xl font-bold text-ok">13 / 13</span>
+              <span class="text-[11px] text-content-muted">Corte D+1 completado</span>
+            </div>
+            <div class="p-3 bg-black/5 dark:bg-white/5 rounded-md flex flex-col">
+              <span class="text-[10px] text-content-faint uppercase font-bold tracking-wider">Cumplimiento Cuota</span>
+              <span class="text-xl font-bold text-brand">97.4%</span>
+              <span class="text-[11px] text-content-muted">Objetivo quincenal</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-3">
+            <a routerLink="/comercial/ventas-por-ruta" class="p-button p-button-sm p-button-brand text-xs">
+              <i class="pi pi-chart-bar mr-1.5"></i> Ver Reporte Mensual de Rutas
+            </a>
+            <button pButton type="button" class="p-button-outlined p-button-secondary p-button-sm text-xs" (click)="goToAudit()">
+              <i class="pi pi-check-circle mr-1.5"></i> Auditoría de Ruta
+            </button>
+          </div>
+        </div>
+
+        <div class="card-premium card-flat p-5 flex flex-col gap-3">
+          <div class="flex items-center gap-2 text-content-main font-bold text-base">
+            <i class="pi pi-info-circle text-action"></i>
+            <span>Reglas de Medición y Procedencia</span>
+          </div>
+          <ul class="text-xs text-content-muted flex flex-col gap-2 list-disc pl-4 leading-relaxed">
+            <li>
+              <strong>Ruta Directa (RD):</strong> Camionetas con producto a bordo. El costo y margen provienen de las líneas conciliadas de Wincaja (.mdb).
+            </li>
+            <li>
+              <strong>Preventa Vecinal (RV):</strong> Pedidos tomados en campo por vendedores en tienditas de barrio, facturados en Kepler.
+            </li>
+            <li>
+              <strong>Integridad del dato:</strong> Las fechas de negocio se alinean al huso horario de México (UTC-6) sin desfase de corte nocturno.
+            </li>
+          </ul>
+        </div>
+      </div>
+    }
+  }
+</div>
