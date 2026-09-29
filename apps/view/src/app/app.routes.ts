@@ -743,6 +743,39 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
+        // [CAT-OPS.1] Centro operativo. Las rutas usan el mismo cascarón mientras cada bandeja
+        // recibe sus datos y reglas de negocio en entregas posteriores.
+        path: 'catalogo/resumen',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'resumen' }
+      },
+      {
+        path: 'catalogo/solicitudes',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'solicitudes' }
+      },
+      {
+        path: 'catalogo/incidencias',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'incidencias' }
+      },
+      {
+        path: 'catalogo/costos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'costos' }
+      },
+      {
+        // Las listas recibidas de proveedores viven separadas del flujo que aplica cambios al ERP.
+        path: 'catalogo/listas-precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'listas-precios' }
+      },
+      {
         // [CAT.3] El mismo producto a distinto precio segun la plaza.
         path: 'catalogo/precios',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),
