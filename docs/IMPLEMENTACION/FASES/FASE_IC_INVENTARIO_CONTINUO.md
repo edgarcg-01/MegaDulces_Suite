@@ -300,7 +300,21 @@ Orden por valor entregado, no por dependencia técnica. **IC.0 entrega valor sin
 | **IC.8** ✅ | **HECHO** (`7c70a92d`) — % de descuadre sobre lo **contado** por trimestre. ⚠️ La serie (115 → 62 → 44 → 26) **NO se publica como mejora**: los almacenes cambian en cada período → `comparable: false`. Y el **115% es imposible** (el descuadre no puede exceder lo contado) → `denominador_incompleto`, fuera de la tendencia. **¿Sirvió?** Medir el descuadre del trimestral **antes contra después** de que el parcial corra un trimestre completo | La fase se mide sola. Si el descuadre de dic-2026 no baja contra sep-2026, el parcial no funciona y hay que decirlo |
 | **IC.9** ✅ | **HECHO** (`7c70a92d`) — `fromKeplerVariance`. Prevención tenía **1 investigación** porque sólo leía *nuestros* folios (6, todos cancelados). ⚠️ Con umbral obligatorio: septiembre tiene **7,301 SKUs descuadrados** y abrirlos todos vacía la bandeja de sentido; el recorte se declara. **Enganche con Prevención.** Una diferencia confirmada abre expediente en `/almacen/prevencion` (PREV.1 ya construido, con 1 sola investigación en prod) | El módulo de investigación existe y está vacío porque nada lo alimenta |
 
-**✅ LOS 13 SPRINTS EN CÓDIGO (2026-09-29).** MVP completo 2026-09-28 — IC.0 + IC.0b + IC.1 + IC.2 en código, con 24 aserciones en 3 smokes nuevos. **Falta aplicarlo:** 3 migraciones a prod, redeploy api+view, **re-login** de los roles tocados (los permisos viajan en el JWT) y validación visual. Sigue: **IC.CEDIS** (por calendario, el 30) y luego IC.3→IC.9.
+**🚀 LAS 6 MIGRACIONES APLICADAS A PROD (2026-09-29 09:52 MX).** `public.knex_migrations` **895 → 901**, una por una con `apply-one-migration-prod.js` (candado de identidad `7688376744939610156` verificado en cada una; ninguna pasó de 0.1 s). Los **7 smokes contra prod: 70 aserciones, 0 fallas.** Metadata verificada en vivo: las 3 vistas con `security_invoker=true` y `SELECT` a `app_runtime`, las 3 columnas de IC.1 **nullable**, `inventory_kepler_exports` con RLS **forzado** y sus 2 CHECK.
+
+⭐ **Y lo que desbloqueó el trámite fue medir dónde está prod, no pedir una credencial.** El diagnóstico previo —*«falta un rol con DDL»*— era correcto **desde esta máquina** (`edgar` no es superusuario, no tiene `CREATE` en ningún schema, y el único rol que puede asumir es `dev_ro`) y **llevaba a la conclusión equivocada**: prod dejó Railway el 2026-09-22 y vive en `md` (`192.168.0.222:5434`), donde el camino canónico es correr el aplicador **dentro de `prod-api`**, que ya tiene la URL buena. Ver [[feedback_measure_where_it_runs_today_not_where_code_lives]].
+
+⛔ **Efecto colateral MEDIDO, no hipotético — y es el estado normal de este proyecto entre aplicar y pushear.** Prod tiene ahora 6 filas en `knex_migrations` cuyos archivos **no están en `origin/main`**. Reproducido a propósito en `prod-worker` (imagen limpia): `knex.migrate.list()` aborta con **`migration directory is corrupt`**. Qué se rompe y qué no, verificado:
+
+| | |
+| --- | --- |
+| Arranque de la API | ✅ **no migra al bootstrap** — el único `migrate.latest` del repo es un *comentario* en `new-database.module.ts` |
+| Compuerta del `auto-deploy` | ✅ lee `knex_migrations` por **SQL + awk**, no por knex, y frena por el caso **inverso** (archivo en HEAD sin aplicar) |
+| La próxima sesión que aplique una migración desde el contenedor | ⛔ **choca con estos 6 archivos** y tiene que copiárselos — es lo que la cabecera del aplicador ya documenta |
+
+Se cierra con el push. **Falta:** `git push` (⛔ requiere autorización — `main` local arrastra **21 commits de otras 5 fases** que no audité: UIM·VSO·MR·AUD·CS), **re-login** de `almacenista`/`marketing`, y validación visual. Sigue: **IC.CEDIS** (por calendario, el 30).
+
+⚠️ **IC.2 ya está VIVO y no espera al código**: los permisos viven en la DB. La migración imprimió el estado final — `almacenista: ver=true contar=true supervisar=false reconciliar=false`. Riesgo nulo, medido: el módulo tenía 6 folios, todos `cancelled`.
 
 **MVP original = IC.CEDIS + IC.0 + IC.0b + IC.1 + IC.2.** Con eso se protege la migración del CEDIS, se ve el descuadre real, se cuenta contra la fuente buena y las personas correctas pueden contar.
 
