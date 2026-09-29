@@ -220,10 +220,28 @@ La pregunta que yo había dejado abierta (*"¿con qué código entra el CEDIS?"*
 
 ⛔⛔ **El riesgo concreto, y es el grande:** la existencia actual de Kepler `00` son **122,798,871 unidades en 4,652 SKUs** de basura acumulada. **Si la carga inicial del 30 se suma a ese saldo en vez de reemplazarlo, el CEDIS arranca su vida en Kepler con una existencia absurda** — y como es su primer inventario, no hay baseline contra el cual notarlo. Esto hay que verificarlo **el mismo día**.
 
+### 1.11b-bis ⛔ Qué son de verdad los 122.8M — y por qué este caso no se parece a los anteriores
+
+**Corrección a mi propia explicación:** dije que los 122.8M eran artefacto del bug `c4 = 0`. **No lo son.** Medido: `c4 = 0` en **las nueve** sucursales y no infla a ninguna otra. Lo que infla a la `00` es otra cosa:
+
+| SKU | Qué es | Saldo |
+|---|---|---:|
+| `00001` | **VENTAS AL 0%** (pseudo-SKU contable) | **108,834,999** |
+| `00022` | TIEMPO AIRE | 118,378 |
+| resto (5,014 SKUs) | mercancía | **13,844,615** |
+
+**Un solo pseudo-SKU contable aporta el 88.6%.** Descontando los tres, quedan 13.8M de unidades reales — que siguen siendo mucho: la `00` tiene **16.6M de entradas contra 2.8M de salidas (5.9:1)**, cuando una sucursal viva ronda **1.2:1**. Coherente con lo medido en §1.11b: la `00` **compra para toda la red** pero sus salidas hacia las sucursales no se registran como salidas de su almacén.
+
+⛔ **Y acá está lo que hace única a esta migración:** `07` y `08` entraron a sucursales Kepler **vírgenes** — su primer documento es de **2 días antes** del cutover (09-05 y 09-18). El CEDIS entra a una sucursal que lleva años operando y arrastra **5,014 SKUs con 13.8M de unidades** que nunca se depuraron. **Ninguna de las cuatro migraciones anteriores sirve de ensayo para esto.**
+
 ### 1.11c Checklist del 30-sep (IC.CEDIS)
 
-1. ⛔ **Apagar `import-cedis-stock-wincaja.js`.** Hace **REPLACE** del almacén `00`: si queda vivo, **borra lo que Kepler cargue** y lo sustituye por un `.mdb` que ya nadie actualiza.
-2. ⛔ **Verificar el saldo de arranque**: que la carga **reemplace** los 122.8M de unidades basura de Kepler `00`, no que se sume.
+1. ✅ **HECHO — ya no hace falta acordarse.** `importers/lib/cedis-source-guard.js` (commit de esta fase) le pone dos puertas a los **dos** importers del CEDIS (RA-PRO.24 stock y RA-PRO.25 cadencia):
+   - **A) cutover** — en cuanto `commercial.warehouses` del CEDIS declare `kepler_code`, los feeds se **apagan solos**. El paso 3 de esta lista es el interruptor.
+   - **B) frescura** — si la fuente Wincaja tiene más de `CEDIS_SOURCE_MAX_AGE_DAYS` días (default 3), no publica (ADR-056).
+   **Ya está activo hoy**: corrido contra prod, los dos importers dan `⛔ SKIP (source_stale)` — la fuente tiene 10 días. Smoke `test-newdb-cedis-source-guard.js` **8/0**, con las dos puertas rotas a propósito.
+   ⚠️ **Por qué el feed se veía sano:** el MERGE es sin churn (UPSERT sólo-cambios) y el dato ya no cambia — `actual` y `nuevo` dan **248 SKUs / 188,347 pz idénticos**, así que `updated_at` no se movía desde el 22-sep. **Un feed que publica una foto congelada se ve exactamente igual que uno al día.**
+2. ⛔ **PENDIENTE — el de mayor monto, y no lo puedo cerrar yo.** Verificar que la carga **reemplace** el saldo previo de Kepler `00` y no se **sume** a él. Es `N-A-30` = *entrada*, o sea que por construcción **suma a `c8`** (§1.11b-bis). No lo arreglamos desde acá: no escribimos al SoR (ADR-040). Lo que sí se puede es **medirlo el mismo día** y avisar.
 3. `commercial.warehouses` code `00` → `kepler_code = '00'` (hoy `NULL`).
 4. `wincaja.branches` `00` → `status` de `live_on_wincaja` a `transition`.
 5. Las vistas que unen el CEDIS por `wincaja_source_branch` (`v_erp_stock_on_hand`, `v_warehouse_box_factor`, gate de unidad) pasan a resolverlo por `kepler_code`.
