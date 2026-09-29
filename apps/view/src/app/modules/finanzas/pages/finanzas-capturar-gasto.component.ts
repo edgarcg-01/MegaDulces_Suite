@@ -13,6 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { ActivatedRoute } from '@angular/router';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
   ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
   type ListasParaComprobar } from '../comprobaciones.service';
@@ -176,7 +177,15 @@ interface SelSolicitud {
                 @if (formaSel(); as fs) {
                   @if (fs.detalle_label) {
                     <label class="cap-f"><span>{{ fs.detalle_label }}</span>
-                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
+                      <!--
+                        [GX.53] El tope y el tipo salen del CATALOGO, no de un numero suelto
+                        aca: «Ultimos 4 digitos» aceptaba 19 y ahi cabia una tarjeta entera.
+                        El maxlength es comodidad; quien decide es la compuerta, que el
+                        backend tambien lee -- un limite solo en el input se salta por la API.
+                      -->
+                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)"
+                             [placeholder]="fs.detalle_ejemplo || ''" class="w-full"
+                             [attr.maxlength]="fs.detalle_max" [attr.inputmode]="fs.detalle_solo_digitos ? 'numeric' : null" />
                     </label>
                   }
                 }
@@ -631,6 +640,8 @@ export class FinanzasCapturarGastoComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  // `[GX.41]` Para llegar con el folio ya puesto desde «Mis gastos».
+  private readonly route = inject(ActivatedRoute);
 
   readonly gasto = signal<SelSolicitud | null>(null);
   readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
@@ -669,7 +680,22 @@ export class FinanzasCapturarGastoComponent {
     const p = this.existing();
     if (!p || p.status === 'rechazada') return 'capturar';
     if (p.status === 'recibida') return 'esperando';
-    if (p.status === 'aprobada') return (p.requiere_evidencia && !p.comprobante) ? 'evidencia' : 'cerrada';
+    /**
+     * `[GX.55]` ⛔ **Un vale PROVISIONAL siempre puede recibir su comprobante.**
+     *
+     * Aca estaba `(p.requiere_evidencia && !p.comprobante)` a secas, y eso cerraba el unico
+     * caso que importa: GX.19 fija la captura en `no_comprobable`, asi que
+     * `requiere_evidencia` es **false** y un vale aprobado con cotizacion caia en `cerrada`.
+     * La pantalla lo daba por terminado y no habia por donde subir la factura — con el chip
+     * diciendole a la persona «te toca subir la factura del pago».
+     *
+     * `provisional` es, literalmente, «aprobado pero debiendo el comprobante»: si esta puesto
+     * y el comprobante no llego, hay algo que subir. No depende de la clasificacion.
+     */
+    if (p.status === 'aprobada') {
+      const debe = (p.requiere_evidencia || p.provisional === true) && !p.comprobante;
+      return debe ? 'evidencia' : 'cerrada';
+    }
     if (p.status === 'revision') return 'revision';
     return 'cerrada'; // validada
   });
@@ -872,7 +898,50 @@ export class FinanzasCapturarGastoComponent {
   readonly mine = signal<ExpenseProof[]>([]);
   readonly mineLoading = signal(false);
 
-  constructor() { this.loadMine(); this.loadListas(); }
+  constructor() {
+    this.loadMine();
+    this.loadListas();
+    this.abrirDesdeLaUrl();
+  }
+
+  /**
+   * `[GX.41]` **Llegar acá con el folio ya puesto**, desde «Mis gastos» → «Subir evidencia».
+   *
+   * ⭐ No arma el estado a mano: **busca el folio y llama a `pick()`**, el mismo camino que
+   * usa quien lo teclea. Copiar lo que hace `pick()` habria dejado dos formas de seleccionar
+   * una solicitud, y la de la URL se habria quedado atras en el primer cambio — sin que nadie
+   * lo note, porque la pantalla se ve igual.
+   *
+   * ⚠️ Si el folio no aparece **no se inventa nada**: se deja el buscador vacio con el texto
+   * escrito, para que la persona vea que ese folio no esta y pueda buscar otro. Pasa de
+   * verdad: el feed del ODS puede no haberlo traido todavia.
+   */
+  private abrirDesdeLaUrl(): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const folio = (qp.get('folio') || '').trim();
+    if (!folio) return;
+    const suc = (qp.get('sucursal') || '').trim();
+    /**
+     * ⭐ `[GX.49]` **Por `solicitudExacta`, NO por el buscador.** El buscador filtra a las
+     * solicitudes de HOY (GX.18, para que el desplegable no traiga ruido) — y un vale que
+     * Kepler asigno puede ser de ayer o de la semana pasada. Con el buscador, «Subir
+     * evidencia» abria esta pantalla **vacia**: sin solicitud no hay botones que mostrar, y
+     * se lee como que los botones no funcionan. Medido: `search-solicitudes?q=0097001`
+     * devolvia 0 para un vale de hace tres dias.
+     *
+     * ⚠️ Sin sucursal se cae al buscador: `solicitudExacta` exige las dos cosas a proposito
+     * (sin la fecha, un folio suelto dejaria enumerar 10,082 solicitudes en vez de ~30).
+     */
+    const fuente = suc ? this.svc.solicitudExacta(folio, suc) : this.svc.searchSolicitudes(folio);
+    fuente.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
+      // ⛔ Con la sucursal a mano se exige exacta: 373 folios viven en mas de una plaza y
+      // tomar la primera abriria el vale de otra tienda con el importe de otra tienda.
+      const hit = (rows || []).find((r) => r.folio === folio && (!suc || String(r.sucursal || '') === suc));
+      if (!hit) { this.sel = folio; this.cdr.markForCheck(); return; }
+      this.pick(hit as never);
+      this.cdr.markForCheck();
+    });
+  }
 
   /** Último término buscado, para poder explicar un resultado vacío. */
   private readonly ultimo = signal('');
@@ -1049,12 +1118,33 @@ export class FinanzasCapturarGastoComponent {
     if (!toUpload.length) { done(); return; }
     // [GX.14] El sello viaja con cada archivo. Sin él el backend lo trata como archivo
     // suelto y su propia compuerta lo rechaza — que es exactamente lo que queremos.
+    /**
+     * `[GX.37]` **El motivo del servidor VIAJA.** Acá el `catchError` se comía el error y
+     * la pantalla decía «No se pudo subir el archivo. Reintenta» para TODO. Medido en
+     * local: el servidor contestaba «Almacenamiento no configurado (faltan env S3_*)» —
+     * o sea, reintentar no iba a funcionar NUNCA, y la persona quedaba en un lazo
+     * dándole al botón. Un mensaje que pide reintentar ante un problema que no se
+     * arregla reintentando es peor que no decir nada: manda a perder el tiempo.
+     */
     const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r, this.sellos()[r]).pipe(
-      map((file) => ({ role: r, file: file as ProofFile | null })), catchError(() => of({ role: r, file: null as ProofFile | null })),
+      map((file) => ({ role: r, file: file as ProofFile | null, motivo: '' })),
+      catchError((e: { error?: { message?: string } }) => of({
+        role: r, file: null as ProofFile | null,
+        motivo: String(e?.error?.message || '').trim(),
+      })),
     ));
     forkJoin(ups).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((results) => {
       for (const res of results) { if (res.file) { this.uploaded[res.role] = res.file; delete this.fileData[res.role]; } }
-      if (results.some((r) => !r.file)) { this.saving.set(false); this.formError.set('No se pudo subir el archivo. Reintenta.'); return; }
+      const fallo = results.find((r) => !r.file);
+      if (fallo) {
+        this.saving.set(false);
+        // El nombre del archivo, para que con varios adjuntos se sepa CUÁL falló.
+        const cual = this.names()[fallo.role] ? ` («${this.names()[fallo.role]}»)` : '';
+        this.formError.set(fallo.motivo
+          ? `No se pudo subir el archivo${cual}: ${fallo.motivo}`
+          : `No se pudo subir el archivo${cual}. Reintentá.`);
+        return;
+      }
       done();
     });
   }

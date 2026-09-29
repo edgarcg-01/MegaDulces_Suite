@@ -3224,6 +3224,72 @@ lo alimente, es lo que dejó el módulo muerto.
 
 ---
 
+## GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código)
+
+> Pedido del usuario, en tres partes: **(1)** que el campo «Levantó» de Kepler empareje con nuestros
+> usuarios y le mande el vale a su «Mis gastos»; **(2)** que después de la luz verde el vale pase a
+> una sección **«ejercer»** = pendiente de que aprueben el gasto en Kepler; **(3)** que al aprobarse
+> se jale el documento que genera y se le avise que **«su gasto se aprobó y se ejerció»**.
+
+- [ ] **[GX.39.1]** ⚠️ **BLOQUEADO — el emparejador «Levantó → usuario nuestro» NO se construyó.**
+  Se midieron en prod las 6 cajas de texto de la solicitud `X-A-15` sobre **10,082 documentos**: **ninguna
+  trae nuestros usernames** (0.0% en `c11`, `c22`, `c24`, `c30`, `c32` y `c48`). La única que casa algo es
+  `c67` con **3.9%** (392), y `c67` trae **códigos de Kepler** (`01JZICO`, `3001`, `32RDV`), no nombres de
+  usuario nuestros — casa sólo donde un usuario nuestro se llama igual que un código (hay usuarios `02`,
+  `03`), que es justamente el falso positivo que mandaría vales ajenos.
+  **El usuario confirmó que la práctica es nueva y todavía no se usa**, lo que explica el 0%.
+  ⛔ Adivinar la columna está prohibido (CLAUDE.md, regla dura). **Falta un dato humano:** que escriba un
+  usuario conocido (ej. `demo_captura`) en la caja «Levantó» de un vale real y pase **folio + sucursal**;
+  con eso la columna sale por comparación antes/después, la misma sonda de GX.28
+  (`database/scripts/kepler-que-columna-autoriza.js`).
+
+- [x] **[GX.39.2]** ⭐ **Kepler no marca «ejercido» con una bandera: lo marca CREANDO otro documento.**
+  Medido: el gasto `X-A-10` apunta a su solicitud por `c39`, y **8,899 de 8,899 gastos** nacen de una
+  solicitud (`c37-c38 = 15-1`, el 100%); **8,773 de 10,082 solicitudes** ya tienen el suyo. El puente ya
+  estaba publicado en `analytics.expense_requests.aplicada` — **no hizo falta ningún importer ni copiar
+  una sola columna.**
+
+- [x] **[GX.39.3]** Los dos testigos se **arbitran entre sí** (ADR-059) en vez de elegir uno a ciegas:
+  `c43='F'` acierta **7,949 de 7,949, cero falsos positivos** — pero es SUFICIENTE, no NECESARIO (824
+  solicitudes tienen gasto sin estar todavía en `F`). Manda el puente, que ve antes; `c43` queda de matiz.
+
+- [x] **[GX.39.4]** El estado **NO entra en `status`**: es una dimensión aparte en
+  `libs/contracts/src/finance/ejercicio.contract.ts`, misma función para el chip del frontend y para el
+  servidor. `status` es nuestro trámite y de él cuelgan la bandeja de Aprobación, los KPI, la reapertura y
+  el candado de `dueno-del-vale`; un hecho de otro sistema —con su propio reloj, medido: mismo día 3,064 ·
+  1 día 1,703 · 2-7 días 2,878 · más de 7 días 1,128— no puede mover nuestra máquina de estados.
+
+- [x] **[GX.39.5]** ⛔ **El tercer estado, `sin_medir`, que es el punto de la entrega.** Si el folio no está
+  en la vista NO se puede decir «por ejercer»: eso **afirma** que Kepler no lo aplicó. Un booleano no sabe
+  decir «no sé», por eso `kepler_aplicada` viaja como `boolean|null` (ADR-056).
+  ⭐ **Su propia prueba encontró el defecto en la pantalla que lo arregla:** con un servidor que no manda
+  `etapa`, la barra salía «En trámite 0 · Por ejercer 0 · Ejercido 0» — que afirma que medimos y dio cero.
+  Ahora la barra entera desaparece si no hay una sola etapa resuelta.
+
+- [x] **[GX.39.6]** El documento que Kepler genera, en el expediente: `detail()` trae el gasto `X-A-10`
+  desde `analytics.expense_documents` (folio, importe, IVA, concepto, RFC, clase).
+  ⛔ **NO es el CFDI, y se DECLARA en vez de dibujarse.** Kepler **no guarda el UUID fiscal** — verificado
+  dos veces de forma independiente: en MAT.1 (2026-07-17, `fiscal.cfdi_assignments`) y otra vez acá,
+  barriendo la familia `kdfe33*`, que timbra **sólo ventas** (género U: `U-D-5-1` 9,844 · `U-D-8-1` 5,145 ·
+  `U-A-7-1` 3,520…) y **no contiene ni un** gasto `X-A-10` ni una solicitud `X-A-15`. Además sólo el **36%
+  de los gastos trae RFC** (3,203 de 8,899), así que ni siquiera se podría buscar el comprobante del
+  proveedor para los otros dos tercios.
+
+- [x] **[GX.39.7]** Migración `20260928160000`: **sólo `ejercido_avisado_at`** (+ índice parcial). Es el
+  único dato propio — cuándo avisamos, que ninguna vista puede saber. `aplicada` **no se materializa**.
+  El smoke lo prueba al revés: siembra el gasto, verifica `true`, **lo RETIRA** y verifica que vuelve a
+  `false` sin que corra ningún proceso. Si alguien materializara `aplicada`, ese bloque se pone rojo.
+
+- [x] **[GX.39.8]** Pruebas: `ejercicio.spec.ts` **19** (con las negativas de `sin_medir`, del arbitraje y
+  de que `aprobada` NO es `por_ejercer`) · `test-newdb-gasto-ejercicio.js` **8/8** contra la base real, con
+  el antes y el después y la prueba de que **el gasto de una plaza no ejerce el de la otra** (373 folios
+  viven en más de una sucursal) · `finanzas-mis-gastos.component.spec.ts` **16** (7 nuevas).
+  `nx build api` + `nx build view` OK; compuertas de template, reactividad, PrimeNG y boundary verdes
+  (el `any` heredado de `list()` quedó tipado de paso).
+
+**Pendiente:** el dato humano de `[GX.39.1]` · validación visual · aplicar `20260928160000` a Railway
+**antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
+redeploy api+view. **Sin permisos nuevos → sin re-login.**
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
