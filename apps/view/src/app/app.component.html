@@ -10,8 +10,16 @@
   <button type="button" class="app-arqueo" [class.vencido]="a.vencido" (click)="irAlArqueo()">
     <i class="pi pi-bell" aria-hidden="true"></i>
     <span>
-      @if (a.motivo === 'retiro') { <b>Cuenta el retiro</b> } @else { <b>Haz tu arqueo</b> }
-      · Caja {{ a.caja }}@if (a.hora_cierre) { · cerró {{ a.hora_cierre.slice(0,5) }} }
+      @switch (a.motivo) {
+        @case ('retiro') { <b>Cuenta el retiro</b> }
+        <!-- SM.40 — Kepler abrió la caja. Es un aviso de que YA SE PUEDE contar,
+             no de que haya que hacerlo ahora: el arqueo dejó de tener horario. -->
+        @case ('apertura') { <b>Tu caja está abierta</b> }
+        @default { <b>Haz tu arqueo</b> }
+      }
+      · Caja {{ a.caja }}@if (a.motivo === 'apertura') {
+        @if (a.hora_apertura) { · abrió {{ a.hora_apertura.slice(0,5) }} }
+      } @else if (a.hora_cierre) { · cerró {{ a.hora_cierre.slice(0,5) }} }
       <!-- Dos cortes al día es lo normal (mediodía y cierre): si falta más de uno
            hay que decirlo, o al terminar el primero cree que ya acabó. -->
       @if (arqueoDue.cuantos() > 1) { <em>· te faltan {{ arqueoDue.cuantos() }}</em> }

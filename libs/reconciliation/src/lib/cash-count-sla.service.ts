@@ -34,6 +34,11 @@ import { RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
  *    decisión abre: contar al cierre verifica ~$9,000 de $27,000 cobrados porque
  *    el resto ya salió en sangrías.
  *
+ * **SM.40 agrega `avisarAperturas()`** — "Kepler te abrió la caja". Con los tres
+ * candados retirados (orden, doble caja, ventana del día), el aviso es lo ÚNICO
+ * que queda entre el ERP y la cajera; por eso ahora cubre el evento que de verdad
+ * arranca el ciclo, no sólo el retiro.
+ *
  * La regla `arqueo_no_realizado` sigue registrada en el motor (`movement-reconcile`)
  * porque los hallazgos históricos la referencian — pero **ya nadie la emite**.
  *
@@ -63,9 +68,9 @@ export class CashCountSlaService {
   ) {}
 
   /**
-   * Cada 5 min, y ahora sólo para una cosa: avisarle a la cajera que cuente lo
-   * que está sacando **mientras el turno sigue abierto**. Ya no hay plazo que
-   * vencer, así que no hay nada que escalar.
+   * Cada 5 min, para avisar — nunca para escalar. Dos cosas, las dos con el turno
+   * abierto: que Kepler **abrió** la caja (SM.40) y que hay un retiro sin contar.
+   * No hay plazo que vencer.
    */
   @Cron('0 */5 * * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
@@ -81,6 +86,7 @@ export class CashCountSlaService {
       for (const t of tenants) {
         try {
           avisados += await this.avisarRetiros(t.id);
+          avisados += await this.avisarAperturas(t.id);
         } catch (e: any) {
           this.logger.warn(`barrido tenant ${t.id} falló: ${e?.message || e}`);
         }
@@ -126,6 +132,53 @@ export class CashCountSlaService {
   }
 
   /**
+   * SM.40 — "Kepler te abrió la caja". El único aviso que pidió Edgar.
+   *
+   * Es un **aviso de evento, no un plazo**: dice que ya se puede arquear, no que
+   * haya que hacerlo ahora ni en un orden. Desde SM.40 nada bloquea la captura,
+   * así que este mensaje es lo que reemplaza a los tres candados que se fueron.
+   *
+   * ── Por qué una ventana de horas y no "todos los turnos abiertos"
+   *
+   * No es un horario para la persona: es la vida del EVENTO. Un turno abierto
+   * deja de ser "recién abierto" en algún momento, y sin ese corte el aviso se
+   * repetiría para siempre sobre los turnos que quedaron colgados — medido en
+   * prod el 2026-09-29 hay 25, uno abierto desde el 31 de enero. Una alarma que
+   * grita todos los días sobre algo que nadie va a cerrar enseña a ignorar el
+   * tablero (la lección de VL.4b), y de paso taparía el aviso del turno real.
+   *
+   * 14 h cubre el turno de mostrador más largo que existe en la operación.
+   *
+   * ⚠️ El turno que ya tiene CUALQUIER conteo no se avisa: si ya contó, el
+   * recordatorio de que puede contar sobra.
+   */
+  private async avisarAperturas(tenantId: string): Promise<number> {
+    if (!this.notifier?.notifyArqueoDue) return 0;
+    const filas = await this.tk.run(tenantId, async (trx: Knex.Transaction) => {
+      const r = await trx.raw<{ rows: AperturaRow[] }>(APERTURAS_RECIENTES, { tenant: tenantId });
+      return r.rows;
+    }).catch((e: unknown) => { this.logger.warn(`aperturas recientes falló: ${mensaje(e)}`); return [] as AperturaRow[]; });
+
+    let n = 0;
+    for (const f of filas) {
+      const cajero = (f.cajero_code || '').trim();
+      if (!cajero) continue;
+      await this.notifier.notifyArqueoDue(tenantId, {
+        cajero_code: cajero,
+        warehouse_code: f.warehouse_code, caja: f.caja,
+        business_date: f.business_date, folio: f.folio,
+        hora_cierre: null,                       // sigue abierto
+        hora_apertura: f.hora_apertura,
+        cerrado_hace_min: 0,                     // no cerró: no hay demora que contar
+        vencido: false,                          // SM.40: no hay plazo que vencer
+        motivo: 'apertura',
+      }).then(() => { n++; })
+        .catch((e: unknown) => this.logger.warn(`aviso de apertura a ${cajero} falló: ${mensaje(e)}`));
+    }
+    return n;
+  }
+
+  /**
    * Tablero de cumplimiento: qué porcentaje de los cortes llegó a tener conteo
    * físico, y cuánto tardó. Es la métrica que hace que la cola sirva — sin ella
    * el hallazgo se acumula y nadie rinde cuentas.
@@ -146,6 +199,15 @@ export class CashCountSlaService {
       return rows as CumplimientoRow[];
     });
   }
+}
+
+/** El texto de un error, sin `any`: el gate de boundary no lo admite en líneas nuevas. */
+const mensaje = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** SM.40 — Un turno que Kepler acaba de abrir y todavía no tiene ningún conteo. */
+interface AperturaRow {
+  warehouse_code: string; caja: string; folio: string; business_date: string;
+  cajero_code: string | null; hora_apertura: string | null; abierta_hace_min: string;
 }
 
 interface RetiroPendienteRow {
@@ -207,6 +269,48 @@ const RETIROS_PENDIENTES = `
      AND COALESCE(k.c48, 0) > 0                     -- Kepler ya pidió al menos un retiro
      AND (k.c48 - COALESCE(b.contado, 0)) > 1       -- y falta contar parte de eso
    ORDER BY (k.c48 - COALESCE(b.contado, 0)) DESC
+   LIMIT 200
+`;
+
+/**
+ * SM.40 — Turnos que Kepler abrió hace poco y que nadie contó todavía.
+ *
+ * El disparador es el mismo renglón que ya usa `turnosPendientes`: Kepler abre
+ * `kdpv_folio_caja` con la caja (`c2`), la cajera (`c8`) y la hora (`c6`), y deja
+ * `c10` en `1800-01-01` mientras el turno vive.
+ *
+ * Stateless a propósito, igual que `RETIROS_PENDIENTES`: no guarda "último
+ * avisado" en memoria ni en tabla, así que reiniciar la API no pierde ni duplica
+ * nada. El anti-repetición vive del lado del navegador (`ArqueoDueService` dedupea
+ * por `tag`) y de la ventana de 14 h de acá.
+ */
+const APERTURAS_RECIENTES = `
+  SELECT k.sucursal            AS warehouse_code,
+         k.c2                  AS caja,
+         k.c3::bigint::text    AS folio,
+         k.c5::date::text      AS business_date,
+         NULLIF(btrim(k.c8), '') AS cajero_code,
+         NULLIF(btrim(k.c6), '') AS hora_apertura,
+         GREATEST(0, floor(EXTRACT(EPOCH FROM (
+           (now() AT TIME ZONE 'America/Mexico_City')
+           - (k.c5::date + COALESCE(NULLIF(btrim(k.c6), ''), '00:00:00')::time)
+         )) / 60))::int AS abierta_hace_min
+    FROM kepler_ods.kdpv_folio_caja k
+   WHERE k.c10::date = DATE '1800-01-01'            -- turno ABIERTO
+     AND btrim(COALESCE(k.c8, '')) <> ''            -- el renglón centinela no es un turno
+     AND k.c5::date >= current_date - 1
+     -- La vida del evento: ver el comentario de avisarAperturas().
+     AND (now() AT TIME ZONE 'America/Mexico_City')
+           - (k.c5::date + COALESCE(NULLIF(btrim(k.c6), ''), '00:00:00')::time) < interval '14 hours'
+     -- Si ya contó algo de este turno, el recordatorio sobra.
+     AND NOT EXISTS (
+           SELECT 1 FROM reconciliation.blind_counts bc
+            WHERE bc.tenant_id = CAST(:tenant AS uuid)
+              AND bc.warehouse_code = k.sucursal
+              AND bc.caja = k.c2
+              AND bc.business_date = k.c5::date
+              AND bc.cash_cut_folio = k.c3::bigint::text)
+   ORDER BY k.c5 DESC, k.c2
    LIMIT 200
 `;
 
