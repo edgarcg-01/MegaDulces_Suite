@@ -679,6 +679,13 @@ const SALES_FACT = 'analytics.mv_sales_blended';
 const NON_SALE_RAW_CHANNELS: string[] = [];
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
 const SELLOUT_STMT_TIMEOUT = '45s';
+/**
+ * [VSO.17] Días de cola diaria que las consultas de PRESENCIA leen además del rollup. El rollup se
+ * materializa de noche (~06:28 MX), así que lo de hoy todavía no está ahí; 2 días cubren el día en
+ * curso y el anterior por si el refresh de una noche no corrió. Subirlo no rompe nada —el traslape
+ * es inofensivo en presencia— pero cada día extra vuelve a costar escaneo diario.
+ */
+const PRESENCIA_COLA_DIAS = 2;
 
 /**
  * RS.13 — Layout "por plaza" (formato estándar del reporte que usa el equipo comercial):
@@ -4391,6 +4398,56 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * [VSO.17] Plan de fuentes para las consultas de **PRESENCIA** (las que arman los FILTROS).
+   *
+   * `planSellOutSources` excluye el mes EN CURSO del rollup **y hace bien**: un bucket mensual no se
+   * puede partir, así que mezclarlo con la vista diaria duplicaría importes. Pero las cinco
+   * llamadas a `selloutLeaves` —canales, vendedores, sucursales, el árbol Avanzado, la cobertura—
+   * **no publican importe**: sólo preguntan *qué existe* y filtran por `_m > 0`. Para ellas el
+   * traslape es inofensivo, y pagar el escaneo diario del mes entero no tiene sentido.
+   *
+   * **Medido en prod (2026-09-29, mes en curso, 29 días):** el escaneo diario cuesta **1,119 ms**
+   * —190,883 páginas del `Append` de las cuatro piernas— y el rollup devuelve **exactamente las
+   * mismas 21 combinaciones en 80 ms**. La diferencia no es el `GROUP BY`: es que la vista diaria
+   * arrastra los joins a producto, marca y precios de etiqueta que una lista de sucursales no
+   * necesita.
+   *
+   * ⛔ **La condición no es negociable y es lo que hace correcto el atajo:** el bucket del mes en
+   * curso sólo se puede usar si TODO él cae dentro del rango, y eso exige `from <= inicio de mes`
+   * **y** `to >= hoy`. Con `to` anterior a hoy el bucket incluye días POSTERIORES al rango y el
+   * filtro ofrecería sucursales que no vendieron en la ventana elegida — justo la desincronía
+   * entre filtro y pivote que esto viene a evitar.
+   *
+   * **No es teórico, está medido**: para `2026-09-01 → 2026-09-15` el rango real tiene **20** hojas
+   * y el bucket mensual **21**. La de más es `kepler|08` — Morelia Abastos por Kepler, que no
+   * vendió en esa quincena porque **su corte fue el 19-sep**. Sin este guardrail, el filtro
+   * ofrecería una sucursal que el pivote muestra vacía. Por eso se cae al plan estricto.
+   *
+   * La cola diaria se recorta a `PRESENCIA_COLA_DIAS` porque el rollup se materializa de noche: lo
+   * que entró hoy todavía no está ahí. Es un traslape a propósito, no un descuido.
+   */
+  private planSellOutPresence(from: string, to: string): ReturnType<CommercialAnalyticsService['planSellOutSources']> {
+    const estricto = this.planSellOutSources(from, to);
+    const openStart = this.currentMonthStartMx();
+    const hoy = this.todayMx();
+    // El rango tiene que cubrir el mes en curso desde su día 1 y llegar hasta hoy.
+    if (!(from <= openStart && to >= hoy)) return estricto;
+
+    const mesActual = openStart.slice(0, 7);
+    const monthly = estricto.monthly
+      ? { fromMonth: estricto.monthly.fromMonth, toMonth: mesActual }
+      : { fromMonth: mesActual, toMonth: mesActual };
+
+    // Se conserva el borde inicial parcial (días sueltos ANTES del primer mes entero); la cola
+    // larga —el mes en curso día por día— se reemplaza por los últimos días.
+    const inicioMesDelRango = this.selloutMonthStart(from);
+    const daily = estricto.daily.filter((d) => d.to < inicioMesDelRango || from > inicioMesDelRango);
+    const colaFrom = this.selloutShiftDay(hoy, -PRESENCIA_COLA_DIAS);
+    daily.push({ from: colaFrom < from ? from : colaFrom, to });
+    return { monthly, daily };
+  }
+
+  /**
    * Un tramo de fuente (rollup mensual o vista diaria) → filas del pivote, en versión LEAN: la
    * agregación SÓLO toca las columnas del índice covering (warehouse/product/channel/source/vendor/
    * unit_kind + sumas) → INDEX-ONLY, sin heap-fetch de los `max(sku/nombre/marca/box_size)` que en
@@ -5086,7 +5143,7 @@ export class CommercialAnalyticsService {
    * (una hoja puede ser >0 sólo al juntar meses cerrados con el borde).
    */
   private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
-    const plan = this.planSellOutSources(o.from, o.to);
+    const plan = this.planSellOutPresence(o.from, o.to);
     const useRollup = await this.selloutUsesRollup(trx, plan);
     const acc = new Map<string, any>();
     const run = async (table: string, dateCol: string, lo: string, hi: string) => {
@@ -6793,6 +6850,11 @@ export class CommercialAnalyticsService {
   private currentMonthStartMx(): string {
     const mx = new Date(Date.now() - 6 * 3600 * 1000);
     return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+
+  /** Hoy en TZ MX (UTC-6 fijo). `YYYY-MM-DD`. */
+  private todayMx(): string {
+    return new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
   }
 
 }
