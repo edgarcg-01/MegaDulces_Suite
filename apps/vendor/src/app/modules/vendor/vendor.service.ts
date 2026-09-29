@@ -10,6 +10,16 @@ import {
 } from '../portal/portal.service';
 import { AuthService } from '../../core/services/auth.service';
 
+/** Subconjunto de `AddressJsonb` (platform-core) que la app muestra. */
+export interface VendorAddress {
+  street?: string;
+  exterior_number?: string;
+  interior_number?: string;
+  neighborhood?: string;
+  city?: string;
+  reference?: string;
+}
+
 export interface VendorCustomer {
   id: string;
   code: string;
@@ -19,6 +29,10 @@ export interface VendorCustomer {
   whatsapp?: string | null;
   sales_route?: string | null;
   visit_sequence?: number | null;
+  /** Texto libre; el alta del vendedor guarda aquí "Dirección / referencia". */
+  notes?: string | null;
+  shipping_address?: VendorAddress | null;
+  billing_address?: VendorAddress | null;
   credit_limit: number;
   default_price_list_id?: string | null;
   active: boolean;
