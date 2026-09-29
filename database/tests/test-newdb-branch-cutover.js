@@ -247,6 +247,86 @@ const LITERAL_CORTE = /source_branch\s*=\s*'[^']+'(::text)?\s*AND\s*\w*\.?busine
     }
   }
 
+  // ── 5 · La SEXTA copia: el mapeo rama Wincaja → almacén, clavado en una matvista ──────────
+  // [VSO.15] `analytics.mv_wincaja_sales_daily` no usa el resolvedor: trae un `CASE` a mano
+  // (`'10'→'01'`, `'42'→'02'`, `'50'→'06'`, y todo lo demás cae en `vl.warehouse_code`). Es la
+  // sexta copia del mismo dato — y la única de las seis que NO se corrigió, porque cambiarla
+  // exige reconstruir **1,328 MB** de matvista más `mv_sales_blended` y el rollup de 412 MB.
+  //
+  // ⛔ **Medido antes de dramatizarlo: hoy el `CASE` acierta.** Las 5 ramas no-ruta con datos
+  // (`10 30 32 42 50`) producen exactamente lo que el resolvedor manda, y ningún destino falta en
+  // `commercial.warehouses`. Reconstruir 1.3 GB para no mover un solo número es el trade
+  // equivocado. Lo que faltaba no era el arreglo: era la MEDICIÓN.
+  //
+  // El riesgo es futuro y tiene fecha: cuando aparezca una rama Wincaja nueva —el **CEDIS migra
+  // el 30-sep-2026**— el `CASE` no la conoce, así que su destino sale de `wincaja.branches`. Si
+  // ese código no existe como almacén, el `JOIN` a `commercial.warehouses` **tira las filas en
+  // silencio**: venta que desaparece sin que nada falle. Este bloque lo mide sobre el ARTEFACTO
+  // (lo que la matvista produjo), no sobre el SQL, que es la lección de `[SB.1]`.
+  console.log('\n5 · El mapeo rama Wincaja → almacén coincide con el resolvedor');
+  if (!(await existe('mv_wincaja_sales_daily', ['m']))) {
+    noMedido('el mapeo de la matvista Wincaja coincide con el resolvedor', 'la matvista no existe');
+  } else {
+    const divergen = await q(`
+      SELECT m.source_branch AS rama,
+             string_agg(DISTINCT m.warehouse_code, ',' ORDER BY m.warehouse_code) AS produjo,
+             COALESCE(b.kepler_code, b.warehouse_code) AS deberia
+        FROM analytics.mv_wincaja_sales_daily m
+        JOIN wincaja.branches b
+          ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
+       WHERE b.is_route = false
+       GROUP BY 1, 3
+      HAVING string_agg(DISTINCT m.warehouse_code, ',' ORDER BY m.warehouse_code)
+             IS DISTINCT FROM COALESCE(b.kepler_code, b.warehouse_code)
+       ORDER BY 1`);
+    check('cada rama Wincaja cae en el almacén que dice el resolvedor', divergen.length === 0,
+      divergen.map((r) => `${r.rama}: produjo ${r.produjo}, resolvedor dice ${r.deberia}`).join(' · '));
+
+    // La trampa silenciosa: un destino que no existe como almacén no da error, da un INNER JOIN
+    // vacío. Se comprueba sobre TODAS las ramas, tengan o no venta hoy — porque el día que la
+    // tengan ya es tarde.
+    const huerfanas = await q(`
+      SELECT b.source_branch AS rama, COALESCE(b.kepler_code, b.warehouse_code) AS destino
+        FROM wincaja.branches b
+       WHERE b.is_route = false
+         AND NOT EXISTS (
+           SELECT 1 FROM commercial.warehouses w
+            WHERE w.tenant_id = b.tenant_id AND w.deleted_at IS NULL
+              AND w.code::text = COALESCE(b.kepler_code, b.warehouse_code))
+       ORDER BY 1`);
+    check('el destino de cada rama Wincaja EXISTE como almacén (si no, el JOIN tira su venta)',
+      huerfanas.length === 0,
+      huerfanas.map((r) => `${r.rama} → ${r.destino}`).join(', ')
+        + ' — sus ventas se caen en el INNER JOIN sin un solo error');
+
+    // ── PRUEBA NEGATIVA de los dos de arriba. Los dos dan CERO hoy, y cero es exactamente lo que
+    // devolvería un detector roto. Se corren otra vez contra un destino ADULTERADO (`||'X'`, un
+    // código que no puede existir) y se exige que encuentren a las ramas. Es read-only: no toca
+    // nada, sólo cambia contra qué se compara.
+    const [{ n: pillaDiverg }] = await q(`
+      SELECT count(*)::int n FROM (
+        SELECT m.source_branch
+          FROM analytics.mv_wincaja_sales_daily m
+          JOIN wincaja.branches b
+            ON b.tenant_id = m.tenant_id AND b.source_branch = m.source_branch
+         WHERE b.is_route = false
+         GROUP BY m.source_branch, COALESCE(b.kepler_code, b.warehouse_code)
+        HAVING string_agg(DISTINCT m.warehouse_code, ',' ORDER BY m.warehouse_code)
+               IS DISTINCT FROM COALESCE(b.kepler_code, b.warehouse_code) || 'X') z`);
+    check('PRUEBA NEGATIVA · con el destino adulterado, el detector de divergencia SÍ las encuentra',
+      pillaDiverg > 0, 'devolvió 0 con un destino imposible: el check de arriba es un espejo');
+
+    const [{ n: pillaHuerf }] = await q(`
+      SELECT count(*)::int n FROM wincaja.branches b
+       WHERE b.is_route = false
+         AND NOT EXISTS (
+           SELECT 1 FROM commercial.warehouses w
+            WHERE w.tenant_id = b.tenant_id AND w.deleted_at IS NULL
+              AND w.code::text = COALESCE(b.kepler_code, b.warehouse_code) || 'X')`);
+    check('PRUEBA NEGATIVA · con el destino adulterado, el detector de huérfanas SÍ las encuentra',
+      pillaHuerf > 0, 'devolvió 0 con un destino imposible: el check de arriba es un espejo');
+  }
+
   console.log(`\nRESUMEN · ${ok} OK · ${fail} FALLAS · ${nm} NO MEDIDOS\n`);
   await c.end();
   process.exit(fail ? 1 : 0);
