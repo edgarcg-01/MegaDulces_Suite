@@ -587,12 +587,15 @@ export class InventoryVarianceService {
 
       const [items, nombres] = await Promise.all([
         q,
+        // ⚠️ La columna es `nombre`, NO `name`: lo adiviné y tiró 500 en la primera corrida real.
+        // `catalog.products` tiene `nombre` (varchar) y `description` (text), ninguna `name`.
         knex('catalog.products as p')
           .where('p.tenant_id', knex.raw('public.current_tenant_id()'))
           .whereNull('p.deleted_at')
-          .select('p.sku', 'p.name'),
+          .select('p.sku', 'p.nombre'),
       ]);
-      const nom = new Map((nombres as { sku: string; name: string }[]).map((x) => [x.sku, x.name]));
+      const nom = new Map(
+        (nombres as { sku: string; nombre: string }[]).map((x) => [x.sku, x.nombre]));
 
       return {
         totales: tot,

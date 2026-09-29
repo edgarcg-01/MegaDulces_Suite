@@ -222,6 +222,75 @@ async function arbitrar(c, suc, code, fecha, venta, entrada) {
   }
   t('leer un par responde por debajo de 1 s', best < 1000, `${best} ms, mejor de 3`);
 
+  // ── 8. ⛔ LAS CONSULTAS DEL SERVICIO, con KNEX y el tenant puesto ────────────────────
+  //
+  // Este bloque existe por un 500 en producción, no por prolijidad. El servicio enriquecía el
+  // detalle con el nombre del producto pidiendo `p.name`, y esa columna NO EXISTE: en
+  // `catalog.products` es `nombre`. Lo adiviné.
+  //
+  // ⛔ Nada de lo que ya había podía verlo: `tsc` no valida nombres de columna (knex arma
+  // strings), el build pasó, y los 14 asserts de arriba prueban la MATVIEW — no el servicio que
+  // la consulta. Un error de columna sólo aparece cuando Postgres parsea la consulta, o sea al
+  // ejercerla de verdad. Es la misma lección de CV.7, y la había aplicado en IC.3b sin repetirla
+  // acá.
+  const knex = require('knex')({
+    client: 'pg',
+    connection: process.env.DATABASE_URL_NEW,
+    pool: {
+      min: 0, max: 2,
+      afterCreate: (cn, done) => cn.query(
+        "SELECT set_config('app.tenant_id','00000000-0000-0000-0000-00000000d01c',false)",
+        (e) => done(e, cn)),
+    },
+  });
+  try {
+    const base = () => knex('analytics.mv_erp_count_rollforward as r')
+      .where('r.tenant_id', knex.raw('public.current_tenant_id()'));
+
+    // (a) el selector de períodos
+    const per = await base()
+      .select('r.warehouse_id', 'r.warehouse_code')
+      .select(knex.raw("to_char(r.desde,'YYYY-MM-DD') AS desde"))
+      .select(knex.raw("to_char(r.hasta,'YYYY-MM-DD') AS hasta"))
+      .count('* as skus')
+      .groupBy('r.warehouse_id', 'r.warehouse_code', 'r.desde', 'r.hasta');
+
+    // (b) el detalle de un período, con sus totales y la marca de imposible
+    const p0 = per[0];
+    const det = await base()
+      .andWhere('r.warehouse_id', p0.warehouse_id)
+      .andWhereRaw('r.desde = ?::date', [p0.desde])
+      .andWhereRaw('r.hasta = ?::date', [p0.hasta])
+      .select('r.sku', 'r.esperado', 'r.contado_fin', 'r.no_explicado', 'r.veredicto')
+      .select(knex.raw('(r.esperado < 0) AS esperado_imposible'))
+      .orderByRaw('abs(coalesce(r.importe_no_explicado,0)) DESC, r.sku')
+      .limit(10);
+
+    // (c) ⭐ LA QUE FALLÓ: el nombre del producto.
+    const nombres = await knex('catalog.products as p')
+      .where('p.tenant_id', knex.raw('public.current_tenant_id()'))
+      .whereNull('p.deleted_at')
+      .select('p.sku', 'p.nombre')
+      .limit(5);
+
+    t('⛔ las 3 consultas del SERVICIO corren contra Postgres (no sólo compilan)',
+      per.length > 0 && det.length > 0 && nombres.length > 0,
+      `${per.length} períodos · ${det.length} filas de detalle · ${nombres.length} nombres`);
+
+    t('el nombre del producto sale de la columna que EXISTE',
+      nombres.every((n) => 'nombre' in n),
+      `catalog.products tiene "nombre", no "name" — esto tiró un 500 en prod`);
+
+    t('la marca de esperado imposible llega en el detalle',
+      det.every((d) => 'esperado_imposible' in d),
+      `${det.filter((d) => d.esperado_imposible).length} de ${det.length} marcados en la muestra`);
+  } catch (e) {
+    t('⛔ las 3 consultas del SERVICIO corren contra Postgres (no sólo compilan)',
+      false, `FALLA: ${e.message}`);
+  } finally {
+    await knex.destroy();
+  }
+
   await c.end();
   console.log(`\n${ok} ✓ / ${fail} ✗${nomedido ? ` / ${nomedido} ⚠️ NO MEDIDO` : ''}\n`);
   process.exit(fail > 0 ? 1 : 0);
