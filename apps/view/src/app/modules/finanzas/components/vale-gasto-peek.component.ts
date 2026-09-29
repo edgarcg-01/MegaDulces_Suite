@@ -211,16 +211,20 @@ interface DocDelExpediente {
             <input type="checkbox" [checked]="provisional()" (change)="marcarProvisional($event)" />
             <span>Esto es una <strong>prefactura o cotización</strong>, todavía falta el comprobante</span>
           </label>
+          <!--
+            [GX.51] Aca vivia «Se espera el comprobante para» con su fecha y el default de 15
+            dias. Se retiro por pedido del usuario: la factura del pago llega cuando llega, y
+            ponerle vencimiento a algo que no depende de nadie de la casa era inventar un plazo.
+
+            ⚠️ Lo que la fecha cuidaba —que la deuda no se olvide— NO se pierde: se sigue
+            sabiendo cuanto lleva esperando, contado desde que se aprobo (validated_at). Lo
+            que se deja de afirmar es CUANDO vence, que es lo que nadie podia saber.
+          -->
           @if (provisional()) {
-            <div class="vp-prov-fecha">
-              <label for="vp-esperado">Se espera el comprobante para</label>
-              <input id="vp-esperado" type="date" [value]="esperado()"
-                     (input)="esperado.set($any($event.target).value)" />
-              <!-- Sin fecha NO se bloquea: se dice que decide el servidor. Exigirla haría
-                   que alguien ponga cualquiera con tal de pasar, y una fecha inventada es
-                   peor que una por defecto que todos saben de dónde salió. -->
-              @if (!esperado()) { <span class="ap-faint">si la dejás vacía, se toman 15 días</span> }
-            </div>
+            <p class="vp-prov-libre">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Queda abierto sin fecha límite: el comprobante se sube cuando llegue la factura.
+            </p>
           }
         }
 
@@ -258,6 +262,9 @@ interface DocDelExpediente {
   </app-side-peek>
   `,
   styles: [`
+  /* [GX.51] La nota de «queda abierto», donde estaba la fecha limite. */
+  .vp-prov-libre { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--fg-3);
+    display: flex; align-items: center; gap: var(--sp-1); }
   /* [GX.48] La constancia de autorizacion. Enmarcada: es un documento, no un dato suelto. */
   .vp-aut { border: 1px solid var(--border); border-radius: var(--r-md);
     padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -337,6 +344,7 @@ export class ValeGastoPeekComponent {
 
   /** `[GX.30]` La marca, mientras se mira ESTE vale. Se limpia al abrir otro (ver abajo). */
   readonly provisional = signal(false);
+  /** `[GX.51]` Se conserva en null: la fecha limite se retiro, el campo del contrato no. */
   readonly esperado = signal('');
 
   constructor() {
@@ -358,7 +366,10 @@ export class ValeGastoPeekComponent {
     this.aprobar.emit({
       vale,
       provisional: this.provisional(),
-      comprobante_esperado_at: this.provisional() ? (this.esperado() || null) : null,
+      // `[GX.51]` Siempre `null`: ya no hay fecha limite que mandar. El campo se conserva en
+      // el contrato porque hay expedientes viejos que la tienen, y borrarla del tipo los
+      // volveria ilegibles.
+      comprobante_esperado_at: null,
     });
   }
 
