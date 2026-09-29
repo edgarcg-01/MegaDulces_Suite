@@ -134,16 +134,22 @@ export interface ReporteDocumento {
   fecha: string | null;
   atendio: string | null;
   /**
-   * `[TK.d3]` El descuento **de cliente**: el que Kepler declara en la CABECERA del documento
-   * (`kdm1.c13`), no la suma de las rebajas por renglón. Son dos capas distintas y una no
-   * explica a la otra — medido sobre 609 facturas, 435 difieren en más de $1 (`ERP_KEPLER` §3.1).
-   * Las rebajas por renglón sólo salen con `detalle: true`, en `lineas[].descuento_linea`.
+   * `[TK.d3]` El descuento **de cliente**: el de CABECERA del documento, no la suma de las
+   * rebajas por renglón. Son dos capas distintas y una no explica a la otra — medido sobre 609
+   * facturas, 435 difieren en más de $1 (`ERP_KEPLER` §3.1). Las rebajas por renglón sólo salen
+   * con `detalle: true`, en `lineas[].descuento_linea`.
+   *
+   * ⚠️ Sale de `descuento_efectivo`, NO de `kdm1.c13`: ese viaja sin impuesto y subdeclara
+   * 8.3% (Fase DC, `07 U-D-10 s4 f0000513`: real $147.43 · `c13` $135.26).
    */
   descuento: number;
   /**
-   * `[TK.d3]` El porcentaje que Kepler declara junto al importe (`kdm1.c19`, el campo que su
-   * propia pantalla rotula «Descuento Cliente»). `null` cuando el documento no lo trae —
-   * nunca 0: un descuento no declarado no es un descuento de cero.
+   * `[TK.d3]` El porcentaje que Kepler declara en el documento (`kdm1.c19`). Medido en la Fase
+   * DC: coincide con `kdud.c17` —el % negociado en el maestro de clientes— en **533 de 578
+   * (92.2%)** de las ventas de septiembre 2026.
+   *
+   * `null` cuando el documento no lo trae — nunca 0: un descuento no declarado no es un
+   * descuento de cero (ADR-056).
    */
   descuento_pct: number | null;
   /** NEGATIVO en las notas de crédito: el total del periodo es lo que se pagó de verdad. */
@@ -419,12 +425,17 @@ export class CustomerReportService {
         .where({ 'i.tenant_id': tenantId, 'i.cliente_code': clienteCode })
         .select('i.folio_digital as id', 'i.sucursal', 'i.folio', 'i.fecha',
           'i.vendedor_nombre as atendio', 'i.total', 'i.doc_tipo', 'i.doc_prefix',
-          // ⭐ `[TK.d3]` Esto decía `0::numeric`. La vista publica `descuento` (el importe de
-          // cabecera) y `descuento_pct` desde que existe, y este universo —telemarketing y
-          // crédito— es el ÚNICO donde el descuento de cabecera se usa (`ERP_KEPLER` §3.1).
-          // Con el cero clavado, la columna salía vacía justo donde el dato existe y el filtro
-          // «solo con descuento» no podía devolver una sola factura.
-          'i.descuento as descuento_documento', 'i.descuento_pct',
+          // ⭐ `[TK.d3]` Esto decía `0::numeric`: la columna salía vacía justo donde el dato
+          // existe, y el filtro «sólo con descuento» —que filtra por `descuento > 0` sobre este
+          // mismo campo— no podía devolver una sola factura.
+          //
+          // ⛔ Y la columna obvia es la EQUIVOCADA. `i.descuento` es `kdm1.c13`, que viaja SIN
+          // impuesto mientras el total va CON: medido en la Fase DC, en `07 U-D-10 s4 f0000513`
+          // el descuento real es $147.43 y `c13` dice $135.26 — publicarlo subdeclara 8.3%.
+          // `descuento_efectivo` lo deriva como `total / (1 − pct/100) − total` y reproduce los
+          // $147.43 al centavo. Es el mismo criterio que `armar()` usa en el detalle: el
+          // descuento se MIDE, no se copia del que la cabecera declara.
+          'i.descuento_efectivo as descuento_documento', 'i.descuento_pct',
           trx.raw('NULL::int as caja'));
       this.comunes(fac, 'i', f, alcance);
       if (f.atendio) fac.where('i.vendedor_code', f.atendio);
