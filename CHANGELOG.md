@@ -9,6 +9,36 @@
 ---
 
 ## [Unreleased]
+### Changed — las consultas que arman los filtros pasaron de >1 s a ~0.3 s (VSO.17, 2026-09-29)
+Pedido: *"que estén optimizadas, sean rápidas y funcionen en sincronía con los filtros"*.
+
+**Medido con `EXPLAIN (ANALYZE, BUFFERS)`:** el reporte corre **~13 consultas en serie** sobre la
+misma conexión — `Promise.all` no compra nada, un `trx` de pg las serializa igual. La cara era
+`selloutLeaves` en el mes en curso: **1,119 ms / 190,883 páginas**, porque la vista diaria arrastra
+los joins a producto, marca y precios que **una lista de sucursales no necesita**.
+
+⭐ Los **cinco** callers de `selloutLeaves` **son los filtros** y ninguno publica importe: sólo
+preguntan qué existe. Para ellos el traslape rollup↔diaria es inofensivo, así que
+`planSellOutPresence` usa el rollup **también para el mes en curso** y deja la diaria para los
+últimos 2 días.
+
+| rango | estricto | presencia | |
+|---|---|---|---|
+| mes en curso | 1,089 ms | **322 ms** | 3.4× |
+| últimos 90 d | 967 ms | **359 ms** | 2.7× |
+| año a hoy | 1,023 ms | **412 ms** | 2.5× |
+
+**Hojas idénticas en los tres**, comparadas una por una.
+
+- ⚠️ **Corrección a mi propia medición**: primero publiqué 10.9× y 17.4× comparando contra «todo
+  diario», y el plan estricto **ya usaba el rollup** para los meses cerrados. El real es 2.5–3.4×.
+- ⛔ **Guardrail medido**: el atajo exige `from <= día 1` **y** `to >= hoy`. Para `09-01→09-15` el
+  rango real tiene 20 hojas y el bucket mensual 21 — la de más es `kepler|08`, que no vendió esa
+  quincena (**su corte fue el 19-sep**). Sin el guardrail, el filtro ofrecería una sucursal que el
+  pivote muestra vacía.
+- ⬜ **No tocado, a propósito**: `fetchSelloutRows` sigue con el plan estricto (ahí el traslape SÍ
+  duplicaría importes). `selloutUsesRollup` se llama dos veces por reporte: una consulta de más.
+
 ### Fixed — entraron los $1,536,831.24, y la declaración con vencimiento se apagó sola (VSO.16, 2026-09-29)
 El refresh nocturno corrió **12:28:40Z** y los dos meses cuadran **al centavo** contra la vista viva:
 PH `2026-06` **$9,267,116.58 == $9,267,116.58** · La Piedad `2025-10` **$2,508,791.79 ==
