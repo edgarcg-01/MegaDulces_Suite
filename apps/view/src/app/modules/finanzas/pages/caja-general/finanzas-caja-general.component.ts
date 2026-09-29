@@ -393,6 +393,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                     (ngModelChange)="setSigno($event)" class="cg-sel" [ariaLabel]="'Signo'"></p-select>
           <p-select [options]="opcionesCaja()" [ngModel]="cajaActiva()" optionLabel="label" optionValue="value"
                     (ngModelChange)="setCaja($event)" class="cg-sel" [ariaLabel]="'Caja'"></p-select>
+          <!-- CS.3.9 — El buscador universal es de «por confirmar»: acá se busca el movimiento que se
+               va a capturar (folio de Kepler, concepto, beneficiario, doc). El libro tiene el suyo. -->
+          <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel"
+                 placeholder="Buscar: folio Kepler, concepto, beneficiario…" aria-label="Buscar en por confirmar" />
           <p-button [label]="'Confirmar ' + marcadas().length" icon="pi pi-check" size="small"
                     [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
         </header>
@@ -570,8 +574,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
-        <input pInputText [(ngModel)]="search" (keyup.enter)="buscar()"
-               placeholder="Busca en TODO: realizados y por confirmar (folio, concepto, beneficiario, usuario…)" />
+        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
+               placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
         <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
         <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
                   [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
@@ -1357,6 +1361,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   signoBandeja = signal<'' | 'ingreso' | 'gasto'>('');
   cajaActiva = signal('0011');
+  /** CS.3.9 — Término del buscador universal de «por confirmar» (folio Kepler, concepto, beneficiario, doc). */
+  searchPend = signal('');
   readonly opcionesSigno = [
     { label: 'Todo', value: '' },
     { label: 'Entradas', value: 'ingreso' },
@@ -1904,16 +1910,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * CS.3.9 — El buscador es UNIVERSAL: recarga el libro (realizados) Y la bandeja (por confirmar) con
-   * el mismo término. Antes sólo tocaba el libro, así que buscar un cobro que todavía no se había
-   * arqueado no devolvía nada aunque estuviera en «por confirmar».
-   */
-  buscar(): void {
-    this.cargar();
-    this.cargarPendientes();
-  }
-
-  /**
    * CS.3.10 — Imprime el reporte diario de movimientos en la térmica: los del rango/filtros actuales
    * (hasta 500, no el tope de 100 de la pantalla) + los totales del período (ingresos/gastos/depósitos/
    * neto), con el mismo criterio que el corte. Es un reporte de lo REALIZADO (el libro), no de la bandeja.
@@ -2360,8 +2356,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       tipo: this.signoBandeja() || undefined,
       caja: this.cajaActiva() || undefined,
       from: desde,
-      // CS.3.9 — el buscador universal también filtra «por confirmar», no sólo el libro.
-      search: this.search || undefined,
+      // CS.3.9 — el buscador universal de «por confirmar»: folio de Kepler, concepto, beneficiario, doc.
+      search: this.searchPend() || undefined,
       limit: 100,
     }).subscribe({
       next: (r) => {
