@@ -70,6 +70,27 @@ function revisar(archivo, src) {
     }
   }
 
+  // 1-bis · pTemplate dentro de <p-table> — MISMO modo de falla, otro componente.
+  //
+  // ⛔ Medido el 2026-09-29: la compuerta vigilaba SÓLO `p-dialog`, así que una pantalla nueva
+  // (`comercial-inventory-variance`) se escribió con 12 `pTemplate` en sus tablas y pasó verde.
+  // El resultado en pantalla es una tabla que CARGA SUS DATOS y no dibuja ni una fila: el KPI
+  // de arriba decía "12 eventos" sobre un área en blanco. No hay error en consola ni en el log.
+  //
+  // El repo ya había migrado: **144 pantallas usan `<ng-template #body>` y sólo 2 quedaron con
+  // la API vieja**. O sea que no es deuda heredada — es API retirada que se volvió a escribir,
+  // exactamente lo que dice la cabecera: el codemod arregla lo que existe, no lo que viene
+  // después. Por eso va con tolerancia CERO, igual que su hermana de `p-dialog`.
+  const tbl = /<p-table[\s\S]*?<\/p-table>/g;
+  let tb;
+  while ((tb = tbl.exec(src))) {
+    const pt = /<ng-template[^>]*pTemplate=["']([a-zA-Z]+)["']/g;
+    let t;
+    while ((t = pt.exec(tb[0]))) {
+      anotar(tb.index + t.index, `pTemplate="${t[1]}" dentro de un p-table`, `usar <ng-template #${t[1]}>`);
+    }
+  }
+
   // 2 · styleClass en componentes que ya no lo tienen
   for (const comp of SIN_STYLECLASS) {
     const re = new RegExp('<' + comp + '\\b[^>]*?\\bstyleClass=', 'gi');
@@ -136,6 +157,7 @@ for (const raiz of RAICES) {
  * quedan con tolerancia cero — son las que ya costaron caro:
  *
  *   · `pTemplate` en el pie de un `p-dialog`  -> el diálogo abre SIN BOTONES (GOTCHAS §59).
+ *   · `pTemplate` dentro de un `p-table`      -> la tabla trae los datos y NO dibuja filas.
  *   · nombres retirados (`p-dropdown`, …)     -> el componente no existe, no renderiza.
  *
  * Las de `styleClass` son deuda REAL y medida, no cosmética: **283 `p-table` piden densidad
@@ -145,6 +167,7 @@ for (const raiz of RAICES) {
  */
 const TECHO = {
   'pTemplate en p-dialog': 0,
+  'pTemplate en p-table': 0,   // 144 pantallas ya usan #body; las 2 que faltaban se arreglan
   'nombre retirado': 0,
   'pButton con label': 3,
   'styleClass p-table': 283,
@@ -157,7 +180,9 @@ const TECHO = {
 };
 
 function categoria(h) {
-  if (h.que.startsWith('pTemplate')) return 'pTemplate en p-dialog';
+  if (h.que.startsWith('pTemplate')) {
+    return h.que.includes('p-table') ? 'pTemplate en p-table' : 'pTemplate en p-dialog';
+  }
   if (h.que.includes('no existe en v22')) return 'nombre retirado';
   if (h.que.includes('DIRECTIVA pButton')) return 'pButton con label';
   if (h.que.startsWith('severity')) return 'severity retirado';
