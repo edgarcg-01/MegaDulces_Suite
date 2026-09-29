@@ -1,432 +1,149 @@
 :host {
   display: block;
+  /* Redundant variables imported from styles.css globally now. */
 }
 
-.an-page {
-  padding-bottom: 3rem;
-}
-
-/* ── Encabezado y Breadcrumbs ─────────────────────────────────────── */
-.surf-page-crumbs {
+.dashboard-container {
+  /* min-height + pb mobile/desktop ya los maneja el wrapper via Tailwind
+     (`min-h-[100dvh]` + `pb-[calc(56px+env(...))]`). Acá solo flex chain. */
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.72rem;
-  color: var(--text-muted, #6B7280);
-  margin-bottom: 0.35rem;
-}
-
-.crumb-sep {
-  opacity: 0.5;
-}
-
-.crumb-current {
-  color: var(--action, #F05A28);
-  font-weight: 600;
-}
-
-.an-scope {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--action, #F05A28);
-  background: color-mix(in srgb, var(--action, #F05A28) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--action, #F05A28) 25%, transparent);
-  padding: 0.35rem 0.75rem;
-  border-radius: 9999px;
-  white-space: nowrap;
-}
-
-/* ── Pestañas de Navegación (Piso de Ventas) ───────────────────────── */
-.an-tabs-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  overflow-x: auto;
-  padding: 0.25rem 0.25rem 0.6rem;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
-}
-
-.an-tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-muted, #6B7280);
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  white-space: nowrap;
-}
-
-.an-tab-btn i {
-  font-size: 0.85rem;
-}
-
-.an-tab-btn:hover {
-  color: var(--text-main, #111827);
-  background: color-mix(in srgb, var(--text-main, #111827) 4%, transparent);
-}
-
-.an-tab-btn.is-active {
-  color: var(--action, #F05A28);
-  background: color-mix(in srgb, var(--action, #F05A28) 12%, transparent);
-  border-color: color-mix(in srgb, var(--action, #F05A28) 30%, transparent);
-  font-weight: 700;
-}
-
-/* ── Filtros Unificados ───────────────────────────────────────────── */
-.an-filters {
-  display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.85rem 1.1rem;
-  margin-bottom: 1rem;
-}
-
-.an-ctl {
-  display: inline-flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 1.5rem;
+  font-family: var(--font-body);
+  transition: background-color 0.4s var(--ease-standard), color 0.4s var(--ease-standard);
+  overflow-x: hidden;
 }
 
-.an-ctl-lbl {
-  font-size: 0.68rem;
-  font-weight: 700;
+@media (max-width: 640px) {
+  .dashboard-container { gap: 1rem; }
+}
+
+/* Header */
+.title-premium {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(to bottom right, var(--text-main), var(--text-muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:host-context(.theme-monochrome) .title-premium {
+  background: var(--text-main);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: var(--text-main);
+}
+
+/* Cards */
+.card-premium {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-light);
+  /*
+   * Antes `transition: all` animaba layout props (problema en mobile + costo
+   * de paint). Solo transicionamos lo que cambia en hover: box-shadow + transform.
+   */
+  transition:
+    box-shadow 0.3s var(--ease-standard),
+    transform 0.3s var(--ease-standard);
+}
+
+/*
+ * Hover lift gateado por `@media (hover: hover)`: en touch devices el "hover"
+ * se dispara al tap y deja la card flotando hasta scrollear — efecto bouncy
+ * raro. Apple/Google los suprimen en touch.
+ */
+@media (hover: hover) {
+  .card-premium:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px);
+  }
+  .card-premium.card-flat:hover {
+    box-shadow: var(--shadow-light);
+    transform: none;
+  }
+  :host-context(.theme-monochrome) .card-premium:hover {
+    border-color: var(--border-color);
+  }
+}
+
+/* Scores */
+.stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-muted, #6B7280);
+  color: var(--text-muted);
 }
 
-.an-select {
-  min-width: 11rem;
-}
-
-.an-select-md {
-  min-width: 14rem;
-}
-
-.an-rangelbl-wrap {
-  margin-left: auto;
-  padding-bottom: 0.35rem;
-}
-
-.an-rangelbl {
-  margin: 0;
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--text-main, #111827);
-}
-
-.an-muted {
-  color: var(--text-muted, #6B7280);
-  font-weight: 400;
-}
-
-/* ── Matriz 5 × 2 de KPIs (Filosofía Piso de Venta) ─────────────────── */
-.tf-kpi-matrix {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, auto);
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 0.65rem;
-  margin-bottom: 0.65rem;
-}
-
-@media (max-width: 76rem) {
-  .tf-kpi-matrix {
-    grid-template-rows: repeat(4, auto);
-  }
-}
-
-@media (max-width: 48rem) {
-  .tf-kpi-matrix {
-    grid-auto-flow: row;
-    grid-template-rows: none;
-    grid-template-columns: 1fr;
-  }
-
-  .an-filters {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .an-select,
-  .an-select-md,
-  .an-ctl {
-    width: 100%;
-    min-width: 100%;
-  }
-
-  .an-rangelbl-wrap {
-    margin-left: 0;
-  }
-}
-
-.tf-skeleton-matrix {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.65rem;
-  margin-bottom: 1rem;
-}
-
-.tf-refnote {
-  font-size: 0.72rem;
-  line-height: 1.45;
-  margin: 0 0 1.15rem;
-}
-
-/* ── Paneles y Tarjetas ───────────────────────────────────────────── */
-.tf-panel {
-  padding: 1.1rem;
-  margin-bottom: 1.15rem;
-}
-
-.tf-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.85rem;
-}
-
-.tf-card-title {
-  margin: 0;
-  font-size: 0.88rem;
-  font-weight: 800;
-  color: var(--text-main, #111827);
-  letter-spacing: -0.01em;
-}
-
-.tf-badge-pill {
-  font-size: 0.68rem;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--action, #F05A28) 12%, transparent);
-  color: var(--action, #F05A28);
-  padding: 0.15rem 0.45rem;
-  border-radius: 9999px;
-}
-
-.tf-sub-info {
-  font-size: 0.72rem;
-  color: var(--text-muted, #6B7280);
-}
-
-.tf-chart {
-  height: 290px;
-  position: relative;
-}
-
-.tf-table-search {
-  width: 16rem;
-}
-
-.tf-table-search input {
-  font-size: 0.78rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-}
-
-/* ── Comparativa de Canales (RD vs Preventa) ──────────────────────── */
-.tf-channels-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-  margin-bottom: 1.15rem;
-}
-
-@media (max-width: 58rem) {
-  .tf-channels-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.tf-channel-card {
-  padding: 1.1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.tf-channel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.tf-chan-icon {
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: 0.6rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
-}
-
-.tf-chan-icon.rd-icon {
-  background: color-mix(in srgb, var(--action, #F05A28) 12%, transparent);
-  color: var(--action, #F05A28);
-}
-
-.tf-chan-icon.vec-icon {
-  background: color-mix(in srgb, #3B82F6 12%, transparent);
-  color: #3B82F6;
-}
-
-.tf-chan-title {
-  margin: 0;
-  font-size: 0.84rem;
-  font-weight: 700;
-  color: var(--text-main, #111827);
-}
-
-.tf-chan-sub {
-  margin: 0.15rem 0 0;
-  font-size: 0.7rem;
-  color: var(--text-muted, #6B7280);
-}
-
-.tf-chan-metrics {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.5rem;
-  background: color-mix(in srgb, var(--text-main, #111827) 3%, transparent);
-  padding: 0.75rem;
-  border-radius: var(--r-md, 0.5rem);
-}
-
-@media (max-width: 40rem) {
-  .tf-chan-metrics {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.tf-cm-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.tf-cm-lbl {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text-muted, #6B7280);
-}
-
-.tf-cm-val {
-  font-size: 0.92rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-main, #111827);
-}
-
-.tf-cm-sub {
-  font-size: 0.65rem;
-  color: var(--text-muted, #6B7280);
-}
-
-/* ── Badges y Tablas ──────────────────────────────────────────────── */
-.tf-canal-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
-  white-space: nowrap;
-}
-
-.tf-canal-badge.is-rd {
-  background: color-mix(in srgb, var(--action, #F05A28) 12%, transparent);
-  color: var(--action, #F05A28);
-  border: 1px solid color-mix(in srgb, var(--action, #F05A28) 25%, transparent);
-}
-
-.tf-canal-badge.is-vecinal {
-  background: color-mix(in srgb, #3B82F6 12%, transparent);
-  color: #2563EB;
-  border: 1px solid color-mix(in srgb, #3B82F6 25%, transparent);
-}
-
-.tf-mini-badge {
-  display: inline-block;
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 0.12rem 0.4rem;
+/* Progress Bars */
+.progress-container {
+  width: 100%;
+  height: 8px;
+  background: var(--skeleton-bg);
   border-radius: 4px;
 }
 
-.tf-mini-badge.is-rd {
-  background: color-mix(in srgb, var(--action, #F05A28) 10%, transparent);
-  color: var(--action, #F05A28);
+.progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s ease-out;
 }
 
-.tf-mini-badge.is-vecinal {
-  background: color-mix(in srgb, #3B82F6 10%, transparent);
-  color: #2563EB;
+/* Highlight card: oscuro en light, sigue card-bg en dark (donde ya todo es oscuro). */
+.monochrome-highlight {
+  background: var(--neutral-950);
+  color: var(--neutral-50);
+  border: none;
 }
 
-.tf-incentivos-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.15rem;
+.theme-monochrome .monochrome-highlight {
+  background: var(--card-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
 }
 
-@media (max-width: 55rem) {
-  .tf-incentivos-grid {
-    grid-template-columns: 1fr;
-  }
+.monochrome-highlight .text-dim        { color: var(--neutral-500); }
+.monochrome-highlight .text-dim-strong { color: var(--neutral-300); }
+
+.theme-monochrome .monochrome-highlight .text-dim        { color: var(--text-muted); }
+.theme-monochrome .monochrome-highlight .text-dim-strong { color: var(--text-faint); }
+
+/* Animations */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.tf-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  background: color-mix(in srgb, var(--bad-fg, #EF4444) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--bad-fg, #EF4444) 30%, transparent);
-  border-radius: var(--r-md, 0.5rem);
-  padding: 0.75rem 1rem;
-  font-size: 0.82rem;
-  color: var(--bad-fg, #EF4444);
-  margin-bottom: 1rem;
+.animate-slide-up {
+  animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-.tf-empty {
-  padding: 3rem 1rem;
-  text-align: center;
-  color: var(--text-muted, #6B7280);
-  font-size: 0.85rem;
+/* Fix for PrimeNG inputNumber width in metas dialog */
+.metas-input-full-width {
+  width: 100% !important;
+  display: flex !important;
 }
 
-.ta-r {
-  text-align: right;
+.metas-input-full-width .p-inputnumber-input {
+  width: 100% !important;
+  flex: 1 !important;
+  min-width: 0 !important;
 }
 
-.ta-c {
-  text-align: center;
+.metas-input-full-width .p-inputnumber-button-group {
+  flex-shrink: 0 !important;
 }
 
-.strong {
-  font-weight: 700;
-}
 
-.tf-muted {
-  color: var(--text-muted, #6B7280);
-}
-
-.text-brand {
-  color: var(--action, #F05A28);
-}

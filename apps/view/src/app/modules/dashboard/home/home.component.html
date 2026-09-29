@@ -1,739 +1,487 @@
-<div class="surf-page in an-page">
-  <!-- ── 1. Encabezado de Página ────────────────────────────────────── -->
+<div class="surf-page">
+
   <header class="surf-page-head">
     <div class="surf-page-head-text">
-      <div class="surf-page-crumbs">
-        <span>Comercial</span>
-        <span class="crumb-sep">/</span>
-        <span>Venta al detalle</span>
-        <span class="crumb-sep">/</span>
-        <span class="crumb-current">Análisis de ventas</span>
+      <h1>Dashboard Estratégico</h1>
+      <div class="flex items-center gap-3 flex-wrap">
+        @if (lastUpdatedAt(); as t) {
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase bg-ok-soft-bg text-ok-soft-fg border border-ok-border">
+            <span class="status-dot status-ok"></span>
+            Actualizado {{ t | date:'shortTime' }}
+          </span>
+        }
+        <p class="surf-page-sub">Visión de campo · Mensual</p>
       </div>
-      <h1>Análisis de ventas al detalle</h1>
-      <p class="surf-page-sub">
-        Cómo se comportan las rutas de detalle y cómo va cambiando la operación. Elige el período, canal y sucursal: todas las secciones miran el mismo recorte.
-      </p>
     </div>
-    <span class="an-scope">
-      <i class="pi pi-truck"></i> Rutas Directas (RD) & Preventa Vecinal
-    </span>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button"
+              class="icon-btn-ghost icon-btn-ghost-info"
+              (click)="loadDashboardData()"
+              [disabled]="anyLoading()"
+              pTooltip="Refrescar"
+              aria-label="Refrescar datos del dashboard">
+        <i class="pi" [class.pi-refresh]="!anyLoading()" [class.pi-spin]="anyLoading()" [class.pi-spinner]="anyLoading()" aria-hidden="true"></i>
+      </button>
+      <p-button label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand" size="small"
+        (click)="openMetasDialog()" />
+      <div class="hidden md:inline-flex">
+        <p-button label="Imprimir" icon="pi pi-print" severity="secondary" size="small"
+          (click)="printPage()" />
+      </div>
+    </div>
   </header>
 
-  <!-- ── 2. Pestañas de Navegación (estilo Piso de Venta) ───────────── -->
-  <nav class="an-tabs-nav" role="tablist">
-    @for (tab of tabs; track tab.id) {
-      <button
-        type="button"
-        role="tab"
-        class="an-tab-btn"
-        [class.is-active]="activeTab() === tab.id"
-        [attr.aria-selected]="activeTab() === tab.id"
-        (click)="setTab(tab.id)"
-      >
-        <i [class]="tab.icon"></i>
-        <span>{{ tab.label }}</span>
-      </button>
-    }
-  </nav>
 
-  <!-- ── 3. Barra de Filtros Unificada ──────────────────────────────── -->
-  <div class="an-filters card-premium card-flat">
-    <!-- Período Preset -->
-    <label class="an-ctl">
-      <span class="an-ctl-lbl">Período</span>
-      <p-select
-        [options]="presetOptions"
-        optionLabel="label"
-        optionValue="value"
-        [ngModel]="preset()"
-        (ngModelChange)="onPresetChange($event)"
-        class="sel-liquid an-select"
-        appendTo="body"
-      />
-    </label>
-
-    <!-- Rango Custom Datepicker -->
-    @if (preset() === 'custom') {
-      <label class="an-ctl">
-        <span class="an-ctl-lbl">Fechas</span>
-        <p-datepicker
-          [(ngModel)]="customRange"
-          selectionMode="range"
-          [readonlyInput]="true"
-          dateFormat="dd/mm/yy"
-          [showIcon]="true"
-          [maxDate]="hoy"
-          appendTo="body"
-          (onSelect)="applyCustom()"
-          class="an-dp"
-          placeholder="Elige el rango"
-        />
-      </label>
-    }
-
-    <!-- Canal / Modalidad -->
-    <label class="an-ctl">
-      <span class="an-ctl-lbl">Canal de Detalle</span>
-      <p-select
-        [options]="canalOptions"
-        optionLabel="label"
-        optionValue="value"
-        [ngModel]="canalFilter()"
-        (ngModelChange)="canalFilter.set($event); onFilterChange()"
-        class="sel-liquid an-select an-select-md"
-        appendTo="body"
-      />
-    </label>
-
-    <!-- Sucursal Madre -->
-    <label class="an-ctl">
-      <span class="an-ctl-lbl">Sucursal Madre</span>
-      <p-select
-        [options]="branchOptions"
-        optionLabel="label"
-        optionValue="value"
-        [ngModel]="storeFilter()"
-        (ngModelChange)="storeFilter.set($event); onFilterChange()"
-        class="sel-liquid an-select an-select-md"
-        appendTo="body"
-      />
-    </label>
-
-    <!-- Ruta Específica -->
-    @if (routeCatalog().length > 1) {
-      <label class="an-ctl">
-        <span class="an-ctl-lbl">Ruta</span>
-        <p-select
-          [options]="routeCatalog()"
-          optionLabel="label"
-          optionValue="value"
-          [ngModel]="routeFilter()"
-          (ngModelChange)="routeFilter.set($event); onFilterChange()"
-          [filter]="true"
-          filterPlaceholder="Buscar ruta…"
-          class="sel-liquid an-select an-select-md"
-          appendTo="body"
-        />
-      </label>
-    }
-
-    <!-- Rótulo de Fechas -->
-    @if (from() && to()) {
-      <div class="an-rangelbl-wrap">
-        <p class="an-rangelbl">
-          {{ from() | date: 'dd/MM/yy' }} – {{ to() | date: 'dd/MM/yy' }}
-          <span class="an-muted">({{ days() }} {{ days() === 1 ? 'día' : 'días' }})</span>
-        </p>
+  <!--
+    Bento grid asimétrico (lg+): Score Global ocupa 6 cols × 2 rows (HERO),
+    Tiempo y Evidencia 3 cols × 1 row arriba derecha, Meta Diaria 6 cols ×
+    1 row abajo derecha. En sm: 2 cols planas. En mobile: stack.
+    Las clases lg:col-span / lg:row-span están en cada card por su índice.
+  -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 lg:grid-rows-2 gap-4 w-full">
+    @if (summaryMonthlyLoading()) {
+      <div class="card-premium card-flat animate-pulse lg:col-span-6 lg:row-span-2 h-[180px] lg:h-auto flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="6rem"></p-skeleton>
       </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-3 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="4rem"></p-skeleton>
+      </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-3 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="4rem"></p-skeleton>
+      </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-6 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="90%" height="4rem"></p-skeleton>
+      </div>
+    } @else {
+      @for (k of kpiCards(); track k.label; let i = $index) {
+        <div class="card-premium card-flat status-border-left flex flex-col gap-3 p-5 w-full
+                    motion-safe:transition-shadow hover:shadow-md"
+             [class]="'status-' + k.status"
+             [class.lg:col-span-6]="i === 0 || i === 3"
+             [class.lg:col-span-3]="i === 1 || i === 2"
+             [class.lg:row-span-2]="i === 0"
+             [class.h-\[180px\]]="i !== 0"
+             [class.lg:h-auto]="i === 0"
+             [class.min-h-\[180px\]]="i === 0">
+
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="font-bold text-content-muted truncate uppercase tracking-widest"
+                  [class.text-xs]="k.size === 'hero'"
+                  [class.text-[10px]]="k.size !== 'hero'">{{ k.label }}</span>
+            <span class="text-[10px] text-content-faint shrink-0 font-medium">Meta {{ k.meta }}</span>
+          </div>
+
+          <!-- GAUGE variant -->
+          @if (k.kind === 'gauge' && k.gauge; as g) {
+            <div class="flex-1 flex flex-col items-center justify-center gap-2 py-1">
+              <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
+                <svg viewBox="0 0 40 40"
+                     class="-rotate-90 motion-safe:transition-transform"
+                     [class.w-44]="g.size === 'hero'"
+                     [class.h-44]="g.size === 'hero'"
+                     [class.w-20]="g.size !== 'hero'"
+                     [class.h-20]="g.size !== 'hero'">
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          stroke="var(--layout-bg)"
+                          [attr.stroke-width]="g.size === 'hero' ? 3.5 : 3"></circle>
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          [attr.stroke]="g.color"
+                          [attr.stroke-width]="g.size === 'hero' ? 3.5 : 3"
+                          stroke-linecap="round"
+                          [attr.stroke-dasharray]="g.circumference"
+                          [attr.stroke-dashoffset]="g.dashoffset"
+                          class="motion-safe:transition-all duration-700">
+                    <title>{{ g.ariaLabel }}</title>
+                  </circle>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span class="font-extrabold tabular-nums leading-none text-content-main"
+                        [class.text-5xl]="g.size === 'hero'"
+                        [class.text-xl]="g.size !== 'hero'">{{ g.centerValue }}</span>
+                  @if (g.centerUnit) {
+                    <span class="text-content-muted uppercase tracking-wider"
+                          [class.text-xs]="g.size === 'hero'"
+                          [class.text-[9px]]="g.size !== 'hero'"
+                          [class.mt-1]="g.size === 'hero'"
+                          [class.mt-0.5]="g.size !== 'hero'">{{ g.centerUnit }}</span>
+                  }
+                </div>
+              </div>
+              @if (k.delta) {
+                <span class="font-semibold inline-flex items-center gap-1"
+                      [class.text-sm]="g.size === 'hero'"
+                      [class.text-[11px]]="g.size !== 'hero'"
+                      [class.text-ok-fg]="k.deltaDir === 'up'"
+                      [class.text-bad-fg]="k.deltaDir === 'down'"
+                      [class.text-content-faint]="k.deltaDir === 'flat'">
+                  <i class="pi text-[10px]"
+                     [class.pi-arrow-up]="k.deltaDir === 'up'"
+                     [class.pi-arrow-down]="k.deltaDir === 'down'"
+                     [class.pi-minus]="k.deltaDir === 'flat'"
+                     aria-hidden="true"></i>
+                  {{ k.delta }}
+                </span>
+              }
+            </div>
+          }
+
+          <!-- SPARK variant: bars o area -->
+          @if (k.kind === 'spark') {
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
+              @if (k.delta) {
+                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [class.text-ok-fg]="k.deltaDir === 'up'"
+                      [class.text-bad-fg]="k.deltaDir === 'down'"
+                      [class.text-content-faint]="k.deltaDir === 'flat'">
+                  <i class="pi text-[9px]"
+                     [class.pi-arrow-up]="k.deltaDir === 'up'"
+                     [class.pi-arrow-down]="k.deltaDir === 'down'"
+                     [class.pi-minus]="k.deltaDir === 'flat'"
+                     aria-hidden="true"></i>
+                  {{ k.delta }}
+                </span>
+              }
+            </div>
+
+            @if (k.spark; as s) {
+              <svg [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
+                   class="w-full mt-auto"
+                   [class.h-12]="s.style === 'area'"
+                   [class.h-10]="s.style === 'bars'"
+                   [attr.aria-label]="s.ariaLabel" role="img">
+
+                @if (s.style === 'bars') {
+                  @if (s.metaY >= 0) {
+                    <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                          stroke="var(--text-faint)" stroke-width="0.3"
+                          stroke-dasharray="1.5 1.5" opacity="0.6"></line>
+                  }
+                  @for (b of s.bars; track $index) {
+                    <g>
+                      <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
+                            [attr.fill]="b.color" rx="0.3"
+                            [attr.opacity]="b.isToday ? 1 : 0.7"
+                            class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
+                        <title>{{ b.tooltip }}</title>
+                      </rect>
+                      @if (b.isToday) {
+                        <circle [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
+                                [attr.fill]="b.color"></circle>
+                      }
+                    </g>
+                  }
+                }
+
+                @if (s.style === 'area') {
+                  <defs>
+                    <linearGradient [attr.id]="s.gradientId" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" [attr.stop-color]="s.color" stop-opacity="0.45"></stop>
+                      <stop offset="100%" [attr.stop-color]="s.color" stop-opacity="0"></stop>
+                    </linearGradient>
+                  </defs>
+                  @if (s.metaY >= 0) {
+                    <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                          stroke="var(--text-faint)" stroke-width="0.3"
+                          stroke-dasharray="1.5 1.5" opacity="0.6"></line>
+                  }
+                  <path [attr.d]="s.areaPath" [attr.fill]="'url(#' + s.gradientId + ')'"></path>
+                  <path [attr.d]="s.linePath" fill="none"
+                        [attr.stroke]="s.color" stroke-width="0.8"
+                        stroke-linecap="round" stroke-linejoin="round"></path>
+                  @for (p of s.points; track $index) {
+                    @if (p.isToday) {
+                      <circle [attr.cx]="p.x" [attr.cy]="p.y" r="1.2"
+                              [attr.fill]="s.color" stroke="var(--card-bg)" stroke-width="0.5">
+                        <title>{{ p.tooltip }}</title>
+                      </circle>
+                    }
+                  }
+                  <!-- Hit areas invisibles para tooltip en cada punto -->
+                  @for (p of s.points; track $index) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="2"
+                            fill="transparent" class="cursor-help">
+                      <title>{{ p.tooltip }}</title>
+                    </circle>
+                  }
+                }
+              </svg>
+            } @else {
+              <div class="mt-auto h-1.5 rounded-full bg-surface-layout overflow-hidden">
+                <div class="h-full rounded-full status-fill motion-safe:transition-all duration-500"
+                     [style.width.%]="k.pct"></div>
+              </div>
+            }
+          }
+        </div>
+      }
     }
   </div>
 
-  <!-- ── 4. Estado de Error ─────────────────────────────────────────── -->
-  @if (error()) {
-    <div class="tf-banner">
-      <i class="pi pi-exclamation-triangle"></i>
-      <span>No se pudo cargar el análisis de venta al detalle.</span>
-      <button pButton type="button" class="p-button-text p-button-sm" (click)="loadData()">
-        <span class="p-button-label">Reintentar</span>
-      </button>
-    </div>
-  }
+  <!--
+    Grid de 5 celdas con posicionamiento explícito en desktop (lg+) y orden
+    explícito en mobile via `order-*`. Esto permite que las "Operativas
+    directas" (acciones rápidas) aparezcan justo después de los KPIs en
+    móvil, en lugar de quedar relegadas al final del scroll.
+  -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:auto-rows-min">
 
-  <!-- ── 5. Skeleton Loading ────────────────────────────────────────── -->
-  @if (loading()) {
-    <div class="tf-skeleton-matrix">
-      @for (idx of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track idx) {
-        <div class="card-premium card-flat p-4 flex flex-col gap-2">
-          <p-skeleton width="40%" height="0.8rem"></p-skeleton>
-          <p-skeleton width="70%" height="1.8rem"></p-skeleton>
-          <p-skeleton width="50%" height="0.7rem"></p-skeleton>
+    <!-- Quick Actions: mobile order 1 / desktop col 9-12 row 3 -->
+    <div class="surf-panel order-1 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-3">
+      <div class="surf-panel-head"><h3>Operativa directa</h3></div>
+      <div class="surf-panel-body">
+        <div class="space-y-2">
+          @for (a of quickActions(); track a.route) {
+            <a [routerLink]="a.route"
+               class="flex items-center justify-between p-3 min-h-11 rounded-xl bg-surface-layout hover:bg-surface-hover motion-safe:transition-colors no-underline group border border-transparent hover:border-divider">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors">
+                  <i [class]="a.icon"></i>
+                </div>
+                <span class="text-xs font-bold">{{ a.label }}</span>
+              </div>
+              <i class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"></i>
+            </a>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart: mobile order 2 / desktop col 1-8 row 1 -->
+    <div class="order-2 lg:order-none lg:col-span-8 lg:col-start-1 lg:row-start-1">
+      @defer (on idle) {
+        @if (stackedChartData()) {
+          <app-home-charts [stackedChartData]="stackedChartData()" [stackedChartOptions]="stackedChartOptions()" />
+        }
+      } @placeholder {
+        <!-- Placeholder con el MISMO header (incluye slot vacío para la
+             leyenda) y altura de chart 320px que la versión real. Esto evita
+             que al hidratarse el chart se empuje el contenido siguiente. -->
+        <div class="surf-panel">
+          <div class="surf-panel-head">
+            <h3>Ejecución Semanal</h3>
+            <div class="invisible flex items-center gap-4 text-[11px] text-content-muted">
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Alto Score</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Medio</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Bajo</span>
+            </div>
+          </div>
+          <div class="surf-panel-body">
+            <p-skeleton height="320px"></p-skeleton>
+          </div>
         </div>
       }
     </div>
-  }
 
-  <!-- ── 6. Contenido Principal con Datos ───────────────────────────── -->
-  @if (!loading() && report(); as r) {
-    <!--
-      MATRIZ 5 × 2 (Piso de Ventas):
-      Columna 1: VENTA / MARGEN
-      Columna 2: TICKETS / TICKET PROMEDIO
-      Columna 3: PARTIDAS POR TICKET / VALOR POR PARTIDA
-      Columna 4: UNIDADES POR TICKET / VALOR UNITARIO PROMEDIO
-      Columna 5: CLIENTES / VENTA POR CLIENTE
-    -->
-    <div class="tf-kpi-matrix">
-      <!-- Columna 1 -->
-      <app-metric-card
-        label="VENTA"
-        [value]="r.kpis.revenue.cur"
-        format="currency"
-        tone="brand"
-        [delta]="r.kpis.revenue.delta_pct"
-        sub="lo que entró en el período en ruta"
-      ></app-metric-card>
-      <app-metric-card
-        label="MARGEN"
-        [value]="r.kpis.margin.cur"
-        format="currency"
-        [delta]="r.kpis.margin.delta_pct"
-        [sub]="margenSub(r)"
-      ></app-metric-card>
-
-      <!-- Columna 2 -->
-      <app-metric-card
-        label="TICKETS"
-        [value]="r.kpis.tickets.cur"
-        format="number"
-        [accent]="'var(--chart-1)'"
-        [delta]="r.kpis.tickets.delta_pct"
-        sub="cuántas veces se cobró en ruta"
-      ></app-metric-card>
-      <app-metric-card
-        label="TICKET PROMEDIO"
-        [value]="r.kpis.avg_ticket.cur"
-        format="currency"
-        [accent]="'var(--chart-4)'"
-        [delta]="r.kpis.avg_ticket.delta_pct"
-        sub="partidas × valor por partida"
-      ></app-metric-card>
-
-      <!-- Columna 3 -->
-      <app-metric-card
-        label="PARTIDAS POR TICKET"
-        [value]="r.kpis.basket.cur"
-        format="number"
-        [decimals]="2"
-        [accent]="'var(--chart-2)'"
-        [delta]="r.kpis.basket.delta_pct"
-        sub="renglones distintos por venta"
-      ></app-metric-card>
-      @if (r.kpis.avg_line.cur !== null) {
-        <app-metric-card
-          label="VALOR POR PARTIDA"
-          [value]="r.kpis.avg_line.cur!"
-          format="currency"
-          [decimals]="2"
-          [accent]="'var(--chart-3)'"
-          [delta]="r.kpis.avg_line.delta_pct"
-          sub="cuánto deja cada renglón"
-        ></app-metric-card>
-      } @else {
-        <app-metric-card
-          label="VALOR POR PARTIDA"
-          format="text"
-          valueText="—"
-          [accent]="'var(--chart-3)'"
-          sub="sin cobertura suficiente"
-        ></app-metric-card>
-      }
-
-      <!-- Columna 4 -->
-      @if (r.kpis.units_per_ticket.cur !== null) {
-        <app-metric-card
-          label="UNIDADES POR TICKET"
-          [value]="r.kpis.units_per_ticket.cur!"
-          format="number"
-          [decimals]="1"
-          [accent]="'var(--chart-5)'"
-          [delta]="r.kpis.units_per_ticket.delta_pct"
-          sub="piezas o kg por venta"
-        ></app-metric-card>
-      } @else {
-        <app-metric-card
-          label="UNIDADES POR TICKET"
-          format="text"
-          valueText="—"
-          [accent]="'var(--chart-5)'"
-          sub="sin cobertura suficiente"
-        ></app-metric-card>
-      }
-      @if (r.kpis.avg_unit.cur !== null) {
-        <app-metric-card
-          label="VALOR UNITARIO PROMEDIO"
-          [value]="r.kpis.avg_unit.cur!"
-          format="currency"
-          [decimals]="2"
-          [accent]="'var(--chart-6)'"
-          [delta]="r.kpis.avg_unit.delta_pct"
-          sub="cuánto vale cada pieza o kg"
-        ></app-metric-card>
-      } @else {
-        <app-metric-card
-          label="VALOR UNITARIO PROMEDIO"
-          format="text"
-          valueText="—"
-          [accent]="'var(--chart-6)'"
-          sub="no hubo venta en el período"
-        ></app-metric-card>
-      }
-
-      <!-- Columna 5 -->
-      <app-metric-card
-        label="CLIENTES"
-        [value]="r.kpis.customers.cur"
-        format="number"
-        [accent]="'var(--chart-7)'"
-        [delta]="r.kpis.customers.delta_pct"
-        sub="con compra en ruta en el período"
-      ></app-metric-card>
-      @if (r.kpis.revenue_per_customer.cur !== null) {
-        <app-metric-card
-          label="VENTA POR CLIENTE"
-          [value]="r.kpis.revenue_per_customer.cur!"
-          format="currency"
-          [accent]="'var(--chart-7)'"
-          [delta]="r.kpis.revenue_per_customer.delta_pct"
-          sub="promedio de lo que compró cada uno"
-        ></app-metric-card>
-      } @else {
-        <app-metric-card
-          label="VENTA POR CLIENTE"
-          format="text"
-          valueText="—"
-          [accent]="'var(--chart-7)'"
-          sub="ningún cliente con registro"
-        ></app-metric-card>
-      }
+    <!-- Tabla cumplimiento diario: mobile order 3 / desktop col 1-8 row 2 -->
+    <div class="surf-panel order-3 lg:order-none lg:col-span-8 lg:col-start-1 lg:row-start-2">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-table" aria-hidden="true"></i> Cumplimiento diario</h3>
+        <span class="text-[10px] text-content-faint uppercase tracking-widest">Hoy · vs metas</span>
+      </div>
+      <div class="surf-panel-body is-flush">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead>
+              <tr class="text-[10px] text-content-muted font-black uppercase border-b border-divider">
+                <th class="px-4 pb-3 pt-3 text-left">Activo</th>
+                <th class="pb-3 pt-3 text-center">Realizado</th>
+                <th class="pb-3 pt-3 text-center">Meta</th>
+                <th class="pb-3 pt-3 text-center">Estado</th>
+                <th class="pb-3 pt-3 text-right pr-4">Avance</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of furnitureRows(); track row.label) {
+                <tr class="border-b border-divider hover:bg-surface-layout motion-safe:transition-colors"
+                    [class]="'status-' + row.status">
+                  <td class="py-3 px-4">
+                    <div class="flex items-center gap-3">
+                      <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center">
+                        <i [class]="row.icon" class="text-content-muted text-sm"></i>
+                      </div>
+                      <span class="text-sm font-bold">{{ row.label }}</span>
+                    </div>
+                  </td>
+                  <td class="py-3 text-center font-mono font-bold">{{ row.actual }}</td>
+                  <td class="py-3 text-center font-mono text-content-muted">{{ row.target }}</td>
+                  <td class="py-3 text-center">
+                    <span class="status-chip uppercase">{{ statusLabel(row.status) }}</span>
+                  </td>
+                  <td class="py-3 pr-4">
+                    <div class="flex items-center justify-end gap-3">
+                      <div class="w-24 h-1.5 bg-surface-layout rounded-full overflow-hidden">
+                        <div class="h-full rounded-full status-fill" [style.width.%]="row.pct"></div>
+                      </div>
+                      <span class="text-xs font-mono font-bold w-9 text-right">{{ row.pct }}%</span>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
-    <!-- Nota de Referencia Metodológica -->
-    <p class="tf-refnote tf-muted">
-      {{ r.period.from | date: 'dd/MM/yy' }}–{{ r.period.to | date: 'dd/MM/yy' }} ({{ days() }} {{ days() === 1 ? 'día' : 'días' }})
-      vs {{ r.prev_period.from | date: 'dd/MM/yy' }}–{{ r.prev_period.to | date: 'dd/MM/yy' }}.
-      Rutas de detalle: Venta a bordo (Rutas Directas RD) y Preventa en campo (Rutas Vecinales RV).
-      Tickets y partidas salen de notas y liquidaciones; venta, margen y unidades de la facturación comercial en ruta.
-      «Partida» = renglón de la nota de venta; «unidad» = pieza o kg vendido. «Valor unitario promedio» es venta ÷ unidades.
-    </p>
-
-    <!-- ── 7. Secciones por Pestaña Activa ────────────────────────── -->
-
-    <!-- PESTAÑA 1: TRÁFICO Y OPERACIÓN -->
-    @if (activeTab() === 'trafico') {
-      <!-- Gráfico de Tendencia Diaria -->
-      <div class="card-premium card-flat tf-panel">
-        <div class="tf-panel-head">
-          <div class="flex items-center gap-2">
-            <h3 class="tf-card-title">Tendencia diaria en ruta</h3>
-            <span class="tf-badge-pill">{{ days() }} días</span>
+    <!-- Ejecución crítica -->
+    <div class="surf-panel order-5 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-1">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-bolt" aria-hidden="true"></i> Ejecución crítica</h3>
+        <div class="h-2 w-2 rounded-full bg-ok animate-pulse"></div>
+      </div>
+      <div class="surf-panel-body">
+        <div class="space-y-3">
+          <div class="p-3 border border-divider rounded-xl bg-surface-layout">
+            <p class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1">Mejor ejecutivo</p>
+            <h4 class="text-xl font-extrabold tracking-tight text-content-main leading-none">
+              {{ summaryMonthly()?.mejor_ejecutivo || 'N/A' }}
+            </h4>
           </div>
-          <p-selectbutton
-            [options]="chartMetricOptions"
-            optionLabel="label"
-            optionValue="value"
-            [allowEmpty]="false"
-            [ngModel]="chartMetric()"
-            (ngModelChange)="chartMetric.set($event)"
-            class="sb-liquid sb-liquid-sm"
-          />
+          <div class="p-3 border border-divider rounded-xl bg-surface-layout">
+            <p class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1">Evidencias verificadas</p>
+            <div class="flex items-end gap-2">
+              <span class="text-4xl font-extrabold tracking-tight text-content-main leading-none">{{ summaryMonthly()?.total_fotos ?? 0 }}</span>
+              <span class="text-xs text-content-muted mb-0.5">fotos</span>
+            </div>
+          </div>
         </div>
-        @if (r.series.length) {
-          <div class="tf-chart">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOptions()"></p-chart>
+        @if (lastUpdatedAt(); as t) {
+          <div class="mt-4 pt-3 border-t border-divider flex justify-between items-center">
+            <span class="text-[10px] font-mono uppercase text-content-faint">Sync · {{ t | date:'shortTime' }}</span>
+            <i class="pi pi-shield text-content-faint"></i>
           </div>
-        } @else {
-          <p class="tf-empty">Sin venta registrada en el rango.</p>
         }
       </div>
+    </div>
 
-      <!-- Comparativa de Modelos: RD (Venta a bordo) vs Preventa Vecinal -->
-      <div class="tf-channels-grid">
-        <!-- Tarjeta RD -->
-        <div class="card-premium card-flat tf-channel-card">
-          <div class="tf-channel-head">
-            <div class="flex items-center gap-2">
-              <span class="tf-chan-icon rd-icon"><i class="pi pi-truck"></i></span>
-              <div>
-                <h4 class="tf-chan-title">Venta a bordo (Rutas Directas RD)</h4>
-                <p class="tf-chan-sub">Camionetas con stock físico a bordo · Cobro en sitio</p>
-              </div>
-            </div>
-            <p-tag severity="warn" [value]="r.channels.rd.active_routes + ' rutas activas'"></p-tag>
-          </div>
-
-          <div class="tf-chan-metrics">
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Venta</span>
-              <span class="tf-cm-val">{{ money(r.channels.rd.revenue) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.rd.share_pct }}% del total</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Tickets / Notas</span>
-              <span class="tf-cm-val">{{ num(r.channels.rd.tickets) }}</span>
-              <span class="tf-cm-sub">cobranzas</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Ticket Promedio</span>
-              <span class="tf-cm-val">{{ money(r.channels.rd.avg_ticket) }}</span>
-              <span class="tf-cm-sub">por entrega</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Unidades</span>
-              <span class="tf-cm-val">{{ num(r.channels.rd.units) }}</span>
-              <span class="tf-cm-sub">piezas/kg</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Margen</span>
-              <span class="tf-cm-val">{{ money(r.channels.rd.margin) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.rd.margin_pct }}% margen</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tarjeta Preventa Vecinal -->
-        <div class="card-premium card-flat tf-channel-card">
-          <div class="tf-channel-head">
-            <div class="flex items-center gap-2">
-              <span class="tf-chan-icon vec-icon"><i class="pi pi-clipboard"></i></span>
-              <div>
-                <h4 class="tf-chan-title">Preventa en campo (Rutas Vecinales RV)</h4>
-                <p class="tf-chan-sub">Toma de pedidos en tienditas de barrio · Surtido posterior</p>
-              </div>
-            </div>
-            <p-tag severity="info" [value]="r.channels.vecinal.active_routes + ' rutas activas'"></p-tag>
-          </div>
-
-          <div class="tf-chan-metrics">
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Venta</span>
-              <span class="tf-cm-val">{{ money(r.channels.vecinal.revenue) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.vecinal.share_pct }}% del total</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Pedidos Tomados</span>
-              <span class="tf-cm-val">{{ num(r.channels.vecinal.tickets) }}</span>
-              <span class="tf-cm-sub">pedidos</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Ticket Promedio</span>
-              <span class="tf-cm-val">{{ money(r.channels.vecinal.avg_ticket) }}</span>
-              <span class="tf-cm-sub">por pedido</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Unidades</span>
-              <span class="tf-cm-val">{{ num(r.channels.vecinal.units) }}</span>
-              <span class="tf-cm-sub">piezas/kg</span>
-            </div>
-            <div class="tf-cm-item">
-              <span class="tf-cm-lbl">Margen</span>
-              <span class="tf-cm-val">{{ money(r.channels.vecinal.margin) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.vecinal.margin_pct }}% margen</span>
-            </div>
-          </div>
-        </div>
+    <!-- Actividad reciente: mobile order 4 / desktop col 9-12 row 2 -->
+    <div class="surf-panel order-4 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-2">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-history" aria-hidden="true"></i> Actividad reciente</h3>
+        <p-button icon="pi pi-external-link" [text]="true" severity="secondary" size="small"
+                  routerLink="/dashboard/reports"
+                  ariaLabel="Abrir reportes detallados"></p-button>
       </div>
-
-      <!-- Resumen por Sucursal Madre -->
-      @if (r.by_branch.length > 0) {
-        <div class="card-premium card-flat tf-panel">
-          <div class="tf-panel-head">
-            <h3 class="tf-card-title">Por sucursal madre</h3>
-            <span class="tf-sub-info">{{ r.by_branch.length }} sucursales con rutas</span>
-          </div>
-          <p-table [value]="r.by_branch" class="p-datatable-sm tf-table" [rowHover]="true">
-            <ng-template #header>
-              <tr>
-                <th>Sucursal</th>
-                <th class="ta-c">Rutas</th>
-                <th class="ta-r">Venta</th>
-                <th class="ta-r">Tickets</th>
-                <th class="ta-r">Ticket prom.</th>
-                <th class="ta-r">Margen</th>
-                <th class="ta-r">Unidades</th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-b>
-              <tr>
-                <td class="strong">{{ b.name || b.code }}</td>
-                <td class="ta-c"><p-tag severity="secondary" [value]="b.routes_count + ' rutas'"></p-tag></td>
-                <td class="ta-r strong text-brand">{{ money(b.revenue) }}</td>
-                <td class="ta-r">{{ num(b.tickets) }}</td>
-                <td class="ta-r">{{ b.tickets > 0 ? money(b.avg_ticket) : '—' }}</td>
-                <td class="ta-r tf-muted">{{ money(b.margin) }}</td>
-                <td class="ta-r">{{ num(b.units) }}</td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </div>
-      }
-    }
-
-    <!-- PESTAÑA 2: RUTAS Y CANALES -->
-    @if (activeTab() === 'rutas') {
-      <div class="card-premium card-flat tf-panel">
-        <div class="tf-panel-head flex-wrap">
-          <div>
-            <h3 class="tf-card-title">Rutas de Detalle — Desglose Operativo</h3>
-            <p class="tf-muted text-xs">Venta a bordo (Rutas Directas RD) y Preventa en campo (Vecinales RV)</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <p-iconfield class="tf-table-search">
-              <p-inputicon class="pi pi-search" />
-              <input
-                pInputText
-                type="text"
-                [ngModel]="routeSearch()"
-                (ngModelChange)="routeSearch.set($event)"
-                placeholder="Buscar ruta, chofer o plaza…"
-              />
-              @if (routeSearch()) {
-                <p-inputicon class="pi pi-times cursor-pointer" (click)="routeSearch.set('')" />
-              }
-            </p-iconfield>
-          </div>
-        </div>
-
-        <p-table
-          [value]="filteredRoutes()"
-          class="p-datatable-sm tf-table"
-          [rowHover]="true"
-          [paginator]="filteredRoutes().length > 15"
-          [rows]="15"
-        >
-          <ng-template #header>
-            <tr>
-              <th>Ruta</th>
-              <th>Modalidad</th>
-              <th>Sucursal</th>
-              <th>Chofer / Responsable</th>
-              <th class="ta-r">Venta</th>
-              <th class="ta-c">% Share</th>
-              <th class="ta-r">Tickets</th>
-              <th class="ta-r">Ticket Prom.</th>
-              <th class="ta-r">Partidas/Tk</th>
-              <th class="ta-r">Margen</th>
-              <th class="ta-c">Detalle</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-rt>
-            <tr>
-              <td>
-                <div class="font-bold text-sm">{{ rt.name }}</div>
-                <div class="text-[11px] text-content-faint tabular-nums">{{ rt.route_code }}</div>
-              </td>
-              <td>
-                <span class="tf-canal-badge" [class.is-rd]="rt.canal === 'rd'" [class.is-vecinal]="rt.canal === 'vecinal'">
-                  <i [class]="rt.canal === 'rd' ? 'pi pi-truck' : 'pi pi-clipboard'"></i>
-                  {{ rt.canal_label }}
-                </span>
-              </td>
-              <td>
-                <span class="text-xs text-content-muted">{{ rt.warehouse_name }}</span>
-              </td>
-              <td>
-                <div class="text-xs font-medium">{{ rt.chofer_nombre }}</div>
-                <div class="text-[10px] text-content-faint">Sup: {{ rt.supervisor_nombre }}</div>
-              </td>
-              <td class="ta-r font-bold text-brand">{{ money(rt.revenue) }}</td>
-              <td class="ta-c">
-                <div class="flex items-center justify-center gap-1.5">
-                  <div class="w-12 bg-black/10 rounded-full h-1.5 overflow-hidden">
-                    <div class="bg-brand h-full rounded-full" [style.width.%]="rt.share_pct"></div>
-                  </div>
-                  <span class="text-xs tabular-nums text-content-muted">{{ rt.share_pct }}%</span>
+      <div class="surf-panel-body">
+        <div class="space-y-4 min-h-[320px]">
+          @for (cap of recentCaptures(); track cap.id) {
+            <div class="flex items-start gap-3 group">
+              <div class="h-9 w-9 shrink-0 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-black uppercase ring-2 ring-surface-layout">
+                {{ cap.captured_by_username?.charAt(0) }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2 mb-0.5">
+                  <span class="text-xs font-bold truncate">{{ cap.captured_by_username }}</span>
+                  <span class="text-[9px] font-mono text-content-faint">{{ cap.hora_inicio | date:'shortTime' }}</span>
                 </div>
-              </td>
-              <td class="ta-r tabular-nums">{{ num(rt.tickets) }}</td>
-              <td class="ta-r tabular-nums">{{ money(rt.avg_ticket) }}</td>
-              <td class="ta-r tabular-nums">{{ numDec(rt.basket, 1) }}</td>
-              <td class="ta-r tabular-nums tf-muted">
-                {{ money(rt.margin) }}
-                <span class="text-[10px] block text-content-faint">{{ rt.margin_pct }}%</span>
-              </td>
-              <td class="ta-c">
-                <button
-                  pButton
-                  type="button"
-                  class="p-button-text p-button-sm p-button-rounded"
-                  icon="pi pi-chart-bar"
-                  pTooltip="Ver ventas por ruta mensual"
-                  (click)="goToRouteDetails(rt)"
-                ></button>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage>
-            <tr>
-              <td colspan="11" class="text-center py-6 text-content-muted">
-                No se encontraron rutas con los filtros aplicados.
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </div>
-    }
-
-    <!-- PESTAÑA 3: PRODUCTOS TOP -->
-    @if (activeTab() === 'productos') {
-      <div class="card-premium card-flat tf-panel">
-        <div class="tf-panel-head flex-wrap">
-          <div>
-            <h3 class="tf-card-title">Top Productos en Venta al Detalle</h3>
-            <p class="tf-muted text-xs">SKUs con mayor volumen y venta en camionetas y preventa</p>
-          </div>
-          <p-iconfield class="tf-table-search">
-            <p-inputicon class="pi pi-search" />
-            <input
-              pInputText
-              type="text"
-              [ngModel]="productSearch()"
-              (ngModelChange)="productSearch.set($event)"
-              placeholder="Buscar por SKU, nombre o marca…"
-            />
-            @if (productSearch()) {
-              <p-inputicon class="pi pi-times cursor-pointer" (click)="productSearch.set('')" />
-            }
-          </p-iconfield>
-        </div>
-
-        <p-table [value]="filteredProducts()" class="p-datatable-sm tf-table" [rowHover]="true">
-          <ng-template #header>
-            <tr>
-              <th class="ta-c">#</th>
-              <th>SKU</th>
-              <th>Producto</th>
-              <th>Marca</th>
-              <th class="ta-c">Canal</th>
-              <th class="ta-r">Unidades</th>
-              <th class="ta-r">Venta Total</th>
-              <th class="ta-r">Precio Prom.</th>
-              <th class="ta-r">% Participación</th>
-              <th class="ta-r">% Acumulado</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-p let-idx="rowIndex">
-            <tr>
-              <td class="ta-c text-content-faint text-xs font-bold">{{ idx + 1 }}</td>
-              <td class="font-mono text-xs font-bold">{{ p.sku }}</td>
-              <td class="font-medium text-xs">{{ p.nombre }}</td>
-              <td class="text-xs text-content-muted">{{ p.brand || '—' }}</td>
-              <td class="ta-c">
-                <span class="tf-mini-badge" [class.is-rd]="p.canal_predominante === 'rd'" [class.is-vecinal]="p.canal_predominante === 'vecinal'">
-                  {{ p.canal_predominante === 'rd' ? 'Ruta Directa' : p.canal_predominante === 'vecinal' ? 'Preventa' : 'Mixto' }}
-                </span>
-              </td>
-              <td class="ta-r tabular-nums">{{ num(p.units) }}</td>
-              <td class="ta-r tabular-nums font-bold text-brand">{{ money(p.revenue) }}</td>
-              <td class="ta-r tabular-nums">{{ moneyDec(p.avg_price) }}</td>
-              <td class="ta-r tabular-nums font-semibold">{{ p.share_pct }}%</td>
-              <td class="ta-r tabular-nums text-content-muted">
-                <span class="px-1.5 py-0.5 rounded bg-black/5 font-mono text-[11px]">{{ p.cum_share_pct }}%</span>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage>
-            <tr>
-              <td colspan="10" class="text-center py-6 text-content-muted">
-                No se encontraron productos coincidentes.
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </div>
-    }
-
-    <!-- PESTAÑA 4: CLIENTES -->
-    @if (activeTab() === 'clientes') {
-      <div class="card-premium card-flat tf-panel">
-        <div class="tf-panel-head flex-wrap">
-          <div>
-            <h3 class="tf-card-title">Cartera de Clientes Atendidos en Ruta</h3>
-            <p class="tf-muted text-xs">Tienditas de abarrotes, dulcerías y clientes visitados con cobranza</p>
-          </div>
-          <p-iconfield class="tf-table-search">
-            <p-inputicon class="pi pi-search" />
-            <input
-              pInputText
-              type="text"
-              [ngModel]="clientSearch()"
-              (ngModelChange)="clientSearch.set($event)"
-              placeholder="Buscar por cliente o ruta…"
-            />
-            @if (clientSearch()) {
-              <p-inputicon class="pi pi-times cursor-pointer" (click)="clientSearch.set('')" />
-            }
-          </p-iconfield>
-        </div>
-
-        <p-table [value]="filteredCustomers()" class="p-datatable-sm tf-table" [rowHover]="true">
-          <ng-template #header>
-            <tr>
-              <th>Código</th>
-              <th>Nombre de Cliente / Tiendita</th>
-              <th>Ruta Habitual</th>
-              <th>Frecuencia</th>
-              <th class="ta-r">Visitas / Notas</th>
-              <th class="ta-r">Ticket Promedio</th>
-              <th class="ta-r">Venta Total</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-c>
-            <tr>
-              <td class="font-mono text-xs font-semibold">{{ c.cliente_code }}</td>
-              <td class="font-bold text-xs">{{ c.cliente_nombre }}</td>
-              <td><p-tag severity="secondary" [value]="c.route_code"></p-tag></td>
-              <td class="text-xs text-content-muted">{{ c.frecuencia }}</td>
-              <td class="ta-r tabular-nums font-semibold">{{ c.tickets }}</td>
-              <td class="ta-r tabular-nums">{{ money(c.avg_ticket) }}</td>
-              <td class="ta-r tabular-nums font-bold text-brand">{{ money(c.revenue) }}</td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </div>
-    }
-
-    <!-- PESTAÑA 5: INCENTIVOS Y LIQUIDACIÓN -->
-    @if (activeTab() === 'incentivos') {
-      <div class="tf-incentivos-grid">
-        <div class="card-premium card-flat p-5 flex flex-col gap-3">
-          <div class="flex items-center gap-2 text-action font-bold text-base">
-            <i class="pi pi-money-bill"></i>
-            <span>Liquidación Operativa de Rutas</span>
-          </div>
-          <p class="text-xs text-content-muted leading-relaxed">
-            El corte de ruta se procesa diariamente tras el regreso de camionetas y levantamiento de pedidos en campo.
-            Las comisiones de chofer y vendedor se auditan sobre el subtotal efectivo conciliado en Wincaja y ERP.
-          </p>
-          <div class="grid grid-cols-2 gap-3 mt-2">
-            <div class="p-3 bg-black/5 dark:bg-white/5 rounded-md flex flex-col">
-              <span class="text-[10px] text-content-faint uppercase font-bold tracking-wider">Rutas al Día</span>
-              <span class="text-xl font-bold text-ok">13 / 13</span>
-              <span class="text-[11px] text-content-muted">Corte D+1 completado</span>
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-content-muted uppercase tracking-tight">{{ cap.zona_captura }}</span>
+                  <span class="text-xs font-black status-text" [class]="'status-' + cap._scoreStatus">
+                    {{ fmtScore(cap._score) }}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div class="p-3 bg-black/5 dark:bg-white/5 rounded-md flex flex-col">
-              <span class="text-[10px] text-content-faint uppercase font-bold tracking-wider">Cumplimiento Cuota</span>
-              <span class="text-xl font-bold text-brand">97.4%</span>
-              <span class="text-[11px] text-content-muted">Objetivo quincenal</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-3 mt-3">
-            <a routerLink="/comercial/ventas-por-ruta" class="p-button p-button-sm p-button-brand text-xs">
-              <i class="pi pi-chart-bar mr-1.5"></i> Ver Reporte Mensual de Rutas
-            </a>
-            <button pButton type="button" class="p-button-outlined p-button-secondary p-button-sm text-xs" (click)="goToAudit()">
-              <i class="pi pi-check-circle mr-1.5"></i> Auditoría de Ruta
-            </button>
-          </div>
-        </div>
-
-        <div class="card-premium card-flat p-5 flex flex-col gap-3">
-          <div class="flex items-center gap-2 text-content-main font-bold text-base">
-            <i class="pi pi-info-circle text-action"></i>
-            <span>Reglas de Medición y Procedencia</span>
-          </div>
-          <ul class="text-xs text-content-muted flex flex-col gap-2 list-disc pl-4 leading-relaxed">
-            <li>
-              <strong>Ruta Directa (RD):</strong> Camionetas con producto a bordo. El costo y margen provienen de las líneas conciliadas de Wincaja (.mdb).
-            </li>
-            <li>
-              <strong>Preventa Vecinal (RV):</strong> Pedidos tomados en campo por vendedores en tienditas de barrio, facturados en Kepler.
-            </li>
-            <li>
-              <strong>Integridad del dato:</strong> Las fechas de negocio se alinean al huso horario de México (UTC-6) sin desfase de corte nocturno.
-            </li>
-          </ul>
+          }
         </div>
       </div>
-    }
-  }
+    </div>
+
+  </div>
 </div>
+
+<p-dialog header="Metas y rangos de cumplimiento" [visible]="showMetasDialog()" (visibleChange)="showMetasDialog.set($event)" [modal]="true"
+  [style]="{ width: '95vw', maxWidth: '600px' }" [draggable]="false" [resizable]="false" [blockScroll]="true"
+  [focusOnShow]="false" appendTo="body"
+  [contentStyle]="{'overflow-y': 'auto', 'max-height': '70vh', 'padding': '0.5rem'}"
+  styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card'">
+
+  <div class="space-y-6 p-2 sm:p-0 pt-2">
+    <div class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted">
+      <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
+      <span>Define dos umbrales por KPI. El dashboard y los reportes usarán estos rangos para colorear el semáforo automáticamente.</span>
+    </div>
+
+    <div class="flex gap-4 flex-wrap text-[11px]">
+      <span class="flex items-center gap-1.5 status-bad">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Por debajo del mínimo</span>
+      </span>
+      <span class="flex items-center gap-1.5 status-warn">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Entre mínimo y óptimo</span>
+      </span>
+      <span class="flex items-center gap-1.5 status-ok">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Óptimo o superior</span>
+      </span>
+    </div>
+
+    <div>
+      <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">KPIs de ejecución</h4>
+      <div class="space-y-4">
+        @for (r of editableKpi; track r.id) {
+          <div class="p-4 bg-surface-layout rounded-xl border border-divider">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+              <span class="font-bold text-sm">{{ r.label }}</span>
+              <div class="flex flex-wrap gap-2 text-[10px]">
+                <span class="status-chip status-bad">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
+                <span class="status-chip status-ok">≥ {{ r.opt }}{{ r.unit }} = óptimo</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-content-faint uppercase">Meta mínima</label>
+                <div class="w-full">
+                  <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
+                </div>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-content-faint uppercase">Meta óptima</label>
+                <div class="w-full">
+                  <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
+                </div>
+              </div>
+            </div>
+            <div class="mt-3 h-2 rounded-full overflow-hidden flex">
+              <div class="status-bad status-fill" [style.flex]="r.min"></div>
+              <div class="status-warn status-fill" [style.flex]="r.opt - r.min"></div>
+              <div class="status-ok status-fill" [style.flex]="r.opt * 0.5"></div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div>
+      <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">Mobiliario</h4>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        @for (f of editableFurniture; track f.id) {
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i [class]="f.icon" class="text-content-muted w-5 text-center shrink-0"></i>
+              <span class="font-medium text-sm truncate">{{ f.label }}</span>
+            </div>
+            <div class="shrink-0 w-20 sm:w-16">
+              <input type="number" [(ngModel)]="f.target" [min]="0"
+                inputmode="numeric" enterkeyhint="done"
+                class="w-full min-h-11 px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand" />
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <ng-template #footer>
+    <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
+      <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" class="w-full sm:w-auto"></p-button>
+      <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" class="w-full sm:w-auto"></p-button>
+    </div>
+  </ng-template>
+</p-dialog>
+
+<p-toast></p-toast>
