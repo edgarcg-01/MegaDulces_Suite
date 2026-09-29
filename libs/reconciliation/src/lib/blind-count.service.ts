@@ -46,20 +46,24 @@ export type TipoArqueo = typeof TIPOS_VALIDOS[number];
 export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv'];
 
 /**
- * SM.38 - Ventana del candado de doble caja.
+ * SM.38 - Ventana del aviso de doble caja.
  *
- * Se bloquea por cajas abiertas el MISMO DIA, no por "2 o mas abiertas" a secas,
+ * Se avisa por cajas abiertas el MISMO DIA, no por "2 o mas abiertas" a secas,
  * y la diferencia la decidio la medicion (2026-09-21): de las 5 cajeras con dos
  * cajas abiertas, solo DOS son el caso real -- C02 y C04, cada una con una caja
  * en la sucursal 07 y otra en la 08, ambas de hoy. Las otras tres arrastran
  * turnos que nadie va a cerrar: 40VMC tiene uno abierto desde el 31 de ENERO
  * (233 dias), y 26VHGH/21VUO dos de hace 19-20 dias.
  *
- * Con la regla literal esas tres quedarian bloqueadas PARA SIEMPRE por un
- * problema de datos, no por lo que el control busca evitar. Los arrastrados se
- * DECLARAN aparte (ya los vigila `arqueo_no_realizado`): bloquear no los cierra.
+ * ⚠️ SM.40 - Esto ya NO bloquea, solo se dice. Medido en prod el 2026-09-29,
+ * con la ingesta caida desde el 23: `C01` tenia dos cajas "abiertas" del mismo
+ * dia (suc 07 caja 1 y suc 08 caja 1) porque el cierre nunca llego al ODS, y el
+ * candado le vaciaba la lista de turnos con el mensaje "cierra la sesion en una
+ * de las dos en Kepler y se reactiva solo" -- que era FALSO: ya la habia
+ * cerrado, el aviso dependia de un feed muerto. Un candado cuyo desbloqueo
+ * depende de que llegue un dato no es un candado, es una trampa.
  */
-const BLOQUEO_SOLO_MISMO_DIA = true;
+const AVISO_SOLO_MISMO_DIA = true;
 
 /** Una caja abierta de esta persona, con lo justo para poder nombrarla. */
 export interface CajaAbierta {
@@ -71,11 +75,16 @@ export interface CajaAbierta {
   dias_abierta: number;
 }
 
-/** El veredicto del candado. `null` = no hay bloqueo. */
-export interface BloqueoDobleCaja {
-  /** Las que disparan el bloqueo: dos o mas del mismo dia. */
+/**
+ * SM.40 - El veredicto del detector de doble caja. `null` = nada que decir.
+ *
+ * Es un AVISO, no un veredicto que impida trabajar: se muestra al lado de la
+ * captura y la captura sigue habilitada.
+ */
+export interface AvisoDobleCaja {
+  /** Las que disparan el aviso: dos o mas del mismo dia. */
   cajas: CajaAbierta[];
-  /** Abiertas de dias anteriores. NO bloquean, pero se dicen. */
+  /** Abiertas de dias anteriores. Tambien se dicen. */
   arrastradas: CajaAbierta[];
 }
 
@@ -87,23 +96,24 @@ const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cob
 const ARQ_UMBRAL = 50;
 const ARQ_CRITICO = 1000;
 /**
- * Ventana de turnos por arquear.
+ * Ventana de turnos por arquear. **Una sola para todos** (SM.40).
  *
- * Para la **cajera es HOY y nada más** (`0`). El arqueo es un acto físico sobre el
- * cajón que tiene enfrente: un corte de anteayer ya no se puede contar —ese
- * efectivo se depositó o se fue en sangrías— así que ofrecérselo no le da trabajo,
- * le da una tarea imposible. Peor: con la regla de orden (SM.16) el corte viejo le
- * bloqueaba el de hoy, y la dejaba sin poder arquear nada.
+ * Hasta SM.39 la cajera veia HOY y nada mas (`0`) y no la podia ampliar, con el
+ * argumento de que un corte de anteayer "ya no se puede contar". El argumento
+ * era razonable y la consecuencia no: cuando el turno de hoy no llega -porque el
+ * ERP no lo abrio todavia, o porque la ingesta se atraso- la pantalla se queda
+ * MUDA y la persona no puede registrar nada. Medido en prod el 2026-09-29: la
+ * ingesta llevaba 6 dias caida, `kdpv_folio_caja` no tenia una sola fila del 24
+ * al 29, y las 25 cajeras con turno colgado no podian capturar su arqueo.
  *
- * El corte viejo sin contar NO se pierde: vive en la bandeja del supervisor como
- * `arqueo_no_realizado` y en el tablero de cumplimiento. Es un problema de
- * supervisión, no una tarea de mostrador.
- *
- * El **supervisor** sí ve la ventana ancha (`2`): captura por otros, en relevo y
- * en contingencia, y necesita alcanzar el cierre de ayer capturado hoy temprano.
+ * Decision (Edgar, 2026-09-29): **el arqueo no lleva horario**. Kepler avisa
+ * cuando abre la caja y la persona cuenta cuando puede. La ventana queda ancha e
+ * igual para cajera y supervisor; el tope sigue existiendo solo para no traer
+ * medio año de turnos a una pantalla de mostrador.
  */
-const TURNOS_DIAS_CAJERA = 0;
-const TURNOS_DIAS_SUPERVISOR = 2;
+const TURNOS_DIAS = 7;
+/** Tope duro de la ventana, para cualquiera. No es una restriccion de permiso. */
+const TURNOS_DIAS_TOPE = 30;
 
 /** Un turno de caja abierto/cerrado por Kepler — lo que toca arquear. Sin montos. */
 export interface TurnoPendiente {
@@ -275,23 +285,24 @@ export class BlindCountService {
   }
 
   /**
-   * SM.38 - Dos cajas abiertas con el MISMO usuario: se bloquea todo.
+   * SM.38/SM.40 - Dos cajas abiertas con el MISMO usuario: se AVISA.
    *
    * Una persona no puede estar operando dos cajas a la vez. Medido en vivo:
    * `C02` tenia abierta la caja 2 de la sucursal 07 y la caja 3 de la 08, las
    * dos el mismo dia -- y `C04` lo mismo con la 4 y la 1. No hay forma de que
    * el efectivo de las dos sea de la misma persona al mismo tiempo.
    *
-   * Se DERIVA del ODS en vivo, sin bandera guardada, y esa es la decision de
-   * diseno: el bloqueo se levanta SOLO en cuanto Kepler cierra una de las dos,
-   * que es justo lo pedido ("hasta que cierren la sesion en una de las dos ya le
-   * activas de nuevo todo"). Una bandera en tabla habria necesitado que alguien
-   * la apague a mano, y esa persona no existe a las 9 de la noche.
+   * Se DERIVA del ODS en vivo, sin bandera guardada: no hay nada que apagar a
+   * mano, el aviso desaparece solo cuando Kepler cierra una de las dos.
    *
-   * ⚠️ Devuelve las arrastradas por separado y NO bloquea con ellas: ver el
-   * comentario de `BLOQUEO_SOLO_MISMO_DIA`.
+   * ⚠️ SM.40 - Ya NO vacia la lista de turnos ni rechaza el POST. La senal sigue
+   * siendo buena -- lo que estaba mal era la consecuencia: su unica salida era
+   * un dato que tiene que llegar del ODS, y cuando el ODS se cae la persona
+   * queda trabada sin nada que pueda hacer al respecto (medido 2026-09-29:
+   * `C01`, con la ingesta caida 6 dias). Un aviso informa; un candado con la
+   * llave del otro lado solo para la caja.
    */
-  async bloqueoDobleCaja(cajeroCode: string): Promise<BloqueoDobleCaja | null> {
+  async avisoDobleCaja(cajeroCode: string): Promise<AvisoDobleCaja | null> {
     const cajero = (cajeroCode || '').trim().toUpperCase();
     if (!cajero) return null;
     return this.tk.run(async (trx) => {
@@ -314,9 +325,9 @@ export class BlindCountService {
       const deHoy = abiertas.filter((c) => Number(c.dias_abierta) === 0);
       const arrastradas = abiertas.filter((c) => Number(c.dias_abierta) > 0);
 
-      // El disparo. Con BLOQUEO_SOLO_MISMO_DIA en false pasa a ser "2 o mas
-      // abiertas" a secas, que es la regla literal y la que bloquea de mas.
-      const disparan = BLOQUEO_SOLO_MISMO_DIA ? deHoy : abiertas;
+      // El disparo. Con AVISO_SOLO_MISMO_DIA en false pasa a ser "2 o mas
+      // abiertas" a secas, que es la regla literal y la que avisa de mas.
+      const disparan = AVISO_SOLO_MISMO_DIA ? deHoy : abiertas;
       if (disparan.length < 2) return null;
       return { cajas: disparan, arrastradas };
     });
@@ -347,12 +358,11 @@ export class BlindCountService {
     const cajero = (q.cajeroCode || '').trim().toUpperCase();
     if (!cajero) return [];
     if (q.warehouseCodes && !q.warehouseCodes.length) return []; // alcance vacío → nada
-    const porDefecto = q.revela ? TURNOS_DIAS_SUPERVISOR : TURNOS_DIAS_CAJERA;
-    // `?? porDefecto` y no `|| porDefecto`: un `dias=0` explícito ("solo hoy") es
+    // `?? TURNOS_DIAS` y no `|| TURNOS_DIAS`: un `dias=0` explícito ("solo hoy") es
     // una respuesta válida y `||` lo tomaría como ausente.
-    const pedidos = q.dias == null ? porDefecto : Number(q.dias);
-    const tope = q.revela ? 30 : TURNOS_DIAS_CAJERA;   // la cajera no amplía su ventana
-    const dias = Math.min(tope, Math.max(0, Number.isFinite(pedidos) ? pedidos : porDefecto));
+    const pedidos = q.dias == null ? TURNOS_DIAS : Number(q.dias);
+    // SM.40 - El mismo tope para todos: la cajera ya puede ampliar su ventana.
+    const dias = Math.min(TURNOS_DIAS_TOPE, Math.max(0, Number.isFinite(pedidos) ? pedidos : TURNOS_DIAS));
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
         `SELECT k.sucursal                          AS warehouse_code,
