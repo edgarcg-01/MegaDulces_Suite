@@ -242,14 +242,15 @@ describe('cuerpoTicketVenta — la cascada cierra', () => {
     return null;
   };
 
-  it('lista - descuento en precio - descuento del documento = total', () => {
+  it('lista - descuento en precio - descuento de cliente = total', () => {
     const out = lineas({
       cascada: { ...BASE.cascada, importe_lista: 24729.60, descuento_precio: 2381.40,
         descuento_documento: 100, total: 22248.20, descuento_total: 2481.40 },
     });
     const lista = tras(out, 'Lista');
     const d1 = tras(out, 'Descuento');
-    const d2 = tras(out, 'Desc. documento');
+    // `[TK.d2]` El rotulo cambio: antes decia «Desc. documento».
+    const d2 = tras(out, 'Descuento de cliente');
     const total = tras(out, 'TOTAL');
     expect(lista).toBe(24729.60);
     expect(d1).toBe(2381.40);
