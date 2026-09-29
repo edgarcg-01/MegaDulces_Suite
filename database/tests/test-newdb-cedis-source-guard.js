@@ -114,6 +114,33 @@ const t = (name, cond, extra) => {
       console.log('  ⓘ NO MEDIDO: el rollback del cutover (la conexión no escribe — nada que deshacer)');
     }
 
+    // ── 4b. PUERTA A por la OTRA señal: v_branch_erp_cutover ──────────────────
+    // Las dos tablas responden la misma pregunta y HOY YA DISCREPAN (warehouses.kepler_code
+    // NULL vs wincaja.branches.kepler_code '00'). El resolvedor canónico sale de
+    // `wincaja.branches`, que es donde se marcaron las 4 migraciones anteriores: una puerta
+    // que sólo mirara `warehouses` no cerraría el día del cutover.
+    const ramaMigrada = (await db.raw(
+      `SELECT wincaja_source_branch AS b FROM analytics.v_branch_erp_cutover
+        WHERE tenant_id = ? AND cutover_date <= current_date ORDER BY cutover_date DESC LIMIT 1`,
+      [TENANT])).rows[0];
+
+    if (ramaMigrada) {
+      const porVista = await checkCedisSource(db, {
+        tenant: TENANT, cedisCode: CEDIS_CODE, wincajaBranch: ramaMigrada.b, maxAgeDays: 100000,
+      });
+      t(`PRUEBA NEGATIVA cutover por v_branch_erp_cutover: una rama YA migrada (${ramaMigrada.b}) cierra la puerta`,
+        porVista.ok === false && porVista.reason === 'cutover_done', JSON.stringify(porVista));
+      t('…y lo hace con SQL real contra el resolvedor canónico, no con un doble',
+        porVista.ok === false && porVista.reason === 'cutover_done');
+    } else {
+      console.log('  ⓘ NO MEDIDO: no hay ninguna rama con cutover_date <= hoy en v_branch_erp_cutover');
+    }
+
+    t('el CEDIS todavía NO está en v_branch_erp_cutover (si esto falla, el cutover YA pasó)',
+      (await db.raw(
+        `SELECT 1 FROM analytics.v_branch_erp_cutover WHERE tenant_id=? AND wincaja_source_branch=?`,
+        [TENANT, BRANCH])).rows.length === 0);
+
     // ── 5. Almacén inexistente ────────────────────────────────────────────────
     const sinWh = await checkCedisSource(db, { tenant: TENANT, cedisCode: '__NO_EXISTE__', wincajaBranch: BRANCH });
     t('PRUEBA NEGATIVA: almacén inexistente cierra con warehouse_missing',
