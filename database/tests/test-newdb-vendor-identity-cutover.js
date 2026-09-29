@@ -49,7 +49,16 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
 
 /** Los pares candidatos: misma plaza, uno termina y el otro arranca en el corte, tokens en común. */
 const SQL_PARES = `
-WITH cut AS (SELECT warehouse_code wc, cutover_date cd FROM analytics.v_branch_erp_cutover
+-- ⛔ kepler_code y NO warehouse_code (ojo: sin acentos graves acá, esto vive dentro de un
+-- template literal). Medido en prod 2026-09-28: la columna warehouse_code de
+-- analytics.v_branch_erp_cutover MEZCLA DOS CONVENCIONES — en las dos migraciones recientes
+-- trae el código de Kepler ('07','08') y en las tres viejas trae el nombre del almacén Wincaja
+-- ('MD-10','MD-42','MD-50'), que NO existe en ninguna de las dos matvistas. Con warehouse_code
+-- este JOIN devolvía CERO para 3 de las 5 plazas con corte — las dos más grandes incluidas
+-- (rama 10: 841,204 filas Wincaja · rama 50: 634,251) — y el test publicaba OK sobre las 2 que
+-- sí matcheaban, sin decir que se saltó el 60 % del universo. kepler_code matchea las DOS
+-- matvistas en las CINCO ramas.
+WITH cut AS (SELECT kepler_code wc, cutover_date cd FROM analytics.v_branch_erp_cutover
               WHERE cutover_date > '-infinity'),
      w AS (SELECT warehouse_code wc, vendor_code vc, max(vendor_name) nm,
                   max(business_date) ult, sum(monto) m
@@ -100,6 +109,21 @@ SELECT c.wc AS plaza, c.cd AS corte,
 
   // ── 1. Cada par candidato resuelve a la MISMA clave ──────────────────────────────────────
   console.log('\n1 · PARES A TRAVÉS DEL CORTE (mismo almacén, apellido en común)');
+
+  // ⭐ ANTES DE JUZGAR, DECLARAR CUÁNTO SE ALCANZA A VER. Este bloque nació midiendo 2 de 5
+  // plazas y reportando ✔ igual, porque la llave del JOIN no existía en las otras 3. Un
+  // universo recortado en silencio se lee idéntico a un universo sano (ADR-056).
+  const cob = await q(
+    `SELECT c.kepler_code kc, c.cutover_date::text cd,
+            (SELECT count(*) FROM analytics.mv_wincaja_sales_daily x WHERE x.warehouse_code=c.kepler_code) w,
+            (SELECT count(*) FROM analytics.mv_kepler_sales_daily  x WHERE x.warehouse_code=c.kepler_code) k
+       FROM analytics.v_branch_erp_cutover c
+      WHERE c.cutover_date > '-infinity' ORDER BY 1`);
+  const ciegas = cob.filter((r) => Number(r.w) === 0 || Number(r.k) === 0);
+  console.log(`  ⓘ ${cob.length} plaza(s) con corte real · alcanzables a los dos lados: ${cob.length - ciegas.length}`);
+  check('toda plaza con corte tiene venta de los DOS ERPs bajo la misma llave', ciegas.length === 0,
+    ciegas.map((r) => `${r.kc} (corte ${r.cd}): wincaja ${r.w} / kepler ${r.k}`).join(' · '));
+
   const pares = await q(SQL_PARES, [PISO_WIN, PISO_KEP, STOP]);
   if (!pares.length) {
     noMedido('cada par resuelve a una sola identidad',
