@@ -133,7 +133,19 @@ export interface ReporteDocumento {
   folio: string;
   fecha: string | null;
   atendio: string | null;
+  /**
+   * `[TK.d3]` El descuento **de cliente**: el que Kepler declara en la CABECERA del documento
+   * (`kdm1.c13`), no la suma de las rebajas por renglón. Son dos capas distintas y una no
+   * explica a la otra — medido sobre 609 facturas, 435 difieren en más de $1 (`ERP_KEPLER` §3.1).
+   * Las rebajas por renglón sólo salen con `detalle: true`, en `lineas[].descuento_linea`.
+   */
   descuento: number;
+  /**
+   * `[TK.d3]` El porcentaje que Kepler declara junto al importe (`kdm1.c19`, el campo que su
+   * propia pantalla rotula «Descuento Cliente»). `null` cuando el documento no lo trae —
+   * nunca 0: un descuento no declarado no es un descuento de cero.
+   */
+  descuento_pct: number | null;
   /** NEGATIVO en las notas de crédito: el total del periodo es lo que se pagó de verdad. */
   total: number;
   /**
@@ -407,7 +419,13 @@ export class CustomerReportService {
         .where({ 'i.tenant_id': tenantId, 'i.cliente_code': clienteCode })
         .select('i.folio_digital as id', 'i.sucursal', 'i.folio', 'i.fecha',
           'i.vendedor_nombre as atendio', 'i.total', 'i.doc_tipo', 'i.doc_prefix',
-          trx.raw('NULL::int as caja'), trx.raw('0::numeric as descuento_documento'));
+          // ⭐ `[TK.d3]` Esto decía `0::numeric`. La vista publica `descuento` (el importe de
+          // cabecera) y `descuento_pct` desde que existe, y este universo —telemarketing y
+          // crédito— es el ÚNICO donde el descuento de cabecera se usa (`ERP_KEPLER` §3.1).
+          // Con el cero clavado, la columna salía vacía justo donde el dato existe y el filtro
+          // «solo con descuento» no podía devolver una sola factura.
+          'i.descuento as descuento_documento', 'i.descuento_pct',
+          trx.raw('NULL::int as caja'));
       this.comunes(fac, 'i', f, alcance);
       if (f.atendio) fac.where('i.vendedor_code', f.atendio);
       const exFac = this.existsProducto(tenantId, 'analytics.erp_sales_invoice_lines', 'i', f);
@@ -431,7 +449,10 @@ export class CustomerReportService {
           sucursal: String(r.sucursal), sucursal_nombre: plazas.get(String(r.sucursal)) ?? null,
           caja: r.caja != null ? Number(r.caja) : null,
           folio: String(r.folio), fecha: fecha(r.fecha), atendio: (r.atendio as string) ?? null,
-          descuento: r2(num(r.descuento_documento)), total: r2(num(r.total)),
+          descuento: r2(num(r.descuento_documento)),
+          // El ticket de mostrador no trae porcentaje de cabecera: `null`, no 0 (ADR-056).
+          descuento_pct: null,
+          total: r2(num(r.total)),
           lineas: null,
         });
       }
@@ -444,7 +465,10 @@ export class CustomerReportService {
           id: String(r.id), origen, origen_label: ORIGEN_LABEL[origen],
           sucursal: String(r.sucursal), sucursal_nombre: plazas.get(String(r.sucursal)) ?? null,
           caja: null, folio: String(r.folio), fecha: fecha(r.fecha),
-          atendio: (r.atendio as string) ?? null, descuento: 0,
+          atendio: (r.atendio as string) ?? null,
+          descuento: r2(num(r.descuento_documento)),
+          descuento_pct: r.descuento_pct != null && num(r.descuento_pct) > 0
+            ? r2(num(r.descuento_pct)) : null,
           // ⭐ El abono RESTA. Sin el signo, el total del periodo diría de más y el papel
           // afirmaría que el cliente pagó mercancía que devolvió.
           total: esAbono ? -Math.abs(r2(num(r.total))) : r2(num(r.total)),
