@@ -32,6 +32,8 @@ const MIGS = [
   '20260928270000_inventory_counting_segregation.js',     // IC.2  UPDATE 4 filas
   '20260928280000_inventory_count_items_unit.js',         // IC.1  ADD COLUMN x3 (nullable)
   '20260928290000_sku_count_variance_history_view.js',    // IC.3  CREATE VIEW
+  '20260929120000_count_priority_score_view.js',         // IC.4  CREATE VIEW
+  '20260929130000_inventory_kepler_export_ack.js',       // IC.7  CREATE TABLE + RLS
 ];
 
 (async () => {
