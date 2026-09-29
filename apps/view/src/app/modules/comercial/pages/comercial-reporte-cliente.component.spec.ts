@@ -205,7 +205,7 @@ describe('ComercialReporteClienteComponent', () => {
       c.aplicar();
       http.expectOne((r) => r.url.includes('/reporte')).flush(REP([]));
       expect(c.activos().map((a) => a.texto)).toEqual([
-        'Folio: 6440', 'Sucursal: 05', 'Caja 5', 'Sólo con descuento',
+        'Folio: 6440', 'Sucursal: 05', 'Caja 5', 'Sólo con descuento de cliente',
       ]);
     });
 

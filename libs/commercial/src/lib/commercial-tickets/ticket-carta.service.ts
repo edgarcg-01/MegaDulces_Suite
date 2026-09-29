@@ -115,7 +115,6 @@ export class TicketCartaService {
     // [TK.11] Ya no hay columnas de impuesto ni de neto, asi que `impuesto_desglosado` dejo de
     // gobernar la TABLA. Sigue gobernando el PIE: la linea «los precios ya incluyen impuestos ·
     // IVA … · IEPS …» solo se imprime cuando la suma de los renglones reproduce la cabecera.
-    const conImp = c.impuesto_desglosado;
     const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista)).join('\n');
     const logo = this.anexo.logo();
 
@@ -131,8 +130,12 @@ export class TicketCartaService {
       resumen.push(`<tr class="desc"><td>Descuento en precio</td><td class="r">-${money(c.descuento_precio)}</td></tr>`);
     }
     if (c.descuento_documento > 0) {
-      const pct = c.descuento_documento_pct_erp ? ` <i>(${c.descuento_documento_pct_erp}% del ERP)</i>` : '';
-      resumen.push(`<tr class="desc"><td>Descuento del documento${pct}</td><td class="r">-${money(c.descuento_documento)}</td></tr>`);
+      // `[TK.d2]` «Descuento del documento (3% del ERP)» no le dice nada al cliente: nombra al
+      // papel y al sistema, no a lo que pasó. Kepler rotula ese campo (`kdm1.c19`) «Descuento
+      // Cliente» en su propia pantalla, y `ERP_KEPLER` §3.1 lo define como el descuento
+      // comercial sobre el total. Se usa ESE nombre, y el porcentaje se muestra pelado.
+      const pct = c.descuento_documento_pct_erp ? ` <i>(${c.descuento_documento_pct_erp}%)</i>` : '';
+      resumen.push(`<tr class="desc"><td>Descuento de cliente${pct}</td><td class="r">-${money(c.descuento_documento)}</td></tr>`);
     } else if (c.descuento_documento < 0) {
       // Medido en el anexo: hay documentos donde el total es MAYOR que la suma de renglones
       // (redondeo a favor del cliente). Llamarlo "descuento negativo" confundiria; se nombra.
