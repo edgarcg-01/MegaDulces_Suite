@@ -675,7 +675,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
         // ruta. El dato sigue acotado por áreas del lado del backend.
         // `[GX.18]` Se llama LEVANTAMIENTO: es el acto de levantar el gasto, no el gasto.
-        { label: 'Levantamiento de gasto', icon: 'pi pi-file-edit', route: '/finanzas/gastos' },
+        // `[GX.42]` **«Levantamiento de gasto» se retiro del menu por pedido del usuario:**
+        // el gasto ya no se busca, LLEGA -- Kepler lo asigna por la caja «Solicita» y aparece
+        // en «Mis gastos». La RUTA sigue viva porque es a donde lleva «Subir evidencia»; lo que
+        // se quita es la puerta de entrada por folio tecleado.
         // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
         // approve/validate/reject — no se inventó un permiso para la misma puerta.
         { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',

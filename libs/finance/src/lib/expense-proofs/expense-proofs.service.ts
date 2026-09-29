@@ -28,6 +28,9 @@ import {
 // `[GX.41]` A quien le toca un vale de Kepler lo decide UNA funcion, compartida con el
 // frontend: la caja «Solicita» trae un username nuestro y tiene que casar exacto.
 import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from '@megadulces/contracts';
+// `[GX.43]`/`[GX.44]` El documento que respalda la autorizacion y la deuda de comprobante:
+// las dos reglas viven en el contrato compartido, no escritas dos veces.
+import { documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -771,6 +774,23 @@ export class ExpenseProofsService {
           ...(files.some((f) => String(f.role).startsWith('comprobante'))
             ? { evidencia_por: actor || null, evidencia_at: trx.fn.now() }
             : {}),
+          /**
+           * `[GX.44]` **El vale que llega con una COTIZACION nace debiendo su comprobante.**
+           *
+           * Pedido del usuario: *«cuando es cotizacion se queda abierto para que cuando compre
+           * lo que cotizo suba la factura»*. Se reusa la marca que GX.30 ya invento para el
+           * aprobador (`provisional` + `comprobante_esperado_at`), no una segunda: son el
+           * mismo hecho —hay dinero aprobado sin comprobar— y con dos banderas el numero de
+           * «cuanto se debe» habria que sumarlo de dos lados y nadie se acordaria del segundo.
+           *
+           * ⚠️ Lo decide el CONTENIDO (`quedaDebiendoComprobante`), no una casilla: si
+           * dependiera de que la persona la marque, una cotizacion sin marcar cerraria el
+           * vale sin deber nada. Sin fecha la deuda no envejece y nadie la reclama, asi que
+           * se le pone la misma ventana de 15 dias que usa la aprobacion.
+           */
+          ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: llevaEvidencia, forma_pago: formaPago })
+            ? { provisional: true, comprobante_esperado_at: trx.raw("(now() + interval '15 days')::date") }
+            : {}),
         })
         .returning(['id', 'folio_solicitud', 'status']);
       this.logger.log(`solicitud de gasto folio ${row.folio_solicitud} [${clasificacion}/${formaPago}] capturada → recibida · ${files.length} archivos (${files.filter((f) => f.live).length} en vivo), por ${actor || '?'}`);
@@ -1048,7 +1068,15 @@ export class ExpenseProofsService {
         kepler_aplicada: k ? k.aplicada : null,
         kepler_estado: k ? k.estado : null,
       });
-      return { ...r, etapa, etapa_label: ETIQUETA_ETAPA[etapa], etapa_explicacion: EXPLICACION_ETAPA[etapa] };
+      /**
+       * `[GX.43]` **El documento con el que Kepler respalda la autorizacion**, tal como se ve
+       * en su pantalla «Autorizacion de Sol Gasto» (columna `Documento`: `XA1501-0009008`).
+       * Se deriva del folio; `null` mientras nadie lo autorizo — ver el contrato.
+       */
+      return {
+        ...r, etapa, etapa_label: ETIQUETA_ETAPA[etapa], etapa_explicacion: EXPLICACION_ETAPA[etapa],
+        documento_kepler: documentoKepler(String(r.folio_solicitud || ''), k ? k.estado : null),
+      };
     });
   }
 
@@ -1356,7 +1384,12 @@ export class ExpenseProofsService {
             .whereRaw('p.folio_solicitud = r.folio')
             .whereRaw('p.sucursal = r.sucursal');
         })
-        .orderBy('r.fecha', 'desc')
+        /**
+         * ⚠️ **Dos criterios, no uno.** Con `fecha` sola el orden es arbitrario entre los del
+         * mismo dia —que es el caso normal, porque se levantan de a tandas— y la lista se
+         * reacomoda sola entre recargas. El folio desempata y la deja quieta.
+         */
+        .orderBy([{ column: 'r.fecha', order: 'desc' }, { column: 'r.folio', order: 'asc' }])
         .limit(Math.min(200, Math.max(1, Number(limit) || 50)))
         .select('r.sucursal', 'r.folio', 'r.solicitante', 'r.beneficiario', 'r.concepto',
           'r.estado', 'r.aplicada', trx.raw(`to_char(r.fecha,'YYYY-MM-DD') AS fecha`),

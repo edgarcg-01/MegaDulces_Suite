@@ -54,6 +54,33 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
    * ⭐ La prueba negativa de la que se retiró: mientras algo falte, el texto NUNCA puede ser
    * la acción a secas. Si lo fuera, el botón quedaría gris y mudo.
    */
+  /**
+   * ⭐ `[GX.44]` **Con SÓLO la cotización se puede mandar.**
+   *
+   * Pedido textual: *«solo debe de tener un archivo de evidencia ya sea foto o un doc, debe
+   * dejarlo enviar, al igual una cotizacion»*. Antes, sin un `comprobante_*` el botón no se
+   * encendía **nunca**: quien sólo tenía la cotización de lo que iba a comprar se quedaba
+   * trabado y el gasto no entraba al sistema.
+   *
+   * ⛔ Esta prueba existe porque el arreglo vive en `libs/contracts` y esta pantalla lo
+   * consume de rebote: si alguien vuelve a exigir el comprobante acá —o deja de pasarle los
+   * roles de cotización a la compuerta— el botón se apaga otra vez y nada más se entera.
+   */
+  it('[GX.44] con sólo una cotización el botón se enciende', () => {
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.names.set({ cotizacion: 'cotizacion-proveedor.pdf' });
+    expect(comp.faltan().map((f) => f.id)).toEqual([]);
+  });
+
+  /** ⛔ Pero sin NINGÚN archivo sigue apagado: lo que cambió es qué cuenta, no si hace falta. */
+  it('[GX.44] sin ningún archivo sigue faltando algo', () => {
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.names.set({});
+    expect(comp.faltan().map((f) => f.id)).toEqual(['evidencia']);
+  });
+
   it('mientras falte algo, el botón no dice «Enviar a aprobación»', () => {
     expect(comp.puedeEnviar()).toBe(false);
     expect(comp.enviarLabel()).not.toBe('Enviar a aprobación');

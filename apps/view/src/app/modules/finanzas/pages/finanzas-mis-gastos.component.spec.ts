@@ -146,12 +146,13 @@ describe('FinanzasMisGastosComponent', () => {
    */
   describe('[GX.39] la etapa de ejercicio', () => {
     const CON_ETAPAS = (): ExpenseProofsReport => ({
-      kpis: { total: 4, recibidas: 1, validadas: 2, rechazadas: 0, en_revision: 0 },
-      etapas_de_la_pagina: { en_captura: 1, por_ejercer: 1, ejercido: 1, sin_medir: 1 },
+      kpis: { total: 5, recibidas: 1, validadas: 3, rechazadas: 0, en_revision: 0 },
+      etapas_de_la_pagina: { en_captura: 1, por_ejercer: 1, autorizado: 1, ejercido: 1, sin_medir: 1 },
       rows: [
         FILA({ id: 'a', status: 'recibida', folio_solicitud: '0001', etapa: 'en_captura', etapa_label: 'En trámite', etapa_explicacion: 'Tu gasto esta en tramite con nosotros.' }),
         FILA({ id: 'b', status: 'validada', folio_solicitud: '0002', etapa: 'por_ejercer', etapa_label: 'Por ejercer', etapa_explicacion: 'Aprobado. Esta esperando a que apliquen el gasto en Kepler.' }),
         FILA({ id: 'c', status: 'validada', folio_solicitud: '0003', etapa: 'ejercido', etapa_label: 'Ejercido', etapa_explicacion: 'Tu gasto se aprobo y se ejercio: el dinero salio.' }),
+        FILA({ id: 'e', status: 'validada', folio_solicitud: '0005', etapa: 'autorizado', etapa_label: 'Autorizado en Kepler', etapa_explicacion: 'Autorizado en Kepler. Falta que salga el dinero.' }),
         FILA({ id: 'd', status: 'validada', folio_solicitud: '0004', etapa: 'sin_medir', etapa_label: 'Sin medir', etapa_explicacion: 'Todavia no podemos ver el estado en Kepler.' }),
       ],
     });
@@ -159,9 +160,12 @@ describe('FinanzasMisGastosComponent', () => {
     it('pinta las secciones con su cuenta', () => {
       montar(CON_ETAPAS());
       const chips = [...fix.nativeElement.querySelectorAll('.mg-etapa')].map((e) => (e as HTMLElement).textContent?.trim());
-      expect(chips.some((t) => t?.startsWith('Todos') && t.includes('4'))).toBe(true);
-      expect(chips.some((t) => t?.startsWith('Por ejercer') && t.includes('1'))).toBe(true);
+      expect(chips.some((t) => t?.startsWith('Todos') && t.includes('5'))).toBe(true);
+      // `[GX.43]` La etiqueta pasó de «Por ejercer» a «Por autorizar»: es lo que espera de
+      // verdad —la `A` de Kepler—, y «autorizado» es ahora su propia etapa.
+      expect(chips.some((t) => t?.startsWith('Por autorizar') && t.includes('1'))).toBe(true);
       expect(chips.some((t) => t?.startsWith('Ejercido') && t.includes('1'))).toBe(true);
+      expect(chips.some((t) => t?.startsWith('Autorizado'))).toBe(true);
     });
 
     it('al abrir «Por ejercer» sólo quedan los de esa etapa', () => {
@@ -170,6 +174,20 @@ describe('FinanzasMisGastosComponent', () => {
       fix.detectChanges();
       expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
       expect(fix.nativeElement.textContent).toContain('0002');
+      expect(fix.nativeElement.textContent).not.toContain('0003');
+    });
+
+    /**
+     * ⭐ `[GX.43]` **«Autorizado» NO es «Ejercido».** Medido en prod: de las 929 solicitudes
+     * con la `A` de Kepler, **284 todavía no tienen su gasto**. Mostrarlas como ejercidas le
+     * diría a esas 284 personas que el dinero salió cuando no salió.
+     */
+    it('al abrir «Autorizado» sólo queda el que tiene la A de Kepler', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('autorizado');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
+      expect(fix.nativeElement.textContent).toContain('0005');
       expect(fix.nativeElement.textContent).not.toContain('0003');
     });
 

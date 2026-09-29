@@ -70,6 +70,31 @@ function esComprobante(f: EvidenciaAdjunta): boolean {
   return String(f?.role ?? '').startsWith('comprobante');
 }
 
+/** Una cotizacion o prefactura: respalda el gasto, pero **no lo comprueba**. */
+function esCotizacion(f: EvidenciaAdjunta): boolean {
+  return String(f?.role ?? '').startsWith('cotizacion');
+}
+
+/**
+ * `[GX.44]` **¿Este vale queda DEBIENDO su comprobante?**
+ *
+ * Pedido textual del usuario: *«cuando es cotizacion se queda abierto para que cuando compre
+ * lo que cotizo suba la factura o lo demas de evidencia para que este completo el vale»*.
+ *
+ * Se manda con lo que haya —una cotizacion alcanza— pero el vale **nace sabiendo que debe**.
+ * No es lo mismo que no haber subido nada: hay un papel, respalda el monto, y falta el que
+ * comprueba que el dinero se gasto en eso.
+ *
+ * ⚠️ Es una funcion aparte y no un `boolean` suelto en el estado, porque **la decide el
+ * contenido, no quien captura**: si dependiera de una casilla, alguien podria mandar una
+ * cotizacion sin marcarla y el vale cerraria sin deber nada.
+ */
+export function quedaDebiendoComprobante(estado: EstadoAporte): boolean {
+  if (!estado.exige_evidencia) return false;
+  const archivos = estado.archivos ?? [];
+  return !archivos.some(esComprobante) && archivos.some(esCotizacion);
+}
+
 /**
  * Qué falta para poder mandar la solicitud a revisión. Lista vacía = se puede mandar.
  *
@@ -96,12 +121,22 @@ export function faltaParaMandar(estado: EstadoAporte): Faltante[] {
   }
 
   if (estado.exige_evidencia) {
-    const comprobantes = archivos.filter(esComprobante);
-    if (comprobantes.length === 0) {
+    /**
+     * `[GX.44]` **UN archivo alcanza para mandar, sea lo que sea.** Pedido del usuario: la
+     * foto, un documento escaneado o una cotizacion — cualquiera de los tres deja enviar.
+     *
+     * ⚠️ Lo que cambia NO es el rigor, es CUANDO se exige el comprobante. Antes, sin un
+     * `comprobante_*` el vale no se podia mandar **nunca**: quien solo tenia la cotizacion
+     * de lo que iba a comprar se quedaba trabado, y el gasto no entraba al sistema. Ahora
+     * entra, y `quedaDebiendoComprobante()` lo marca como abierto hasta que llegue la
+     * factura. La deuda se DECLARA en vez de bloquear (ADR-056).
+     */
+    const respaldo = archivos.filter((f) => esComprobante(f) || esCotizacion(f));
+    if (respaldo.length === 0) {
       faltan.push({
         id: 'evidencia',
-        label: 'El comprobante',
-        motivo: 'falta el comprobante del gasto (la foto del vale, o el vale escaneado)',
+        label: 'Un archivo',
+        motivo: 'falta al menos un archivo: la foto del vale, el vale escaneado, un documento o la cotizacion',
       });
     }
     /**
