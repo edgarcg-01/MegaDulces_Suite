@@ -22,7 +22,7 @@ import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
-import { VendorService, HomeCustomer, NbaDue, NearbyCustomer } from '../vendor.service';
+import { VendorService, HomeCustomer, NbaDue, NearbyCustomer, DayPickState } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
 import { GeolocationService } from '../../../core/services/geolocation.service';
 
@@ -66,6 +66,12 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             <div class="ey">Hoy · {{ todayLabel }}</div>
             <h1>{{ routeLabel() || 'Mi ruta' }}</h1>
             <div class="sub">{{ pendingVisits() }} por visitar</div>
+            @if (dayPick()?.can_pick) {
+              <a class="change-route" routerLink="/vendor/route-pick">
+                <i class="pi pi-arrow-right-arrow-left" aria-hidden="true"></i>
+                {{ dayPick()?.current ? 'Escogida para hoy · Cambiar ruta' : 'Cambiar ruta' }}
+              </a>
+            }
           </div>
         </div>
         @if (customers().length > 0) {
@@ -361,6 +367,14 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .hero-h .ey { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
       .hero-h h1 { margin: 2px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.04; color: var(--text-main); }
       .hero-h .sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+      .change-route {
+        display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.45rem;
+        min-height: 2rem; padding: 0.25rem 0.7rem; border-radius: 999px;
+        border: 1px solid var(--border-color); background: var(--card-bg);
+        font-size: 0.75rem; font-weight: 700; color: var(--action); text-decoration: none;
+      }
+      .change-route:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+      .change-route i { font-size: 0.75rem; }
       .kpis {
         display: flex; margin-top: 1.2rem; padding-top: 0.95rem; position: relative; z-index: 1;
         border-top: 1px solid var(--border-color, rgba(40,30,20,0.1));
@@ -550,6 +564,8 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   readonly checking = signal(false);
   readonly dueIds = signal<Set<string>>(new Set());
   readonly onlyDue = signal(false);
+  /** [VR.SUP.1] Estado de la ruta del día (supervisor). null = no cargó / no aplica. */
+  readonly dayPick = signal<DayPickState | null>(null);
 
   /** Elemento que tenía el foco antes de abrir el sheet (para restaurarlo). */
   private prevFocus: HTMLElement | null = null;
@@ -635,10 +651,13 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
       home: this.api.home(),
       due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
       today: this.api.myOrdersToday().pipe(catchError(() => of([] as Order[]))),
+      // [VR.SUP.1] Best-effort: si falla, no hay botón "Cambiar ruta" pero la ruta carga.
+      dayPick: this.api.dayPickState().pipe(catchError(() => of(null))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ home, due, today }) => {
+        next: ({ home, due, today, dayPick }) => {
+          this.dayPick.set(dayPick);
           this.customers.set(home);
           this.dueIds.set(new Set(due.map((d) => d.customer_id)));
           this.ordersToday.set(today);

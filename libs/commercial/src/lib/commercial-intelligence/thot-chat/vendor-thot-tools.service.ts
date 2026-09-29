@@ -5,6 +5,7 @@ import { Customer360Service } from '../customer-360.service';
 import { CommercialOrdersService } from '../../commercial-orders/commercial-orders.service';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { buildVendorSystemPrompt } from './thot-semantic';
+import { vendorTodayRouteExistsSql } from '../../shared/vendor-cartera.sql';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,12 +30,22 @@ export class VendorThotToolsService implements ThotToolProvider {
     return buildVendorSystemPrompt({ today: ctx.today, userName: scope.userName || undefined });
   }
 
-  /** Predicado: el cliente pertenece a la cartera del vendedor (cualquier ruta asignada). */
+  /**
+   * Predicado: el cliente pertenece a la cartera del vendedor — cualquier ruta de su
+   * agenda, más la que escogió para hoy [VR.SUP.1] (supervisor). Un solo binding (userId).
+   */
   private carteraSql(alias = 'c'): string {
     return `EXISTS (
-      SELECT 1 FROM public.daily_assignments da
-      JOIN public.catalogs cat ON cat.id = da.route_id AND cat.catalog_id = 'rutas' AND cat.deleted_at IS NULL
-      WHERE da.user_id = ? AND cat.value = ${alias}.sales_route
+      SELECT 1
+      FROM (SELECT ?::uuid AS uid) me
+      JOIN public.catalogs cat
+        ON cat.catalog_id = 'rutas' AND cat.deleted_at IS NULL AND cat.value = ${alias}.sales_route
+      WHERE EXISTS (SELECT 1 FROM public.daily_assignments da WHERE da.user_id = me.uid AND da.route_id = cat.id)
+         OR EXISTS (
+           SELECT 1 FROM commercial.vendor_route_day_picks p
+           WHERE p.user_id = me.uid AND p.route_id = cat.id AND p.deleted_at IS NULL
+             AND p.work_date = (now() AT TIME ZONE 'America/Mexico_City')::date
+         )
     )`;
   }
 
@@ -154,15 +165,8 @@ export class VendorThotToolsService implements ThotToolProvider {
     return this.tk.run(async (trx) => {
       const [row] = await trx('commercial.customers as c')
         .whereNull('c.deleted_at')
-        .andWhereRaw(`(
-          c.visit_days IS NULL OR cardinality(c.visit_days) = 0
-          OR c.visit_days @> ARRAY[EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::smallint]
-        ) AND EXISTS (
-          SELECT 1 FROM public.daily_assignments da
-          JOIN public.catalogs cat ON cat.id = da.route_id AND cat.catalog_id = 'rutas' AND cat.deleted_at IS NULL
-          WHERE da.user_id = ? AND cat.value = c.sales_route
-            AND da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int
-        )`, [vendor])
+        // Misma cartera de hoy que "Mi ruta" (respeta la ruta escogida por el supervisor).
+        .andWhereRaw(vendorTodayRouteExistsSql('c'), [vendor])
         .select(
           trx.raw('COUNT(*)::int AS cartera_hoy'),
           trx.raw(`COUNT(*) FILTER (WHERE EXISTS (

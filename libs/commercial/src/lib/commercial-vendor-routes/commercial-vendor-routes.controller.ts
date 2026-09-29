@@ -1,3 +1,4 @@
+import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
 import {
   Body,
   Controller,
@@ -100,6 +101,30 @@ export class CommercialVendorRoutesController {
   })
   home() {
     return this.service.myHome();
+  }
+
+  @Get('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary:
+      'VR.SUP.1: ruta del día — si el usuario puede escoger (tiene equipo), su elección de hoy, su agenda de hoy y las rutas de su equipo',
+  })
+  dayPick(): Promise<DayPickState> {
+    return this.service.dayPickState();
+  }
+
+  @Put('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'VR.SUP.1: el supervisor escoge qué ruta de su equipo trabaja HOY (vale solo para hoy)' })
+  setDayPick(@Body('route_id') routeId: string): Promise<DayPickChoice> {
+    return this.service.setDayPick(routeId);
+  }
+
+  @Delete('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'VR.SUP.1: vuelve a la agenda normal de hoy (borra la elección del día)' })
+  clearDayPick(): Promise<DayPickCleared> {
+    return this.service.clearDayPick();
   }
 
   @Post('check-in')

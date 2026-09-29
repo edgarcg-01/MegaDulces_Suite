@@ -549,7 +549,16 @@ export class CommercialTicketsService {
         cliente_nombre: cab.cliente_nombre, cliente_rfc: cab.cliente_rfc,
         atendio: cab.cajero_nombre, atendio_rol: 'Cajero',
         total: num(cab.total), iva: num(cab.iva), ieps: num(cab.ieps),
-        descuento_pct_erp: null, impuestos_incluidos: true,
+        // `[TK.d4]` Esto era un `null` clavado, y tenia motivo: `ERP_KEPLER` 3.1 midio que en
+        // `U-D-10` la cabecera del descuento es 0.00 en el 100% de 30,549 documentos.
+        // ⭐ Ese 100% se midio SIN Morelia. Verificado contra prod el 2026-09-28 (Fase DC 6),
+        // las ramas 06/07/08 SI cobran el descuento del cliente en mostrador: 20 tickets,
+        // $1,948.15. Y el % que declaran (`c19`) coincide con el negociado en el maestro
+        // (`kdud.c17`) en 533 de 578 ventas (92.2%).
+        // ⚠️ Sigue siendo SOLO el rotulo: el importe lo mide `armar()` como
+        // `Σ renglones − total`, porque `c13` viaja sin impuesto y subdeclara 8.3%.
+        descuento_pct_erp: cab.descuento_pct != null ? num(cab.descuento_pct) : null,
+        impuestos_incluidos: true,
       }, lineas);
     });
   }

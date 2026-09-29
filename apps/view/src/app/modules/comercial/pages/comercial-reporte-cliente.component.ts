@@ -146,7 +146,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
           <span>–</span>
           <input id="f4" type="number" [(ngModel)]="f.max" placeholder="máx" class="rc-num" aria-label="Importe máximo">
           <label class="rc-check">
-            <input type="checkbox" [(ngModel)]="f.solo_con_descuento"> Sólo con descuento
+            <input type="checkbox" [(ngModel)]="f.solo_con_descuento"> Sólo con descuento de cliente
           </label>
           <label class="rc-check">
             <input type="checkbox" [(ngModel)]="f.detalle"> Detalle por producto
@@ -181,7 +181,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
         @if (r.resumen.descuento > 0) {
           <div>
             <b class="rc-mono rc-desc">{{ r.resumen.descuento | currency:'MXN':'symbol-narrow' }}</b>
-            <span>de descuento</span>
+            <span>de descuento de cliente</span>
           </div>
         }
       </div>
@@ -195,7 +195,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
                        aria-label="Incluir todas las compras">
               </th>
               <th>Compra</th><th>Dónde</th>
-              <th class="ta-r">Descuento</th><th class="ta-r">Total</th>
+              <th class="ta-r">Descuento de cliente</th><th class="ta-r">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -358,7 +358,7 @@ export class ComercialReporteClienteComponent {
     if (f.atendio) out.push({ clave: 'atendio', texto: `Atendió: ${f.atendio}` });
     if (f.min) out.push({ clave: 'min', texto: `Desde $${f.min}` });
     if (f.max) out.push({ clave: 'max', texto: `Hasta $${f.max}` });
-    if (f.solo_con_descuento) out.push({ clave: 'solo_con_descuento', texto: 'Sólo con descuento' });
+    if (f.solo_con_descuento) out.push({ clave: 'solo_con_descuento', texto: 'Sólo con descuento de cliente' });
     if (f.detalle) out.push({ clave: 'detalle', texto: 'Con detalle por producto' });
     return out;
   });
