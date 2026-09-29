@@ -175,6 +175,22 @@ const t = (name, cond, extra) => {
     t('⛔ un evento con muchos folios NO se clasifica como carga inicial (se suma, no max())',
       Number(multi.mal) === 0, `${multi.mal} renglones mal clasificados`);
 
+    // ── 4d. ⛔ EL ANTI-RÉPLICA, EN TODOS LOS CONSUMIDORES ─────────────────────
+    // No alcanza con que la VISTA lo tenga: el servicio hace sus propias consultas sobre
+    // `kdm1` (la cobertura y el KPI) y cada una necesita el mismo filtro. Medido: faltaba
+    // en `coverage()` cuando ya estaba en la vista y en `kpi()` — y un filtro aplicado en
+    // dos de tres lugares es PEOR que no aplicarlo, porque las cifras se contradicen entre
+    // sí sin que nada falle. Este candado lee el fuente, que es donde se puede olvidar.
+    const fs2 = require('fs');
+    const svc = fs2.readFileSync(path.resolve(__dirname, '..', '..', 'libs', 'commercial',
+      'src', 'lib', 'commercial-inventory', 'inventory-variance.service.ts'), 'utf8');
+    const consultas = (svc.match(/FROM kepler_ods\.kdm1/g) || []).length;
+    const filtros = (svc.match(/m\.c1 = m\.sucursal OR m\.c1 LIKE/g) || []).length;
+    t('⛔ TODA consulta del servicio sobre kdm1 lleva el filtro anti-réplica',
+      consultas > 0 && filtros >= consultas,
+      `${consultas} consultas contra ${filtros} filtros — falta en alguna`);
+    console.log(`     servicio: ${consultas} consultas sobre kdm1, ${filtros} con anti-réplica`);
+
     // ── 5. ⛔ La 00 es OFICINAS y NO entra ─────────────────────────────────────
     const [of] = (await q(
       `SELECT count(*)::int AS n FROM analytics.v_erp_physical_count_variance

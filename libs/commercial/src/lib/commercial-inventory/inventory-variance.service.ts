@@ -128,6 +128,14 @@ export class InventoryVarianceService {
              JOIN commercial.warehouses w
                ON w.kepler_code = m.sucursal AND w.id = ? AND w.deleted_at IS NULL
             WHERE m.c2 = 'N' AND m.c3 = 'A' AND m.c4 = '45' AND m.c9::date = ?
+              -- ⛔ ANTI-RÉPLICA, igual que en la vista: la sucursal 03 arrastra 220 cabeceras
+              -- del almacén 02. Sin esto la cobertura de 8ESQ cuenta como "contados" SKUs
+              -- que se contaron en La Piedad — y la cobertura queda inflada justo en la
+              -- pantalla que existe para declarar lo que NO se contó.
+              -- Faltaba acá cuando ya estaba en la vista y en el KPI: un filtro que se
+              -- aplica en dos de tres lugares es peor que no aplicarlo, porque las cifras
+              -- se contradicen entre sí sin que nada falle.
+              AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
          )
          SELECT count(*) FILTER (WHERE s.sku IN (SELECT sku FROM capturado))::int AS contados,
                 count(*) FILTER (WHERE s.sku NOT IN (SELECT sku FROM capturado))::int AS sin_contar,
