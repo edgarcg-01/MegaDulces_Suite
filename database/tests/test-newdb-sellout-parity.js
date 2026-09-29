@@ -89,28 +89,47 @@ const DELEGADO = 'test-newdb-branch-cutover.js';
 const AISLAMIENTO_DIAS = 30;
 
 /**
- * [VSO.13] Días AISLADOS que hoy se publican como venta — medidos en prod el 2026-09-28.
+ * [VSO.14] Días AISLADOS — **venta REAL con la fecha rota**. Medidos en prod el 2026-09-28.
  *
- * Un día cuyo vecino con venta más cercano está a meses (o a 21 años) no es operación. Son dos
- * cosas, las dos con el mismo efecto: la **carga inicial** de una rama Kepler estampada en su
- * fecha de arranque, y la **fecha centinela** del POS Wincaja (`2000-01-01` y compañía).
+ * ⛔⛔ **Lo primero que hay que saber: NO SE EXCLUYEN.** La versión anterior de este bloque los
+ * llamaba "carga inicial" y "fecha centinela", o sea basura, y yo mismo ofrecí sacarlos. **La
+ * investigación lo refutó, tres veces seguidas**, y sacarlos habría BORRADO VENTA REAL:
  *
- * ⛔ **Declarado NO es corregido.** Excluirlos baja una cifra ya publicada en $520,619.90 y eso es
- * decisión de negocio, no de un test. Acá quedan con nombre, día y monto para que (a) nadie los
- * descubra de nuevo desde cero y (b) un día aislado NUEVO ponga el candado en rojo.
+ *  1. El `2000-01-01` de Wincaja **no es un relleno**: los movimientos traen varios vendedores y
+ *     varios canales. Y el `consecutivo` del POS —que es monotónico por sucursal— los ACOTA: cada
+ *     uno cae entre dos vecinos con **la misma fecha real** (`2025-02-17` antes *y* después).
+ *     Medido sobre los **344** movimientos con esa fecha: **297 (86.3%) tienen fecha recuperable
+ *     al día exacto**, 47 quedan acotados a un rango, 0 sin vecino. Es una fecha VACÍA en el
+ *     origen, no una venta inventada.
+ *  2. El día de 8 Esquinas (`2025-01-09`) tampoco es una carga de catálogo: son **814 documentos
+ *     `U-D-10` (Ticket Contado Caja)** con su propio `c1='03'`. Lo que lo delata es otra cosa —
+ *     **los 814 están a la MISMA hora (06h) y los folios van `0000001 → 0000196`**: secuencia
+ *     arrancada de cero y un solo timestamp = carga de migración de tickets que ocurrieron ANTES.
+ *  3. Mi firma original ("una fila por SKU") era **inservible**: es la forma normal del día de una
+ *     ruta. Lo que distingue a estos días es el AISLAMIENTO, y lo que explica el aislamiento es la
+ *     FECHA, no la venta.
+ *
+ * Qué significa para quien lee un reporte: **el dinero está, pero en el mes equivocado.** No infla
+ * el total del universo; desordena la serie mensual y hace que una plaza parezca tener historia
+ * donde no la tiene (8 Esquinas "vendió" en ene-2025 y su operación Kepler arranca en ene-2026).
+ *
+ * Por qué se DECLARA y no se repara acá: reparar la fecha mueve **meses CERRADOS**, y este proyecto
+ * todavía no tiene `analytics.period_close` (VP.4) — o sea que nadie podría explicar después por
+ * qué cambió un mes ya reportado. La reparación es correcta y tiene que ser una decisión con
+ * ventana, no un efecto colateral de un test.
  */
 const DIAS_AISLADOS_DECLARADOS = [
-  { sb: '50',  dia: '2000-01-01', monto: 237237.47, razon: 'fecha centinela de Wincaja Canindo; la siguiente venta de esa rama es 7,606 días después' },
-  { sb: '03',  dia: '2025-01-09', monto: 230600.92, razon: 'carga inicial de Kepler en 8 Esquinas: 971 filas / 971 SKUs DISTINTOS, y es su ÚNICO día en 12 meses (la siguiente venta es 366 días después). Misma firma que el residuo ya declarado de La Piedad en test-newdb-branch-cutover.js, pero 10.5x más grande — y a diferencia de aquél, éste SÍ se publica, porque el corte de 8 Esquinas es -infinity (siempre Kepler) y no lo excluye nada' },
-  { sb: '50',  dia: '2020-10-28', monto: 16981.28,  razon: 'Canindo aislado 7,606 días después del centinela y 1,527 antes de su operación real' },
-  { sb: '505', dia: '2024-09-10', monto: 11187.09,  razon: 'ruta 505 aislada 132/114 días' },
-  { sb: '30',  dia: '2000-01-01', monto: 6333.72,   razon: 'fecha centinela de Wincaja Morelia Abastos' },
-  { sb: '22',  dia: '2014-06-08', monto: 5736.50,   razon: 'ruta 22 aislada; siguiente venta 3,861 días después' },
-  { sb: '32',  dia: '2000-01-01', monto: 5645.82,   razon: 'fecha centinela de Wincaja Morelia Madero' },
-  { sb: '505', dia: '2024-05-01', monto: 3607.54,   razon: 'ruta 505 aislada 132 días antes de la siguiente' },
-  { sb: '10',  dia: '2020-07-25', monto: 2485.15,   razon: 'Padre Hidalgo Wincaja: UNA fila, 1,621 días antes de su operación real' },
-  { sb: '42',  dia: '2000-01-01', monto: 509.80,    razon: 'fecha centinela de Wincaja La Piedad' },
-  { sb: '32',  dia: '2020-03-20', monto: 294.61,    razon: 'Morelia Madero: UNA fila, aislada 7,384/1,749 días' },
+  { sb: '50',  dia: '2000-01-01', monto: 237237.47, razon: 'VENTA REAL con la fecha VACIA en el POS (3 vendedores, 2 canales). El consecutivo de Wincaja la acota: sus vecinos traen la misma fecha real' },
+  { sb: '03',  dia: '2025-01-09', monto: 230600.92, razon: 'CARGA DE MIGRACION de tickets REALES: 814 documentos U-D-10 con c1=03, los 814 a la MISMA hora (06h) y folios 0000001-0000196 (secuencia arrancada de cero). La venta ocurrio ANTES de esa fecha; la operacion Kepler de 8 Esquinas arranca en 2026-01' },
+  { sb: '50',  dia: '2020-10-28', monto: 16981.28,  razon: 'venta aislada de Canindo, 1,527 dias antes de su operacion continua; fecha sospechosa, monto real' },
+  { sb: '505', dia: '2024-09-10', monto: 11187.09,  razon: 'ruta 505 aislada 132/114 dias; fecha sospechosa, monto real' },
+  { sb: '30',  dia: '2000-01-01', monto: 6333.72,   razon: 'VENTA REAL con la fecha VACIA en el POS (3 vendedores); acotada por el consecutivo' },
+  { sb: '22',  dia: '2014-06-08', monto: 5736.50,   razon: 'ruta 22 aislada; siguiente venta 3,861 dias despues; fecha sospechosa, monto real' },
+  { sb: '32',  dia: '2000-01-01', monto: 5645.82,   razon: 'VENTA REAL con la fecha VACIA en el POS (2 vendedores, 2 canales); acotada por el consecutivo' },
+  { sb: '505', dia: '2024-05-01', monto: 3607.54,   razon: 'ruta 505 aislada 132 dias antes de la siguiente; fecha sospechosa, monto real' },
+  { sb: '10',  dia: '2020-07-25', monto: 2485.15,   razon: 'Padre Hidalgo Wincaja: UNA fila, 1,621 dias antes de su operacion real; fecha sospechosa, monto real' },
+  { sb: '42',  dia: '2000-01-01', monto: 509.80,    razon: 'VENTA REAL con la fecha VACIA en el POS; acotada por el consecutivo' },
+  { sb: '32',  dia: '2020-03-20', monto: 294.61,    razon: 'Morelia Madero: UNA fila aislada; fecha sospechosa, monto real' },
 ];
 
 const DESFASES_DECLARADOS = [
@@ -442,8 +461,10 @@ const leer = (rel) => { try { return fs.readFileSync(path.join(RAIZ, rel), 'utf8
 
       const totalDecl = DIAS_AISLADOS_DECLARADOS.reduce((s, x) => s + x.monto, 0);
       console.log(`  ⓘ ${DIAS_AISLADOS_DECLARADOS.length} día(s) declarados por `
-        + `$${totalDecl.toLocaleString('en-US', { minimumFractionDigits: 2 })} que HOY se publican como venta. `
-        + 'Declarados ≠ corregidos: excluirlos mueve una cifra publicada y es decisión de negocio.');
+        + `$${totalDecl.toLocaleString('en-US', { minimumFractionDigits: 2 })}: es venta REAL con la `
+        + 'fecha rota, NO basura. ⛔ No se excluye —sería borrar ingreso—; lo que está mal es el MES '
+        + 'en el que cae. Reparar la fecha mueve meses CERRADOS y eso necesita `period_close` (VP.4), '
+        + 'que todavía no existe.');
     }
   }
 

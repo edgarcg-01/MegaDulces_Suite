@@ -9,6 +9,40 @@
 ---
 
 ## [Unreleased]
+### Fixed — «investígalo y conclúyelo tú»: mi propia propuesta borraba venta real (VSO.14, 2026-09-28)
+Edgar delegó las tres decisiones abiertas de VSO.13. La primera se concluyó **al revés** de como yo
+la había planteado.
+
+**⛔ Los $520,619.90 NO se excluyen — son venta REAL con la fecha rota.** Yo había ofrecido sacarlos
+llamándolos «carga inicial» y «fecha centinela». La investigación lo refutó tres veces:
+
+- El `2000-01-01` de Wincaja **no es relleno**: trae varios vendedores y canales, y el
+  **`consecutivo` del POS lo acota** — cada movimiento cae entre dos vecinos con **la misma fecha
+  real**. Medido sobre los **344**: **297 (86.3%) con fecha recuperable al día exacto**, 47 acotados
+  a un rango, 0 sin vecino. Es un campo de fecha **vacío en el origen**.
+- El día de 8 Esquinas son **814 tickets `U-D-10` reales**. Lo que lo delata es otra cosa: **los 814
+  a la misma hora (06h) y folios `0000001→0000196`** — carga de migración de ventas anteriores.
+- Mi firma original («una fila por SKU») era inservible: es la forma normal del día de una ruta.
+
+El dinero **está**; lo que está mal es el **mes** en que cae. Se **declara, no se repara**: reparar
+la fecha mueve **meses cerrados** y no existe `analytics.period_close` (VP.4).
+
+- **Changed** — la **línea de procedencia se deriva del periodo**. Era una constante que **se
+  contradecía con su propio reporte**: decía que Canindo era Kepler, y en la captura de Hershey de
+  ago-2026 Canindo aportó **$63,901.11 desde Wincaja** (corte el 15-ago, a media captura) más
+  $26,595.22 de sus rutas = **$90,496.33 mal atribuidos, 8.4% del número publicado**. Ahora sale de
+  `s.source`, una columna agregada a una consulta que ya existía (**cero viajes extra**). Verificado:
+  ago-2026 pone Canindo en **las dos** fuentes; sep-2026 pone Morelia en Kepler. Sin datos de fuente
+  **no inventa la frase**: declara «procedencia NO MEDIDA».
+- **Changed** — el KPI deja de llamar venta al renglonaje: publica **los que vendieron** y declara el
+  resto. Hershey ago-2026 pasa de **127** a **70 · 127 en la tabla (57 sin venta)**.
+- ⛔ **Dos falsas alarmas mías, medidas y descartadas**: los 34,688 movimientos de 8 Esquinas que el
+  sell-out «no publicaba» en oct–dic 2025 **existen también en la réplica `02`** (32,274 verificados
+  uno a uno) y ya se publican bajo La Piedad — el filtro `c1 = sucursal` acierta, está ahí para no
+  doble-contar copias entre réplicas.
+- ⚠️ **Hallazgo no corregido**: `mv_kepler_sales_daily` trae **otro mapeo de sucursal clavado**
+  (`'10'→'01'`, `'42'→'02'`, `'50'→'06'`) — sexta copia de lo que el resolvedor ya posee.
+
 ### Added — hasta qué año hay histórico del Sell-Out, y por qué parecía ser 2025 (VSO.13, 2026-09-28)
 Pregunta de Edgar mirando el reporte de Hershey. **Medido en prod:** el universo tiene las **8
 plazas desde 2026-03** (Zamora entra 2026-03, Yurécuaro 2026-02, 8 Esquinas 2026-01). **2025 son
