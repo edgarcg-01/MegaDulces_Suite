@@ -35,6 +35,14 @@ export interface QuoteDeliverableItem {
 }
 
 export interface QuoteDeliverableData {
+  /**
+   * Folio de la cotización (COT-YYYY-NNNNN).
+   *
+   * NULL significa **una cosa concreta**: este papel todavía no está respaldado por ninguna
+   * fila. El documento lo dice con todas sus letras en vez de omitirlo, porque un entregable
+   * sin folio y sin aviso es imposible de volver a encontrar cuando el cliente llama citándolo.
+   */
+  quoteCode?: string | null;
   customerCode: string | null;
   customerName: string;
   customerPhone?: string | null;
@@ -96,6 +104,10 @@ export async function loadExcelLib(): Promise<any> {
  * (NUMERO CLIENTE)(NOMBRE CLIENTE)(AAAA,MM,DD,HH,MM).ext
  */
 export function generateQuoteFilename(data: QuoteDeliverableData, ext: 'pdf' | 'xlsx'): string {
+  // El folio va PRIMERO cuando existe: es lo único con lo que el operador puede volver a
+  // encontrar el documento que el cliente tiene en la mano. Sin él, el archivo sólo se podía
+  // ubicar por cliente y hora, que es justo lo que no se recuerda por teléfono.
+  const folio = (data.quoteCode || '').trim().replace(/[^A-Za-z0-9_-]/g, '');
   const code = (data.customerCode || 'PROSPECTO').trim().replace(/[^a-zA-Z0-9_-]/g, '');
   const name = (data.customerName || 'CLIENTE')
     .normalize('NFD')
@@ -111,7 +123,9 @@ export function generateQuoteFilename(data: QuoteDeliverableData, ext: 'pdf' | '
   const pad = (n: number) => String(n).padStart(2, '0');
   const timestamp = `${validDate.getFullYear()},${pad(validDate.getMonth() + 1)},${pad(validDate.getDate())},${pad(validDate.getHours())},${pad(validDate.getMinutes())}`;
 
-  return `(${code})(${name})(${timestamp}).${ext}`;
+  return folio
+    ? `${folio}(${code})(${name})(${timestamp}).${ext}`
+    : `(${code})(${name})(${timestamp}).${ext}`;
 }
 
 export function formatDec(n: number | null | undefined): string {
@@ -231,7 +245,8 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   // 4. Recuadro de Metadatos (Derecha)
   const metaBoxW = 160;
   const metaBoxX = pageWidth - M - metaBoxW;
-  const metaBoxH = 50;
+  // Un renglón más cuando hay folio que imprimir (o que declarar ausente).
+  const metaBoxH = 61;
 
   doc.setFillColor(...cCardBg);
   doc.setDrawColor(...cRule);
@@ -249,12 +264,27 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...cInk);
-  doc.text(`Emisión: ${fechaStr}`, metaBoxX + 8, currentY + 22);
-  doc.text(`Vigencia hasta: ${data.validUntil || '15 días'}`, metaBoxX + 8, currentY + 33);
-  doc.text(`Sucursal: ${data.branchCode} — ${data.branchName.slice(0, 18)}`, metaBoxX + 8, currentY + 44);
+  // El folio, en negrita y arriba de todo: es el dato con el que el cliente vuelve a
+  // referirse a este papel. Cuando no hay, se DECLARA — un hueco silencioso haría creer
+  // que el documento es rastreable cuando no lo es.
+  if (data.quoteCode) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...cInk);
+    doc.text(`Folio: ${data.quoteCode}`, metaBoxX + 8, currentY + 22);
+    doc.setFont('helvetica', 'normal');
+  } else {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(185, 28, 28); // Rose-700
+    doc.text('Folio: SIN ASIGNAR (borrador)', metaBoxX + 8, currentY + 22);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...cInk);
+  }
+  doc.text(`Emisión: ${fechaStr}`, metaBoxX + 8, currentY + 33);
+  doc.text(`Vigencia hasta: ${data.validUntil || '15 días'}`, metaBoxX + 8, currentY + 44);
+  doc.text(`Sucursal: ${data.branchCode} — ${data.branchName.slice(0, 18)}`, metaBoxX + 8, currentY + 55);
 
   // 5. Banner de Aviso / Marca de agua visible
-  currentY += 56;
+  currentY += 67;
   doc.setFillColor(254, 242, 242); // Rose-50
   doc.setDrawColor(252, 165, 165); // Rose-300
   doc.setLineWidth(0.75);
@@ -655,6 +685,14 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   const rightMetaCol = hasDiscount ? 'H' : 'G';
   const rightValCol = hasDiscount ? 'I' : 'H';
+
+  // Folio arriba de la fecha, y declarado cuando falta (mismo criterio que el PDF).
+  ws.getCell('A4').value = 'Folio:';
+  ws.getCell('A4').font = { bold: true, size: 9 };
+  ws.getCell('B4').value = data.quoteCode || 'SIN ASIGNAR (borrador)';
+  ws.getCell('B4').font = data.quoteCode
+    ? { bold: true, size: 9 }
+    : { bold: true, size: 9, color: { argb: 'FFB91C1C' } };
 
   ws.getCell(`${rightMetaCol}5`).value = 'Fecha Emisión:';
   ws.getCell(`${rightMetaCol}5`).font = { bold: true, size: 9 };

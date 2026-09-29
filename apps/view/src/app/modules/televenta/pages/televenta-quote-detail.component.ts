@@ -23,6 +23,7 @@ import {
   exportQuoteXlsx,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
+import { branchName } from '../../../core/constants/store-branches';
 
 /**
  * `[COT.1b]` — El renglon de una cotizacion.
@@ -1289,10 +1290,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   obtenerDatosEntregable(q: QuoteDetail): QuoteDeliverableData {
     const sucursalCod = q.source_branch || '01';
     const items = q.lines.map((l) => ({
-      sku: l.requested_text || 'ART',
+      // El SKU real primero; `requested_text` sólo cuando el renglón NO casó con el catálogo
+      // (que es el único caso en que esa columna tiene algo).
+      sku: l.product_sku || l.requested_text || 'ART',
       name: l.product_name || l.requested_text || 'Artículo',
-      barcode: null,
-      content: null,
+      barcode: l.product_barcode ?? null,
+      content: l.product_content ?? null,
       unit_label: l.qty_unit || 'PZA',
       rung: l.qty_unit === 'CJA' || l.qty_unit === 'Caja' ? 'box' : (l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base'),
       factor: this.num(l.qty_factor),
@@ -1310,13 +1313,15 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     const total = Number(q.total) || subtotal - discountAmount;
 
     return {
+      // Esta cotización YA existe: su folio es lo primero que va al papel.
+      quoteCode: q.code,
       customerCode: q.customer_code || q.erp_customer_code || null,
-      customerName: q.recipient_name || 'CLIENTE',
-      customerPhone: null,
-      customerEmail: null,
+      customerName: q.recipient_name || q.erp_customer_name || 'CLIENTE',
+      customerPhone: q.contact_phone || null,
+      customerEmail: q.contact_email || null,
       branchCode: sucursalCod,
-      branchName: `Sucursal ${sucursalCod}`,
-      salespersonCode: null,
+      branchName: branchName(sucursalCod),
+      salespersonCode: q.salesperson_code || null,
       salespersonName: this.vendedorAsignado(q) || null,
       quoteDate: q.quote_date || new Date(),
       validUntil: q.valid_until,

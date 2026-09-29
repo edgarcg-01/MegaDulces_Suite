@@ -344,7 +344,12 @@ export class CommercialQuotesService {
           to_char(q.valid_until, 'YYYY-MM-DD') AS valid_until,
           (q.valid_until - CURRENT_DATE)::int  AS days_to_expiry,
           c.code AS customer_code,
-          COALESCE(c.name, q.contact_name) AS recipient_name,
+          -- ⚠️ erp_customer_name VA EN EL COALESCE. Un cliente de mayoreo del ERP no tiene fila
+          -- en commercial.customers (customer_id NULL) ni contact_name, así que sin él esto
+          -- devolvía NULL y el entregable salía rotulado "CLIENTE" con sólo el código —medido en
+          -- prod sobre COT-2026-00004, que tiene "GRUPO ORTIZ VERA" guardado. La consulta de
+          -- list() ya lo resolvía bien: eran dos reglas distintas para el mismo dato.
+          COALESCE(c.name, q.erp_customer_name, q.contact_name) AS recipient_name,
           o.code AS order_code,
           u.username AS created_by_username
         FROM commercial.quotes q
@@ -362,6 +367,13 @@ export class CommercialQuotesService {
         SELECT
           ql.*,
           p.nombre AS product_name,
+          -- El SKU y los descriptivos que el entregable necesita para ser el MISMO documento
+          -- que imprime la pantalla de alta. La columna requested_text es NULL en todo renglón
+          -- que casó con el catálogo (así lo escribe el motor), así que sin p.sku el PDF del
+          -- detalle imprimía "ART" en cada fila teniendo el SKU a un JOIN de distancia.
+          p.sku AS product_sku,
+          lp.content  AS product_content,
+          lp.barcode  AS product_barcode,
           -- El descuento se DERIVA, no se guarda: guardado aparte se desincroniza del precio
           -- en cuanto alguien edita uno de los dos.
           CASE
@@ -370,10 +382,18 @@ export class CommercialQuotesService {
           END AS discount_pct
         FROM commercial.quote_lines ql
         LEFT JOIN catalog.products p ON p.tenant_id = ql.tenant_id AND p.id = ql.product_id
+        -- MISMA fuente que el buscador de la pantalla de alta (v_label_prices por sucursal), para
+        -- que los dos entregables describan el producto igual. Sólo se leen descriptivos
+        -- (contenido y EAN): el PRECIO del papel es el que quedó congelado en el renglón, nunca
+        -- el de hoy — re-precificar al imprimir cambiaría una cotización ya entregada.
+        LEFT JOIN analytics.v_label_prices lp
+               ON lp.sucursal = :branch AND lp.sku = btrim(p.sku)
         WHERE ql.tenant_id = public.current_tenant_id() AND ql.quote_id = :id
         ORDER BY ql.line_number
         `,
-        { id },
+        // La sucursal sale de la cabecera ya leída: es la plaza con la que se armó la cotización,
+        // no la que el usuario tenga elegida al abrir el detalle.
+        { id, branch: (head.rows[0].source_branch as string) ?? '01' },
       );
 
       return { ...head.rows[0], lines: lines.rows };
