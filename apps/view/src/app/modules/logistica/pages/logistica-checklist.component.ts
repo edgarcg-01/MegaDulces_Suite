@@ -146,7 +146,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     `,
   styles: [`
     :host { display:block; }
-    .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }
+    .back { color: var(--action); text-decoration:none; font-size:.85rem; }
     .muted { color: var(--text-muted); font-size:.85rem; margin:0; }
     .new-row { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
     .checklist-card { margin-top:1rem; }

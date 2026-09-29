@@ -581,7 +581,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-orig.ok { color: var(--ok-fg); }
     .cb-orig.bad { color: var(--bad-fg); }
     .cb-orig i { font-size: .8rem; }
-    .cb-combo { border: 1px solid var(--surface-border); border-radius: .5rem; padding: .5rem .625rem; margin-bottom: .5rem; background: var(--surface-50); }
+    .cb-combo { border: 1px solid var(--surface-border); border-radius: .5rem; padding: .5rem .625rem; margin-bottom: .5rem; background: var(--surface-ground); }
     .cb-combo-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .375rem; }
     .cb-combo-head .cb-monto { margin-left: auto; font-weight: 700; }
     .cb-combo-line { display: grid; grid-template-columns: 1fr auto 8rem; gap: .5rem; font-size: .8125rem; padding: .125rem 0; border-top: 1px dashed var(--surface-border); }

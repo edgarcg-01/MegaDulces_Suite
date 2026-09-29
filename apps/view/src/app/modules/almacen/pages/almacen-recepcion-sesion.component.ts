@@ -361,7 +361,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     @media (max-width: 900px) { .rsd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     .rsd-hold-banner { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding: .6rem .8rem;
       border: 1px solid var(--bad-border, #fecaca); border-radius: 10px; background: var(--bad-soft-bg, #fef2f2);
-      font-size: .84rem; color: var(--text-color); }
+      font-size: .84rem; color: var(--text-main); }
     .rsd-decl { font-variant-numeric: tabular-nums; }
     .rsd-decl-gap { color: var(--warn-fg, #b45309); font-weight: 700; }
     .rsd-gap, .rsd-held { display: block; font-size: .68rem; font-weight: 600; letter-spacing: .02em; }

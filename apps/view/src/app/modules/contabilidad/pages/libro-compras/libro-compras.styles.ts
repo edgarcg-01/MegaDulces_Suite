@@ -101,11 +101,11 @@ export const LIBRO_COMPRAS_STYLES = `
    único que no arrastra los CFDIs que ContPAQi ya tiene asociados. Se dice, no se esconde
    —un botón que no está y nadie explica se lee como un bug. */
 .lc-solo-lectura { margin: -.25rem 0 0; padding: .55rem .7rem; border-radius: var(--radius-sm);
-  background: var(--surface-subtle); border: 1px solid var(--border-subtle);
+  background: var(--surface-ground); border: 1px solid var(--border-color);
   font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45;
   display: flex; gap: .5rem; align-items: baseline; }
 .lc-solo-lectura i { color: var(--action); }
-.lc-solo-lectura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
+.lc-solo-lectura strong { color: var(--text-main); font-weight: var(--fw-semibold); }
 `;
 
 /**
@@ -129,7 +129,7 @@ export const NO_ASOCIADOS_STYLES = `
 /* En el tablero del sub-módulo el número que manda es lo que ENTRA AL TXT, no el total sin
    asociar del mes: es el mismo número que el encabezado del detalle, para que no se lean
    dos cifras distintas del mismo mes. */
-.na-falta { font-weight: var(--fw-semibold); color: var(--text-color); }
+.na-falta { font-weight: var(--fw-semibold); color: var(--text-main); }
 .na-falta.cero { color: var(--ok-fg); font-weight: var(--fw-medium); }
 .na-mes-sinlibro { font-size: var(--fs-micro); color: var(--bad-fg); }
 /* Lo que NO entra, en voz baja: es contexto, no la acción del mes. */
@@ -173,9 +173,9 @@ export const NO_ASOCIADOS_STYLES = `
 /* El folio de la póliza es editable: los meses sin libro (ago-2026) tienen que entrar como
    folio 1, no como complemento en el 2. Se ve como dato, no como botón, hasta el hover. */
 .na-caratula { font: inherit; color: inherit; background: none; border: 0; padding: 0 .15rem;
-  border-radius: var(--radius-xs); cursor: pointer; display: inline-flex; align-items: baseline; gap: .3rem; }
+  border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: baseline; gap: .3rem; }
 .na-caratula i { font-size: .7em; opacity: 0; transition: opacity .12s ease; }
-.na-caratula:hover { background: var(--surface-hover); color: var(--text-color); }
+.na-caratula:hover { background: var(--surface-hover); color: var(--text-main); }
 .na-caratula:hover i { opacity: .6; }
 .na-caratula:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 .na-caratula:focus-visible i { opacity: .6; }
@@ -186,7 +186,7 @@ export const NO_ASOCIADOS_STYLES = `
 .na-cobertura { margin: -.25rem 0 0; font-size: var(--fs-micro); color: var(--text-muted);
   display: flex; gap: .45rem; align-items: baseline; line-height: 1.45; }
 .na-cobertura i { color: var(--ok-fg); }
-.na-cobertura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
+.na-cobertura strong { color: var(--text-main); font-weight: var(--fw-semibold); }
 .na-cobertura code { font-family: var(--font-mono); font-size: .95em; }
 .na-cobertura.vacia { color: var(--warn-fg); }
 .na-cobertura.vacia i, .na-cobertura.vacia strong { color: var(--warn-fg); }
@@ -209,8 +209,8 @@ export const NO_ASOCIADOS_STYLES = `
   color: var(--text-muted); cursor: pointer;
   padding: .45rem .25rem .25rem; border: 0; background: none;
 }
-.na-anio-cab:hover { color: var(--text-color); }
-.na-anio-cab:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.na-anio-cab:hover { color: var(--text-main); }
+.na-anio-cab:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
 .na-anio-cab i { font-size: .65rem; }
 .na-anio-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* El pendiente del año va SIEMPRE, abierto o cerrado: un año colapsado con trabajo
@@ -226,8 +226,8 @@ export const NO_ASOCIADOS_STYLES = `
 .na-notas > summary {
   display: flex; align-items: baseline; gap: .4rem; cursor: pointer; list-style: none;
   padding: .4rem .6rem; border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle); background: var(--surface-subtle);
-  color: var(--text-color); font-size: var(--fs-xs);
+  border: 1px solid var(--border-color); background: var(--surface-ground);
+  color: var(--text-main); font-size: var(--fs-xs);
 }
 .na-notas > summary::-webkit-details-marker { display: none; }
 .na-notas > summary:hover { background: var(--surface-hover); }
@@ -236,7 +236,7 @@ export const NO_ASOCIADOS_STYLES = `
 .na-notas[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .na-notas-cuerpo {
   display: flex; flex-direction: column; gap: .5rem;
-  padding: .6rem .7rem; border: 1px solid var(--border-subtle); border-top: 0;
+  padding: .6rem .7rem; border: 1px solid var(--border-color); border-top: 0;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 /* Adentro del acordeon los margenes negativos que los separaban del bloque de arriba
@@ -257,12 +257,12 @@ export const NO_ASOCIADOS_STYLES = `
   border: 1px solid var(--border-color); background: var(--card-bg);
   transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
 }
-.na-chip:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-color); }
+.na-chip:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-main); }
 .na-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
 /* El seleccionado se marca con TINTA, no con color: el naranja es de la acción primaria
    (Generar TXT) y un chip naranja le competiría. */
-.na-chip.on { border-color: var(--text-color); color: var(--text-color); background: var(--surface-hover); }
-.na-chip.on .na-chip-n { color: var(--text-color); }
+.na-chip.on { border-color: var(--text-main); color: var(--text-main); background: var(--surface-hover); }
+.na-chip.on .na-chip-n { color: var(--text-main); }
 .na-chip-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); }
 /* En cero se apaga y no se puede tocar: el conteo sigue informando ("no hay canceladas")
    pero no te mete a una lista vacía. */
@@ -273,8 +273,8 @@ export const NO_ASOCIADOS_STYLES = `
 .na-buscar > i { position: absolute; left: .55rem; font-size: .8rem; color: var(--text-muted); pointer-events: none; }
 .na-buscar input { padding-left: 1.85rem; padding-right: 1.7rem; font-size: var(--fs-xs); min-width: 15rem; }
 .na-buscar-x { position: absolute; right: .35rem; display: inline-flex; padding: .2rem; cursor: pointer;
-  border: 0; background: none; color: var(--text-muted); border-radius: var(--radius-xs); }
-.na-buscar-x:hover { color: var(--text-color); }
+  border: 0; background: none; color: var(--text-muted); border-radius: var(--radius-sm); }
+.na-buscar-x:hover { color: var(--text-main); }
 .na-buscar-x i { font-size: .7rem; }
 
 /* ── Ceros y pie de totales (LC.16.3 / LC.16.4) ────────────────────────────
@@ -287,7 +287,7 @@ export const NO_ASOCIADOS_STYLES = `
    (0% + c/IVA + IEPS + IVA = total) y sigue a la vista en el renglón 400. */
 .lc-tablewrap tr.na-tot td {
   border-top: 1px solid var(--border-color);
-  background: var(--surface-subtle);
+  background: var(--surface-ground);
   font-weight: var(--fw-semibold); font-size: var(--fs-xs);
   padding-top: .45rem; padding-bottom: .45rem;
 }

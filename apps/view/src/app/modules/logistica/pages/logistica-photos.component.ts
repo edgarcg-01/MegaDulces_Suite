@@ -129,7 +129,7 @@ import {
     `,
   styles: [`
     :host { display:block; }
-    .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }
+    .back { color: var(--action); text-decoration:none; font-size:.85rem; }
     .muted { color: var(--text-muted); font-size:.85rem; }
     h3 { margin:0 0 .75rem; font-size:1rem; }
     .upload-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; }
@@ -138,13 +138,13 @@ import {
     .gps-controls { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
     .gps-controls input { width: 100px; }
     .capture-row { display:flex; gap:1rem; align-items:center; margin-top:1rem; flex-wrap:wrap; }
-    .preview { display:flex; gap:1rem; align-items:center; margin-top:1rem; padding:1rem; background: var(--surface-50); border-radius:8px; }
+    .preview { display:flex; gap:1rem; align-items:center; margin-top:1rem; padding:1rem; background: var(--surface-ground); border-radius:8px; }
     .preview img { max-width: 200px; max-height: 200px; border-radius:6px; }
     .grid-card { margin-top:1rem; }
     .filter-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; }
     .filter-row label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-muted); min-width:200px; }
     .photos-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:1rem; }
-    .photo-card { background: var(--surface-50); border-radius:8px; padding:.5rem; display:flex; flex-direction:column; gap:.5rem; }
+    .photo-card { background: var(--surface-ground); border-radius:8px; padding:.5rem; display:flex; flex-direction:column; gap:.5rem; }
     .photo-card img { width:100%; height: 180px; object-fit:cover; border-radius:6px; }
     .photo-meta { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
     .desc { font-size:.85rem; margin:0; }

@@ -332,7 +332,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-unit { appearance: none; background: transparent; border: 0; border-right: 1px solid var(--surface-border);
       padding: .4rem .6rem; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--text-muted); }
     .erd-unit:last-child { border-right: 0; }
-    .erd-unit.on { background: var(--overlay-selected, rgba(0,0,0,.06)); color: var(--text-color); }
+    .erd-unit.on { background: var(--overlay-selected, rgba(0,0,0,.06)); color: var(--text-main); }
     .erd-unit:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
     /* Plazo — el veredicto que da el sistema desde la fecha */
     .erd-plazo { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; font-size: .78rem; }

@@ -301,7 +301,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
       display: flex; gap: .6rem; align-items: flex-start;
       margin-top: 1rem; padding: .7rem .875rem;
       border: 1px solid var(--c-divider); border-left: 3px solid var(--warn-fg);
-      border-radius: 6px; background: var(--warn-bg);
+      border-radius: 6px; background: var(--warn-soft-bg);
       font-size: var(--fs-xs); color: var(--c-text-2);
     }
     .pg-aviso strong { display: block; color: var(--c-text-1); margin-bottom: .1rem; }
@@ -388,7 +388,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
     .pg-tag {
       display: inline-block; margin-left: .3rem; padding: 0 .35rem; border-radius: 4px;
       font-size: .6rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
-      color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-fg);
+      color: var(--warn-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-fg);
     }
 
     .pg-plaza { font-size: .75rem; }

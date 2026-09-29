@@ -426,9 +426,9 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px);
       font-size: var(--fs-sm, .82rem); }
     .fl-aviso span { color: var(--text-muted); font-size: var(--fs-xs, .74rem); }
-    .fl-aviso.t-ok   { border-color: color-mix(in srgb, var(--tone-ok) 45%, transparent); }
-    .fl-aviso.t-warn { border-color: color-mix(in srgb, var(--tone-warn) 45%, transparent); }
-    .fl-aviso.t-bad  { border-color: color-mix(in srgb, var(--tone-bad) 45%, transparent); }
+    .fl-aviso.t-ok   { border-color: color-mix(in srgb, var(--ok-fg) 45%, transparent); }
+    .fl-aviso.t-warn { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); }
+    .fl-aviso.t-bad  { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); }
 
     .fl-prod { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
       padding: .6rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); }
@@ -463,19 +463,19 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
     .fl-ver-txt { display: flex; flex-direction: column; gap: .1rem; }
     .fl-ver-txt strong { font-size: var(--fs-md, 1rem); color: var(--text-main); }
     .fl-ver-txt span { font-size: var(--fs-sm, .82rem); color: var(--text-muted); }
-    .fl-veredicto.v-hay_en_tienda { border-left-color: var(--tone-ok); }
-    .fl-veredicto.v-hay_en_tienda i { color: var(--tone-ok); }
-    .fl-veredicto.v-sin_existencia { border-left-color: var(--tone-bad); }
-    .fl-veredicto.v-sin_existencia i { color: var(--tone-bad); }
+    .fl-veredicto.v-hay_en_tienda { border-left-color: var(--ok-fg); }
+    .fl-veredicto.v-hay_en_tienda i { color: var(--ok-fg); }
+    .fl-veredicto.v-sin_existencia { border-left-color: var(--bad-fg); }
+    .fl-veredicto.v-sin_existencia i { color: var(--bad-fg); }
     /* "No sé" tiene su propio color a propósito: no es el rojo de "no hay" (ADR-056). */
-    .fl-veredicto.v-no_medido { border-left-color: var(--tone-warn); }
-    .fl-veredicto.v-no_medido i { color: var(--tone-warn); }
+    .fl-veredicto.v-no_medido { border-left-color: var(--warn-fg); }
+    .fl-veredicto.v-no_medido i { color: var(--warn-fg); }
 
     .fl-descartar { align-self: flex-start; font-size: var(--fs-sm, .8rem); margin-top: .2rem; }
 
-    .fl-ok { border-color: color-mix(in srgb, var(--tone-ok) 45%, transparent); }
+    .fl-ok { border-color: color-mix(in srgb, var(--ok-fg) 45%, transparent); }
     .fl-ok-head { display: flex; align-items: center; gap: .45rem; font-size: var(--fs-md, .92rem); }
-    .fl-ok-head i { color: var(--tone-ok); }
+    .fl-ok-head i { color: var(--ok-fg); }
     .fl-ok-kind { font-size: var(--fs-xs, .72rem); color: var(--text-muted);
       border: 1px solid var(--border-color); border-radius: 999px; padding: .1rem .5rem; }
     .fl-ok-name { margin: 0; font-weight: 700; color: var(--text-main); }
@@ -484,7 +484,7 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
     .fl-ok-facts b { color: var(--text-main); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .fl-contra { margin: 0; display: flex; align-items: flex-start; gap: .4rem;
       font-size: var(--fs-sm, .8rem); color: var(--text-main); }
-    .fl-contra i { color: var(--tone-warn); margin-top: .15rem; }
+    .fl-contra i { color: var(--warn-fg); margin-top: .15rem; }
     .fl-contra b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
     .fl-res { list-style: none; margin: 0; padding: 0; max-height: 26rem; overflow-y: auto; }
@@ -492,7 +492,7 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
       width: 100%; min-height: var(--tap-min, 44px); padding: .5rem .3rem; text-align: left;
       background: none; border: 0; border-bottom: 1px solid var(--border-color);
       color: var(--text-main); font: inherit; cursor: pointer; }
-    .fl-res-row:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+    .fl-res-row:hover { background: color-mix(in srgb, var(--text-main) 4%, transparent); }
     .fl-res-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
     .fl-res-sku, .fl-res-price { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-sm, .8rem); }
@@ -523,7 +523,7 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
     /* Skeleton dimensionado: reserva el alto real para que no salte el layout (CLS 0). */
     .fl-skel { display: flex; flex-direction: column; gap: .4rem; }
     .fl-skel-row { height: 2.1rem; border-radius: var(--r-sm, 6px);
-      background: color-mix(in srgb, var(--ink) 7%, transparent); animation: flPulse 1.4s ease-in-out infinite; }
+      background: color-mix(in srgb, var(--text-main) 7%, transparent); animation: flPulse 1.4s ease-in-out infinite; }
     @keyframes flPulse { 0%, 100% { opacity: .5 } 50% { opacity: .9 } }
     @media (prefers-reduced-motion: reduce) {
       .fl-skel-row { animation: none; }

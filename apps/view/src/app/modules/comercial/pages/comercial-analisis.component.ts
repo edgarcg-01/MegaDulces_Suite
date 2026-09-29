@@ -355,7 +355,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-total em { font-style: normal; font-size: .9rem; opacity: .85; }
     .an-total.up, .an-m-delta.up, .an-m-pct.up { color: var(--success-fg, #2e7d32); }
     .an-total.down, .an-m-delta.down, .an-m-pct.down { color: var(--danger-fg, #c0392b); }
-    .an-narrative { margin: 1rem 0 1.25rem; font-size: 1rem; line-height: 1.5; color: var(--text-color); }
+    .an-narrative { margin: 1rem 0 1.25rem; font-size: 1rem; line-height: 1.5; color: var(--text-main); }
     .an-crumbs { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; font-size: .85rem; color: var(--text-muted); }
     .an-crumbs button { border: 0; background: transparent; color: var(--action, #d9772e); cursor: pointer; font-size: .85rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0; }
     .an-movers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
@@ -434,18 +434,18 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-msg { max-width: 92%; }
     .an-msg.user { align-self: flex-end; background: var(--action, #d9772e); color: #fff; padding: .5rem .85rem; border-radius: 12px 12px 2px 12px; }
     .an-msg-text { font-size: .92rem; line-height: 1.5; }
-    .an-msg:not(.user) .an-msg-text { color: var(--text-color); }
+    .an-msg:not(.user) .an-msg-text { color: var(--text-main); }
     .an-block { margin: .6rem 0; overflow-x: auto; }
     .an-block table { border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; width: 100%; }
     .an-block th, .an-block td { border-bottom: 1px solid var(--border-color); padding: .3rem .6rem; text-align: left; }
     .an-block th { color: var(--text-muted); font-weight: 600; }
     .an-block td:not(:first-child), .an-block th:not(:first-child) { text-align: right; }
     .an-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .6rem; }
-    .an-chips button { border: 1px solid var(--border-color); background: transparent; color: var(--text-color); padding: .35rem .7rem; border-radius: 999px; font-size: .8rem; cursor: pointer; }
+    .an-chips button { border: 1px solid var(--border-color); background: transparent; color: var(--text-main); padding: .35rem .7rem; border-radius: 999px; font-size: .8rem; cursor: pointer; }
     .an-chips button:hover { border-color: var(--action, #d9772e); }
     .an-chat-empty { color: var(--text-muted); font-size: .9rem; }
     .an-chat-input { display: flex; gap: .5rem; }
-    .an-chat-input input { flex: 1; border: 1px solid var(--border-color); border-radius: 10px; padding: .6rem .85rem; font-size: .92rem; background: var(--surface-ground, #fff); color: var(--text-color); }
+    .an-chat-input input { flex: 1; border: 1px solid var(--border-color); border-radius: 10px; padding: .6rem .85rem; font-size: .92rem; background: var(--surface-ground, #fff); color: var(--text-main); }
   `],
 })
 export class ComercialAnalisisComponent {

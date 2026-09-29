@@ -145,16 +145,16 @@ interface CartRow {
     `
       .page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 6rem; }
       .back-link { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text-muted); font-size: 0.875rem; text-decoration: none; min-height: 36px; }
-      .back-link:hover { color: var(--primary-color); }
+      .back-link:hover { color: var(--action); }
       .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.25rem; }
-      .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--text-color); }
+      .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--text-main); }
       .count { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; }
       .head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-      .head h1 { font-size: 1.25rem; font-weight: 700; margin: 0.25rem 0 0; color: var(--text-color); }
+      .head h1 { font-size: 1.25rem; font-weight: 700; margin: 0.25rem 0 0; color: var(--text-main); }
       .code { font-size: 0.75rem; color: var(--text-muted); margin: 0; font-weight: 600; letter-spacing: 0.04em; }
       .cart-total { text-align: right; }
       .cart-total .label { font-size: 0.75rem; color: var(--text-muted); display: block; }
-      .cart-total .amount { font-size: 1.5rem; font-weight: 700; color: var(--primary-color); }
+      .cart-total .amount { font-size: 1.5rem; font-weight: 700; color: var(--action); }
       .search {
         width: 100%;
         padding: 0.7rem 1rem;
@@ -165,13 +165,13 @@ interface CartRow {
         min-height: 44px;
         box-sizing: border-box;
       }
-      .search:focus { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+      .search:focus { outline: 2px solid var(--action); outline-offset: 1px; }
       .empty-mini { font-size: 0.85rem; color: var(--text-muted); font-style: italic; padding: 1rem 0; text-align: center; }
       .grid { display: grid; grid-template-columns: 1fr; gap: 0.5rem; max-height: 60vh; overflow-y: auto; }
       .prod { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--neutral-50); border-radius: 10px; border: 1px solid transparent; min-height: 64px; }
-      .prod.selected { border-color: var(--primary-color); background: var(--info-soft-bg); }
+      .prod.selected { border-color: var(--action); background: var(--info-soft-bg); }
       .prod-info { flex: 1; min-width: 0; }
-      .prod-name { font-size: 0.9rem; font-weight: 500; margin: 0; color: var(--text-color); }
+      .prod-name { font-size: 0.9rem; font-weight: 500; margin: 0; color: var(--text-main); }
       .prod-meta { font-size: 0.75rem; color: var(--text-muted); margin: 0.15rem 0 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }
       .prod-actions { flex-shrink: 0; }
       .qty-input { width: 70px !important; text-align: center; }
@@ -184,7 +184,7 @@ interface CartRow {
         box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
       }
       .summary { display: flex; align-items: baseline; gap: 1rem; flex: 1; font-size: 0.875rem; color: var(--text-muted); }
-      .summary .total { font-size: 1.25rem; font-weight: 700; color: var(--primary-color); }
+      .summary .total { font-size: 1.25rem; font-weight: 700; color: var(--action); }
       .loading { display: flex; justify-content: center; padding: 4rem 0; }
       @media (max-width: 640px) {
         .head { flex-direction: column; align-items: flex-start; }

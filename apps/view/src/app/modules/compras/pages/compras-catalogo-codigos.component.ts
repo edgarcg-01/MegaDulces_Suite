@@ -413,9 +413,9 @@ type Severidad = '' | 'distinto' | '5' | '25';
       font-size: .62rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
       border: 1px solid transparent;
     }
-    .cd-badge-bad { color: var(--bad-fg); background: var(--bad-bg); border-color: var(--bad-fg); }
-    .cd-badge-ok { color: var(--ok-fg); background: var(--ok-bg); border-color: var(--ok-fg); }
-    .cd-badge-warn { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-fg); }
+    .cd-badge-bad { color: var(--bad-fg); background: var(--bad-soft-bg); border-color: var(--bad-fg); }
+    .cd-badge-ok { color: var(--ok-fg); background: var(--ok-soft-bg); border-color: var(--ok-fg); }
+    .cd-badge-warn { color: var(--warn-fg); background: var(--warn-soft-bg); border-color: var(--warn-fg); }
     .cd-nombres { display: flex; flex-direction: column; gap: .05rem; font-size: .8rem; }
     .cd-plazas { display: flex; flex-wrap: wrap; gap: .2rem; }
     .cd-scroll { overflow-x: auto; }
@@ -482,7 +482,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
       display: flex; gap: .6rem; align-items: flex-start;
       margin: 1rem 0 0; padding: .7rem .875rem;
       border: 1px solid var(--c-divider); border-left: 3px solid var(--warn-fg);
-      border-radius: 6px; background: var(--warn-bg);
+      border-radius: 6px; background: var(--warn-soft-bg);
       font-size: var(--fs-xs); color: var(--c-text-2);
     }
     .cd-noinst strong { display: block; color: var(--c-text-1); margin-bottom: .1rem; }

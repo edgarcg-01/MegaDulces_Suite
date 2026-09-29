@@ -238,7 +238,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem 1.15rem 1.5rem; }
 
     .ab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-    .ab-title { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; color: var(--text-color); }
+    .ab-title { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; color: var(--text-main); }
     .ab-sub { margin: .3rem 0 0; max-width: 62ch; font-size: .85rem; line-height: 1.5; color: var(--text-muted); }
 
     .ab-scope, .ab-retenido {
@@ -246,7 +246,7 @@ const BUCKET_LABEL: Record<string, string> = {
       padding: .6rem .8rem; border-radius: 8px; font-size: .82rem; line-height: 1.45;
     }
     .ab-scope { background: var(--surface-100); color: var(--text-muted); }
-    .ab-retenido { background: var(--yellow-50, var(--surface-100)); color: var(--text-color); }
+    .ab-retenido { background: var(--yellow-50, var(--surface-100)); color: var(--text-main); }
     .ab-scope i, .ab-retenido i { margin-top: .12rem; }
 
     .ab-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
@@ -257,7 +257,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-c-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .ab-dim { color: var(--text-muted); }
     .ab-strong { font-weight: 650; }
-    .ab-transfer { color: var(--primary-color); }
+    .ab-transfer { color: var(--action); }
     .ab-buy { font-weight: 600; }
 
     .ab-c-sku { min-width: 16rem; }
@@ -289,7 +289,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-c-cua { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .ab-org { display: inline-block; padding: .12rem .45rem; border-radius: 6px; font-size: .75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
     .ab-o-transfer { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); font-weight: 600; }
-    .ab-o-buy { background: var(--surface-100); color: var(--text-color); }
+    .ab-o-buy { background: var(--surface-100); color: var(--text-main); }
     /* Sin ruta configurada NO es compra: se ve distinto a propósito (ADR-056). */
     .ab-o-none { background: transparent; color: var(--text-muted); font-style: italic; }
     .ab-why { text-decoration: underline dotted var(--surface-400, #b9b9b9); text-underline-offset: 3px; cursor: help; }
