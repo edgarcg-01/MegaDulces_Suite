@@ -30,7 +30,22 @@ import {
 import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from '@megadulces/contracts';
 // `[GX.43]`/`[GX.44]` El documento que respalda la autorizacion y la deuda de comprobante:
 // las dos reglas viven en el contrato compartido, no escritas dos veces.
-import { documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
+import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
+import type { AutorizacionKepler } from '@megadulces/contracts';
+
+/**
+ * `[GX.48]` Lo que la vista de Kepler aporta por folio: el estado del ejercicio **y** los
+ * campos con los que se arma la constancia de autorizacion.
+ */
+interface DatosKepler {
+  aplicada: boolean | null;
+  estado: EstadoKepler | null;
+  importe?: number | null;
+  fecha?: string | null;
+  beneficiario?: string | null;
+  concepto?: string | null;
+  autoriza?: string | null;
+}
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -1008,8 +1023,8 @@ export class ExpenseProofsService {
    */
   private async keplerPorFolio(
     trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
-  ): Promise<Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>> {
-    const vacio = new Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>();
+  ): Promise<Map<string, DatosKepler>> {
+    const vacio = new Map<string, DatosKepler>();
     const folios = [...new Set(filas.map((f) => String(f.folio_solicitud || '').trim()).filter(Boolean))];
     if (!folios.length) return vacio;
 
@@ -1018,11 +1033,17 @@ export class ExpenseProofsService {
     const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
     if (!reg.rows[0]?.t) return vacio;
 
-    const vistas: { folio: string; sucursal: string; aplicada: boolean | null; estado: string | null }[] =
+    const vistas: (DatosKepler & { folio: string; sucursal: string; estado: string | null })[] =
       await trx('analytics.expense_requests')
         .where('tenant_id', this.tenantCtx.requireTenantId())
         .whereIn('folio', folios)
-        .select('folio', 'sucursal', 'aplicada', 'estado');
+        /**
+         * `[GX.48]` Se traen tambien los campos de la CONSTANCIA de autorizacion. Es la misma
+         * consulta —una por pagina—, asi que la constancia no cuesta un viaje extra; y se
+         * DERIVAN cada vez: si en Kepler cancelan el vale, la constancia desaparece sola.
+         */
+        .select('folio', 'sucursal', 'aplicada', 'estado', 'importe', 'beneficiario',
+          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`));
 
     const porFolio = new Map<string, typeof vistas>();
     for (const v of vistas) {
@@ -1048,6 +1069,11 @@ export class ExpenseProofsService {
       out.set(this.claveKepler(folio, suc), {
         aplicada: hit.aplicada === null || hit.aplicada === undefined ? null : !!hit.aplicada,
         estado: (hit.estado || null) as EstadoKepler | null,
+        importe: hit.importe == null ? null : Number(hit.importe),
+        fecha: hit.fecha ?? null,
+        beneficiario: hit.beneficiario ?? null,
+        concepto: hit.concepto ?? null,
+        autoriza: hit.autoriza ?? null,
       });
     }
     return out;
@@ -1059,8 +1085,9 @@ export class ExpenseProofsService {
 
   /** Le pega la etapa a cada fila. Los tres campos viajan juntos: el chip, el texto y la clave. */
   private conEtapa<T extends { status?: string; folio_solicitud?: string | null; sucursal?: string | null }>(
-    filas: T[], kepler: Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>,
-  ): (T & { etapa: EtapaEjercicio; etapa_label: string; etapa_explicacion: string })[] {
+    filas: T[], kepler: Map<string, DatosKepler>,
+  ): (T & { etapa: EtapaEjercicio; etapa_label: string; etapa_explicacion: string;
+            documento_kepler: string | null; autorizacion_kepler: AutorizacionKepler | null })[] {
     return filas.map((r) => {
       const k = kepler.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal));
       const etapa = etapaDeEjercicio({
@@ -1073,9 +1100,22 @@ export class ExpenseProofsService {
        * en su pantalla «Autorizacion de Sol Gasto» (columna `Documento`: `XA1501-0009008`).
        * Se deriva del folio; `null` mientras nadie lo autorizo — ver el contrato.
        */
+      const folio = String(r.folio_solicitud || '');
       return {
         ...r, etapa, etapa_label: ETIQUETA_ETAPA[etapa], etapa_explicacion: EXPLICACION_ETAPA[etapa],
-        documento_kepler: documentoKepler(String(r.folio_solicitud || ''), k ? k.estado : null),
+        documento_kepler: documentoKepler(folio, k ? k.estado : null),
+        /**
+         * `[GX.48]` **La constancia de autorizacion.** ⛔ Kepler no genera ningun documento al
+         * autorizar —se midio de cinco formas, ver el contrato—, asi que esto se GENERA con lo
+         * que Kepler si tiene y declara lo que no. Viaja en el LISTADO, no solo en el detalle:
+         * quien captura es cajero, no tiene `FINANCE_EXPENSES_VER` y el detalle le da 403 — si
+         * viviera alla, justo el dueño del vale nunca la veria.
+         */
+        autorizacion_kepler: constanciaDeAutorizacion({
+          folio, estado: k ? k.estado : null, importe: k ? k.importe : null,
+          fecha: k ? k.fecha : null, destinatario: k ? k.beneficiario : null,
+          concepto: k ? k.concepto : null, area_autoriza: k ? k.autoriza : null,
+        }),
       };
     });
   }

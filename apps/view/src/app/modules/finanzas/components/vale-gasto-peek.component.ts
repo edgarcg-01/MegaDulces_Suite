@@ -130,6 +130,41 @@ interface DocDelExpediente {
         @if (p.revision_nota) { <p class="vp-nota warn">{{ p.revision_nota }}</p> }
         @if (p.motivo_rechazo) { <p class="vp-nota bad">Rechazado: {{ p.motivo_rechazo }}</p> }
 
+        <!--
+          [GX.48] La CONSTANCIA de autorizacion de Kepler. Va ANTES de la evidencia porque es
+          el permiso, no el comprobante: primero por que se pudo gastar, despues en que.
+
+          Kepler NO genera ningun documento al autorizar -- se midio de cinco formas (ver
+          ejercicio.contract.ts). Esto se GENERA con lo que Kepler si tiene, y por eso el
+          bloque declara que NO consta. Se deriva: si alla cancelan el vale, desaparece sola.
+        -->
+        @if (p.autorizacion_kepler; as a) {
+          <h3 class="vp-h">Autorización de gasto — Kepler</h3>
+          <div class="vp-aut">
+            <div class="vp-aut-h">
+              <span class="vp-aut-doc mono">{{ a.documento }}</span>
+              <span class="vp-aut-ok">{{ a.autorizado_label }}</span>
+            </div>
+            <dl class="vp-dl">
+              <div><dt>Monto</dt><dd>{{ money(a.monto) }}</dd></div>
+              <div><dt>Fecha del documento</dt><dd>{{ a.fecha_documento || 'no declarada' }}</dd></div>
+              <div><dt>Destinatario</dt><dd>{{ a.destinatario || 'no declarado' }}</dd></div>
+              <div><dt>Concepto</dt><dd>{{ a.concepto || 'no declarado' }}</dd></div>
+              <div><dt>Área que autoriza</dt><dd>{{ a.area_autoriza || 'no declarada' }}</dd></div>
+            </dl>
+            <!--
+              Lo que Kepler NO registra, dicho. Sin esto la constancia se lee como completa y
+              alguien podria citarla como prueba de quien autorizo y cuando.
+            -->
+            @if (a.no_consta.length) {
+              <p class="vp-aut-falta">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Kepler no registra: {{ a.no_consta.join(' · ') }}.
+              </p>
+            }
+          </div>
+        }
+
         <!-- ── Los papeles ──────────────────────────────────────────────────── -->
         <h3 class="vp-h">Evidencia</h3>
         @if (!docs().length) {
@@ -223,6 +258,15 @@ interface DocDelExpediente {
   </app-side-peek>
   `,
   styles: [`
+  /* [GX.48] La constancia de autorizacion. Enmarcada: es un documento, no un dato suelto. */
+  .vp-aut { border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .vp-aut-h { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+    flex-wrap: wrap; }
+  .vp-aut-doc { font-weight: var(--fw-bold); color: var(--fg-1); }
+  .vp-aut-ok { font-size: var(--fs-xs); color: var(--ok-fg, var(--fg-2)); }
+  .vp-aut-falta { margin: 0; font-size: var(--fs-xs); color: var(--fg-3);
+    display: flex; align-items: flex-start; gap: var(--sp-1); }
   /* ── El vale, completo ──────────────────────────────────────────────────── */
   .vp { display: flex; flex-direction: column; gap: var(--sp-3); }
   .vp-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }

@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
-import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -113,6 +113,13 @@ export interface ExpenseProof {
   etapa?: EtapaEjercicio;
   etapa_label?: string;
   etapa_explicacion?: string;
+  /** `[GX.48]` El identificador que muestra «Autorización de Sol Gasto»: `XA1501-0009008`. */
+  documento_kepler?: string | null;
+  /**
+   * `[GX.48]` La constancia de autorización. **Se genera**, no se jala: Kepler no guarda
+   * ningún documento al autorizar (medido). `null` mientras no tenga la `A`.
+   */
+  autorizacion_kepler?: AutorizacionKepler | null;
 }
 
 export interface ExpenseProofsReport {
@@ -337,6 +344,15 @@ export interface ValeGasto {
   tiene_evidencia?: boolean;
   evidencia_en_vivo?: boolean;
   files: ProofFile[];
+  /**
+   * `[GX.48]` La constancia de autorización de Kepler. **Se genera**, no se jala: Kepler no
+   * guarda ningún documento al autorizar (medido de cinco formas, ver `ejercicio.contract`).
+   *
+   * ⚠️ Opcional porque **no todos los endpoints la mandan**: viaja en `/mine` y en el detalle,
+   * pero la bandeja de Aprobación arma el vale con otras columnas. `undefined` ahí significa
+   * «este endpoint no la trae», que no es lo mismo que `null` = «el vale no está autorizado».
+   */
+  autorizacion_kepler?: AutorizacionKepler | null;
 }
 
 export interface GastosDelDia {
