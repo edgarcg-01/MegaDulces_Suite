@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, of } from 'rxjs';
-import { map, catchError } from 'rxjs/operators';
+import { map, catchError, shareReplay } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { ComercialService, SalesByRouteOption, SalesByRouteReport, SalesByRouteRow } from '../../comercial/comercial.service';
 
@@ -154,9 +154,21 @@ export class DetalleHomeService {
   private readonly http = inject(HttpClient);
   private readonly comercial = inject(ComercialService);
   private readonly base = `${environment.apiUrl}/commercial`;
+  /** El catálogo de rutas se pedía DOS veces por carga de pantalla: el componente lo llama en
+   *  `ngOnInit` y `getDetalleReport()` lo vuelve a meter en su `forkJoin`. Se ve en el panel de
+   *  red como dos peticiones a `/sales-by-route/routes`, y como `forkJoin` espera a TODAS, la
+   *  segunda se sumaba al tiempo de la pantalla. `shareReplay(1)` las colapsa en una sola.
+   *  ⚠️ Sin `refCount`, a propósito: con él el caché se tira cuando se va el último suscriptor,
+   *  que es exactamente lo que pasa entre una llamada y la otra. El catálogo es estable durante
+   *  la sesión, así que se guarda el Observable, no el arreglo. */
+  private routesCatalog$?: Observable<DetalleRouteCatalogItem[]>;
 
-  /** Obtiene el catálogo de rutas para filtros */
+  /** Obtiene el catálogo de rutas para filtros (una sola petición por sesión). */
   loadRoutesCatalog(): Observable<DetalleRouteCatalogItem[]> {
+    return (this.routesCatalog$ ??= this.fetchRoutesCatalog().pipe(shareReplay(1)));
+  }
+
+  private fetchRoutesCatalog(): Observable<DetalleRouteCatalogItem[]> {
     return this.comercial.salesByRouteRoutes().pipe(
       map((routes) =>
         routes.map((r) => ({
