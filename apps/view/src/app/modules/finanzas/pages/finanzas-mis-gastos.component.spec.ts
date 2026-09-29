@@ -257,6 +257,68 @@ describe('FinanzasMisGastosComponent', () => {
       expect(a.getAttribute('href')).toContain('sucursal=00');
     });
 
+    /**
+     * `[GX.54/55]` — **El vale aprobado que debe su comprobante también ofrece el camino.**
+     *
+     * ⛔ Reportado en pantalla: el vale decía «Aprobado» con el chip «te toca subir la factura
+     * del pago»… y no había por dónde. El visor decía «este vale ya se resolvió» y la lista no
+     * ofrecía nada. La tarea existía y el camino no.
+     */
+    describe('[GX.54/55] el vale que debe su factura', () => {
+      const DEBE = () => ({
+        ...REPORTE(),
+        asignados: [],
+        rows: [FILA({
+          id: 'z', status: 'aprobada', folio_solicitud: '0097001', sucursal: '00',
+          etapa: 'en_captura', etapa_label: 'En tramite', provisional: true,
+        })],
+      }) as unknown as ExpenseProofsReport;
+
+      it('⭐ ofrece el botón, y dice que es la FACTURA', () => {
+        montar(DEBE());
+        const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
+        expect(a).toBeTruthy();
+        expect(a.textContent).toContain('Subir la factura');
+        expect(a.getAttribute('href')).toContain('folio=0097001');
+        expect(a.getAttribute('href')).toContain('sucursal=00');
+      });
+
+      /**
+       * ⚠️ «Subir la evidencia» a secas se lee como que no se recibió nada — y la persona ya
+       * subió algo. Lo que falta es la factura del pago, y el texto lo dice.
+       */
+      it('el chip nombra la factura, no «la evidencia»', () => {
+        montar(DEBE());
+        const txt = fix.nativeElement.textContent as string;
+        expect(txt).toContain('te toca subir la factura del pago');
+        expect(txt).not.toContain('te toca subir la evidencia');
+      });
+
+      /** Sin la marca, el mismo estado pide «la evidencia»: es el camino de siempre. */
+      it('aprobado SIN deber factura dice «la evidencia»', () => {
+        montar({
+          ...REPORTE(), asignados: [],
+          rows: [FILA({ id: 'z', status: 'aprobada', folio_solicitud: '0002', etapa: 'en_captura', provisional: false })],
+        } as unknown as ExpenseProofsReport);
+        const txt = fix.nativeElement.textContent as string;
+        expect(txt).toContain('te toca subir la evidencia');
+        expect((fix.nativeElement.querySelector('.mg-asig-b') as HTMLElement).textContent).toContain('Subir evidencia');
+      });
+
+      /**
+       * ⛔ **La prueba negativa que sostiene el botón**: en cualquier otro estado NO se ofrece.
+       * La captura sólo abre en modo evidencia sobre `aprobada`; ofrecerlo en un vale ya
+       * cerrado llevaría a una pantalla que no deja hacer nada.
+       */
+      it.each(['recibida', 'validada', 'rechazada', 'revision'])('en «%s» NO se ofrece', (status) => {
+        montar({
+          ...REPORTE(), asignados: [],
+          rows: [FILA({ id: 'z', status, folio_solicitud: '0003', etapa: 'en_captura', provisional: true })],
+        } as unknown as ExpenseProofsReport);
+        expect(fix.nativeElement.querySelector('.mg-asig-b')).toBeNull();
+      });
+    });
+
     it('el que Kepler ya aplicó viene marcado', () => {
       montar(CON_ETAPAS([ASIG({ aplicada: true })]));
       expect(fix.nativeElement.textContent).toContain('Ya ejercido en Kepler');
