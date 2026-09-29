@@ -121,4 +121,24 @@ export class InventoryVarianceController {
       limit: limit ? Number(limit) : undefined,
     });
   }
+
+  // ── [IC.3b] La vista de IC.3 llevaba en prod sin un solo consumidor ──────────────────
+  @Get('reincidencia')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Qué SKU descuadra una y otra vez, separando el que SE COMPENSA (error de '
+      + 'captura o unidad) del que RETIENE el faltante (merma). Ordena por lo que queda, '
+      + 'no por lo que se movió. Los SKUs con menos de 2 conteos se declaran en sin_base.',
+  })
+  reincidencia(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('patron') patron?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.reincidencia({
+      warehouse_id: warehouseId,
+      patron,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
 }

@@ -7,9 +7,11 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectButtonModule } from 'primeng/selectbutton';
+import { TooltipModule } from 'primeng/tooltip';
 import {
   ComercialService, InventoryVarianceEvent, InventoryVarianceLine,
   InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
+  InventoryReincidencia, InventoryReincidenciaItem,
 } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
@@ -32,7 +34,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   selector: 'app-comercial-inventory-variance',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
-    ToggleSwitchModule, SelectButtonModule, MetricCardComponent],
+    ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -143,6 +145,89 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <td class="num tabular">{{ p.pct_descuadre ?? '—' }}%</td>
                   <td class="inv-var-salv">{{ p.salvedad || '' }}</td>
                 </tr>
+              </ng-template>
+            </p-table>
+          }
+        </section>
+      }
+
+      @if (vista === 'reincidencia') {
+        <!-- [IC.3b] La vista de IC.3 llevaba en prod sin un solo consumidor -->
+        <section class="inv-var-prog">
+          @if (!warehouseFilter) {
+            <p class="inv-var-note">
+              Sin almacén elegido se consultan todos y tarda cerca del doble. Elegí uno arriba
+              para que responda en ~0.65 s.
+            </p>
+          }
+
+          <div class="inv-var-filters">
+            <p-select [options]="patrones" optionLabel="label" optionValue="value"
+              [(ngModel)]="patronFilter" (onChange)="loadReincidencia()"
+              placeholder="Todos los patrones" styleClass="inv-var-wh"></p-select>
+          </div>
+
+          @if (reinc(); as r) {
+            <div class="surf-grid inv-var-kpis">
+              @for (x of resumenOrdenado(); track x.patron) {
+                <app-metric-card class="panel-col-3" [label]="patronLabel(x.patron)"
+                  [value]="x.skus"
+                  [tone]="x.patron === 'merma' ? 'bad' : x.patron === 'sobra' ? 'warn' : 'default'"
+                  [sub]="fmtMoney(+x.pesos_neto) + ' netos'"></app-metric-card>
+              }
+            </div>
+
+            <!-- Lo que NO se puede juzgar va SIEMPRE en pantalla: un almacén entero puede caer
+                 acá, y esconderlo se lee como que no tiene problema. -->
+            @if (r.sin_base.skus > 0) {
+              <p class="inv-var-warn">
+                ⚠️ <strong>{{ r.sin_base.skus }} SKUs no se pueden juzgar</strong>
+                ({{ fmtMoney(+r.sin_base.pesos_abs) }} movidos, almacenes {{ r.sin_base.almacenes }}):
+                {{ r.sin_base.motivo }}.
+              </p>
+            }
+
+            <p class="inv-var-note">
+              Ordenado por lo que <strong>queda</strong>, no por lo que se movió. Un SKU puede
+              mover millones y devolverlos: eso es captura o unidad, no mercancía perdida.
+            </p>
+
+            <p-table [value]="r.items" styleClass="surf-table" [scrollable]="true"
+              scrollHeight="420px" [loading]="loadingReinc()">
+              <ng-template pTemplate="header">
+                <tr><th>SKU</th><th>Alm.</th><th class="num">Contado</th>
+                    <th class="num">Descuadres</th><th>Patrón</th><th>Forma</th>
+                    <th class="num">Retiene</th><th class="num">Neto</th><th>Qué significa</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-i>
+                <tr>
+                  <td class="tabular">{{ i.sku }}</td>
+                  <td class="tabular">{{ i.warehouse_code }}</td>
+                  <td class="num tabular">{{ i.veces_contado }}</td>
+                  <td class="num tabular">{{ i.veces_descuadro }}</td>
+                  <td><p-tag [severity]="patronSev(i.patron)"
+                        [value]="patronLabel(i.patron)"></p-tag></td>
+                  <td>
+                    @if (i.forma === 'evento_aislado') {
+                      <p-tag severity="info" value="un evento"
+                        [pTooltip]="'El mayor conteo explica el ' + (i.concentracion * 100 | number:'1.0-0') + '% del neto'"></p-tag>
+                    } @else if (i.forma === 'sostenido') {
+                      <p-tag severity="danger" value="sostenido"></p-tag>
+                    } @else {
+                      <span class="inv-var-salv">—</span>
+                    }
+                  </td>
+                  <td class="num tabular">
+                    {{ i.retencion === null ? '—' : (i.retencion * 100 | number:'1.0-0') + '%' }}
+                  </td>
+                  <td class="num tabular">{{ fmtMoney(+i.pesos_neto) }}</td>
+                  <td class="inv-var-salv">{{ lectura(i) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="9" class="inv-var-note">
+                  Sin SKUs con {{ r.min_conteos }} conteos o más en este filtro.
+                </td></tr>
               </ng-template>
             </p-table>
           }
@@ -292,12 +377,31 @@ export class ComercialInventoryVarianceComponent {
   readonly plan = signal<InventoryCountPlan | null>(null);
   readonly cobertura = signal<{ cubre_todo: boolean; desvio_max_pct: number | null } | null>(null);
   readonly kpi = signal<InventoryVarianceKpi | null>(null);
+  readonly reinc = signal<InventoryReincidencia | null>(null);
+  readonly loadingReinc = signal(false);
 
   readonly vistas = [
     { label: 'Diferencias', value: 'diferencias' },
     { label: 'Programa', value: 'programa' },
+    { label: 'Reincidencia', value: 'reincidencia' },
   ];
-  vista: 'diferencias' | 'programa' = 'diferencias';
+  vista: 'diferencias' | 'programa' | 'reincidencia' = 'diferencias';
+  patronFilter: string | null = null;
+
+  readonly patrones = [
+    { label: 'Todos', value: null as string | null },
+    { label: 'Merma (falta y no vuelve)', value: 'merma' },
+    { label: 'Sobra (y no vuelve)', value: 'sobra' },
+    { label: 'Se compensa (captura/unidad)', value: 'se_compensa' },
+    { label: 'Mixto', value: 'mixto' },
+  ];
+
+  /** El resumen del servidor, ordenado como se lee: primero lo que cuesta dinero. */
+  readonly resumenOrdenado = computed(() => {
+    const orden = ['merma', 'sobra', 'mixto', 'se_compensa', 'sin_dinero'];
+    return [...(this.reinc()?.resumen ?? [])]
+      .sort((x, y) => orden.indexOf(x.patron) - orden.indexOf(y.patron));
+  });
 
   warehouseFilter: string | null = null;
   includeInitialLoad = false;
@@ -327,7 +431,44 @@ export class ComercialInventoryVarianceComponent {
   /** [IC.6] Cambiar de pestaña recarga lo de esa vista, no todo. */
   onVista() {
     if (this.vista === 'programa') this.loadPrograma();
+    else if (this.vista === 'reincidencia') this.loadReincidencia();
     else this.load();
+  }
+
+  /**
+   * [IC.3b] Sin almacén la consulta cuesta ~1.1 s y con almacén ~0.65 s — por eso la pantalla
+   * pide elegir uno, igual que Programa. No es una limitación oculta: está medido y dicho.
+   */
+  loadReincidencia() {
+    this.loadingReinc.set(true);
+    this.api.inventoryReincidencia({
+      warehouse_id: this.warehouseFilter ?? undefined,
+      patron: this.patronFilter ?? undefined,
+      limit: 100,
+    }).subscribe({
+      next: (r) => { this.reinc.set(r); this.loadingReinc.set(false); },
+      error: () => { this.reinc.set(null); this.loadingReinc.set(false); },
+    });
+  }
+
+  /** Lo que la fila significa en una línea, que es lo que la persona necesita leer. */
+  lectura(i: InventoryReincidenciaItem): string {
+    if (i.forma === 'evento_aislado' && i.patron !== 'se_compensa')
+      return 'Un solo conteo explica casi todo: revisá ESA captura, no el anaquel';
+    if (i.patron === 'se_compensa') return 'Entra y sale: huele a unidad o a captura, no a faltante';
+    if (i.patron === 'merma') return 'Falta siempre y no vuelve — el caso que hay que ir a ver';
+    if (i.patron === 'sobra') return 'Sobra siempre: entradas sin registrar o unidad mal declarada';
+    return 'Alterna sin patrón claro';
+  }
+
+  patronSev(p: string): 'danger' | 'warn' | 'info' | 'secondary' {
+    return p === 'merma' ? 'danger' : p === 'sobra' ? 'warn'
+      : p === 'se_compensa' ? 'info' : 'secondary';
+  }
+
+  patronLabel(p: string): string {
+    return { merma: 'Merma', sobra: 'Sobra', se_compensa: 'Se compensa',
+      mixto: 'Mixto', sin_dinero: 'Sin dinero' }[p] ?? p;
   }
 
   loadPrograma() {
