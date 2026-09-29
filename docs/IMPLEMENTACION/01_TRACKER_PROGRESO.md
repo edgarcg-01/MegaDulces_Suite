@@ -4478,6 +4478,16 @@ RE.13/RE.16 partieron el proceso por **trabajo** y eso quedó bien; faltó cerra
   - ⚠️ **`analytics.erp_purchase_adjustments` está VACÍA en local** (el importer no corre acá), así que el camino real no se ejercitó con datos de producción — de ahí que el smoke siembre en transacción.
   - **Queda abierto (21.4/21.5):** hoy el cuadre es una foto **bien etiquetada**, no una verdad que se actualice. Cerrarlo pide un scanner que revisite las recepciones cuando entra un ajuste nuevo, y la naturaleza del ajuste persistida en `discrepancy_kind`.
 
+- [ ] **[RE.30]** 🔨 **El plazo de pago es del PROVEEDOR, no del documento de Kepler** (2026-09-29) — primera etapa de darle vida a `/compras/obligaciones` como lo que es: la **entrega de Compras a Finanzas** (qué se recibió, cuánto se debe, cuándo vence) y su regreso cuando se paga. Definido con Francisco: plazo en **días exactos**, cada proveedor corre **desde factura o desde recepción**, y si Finanzas rechaza una relación regresa **sólo el renglón**.
+  - 📏 **Medido contra prod (read-only) antes de diseñar:** (1) **la fecha de recepción física NO existe en Kepler** — en el 89% de las 11,295 recepciones de 2026 vale de entrada, orden de entrada y aplicación comparten UNA fecha, la de factura; y la columna de la vista que se llama `receipt_date` **es la fecha de factura** (el vencimiento de Kepler = esa fecha + plazo "fecha factura" en el 99.9%). `c68` cae 1–2 días DESPUÉS del documento: parece fecha de captura (**hipótesis, sin árbitro todavía**) → la recepción la captura la zona. (2) **"Contado" es un hueco del catálogo**: en 2026, 207 proveedores ($94.0M) salen SIEMPRE de contado y 97 ($234.7M) mixtos. (3) El código de proveedor Kepler↔catálogo casa al **100%** (10,296 recepciones, $495.2M). (4) ⚠️ **`COMPRAS_OBLIGACIONES_VER/_GESTIONAR` estaban en CERO roles en prod** — el módulo sólo lo abría el superadmin (mismo defecto que LC.6.2).
+  - **Se extiende `catalog.suppliers`, no se duplica:** `credit_days` ya existía (Fase PP, 25/1,318 llenos desde el Excel); se agrega `credit_term_base` (factura/recepción) + quién lo confirmó + `is_internal` con motivo. Tres estados que no se confunden: NULL = sin capturar · 0 = contado confirmado · >0 = crédito. Historial append-only `catalog.supplier_credit_terms_history` (RLS). El importer del Excel **ya no pisa** un plazo confirmado a mano.
+  - **Pantalla:** pestaña **"Plazos por proveedor"** dentro de `/compras/obligaciones` (la captura manual queda en "Capturadas a mano"). Lista de trabajo ordenada por lo recibido en 12 meses, con lo que dice Kepler al lado y marca "Difiere de Kepler" (tolerancia ±3 d: su "30 días" es mes de calendario). **Contra prod: 307 proveedores, 285 sin plazo, 22 sin confirmar, 46 cubren el 80%**; arriba aparecen entidades internas (Sucursal Padre Hidalgo 322 $31.4M, el dueño $21.1M) que son traspasos, no deuda.
+  - ⚠️ **Por qué pestaña y no página propia:** el bundle inicial de `view` está a **<0.5 KB del tope de 1.40 MB** — una entrada de menú + ruta + nodo del árbol lo pasó por 95 bytes. La pestaña vive en el chunk diferido de Obligaciones. **El próximo que agregue un renglón al menú lo va a romper** — decisión de Edgar si se sube el tope.
+  - **Permisos:** ver = `COMPRAS_PROVEEDORES_VER`; cambiar el plazo = `COMPRAS_OBLIGACIONES_GESTIONAR`, repartido por la mig `…140100` sólo a `gerente_compras`, `compras`, `compras_operaciones`. **`auxiliar_compras` fuera a propósito** hasta confirmar si es el staff de zona (Morelia/Zamora/La Piedad).
+  - ✅ `nx build api` y `nx build view` verdes · eslint de los archivos nuevos 0 errores/0 warnings · SQL del listado corrido read-only contra prod vía knex (246 ms).
+  - ⏳ **NO aplicado:** las migraciones `20260929140000` + `20260929140100` (el `.env` local apunta a prod) · QA visual · re-login de compras. Sin commit (el checkout lo comparte otra sesión).
+  - ➡️ **Siguen:** RE.31 fecha de recepción capturada por la zona (+ envío de papeles) · RE.32 relación de entrega a Finanzas (folio, expediente completo, rechazo por renglón) → nace la obligación · RE.33 regreso de Finanzas (fecha de pago, NC descontadas, días recepción→pago). ⚠️ **"Qué vence" (RE.3) calcula con el `c18` de Kepler** → hereda el "contado" falso; tiene que pasar a este plazo.
+
 - [x] **[RE.29]** 🔨 **El filtro de periodo, que el endpoint ya sabía hacer** (2026-09-10) — lo pidió el dev de pantallas mirando la barra de filtros de `Costo por compra`. `from`/`to` están en el contrato de `listReceipts` desde RE.13.0 y el backend **ya los aplica a las filas y a los KPIs** (`base()` y `kpiBase()`), pero ninguna de las dos superficies del listado los mandaba: la única ventana era el botón de rezago, o sea *"desde el arranque"* contra *"todo lo anterior"*. Un mes cerrado no se podía pedir — y en el lente del dinero eso **es** la pregunta (*"¿cuánto pagamos en agosto?"*).
   - **Se calca de `/compras/costo-neto`**, su hermana del mismo grupo: `p-datepicker` + los presets compartidos (`DATE_PRESET_OPTIONS`/`datePresetRange`). Jakob — dos pantallas del mismo proyecto no pueden filtrar fecha de dos maneras. `p-datepicker` y no `input type="date"`: el nativo no toma el tema (misma razón que RE.17.5 para el último `select` crudo).
   - 🔴 **El rango solo NO alcanzaba, y se probó rompiéndolo:** el carril `al_dia` clava `receipt_date >= reception_start` en el server, así que mandar `from`/`to` sin tocarlo devuelve **cero filas y ninguna explicación**. Medido en `platform_test`: enero-2026 con carril `al_dia` = **0 filas / $0**; el mismo rango con `carril=todo` = **1,135 entradas / $50,385,662.92**. Por eso un periodo explícito **manda sobre el carril** (`carril()` devuelve `todo`), y entrar al rezago suelta el rango: dos ventanas que se intersectan en silencio es la trampa de la que se sale acá.
@@ -5903,6 +5913,15 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   `app.routes.ts`** — el botón del sidebar no cargaba nada. Fix de una línea siguiendo el patrón
   de `bancos`/`pagos-comprobantes` (gateada por `FINANCE_PAYMENTS_VER`). Verificado con
   `nx build view` + confirmando que el chunk lazy del componente quedó en el bundle de producción.
+- [x] **TP.11** — 2026-09-29: **el mismo hueco de TP.9, en las otras dos pantallas.**
+  `ComprasObligacionesComponent` y `ComprasCuentasPagoComponent` (TP.2/TP.7) existían con su
+  backend registrado en `AppModule`, pero sin ruta, sin menú y sin `route` en el `authz-tree`
+  → el permiso `COMPRAS_OBLIGACIONES_*` se podía repartir y no llevaba a ninguna pantalla.
+  Rutas `/compras/obligaciones` y `/compras/cuentas-pago` (gate `COMPRAS_OBLIGACIONES_VER`,
+  igual que los GET del backend) + menú Compras › Catálogo + `route` en el árbol.
+  `GESTIONAR` sin `VER` declarado en `DEUDA` de `landing-guards.spec.ts`. Vitest core+dashboard
+  **120/120**, `tsc --noEmit` 0 errores; **`nx build view` NO corrido** (OOM en la máquina).
+  ⚠️ **El permiso sigue sin repartir a ningún rol**: sólo lo ven `superadmin`/`admin` por nombre.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
@@ -5934,7 +5953,47 @@ TP.6-TP.8+TP.10".
       defectos reales (sello de 33 caracteres, leyenda legal partida). · *2026-09-18*
 - [x] **[TK.3]** 🧪 Carta en PDF reusando la maqueta Y el Chromium compartido del anexo de venta
       (`AnexoVentaService.renderPdf`). · *2026-09-18*
-- [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos.
+- [x] **[TK.d1]** 🧪 La tabla de la pantalla tenía **6 encabezados para 8 columnas**: las celdas
+      de IEPS e IVA del cuerpo colgaban de `@if (hayImpuesto())` y el encabezado no tenía ese
+      bloque, así que con impuesto desglosado «Importe» caía encima del IEPS y las dos últimas
+      columnas de dinero viajaban **sin rótulo**. ⚠️ No lo atrapó nada porque el componente **no
+      tenía una sola prueba** — `tsc` no entra al template y el template era sintácticamente
+      perfecto. Candado nuevo de **paridad** `<th>`↔`<td>` en las cuatro combinaciones de
+      banderas (comprobar que existe un `<th>IVA</th>` no habría servido: el defecto era que
+      faltaba). Roto a propósito: **2/6 en rojo** sin el arreglo. · *2026-09-28*
+- [x] **[TK.d2]** 🧪 El renglón se llama **«Descuento de cliente»** en los tres papeles y en la
+      pantalla, en vez de «Descuento del documento (3% del ERP)» — que nombra al papel y al
+      sistema, no a lo que pasó. Es el nombre que **Kepler le da en su propia pantalla**
+      (`ERP_KEPLER` §4, anclado a una captura), y el de 80 mm deja de ser el único que se calla
+      el porcentaje. ⚠️ El rótulo **no** afirma que venga del maestro de clientes: es el que el
+      documento declara en su cabecera. · *2026-09-28*
+- [x] **[TK.d3]** 🧪 ⭐⭐ **El reporte por cliente publicaba $0 de descuento justo en el universo
+      donde existe.** El `SELECT` de facturas clavaba `0::numeric as descuento_documento` mientras
+      `erp_sales_invoices` publica `descuento` (`c13`) y `descuento_pct` (`c19`) — y telemarketing
+      y crédito son el **único** universo donde la cabecera se usa. La columna imprimía `—` en
+      toda factura, el KPI sumaba cero y ⛔ **el filtro «Sólo con descuento» no podía devolver una
+      sola factura** (filtra por `descuento > 0` sobre ese mismo campo): *un filtro que siempre
+      devuelve vacío se lee como un hecho del negocio, no como un defecto*. Roto a propósito:
+      **4/7 en rojo** con el código viejo. · *2026-09-28*
+- [x] **[TK.d4]** 🧪 ⭐ **El ticket de mostrador SÍ trae porcentaje — se cerró primero como «no se
+      hace» y la medición lo refutó a mitad del lote.** `detalleMostrador()` tenía
+      `descuento_pct_erp: null` clavado y tenía motivo: `ERP_KEPLER` §3.1 midió que en `U-D-10`
+      la cabecera es 0.00 en el **100%** de 30,549 documentos. No se pudo medir `c19` desde la
+      sesión (`platform_test` da `3D000` detrás de un pooler, el ODS local tiene 69 filas de
+      `kdm1`, el proxy de Railway no contesta) → se **declaró en vez de suponerlo** (ADR-056).
+      **Ese 100% se había medido SIN Morelia**: las ramas `06`/`07`/`08` sí cobran el descuento
+      del cliente en caja (20 tickets, $1,948.15 — Fase DC §6). Mig `20260928260000` aditiva
+      (22 → 23 columnas, candado antes y después, idempotente) + el servicio la lee.
+      ⭐ **Declarar en vez de adivinar fue lo que permitió corregir**: cambiar el `null` «porque
+      sí» habría hecho el acierto indistinguible de la suerte. · *2026-09-28*
+- [x] **[TK.d3b]** 🧪 ⛔ **Y la columna obvia era la equivocada.** El primer arreglo de `[TK.d3]`
+      leyó `i.descuento` = `kdm1.c13`; la Fase DC midió el mismo día que **`c13` no es lo
+      descontado** — viaja SIN impuesto y el total CON. En `07 U-D-10 s4 f0000513` el real es
+      **$147.43** y `c13` dice **$135.26**: publicarlo **subdeclara 8.3%**. Se usa
+      `descuento_efectivo`, que reproduce los $147.43 al centavo, con su prueba negativa para que
+      nadie lo «simplifique» de vuelta. · *2026-09-28*
+- [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
+      la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
 - [ ] **[TK.6]** ⬜ **Wincaja (sucursales 30 y 32)** — decidido con Edgar 2026-09-18: va como
       SIGUIENTE PASO. Es otra fuente (`wincaja.v_sales_lines`, base aparte) y su descuento es
@@ -6140,6 +6199,78 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     Y un tercero ya conocido: un **acento grave en un comentario CSS** cierra el template literal.
   - **Pendiente:** validación visual en navegador (incluida la vista de impresión) y redeploy de
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
+
+---
+## VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código)
+
+- [ ] 🔨 `[VR.SUP.1]` Pantalla `/vendor/route-pick` ("¿Qué ruta vas a trabajar hoy?") + guard que la abre
+  la primera vez del día + botón "Cambiar ruta" en "Mi ruta". Tabla `commercial.vendor_route_day_picks`
+  (mig `20260928200000`, una elección por usuario por día, RLS). La elegida **manda** sobre
+  `daily_assignments` de hoy en toda la cartera (`vendorTodayRouteExistsSql` / `vendorTodayRouteIdsSql`),
+  sucursal de surtido, alta de cliente, tickets de cierre y Thot. Solo rutas de **su equipo**
+  (`users.supervisor_id = él`); el vendedor dueño la sigue viendo. Endpoints `GET/PUT/DELETE
+  /commercial/vendor-routes/day-pick`. Builds OK + vitest commercial 265/265. Respuestas tipadas con el contrato `libs/contracts/src/http/vendor-route-day-pick.contract.ts` (lo comparte la app vendor; mataba 17 `any` del boundary-gate).
+  **⚠️ NO probado en vivo:** la única base alcanzable es prod y el usuario `francisco` es solo lectura.
+  **Deploy: migración ANTES que el código** (la regla de cartera referencia la tabla).
+
+## VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales)
+
+Plan en [`FASE_VK`](FASES/FASE_VK_CARTERA_KEPLER.md). Ficha de cliente `kdud.c12` verificada como
+fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra capturas del ERP.
+
+- [ ] 🔨 `[VK.1]` Liga ruta Suite ↔ vendedor Kepler: `trade.catalogs.erp_source_branch/erp_vendor_code`
+  (mig `20260928210000`) + alta de las 4 rutas vecinales ligadas y con sucursal de surtido (mig
+  `20260928210200`): PH 1 → `01:1V001`, PH 2 → `01:1V002`, La Piedad Abastos → `02:1V003`,
+  Yurécuaro → `04:1V004`.
+- [ ] 🔨 `[VK.2]` Vista `analytics.v_route_cartera_erp` (mig `20260928210100`) sobre `v_customer_master`,
+  sin internos ni NO USAR. Dry-run en prod: 86 / 115 / 158 / 143 clientes, igual a la ficha.
+- [ ] 🔨 `[VK.3]` Ancla `commercial.customers.erp_source_branch/erp_customer_code` (UNIQUE parcial + CHECK).
+- [ ] 🔨 `[VK.4]` `syncErpCarteraForToday` al abrir "Mi ruta" / "Por visitar": crea anclas, refresca
+  nombre/ruta/crédito desde Kepler y suelta a los que Kepler sacó. Alta manual bloqueada en rutas Kepler.
+  Campo `source` (`kepler` | `manual`) en el feed.
+- [ ] ⬜ `[VK.5]` Pedido a cliente Kepler: funciona por el ancla; falta smoke HTTP.
+- [ ] ⬜ `[VK.6]` Pestaña "compran en tu ruta, ficha de otro vendedor" (17 clientes).
+- **⚠️ NO probado en vivo** (misma causa que VR.SUP.1).
+- ✅ **Usuarios resueltos (medido en prod 2026-09-29, solo lectura):** `candelaria_salgado` (PH 1),
+  `rafael.villalobos` (PH 2), `42pmpb` Paulina (Abastos) y `jlh_lopez` Juan Ángel (Yurécuaro) activos,
+  rol `vendedor_ruta`, `supervisor_id = mauricio_ramirez`.
+- ⬜ **Pendiente de datos DESPUÉS de la mig `20260928210200`:** agenda (`daily_assignments`) de los 4 —
+  hoy **0 filas**, y sin agenda "Mi ruta" sale vacía y el supervisor no ve opciones en `/vendor/route-pick`
+  (las opciones salen de la agenda del equipo). No se puede capturar antes: las rutas nacen con la mig.
+- ✅ Zona: las 4 rutas cuelgan de `LA PIEDAD VECINAL` (existe en prod). Yurécuaro la opera la suc 04
+  pero **reporta a La Piedad Vecinal** (decisión de negocio 2026-09-29) — la mig pedía una zona
+  `YURECUARO` que no existe. Las 3 rutas vecinales que ya existen son de Morelia, no chocan.
+- [ ] 🔨 `[VK.1.1]` **Las rutas quedaron DUPLICADAS** (medido en prod 2026-09-29, solo lectura): migs
+  VK aplicadas (batch 569–571), pero la seed creó "Ruta Vecinal Padre Hidalgo 1/2" y "Ruta Vecinal La
+  Piedad Abastos" cuando las rutas reales YA existían desde julio como `RVPH01` / `RVPH02` / `RVLPA01`,
+  que son las que tienen a los vendedores colgados (`users.route_id`). Clientes Kepler en una ruta,
+  vendedores en otra → **0 anclas creadas**, "Mi ruta" vacía. Decisión Francisco: **se quedan las RV\***.
+  Mig `20260929120000_vk_consolida_rutas_rv`: pasa la liga Kepler a las RV\*, baja lógica de las 3
+  duplicadas SOLO si no tienen nada colgado (medido: 0 usuarios/agenda/clientes/tiendas/capturas),
+  Yurécuaro (sin RV\*) se renombra `RVYUR01`, `jlh_lopez.route_id = RVYUR01`, y **agenda L–S** de los 4
+  (decisión Francisco). No pisa un día ya asignado, salvo la corrección explícita: `candelaria_salgado`
+  traía "RUTA 21" los martes (auto-asignada 29-sep 00:59, 0 visitas) y **no tiene nada que ver con RUTA 21**
+  (Francisco) → esa MISMA fila se reasigna a RVPH01 (una baja lógica no alcanza: el UNIQUE
+  (tenant, user, dow) incluye las bajas y el martes ya no se podría insertar).
+- [ ] 🔨 `[VK.2.1]` La vista trae lo que Kepler ya tiene (mig `20260929120100`): estado, CP, zona, RFC
+  (sin genérico), **teléfono `kdud.c7`** y correo `c11` (decode nuevo). Cobertura sobre los 496: domicilio
+  **495**, RFC real 35, teléfono **12 (2.4 %)** → el teléfono lo sigue capturando el vendedor.
+  El sync escribe el domicilio en `shipping_address` (`source: 'kepler'`) → "Buscar cliente" lo muestra;
+  teléfono/correo: lo capturado en campo GANA, Kepler solo llena huecos. GPS nunca se toca.
+- [ ] 🔨 `[VK.4.1]` `syncErpCarteraForRoutes`: al abrir `/vendor/route-pick`, el supervisor pone al día
+  las rutas Kepler de TODO su equipo (no solo la de hoy) — el conteo de cada opción deja de salir en 0
+  y "Buscar cliente" encuentra a los 496. Vista filtrada por ruta: 15 ms.
+- 🧪 **Validado en copia desechable, NO en prod** (2026-09-29): `francisco` es solo lectura
+  (`default_transaction_read_only=on`), así que se levantó un Postgres 17 local y se le clonaron (lectura
+  desde prod) las 17 tablas y 5 vistas que tocan las migs y el sync. Se corrieron **las migs reales y el
+  sync real compilado del repo**: **33/33** — migs idempotentes (2ª corrida no cambia nada), 2 candados
+  negativos (duplicada con 1 cliente NO se da de baja; choque de agenda fuera de la corrección NO se
+  pisa), 4 RV\* ligadas con surtido, agenda L–S, martes de Candelaria reasignado en la MISMA fila,
+  `security_invoker` + GRANT tras el REPLACE, **496 anclas** `K<suc>-<clave>` (2ª corrida 0/0/0), teléfono
+  capturado y GPS no se pisan, Kepler cambia nombre → refresca, Kepler saca de ruta → se suelta sin
+  borrar, y "Mi ruta" hoy (martes): PH 1 **86**, PH 2 **115**, Abastos **158**, Yurécuaro **137**. ⚠️ **Yurécuaro son 137, no 143**: los 6 que faltan se llaman "NO TOCAR …"
+  (el personal defendiéndose de la colisión de claves) y la vista los excluye a propósito; el 143 del
+  dry-run de VK.2 era el conteo crudo de la ficha. **Aplicar: migs ANTES que el código.**
 
 ---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)

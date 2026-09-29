@@ -72,7 +72,11 @@ export interface ReporteDocumento {
   folio: string;
   fecha: string | null;
   atendio: string | null;
+  /** `[TK.d3]` El descuento **de cliente** (cabecera del documento), no la suma de las rebajas
+   *  por renglón: ésas sólo salen con «Detalle por producto», en `lineas[].descuento_linea`. */
   descuento: number;
+  /** `[TK.d3]` El % que declara el ERP. `null` cuando el documento no lo trae — nunca 0. */
+  descuento_pct?: number | null;
   /** NEGATIVO en las notas de crédito. */
   total: number;
   /** ⚠️ `null` = no se pidió el detalle · `[]` = se pidió y el documento no tiene partidas. */
