@@ -6175,6 +6175,19 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
+## VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código)
+
+- [ ] 🔨 `[VR.SUP.1]` Pantalla `/vendor/route-pick` ("¿Qué ruta vas a trabajar hoy?") + guard que la abre
+  la primera vez del día + botón "Cambiar ruta" en "Mi ruta". Tabla `commercial.vendor_route_day_picks`
+  (mig `20260928200000`, una elección por usuario por día, RLS). La elegida **manda** sobre
+  `daily_assignments` de hoy en toda la cartera (`vendorTodayRouteExistsSql` / `vendorTodayRouteIdsSql`),
+  sucursal de surtido, alta de cliente, tickets de cierre y Thot. Solo rutas de **su equipo**
+  (`users.supervisor_id = él`); el vendedor dueño la sigue viendo. Endpoints `GET/PUT/DELETE
+  /commercial/vendor-routes/day-pick`. Builds OK + vitest commercial 265/265. Respuestas tipadas con el contrato `libs/contracts/src/http/vendor-route-day-pick.contract.ts` (lo comparte la app vendor; mataba 17 `any` del boundary-gate).
+  **⚠️ NO probado en vivo:** la única base alcanzable es prod y el usuario `francisco` es solo lectura.
+  **Deploy: migración ANTES que el código** (la regla de cartera referencia la tabla).
+
+---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
 
 Pedido de Edgar: *"necesito que encontremos verdad absoluta en `/comercial/sell-out`; para empezar,

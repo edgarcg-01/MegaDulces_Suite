@@ -56,6 +56,10 @@ export interface HomePendingOrder {
   is_preventa?: boolean;
 }
 
+// [VR.SUP.1] La forma vive en libs/contracts: la comparten el backend y esta app.
+export type { DayPickOption, DayPickState } from '@megadulces/contracts';
+import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
+
 /**
  * Cliente de la cartera anotado para el home "Mi ruta": cobertura + actividad
  * del día + pedidos pendientes, de un solo fetch.
@@ -579,6 +583,26 @@ export class VendorService {
   /** Feed del home "Mi ruta": cartera anotada (cobertura + actividad + pendientes) de un fetch. */
   home(): Observable<HomeCustomer[]> {
     return this.http.get<HomeCustomer[]>(`${this.base}/vendor-routes/home`);
+  }
+
+  // ─── [VR.SUP.1] Ruta del día escogida por el supervisor ───
+
+  /** ¿Puede escoger ruta? + su elección de hoy + su agenda de hoy + rutas de su equipo. */
+  dayPickState(): Observable<DayPickState> {
+    return this.http.get<DayPickState>(`${this.base}/vendor-routes/day-pick`);
+  }
+
+  /** Trabaja HOY esta ruta de su equipo (vale solo para hoy). */
+  setDayPick(routeId: string): Observable<DayPickChoice> {
+    return this.http.put<DayPickChoice>(
+      `${this.base}/vendor-routes/day-pick`,
+      { route_id: routeId },
+    );
+  }
+
+  /** Vuelve a su agenda normal de hoy. */
+  clearDayPick(): Observable<DayPickCleared> {
+    return this.http.delete<DayPickCleared>(`${this.base}/vendor-routes/day-pick`);
   }
 
   /**
