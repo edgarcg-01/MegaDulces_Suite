@@ -13,8 +13,13 @@ import {
   InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
   InventoryReincidencia, InventoryReincidenciaItem,
   RollforwardPeriodos, RollforwardPeriodo, RollforwardItem, RollforwardTotales,
+  RollforwardFreshness,
 } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 /**
  * [IC.0] Diferencias del conteo físico de Kepler.
@@ -35,7 +40,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   selector: 'app-comercial-inventory-variance',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
-    ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent],
+    ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent,
+    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -46,6 +52,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             Descuadre del conteo físico que hace Kepler cada trimestre. Sobrante y faltante
             por almacén, con el detalle SKU por SKU.
           </p>
+        </div>
+        <div class="surf-page-head-actions">
+          <!-- DESIGN Q.7: la jerga se consulta sin salir de la pantalla, desde el diccionario
+               versionado. Esta pantalla tiene cuatro vocabularios y cuatro roles que la leen. -->
+          <app-context-help topic="inventario-diferencias" />
+          <!-- §564 #2: 40px por default, 32px para quien vive acá. La preferencia se recuerda. -->
+          <app-table-density />
         </div>
       </header>
 
@@ -90,7 +103,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   ⚠️ El plan quedó truncado por el límite: hay más SKUs que deberían entrar.
                 </p>
               }
-              <p-table [value]="pl.items" styleClass="surf-table" [scrollable]="true" scrollHeight="360px">
+              <p-table [value]="pl.items" styleClass="surf-table" [class.is-dense]="density.dense()" [scrollable]="true" scrollHeight="360px">
                 <ng-template #header>
                   <tr><th>SKU</th><th>ABC</th><th>Motivo</th><th class="num">Score</th>
                       <th class="num">Señales</th><th>Salvedad</th></tr>
@@ -132,7 +145,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 supera el valor contado, así que el denominador no los cubre.
               </p>
             }
-            <p-table [value]="k.periodos" styleClass="surf-table">
+            <p-table [value]="k.periodos" styleClass="surf-table" [class.is-dense]="density.dense()">
               <ng-template #header>
                 <tr><th>Trimestre</th><th class="num">Almacenes</th><th>Cuáles</th>
                     <th class="num">Contado</th><th class="num">% descuadre</th><th>Salvedad</th></tr>
@@ -167,6 +180,22 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           @if (rf(); as r) {
             <!-- Q.1 answer-first: la conclusión antes que la evidencia. Q.2: en llano. -->
             <p class="inv-var-lectura">{{ rfLectura() }}</p>
+
+            <!-- ⛔ Esto sale de una matview que se refresca UNA vez al día. Si el refresco se
+                 para, la pantalla no se vacía ni avisa: sigue mostrando la merma del período
+                 anterior. El veredicto es TERNARIO: "unknown" no es "fresh". -->
+            @if (r.freshness; as f) {
+              <div class="inv-var-fresh">
+                @if (f.status === 'unknown') {
+                  <p-tag severity="secondary" value="Frescura sin medir"></p-tag>
+                  <span class="inv-var-salv">{{ f.motivo }}</span>
+                } @else {
+                  <app-freshness-pill measures="data" [since]="f.data_as_of"
+                    label="Calculado" [staleAfterSec]="129600"></app-freshness-pill>
+                  <span class="inv-var-salv">se recalcula cada noche</span>
+                }
+              </div>
+            }
 
             @if (rfCobertura(); as cob) {
               @if (cob.pct >= 20) {
@@ -212,7 +241,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 [sub]="r.totales.merma + ' SKUs'"></app-metric-card>
             </div>
 
-            <p-table [value]="r.items" styleClass="surf-table" [scrollable]="true"
+            <p-table [value]="r.items" styleClass="surf-table" [class.is-dense]="density.dense()" [scrollable]="true"
               scrollHeight="420px" [loading]="loadingRf()">
               <ng-template #header>
                 <tr>
@@ -268,7 +297,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           @if (rfPeriodos()?.sin_par; as sp) {
             @if (sp.length) {
               <h2 class="inv-var-h2">Sin comparación posible</h2>
-              <p-table [value]="sp" styleClass="surf-table">
+              <p-table [value]="sp" styleClass="surf-table" [class.is-dense]="density.dense()">
                 <ng-template #header>
                   <tr><th>Almacén</th><th class="num">Conteos</th><th>Por qué</th></tr>
                 </ng-template>
@@ -326,7 +355,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
               mover millones y devolverlos: eso es captura o unidad, no mercancía perdida.
             </p>
 
-            <p-table [value]="r.items" styleClass="surf-table" [scrollable]="true"
+            <p-table [value]="r.items" styleClass="surf-table" [class.is-dense]="density.dense()" [scrollable]="true"
               scrollHeight="420px" [loading]="loadingReinc()">
               <ng-template #header>
                 <tr><th>SKU</th><th>Alm.</th><th class="num">Contado</th>
@@ -391,7 +420,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           sub="Conteos en el período"></app-metric-card>
       </div>
 
-      <p-table [value]="events()" [loading]="loading()" dataKey="rowKey" styleClass="surf-table"
+      <p-table [value]="events()" [loading]="loading()" dataKey="rowKey" styleClass="surf-table" [class.is-dense]="density.dense()"
         selectionMode="single" [(selection)]="selected" (selectionChange)="openDetail()">
         <ng-template #header>
           <tr>
@@ -468,7 +497,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </p>
           }
 
-          <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="surf-table"
+          <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="surf-table" [class.is-dense]="density.dense()"
             [scrollable]="true" scrollHeight="420px">
             <ng-template #header>
               <tr>
@@ -511,35 +540,38 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   `,
   styles: [`
     .inv-var-filters { display: flex; gap: .75rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
-    .inv-var-toggle { display: inline-flex; gap: .5rem; align-items: center; font-size: .8125rem; }
-    .inv-var-note { font-size: .8125rem; color: var(--text-muted, #78716c); margin: 0 0 .75rem; }
+    .inv-var-toggle { display: inline-flex; gap: .5rem; align-items: center; font-size: var(--fs-xs); }
+    .inv-var-note { font-size: var(--fs-xs); color: var(--fg-3); margin: 0 0 .75rem; }
     .inv-var-kpis { margin-bottom: 1rem; }
-    .inv-var-lectura { font-size: var(--fs-base); color: var(--fg-1); margin: .25rem 0 1rem;
+    .inv-var-fresh { display: flex; gap: .5rem; align-items: center; margin: -.5rem 0 1rem; }
+    .inv-var-lectura { font-size: var(--fs-lg); color: var(--fg-1); margin: .25rem 0 1rem;
       max-width: 68ch; line-height: 1.45; }
     .inv-var-row { cursor: pointer; }
     .inv-var-row:hover { background: var(--surface-hover, rgba(0,0,0,.035)); }
     .inv-var-row-sel { background: var(--surface-hover, rgba(0,0,0,.055)); }
-    .inv-var-row .pi { font-size: .75rem; opacity: .55; margin-right: .35rem; }
+    .inv-var-row .pi { font-size: var(--fs-nano); opacity: .55; margin-right: .35rem; }
     .inv-var-nd { opacity: .5; cursor: help; }
-    .inv-var-imposible { color: var(--p-red-600, #dc2626); text-decoration: underline dotted;
+    .inv-var-imposible { color: var(--bad-fg); text-decoration: underline dotted;
       text-underline-offset: 2px; cursor: help; }
-    .inv-var-mas { color: var(--p-amber-600, #b45309); }
-    .inv-var-menos { color: var(--p-red-600, #dc2626); }
+    .inv-var-mas { color: var(--warn-fg); }
+    .inv-var-menos { color: var(--bad-fg); }
     .inv-var-detail { margin-top: 1.25rem; }
-    .inv-var-detail h2 { font-size: 1rem; margin: 0 0 .5rem; }
+    .inv-var-detail h2 { font-size: var(--fs-h3); margin: 0 0 .5rem; }
     .inv-var-coverage { display: flex; gap: .625rem; align-items: center; flex-wrap: wrap;
-      font-size: .8125rem; margin-bottom: .625rem; }
-    .inv-var-warn { color: var(--warn, #b45309); }
-    .inv-var-empty { text-align: center; padding: 1.5rem; color: var(--text-muted, #78716c); }
+      font-size: var(--fs-xs); margin-bottom: .625rem; }
+    .inv-var-warn { color: var(--warn-fg); }
+    .inv-var-empty { text-align: center; padding: 1.5rem; color: var(--fg-3); }
     .inv-var-tabs { margin-bottom: .75rem; }
-    .inv-var-prog h2.inv-var-h2 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
-    .inv-var-salv { font-size: .75rem; color: var(--text-muted, #78716c); }
+    .inv-var-prog h2.inv-var-h2 { font-size: var(--fs-h3); margin: 1.25rem 0 .5rem; }
+    .inv-var-salv { font-size: var(--fs-nano); color: var(--fg-3); }
     .num { text-align: right; }
     .tabular { font-variant-numeric: tabular-nums; }
   `],
 })
 export class ComercialInventoryVarianceComponent {
   private readonly api = inject(ComercialService);
+  /** §564 #2 — la densidad la elige quien usa la pantalla, y se recuerda entre pantallas. */
+  readonly density = inject(TableDensityService);
 
   readonly events = signal<(InventoryVarianceEvent & { rowKey: string })[]>([]);
   readonly lines = signal<InventoryVarianceLine[]>([]);
@@ -554,7 +586,9 @@ export class ComercialInventoryVarianceComponent {
   readonly loadingReinc = signal(false);
 
   readonly rfPeriodos = signal<RollforwardPeriodos | null>(null);
-  readonly rf = signal<{ totales: RollforwardTotales; items: RollforwardItem[] } | null>(null);
+  readonly rf = signal<{
+    totales: RollforwardTotales; items: RollforwardItem[]; freshness: RollforwardFreshness;
+  } | null>(null);
   readonly loadingRf = signal(false);
 
   readonly vistas = [

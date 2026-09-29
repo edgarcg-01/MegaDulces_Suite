@@ -15,6 +15,75 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // IC.12 — la pantalla acumuló cuatro vistas y cada una trajo su propio vocabulario. Cuatro
+  // roles la leen (almacén cuenta, compras concilia, prevención investiga, dirección mira el
+  // total) y ninguno usa las mismas palabras para lo mismo.
+  'inventario-diferencias': {
+    title: 'Diferencias de inventario — guía',
+    intro: 'Cuatro preguntas sobre el mismo hecho: qué descuadró (Diferencias), qué toca contar (Programa), qué descuadra SIEMPRE (Reincidencia) y a dónde se fue la mercancía (Conciliación). Todo sale del ERP: acá no se captura nada.',
+    groups: [
+      {
+        heading: 'Lo básico, que no significa lo que parece',
+        entries: [
+          { term: 'Sobrante', def: 'Se contó MÁS de lo que el sistema decía. Suena bueno y casi nunca lo es: suele ser una entrada sin registrar, una unidad mal declarada o un error de captura.' },
+          { term: 'Faltante', def: 'Se contó MENOS. Es lo que normalmente se llama merma, pero cuidado: el descuadre contra el ERP arrastra errores viejos. El faltante REAL del período está en Conciliación.' },
+          { term: 'Carga inicial', def: 'Cuando una sucursal migra de Wincaja a Kepler, el ERP emite una captura y una entrada que cuadran línea por línea. NO es un conteo ni un descuadre: son $30.8M en el histórico y por eso están fuera por default.' },
+          { term: 'Cobertura', def: 'Cuántos SKUs con existencia quedaron SIN contar en ese evento. Sin este número, el descuadre se lee como si fuera el del almacén entero, y el trimestral de Kepler deja fuera entre el 7% y el 31% según la sucursal.' },
+          { term: 'Debía haber', def: 'DERIVADO, no un dato de Kepler: el ERP guarda lo contado y emite la diferencia, nunca el teórico. Se reconstruye restando. Sale con guion cuando el ajuste excede lo capturado, que pasa en el 7% de los casos.' },
+        ],
+      },
+      {
+        heading: 'Reincidencia — dos ejes, y hacen falta los dos',
+        entries: [
+          { term: 'Retiene', def: 'Cuánto del descuadre NO se compensó entre un conteo y otro. Un SKU puede mover millones y devolverlos: eso es unidad o captura, no mercancía perdida.' },
+          { term: 'Se compensa', def: 'Entra y sale: el dinero vuelve. Huele a error de captura o a unidad mal declarada, no a faltante. Mandar a alguien al anaquel por uno de estos es perder el día.' },
+          { term: 'Merma', def: 'Falta siempre y no vuelve. Es el caso que sí hay que ir a ver.' },
+          { term: 'Sobra', def: 'Sobra siempre y no vuelve: entradas sin registrar, o una unidad declarada más chica de la real.' },
+          { term: 'Un evento / sostenido', def: 'El segundo eje, y el que decide a quién se persigue. «Un evento» = un solo conteo explica casi todo el desvío, o sea un hecho puntual (una captura mal hecha). «Sostenido» = pasa en todos los conteos. Descuadrar seguido y perder seguido NO son lo mismo.' },
+        ],
+      },
+      {
+        heading: 'Conciliación — a dónde se fue la mercancía',
+        entries: [
+          { term: 'La cadena', def: 'Había (lo contado la vez anterior) + Entró (compras y traspasos recibidos) − Salió (ventas y traspasos enviados) = Debía quedar. Contra lo que se contó ahora.' },
+          { term: 'Falta sin explicar', def: 'La diferencia que los movimientos NO justifican. Ésta sí es la merma del período: mercancía que estaba, se movió y no llegó. Es distinta del faltante contra el ERP.' },
+          { term: 'Sin recontar', def: 'Estaba en el primer conteo y no en el segundo. Su diferencia es DESCONOCIDA, no cero. Si son la mayoría, el total de arriba no mide el almacén — el peor período tiene 2,265 de 2,403.' },
+          { term: 'Debía quedar imposible', def: 'Salió más de lo que el conteo anterior decía que había, así que el resultado da negativo. Significa que falta una entrada sin capturar. No es simétrico: sólo puede inflar el sobrante, nunca la merma.' },
+          { term: 'Sin comparación posible', def: 'Un almacén necesita DOS conteos del MISMO almacén para conciliarse. Padre Hidalgo tiene dos capturas pero una es de la tienda y otra de la Ruta 28: compararlas sería mezclar cosas distintas.' },
+        ],
+      },
+      {
+        heading: 'Programa — qué toca contar',
+        entries: [
+          { term: 'Los tres ritmos', def: 'Trimestral lo hace Kepler solo y nosotros lo LEEMOS. Semanal es la ola rotativa. Diario son los de clase A del ABC.' },
+          { term: 'La ola', def: 'El catálogo se parte en olas y cada una se cuenta en su turno, de modo que en un ciclo completo se cubra todo sin contar todo el mismo día.' },
+          { term: 'Score', def: 'Prioridad de 0 a 1 combinando cuatro señales: clase ABC, venta reciente, inventario parado y descuadre histórico. Los pesos se reparten sólo entre las señales DISPONIBLES, para que un almacén sin historia no salga siempre al final.' },
+          { term: 'Señales n/4', def: 'Cuántas de las cuatro se pudieron medir para ese SKU. Con menos señales el score es menos confiable, y por eso se muestra.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Encontré un faltante grande. ¿Qué hago?',
+        kind: 'fix',
+        steps: [
+          'Mirá primero la Conciliación de ese almacén: si el movimiento lo explica, no hay nada que investigar.',
+          'Si sigue sin explicarse, revisá en Reincidencia si ese SKU es «sostenido» o «un evento». Un evento aislado casi siempre es una captura, y se resuelve mirando ESE conteo.',
+          'Si es sostenido y siempre falta, ahí sí corresponde abrir expediente en Prevención.',
+        ],
+      },
+      {
+        heading: '¿Por qué un número sale con guion?',
+        kind: 'info',
+        steps: [
+          'Un guion NUNCA es cero: significa que ese dato no se pudo medir, y el motivo aparece al pasar el cursor.',
+          'Los tres motivos habituales: el SKU no se volvió a contar, el ajuste del ERP excede lo capturado, o no hay suficientes conteos para calcular una tasa.',
+          'Un cero sí es un cero medido. La diferencia importa: «no había» y «no se sabe» son afirmaciones distintas.',
+        ],
+      },
+    ],
+  },
+
   // RE.16 — la pantalla con más jerga del proyecto no tenía ninguna ayuda. Cuatro roles
   // distintos leen los mismos números y cada uno les daba un nombre propio.
   'compras-entradas': {

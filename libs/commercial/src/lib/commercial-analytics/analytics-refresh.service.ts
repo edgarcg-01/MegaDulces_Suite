@@ -196,6 +196,21 @@ export class AnalyticsRefreshService {
       // ⚠️ Su umbral está registrado en `CRON_JOBS` (`analytics_refresh_sold_rung`): sin eso el
       // sensor cae en `cfg ? classify : 'ok'` y una MV parada se vería VERDE (lección OBS.1).
       ['analytics.mv_kepler_sold_rung', 'analytics_refresh_sold_rung', 'Refresh MV peldaño cobrado (nightly)', []],
+      // [IC.10] Roll-forward entre conteos fisicos: lo contado antes + entradas - salidas contra
+      // lo contado despues. `deps` vacio: sale directo del ODS, no de otra MV.
+      //
+      // ⛔ Va ACA y no en el array de 15 min por dos razones medidas. La primera es el costo:
+      // el poblado inicial tardo **292.9 s**, y el pool admin es 0-2 -- ocuparlo cinco minutos
+      // en horario habil es lo que ya devolvio 2.6 min por request de sell-out una vez. La
+      // segunda es que NO HACE FALTA mas seguido: sus pares son conteo-a-conteo CERRADOS, y
+      // Kepler cuenta cada tres meses. Un refresco diario ya es holgado.
+      //
+      // ⚠️ Su umbral esta registrado en `CRON_JOBS` (`analytics_refresh_count_rollforward`).
+      // Sin esa fila el sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE --
+      // y esta MV parada es peor que la mayoria: la pantalla de Conciliacion seguiria
+      // mostrando la merma del trimestre pasado como si fuera la de este.
+      ['analytics.mv_erp_count_rollforward', 'analytics_refresh_count_rollforward',
+        'Refresh MV roll-forward de conteos (nightly)', []],
       // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
       // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
       // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo
@@ -212,6 +227,41 @@ export class AnalyticsRefreshService {
       // vive en `CRON_JOBS` (`analytics_refresh_payment_terms`): sin eso el sensor cae en `cfg ? classify : 'ok'`
       // y una MV parada se ve VERDE (OBS.1) — y acá el crédito vencido depende de que esté fresca.
       ['analytics.mv_sales_payment_terms', 'analytics_refresh_payment_terms', 'Refresh MV condición de pago (nightly)', []],
+      // [CE.0] Actividad de venta (impuesto observado + unidades BASE) que pesa el costo estándar.
+      // `deps` vacío: sale directo del ODS. Se materializa por COSTO — `kdm2` son 4.7M filas /
+      // 2.16 GB SIN índice por fecha, y agregar 30 días cuesta 3.5 s medidos contra el gate de 1 s.
+      // ⚠️ Su umbral vive en `CRON_JOBS` (`analytics_refresh_standard_cost`): sin eso el sensor cae
+      // en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y acá no es cosmético: la
+      // ventana de la MV ES la ventana que la pantalla rotula «30 días».
+      ['analytics.mv_kepler_standard_cost_activity', 'analytics_refresh_standard_cost', 'Refresh MV actividad del costo estándar (nightly)', []],
+      /**
+       * ⭐⭐ `[PR.R1]` EL ÁRBITRO DEL COSTO. La MV que decide si el margen de toda la Suite
+       * es una medición o un espejo del markup.
+       *
+       * ⛔ Se aplicó el 2026-09-29 (`20260929120000_mv_erp_margin_daily.js`) y **quedó fuera de
+       * este array**. Medido ese mismo día: `relispopulated = false` — creada `WITH NO DATA` y
+       * **sin ningún carril que la llenara nunca**. Correr el primer `REFRESH` a mano no
+       * alcanzaba: sin esta línea se quedaba vieja para siempre.
+       *
+       * Por qué importa, medido sobre celdas IDÉNTICAS (90,328 comunes, la venta cuadra al 0.1%):
+       *   · el costo publicado subdeclara el margen **4.26 pp**
+       *   · spread del MISMO sku entre plazas: **0.0034 pp** con el álgebra contra **2.957 pp**
+       *     con este árbitro — un margen `m/(1+m)` NO PUEDE tener spread, por construcción
+       *   · y Kepler pasó de 12.7 % de la venta en enero a **79.1 % en septiembre**: la porción
+       *     que no puede arbitrar el precio CRECE cada mes
+       *
+       * `deps` vacío: sale directo del ODS, no deriva de otra MV.
+       *
+       * ⚠️ El PRIMER refresh NO cabe en un timeout corto — medido en su propia migración:
+       * 30 d = 20.1 s · 90 d = 47.1 s · 180 d = 74.3 s · **400 d > 300 s** (crece superlineal).
+       * Nace `WITH NO DATA`, así que el loop la detecta por `relispopulated` y hace el poblado
+       * inicial SIN `CONCURRENTLY`. Ese primero va en ventana, una vez.
+       *
+       * ⚠️ Su umbral va en `CRON_JOBS` (`analytics_refresh_erp_margin`) o el sensor cae en
+       * `cfg ? classify : 'ok'` y una MV parada se ve **VERDE** (OBS.1, la lección que este
+       * archivo ya documenta tres veces).
+       */
+      ['analytics.mv_erp_margin_daily', 'analytics_refresh_erp_margin', 'Refresh MV árbitro de costo (nightly)', []],
     ] as const) {
       const start = Date.now();
       let ok = false;
@@ -251,7 +301,23 @@ export class AnalyticsRefreshService {
         await admin('analytics.cron_runs')
           .insert({
             tenant_id: MEGA, job_key: jobKey, label,
-            last_start: admin.fn.now(), last_finish: admin.fn.now(),
+            /**
+             * ⛔ [PR.R0] `last_start` ERA `now()` — el MISMO instante que `last_finish`.
+             *
+             * El comentario de abajo cuenta que se arregló que `last_start` **se actualizara**
+             * (antes quedaba congelado en la 1ª corrida). Pero se arregló estampándolo con
+             * `now()` AL CERRAR, así que quedó **fresco y sin significado**: `last_finish −
+             * last_start = 0` para todas las corridas, y `duration_ms` nunca se escribía.
+             *
+             * Medido contra prod el 2026-09-29: **14 de 52 jobs con `duration_ms = NULL`**, y son
+             * exactamente los `analytics_refresh_*` de este archivo. O sea que **la duración de la
+             * ventana nocturna NUNCA se midió** — y es la ventana donde va a entrar el panel de
+             * precios. Agregarle carga sin medirla es cómo las 03:00 se vuelven las 09:00.
+             *
+             * ⭐ La lección: que una columna de reloj se ACTUALICE no es lo mismo que que MIDA.
+             */
+            last_start: new Date(start), last_finish: admin.fn.now(),
+            duration_ms: Date.now() - start,
             status: ok ? 'ok' : 'error', rows_affected: ok ? 1 : 0,
             error: errMsg ? errMsg.slice(0, 500) : null, host: 'api', updated_at: admin.fn.now(),
           })
@@ -261,7 +327,8 @@ export class AnalyticsRefreshService {
           // mostraban `last_start = 2026-07-31` con `last_finish` de ese mismo día — seis semanas de
           // "muerto" en un cron que corría cada 15 min. Un tablero (o un auditor) que ordene por
           // `last_start` reporta un falso positivo; acá pasó.
-          .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+          .merge(['label', 'last_start', 'last_finish', 'duration_ms', 'status', 'rows_affected',
+            'error', 'host', 'updated_at']);
       } catch { /* heartbeat no debe romper el refresh */ }
     }
   }
@@ -391,14 +458,17 @@ export class AnalyticsRefreshService {
       await this.adminKnex!('analytics.cron_runs')
         .insert({
           tenant_id: MEGA, job_key: 'analytics_refresh', label: 'Refresh MVs analytics',
-          last_start: this.adminKnex!.fn.now(), last_finish: this.adminKnex!.fn.now(),
+          // [PR.R0] mismo arreglo que el latido nocturno: `now` es el arranque REAL de la pasada.
+          last_start: new Date(now), last_finish: this.adminKnex!.fn.now(),
+          duration_ms: Date.now() - now,
           status: failed.length ? 'error' : 'ok', rows_affected: ok,
           error: failed.length ? failed.map((f) => f.mv).join(', ').slice(0, 500) : null,
           host: 'api', updated_at: this.adminKnex!.fn.now(),
         })
         .onConflict(['tenant_id', 'job_key'])
         // ⚠️ `last_start` VA en el merge — ver la nota del otro heartbeat de este archivo.
-        .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+        .merge(['label', 'last_start', 'last_finish', 'duration_ms', 'status', 'rows_affected',
+          'error', 'host', 'updated_at']);
     } catch { /* heartbeat no debe romper el refresh */ }
     return { refreshed_at: new Date().toISOString(), results };
   }
