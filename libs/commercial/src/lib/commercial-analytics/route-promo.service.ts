@@ -726,11 +726,40 @@ export class RoutePromoService {
          ),
          -- Nombre real del vendedor. Dentro de UNA sucursal el código sí es único
          -- (verificado), así que el par resuelve a una persona sin ambigüedad.
+         -- [VSO.18] Cascada de nombre, en orden de autoridad. Antes era SOLO wincaja.vendedores,
+         -- y con la pierna Kepler recién agregada al universo eso dejaba **57 pares sin nombre**
+         -- (medido en prod, sep-2026: 0 de 57 resolvían) — el reporte habría impreso códigos
+         -- donde va una persona.
+         --   1) analytics.vendor_identity — el resolvedor de [VSO.6]. Va PRIMERO a propósito:
+         --      es el único que funde a la MISMA persona a los dos lados de un cutover, y una
+         --      promo que cruza un corte (la de agosto-septiembre cruza tres) partiría al
+         --      vendedor en dos mitades sin él.
+         --   2) wincaja.vendedores — el catálogo que ya se usaba, intacto.
+         --   3) kepler_ods.kduv — el catálogo crudo de Kepler.
+         -- Medido sobre los 47 pares Kepler distintos de sep-2026: 24 por identidad, 18 por kduv,
+         -- **5 sin nombre en ninguna fuente** — ésos caen al código y se ven como código, que es
+         -- declarar la ignorancia en vez de inventar un nombre.
          vend AS (
-           SELECT DISTINCT ON (source_branch, btrim(vendedor))
-                  source_branch, btrim(vendedor) AS vendedor, nombre
-           FROM wincaja.vendedores WHERE tenant_id=? AND nombre IS NOT NULL
-           ORDER BY source_branch, btrim(vendedor), source_dataset DESC
+           SELECT DISTINCT ON (source_branch, vendedor) source_branch, vendedor, nombre
+           FROM (
+             SELECT vi.source_branch, btrim(vi.vendedor) AS vendedor,
+                    vi.canonical_name AS nombre, 1 AS prio
+               FROM analytics.vendor_identity vi
+              WHERE vi.tenant_id=? AND vi.canonical_name IS NOT NULL
+                AND COALESCE(vi.exclude, false) = false
+             UNION ALL
+             SELECT w.source_branch, w.vendedor, w.nombre, 2
+               FROM (
+                 SELECT DISTINCT ON (source_branch, btrim(vendedor))
+                        source_branch, btrim(vendedor) AS vendedor, nombre
+                   FROM wincaja.vendedores WHERE tenant_id=? AND nombre IS NOT NULL
+                  ORDER BY source_branch, btrim(vendedor), source_dataset DESC
+               ) w
+             UNION ALL
+             SELECT btrim(kv.sucursal), btrim(kv.c2), NULLIF(btrim(kv.c3), ''), 3
+               FROM kepler_ods.kduv kv WHERE NULLIF(btrim(kv.c3), '') IS NOT NULL
+           ) z
+           ORDER BY source_branch, vendedor, prio
          )
          -- El nombre de la sucursal sólo aplica al canal ruta, donde el vendedor ES la ruta.
          SELECT agg.*, w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
@@ -745,8 +774,13 @@ export class RoutePromoService {
          LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
               AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
          ORDER BY agg.canal, wname NULLS LAST, agg.vendedor`,
+        // [VSO.18] CUATRO tenantId al final, no tres: el CTE `vend` pasó de una fuente a tres y
+        // ahora lleva DOS placeholders (vendor_identity + wincaja.vendedores; kduv no filtra por
+        // tenant porque kepler_ods no lo tiene). Los otros dos son los joins `sb` y `b`.
+        // ⛔ Un binding de menos acá no da un número raro: tira el reporte entero con
+        // "Expected N bindings, saw M" — la misma familia que [CV.7].
         [tenantId, period.from, period.to, skus, canales, rule.min_qty, minImporte, minImporte, rule.min_qty,
-          tenantId, tenantId, tenantId],
+          tenantId, tenantId, tenantId, tenantId],
       )).rows;
 
       // Rótulo y salud de la unidad. Con alcance de MARCA hay muchos SKUs: la unidad base sólo

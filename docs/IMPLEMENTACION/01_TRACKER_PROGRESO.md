@@ -6495,6 +6495,50 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   tiene **20** hojas y el bucket **21**: la de más es **`kepler|08`**, Morelia Abastos por Kepler,
   que no vendió esa quincena porque **su corte fue el 19-sep**. Sin el guardrail el filtro ofrecería
   una sucursal que el pivote muestra vacía — exactamente la desincronía que el pedido quería evitar.
+- [x] **`[VSO.18]`** ✅ **El motor de PROMOS era ciego a Kepler — y se volvía más ciego cada mes.**
+  Nace de un reporte de Edgar: *"$6.00 por cliente distinto al que se le venda PAL MEGATONAS
+  TRIFUEGO 97191, participan todas las rutas, del 11/08 al 11/09 — no funciona"*.
+  **Su promo NO fallaba: no tenía base.** La última venta de RUTA del `97191` fue el **2025-09-24**,
+  once meses antes de la ventana; en 11-ago→11-sep vendió en mayoreo, crédito y mostrador y **cero
+  en ruta**. El motor acierta; lo que falta es que la pantalla lo DIGA («ese producto no se vendió
+  por ruta en ese periodo») en vez de devolver un vacío que se lee como falla.
+  ⛔ **Pero buscándolo apareció algo mucho más grande.** `analytics.v_seller_sales_lines` —el
+  universo con el que se CALCULA Y SE PAGA un incentivo— leía `wincaja.v_sales_lines` +
+  `route_push_lines` y **de `kepler_ods` no leía nada**. No estaba mal cuando se escribió: entonces
+  todo era Wincaja. **Se pudre un escalón por cada cutover, y nadie lo vio porque sigue devolviendo
+  números** — un cero se investiga, un número más chico se cobra.
+  **Cobertura medida contra el sell-out:** ene **94.5%** · jun 82.6% · jul **66.5%** (PH cortó
+  27-jun) · ago **56.8%** (Canindo 15-ago) · sep **31.7%** (Morelia 08 y 19-sep). Los tres
+  escalones caen EXACTAMENTE en los cortes. Por canal en septiembre: mostrador **24%**, mayoreo
+  **23%**, vecinal **14%**.
+  ⛔ **Y una corrección mía, medida:** dije que *"una promo de rutas paga sobre la mitad"* — **es
+  falso**. `ruta` nunca estuvo afectado: la venta de camioneta sube por `route_push_lines`, que el
+  motor sí tenía (jun–sep 6.0/7.4/7.3/6.0 MDP, ~1,500–2,000 clientes, **sin una sola caída**). El
+  canal `ruta` de Kepler es residual: **un** documento en agosto, con el cliente literal `RUTA 28`.
+  **El arreglo (mig 20260929120000, batch 580 en prod):** `analytics.v_kepler_seller_lines` —venta
+  Kepler a grano de LÍNEA, con cliente y vendedor, filtrada por `v_branch_erp_cutover`— entra a la
+  unión. Validada contra el árbitro ANTES de escribirse y después por candado: cuadra **al peso**
+  con `mv_kepler_sales_daily` en los 4 canales. Antes/después del mes en curso: mayoreo
+  **$2,974,018.82 → $12,714,249.77**, mostrador **$7,142,467.27 → $30,265,562.99**, vecinal
+  **$468,814.05 → $3,358,702.95**. Cobertura de agosto: **100% / 100% / 100%** (ruta 133%, que es
+  correcto: el motor lee el push crudo y el sell-out lo filtra).
+  **Y la otra mitad, que sin ella el reporte queda inservible:** el motor nombraba al vendedor sólo
+  contra `wincaja.vendedores`, así que los **57 pares Kepler salían con CÓDIGO en vez de persona**
+  (0 de 57). Cascada nueva `vendor_identity → wincaja.vendedores → kduv`: **0% → 89%**.
+  ⭐ `vendor_identity` va **primero a propósito**: es el único que funde a la MISMA persona a los
+  dos lados de un corte, y la promo de agosto-septiembre **cruza tres cortes** — sin él, un vendedor
+  se parte en dos mitades y la métrica de clientes distintos se rompe.
+  ⚠️ **El candado me corrigió a mí**: puse el tope de vendedores sin nombre en **8**, sacado de una
+  medición más angosta, y midió **9** → rojo. Al investigarlos, **7 de los 9 no son "vendedor sin
+  nombre" sino venta SIN VENDEDOR asignado** (código vacío, ramas 01–08). Son dos ausencias
+  distintas —el error que este proyecto persigue en todos lados y que acá cometí yo—: se separan, el
+  tope real es **2** (`01:1` y `01:2`) y el código vacío queda como su propia pregunta abierta.
+  ⚠️ **Deuda declarada:** el decode de canal de la pierna nueva es una **segunda copia** del de
+  `mv_kepler_sales_daily`. Se eligió la copia porque la alternativa era rebasar esa matvista y
+  reconstruir 289 MB con dependientes — **y se le puso candado**: el bloque 1 exige que las dos
+  coincidan al peso. Una copia medida no es una copia suelta.
+  ⚠️ **Quinta vez** que un acento grave dentro de un template literal rompe un archivo en este repo.
+  **Candado nuevo `test-newdb-promo-engine-coverage.js`: 4 OK · 0 fallas**, registrado en el runner.
   ⬜ **Declarado, no hecho:** `fetchSelloutRows` (el pivote) **no** se tocó — ahí el traslape SÍ
   duplicaría importes, así que sigue con el plan estricto; y `selloutUsesRollup` se llama **dos
   veces** por reporte (desde `selloutFreshness` y desde `selloutLeaves`), una consulta de más.
