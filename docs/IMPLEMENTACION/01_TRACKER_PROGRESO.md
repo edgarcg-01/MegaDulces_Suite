@@ -6233,9 +6233,7 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   **$742,420** en canales con vendedor) siguen apareciendo como columna. ⛔ **A propósito**: el flag
   `exclude` los TIRA del pivote, y esa plata es venta real. Si se quiere separarlos hace falta un
   bucket visible, no una resta.
-- **`[VSO.7]`** `test-newdb-sellout-parity.js` sigue siendo un test de PRESENCIA (`count>0` de cada
-  lado del corte), no de continuidad: da ✔ con 9 días de hueco. Su bloque 3 se puede retirar y
-  delegar en `test-newdb-branch-cutover.js`, que ya lo mide bien.
+- ✅ **`[VSO.7]` RESUELTO 2026-09-28** — ver el item completo abajo.
 - **Ajeno pero medido:** `commercial.sales_targets` está **VACÍA** en prod → el trabajo «vs Objetivo»
   del sell-out no tiene una sola meta que mostrar.
 - [x] **`[VSO.11]`** ✅ **Las pruebas huérfanas — y el censo que evita que vuelvan.**
@@ -6292,6 +6290,45 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   `tsconfig.base.json` y **faltaba en `tsconfig.ts7.json`** (residuo de `[OR.2.1]`). El gate del
   propio repo (`scripts/check-ts7-paths.js`) ya lo diagnosticaba al pie de la letra y **estaba rojo
   sin que nadie lo corriera**. Una línea: 16→**17 alias, los dos mapas coinciden**, gate en verde.
+- [x] **`[VSO.7]`** ✅ **El candado que se ponía verde con nueve días de hueco — y tenía CUATRO
+  fallas, no la que este tracker anotaba.** El renglón decía *"su bloque 3 se puede retirar y
+  delegar"*. Leer el archivo mostró que retirarlo sin más habría dejado tres fallas vivas.
+  1. ⛔ **Llevaba su PROPIA copia del corte** en una constante `CUTOVER`, **vieja en dos de tres
+     desde [VSO.3]** (`01` decía `2026-07-01`, el dato dice `06-27`; `02` decía `2025-10-01`, dice
+     `10-10`) y **ciega a Morelia `07` y `08`**. ⭐ **Los dos defectos se protegían**: con el corte
+     equivocado, preguntar *"¿hay ALGUNA venta de cada lado?"* sigue dando ✔, porque sobra Wincaja
+     antes de julio y sobra Kepler después — la prueba débil volvía invisible a la constante vieja.
+     `test-newdb-branch-cutover.js` ([SB.1]) ya había **nombrado** esta constante como una de las
+     tres copias desincronizadas… y arregló las otras dos. Ésta vivió ocho días más.
+  2. **El bloque de doble conteo no tenía prueba negativa** — y no es redundante con el delegado,
+     porque mide sobre el **artefacto publicado**: un doble conteo que no venga del corte (un JOIN
+     que duplica, una sucursal fuera del resolvedor) sólo lo ve quien mira lo que la pantalla sirve.
+  3. ⛔ **NUNCA TERMINABA.** Un `count(*)` sobre la vista entera (**>60 s**) sólo para saber si cada
+     pierna tenía datos, y un `to_char(business_date,'YYYY-MM')` en el `WHERE` que **anula el
+     índice** — la trampa que `CLAUDE.md` ya documenta de [LC.16], cobrada otra vez y ahora en un
+     candado. Con `statement_timeout` de 1 min el archivo **moría con `ERR` y exit 1**,
+     indistinguible de *"el sell-out está doble-contando"*.
+  **Hoy:** el corte se LEE del resolvedor (**8 cortes, no 3**) · doble conteo **con prueba negativa**
+  que adultera el mapa y exige el choque · el HUECO se delega **y se comprueba que el delegado esté
+  registrado en el runner** (delegar en algo que no corre es borrar la prueba: [VSO.11]) · `EXISTS`
+  en vez de `count(*)` (**33 ms contra >60 s**) · rango de fechas en vez de `to_char` ·
+  `SET statement_timeout` propio y acotado · y un timeout ahora es **NO MEDIDO**, no una falla.
+  **Contra prod: 9 OK · 0 fallas · 2 NO MEDIDOS en 2m31s.**
+  ⭐⭐ **Encontró algo real a la primera**: `2026-06` con **Δ $916,629.73** — exactamente el hueco de
+  Padre Hidalgo de [VSO.3]. Se DECLARA con **fecha de vencimiento** (`2026-09-29T14:00Z`, tras el
+  refresh siguiente): antes es NO MEDIDO, después la entrada queda **inerte y el bloque se pone
+  ROJO si el desfase sigue**. Una declaración que se apaga sola o grita sola, en vez de una alarma
+  que nadie puede apagar.
+  ⚠️ **Tres correcciones a mediciones MÍAS, en el camino:** (a) leí el resolvedor con
+  `JSON.stringify` y los cortes `-infinity` salieron `null` — llegué a creer que Kepler `03/04/05`
+  no publicaban; misma familia que [LC.16] (**el valor está bien y el transporte miente**), por eso
+  ahora se lee `::text`. (b) Mi primera prueba negativa usó `44→01` y dio **0**, porque Wincaja `44`
+  no publica ni una fila: **un control positivo sobre una rama vacía da cero y se lee igual que "no
+  hay dientes"** → el par se elige por solape REAL en días y con orden estable (`30→02`, 340 días).
+  (c) Dije *"el rango tampoco salva al bloque 4"* y es falso: lo salva a medias — julio y junio
+  terminan con el rango, agosto sólo con el timeout subido.
+  ⚠️ La etiqueta del runner prometía *"cero HUECO a los dos lados del corte"*: **mentía igual que el
+  archivo**, y se corrigió. Se la llevó el commit `56ffd934` de otra sesión (índice compartido).
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)
