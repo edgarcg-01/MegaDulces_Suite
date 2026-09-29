@@ -6559,6 +6559,48 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 
 ---
 
+## BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual)
+
+**Arrancó de una revisión pedida y el primer hallazgo era urgente: el bundle inicial estaba a
+MENOS DE 1 KB del techo duro** (1.40 MB contra `maximumError: 1.4mb`). No teórico: esta semana
+**408 bytes de CSS lo pusieron en rojo**. El próximo que agregara cualquier cosa se llevaba un
+build roto que no era culpa suya. ⚠️ Y nadie lo vio porque el `maximumWarning` estaba en 1mb con
+el bundle ~400 kB por encima **desde hacía meses**: el único canal que podía avisar llevaba
+meses diciendo lo mismo todos los días.
+
+**Atribución real** (source-map-explorer sobre el mapa de producción, no estimación).
+
+- [x] **[BND.1]** ✅ **dexie fuera del arranque, −104 KB.** `auth.service.ts` **ya lo intentaba** y su
+  comentario afirmaba haberlo logrado. La intención era correcta y el mecanismo resolvía **otro**
+  problema: `injector.get()` evita **instanciar**, no **empaquetar**. Con un `import` normal arriba
+  el bundler metía Dexie en `main` igual. `import type` + `await import()`. Commit `468a7d70`.
+- [x] **[BND.2]** ✅ Aviso de presupuesto 1mb → **1.35mb** (~50 kB antes del error). Hoy callado;
+  cuando hable dirá algo accionable. ⛔ El **error no se movió**. Commit `64265319`.
+- [x] **[BND.3]** ✅ **login lazy, −69 KB.** `@angular/forms` (57.7 KB) entraba por la única ruta
+  eager que no era el shell; ningún otro archivo del grafo eager lo importa. Commit `322c359b`.
+  ⚠️ Commiteado con `git apply --cached` de **sólo mis hunks**: `app.routes.ts` tenía WIP ajeno.
+
+**Resultado medido: 1.40 MB → 1.22 MB (−180 KB, −13%). Margen contra el error: <1 KB → ~180 KB.**
+
+**Sospecha descartada CON evidencia:** los 127 KB de `_debug_node-chunk.mjs` **no son código de
+debug** — es cómo Angular nombra el fragmento. En el bundle de prod: `ngDevMode` 0,
+`setClassDebugInfo` 0, `DebugElement` 0.
+
+### Lo que queda, medido, con su riesgo real
+
+| Palanca | Tamaño | Por qué no se hizo |
+|---|---|---|
+| **Preset del tema por componente** | **~65 KB** | `@primeuix/themes/aura` trae **101 temas y la app usa 40** (medido). El paquete permite importarlos sueltos. ⛔ PrimeNG **compone unos con otros** (`confirmdialog` usa `dialog` y `button`): omitir uno deja una parte sin estilo en una pantalla que nadie mira. **Necesita navegador**, no razonamiento. |
+| **Nudo PrimeNG eager** | **~122 KB** | toast 34 · button 33.7 · dialog 25.5 · tooltip 15.5 · confirmdialog 13.4. ⭐ **No son cinco decisiones, son DOS**: `ConfirmDialogModule` en `app.component` y `HealthAlertToastComponent` en el layout; `button` entra **transitivo** (ninguna plantilla eager usa `pButton`). ⛔ Diferir el toast de salud es **circular** (se suscribe al WS al iniciar) y con buffer el modo de falla es **perder la primera alerta** — justo la que avisa que el pipeline murió. No vale 34 KB. |
+| `leaflet.css` global | 14.5 KB | Sólo lo usan las pantallas de mapa, pero leaflet crea sus elementos en runtime: sacarlo obliga a decidir la encapsulación. 1% del total. |
+| `app.routes.ts` eager | 37 KB | Partirlo con `loadChildren` por proyecto movería casi todo a chunks lazy. Es el archivo que **todas las sesiones tocan a la vez**. |
+| `libs/contracts` (authz-tree 18.6) | 39 KB | Eager **por estructura**: lo importa el propio `app.routes.ts`. |
+
+**⛔ NO MEDIDO:** ni el login lazy ni el cierre de sesión tienen test — **`auth.service.spec.ts` no
+existe** y nada ejercita la navegación a `/login`. A mano: que `/login` pinte sin parpadeo, que el
+redirect de sesión vencida siga funcionando, y que cerrar sesión con visitas offline pendientes
+las siga contando y cierre la base.
+
 ## UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual)
 
 **Nace de una revisión de `/almacen/inventory/existencia` en móvil, y el hallazgo reformula el pedido:
