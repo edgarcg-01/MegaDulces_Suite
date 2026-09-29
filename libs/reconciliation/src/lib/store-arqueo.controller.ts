@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, Permission, ReqUser,
@@ -124,69 +124,56 @@ export class StoreArqueoController {
 
   @Get('turnos')
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
-  @ApiOperation({ summary: 'Tienda — turnos de caja que Kepler abrió a tu nombre y todavía no arqueaste. Es lo que habilita la captura (sin turno no hay arqueo).' })
-  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás. La cajera ve SOLO hoy y no la puede ampliar; el supervisor, hasta 30.' })
+  @ApiOperation({ summary: 'Tienda — turnos de caja que Kepler abrió a tu nombre y todavía no arqueaste. Es la lista de qué contar; desde SM.40 NO es un requisito para capturar.' })
+  @ApiQuery({ name: 'dias', required: false, description: 'Ventana hacia atrás, en días. Misma para cajera y supervisor (default 7, tope 30).' })
   async turnos(@ReqUser() user: AuthUser, @Query('dias') dias?: string) {
     const scope = (await this.scope.current()).dims.warehouse;
-    // A la cajera se le pide el arqueo del día: Kepler cierra su caja y ella cuenta
-    // lo que tiene enfrente. Los cortes viejos sin contar son de la bandeja del
-    // supervisor, no de su mostrador — y el tope va en el SERVICIO, no acá, para
-    // que mandar `?dias=30` a mano tampoco los destape.
+    // SM.40 — la ventana es la misma para todos y se puede ampliar. El tope vive
+    // en el SERVICIO, no acá, así que mandar `?dias=999` a mano tampoco la estira.
     const cajero = user?.username;
     /**
-     * SM.38 - El bloqueo viaja con la lista, no en una llamada aparte: si la
+     * SM.38/SM.40 - El aviso viaja con la lista, no en una llamada aparte: si la
      * pantalla tuviera que preguntarlo por separado, un error de red la dejaria
-     * mostrando los turnos sin el aviso. Y los turnos se devuelven VACIOS cuando
-     * hay bloqueo -- fail-closed: no se puede arquear con dos cajas abiertas, asi
-     * que no se ofrece ninguna.
+     * mostrando los turnos sin el aviso.
+     *
+     * ⚠️ SM.40 - Antes, con dos cajas abiertas, esto devolvia `turnos: []` y la
+     * captura desaparecia entera. Ahora los turnos van SIEMPRE y el aviso los
+     * acompana: la senal se dice, la persona decide. Es el mismo cambio que en
+     * `submit()`, y por el mismo motivo -- el unico modo de "desbloquearse" era
+     * que llegara un dato del ODS, asi que una caida de la ingesta paraba el
+     * mostrador (medido 2026-09-29).
      */
-    const bloqueo = cajero ? await this.blind.bloqueoDobleCaja(cajero) : null;
-    if (bloqueo) return { turnos: [], bloqueo };
+    const aviso = cajero ? await this.blind.avisoDobleCaja(cajero) : null;
     const turnos = await this.blind.turnosPendientes({
       cajeroCode: cajero,
       warehouseCodes: scope.mode === 'all' ? null : scope.values,
       dias: dias ? Number(dias) : undefined,
       revela: this.revela(user),
     });
-    return { turnos, bloqueo: null };
-  }
-
-  /**
-   * SM.38 - El candado de doble caja, fail-closed.
-   *
-   * Se pregunta por la persona a la que se le ATRIBUYE el conteo, no por quien
-   * lo teclea: si la supervisora captura por una cajera que tiene dos cajas
-   * abiertas, el bloqueado es el conteo de esa cajera. Bloquear a la supervisora
-   * por sus propias cajas seria castigar a la persona equivocada.
-   */
-  private async exigirUnaSolaCaja(cajero_code: string | undefined) {
-    if (!cajero_code) return;
-    const b = await this.blind.bloqueoDobleCaja(cajero_code);
-    if (!b) return;
-    const lista = b.cajas.map((c) => `sucursal ${c.warehouse_code} caja ${c.caja}`).join(' y ');
-    throw new ConflictException(
-      `Hay dos cajas abiertas con el mismo usuario (${lista}). `
-      + `Cierra la sesion en una de las dos en Kepler y se reactiva solo.`,
-    );
+    return { turnos, aviso };
   }
 
   /**
    * Kepler manda: la caja, la fecha y la hora salen del turno, no del formulario.
    *
    * Kepler ya sabe qué caja le tocó a quién y desde qué hora (abre el renglón con
-   * `caja`, `cajera asignada` y `hora de apertura`). Dejar que la cajera teclee la
-   * caja es abrir la puerta a arquear la caja de otra, o un turno que no existió.
-   * Para la cajera el turno es **obligatorio** y sus datos **mandan** sobre el body.
-   * El supervisor puede capturar sin turno (relevo, contingencia, caja sin Kepler).
+   * `caja`, `cajera asignada` y `hora de apertura`), así que **cuando hay turno sus
+   * datos MANDAN sobre el body**: la caja no se elige, es la que te tocó.
+   *
+   * ⚠️ SM.40 - Lo que cambia es el caso SIN turno. Antes era un 400 para la
+   * cajera ("elige el turno… si no aparece ninguno es que Kepler todavía no abrió
+   * tu caja") y eso convertía cualquier atraso del ERP o de la ingesta en un
+   * mostrador parado: medido el 2026-09-29, con `kdpv_folio_caja` sin una sola
+   * fila del 24 al 29, ninguna de las 25 cajeras con turno colgado podía registrar
+   * su conteo. Ahora captura igual, declarando la caja, y el arqueo queda **sin
+   * folio** — o sea `matched: false`, sin comparación contra Kepler y visible como
+   * tal. Un conteo que no cuadra vale muchísimo más que ningún conteo: el dinero
+   * se contó y quedó firmado con hora y persona.
    */
   private async anclarAlTurno(body: BlindCountDto, warehouse_code: string, cajero_code: string | undefined, revela: boolean) {
     const folio = body?.cash_cut_folio ? String(body.cash_cut_folio).trim() : '';
-    if (!folio) {
-      if (revela) return {}; // supervisor: puede capturar a mano
-      throw new BadRequestException(
-        'Elige el turno de caja que vas a arquear. Si no aparece ninguno es que Kepler todavía no abrió tu caja.',
-      );
-    }
+    // Sin folio se captura a mano — supervisor y cajera por igual (SM.40).
+    if (!folio) return {};
     const turno = await this.blind.buscarTurno(warehouse_code, folio, revela ? undefined : cajero_code);
     if (!turno) {
       throw new BadRequestException(
@@ -195,7 +182,6 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
-    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code, turno);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -207,52 +193,25 @@ export class StoreArqueoController {
   }
 
   /**
-   * SM.16 — Los cortes se cierran EN ORDEN. Con un turno pendiente de ayer no se
-   * puede arquear el de hoy.
+   * ⚠️ SM.40 — Acá vivía `exigirElMasViejo()` (SM.16): "los cortes se cierran EN
+   * ORDEN, con un turno pendiente de ayer no se puede arquear el de hoy".
    *
-   * El turno sin arquear es donde se esconde el hueco: si se puede elegir cuál
-   * contar, se cuenta el que conviene y el otro se deja envejecer hasta que a
-   * nadie le importe. Además el conteo se vuelve inauditable — el efectivo de dos
-   * turnos se mezcla en el mismo cajón y ya no se sabe de cuál falta.
+   * Se retira por decisión de Edgar (2026-09-29) y con la medición encima. El
+   * argumento original era bueno —un turno sin arquear es donde se esconde el
+   * hueco— pero la regla se apoyaba en una premisa falsa: que el turno viejo se
+   * puede cerrar. En la operación real no siempre: `turnosPendientes` deja entrar
+   * SIEMPRE los turnos abiertos sin importar la fecha (la excepción de SM.37, para
+   * que la caja que cruza la medianoche no desaparezca), así que un turno que
+   * nadie va a cerrar quedaba clavado en el primer lugar de la fila y bloqueaba
+   * para siempre el cierre de hoy. Medido en prod: 4 cajeras activas trabadas
+   * —`40VMC` desde el 31 de enero, 235 días— y su única salida era capturar un
+   * conteo falso del turno viejo. Una regla anti-fraude cuya única escapatoria es
+   * un dato inventado trabaja en contra de lo que quiere proteger.
    *
-   * Va en el BACKEND y no solo en la pantalla: la lista es una ayuda, la regla es
-   * esto. Mandar el folio de hoy a mano no la salta.
-   *
-   * Solo aplica al **cierre**. El relevo es intra-turno y urgente (la cajera está
-   * entregando la caja ahora); bloquearlo porque quedó un cierre viejo pendiente
-   * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
-   * Y el supervisor queda exento: captura por otros y en contingencia.
+   * Lo que la reemplaza NO es nada: es el aviso de apertura (`avisarAperturas`) y
+   * el tablero de cumplimiento, que ya miden qué se contó y qué no **sin impedir
+   * que alguien cuente**.
    */
-  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string, turno?: { caja?: string; business_date?: string }) {
-    if (revela) return;
-    if ((body?.tipo ?? 'cierre') !== 'cierre') return;
-    // Corregir un conteo YA hecho no es saltarse la fila: el turno viejo sigue
-    // igual de pendiente después de la corrección, así que bloquearla no protege
-    // nada — y sí deja congelada una cifra que la cajera sabe equivocada, que es
-    // justo lo contrario de lo que esta regla busca.
-    // La sucursal RESUELTA, no `body.warehouse_code`: la cajera no lo manda, así
-    // que leerlo del body dejaría el chequeo en un no-op silencioso.
-    // SM.37 - Con caja y fecha: el folio de Kepler se reusa, y sin acotar, el
-    // cierre de otra caja de otro dia daba este turno por arqueado.
-    if (await this.blind.yaArqueado(warehouseCode, folio, turno?.caja, turno?.business_date)) return;
-    const scope = (await this.scope.current()).dims.warehouse;
-    // MISMA ventana que la pantalla: si a la cajera no se le ofrece el corte de
-    // anteayer, tampoco puede bloquearla. Con la ventana ancha quedaba trabada en
-    // un corte que ya no se puede contar y no llegaba nunca al de hoy.
-    const pendientes = await this.blind.turnosPendientes({
-      cajeroCode: cajero_code,
-      warehouseCodes: scope.mode === 'all' ? null : scope.values,
-      revela: false,
-    });
-    const primero = pendientes[0];               // viene ordenada del más viejo
-    if (!primero || primero.folio === folio) return;
-    const cuando = new Date(`${primero.business_date}T12:00:00`)
-      .toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' });
-    throw new BadRequestException(
-      `Tienes un corte pendiente antes que ese: caja ${primero.caja} del ${cuando}. ` +
-      'Cierra ese primero — los arqueos se hacen en orden.',
-    );
-  }
 
   /**
    * SM.36 - Las rutas que ESTA tienda puede arquear.
@@ -343,12 +302,14 @@ export class StoreArqueoController {
 
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
-  @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió. Queda a nombre de su usuario y devuelve solo su total contado (el esperado y la diferencia son del supervisor).' })
+  @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió (o captura a mano si todavía no hay turno). Queda a nombre de su usuario y devuelve solo su total contado.' })
   async submit(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
     const revela = this.revela(user);
     const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
     const cajero_code = this.atribuir(body, user, revela);
-    await this.exigirUnaSolaCaja(cajero_code);
+    // SM.40 — sin candados: ni orden de cortes, ni una sola caja abierta, ni
+    // ventana del día. Lo que queda es la identidad (a tu nombre), el alcance (tu
+    // sucursal) y el turno cuando existe. Ver el bloque de arriba.
     const delTurno = await this.anclarAlTurno(body, warehouse_code, cajero_code, revela);
     const res = await this.blind.submit({ ...body, warehouse_code, cajero_code, ...delTurno }, user?.username);
     // Sin revelación, `matched`/`ambiguous` tampoco tienen sentido (no hay nada
