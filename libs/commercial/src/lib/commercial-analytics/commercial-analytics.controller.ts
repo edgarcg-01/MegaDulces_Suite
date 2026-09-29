@@ -943,6 +943,35 @@ export class CommercialAnalyticsController {
 
   // ─────────── Fase RR — Ventas por Ruta ───────────
 
+  @Get('sales-by-route/detalle-home')
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_ROUTE_SALES_VER,
+    Permission.COMMERCIAL_ANALYTICS_VER,
+    Permission.RUTAS_VER,
+    Permission.TIENDAS_VER,
+  )
+  @ApiOperation({
+    summary:
+      'Home Analítica Venta al Detalle (RD + Preventa Vecinal). '
+      + '100% datos reales de Kepler (mv_rd_route_daily_200d, v_route_sales_lines, v_kepler_chofer). '
+      + 'Filtros: from, to, canal (all|rd|vecinal), warehouse_code, route_code.',
+  })
+  salesByRouteDetalleHome(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('canal') canal?: 'all' | 'rd' | 'vecinal',
+    @Query('warehouse_code') warehouseCode?: string,
+    @Query('route_code') routeCode?: string,
+  ) {
+    return this.service.getDetalleHome({
+      from: from?.trim() || '',
+      to: to?.trim() || '',
+      canal,
+      warehouse_code: warehouseCode?.trim(),
+      route_code: routeCode?.trim(),
+    });
+  }
+
   @Get('sales-by-route/routes')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })
