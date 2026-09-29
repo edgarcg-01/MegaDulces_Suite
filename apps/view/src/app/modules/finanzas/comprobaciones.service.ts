@@ -69,6 +69,12 @@ export interface ProofByFolio {
   requiere_evidencia?: boolean;
   tiene_comprobacion?: boolean | null;
   comprobacion_nota?: string | null;
+  /**
+   * `[GX.55]` Aprobado **debiendo** el comprobante (entró con cotización). Es lo que habilita
+   * subir la factura después — sin esto, la clasificación `no_comprobable` daba el vale por
+   * cerrado y no había por dónde.
+   */
+  provisional?: boolean;
 }
 
 export interface ExpenseProof {
