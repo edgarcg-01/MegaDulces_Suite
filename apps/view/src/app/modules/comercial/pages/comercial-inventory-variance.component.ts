@@ -6,9 +6,10 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { SelectButtonModule } from 'primeng/selectbutton';
 import {
   ComercialService, InventoryVarianceEvent, InventoryVarianceLine,
-  InventoryVarianceCoverage, Warehouse,
+  InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
 } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
@@ -31,7 +32,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   selector: 'app-comercial-inventory-variance',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
-    ToggleSwitchModule, MetricCardComponent],
+    ToggleSwitchModule, SelectButtonModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -44,6 +45,9 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           </p>
         </div>
       </header>
+
+      <p-selectbutton [options]="vistas" [(ngModel)]="vista" optionLabel="label" optionValue="value"
+        (onChange)="onVista()" styleClass="inv-var-tabs"></p-selectbutton>
 
       <div class="inv-var-filters">
         <p-select [options]="warehouseOptions()" optionLabel="label" optionValue="value"
@@ -59,13 +63,100 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </button>
       </div>
 
-      @if (!includeInitialLoad) {
+      @if (vista === 'programa') {
+        <!-- ── [IC.6] El programa: los tres ritmos en un lugar ────────────────────── -->
+        <section class="inv-var-prog">
+          @if (!warehouseFilter) {
+            <p class="inv-var-note">Elegí un almacén para ver qué le toca este mes.</p>
+          } @else {
+            @if (plan(); as pl) {
+              <div class="surf-grid inv-var-kpis">
+                <app-metric-card class="panel-col-3" label="Toca este mes"
+                  [value]="pl.total" [sub]="'ola ' + pl.ola + ' + top'"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="Del top"
+                  [value]="pl.del_top" sub="se cuentan todos los meses"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="De la ola"
+                  [value]="pl.de_la_ola" sub="un tercio del catálogo"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="Cobertura del trimestre"
+                  [valueText]="cobertura()?.cubre_todo ? 'las 3 olas' : 'incompleta'"
+                  [tone]="cobertura()?.cubre_todo ? 'ok' : 'bad'"
+                  [sub]="'desvío máx. ' + (cobertura()?.desvio_max_pct ?? '—') + '%'"></app-metric-card>
+              </div>
+              @if (pl.truncado) {
+                <p class="inv-var-warn">
+                  ⚠️ El plan quedó truncado por el límite: hay más SKUs que deberían entrar.
+                </p>
+              }
+              <p-table [value]="pl.items" styleClass="surf-table" [scrollable]="true" scrollHeight="360px">
+                <ng-template pTemplate="header">
+                  <tr><th>SKU</th><th>ABC</th><th>Motivo</th><th class="num">Score</th>
+                      <th class="num">Señales</th><th>Salvedad</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-i>
+                  <tr>
+                    <td class="tabular">{{ i.sku }}</td>
+                    <td>{{ i.abc_class || '—' }}</td>
+                    <td>
+                      <p-tag [severity]="i.motivo === 'top' ? 'warn' : 'secondary'"
+                        [value]="i.motivo"></p-tag>
+                    </td>
+                    <td class="num tabular">{{ i.score }}</td>
+                    <td class="num tabular">{{ i.senales_usadas }}/4</td>
+                    <td class="inv-var-salv">{{ i.score_salvedad || '' }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            }
+          }
+
+          @if (kpi(); as k) {
+            <h2 class="inv-var-h2">¿Está sirviendo?</h2>
+            @if (k.veredicto === 'sin_base_de_comparacion') {
+              <p class="inv-var-note">
+                Todavía <strong>no se puede responder</strong>: hacen falta dos trimestres con
+                los mismos almacenes. {{ k.tendencia?.motivo || '' }}
+              </p>
+            } @else if (k.tendencia; as tn) {
+              <p class="inv-var-note">
+                De {{ tn.de }} a {{ tn.a }}:
+                <strong>{{ tn.pct_antes }}% → {{ tn.pct_despues }}%</strong>
+                ({{ tn.delta_pp }} pp) sobre los almacenes comunes.
+              </p>
+            }
+            @if (k.periodos_descartados > 0) {
+              <p class="inv-var-warn">
+                ⚠️ {{ k.periodos_descartados }} período(s) fuera de la tendencia: su descuadre
+                supera el valor contado, así que el denominador no los cubre.
+              </p>
+            }
+            <p-table [value]="k.periodos" styleClass="surf-table">
+              <ng-template pTemplate="header">
+                <tr><th>Trimestre</th><th class="num">Almacenes</th><th>Cuáles</th>
+                    <th class="num">Contado</th><th class="num">% descuadre</th><th>Salvedad</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-p>
+                <tr>
+                  <td>{{ p.periodo }}</td>
+                  <td class="num tabular">{{ p.almacenes }}</td>
+                  <td class="inv-var-salv">{{ p.codigos?.join(', ') }}</td>
+                  <td class="num tabular">{{ fmtMoney(+p.valor_contado) }}</td>
+                  <td class="num tabular">{{ p.pct_descuadre ?? '—' }}%</td>
+                  <td class="inv-var-salv">{{ p.salvedad || '' }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+        </section>
+      }
+
+      @if (vista === 'diferencias' && !includeInitialLoad) {
         <p class="inv-var-note">
           Las <strong>cargas iniciales</strong> (cuando una sucursal migra de Wincaja a Kepler)
           están fuera: cuadran consigo mismas y no son descuadre. Son $30.8M en el histórico.
         </p>
       }
 
+      @if (vista === 'diferencias') {
       <div class="surf-grid inv-var-kpis">
         <app-metric-card class="panel-col-3" label="Sobrante" tone="warn"
           [valueText]="fmtMoney(totals().sobrante)"
@@ -116,7 +207,9 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </ng-template>
       </p-table>
 
-      @if (selected) {
+      }
+
+      @if (vista === 'diferencias' && selected) {
         <section class="inv-var-detail">
           <h2>{{ selected.warehouse_code }} · {{ selected.fecha }}</h2>
 
@@ -180,6 +273,9 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       font-size: .8125rem; margin-bottom: .625rem; }
     .inv-var-warn { color: var(--warn, #b45309); }
     .inv-var-empty { text-align: center; padding: 1.5rem; color: var(--text-muted, #78716c); }
+    .inv-var-tabs { margin-bottom: .75rem; }
+    .inv-var-prog h2.inv-var-h2 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+    .inv-var-salv { font-size: .75rem; color: var(--text-muted, #78716c); }
     .num { text-align: right; }
     .tabular { font-variant-numeric: tabular-nums; }
   `],
@@ -193,6 +289,15 @@ export class ComercialInventoryVarianceComponent {
   readonly loading = signal(false);
   readonly loadingDetail = signal(false);
   readonly warehouses = signal<Warehouse[]>([]);
+  readonly plan = signal<InventoryCountPlan | null>(null);
+  readonly cobertura = signal<{ cubre_todo: boolean; desvio_max_pct: number | null } | null>(null);
+  readonly kpi = signal<InventoryVarianceKpi | null>(null);
+
+  readonly vistas = [
+    { label: 'Diferencias', value: 'diferencias' },
+    { label: 'Programa', value: 'programa' },
+  ];
+  vista: 'diferencias' | 'programa' = 'diferencias';
 
   warehouseFilter: string | null = null;
   includeInitialLoad = false;
@@ -219,7 +324,25 @@ export class ComercialInventoryVarianceComponent {
     this.load();
   }
 
+  /** [IC.6] Cambiar de pestaña recarga lo de esa vista, no todo. */
+  onVista() {
+    if (this.vista === 'programa') this.loadPrograma();
+    else this.load();
+  }
+
+  loadPrograma() {
+    // El KPI no depende del almacén elegido: si no hay filtro, es el global.
+    this.api.inventoryVarianceKpi(this.warehouseFilter ?? undefined)
+      .subscribe({ next: (k) => this.kpi.set(k), error: () => this.kpi.set(null) });
+    if (!this.warehouseFilter) { this.plan.set(null); this.cobertura.set(null); return; }
+    this.api.inventoryCountPlan({ warehouse_id: this.warehouseFilter })
+      .subscribe({ next: (p) => this.plan.set(p), error: () => this.plan.set(null) });
+    this.api.inventoryWaveCoverage(this.warehouseFilter)
+      .subscribe({ next: (c) => this.cobertura.set(c), error: () => this.cobertura.set(null) });
+  }
+
   load() {
+    if (this.vista === 'programa') { this.loadPrograma(); return; }
     this.loading.set(true);
     this.selected = null;
     this.lines.set([]);
