@@ -9,6 +9,37 @@
 ---
 
 ## [Unreleased]
+### Added — hasta qué año hay histórico del Sell-Out, y por qué parecía ser 2025 (VSO.13, 2026-09-28)
+Pregunta de Edgar mirando el reporte de Hershey. **Medido en prod:** el universo tiene las **8
+plazas desde 2026-03** (Zamora entra 2026-03, Yurécuaro 2026-02, 8 Esquinas 2026-01). **2025 son
+CINCO plazas** —Padre Hidalgo, La Piedad, Canindo, Morelia Madero y Abastos— **completas día a día**
+(28–31 días/mes, los 12 meses). Antes de 2025-01 no hay histórico: 414 filas / **$290,018.98** con
+fechas centinela.
+
+⭐ **La serie no tiene escalón que lo delate**: 2025 va de $43.7M a $76.9M/mes y 2026 de $48.2M a
+$55.2M. Pero las tres plazas nuevas valen **13.1%** del universo (mar–sep 2026: $47.72M de
+$365.33M), así que **un año contra año compara 8 plazas contra 5** y esos 13 puntos se leen como
+crecimiento. El primer YoY legítimo de las 8 es **marzo-2027 vs marzo-2026**.
+
+- **Added** — bloque 5 del candado de paridad: **días AISLADOS** (sin venta a más de 30 días de los
+  dos lados). **11 días · $520,619.90** publicados hoy como venta, los dos mayores el **89.9%**:
+  Canindo `2000-01-01` **$237,237.47** (fecha centinela; la siguiente venta de esa rama es **7,606
+  días** después) y **8 Esquinas `2025-01-09` $230,600.92** — 971 filas / 971 SKUs distintos, su
+  **único día en 12 meses**, firma idéntica al residuo ya declarado de La Piedad pero **10.5× más
+  grande**, y éste **sí se publica** porque el corte de 8 Esquinas es `-infinity`. Quedan declarados
+  con rama, día, monto y razón. ⛔ **Declarado ≠ corregido**: excluirlos mueve una cifra publicada y
+  es decisión de negocio.
+- **Added** — `coverage.branches_out_of_scope`: la nota del reporte separa **dos ausencias que no
+  son la misma** — *sin venta de esta empresa* (la sucursal operaba) vs *fuera de cobertura* (no
+  estaba en el universo: **no es cero, es inexistente**). Antes una plaza inexistente no aparecía en
+  ningún lado y la pantalla decía «19 sucursales» sin más.
+- ⚠️ **Dos trampas medidas:** mi primera firma de carga inicial (*«una fila por SKU»*) quedó
+  **refutada** — es la forma normal del día de una ruta; lo que distingue a esos días es el
+  **aislamiento**, no la forma. Y el piso calculado «desde la primera fila» daba `03 → 2025-01`,
+  **que es justo el artefacto**: se calcula por **operación continua**, que los excluye solo. Más:
+  en el resolvedor va **`kepler_code`, no `warehouse_code`** (`[IC.CEDIS]` midió el mismo día que
+  resuelve 2 de 8).
+
 ### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
 El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve
 días de hueco"*— y el archivo tenía **cuatro**. Retirar ese bloque sin leer el resto, como decía el

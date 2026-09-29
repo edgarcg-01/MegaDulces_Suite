@@ -530,7 +530,7 @@ export interface SellOutReport {
    * si fuera una medición. Una nota fija en el campo de la cobertura es la falla de fondo de la fase
    * en miniatura: el consumidor no tiene cómo saber que nadie contó nada.
    */
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  coverage: { branches_with_data: string[]; branches_missing: string[]; branches_out_of_scope?: string[]; note: string; measured: boolean };
   /**
    * [VP.0.3] Edad del dato con el que se calculó. NO es `generated_at`: ése es cuándo corrió la
    * consulta, y un servidor que responde en 200 ms sobre matviews de hace seis días lo reporta
@@ -3533,7 +3533,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, retailCodes, plazasCanon, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -3665,6 +3665,29 @@ export class CommercialAnalyticsService {
       const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
         (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
 
+      // [VSO.13] PISO DE COBERTURA. `retailRows` son los almacenes con venta EN EL PERIODO, así que
+      // una plaza que todavía no existía en ese periodo no aparece por ningún lado: ni en
+      // `branches_with_data` ni en `branches_missing`. La pantalla dice "19 sucursales" y calla que
+      // otras tres no estaban. Medido en prod el 2026-09-28: el universo tiene las 8 plazas desde
+      // **2026-03**; en 2025 son CINCO (faltan 8 Esquinas, Yurécuaro y Zamora), y las tres valen el
+      // **13.1%** de la venta actual — o sea que un año contra año compara 8 plazas contra 5 y esos
+      // 13 puntos se leen como crecimiento. La serie no tiene escalón que lo delate.
+      //
+      // ⚠️ `kepler_code`, NO `warehouse_code`: medido el 2026-09-28 en `[IC.CEDIS]`, la columna
+      // `warehouse_code` del resolvedor resuelve 2 de 8 (trae `MD-10`, `MD-40`… salvo Morelia) y
+      // `kepler_code` resuelve 8 de 8, que es la identidad que usa el pivote.
+      //
+      // ⛔ Sólo se calcula sin filtro de sucursal: con `whFilter` el usuario acotó a propósito y
+      // listar como "fuera de cobertura" lo que él mismo excluyó sería ruido.
+      const plazasCanon: Array<{ code: string; name: string | null }> = whFilter ? [] : await trx(
+        'analytics.v_branch_erp_cutover as x')
+        .leftJoin('commercial.warehouses as w', function (this: any) {
+          this.on('w.code', 'x.kepler_code').andOn('w.tenant_id', 'x.tenant_id');
+        })
+        .where('x.tenant_id', tenantId)
+        .distinct('x.kepler_code as code', 'w.name as name')
+        .catch(() => [] as any[]);
+
       const identMap = await this.loadVendorIdentity(trx, tenantId);
       // [VSO.1] El vocabulario de canal sale del resolvedor, no de constantes de este archivo.
       const chMap = await this.loadChannelMap(trx, tenantId);
@@ -3680,6 +3703,8 @@ export class CommercialAnalyticsService {
       return {
         brand: b, products: ps, raw: rawRows,
         retail: retailRows.map((r: { branch_name: string }) => r.branch_name),
+        retailCodes: retailRows.map((r: { warehouse_code: string }) => r.warehouse_code),
+        plazasCanon,
         boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv,
       };
     });
@@ -4075,7 +4100,13 @@ export class CommercialAnalyticsService {
       // ⛔ El gran total NO lleva `units`: suma productos distintos, y ahí no hay una sola unidad
       // que nombrar. En unidad base la pantalla deja el total en cajas y lo rotula.
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
-      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
+      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers,
+        // [VSO.13] Plazas que el resolvedor declara y que el PERIODO no tiene. No es "no vendieron":
+        // es que no estaban en el universo, y la diferencia cambia cómo se lee el número.
+        plazasCanon
+          .filter((p) => !new Set(retailCodes).has(p.code))
+          .map((p) => p.name || p.code)
+          .sort()),
       freshness,
       // [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD con el que se convirtió a cajas. Va aparte de
       // `freshness` a propósito: ése compone la edad de los HECHOS (la venta) y se queda con el
@@ -6638,6 +6669,7 @@ export class CommercialAnalyticsService {
     withData: string[],
     retail: string[],
     excludedTransfers = 0,
+    outOfScope: string[] = [],
   ): SellOutReport['coverage'] {
     const set = new Set(withData);
     const missing = retail.filter((n) => !set.has(n));
@@ -6650,7 +6682,21 @@ export class CommercialAnalyticsService {
     }
     if (missing.length)
       parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
-    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' '), measured: true };
+    // [VSO.13] Dos ausencias que NO son la misma, y hasta hoy sólo se nombraba una:
+    //   · `missing`    — la sucursal operaba y esta empresa no vendió ahí. Es un dato de negocio.
+    //   · `outOfScope` — la sucursal NO ESTABA en el universo. No es que vendiera cero: es que no
+    //     hay con qué compararla, y sumar o comparar a través de ese borde infla el resultado.
+    if (outOfScope.length)
+      parts.push(`⚠️ Fuera de cobertura en este periodo: ${outOfScope.join(', ')} — `
+        + 'esas plazas no estaban en el universo, así que su venta no es cero, es inexistente. '
+        + 'No compares este periodo contra otro que sí las tenga.');
+    return {
+      branches_with_data: withData,
+      branches_missing: missing,
+      branches_out_of_scope: outOfScope,
+      note: parts.join(' '),
+      measured: true,
+    };
   }
 
   // ─────────── helpers ───────────

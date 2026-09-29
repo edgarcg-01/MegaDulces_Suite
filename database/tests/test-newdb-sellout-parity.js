@@ -85,6 +85,34 @@ const DELEGADO = 'test-newdb-branch-cutover.js';
  *
  * ⭐ Es una declaración que NO puede envejecer en silencio: se apaga sola o grita sola.
  */
+/** Umbral de aislamiento del bloque 5: sin venta a más de N días a los DOS lados. */
+const AISLAMIENTO_DIAS = 30;
+
+/**
+ * [VSO.13] Días AISLADOS que hoy se publican como venta — medidos en prod el 2026-09-28.
+ *
+ * Un día cuyo vecino con venta más cercano está a meses (o a 21 años) no es operación. Son dos
+ * cosas, las dos con el mismo efecto: la **carga inicial** de una rama Kepler estampada en su
+ * fecha de arranque, y la **fecha centinela** del POS Wincaja (`2000-01-01` y compañía).
+ *
+ * ⛔ **Declarado NO es corregido.** Excluirlos baja una cifra ya publicada en $520,619.90 y eso es
+ * decisión de negocio, no de un test. Acá quedan con nombre, día y monto para que (a) nadie los
+ * descubra de nuevo desde cero y (b) un día aislado NUEVO ponga el candado en rojo.
+ */
+const DIAS_AISLADOS_DECLARADOS = [
+  { sb: '50',  dia: '2000-01-01', monto: 237237.47, razon: 'fecha centinela de Wincaja Canindo; la siguiente venta de esa rama es 7,606 días después' },
+  { sb: '03',  dia: '2025-01-09', monto: 230600.92, razon: 'carga inicial de Kepler en 8 Esquinas: 971 filas / 971 SKUs DISTINTOS, y es su ÚNICO día en 12 meses (la siguiente venta es 366 días después). Misma firma que el residuo ya declarado de La Piedad en test-newdb-branch-cutover.js, pero 10.5x más grande — y a diferencia de aquél, éste SÍ se publica, porque el corte de 8 Esquinas es -infinity (siempre Kepler) y no lo excluye nada' },
+  { sb: '50',  dia: '2020-10-28', monto: 16981.28,  razon: 'Canindo aislado 7,606 días después del centinela y 1,527 antes de su operación real' },
+  { sb: '505', dia: '2024-09-10', monto: 11187.09,  razon: 'ruta 505 aislada 132/114 días' },
+  { sb: '30',  dia: '2000-01-01', monto: 6333.72,   razon: 'fecha centinela de Wincaja Morelia Abastos' },
+  { sb: '22',  dia: '2014-06-08', monto: 5736.50,   razon: 'ruta 22 aislada; siguiente venta 3,861 días después' },
+  { sb: '32',  dia: '2000-01-01', monto: 5645.82,   razon: 'fecha centinela de Wincaja Morelia Madero' },
+  { sb: '505', dia: '2024-05-01', monto: 3607.54,   razon: 'ruta 505 aislada 132 días antes de la siguiente' },
+  { sb: '10',  dia: '2020-07-25', monto: 2485.15,   razon: 'Padre Hidalgo Wincaja: UNA fila, 1,621 días antes de su operación real' },
+  { sb: '42',  dia: '2000-01-01', monto: 509.80,    razon: 'fecha centinela de Wincaja La Piedad' },
+  { sb: '32',  dia: '2020-03-20', monto: 294.61,    razon: 'Morelia Madero: UNA fila, aislada 7,384/1,749 días' },
+];
+
 const DESFASES_DECLARADOS = [
   {
     mes: '2026-06', monto: 916629.73,
@@ -359,6 +387,63 @@ const leer = (rel) => { try { return fs.readFileSync(path.join(RAIZ, rel), 'utf8
             + (decl && !vigente ? ` · ⚠️ había un desfase declarado para este mes con vencimiento ${decl.vence}, YA VENCIDO: el refresh corrió y no lo arregló` : ''));
         }
       }
+    }
+  }
+
+  // ── 5. DÍAS AISLADOS — venta publicada que está rodeada de nada ──────────────────────────
+  // [VSO.13] Un día con venta cuyo vecino más cercano está a más de 30 días no es operación: es
+  // una carga inicial estampada en la fecha de arranque de la rama, o una fecha centinela del POS.
+  // Se publica como venta igual.
+  //
+  // ⛔ Mi PRIMERA firma fue "una fila por SKU" y quedó REFUTADA al medirla: es la forma NORMAL del
+  // día de una ruta (una camioneta vende cada SKU una vez, con un vendedor y un canal), así que
+  // matcheaba cientos de días buenos. Lo que distingue a estos días no es su FORMA, es su
+  // AISLAMIENTO. Por eso el detector mira los huecos a los dos lados, no la composición del día.
+  console.log('\n5 · DÍAS AISLADOS (venta publicada rodeada de nada)');
+  if (!vista) {
+    noMedido('días aislados', 'falta analytics.v_sellout_daily');
+  } else {
+    const aislados = await medir('días aislados', () => q(`
+      WITH d AS (
+        SELECT source_branch sb, business_date::date dia, sum(monto) monto
+          FROM analytics.v_sellout_daily WHERE source_branch <> '' GROUP BY 1, 2),
+      g AS (
+        SELECT *, dia - lag(dia)  OVER (PARTITION BY sb ORDER BY dia) AS antes,
+                  lead(dia) OVER (PARTITION BY sb ORDER BY dia) - dia AS despues
+          FROM d)
+      SELECT sb, to_char(dia,'YYYY-MM-DD') AS dia, round(monto::numeric,2) AS monto
+        FROM g
+       WHERE COALESCE(antes, 9999) > ${AISLAMIENTO_DIAS} AND COALESCE(despues, 9999) > ${AISLAMIENTO_DIAS}
+       ORDER BY monto DESC`));
+    if (aislados) {
+      const clave = (x) => `${x.sb}|${x.dia}`;
+      const declarados = new Set(DIAS_AISLADOS_DECLARADOS.map(clave));
+      const vistos = new Set(aislados.map(clave));
+
+      const nuevos = aislados.filter((x) => !declarados.has(clave(x)));
+      const montoNuevo = nuevos.reduce((s, x) => s + Number(x.monto), 0);
+      check('ningún día aislado NUEVO (venta publicada sin operación alrededor)',
+        nuevos.length === 0,
+        nuevos.length
+          ? `${nuevos.length} día(s) · $${montoNuevo.toLocaleString('en-US', { minimumFractionDigits: 2 })}: `
+            + nuevos.slice(0, 5).map((x) => `${x.sb} ${x.dia} $${x.monto}`).join(' · ')
+          : '');
+
+      // Una declaración que ya no describe nada es un comentario que envejeció sin avisar: si uno
+      // de los declarados DESAPARECE (porque alguien limpió el dato), esto se pone rojo para que
+      // se borre la entrada. El rojo acá es "actualizá la declaración", no "se rompió algo".
+      const idos = DIAS_AISLADOS_DECLARADOS.filter((x) => !vistos.has(clave(x)));
+      check('los días aislados declarados SIGUEN existiendo (la declaración no envejeció)',
+        idos.length === 0,
+        idos.length
+          ? `${idos.map((x) => `${x.sb} ${x.dia}`).join(', ')} ya no aparece(n): si se limpió el dato, `
+            + 'borrá esa(s) entrada(s) de DIAS_AISLADOS_DECLARADOS'
+          : '');
+
+      const totalDecl = DIAS_AISLADOS_DECLARADOS.reduce((s, x) => s + x.monto, 0);
+      console.log(`  ⓘ ${DIAS_AISLADOS_DECLARADOS.length} día(s) declarados por `
+        + `$${totalDecl.toLocaleString('en-US', { minimumFractionDigits: 2 })} que HOY se publican como venta. `
+        + 'Declarados ≠ corregidos: excluirlos mueve una cifra publicada y es decisión de negocio.');
     }
   }
 

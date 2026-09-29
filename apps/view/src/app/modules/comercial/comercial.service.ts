@@ -2495,7 +2495,7 @@ export interface SellOutReport {
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
   /** [VP.0.6] `measured: false` = este eje no se midió (no que no falte nada). Ver el backend. */
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  coverage: { branches_with_data: string[]; branches_missing: string[]; branches_out_of_scope?: string[]; note: string; measured: boolean };
   /**
    * [VP.0.3] Edad del DATO (las matviews que arman el reporte), no de la consulta. `generated_at`
    * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.

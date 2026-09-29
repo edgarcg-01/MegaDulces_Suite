@@ -6329,6 +6329,48 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   terminan con el rango, agosto sólo con el timeout subido.
   ⚠️ La etiqueta del runner prometía *"cero HUECO a los dos lados del corte"*: **mentía igual que el
   archivo**, y se corrigió. Se la llevó el commit `56ffd934` de otra sesión (índice compartido).
+- [x] **`[VSO.13]`** ✅ **Hasta qué año hay histórico — y las dos cosas que hacían que la respuesta
+  pareciera «2025».** Nace de una pregunta de Edgar mirando la pantalla de Hershey.
+  **Medido en prod:** el universo tiene las **8 plazas desde 2026-03** (entra Zamora; Yurécuaro
+  2026-02, 8 Esquinas 2026-01). **En 2025 son CINCO** — Padre Hidalgo, La Piedad, Canindo, Morelia
+  Madero y Morelia Abastos — **día a día completo** (28–31 días/mes, los 12 meses), pero cinco.
+  Antes de 2025-01 **no hay histórico**: 414 filas / **$290,018.98** con fechas centinela.
+  ⭐ **Lo peligroso es que la serie no tiene escalón.** 2025 va de $43.7M a $76.9M/mes y 2026 de
+  $48.2M a $55.2M: parece continua. Pero las tres plazas que entran valen **13.1%** del universo
+  (mar–sep 2026: $47.72M de $365.33M), así que **un año contra año compara 8 plazas contra 5 y esos
+  13 puntos se leen como crecimiento**. El primer YoY legítimo de las 8 es **marzo-2027 vs
+  marzo-2026**; hoy el honesto es restringido a las 5 plazas.
+  **(a) Días AISLADOS — bloque 5 del candado de paridad.** ⛔ **Mi primera firma quedó REFUTADA al
+  medirla**: busqué *«una fila por SKU»* y eso es la forma **normal** del día de una ruta (una
+  camioneta vende cada SKU una vez, con un vendedor) — matcheaba cientos de días buenos. Lo que
+  distingue a estos días no es su FORMA sino su **AISLAMIENTO**. Con el detector correcto (sin venta
+  a más de 30 días de los DOS lados) salen **11 días · $520,619.90** publicados como venta, y los
+  dos mayores concentran el **89.9%**: Canindo `2000-01-01` **$237,237.47** (fecha centinela de
+  Wincaja; la siguiente venta de esa rama es **7,606 días** después) y **8 Esquinas `2025-01-09`
+  $230,600.92** — 971 filas / 971 SKUs distintos, **su único día en 12 meses**. Es la firma idéntica
+  al residuo ya declarado de La Piedad, **10.5× más grande**, y a diferencia de aquél **éste SÍ se
+  publica**, porque el corte de 8 Esquinas es `-infinity` y no lo excluye nada. Los 11 quedan
+  DECLARADOS con rama, día, monto y razón; uno nuevo pone el candado en rojo, y si uno declarado
+  desaparece también (para que se borre la entrada). ⛔ **Declarado ≠ corregido**: excluirlos mueve
+  una cifra publicada en $520,619.90 y **es decisión de negocio, no de un test**.
+  **(b) Piso de cobertura en pantalla.** `retailRows` son los almacenes **con venta en el periodo**,
+  así que una plaza que aún no existía no aparecía en NINGÚN lado — ni en `branches_with_data` ni en
+  `branches_missing`. La pantalla decía «19 sucursales» y callaba que otras tres no estaban.
+  `coverage` estrena `branches_out_of_scope`, derivado del resolvedor, y la nota separa **dos
+  ausencias que no son la misma**: *sin venta de esta empresa* (la sucursal operaba) vs *fuera de
+  cobertura* (no estaba en el universo — **no es cero, es inexistente**).
+  ⚠️ **Dos trampas en el camino:** el piso calculado «desde la primera fila» daba `03 → 2025-01` y
+  `01 → 2020-07`, **que son justo los artefactos de (a)** — un piso sobre cualquier fila hereda la
+  mentira; el criterio de **operación continua** los excluye solo (`03 → 2026-01`). Y hay que usar
+  **`kepler_code`, no `warehouse_code`**: `[IC.CEDIS]` midió el mismo día que `warehouse_code`
+  resuelve **2 de 8**. Verificado contra prod: ago-2026 → ninguna fuera; ago-2025 → 8ESQ, Yurécuaro,
+  Zamora; ene-2026 → Yurécuaro, Zamora.
+  **Candado: 11 OK · 0 fallas · 2 NO MEDIDOS en 2m37s** (el bloque 5 cuesta +6 s).
+  ⬜ **Queda abierto y es decisión de Edgar:** excluir o no los $520,619.90; la línea de procedencia
+  del reporte sigue siendo un **literal** que dice que Canindo es Kepler (mal por $90,496.33 = 8.4%
+  en la captura de Hershey de ago-2026) y que ya es falsa para cualquier periodo de septiembre; y el
+  KPI «PRODUCTOS · Con venta en el periodo» cuenta **renglones del catálogo**, no venta (127 contra
+  **70** con venta; 58 filas sin un peso).
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)
