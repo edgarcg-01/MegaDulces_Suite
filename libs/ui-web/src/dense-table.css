@@ -205,10 +205,14 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Una fila vacía o de mensaje no se disfraza de registro. */
+  /* Una fila vacía o de mensaje no se disfraza de registro: sin rótulo y sin el reparto
+     rótulo-izquierda/valor-derecha, que sobre un texto suelto queda absurdo.
+     ⛔ Acá había un `text-align: center` y se QUITÓ antes de que hiciera daño: un td con colspan
+     no es sólo el mensaje de "sin datos" — también es la FILA EXPANDIDA de una tabla con
+     detalle adentro (compras-pedido-real mete dos tablas anidadas ahí). Centrar esa celda
+     centraba un layout entero. El mensaje vacío ya se centra solo con su propia clase. */
   .dt-stack tbody > tr > td[colspan] {
     display: block;
-    text-align: center;
   }
 
   .dt-stack tbody > tr > td[colspan]::before {

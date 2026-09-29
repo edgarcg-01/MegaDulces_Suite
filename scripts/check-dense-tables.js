@@ -47,8 +47,28 @@ const UMBRAL_REM = 48;
  * arreglaron) la compuerta lo dice y hay que sacarlo. Una lista de excepciones que no avisa
  * cuando sobra es una lista que crece para siempre.
  */
-const DEUDA = new Set([
-  'apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts',
+/**
+ * ⛔ LIMITE CONOCIDO DE ESTA COMPUERTA, y el que la obligo a existir con motivo:
+ * analiza por ARCHIVO, y la unidad real es la TABLA. Un archivo con dos tablas anchas donde se
+ * arreglo UNA pasa entero, porque basta con que aparezca un dt-stack en el texto. Se detecto en
+ * vivo: al apilar la tabla de inventario muerto de compras-pedido-real, la compuerta declaro
+ * saldada la rejilla de pedido, que sigue sin apilarse.
+ *
+ * Mirar por tabla exigiria amarrar cada min-width con el elemento que lo lleva, y en esa misma
+ * pantalla el ancho NI SIQUIERA esta en el template: es `readonly tableStyle = {...}` en la clase.
+ * En vez de fingir precision, la entrada `parcial` lo DICE: no se poda sola y se imprime como lo
+ * que es, media pantalla.
+ */
+const DEUDA = new Map([
+  ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts', {
+    parcial: true,
+    motivo:
+      'La rejilla de PEDIDO (78rem) son 15 columnas de captura con teclado estilo Excel y dos ' +
+      'tablas anidadas en la fila expandida. Apilar es TECNICAMENTE correcto (son campos de un ' +
+      'producto) pero da 15 renglones por SKU, y varios son secundarios para quien pide desde un ' +
+      'telefono. Cual de los 15 se queda NO es decision de CSS: la toma quien usa la pantalla. ' +
+      'La otra tabla del archivo (inventario muerto, 60rem) YA quedo apilada.',
+  }],
 ]);
 
 const RE_MINWIDTH = /'min-width'\s*:\s*'([0-9.]+)rem'/g;
@@ -147,17 +167,21 @@ for (const f of archivos) {
   if (r) {
     conAncho++;
     vistos.add(rel);
-    if (DEUDA.has(rel)) enDeuda.push({ rel, ...r });
+    if (DEUDA.has(rel)) enDeuda.push({ rel, ...DEUDA.get(rel), ...r });
     else malos.push({ rel, ...r });
   } else if (/'min-width'\s*:\s*'[0-9.]+rem'/.test(src)) {
     conAncho++;
     vistos.add(rel);
+    // Media pantalla arreglada NO es una pantalla arreglada: analizar() ya no la ve, pero su
+    // entrada `parcial` sigue mandando. Se cuenta y se imprime igual.
+    const d = DEUDA.get(rel);
+    if (d && d.parcial) enDeuda.push({ rel, ...d, anchos: [], parcialLabel: ' — PARCIAL' });
   }
 }
 
 // La lista de deuda se cae sola cuando sobra: un archivo que ya se arregló (o que se renombró)
 // tiene que SALIR de la lista, y eso sólo pasa si la compuerta lo reclama.
-const sobrantes = [...DEUDA].filter((d) => !vistos.has(d) || !enDeuda.some((e) => e.rel === d));
+const sobrantes = [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d));
 if (sobrantes.length) {
   console.error('\n❌ Estos archivos están en la lista de deuda y ya no la necesitan:');
   for (const s of sobrantes) console.error(`   · ${s}`);
@@ -185,7 +209,15 @@ if (malos.length) {
 
 const deudaTxt = enDeuda.length
   ? `\n⚠️  ${enDeuda.length} pantalla(s) en DEUDA DECLARADA — anchas y sin salida en estrecho, con nombre y fecha:\n` +
-    enDeuda.map((d) => `     · ${d.rel} (${d.anchos.map((n) => n + 'rem').join(', ')})`).join('\n') +
+    enDeuda
+      .map((d) => {
+        const anchos = d.anchos.length ? ` (${d.anchos.map((n) => n + 'rem').join(', ')})` : '';
+        // El motivo se IMPRIME. Una lista de excepciones sin el porqué es una lista que nadie
+        // puede evaluar: el que la lee seis meses después no sabe si sigue valiendo.
+        const motivo = d.motivo ? `\n       ${d.motivo}` : '';
+        return `     · ${d.rel}${anchos}${d.parcialLabel || ''}${motivo}`;
+      })
+      .join('\n') +
     '\n   No son un aprobado: son el trabajo que falta. Tracker: [UIM.2].'
   : '';
 
