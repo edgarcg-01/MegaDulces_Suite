@@ -9,6 +9,29 @@
 ---
 
 ## [Unreleased]
+### Added — la sexta copia del mapeo de sucursal: medirla salió más barato que arreglarla (VSO.15, 2026-09-28)
+⛔ **Primero, un error mío corregido**: dije que el mapeo clavado vivía en `mv_kepler_sales_daily`.
+Es **`mv_wincaja_sales_daily`**; la Kepler está limpia.
+
+**El repo ya tenía el idiom**: `COALESCE(pb.kepler_code, pb.warehouse_code)` está en **8 lugares**
+entre `commercial-analytics.service.ts` y `route-promo.service.ts`. `mv_wincaja_sales_daily` es la
+**única** que no lo usa — trae un `CASE` a mano de tres ramas.
+
+⛔ **Y no se alineó, con motivo medido: hoy el `CASE` acierta.** Las 5 ramas no-ruta con datos
+(`10 30 32 42 50`) producen exactamente lo que el resolvedor manda y ningún destino falta en
+`commercial.warehouses`. Cambiarlo obliga a `DROP … CASCADE` de **1,328 MB** de matvista +
+`mv_sales_blended` + el rollup de **412 MB** (no existe `CREATE OR REPLACE MATERIALIZED VIEW`).
+**Reconstruir 1.3 GB para no mover un solo número es el trade equivocado.**
+
+- **Added** — bloque 5 de `test-newdb-branch-cutover.js`: mide el mapeo **sobre el artefacto** (lo
+  que la matvista produjo, no su SQL) y que el destino de **toda** rama exista como almacén, tenga o
+  no venta hoy. El riesgo tiene fecha: **el CEDIS migra el 30-sep** y el `CASE` no lo conoce; si su
+  código no existe como almacén, el `JOIN` **tira las filas en silencio**. **Con prueba negativa**
+  (destino adulterado `||'X'`), porque los dos checks dan cero hoy y cero es lo que devolvería un
+  detector roto. **24 OK · 0 fallas · 0 NO MEDIDOS.**
+- ⬜ El rebuild queda **agendado y de baja prioridad**, con costo medido y beneficio de hoy
+  declarado: **cero números movidos**.
+
 ### Fixed — «investígalo y conclúyelo tú»: mi propia propuesta borraba venta real (VSO.14, 2026-09-28)
 Edgar delegó las tres decisiones abiertas de VSO.13. La primera se concluyó **al revés** de como yo
 la había planteado.
@@ -40,8 +63,9 @@ la fecha mueve **meses cerrados** y no existe `analytics.period_close` (VP.4).
   sell-out «no publicaba» en oct–dic 2025 **existen también en la réplica `02`** (32,274 verificados
   uno a uno) y ya se publican bajo La Piedad — el filtro `c1 = sucursal` acierta, está ahí para no
   doble-contar copias entre réplicas.
-- ⚠️ **Hallazgo no corregido**: `mv_kepler_sales_daily` trae **otro mapeo de sucursal clavado**
-  (`'10'→'01'`, `'42'→'02'`, `'50'→'06'`) — sexta copia de lo que el resolvedor ya posee.
+- ⚠️ **Hallazgo no corregido** (corregido de nombre en VSO.15: es **`mv_wincaja_sales_daily`**, no
+  la Kepler, que está limpia): trae **otro mapeo de sucursal clavado** (`'10'→'01'`, `'42'→'02'`,
+  `'50'→'06'`) — sexta copia de lo que el resolvedor ya posee.
 
 ### Added — hasta qué año hay histórico del Sell-Out, y por qué parecía ser 2025 (VSO.13, 2026-09-28)
 Pregunta de Edgar mirando el reporte de Hershey. **Medido en prod:** el universo tiene las **8

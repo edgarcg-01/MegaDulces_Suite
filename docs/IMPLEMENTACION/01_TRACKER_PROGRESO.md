@@ -6392,8 +6392,9 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   `btrim(h.c1) = btrim(h.sucursal)` existe para no doble-contar las copias entre réplicas, y esos
   documentos llevan `c1='02'`: **los 32,274 existen TAMBIÉN en la réplica `02`**, así que ya se
   publican bajo La Piedad, que es lo que dice su encabezado. El filtro acierta.
-  · ⛔ Hallazgo de paso **no corregido**: `mv_kepler_sales_daily` trae **otro mapeo de sucursal
-  clavado** (`'10'→'01'`, `'42'→'02'`, `'50'→'06'`) — **sexta copia** de lo que el resolvedor posee.
+  · ⛔ **Corrección a mí mismo** (ver `[VSO.15]`): escribí que el mapeo clavado estaba en
+  `mv_kepler_sales_daily`. **Es `mv_wincaja_sales_daily`** — la Kepler está limpia. Mandar al
+  siguiente a la vista equivocada es peor que no decir nada.
   **✅ La línea de procedencia ahora se DERIVA del periodo.**
   Era una constante idéntica para toda marca y todo periodo, **y se contradecía con su propio
   reporte**: decía que Canindo era Kepler, y en la captura de Hershey de ago-2026 Canindo aportó
@@ -6410,6 +6411,32 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   **Verificación: candado 11 OK · 0 fallas · 2 NO MEDIDOS · `api:typecheck` limpio · `build view` OK
   · eslint 0 errores en los 3 archivos** (los 2 que aparecen son ternarias-como-sentencia
   preexistentes en las líneas 1408/1417, que este cambio no tocó).
+- [x] **`[VSO.15]`** ✅ **La sexta copia: medirla salió más barato que arreglarla — y la medición
+  dijo que no había nada que arreglar.**
+  ⛔ **Primero, un error mío:** dije que el mapeo clavado vivía en `mv_kepler_sales_daily`. **Es
+  `mv_wincaja_sales_daily`**; la Kepler está limpia. Mandar al siguiente a la vista equivocada es
+  peor que no haberlo dicho.
+  **Lo que el repo ya sabía:** `COALESCE(pb.kepler_code, pb.warehouse_code)` es el idiom
+  establecido — está en **8 lugares** entre `commercial-analytics.service.ts` y
+  `route-promo.service.ts`. `mv_wincaja_sales_daily` es **la única que no lo usa**: trae un `CASE`
+  a mano con tres ramas. No había que inventar nada, había que alinearla.
+  ⛔ **Y no se alineó, con motivo medido: hoy el `CASE` ACIERTA.** Las 5 ramas no-ruta con datos
+  (`10 30 32 42 50`) producen **exactamente** lo que el resolvedor manda, y **ningún destino falta**
+  en `commercial.warehouses`. Cambiarlo obliga a reconstruir **1,328 MB** de matvista + `mv_sales_
+  blended` + el rollup de **412 MB** — y `CREATE OR REPLACE` no existe para matvistas, así que es
+  `DROP … CASCADE`. **Reconstruir 1.3 GB para no mover un solo número es el trade equivocado**;
+  yo mismo había presentado esto como «hallazgo» sin medirle el impacto.
+  ⭐ **Lo que faltaba no era el arreglo, era la MEDICIÓN.** El riesgo es futuro y **tiene fecha**:
+  cuando aparezca una rama Wincaja nueva —el **CEDIS migra el 30-sep**— el `CASE` no la conoce y su
+  destino sale de `wincaja.branches`; si ese código no existe como almacén, el `JOIN` a
+  `commercial.warehouses` **tira las filas en silencio**. `test-newdb-branch-cutover.js` estrena el
+  bloque 5: mide el mapeo **sobre el ARTEFACTO** (lo que la matvista produjo, no su SQL) + que el
+  destino de **toda** rama exista como almacén, tenga o no venta hoy — *porque el día que la tenga
+  ya es tarde*. **Con prueba negativa**: los dos checks dan CERO hoy, y cero es lo que devolvería un
+  detector roto, así que se corren otra vez contra un destino adulterado (`||'X'`) y se exige que
+  encuentren a las ramas. **24 OK · 0 fallas · 0 NO MEDIDOS.**
+  ⬜ El rebuild queda como operación **agendada y de baja prioridad**, con su costo medido y su
+  beneficio de hoy declarado: **cero números movidos**.
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)
