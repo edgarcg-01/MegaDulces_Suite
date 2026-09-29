@@ -39,7 +39,26 @@ const STEP_TIMEOUT_MIN = Number(process.env.FEED_STEP_TIMEOUT_MIN) || 10;
 // correcciones viejas. Le damos presupuesto propio SIN tocar su lógica ni recortar la ventana
 // 120d. El pase intradía (ventana corta) hereda el override pero termina mucho antes → inocuo.
 // Nota: la versión kepler_ods single-DB (mata el fan-out per-branch) es el fix de fondo pendiente.
-const STEP_TIMEOUT_OVERRIDE_MIN = { 'import-stock-movements.js': 30 };
+//
+// ⚠️ `[AUD-DAT.14]` 30 → 45 min. **El presupuesto se había vuelto más chico que el trabajo.**
+// Medido en `analytics.cron_run_log`, últimas 6 noches del paso 120d:
+//
+//     22-sep 1,087 s · 24-sep 1,637 s · 25-sep 1,782 s · 26-sep 1,669 s
+//     27-sep 1,800 s → TIMEOUT (exit 124)   ·   28-sep 1,703 s
+//
+// O sea que corría al **95 % de su techo** y el 27 lo cruzó. No es un paso flaky: es uno que
+// creció hasta el borde, y con 5 % de margen cualquier noche cargada lo mata. Subir el techo NO
+// arregla el crecimiento — sólo deja de convertirlo en una falla nocturna mientras se decide
+// qué hacer con la ventana, que es **alcance de negocio y no una optimización** (recortarla deja
+// de atrapar correcciones viejas, que es justo para lo que existe el pase 120d).
+//
+// ⛔ **Lo que hace falta decidir, con su medición** (`pg_stat_statements`, ventana de 4 d 4 h):
+// el `INSERT INTO stg_mov` de este importer lleva **100 llamadas · 291 s de promedio ·
+// 29,122 s totales** = ~2 h de tiempo de base **por día**. Las 25 llamadas diarias son 24 del
+// carril intradía (ventana 15 d) + 1 del nocturno (120 d), así que **el intradía cuesta ~1.8 h/día
+// y el nocturno 28 min**: el grueso del gasto NO está donde se lo buscaba. Con eso sobre la mesa
+// se puede elegir entre bajar la cadencia intradía, recortar su ventana, o atacar la consulta.
+const STEP_TIMEOUT_OVERRIDE_MIN = { 'import-stock-movements.js': 45 };
 const timeoutMinFor = (script) => Math.max(STEP_TIMEOUT_MIN, STEP_TIMEOUT_OVERRIDE_MIN[path.basename(script)] || 0);
 // Techo real de duración de un paso (para el sweep de huérfanos): nunca barrer un paso que
 // legítimamente puede correr hasta su override (si no, un intraday concurrente mataría el
