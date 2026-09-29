@@ -74,6 +74,19 @@ const WINDOWS: Record<MarginWindow, { days: number }> = {
   '365d': { days: 365 },
 };
 
+/**
+ * [MR.8.5b] Las ventanas que `analytics.mv_profitability_sales_agg` tiene **materializadas**.
+ *
+ * ⛔ Espejo EXPLÍCITO de la lista de la migración `20260929140000`, y a propósito **no** se
+ * deriva de `WINDOWS`. Derivarlo invertiría el modo de falla: agregar una ventana a `WINDOWS`
+ * sin materializarla haría que `salesAgg` consultara el rollup por un `window_days` que no
+ * existe y devolviera **cero filas** — una pantalla en blanco que se lee como "no hubo venta".
+ *
+ * Así como está, una ventana nueva simplemente no entra a este `Set`, `salesAgg` lee el fact en
+ * vivo y la pantalla sale **lenta pero correcta**. Es la dirección en la que se quiere fallar.
+ */
+const ROLLUP_WINDOWS = new Set<number>([30, 90, 365]);
+
 export type MarginBand = 'negativo' | 'critico' | 'bajo' | 'meta' | 'alto';
 
 /**
@@ -191,20 +204,48 @@ export class CommercialProfitabilityService {
     const w: string[] = [];
     if (o.warehouseId) w.push(`AND sd.warehouse_id = '${o.warehouseId}'`);
     if (o.channel) w.push(`AND sd.channel = '${o.channel}'`);
+
+    /**
+     * [MR.8.5b] **De dónde se lee el fact: del rollup si la ventana está materializada.**
+     *
+     * Agregar el fact en vivo cuesta 223 ms a 30 d y **2,044 ms a 365 d** (2,808,558 filas), y
+     * el gate del proyecto es 1 s. `analytics.mv_profitability_sales_agg` guarda exactamente
+     * estas cinco sumas al grano `(producto × almacén × canal × unit_kind)` por ventana.
+     *
+     * ⭐ **No es un resumen ni un segundo linaje:** los cinco agregados son aditivos (`SUM` de
+     * `SUM` es `SUM`, y los `FILTER` también), y `unit_kind` está EN el grano, así que
+     * re-agregarlo acá devuelve **el mismo número al centavo** que agregar el fact. La migración
+     * lo comprueba ventana por ventana y revienta si difiere más de un centavo.
+     *
+     * Si la ventana NO está materializada, se lee el fact en vivo: **degrada a lento, nunca a
+     * incorrecto**. Es el mismo motivo por el que las ventanas viven en los dos lados sin un
+     * mecanismo que las ate — el modo de falla de esa duplicación es benigno y está elegido.
+     */
+    const rollup = ROLLUP_WINDOWS.has(days);
+    const fuente = rollup
+      ? `analytics.mv_profitability_sales_agg sd`
+      : `${SALES_FACT} sd`;
+    const ventana = rollup
+      ? `AND sd.window_days = ${days}`
+      : `AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'`;
     return trx.raw(`(
       SELECT ${g} sd.product_id,
              SUM(sd.revenue)                                    AS revenue,
-             SUM(sd.revenue) FILTER (WHERE sd.cost IS NOT NULL) AS revenue_costed,
+             ${rollup
+               ? 'SUM(sd.revenue_costed)                             AS revenue_costed'
+               : 'SUM(sd.revenue) FILTER (WHERE sd.cost IS NOT NULL) AS revenue_costed'},
              SUM(sd.cost)                                       AS cost,
              SUM(sd.units)                                      AS units,
-             SUM(sd.units)   FILTER (WHERE sd.cost IS NOT NULL) AS units_costed,
+             ${rollup
+               ? 'SUM(sd.units_costed)                               AS units_costed'
+               : 'SUM(sd.units)   FILTER (WHERE sd.cost IS NOT NULL) AS units_costed'},
              -- 'piece' | 'weight': lo que permite rotular "por unidad" vs "por kilo"
              -- sin inventar la unidad. catalog.products.unit_sale miente en 5,906
              -- de 8,708 productos, así que NO se usa para esto.
              MAX(sd.unit_kind)                                  AS unit_kind
-        FROM ${SALES_FACT} sd
+        FROM ${fuente}
        WHERE sd.tenant_id = public.current_tenant_id()
-         AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'
+         ${ventana}
          ${w.join('\n         ')}
        GROUP BY ${g} sd.product_id
     ) AS s`);
