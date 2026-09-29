@@ -31,7 +31,7 @@ const ROUTES = [
   ['Ruta Vecinal Padre Hidalgo 1', '01', '1V001', 'LA PIEDAD VECINAL'],
   ['Ruta Vecinal Padre Hidalgo 2', '01', '1V002', 'LA PIEDAD VECINAL'],
   ['Ruta Vecinal La Piedad Abastos', '02', '1V003', 'LA PIEDAD VECINAL'],
-  ['Ruta Vecinal Yurécuaro', '04', '1V004', 'YURECUARO'],
+  ['Ruta Vecinal Yurécuaro', '04', '1V004', 'LA PIEDAD VECINAL'], // opera la suc 04, pero reporta a la zona La Piedad Vecinal
 ];
 
 exports.up = async function up(knex) {

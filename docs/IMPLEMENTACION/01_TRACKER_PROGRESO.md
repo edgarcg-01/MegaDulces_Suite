@@ -6202,8 +6202,9 @@ fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra cap
 - ⬜ **Pendiente de datos DESPUÉS de la mig `20260928210200`:** agenda (`daily_assignments`) de los 4 —
   hoy **0 filas**, y sin agenda "Mi ruta" sale vacía y el supervisor no ve opciones en `/vendor/route-pick`
   (las opciones salen de la agenda del equipo). No se puede capturar antes: las rutas nacen con la mig.
-- ⚠️ La zona `YURECUARO` **no existe** en prod (`LA PIEDAD VECINAL` sí): la ruta de Yurécuaro nace sin
-  zona (la mig lo declara en el log). Las 3 rutas vecinales que ya existen son de Morelia, no chocan.
+- ✅ Zona: las 4 rutas cuelgan de `LA PIEDAD VECINAL` (existe en prod). Yurécuaro la opera la suc 04
+  pero **reporta a La Piedad Vecinal** (decisión de negocio 2026-09-29) — la mig pedía una zona
+  `YURECUARO` que no existe. Las 3 rutas vecinales que ya existen son de Morelia, no chocan.
 
 ---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
