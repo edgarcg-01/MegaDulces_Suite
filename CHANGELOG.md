@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Fixed — entraron los $1,536,831.24, y la declaración con vencimiento se apagó sola (VSO.16, 2026-09-29)
+El refresh nocturno corrió **12:28:40Z** y los dos meses cuadran **al centavo** contra la vista viva:
+PH `2026-06` **$9,267,116.58 == $9,267,116.58** · La Piedad `2025-10` **$2,508,791.79 ==
+$2,508,791.79**. Los tres cortes de VSO.3 ya viven en el rollup que lee la pantalla.
+
+⭐ **Lo que vale más que el dinero:** el candado pasó de `11 OK · 2 NO MEDIDOS` a **`12 OK · 1 NO
+MEDIDO` sin que nadie lo tocara**. La entrada se declaró con vencimiento `14:00Z` —después del
+refresh siguiente— y se verificó a las **14:11Z**, ya vencida: si el desfase hubiera sobrevivido, el
+bloque estaría **rojo**. Una declaración que se apaga sola o grita sola, comprobada en las dos
+direcciones.
+
+- **Removed** — la entrada declarada (ya no describe nada); el **mecanismo se conserva** para el
+  próximo desfase, con la historia escrita al lado.
+
 ### Added — la sexta copia del mapeo de sucursal: medirla salió más barato que arreglarla (VSO.15, 2026-09-28)
 ⛔ **Primero, un error mío corregido**: dije que el mapeo clavado vivía en `mv_kepler_sales_daily`.
 Es **`mv_wincaja_sales_daily`**; la Kepler está limpia.

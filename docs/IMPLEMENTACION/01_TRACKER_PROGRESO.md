@@ -6437,6 +6437,20 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   encuentren a las ramas. **24 OK · 0 fallas · 0 NO MEDIDOS.**
   ⬜ El rebuild queda como operación **agendada y de baja prioridad**, con su costo medido y su
   beneficio de hoy declarado: **cero números movidos**.
+- [x] **`[VSO.16]`** ✅ **Los $1,536,831.24 entraron — y la declaración con vencimiento se apagó
+  sola, que era lo que había que probar.** (2026-09-29)
+  El refresh nocturno corrió a las **12:28:40Z** (06:28 MX) y los dos meses cuadran **al centavo**
+  contra la vista viva: PH `2026-06` **$9,267,116.58 == $9,267,116.58** y La Piedad `2025-10`
+  **$2,508,791.79 == $2,508,791.79**. Los tres cortes de `[VSO.3]` ya viven en el rollup que lee la
+  pantalla (PH 27-30 jun **$916,629.73** · Piedad 1-9 oct **$634,958.50** · Abastos 18 sep
+  **$416,953.32**).
+  ⭐ **Lo que vale más que el dinero:** el candado pasó de `11 OK · 2 NO MEDIDOS` a
+  **`12 OK · 1 NO MEDIDO` sin que nadie lo tocara**. La entrada `2026-06` se declaró con vencimiento
+  `2026-09-29T14:00Z` —**después** del refresh siguiente— y se verificó a las **14:11Z**, o sea ya
+  vencida: si el desfase hubiera sobrevivido, el bloque estaría **ROJO** en vez de verde. **Una
+  declaración que se apaga sola o grita sola, comprobada en las dos direcciones.**
+  La entrada se **retira** (ya no describe nada) y el **mecanismo se queda** para el próximo
+  desfase. `DESFASES_DECLARADOS` queda vacío a propósito, con la historia escrita al lado.
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)

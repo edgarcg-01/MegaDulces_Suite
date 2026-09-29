@@ -133,15 +133,19 @@ const DIAS_AISLADOS_DECLARADOS = [
 ];
 
 const DESFASES_DECLARADOS = [
-  {
-    mes: '2026-06', monto: 916629.73,
-    // El refresh nocturno `analytics_refresh_sellout_monthly` corre ~06:28 MX (12:28 UTC).
-    vence: '2026-09-29T14:00:00Z',
-    razon: '[VSO.3] movió el corte de Padre Hidalgo de 2026-07-01 a 2026-06-27 (mig 558, aplicada '
-      + 'el 2026-09-28 a las 13:42 MX). El refresh del rollup de ESE día ya había corrido a las '
-      + '06:28, o sea ANTES: la vista publica los 4 días recuperados y el rollup todavía no. '
-      + 'Mismo monto medido a mano, vista contra rollup, el 2026-09-28.',
-  },
+  // ✅ VACÍO A PROPÓSITO — y esta lista ya demostró que funciona.
+  //
+  // Tuvo una entrada: `2026-06` por **$916,629.73**, el hueco de Padre Hidalgo que [VSO.3] recuperó
+  // el 2026-09-28 a las 13:42 MX, cuando el refresh del rollup de ese día ya había corrido (06:28).
+  // Se declaró con vencimiento `2026-09-29T14:00Z`, o sea DESPUÉS del refresh siguiente.
+  //
+  // Qué pasó, medido: el refresh corrió el 2026-09-29 a las 12:28:40Z y el mes quedó en **Δ 0.00**.
+  // El candado pasó de `11 OK · 2 NO MEDIDOS` a `12 OK · 1 NO MEDIDO` **sin que nadie lo tocara**:
+  // la declaración se apagó sola. Si el desfase hubiera sobrevivido a las 14:00Z, el mismo bloque
+  // estaría ROJO — porque pasada esa hora la entrada queda inerte y el chequeo normal manda.
+  //
+  // Se retira la entrada en vez de dejarla: una declaración que ya no describe nada es un
+  // comentario que envejece sin avisar. El MECANISMO se queda para el próximo desfase.
 ];
 
 let ok = 0; let fail = 0; let nm = 0;
