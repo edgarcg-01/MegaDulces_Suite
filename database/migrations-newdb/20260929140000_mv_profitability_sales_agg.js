@@ -122,7 +122,7 @@ exports.up = async function up(knex) {
                         COALESCE(SUM(revenue) FILTER (WHERE cost IS NOT NULL),0) revc,
                         COALESCE(SUM(cost),0) cost
                    FROM analytics.mv_sales_blended
-                  WHERE sale_date >= CURRENT_DATE - ?) f`,
+                  WHERE sale_date >= CURRENT_DATE - ?::int) f`,
         [d, d],
       )
     ).rows;
