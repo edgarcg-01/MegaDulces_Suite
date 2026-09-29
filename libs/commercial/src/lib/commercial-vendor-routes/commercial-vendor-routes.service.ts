@@ -5,10 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import type { Knex } from 'knex';
+import type { DayPickCleared, DayPickChoice, DayPickOption, DayPickState } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { isPlatformAdminRole } from '@megadulces/platform-core';
-import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
+import { vendorTodayRouteExistsSql, vendorTodayRouteIdsSql } from '../shared/vendor-cartera.sql';
+import { syncErpCarteraForToday, syncErpCarteraForRoutes, isErpGovernedRoute } from '../shared/vendor-cartera-erp';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
@@ -71,6 +74,16 @@ const STORE_HAVERSINE_SQL = `6371000 * 2 * asin(sqrt(
   cos(radians(?)) * cos(radians(latitud)) *
   power(sin(radians((longitud - ?) / 2)), 2)
 ))`;
+
+/** [VR.SUP.1] Acumulador por ruta al armar las opciones del día (interno al servicio). */
+interface DayPickAccumulator {
+  route_id: string;
+  route: string;
+  zone: string | null;
+  today: boolean;
+  days: Set<number>;
+  vendors: Map<string, { username: string; today: boolean }>;
+}
 
 export interface AssignRouteDto {
   user_id: string;
@@ -209,7 +222,23 @@ export class CommercialVendorRoutesService {
       // `users.route_id`. Así una asignación desde el panel maneja también el stock, sin
       // tener que setear route_id aparte (era la causa de "veo otra sucursal").
       let routeId: string | null = user?.route_id || null;
+      // [VR.SUP.1] La ruta que el supervisor escogió para hoy manda: surte de la
+      // sucursal de ESA ruta.
+      let picked = false;
+      // Sin try/catch a propósito: dentro de la trx un error la aborta (25P02) y el
+      // catch no salvaría las queries siguientes. La migración va antes que el código.
       if (me) {
+        const pick = await trx('commercial.vendor_route_day_picks')
+          .where({ user_id: me })
+          .whereNull('deleted_at')
+          .whereRaw(`work_date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+          .first('route_id');
+        if (pick?.route_id) {
+          routeId = pick.route_id;
+          picked = true;
+        }
+      }
+      if (me && !picked) {
         try {
           const da = await trx('public.daily_assignments')
             .where({ user_id: me })
@@ -491,24 +520,201 @@ export class CommercialVendorRoutesService {
     });
   }
 
-  /** Rutas de venta del vendedor para HOY (derivadas de trade — daily_assignments). */
+  /**
+   * Rutas de venta del vendedor para HOY: la escogida por el supervisor [VR.SUP.1] o,
+   * si no escogió, su agenda de trade (daily_assignments).
+   */
   async myRoutes(): Promise<string[]> {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) return [];
     return this.tk.run(async (trx) => {
-      const rows = await trx('public.daily_assignments as da')
-        .join('public.catalogs as cat', function () {
-          this.on('cat.id', '=', 'da.route_id')
-            .andOnVal('cat.catalog_id', '=', 'rutas')
-            .andOnNull('cat.deleted_at');
-        })
-        .where('da.user_id', userId)
-        .whereRaw(
-          `da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int`,
-        )
+      const rows = await trx('public.catalogs as cat')
+        .where('cat.catalog_id', 'rutas')
+        .whereNull('cat.deleted_at')
+        .whereRaw(`cat.id IN (${vendorTodayRouteIdsSql()})`, [userId])
         .distinct('cat.value as sales_route')
         .orderBy('sales_route');
       return rows.map((r: any) => r.sales_route);
+    });
+  }
+
+  // ─── [VR.SUP.1] Ruta del día escogida por el supervisor de ventas ───
+
+  /**
+   * Estado de "¿qué ruta vas a trabajar hoy?" para el usuario logueado.
+   *  - `can_pick`: tiene equipo a su cargo (`users.supervisor_id = él`) o es god-mode.
+   *    El supervisor se reconoce por tener gente a cargo — el mismo criterio con el que
+   *    `listVendors` ya acota su panel —, no por nombre de rol.
+   *  - `current`: la ruta que escogió HOY (null = trabaja su agenda normal).
+   *  - `agenda_today`: lo que su agenda semanal le pone hoy (lo que ve si no escoge).
+   *  - `options`: rutas de su equipo + las suyas, con quién la trabaja, qué días,
+   *    si toca hoy y cuántos clientes tiene. Ordenadas: primero las que tocan hoy.
+   */
+  async dayPickState(): Promise<DayPickState> {
+    const ctx = this.tenantCtx.get();
+    const me = ctx?.userId || null;
+    const empty: DayPickState = { can_pick: false, current: null, agenda_today: [], options: [] };
+    if (!me) return empty;
+    const seeAll = isPlatformAdminRole(ctx?.roleName);
+
+    return this.tk.run(async (trx) => {
+      const team = await trx('public.users')
+        .where({ supervisor_id: me, activo: true })
+        .select('id');
+      const canPick = seeAll || team.length > 0;
+
+      const [current, agenda] = await Promise.all([
+        trx('commercial.vendor_route_day_picks as p')
+          .join('public.catalogs as cat', 'cat.id', 'p.route_id')
+          .where('p.user_id', me)
+          .whereNull('p.deleted_at')
+          .whereRaw(`p.work_date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+          .first('p.route_id', 'cat.value as route', 'p.updated_at'),
+        trx('public.daily_assignments as da')
+          .join('public.catalogs as cat', function () {
+            this.on('cat.id', '=', 'da.route_id')
+              .andOnVal('cat.catalog_id', '=', 'rutas')
+              .andOnNull('cat.deleted_at');
+          })
+          .where('da.user_id', me)
+          .whereRaw(`da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int`)
+          .distinct('cat.value as route')
+          .orderBy('route'),
+      ]);
+
+      const options = canPick
+        ? await this.dayPickOptions(trx, me, team.map((t: { id: string }) => t.id), seeAll)
+        : [];
+
+      return {
+        can_pick: canPick,
+        current: current ? { route_id: current.route_id, route: current.route } : null,
+        agenda_today: agenda.map((a: { route: string }) => a.route),
+        options,
+      };
+    });
+  }
+
+  /** Rutas elegibles: las de la agenda del equipo + las del propio supervisor (god-mode: todas las agendadas). */
+  private async dayPickOptions(trx: Knex.Transaction, me: string, teamIds: string[], seeAll: boolean): Promise<DayPickOption[]> {
+    const userIds = [me, ...teamIds];
+    const rows = await trx('public.daily_assignments as da')
+      .join('public.catalogs as cat', function (this: Knex.JoinClause) {
+        this.on('cat.id', '=', 'da.route_id')
+          .andOnVal('cat.catalog_id', '=', 'rutas')
+          .andOnNull('cat.deleted_at');
+      })
+      .join('public.users as u', 'u.id', 'da.user_id')
+      .leftJoin('public.zones as z', 'z.id', 'cat.parent_id')
+      .modify((q: Knex.QueryBuilder) => {
+        if (!seeAll) q.whereIn('da.user_id', userIds);
+      })
+      .select(
+        'cat.id as route_id',
+        'cat.value as route',
+        'z.name as zone',
+        'u.id as user_id',
+        'u.username',
+        'da.day_of_week',
+        trx.raw(
+          `(da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int) AS is_today`,
+        ),
+      );
+    if (!rows.length) return [];
+
+    const byRoute = new Map<string, DayPickAccumulator>();
+    for (const r of rows) {
+      let o = byRoute.get(r.route_id);
+      if (!o) {
+        o = { route_id: r.route_id, route: r.route, zone: r.zone, today: false, days: new Set<number>(), vendors: new Map<string, { username: string; today: boolean }>() };
+        byRoute.set(r.route_id, o);
+      }
+      o.days.add(Number(r.day_of_week));
+      if (r.is_today) o.today = true;
+      const v = o.vendors.get(r.user_id) || { username: r.username, today: false };
+      if (r.is_today) v.today = true;
+      o.vendors.set(r.user_id, v);
+    }
+
+    // [VK.4.1] Las rutas Kepler del equipo se ponen al día ANTES de contar: si no, una ruta que
+    // nadie ha abierto hoy saldría con 0 clientes aunque en Kepler tenga 158.
+    await syncErpCarteraForRoutes(trx, [...byRoute.keys()]);
+
+    const counts = await trx('commercial.customers')
+      .whereNull('deleted_at')
+      .whereIn('sales_route', [...byRoute.values()].map((o) => o.route))
+      .groupBy('sales_route')
+      .select('sales_route', trx.raw('count(*)::int AS n'));
+    const countBy = new Map<string, number>(
+      counts.map((c: { sales_route: string; n: number }) => [c.sales_route, Number(c.n)]),
+    );
+
+    return [...byRoute.values()]
+      .map((o) => ({
+        route_id: o.route_id,
+        route: o.route,
+        zone: o.zone,
+        scheduled_today: o.today,
+        days: [...o.days].sort((a: number, b: number) => a - b),
+        // Quién la trabaja (y si le toca hoy). "Tú" = el propio supervisor.
+        vendors: [...o.vendors.entries()].map(([id, v]) => ({ username: v.username, today: v.today, is_me: id === me })),
+        customers: countBy.get(o.route) ?? 0,
+      }))
+      .sort((a, b) => Number(b.scheduled_today) - Number(a.scheduled_today) || a.route.localeCompare(b.route, 'es', { numeric: true }));
+  }
+
+  /** Escoge la ruta a trabajar HOY. Solo rutas de su equipo (o suyas). Cambiar = re-escoger. */
+  async setDayPick(routeId: string): Promise<DayPickChoice> {
+    if (!routeId || !UUID_REGEX.test(routeId)) throw new BadRequestException('route_id inválido');
+    const ctx = this.tenantCtx.get();
+    const me = ctx?.userId || null;
+    if (!me) throw new BadRequestException('Sin usuario en sesión');
+    const seeAll = isPlatformAdminRole(ctx?.roleName);
+
+    return this.tk.run(async (trx) => {
+      const team = await trx('public.users').where({ supervisor_id: me, activo: true }).select('id');
+      if (!seeAll && !team.length) {
+        throw new BadRequestException('Solo un supervisor con equipo a cargo puede escoger ruta');
+      }
+      const options = await this.dayPickOptions(trx, me, team.map((t: { id: string }) => t.id), seeAll);
+      const chosen = options.find((o) => o.route_id === routeId);
+      if (!chosen) throw new BadRequestException('Esa ruta no es de tu equipo');
+
+      const existing = await trx('commercial.vendor_route_day_picks')
+        .where({ user_id: me })
+        .whereNull('deleted_at')
+        .whereRaw(`work_date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+        .forUpdate()
+        .first('id');
+      if (existing) {
+        await trx('commercial.vendor_route_day_picks')
+          .where({ id: existing.id })
+          .update({ route_id: routeId, updated_at: trx.fn.now(), updated_by: me });
+      } else {
+        await trx('commercial.vendor_route_day_picks').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          user_id: me,
+          route_id: routeId,
+          work_date: trx.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date`),
+          created_by: me,
+          updated_by: me,
+        });
+      }
+      return { route_id: chosen.route_id, route: chosen.route };
+    });
+  }
+
+  /** Vuelve a su agenda normal de hoy (borra la elección del día). */
+  async clearDayPick(): Promise<DayPickCleared> {
+    const me = this.tenantCtx.get()?.userId || null;
+    if (!me) throw new BadRequestException('Sin usuario en sesión');
+    return this.tk.run(async (trx) => {
+      const n = await trx('commercial.vendor_route_day_picks')
+        .where({ user_id: me })
+        .whereNull('deleted_at')
+        .whereRaw(`work_date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+        .update({ deleted_at: trx.fn.now(), deleted_by: me, updated_at: trx.fn.now(), updated_by: me });
+      return { cleared: n > 0 };
     });
   }
 
@@ -520,8 +726,10 @@ export class CommercialVendorRoutesService {
   async myCoverageToday() {
     const me = this.tenantCtx.get()?.userId;
     if (!me) return [];
-    return this.tk.run(async (trx) =>
-      trx('commercial.customers as c')
+    return this.tk.run(async (trx) => {
+      // [VK.4] Rutas gobernadas por Kepler: su cartera se sincroniza desde la ficha antes de leer.
+      await syncErpCarteraForToday(trx, me);
+      return trx('commercial.customers as c')
         .whereNull('c.deleted_at')
         .whereRaw(vendorTodayRouteExistsSql('c'), [me])
         .select(
@@ -547,8 +755,8 @@ export class CommercialVendorRoutesService {
             [me],
           ),
         )
-        .orderByRaw('c.visit_sequence asc nulls last, c.name asc'),
-    );
+        .orderByRaw('c.visit_sequence asc nulls last, c.name asc');
+    });
   }
 
   /**
@@ -563,6 +771,8 @@ export class CommercialVendorRoutesService {
     const me = this.tenantCtx.get()?.userId;
     if (!me) return [];
     return this.tk.run(async (trx) => {
+      // [VK.4] Rutas gobernadas por Kepler: su cartera se sincroniza desde la ficha antes de leer.
+      await syncErpCarteraForToday(trx, me);
       const customers = await trx('commercial.customers as c')
         .whereNull('c.deleted_at')
         .whereRaw(vendorTodayRouteExistsSql('c'), [me])
@@ -574,6 +784,8 @@ export class CommercialVendorRoutesService {
           'c.sales_route',
           'c.phone',
           'c.whatsapp',
+          // [VK.4] De dónde sale el cliente: 'kepler' = su ficha la gobierna el ERP.
+          trx.raw(`CASE WHEN c.erp_customer_code IS NOT NULL THEN 'kepler' ELSE 'manual' END AS source`),
           trx.raw(
             `EXISTS (
                SELECT 1 FROM commercial.vendor_visits vv
@@ -959,6 +1171,23 @@ export class CommercialVendorRoutesService {
       // días en que el vendedor recorre esa ruta (daily_assignments de trade).
       let salesRoute = dto.sales_route?.trim().toUpperCase() || null;
       let visitDays: number[] = [];
+      // [VR.SUP.1] Si el supervisor escogió ruta hoy, el cliente nuevo es de ESA ruta,
+      // con los días en que la recorre su vendedor dueño (cualquiera en la agenda).
+      if (!salesRoute && me) {
+        const pick = await trx('commercial.vendor_route_day_picks as p')
+          .join('public.catalogs as cat', 'cat.id', 'p.route_id')
+          .where('p.user_id', me)
+          .whereNull('p.deleted_at')
+          .whereRaw(`p.work_date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+          .first('p.route_id', 'cat.value as ruta');
+        if (pick) {
+          salesRoute = pick.ruta;
+          const days = await trx('public.daily_assignments')
+            .where({ route_id: pick.route_id })
+            .distinct('day_of_week');
+          visitDays = days.map((d: { day_of_week: number }) => Number(d.day_of_week)).sort((x: number, y: number) => x - y);
+        }
+      }
       if (!salesRoute && me) {
         const asg = await trx('public.daily_assignments as da')
           .join('public.catalogs as cat', function () {
@@ -984,6 +1213,15 @@ export class CommercialVendorRoutesService {
           salesRoute = chosen;
           visitDays = [...(byRoute.get(chosen) || [])].sort((x, y) => x - y);
         }
+      }
+
+      // [VK.4] En una ruta gobernada por Kepler los clientes VIENEN de Kepler: un alta
+      // manual acá sería un cliente que Kepler no conoce (y que la próxima sincronización
+      // no podría gobernar). Se da de alta en Kepler y aparece solo al abrir la ruta.
+      if (salesRoute && (await isErpGovernedRoute(trx, salesRoute))) {
+        throw new BadRequestException(
+          'Los clientes de esta ruta vienen de Kepler: dalo de alta en Kepler y aparecerá solo en tu ruta.',
+        );
       }
 
       // Price list default del tenant → el cliente queda pedible al instante.

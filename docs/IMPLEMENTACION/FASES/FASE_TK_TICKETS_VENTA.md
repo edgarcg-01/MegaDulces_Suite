@@ -297,3 +297,112 @@ candidatos.
 **No se ejerció en navegador.** `localhost:4200` y la API `:3334` estaban arriba, pero el perfil de
 Chrome no tiene sesión y rebota a `/login`. La evidencia es el componente real montado con el
 payload medido de prod, con control — no una sesión con clic humano.
+
+---
+
+## 8. TK.d — El descuento se llama por su nombre, y el reporte lo publicaba en $0 (2026-09-28)
+
+Disparado por una revisión que pedía nombrar el descuento negociado del cliente en los papeles.
+Se verificaron sus afirmaciones contra el código: **todas ciertas**. Y al medir el alcance
+aparecieron dos defectos que la revisión no traía.
+
+⭐ **Dos de estos items coinciden con la auditoría §7, hecha el mismo día por otra sesión**:
+`[TK.d1]` es su `[TK.a3]` y el spec nuevo es su `[TK.a5]`. Ella los **midió y documentó**; este
+lote los **arregla**. Lo demás de §7 (`a1`, `a2`, `a4`, `a6`) **no se toca acá** — es trabajo de
+esa auditoría, y `[TK.a1]`/`[TK.a2]` son más graves que todo esto junto.
+
+### 8.1 ⭐⭐ `[TK.d3]` El reporte publicaba $0 de descuento justo donde el descuento existe
+
+El `SELECT` de facturas clavaba `0::numeric as descuento_documento`, mientras
+`analytics.erp_sales_invoices` publica el descuento desde que existe. Y telemarketing y crédito
+son el universo donde el descuento de cabecera de verdad pesa. Tres consecuencias, ninguna
+distinguible de un hecho del negocio:
+
+1. La columna imprimía `—` en toda factura.
+2. El KPI del resumen sumaba cero.
+3. ⛔ **El filtro «Sólo con descuento» no podía devolver una sola factura**, porque filtra por
+   `descuento > 0` sobre ese mismo campo. *Un filtro que siempre devuelve vacío se lee como
+   «este cliente nunca tuvo descuento», no como un defecto.*
+
+⛔ **Y la columna obvia era la equivocada.** El primer arreglo leyó `i.descuento` = `kdm1.c13`, y
+la Fase DC midió el mismo día que **`c13` NO es lo que se descontó: viaja SIN impuesto y el total
+CON**. En `07 · U-D-10 · s4 · f0000513` el descuento real es **$147.43** y `c13` dice **$135.26**
+— publicar `c13` **subdeclara 8.3%**. Se usa `descuento_efectivo`, que la vista deriva como
+`total / (1 − pct/100) − total` y reproduce los $147.43 al centavo.
+
+⚠️ `descuento_efectivo` vale 0 cuando el documento no declara porcentaje. Medido en la Fase DC,
+`c19` y `c13` se mueven juntos (ambos en 0 o ambos puestos), así que ese 0 es «no hubo descuento
+de cabecera», no «no se sabe». Si alguna vez apareciera un documento con `c13 > 0` y `c19 = 0`,
+esta columna lo escondería — queda escrito.
+
+### 8.2 ⭐ `[TK.d1]` La tabla de la pantalla tenía 6 encabezados para 8 columnas
+
+Las celdas de IEPS e IVA del cuerpo colgaban de `@if (hayImpuesto())` y el encabezado **no tenía
+ese bloque**: «Importe» caía encima del IEPS, y el IVA y el importe de verdad viajaban **sin
+rótulo**. Es el `[TK.a3]` de §7.3, con su medición.
+
+No lo atrapó nada porque el componente **no tenía una sola prueba** — `tsc` no entra al template,
+y el template era sintácticamente perfecto. El candado nuevo es de **paridad** `<th>`↔`<td>` en
+las cuatro combinaciones de banderas: comprobar que existe un `<th>IVA</th>` no habría servido,
+porque el defecto era que **faltaba**.
+
+### 8.3 `[TK.d2]` El nombre — ahora con la medición que lo respalda
+
+«Descuento del documento (3% del ERP)» nombra al papel y al sistema, no a lo que pasó. Pasa a
+**«Descuento de cliente»** en los tres papeles y en la pantalla, con el porcentaje pelado, y el
+de 80 mm deja de ser el único que se lo calla.
+
+⭐ **El nombre no es una opinión: está medido.** La Fase DC cruzó `kdm1.c19` contra `kdud.c17`
+—el % negociado en el maestro de clientes— en las ventas de septiembre 2026: **533 de 578
+(92.2%) coinciden exacto**. El rótulo dice lo que el dato es.
+
+⚠️ Y la discrepancia también se conoce, así que no se disfraza: **45 documentos salieron sin el
+descuento que el cliente tiene negociado** y **70 llevan un % que su rama no tiene en el
+maestro**. Por eso la pantalla dice «declarado en Kepler»: el papel publica **lo que el documento
+declara**, que es lo que el cliente pagó, no lo que el maestro dice que debió pagar.
+
+### 8.4 `[TK.d4]` El ticket de mostrador SÍ puede traer porcentaje — se corrigió a mitad del lote
+
+Este item se cerró primero como **«no se hace, con motivo»**: `ERP_KEPLER` §3.1 medía que en
+`U-D-10` la cabecera es 0.00 en el **100%** de 30,549 documentos, así que el
+`descuento_pct_erp: null` de `detalleMostrador()` parecía correcto. No se pudo medir `c19` desde
+la sesión y **se declaró en vez de suponerlo** (ADR-056).
+
+**La medición llegó y lo refutó**: ese 100% se tomó **sin Morelia**. Las ramas `06`, `07` y `08`
+sí traen `c13 ≠ 0` en mostrador (20 tickets, $1,948.15) porque ahí la caja cobra el descuento del
+cliente — ver el aviso de caducidad en §2.1 y `FASE_DC` §6. Así que la vista gana `descuento_pct`
+(23ª columna, aditiva) y `detalleMostrador()` la lee.
+
+⭐ **Declarar en vez de adivinar fue lo que permitió corregir.** Si el `null` se hubiera cambiado
+«porque sí», el acierto habría sido indistinguible de la suerte; y si se hubiera escrito «no
+aplica» como un hecho, el dato de Morelia habría quedado enterrado en el código.
+
+⚠️ **La migración no se pudo ejercer contra una base con datos** — mismo límite que `[TK.0b]`.
+Lleva candado: falla si las 22 columnas actuales no quedan idénticas o si el conteo final no da
+23. Es aditiva y `CREATE OR REPLACE VIEW` sólo admite agregar al final.
+
+### 8.5 Verificación
+
+| qué | resultado |
+|---|---|
+| `customer-report-descuento.spec.ts` (nuevo) | **8/8** · rojo **2/8** al volver a `i.descuento` |
+| `ticket-mostrador-pct.spec.ts` (nuevo) | **4/4** · rojo **2/4** con el `null` clavado |
+| `comercial-tickets.component.spec.ts` (nuevo — el `[TK.a5]` de §7.5) | **6/6** · rojo **2/6** sin los dos `<th>` |
+| `ticket-carta-descuento.spec.ts` · `ticket-venta-descuento.spec.ts` (nuevos) | **4/4** · **5/5** |
+| `reporte-cliente-papel.spec.ts` (+4) | **22/22** |
+| `apps/view` comercial · `libs/commercial` completos | ✅ |
+| `nx build api` · `nx build view` · `tsc` · gates del repo | ✅ |
+
+**Las dos compuertas se rompieron a propósito antes de darlas por buenas** — un gate sin prueba
+negativa es una intención.
+
+⚠️ `check-primeng-api.js` sale en rojo con los **mismos números que en `origin/main`**
+(262/286/41 contra techos 255/283/39). Cero `styleClass` agregados acá: deuda ajena, se declara.
+
+### 8.6 Pendiente
+
+- **Aplicar la migración `20260928120000`** a prod (aditiva, sin permisos nuevos → **no hace falta
+  re-login**) + redeploy `api` y `view`.
+- **Validación visual** de la tabla con impuesto desglosado y de los tres papeles.
+- ⛔ **`[TK.a1]` y `[TK.a2]` de §7 siguen abiertos** y pesan más que este lote: la lista de
+  candidatos sale mutilada en TODA búsqueda y «lo más reciente» ordena por día de la semana.

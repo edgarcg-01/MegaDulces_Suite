@@ -142,6 +142,14 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
                     @if (hayLista()) { <th scope="col" class="tk-num">Lista</th> }
                     <th scope="col" class="tk-num">{{ hayLista() ? 'Pagado' : 'Precio' }}</th>
                     @if (hayDescuento()) { <th scope="col" class="tk-num">Descuento</th> }
+                    <!-- [TK.d1] Estos dos FALTABAN. El cuerpo emitía sus celdas con el mismo
+                         @if (hayImpuesto()) y el encabezado no, así que en todo documento con
+                         impuesto desglosado la tabla iba corrida: «Importe» quedaba encima del
+                         IEPS, y el IVA y el importe de verdad viajaban sin ningún rótulo. -->
+                    @if (hayImpuesto()) {
+                      <th scope="col" class="tk-num">IEPS</th>
+                      <th scope="col" class="tk-num">IVA</th>
+                    }
                     <th scope="col" class="tk-num">Importe</th>
                   </tr>
                 </ng-template>
@@ -184,8 +192,8 @@ import { imprimirTicketVenta, TicketVenta } from '../ticket-venta';
                       <tr class="tk-desc"><td>Descuento en precio</td><td class="tk-num">-{{ d.cascada.descuento_precio | currency:'MXN':'symbol-narrow' }}</td></tr>
                     }
                     @if (d.cascada.descuento_documento > 0) {
-                      <tr class="tk-desc"><td>Descuento del documento
-                        @if (d.cascada.descuento_documento_pct_erp) { <i>({{ d.cascada.descuento_documento_pct_erp }}% en el ERP)</i> }
+                      <tr class="tk-desc"><td>Descuento de cliente
+                        @if (d.cascada.descuento_documento_pct_erp) { <i>({{ d.cascada.descuento_documento_pct_erp }}% declarado en Kepler)</i> }
                       </td><td class="tk-num">-{{ d.cascada.descuento_documento | currency:'MXN':'symbol-narrow' }}</td></tr>
                     } @else if (d.cascada.descuento_documento < 0) {
                       <tr><td>Ajuste de redondeo</td><td class="tk-num">{{ -d.cascada.descuento_documento | currency:'MXN':'symbol-narrow' }}</td></tr>
