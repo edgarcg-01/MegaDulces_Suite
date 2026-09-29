@@ -64,6 +64,7 @@ export const routes: Routes = [
     component: LayoutComponent,
     children: [
       { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
+      { path: 'ventas-detalle', loadComponent: () => import('./modules/dashboard/ventas-detalle/ventas-detalle.component').then(m => m.VentasDetalleComponent), canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)] },
       { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
       { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
@@ -750,6 +751,39 @@ export const routes: Routes = [
         path: 'catalogo',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo.component').then(m => m.ComprasCatalogoComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        // [CAT-OPS.1] Centro operativo. Las rutas usan el mismo cascarón mientras cada bandeja
+        // recibe sus datos y reglas de negocio en entregas posteriores.
+        path: 'catalogo/resumen',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'resumen' }
+      },
+      {
+        path: 'catalogo/solicitudes',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'solicitudes' }
+      },
+      {
+        path: 'catalogo/incidencias',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'incidencias' }
+      },
+      {
+        path: 'catalogo/costos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'costos' }
+      },
+      {
+        // Las listas recibidas de proveedores viven separadas del flujo que aplica cambios al ERP.
+        path: 'catalogo/listas-precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'listas-precios' }
       },
       {
         // [CAT.3] El mismo producto a distinto precio segun la plaza.

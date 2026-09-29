@@ -41,6 +41,16 @@ export interface FormaPago {
   detalle_label: string | null;
   /** Ejemplo para el placeholder. Nunca se guarda. */
   detalle_ejemplo: string | null;
+  /**
+   * `[GX.53]` **Cuánto cabe.** `null` = sin tope.
+   *
+   * ⛔ En `tarjeta` esto NO es cosmético: el campo pide «Últimos 4 dígitos» y sin tope se
+   * podía escribir —y guardar— un **número de tarjeta completo**. Se reportó tecleando 19
+   * dígitos en esa caja. Un dato así no debería existir en esta tabla ni un minuto.
+   */
+  detalle_max: number | null;
+  /** `true` = sólo dígitos. Una referencia de banco puede traer letras; unos dígitos no. */
+  detalle_solo_digitos: boolean;
 }
 
 /** El catálogo. Cerrado: agregar una opción es tocar este archivo y su prueba. */
@@ -48,12 +58,14 @@ export const FORMAS_PAGO: readonly FormaPago[] = [
   // [GX.19] El efectivo deja de pedir la caja: se retiro por pedido del usuario. Al quedar
   // en null, «exigeDetalle» lo deja de exigir solo -- la regla se deriva del catalogo, no hay
   // una segunda lista que actualizar.
-  { id: 'efectivo',      label: 'Efectivo',      codigo_kepler: '01', detalle_label: null,                   detalle_ejemplo: null },
-  { id: 'tarjeta',       label: 'Tarjeta',       codigo_kepler: '04', detalle_label: 'Últimos 4 dígitos',    detalle_ejemplo: '0000' },
-  { id: 'transferencia', label: 'Transferencia', codigo_kepler: '03', detalle_label: 'Referencia del banco', detalle_ejemplo: '882301' },
-  { id: 'cheque',        label: 'Cheque',        codigo_kepler: '02', detalle_label: 'Número de cheque',     detalle_ejemplo: '1204' },
-  { id: 'vales',         label: 'Vales',         codigo_kepler: '07', detalle_label: null,                   detalle_ejemplo: null },
-  { id: 'otro',          label: 'Otro',          codigo_kepler: '99', detalle_label: '¿Cuál?',               detalle_ejemplo: 'Escribilo' },
+  { id: 'efectivo',      label: 'Efectivo',      codigo_kepler: '01', detalle_label: null,                   detalle_ejemplo: null,       detalle_max: null, detalle_solo_digitos: false },
+  // ⛔ 4 y sólo dígitos: es lo que el rótulo pide. Sin tope cabía la tarjeta entera.
+  { id: 'tarjeta',       label: 'Tarjeta',       codigo_kepler: '04', detalle_label: 'Últimos 4 dígitos',    detalle_ejemplo: '0000',     detalle_max: 4,    detalle_solo_digitos: true },
+  // La referencia del banco trae letras a veces (`TRSP-8823`), así que no se exige numérica.
+  { id: 'transferencia', label: 'Transferencia', codigo_kepler: '03', detalle_label: 'Referencia del banco', detalle_ejemplo: '882301',   detalle_max: 30,   detalle_solo_digitos: false },
+  { id: 'cheque',        label: 'Cheque',        codigo_kepler: '02', detalle_label: 'Número de cheque',     detalle_ejemplo: '1204',     detalle_max: 12,   detalle_solo_digitos: true },
+  { id: 'vales',         label: 'Vales',         codigo_kepler: '07', detalle_label: null,                   detalle_ejemplo: null,       detalle_max: null, detalle_solo_digitos: false },
+  { id: 'otro',          label: 'Otro',          codigo_kepler: '99', detalle_label: '¿Cuál?',               detalle_ejemplo: 'Escribilo', detalle_max: 60,  detalle_solo_digitos: false },
 ] as const;
 
 /** Los ids, para un CHECK de base de datos o una validación rápida. */
@@ -83,4 +95,29 @@ export function exigeDetalle(id: string | null | undefined): boolean {
 /** El código Kepler de esa forma, o `null` si no está en el catálogo. */
 export function codigoKepler(id: string | null | undefined): string | null {
   return formaPago(id ?? undefined)?.codigo_kepler ?? null;
+}
+
+/**
+ * `[GX.53]` **Por qué NO sirve este detalle**, o `null` si está bien.
+ *
+ * Vive acá y no en la pantalla porque la usan los dos lados: el input la consulta para el
+ * `maxlength` y la compuerta (`faltaParaMandar`) para devolver el 400. Con la regla escrita
+ * sólo en el input, se salta llamando a la API — y justo acá eso significaría guardar un
+ * número de tarjeta completo.
+ *
+ * ⚠️ El vacío NO es asunto de esta función: de eso ya se ocupa `exigeDetalle`. Acá se juzga
+ * lo que la persona escribió, no si escribió.
+ */
+export function detalleInvalido(id: string | null | undefined, valor: string | null | undefined): string | null {
+  const f = formaPago(id ?? undefined);
+  if (!f || f.detalle_label == null) return null;
+  const v = String(valor ?? '').trim();
+  if (!v) return null;
+  if (f.detalle_solo_digitos && !/^[0-9]+$/.test(v)) {
+    return `${f.detalle_label}: sólo números.`;
+  }
+  if (f.detalle_max != null && v.length > f.detalle_max) {
+    return `${f.detalle_label}: máximo ${f.detalle_max} caracteres (escribiste ${v.length}).`;
+  }
+  return null;
 }

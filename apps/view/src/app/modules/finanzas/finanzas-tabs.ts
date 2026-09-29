@@ -100,28 +100,21 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-check-square',
     permission: Permission.FINANCE_BANK_VER,
   },
-  {
-    /**
-     * GX.10 — UNA entrada para todo el ciclo del gasto. Antes eran tres tabs
-     * («Solicitudes de gasto» · «Capturas de campo» · «Capturar gasto») que
-     * resolvían el mismo trámite en tres lugares.
-     *
-     * No se fundieron en una pantalla sola porque son DOS públicos, medido:
-     * 11 roles (75 usuarios activos — 32 cajeros, 19 promotores de ruta…) pueden
-     * capturar pero NO ver el tablero; y otros 5 pueden ver sin capturar. Una
-     * pantalla que exigiera `FINANCE_EXPENSES_VER` habría dejado afuera justo a
-     * quienes capturan. Así que la ruta es única y **el contenido se adapta a
-     * quién entra** (ver `FinanzasGastosComponent`).
-     *
-     * Por eso `anyOf`: con un permiso único, uno de los dos grupos perdía
-     * el tab aunque el guard lo dejara pasar.
-     */
-    label: 'Levantamiento de gasto',
-    route: '/finanzas/gastos',
-    icon: 'pi pi-file-edit',
-    // `[GX.17]` SIN permiso: la ruta es `canActivate: []`. El `anyOf` que traía escondía
-    // el tab a 66 de los 166 activos que la ruta sí deja entrar.
-  },
+  /**
+   * `[GX.42]` **Acá vivía «Levantamiento de gasto» (`/finanzas/gastos`), y se retiró por
+   * pedido del usuario:** el gasto ya no se busca, **llega**. Kepler lo asigna escribiendo un
+   * username nuestro en la caja «Solicita» y aparece solo en «Mis gastos», con su botón para
+   * subirle la evidencia.
+   *
+   * ⛔ **La ruta NO se borró**, y eso es a propósito: es a donde lleva ese botón, con el folio
+   * y la sucursal en la URL. Lo que se quita es la puerta de entrada por folio tecleado.
+   *
+   * ⚠️ **Lo que se pierde, dicho:** un gasto que Kepler NO le asignó a nadie deja de poder
+   * capturarse desde la pantalla. Medido el 2026-09-28 en prod: de **9,968** solicitudes con
+   * «Solicita» lleno, **0** traen un usuario nuestro — la práctica es nueva. Hasta que en
+   * Kepler empiecen a escribirlo, en producción esta puerta cerrada deja a la gente sin por
+   * dónde entrar. En local el sembrador lo resuelve.
+   */
   {
     // `[GX.17]` La otra mitad del trámite. Mismo orden que el sidebar, a propósito.
     label: 'Aprobación de gastos',

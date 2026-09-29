@@ -95,23 +95,29 @@ export interface CajaAbierta {
 }
 
 /**
- * SM.38 - El veredicto del candado de doble caja. `null` = puede operar.
- * `arrastradas` son cajas abiertas de dias anteriores: NO bloquean, se avisan.
+ * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. `null` = nada que decir.
+ *
+ * ⚠️ Es un AVISO, no un bloqueo: desde SM.40 la captura sigue habilitada al lado.
+ * `arrastradas` son cajas abiertas de dias anteriores.
  */
-export interface BloqueoDobleCaja {
+export interface AvisoDobleCaja {
   cajas: CajaAbierta[];
   arrastradas: CajaAbierta[];
 }
 
-/** El bloqueo viaja CON la lista: pedirlo aparte dejaria la pantalla sin aviso si falla. */
+/** El aviso viaja CON la lista: pedirlo aparte dejaria la pantalla sin el si falla. */
 export interface TurnosResp {
   turnos: Turno[];
-  bloqueo: BloqueoDobleCaja | null;
+  aviso: AvisoDobleCaja | null;
 }
 
 export interface ArqueoDto {
   warehouse_code?: string; // ignorado si el usuario está scopeado a una sucursal
-  /** Folio del turno de Kepler. Obligatorio para la cajera: la caja y la fecha salen de ahí. */
+  /**
+   * Folio del turno de Kepler. Cuando viene, la caja y la fecha salen de ahí y
+   * mandan sobre lo tecleado. SM.40: ya **no es obligatorio** — sin folio el
+   * arqueo se guarda igual, sin comparación contra el corte.
+   */
   cash_cut_folio?: string;
   caja: string;
   business_date: string; // 'YYYY-MM-DD'

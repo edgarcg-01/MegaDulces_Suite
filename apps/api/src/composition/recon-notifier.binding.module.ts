@@ -41,19 +41,44 @@ class ReconNotifierAdapter implements ReconNotifierPort {
    * pista de cuánto debería haber (SM.10).
    */
   async notifyArqueoDue(tenantId: string, item: ReconArqueoDueItem): Promise<void> {
-    const esRetiro = item.motivo === 'retiro';
     this.store.emitToCajero(tenantId, item.cajero_code, 'arqueo_due', {
       type: 'arqueo_due',
       severity: item.vencido ? 'warn' : 'info',
-      title: esRetiro ? 'Cuenta el retiro' : 'Haz tu arqueo',
-      message: esRetiro
-        ? `Kepler te pidió sacar efectivo de la caja ${item.caja}. Cuenta los billetes antes de entregarlos.`
-        : item.vencido
-          ? `Kepler cerró tu caja ${item.caja} hace ${Math.round(item.cerrado_hace_min / 60)} h y todavía no cuentas el efectivo.`
-          : `Kepler cerró tu caja ${item.caja}${item.hora_cierre ? ` a las ${item.hora_cierre.slice(0, 5)}` : ''}. Cuenta el efectivo y guárdalo.`,
+      ...this.copyArqueo(item),
       route: '/tienda/arqueo',
       ...item,
     });
+  }
+
+  /**
+   * El texto del aviso, por motivo.
+   *
+   * ⚠️ SM.40 — Ninguno de los tres da una orden ni pone un plazo: el arqueo dejó
+   * de tener horario y orden obligatorio, así que estos mensajes son lo único que
+   * queda entre Kepler y la cajera. Se redactan como lo que son —"ya podés
+   * contar"— y no como "tenés que". Un aviso que suena a multa se aprende a
+   * ignorar, y entonces no queda nada.
+   */
+  private copyArqueo(item: ReconArqueoDueItem): { title: string; message: string } {
+    if (item.motivo === 'retiro') {
+      return {
+        title: 'Cuenta el retiro',
+        message: `Kepler te pidió sacar efectivo de la caja ${item.caja}. Cuenta los billetes antes de entregarlos.`,
+      };
+    }
+    if (item.motivo === 'apertura') {
+      const hora = item.hora_apertura ? ` a las ${item.hora_apertura.slice(0, 5)}` : '';
+      return {
+        title: 'Tu caja está abierta',
+        message: `Kepler te abrió la caja ${item.caja}${hora}. Podés arquear cuando quieras — no hay horario.`,
+      };
+    }
+    return {
+      title: 'Haz tu arqueo',
+      message: item.vencido
+        ? `Kepler cerró tu caja ${item.caja} hace ${Math.round(item.cerrado_hace_min / 60)} h y todavía no cuentas el efectivo.`
+        : `Kepler cerró tu caja ${item.caja}${item.hora_cierre ? ` a las ${item.hora_cierre.slice(0, 5)}` : ''}. Cuenta el efectivo y guárdalo.`,
+    };
   }
 }
 
