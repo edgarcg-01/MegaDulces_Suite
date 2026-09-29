@@ -65,6 +65,34 @@ mutilada en toda búsqueda** (la fecha viaja como `Date` y el `DatePipe` tira), 
 reciente primero"* **ordena por día de la semana**, y bajo el encabezado **"Importe" se lee el
 IEPS**. Además caducó la medición *"`kdm1.c13` es 0.00 en el 100% del mostrador"*: se hizo **sin
 Morelia**, y ahí sí cobra el descuento del cliente.
+### Fixed — el reporte por cliente publicaba $0 de descuento justo donde el descuento existe (TK.d, 2026-09-28)
+Salió de una revisión que pedía nombrar el descuento del cliente en los papeles. Sus cuatro
+afirmaciones resultaron ciertas, y midiendo el alcance aparecieron dos cosas que no traía.
+
+**El `SELECT` de facturas clavaba `0::numeric as descuento_documento`**, mientras
+`analytics.erp_sales_invoices` publica `descuento` (`kdm1.c13`) y `descuento_pct` (`c19`) desde que
+existe — y telemarketing y crédito son el **único** universo donde el descuento de cabecera se usa
+(el ticket de mostrador lo trae en 0.00 en el 100% de 30,549 documentos, `ERP_KEPLER` §3.1). La
+columna imprimía `—` en toda factura, el KPI sumaba cero y ⛔ **el filtro «Sólo con descuento» no
+podía devolver una sola factura**: filtra por `descuento > 0` sobre ese mismo campo. Un filtro que
+siempre devuelve vacío se lee como un hecho del negocio, no como un defecto.
+
+**Y la tabla de la pantalla tenía 6 encabezados para 8 columnas.** Las celdas de IEPS e IVA
+colgaban de `@if (hayImpuesto())` y el encabezado no tenía ese bloque: con impuesto desglosado
+«Importe» caía encima del IEPS y las dos últimas columnas de dinero viajaban sin rótulo. No lo
+atrapó nada porque el componente **no tenía una sola prueba** — `tsc` no entra al template.
+
+- **Fixed** `customer-report.service.ts`: lee `i.descuento` e `i.descuento_pct`; el ticket de
+  mostrador declara `descuento_pct: null` (nunca 0).
+- **Fixed** `comercial-tickets.component.ts`: los dos `<th>` que faltaban, con el mismo `@if`.
+- **Changed** el renglón se llama **«Descuento de cliente»** en los tres papeles y en la pantalla
+  —el nombre que Kepler le da en su propia pantalla (`ERP_KEPLER` §4)— en vez de «Descuento del
+  documento (3% del ERP)», y el de 80 mm deja de ser el único que se calla el porcentaje.
+- **Internal** 4 specs nuevos (26 casos), 2 de ellos **rotos a propósito** para verificar el rojo:
+  4/7 y 2/6. El candado de la tabla es de **paridad** `<th>`↔`<td>`, no de contenido.
+- ⛔ **No se hizo**, con motivo medido: exponer `descuento_pct` en `erp_sale_tickets` para
+  mostrador. La cabecera no aplica a `U-D-10` y **no se pudo medir `c19` desde esta sesión** — se
+  declara con la consulta escrita en [`FASE_TK`](docs/IMPLEMENTACION/FASES/FASE_TK_TICKETS_VENTA.md) §7.2 en vez de suponerlo.
 
 ### Removed — una alarma que le mentía al Sell-Out en cada arranque de prod (VSO.12, 2026-09-28)
 Apareció verificando el deploy de la fase VSO, en el log de `prod-api`:

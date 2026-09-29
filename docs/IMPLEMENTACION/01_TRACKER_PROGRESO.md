@@ -5918,7 +5918,37 @@ TP.6-TP.8+TP.10".
       defectos reales (sello de 33 caracteres, leyenda legal partida). · *2026-09-18*
 - [x] **[TK.3]** 🧪 Carta en PDF reusando la maqueta Y el Chromium compartido del anexo de venta
       (`AnexoVentaService.renderPdf`). · *2026-09-18*
-- [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos.
+- [x] **[TK.d1]** 🧪 La tabla de la pantalla tenía **6 encabezados para 8 columnas**: las celdas
+      de IEPS e IVA del cuerpo colgaban de `@if (hayImpuesto())` y el encabezado no tenía ese
+      bloque, así que con impuesto desglosado «Importe» caía encima del IEPS y las dos últimas
+      columnas de dinero viajaban **sin rótulo**. ⚠️ No lo atrapó nada porque el componente **no
+      tenía una sola prueba** — `tsc` no entra al template y el template era sintácticamente
+      perfecto. Candado nuevo de **paridad** `<th>`↔`<td>` en las cuatro combinaciones de
+      banderas (comprobar que existe un `<th>IVA</th>` no habría servido: el defecto era que
+      faltaba). Roto a propósito: **2/6 en rojo** sin el arreglo. · *2026-09-28*
+- [x] **[TK.d2]** 🧪 El renglón se llama **«Descuento de cliente»** en los tres papeles y en la
+      pantalla, en vez de «Descuento del documento (3% del ERP)» — que nombra al papel y al
+      sistema, no a lo que pasó. Es el nombre que **Kepler le da en su propia pantalla**
+      (`ERP_KEPLER` §4, anclado a una captura), y el de 80 mm deja de ser el único que se calla
+      el porcentaje. ⚠️ El rótulo **no** afirma que venga del maestro de clientes: es el que el
+      documento declara en su cabecera. · *2026-09-28*
+- [x] **[TK.d3]** 🧪 ⭐⭐ **El reporte por cliente publicaba $0 de descuento justo en el universo
+      donde existe.** El `SELECT` de facturas clavaba `0::numeric as descuento_documento` mientras
+      `erp_sales_invoices` publica `descuento` (`c13`) y `descuento_pct` (`c19`) — y telemarketing
+      y crédito son el **único** universo donde la cabecera se usa. La columna imprimía `—` en
+      toda factura, el KPI sumaba cero y ⛔ **el filtro «Sólo con descuento» no podía devolver una
+      sola factura** (filtra por `descuento > 0` sobre ese mismo campo): *un filtro que siempre
+      devuelve vacío se lee como un hecho del negocio, no como un defecto*. Roto a propósito:
+      **4/7 en rojo** con el código viejo. · *2026-09-28*
+- [ ] **[TK.d4]** ⬜ **Medir `c19` en `U-D-10`** y cerrar o reabrir el punto. La revisión pedía
+      exponer `descuento_pct` en `erp_sale_tickets` y leerlo en `detalleMostrador()`, donde hoy hay
+      un `null` clavado. **No se hizo**: `ERP_KEPLER` §3.1 mide que el par `c13`+`c19` aplica
+      **sólo** a telemarketing y crédito, así que ese `null` no es un olvido. Y **no se pudo medir
+      `c19` desde la sesión** (`platform_test` da `3D000` detrás de un pooler, el ODS local tiene
+      69 filas de `kdm1`, el proxy público de Railway no contesta) → se **declara** en vez de
+      suponerlo, con la consulta escrita en `FASE_TK` §7.2 (ADR-056).
+- [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
+      la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
 - [ ] **[TK.6]** ⬜ **Wincaja (sucursales 30 y 32)** — decidido con Edgar 2026-09-18: va como
       SIGUIENTE PASO. Es otra fuente (`wincaja.v_sales_lines`, base aparte) y su descuento es
