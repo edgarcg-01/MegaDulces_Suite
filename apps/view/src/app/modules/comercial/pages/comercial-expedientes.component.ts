@@ -67,7 +67,8 @@ import { TELEMARKETING_TABS } from '../telemarketing-tabs';
       }
     </div>
 
-    <div class="card-premium card-flat tabla-wrap">
+    <!-- [UIM.2] Apilado por campos: las 8 columnas son campos de UN expediente. -->
+    <div class="card-premium card-flat tabla-wrap dt-scope">
       <app-load-state
         [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && rows().length === 0"
         emptyIcon="pi-folder-open" emptyTitle="Sin guías emitidas en el periodo"
@@ -76,7 +77,7 @@ import { TELEMARKETING_TABS } from '../telemarketing-tabs';
 
         <p-table [value]="rows()" dataKey="id" [scrollable]="true" scrollHeight="calc(100vh - 22rem)"
                  [rowHover]="true" size="small"
-                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-exp"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-exp dt-stack"
                  [tableStyle]="{ 'min-width': '54rem' }">
           <ng-template #header>
             <tr>
@@ -93,11 +94,11 @@ import { TELEMARKETING_TABS } from '../telemarketing-tabs';
 
           <ng-template #body let-e>
             <tr>
-              <td>
+              <td class="dt-id" role="cell">
                 <span class="mono folio">{{ e.folio }}</span>
                 <span class="sub">{{ e.created_by_username || '—' }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Vendedor">
                 @if (e.vendedor_nombre) {
                   <span class="nom">{{ e.vendedor_nombre }}</span>
                   <span class="sub mono">{{ e.vendedor_code }}</span>
@@ -106,12 +107,12 @@ import { TELEMARKETING_TABS } from '../telemarketing-tabs';
                   <p-tag severity="secondary" value="Sin vendedor en el ERP" styleClass="tg" />
                 }
               </td>
-              <td>{{ e.responsable || '—' }}</td>
-              <td class="mono">{{ e.created_at | date: 'dd/MM/yy HH:mm' }}</td>
-              <td class="r mono">{{ e.documentos }}</td>
-              <td class="r mono">{{ e.clientes }}</td>
-              <td class="r mono strong">{{ e.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-              <td class="c">
+              <td role="cell" data-label="Responsable">{{ e.responsable || '—' }}</td>
+              <td class="mono" role="cell" data-label="Emitida">{{ e.created_at | date: 'dd/MM/yy HH:mm' }}</td>
+              <td class="r mono dt-num" role="cell" data-label="Facturas">{{ e.documentos }}</td>
+              <td class="r mono dt-num" role="cell" data-label="Clientes">{{ e.clientes }}</td>
+              <td class="r mono strong dt-num" role="cell" data-label="Total">{{ e.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+              <td class="c dt-actions" role="cell">
                 <p-button icon="pi pi-print" [text]="true" size="small" ariaLabel="Reimprimir la guía"
                           pTooltip="Reimprime lo que se firmó, no la cartera de hoy"
                           [loading]="busy() === e.id" (onClick)="reimprimir(e)" />

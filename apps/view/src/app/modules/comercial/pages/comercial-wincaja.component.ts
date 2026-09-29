@@ -37,8 +37,11 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
         </div>
       }
 
-      <div class="card-premium card-flat wcj-wrap">
-        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
+      <!-- [UIM.2] Apilado por campos: las 8 columnas son campos de UNA sucursal.
+           ⚠️ El pie de totales NO sobrevive al apilado (el CSS oculta tfoot): en angosto la red
+           se lee con la tira de KPIs de arriba, que ya trae las mismas cifras. -->
+      <div class="card-premium card-flat wcj-wrap dt-scope">
+        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm dt-stack" [scrollable]="true"
                  [tableStyle]="{ 'min-width': '60rem' }">
           <ng-template #header>
             <tr>
@@ -54,17 +57,17 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
           </ng-template>
           <ng-template #body let-r>
             <tr [class.wcj-blind]="r.wincaja_only">
-              <td>
+              <td class="dt-id" role="cell">
                 <span class="wcj-code">{{ r.warehouse_code }}</span>
                 <span class="wcj-name">{{ r.branch_name }}</span>
               </td>
-              <td><p-tag [value]="statusLabel(r)" [severity]="statusSeverity(r)" /></td>
-              <td class="num strong">{{ money(r.venta_total) }}</td>
-              <td class="num">{{ int(r.unidades) }}</td>
-              <td class="num">{{ money(r.inventario_valor) }}</td>
-              <td class="num">{{ money(r.cartera) }}</td>
-              <td class="num">{{ int(r.cartera_clientes) }}</td>
-              <td class="num" [class.wcj-alert]="r.venta_perdida > 0">{{ money(r.venta_perdida) }}</td>
+              <td role="cell" data-label="Estado"><p-tag [value]="statusLabel(r)" [severity]="statusSeverity(r)" /></td>
+              <td class="num strong dt-num" role="cell" data-label="Venta">{{ money(r.venta_total) }}</td>
+              <td class="num dt-num" role="cell" data-label="Unidades">{{ int(r.unidades) }}</td>
+              <td class="num dt-num" role="cell" data-label="Inventario">{{ money(r.inventario_valor) }}</td>
+              <td class="num dt-num" role="cell" data-label="Cartera">{{ money(r.cartera) }}</td>
+              <td class="num dt-num" role="cell" data-label="Clientes">{{ int(r.cartera_clientes) }}</td>
+              <td class="num dt-num" role="cell" data-label="Venta perdida" [class.wcj-alert]="r.venta_perdida > 0">{{ money(r.venta_perdida) }}</td>
             </tr>
           </ng-template>
           <ng-template #footer>
