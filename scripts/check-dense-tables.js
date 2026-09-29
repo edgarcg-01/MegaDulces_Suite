@@ -49,8 +49,6 @@ const UMBRAL_REM = 48;
  */
 const DEUDA = new Set([
   'apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts',
-  'apps/view/src/app/modules/compras/pages/compras-reclamos.component.ts',
-  'apps/view/src/app/modules/dashboard/admin-db-health/admin-db-health.component.ts',
 ]);
 
 const RE_MINWIDTH = /'min-width'\s*:\s*'([0-9.]+)rem'/g;

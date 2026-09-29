@@ -125,8 +125,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                         : 'Los reclamos se levantan solos al cerrar un vale con faltante, dañado o producto incorrecto en el Andén.'"
                       [emptyCta]="filtered() ? 'Limpiar filtros' : null"
                       emptyCtaIcon="pi pi-filter-slash"
-                      (retry)="reload()" (cta)="clearFilters()">
-        <p-table [value]="rows()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm rc-table"
+                      (retry)="reload()" (cta)="clearFilters()" class="dt-scope">
+        <p-table [value]="rows()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm rc-table dt-stack"
                  [rowHover]="true" dataKey="id" [tableStyle]="{ 'min-width': '62rem' }">
           <ng-template #header>
             <tr>
@@ -147,36 +147,37 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #body let-c>
             <tr class="rc-row" [class.rc-row-sel]="sel()?.id === c.id" (click)="openPeek(c)"
                 tabindex="0" (keydown.enter)="openPeek(c)" [attr.aria-label]="'Reclamo del vale ' + c.folio">
-              <td class="rc-sticky rc-mono">{{ c.folio }}</td>
-              <td class="rc-r" [class.rc-warn]="c.age_days >= 7 && esAbierto(c)"
+              <!-- [UIM.2] Apilado por campos: las 12 columnas son campos de UN reclamo. -->
+              <td class="rc-sticky rc-mono dt-id" role="cell">{{ c.folio }}</td>
+              <td class="rc-r dt-num" role="cell" data-label="Días" [class.rc-warn]="c.age_days >= 7 && esAbierto(c)"
                   [class.rc-bad]="c.age_days >= 15 && esAbierto(c)">{{ c.age_days | number }}</td>
-              <td><p-tag [value]="statusLabel(c.status)" [severity]="statusSev(c.status)"></p-tag></td>
-              <td>
+              <td role="cell" data-label="Estado"><p-tag [value]="statusLabel(c.status)" [severity]="statusSev(c.status)"></p-tag></td>
+              <td role="cell" data-label="Tipo">
                 <span class="rc-kind"><i [class]="'pi ' + kindIcon(c.kind)" aria-hidden="true"></i>{{ kindLabel(c.kind) }}</span>
               </td>
-              <td class="rc-mono">{{ c.sku || '—' }}</td>
-              <td class="rc-name">{{ c.product_name || '—' }}</td>
-              <td class="rc-r rc-muted">{{ c.expected_qty | number:'1.0-2' }}</td>
-              <td class="rc-r rc-muted">{{ c.received_qty | number:'1.0-2' }}</td>
-              <td class="rc-r rc-strong">
+              <td class="rc-mono" role="cell" data-label="SKU">{{ c.sku || '—' }}</td>
+              <td class="rc-name" role="cell" data-label="Producto">{{ c.product_name || '—' }}</td>
+              <td class="rc-r rc-muted dt-num" role="cell" data-label="Esperado">{{ c.expected_qty | number:'1.0-2' }}</td>
+              <td class="rc-r rc-muted dt-num" role="cell" data-label="Llegó">{{ c.received_qty | number:'1.0-2' }}</td>
+              <td class="rc-r rc-strong dt-num" role="cell" data-label="Reclamado">
                 @if (c.qty_claimed === null) {
                   <span class="rc-todo" title="Falta capturar cuánto">capturar</span>
                 } @else {
                   {{ c.qty_claimed | number:'1.0-2' }}<span class="rc-unit">{{ unidad(c) }}</span>
                 }
               </td>
-              <td class="rc-r">
+              <td class="rc-r dt-num" role="cell" data-label="Monto est.">
                 @if (c.amount === null) { <span class="rc-none" title="El documento no trae costo de ese renglón">sin costo</span> }
                 @else { {{ money(c.amount) }} }
               </td>
-              <td>
+              <td role="cell" data-label="Responsable">
                 <span class="rc-resp">
                   <p-tag [value]="c.responsible_kind === 'supplier' ? 'Proveedor' : 'Traspaso'"
                          [severity]="c.responsible_kind === 'supplier' ? 'info' : 'secondary'"></p-tag>
                   <span class="rc-resp-name">{{ c.supplier_name || c.responsible_label || c.responsible_code || '—' }}</span>
                 </span>
               </td>
-              <td class="rc-muted">{{ c.warehouse_code || '—' }}</td>
+              <td class="rc-muted" role="cell" data-label="Recibió">{{ c.warehouse_code || '—' }}</td>
             </tr>
           </ng-template>
         </p-table>
