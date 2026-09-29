@@ -64,6 +64,11 @@ export interface SupplierCreditTermsSummary {
   pending_suppliers_for_80pct: number;
   /** Los proveedores de Wincaja usan otro espacio de códigos: no entran. Declarado, no escondido. */
   wincaja_excluded: true;
+  /**
+   * `false` mientras no se aplique la migración 20260929140000: la lista se ve (sólo con `credit_days`)
+   * pero nada puede figurar como confirmado ni interno, y el PUT responde 503. Declarado, no dibujado.
+   */
+  schema_ready: boolean;
 }
 
 export interface SupplierCreditTermsResponse {

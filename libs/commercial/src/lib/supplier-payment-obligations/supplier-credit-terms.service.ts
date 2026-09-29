@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import type {
   CreditTermBase, CreditTermsFilter, CreditTermsStatus, SupplierCreditTermsHistoryRow,
@@ -36,14 +36,44 @@ const MAX_CREDIT_DAYS = 365;
  */
 @Injectable()
 export class SupplierCreditTermsService {
+  private readonly logger = new Logger(SupplierCreditTermsService.name);
+  /** Sólo se recuerda el SÍ: si la migración se aplica con la API arriba, lo ve en la siguiente consulta. */
+  private schemaReadyCache = false;
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  /**
+   * ¿Ya se aplicó `20260929140000_re30_supplier_credit_terms`? El PM aplica las migraciones aparte del
+   * despliegue, así que el código puede llegar antes que las columnas: sin esta sonda la lista daría
+   * 500 (`42703`). Se prueban las dos piezas (columnas + historial); la migración las crea en UNA
+   * transacción, pero un probe compartido que pregunta por la pieza equivocada ya tumbó una pantalla
+   * (GOTCHAS §3, RE.26.2). Mismo patrón que `personalizationReady` de reabastecimiento.
+   */
+  private async schemaReady(trx: { raw: (sql: string) => Promise<{ rows: Array<{ c: boolean; t: boolean }> }> }): Promise<boolean> {
+    if (this.schemaReadyCache) return true;
+    const r = await trx.raw(`SELECT
+        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'catalog.suppliers'::regclass
+                  AND attname = 'credit_terms_updated_at' AND NOT attisdropped) AS c,
+        to_regclass('catalog.supplier_credit_terms_history') IS NOT NULL AS t`);
+    const ok = !!(r.rows[0]?.c && r.rows[0]?.t);
+    if (ok) this.schemaReadyCache = true;
+    else this.logger.warn('RE.30: falta la migración 20260929140000 — plazos en sólo lectura.');
+    return ok;
+  }
+
   async list(q: { filter?: CreditTermsFilter; search?: string }): Promise<SupplierCreditTermsResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
+    let ready = false;
     const raw = await this.tk.run(async (trx) => {
+      ready = await this.schemaReady(trx);
+      // Sin la migración, las columnas nuevas se leen como NULL/false: la lista se ve (credit_days ya
+      // existía), pero nada figura como confirmado ni interno — y el summary lo DECLARA.
+      const cols = ready
+        ? 's.credit_term_base, s.credit_terms_updated_by, s.credit_terms_updated_at, s.is_internal, s.internal_reason'
+        : 'NULL::text AS credit_term_base, NULL::text AS credit_terms_updated_by, NULL::timestamptz AS credit_terms_updated_at, false AS is_internal, NULL::text AS internal_reason';
       const res = await trx.raw(
         `WITH rec AS (
            SELECT r.proveedor_code,
@@ -61,8 +91,7 @@ export class SupplierCreditTermsService {
             GROUP BY r.proveedor_code
          )
          SELECT s.id, btrim(s.code) AS code, s.name,
-                s.credit_days, s.credit_term_base, s.credit_terms_updated_by, s.credit_terms_updated_at,
-                s.is_internal, s.internal_reason,
+                s.credit_days, ${cols},
                 rec.monto, rec.n, rec.ultima, rec.kepler_condicion, rec.kepler_dias, rec.kepler_variantes
            FROM catalog.suppliers s
            JOIN rec ON rec.proveedor_code = btrim(s.code)
@@ -134,6 +163,7 @@ export class SupplierCreditTermsService {
         pending_amount: pendingAmount,
         pending_suppliers_for_80pct: to80,
         wincaja_excluded: true,
+        schema_ready: ready,
       },
       rows,
     };
@@ -141,11 +171,11 @@ export class SupplierCreditTermsService {
 
   async history(supplierId: string): Promise<SupplierCreditTermsHistoryRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run((trx) => trx('catalog.supplier_credit_terms_history')
+    return this.tk.run(async (trx) => (await this.schemaReady(trx)) ? trx('catalog.supplier_credit_terms_history')
       .where({ tenant_id: tenantId, supplier_id: supplierId })
       .select('id', 'supplier_id', 'old_credit_days', 'new_credit_days', 'old_credit_term_base', 'new_credit_term_base',
         'old_is_internal', 'new_is_internal', 'note', 'created_by', 'created_at')
-      .orderBy('created_at', 'desc').limit(100));
+      .orderBy('created_at', 'desc').limit(100) : []);
   }
 
   async update(supplierId: string, dto: UpdateSupplierCreditTermsDto, username: string): Promise<SupplierCreditTermsUpdated> {
@@ -172,6 +202,9 @@ export class SupplierCreditTermsService {
 
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      if (!(await this.schemaReady(trx))) {
+        throw new ServiceUnavailableException('Falta aplicar la migración de plazos (20260929140000). Por ahora sólo se puede consultar.');
+      }
       const prev = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).forUpdate().first();
       if (!prev) throw new NotFoundException('Proveedor no encontrado');
 

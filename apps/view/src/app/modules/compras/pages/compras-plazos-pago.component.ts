@@ -76,6 +76,12 @@ const STATUS_LABEL: Record<Status, string> = {
           }
         </p>
         <app-metric-strip [items]="kpis()" ariaLabel="Estado de los plazos de pago" />
+        @if (!s.schema_ready) {
+          <div class="pp-gap pp-gap-warn" role="status">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <p><b>Falta aplicar la migración de plazos.</b> La lista se puede consultar, pero todavía no se puede guardar ningún plazo. Los días que ves vienen del Excel del programa de pagos.</p>
+          </div>
+        }
         <div class="pp-gap">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
           <p>La condición de Kepler sale <b>"de contado"</b> en la mayoría de las recepciones porque el plazo nunca se capturó allá: no la tomes como dato. Sólo aparecen proveedores de <b>Kepler</b>; los de Wincaja usan otros códigos y todavía no se pueden ligar.</p>
@@ -194,6 +200,7 @@ const STATUS_LABEL: Record<Status, string> = {
     .pp-gap { display:flex; gap: var(--sp-2); align-items:flex-start; padding: var(--sp-2) var(--sp-3); margin: .6rem 0;
       border-left: 3px solid var(--info-fg); background: var(--info-soft-bg); font-size:.8rem; }
     .pp-gap p { margin:0; }
+    .pp-gap-warn { border-left-color: var(--warn-fg); background: var(--warn-soft-bg); }
     .pp-filters { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin: .8rem 0 .6rem; }
     /* GOTCHAS §41: PrimeNG 22 ignora styleClass en p-inputnumber → se apunta al ELEMENTO. */
     .pp-search input { min-width: 16rem; }
@@ -236,7 +243,10 @@ export class ComprasPlazosPagoComponent implements OnInit {
   search = '';
 
   /** Fijar el plazo pactado es del comprador o dirección (COMPRAS_PLAZOS_AUTORIZAR), no de quien opera. */
-  canEdit(): boolean { return this.perms.has(Permission.COMPRAS_PLAZOS_AUTORIZAR); }
+  canEdit(): boolean {
+    // Sin la migración el PUT responde 503: no se ofrece un botón que va a fallar.
+    return this.summary()?.schema_ready === true && this.perms.has(Permission.COMPRAS_PLAZOS_AUTORIZAR);
+  }
 
   readonly filterOpts: SegOption[] = [
     { label: 'Pendientes', value: 'pendientes' },
