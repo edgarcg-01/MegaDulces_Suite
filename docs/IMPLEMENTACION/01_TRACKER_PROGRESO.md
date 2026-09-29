@@ -4633,6 +4633,20 @@ Edgar: *"tenemos dos problemas claros que necesitan un análisis: 1. no estamos 
 - **Estimación (no medición):** con todo a costo real el margen rondaría **12.1%** y la brecha al 15% sería ≈2.9 pp en vez de 3.7. Controla mezcla de producto, no de cliente ni canal.
 - ⚖️ **Deuda abierta:** MR.0 (diccionario del margen firmado) y MR.6 (`margin_gap_bridge`, la descomposición de la brecha por palanca y responsable) siguen sin existir — es lo que convierte el tablero en herramienta de decisión. `sales_daily` arranca el 2025-10-03, así que la ventana de 12 meses todavía no cubre 12 meses.
 
+### MR.8 — Verdad absoluta del MARGEN (el capítulo que `VERDAD_ABSOLUTA.md` §11 excluye por escrito)
+
+Pedido de Edgar: *"necesito una verdad absoluta con rentabilidad"*. Absorbe `MR.7.2` y `MR.7.3`. Medición en [`FASE_MR8_MEDICION_ARBITRO`](FASES/FASE_MR8_MEDICION_ARBITRO.md). **El número publicado NO se mueve en esta entrega**: la pantalla agrega el margen arbitrado y el delta, sustituir se decide después con el candado midiendo.
+
+- [x] **[MR.8.0]** 🧪 **Sprint 0 — 7 defectos medidos de la pantalla, ninguno toca el cálculo del margen.** (a) `taken_amount` contaba el `c84` **dos veces** (`buildLevers` ya lo mete en `commercialTotal`): apagaba el aviso «Faltan $» en **18 de 82** proveedores y escondía **$432,591** — la cascada decía $1,158,337 y el drawer $0 para el mismo proveedor. (b) el desglose por canal leía `sales_daily`, a la que le faltan **$10.54M de Morelia Abastos** (may–ago: $0 contra $14.8/15.0/15.5/16.4M); su justificación escrita («mv no tiene mayoreo») estaba **refutada** — el blend trae mayoreo con $10.36M. Ahora sale del mismo fact y se rotula con `analytics.sellout_channel_map` ([VSO.1]); ⭐ el fix destapó que **`credito` ($3.73M) no está en el mapa** (es el carril de rutas) y ahora se **declara** en vez de colarse. (c) el rótulo decía `sales_daily` cuando el margen sale de `mv_sales_blended`. (d) la tarjeta «Brecha» mezclaba **tres bases** (pp del negociado, pesos del bruto, color del bruto: $699,151 contra $2,188,268 = **3.1×**). (e) `erp_promotions` **vacía** y sin declarar. (f) **$205,008** en 41 ajustes (`categoria` NULL + `'otro'`) que no salían en **ningún** bloque. (g) el inventario declaraba cobertura testigo/valuadas con el denominador **ya filtrado**: se retira el filtro (total idéntico, **delta 0.0000**) y aparecen **73.59%** de cobertura real + **2,865 SKUs / 90,036 piezas** sin valuar. Builds api+view verdes, SQL verificado DB-direct. ⚠️ **Falta HTTP smoke (el API de :3334 sirve código viejo, puerto fijo → reinicio) y validación visual.** Commit `2d6cbc8c`.
+- [x] **[MR.8.1]** ✅ **Medición previa — veredicto GO.** Los 5 gates pasan. ⭐ **Anti-espejo (ADR-059 R5): el spread de margen entre sucursales del mismo SKU es 3.0310 pp con el árbitro y 0.0000 pp con el álgebra** (210 de 249 SKUs) — prueba que `c62` no es el markup con otro nombre. **Contradice** +4.16 pp en mostrador (14.91% vs 10.75%), por sucursal de +1.93 a +5.44; el álgebra mete a las 8 sucursales en una banda de **0.63 pp** y el árbitro las abre a **3.01 pp**. **Aceptación MR.7.2 cumplida: 0.055% de líneas con costo > venta contra el baseline de 7.4%** — y ⭐ **anti-recorte TRUE** (hay venta bajo costo real, peor línea −294.8%), así que nadie puso un piso. Población: de los 7 filtros, **seis no tiran nada** (cancelados 0, servicios 0, cantidad cero 0); el único es sub-almacén de ruta, **$2,343,922, y es a favor** (100% de cobertura de `c62`, margen 15.47–16.60%). **Tres hipótesis refutadas:** el «−261.79%» que bloqueaba `c62` era un **error de unidad en la medición** (`c62 × c9` en vez de `c62 × c56`, sobrecuenta por el factor); `c26` no es atajo (mediana 1.0002 vs `c62` pero colas que revientan la suma); y **Wincaja no puede tener árbitro** — su costo publicado ya *es* `valor_costo`, arbitrarlo consigo mismo es el espejo de §9.10. ⭐ **Camino barato encontrado:** `ix_kdm1_venta_fecha` permite manejar desde `kdm1` y unir por la PK de 7 columnas (2–8 s sobre 30d) en vez de escanear `kdm2` por `c32`, que no tiene índice. ⛔ **Y la llave del matview no era la obvia:** `(sucursal, almacén, doctype, folio, línea, fecha)` **colisiona 34,375 veces** a 400d — falta **`c5` (la caja)**, y con ella da 0 colisiones sobre 1,952,732 filas; las colisiones son el mismo folio en cajas distintas. **`v_erp_sales_line_units` NO expone `c5`**, así que un matview sobre esa vista no puede tener índice único.
+- ⛔ **Condición dura que sale de la medición:** el árbitro **cubre mostrador y NO cubre mayoreo** (`U-D-8` tiene `c62` en el **1.16%** de las líneas / **0.95%** del dinero, sobre **$10,260,464**). Arbitrado ≈ **55%** de los $53.65M. **El margen arbitrado se publica por canal con su cobertura al lado, o no se publica** — un agregado global saldría sesgado hacia arriba.
+- [ ] **[MR.8.2]** ⬜ El resolvedor `mv_margin_truth` + su vista de cobertura hermana.
+- [ ] **[MR.8.3]** ⬜ Los huecos en `analytics.declared_gaps` (5 filas) + acotar el tripwire `resolvedores_sin_adopcion` en la MISMA migración.
+- [ ] **[MR.8.4]** ⬜ El candado `test-newdb-margin-truth-parity.js` — hoy **no existe ni una aserción sobre `cost` ni `margin`** en todo `database/tests/`.
+- [ ] **[MR.8.5]** ⬜ Contrato (`Freshness`/`Coverage` compartidos) + pantalla + latencia (el smoke falla 3 de 62 por presupuesto de tiempo: la regresión está roja).
+- [ ] **[MR.8.6]** ⬜ El capítulo en `docs/VERDAD_ABSOLUTA.md` (§2/§5/§6/§7/§9/§10 y **borrar** el párrafo de §11 que excluye el margen). ⚠️ Agregar la fila a §5 pone `test-newdb-truth-parity.js` **rojo** hasta registrar la paridad — va en el mismo commit.
+- ⚠️ **Hallazgo abierto:** la **venta** que publica la pantalla **incluye IVA e IEPS** (`c17`/`c18` están en el renglón; 81% de las líneas los llevan, 7.9% del importe en la rebanada medida). El margen % no se mueve —`revenue/(1+markup)` es invariante de escala, por eso el defecto era invisible— pero el KPI «Venta 30 días» sí está por encima de la venta neta.
+
 ---
 
 ## Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md)
@@ -6451,6 +6465,37 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   declaración que se apaga sola o grita sola, comprobada en las dos direcciones.**
   La entrada se **retira** (ya no describe nada) y el **mecanismo se queda** para el próximo
   desfase. `DESFASES_DECLARADOS` queda vacío a propósito, con la historia escrita al lado.
+- [x] **`[VSO.17]`** ✅ **Las consultas que arman los FILTROS costaban más de 1 s, y el ahorro salía
+  de no preguntar lo que no se usa.** Pedido de Edgar: *"que estén optimizadas, sean rápidas y
+  funcionen en sincronía con los filtros"*.
+  **Medido primero, con `EXPLAIN (ANALYZE, BUFFERS)` y no a ojo:** el reporte corre **~13 consultas
+  EN SERIE** sobre la misma conexión — y por eso `Promise.all` **no compra nada**: un `trx` de pg
+  las serializa igual. El camino no era paralelizar, era que cada una costara menos.
+  ⛔ **Lo que yo agregué en `[VSO.13]` NO era el problema**: `plazasCanon` cuesta **2 ms** y la
+  columna `s.source` de la procedencia, **~0**. El caro era `selloutLeaves` en el mes en curso:
+  **1,119 ms**, o sea **190,883 páginas** del `Append` de las cuatro piernas. Y la razón es que la
+  vista diaria arrastra los joins a producto, marca y precios de etiqueta **que una lista de
+  sucursales no necesita**.
+  ⭐ **La clave:** los **cinco** callers de `selloutLeaves` —canales, vendedores, sucursales, el
+  árbol Avanzado y la cobertura— **son los filtros**, y ninguno publica importe: sólo preguntan qué
+  existe y filtran por `_m > 0`. Para ellos el traslape entre rollup y vista diaria es inofensivo.
+  `planSellOutPresence` usa el rollup **también para el mes en curso** y deja la vista diaria sólo
+  para los últimos 2 días (el rollup se materializa de noche).
+  **Contra el plan estricto REAL, y con las hojas comparadas una por una:**
+  mes en curso **1,089 → 322 ms (3.4×)** · últimos 90 d **967 → 359 ms (2.7×)** · año a hoy
+  **1,023 → 412 ms (2.5×)** — **hojas IDÉNTICAS en los tres**. Todo rango que termina hoy cruzó de
+  **>1 s a ~0.3 s**, que es el gate de la casa.
+  ⚠️ **Corrección a mi propia medición**: primero publiqué 10.9× y 17.4× porque comparé contra
+  *"todo diario"*, y el plan estricto **ya usaba el rollup** para los meses cerrados. El número real
+  es 2.5–3.4×. *Un speedup contra un baseline que no existe es marketing.*
+  ⛔ **El guardrail es carga útil, y está medido:** el bucket del mes en curso sólo vale si TODO él
+  cae dentro del rango (`from <= día 1` **y** `to >= hoy`). Para `2026-09-01→09-15` el rango real
+  tiene **20** hojas y el bucket **21**: la de más es **`kepler|08`**, Morelia Abastos por Kepler,
+  que no vendió esa quincena porque **su corte fue el 19-sep**. Sin el guardrail el filtro ofrecería
+  una sucursal que el pivote muestra vacía — exactamente la desincronía que el pedido quería evitar.
+  ⬜ **Declarado, no hecho:** `fetchSelloutRows` (el pivote) **no** se tocó — ahí el traslape SÍ
+  duplicaría importes, así que sigue con el plan estricto; y `selloutUsesRollup` se llama **dos
+  veces** por reporte (desde `selloutFreshness` y desde `selloutLeaves`), una consulta de más.
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)
