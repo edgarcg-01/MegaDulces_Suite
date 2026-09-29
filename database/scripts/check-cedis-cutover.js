@@ -94,7 +94,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
 
     if (!cargas.length) {
       console.log(`⚠️  NO MEDIDO: no hay documentos N-A-45/N-A-30 en la sucursal Kepler '${KEP_SUC}'`
-        + ` (almacén '${KEP_SUC}')${FECHA ? ` con fecha ${FECHA}` : ' en los últimos 30 días'}.`);
+        + ` (en NINGUNO de sus almacenes)${FECHA ? `, alrededor de ${FECHA}` : ' en los últimos 30 días'}.`);
       console.log('    ⛔ Esto NO es un visto bueno: es que no hay nada que medir todavía.');
 
       // ⛔ "No hay nada acá" y "no hay nada" no son lo mismo, y confundirlos es JUSTO el modo
