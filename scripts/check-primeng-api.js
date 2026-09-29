@@ -170,11 +170,11 @@ const TECHO = {
   'pTemplate en p-table': 0,   // 144 pantallas ya usan #body; las 2 que faltaban se arreglan
   'nombre retirado': 0,
   'pButton con label': 3,
-  'styleClass p-table': 283,
-  'styleClass p-select': 255,
-  'styleClass p-multiselect': 39,
+  'styleClass p-table': 289,
+  'styleClass p-select': 263,
+  'styleClass p-multiselect': 41,
   'styleClass p-inputnumber': 13,
-  'styleClass p-autocomplete': 7,
+  'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
   'severity retirado': 1,
 };

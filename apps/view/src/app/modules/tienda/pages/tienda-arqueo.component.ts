@@ -16,7 +16,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, BloqueoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, AvisoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -92,50 +92,50 @@ interface CortesPersona {
            historial queda donde va: abajo. -->
       <div class="arq-stack">
         <!-- Captura -->
-          <!-- SM.38 - Dos cajas abiertas con el mismo usuario. Va ANTES de todo y
-               reemplaza la captura: mostrar el formulario debajo de un bloqueo
-               invita a intentarlo y a chocar con un 409 sin entender por que. -->
-          @if (bloqueo(); as b) {
-            <div class="arq-bloqueo">
-              <i class="pi pi-lock"></i>
+          <!-- SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Se DICE, y la
+               captura queda habilitada abajo: el candado que vivia aca dejaba a la
+               persona sin salida cuando el cierre no llegaba del ODS (medido el
+               2026-09-29 con la ingesta caida 6 dias). -->
+          @if (aviso(); as b) {
+            <div class="arq-aviso-caja">
+              <i class="pi pi-info-circle"></i>
               <div>
-                <strong>Tienes dos cajas abiertas con tu usuario. Todo queda bloqueado.</strong>
-                <ul class="arq-bloqueo-lista">
+                <strong>Tienes dos cajas abiertas con tu usuario.</strong>
+                <ul class="arq-aviso-lista">
                   @for (c of b.cajas; track c.warehouse_code + c.caja + c.folio) {
                     <li>Sucursal <strong>{{ branchLabel(c.warehouse_code) }}</strong> — caja <strong>{{ c.caja }}</strong>
                       @if (c.hora_apertura) { <span class="muted">(abierta {{ c.hora_apertura }})</span> }
                     </li>
                   }
                 </ul>
-                <p class="muted">Cierra la sesión en <strong>una de las dos</strong> desde Kepler. En cuanto la cierres se reactiva solo — no hay que pedirle nada a nadie.</p>
+                <p class="muted">Puedes arquear igual. Si ya cerraste una en Kepler, avísale a tu encargada para que revise que quede contado el turno correcto.</p>
                 @if (b.arrastradas.length) {
-                  <!-- Se DECLARAN pero no bloquean: hay cajas abiertas desde hace
-                       meses que nadie va a cerrar, y bloquear por ellas dejaria a
-                       la persona trabada para siempre. -->
-                  <p class="muted arq-bloqueo-extra">
+                  <p class="muted arq-aviso-extra">
                     Además tienes {{ b.arrastradas.length }} caja(s) abierta(s) de días anteriores
-                    ({{ b.arrastradas[0].dias_abierta }} día(s) la más vieja). Ésas no bloquean, pero avísale a tu encargada.
+                    ({{ b.arrastradas[0].dias_abierta }} día(s) la más vieja).
                   </p>
                 }
               </div>
             </div>
-          } @else if (canCapture()) {
+          }
+          @if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
 
           @if (cargandoTurnos()) {
             <p class="muted arq-msg">Buscando tus turnos en Kepler…</p>
           } @else if (!turnos().length && !manual()) {
-            <!-- Sin turno no hay arqueo: es la guarda que impide inventar un corte. -->
+            <!-- SM.40 - Sin turno YA se puede arquear. Antes esto era un callejon
+                 sin salida para la cajera: el boton de capturar a mano solo salia
+                 con revela, asi que si Kepler no habia abierto -o el dato no
+                 habia llegado- no le quedaba nada que hacer. -->
             <div class="arq-vacio">
               <i class="pi pi-clock"></i>
               <div>
-                <strong>Hoy no tienes cortes por arquear.</strong>
-                <p class="muted">El arqueo aparece aquí cuando Kepler cierra tu caja. Si ya cortaste en el punto de venta y no lo ves, avísale a tu encargada.</p>
-                @if (revela) {
-                  <p-button type="button" label="Capturar sin turno" icon="pi pi-pencil" styleClass="p-button-sm p-button-text"
-                            (click)="manual.set(true)"></p-button>
-                }
+                <strong>No tienes cortes por arquear.</strong>
+                <p class="muted">Los turnos aparecen aquí cuando Kepler abre tu caja. Si ya cortaste en el punto de venta y no lo ves, puedes contar de todos modos y avisarle a tu encargada.</p>
+                <p-button type="button" label="Contar sin turno" icon="pi pi-pencil" styleClass="p-button-sm p-button-text"
+                          (click)="manual.set(true)"></p-button>
               </div>
             </div>
           }
@@ -144,14 +144,14 @@ interface CortesPersona {
             @if (turnos().length > 1) {
               <!-- En una sola línea: partido en tres, el navegador colapsaba los saltos
                    y dejaba el punto huérfano al principio del renglón siguiente. -->
-              <p class="arq-lbl arq-turno-lbl">Tienes <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo, y el que está abierto también se puede contar.</p>
+              <p class="arq-lbl arq-turno-lbl">Tienes <strong>{{ turnos().length }} cortes</strong> sin arquear. Cuenta el que quieras, en el orden que quieras — el que está abierto también se puede contar.</p>
               <div class="arq-turnos">
                 @for (t of turnosOrdenados(); track t.folio + t.warehouse_code; let i = $index) {
-                  <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
-                       El backend lo exige igual — esto solo lo hace visible. -->
+                  <!-- SM.40 - TODOS accionables. Hasta SM.39 solo el mas viejo lo
+                       era, espejando exigirElMasViejo() del backend; esa regla se
+                       retiro porque un turno que nadie va a cerrar se quedaba
+                       primero en la fila y trababa el de hoy para siempre. -->
                   <button type="button" class="arq-turno" [class.sel]="t.folio === turnoFolio()"
-                          [class.bloq]="i > 0" [disabled]="i > 0"
-                          [attr.title]="i > 0 ? 'Primero cierra el corte pendiente más viejo' : null"
                           (click)="elegirTurno(t.folio)">
                     <span class="arq-turno-caja"><span class="arq-turno-n">{{ i + 1 }}º</span> Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
@@ -163,7 +163,6 @@ interface CortesPersona {
                     @if (i === 0) {
                       <span class="arq-pide">{{ t.abierto ? 'Podés arquear ahora' : 'Te toca arquear' }}</span>
                     }
-                    @if (i > 0) { <span class="arq-bloq-txt">Después de cerrar el anterior</span> }
                   </button>
                 }
               </div>
@@ -272,7 +271,11 @@ interface CortesPersona {
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
-              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
+              <!-- SM.40 - A quien solo captura lo suyo se le muestra su codigo pero
+                   no se le deja escribirlo: el backend le impone su usuario igual
+                   (atribuir), y un campo editable que el servidor descarta en
+                   silencio miente. Solo el supervisor captura a nombre de otra. -->
+              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -796,7 +799,6 @@ interface CortesPersona {
     .arq-bar :host ::ng-deep .p-button, .arq-bar ::ng-deep .p-button { margin-left: auto; }
     .arq-turno-n { display: inline-block; margin-right: .3rem; padding: 0 .3rem; border-radius: var(--r-sm);
                    background: var(--action); color: #fff; font-size: .62rem; font-weight: 700; vertical-align: middle; }
-    .arq-turno.bloq .arq-turno-n { background: var(--text-muted); }
     .arq-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
     .arq-msg { font-size: .82rem; margin: .4rem 0; }
     .arq-vacio { display: flex; gap: .8rem; align-items: flex-start; padding: .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md); }
@@ -809,10 +811,6 @@ interface CortesPersona {
     .arq-turno:hover { background: var(--surface-hover-bg); }
     .arq-turno.sel { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
     .arq-turno-caja { font-size: .85rem; font-weight: 700; }
-    .arq-turno.bloq { opacity: .5; cursor: not-allowed; }
-    .arq-turno.bloq:hover { background: var(--card-bg); }
-    .arq-bloq-txt { display: block; margin-top: .2rem; font-size: .6rem; text-transform: uppercase;
-                    letter-spacing: .04em; color: var(--text-muted); }
     .arq-pide { display: block; margin-top: .2rem; font-size: .6rem; font-weight: 700; text-transform: uppercase;
                 letter-spacing: .04em; color: var(--action); }
     .arq-prox { display: flex; gap: .7rem; align-items: flex-start; padding: .7rem .85rem; margin-bottom: .9rem;
@@ -833,17 +831,18 @@ interface CortesPersona {
     .arq-pide-box.urge { border-color: color-mix(in srgb, var(--warn-fg) 55%, transparent);
                          background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     .arq-pide-box.urge i { color: var(--warn-fg); }
-    /* SM.38 - El bloqueo usa el tono de peligro, no el de aviso: es lo unico de
-       esta pantalla que IMPIDE trabajar, y tiene que leerse distinto de un
-       recordatorio. */
-    .arq-bloqueo { display: flex; gap: .8rem; align-items: flex-start; padding: 1rem;
-                   margin-bottom: 1rem; border-radius: var(--r-md);
-                   border: 1px solid color-mix(in srgb, var(--danger-fg, #b91c1c) 55%, transparent);
-                   background: color-mix(in srgb, var(--danger-fg, #b91c1c) 10%, transparent); }
-    .arq-bloqueo i { color: var(--danger-fg, #b91c1c); font-size: 1.1rem; margin-top: .1rem; }
-    .arq-bloqueo p { margin: .4rem 0 0; font-size: .8rem; }
-    .arq-bloqueo-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
-    .arq-bloqueo-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
+    /* SM.40 - Tono de AVISO, no de peligro: ya no impide trabajar, informa. Y
+       usa --warn-fg, que existe en tokens.css -- el --danger-fg que habia
+       aca NO esta declarado en ningun lado, asi que siempre caia al literal
+       hardcodeado y no cambiaba en modo oscuro. */
+    .arq-aviso-caja { display: flex; gap: .8rem; align-items: flex-start; padding: 1rem;
+                      margin-bottom: 1rem; border-radius: var(--r-md);
+                      border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+                      background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
+    .arq-aviso-caja i { color: var(--warn-fg); font-size: 1.1rem; margin-top: .1rem; }
+    .arq-aviso-caja p { margin: .4rem 0 0; font-size: .8rem; }
+    .arq-aviso-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
+    .arq-aviso-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
     .arq-pide-box.urge p-button { margin-top: .45rem; display: inline-block; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
     .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
@@ -1099,11 +1098,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
   /**
-   * SM.38 - Dos cajas abiertas con el mismo usuario: se bloquea todo hasta que
-   * cierren una. Viene resuelto del servidor y el POST tambien lo rechaza, asi
-   * que esconder la captura es cortesia, no la compuerta.
+   * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Viene resuelto del
+   * servidor y es solo un AVISO: la captura sigue habilitada debajo.
    */
-  readonly bloqueo = signal<BloqueoDobleCaja | null>(null);
+  readonly aviso = signal<AvisoDobleCaja | null>(null);
 
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
@@ -1271,8 +1269,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
 
   ngOnInit() {
-    // Solo se usa en la captura manual del supervisor: en el flujo normal la
-    // sucursal la dice el turno.
+    // Se usan en la captura SIN turno (SM.40: ya no es solo del supervisor). En
+    // el flujo normal la sucursal y el cajero los dice el turno de Kepler.
     const u = this.auth.user()?.username;
     if (u) this.aCajero = u.toUpperCase();
     this.dataScope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -1298,7 +1296,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (!silencioso) this.cargandoTurnos.set(true);
     this.svc.turnos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
-          this.bloqueo.set(r.bloqueo);
+          this.aviso.set(r.aviso);
           const t = r.turnos || [];
           this.turnos.set(t);
           this.turnosAl.set(new Date().toISOString());

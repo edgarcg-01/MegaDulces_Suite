@@ -300,7 +300,20 @@ if (malos > 0) {
   console.error('       barra pegada) → lo que sigue se pega al selector y la regla DESAPARECE del bundle.');
   console.error('       El build sólo lo dice como warning: en verde, y con el estilo roto en producción.');
   console.error('     · cierre de comentario HTML huérfano en un template → el resto se RENDERIZA como texto.');
-  console.error(noMedido + '\n');
+  if (noMedido) console.error(noMedido);
+  /**
+   * ⭐ **El veredicto va SIEMPRE en la ultima linea, en las dos salidas.**
+   *
+   * Antes el fallo terminaba con una linea EN BLANCO y el exito con el ✅. Esa asimetria
+   * cobro: corriendo el gate como `node scripts/check-template-literals.js | tail -1` —que es
+   * como se lo mira de reojo entre dos builds— un ROJO devolvia **vacio** y se leia como que
+   * habia pasado. Paso de verdad, y el build revento cinco minutos despues.
+   *
+   * El exit code ya era correcto; lo que mentia era la forma barata de mirarlo. Un veredicto
+   * que solo se ve leyendo todo el output es medio veredicto.
+   */
+  console.error('');
+  console.error(`❌ ${malos} componente(s) con el comentario roto — el detalle, arriba.`);
   process.exit(1);
 }
 console.log(`✅ ${files.length} componente(s) · ${stats.html} template + ${stats.css} bloques de estilo: literales enteros, CSS que parsea, comentarios bien cerrados.${noMedido}`);

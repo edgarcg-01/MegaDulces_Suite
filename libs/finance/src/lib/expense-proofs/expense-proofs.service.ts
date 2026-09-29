@@ -19,6 +19,33 @@ import {
 import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
+// `[GX.39]` La etapa de EJERCICIO (lo que pasa despues de que firmamos, del lado de Kepler)
+// se decide con la MISMA funcion que lee el chip del frontend. Ver el contrato.
+import {
+  ETIQUETA_ETAPA, EXPLICACION_ETAPA, etapaDeEjercicio,
+  type EstadoKepler, type EtapaEjercicio,
+} from '@megadulces/contracts';
+// `[GX.41]` A quien le toca un vale de Kepler lo decide UNA funcion, compartida con el
+// frontend: la caja «Solicita» trae un username nuestro y tiene que casar exacto.
+import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from '@megadulces/contracts';
+// `[GX.43]`/`[GX.44]` El documento que respalda la autorizacion y la deuda de comprobante:
+// las dos reglas viven en el contrato compartido, no escritas dos veces.
+import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
+import type { AutorizacionKepler } from '@megadulces/contracts';
+
+/**
+ * `[GX.48]` Lo que la vista de Kepler aporta por folio: el estado del ejercicio **y** los
+ * campos con los que se arma la constancia de autorizacion.
+ */
+interface DatosKepler {
+  aplicada: boolean | null;
+  estado: EstadoKepler | null;
+  importe?: number | null;
+  fecha?: string | null;
+  beneficiario?: string | null;
+  concepto?: string | null;
+  autoriza?: string | null;
+}
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -114,7 +141,9 @@ const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
  */
 function tieneRespaldo(f: { role?: unknown; url?: unknown }): boolean {
   const role = String(f?.role || '');
-  return !!f?.url && (role === REQUEST_ROLE || role.startsWith('comprobante'));
+  return !!f?.url && (
+    role === REQUEST_ROLE || role.startsWith('comprobante') || role.startsWith('cotizacion')
+  );
 }
 
 export interface ProofFile {
@@ -204,6 +233,11 @@ export interface RespuestaDelDia extends ParticionDelDia {
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
 export interface ProofByFolio {
+  /**
+   * `[GX.55]` Aprobado **debiendo** el comprobante (entro con cotizacion o prefactura). Es lo
+   * que habilita subir la factura despues, sin importar la clasificacion del gasto.
+   */
+  provisional?: boolean;
   id: string;
   status: string;
   /** ¿Está la evidencia del gasto (factura/ticket)? Obligatoria salvo no_comprobable. */
@@ -239,6 +273,50 @@ export interface CreateExpenseProofDto {
   // `[GX.32]` Se fueron `monto_ocr`, `subtotal_ocr` y `receipt_legible`: los mandaba la
   // vista previa por visión, que ya no existe. Un campo del borde que nadie llena es un
   // contrato que miente — el siguiente que lo lea va a creer que trae algo.
+}
+
+/**
+ * `[GX.39]` La fila cruda del listado. Estaba tipada `any` — y el `any` no es cosmetico aca:
+ * es la fila que despues entra a `conEtapa()`, que decide si un gasto dice «ejercido». Con
+ * `any`, un `folio_solicitud` mal escrito compila y la etapa sale `sin_medir` para todos sin
+ * que nada se queje.
+ */
+interface FilaDeGasto {
+  status?: string;
+  folio_solicitud?: string | null;
+  sucursal?: string | null;
+  importe?: unknown;
+  monto_ocr?: unknown;
+  files?: unknown;
+  [k: string]: unknown;
+}
+
+/** `files` viaja como jsonb: knex lo entrega ya parseado o como texto, segun el driver. */
+function archivosDe(v: unknown): ProofFile[] {
+  if (typeof v === 'string') { try { return JSON.parse(v || '[]') as ProofFile[]; } catch { return []; } }
+  return Array.isArray(v) ? (v as ProofFile[]) : [];
+}
+
+/**
+ * `[GX.49]` La solicitud de Kepler tal como la devuelve el lookup exacto. Es el mismo contrato
+ * que consume `pick()` en la pantalla de captura: si se le quita un campo, el vale abre a
+ * medias y la pantalla no se queja.
+ */
+export interface SolicitudKepler {
+  folio: string;
+  sucursal: string | null;
+  beneficiario: string | null;
+  solicitante: string | null;
+  concepto: string | null;
+  estado: string | null;
+  rfc: string | null;
+  autoriza: string | null;
+  referencia: string | null;
+  cuenta_clave: string | null;
+  usuario: string | null;
+  fecha: string | null;
+  importe: number;
+  iva: number;
 }
 
 export interface ListExpenseProofsQuery {
@@ -740,6 +818,35 @@ export class ExpenseProofsService {
           ...(files.some((f) => String(f.role).startsWith('comprobante'))
             ? { evidencia_por: actor || null, evidencia_at: trx.fn.now() }
             : {}),
+          /**
+           * `[GX.44]` **El vale que llega con una COTIZACION nace debiendo su comprobante.**
+           *
+           * Pedido del usuario: *«cuando es cotizacion se queda abierto para que cuando compre
+           * lo que cotizo suba la factura»*. Se reusa la marca que GX.30 ya invento para el
+           * aprobador (`provisional` + `comprobante_esperado_at`), no una segunda: son el
+           * mismo hecho —hay dinero aprobado sin comprobar— y con dos banderas el numero de
+           * «cuanto se debe» habria que sumarlo de dos lados y nadie se acordaria del segundo.
+           *
+           * ⚠️ Lo decide el CONTENIDO (`quedaDebiendoComprobante`), no una casilla: si
+           * dependiera de que la persona la marque, una cotizacion sin marcar cerraria el
+           * vale sin deber nada.
+           *
+           * `[GX.51]` **Sin fecha limite**, igual que la aprobacion: la factura del pago llega
+           * cuando llega. Cuanto lleva esperando se sabe desde `created_at`.
+           */
+          /**
+           * ⛔ `exige_evidencia: true` FIJO, igual que la compuerta de arriba — y por la misma
+           * razón que `[GX.31]`. Acá decía `llevaEvidencia`, y con `no_comprobable` (que es
+           * TODO lo que levanta esta pantalla desde GX.19) eso es **false**: la función salía
+           * por su primera línea y **la deuda no se marcaba nunca**. El vale entraba con su
+           * cotización y cerraba sin deber nada.
+           *
+           * La pregunta «¿queda debiendo?» no depende de la clase de gasto: depende de si lo
+           * que subió es sólo una cotización. Lo encontró el candado de GX.31.
+           */
+          ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: true, forma_pago: formaPago })
+            ? { provisional: true }
+            : {}),
         })
         .returning(['id', 'folio_solicitud', 'status']);
       this.logger.log(`solicitud de gasto folio ${row.folio_solicitud} [${clasificacion}/${formaPago}] capturada → recibida · ${files.length} archivos (${files.filter((f) => f.live).length} en vivo), por ${actor || '?'}`);
@@ -813,8 +920,44 @@ export class ExpenseProofsService {
     // el monto) y de ahí salía `validada` o `revision`. Se retiró por pedido del usuario.
     // ⛔ Y con él se va el `validated_by: 'Claude Vision'`: **ninguna decisión sobre
     // dinero queda firmada por una máquina**. Cierra la persona que aprobó, con su nombre.
+    /**
+     * `[GX.54]` **El vale que llegó con una COTIZACIÓN vuelve al capturista, no se cierra.**
+     *
+     * Pedido textual: *«cuando sea así, en lugar de denegarlo hay que regresarlo al usuario
+     * con el estatus nuevo y solamente con la tarea nueva de que envíe la factura del pago»*.
+     *
+     * ⛔ Se reusa `aprobada`, que YA significa exactamente eso —«aprobado, falta que suba la
+     * evidencia»— y que la pantalla ya pinta con «te toca subir la evidencia». Inventar un
+     * estado nuevo habría obligado a tocar el CHECK, las bandejas, los KPI y las tres
+     * pantallas que leen `status`, para decir lo mismo con otra palabra.
+     *
+     * ⚠️ Sin esto el vale cerraba en `validada` con la sola cotización: aprobado, con la deuda
+     * marcada en `provisional`… y **sin nadie a quien le tocara nada**. La factura nunca
+     * llegaba porque el trámite ya había terminado.
+     */
+    const soloCotizacion = files.some((f) => String(f?.role || '').startsWith('cotizacion'))
+      && !files.some((f) => String(f?.role || '').startsWith('comprobante'));
+
     let nextStatus: string;
-    if (!lleva) {
+    /**
+     * `[GX.56]` ⭐ **La casilla del aprobador manda.** Pedido textual: *«cuando activemos este
+     * apartado "Esto es una prefactura o cotización, todavía falta el comprobante" y demos
+     * click en "Aprobar como provisional" se le regrese al usuario y se le permita volver a
+     * adjuntar la evidencia para que lo vuelva a enviar»*.
+     *
+     * ⛔ Antes, marcar la casilla con un comprobante ya adjunto cerraba igual en `validada`:
+     * la marca quedaba puesta, el vale cerrado, y **el camino para subir la factura no
+     * existía** —`addEvidence` sólo opera sobre `aprobada`—. O sea que la casilla decía «falta
+     * el comprobante» y al mismo tiempo daba el trámite por terminado.
+     *
+     * Ahora el que la marca es el que decide: si dice que falta, el vale vuelve.
+     *
+     * ⚠️ `soloCotizacion` se conserva **además** (GX.54): cubre al aprobador que NO marca la
+     * casilla sobre un vale que sólo trae cotización. Son dos señales de lo mismo y basta una.
+     */
+    if (prov || soloCotizacion) {
+      nextStatus = 'aprobada';
+    } else if (!lleva) {
       nextStatus = 'validada';
     } else if (!hasEvidence) {
       nextStatus = 'aprobada';
@@ -839,12 +982,23 @@ export class ExpenseProofsService {
           // deja de leerse, y el silencio acá significa «la visión no objetó nada».
           revision_nota: aviso,
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
-          // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
-          // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
+          /**
+           * `[GX.51]` **Sin fecha limite.** Acá se ponían 15 días por defecto (GX.30) con este
+           * razonamiento: «sin fecha la deuda no envejece y nadie la reclama nunca». Se retiró
+           * por pedido del usuario, y el razonamiento no se pierde — se corrige:
+           *
+           * La factura del pago **llega cuando llega**, y no depende de nadie de la casa.
+           * Ponerle vencimiento era inventar un plazo que nadie podía cumplir ni hacer cumplir,
+           * y una fecha inventada envejece igual pero ADEMÁS miente.
+           *
+           * ⚠️ Lo que la fecha cuidaba se conserva: cuánto lleva esperando se sabe desde
+           * `validated_at`, que es cuándo se aprobó. Lo que se deja de afirmar es CUÁNDO vence.
+           *
+           * La columna se conserva y se respeta si alguien la manda —hay expedientes viejos
+           * con valor y borrarla los volvería ilegibles—, pero ya no se inventa un default.
+           */
           provisional: prov,
-          comprobante_esperado_at: prov
-            ? (esperado || trx.raw("(now() + interval '15 days')::date"))
-            : null,
+          comprobante_esperado_at: prov ? (esperado || null) : null,
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');
@@ -886,11 +1040,23 @@ export class ExpenseProofsService {
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const cur: any = await trx('finance.expense_proofs').where({ id }).where('status', 'aprobada')
-        .first('folio_solicitud', 'files', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
+        .first('folio_solicitud', 'files', 'provisional', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
       return { cur, clasificacion: clasCol ? cur?.clasificacion : null };
     });
     if (!base.cur) throw new BadRequestException('el gasto no está aprobado y a la espera de evidencia');
-    if (!requiereEvidencia(base.clasificacion)) {
+    /**
+     * `[GX.55]` ⛔ **Un vale PROVISIONAL siempre puede recibir su comprobante**, diga lo que
+     * diga su clasificación.
+     *
+     * Acá el guard era `requiereEvidencia(clasificacion)` a secas, y eso cerraba el único
+     * camino que importa: GX.19 fija la captura en `no_comprobable`, así que un vale aprobado
+     * con cotización rebotaba con «este gasto no lleva evidencia» — con el chip diciéndole a
+     * la persona «te toca subir la factura del pago».
+     *
+     * `provisional` es literalmente «aprobado pero debiendo el comprobante». Si está puesto,
+     * hay algo que subir: es la marca, no la clasificación, la que manda acá.
+     */
+    if (!requiereEvidencia(base.clasificacion) && base.cur.provisional !== true) {
       throw new BadRequestException('este gasto no lleva evidencia (no comprobable)');
     }
     const prev: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
@@ -944,6 +1110,116 @@ export class ExpenseProofsService {
   }
 
   /** Bandeja + KPIs por estado. */
+  /**
+   * `[GX.39]` **Lo que Kepler dice de estos folios.** Una sola consulta para toda la pagina.
+   *
+   * ⛔ **No copia nada.** Lee la vista `analytics.expense_requests` (derive-no-copy sobre
+   * `kepler_ods.kdm1`, fresca sin mantenimiento) en el momento. Materializar `aplicada` en
+   * nuestra tabla seria una segunda forma del mismo dato — lo que GOTCHAS 32 prohibe.
+   *
+   * ⚠️ Devuelve `null` —no `false`— para el folio que no encuentra. La diferencia es toda la
+   * fase: `false` afirma que Kepler NO lo aplico, `null` dice que no lo sabemos, y el
+   * contrato traduce eso a `sin_medir` en vez de a `por_ejercer`.
+   */
+  private async keplerPorFolio(
+    trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
+  ): Promise<Map<string, DatosKepler>> {
+    const vacio = new Map<string, DatosKepler>();
+    const folios = [...new Set(filas.map((f) => String(f.folio_solicitud || '').trim()).filter(Boolean))];
+    if (!folios.length) return vacio;
+
+    // La vista no existe donde no hay ODS (una maquina sin replica). Ahi todo queda `sin_medir`,
+    // que es la verdad: no hay con que medirlo.
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
+    if (!reg.rows[0]?.t) return vacio;
+
+    const vistas: (DatosKepler & { folio: string; sucursal: string; estado: string | null })[] =
+      await trx('analytics.expense_requests')
+        .where('tenant_id', this.tenantCtx.requireTenantId())
+        .whereIn('folio', folios)
+        /**
+         * `[GX.48]` Se traen tambien los campos de la CONSTANCIA de autorizacion. Es la misma
+         * consulta —una por pagina—, asi que la constancia no cuesta un viaje extra; y se
+         * DERIVAN cada vez: si en Kepler cancelan el vale, la constancia desaparece sola.
+         */
+        .select('folio', 'sucursal', 'aplicada', 'estado', 'importe', 'beneficiario',
+          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`));
+
+    const porFolio = new Map<string, typeof vistas>();
+    for (const v of vistas) {
+      const k = String(v.folio).trim();
+      if (!porFolio.has(k)) porFolio.set(k, []);
+      (porFolio.get(k) as typeof vistas).push(v);
+    }
+
+    const out = vacio;
+    for (const f of filas) {
+      const folio = String(f.folio_solicitud || '').trim();
+      const suc = String(f.sucursal || '').trim();
+      const cands = porFolio.get(folio);
+      if (!cands?.length) continue;
+      /**
+       * ⚠️ **373 folios viven en mas de una plaza.** Con la sucursal a mano se cruza exacto;
+       * sin ella, si hay una sola candidata se usa, y si hay varias **no se elige ninguna**:
+       * tomar una arbitraria diria «ejercido» leyendo el gasto de otra tienda.
+       */
+      const hit = suc ? cands.find((c) => String(c.sucursal).trim() === suc)
+                      : (cands.length === 1 ? cands[0] : undefined);
+      if (!hit) continue;
+      out.set(this.claveKepler(folio, suc), {
+        aplicada: hit.aplicada === null || hit.aplicada === undefined ? null : !!hit.aplicada,
+        estado: (hit.estado || null) as EstadoKepler | null,
+        importe: hit.importe == null ? null : Number(hit.importe),
+        fecha: hit.fecha ?? null,
+        beneficiario: hit.beneficiario ?? null,
+        concepto: hit.concepto ?? null,
+        autoriza: hit.autoriza ?? null,
+      });
+    }
+    return out;
+  }
+
+  private claveKepler(folio: string, sucursal?: string | null): string {
+    return `${String(folio || '').trim()}|${String(sucursal || '').trim()}`;
+  }
+
+  /** Le pega la etapa a cada fila. Los tres campos viajan juntos: el chip, el texto y la clave. */
+  private conEtapa<T extends { status?: string; folio_solicitud?: string | null; sucursal?: string | null }>(
+    filas: T[], kepler: Map<string, DatosKepler>,
+  ): (T & { etapa: EtapaEjercicio; etapa_label: string; etapa_explicacion: string;
+            documento_kepler: string | null; autorizacion_kepler: AutorizacionKepler | null })[] {
+    return filas.map((r) => {
+      const k = kepler.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal));
+      const etapa = etapaDeEjercicio({
+        status: String(r.status || ''),
+        kepler_aplicada: k ? k.aplicada : null,
+        kepler_estado: k ? k.estado : null,
+      });
+      /**
+       * `[GX.43]` **El documento con el que Kepler respalda la autorizacion**, tal como se ve
+       * en su pantalla «Autorizacion de Sol Gasto» (columna `Documento`: `XA1501-0009008`).
+       * Se deriva del folio; `null` mientras nadie lo autorizo — ver el contrato.
+       */
+      const folio = String(r.folio_solicitud || '');
+      return {
+        ...r, etapa, etapa_label: ETIQUETA_ETAPA[etapa], etapa_explicacion: EXPLICACION_ETAPA[etapa],
+        documento_kepler: documentoKepler(folio, k ? k.estado : null),
+        /**
+         * `[GX.48]` **La constancia de autorizacion.** ⛔ Kepler no genera ningun documento al
+         * autorizar —se midio de cinco formas, ver el contrato—, asi que esto se GENERA con lo
+         * que Kepler si tiene y declara lo que no. Viaja en el LISTADO, no solo en el detalle:
+         * quien captura es cajero, no tiene `FINANCE_EXPENSES_VER` y el detalle le da 403 — si
+         * viviera alla, justo el dueño del vale nunca la veria.
+         */
+        autorizacion_kepler: constanciaDeAutorizacion({
+          folio, estado: k ? k.estado : null, importe: k ? k.importe : null,
+          fecha: k ? k.fecha : null, destinatario: k ? k.beneficiario : null,
+          concepto: k ? k.concepto : null, area_autoriza: k ? k.autoriza : null,
+        }),
+      };
+    });
+  }
+
   async list(q: ListExpenseProofsQuery) {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
@@ -959,6 +1235,9 @@ export class ExpenseProofsService {
           // Lo mismo vale para la clasificacion: sin ella el visor decia «sin clasificar»
           // en un vale que SI estaba clasificado. Medido en pantalla.
           'forma_pago', 'forma_pago_detalle', 'clasificacion',
+          // `[GX.54]` Viaja para que la tarea diga QUE falta: el vale aprobado con cotizacion
+          // debe la FACTURA, y «subi la evidencia» se lee como que no se recibio nada.
+          'provisional',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
       /**
@@ -1003,10 +1282,12 @@ export class ExpenseProofsService {
         return qb;
       };
       filtros(b);
-      const rows = await Promise.all((await b).map(async (r: any) => ({
+      const crudas = await Promise.all((await b).map(async (r: FilaDeGasto) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
-        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
+        files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
+      // `[GX.39]` La etapa de ejercicio, derivada en vivo de la vista. Una consulta por pagina.
+      const rows = this.conEtapa(crudas, await this.keplerPorFolio(trx, crudas));
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -1016,8 +1297,20 @@ export class ExpenseProofsService {
        * `rows.length`, o sea el `limit`: a quien tenía 340 gastos le decía «200».
        */
       const total = Object.values(by).reduce((a: number, n) => a + Number(n), 0);
+      /**
+       * `[GX.39]` Los contadores de ejercicio se cuentan **sobre las filas de la pagina**, no
+       * con un `groupBy` propio, y por eso viajan aparte de `kpis`: la etapa no es una columna
+       * de la tabla — sale de cruzar con Kepler, y cruzar los miles de folios del tenant para
+       * pintar tres numeros costaria mas de lo que vale.
+       *
+       * ⚠️ Van declarados como lo que son (`de_la_pagina`), para que nadie los lea como el
+       * total del universo. Es la trampa que GX.35 ya cobro una vez con estos mismos KPI.
+       */
+      const porEtapa: Record<string, number> = {};
+      for (const r of rows) porEtapa[r.etapa] = (porEtapa[r.etapa] || 0) + 1;
       return {
         kpis: { total, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
+        etapas_de_la_pagina: porEtapa,
         rows,
       };
     });
@@ -1101,17 +1394,245 @@ export class ExpenseProofsService {
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       if (!r) throw new NotFoundException('solicitud de reembolso no encontrada');
       const files = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
+      // `[GX.39]` La etapa de ejercicio + el documento que Kepler genera al aplicar el gasto.
+      const [conEtapa] = this.conEtapa([r], await this.keplerPorFolio(trx, [r]));
+      const gasto_kepler = await this.gastoEnKepler(trx, r.folio_solicitud, r.sucursal);
+      /**
+       * `[GX.40]` El candidato a factura. Se busca con los datos del GASTO de Kepler (que trae
+       * el RFC), no con los del expediente nuestro: el proveedor que escribio el capturista es
+       * texto libre y el importe del vale puede diferir del documento contable.
+       */
+      const cfdi_sugerido = gasto_kepler
+        ? await this.cfdiCandidato(trx, gasto_kepler.rfc, gasto_kepler.importe, gasto_kepler.fecha)
+        : null;
       return {
-        ...r,
+        ...conEtapa,
         importe: Number(r.importe),
         monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
         requiere_evidencia: requiereEvidencia(clasCol ? r.clasificacion : null),
         files: await this.storage.signFiles(files, 1800),
+        gasto_kepler,
+        cfdi_sugerido,
         // El front no puede distinguir "no adjuntaron nada" de "hay archivo pero no lo
         // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
         storage_ok: this.storage.isConfigured(),
       };
     });
+  }
+
+  /**
+   * `[GX.39]` **El documento que Kepler genera cuando aprueban el gasto.**
+   *
+   * Pedido del usuario: *«jalar esa factura o ese documento que genera y agregarlo al gasto
+   * como un tipo de expediente»*. Medido el 2026-09-28 en prod: lo que Kepler genera es el
+   * **gasto `X-A-10`**, que apunta a nuestra solicitud por `c39`. Existe en el 100% de los
+   * casos aplicados (8,899 de 8,899 gastos vienen de una solicitud).
+   *
+   * ⛔ **No es el CFDI, y eso hay que decirlo en vez de dibujarlo.** Kepler **no guarda el
+   * UUID fiscal** — verificado dos veces de forma independiente: en MAT.1 (2026-07-17,
+   * `fiscal.cfdi_assignments`) y otra vez acá, barriendo toda la familia `kdfe33*`, que
+   * timbra **solo ventas** (genero U) y no contiene **ni un** gasto `X-A-10` ni una solicitud
+   * `X-A-15`. Ademas solo el **36% de los gastos trae RFC** (3,203 de 8,899), asi que ni
+   * siquiera se podria buscar el comprobante del proveedor para los otros dos tercios. Lo que
+   * se publica es lo que existe; el CFDI se declara como hueco, no se inventa.
+   *
+   * Sale de `analytics.expense_documents` — vista derive-no-copy, cero materializacion.
+   */
+  private async gastoEnKepler(
+    trx: Knex, folio?: string | null, sucursal?: string | null,
+  ): Promise<{
+    doc_tipo: string; doc_folio: string; fecha: string | null; importe: number; iva: number;
+    concepto: string | null; beneficiario: string | null; rfc: string | null; clase: string | null;
+    cfdi_disponible: false; cfdi_motivo: string;
+  } | null> {
+    const f = String(folio || '').trim();
+    if (!f) return null;
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_documents') t`);
+    if (!reg.rows[0]?.t) return null;
+    const suc = String(sucursal || '').trim();
+    const d: Record<string, unknown> | undefined = await trx('analytics.expense_documents')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .where('solicitud_folio', f)
+      // ⚠️ Misma trampa que en `lookupSolicitud`: sin la sucursal, `.first()` toma una fila
+      // arbitraria entre las plazas que comparten el folio y se muestra el gasto de otra tienda.
+      .modify((qb: Knex.QueryBuilder) => { if (suc) qb.where('sucursal', suc); })
+      .orderBy('fecha', 'desc')
+      .first('doc_tipo', 'doc_folio', 'concepto', 'beneficiario', 'rfc', 'clase',
+        trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('importe::numeric AS importe'), trx.raw('iva::numeric AS iva'));
+    if (!d) return null;
+    return {
+      doc_tipo: String(d['doc_tipo']), doc_folio: String(d['doc_folio']),
+      fecha: (d['fecha'] as string) ?? null,
+      importe: Number(d['importe'] ?? 0), iva: Number(d['iva'] ?? 0),
+      concepto: (d['concepto'] as string) ?? null, beneficiario: (d['beneficiario'] as string) ?? null,
+      rfc: (d['rfc'] as string) ?? null, clase: (d['clase'] as string) ?? null,
+      cfdi_disponible: false,
+      cfdi_motivo: 'Kepler no guarda el UUID fiscal del gasto (verificado). El CFDI del proveedor, cuando existe, se casa aparte por RFC e importe.',
+    };
+  }
+
+  /**
+   * `[GX.41]` ⭐ **Los vales que Kepler le asigna a esta persona por la caja «Solicita».**
+   *
+   * Pedido textual: *«lo que vas a leer en ese campo es un username, el cual debera coincidir
+   * con alguno de nuestros usuarios en suite (…) va a aparecer ese vale en la seccion de "Mis
+   * Gastos" en el perfil del usuario que vinculaste»*.
+   *
+   * ## No crea nada: DERIVA
+   * Estos vales **no tienen expediente nuestro todavia**. No se insertan filas en
+   * `expense_proofs` para «reservarlos» — eso seria materializar un documento que ya vive en
+   * Kepler, y ademas dejaria basura el dia que el vale se cancele alla. Se leen en vivo de
+   * `analytics.expense_requests` (vista derive-no-copy) y se vuelven expediente **recien
+   * cuando la persona les sube la evidencia**, por el camino normal (`create`).
+   *
+   * ## ⛔ El que YA capturo no se muestra dos veces
+   * El `NOT EXISTS` cruza por **folio + sucursal**, no por folio solo: 373 folios viven en mas
+   * de una plaza y excluir por folio pelado le escondería a alguien el vale de su tienda
+   * porque otra ya lo capturo. Verificado en prod: los 9 expedientes que existen casan por el
+   * par exacto.
+   *
+   * ## ⚠️ Lo que se deja afuera, con motivo
+   * Los **cancelados** en Kepler (`estado = 'C'`). Un vale cancelado en la lista de «te toca
+   * subir la evidencia» es ruido, y una lista con ruido ensena a ignorarla. Lo aplicado SI se
+   * muestra: puede seguir necesitando su comprobante.
+   */
+  async valesAsignados(username?: string, limit = 50): Promise<ValeAsignado[]> {
+    this.tenantCtx.requireTenantId();
+    /**
+     * ⚠️ El username, NO `full_name`. `created_by` guarda `full_name || username` porque es
+     * lo que se le muestra a una persona; la caja de Kepler trae el **usuario**. Mezclarlos
+     * haria que a quien tiene nombre completo cargado no le llegara ningun vale, en silencio.
+     */
+    const u = normalizarUsuarioKepler(username);
+    if (u.length < LARGO_MINIMO_USUARIO) return [];
+
+    return this.tk.run(async (trx) => {
+      const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
+      if (!reg.rows[0]?.t) return [];
+
+      const rows: Record<string, unknown>[] = await trx('analytics.expense_requests as r')
+        .where('r.tenant_id', this.tenantCtx.requireTenantId())
+        /**
+         * La vista YA publica `solicitante` normalizado. Se vuelve a normalizar igual: asi la
+         * igualdad no depende de una decision interna de la vista, que puede cambiar sin que
+         * nadie toque este archivo. No cuesta un indice — sobre una vista de `kepler_ods` no
+         * hay ninguno que perder.
+         */
+        .whereRaw(`upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ?`, [u])
+        .whereRaw(`coalesce(btrim(r.estado),'') <> 'C'`)
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.expense_proofs as p')
+            .whereRaw('p.tenant_id = r.tenant_id')
+            .whereRaw('p.folio_solicitud = r.folio')
+            .whereRaw('p.sucursal = r.sucursal');
+        })
+        /**
+         * ⚠️ **Dos criterios, no uno.** Con `fecha` sola el orden es arbitrario entre los del
+         * mismo dia —que es el caso normal, porque se levantan de a tandas— y la lista se
+         * reacomoda sola entre recargas. El folio desempata y la deja quieta.
+         */
+        .orderBy([{ column: 'r.fecha', order: 'desc' }, { column: 'r.folio', order: 'asc' }])
+        .limit(Math.min(200, Math.max(1, Number(limit) || 50)))
+        .select('r.sucursal', 'r.folio', 'r.solicitante', 'r.beneficiario', 'r.concepto',
+          'r.estado', 'r.aplicada', trx.raw(`to_char(r.fecha,'YYYY-MM-DD') AS fecha`),
+          trx.raw('r.importe::numeric AS importe'));
+
+      return rows.map((r): ValeAsignado => ({
+        sucursal: String(r['sucursal'] ?? ''),
+        folio: String(r['folio'] ?? ''),
+        fecha: (r['fecha'] as string) ?? null,
+        importe: Number(r['importe'] ?? 0),
+        solicita: (r['solicitante'] as string) ?? null,
+        // El destinatario sale del MISMO vale de Kepler, como pidio el usuario.
+        destinatario: (r['beneficiario'] as string) ?? null,
+        concepto: (r['concepto'] as string) ?? null,
+        estado: (r['estado'] as string) ?? null,
+        aplicada: r['aplicada'] === null || r['aplicada'] === undefined ? null : !!r['aplicada'],
+        vinculado_por: 'solicita',
+      }));
+    });
+  }
+
+  /**
+   * `[GX.40]` **El CFDI del gasto: SUGERENCIA, nunca hecho.**
+   *
+   * Pedido del usuario: *«jalar esa factura o ese documento que genera y agregarlo al gasto
+   * como un tipo de expediente»*. Se puede — pero no desde Kepler, y no para todos. Medido el
+   * 2026-09-29 en prod, y estos numeros son el contrato de esta funcion:
+   *
+   * ```
+   *   de 8,899 gastos X-A-10
+   *     3,203 (36.0%)  traen RFC del beneficiario
+   *     2,163 (24.3%)  el emisor esta en fiscal.cfdis
+   *     1,596 (17.9%)  hay un CFDI con el mismo importe (±$1)
+   *       880 ( 9.9%)  ...y fecha dentro de 5 dias
+   *       743 ( 8.4%)  UN SOLO candidato: sin ambiguedad
+   * ```
+   *
+   * ⛔ **Kepler no guarda el UUID fiscal** — barrido el 2026-09-29: las 200 columnas de
+   * `kdm1` para `X-A-15` dan **37 con dato y ninguna con UUID**; `kdm2` tiene **0 lineas**
+   * para estos documentos; la familia `kdfe33*` timbra **solo ventas** (genero U). Ya estaba
+   * verificado en MAT.1 (2026-07-17). Asi que el enlace es **heuristico** y por eso se
+   * devuelve como candidato con su motivo, no como dato del expediente (ADR-016: el motor
+   * sugiere, la persona confirma).
+   *
+   * ⚠️ **Con mas de un candidato NO se elige.** Elegir el primero seria pegarle al gasto la
+   * factura equivocada del proveedor correcto — un error que se ve bien y nadie audita.
+   *
+   * ⚠️ Y el «documento» son **datos, no un archivo**: de 168,245 CFDIs, **0 tienen PDF** y
+   * 1,015 XML (0.6%). Lo que se adjunta es el UUID + serie/folio + emisor + total.
+   */
+  private async cfdiCandidato(
+    trx: Knex, rfc?: string | null, importe?: number | null, fecha?: string | null,
+  ): Promise<{
+    estado: 'unico' | 'ambiguo' | 'sin_candidato' | 'sin_rfc' | 'sin_fuente';
+    motivo: string;
+    cfdi: { uuid: string; serie: string | null; folio: string | null; emisor: string | null;
+            total: number; fecha: string | null; estatus_sat: string | null; tiene_xml: boolean } | null;
+    otros: number;
+  }> {
+    const nada = (estado: 'sin_rfc' | 'sin_fuente' | 'sin_candidato', motivo: string) =>
+      ({ estado, motivo, cfdi: null, otros: 0 });
+
+    const r = String(rfc || '').trim().toUpperCase();
+    // ⚠️ Sin RFC no se busca por nombre: dos proveedores distintos se llaman parecido y el
+    // 64% de los gastos no lo trae. Se DECLARA el motivo en vez de devolver vacio a secas.
+    if (!r) return nada('sin_rfc', 'El gasto no trae el RFC del proveedor (lo trae el 36% en Kepler), asi que no hay por donde buscar su factura.');
+    if (!Number(importe) || !fecha) return nada('sin_rfc', 'Falta el importe o la fecha del gasto para poder cuadrar una factura.');
+
+    const reg = await trx.raw(`SELECT to_regclass('fiscal.cfdis') t`);
+    if (!reg.rows[0]?.t) return nada('sin_fuente', 'No hay CFDI cargados en esta base.');
+
+    const cands: Record<string, unknown>[] = await trx('fiscal.cfdis')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .whereRaw('upper(emisor_rfc) = ?', [r])
+      .whereRaw('abs(total - ?::numeric) <= 1', [Number(importe)])
+      .whereRaw(`abs(fecha::date - ?::date) <= 5`, [fecha])
+      .orderByRaw(`abs(fecha::date - ?::date) ASC`, [fecha])
+      .limit(5)
+      .select('uuid', 'serie', 'folio', 'emisor_nombre', 'estatus_sat',
+        trx.raw('total::numeric AS total'), trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('(xml IS NOT NULL) AS tiene_xml'));
+
+    if (!cands.length) {
+      return nada('sin_candidato', 'Ninguna factura de ese proveedor cuadra con el importe y la fecha del gasto.');
+    }
+    const c = cands[0];
+    const uno = {
+      uuid: String(c['uuid']), serie: (c['serie'] as string) ?? null, folio: (c['folio'] as string) ?? null,
+      emisor: (c['emisor_nombre'] as string) ?? null, total: Number(c['total'] ?? 0),
+      fecha: (c['fecha'] as string) ?? null, estatus_sat: (c['estatus_sat'] as string) ?? null,
+      tiene_xml: !!c['tiene_xml'],
+    };
+    if (cands.length > 1) {
+      // ⛔ Se devuelve el mas cercano en fecha pero MARCADO como ambiguo, para que la pantalla
+      // lo muestre como «hay N que cuadran» y no como la factura del gasto.
+      return { estado: 'ambiguo', otros: cands.length - 1, cfdi: uno,
+        motivo: `Hay ${cands.length} facturas de ese proveedor que cuadran. Ninguna se da por buena sin que alguien la confirme.` };
+    }
+    return { estado: 'unico', otros: 0, cfdi: uno,
+      motivo: 'Una sola factura de ese proveedor cuadra en importe y fecha. Falta que alguien la confirme.' };
   }
 
   /**
@@ -1160,6 +1681,62 @@ export class ExpenseProofsService {
    * usuarios) no se devuelve el catálogo entero ni se bloquea todo — se exige folio
    * EXACTO. Así el capturista sube lo que le dieron sin poder pasear por el gasto ajeno.
    */
+  /**
+   * `[GX.49]` ⭐ **Abrir UN vale concreto. No es buscar.**
+   *
+   * `searchSolicitudes` filtra a **las solicitudes de HOY** (GX.18: el desplegable no debe
+   * traer ruido cuando alguien teclea). Esa regla es correcta para teclear y **equivocada para
+   * abrir**: un vale que Kepler le asignó a la persona puede ser de ayer o de la semana pasada
+   * — medido, el gasto tarda de horas a semanas — y el botón «Subir evidencia» llevaba a una
+   * pantalla **que no podía abrirlo**. La pantalla se veía bien; simplemente no pasaba nada.
+   *
+   * ## ⛔ Por qué exige folio Y sucursal, y por qué eso no abre una pesca
+   * Sin el filtro de fecha, el universo pescable pasaría de las ~30 solicitudes de hoy a las
+   * 10,082 del histórico. Por eso esto **no es una búsqueda**: pide los dos datos, devuelve
+   * **como mucho una** fila y no acepta coincidencias parciales. Con folio y plaza exactos ya
+   * se sabe qué vale se quiere — no hay nada que enumerar.
+   *
+   * ⚠️ Y el recorte por alcance **no se toca**: se aplica igual que en el buscador. Lo único
+   * que se relaja es la fecha.
+   */
+  async solicitudExacta(
+    folio: string, sucursal: string,
+    user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
+  ): Promise<SolicitudKepler[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const f = String(folio || '').trim();
+    const s = String(sucursal || '').trim();
+    // ⛔ Los DOS o nada: con uno solo esto seria el buscador sin filtro de fecha.
+    if (!f || !s) return [];
+
+    return this.tk.run(async (trx) => {
+      /**
+       * ⛔ **Sin recorte por areas, igual que el buscador con la igualdad de folio.**
+       *
+       * Se intento aplicarlo y **rompio el caso que esta funcion existe para resolver**: el
+       * alcance compara contra `solicitante` normalizado, y un vale asignado por Kepler trae
+       * ahi el USERNAME (`DEMO_CAPTURA`), mientras que las claves del alcance son el NOMBRE de
+       * la persona y sus areas. No casan — y el endpoint devolvia 0 para el vale propio.
+       *
+       * El buscador ya permitia el folio exacto sin areas, con este razonamiento textual:
+       * «subi lo que te dieron». Aca se pide ademas la sucursal, asi que es mas estricto que
+       * eso, no menos.
+       */
+      const b = trx('analytics.expense_requests as r')
+        .where('r.tenant_id', tenantId)
+        .where('r.sucursal', s)
+        .where('r.estado', '<>', 'C')
+        // Igualdad numerica, igual que el buscador: '97001' encuentra '0097001' y nada mas.
+        .whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(f.replace(/[^0-9]/g, '')) || -1]);
+      return b.limit(1).select(
+        'r.folio', 'r.sucursal', 'r.beneficiario', 'r.solicitante', 'r.concepto', 'r.estado',
+        'r.rfc', 'r.autoriza', 'r.referencia', 'r.cuenta_clave', 'r.usuario',
+        trx.raw(`to_char(r.fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('r.importe::numeric AS importe'), trx.raw('r.iva::numeric AS iva'),
+      );
+    });
+  }
+
   async searchSolicitudes(term: string, limit = 20, user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const q = String(term || '').trim();
@@ -1696,6 +2273,9 @@ export class ExpenseProofsService {
         .modify((qb: any) => { if (suc) qb.where('sucursal', suc); })
         .orderBy('created_at', 'desc')
         .first('id', 'status', 'files',
+          // `[GX.55]` Viaja para que la captura sepa que el vale DEBE su comprobante: sin
+          // esto, un vale aprobado con cotizacion se lee como cerrado y no deja subir nada.
+          'provisional',
           ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
           ...(clasCol ? ['clasificacion'] : []));
       if (!r) return null;
@@ -1705,6 +2285,7 @@ export class ExpenseProofsService {
       return {
         id: r.id, status: r.status,
         comprobante: rol('comprobante'), solicitud: rol('solicitud_kepler'),
+        provisional: r.provisional === true,
         clasificacion, requiere_evidencia: requiereEvidencia(clasificacion),
         tiene_comprobacion: tieneCol ? r.tiene_comprobacion : null,
         comprobacion_nota: tieneCol ? (r.comprobacion_nota || null) : null,
