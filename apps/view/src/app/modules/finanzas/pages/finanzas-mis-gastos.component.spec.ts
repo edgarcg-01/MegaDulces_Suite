@@ -144,51 +144,122 @@ describe('FinanzasMisGastosComponent', () => {
    * Aprobación. Por eso las pruebas mandan la etapa YA RESUELTA y verifican que se muestre —
    * no que se infiera.
    */
-  describe('[GX.39] la etapa de ejercicio', () => {
-    const CON_ETAPAS = (): ExpenseProofsReport => ({
-      kpis: { total: 5, recibidas: 1, validadas: 3, rechazadas: 0, en_revision: 0 },
-      etapas_de_la_pagina: { en_captura: 1, por_ejercer: 1, autorizado: 1, ejercido: 1, sin_medir: 1 },
+  /**
+   * `[GX.39/43/46/47]` — **Las pestañas y la lista unificada.**
+   *
+   * Tres cambios encadenados, todos por pedido del usuario:
+   *  · el cuadro naranja de vales asignados se retiró; sus vales **bajaron a la lista**;
+   *  · la `A` de Kepler («Autorización de Sol Gasto») es su propia etapa;
+   *  · las pestañas se agruparon a **cuatro**: Todos / En trámite / Rechazados / Por ejercer.
+   *
+   * ⛔ El recorte a lo propio lo sigue haciendo el SERVIDOR. Esta pantalla no filtra por
+   * persona: si lo hiciera, un error suyo mostraría el vale de otro y se vería igual de bien.
+   */
+  describe('[GX.46/47] la lista y sus cuatro pestañas', () => {
+    const ASIG = (over: Record<string, unknown> = {}) => ({
+      sucursal: '00', folio: '0009946', fecha: '2026-09-28', importe: 1583.86,
+      solicita: 'DEMO_CAPTURA', destinatario: 'ESTACION DE SERVICIO TAVISA',
+      concepto: 'COMBUSTIBLE', estado: 'N', aplicada: false, vinculado_por: 'solicita',
+      ...over,
+    });
+
+    /** Una fila por etapa, para que cada pestaña tenga exactamente lo suyo. */
+    const CON_ETAPAS = (asignados: unknown[] = [ASIG()]) => ({
+      kpis: { total: 5, recibidas: 1, validadas: 3, rechazadas: 1, en_revision: 0 },
+      asignados,
       rows: [
-        FILA({ id: 'a', status: 'recibida', folio_solicitud: '0001', etapa: 'en_captura', etapa_label: 'En trámite', etapa_explicacion: 'Tu gasto esta en tramite con nosotros.' }),
-        FILA({ id: 'b', status: 'validada', folio_solicitud: '0002', etapa: 'por_ejercer', etapa_label: 'Por ejercer', etapa_explicacion: 'Aprobado. Esta esperando a que apliquen el gasto en Kepler.' }),
+        FILA({ id: 'a', status: 'recibida', folio_solicitud: '0001', etapa: 'en_captura', etapa_label: 'En tramite' }),
+        FILA({ id: 'b', status: 'validada', folio_solicitud: '0002', etapa: 'por_ejercer', etapa_label: 'Por autorizar' }),
         FILA({ id: 'c', status: 'validada', folio_solicitud: '0003', etapa: 'ejercido', etapa_label: 'Ejercido', etapa_explicacion: 'Tu gasto se aprobo y se ejercio: el dinero salio.' }),
-        FILA({ id: 'e', status: 'validada', folio_solicitud: '0005', etapa: 'autorizado', etapa_label: 'Autorizado en Kepler', etapa_explicacion: 'Autorizado en Kepler. Falta que salga el dinero.' }),
         FILA({ id: 'd', status: 'validada', folio_solicitud: '0004', etapa: 'sin_medir', etapa_label: 'Sin medir', etapa_explicacion: 'Todavia no podemos ver el estado en Kepler.' }),
+        FILA({ id: 'e', status: 'validada', folio_solicitud: '0005', etapa: 'autorizado', etapa_label: 'Autorizado en Kepler' }),
+        FILA({ id: 'f', status: 'rechazada', folio_solicitud: '0006', etapa: 'rechazada', etapa_label: 'Devuelto', motivo_rechazo: 'La foto no se lee.' }),
       ],
-    });
+    }) as unknown as ExpenseProofsReport;
 
-    it('pinta las secciones con su cuenta', () => {
-      montar(CON_ETAPAS());
-      const chips = [...fix.nativeElement.querySelectorAll('.mg-etapa')].map((e) => (e as HTMLElement).textContent?.trim());
-      expect(chips.some((t) => t?.startsWith('Todos') && t.includes('5'))).toBe(true);
-      // `[GX.43]` La etiqueta pasó de «Por ejercer» a «Por autorizar»: es lo que espera de
-      // verdad —la `A` de Kepler—, y «autorizado» es ahora su propia etapa.
-      expect(chips.some((t) => t?.startsWith('Por autorizar') && t.includes('1'))).toBe(true);
-      expect(chips.some((t) => t?.startsWith('Ejercido') && t.includes('1'))).toBe(true);
-      expect(chips.some((t) => t?.startsWith('Autorizado'))).toBe(true);
-    });
+    const chips = () => [...fix.nativeElement.querySelectorAll('.mg-etapa')]
+      .map((e) => ((e as HTMLElement).textContent || '').trim().replace(/\s+/g, ' '));
 
-    it('al abrir «Por ejercer» sólo quedan los de esa etapa', () => {
+    /** ⭐ Cuatro, ni una más: siete pestañas para 26 renglones parten la lista en pedazos. */
+    it('son exactamente las cuatro pestañas pedidas, en orden', () => {
       montar(CON_ETAPAS());
-      c.seccion.set('por_ejercer');
-      fix.detectChanges();
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
-      expect(fix.nativeElement.textContent).toContain('0002');
-      expect(fix.nativeElement.textContent).not.toContain('0003');
+      expect(chips().map((s) => s.replace(/ \d+$/, ''))).toEqual(['Todos', 'En trámite', 'Rechazados', 'Por ejercer']);
     });
 
     /**
-     * ⭐ `[GX.43]` **«Autorizado» NO es «Ejercido».** Medido en prod: de las 929 solicitudes
-     * con la `A` de Kepler, **284 todavía no tienen su gasto**. Mostrarlas como ejercidas le
-     * diría a esas 284 personas que el dinero salió cuando no salió.
+     * El agrupado es **de qué lado está parado el vale**: lo asignado y lo que sigue de este
+     * lado van juntos; lo firmado que espera a Kepler va junto.
      */
-    it('al abrir «Autorizado» sólo queda el que tiene la A de Kepler', () => {
+    it('cada pestaña cuenta lo que le toca', () => {
       montar(CON_ETAPAS());
-      c.seccion.set('autorizado');
+      const n = (etiqueta: string) => {
+        const c2 = chips().find((s) => s.startsWith(etiqueta)) || '';
+        return c2.slice(etiqueta.length).trim();
+      };
+      expect(n('Todos')).toBe('7');          // 1 asignado + 6 expedientes
+      expect(n('En trámite')).toBe('2');     // el asignado + el que espera firma
+      expect(n('Rechazados')).toBe('1');
+      expect(n('Por ejercer')).toBe('3');    // por_ejercer + autorizado + sin_medir
+    });
+
+    /**
+     * ⚠️ **Lo que no entra en ninguna pestaña se puede contar**, para poder decirlo en vez de
+     * esconderlo: `ejercido` y `cancelado_kepler` sólo se ven en «Todos».
+     */
+    it('lo que queda fuera de las pestañas se sabe cuánto es', () => {
+      montar(CON_ETAPAS());
+      expect(c.fueraDePestanas()).toBe(1);   // el ejercido
+    });
+
+    it('al abrir «Por ejercer» quedan los tres que esperan a Kepler', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('por_ejercer');
       fix.detectChanges();
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
-      expect(fix.nativeElement.textContent).toContain('0005');
-      expect(fix.nativeElement.textContent).not.toContain('0003');
+      const txt = fix.nativeElement.textContent as string;
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(3);
+      expect(txt).toContain('0002');
+      expect(txt).toContain('0005');
+      expect(txt).toContain('0004');
+      // ⛔ El ejercido NO: ya salió el dinero, no está «por ejercer».
+      expect(txt).not.toContain('0003');
+    });
+
+    it('«En trámite» junta el vale asignado con el que espera firma', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('en_tramite');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('0009946');
+      expect(txt).toContain('0001');
+    });
+
+    /** ⭐ El vale de Kepler ya NO vive en un cuadro aparte: es una fila más. */
+    it('[GX.46] el vale asignado se pinta en la lista, sin cuadro propio', () => {
+      montar(CON_ETAPAS());
+      expect(fix.nativeElement.querySelector('.mg-asig')).toBeNull();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('0009946');
+      expect(txt).toContain('ESTACION DE SERVICIO TAVISA');
+      expect(txt).toContain('Falta tu evidencia');
+    });
+
+    /**
+     * ⛔ **El asignado no se puede abrir**: no tiene expediente, así que el visor mostraría
+     * una ficha vacía. En su lugar ofrece el camino para crearlo.
+     */
+    it('[GX.46] el asignado no abre el visor; ofrece subir la evidencia', () => {
+      montar(CON_ETAPAS());
+      const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
+      expect(a).toBeTruthy();
+      expect(a.getAttribute('href')).toContain('folio=0009946');
+      // ⛔ Con la sucursal: 373 folios viven en más de una plaza.
+      expect(a.getAttribute('href')).toContain('sucursal=00');
+    });
+
+    it('el que Kepler ya aplicó viene marcado', () => {
+      montar(CON_ETAPAS([ASIG({ aplicada: true })]));
+      expect(fix.nativeElement.textContent).toContain('Ya ejercido en Kepler');
     });
 
     /** ⭐ La frase textual del pedido, y sólo sobre el que se ejerció. */
@@ -201,134 +272,13 @@ describe('FinanzasMisGastosComponent', () => {
     });
 
     /**
-     * ⛔ El caso que sostiene la fase: **«sin medir» no puede leerse como «por ejercer»**.
-     * Decir «esperando a Kepler» sobre algo que no pudimos mirar es afirmar que Kepler no lo
-     * aplicó — y lo único cierto es que no lo sabemos (ADR-056).
+     * ⛔ **La prueba que encontró un defecto en esta misma pantalla.** Con un servidor que no
+     * manda `etapa`, la barra salía con todas las pestañas en 0 — que AFIRMA que medimos y
+     * dio cero, cuando no medimos nada.
      */
-    it('«sin medir» es su propia sección y no cae en «por ejercer»', () => {
-      montar(CON_ETAPAS());
-      c.seccion.set('por_ejercer');
-      fix.detectChanges();
-      expect(fix.nativeElement.textContent).not.toContain('0004');
-      c.seccion.set('sin_medir');
-      fix.detectChanges();
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
-      expect(fix.nativeElement.textContent).toContain('0004');
-    });
-
-    /**
-     * ⚠️ Una pestaña permanente en 0 enseña a ignorarla, y el día que tenga algo nadie la
-     * mira. «Sin medir» y «Cancelado en Kepler» sólo aparecen si hay alguno.
-     */
-    it('no pinta las secciones excepcionales cuando están vacías', () => {
-      montar(REPORTE());
-      const chips = [...fix.nativeElement.querySelectorAll('.mg-etapa')].map((e) => (e as HTMLElement).textContent?.trim() || '');
-      expect(chips.some((t) => t.startsWith('Sin medir'))).toBe(false);
-      expect(chips.some((t) => t.startsWith('Cancelado'))).toBe(false);
-    });
-
-    /**
-     * ⚠️ «Esta sección no tiene nada» y «no levantaste nada» son afirmaciones DISTINTAS. La
-     * segunda sobre alguien que sí levantó gastos lo manda a capturarlos de nuevo.
-     */
-    it('una sección vacía no dice que no levantaste nada', () => {
-      montar(CON_ETAPAS());
-      c.seccion.set('cancelado_kepler');
-      fix.detectChanges();
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).not.toContain('Todavía no levantaste');
-      expect(txt).toContain('en las otras etapas');
-    });
-
-    /**
-     * ⛔ **La prueba que encontró el defecto en esta misma pantalla.** Con un servidor que no
-     * manda `etapa`, la barra salía «En trámite 0 · Por ejercer 0 · Ejercido 0» — que AFIRMA
-     * que medimos y dio cero, cuando no medimos nada. Es el mismo error que la fase existe
-     * para arreglar, cometido en la pantalla que lo arregla. La barra entera desaparece.
-     */
-    it('sin una sola etapa resuelta, la barra de secciones NO se pinta', () => {
+    it('sin una sola etapa resuelta, la barra de pestañas NO se pinta', () => {
       montar(REPORTE());
       expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBe(0);
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).not.toContain('Por ejercer');
-      expect(txt).not.toContain('Ejercido');
-    });
-
-    /** Y basta con que UNA fila la traiga: no hace falta que todas estén resueltas. */
-    it('con una sola fila resuelta, la barra aparece', () => {
-      montar({ ...REPORTE(), rows: [FILA({ id: 'x', etapa: 'ejercido', etapa_label: 'Ejercido' })] });
-      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBeGreaterThan(0);
-    });
-  });
-
-  /**
-   * `[GX.41]` — **«Te tocan a vos»: los vales que Kepler le asignó por la caja «Solicita».**
-   *
-   * ⛔ El recorte lo hace el SERVIDOR, por el `username` del token. Esta pantalla **no
-   * filtra**: si lo hiciera, un error suyo le mostraría a alguien el vale de otro y se vería
-   * igual de bien — el defecto que GX.34 ya cerró para la lista de abajo. Por eso las pruebas
-   * mandan lo que el servidor devolvió y verifican **qué se pinta**, no a quién se elige.
-   */
-  describe('[GX.41] los vales asignados desde Kepler', () => {
-    const ASIG = (over: Record<string, unknown> = {}) => ({
-      sucursal: '00', folio: '0009946', fecha: '2026-09-28', importe: 1583.86,
-      solicita: 'DEMO_CAPTURA', destinatario: 'ESTACION DE SERVICIO TAVISA',
-      concepto: 'COMBUSTIBLE', estado: 'N', aplicada: false, vinculado_por: 'solicita',
-      ...over,
-    });
-    const CON_ASIG = (asignados: unknown[], rows = REPORTE().rows) => ({
-      ...REPORTE(), rows, asignados,
-    }) as unknown as ExpenseProofsReport;
-
-    it('pinta el vale asignado con su folio, destinatario e importe', () => {
-      montar(CON_ASIG([ASIG()]));
-      const s = fix.nativeElement.querySelector('.mg-asig');
-      expect(s).toBeTruthy();
-      const txt = (s as HTMLElement).textContent || '';
-      expect(txt).toContain('0009946');
-      expect(txt).toContain('ESTACION DE SERVICIO TAVISA');
-      expect(txt).toContain('1,583.86');
-    });
-
-    /** ⭐ Un clic: el folio y la plaza viajan en la URL, no hay que teclearlos de nuevo. */
-    it('el botón lleva a la captura con el folio Y la sucursal puestos', () => {
-      montar(CON_ASIG([ASIG()]));
-      const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
-      expect(a).toBeTruthy();
-      expect(a.getAttribute('href')).toContain('folio=0009946');
-      // ⛔ Sin la sucursal, 373 folios viven en más de una plaza y se abriría el de otra tienda.
-      expect(a.getAttribute('href')).toContain('sucursal=00');
-    });
-
-    it('sin asignados no pinta la sección (una caja vacía permanente enseña a ignorarla)', () => {
-      montar(REPORTE());
-      expect(fix.nativeElement.querySelector('.mg-asig')).toBeNull();
-    });
-
-    /**
-     * ⚠️ «No levantaste nada» y «tenés 3 esperando» son afirmaciones distintas. La primera,
-     * sobre alguien que tiene pendientes arriba, lo manda a buscar donde no es.
-     */
-    it('con asignados, el vacío de abajo NO dice que no levantó nada', () => {
-      montar(CON_ASIG([ASIG(), ASIG({ folio: '0009947' })], []));
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('que te asignaron en Kepler');
-      expect(txt).toContain('2');
-    });
-
-    /** Sin asignados el mensaje vuelve a ser el de siempre: no se le inventa un pendiente. */
-    it('sin asignados y sin gastos, el vacío es el de siempre', () => {
-      montar({ ...REPORTE(), rows: [], asignados: [] } as unknown as ExpenseProofsReport);
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('Todavía no levantaste');
-      expect(txt).not.toContain('que te asignaron en Kepler');
-    });
-
-    /** Un vale ya ejercido en Kepler se marca: sigue necesitando evidencia, pero el dinero salió. */
-    it('el que Kepler ya aplicó viene marcado', () => {
-      montar(CON_ASIG([ASIG({ aplicada: true })]));
-      expect((fix.nativeElement.querySelector('.mg-asig') as HTMLElement).textContent)
-        .toContain('Ya ejercido en Kepler');
     });
 
     /** Un servidor viejo no manda `asignados`: no puede romper la pantalla. */
