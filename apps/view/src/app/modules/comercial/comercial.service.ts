@@ -1587,6 +1587,16 @@ export class ComercialService {
     return this.http.get<InventoryVarianceKpi>(`${this.base}/inventory/variance/kpi`, { params: p });
   }
 
+  /** [IC.3b] Reincidencia por SKU. Sin `warehouse_id` cuesta ~1.1 s; con almacén, ~0.65 s. */
+  inventoryReincidencia(params: { warehouse_id?: string; patron?: string; limit?: number } = {}) {
+    let p = new HttpParams();
+    if (params.warehouse_id) p = p.set('warehouse_id', params.warehouse_id);
+    if (params.patron) p = p.set('patron', params.patron);
+    if (params.limit) p = p.set('limit', String(params.limit));
+    return this.http.get<InventoryReincidencia>(
+      `${this.base}/inventory/variance/reincidencia`, { params: p });
+  }
+
   inventoryReconcile(countId: string) {
     return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
   }
@@ -2939,6 +2949,40 @@ export interface InventoryVarianceKpi {
   } | null;
   veredicto: 'mejora' | 'sin_mejora' | 'sin_base_de_comparacion';
   periodos_descartados: number;
+}
+
+/**
+ * [IC.3b] Reincidencia: qué SKU descuadra una y otra vez, con DOS ejes.
+ *
+ * `patron` dice si el dinero vuelve (`se_compensa` = error de captura o unidad) o se queda
+ * (`merma` / `sobra`). `forma` dice si eso pasó UNA vez o pasa siempre. Hacen falta los dos:
+ * el SKU que encabeza la lista por dinero retenido es un sobrante de 30 toneladas de rollo de
+ * plástico capturado una sola vez — retención perfecta y cero mercancía perdida.
+ */
+export interface InventoryReincidenciaItem {
+  warehouse_id: string; warehouse_code: string; sku: string;
+  veces_contado: number; veces_descuadro: number;
+  veces_sobrante: number; veces_faltante: number;
+  /** NULL con menos de 2 observaciones — no es lo mismo que 0. */
+  tasa_descuadre: string | null; tasa_motivo: string | null;
+  pesos_abs: string; pesos_neto: string; ultimo_descuadre: string | null;
+  patron: 'se_compensa' | 'merma' | 'sobra' | 'mixto' | 'sin_dinero';
+  /** |neto| / bruto: cuánto del descuadre NO se compensó entre conteos. */
+  retencion: number | null;
+  eventos_con_descuadre: number | null;
+  mayor_evento: string | null;
+  /** mayor evento / |neto|. >= 0.9 = un solo hecho explica casi todo. */
+  concentracion: number | null;
+  forma: 'evento_aislado' | 'sostenido' | 'sin_medir';
+}
+
+export interface InventoryReincidencia {
+  items: InventoryReincidenciaItem[];
+  resumen: { patron: string; skus: number; pesos_abs: string; pesos_neto: string }[];
+  min_conteos: number;
+  umbrales: { se_compensa: number; persiste: number; un_solo_evento: number };
+  /** Lo que NO se puede juzgar. Se muestra: esconderlo se lee como "no tiene problema". */
+  sin_base: { skus: number; pesos_abs: string; almacenes: string; motivo: string };
 }
 
 export interface InventoryIra {
