@@ -233,6 +233,11 @@ export interface RespuestaDelDia extends ParticionDelDia {
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
 export interface ProofByFolio {
+  /**
+   * `[GX.55]` Aprobado **debiendo** el comprobante (entro con cotizacion o prefactura). Es lo
+   * que habilita subir la factura despues, sin importar la clasificacion del gasto.
+   */
+  provisional?: boolean;
   id: string;
   status: string;
   /** ¿Está la evidencia del gasto (factura/ticket)? Obligatoria salvo no_comprobable. */
@@ -1009,11 +1014,23 @@ export class ExpenseProofsService {
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const cur: any = await trx('finance.expense_proofs').where({ id }).where('status', 'aprobada')
-        .first('folio_solicitud', 'files', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
+        .first('folio_solicitud', 'files', 'provisional', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
       return { cur, clasificacion: clasCol ? cur?.clasificacion : null };
     });
     if (!base.cur) throw new BadRequestException('el gasto no está aprobado y a la espera de evidencia');
-    if (!requiereEvidencia(base.clasificacion)) {
+    /**
+     * `[GX.55]` ⛔ **Un vale PROVISIONAL siempre puede recibir su comprobante**, diga lo que
+     * diga su clasificación.
+     *
+     * Acá el guard era `requiereEvidencia(clasificacion)` a secas, y eso cerraba el único
+     * camino que importa: GX.19 fija la captura en `no_comprobable`, así que un vale aprobado
+     * con cotización rebotaba con «este gasto no lleva evidencia» — con el chip diciéndole a
+     * la persona «te toca subir la factura del pago».
+     *
+     * `provisional` es literalmente «aprobado pero debiendo el comprobante». Si está puesto,
+     * hay algo que subir: es la marca, no la clasificación, la que manda acá.
+     */
+    if (!requiereEvidencia(base.clasificacion) && base.cur.provisional !== true) {
       throw new BadRequestException('este gasto no lleva evidencia (no comprobable)');
     }
     const prev: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
@@ -2230,6 +2247,9 @@ export class ExpenseProofsService {
         .modify((qb: any) => { if (suc) qb.where('sucursal', suc); })
         .orderBy('created_at', 'desc')
         .first('id', 'status', 'files',
+          // `[GX.55]` Viaja para que la captura sepa que el vale DEBE su comprobante: sin
+          // esto, un vale aprobado con cotizacion se lee como cerrado y no deja subir nada.
+          'provisional',
           ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
           ...(clasCol ? ['clasificacion'] : []));
       if (!r) return null;
@@ -2239,6 +2259,7 @@ export class ExpenseProofsService {
       return {
         id: r.id, status: r.status,
         comprobante: rol('comprobante'), solicitud: rol('solicitud_kepler'),
+        provisional: r.provisional === true,
         clasificacion, requiere_evidencia: requiereEvidencia(clasificacion),
         tiene_comprobacion: tieneCol ? r.tiene_comprobacion : null,
         comprobacion_nota: tieneCol ? (r.comprobacion_nota || null) : null,

@@ -77,6 +77,11 @@ interface FilaLista {
   motivo_rechazo: string | null;
   /** `[GX.54]` Aprobado pero debiendo el comprobante (entró con cotización o prefactura). */
   debeFactura?: boolean;
+  /**
+   * `[GX.55]` Si esta fila ofrece el camino para subir un archivo. Son DOS casos: el vale que
+   * Kepler asignó y todavía no tiene expediente, y el ya aprobado que debe su comprobante.
+   */
+  puedeSubir?: boolean;
   /** Sólo los asignados: si Kepler ya genero su gasto. */
   aplicada: boolean | null;
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
@@ -266,10 +271,15 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                   abrirse, ofrece el camino para crearlo. Va a /finanzas/gastos (la ruta REAL)
                   con el folio y la sucursal; el redirect /finanzas/capturar-gasto los perdia.
                 -->
-                @if (p.etapa === 'asignado') {
+                <!--
+                  [GX.55] El boton tambien para el vale APROBADO que todavia debe su
+                  comprobante. Sin esto, el chip le decia «te toca subir la factura del pago» y
+                  no habia por donde: el visor decia «ya se resolvio» y la lista no ofrecia nada.
+                -->
+                @if (p.puedeSubir) {
                   <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
                      [queryParams]="{ folio: p.folio, sucursal: p.sucursal }">
-                    <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir evidencia
+                    <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ p.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}
                   </a>
                 }
                 <!-- El motivo del rechazo va COMPLETO: es lo que hay que corregir. -->
@@ -416,7 +426,8 @@ export class FinanzasMisGastosComponent {
       titulo: v.destinatario, detalle: v.concepto,
       etapa: 'asignado', etapa_label: 'Falta tu evidencia',
       etapa_explicacion: 'Lo levantaron a tu nombre en Kepler. Falta que le subas la evidencia.',
-      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null, debeFactura: false,
+      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
+      debeFactura: false, puedeSubir: true,
     })),
     ...this.filas().map((p): FilaLista => ({
       key: `p:${p.id}`,
@@ -424,6 +435,9 @@ export class FinanzasMisGastosComponent {
       titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
       // `[GX.54]` El vale aprobado con cotización debe la factura, no «evidencia» genérica.
       debeFactura: p.provisional === true,
+      // `[GX.55]` Aprobado = le falta algo por subir. Es el estado que la captura abre en
+      // modo evidencia; ofrecer el botón en cualquier otro llevaría a una pantalla cerrada.
+      puedeSubir: p.status === 'aprobada',
       etapa: p.etapa ?? null, etapa_label: p.etapa_label ?? '',
       etapa_explicacion: p.etapa_explicacion ?? '',
       status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,

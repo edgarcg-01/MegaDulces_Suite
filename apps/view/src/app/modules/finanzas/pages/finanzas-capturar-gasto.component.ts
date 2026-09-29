@@ -680,7 +680,22 @@ export class FinanzasCapturarGastoComponent {
     const p = this.existing();
     if (!p || p.status === 'rechazada') return 'capturar';
     if (p.status === 'recibida') return 'esperando';
-    if (p.status === 'aprobada') return (p.requiere_evidencia && !p.comprobante) ? 'evidencia' : 'cerrada';
+    /**
+     * `[GX.55]` ⛔ **Un vale PROVISIONAL siempre puede recibir su comprobante.**
+     *
+     * Aca estaba `(p.requiere_evidencia && !p.comprobante)` a secas, y eso cerraba el unico
+     * caso que importa: GX.19 fija la captura en `no_comprobable`, asi que
+     * `requiere_evidencia` es **false** y un vale aprobado con cotizacion caia en `cerrada`.
+     * La pantalla lo daba por terminado y no habia por donde subir la factura — con el chip
+     * diciendole a la persona «te toca subir la factura del pago».
+     *
+     * `provisional` es, literalmente, «aprobado pero debiendo el comprobante»: si esta puesto
+     * y el comprobante no llego, hay algo que subir. No depende de la clasificacion.
+     */
+    if (p.status === 'aprobada') {
+      const debe = (p.requiere_evidencia || p.provisional === true) && !p.comprobante;
+      return debe ? 'evidencia' : 'cerrada';
+    }
     if (p.status === 'revision') return 'revision';
     return 'cerrada'; // validada
   });
