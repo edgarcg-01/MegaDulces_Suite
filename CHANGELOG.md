@@ -414,6 +414,21 @@ crecimiento. El primer YoY legítimo de las 8 es **marzo-2027 vs marzo-2026**.
   **que es justo el artefacto**: se calcula por **operación continua**, que los excluye solo. Más:
   en el resolvedor va **`kepler_code`, no `warehouse_code`** (`[IC.CEDIS]` midió el mismo día que
   resuelve 2 de 8).
+### Added — Plazos de pago por proveedor, primera etapa de Obligaciones = entrega Compras→Finanzas (RE.30, 2026-09-29)
+El vencimiento de lo que Compras entrega a Finanzas depende de dos datos del **proveedor** que no
+existían bien: cuántos días exactos da y si corren **desde la factura o desde la recepción**.
+
+- **Kepler no sirve de fuente**: su condición sale "de contado" en el 68% de las recepciones porque
+  el plazo nunca se capturó allá (2026: 207 proveedores / $94.0M siempre contado, 97 / $234.7M mixtos).
+  Queda al lado, sólo para comparar.
+- **La fecha de recepción física tampoco existe en Kepler**: el 89% de la cadena comparte la fecha de
+  factura, y la columna que la vista llama `receipt_date` **es** la de factura. La captura la zona (RE.31).
+- `catalog.suppliers` gana `credit_term_base` + confirmación + `is_internal` (reusa el `credit_days`
+  de la Fase PP) e historial append-only. Pestaña **"Plazos por proveedor"** en `/compras/obligaciones`:
+  contra prod, 307 proveedores en 12 meses, **285 sin plazo, 46 cubren el 80%**.
+- ⚠️ `COMPRAS_OBLIGACIONES_*` estaban repartidos a **cero roles** (el candado de reparto está rojo en prod por eso). Se reparten, y se separa `COMPRAS_PLAZOS_AUTORIZAR` (lo negocian comprador/dirección) de `_GESTIONAR` (el auxiliar opera y extiende facturas).
+- ⚠️ El bundle inicial de `view` queda en **1,399.75 kB de 1,400** (250 bytes de margen).
+- **Pendiente:** aplicar 2 migraciones + redeploy + re-login + QA visual.
 
 ### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
 El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve

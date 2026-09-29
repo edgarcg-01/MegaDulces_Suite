@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -13,6 +13,10 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { ComprasPlazosPagoComponent } from './compras-plazos-pago.component';
+import { Permission } from '../../../core/constants/permissions';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 interface SupplierObligation {
   id: string; supplier_id: string; supplier_name: string; supplier_critical: boolean; supplier_critical_reason: string | null;
@@ -30,7 +34,8 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
   selector: 'app-compras-obligaciones',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, TagModule, ToastModule,
+    SegmentedComponent, ComprasPlazosPagoComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in obl-page">
@@ -38,17 +43,25 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Obligaciones a proveedor</h1>
-          <p class="surf-page-sub">Cuentas por pagar a proveedores de mercancía: saldo pendiente, vencimiento y negociación. Alimenta el <strong>Calendario de pagos</strong> de Finanzas.</p>
+          <p class="surf-page-sub">Lo que Compras le entrega a Finanzas: qué se recibió, cuánto se debe y cuándo vence. Alimenta el <strong>Calendario de pagos</strong>.</p>
         </div>
-        <button pButton type="button" (click)="openNew()"><span class="pi pi-plus"></span>&nbsp;Nueva obligación</button>
+        @if (tab() === 'capturadas' && canManage()) {
+          <button pButton type="button" (click)="openNew()"><span class="pi pi-plus"></span>&nbsp;Nueva obligación</button>
+        }
       </header>
 
+      <!-- [RE.30] El plazo del proveedor va primero: sin él no hay vencimiento que entregar. -->
+      <app-segmented [options]="tabOpts" [value]="tab()" (valueChange)="setTab($event)" ariaLabel="Sección" />
+
+      @if (tab() === 'plazos') {
+        <app-compras-plazos-pago [embedded]="true" />
+      } @else {
       <div class="obl-filters">
         <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Proveedor / folio / concepto…" class="p-inputtext-sm obl-search" />
         <label class="obl-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="load()" />Solo proveedores críticos</label>
       </div>
 
-      <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table obl-table">
+      <p-table [value]="rows()" [loading]="loading()" size="small" class="surf-table obl-table">
         <ng-template #header>
           <tr><th>Proveedor</th><th>Folio</th><th>Concepto</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
@@ -60,11 +73,12 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
             <td class="obl-mono">{{ o.original_due_date || '—' }}</td>
             <td class="ta-r obl-mono">{{ money(o.available_amount) }}</td>
             <td><p-tag [value]="o.status" [severity]="o.status === 'paid' ? 'success' : o.status === 'cancelled' ? 'secondary' : 'info'" styleClass="obl-tag" /></td>
-            <td>@if (o.status === 'pending') { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancel(o)" title="Cancelar"><span class="pi pi-times"></span></button> }</td>
+            <td>@if (o.status === 'pending' && canManage()) { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancel(o)" title="Cancelar"><span class="pi pi-times"></span></button> }</td>
           </tr>
         </ng-template>
         <ng-template #emptymessage><tr><td colspan="7" class="obl-empty">Sin obligaciones a proveedor.</td></tr></ng-template>
       </p-table>
+      }
     </div>
 
     <p-dialog [(visible)]="newVisible" [modal]="true" header="Nueva obligación a proveedor" [style]="{ width: '30rem' }">
@@ -117,11 +131,20 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
     .obl-dlg-actions { margin-top:.8rem; }
   `],
 })
-export class ComprasObligacionesComponent implements OnInit {
+export class ComprasObligacionesComponent {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly perms = inject(PermissionsService);
   private readonly base = `${environment.apiUrl}/commercial/supplier-obligations`;
+
+  /** [RE.30] Plazos primero; las obligaciones capturadas a mano quedan como excepción. */
+  readonly tab = signal<'plazos' | 'capturadas'>('plazos');
+  readonly tabOpts: SegOption[] = [
+    { label: 'Plazos por proveedor', value: 'plazos' },
+    { label: 'Capturadas a mano', value: 'capturadas' },
+  ];
+  private manualLoaded = false;
 
   rows = signal<SupplierObligation[]>([]);
   loading = signal(false);
@@ -137,7 +160,14 @@ export class ComprasObligacionesComponent implements OnInit {
   pickedSupplierCriticalReason = '';
   private searchTimer: any;
 
-  ngOnInit(): void { this.load(); }
+  /** Capturar y cancelar exige GESTIONAR; la ruta sólo exige VER. */
+  canManage(): boolean { return this.perms.has(Permission.COMPRAS_OBLIGACIONES_GESTIONAR); }
+
+  // La lista manual se pide al abrir su pestaña, no al entrar.
+  setTab(v: string): void {
+    this.tab.set(v === 'capturadas' ? 'capturadas' : 'plazos');
+    if (this.tab() === 'capturadas' && !this.manualLoaded) { this.manualLoaded = true; this.load(); }
+  }
 
   load(): void {
     this.loading.set(true);

@@ -242,10 +242,17 @@ async function reconKepler(db) {
     }
     // términos → suppliers (match por nombre; solo donde resuelve). El DESCUENTO PP NO se escribe
     // aquí: vive en commercial.supplier_discount_policy (evita duplicar la política de descuento).
+    // [RE.30] un plazo CONFIRMADO a mano en /compras/plazos-pago gana sobre el Excel: si
+    // `credit_terms_updated_at` tiene valor, credit_days no se toca (invoice_type sí).
+    const hasConfirm = (await db.query(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema='catalog' AND table_name='suppliers' AND column_name='credit_terms_updated_at'`)).rowCount > 0;
+    const creditExpr = hasConfirm
+      ? `CASE WHEN credit_terms_updated_at IS NULL THEN COALESCE($2,credit_days) ELSE credit_days END`
+      : `COALESCE($2,credit_days)`;
     let tset = 0;
     for (const t of terms) {
       const s = resolveSupplier(t.name); if (!s) continue;
-      await db.query(`UPDATE catalog.suppliers SET credit_days=COALESCE($2,credit_days), invoice_type=COALESCE($3,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$4`,
+      await db.query(`UPDATE catalog.suppliers SET credit_days=${creditExpr}, invoice_type=COALESCE($3,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$4`,
         [M, t.credit_days, t.invoice_type, s.id]);
       tset++;
     }

@@ -504,6 +504,12 @@ export enum Permission {
   // es unidades/costo pactado, esto es saldo pendiente con vencimiento negociable).
   COMPRAS_OBLIGACIONES_VER = 'COMPRAS_OBLIGACIONES_VER',
   COMPRAS_OBLIGACIONES_GESTIONAR = 'COMPRAS_OBLIGACIONES_GESTIONAR',
+  // [RE.30] Fijar el plazo de pago PACTADO con el proveedor (días + desde factura/recepción).
+  // Llave aparte de _GESTIONAR a propósito: el auxiliar OPERA las obligaciones (y extiende el
+  // plazo de UNA factura cuando llega con plazo adicional), pero el plazo lo NEGOCIAN el
+  // comprador o dirección (Francisco, 2026-09-29). FUERA de todo MODULE_GROUP — no se otorga
+  // "de paquete", mismo criterio que FINANCE_PAYMENT_CALENDAR_AUTORIZAR (TP.6).
+  COMPRAS_PLAZOS_AUTORIZAR = 'COMPRAS_PLAZOS_AUTORIZAR',
 
   // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
   // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.
