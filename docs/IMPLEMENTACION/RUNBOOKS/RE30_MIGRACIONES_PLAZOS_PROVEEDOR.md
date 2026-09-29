@@ -1,4 +1,8 @@
-# Runbook — `[RE.30]` Plazos de pago por proveedor: 2 migraciones para aplicar en prod
+# Runbook — `[RE.30]`–`[RE.32]` Obligaciones a proveedor: 4 migraciones para aplicar en prod
+
+> **Actualizado 2026-09-29 (tarde):** además de las 2 de plazos (RE.30), van **2 más** para la entrega
+> de compras a Finanzas: la fecha de recepción en la vista (RE.31, §9) y las tablas de la entrega
+> (RE.32, §10). **Orden de aplicación: `180000` → `180100` → `180200` → `180300`** (§5 y §11).
 
 > **Para:** Edgar (PM) — quien aplica migraciones en prod.
 > **De:** Francisco López (Dirección), que lleva el avance de Compras / Obligaciones a proveedor en este
@@ -9,8 +13,10 @@
 
 | # | Archivo | Qué hace | Filas de negocio que cambia | Lock | Reversible |
 |---|---|---|---|---|---|
-| 1 | `20260929140000_re30_supplier_credit_terms.js` | 6 columnas + 3 CHECK en `catalog.suppliers`; tabla de historial nueva | **0** (sólo DDL; las columnas nacen NULL / `false`) | ACCESS EXCLUSIVE breve, con `lock_timeout 3s` | `down` quita historial y CHECK; las columnas se quedan (aditivas) |
-| 2 | `20260929140100_re30_grant_compras_obligaciones.js` | Reparte 3 permisos a 4 roles | **10** filas de `identity.role_permissions` (medido) | filas, no tabla | `down` quita sólo lo que puso |
+| 1 | `20260929180000_re30_supplier_credit_terms.js` | 6 columnas + 3 CHECK en `catalog.suppliers`; tabla de historial nueva | **0** (sólo DDL; las columnas nacen NULL / `false`) | ACCESS EXCLUSIVE breve, con `lock_timeout 3s` | `down` quita historial y CHECK; las columnas se quedan (aditivas) |
+| 2 | `20260929180100_re30_grant_compras_obligaciones.js` | Reparte 3 permisos a 4 roles | **10** filas de `identity.role_permissions` (medido) | filas, no tabla | `down` quita sólo lo que puso |
+| 3 | `20260929180200_re31_goods_receipts_fecha_recepcion.js` | `CREATE OR REPLACE VIEW analytics.erp_goods_receipts`: +4 columnas al final (fecha/hora/usuario/fuente de recepción) | **0** (vista) — las 19 columnas existentes idénticas, medido (§9) | ACCESS EXCLUSIVE sobre la vista, `lock_timeout 3s` | `down` = DROP + CREATE con la definición viva |
+| 4 | `20260929180300_re32_purchase_deliveries.js` | 3 tablas nuevas: folio, entrega, renglones (RLS) | **0** (tablas nuevas vacías) | sólo FK a `identity.tenants` | `down` quita las 3 |
 
 Ninguna crea importers, copia tablas ni toca datos de Kepler. No hay backfill.
 
@@ -43,7 +49,7 @@ da de crédito y **desde cuándo corren** (fecha de factura o fecha de recepció
 
 ---
 
-## 2. Migración 1 — `20260929140000_re30_supplier_credit_terms.js`
+## 2. Migración 1 — `20260929180000_re30_supplier_credit_terms.js`
 
 ### Qué crea
 
@@ -103,7 +109,7 @@ knex, así que queda todo o nada.
 
 ---
 
-## 3. Migración 2 — `20260929140100_re30_grant_compras_obligaciones.js`
+## 3. Migración 2 — `20260929180100_re30_grant_compras_obligaciones.js`
 
 ### Dos llaves, porque operar ≠ negociar
 
@@ -164,9 +170,11 @@ Transacción `READ ONLY`, sin escribir nada. Resultado:
   (todas del tenant mega_dulces; ninguna con true/false previo)
 ```
 
-**Timestamps:** el último aplicado en `public.knex_migrations` es `20260928260000` (batch 571); ninguno
-del 29-sep. Ojo: en el checkout local hay dos migraciones de otra línea de trabajo con
-`20260929120000` / `120100` (VK); éstas se nombraron `140000` / `140100` para no empatarlas.
+**Timestamps — revisados en prod, no sólo en el repo (GOTCHAS §3), la tarde del 2026-09-29:** en
+`public.knex_migrations` el 29-sep ya tiene `120000`–`140000` (batches 572–583) **y
+`20260929170000_commercial_margin_targets.js` (batch 584), que todavía no está en `main`**. Además `main`
+trae `20260929140000_mv_profitability_sales_agg.js`, que chocaba con el primer nombre de estas. Por eso las
+4 van en la serie libre **`20260929180000` → `180100` → `180200` → `180300`**, en el orden en que se aplican.
 
 ---
 
@@ -176,9 +184,9 @@ Fuera de la ventana del respaldo diario (sostiene locks de toda la base mientras
 
 ```bash
 # 1) esquema
-node database/scripts/apply-one-migration-prod.js 20260929140000_re30_supplier_credit_terms.js
+node database/scripts/apply-one-migration-prod.js 20260929180000_re30_supplier_credit_terms.js
 # 2) permisos
-node database/scripts/apply-one-migration-prod.js 20260929140100_re30_grant_compras_obligaciones.js
+node database/scripts/apply-one-migration-prod.js 20260929180100_re30_grant_compras_obligaciones.js
 ```
 
 Si la 1 falla con `55P03` (lock_timeout) → no quedó nada a medias (transacción); reintentar más tarde.
@@ -245,20 +253,121 @@ Y re-login de: `arizbeth_gonzalez`, `bruno_lopez`, `rafael_quirino`, los 4 de `a
 
 ## 7. Lo que tienes que saber aunque no sea de este PR
 
-- **Bundle inicial de `view`: 1,399.75 kB de 1,400 → quedan 250 bytes.** Una entrada de menú + ruta +
-  nodo de árbol lo pasaban por 95 bytes; por eso los plazos entraron como pestaña. El tope nunca se ha
-  subido desde el monorepo inicial y no lo subimos nosotros: **el siguiente permiso o renglón de menú que
-  entre lo va a romper**, y la decisión es tuya.
-- **Rojos que ya estaban en `main` limpio** (medido sobre `git archive HEAD`, sin estos cambios):
-  `check-primeng-api.js` en 286/283 `p-table` y 262/255 `p-select` (este PR lo baja a 285);
-  `test-authz-route-coverage.js` ✗ `libs/shared-auth` = carpeta sin seguimiento en una máquina local.
+- **Bundle inicial de `view`: ya no es un problema.** Cuando empezó este trabajo estaba en 1,399.75 kB de
+  1,400 (por eso los plazos entraron como pestaña y no como página). Tu trabajo **BND.1–3** en `main` lo
+  bajó: con `main` actual + este PR el inicial mide **1.22 MB**. La pestaña se queda: es el lugar correcto
+  (Obligaciones es el flujo Compras→Finanzas completo).
+- **Rojos ajenos:** `test-authz-route-coverage.js` ✗ `libs/shared-auth` = carpeta sin seguimiento en una
+  máquina local. `check-primeng-api.js` estaba sobre el techo en el `main` del mediodía (286/283
+  `p-table`); con el `main` actual queda bajo techo y este PR no agrega API retirada (sus tablas nuevas
+  usan `size="small"` + clase en el host).
 - **"Qué vence" (RE.3) calcula con el `c18` de Kepler**, así que hereda el "de contado" falso. Pasará a
   este plazo en una etapa siguiente.
 
 ## 8. Lo que sigue (no incluido)
 
-RE.31 fecha de recepción física capturada por la zona (Kepler no la tiene: en el 89% de las recepciones
-la cadena entera lleva la fecha de factura) · RE.32 relación de entrega a Finanzas con rechazo por
-renglón · RE.33 regreso de Finanzas (fecha de pago, notas de crédito, días recepción→pago) · RE.34
-extensión de plazo por factura (la registra el auxiliar, guarda quién la negoció). Plan en
+RE.33 al confirmar Finanzas nace la obligación en el Calendario con el vencimiento del plazo (RE.30) +
+regreso de Finanzas (fecha de pago, notas de crédito, días recepción→pago) · RE.34 extensión de plazo por
+factura (la registra el auxiliar, guarda quién la negoció). Plan en
 [`FASE_RE`](../FASES/FASE_RE_RECEPCION_MERCANCIA.md).
+
+---
+
+## 9. Migración 3 — `20260929180200_re31_goods_receipts_fecha_recepcion.js`
+
+**Para qué:** el auxiliar entrega a Finanzas **por fecha de recepción**, y hay proveedores cuyo plazo
+corre desde la recepción. La vista sólo tenía `receipt_date`, que **es la fecha de factura** (`kdm1.c9`
+de la aplicación X-A-20; el vencimiento de Kepler = esa fecha + plazo "fecha factura" en el 99.9%). No se
+renombra — la leen `fn_pair_goods_receipts`, `fn_goods_receipt_twin_candidates` y varios servicios —; se
+declara en un `COMMENT`.
+
+**De dónde sale la recepción:** `kdm1.c68 · c69 · c67` = fecha · hora · usuario de **captura** en Kepler
+(ya decodificado en `ERP_KEPLER.md` contra una cotización capturada a propósito). Se toma la del **vale de
+entrada X-A-37** (el documento de la llegada física), por la misma cadena que la vista ya recorre. Medido
+sobre 4,846 entradas jun–sep 2026 (prod, sólo lectura):
+
+| Prueba | Resultado |
+|---|---|
+| Captura del vale vs captura de la aplicación | nunca posterior (4,513 iguales · 333 antes) |
+| Hora de captura | 07–21 h, horario laboral: reloj del sistema, no tecleo |
+| **Árbitro independiente**: fotos subidas a `/compras/entradas` (reloj de NUESTRO servidor) | 417 con foto · **0 fotos anteriores a la captura** |
+| Retraso contra factura | 66% mismo día · 22% 1–2 días · 11% más de 2 (casi todo CEDIS) |
+| Factura con fecha POSTERIOR a la recepción | 569 de 12,846 (4.4%) — dato del ERP, no se corrige |
+
+**Qué cambia:** el LATERAL al vale lee del mismo renglón `c39` (la OC, como antes) y `c68/c69/c67`; 4
+columnas nuevas **al final**: `fecha_recepcion` (vale; si no hay vale, la aplicación), `_hora`,
+`_usuario`, `_fuente` (`vale`|`aplicacion`). Wincaja: las 4 en NULL (su `mp.fecha` no está verificada).
+
+**Candado corrido antes de escribirla** (consulta nueva vs vista viva en prod, `EXCEPT ALL` en las dos
+direcciones sobre las 19 columnas existentes):
+
+```
+filas vista actual  : 12,846        filas vista nueva : 12,846
+actual − nueva      : 0             nueva − actual    : 0
+30 días             : 994 · $51,202,834.22 en las dos   (60 → 80 ms)
+fecha_recepcion_fuente = 'vale' en las 12,846
+```
+
+Y el archivo se probó contra un knex falso que registra el SQL: **el `up` genera exactamente la consulta
+validada y el `down` exactamente la definición viva** (`pg_get_viewdef` del 2026-09-29); re-aplicarla es
+no-op. Permisos: `relacl` = `app_runtime=r`, `dev_ro=r` (leído del catálogo, no de `information_schema`,
+que sólo muestra lo que ve el usuario que consulta); se re-aplican los dos `GRANT`. Sin `security_invoker`
+antes ni después.
+
+## 10. Migración 4 — `20260929180300_re32_purchase_deliveries.js`
+
+**Para qué:** la entrega de Compras a Finanzas con folio. El auxiliar marca lo que tiene en físico y
+validado, elige a la persona de Finanzas que recibe, se asigna `ENT-YYYY-NNNNN` y se descarga el PDF para
+firmas. Finanzas confirma y puede **rechazar renglón por renglón** (vuelve a pendientes).
+
+| Tabla | Qué es |
+|---|---|
+| `commercial.purchase_delivery_sequences` | contador (tenant, año) del folio, UPSERT atómico como `quote_sequences` |
+| `commercial.purchase_deliveries` | la entrega: folio, estado, base y periodo, quién entrega, quién recibe, confirmación, totales |
+| `commercial.purchase_delivery_lines` | un renglón por orden de entrada: llave Kepler + **snapshot** (lo firmado no cambia si Kepler corrige) + su estado |
+
+**Invariantes en la base:** índice único parcial `(tenant, sucursal, doc_prefix, folio) WHERE status IN
+('entregado','aceptado')` — una entrada no puede estar en dos entregas vivas (dos auxiliares a la vez:
+gana el primer commit, el segundo recibe 23505 → el servicio lo traduce a "recarga la lista"); rechazo
+exige motivo; decidir exige quién y cuándo; importe > 0; FK compuesta `(tenant_id, delivery_id)`.
+RLS forzado + `GRANT` a `app_runtime` en las tres.
+
+**Sintaxis verificada contra prod sin escribir:** cada sentencia en una transacción `READ ONLY` → las 22
+DDL rechazadas con `25006` (sintaxis válida, no ejecutadas), 0 errores de sintaxis.
+
+**Permisos: ninguno nuevo.** Armar/cancelar = `COMPRAS_OBLIGACIONES_GESTIONAR` (el auxiliar); ver =
+`_VER` **o** `FINANCE_PAYMENTS_GESTIONAR`; confirmar = `FINANCE_PAYMENTS_GESTIONAR` **y ser la persona
+asignada** (el servicio lo valida). Quién puede recibir se **deriva**: activos de departamento
+`finanzas`/`tesoreria` con `FINANCE_PAYMENTS_GESTIONAR` — hoy 7 personas. La ruta
+`/compras/obligaciones` pasa a `anyPermissionGuard(_VER, FINANCE_PAYMENTS_GESTIONAR)` (Finanzas sólo ve
+la pestaña Entregas) y el Calendario de Pagos gana un botón "Entregas de Compras".
+
+## 11. Aplicar las 4, en orden
+
+```bash
+node database/scripts/apply-one-migration-prod.js 20260929180000_re30_supplier_credit_terms.js
+node database/scripts/apply-one-migration-prod.js 20260929180100_re30_grant_compras_obligaciones.js
+node database/scripts/apply-one-migration-prod.js 20260929180200_re31_goods_receipts_fecha_recepcion.js
+node database/scripts/apply-one-migration-prod.js 20260929180300_re32_purchase_deliveries.js
+```
+
+Después de la 3:
+
+```sql
+SELECT fecha_recepcion_fuente, count(*) FROM analytics.erp_goods_receipts GROUP BY 1;  -- 'vale' ≈ todas las de Kepler
+SELECT count(*) FROM analytics.erp_goods_receipts;                                      -- igual que antes de aplicarla
+SELECT has_table_privilege('app_runtime', 'analytics.erp_goods_receipts', 'SELECT');   -- t
+```
+
+Después de la 4:
+
+```sql
+SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c
+ WHERE c.oid IN ('commercial.purchase_deliveries'::regclass, 'commercial.purchase_delivery_lines'::regclass,
+                 'commercial.purchase_delivery_sequences'::regclass);                   -- t, t en las 3
+SELECT indexdef FROM pg_indexes WHERE indexname = 'ux_pdel_lines_receipt_live';          -- UNIQUE … WHERE status IN (…)
+```
+
+La API detecta sola cada migración aplicada (sondas por pieza; sólo se recuerda el "sí"): antes de
+aplicarlas, las pantallas se ven en sólo lectura con un aviso, nunca con un 500. Después: **redeploy
+api+view** si el código no está ya desplegado, y **re-login** de compras, dirección y Finanzas.

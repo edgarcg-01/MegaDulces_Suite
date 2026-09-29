@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -15,6 +16,8 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { ComprasPlazosPagoComponent } from './compras-plazos-pago.component';
+import { ComprasEntregaPendientesComponent } from './compras-entrega-pendientes.component';
+import { ComprasEntregasComponent } from './compras-entregas.component';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
@@ -23,7 +26,8 @@ interface SupplierObligation {
   invoice_folio: string | null; concept: string | null; original_amount: number; available_amount: number;
   original_due_date: string | null; status: string;
 }
-interface SupplierOpt { id: string; name: string; code: string; is_critical: boolean; critical_reason: string | null }
+type Tab = 'entregar' | 'entregas' | 'plazos' | 'capturadas';
+interface SupplierOpt{ id: string; name: string; code: string; is_critical: boolean; critical_reason: string | null }
 
 /**
  * Fase TP.3 — Compras: Obligaciones a proveedor de mercancía (ADR-064). La "cuenta por pagar"
@@ -35,7 +39,7 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, TagModule, ToastModule,
-    SegmentedComponent, ComprasPlazosPagoComponent],
+    SegmentedComponent, ComprasPlazosPagoComponent, ComprasEntregaPendientesComponent, ComprasEntregasComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in obl-page">
@@ -50,10 +54,16 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
         }
       </header>
 
-      <!-- [RE.30] El plazo del proveedor va primero: sin él no hay vencimiento que entregar. -->
-      <app-segmented [options]="tabOpts" [value]="tab()" (valueChange)="setTab($event)" ariaLabel="Sección" />
+      <!-- [RE.32] El orden es el del trabajo: entregar → lo entregado → plazos → la excepción manual. -->
+      @if (tabOpts().length > 1) {
+        <app-segmented [options]="tabOpts()" [value]="tab()" (valueChange)="setTab($event)" ariaLabel="Sección" />
+      }
 
-      @if (tab() === 'plazos') {
+      @if (tab() === 'entregar') {
+        <app-compras-entrega-pendientes />
+      } @else if (tab() === 'entregas') {
+        <app-compras-entregas />
+      } @else if (tab() === 'plazos') {
         <app-compras-plazos-pago [embedded]="true" />
       } @else {
       <div class="obl-filters">
@@ -136,14 +146,23 @@ export class ComprasObligacionesComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly perms = inject(PermissionsService);
+  private readonly route = inject(ActivatedRoute);
   private readonly base = `${environment.apiUrl}/commercial/supplier-obligations`;
 
-  /** [RE.30] Plazos primero; las obligaciones capturadas a mano quedan como excepción. */
-  readonly tab = signal<'plazos' | 'capturadas'>('plazos');
-  readonly tabOpts: SegOption[] = [
-    { label: 'Plazos por proveedor', value: 'plazos' },
-    { label: 'Capturadas a mano', value: 'capturadas' },
-  ];
+  /**
+   * [RE.32] Pestañas según quién entra: Compras ve las cuatro; Finanzas (que llega con
+   * FINANCE_PAYMENTS_GESTIONAR para confirmar lo que le entregaron) sólo "Entregas". `?tab=` abre una.
+   */
+  private readonly esCompras = this.perms.has(Permission.COMPRAS_OBLIGACIONES_VER);
+  readonly tabOpts = computed<SegOption[]>(() => this.esCompras
+    ? [
+        { label: 'Por entregar', value: 'entregar' },
+        { label: 'Entregas', value: 'entregas' },
+        { label: 'Plazos por proveedor', value: 'plazos' },
+        { label: 'Capturadas a mano', value: 'capturadas' },
+      ]
+    : [{ label: 'Entregas', value: 'entregas' }]);
+  readonly tab = signal<Tab>(this.tabInicial());
   private manualLoaded = false;
 
   rows = signal<SupplierObligation[]>([]);
@@ -163,10 +182,17 @@ export class ComprasObligacionesComponent {
   /** Capturar y cancelar exige GESTIONAR; la ruta sólo exige VER. */
   canManage(): boolean { return this.perms.has(Permission.COMPRAS_OBLIGACIONES_GESTIONAR); }
 
+  private tabInicial(): Tab {
+    const pedida = this.route.snapshot.queryParamMap.get('tab') as Tab | null;
+    const validas = this.tabOpts().map((o) => o.value);
+    return pedida && validas.includes(pedida) ? pedida : (validas[0] as Tab);
+  }
+
   // La lista manual se pide al abrir su pestaña, no al entrar.
   setTab(v: string): void {
-    this.tab.set(v === 'capturadas' ? 'capturadas' : 'plazos');
-    if (this.tab() === 'capturadas' && !this.manualLoaded) { this.manualLoaded = true; this.load(); }
+    if (!this.tabOpts().some((o) => o.value === v)) return;
+    this.tab.set(v as Tab);
+    if (v === 'capturadas' && !this.manualLoaded) { this.manualLoaded = true; this.load(); }
   }
 
   load(): void {
