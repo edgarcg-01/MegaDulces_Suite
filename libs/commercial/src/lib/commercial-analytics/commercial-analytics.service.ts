@@ -5889,37 +5889,75 @@ export class CommercialAnalyticsService {
     }));
   }
 
-  /** RR — Opciones del filtro por PRODUCTO (SKUs vendidos en ruta, últimos 2 años, por venta). */
+  /**
+   * RR — Opciones del filtro por PRODUCTO (SKUs vendidos en ruta, últimos 2 años, por venta).
+   *
+   * `[AUD-DAT.17]` Lee el catálogo materializado. Antes leía `analytics.v_route_sales_lines`, que
+   * es el contrato ENRIQUECIDO del desglose por ticket: por cada una de 1,194,719 líneas pagaba
+   * un LATERAL a `wincaja.articulos` y otro anidado a `pagos_dia`→`formas_pago` para rellenar
+   * columnas que un combo no lee. Su hermana de clientes, idéntica en forma, medía **96 s**.
+   */
   async salesByRouteProducts(): Promise<{ value: string; label: string }[]> {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
-      `SELECT t.sku, COALESCE(pn.name, t.sku) AS name, t.rev
-       FROM (SELECT sl.sku, sum(sl.importe) AS rev
-             FROM analytics.v_route_sales_lines sl
-             WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
-               AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years') AND sl.sku IS NOT NULL
-             GROUP BY sl.sku) t
-       LEFT JOIN (SELECT DISTINCT ON (sku) sku, nombre AS name FROM catalog.products
-                  WHERE tenant_id=? AND deleted_at IS NULL ORDER BY sku) pn ON pn.sku=t.sku
-       ORDER BY t.rev DESC NULLS LAST LIMIT 5000`, [tenantId, tenantId])).rows);
-    return rows.map((r) => ({ value: r.sku, label: `${r.name} · ${r.sku}` }));
+    return this.routeFilterOptions('sku');
   }
 
-  /** RR — Opciones del filtro por CLIENTE (clientes de ruta, sin público, últimos 2 años). */
-  async salesByRouteClients(): Promise<{ value: string; label: string }[]> {
+  /**
+   * `[AUD-DAT.17]` El lector de los dos combos de `/dashboard/ventas-detalle`.
+   *
+   * ⚠️ RESPALDO DECLARADO, y el motivo importa: si la matvista todavía no se pobló, devolver una
+   * lista vacía NO sería «declarar» nada — un combo en blanco se lee como «no hay clientes», que
+   * es justo el modo de falla que ADR-056 prohíbe. Así que cae a la consulta EN VIVO (la misma,
+   * lean, ~12 s) y lo deja dicho en el log. Lento y correcto le gana a rápido y mudo.
+   */
+  private async routeFilterOptions(kind: 'sku' | 'cliente'): Promise<{ value: string; label: string }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
-      `SELECT t.code, COALESCE(cn.name, t.code) AS name, t.rev
-       FROM (SELECT sl.cliente AS code, sum(sl.importe) AS rev
-             FROM analytics.v_route_sales_lines sl
-             WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
-               AND sl.cliente IS NOT NULL AND btrim(sl.cliente) <> '' AND sl.cliente <> '0001'
-               AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
-             GROUP BY sl.cliente) t
-       LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre AS name FROM wincaja.clientes
-                  WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn ON cn.cliente=t.code
-       ORDER BY t.rev DESC NULLS LAST LIMIT 5000`, [tenantId, tenantId])).rows);
-    return rows.map((r) => ({ value: r.code, label: r.name ? `${r.name} · ${r.code}` : r.code }));
+      `SELECT value, label FROM analytics.mv_route_filter_options
+        WHERE tenant_id = ? AND kind = ? ORDER BY rev DESC NULLS LAST LIMIT 5000`,
+      [tenantId, kind])).rows).catch(() => []);
+    if (rows.length) {
+      return rows.map((r) => ({ value: r.value, label: r.label }));
+    }
+
+    this.logger.warn(`[AUD-DAT.17] mv_route_filter_options vacía o ausente para kind=${kind} — `
+      + 'cayendo a la consulta en vivo (~12 s). Correr la migración 20260929170000 y su REFRESH.');
+    const live: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `WITH lineas AS (
+         SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
+           FROM wincaja.v_sales_lines vl
+          WHERE vl.sale_channel = 'ruta_venta'
+            AND vl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+         UNION ALL
+         SELECT rpl.tenant_id, rpl.cliente, rpl.sku, rpl.importe
+           FROM analytics.route_push_lines rpl
+          WHERE rpl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+         UNION ALL
+         SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
+           FROM wincaja.v_sales_lines vl
+          WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
+            AND vl.business_date < '2026-06-28'::date
+            AND vl.business_date >= (CURRENT_DATE - INTERVAL '2 years'))
+       SELECT CASE WHEN ? = 'sku' THEN l.sku ELSE l.cliente END AS value,
+              sum(l.importe) AS rev
+         FROM lineas l
+        WHERE l.tenant_id = ?
+          AND CASE WHEN ? = 'sku' THEN l.sku IS NOT NULL
+                   ELSE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001' END
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 5000`,
+      [kind, tenantId, kind])).rows);
+    return live.map((r) => ({ value: r.value, label: r.value }));
+  }
+
+  /**
+   * RR — Opciones del filtro por CLIENTE (clientes de ruta, sin público, últimos 2 años).
+   *
+   * `[AUD-DAT.17]` Ésta era **la consulta más cara de la pantalla**: 96,303 ms de promedio y
+   * 116,793 ms el peor caso, tocando 490 M páginas, para llenar una lista desplegable. Ahora lee
+   * el catálogo materializado. Verificado idéntico al centavo antes de cambiarlo:
+   * 6,298 clientes / $88,125,359.60.
+   */
+  async salesByRouteClients(): Promise<{ value: string; label: string }[]> {
+    return this.routeFilterOptions('cliente');
   }
 
   async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
