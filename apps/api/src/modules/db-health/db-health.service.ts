@@ -961,6 +961,14 @@ const CRON_JOBS: CronCfg[] = [
   // vivo — un atraso de 2 h acá no significa lo mismo que en `cdc_reconcile`, que mira ventas.
   // ⚠️ Sin este renglón el sensor daría verde INCONDICIONAL (`cfg ? classify : 'ok'`, Fase VP).
   { key: 'cdc_reconcile_chicas', label: 'Reconciliador ODS --chicas (tablas sin fecha)', cadence: 'continuo ~30 min', warnH: 2, critH: 6 },
+  // [OBS.12] Dedup de las tablas contables `kdc2YYMM`. Existe porque `c2` esta en la PK y el ODS
+  // trae DOS renderizados del mismo instante (+6 h hasta el 2026-09-23): un UPDATE de Kepler
+  // aterriza como INSERT y conviven el ANTES y el DESPUES de la misma poliza, los dos sumando.
+  // Medido 2026-09-29: 1,737 grupos por $22,796,303.99, y el ingreso de agosto publicaba
+  // $77,131.36 de mas. NO lo cubre `cdc_reconcile_full`: por llave de dia la fila SI esta en el
+  // origen, asi que no es sobrante — es un defecto de IDENTIDAD, no de borrado.
+  // ⚠️ Sin este renglon el sensor daria verde INCONDICIONAL (`cfg ? classify : 'ok'`, Fase VP).
+  { key: 'cdc_dedupe_fecha', label: 'Dedup ODS de PK con fecha (kdc2YYMM)', cadence: 'diario 02:25 MX', warnH: 25, critH: 30 },
   // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
   // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
   // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
@@ -1084,6 +1092,22 @@ const CRON_JOBS: CronCfg[] = [
   // VERDE. Cuando envejece, un producto cuya unidad base cambio se sigue publicando con la
   // anterior — y la unidad es justo lo que ADR-057 existe para no adivinar.
   { key: 'analytics_refresh_unit_truth',      label: 'Refresh MV verdad de unidad',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_standard_cost',   label: 'Refresh MV actividad costo estándar (CE.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
+  // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
+  // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no
+  // se nota hasta que alguien decide con ella.
+  { key: 'analytics_refresh_count_rollforward', label: 'Refresh MV roll-forward de conteos', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // ⭐⭐ [PR.R1] El ARBITRO DEL COSTO. Sin este umbral el sensor caia en `cfg ? classify : 'ok'`
+  // y una MV parada se veia VERDE — y esta no es una MV mas: es la que decide si el margen de
+  // toda la Suite es una medicion o un espejo del markup.
+  // Medido 2026-09-29 sobre celdas IDENTICAS (90,328 comunes, la venta cuadra al 0.1%): el costo
+  // publicado subdeclara 4.26 pp, y el spread del mismo sku entre plazas es 0.0034 pp con el
+  // algebra contra 2.957 pp con este arbitro — un margen m/(1+m) NO PUEDE tener spread.
+  // Kepler ya es el 79.1% de la venta, asi que la porcion que no puede arbitrar el precio CRECE.
+  // ⚠️ El primer REFRESH (400 d) pasa de 300 s: nace WITH NO DATA y su poblado inicial va en
+  // ventana, una vez. Lo que se vigila aca es que NO SE QUEDE VIEJA.
+  { key: 'analytics_refresh_erp_margin',      label: 'Refresh MV árbitro de costo',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
