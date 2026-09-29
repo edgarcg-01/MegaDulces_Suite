@@ -328,6 +328,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:tables
 
+      # `[UIM.5]` Token de CSS que no existe. Este defecto se arregló DOS VECES EN DOS DÍAS antes
+      # de que la compuerta existiera, y las dos veces llevaba meses vivo: un `var()` sin respaldo
+      # que no resuelve TIRA la declaración entera y el build no dice nada — para el navegador no
+      # es un error. La prueba negativa va primero y aparte, como las otras.
+      - name: CSS token gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:tokens:self
+
+      - name: CSS token gate (declaración que se cae por un token inexistente)
+        if: ${{ !cancelled() }}
+        run: npm run check:tokens
+
       # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
       # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
       # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el

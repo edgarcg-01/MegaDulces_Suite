@@ -77,7 +77,7 @@ import { ComercialService } from '../../comercial/comercial.service';
     </div>
   `,
   styles: [`
-    .surf-card { background: var(--surface-card, var(--c-bg-1)); border: 1px solid var(--border-soft, var(--c-border)); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1.5rem; }
+    .surf-card { background: var(--surface-card, var(--c-bg-1)); border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1.5rem; }
     .ap-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 1rem; }
     .ap-col-2 { grid-column: span 1; }
     .ap-field { display: flex; flex-direction: column; gap: .35rem; }
