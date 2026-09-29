@@ -8,7 +8,11 @@ import { DataScopeService } from './data-scope.service';
 import { PermissionsService } from './permissions.service';
 import { limpiarRastroDeSesion } from '@megadulces/ui-web';
 import type { RastroLimpiado } from '@megadulces/ui-web';
-import { OfflineDatabaseService } from './offline-database.service';
+// `[BND.1]` ⚠️ `import type`, NO un import normal: este archivo es EAGER (lo usan el login, los
+// guards y el shell), y `offline-database.service` arrastra Dexie — 94.7 KB medidos dentro del
+// `main` de producción. Un `import type` se borra al compilar y no empaqueta nada; la clase real
+// llega por `await import()` allá abajo, que es lo único que de verdad la saca del arranque.
+import type { OfflineDatabaseService } from './offline-database.service';
 import { decidirBorradoOffline } from './offline-wipe';
 
 export interface JwtPayload {
@@ -245,12 +249,19 @@ export class AuthService {
    * ⚠️ `OfflineDatabaseService` se resuelve **perezosamente** por el inyector: pedirlo como
    * dependencia de `AuthService` abriría la base offline en cada arranque, también para las
    * personas de oficina que nunca la usan.
+   *
+   * ⛔ `[BND.1]` Eso evitaba INSTANCIARLA y NO evitaba EMPAQUETARLA: mientras el archivo tuviera
+   * un `import` normal arriba, el bundler metía Dexie en el `main` igual — 94.7 KB medidos, para
+   * todo el mundo, en el arranque. Son dos problemas distintos y el comentario original sólo
+   * resolvía uno. Por eso acá va un `await import()` de verdad: la clase llega cuando se cierra
+   * sesión, que es el único momento en que hace falta.
    */
   private async decidirYLimpiar(quienSeVa: JwtPayload | null): Promise<RastroLimpiado> {
     let pendientes: number | null = null;
     let db: OfflineDatabaseService | null = null;
     try {
-      db = this.injector.get(OfflineDatabaseService);
+      const mod = await import('./offline-database.service');
+      db = this.injector.get(mod.OfflineDatabaseService);
       const e = await db.getEstadisticasOffline();
       // Las MUERTAS también cuentan: que hayan agotado los reintentos no las vuelve basura,
       // las vuelve trabajo que alguien tiene que rescatar a mano.
