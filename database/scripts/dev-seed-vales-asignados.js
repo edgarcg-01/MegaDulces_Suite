@@ -52,10 +52,24 @@ const CLAVE = 'demo1234';
  */
 const esDemo = (u) => /^demo_/.test(u);
 /**
- * Cómo queda atribuido el expediente. Se resuelve contra la tabla al arrancar (el `nombre`
- * del usuario), no acá: `let` porque el helper `expediente()` lo cierra por referencia.
+ * Cómo queda atribuido el expediente, o sea qué se escribe en `created_by`.
+ *
+ * ⚠️ **Es el USERNAME, y eso se midió — no se dedujo.** El servidor usa
+ * `full_name || username`, y el primer impulso fue resolver el `nombre` del usuario contra la
+ * tabla. **Está mal**: el JWT que emite `auth-mt` NO trae `full_name` (verificado decodificando
+ * un token real), así que `actor` cae siempre al username. La prueba dura está en los datos:
+ * las 20 filas que la app escribió para este usuario dicen `created_by = 'demo_captura'`.
+ *
+ * Con el nombre, los expedientes sembrados **no le aparecen** en «Mis gastos» — y la pantalla
+ * se ve perfecta, sólo que sin ellos. Pasó, y así se encontró.
+ *
+ * ⚠️ En la tabla conviven `created_by` con nombre de persona (`Leonardo Cazares`,
+ * `Inventarios Staff`): son de otros caminos de alta (capturas por link, otro emisor de
+ * token). No son lo que produce el login normal de esta app.
  */
 let CREADO_POR = '';
+/** El nombre para mostrar. Sólo decora el campo `solicitante`; no decide de quién es el vale. */
+let NOMBRE_VISIBLE = '';
 /** Todo lo sembrado vive en este rango de folios. Es la marca, y lo que se limpia. */
 const PREFIJO = '00970';
 
@@ -91,7 +105,7 @@ const gasto = (folio, solicitudFolio, over = {}) => ({
 /** Un expediente NUESTRO. `status` decide qué etapa se ve. */
 const expediente = (folio, status, over = {}) => ({
   tenant_id: T,
-  solicitante: CREADO_POR.toUpperCase(),
+  solicitante: String(NOMBRE_VISIBLE || USUARIO).toUpperCase(),
   departamento: 'FINANZAS',
   sucursal: '00',
   fecha_gasto: hace(3),
@@ -136,11 +150,12 @@ async function limpiar() {
     process.exit(1);
   }
   if (!fila.activo) console.log(`  ⚠️ «${USUARIO}» está INACTIVO: no va a poder entrar.`);
-  CREADO_POR = String(fila.nombre || '').trim() || USUARIO;
+  CREADO_POR = USUARIO;
+  NOMBRE_VISIBLE = String(fila.nombre || '').trim() || USUARIO;
 
   console.log(`
 [GX.41] datos de prueba · usuario «${USUARIO}» (${fila.role_name}) · folios ${PREFIJO}xx`);
-  console.log(`        los expedientes se le atribuyen como «${CREADO_POR}», que es lo que guarda created_by
+  console.log(`        los expedientes se atribuyen a «${CREADO_POR}» (el username: el JWT no trae full_name)
 `);
 
   /**
