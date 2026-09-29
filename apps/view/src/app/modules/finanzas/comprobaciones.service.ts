@@ -5,6 +5,9 @@ import { environment } from '../../../environments/environment';
 // [GX.14] El catálogo de formas de pago y la compuerta NO se copian acá: se importan del
 // contrato compartido, que es el mismo que valida el backend.
 import type { FormaPagoId } from '@megadulces/contracts';
+// `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
+// exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
+import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -66,6 +69,12 @@ export interface ProofByFolio {
   requiere_evidencia?: boolean;
   tiene_comprobacion?: boolean | null;
   comprobacion_nota?: string | null;
+  /**
+   * `[GX.55]` Aprobado **debiendo** el comprobante (entró con cotización). Es lo que habilita
+   * subir la factura después — sin esto, la clasificación `no_comprobable` daba el vale por
+   * cerrado y no había por dónde.
+   */
+  provisional?: boolean;
 }
 
 export interface ExpenseProof {
@@ -98,10 +107,48 @@ export interface ExpenseProof {
   motivo_rechazo: string | null;
   created_by: string | null;
   created_at: string;
+  /**
+   * `[GX.39]` **La etapa de EJERCICIO**: lo que pasa después de que firmamos, del lado de
+   * Kepler. NO se calcula acá — la decide `etapaDeEjercicio()` en el servidor, con la misma
+   * función que probaría el frontend si la calculara. Viaja resuelta para que no haya dos
+   * reglas.
+   *
+   * ⚠️ `sin_medir` no es «por ejercer»: es que no pudimos ver el estado en Kepler. Se
+   * muestra como tal (ADR-056).
+   */
+  etapa?: EtapaEjercicio;
+  etapa_label?: string;
+  etapa_explicacion?: string;
+  /**
+   * `[GX.54]` Aprobado **debiendo** el comprobante: entró con una cotización o prefactura.
+   * Decide qué tarea se le muestra a quien lo levantó — la factura del pago, no «evidencia».
+   */
+  provisional?: boolean | null;
+  /** `[GX.48]` El identificador que muestra «Autorización de Sol Gasto»: `XA1501-0009008`. */
+  documento_kepler?: string | null;
+  /**
+   * `[GX.48]` La constancia de autorización. **Se genera**, no se jala: Kepler no guarda
+   * ningún documento al autorizar (medido). `null` mientras no tenga la `A`.
+   */
+  autorizacion_kepler?: AutorizacionKepler | null;
 }
 
 export interface ExpenseProofsReport {
   kpis: { total: number; recibidas: number; validadas: number; rechazadas: number; en_revision?: number };
+  /**
+   * `[GX.39]` ⚠️ Se llama `de_la_pagina` **a propósito**: son las filas que vinieron, no el
+   * universo. La etapa sale de cruzar con Kepler, no es una columna de la tabla, y cruzar
+   * los miles de folios del tenant para pintar tres números costaría más de lo que vale.
+   * Leerlo como total es la trampa que GX.35 ya cobró una vez con estos mismos KPI.
+   */
+  etapas_de_la_pagina?: Record<string, number>;
+  /**
+   * `[GX.41]` Los vales que **Kepler le asignó** a esta persona por la caja «Solicita», y que
+   * todavía **no tienen expediente nuestro**. No son `ExpenseProof`: no tienen `id`, `status`
+   * ni archivos, porque no existen de este lado. Se vuelven expediente cuando les sube la
+   * evidencia. Sólo viene en `/mine`.
+   */
+  asignados?: ValeAsignado[];
   rows: ExpenseProof[];
 }
 
@@ -308,6 +355,15 @@ export interface ValeGasto {
   tiene_evidencia?: boolean;
   evidencia_en_vivo?: boolean;
   files: ProofFile[];
+  /**
+   * `[GX.48]` La constancia de autorización de Kepler. **Se genera**, no se jala: Kepler no
+   * guarda ningún documento al autorizar (medido de cinco formas, ver `ejercicio.contract`).
+   *
+   * ⚠️ Opcional porque **no todos los endpoints la mandan**: viaja en `/mine` y en el detalle,
+   * pero la bandeja de Aprobación arma el vale con otras columnas. `undefined` ahí significa
+   * «este endpoint no la trae», que no es lo mismo que `null` = «el vale no está autorizado».
+   */
+  autorizacion_kepler?: AutorizacionKepler | null;
 }
 
 export interface GastosDelDia {
@@ -361,6 +417,16 @@ export class ComprobacionesService {
    * Busca la SOLICITUD contra la que se sube el comprobante. El folio se resuelve por
    * valor numérico: teclear los últimos dígitos alcanza («23» → `0000023`).
    */
+  /**
+   * `[GX.49]` Abrir UN vale concreto (desde «Subir evidencia»). **No es el buscador**: pide
+   * folio Y sucursal y, por eso, puede traer un vale de cualquier fecha. El buscador filtra a
+   * HOY —correcto para teclear— y por eso no podía abrir un vale de ayer.
+   */
+  solicitudExacta(folio: string, sucursal: string): Observable<SolicitudSug[]> {
+    return this.http.get<SolicitudSug[]>(`${this.base}/solicitud-exacta`,
+      { params: new HttpParams().set('folio', folio).set('sucursal', sucursal) });
+  }
+
   searchSolicitudes(q: string, limit = 20): Observable<SolicitudSug[]> {
     return this.http.get<SolicitudSug[]>(`${this.base}/search-solicitudes`,
       { params: new HttpParams().set('q', q).set('limit', String(limit)) });

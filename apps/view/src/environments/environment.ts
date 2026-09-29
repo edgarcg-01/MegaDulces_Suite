@@ -22,7 +22,12 @@ const isProduction =
 
 export const environment = {
   production: isProduction,
-  apiUrl: isLocalDev ? 'http://localhost:3334/api' : '/api', // Conexión directa en local
+  // `[GX.50]` **Todo por el 4200.** Antes el local iba DIRECTO a un puerto clavado acá
+  // (`http://localhost:3401/api`): cada sesión levantaba su API en otro puerto y este
+  // archivo —que es compartido— decidía a cuál le pegaba el navegador de todos. Ahora es
+  // relativo y lo resuelve el proxy del dev server (`apps/view/proxy.conf.json`), que es
+  // el lugar donde ese puerto SÍ es una decisión de máquina. De paso se acaba el CORS.
+  apiUrl: '/api',
   envName: isLocalDev ? 'local' : (isProduction ? 'production' : 'preview'),
   // Mapbox: token PÚBLICO (pk.) — seguro en el bundle por diseño. Restringir por
   // URL en el panel de Mapbox (Account → Tokens) para que nadie use tu cuota.
