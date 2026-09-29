@@ -64,6 +64,7 @@ export const routes: Routes = [
     component: LayoutComponent,
     children: [
       { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
+      { path: 'ventas-detalle', loadComponent: () => import('./modules/dashboard/ventas-detalle/ventas-detalle.component').then(m => m.VentasDetalleComponent), canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)] },
       { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
       { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
