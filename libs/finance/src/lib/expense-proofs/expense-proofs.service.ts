@@ -141,7 +141,9 @@ const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
  */
 function tieneRespaldo(f: { role?: unknown; url?: unknown }): boolean {
   const role = String(f?.role || '');
-  return !!f?.url && (role === REQUEST_ROLE || role.startsWith('comprobante'));
+  return !!f?.url && (
+    role === REQUEST_ROLE || role.startsWith('comprobante') || role.startsWith('cotizacion')
+  );
 }
 
 export interface ProofFile {
@@ -903,8 +905,28 @@ export class ExpenseProofsService {
     // el monto) y de ahí salía `validada` o `revision`. Se retiró por pedido del usuario.
     // ⛔ Y con él se va el `validated_by: 'Claude Vision'`: **ninguna decisión sobre
     // dinero queda firmada por una máquina**. Cierra la persona que aprobó, con su nombre.
+    /**
+     * `[GX.54]` **El vale que llegó con una COTIZACIÓN vuelve al capturista, no se cierra.**
+     *
+     * Pedido textual: *«cuando sea así, en lugar de denegarlo hay que regresarlo al usuario
+     * con el estatus nuevo y solamente con la tarea nueva de que envíe la factura del pago»*.
+     *
+     * ⛔ Se reusa `aprobada`, que YA significa exactamente eso —«aprobado, falta que suba la
+     * evidencia»— y que la pantalla ya pinta con «te toca subir la evidencia». Inventar un
+     * estado nuevo habría obligado a tocar el CHECK, las bandejas, los KPI y las tres
+     * pantallas que leen `status`, para decir lo mismo con otra palabra.
+     *
+     * ⚠️ Sin esto el vale cerraba en `validada` con la sola cotización: aprobado, con la deuda
+     * marcada en `provisional`… y **sin nadie a quien le tocara nada**. La factura nunca
+     * llegaba porque el trámite ya había terminado.
+     */
+    const soloCotizacion = files.some((f) => String(f?.role || '').startsWith('cotizacion'))
+      && !files.some((f) => String(f?.role || '').startsWith('comprobante'));
+
     let nextStatus: string;
-    if (!lleva) {
+    if (soloCotizacion) {
+      nextStatus = 'aprobada';
+    } else if (!lleva) {
       nextStatus = 'validada';
     } else if (!hasEvidence) {
       nextStatus = 'aprobada';
@@ -1170,6 +1192,9 @@ export class ExpenseProofsService {
           // Lo mismo vale para la clasificacion: sin ella el visor decia «sin clasificar»
           // en un vale que SI estaba clasificado. Medido en pantalla.
           'forma_pago', 'forma_pago_detalle', 'clasificacion',
+          // `[GX.54]` Viaja para que la tarea diga QUE falta: el vale aprobado con cotizacion
+          // debe la FACTURA, y «subi la evidencia» se lee como que no se recibio nada.
+          'provisional',
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at')
         .orderBy('created_at', 'desc').limit(limit);
       /**

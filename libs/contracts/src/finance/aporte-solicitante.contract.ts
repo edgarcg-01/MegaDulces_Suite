@@ -29,7 +29,7 @@
  * está hecho y **se declara** acá en vez de aparentar que el flag prueba algo.
  */
 
-import { esFormaPagoValida, exigeDetalle } from './forma-pago.contract';
+import { detalleInvalido, esFormaPagoValida, exigeDetalle } from './forma-pago.contract';
 
 /** Un archivo adjunto, visto sólo como lo que esta regla necesita saber de él. */
 export interface EvidenciaAdjunta {
@@ -118,6 +118,21 @@ export function faltaParaMandar(estado: EstadoAporte): Faltante[] {
       label: 'El dato del pago',
       motivo: 'la forma de pago elegida exige su dato (caja, últimos 4 dígitos, referencia o número de cheque)',
     });
+  } else {
+    /**
+     * `[GX.53]` **Y si lo escribió, que sea lo que se pidió.**
+     *
+     * ⛔ No es cosmético: en `tarjeta` el rótulo dice «Últimos 4 dígitos» y sin tope cabía —y
+     * se guardaba— un **número de tarjeta completo**. Se reportó tecleando 19 dígitos ahí.
+     *
+     * ⚠️ Va en la COMPUERTA, no sólo en el `maxlength` del input: un límite que vive en la
+     * pantalla se salta llamando a la API, y acá eso significa un dato que no debería existir
+     * en esta tabla ni un minuto. La regla es UNA (`detalleInvalido`) y la leen los dos lados.
+     */
+    const malDetalle = detalleInvalido(estado.forma_pago, estado.forma_pago_detalle);
+    if (malDetalle) {
+      faltan.push({ id: 'forma_pago_detalle', label: 'El dato del pago', motivo: malDetalle });
+    }
   }
 
   if (estado.exige_evidencia) {
