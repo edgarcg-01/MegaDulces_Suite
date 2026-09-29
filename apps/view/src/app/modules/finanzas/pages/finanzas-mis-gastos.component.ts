@@ -11,7 +11,8 @@ import {
 import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
-import type { EtapaEjercicio } from '@megadulces/contracts';
+import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import { RouterLink } from '@angular/router';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 
 /**
@@ -39,7 +40,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
 @Component({
   selector: 'app-finanzas-mis-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ValeGastoPeekComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ValeGastoPeekComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in mg">
@@ -56,6 +57,42 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       @if (cargando()) { <div class="mg-muted">Cargando…</div> }
       @else if (error()) { <div class="mg-err">{{ error() }}</div> }
       @else {
+        <!--
+          [GX.41] Los vales que Kepler le asigno por la caja «Solicita». Van ARRIBA de todo
+          porque son lo unico de esta pantalla que le pide hacer algo: el resto es consulta.
+          No tienen expediente nuestro todavia -- se vuelven uno cuando les sube la evidencia.
+        -->
+        @if (asignados().length) {
+          <section class="mg-asig">
+            <header class="mg-asig-h">
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <strong>Te tocan a vos</strong>
+              <span class="mg-asig-n">{{ asignados().length }}</span>
+            </header>
+            <p class="mg-muted mg-asig-sub">Los levantaron a tu nombre en Kepler. Falta que les subas la evidencia.</p>
+            @for (v of asignados(); track v.sucursal + v.folio) {
+              <article class="mg-asig-it">
+                <div class="mg-it-head">
+                  <span class="mg-folio">{{ v.folio }}</span>
+                  <span class="mg-faint">suc {{ v.sucursal }}</span>
+                  @if (v.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
+                  <span class="mg-grow"></span>
+                  <span class="mg-imp">{{ money(v.importe) }}</span>
+                </div>
+                <div class="mg-it-con">{{ v.destinatario || '—' }}</div>
+                <div class="mg-it-meta">
+                  <span>{{ diaLocal(v.fecha) | date: 'dd/MM/yy' }}</span>
+                  @if (v.concepto) { <span>·</span><span>{{ v.concepto }}</span> }
+                </div>
+                <a class="mg-asig-b" [routerLink]="['/finanzas/capturar-gasto']"
+                   [queryParams]="{ folio: v.folio, sucursal: v.sucursal }">
+                  <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir evidencia
+                </a>
+              </article>
+            }
+          </section>
+        }
+
         <!-- La respuesta a «¿en qué quedaron?», arriba y sin tener que contar renglones. -->
         <div class="mg-kpis">
           <div class="mg-kpi">
@@ -114,7 +151,16 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                 <div class="mg-muted">Tenés {{ filas().length }} en las otras etapas.</div>
               } @else {
                 <strong>Todavía no levantaste ningún gasto.</strong>
-                <div class="mg-muted">Cuando levantes uno, aparece acá con su estado.</div>
+                <!--
+                  [GX.41] ⚠️ «No levantaste nada» y «no tenés expediente todavia» no son lo
+                  mismo cuando arriba hay vales esperando: decirle que no hizo nada a quien
+                  tiene tres pendientes lo manda a buscar donde no es.
+                -->
+                @if (asignados().length) {
+                  <div class="mg-muted">Arriba tenés {{ asignados().length }} que te asignaron en Kepler: subiles la evidencia y aparecen acá.</div>
+                } @else {
+                  <div class="mg-muted">Cuando levantes uno, aparece acá con su estado.</div>
+                }
               }
               <!-- Sin esto, quien busque un rechazo viejo va a creer que se perdió. -->
               <div class="mg-muted">Un gasto que te devolvieron deja de verse a las 24 h: ése se vuelve a capturar.</div>
@@ -182,6 +228,21 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       font-size: var(--fs-xs); cursor: pointer; }
 
     .mg-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+
+    /* [GX.41] «Te tocan a vos»: lo unico accionable de la pantalla, por eso se destaca. */
+    .mg-asig { display: flex; flex-direction: column; gap: var(--sp-2);
+      border: 1px solid var(--action); border-radius: var(--r-md); padding: var(--sp-3);
+      background: var(--bg-1); }
+    .mg-asig-h { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-1); }
+    .mg-asig-n { font-size: var(--fs-xs); background: var(--action); color: var(--action-fg, #fff);
+      border-radius: var(--r-full, 999px); padding: 0 0.5rem; font-variant-numeric: tabular-nums; }
+    .mg-asig-sub { margin: 0; }
+    .mg-asig-it { display: flex; flex-direction: column; gap: var(--sp-1);
+      border-top: 1px solid var(--border); padding-top: var(--sp-2); }
+    .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
+      border: 1px solid var(--action); border-radius: var(--r-sm); padding: 0.3rem 0.7rem;
+      font-size: var(--fs-xs); color: var(--action); text-decoration: none; margin-top: var(--sp-1); }
+    .mg-asig-b:hover { background: var(--action); color: var(--action-fg, #fff); }
 
     /* [GX.39] Las secciones de ejercicio. Pildoras, no pestanas con linea: caben en movil. */
     .mg-etapas { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
@@ -264,6 +325,13 @@ export class FinanzasMisGastosComponent {
    */
   readonly hayEtapas = computed(() => this.filas().some((p) => !!p.etapa));
 
+  /**
+   * `[GX.41]` Los vales que Kepler le asigno. Salen del SERVIDOR ya recortados por su
+   * username — acá no se filtra nada: si el recorte viviera en el cliente, un error suyo le
+   * mostraria a alguien el vale de otro y se veria igual de bien (GX.34).
+   */
+  readonly asignados = signal<ValeAsignado[]>([]);
+
   /** ⚠️ Las etapas de CIERRE se agrupan bajo «Por ejercer»/«Ejercido»; el resto es «en tramite». */
   readonly secciones = computed(() => {
     const f = this.filas();
@@ -300,6 +368,7 @@ export class FinanzasMisGastosComponent {
     this.svc.mine(200, this.q || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.filas.set(r.rows ?? []);
+        this.asignados.set(r.asignados ?? []);
         this.reporte.set({
           recibidas: r.kpis?.recibidas ?? 0,
           validadas: r.kpis?.validadas ?? 0,

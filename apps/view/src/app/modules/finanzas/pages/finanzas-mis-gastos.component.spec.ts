@@ -3,6 +3,7 @@ import { LOCALE_ID } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
+import { provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasMisGastosComponent } from './finanzas-mis-gastos.component';
 import type { ExpenseProofsReport } from '../comprobaciones.service';
@@ -40,7 +41,9 @@ describe('FinanzasMisGastosComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [FinanzasMisGastosComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }],
+      // `[GX.41]` El router va de verdad: el botón «Subir evidencia» es un `routerLink` con
+      // queryParams, y con un doble no se podría comprobar que el folio Y la sucursal viajan.
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: LOCALE_ID, useValue: 'es-MX' }],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -237,6 +240,84 @@ describe('FinanzasMisGastosComponent', () => {
     it('con una sola fila resuelta, la barra aparece', () => {
       montar({ ...REPORTE(), rows: [FILA({ id: 'x', etapa: 'ejercido', etapa_label: 'Ejercido' })] });
       expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * `[GX.41]` — **«Te tocan a vos»: los vales que Kepler le asignó por la caja «Solicita».**
+   *
+   * ⛔ El recorte lo hace el SERVIDOR, por el `username` del token. Esta pantalla **no
+   * filtra**: si lo hiciera, un error suyo le mostraría a alguien el vale de otro y se vería
+   * igual de bien — el defecto que GX.34 ya cerró para la lista de abajo. Por eso las pruebas
+   * mandan lo que el servidor devolvió y verifican **qué se pinta**, no a quién se elige.
+   */
+  describe('[GX.41] los vales asignados desde Kepler', () => {
+    const ASIG = (over: Record<string, unknown> = {}) => ({
+      sucursal: '00', folio: '0009946', fecha: '2026-09-28', importe: 1583.86,
+      solicita: 'DEMO_CAPTURA', destinatario: 'ESTACION DE SERVICIO TAVISA',
+      concepto: 'COMBUSTIBLE', estado: 'N', aplicada: false, vinculado_por: 'solicita',
+      ...over,
+    });
+    const CON_ASIG = (asignados: unknown[], rows = REPORTE().rows) => ({
+      ...REPORTE(), rows, asignados,
+    }) as unknown as ExpenseProofsReport;
+
+    it('pinta el vale asignado con su folio, destinatario e importe', () => {
+      montar(CON_ASIG([ASIG()]));
+      const s = fix.nativeElement.querySelector('.mg-asig');
+      expect(s).toBeTruthy();
+      const txt = (s as HTMLElement).textContent || '';
+      expect(txt).toContain('0009946');
+      expect(txt).toContain('ESTACION DE SERVICIO TAVISA');
+      expect(txt).toContain('1,583.86');
+    });
+
+    /** ⭐ Un clic: el folio y la plaza viajan en la URL, no hay que teclearlos de nuevo. */
+    it('el botón lleva a la captura con el folio Y la sucursal puestos', () => {
+      montar(CON_ASIG([ASIG()]));
+      const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
+      expect(a).toBeTruthy();
+      expect(a.getAttribute('href')).toContain('folio=0009946');
+      // ⛔ Sin la sucursal, 373 folios viven en más de una plaza y se abriría el de otra tienda.
+      expect(a.getAttribute('href')).toContain('sucursal=00');
+    });
+
+    it('sin asignados no pinta la sección (una caja vacía permanente enseña a ignorarla)', () => {
+      montar(REPORTE());
+      expect(fix.nativeElement.querySelector('.mg-asig')).toBeNull();
+    });
+
+    /**
+     * ⚠️ «No levantaste nada» y «tenés 3 esperando» son afirmaciones distintas. La primera,
+     * sobre alguien que tiene pendientes arriba, lo manda a buscar donde no es.
+     */
+    it('con asignados, el vacío de abajo NO dice que no levantó nada', () => {
+      montar(CON_ASIG([ASIG(), ASIG({ folio: '0009947' })], []));
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('que te asignaron en Kepler');
+      expect(txt).toContain('2');
+    });
+
+    /** Sin asignados el mensaje vuelve a ser el de siempre: no se le inventa un pendiente. */
+    it('sin asignados y sin gastos, el vacío es el de siempre', () => {
+      montar({ ...REPORTE(), rows: [], asignados: [] } as unknown as ExpenseProofsReport);
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('Todavía no levantaste');
+      expect(txt).not.toContain('que te asignaron en Kepler');
+    });
+
+    /** Un vale ya ejercido en Kepler se marca: sigue necesitando evidencia, pero el dinero salió. */
+    it('el que Kepler ya aplicó viene marcado', () => {
+      montar(CON_ASIG([ASIG({ aplicada: true })]));
+      expect((fix.nativeElement.querySelector('.mg-asig') as HTMLElement).textContent)
+        .toContain('Ya ejercido en Kepler');
+    });
+
+    /** Un servidor viejo no manda `asignados`: no puede romper la pantalla. */
+    it('sin el campo en la respuesta, la pantalla sigue viva', () => {
+      montar(REPORTE());
+      expect(c.asignados()).toEqual([]);
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
     });
   });
 });

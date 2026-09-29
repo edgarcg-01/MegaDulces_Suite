@@ -13,6 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { ActivatedRoute } from '@angular/router';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
   ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
   type ListasParaComprobar } from '../comprobaciones.service';
@@ -631,6 +632,8 @@ export class FinanzasCapturarGastoComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  // `[GX.41]` Para llegar con el folio ya puesto desde «Mis gastos».
+  private readonly route = inject(ActivatedRoute);
 
   readonly gasto = signal<SelSolicitud | null>(null);
   readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
@@ -872,7 +875,38 @@ export class FinanzasCapturarGastoComponent {
   readonly mine = signal<ExpenseProof[]>([]);
   readonly mineLoading = signal(false);
 
-  constructor() { this.loadMine(); this.loadListas(); }
+  constructor() {
+    this.loadMine();
+    this.loadListas();
+    this.abrirDesdeLaUrl();
+  }
+
+  /**
+   * `[GX.41]` **Llegar acá con el folio ya puesto**, desde «Mis gastos» → «Subir evidencia».
+   *
+   * ⭐ No arma el estado a mano: **busca el folio y llama a `pick()`**, el mismo camino que
+   * usa quien lo teclea. Copiar lo que hace `pick()` habria dejado dos formas de seleccionar
+   * una solicitud, y la de la URL se habria quedado atras en el primer cambio — sin que nadie
+   * lo note, porque la pantalla se ve igual.
+   *
+   * ⚠️ Si el folio no aparece **no se inventa nada**: se deja el buscador vacio con el texto
+   * escrito, para que la persona vea que ese folio no esta y pueda buscar otro. Pasa de
+   * verdad: el feed del ODS puede no haberlo traido todavia.
+   */
+  private abrirDesdeLaUrl(): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const folio = (qp.get('folio') || '').trim();
+    if (!folio) return;
+    const suc = (qp.get('sucursal') || '').trim();
+    this.svc.searchSolicitudes(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
+      // ⛔ Con la sucursal a mano se exige exacta: 373 folios viven en mas de una plaza y
+      // tomar la primera abriria el vale de otra tienda con el importe de otra tienda.
+      const hit = (rows || []).find((r) => r.folio === folio && (!suc || String(r.sucursal || '') === suc));
+      if (!hit) { this.sel = folio; this.cdr.markForCheck(); return; }
+      this.pick(hit as never);
+      this.cdr.markForCheck();
+    });
+  }
 
   /** Último término buscado, para poder explicar un resultado vacío. */
   private readonly ultimo = signal('');
