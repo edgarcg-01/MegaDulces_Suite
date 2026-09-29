@@ -173,12 +173,38 @@ export class InventoryCountService {
           `Ya existe un folio de inventario abierto para este almacén (${openExisting.folio}). Ciérralo o cancélalo primero.`,
         );
 
-      // Fuente de stock del almacén: si tiene inventory.warehouse_stock → modo
-      // 'inventory' (productos del almacén por sku); si no → 'commercial' (uuid).
-      const invCnt = await trx('inventory.warehouse_stock')
+      // ── [IC.1] De dónde sale el TEÓRICO contra el que se va a contar ──────────────────
+      //
+      // El ODS es la fuente correcta por CONSTRUCCIÓN: se deriva del CDC, así que no puede
+      // arrastrar valores fantasma. `commercial.stock` sí — su importer es un delta contra un
+      // snapshot en disco que se desincroniza, y esas filas no se corrigen nunca (el caso
+      // documentado: SKU 88009 en la 01, POS 2485 / ODS 2487 / tabla 3547).
+      //
+      // ⚠️ HONESTIDAD SOBRE EL TAMAÑO DEL BENEFICIO, medido hoy (2026-09-28): las dos fuentes
+      // difieren en **90 SKUs de 21,941 (0.4%)**, 2,355 unidades en total — no en el ~9% que
+      // sugeriría la brecha histórica contra el POS. El importer está mucho mejor que cuando
+      // se midió aquello. El cambio se hace igual, porque un conteo se juzga SKU por SKU y
+      // cada diferencia falsa cuesta el tiempo de alguien yendo al anaquel — pero no se
+      // promete una mejora que no se midió.
+      //
+      // Preferencia: ERP (derivado del ODS) → inventory → commercial.
+      // ⚠️ Se usa `v_erp_stock_on_hand` y NO `v_erp_stock_truth`: medido, la segunda hace
+      //    timeout incluso acotada a un almacén (arbitra costo, que acá no hace falta — para
+      //    contar se necesita la CANTIDAD). `v_erp_stock_on_hand` responde en ~312 ms para
+      //    2,988 SKUs, que es aceptable en una operación puntual como abrir un folio.
+      let stockSource: 'erp' | 'inventory' | 'commercial';
+      const erpCnt = await trx('analytics.v_erp_stock_on_hand')
         .where({ warehouse_id: dto.warehouse_id })
+        .andWhere('qty_stock_units', '>', 0)
         .count<{ n: string }[]>('* as n');
-      const stockSource = Number(invCnt[0]?.n || 0) > 0 ? 'inventory' : 'commercial';
+      if (Number(erpCnt[0]?.n || 0) > 0) {
+        stockSource = 'erp';
+      } else {
+        const invCnt = await trx('inventory.warehouse_stock')
+          .where({ warehouse_id: dto.warehouse_id })
+          .count<{ n: string }[]>('* as n');
+        stockSource = Number(invCnt[0]?.n || 0) > 0 ? 'inventory' : 'commercial';
+      }
 
       const folio = await this.nextFolio(trx);
 
@@ -204,7 +230,30 @@ export class InventoryCountService {
       // acotado, ABC.2), siembra SOLO ese subset; si no, todo el almacén (full).
       const subset = Array.isArray(dto.product_ids) && dto.product_ids.length > 0;
       let snapInserted: any;
-      if (stockSource === 'inventory') {
+      if (stockSource === 'erp') {
+        // [IC.1] El teórico sale del ERP (derivado del ODS, 100% contra el POS) y de paso
+        // ESTAMPA la unidad: `display_box_factor` y `unit_source` vienen de la misma fila que
+        // la cantidad, así que no hay que re-resolverlos después contra otra tabla y arriesgar
+        // que no sean conmensurables (ADR-057: la unidad se resuelve una vez, con testigo).
+        // ⚠️ `unit_source` puede venir NULL y se guarda NULL — no se rellena con 1. Un factor
+        //    inventado es peor que un factor ausente: el ausente se ve.
+        snapInserted = await trx.raw(
+          `INSERT INTO commercial.inventory_count_items
+             (tenant_id, count_id, product_id, aisle_id, location, expected_qty, status,
+              unit_label, unit_factor, unit_source)
+           SELECT e.tenant_id, ?, e.product_id, s.aisle_id, p.location, e.qty_stock_units, 'pending',
+                  NULL, NULLIF(e.display_box_factor, 0), e.unit_source
+             FROM analytics.v_erp_stock_on_hand e
+             LEFT JOIN commercial.stock s
+               ON s.warehouse_id = e.warehouse_id AND s.product_id = e.product_id
+              AND s.tenant_id = e.tenant_id
+             LEFT JOIN public.products p ON p.id = e.product_id
+            WHERE e.warehouse_id = ? AND e.tenant_id = public.current_tenant_id()
+              AND e.qty_stock_units > 0
+            ${subset ? 'AND e.product_id = ANY(?::uuid[])' : ''}`,
+          subset ? [count.id, dto.warehouse_id, dto.product_ids] : [count.id, dto.warehouse_id],
+        );
+      } else if (stockSource === 'inventory') {
         // por sku desde inventory.warehouse_stock (catálogo del almacén)
         snapInserted = await trx.raw(
           `INSERT INTO commercial.inventory_count_items
@@ -1137,6 +1186,18 @@ export class InventoryCountService {
   // ─────────────────────────────────────────────────────────────────────────
   // Reconciliación: ajusta stock al físico + genera movimientos. (RECONCILIAR)
   // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * ⚠️ [IC.1] DÓNDE CAE EL AJUSTE, Y POR QUÉ NO ES DONDE SE CONTÓ.
+   *
+   * Desde IC.1 el teórico sale del ERP (`v_erp_stock_on_hand`, derivado del ODS), pero el
+   * ajuste se escribe en `commercial.stock` — NO en Kepler. No es un descuido: **no escribimos
+   * al system of record** (ADR-040). El ERP se entera por el archivo que emite
+   * `keplerAdjustmentExport` y que alguien captura allá.
+   *
+   * Consecuencia que hay que tener presente: hasta que ese archivo se capture, el ERP sigue
+   * con su saldo viejo y el siguiente folio va a volver a encontrar la misma diferencia. El
+   * ajuste local no la cierra del lado del ERP.
+   */
   async reconcile(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
 
