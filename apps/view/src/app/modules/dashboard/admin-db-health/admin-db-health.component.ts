@@ -109,21 +109,22 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
       <!-- Bandeja PERSISTENTE de alertas (abre/resuelve el scanner cada 5 min) -->
       <h2 class="sec">Bandeja de alertas
         <span class="cnt" [class.bad]="openAlerts().length">{{ openAlerts().length }} abierta(s)</span></h2>
-      <div class="card">
-        <p-table [value]="openAlerts()" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+      <div class="card dt-scope">
+        <!-- [UIM.2] Apilado por campos: cada columna es un campo de UNA alerta. -->
+        <p-table [value]="openAlerts()" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '48rem' }">
           <ng-template #header>
             <tr><th>Fuente</th><th>Estado</th><th class="num">Desactualizada</th><th>Detectada</th><th><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-a>
             <tr [class.row-ack]="a.acknowledged_at">
-              <td>
+              <td class="dt-id" role="cell">
                 <div class="src">{{ a.source_label }}</div>
                 @if (a.note) { <div class="note2">{{ a.note }}</div> }
               </td>
-              <td><p-tag [severity]="a.status==='critical' ? 'danger' : 'warn'" [value]="a.status==='critical' ? 'Crítico' : 'Atrasado'" /></td>
-              <td class="num" [class.txt-warn]="a.status==='warn'" [class.txt-crit]="a.status==='critical'">{{ relAge(a.age_seconds) }}</td>
-              <td><span class="when">{{ a.first_seen_at | date: 'dd/MM HH:mm' }}</span></td>
-              <td class="num">
+              <td role="cell" data-label="Estado"><p-tag [severity]="a.status==='critical' ? 'danger' : 'warn'" [value]="a.status==='critical' ? 'Crítico' : 'Atrasado'" /></td>
+              <td class="num dt-num" role="cell" data-label="Desactualizada" [class.txt-warn]="a.status==='warn'" [class.txt-crit]="a.status==='critical'">{{ relAge(a.age_seconds) }}</td>
+              <td role="cell" data-label="Detectada"><span class="when">{{ a.first_seen_at | date: 'dd/MM HH:mm' }}</span></td>
+              <td class="dt-actions" role="cell">
                 @if (a.acknowledged_at) { <span class="ackd"><i class="pi pi-check"></i> visto</span> }
                 @else { <button pButton type="button" size="small" class="p-button-text p-button-sm" (click)="ack(a)"><span class="p-button-label">Marcar visto</span></button> }
               </td>
@@ -163,8 +164,9 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
           }
         </div>
 
-        <div class="card">
-          <p-table [value]="e.bloat" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+        <div class="card dt-scope">
+          <!-- [UIM.2] Apilado por campos: cada columna es un campo de UNA tabla. -->
+          <p-table [value]="e.bloat" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '48rem' }">
             <ng-template #header>
               <tr>
                 <th>Tabla</th>
@@ -177,23 +179,23 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
             </ng-template>
             <ng-template #body let-t>
               <tr>
-                <td>
+                <td class="dt-id" role="cell">
                   <div class="src">{{ t.table }}</div>
                   <div class="tbl">{{ t.schema }}</div>
                 </td>
-                <td class="num tnum">{{ t.live | number }}</td>
-                <td class="num tnum">{{ t.dead | number }}</td>
-                <td class="num tnum" [class.txt-warn]="t.status==='warn'" [class.txt-crit]="t.status==='critical'">
+                <td class="num tnum dt-num" role="cell" data-label="Filas vivas">{{ t.live | number }}</td>
+                <td class="num tnum dt-num" role="cell" data-label="Muertas">{{ t.dead | number }}</td>
+                <td class="num tnum dt-num" role="cell" data-label="% muertas" [class.txt-warn]="t.status==='warn'" [class.txt-crit]="t.status==='critical'">
                   {{ t.dead_pct != null ? t.dead_pct + '%' : '—' }}
                 </td>
-                <td>
+                <td role="cell" data-label="Última limpieza">
                   @if (t.last_autovacuum) {
                     <span class="when">{{ t.last_autovacuum | date: 'dd/MM HH:mm' }}</span>
                   } @else {
                     <span class="when muted" title="autovacuum todavía no la tocó: está por debajo de su umbral">nunca</span>
                   }
                 </td>
-                <td class="num tnum">{{ t.size_pretty }}</td>
+                <td class="num tnum dt-num" role="cell" data-label="Peso">{{ t.size_pretty }}</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
@@ -229,8 +231,9 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
 
       <ng-template #tbl let-data let-title="title" let-firstCol="firstCol">
         <h2 class="sec">{{ title }}</h2>
-        <div class="card">
-          <p-table [value]="data" [loading]="false" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+        <div class="card dt-scope">
+          <!-- [UIM.2] Apilado por campos: cada columna es un campo de UNA fuente. -->
+          <p-table [value]="data" [loading]="false" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '48rem' }">
             <ng-template #header>
               <tr>
                 <th>{{ firstCol }}</th>
@@ -245,26 +248,26 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
             </ng-template>
             <ng-template #body let-s>
               <tr>
-                <td>
+                <td class="dt-id" role="cell">
                   <div class="src">{{ s.label }}</div>
                   <div class="tbl">{{ s.table }}</div>
                 </td>
-                <td>
+                <td role="cell" data-label="Última actualización">
                   @if (s.last_update) {
                     <span class="when">{{ s.last_update | date: 'dd/MM HH:mm' }}</span>
                   } @else {
                     <span class="when muted">{{ s.status === 'unknown' ? '—' : 'nunca' }}</span>
                   }
                 </td>
-                <td class="num" [class.txt-warn]="s.status==='warn'" [class.txt-crit]="s.status==='critical'">
+                <td class="num dt-num" role="cell" data-label="Antigüedad" [class.txt-warn]="s.status==='warn'" [class.txt-crit]="s.status==='critical'">
                   {{ relAge(s.age_seconds) }}
                 </td>
-                <td>
+                <td role="cell" data-label="Estado">
                   <p-tag [severity]="sev(s.status)" [value]="statusLabel(s.status)" />
                   @if (s.note) { <span class="note">{{ s.note }}</span> }
                 </td>
-                <td class="cadence">{{ s.cadence }}</td>
-                <td class="num tnum">
+                <td class="cadence" role="cell" data-label="Cadencia esperada">{{ s.cadence }}</td>
+                <td class="num tnum dt-num" role="cell" data-label="Fallas 7 días">
                   @if (s.runs_7d) {
                     <span [class.txt-warn]="(s.fails_7d ?? 0) > 0" [title]="s.fails_7d + ' de ' + s.runs_7d + ' corridas fallaron en 7 dias'">
                       {{ s.fails_7d }}/{{ s.runs_7d }}
@@ -274,7 +277,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
                     <span class="muted">—</span>
                   }
                 </td>
-                <td class="num tnum">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
+                <td class="num tnum dt-num" role="cell" data-label="Filas">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
