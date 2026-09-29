@@ -22,7 +22,16 @@ export const routes: Routes = [
     // El costo es una petición de ~70 KB antes de pintar el login; el beneficio es que el resto
     // de la app arranca 70 KB más liviana siempre.
     path: 'login',
-    loadComponent: () => import('./modules/auth/login/login.component').then((m) => m.LoginComponent)
+    loadComponent: () => import('./modules/auth/login/login.component').then((m) => m.LoginComponent),
+    // `[BND.4]` ⛔ Sin esto, hacer el login lazy ABRE UNA REGRESIÓN OFFLINE, y es sutil: el
+    // service worker precachea `/main-*.js` (grupo `app`, prefetch) pero los chunks caen en el
+    // grupo `chunks`, que es **lazy** — se guardan recién después de pedirlos una vez. Mientras
+    // el login vivía dentro de `main` viajaba precacheado siempre; ahora un equipo con la sesión
+    // vencida y sin red se quedaba sin la pantalla donde escribirla. Falla igual con o sin esto
+    // (autenticar necesita API), pero la diferencia es ver el formulario o ver un error de carga.
+    // La precarga es opt-in y llega 8 s después del arranque, así que NO toca el bundle inicial:
+    // baja en segundo plano y el service worker la guarda. Es el único `preload: true` del repo.
+    data: { preload: true }
   },
   // `[SN.3]` "Mi trabajo": la landing por espacios de responsabilidad (ADR-061). Conserva la URL
   // `/projects` a propósito: renombrarla es cosmético y toca 7 archivos + la PWA. Lazy como el
