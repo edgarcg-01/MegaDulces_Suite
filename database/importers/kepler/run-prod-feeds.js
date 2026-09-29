@@ -673,12 +673,29 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   // Latido de cierre. status='error' SOLO si el batch entero falló (DB caída / mode roto);
   // una falla PARCIAL (p.ej. 1 paso flaky en el nightly) queda en 'ok' con el detalle en note
   // → visible en el tablero sin disparar alarma crítica por ruido.
+  //
+  // ⚠️ Eso NO deja ciego al tablero, y conviene saber por qué antes de "arreglarlo":
+  //   · el estado que pinta `db-health` sale de la FRESCURA (`classify(ageSec, warnH, critH)`),
+  //     no de este `status`;
+  //   · y `recurrenciaLevantaLaMano()` (`db-health-recurrencia.ts`) marca el carril por la vía
+  //     `enPasos` leyendo `analytics.cron_run_log`, que es donde late CADA paso (`[VL.6.4]`).
+  // Medido 2026-09-28: la bitácora tiene 296,267 filas y reporta bien `import-cash-cuts.js` 6/6,
+  // `import-sales-by-vendor-monthly.js` 5/6 y `import-stock-movements.js` 1/6. La detección
+  // está completa; lo que falta es que la alarma salga del edificio (OBS.0.2, sin `SMTP_*`).
   if (APPLY) {
     const total = steps.length;
     const okCount = total - failed;
     await hb.end(hbKey, {
       status: total > 0 && failed === total ? 'error' : 'ok',
-      rows: okCount,
+      // ⛔ [AUD-DAT.13] ACÁ IBA `rows: okCount` Y ERA UNA MENTIRA MEDIBLE. El campo es
+      // `rows_affected` y el tablero lo imprime como «· N filas»: un carril que movió 52 tablas
+      // publicaba «· 50 filas», que son PASOS. Es el mismo defecto que ya se corrigió en la nota
+      // («contpaqi_add_cfdis pasó 30 h muerto mostrando "OK · 167224 filas"»), en el campo de al
+      // lado. Este runner NO puede contar filas —52 importers heterogéneos, cada uno con su
+      // unidad— así que se DECLARA nulo en vez de dibujar un número que mide otra cosa
+      // (ADR-056). El conteo de pasos ya viaja en `note`, que es donde significa lo que dice.
+      // Verificado: `db-health` omite el sufijo cuando es null y ninguna regla lo lee como falla.
+      rows: null,
       note: `${okCount}/${total} pasos OK`,
       error: failed ? `${failed} paso(s) fallaron: ${failedSteps.join(', ')}`.slice(0, 500) : null,
     });
