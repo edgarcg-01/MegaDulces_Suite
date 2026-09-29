@@ -147,3 +147,40 @@ describe('no es comprobante fiscal, y no se rompe con lo que venga de Kepler', (
     expect(cuerpoReporteCliente(C, [], SIN, 0)).toContain('Sin documentos.');
   });
 });
+
+/**
+ * `[TK.d3]` La columna del descuento: se llama por su nombre y trae el porcentaje.
+ *
+ * El rótulo pelado «Descuento» se leía como «todo lo que el cliente ahorró», y no es eso: es el
+ * descuento **de cabecera** que declara el ERP. Las rebajas por renglón son otra capa y sólo
+ * salen con «Detalle por producto» (medido: de 609 facturas, 435 difieren en más de $1 entre
+ * las dos — `ERP_KEPLER` §3.1).
+ */
+describe('[TK.d3] el descuento de cliente en el papel', () => {
+  it('la columna se llama «Descuento de cliente», no «Descuento» a secas', () => {
+    const html = cuerpoReporteCliente(C, [D({})], SIN, 0);
+    expect(html).toContain('>Descuento de cliente<');
+  });
+
+  it('imprime el porcentaje que el ERP declara, al lado del importe', () => {
+    const html = cuerpoReporteCliente(C, [D({ descuento: 742.27, descuento_pct: 3 })], SIN, 0);
+    expect(html).toContain('742.27');
+    expect(html).toContain('(3%)');
+  });
+
+  /**
+   * ⚠️ Sin porcentaje declarado no se inventa un «(0%)»: un documento que no lo trae no es uno
+   * con cero por ciento de descuento (ADR-056).
+   */
+  it('sin porcentaje declarado sale el importe solo', () => {
+    const html = cuerpoReporteCliente(C, [D({ descuento: 742.27, descuento_pct: null })], SIN, 0);
+    expect(html).toContain('742.27');
+    expect(html).not.toContain('(0%)');
+  });
+
+  /** Y sin descuento sigue saliendo el guion, no un $0.00 que afirmaría un descuento de cero. */
+  it('sin descuento, guion', () => {
+    const html = cuerpoReporteCliente(C, [D({ descuento: 0, descuento_pct: null })], SIN, 0);
+    expect(html).toContain('—');
+  });
+});
