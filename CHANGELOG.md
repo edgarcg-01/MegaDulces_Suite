@@ -14,8 +14,11 @@ Nace de un reporte: *"$6.00 por cliente distinto al que se le venda el 97191, to
 11/08 al 11/09 — no funciona"*.
 
 **Esa promo no fallaba: no tenía base.** La última venta de RUTA del `97191` fue el **2025-09-24**,
-once meses antes. Lo que falta ahí es que la pantalla lo **diga**, en vez de un vacío que se lee
-como falla.
+once meses antes.
+
+⛔ **Corregido en VSO.19:** aquí decía *"lo que falta es que la pantalla lo diga"*. **Falso — ya lo
+decía** («Sin ventas del producto en ruta para el periodo»), y el parseo de la IA acertó en todo.
+Afirmé una carencia de UI sin abrir la UI.
 
 ⛔ **Pero buscándolo apareció algo mayor.** `analytics.v_seller_sales_lines` —el universo con el que
 se **calcula y se paga** un incentivo— leía Wincaja + el push de rutas y **de `kepler_ods` nada**.
