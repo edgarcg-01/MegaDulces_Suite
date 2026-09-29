@@ -135,6 +135,91 @@ export class InventoryInvestigationService {
     });
   }
 
+  /**
+   * [IC.9] Abrir expedientes desde el conteo TRIMESTRAL DE KEPLER.
+   *
+   * ⛔ Prevención está construida desde ago-2026 y tiene **una sola investigación** en prod.
+   * No es que nadie la use: es que nada la alimenta. `fromCount` sólo lee NUESTROS folios
+   * (`commercial.inventory_counts`), y de esos hay 6, todos cancelados. El descuadre real
+   * —$6.6M de sobrante y $2.3M de faltante sólo en sep-2026— vive en el conteo de Kepler y
+   * nunca le llegaba.
+   *
+   * ⚠️ CON UMBRAL, y no es un detalle de UX: septiembre tiene 3,030 SKUs sobrantes y 4,271
+   * faltantes. Abrir 7,301 expedientes es la forma más rápida de que nadie vuelva a mirar la
+   * bandeja. `min_importe` y `max_items` son obligatorios de hecho, y la respuesta dice
+   * cuántos quedaron fuera para que el recorte no sea invisible.
+   *
+   * ⚠️ Las CARGAS INICIALES no entran: una migración de ERP no es algo que investigar.
+   */
+  async fromKeplerVariance(params: {
+    warehouse_id: string;
+    fecha: string;
+    min_importe?: number;
+    max_items?: number;
+  }) {
+    if (!UUID.test(params.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
+    if (!params.fecha) throw new BadRequestException('fecha requerida');
+    const minImporte = Math.max(Number(params.min_importe) || 1000, 0);
+    const maxItems = Math.min(Math.max(Number(params.max_items) || 50, 1), 500);
+
+    return this.tk.run(async (trx) => {
+      const userId = this.tenantCtx.get()?.userId || null;
+      const { rows } = await trx.raw(
+        `SELECT v.product_id, v.sku, v.signo, v.cantidad, v.costo_unitario, v.importe,
+                count(*) OVER ()::int AS total_candidatos
+           FROM analytics.v_erp_physical_count_variance v
+          WHERE v.warehouse_id = ? AND v.fecha = ?
+            AND v.tipo_evento = 'conteo'
+            AND v.product_id IS NOT NULL
+            AND v.importe >= ?
+          ORDER BY v.importe DESC
+          LIMIT ?`,
+        [params.warehouse_id, params.fecha, minImporte, maxItems]);
+
+      const totalCandidatos = rows.length ? Number(rows[0].total_candidatos) : 0;
+      let created = 0, omitidos = 0;
+      const folios: string[] = [];
+      for (const r of rows) {
+        // Idempotente por (almacén, producto, fecha): re-correrlo no duplica expedientes.
+        const exists = await trx('commercial.inventory_investigations')
+          .where({ warehouse_id: params.warehouse_id, product_id: r.product_id })
+          .whereRaw('created_at::date = ?::date', [params.fecha])
+          .first('id');
+        if (exists) { omitidos++; continue; }
+        const diff = r.signo === 'sobrante' ? Number(r.cantidad) : -Number(r.cantidad);
+        const folio = await this.nextFolio(trx);
+        await trx('commercial.inventory_investigations').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          folio,
+          warehouse_id: params.warehouse_id,
+          product_id: r.product_id,
+          // Sin `source_count_id`: no salió de un folio nuestro sino del ERP, y fingir uno
+          // rompería la trazabilidad de vuelta al documento de Kepler.
+          expected_qty: 0,
+          physical_qty: diff,
+          difference: diff,
+          unit_cost: Number(r.costo_unitario) || 0,
+          value_at_cost: Number(r.importe) || 0,
+          status: 'open',
+          opened_by: userId,
+          resolution: `Origen: conteo físico de Kepler del ${params.fecha} (SKU ${r.sku}, ${r.signo}).`,
+        });
+        created++;
+        folios.push(folio);
+      }
+      return {
+        fecha: params.fecha,
+        created,
+        omitidos_por_duplicado: omitidos,
+        // El recorte se DECLARA: si hay 900 candidatos y se abrieron 50, hay que saberlo.
+        candidatos_sobre_umbral: totalCandidatos,
+        min_importe: minImporte,
+        truncado: totalCandidatos >= maxItems,
+        folios,
+      };
+    });
+  }
+
   async list(query: { status?: string; warehouse_id?: string; product_id?: string; limit?: number }) {
     if (query.warehouse_id && !UUID.test(query.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const limit = Math.min(500, Math.max(1, Number(query.limit) || 200));

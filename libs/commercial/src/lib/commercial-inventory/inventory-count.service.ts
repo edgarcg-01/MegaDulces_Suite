@@ -1615,6 +1615,69 @@ export class InventoryCountService {
    * folio/sequencing/triggers propios). Devuelve el documento para importar o
    * capturar en Kepler. La sucursal sale del código del almacén (KEPLER-NN → NN).
    */
+  /**
+   * [IC.7] Confirmar que el archivo YA se capturó en Kepler.
+   *
+   * ⚠️ Lo declara una PERSONA: no tenemos forma de comprobar contra el ERP que el documento
+   * entró. Por eso queda firmado con usuario y hora — un acuse anónimo no deja a quién
+   * preguntarle cuando el conteo siguiente vuelva a encontrar la misma diferencia.
+   */
+  async keplerExportAck(countId: string, body: { kepler_folio?: string; notas?: string }) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    const uid = this.userId();
+    if (!uid) throw new ForbiddenException('Sesión sin usuario; el acuse tiene que ir firmado.');
+    return this.tk.run(async (trx) => {
+      const count = await trx('commercial.inventory_counts').where({ id: countId }).first();
+      if (!count) throw new NotFoundException('Folio no encontrado');
+      if (count.status !== 'reconciled')
+        throw new ConflictException('Sólo se acusa un folio reconciliado.');
+
+      const [row] = await trx('commercial.inventory_kepler_exports')
+        .insert({
+          tenant_id: count.tenant_id,
+          count_id: countId,
+          estado: 'capturado',
+          capturado_at: trx.fn.now(),
+          capturado_por: uid,
+          kepler_folio: body.kepler_folio || null,
+          notas: body.notas || null,
+          exportado_por: uid,
+        })
+        .onConflict(trx.raw(`(tenant_id, count_id) WHERE estado <> 'descartado'`))
+        .merge({
+          estado: 'capturado',
+          capturado_at: trx.fn.now(),
+          capturado_por: uid,
+          kepler_folio: body.kepler_folio || null,
+          notas: body.notas || null,
+          updated_at: trx.fn.now(),
+        })
+        .returning('*');
+      this.logger.log(`Folio ${count.folio}: acuse de captura en Kepler por ${uid}.`);
+      return row;
+    });
+  }
+
+  /** [IC.7] Estado del archivo. `sin_emitir` NO es `capturado`: son cosas distintas. */
+  async keplerExportStatus(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const row = await trx('commercial.inventory_kepler_exports')
+        .where({ count_id: countId })
+        .whereNot('estado', 'descartado')
+        .first();
+      if (!row) {
+        return {
+          estado: 'sin_emitir',
+          // Declararlo explícitamente: un folio reconciliado sin archivo emitido se ve
+          // cerrado de nuestro lado y NO lo está del lado del ERP.
+          advertencia: 'El ajuste no salió a Kepler. El ERP sigue con su saldo anterior.',
+        };
+      }
+      return row;
+    });
+  }
+
   async keplerAdjustmentExport(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     return this.tk.run(async (trx) => {
