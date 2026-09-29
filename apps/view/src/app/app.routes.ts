@@ -760,6 +760,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]
       },
       {
+        // Fase TP (ADR-064) — la cuenta por pagar a proveedor que alimenta el Calendario de
+        // Pagos. La página y el backend existían desde TP; faltaba la ruta.
+        path: 'obligaciones',
+        loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
+        // TP.7 — cuentas bancarias de pago a proveedor (alta/cambio por solicitud). Mismo permiso.
+        path: 'cuentas-pago',
+        loadComponent: () => import('./modules/compras/pages/compras-cuentas-pago.component').then(m => m.ComprasCuentasPagoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
         path: 'red',
         loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]
