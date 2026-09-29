@@ -81,7 +81,9 @@ export class ExpenseProofsController {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
-    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] };
+    // `[GX.39]` `etapas_de_la_pagina` vacio, no con ceros por etapa: cero vales no es
+    // «cero por ejercer», es que no hay nada que contar.
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, rows: [] };
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.

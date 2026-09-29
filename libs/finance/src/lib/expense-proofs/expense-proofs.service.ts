@@ -19,6 +19,12 @@ import {
 import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
+// `[GX.39]` La etapa de EJERCICIO (lo que pasa despues de que firmamos, del lado de Kepler)
+// se decide con la MISMA funcion que lee el chip del frontend. Ver el contrato.
+import {
+  ETIQUETA_ETAPA, EXPLICACION_ETAPA, etapaDeEjercicio,
+  type EstadoKepler, type EtapaEjercicio,
+} from '@megadulces/contracts';
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -239,6 +245,28 @@ export interface CreateExpenseProofDto {
   // `[GX.32]` Se fueron `monto_ocr`, `subtotal_ocr` y `receipt_legible`: los mandaba la
   // vista previa por visión, que ya no existe. Un campo del borde que nadie llena es un
   // contrato que miente — el siguiente que lo lea va a creer que trae algo.
+}
+
+/**
+ * `[GX.39]` La fila cruda del listado. Estaba tipada `any` — y el `any` no es cosmetico aca:
+ * es la fila que despues entra a `conEtapa()`, que decide si un gasto dice «ejercido». Con
+ * `any`, un `folio_solicitud` mal escrito compila y la etapa sale `sin_medir` para todos sin
+ * que nada se queje.
+ */
+interface FilaDeGasto {
+  status?: string;
+  folio_solicitud?: string | null;
+  sucursal?: string | null;
+  importe?: unknown;
+  monto_ocr?: unknown;
+  files?: unknown;
+  [k: string]: unknown;
+}
+
+/** `files` viaja como jsonb: knex lo entrega ya parseado o como texto, segun el driver. */
+function archivosDe(v: unknown): ProofFile[] {
+  if (typeof v === 'string') { try { return JSON.parse(v || '[]') as ProofFile[]; } catch { return []; } }
+  return Array.isArray(v) ? (v as ProofFile[]) : [];
 }
 
 export interface ListExpenseProofsQuery {
@@ -944,6 +972,83 @@ export class ExpenseProofsService {
   }
 
   /** Bandeja + KPIs por estado. */
+  /**
+   * `[GX.39]` **Lo que Kepler dice de estos folios.** Una sola consulta para toda la pagina.
+   *
+   * ⛔ **No copia nada.** Lee la vista `analytics.expense_requests` (derive-no-copy sobre
+   * `kepler_ods.kdm1`, fresca sin mantenimiento) en el momento. Materializar `aplicada` en
+   * nuestra tabla seria una segunda forma del mismo dato — lo que GOTCHAS 32 prohibe.
+   *
+   * ⚠️ Devuelve `null` —no `false`— para el folio que no encuentra. La diferencia es toda la
+   * fase: `false` afirma que Kepler NO lo aplico, `null` dice que no lo sabemos, y el
+   * contrato traduce eso a `sin_medir` en vez de a `por_ejercer`.
+   */
+  private async keplerPorFolio(
+    trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
+  ): Promise<Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>> {
+    const vacio = new Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>();
+    const folios = [...new Set(filas.map((f) => String(f.folio_solicitud || '').trim()).filter(Boolean))];
+    if (!folios.length) return vacio;
+
+    // La vista no existe donde no hay ODS (una maquina sin replica). Ahi todo queda `sin_medir`,
+    // que es la verdad: no hay con que medirlo.
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
+    if (!reg.rows[0]?.t) return vacio;
+
+    const vistas: { folio: string; sucursal: string; aplicada: boolean | null; estado: string | null }[] =
+      await trx('analytics.expense_requests')
+        .where('tenant_id', this.tenantCtx.requireTenantId())
+        .whereIn('folio', folios)
+        .select('folio', 'sucursal', 'aplicada', 'estado');
+
+    const porFolio = new Map<string, typeof vistas>();
+    for (const v of vistas) {
+      const k = String(v.folio).trim();
+      if (!porFolio.has(k)) porFolio.set(k, []);
+      (porFolio.get(k) as typeof vistas).push(v);
+    }
+
+    const out = vacio;
+    for (const f of filas) {
+      const folio = String(f.folio_solicitud || '').trim();
+      const suc = String(f.sucursal || '').trim();
+      const cands = porFolio.get(folio);
+      if (!cands?.length) continue;
+      /**
+       * ⚠️ **373 folios viven en mas de una plaza.** Con la sucursal a mano se cruza exacto;
+       * sin ella, si hay una sola candidata se usa, y si hay varias **no se elige ninguna**:
+       * tomar una arbitraria diria «ejercido» leyendo el gasto de otra tienda.
+       */
+      const hit = suc ? cands.find((c) => String(c.sucursal).trim() === suc)
+                      : (cands.length === 1 ? cands[0] : undefined);
+      if (!hit) continue;
+      out.set(this.claveKepler(folio, suc), {
+        aplicada: hit.aplicada === null || hit.aplicada === undefined ? null : !!hit.aplicada,
+        estado: (hit.estado || null) as EstadoKepler | null,
+      });
+    }
+    return out;
+  }
+
+  private claveKepler(folio: string, sucursal?: string | null): string {
+    return `${String(folio || '').trim()}|${String(sucursal || '').trim()}`;
+  }
+
+  /** Le pega la etapa a cada fila. Los tres campos viajan juntos: el chip, el texto y la clave. */
+  private conEtapa<T extends { status?: string; folio_solicitud?: string | null; sucursal?: string | null }>(
+    filas: T[], kepler: Map<string, { aplicada: boolean | null; estado: EstadoKepler | null }>,
+  ): (T & { etapa: EtapaEjercicio; etapa_label: string; etapa_explicacion: string })[] {
+    return filas.map((r) => {
+      const k = kepler.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal));
+      const etapa = etapaDeEjercicio({
+        status: String(r.status || ''),
+        kepler_aplicada: k ? k.aplicada : null,
+        kepler_estado: k ? k.estado : null,
+      });
+      return { ...r, etapa, etapa_label: ETIQUETA_ETAPA[etapa], etapa_explicacion: EXPLICACION_ETAPA[etapa] };
+    });
+  }
+
   async list(q: ListExpenseProofsQuery) {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
@@ -1003,10 +1108,12 @@ export class ExpenseProofsService {
         return qb;
       };
       filtros(b);
-      const rows = await Promise.all((await b).map(async (r: any) => ({
+      const crudas = await Promise.all((await b).map(async (r: FilaDeGasto) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
-        files: await this.storage.signFiles(typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || [])), // URL prefirmada (bucket privado)
+        files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
+      // `[GX.39]` La etapa de ejercicio, derivada en vivo de la vista. Una consulta por pagina.
+      const rows = this.conEtapa(crudas, await this.keplerPorFolio(trx, crudas));
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -1016,8 +1123,20 @@ export class ExpenseProofsService {
        * `rows.length`, o sea el `limit`: a quien tenía 340 gastos le decía «200».
        */
       const total = Object.values(by).reduce((a: number, n) => a + Number(n), 0);
+      /**
+       * `[GX.39]` Los contadores de ejercicio se cuentan **sobre las filas de la pagina**, no
+       * con un `groupBy` propio, y por eso viajan aparte de `kpis`: la etapa no es una columna
+       * de la tabla — sale de cruzar con Kepler, y cruzar los miles de folios del tenant para
+       * pintar tres numeros costaria mas de lo que vale.
+       *
+       * ⚠️ Van declarados como lo que son (`de_la_pagina`), para que nadie los lea como el
+       * total del universo. Es la trampa que GX.35 ya cobro una vez con estos mismos KPI.
+       */
+      const porEtapa: Record<string, number> = {};
+      for (const r of rows) porEtapa[r.etapa] = (porEtapa[r.etapa] || 0) + 1;
       return {
         kpis: { total, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
+        etapas_de_la_pagina: porEtapa,
         rows,
       };
     });
@@ -1101,17 +1220,73 @@ export class ExpenseProofsService {
           'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       if (!r) throw new NotFoundException('solicitud de reembolso no encontrada');
       const files = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
+      // `[GX.39]` La etapa de ejercicio + el documento que Kepler genera al aplicar el gasto.
+      const [conEtapa] = this.conEtapa([r], await this.keplerPorFolio(trx, [r]));
+      const gasto_kepler = await this.gastoEnKepler(trx, r.folio_solicitud, r.sucursal);
       return {
-        ...r,
+        ...conEtapa,
         importe: Number(r.importe),
         monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
         requiere_evidencia: requiereEvidencia(clasCol ? r.clasificacion : null),
         files: await this.storage.signFiles(files, 1800),
+        gasto_kepler,
         // El front no puede distinguir "no adjuntaron nada" de "hay archivo pero no lo
         // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
         storage_ok: this.storage.isConfigured(),
       };
     });
+  }
+
+  /**
+   * `[GX.39]` **El documento que Kepler genera cuando aprueban el gasto.**
+   *
+   * Pedido del usuario: *«jalar esa factura o ese documento que genera y agregarlo al gasto
+   * como un tipo de expediente»*. Medido el 2026-09-28 en prod: lo que Kepler genera es el
+   * **gasto `X-A-10`**, que apunta a nuestra solicitud por `c39`. Existe en el 100% de los
+   * casos aplicados (8,899 de 8,899 gastos vienen de una solicitud).
+   *
+   * ⛔ **No es el CFDI, y eso hay que decirlo en vez de dibujarlo.** Kepler **no guarda el
+   * UUID fiscal** — verificado dos veces de forma independiente: en MAT.1 (2026-07-17,
+   * `fiscal.cfdi_assignments`) y otra vez acá, barriendo toda la familia `kdfe33*`, que
+   * timbra **solo ventas** (genero U) y no contiene **ni un** gasto `X-A-10` ni una solicitud
+   * `X-A-15`. Ademas solo el **36% de los gastos trae RFC** (3,203 de 8,899), asi que ni
+   * siquiera se podria buscar el comprobante del proveedor para los otros dos tercios. Lo que
+   * se publica es lo que existe; el CFDI se declara como hueco, no se inventa.
+   *
+   * Sale de `analytics.expense_documents` — vista derive-no-copy, cero materializacion.
+   */
+  private async gastoEnKepler(
+    trx: Knex, folio?: string | null, sucursal?: string | null,
+  ): Promise<{
+    doc_tipo: string; doc_folio: string; fecha: string | null; importe: number; iva: number;
+    concepto: string | null; beneficiario: string | null; rfc: string | null; clase: string | null;
+    cfdi_disponible: false; cfdi_motivo: string;
+  } | null> {
+    const f = String(folio || '').trim();
+    if (!f) return null;
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_documents') t`);
+    if (!reg.rows[0]?.t) return null;
+    const suc = String(sucursal || '').trim();
+    const d: Record<string, unknown> | undefined = await trx('analytics.expense_documents')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .where('solicitud_folio', f)
+      // ⚠️ Misma trampa que en `lookupSolicitud`: sin la sucursal, `.first()` toma una fila
+      // arbitraria entre las plazas que comparten el folio y se muestra el gasto de otra tienda.
+      .modify((qb: Knex.QueryBuilder) => { if (suc) qb.where('sucursal', suc); })
+      .orderBy('fecha', 'desc')
+      .first('doc_tipo', 'doc_folio', 'concepto', 'beneficiario', 'rfc', 'clase',
+        trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('importe::numeric AS importe'), trx.raw('iva::numeric AS iva'));
+    if (!d) return null;
+    return {
+      doc_tipo: String(d['doc_tipo']), doc_folio: String(d['doc_folio']),
+      fecha: (d['fecha'] as string) ?? null,
+      importe: Number(d['importe'] ?? 0), iva: Number(d['iva'] ?? 0),
+      concepto: (d['concepto'] as string) ?? null, beneficiario: (d['beneficiario'] as string) ?? null,
+      rfc: (d['rfc'] as string) ?? null, clase: (d['clase'] as string) ?? null,
+      cfdi_disponible: false,
+      cfdi_motivo: 'Kepler no guarda el UUID fiscal del gasto (verificado). El CFDI del proveedor, cuando existe, se casa aparte por RFC e importe.',
+    };
   }
 
   /**
