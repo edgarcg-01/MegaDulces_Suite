@@ -26,19 +26,15 @@ import {
 } from '../quote-deliverable-export';
 
 /**
- * Las 8 sucursales de la red de sucursales Kepler (01..08).
- * Siempre presentes en el despliegue del menú.
+ * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
+ * CEDIS, que no vende al público.
+ *
+ * Antes era una copia literal de esa lista, declarada acá. El costo no fue la duplicación en sí
+ * sino que la pantalla de detalle no la tenía: rotulaba el entregable "Sucursal 01" mientras
+ * ésta escribía "Padre Hidalgo" — dos versiones del mismo documento. El core ya traía el
+ * catálogo Y su helper `branchName()`.
  */
-export const SUCURSALES_8: StoreBranch[] = [
-  { code: '01', name: 'Padre Hidalgo' },
-  { code: '02', name: 'La Piedad Abastos' },
-  { code: '03', name: '8 Esquinas' },
-  { code: '04', name: 'Yurécuaro' },
-  { code: '05', name: 'Zamora Centro' },
-  { code: '06', name: 'Canindo' },
-  { code: '07', name: 'Morelia Madero' },
-  { code: '08', name: 'Morelia Abastos' },
-];
+export const SUCURSALES_8: StoreBranch[] = STORE_BRANCHES.filter((b) => b.code !== '00');
 
 export interface ItemBandeja {
   id: string;
@@ -1324,7 +1320,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (this.modo() === 'contacto') {
       return this.contactoNombre.trim().length > 0;
     }
-    return !!this.cliente() || this.terminoCliente.trim().length > 0;
+    return !!this.cliente();
   });
 
   readonly puedeAgregarArticulo = computed(() => {
@@ -1848,6 +1844,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
     }));
 
     return {
+      // Todavía no hay folio: esta cotización no se ha guardado, así que no existe fila que la
+      // respalde. El documento lo IMPRIME ("SIN ASIGNAR") en vez de callarlo — un papel sin
+      // folio y sin aviso no se puede volver a encontrar cuando el cliente lo cita por teléfono.
+      quoteCode: null,
       customerCode,
       customerName,
       customerPhone,

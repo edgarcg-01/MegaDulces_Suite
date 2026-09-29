@@ -868,7 +868,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     a.rp-nm-i:hover b { color: var(--action); }
     a.rp-nm-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     /* [MR.8.0e] "No medido" no es un dato en cero: se distingue del resto del renglon. */
-    .rp-nm-blind b { font-family: var(--font-sans); color: var(--warn-soft-fg); font-weight: 600; }
+    .rp-nm-blind b { font-family: var(--font-body); color: var(--warn-soft-fg); font-weight: 600; }
     .rp-nm-blind code { font-family: var(--font-mono); font-size: var(--fs-nano); }
 
     /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */

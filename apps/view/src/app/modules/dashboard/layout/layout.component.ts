@@ -342,7 +342,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // el URL prefix actual (/dashboard, /comercial, /admin).
   // Sección "Trade": auditoría de ejecución en ruta (exhibiciones, scoring, reportes).
   private tradeMkNavItems: NavItem[] = [
-    { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
+    { label: 'Venta al detalle',  icon: 'pi pi-th-large',      route: '/dashboard/home',                 permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
