@@ -89,6 +89,49 @@ const Z = { A: invNorm(SERVICE.A), B: invNorm(SERVICE.B), C: invNorm(SERVICE.C) 
           LEFT JOIN analytics.v_abc_class abc
                  ON abc.tenant_id=$1 AND abc.warehouse_id=ih.warehouse_id AND abc.product_id=ih.product_id
          WHERE ih.tenant_id=$1 AND ih.avg_daily_units > 0
+           -- ⛔ [AUD-DAT.15] NO tocar los almacenes que planea import-network-reorder.js.
+           -- Medido en prod la noche del 2026-09-28, con el log de cambios de VP.3.1:
+           --
+           --     03:02:23  este importer        cambió 9,132 filas
+           --     03:02:28  import-network-reorder  cambió 8,717 filas
+           --     SOLAPE ................................ 7,197  (79 % de la segunda pasada)
+           --
+           -- O sea que durante cinco segundos cada noche el mismo renglón valía dos cosas. Un
+           -- ejemplo real, mismo registro y mismo minuto: max_stock 112 → 92 → 112. El valor
+           -- publicado dependía de quién corriera último, y analytics.master_data_history
+           -- quedaba con dos cambios contradictorios por noche por SKU: la historia que la Fase
+           -- VP existe para poder leer se volvía ilegible justo donde más se la necesita.
+           --
+           -- ⭐ Gana el de red, y no por orden de ejecución sino porque su demanda es un
+           -- SUPERCONJUNTO: media_red = Sigma avg(sucursales) + propio (RA-PRO.6), mientras acá se
+           -- mira sólo la demanda propia del almacén. Planear un CEDIS con su consumo de
+           -- mostrador es justo el error que la fase DRP vino a corregir.
+           --
+           -- El filtro es sobre la TOPOLOGÍA VIVA, no una lista: si nadie declara
+           -- source_warehouse_id, el conjunto excluido es vacío y este importer vuelve a
+           -- cubrirlos — el respaldo se conserva solo, sin una constante que mantener.
+           --
+           -- ⛔ SE EXCLUYE EL PAR (almacén, producto), NO EL ALMACÉN ENTERO, y la diferencia
+           -- son 2,801 filas. El filtro grueso —"si este almacén abastece a alguien, no lo
+           -- toques"— se midió antes de escribirlo y dejaba SIN DUEÑO a los productos que se
+           -- mueven en el punto de abasto pero en NINGUNA de sus hijas: el rollup DRP arma su
+           -- universo desde la demanda de las hijas, así que esos renglones no existen para él
+           -- y su política se habría congelado en silencio. Medido en prod (2026-09-28):
+           --
+           --     excluidos por el filtro grueso .... 10,121
+           --     cubiertos por import-network ......  7,320
+           --     SIN DUENO .........................  2,801   ← se habrían congelado
+           --
+           -- Con el par, esos 2,801 siguen siendo de este importer (su demanda propia es lo
+           -- único con que se pueden planear) y sólo se ceden los 7,320 que el otro sí planea.
+           AND NOT EXISTS (
+             SELECT 1
+               FROM commercial.warehouses n
+               JOIN analytics.inventory_health ihc
+                 ON ihc.tenant_id = $1 AND ihc.warehouse_id = n.id
+                AND ihc.product_id = ih.product_id AND ihc.avg_daily_units > 0
+              WHERE n.tenant_id = $1 AND n.source_warehouse_id = ih.warehouse_id
+                AND n.deleted_at IS NULL)
       ), calc AS (
         SELECT warehouse_id, product_id, lead, abc_class, demand_cv, xyz_class, adu,
                CASE abc_class WHEN 'A' THEN $3::numeric WHEN 'B' THEN $4::numeric ELSE $5::numeric END AS service_level,
