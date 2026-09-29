@@ -1206,6 +1206,30 @@ corresponden 1:1 con las filas `RUTA-2*` de `sales_daily`, o si hay un tercer fe
 
 ---
 
+### 9.16 ⛔⛔ "Morelia Abastos se cayó del árbitro en su cutover" — cuatro hipótesis mías, las cuatro falsas
+
+El síntoma era limpio y mentía: tres meses cuadrando al centavo ($0.00 en jun/jul/ago) y el cuarto
+partido en $3,398,289.86, justo en el corte del 19-sep de esa plaza. Todo lo que se me ocurrió para
+explicarlo se cayó, cada uno con una medición:
+
+| hipótesis | por qué era razonable | cómo se cayó |
+|---|---|---|
+| el feed la tira por su filtro `c14` (la plaza migrada ya timbra con SU sucursal) | el filtro existe y es exactamente `c14 IN (NULL,'','00')` | **`c14` es `'00'` en los cuatro meses.** No hay una sola fila de sucursal 30 |
+| la tira el filtro `BAJA/CANCELAD` de `classify()` (una migración genera bajas) | el filtro existe y el hueco nace en la migración | **tira CERO filas** en los cuatro meses |
+| los asientos pasaron a vivir en otra sucursal física (`md_30`) y el feed sólo lee `md_00` | es el patrón de `[VSO.18]`, ya cobrado antes | la columna `sucursal` del ODS dice **`00` en las 38 filas** |
+| es rezago global del feed nocturno | el delta es una rampa que crece hacia hoy (0 → 0 → $77k → $3.6M) | **el 94% está en UNA plaza.** Un rezago se reparte entre todas, proporcional a lo que postea cada una |
+
+⭐ Lo que lo resolvió no fue otra hipótesis: fue **ir a la fuente y contar filas**. `md_00` tiene los
+diez asientos del 19→28-sep; el ODS también; sólo faltaban en la foto de las 03:36 del árbitro.
+
+⭐⭐ Y la lección de método: **eran dos hechos apilados bajo una etiqueta.** El TLMKT de esa plaza sí
+dejó de postear el 17-sep (real, las dos fuentes coinciden) y su mostrador sólo estaba desfasado.
+Sumados bajo «Morelia Abastos» producían un tercer fenómeno que no existe. Ver
+[[feedback_declare_the_universe_not_just_the_number]].
+
+⚠️ El daño real estaba en el mes que yo daba por sano: **agosto, $77,131.36** (§15.2). Un delta de
+$77k al lado de uno de $3.4M se lee como redondeo — y era el único de los dos que era un defecto.
+
 ## 10. Cómo se verifica
 
 | candado | qué protege | estado |
@@ -1316,3 +1340,72 @@ de fondo que queda abierta (impacto medido: 12 SKUs).
 Detalle en [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md) §8octies · candado
 `database/tests/test-newdb-kepler-unit-ladder.js`.
 
+
+---
+
+## 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29)
+
+### 15.1 Qué arbitra a qué
+
+`/finanzas/ingresos` publica `analytics.income_entries_src(from,to)`, que deriva la cuenta 401 de
+`kepler_ods.kdc2YYMM`. Su árbitro es `analytics.sales_by_channel_monthly`, que llena
+`import-sales-by-channel.js` leyendo **el Kepler vivo del CEDIS (`md_00`) por LAN**.
+
+⛔ El candado decía que el árbitro leía «las réplicas por sucursal», y es **falso** desde que el
+importer se acotó a CEDIS (su `MAP` es una sola entrada; leer las 6 duplicaba ~$62M). Importa
+porque esa frase era la justificación escrita de que el árbitro no es un espejo (R5). La
+independencia real nunca fue la sucursal: es **no pasar por el CDC**. Es la misma contabilidad por
+otro camino, y por eso un desacuerdo localiza el defecto en vez de sólo anunciarlo.
+
+### 15.2 ⭐ Un delta tiene DOS mecánicas, y son opuestas en qué hacer
+
+En el total se ven idénticas. Sólo el diff **fila por fila** las separa:
+
+| | qué es | quién está mal | qué hacer |
+|---|---|---|---|
+| **fantasma** | el ODS conserva filas que el ERP **ya no tiene** | el número **publicado**, va ALTO | propagar el DELETE |
+| **pendiente** | el ERP las tiene y el ODS aún no | nadie | esperar un minuto |
+
+Medido 2026-09-29 (clave `fecha‖cuenta‖naturaleza‖importe‖concepto‖folio`):
+
+```
+2026-06   ODS  750 · ERP  750 · fantasma  0 ($0.00)         · pendiente  0 ($0.00)
+2026-07   ODS 1227 · ERP 1227 · fantasma  0 ($0.00)         · pendiente  0 ($0.00)
+2026-08   ODS 1345 · ERP 1341 · fantasma  4 ($77,131.36)    · pendiente  0 ($0.00)   ⛔
+2026-09   ODS 1464 · ERP 1482 · fantasma 13 ($333,478.28)   · pendiente 31 ($1,174,184.04)
+```
+
+⛔ **Agosto-2026: 4 pólizas (25097, 25285, 25310, 25333, todas `401-002`) por $77,131.36 que el ERP
+ya no tiene y el ODS sí.** `pendiente 0` prueba que no se renumeraron ni se corrigieron: **se
+borraron**. Es el DELETE que el CDC no propaga (Fase OBS). El ingreso publicado de agosto va
+**$77,131.36 alto**, y el árbitro tiene razón.
+
+⭐ La confirmación que lo separa de un desfase: la migración `20260925150000` ya declaraba
+`ago +$77,131.36` el **2026-09-25**. Cuatro días después es **el mismo importe al centavo**. Un
+desfase se cierra solo; éste no se movió.
+
+### 15.3 ⭐ Por qué el candado no lo veía, y qué cambió
+
+`mesesCerrados()` salta **el mes en curso y el anterior** — con razón: en esos dos, el delta del
+total mezcla desfase con defecto y afirmar sería inventar. Pero esa misma prudencia dejaba un
+hueco nacido en septiembre invisible hasta el **1 de noviembre**, y los defectos nacen justo ahí.
+
+El diff fila por fila rompe el empate: como distingue fantasma de pendiente, **sí puede afirmar
+sobre el mes anterior**. El bloque 6 del candado cubre ahora `mesesCerrados(2) + mes anterior +
+mes vivo`, afirma `fantasma = 0` en todos menos el vivo, y **nombra los folios**. Con eso agosto
+salta hoy en vez del 1 de octubre.
+
+⚠️ Y el mes vivo ya no se compara contra una foto de edad desconocida: el bloque 3 imprime la
+antigüedad del árbitro (`2026-09-29 03:36 — 12.2 h`). Sin eso, un Δ de millones se lee igual que
+uno de pesos.
+
+⚠️ El diff necesita LAN a `md_00`: desde una máquina de dev **no se puede** y entonces reporta
+`NO MEDIDO`, nunca ✔ por vacuidad. Corre completo desde `prod-api` en `md`.
+
+### 15.4 Lo que NO es
+
+⛔ **Morelia Abastos no perdió venta ni se cayó del feed.** Se veía como un corte limpio en su
+cutover del 19-sep ($3.4M, 94% del hueco de septiembre) y es **desfase de una corrida**: los diez
+asientos de «P.V. Morelia Abastos» del 19→28-sep están en las **dos** fuentes y sólo faltaban en
+la foto de las 03:36. Aparte, su TLMKT sí dejó de postear el 17-sep — eso es real y las dos
+fuentes coinciden. **Eran dos cosas apiladas; medirlas juntas producía un diagnóstico falso.**
