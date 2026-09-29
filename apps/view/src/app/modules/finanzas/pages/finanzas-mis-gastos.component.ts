@@ -75,6 +75,8 @@ interface FilaLista {
   etapa_explicacion: string;
   status: string | null;
   motivo_rechazo: string | null;
+  /** `[GX.54]` Aprobado pero debiendo el comprobante (entró con cotización o prefactura). */
+  debeFactura?: boolean;
   /** Sólo los asignados: si Kepler ya genero su gasto. */
   aplicada: boolean | null;
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
@@ -239,8 +241,13 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                     <span class="mg-chip" [class.ok]="p.status === 'validada'"
                           [class.warn]="p.status === 'revision' || p.status === 'aprobada'"
                           [class.bad]="p.status === 'rechazada'">{{ estado(p.status) }}</span>
+                    <!--
+                      [GX.54] La tarea dice QUE falta. Un vale aprobado con una cotizacion
+                      espera la FACTURA del pago, no «evidencia» a secas: la persona ya subio
+                      algo y leer «subi la evidencia» se entiende como que no se recibio.
+                    -->
                     @if (p.status === 'aprobada') {
-                      <span class="mg-chip warn">te toca subir la evidencia</span>
+                      <span class="mg-chip warn">{{ p.debeFactura ? 'te toca subir la factura del pago' : 'te toca subir la evidencia' }}</span>
                     }
                   }
                   <!--
@@ -409,12 +416,14 @@ export class FinanzasMisGastosComponent {
       titulo: v.destinatario, detalle: v.concepto,
       etapa: 'asignado', etapa_label: 'Falta tu evidencia',
       etapa_explicacion: 'Lo levantaron a tu nombre en Kepler. Falta que le subas la evidencia.',
-      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
+      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null, debeFactura: false,
     })),
     ...this.filas().map((p): FilaLista => ({
       key: `p:${p.id}`,
       folio: p.folio_solicitud, sucursal: p.sucursal, fecha: p.fecha_gasto, importe: p.importe,
       titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
+      // `[GX.54]` El vale aprobado con cotización debe la factura, no «evidencia» genérica.
+      debeFactura: p.provisional === true,
       etapa: p.etapa ?? null, etapa_label: p.etapa_label ?? '',
       etapa_explicacion: p.etapa_explicacion ?? '',
       status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,

@@ -113,6 +113,11 @@ export interface ExpenseProof {
   etapa?: EtapaEjercicio;
   etapa_label?: string;
   etapa_explicacion?: string;
+  /**
+   * `[GX.54]` Aprobado **debiendo** el comprobante: entró con una cotización o prefactura.
+   * Decide qué tarea se le muestra a quien lo levantó — la factura del pago, no «evidencia».
+   */
+  provisional?: boolean | null;
   /** `[GX.48]` El identificador que muestra «Autorización de Sol Gasto»: `XA1501-0009008`. */
   documento_kepler?: string | null;
   /**

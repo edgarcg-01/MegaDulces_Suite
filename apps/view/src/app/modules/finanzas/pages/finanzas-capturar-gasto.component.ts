@@ -177,7 +177,15 @@ interface SelSolicitud {
                 @if (formaSel(); as fs) {
                   @if (fs.detalle_label) {
                     <label class="cap-f"><span>{{ fs.detalle_label }}</span>
-                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)" [placeholder]="fs.detalle_ejemplo || ''" class="w-full" />
+                      <!--
+                        [GX.53] El tope y el tipo salen del CATALOGO, no de un numero suelto
+                        aca: «Ultimos 4 digitos» aceptaba 19 y ahi cabia una tarjeta entera.
+                        El maxlength es comodidad; quien decide es la compuerta, que el
+                        backend tambien lee -- un limite solo en el input se salta por la API.
+                      -->
+                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)"
+                             [placeholder]="fs.detalle_ejemplo || ''" class="w-full"
+                             [attr.maxlength]="fs.detalle_max" [attr.inputmode]="fs.detalle_solo_digitos ? 'numeric' : null" />
                     </label>
                   }
                 }

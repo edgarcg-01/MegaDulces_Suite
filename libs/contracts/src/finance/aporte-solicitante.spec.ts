@@ -1,5 +1,5 @@
 import { faltaParaMandar, puedeMandar, quedaDebiendoComprobante, type EstadoAporte } from './aporte-solicitante.contract';
-import { FORMAS_PAGO, codigoKepler, esFormaPagoValida, exigeDetalle, formaPago } from './forma-pago.contract';
+import { FORMAS_PAGO, codigoKepler, detalleInvalido, esFormaPagoValida, exigeDetalle, formaPago } from './forma-pago.contract';
 
 /**
  * `[GX.14]` La compuerta es lo único que impide que una solicitud llegue a revisión sin
@@ -198,6 +198,80 @@ describe('[GX.14] la compuerta de quien gasta', () => {
       const soloCotizacion = { ...completo(), archivos: [{ role: 'cotizacion' }] };
       expect(faltaParaMandar(soloCotizacion)).toEqual([]);
       expect(quedaDebiendoComprobante(soloCotizacion)).toBe(true);
+    });
+  });
+
+  /**
+   * ⭐ `[GX.53]` **El dato del pago tiene forma, no sólo presencia.**
+   *
+   * Reportado tecleando **19 dígitos** en «Últimos 4 dígitos». No es cosmético: ahí se estaría
+   * guardando un **número de tarjeta completo**, un dato que no debería existir en esta tabla
+   * ni un minuto.
+   *
+   * ⚠️ Se prueba en la COMPUERTA y no en el input: un `maxlength` se salta llamando a la API.
+   */
+  describe('[GX.53] la forma del dato del pago', () => {
+    const conDetalle = (forma: string, detalle: string): EstadoAporte =>
+      ({ ...completo(), forma_pago: forma, forma_pago_detalle: detalle });
+
+    it('⛔ la tarjeta NO acepta más de 4 dígitos', () => {
+      const faltan = faltaParaMandar(conDetalle('tarjeta', '5555555555555555555'));
+      expect(faltan.map((f) => f.id)).toEqual(['forma_pago_detalle']);
+      expect(faltan[0].motivo).toContain('máximo 4');
+      // Y dice cuántos escribió, para que se entienda sin adivinar.
+      expect(faltan[0].motivo).toContain('19');
+    });
+
+    it('4 dígitos exactos pasan', () => {
+      expect(faltaParaMandar(conDetalle('tarjeta', '4821'))).toEqual([]);
+    });
+
+    it('⛔ y tienen que ser dígitos', () => {
+      const faltan = faltaParaMandar(conDetalle('tarjeta', '48a1'));
+      expect(faltan.map((f) => f.id)).toEqual(['forma_pago_detalle']);
+      expect(faltan[0].motivo).toContain('sólo números');
+    });
+
+    /** El cheque también es numérico, con más lugar. */
+    it('el cheque acepta su número y rechaza letras', () => {
+      expect(faltaParaMandar(conDetalle('cheque', '120455'))).toEqual([]);
+      expect(faltaParaMandar(conDetalle('cheque', 'AB-12')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    });
+
+    /**
+     * ⚠️ **La transferencia NO se exige numérica**: las referencias de banco traen letras
+     * (`TRSP-8823`). Exigir dígitos ahí habría trabado el caso normal.
+     */
+    it('la referencia del banco admite letras', () => {
+      expect(faltaParaMandar(conDetalle('transferencia', 'TRSP-8823'))).toEqual([]);
+    });
+
+    it('pero no un texto sin fin', () => {
+      const faltan = faltaParaMandar(conDetalle('transferencia', 'X'.repeat(31)));
+      expect(faltan.map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    });
+
+    /**
+     * ⛔ **El vacío es otro faltante, no éste.** Si se mezclaran, quien no escribió nada
+     * leería «máximo 4 caracteres» y no entendería qué le piden.
+     */
+    it('el vacío sigue siendo «falta el dato», no «está mal escrito»', () => {
+      const faltan = faltaParaMandar(conDetalle('tarjeta', ''));
+      expect(faltan.map((f) => f.id)).toEqual(['forma_pago_detalle']);
+      expect(faltan[0].motivo).toContain('exige su dato');
+      expect(faltan[0].motivo).not.toContain('máximo');
+    });
+
+    /** Las formas que no piden dato no pueden invalidar nada. */
+    it('efectivo y vales no juzgan lo que no piden', () => {
+      expect(detalleInvalido('efectivo', 'lo que sea')).toBeNull();
+      expect(detalleInvalido('vales', '9'.repeat(99))).toBeNull();
+      expect(detalleInvalido('no-existe', 'x')).toBeNull();
+    });
+
+    /** Se compara sin espacios de borde: «4821 » es válido. */
+    it('no castiga por un espacio de más', () => {
+      expect(faltaParaMandar(conDetalle('tarjeta', '  4821  '))).toEqual([]);
     });
   });
 
