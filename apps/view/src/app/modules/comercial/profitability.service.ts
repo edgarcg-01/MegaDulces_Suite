@@ -72,12 +72,34 @@ export interface ProfitabilityOverview {
   gap_amount: number | null;
   /** Brecha que queda DESPUÉS de las palancas: lo que de verdad falta resolver. */
   gap_pp_negotiated: number | null;
+  /** [MR.8.0d] Su gemelo en pesos. La tarjeta mezclaba los pp del negociado con los pesos del bruto. */
+  gap_amount_negotiated: number | null;
   units: number;
   skus: number;
   inventory_value: number;
   inventory_days: number | null;
-  /** Partido para que el KPI cuadre con la suma de la tabla. */
-  inventory: { total: number; in_scope: number; no_sales: number; unverified: number };
+  /**
+   * Partido para que el KPI cuadre con la suma de la tabla.
+   * [MR.8.0g] `filas` ya NO viene prefiltrada por "tiene costo": es el universo completo, y
+   * `sin_costo_*` dice qué quedó sin valuar. Antes ese recorte no se declaraba en ningún lado.
+   */
+  inventory: {
+    total: number;
+    in_scope: number;
+    no_sales: number;
+    unverified: number;
+    costo_resolver: string;
+    filas: number;
+    filas_valuadas: number;
+    con_testigo_erp: number;
+    /** De lo valuado, cuánto tiene testigo del ERP. */
+    cobertura_testigo_pct: number | null;
+    /** Del universo completo, cuánto se pudo valuar. La pregunta que el rótulo insinuaba. */
+    cobertura_valuacion_pct: number | null;
+    sin_costo_filas: number;
+    sin_costo_skus: number;
+    sin_costo_unidades: number;
+  };
   /** Costo de catálogo que contradice al del PdV: no se valúa a ciegas. */
   cost_quality: { conflict_skus: number; conflict_revenue: number; note: string };
   bands: MarginBandRow[];
@@ -88,7 +110,12 @@ export interface ProfitabilityOverview {
   levers_source_empty: boolean;
   levers_amount_total: number;
   levers_margin_effect: number;
-  non_margin: { operacional: NonMarginBlock; error_captura: NonMarginBlock };
+  non_margin: {
+    operacional: NonMarginBlock;
+    error_captura: NonMarginBlock;
+    /** [MR.8.0f] Lo que ninguna de las tres listas reclama. Antes no salía en ningún bloque. */
+    sin_clasificar: NonMarginBlock & { categorias: string[] };
+  };
 
   // ── MR.6 — la brecha descompuesta ─────────────────────────────────────────
   /** Renglones aditivos: cada uno suma o resta pp sobre la misma venta. */
@@ -117,13 +144,26 @@ export interface ProfitabilityOverview {
   overlap_risk: { amount: number; suppliers: number; pct_of_levers: number | null; note: string };
 
   /** `benefit` crudo: la unidad NO está confirmada, no se publica como %. */
-  promotions: { skus_con_promo: number; avg_benefit: number | null; benefit_unit: 'unconfirmed' };
+  promotions: {
+    skus_con_promo: number;
+    avg_benefit: number | null;
+    benefit_unit: 'unconfirmed';
+    /** [MR.8.0e] La fuente no tiene NI UNA fila: "sin promociones vigentes" ≠ "fuente vacía". */
+    source_empty: boolean;
+  };
   /** Sobre qué parte del universo se calculó el margen. El número honesto. */
   coverage: {
     revenue_with_cost: number;
     revenue_total: number;
     revenue_pct: number | null;
-    channels: { channel: string; revenue: number }[];
+    /**
+     * [MR.8.0b] Salen del MISMO fact que el margen (antes de una tabla a la que le faltaban
+     * $10.5M) y se rotulan con `analytics.sellout_channel_map`. `mapped: false` = el resolvedor
+     * de canal no lo explica: se nombra, no se disfraza de canal de negocio.
+     */
+    channels: { channel: string; label: string; mapped: boolean; revenue: number }[];
+    /** Dinero de los canales que el resolvedor no explica. 0 = el mapa cubre todo. */
+    channels_unmapped_revenue: number;
     skus_with_cost: number;
     skus_total: number;
   };
@@ -228,10 +268,16 @@ export interface SupplierLevers {
 
 /**
  * Motor de Rentabilidad (Fase MR). La venta Y el costo salen del sell-out real
- * (`analytics.sales_daily`), no de `commercial.orders` — ver ADR-046. El costo
- * es el que registró el PdV en la transacción, en la misma unidad en que cobró:
- * `catalog.products.cost_base` viene por caja en buena parte del catálogo y
- * mezclaba unidades.
+ * (`analytics.mv_sales_blended`), no de `commercial.orders` — esa tabla tiene 18 filas.
+ *
+ * ⚠️ **El costo NO es "el costo del PdV" en todo el universo**, y esta doc lo decía mal.
+ * El fact tiene tres piernas con tres orígenes (ADR-051, enmendado 2026-08-31):
+ *   · Kepler  69.2% de la venta → `monto / (1 + markup_pct/100)` — **álgebra del catálogo**
+ *   · Rutas    9.0%             → hereda la misma álgebra vía `analytics.sales_daily`
+ *   · Wincaja 23.1%             → `ValorCosto`, el costo que sí registró la caja
+ * Lo que sigue en pie es no usar `catalog.products.cost_base × unidades`: viene por CAJA en
+ * buena parte del catálogo y mezclaba unidades. El árbitro del costo por renglón es la Fase
+ * MR.8 (`kdm2.c62`); hasta entonces el margen publicado es en su mayor parte el markup.
  */
 @Injectable({ providedIn: 'root' })
 export class ProfitabilityService {

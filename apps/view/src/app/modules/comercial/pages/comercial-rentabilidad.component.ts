@@ -100,7 +100,15 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
             Los {{ o.coverage.skus_total - o.coverage.skus_with_cost | number }} restantes venden pero no se pueden evaluar.
           }
           <span class="rp-src">
-            venta y costo: <code>sales_daily</code> (lo que cobró el PdV)
+            <!--
+              [MR.8.0c] Decia "sales_daily (lo que cobro el PdV)" y las dos mitades eran falsas:
+              el margen sale de mv_sales_blended, y su costo solo es lo que cobro el PdV en la
+              pierna Wincaja (23% de la venta) -- en la de Kepler (69%) es monto/(1+markup_pct),
+              el markup del catalogo despejado. Un rotulo que nombra la fuente equivocada es peor
+              que ninguno: invita a verificar contra una tabla que no produjo el numero.
+              (Sin acentos graves: este template es un template literal y los cierra.)
+            -->
+            venta y costo: <code>mv_sales_blended</code>
             @if (o.data_as_of) { · datos al {{ o.data_as_of }} }
             <!--
               [OBS.6.3] La fecha sola no dice si alcanza. "datos al 26-ago" se lee igual de bien
@@ -111,6 +119,13 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               · <strong class="rp-stale">le faltan días de venta ({{ o.freshness?.age_human || 'sin fact' }})</strong>
             }
             @if (channels(); as ch) { · {{ ch }} }
+            @if (o.coverage.channels_unmapped_revenue > 0) {
+              ·
+              <strong class="rp-stale" [pTooltip]="unmappedTip(o)">
+                {{ unmappedCount(o) }} canal{{ unmappedCount(o) === 1 ? '' : 'es' }} sin mapear
+                ({{ o.coverage.channels_unmapped_revenue | currency:'MXN':'symbol-narrow':'1.0-0' }})
+              </strong>
+            }
           </span>
         </p>
 
@@ -121,6 +136,25 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
             al del punto de venta — está capturado en otra unidad (caja contra pieza).
             El margen no los usa, pero <b>{{ o.inventory.unverified | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
             del capital en inventario se valúa con ese costo. Su GMROI queda en blanco.
+          </p>
+        }
+
+        <!--
+          [MR.8.0g] El inventario que NO se pudo valuar. Antes desaparecía dos veces: el filtro lo
+          sacaba del total Y del denominador de su propia cobertura, así que el "68%" que se
+          publicaba medía otra cosa (testigo sobre lo ya valuado) y nada nombraba el recorte.
+        -->
+        @if (o.inventory.sin_costo_filas) {
+          <p class="rp-dq">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <b>{{ o.inventory.sin_costo_skus | number }} SKUs</b>
+            ({{ o.inventory.sin_costo_unidades | number:'1.0-0' }} piezas en
+            {{ o.inventory.sin_costo_filas | number }} renglones) tienen existencia y
+            <b>ningún costo con qué valuarla</b>: no están dentro del capital de arriba.
+            El total cubre el <b>{{ o.inventory.cobertura_valuacion_pct | number:'1.1-1' }}%</b>
+            de los renglones de stock, y de eso el
+            {{ o.inventory.cobertura_testigo_pct | number:'1.0-0' }}% tiene testigo del ERP
+            (<code>{{ o.inventory.costo_resolver }}</code>).
           </p>
         }
 
@@ -303,7 +337,30 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               fallas de servicio
               <small>{{ o.non_margin.operacional.docs }} docs · faltante, mal estado, devolución</small>
             </span>
-            @if (o.promotions.skus_con_promo) {
+            <!--
+              [MR.8.0f] Los ajustes que ninguna de las tres listas reclama. Se guardaban bajo una
+              clave que nadie leía: $205,008 en 41 docs (30d) que no salían acá ni en las palancas.
+            -->
+            @if (o.non_margin.sin_clasificar.amount) {
+              <a class="rp-nm-i" routerLink="/compras/descuentos" [pTooltip]="o.non_margin.sin_clasificar.note">
+                <b>{{ o.non_margin.sin_clasificar.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+                sin clasificar
+                <small>
+                  {{ o.non_margin.sin_clasificar.docs }} docs · sin motivo capturado — no se sabe si es margen
+                </small>
+              </a>
+            }
+            <!--
+              [MR.8.0e] Fuente vacia != cero promociones. analytics.erp_promotions no tiene una
+              sola fila: sin decirlo, el guion de la columna Promo se lee como "no hay promos
+              vigentes". Es el gemelo de levers_source_empty, que existia desde MR.5.
+            -->
+            @if (o.promotions.source_empty) {
+              <span class="rp-nm-i rp-nm-blind" pTooltip="analytics.erp_promotions no tiene ninguna fila para este tenant. La columna Promo del desglose no está en blanco porque no haya promociones: está en blanco porque no hay con qué responder.">
+                <b>sin medir</b> promociones del proveedor
+                <small><code>erp_promotions</code> vacía · no es cero, es ciego</small>
+              </span>
+            } @else if (o.promotions.skus_con_promo) {
               <span class="rp-nm-i" pTooltip="El campo benefit de kdpv_descuxq sólo toma los valores 2/3/4/5. No está confirmado que sea un porcentaje, así que no se publica como tal ni se resta del margen.">
                 <b>{{ o.promotions.skus_con_promo | number }}</b> SKUs con promoción vigente
                 <small>beneficio {{ o.promotions.avg_benefit | number:'1.1-1' }} promedio · unidad sin confirmar</small>
@@ -810,6 +867,9 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     .rp-nm-i small { display: block; font-size: var(--fs-nano); color: var(--c-text-3); }
     a.rp-nm-i:hover b { color: var(--action); }
     a.rp-nm-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    /* [MR.8.0e] "No medido" no es un dato en cero: se distingue del resto del renglon. */
+    .rp-nm-blind b { font-family: var(--font-sans); color: var(--warn-soft-fg); font-weight: 600; }
+    .rp-nm-blind code { font-family: var(--font-mono); font-size: var(--fs-nano); }
 
     /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
     /* Valor crudo, no un descuento: sin color de alarma hasta confirmar la unidad. */
@@ -982,7 +1042,11 @@ export class ComercialRentabilidadComponent {
   readonly kpis = computed<MetricStripItem[]>(() => {
     const o = this.overview();
     if (!o) return [];
-    const gap = o.gap_pp ?? 0;
+    // La brecha se lee SIEMPRE sobre el mismo margen: el negociado, que es el que el mosaico
+    // muestra. Sólo cae al bruto si el negociado no se pudo calcular — y entonces caen los tres.
+    const negociado = o.gap_pp_negotiated !== null && o.gap_amount_negotiated !== null;
+    const gapPp = (negociado ? o.gap_pp_negotiated : o.gap_pp) ?? 0;
+    const gapAmt = negociado ? o.gap_amount_negotiated : o.gap_amount;
     return [
       { label: `Venta ${this.windowLabel()}`, value: o.revenue, format: 'currency-short' },
       {
@@ -999,12 +1063,17 @@ export class ComercialRentabilidadComponent {
         tone: (o.margin_negotiated_pct ?? 0) >= this.target() ? 'ok' : 'warn',
         sub: 'con palancas de proveedor',
       },
+      // [MR.8.0d] Las TRES partes de esta tarjeta miran el mismo margen. Antes no: el número era
+      // la brecha NEGOCIADA (−1.30), el subtítulo los pesos de la BRUTA ($2,188,268) y el color
+      // salía también de la bruta. −1.30 pp sobre $53.78M son $699,151 — 3.1× menos de lo que
+      // decía el renglón de abajo. Y el color podía quedar rojo sobre un número ya positivo en
+      // cuanto el negociado cruzara el objetivo, que hoy está a 1.3 pp.
       {
         label: `Brecha vs ${this.target()}%`,
-        value: o.gap_pp_negotiated ?? gap,
+        value: gapPp,
         format: 'decimal1',
-        tone: gap < 0 ? 'bad' : 'ok',
-        sub: o.gap_amount && o.gap_amount > 0 ? `${this.fmtShort(o.gap_amount)} sin generar` : 'objetivo cubierto',
+        tone: gapPp < 0 ? 'bad' : 'ok',
+        sub: gapAmt !== null && gapAmt > 0 ? `${this.fmtShort(gapAmt)} sin generar` : 'objetivo cubierto',
       },
       {
         label: 'Capital en inventario',
@@ -1019,12 +1088,35 @@ export class ComercialRentabilidadComponent {
     ];
   });
 
-  /** Canales que alimentan la ventana. Sin esto, "cobertura" no dice de qué. */
+  /**
+   * Canales que alimentan la ventana. Sin esto, "cobertura" no dice de qué.
+   *
+   * [MR.8.0b] Sólo los que el resolvedor `analytics.sellout_channel_map` SÍ explica, con su
+   * rótulo de negocio. Los que no explica NO se listan acá como si fueran uno más: se nombran
+   * aparte, con su dinero. Antes esta frase salía de `analytics.sales_daily` y nombraba cuatro
+   * canales de un universo $10.5M más chico que el del margen, mientras la pestaña Canal —del
+   * fact correcto— listaba nueve. Dos taxonomías en la misma pantalla.
+   */
   readonly channels = computed(() => {
-    const ch = this.overview()?.coverage.channels ?? [];
+    const ch = (this.overview()?.coverage.channels ?? []).filter((c) => c.mapped);
     if (!ch.length) return null;
-    return ch.map((c) => c.channel).join(' + ');
+    return ch.map((c) => c.label).join(' + ');
   });
+
+  private unmapped(o: ProfitabilityOverview) {
+    return (o.coverage.channels ?? []).filter((c) => !c.mapped);
+  }
+
+  unmappedCount(o: ProfitabilityOverview): number {
+    return this.unmapped(o).length;
+  }
+
+  /** Nombra los canales crudos que el mapa no explica: un aviso sin el nombre no es accionable. */
+  unmappedTip(o: ProfitabilityOverview): string {
+    const n = this.unmapped(o).map((c) => c.channel).join(', ');
+    return `El resolvedor de canal (analytics.sellout_channel_map) no explica: ${n}. `
+      + 'Su venta SÍ está dentro del margen; lo que falta es a qué canal de negocio pertenece.';
+  }
 
   // ── MR.6: el puente se lee en puntos sobre la MISMA venta, o no cierra ────
   ppOf(o: ProfitabilityOverview, amount: number): number {

@@ -312,10 +312,45 @@ export class CommercialProfitabilityService {
       .whereRaw('tenant_id = public.current_tenant_id()')
       .limit(1)
       .select(trx.raw('1 AS ok'));
+
+    /**
+     * [MR.8.0f] Lo que NINGUNA de las tres listas reclama.
+     *
+     * La cascada sólo lee las categorías que conoce (`LEVER_CATS`, `OPERATIONAL_CATS`,
+     * `ERROR_CATS`). Todo lo demás —`categoria IS NULL` y cualquier etiqueta nueva del
+     * clasificador, hoy `'otro'`— se guardaba en el Map bajo `'sin_motivo'` y **nadie leía
+     * esa clave**: no salía en palancas, ni en "fallas de servicio", ni en "facturas
+     * duplicadas". Medido en prod 30d: **$205,008 en 41 documentos**, y el bucket `NULL`
+     * (32 docs / $170,239) es el MÁS GRANDE de la ventana — mayor que `apoyo_marca`.
+     *
+     * No se reclasifica acá: eso es decisión de Compras (`/compras/descuentos`). Se DECLARA,
+     * que es la diferencia entre un renglón invisible y uno que alguien puede ir a arreglar.
+     */
+    const CONOCIDAS = new Set<string>([
+      ...LEVER_CATS.map((l) => l.cat as string),
+      ...OPERATIONAL_CATS,
+      ...ERROR_CATS,
+    ]);
+    let sinClasificarMonto = 0;
+    let sinClasificarDocs = 0;
+    const sinClasificarCats: string[] = [];
+    for (const [cat, v] of byCat) {
+      if (CONOCIDAS.has(cat)) continue;
+      sinClasificarMonto += v.monto;
+      sinClasificarDocs += v.docs;
+      sinClasificarCats.push(cat);
+    }
+
     return {
       amount: (cat: string) => byCat.get(cat)?.monto ?? 0,
       docs: (cat: string) => byCat.get(cat)?.docs ?? 0,
       source_empty: !any,
+      /** Ajustes con categoría que la cascada no reclama. `sin_motivo` = `categoria IS NULL`. */
+      sin_clasificar: {
+        amount: sinClasificarMonto,
+        docs: sinClasificarDocs,
+        categorias: sinClasificarCats.sort(),
+      },
     };
   }
 
@@ -568,17 +603,57 @@ export class CommercialProfitabilityService {
       const marginPct = revenue > 0 ? (marginAmount / revenue) * 100 : null;
 
       // Canales que alimentan la ventana: la otra mitad de "sobre qué medimos".
-      // [SD.3] Este desglose SE QUEDA en sales_daily a propósito: mv_sales_blended NO tiene el canal
-      // `mayoreo` ($9.88M/30d medido en prod) — lo reparte en credito/preventa/ruta, así que migrarlo
-      // haría DESAPARECER mayoreo de la pantalla y duplicar credito ($6.03M→$13.22M). Es una pregunta de
-      // taxonomía de negocio (¿mayoreo es un canal que la empresa quiere ver?), no de linaje: se declara
-      // como dependencia pendiente de sales_daily, no se fuerza en silencio. El MARGEN (salesAgg) sí migró.
-      const channels = await trx('analytics.sales_daily')
-        .whereRaw('tenant_id = public.current_tenant_id()')
-        .whereRaw(`sale_date >= CURRENT_DATE - INTERVAL '${w.days} days'`)
-        .groupBy('channel')
-        .orderByRaw('2 DESC')
-        .select('channel', trx.raw('COALESCE(SUM(revenue), 0)::numeric AS revenue'));
+      //
+      // [MR.8.0b] Antes leía `analytics.sales_daily`, y eso hacía que la MISMA frase de la pantalla
+      // mezclara dos universos: el margen se calcula sobre `mv_sales_blended` ($53.78M/30d) y los
+      // canales se listaban desde una tabla que suma **$43.55M** — le faltan **$10.54M de Morelia
+      // Abastos**, que nunca entraron ahí (may $0/$14.8M · jun $0/$15.0M · jul $0/$15.5M ·
+      // ago $0/$16.4M · sep $5.59M/$14.53M). Medido en prod 2026-09-28.
+      //
+      // La justificación que tenía escrita ("mv_sales_blended NO tiene el canal `mayoreo`") está
+      // **REFUTADA por medición**: el blend SÍ trae `mayoreo` con $10,358,395/30d. Era cierta cuando
+      // se escribió y dejó de serlo cuando `[SD-CH]` preservó el canal en prod; nadie volvió a mirar.
+      //
+      // El rótulo NO se inventa acá: sale de `analytics.sellout_channel_map` ([VSO.1]), que es el
+      // resolvedor del canal y trae la evidencia de cada fila (`U-D-8` = Factura Telemarketing =
+      // `mayoreo`, el mismo canal de negocio que la caja 70 de Wincaja; `contado_nf` = mostrador).
+      // Un `CASE` propio acá sería la segunda implementación del mismo primitivo — ADR-059 R6.
+      //
+      // ⚠️ El mapa se llavea por `(source, raw_channel)` y el blend no guarda `source`: lo deriva del
+      // prefijo `wincaja_`, y desdobla el `mostrador`→`tienda` que el propio blend renombró. Lo que
+      // el mapa NO explica se DECLARA con su dinero (`mapped: false`), no se cuela con el string
+      // crudo ni se descarta: una fila ausente en un LEFT JOIN llega NULL y se lee como sana.
+      const channels = await trx
+        .from(
+          trx.raw(`(
+            SELECT CASE WHEN b.channel LIKE 'wincaja\\_%' THEN 'wincaja' ELSE 'kepler' END AS src,
+                   CASE WHEN b.channel LIKE 'wincaja\\_%' THEN substring(b.channel from 9)
+                        WHEN b.channel = 'tienda' THEN 'mostrador'
+                        ELSE b.channel END                                                  AS raw,
+                   b.channel                                                                AS crudo,
+                   SUM(b.revenue)                                                           AS revenue
+              FROM ${SALES_FACT} b
+             WHERE b.tenant_id = public.current_tenant_id()
+               AND b.sale_date >= CURRENT_DATE - INTERVAL '${w.days} days'
+             GROUP BY 1, 2, 3
+          ) AS f`),
+        )
+        .leftJoin({ m: 'analytics.sellout_channel_map' }, function (this: any) {
+          this.on('m.tenant_id', '=', trx.raw('public.current_tenant_id()'))
+            .andOn('m.source', '=', 'f.src')
+            .andOn('m.raw_channel', '=', 'f.raw');
+        })
+        .groupByRaw(
+          `COALESCE(m.canonical_channel, f.crudo), COALESCE(m.label, f.crudo), (m.canonical_channel IS NOT NULL)`,
+        )
+        .orderByRaw('SUM(f.revenue) DESC')
+        .select(
+          trx.raw('COALESCE(m.canonical_channel, f.crudo) AS channel'),
+          trx.raw('COALESCE(m.label, f.crudo) AS label'),
+          trx.raw('(m.canonical_channel IS NOT NULL) AS mapped'),
+          trx.raw('MIN(m.orden)::int AS orden'),
+          trx.raw('COALESCE(SUM(f.revenue), 0)::numeric AS revenue'),
+        );
 
       const bandRows = await this.baseSql(trx, w.days)
         .whereRaw('s.revenue_costed > 0')
@@ -635,14 +710,29 @@ export class CommercialProfitabilityService {
         })
         .leftJoin(this.salesAgg(trx, w.days), 's.product_id', 'p.id')
         .whereNull('p.deleted_at')
-        .whereNotNull('uc.costo_unitario')
+        // [MR.8.0g] El `whereNotNull('uc.costo_unitario')` que estaba acá **mutilaba el
+        // denominador de su propia cobertura**: `filas` salía ya filtrada, así que
+        // `cobertura_pct` medía "de lo valuado, cuánto tiene testigo" mientras el rótulo se leía
+        // como "cuánto del inventario está valuado". Lo que el filtro sacaba no se declaraba en
+        // ningún lado: 2,963 renglones con existencia > 0 (2,865 SKUs, 90,036 piezas) fuera del
+        // total y fuera del aviso. Es justo la trampa que el comentario de [KE.3] dice evitar.
+        //
+        // El filtro se retira: `SUM` ya ignora los NULL, así que el total NO se mueve, y ahora el
+        // universo completo es contable. Dos coberturas con nombre distinto, porque son dos
+        // preguntas distintas: cuánto se pudo VALUAR, y de eso cuánto tiene TESTIGO del ERP.
         .select(
           trx.raw('COALESCE(SUM(st.quantity * uc.costo_unitario), 0)::numeric AS total'),
           trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE s.revenue > 0), 0)::numeric AS in_scope`),
           trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE s.revenue IS NULL OR s.revenue <= 0), 0)::numeric AS no_sales`),
           trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT}), 0)::numeric AS unverified`),
           trx.raw(`COUNT(*)::int AS filas`),
+          trx.raw(`COUNT(*) FILTER (WHERE uc.costo_unitario IS NOT NULL)::int AS filas_valuadas`),
           trx.raw(`COUNT(*) FILTER (WHERE uc.tiene_testigo)::int AS con_testigo`),
+          // Lo que quedó SIN valuar y además tiene existencia: el hueco que de verdad pesa.
+          // Un renglón en cero sin costo no le quita nada al total.
+          trx.raw(`COUNT(*) FILTER (WHERE uc.costo_unitario IS NULL AND st.quantity > 0)::int AS sin_costo_filas`),
+          trx.raw(`COUNT(DISTINCT st.product_id) FILTER (WHERE uc.costo_unitario IS NULL AND st.quantity > 0)::int AS sin_costo_skus`),
+          trx.raw(`COALESCE(SUM(st.quantity) FILTER (WHERE uc.costo_unitario IS NULL AND st.quantity > 0), 0)::numeric AS sin_costo_unidades`),
         );
 
       const inventoryValue = Number(inv?.total) || 0;
@@ -662,6 +752,13 @@ export class CommercialProfitabilityService {
           trx.raw('COUNT(DISTINCT product_id)::int AS skus'),
           trx.raw('AVG(benefit)::numeric AS avg_benefit'),
         );
+      // [MR.8.0e] "Cero promociones VIGENTES" y "la tabla está vacía" son dos cosas distintas y
+      // hoy es la segunda. Se pregunta sin filtro de vigencia, igual que `adjustmentsByCategory`.
+      const [promoAny] = await trx('analytics.erp_promotions')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .limit(1)
+        .select(trx.raw('1 AS ok'));
+      const promoSourceEmpty = !promoAny;
 
       const asOf = await this.dataAsOf(trx);
 
@@ -728,6 +825,14 @@ export class CommercialProfitabilityService {
         gap_amount: marginPct === null ? null : revenue * (target / 100) - marginAmount,
         /** Brecha que queda DESPUÉS de las palancas: lo que de verdad falta resolver. */
         gap_pp_negotiated: negotiatedPct === null ? null : negotiatedPct - target,
+        /**
+         * [MR.8.0d] El gemelo en pesos de `gap_pp_negotiated`, que faltaba. La tarjeta "Brecha"
+         * mostraba los puntos del margen NEGOCIADO y, debajo, los pesos del BRUTO: −1.30 pp sobre
+         * $53.78M son $699,151, y el subtítulo decía $2,188,268 — 3.1× más, misma tarjeta.
+         * Dos bases en un mosaico de 4 cm es cómo un tablero pierde la confianza de quien lo lee.
+         */
+        gap_amount_negotiated:
+          negotiatedPct === null ? null : revenue * (target / 100) - negotiatedAmount,
         units: Number(tot.units) || 0,
         skus: Number(tot.skus) || 0,
         /** Hasta qué día llega el fact. Compras/pagos/promos usan CURRENT_DATE. */
@@ -748,10 +853,23 @@ export class CommercialProfitabilityService {
           /** [KE.3] Con qué se valuó y sobre cuántas filas — sin esto, un total calculado
            *  sobre el 60% del inventario se lee igual que uno sobre el 100% (ADR-056). */
           costo_resolver: 'analytics.v_erp_unit_cost',
+          /** [MR.8.0g] Universo COMPLETO (antes venía ya filtrado por "tiene costo"). */
           filas: Number(inv?.filas) || 0,
+          filas_valuadas: Number(inv?.filas_valuadas) || 0,
           con_testigo_erp: Number(inv?.con_testigo) || 0,
-          cobertura_pct: Number(inv?.filas) > 0
-            ? +(((Number(inv.con_testigo) || 0) / Number(inv.filas)) * 100).toFixed(2) : null,
+          /**
+           * Dos coberturas con nombre propio, porque son DOS preguntas y antes una sola
+           * respondía la que no era: `cobertura_pct` medía testigo/valuadas y se leía como
+           * "cuánto del inventario está valuado".
+           */
+          cobertura_testigo_pct: Number(inv?.filas_valuadas) > 0
+            ? +(((Number(inv.con_testigo) || 0) / Number(inv.filas_valuadas)) * 100).toFixed(2) : null,
+          cobertura_valuacion_pct: Number(inv?.filas) > 0
+            ? +(((Number(inv.filas_valuadas) || 0) / Number(inv.filas)) * 100).toFixed(2) : null,
+          /** Lo que NO se pudo valuar y sí tiene existencia. El hueco, con nombre y tamaño. */
+          sin_costo_filas: Number(inv?.sin_costo_filas) || 0,
+          sin_costo_skus: Number(inv?.sin_costo_skus) || 0,
+          sin_costo_unidades: Number(inv?.sin_costo_unidades) || 0,
         },
         /** Costo de catálogo que contradice al del PdV: no se valúa a ciegas. */
         cost_quality: {
@@ -812,9 +930,27 @@ export class CommercialProfitabilityService {
             docs: ERROR_CATS.reduce((a, c) => a + adj.docs(c), 0),
             note: 'Facturas duplicadas. No es margen: es un error a corregir en /compras/descuentos.',
           },
+          /**
+           * [MR.8.0f] Lo que la cascada no reclama por ninguna de sus tres listas. Antes
+           * desaparecía: $205,008 en 41 docs (30d), con el bucket sin categoría a la cabeza.
+           */
+          sin_clasificar: {
+            amount: adj.sin_clasificar.amount,
+            docs: adj.sin_clasificar.docs,
+            categorias: adj.sin_clasificar.categorias,
+            note:
+              'Ajustes de compra cuya categoría la cascada no reclama (sin motivo capturado, o una etiqueta nueva del clasificador). No se cuentan como margen ni como falla: se declaran hasta que Compras los clasifique.',
+          },
         },
         promotions: {
           skus_con_promo: Number(promo?.skus) || 0,
+          /**
+           * [MR.8.0e] `analytics.erp_promotions` **no tiene una sola fila** en prod. Sin este
+           * campo, la columna Promo en `—` y el mosaico ausente se leen como "no hay promociones
+           * vigentes" en vez de "la fuente está vacía" — el cero dibujado de ADR-056. El gemelo
+           * para las palancas (`levers_source_empty`) existía desde MR.5 y éste faltaba.
+           */
+          source_empty: promoSourceEmpty,
           /**
            * `benefit` sólo toma 4 valores enteros (2,3,4,5) en las 793 filas
            * vivas: no se ha confirmado que sea un %. Se publica como valor crudo
@@ -827,8 +963,23 @@ export class CommercialProfitabilityService {
           revenue_with_cost: revenue,
           revenue_total: revenueAll,
           revenue_pct: revenueAll > 0 ? (revenue / revenueAll) * 100 : null,
-          /** Canales que alimentan la ventana: sobre qué universo se mide. */
-          channels: channels.map((c: any) => ({ channel: c.channel, revenue: Number(c.revenue) || 0 })),
+          /**
+           * Canales que alimentan la ventana: sobre qué universo se mide.
+           * [MR.8.0b] Salen del MISMO fact que el margen y se rotulan con
+           * `analytics.sellout_channel_map`. `mapped: false` = el mapa no explica ese canal
+           * crudo; viaja con su dinero para que la pantalla lo pueda nombrar en vez de
+           * mostrarlo como si fuera un canal de negocio más.
+           */
+          channels: channels.map((c: any) => ({
+            channel: c.channel,
+            label: c.label ?? c.channel,
+            mapped: c.mapped === true,
+            revenue: Number(c.revenue) || 0,
+          })),
+          /** Lo que el resolvedor de canal no explica, sumado. 0 = el mapa cubre todo. */
+          channels_unmapped_revenue: channels
+            .filter((c: any) => c.mapped !== true)
+            .reduce((a: number, c: any) => a + (Number(c.revenue) || 0), 0),
           skus_with_cost: Number(tot.skus) || 0,
           skus_total: Number(tot.skus_all) || 0,
         },
@@ -1257,12 +1408,28 @@ export class CommercialProfitabilityService {
           note: 'Promoción vigente por SKU (kdpv_descuxq). `benefit` sólo toma los valores 2/3/4/5: la unidad NO está confirmada, no se publica como porcentaje ni se resta del margen.',
         },
         /**
-         * Lo habitual contra lo cobrado. Dos correcciones sobre la versión previa,
+         * Lo habitual contra lo cobrado. Tres correcciones sobre versiones previas,
          * que hacían imposible que este bloque detectara una fuga:
          *  1. `expected_discount_rate` es una **fracción** (0.0741 = 7.41%), no un
          *     porcentaje: dividirla entre 100 daba un esperado 100 veces menor.
          *  2. La base son las **compras**, no el COGS: el descuento se gana sobre
          *     lo que se compra, y `taken_amount` ya está medido sobre compras.
+         *  3. `[MR.8.0a]` **`taken_amount` contaba el `c84` DOS veces.** Decía
+         *     `commercialTotal + pay.amount`, pero `buildLevers` ya mete la palanca
+         *     `descuento_pago` DENTRO de `commercialTotal` — así que el descuento
+         *     tomado al pagar entraba por los dos lados.
+         *
+         *     No era cosmético: `taken > expected` apaga el aviso "Faltan $".
+         *     Medido en prod 30d sobre los 102 proveedores con política: el aviso
+         *     debía salir en 82 y salía en 64 (**18 apagados**), y el faltante
+         *     impreso sumaba $725,746 contra **$1,158,337** real — **$432,591
+         *     escondidos**. Peor: la cascada de arriba (`uncollectedDiscount`, que
+         *     SÍ suma bien `aj + pg`) decía $1,158,337 mientras el drawer del mismo
+         *     proveedor decía $0 faltante. Dos respuestas a la misma pregunta en la
+         *     misma pantalla.
+         *
+         *     Caso testigo: DISTRIBUIDORA DE LA ROSA — esperado $510,749, tomado
+         *     real $359,381 (todo `c84`, cero notas), impreso $718,763 = 2×.
          */
         policy: policy
           ? {
@@ -1276,8 +1443,12 @@ export class CommercialProfitabilityService {
                 policy.expected_discount_rate === null
                   ? null
                   : purchases * Number(policy.expected_discount_rate),
-              /** Lo efectivamente cobrado, sobre la misma base (compras). */
-              taken_amount: commercialTotal + pay.amount,
+              /**
+               * Lo efectivamente cobrado, sobre la misma base (compras).
+               * `commercialTotal` YA incluye `descuento_pago` (ver punto 3 arriba):
+               * sumarle `pay.amount` otra vez es el doble conteo.
+               */
+              taken_amount: commercialTotal,
               /** `observed` = la tasa que ese proveedor viene dando, no un contrato. */
               is_observed: policy.source === 'observed',
             }
