@@ -17,6 +17,17 @@
  *
  *   node database/importers/wincaja/import-sales-by-vendor-monthly.js          # dry-run (lista meses)
  *   node database/importers/wincaja/import-sales-by-vendor-monthly.js --apply
+ *
+ * `[AUD-DAT.16]` VENTANA. Por default procesa los **8** meses más recientes (~53 s cada uno, entra
+ * con margen en el timeout de 10 min del runner) y DECLARA los que deja afuera. Lo de afuera está
+ * congelado: Wincaja cortó a Kepler en todas las sucursales el 2026-09-18.
+ *
+ *   ... --months 12        # otra ventana
+ *   VENDOR_MONTHS=12 ...   # lo mismo por env
+ *   ... --all --apply      # pasada COMPLETA (~29 min): backfill o corrección vieja
+ *
+ * ⛔ La ventana acota el BUCLE, nunca la lista de meses: el barrido final borra todo mes que no
+ * esté en ella y recortarla se llevaría la historia por delante.
  */
 const { Client } = require('pg');
 
@@ -164,13 +175,16 @@ const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m =
     // por mes. Invertir el orden no agranda el presupuesto — decide QUÉ entra en él, y lo que la
     // gente consulta es el mes en curso, no noviembre de 2025.
     //
-    // ⚠️ DECLARADO, no resuelto: los meses más viejos van a quedar rezagados. Es tolerable porque
-    // Wincaja ya cortó a Kepler en TODAS las sucursales (la última, Morelia Abastos, el
-    // 2026-09-18), así que esa historia está congelada y re-derivarla cada noche era trabajo
-    // muerto. Acotar la ventana es cambio de ALCANCE y va en un commit aparte, no acá.
+    // ✅ RESUELTO en `[AUD-DAT.16]` (ver el bloque de la ventana, más abajo). Este párrafo decía
+    // «DECLARADO, no resuelto» y que acotar la ventana era cambio de alcance para otro commit:
+    // ése es el commit. Los meses viejos quedan afuera POR REGLA y se imprimen, en vez de quedar
+    // afuera por reloj y en silencio.
     //
-    // ⚠️ El `sweep` y el `ANALYZE` del final siguen sin correr cuando hay timeout — y eso explica
-    // que el planificador creyera que esta tabla tiene 2 filas cuando tiene 393,238.
+    // ⭐ Y con eso el `sweep` y el `ANALYZE` del final vuelven a correr — llevaban semanas sin
+    // ejecutarse porque el timeout mataba la pasada antes de llegar. Eso explica que el
+    // planificador creyera que esta tabla tiene 2 filas cuando tiene 393,238. Verificado antes de
+    // soltarlo: hoy el barrido no borraría NADA (0 meses en la tabla que la fuente no produzca),
+    // así que volver a encenderlo no se lleva historia por delante.
     // ⚠️ LA LISTA DE MESES SALE DE LAS CABECERAS, NO DE LAS LÍNEAS. Preguntarle a
     // `v_sales_lines` en qué meses hay venta obliga a materializar el join maestro⋈detalles —
     // 10,027,138 líneas para contestar algo que viven 1,505,074 cabeceras. Medido en prod:
@@ -187,12 +201,51 @@ const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m =
       `SELECT DISTINCT to_char(wincaja.fecha_dia(m.fecha),'YYYY-MM') ym
          FROM wincaja.maestro_mov_almacen m
         WHERE m.tenant_id=$1 ORDER BY 1 DESC`, [M])).rows.map((r) => r.ym);
-    console.log(`  meses a procesar: ${months.length}${months.length ? ` (${months[0]} … ${months[months.length - 1]})` : ''}`);
+    // ── `[AUD-DAT.16]` LA VENTANA DEJA DE SER EL RELOJ ──────────────────────────────────────
+    // Hasta acá el bucle recorría los 33 meses y lo cortaba el `TIMEOUT 10 min` del runner.
+    // Ordenarlos DESC (ayer) puso lo importante primero, pero el recorte seguía siendo un
+    // accidente: el carril reportaba una FALLA todas las noches por trabajo que no hacía falta,
+    // y «hasta dónde llegó» lo decidía el reloj, no una regla. Medido la noche del 2026-09-29:
+    // 9 meses en ~8 min (~53 s cada uno) y a las 03:45 lo mataron.
+    //
+    // Ahora la ventana es explícita y lo que queda afuera se DECLARA (ADR-056). Lo de afuera no
+    // es deuda: Wincaja cortó a Kepler en TODAS las sucursales — la última, Morelia Abastos, el
+    // 2026-09-18 — así que esa historia está CONGELADA y re-derivarla cada noche era trabajo
+    // muerto que costaba ~29 min de base.
+    //
+    // ⛔ SE ACOTA EL BUCLE, NUNCA LA LISTA. El barrido de abajo borra todo mes que no esté en
+    // `months`; pasarle la lista recortada se llevaría 22 meses de historia por delante. Por eso
+    // `aProcesar` es una variable aparte y `months` sigue entero.
+    const mi = process.argv.indexOf('--months');
+    const TODO = process.argv.includes('--all');
+    const VENTANA = mi > -1 ? Number(process.argv[mi + 1])
+      : Number(process.env.VENDOR_MONTHS) > 0 ? Number(process.env.VENDOR_MONTHS) : 8;
+    const hoyYm = new Date().toISOString().slice(0, 7);
+    // Los meses del FUTURO se saltan: la fuente llega hasta 2029-08 (medido 2026-09-29) y eso es
+    // basura de captura, no venta. Se declaran abajo en vez de procesarse — escribir un rollup de
+    // agosto de 2029 sería darle cuerpo a un error de dedo.
+    const futuros = months.filter((m) => m > hoyYm);
+    const pasados = months.filter((m) => m <= hoyYm);
+    const aProcesar = TODO ? pasados : pasados.slice(0, VENTANA);
+    const fuera = pasados.slice(aProcesar.length);
+
+    console.log(`  meses en la fuente: ${months.length} (${months[months.length - 1]} … ${months[0]})`);
+    console.log(`  a procesar: ${aProcesar.length}`
+      + (aProcesar.length ? ` (${aProcesar[aProcesar.length - 1]} … ${aProcesar[0]})` : '')
+      + (TODO ? '  [--all]' : `  [ventana ${VENTANA}; --all para la pasada completa]`));
+    if (fuera.length) {
+      console.log(`  ⓘ FUERA de la ventana, congelados a propósito: ${fuera.length} meses `
+        + `(${fuera[fuera.length - 1]} … ${fuera[0]}). Wincaja ya cortó a Kepler en todas las sucursales.`);
+    }
+    if (futuros.length) {
+      console.log(`  ⚠️ ${futuros.length} mes(es) EN EL FUTURO en la fuente, no se procesan: ${futuros.join(', ')}. `
+        + 'Es basura de captura en Wincaja — se declara, no se le da cuerpo.');
+    }
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 
     let totalRows = 0, totalDel = 0;
-    for (const ym of months) {
+    for (const ym of aProcesar) {
       const d0 = `${ym}-01`, d1 = nextMonth(ym), t = Date.now();
       await db.query('BEGIN');
       await db.query(`SET LOCAL app.tenant_id = '${M}'`);
