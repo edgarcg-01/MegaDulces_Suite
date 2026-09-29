@@ -7,6 +7,8 @@ import { InventoryCountService } from './inventory-count.service';
 import { InventoryCountController } from './inventory-count.controller';
 import { InventoryAbcService } from './inventory-abc.service';
 import { InventoryAbcController } from './inventory-abc.controller';
+import { InventoryVarianceService } from './inventory-variance.service';
+import { InventoryVarianceController } from './inventory-variance.controller';
 import { CycleCountSchedulerService } from './cycle-count-scheduler.service';
 import { WarehouseAislesService } from './warehouse-aisles.service';
 import { WarehouseAislesController } from './warehouse-aisles.controller';
@@ -36,8 +38,8 @@ import { StockSnapshotController } from './stock-snapshot.controller';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController, StockSnapshotController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService],
-  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController, StockSnapshotController, InventoryVarianceController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService, InventoryVarianceService],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService, InventoryVarianceService],
 })
 export class CommercialInventoryModule {}

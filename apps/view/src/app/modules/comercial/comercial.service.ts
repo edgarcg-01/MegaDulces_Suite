@@ -1540,6 +1540,33 @@ export class ComercialService {
     return this.http.get<InventoryIra>(`${this.base}/inventory/counts/ira`, { params: p });
   }
 
+  // ── [IC.0] Diferencias del conteo físico de Kepler ────────────────────────────────────
+  // El descuadre del trimestral existe desde nov-2025 y no se veía en ninguna pantalla.
+  inventoryVarianceSummary(params: {
+    warehouse_id?: string; date_from?: string; date_to?: string; include_initial_load?: boolean;
+  } = {}) {
+    let p = new HttpParams();
+    if (params.warehouse_id) p = p.set('warehouse_id', params.warehouse_id);
+    if (params.date_from) p = p.set('date_from', params.date_from);
+    if (params.date_to) p = p.set('date_to', params.date_to);
+    if (params.include_initial_load) p = p.set('include_initial_load', 'true');
+    return this.http.get<InventoryVarianceEvent[]>(`${this.base}/inventory/variance`, { params: p });
+  }
+
+  inventoryVarianceDetail(params: {
+    warehouse_id: string; fecha: string; signo?: 'sobrante' | 'faltante'; limit?: number;
+  }) {
+    let p = new HttpParams().set('warehouse_id', params.warehouse_id).set('fecha', params.fecha);
+    if (params.signo) p = p.set('signo', params.signo);
+    if (params.limit != null) p = p.set('limit', String(params.limit));
+    return this.http.get<InventoryVarianceLine[]>(`${this.base}/inventory/variance/detail`, { params: p });
+  }
+
+  inventoryVarianceCoverage(warehouse_id: string, fecha: string) {
+    const p = new HttpParams().set('warehouse_id', warehouse_id).set('fecha', fecha);
+    return this.http.get<InventoryVarianceCoverage>(`${this.base}/inventory/variance/coverage`, { params: p });
+  }
+
   inventoryReconcile(countId: string) {
     return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
   }
@@ -2809,6 +2836,46 @@ export interface InventoryCountItem {
   notes: string | null;
   reason_code: string | null;
   cost_base: number | string | null;
+}
+
+/** [IC.0] Un evento de conteo físico de Kepler (almacén × fecha) con su descuadre. */
+export interface InventoryVarianceEvent {
+  warehouse_id: string;
+  warehouse_code: string;
+  warehouse_name: string;
+  fecha: string;
+  /** `carga_inicial` = migración de ERP, NO es descuadre. Ver FASE_IC §1.4. */
+  tipo_evento: 'conteo' | 'carga_inicial';
+  skus_sobrante: number;
+  skus_faltante: number;
+  pesos_sobrante: number;
+  pesos_faltante: number;
+  pesos_neto: number;
+}
+
+export interface InventoryVarianceLine {
+  sku: string;
+  product_id: string | null;
+  descripcion: string;
+  unidad_erp: string;
+  signo: 'sobrante' | 'faltante';
+  cantidad: number;
+  costo_unitario: number;
+  importe: number;
+  folio: string;
+  kepler_sucursal: string;
+  kepler_almacen: string;
+  tipo_evento: 'conteo' | 'carga_inicial';
+}
+
+export interface InventoryVarianceCoverage {
+  contados: number;
+  sin_contar: number;
+  con_existencia: number;
+  con_diferencia: number;
+  dias_desde_conteo: number;
+  /** NULL cuando no se pudo medir — no es lo mismo que cobertura cero. */
+  pct_cubierto: number | null;
 }
 
 export interface InventoryIra {
