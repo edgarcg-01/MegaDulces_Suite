@@ -1223,6 +1223,14 @@ export class ExpenseProofsService {
       // `[GX.39]` La etapa de ejercicio + el documento que Kepler genera al aplicar el gasto.
       const [conEtapa] = this.conEtapa([r], await this.keplerPorFolio(trx, [r]));
       const gasto_kepler = await this.gastoEnKepler(trx, r.folio_solicitud, r.sucursal);
+      /**
+       * `[GX.40]` El candidato a factura. Se busca con los datos del GASTO de Kepler (que trae
+       * el RFC), no con los del expediente nuestro: el proveedor que escribio el capturista es
+       * texto libre y el importe del vale puede diferir del documento contable.
+       */
+      const cfdi_sugerido = gasto_kepler
+        ? await this.cfdiCandidato(trx, gasto_kepler.rfc, gasto_kepler.importe, gasto_kepler.fecha)
+        : null;
       return {
         ...conEtapa,
         importe: Number(r.importe),
@@ -1230,6 +1238,7 @@ export class ExpenseProofsService {
         requiere_evidencia: requiereEvidencia(clasCol ? r.clasificacion : null),
         files: await this.storage.signFiles(files, 1800),
         gasto_kepler,
+        cfdi_sugerido,
         // El front no puede distinguir "no adjuntaron nada" de "hay archivo pero no lo
         // puedo servir" si sólo recibe una url rota. Se lo decimos explícito.
         storage_ok: this.storage.isConfigured(),
@@ -1287,6 +1296,87 @@ export class ExpenseProofsService {
       cfdi_disponible: false,
       cfdi_motivo: 'Kepler no guarda el UUID fiscal del gasto (verificado). El CFDI del proveedor, cuando existe, se casa aparte por RFC e importe.',
     };
+  }
+
+  /**
+   * `[GX.40]` **El CFDI del gasto: SUGERENCIA, nunca hecho.**
+   *
+   * Pedido del usuario: *«jalar esa factura o ese documento que genera y agregarlo al gasto
+   * como un tipo de expediente»*. Se puede — pero no desde Kepler, y no para todos. Medido el
+   * 2026-09-29 en prod, y estos numeros son el contrato de esta funcion:
+   *
+   * ```
+   *   de 8,899 gastos X-A-10
+   *     3,203 (36.0%)  traen RFC del beneficiario
+   *     2,163 (24.3%)  el emisor esta en fiscal.cfdis
+   *     1,596 (17.9%)  hay un CFDI con el mismo importe (±$1)
+   *       880 ( 9.9%)  ...y fecha dentro de 5 dias
+   *       743 ( 8.4%)  UN SOLO candidato: sin ambiguedad
+   * ```
+   *
+   * ⛔ **Kepler no guarda el UUID fiscal** — barrido el 2026-09-29: las 200 columnas de
+   * `kdm1` para `X-A-15` dan **37 con dato y ninguna con UUID**; `kdm2` tiene **0 lineas**
+   * para estos documentos; la familia `kdfe33*` timbra **solo ventas** (genero U). Ya estaba
+   * verificado en MAT.1 (2026-07-17). Asi que el enlace es **heuristico** y por eso se
+   * devuelve como candidato con su motivo, no como dato del expediente (ADR-016: el motor
+   * sugiere, la persona confirma).
+   *
+   * ⚠️ **Con mas de un candidato NO se elige.** Elegir el primero seria pegarle al gasto la
+   * factura equivocada del proveedor correcto — un error que se ve bien y nadie audita.
+   *
+   * ⚠️ Y el «documento» son **datos, no un archivo**: de 168,245 CFDIs, **0 tienen PDF** y
+   * 1,015 XML (0.6%). Lo que se adjunta es el UUID + serie/folio + emisor + total.
+   */
+  private async cfdiCandidato(
+    trx: Knex, rfc?: string | null, importe?: number | null, fecha?: string | null,
+  ): Promise<{
+    estado: 'unico' | 'ambiguo' | 'sin_candidato' | 'sin_rfc' | 'sin_fuente';
+    motivo: string;
+    cfdi: { uuid: string; serie: string | null; folio: string | null; emisor: string | null;
+            total: number; fecha: string | null; estatus_sat: string | null; tiene_xml: boolean } | null;
+    otros: number;
+  }> {
+    const nada = (estado: 'sin_rfc' | 'sin_fuente' | 'sin_candidato', motivo: string) =>
+      ({ estado, motivo, cfdi: null, otros: 0 });
+
+    const r = String(rfc || '').trim().toUpperCase();
+    // ⚠️ Sin RFC no se busca por nombre: dos proveedores distintos se llaman parecido y el
+    // 64% de los gastos no lo trae. Se DECLARA el motivo en vez de devolver vacio a secas.
+    if (!r) return nada('sin_rfc', 'El gasto no trae el RFC del proveedor (lo trae el 36% en Kepler), asi que no hay por donde buscar su factura.');
+    if (!Number(importe) || !fecha) return nada('sin_rfc', 'Falta el importe o la fecha del gasto para poder cuadrar una factura.');
+
+    const reg = await trx.raw(`SELECT to_regclass('fiscal.cfdis') t`);
+    if (!reg.rows[0]?.t) return nada('sin_fuente', 'No hay CFDI cargados en esta base.');
+
+    const cands: Record<string, unknown>[] = await trx('fiscal.cfdis')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .whereRaw('upper(emisor_rfc) = ?', [r])
+      .whereRaw('abs(total - ?::numeric) <= 1', [Number(importe)])
+      .whereRaw(`abs(fecha::date - ?::date) <= 5`, [fecha])
+      .orderByRaw(`abs(fecha::date - ?::date) ASC`, [fecha])
+      .limit(5)
+      .select('uuid', 'serie', 'folio', 'emisor_nombre', 'estatus_sat',
+        trx.raw('total::numeric AS total'), trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('(xml IS NOT NULL) AS tiene_xml'));
+
+    if (!cands.length) {
+      return nada('sin_candidato', 'Ninguna factura de ese proveedor cuadra con el importe y la fecha del gasto.');
+    }
+    const c = cands[0];
+    const uno = {
+      uuid: String(c['uuid']), serie: (c['serie'] as string) ?? null, folio: (c['folio'] as string) ?? null,
+      emisor: (c['emisor_nombre'] as string) ?? null, total: Number(c['total'] ?? 0),
+      fecha: (c['fecha'] as string) ?? null, estatus_sat: (c['estatus_sat'] as string) ?? null,
+      tiene_xml: !!c['tiene_xml'],
+    };
+    if (cands.length > 1) {
+      // ⛔ Se devuelve el mas cercano en fecha pero MARCADO como ambiguo, para que la pantalla
+      // lo muestre como «hay N que cuadran» y no como la factura del gasto.
+      return { estado: 'ambiguo', otros: cands.length - 1, cfdi: uno,
+        motivo: `Hay ${cands.length} facturas de ese proveedor que cuadran. Ninguna se da por buena sin que alguien la confirme.` };
+    }
+    return { estado: 'unico', otros: 0, cfdi: uno,
+      motivo: 'Una sola factura de ese proveedor cuadra en importe y fecha. Falta que alguien la confirme.' };
   }
 
   /**
