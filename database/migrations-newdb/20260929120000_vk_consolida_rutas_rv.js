@@ -23,8 +23,12 @@
  * ── Agenda (decisión: lunes a sábado) ────────────────────────────────────────────────────────
  * Sin `daily_assignments` "Mi ruta" sale vacía y el supervisor no ve opciones en
  * `/vendor/route-pick`. Se da de alta L–S para cada vendedor en su ruta. UNIQUE es
- * (tenant, user, day_of_week): si ese día ya tiene OTRA ruta NO se pisa — se declara en el log
- * (medido: `candelaria_salgado` trae "RUTA 21" los martes, dada de alta a mano el 29-sep).
+ * (tenant, user, day_of_week): si ese día ya tiene OTRA ruta NO se pisa — se declara en el log.
+ *
+ * Única excepción, decidida por Francisco (2026-09-29): `candelaria_salgado` traía "RUTA 21" los
+ * martes — se la auto-asignó ella el 29-sep 00:59, 0 visitas — y "no tiene nada que ver con RUTA 21".
+ * Esa fila se REASIGNA a RVPH01 (no se da de baja: el UNIQUE incluye las bajas lógicas y el martes
+ * ya no se podría insertar). Solo si el día sigue apuntando exactamente a "RUTA 21".
  *
  * Idempotente: re-correrla no duplica ni cambia nada.
  *
@@ -48,6 +52,9 @@ const AGENDA = [
   ['jlh_lopez', 'RVYUR01'],
 ];
 const DAYS = [1, 2, 3, 4, 5, 6]; // ISODOW: lunes..sábado
+
+// [vendedor, día, ruta equivocada] — asignaciones que se REASIGNAN a su ruta vecinal (decisión explícita).
+const CORRECTIONS = [['candelaria_salgado', 2, 'RUTA 21']];
 
 const routeQ = (knex, value) =>
   knex('trade.catalogs')
@@ -161,7 +168,17 @@ exports.up = async function up(knex) {
       const e = byDay.get(dow);
       if (!e) toInsert.push(dow);
       else if (e.deleted_at) console.log(`  ! ${username} día ${dow}: hay una asignación dada de baja ("${e.value}") — NO se pisa.`);
-      else if (e.route_id !== route.id) console.log(`  ! ${username} día ${dow}: ya tiene "${e.value}" — NO se pisa.`);
+      else if (e.route_id !== route.id) {
+        const fix = CORRECTIONS.some(([u, d, wrong]) => u === username && d === dow && e.value === wrong);
+        if (fix) {
+          await knex('trade.daily_assignments')
+            .where({ tenant_id: T, user_id: user.id, day_of_week: dow, route_id: e.route_id })
+            .update({ route_id: route.id, updated_at: knex.fn.now() });
+          console.log(`  ✓ ${username} día ${dow}: "${e.value}" → ${code} (corrección explícita)`);
+        } else {
+          console.log(`  ! ${username} día ${dow}: ya tiene "${e.value}" — NO se pisa.`);
+        }
+      }
     }
     if (toInsert.length) {
       await knex('trade.daily_assignments')
