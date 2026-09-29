@@ -24,6 +24,7 @@ require('dotenv').config({
 });
 const knexLib = require('knex');
 
+const { knexfileNewdbFallback } = require('./lib/knexfile-newdb-fallback');
 function parseArgs(argv) {
   const args = {};
   for (const a of argv.slice(2)) {
@@ -74,7 +75,7 @@ async function main() {
       pool: { min: 1, max: 5 },
     };
   } else {
-    knexCfg = require('../knexfile-newdb.js').development;
+    knexCfg = knexfileNewdbFallback('planogram-skus-from-catalog');
   }
 
   const knex = knexLib(knexCfg);

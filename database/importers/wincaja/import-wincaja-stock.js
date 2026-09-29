@@ -25,6 +25,7 @@
  */
 'use strict';
 const path = require('path');
+const { knexfileNewdbFallback } = require('../lib/knexfile-newdb-fallback');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 const knexLib = require('knex');
 
@@ -47,7 +48,7 @@ const SRC = `
 (async () => {
   const cfg = process.env.DATABASE_URL_NEW
     ? { client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW) ? false : { rejectUnauthorized: false } }, pool: { min: 0, max: 3 } }
-    : require(path.resolve(__dirname, '..', '..', 'knexfile-newdb.js')).development;
+    : knexfileNewdbFallback('import-wincaja-stock');
   const db = knexLib(cfg);
 
   const [pre] = (await db.raw(`SELECT count(*)::int n, count(*) FILTER (WHERE qty>0)::int pos FROM (${SRC}) x`, [TENANT])).rows;

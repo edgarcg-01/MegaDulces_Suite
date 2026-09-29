@@ -25,6 +25,7 @@ require('dotenv').config({
   path: require('path').resolve(__dirname, '..', '..', '.env'),
 });
 const fs = require('fs');
+const { knexfileNewdbFallback } = require('./lib/knexfile-newdb-fallback');
 const knexLib = require('knex');
 
 function parseArgs(argv) {
@@ -79,7 +80,7 @@ async function main() {
       pool: { min: 1, max: 5 },
     };
   } else {
-    knexCfg = require('../knexfile-newdb.js').development;
+    knexCfg = knexfileNewdbFallback('railway-product-prices-by-sku');
   }
 
   const knex = knexLib(knexCfg);
