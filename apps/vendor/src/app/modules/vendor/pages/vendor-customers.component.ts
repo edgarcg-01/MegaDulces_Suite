@@ -148,16 +148,21 @@ import { AuthService } from '../../../core/services/auth.service';
                         <span class="av">{{ initials(c.name) }}</span>
                         <span class="cbody">
                           <span class="nm">{{ c.name }}</span>
-                          <span class="meta">
-                            @if (customerRef(c); as ref) {
-                              <span class="code">{{ ref }}</span>
-                            }
-                            @if (c.phone) {
-                              <span>· {{ c.phone }}</span>
-                            }
-                          </span>
+                          @if (address(c); as addr) {
+                            <span class="addr"><i class="pi pi-map-marker"></i><span>{{ addr }}</span></span>
+                          }
+                          @if (customerRef(c) || c.phone) {
+                            <span class="meta">
+                              @if (customerRef(c); as ref) {
+                                <span class="chip">{{ ref }}</span>
+                              }
+                              @if (c.phone) {
+                                <span class="tel"><i class="pi pi-phone"></i>{{ c.phone }}</span>
+                              }
+                            </span>
+                          }
                         </span>
-                        <i class="pi pi-ellipsis-v action"></i>
+                        <i class="pi pi-chevron-right more" aria-hidden="true"></i>
                       </button>
                     }
                   </div>
@@ -176,6 +181,9 @@ import { AuthService } from '../../../core/services/auth.service';
                       <span class="cd">@if (customerRef(c); as ref) { {{ ref }} } @else { Cliente }</span>
                     </div>
                   </div>
+                  @if (address(c); as addr) {
+                    <p class="sheet-addr"><i class="pi pi-map-marker"></i><span>{{ addr }}</span></p>
+                  }
                   <button class="sheet-primary" (click)="goOrder(c)">
                     <i class="pi pi-shopping-cart"></i> Tomar pedido
                   </button>
@@ -256,10 +264,31 @@ import { AuthService } from '../../../core/services/auth.service';
       @media (prefers-reduced-motion: reduce) { .list { animation: none; } .client { transition: none; } .new-form { animation: none; } }
       .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--neutral-100); color: var(--neutral-700); font-weight: 800; font-size: 0.9rem; }
       .cbody { flex: 1; min-width: 0; }
-      .nm { display: block; font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .meta { display: flex; gap: 0.4rem; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
-      .code { font-family: var(--font-mono); font-weight: 600; }
-      .action { color: var(--text-faint); font-size: 1rem; flex-shrink: 0; }
+      /* Nombre: hasta 2 renglones (los nombres de abarrotes son largos) en vez de cortarlo a uno. */
+      .nm {
+        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+        font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.35rem; }
+      .chip {
+        display: inline-flex; align-items: center; max-width: 100%;
+        padding: 0.1rem 0.5rem; border-radius: var(--r-pill, 999px);
+        background: var(--neutral-100); color: var(--neutral-700);
+        font-size: 0.72rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .addr { display: flex; align-items: flex-start; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-muted); line-height: 1.3; }
+      .addr i { font-size: 0.7rem; margin-top: 0.2rem; flex-shrink: 0; }
+      .addr span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tel { display: inline-flex; align-items: center; gap: 0.3rem; font-family: var(--font-mono); white-space: nowrap; }
+      .tel i { font-size: 0.7rem; }
+      /* OJO: no usar .action aquí — esa clase es del bottom-sheet (width:100%) y aplastaba el nombre a 0. */
+      .more { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
+
+      /* Celular en horizontal (16:9) o tablet: dos columnas para aprovechar el ancho. */
+      @media (min-width: 600px) {
+        .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
 
       /* Bottom-sheet de opciones */
       .sheet-backdrop { position: fixed; inset: 0; background: rgba(16,13,9,0.45); z-index: 50; animation: backdrop-in 0.2s ease; }
@@ -281,6 +310,8 @@ import { AuthService } from '../../../core/services/auth.service';
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad, var(--action)); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
       .sheet-head .cd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+      .sheet-addr { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0.65rem 0 0; font-size: 0.875rem; color: var(--text-muted); line-height: 1.35; }
+      .sheet-addr i { margin-top: 0.15rem; color: var(--action); flex-shrink: 0; }
       .sheet-primary {
         width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--accent-brand, var(--action)); color: #000;
         font-family: var(--font-body); font-weight: 700; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.6rem;
@@ -288,23 +319,23 @@ import { AuthService } from '../../../core/services/auth.service';
         transition: transform 0.07s var(--ease, ease);
       }
       .sheet-primary:active { transform: scale(0.97); }
-      .action {
+      .sheet .action {
         display: flex; align-items: center; gap: 0.875rem; width: 100%; text-align: left;
         border: none; background: none; cursor: pointer; padding: 0.85rem 0.25rem;
         border-bottom: 1px solid var(--border-color); font-size: 0.95rem; color: var(--text-main);
         transition: background-color 0.12s ease;
       }
-      .action:last-of-type { border-bottom: none; }
-      .action i { font-size: 1.2rem; width: 1.5rem; text-align: center; color: var(--action); flex-shrink: 0; }
-      .action .lbl { font-weight: 600; }
-      .action:active { background: var(--surface-ground); }
+      .sheet .action:last-of-type { border-bottom: none; }
+      .sheet .action i { font-size: 1.2rem; width: 1.5rem; text-align: center; color: var(--action); flex-shrink: 0; }
+      .sheet .action .lbl { font-weight: 600; }
+      .sheet .action:active { background: var(--surface-ground); }
       .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
       .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: 0.875rem; border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
       .loc-msg { margin: 0.5rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-align: center; }
       @media (prefers-reduced-motion: reduce) {
         .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing { animation: none; }
-        .sheet-primary, .action { transition: none; }
+        .sheet-primary, .sheet .action { transition: none; }
       }
     `,
   ],
@@ -604,6 +635,25 @@ export class VendorCustomersComponent implements OnInit {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
     return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  /**
+   * Domicilio legible. Prefiere el domicilio estructurado (entrega → fiscal);
+   * medido 2026-09-29: ninguno de los 440 clientes lo tiene, y 258 traen el
+   * domicilio en `notes` (lo captura ahí el alta del vendedor, campo
+   * "Dirección / referencia"). Sin nada → null y el template no pinta la línea.
+   */
+  address(c: VendorCustomer): string | null {
+    const a = c.shipping_address || c.billing_address;
+    if (a) {
+      const street = [a.street, a.exterior_number, a.interior_number && `int. ${a.interior_number}`]
+        .filter(Boolean)
+        .join(' ');
+      const txt = [street, a.neighborhood, a.city].filter(Boolean).join(', ') || a.reference;
+      if (txt?.trim()) return txt.trim();
+    }
+    const notes = (c.notes || '').trim();
+    return notes || null;
   }
 
   /**

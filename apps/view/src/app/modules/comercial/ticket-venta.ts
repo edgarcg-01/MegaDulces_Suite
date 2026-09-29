@@ -337,10 +337,17 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
     L.push(fila('Lista', pesos(c.importe_lista)));
   }
   if (c.descuento_precio > 0) L.push(fila('Descuento', '-' + pesos(c.descuento_precio)));
-  if (c.descuento_documento > 0) L.push(fila('Desc. documento', '-' + pesos(c.descuento_documento)));
-  // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor del
-  // cliente). Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
-  else if (c.descuento_documento < 0) L.push(fila('Ajuste', pesos(-c.descuento_documento)));
+  // `[TK.d2]` El mismo nombre que la carta y la pantalla, y CON el porcentaje: el papel del
+  // mostrador era el único de los tres que se lo callaba. A 45 caracteres entra de sobra
+  // (28 el rótulo más largo + 10 el importe), y `fila()` recorta si algún día no entrara.
+  if (c.descuento_documento > 0) {
+    const pct = c.descuento_documento_pct_erp ? ` (${c.descuento_documento_pct_erp}%)` : '';
+    L.push(fila(`Descuento de cliente${pct}`, '-' + pesos(c.descuento_documento)));
+  } else if (c.descuento_documento < 0) {
+    // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor del
+    // cliente). Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
+    L.push(fila('Ajuste', pesos(-c.descuento_documento)));
+  }
   if (conNeto) L.push(fila('Importe neto', pesos(c.importe_neto as number)));
   if (conNeto && t.impuestos_incluidos && c.ieps) L.push(fila('IEPS', pesos(c.ieps)));
   if (conNeto && t.impuestos_incluidos && c.iva) L.push(fila('IVA', pesos(c.iva)));

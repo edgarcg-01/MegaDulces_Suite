@@ -829,6 +829,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
         { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
+        { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+        { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
         { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
       ],
     },
