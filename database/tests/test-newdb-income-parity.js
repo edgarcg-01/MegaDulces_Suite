@@ -360,10 +360,14 @@ const ultimoDia = (ym) => {
           const folios = fantasma.slice(0, 8).map((k) => k.split('|')[5]).join(', ')
             + (fantasma.length > 8 ? ' (+' + (fantasma.length - 8) + ')' : '');
           ok(fantasma.length === 0, detalle + (fantasma.length
-            ? '  ⛔ el ODS conserva filas que el ERP YA NO tiene: es el DELETE que el CDC no propaga,'
-              + ' y significa que el número PUBLICADO va ALTO — el árbitro tiene razón.'
-              + ' Pólizas: ' + folios + '.'
-              + ' ⚠️ NO se arregla aflojando la tolerancia: se arregla propagando el DELETE.'
+            ? '  ⛔ el ODS conserva filas que el ERP YA NO reconoce, y el número PUBLICADO va ALTO'
+              + ' — el árbitro tiene razón. Pólizas: ' + folios + '.'
+              + ' Causa MEDIDA (OBS.12): no es un DELETE sin propagar sino la PK. `c2` está en la PK y'
+              + ' el ODS trae DOS renderizados del mismo instante (+6 h hasta el 2026-09-23), así que'
+              + ' un UPDATE de Kepler aterriza como INSERT y conviven el ANTES y el DESPUÉS de la misma'
+              + ' póliza: la vieja con importe y la nueva en BAJA con $0.00.'
+              + ' Se limpia con: reconcile-ods-window.js --full --dedupe-fecha --apply.'
+              + ' ⚠️ NO se arregla aflojando la tolerancia.'
             : ''));
         }
       }

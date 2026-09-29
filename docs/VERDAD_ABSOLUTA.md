@@ -1230,6 +1230,36 @@ Sumados bajo «Morelia Abastos» producían un tercer fenómeno que no existe. V
 ⚠️ El daño real estaba en el mes que yo daba por sano: **agosto, $77,131.36** (§15.2). Un delta de
 $77k al lado de uno de $3.4M se lee como redondeo — y era el único de los dos que era un defecto.
 
+### 9.17 ⛔⛔ "el ODS no propaga los DELETE" — cierto en general, FALSO para este caso
+
+Lo afirmé con una medición buena y una inferencia mala. La medición: agosto tenía 4 filas en el ODS
+que `md_00` no tenía, `pendiente 0`, importe congelado en $77,131.36 durante cuatro días. La
+inferencia: *«no se renumeraron ni se corrigieron → se borraron»*. Y encajaba con un defecto ya
+documentado (el CDC muerto sin propagación de DELETE), que es justo lo que la hace peligrosa: **una
+hipótesis que explica el síntoma Y coincide con un defecto conocido se siente confirmada dos veces.**
+
+Lo que la tiró fue correr el reconciliador con la llave por día: **`kdc22608` dio 0 sobrantes.** Si
+las filas hubieran sido borradas en Kepler, ahí tenían que aparecer. Mirando las 4 filas:
+
+```
+folio 25097  2026-08-27 06:00  $25,755.15  'R.V. MORELIA MADERO 01'
+folio 25097  2026-08-27 00:00  $0.00       'BAJA - UD13001-0006923'
+```
+
+**No falta nada: sobra.** La fila sigue viva en Kepler, cancelada y en $0.00. El ODS conserva
+además la versión previa porque `c2` está en la PK y hay **dos renderizados del mismo instante**
+(+6 h hasta el 2026-09-23, `00:00` desde entonces) → un **UPDATE entra como INSERT**.
+
+⭐ Por qué importa la distinción, y no es semántica: los dos defectos **se arreglan con herramientas
+distintas y una no toca a la otra**. `--delete-sobrantes` recorre este caso y no ve nada, porque por
+llave de día la fila SÍ está en el origen. Si me hubiera quedado con la primera lectura, habría
+encendido el propagador de DELETE, habría visto `0 borrados`, y habría concluido que ya estaba
+resuelto.
+
+⚠️ Y el tamaño real sólo apareció después de entender la causa: no eran 4 filas sino **1,737 grupos
+duplicados por $22,796,303.99** en nueve meses contables (§15.5). Buscar "borrados" no los
+encontraba; buscar "duplicados por identidad de PK" sí.
+
 ## 10. Cómo se verifica
 
 | candado | qué protege | estado |
@@ -1376,9 +1406,20 @@ Medido 2026-09-29 (clave `fecha‖cuenta‖naturaleza‖importe‖concepto‖fol
 ```
 
 ⛔ **Agosto-2026: 4 pólizas (25097, 25285, 25310, 25333, todas `401-002`) por $77,131.36 que el ERP
-ya no tiene y el ODS sí.** `pendiente 0` prueba que no se renumeraron ni se corrigieron: **se
-borraron**. Es el DELETE que el CDC no propaga (Fase OBS). El ingreso publicado de agosto va
-**$77,131.36 alto**, y el árbitro tiene razón.
+ya no reconoce y el ODS sí.** El ingreso publicado de agosto va **$77,131.36 alto**, y el árbitro
+tiene razón.
+
+⛔⛔ **La causa NO es un DELETE sin propagar — es la PK.** Lo dije así primero y está refutado
+(§9.17). `c2` está en la PK de `kdc2YYMM` y el ODS trae **dos renderizados del mismo instante**: el
+poll escribía `+6 h` hasta el 2026-09-23 y `00:00` desde entonces. El UPSERT no reconoce la fila
+como la misma, así que un **UPDATE de Kepler aterriza como INSERT** y conviven las dos versiones:
+
+```
+folio 25097  2026-08-27 06:00  $25,755.15  'R.V. MORELIA MADERO 01'   <- version VIEJA, la que sobra
+folio 25097  2026-08-27 00:00  $0.00       'BAJA - UD13001-0006923'   <- lo que Kepler dice HOY
+```
+
+Kepler canceló esas pólizas y el ODS sigue sumando el importe anterior.
 
 ⭐ La confirmación que lo separa de un desfase: la migración `20260925150000` ya declaraba
 `ago +$77,131.36` el **2026-09-25**. Cuatro días después es **el mismo importe al centavo**. Un
@@ -1409,3 +1450,46 @@ cutover del 19-sep ($3.4M, 94% del hueco de septiembre) y es **desfase de una co
 asientos de «P.V. Morelia Abastos» del 19→28-sep están en las **dos** fuentes y sólo faltaban en
 la foto de las 03:36. Aparte, su TLMKT sí dejó de postear el 17-sep — eso es real y las dos
 fuentes coinciden. **Eran dos cosas apiladas; medirlas juntas producía un diagnóstico falso.**
+
+### 15.5 ⭐⭐ El tamaño real: 1,737 grupos duplicados, $22,796,303.99
+
+Medido el 2026-09-29 sobre las 24 tablas `kdc2YYMM` del ODS, agrupando por la PK con el día en vez
+del instante:
+
+```
+kdc22601   171 grupos    $4,549,448.51        kdc22606    13 grupos      $104,298.00
+kdc22602    98 grupos    $1,285,743.00        kdc22607    27 grupos      $196,865.14
+kdc22603     3 grupos      $106,752.66        kdc22608 1,151 grupos   $14,089,354.83
+kdc22604     7 grupos       $42,654.00        kdc22609   248 grupos    $2,331,340.85
+kdc22605    19 grupos       $89,847.00
+                                              TOTAL    1,737 grupos  $22,796,303.99
+```
+
+⚠️ Ese importe es el de la **copia vieja** de cada grupo, bruto y sobre todas las cuentas y ramas —
+no es "inflación neta". La rodaja que toca al ingreso publicado (cuenta 401 · CEDIS · `UD1301`) son
+los **$77,131.36** de agosto. El resto entra a la balanza, al P&L de Maat y a la comparación contra
+ContPAQi, que leen las mismas `kdc2YYMM`.
+
+**Qué se construyó** (`[OBS.12]`, en `reconcile-ods-window.js` — el carril que ya tiene latido,
+frenos y agenda; no un script nuevo):
+
+1. **La PK con fecha deja de estar vetada y pasa a estar VERIFICADA.** Antes se saltaba toda tabla
+   con timestamp en la PK, lo que dejaba fuera justo a las contables. Ahora se mide en cada corrida
+   que el origen guarda esa columna a medianoche (cero filas con hora) y que el corrimiento del ODS
+   es positivo y menor a 12 h; si el supuesto no se cumple, el veto sigue. No es una constante: es
+   una medición que se repite, porque *una medición con fecha es código que caduca*.
+2. **`--dedupe-fecha`**, apagado por default igual que `--delete-sobrantes`. ⭐ **Cuál copia sobra lo
+   decide el ORIGEN, no una regla**: se conserva aquella cuyo timestamp EXACTO está en el replica y
+   se borran las otras. Si ninguna empareja, no se toca nada y se reporta (`dup_sin_original`) —
+   medido: **cero** casos ambiguos. Mismo freno `ODS_DELETE_MAX_FRAC`.
+3. ⛔ **El timestamp se manda como TEXTO al borrar.** El driver devuelve un `Date` de JS y
+   reescribirlo aplicaría huso — que es exactamente el bug que se viene a limpiar.
+
+Verificado en seco antes de tocar nada: el `DELETE` apunta a **una** fila (la copia de $25,755.15) y
+deja viva la que Kepler reconoce ($0.00, `BAJA`). Y `faltan 0` en las dos tablas prueba que la llave
+por día no produce el molino de *falta-y-sobra-la-misma-fila*.
+
+⛔ **Lo que NO arregla:** el origen del corrimiento. Mientras `c2` esté en la PK y existan filas
+históricas a `+6 h`, **cada edición futura de una fila anterior al 2026-09-23 crea un gemelo nuevo**.
+El dedup es la limpieza; el arreglo de raíz es normalizar esos timestamps al mismo renderizado, y
+eso es una escritura masiva que se decide aparte.

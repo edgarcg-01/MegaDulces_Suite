@@ -9,6 +9,56 @@
 ---
 
 ## [Unreleased]
+### Fixed — un UPDATE de Kepler entra al ODS como INSERT: 1,737 pólizas duplicadas por $22,796,303.99 (OBS.12, 2026-09-29)
+Sale de perseguir los $77,131.36 de agosto del ingreso. **La causa que yo había publicado era falsa**
+y la corrección importa, porque los dos defectos se arreglan con herramientas distintas.
+
+⛔ **No es un DELETE sin propagar. Es la IDENTIDAD de la PK.** `c2` está en la PK de `kdc2YYMM` y el
+ODS trae **dos renderizados del mismo instante**: el poll escribía `+6 h` hasta el 2026-09-23 y
+`00:00` desde entonces. El UPSERT no reconoce la fila como la misma → la INSERTA, y quedan vivas las
+dos versiones:
+
+```
+folio 25097  2026-08-27 06:00  $25,755.15  'R.V. MORELIA MADERO 01'   <- version VIEJA
+folio 25097  2026-08-27 00:00  $0.00       'BAJA - UD13001-0006923'   <- lo que Kepler dice HOY
+```
+
+Kepler canceló esas pólizas y el ODS sigue sumando el importe anterior.
+
+⭐ **Lo que tiró la hipótesis fue una medición, no un razonamiento:** con la llave por día,
+`kdc22608` da **0 sobrantes**. Si las filas hubieran sido borradas en Kepler, ahí tenían que
+aparecer. Y el tamaño real sólo apareció después de entender la causa: **1,737 grupos duplicados,
+$22,796,303.99** en nueve meses contables (ago: 1,151 / $14.09M). Buscar "borrados" no los
+encontraba.
+
+⭐ **La PK con fecha deja de estar VETADA y pasa a estar VERIFICADA.** `reconcile-ods-window.js`
+saltaba toda tabla con timestamp en la PK — o sea justo las contables, que es donde el residuo entra
+a la balanza y al P&L. Ahora mide en cada corrida que el origen guarda esa columna a medianoche
+(cero filas con hora) y que el corrimiento del ODS es positivo y < 12 h; si no se cumple, el veto
+sigue. Medido: réplica `con_hora=0`, ODS sólo `{00:00, 06:00}`.
+
+⭐ **`--dedupe-fecha`** (OFF por default, como `--delete-sobrantes`, con el mismo freno
+`ODS_DELETE_MAX_FRAC`). **Cuál copia sobra lo decide el ORIGEN, no una regla**: se conserva la del
+timestamp EXACTO que está en el replica. Si ninguna empareja no se toca nada y se reporta
+(`dup_sin_original`) — medido: **cero** ambiguos. ⛔ El timestamp se manda como **TEXTO** al borrar:
+mandar el `Date` de JS reintroduciría el corrimiento que se viene a limpiar.
+
+Verificado en seco: el `DELETE` toca **una** fila (la de $25,755.15) y deja viva la de `BAJA` $0.00;
+`faltan 0` en las dos tablas prueba que la llave por día no produce el molino de
+falta-y-sobra-la-misma-fila. Dry-run rama 00: `kdc22608` 173 · `kdc22609` 235.
+
+⛔ **No arregla el origen del corrimiento:** mientras `c2` esté en la PK y queden filas históricas a
+`+6 h`, cada edición futura de una fila anterior al 2026-09-23 crea un gemelo nuevo. El dedup es la
+limpieza; normalizar esos timestamps es una escritura masiva que se decide aparte.
+
+⚠️ **Sexta vez que un backtick rompe algo acá**: esta vez bash expandió `` `[OBS.12]` `` dentro de un
+comentario y lo dejó vacío en el archivo.
+
+**Pendiente: correr `--dedupe-fecha --apply` (borra 1,737 filas de prod) — sin autorizar, y fuera de
+horario hábil.**
+
+Detalle en [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md) §15.5 y §9.17.
+
 ### Fixed — el ingreso publicado de agosto iba $77,131.36 alto, y el candado no lo iba a ver hasta el 1-nov (IG.0.3, 2026-09-29)
 Nace de auditar `/finanzas/ingresos` bajo ADR-059. El módulo está **bien construido**
 (derive-no-copy sobre `kepler_ods`, cero importers, árbitro registrado, prueba negativa que
@@ -24,10 +74,12 @@ Kepler vivo del CEDIS (`md_00`) por LAN; el publicado deriva del ODS. Diff fila 
 2026-09  ODS 1464 · ERP 1482 · fantasma 13 ($333,478.28) · pendiente 31 ($1,174,184.04)
 ```
 
-**Agosto: 4 pólizas (25097, 25285, 25310, 25333) que el ERP ya no tiene y el ODS sí.** `pendiente 0`
-prueba que no se renumeraron: **se borraron**. Es el DELETE que el CDC no propaga (Fase OBS). Lo
+**Agosto: 4 pólizas (25097, 25285, 25310, 25333) que el ERP ya no reconoce y el ODS sí.** Lo
 confirma el tiempo: la migración declaraba `ago +$77,131.36` el 25-sep y cuatro días después es **el
 mismo importe al centavo** — un desfase se cierra, éste no se movió.
+
+⛔ **Dije que la causa era el DELETE sin propagar y me equivoqué** (ver la entrada OBS.12 de abajo).
+Es la PK.
 
 ⭐ **Un delta tiene DOS mecánicas y son opuestas en qué hacer** (fantasma = el publicado va alto,
 propagar el DELETE · pendiente = nadie está mal, esperar). En el total se ven idénticas; sólo el

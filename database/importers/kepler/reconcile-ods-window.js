@@ -68,6 +68,8 @@ const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
 // con 0% falso positivo; ahora, con gate, los BORRA. Reemplaza al WAL-CDC retirado (OBS.8, fragilidad
 // de slot) como propagador de DELETE. OFF por default: sólo con --delete-sobrantes o env=1.
 const DELETE_SOB = process.argv.includes('--delete-sobrantes') || process.env.ODS_DELETE_SOBRANTES === '1';
+// [OBS.12] Dedup de tablas con fecha en la PK. OFF por default, igual que el DELETE: borra.
+const DEDUPE = process.argv.includes('--dedupe-fecha') || process.env.ODS_DEDUPE_FECHA === '1';
 const FULL = process.argv.includes('--full'); // ignora la ventana: barrido único del backlog (solo-DELETE)
 
 // ⭐ `[ODS.2]` MODO TABLA CHICA: sin ventana, y SÍ repone.
@@ -199,27 +201,68 @@ const keyOf = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
  * los DATOS: el ODS trae los timestamps anteriores al 2026-09-23 corridos 6 h (ver la nota en
  * `lib/ods-recent-window.js`). Compararlos daría "falta y sobra la misma fila" — un molino.
  */
-const TIPOS_PK_VETADOS = new Set(['timestamp without time zone', 'timestamp with time zone', 'date']);
+const TIPOS_PK_FECHA = new Set(['timestamp without time zone', 'timestamp with time zone', 'date']);
+// Si el origen guarda la columna SIEMPRE a medianoche, el corrimiento de 6 h no cruza el día y el
+// DÍA sí es comparable. Pero eso hay que MEDIRLO por tabla, no suponerlo: una columna con hora
+// real (captura, no fecha de negocio) rompe el supuesto y ahí el veto sigue valiendo.
+// ⚠️ El tope de 12 h no es cosmético: con el origen a medianoche, cualquier corrimiento POSITIVO
+// menor a 24 h conserva el día. Lo que rompería el día es uno NEGATIVO, y eso se ve como horas
+// altas con el día ya retrocedido. 12 h separa un huso horario de un día corrido.
+const SHIFT_MAX_HORAS = 12;
 
-function pkKeyExpr(meta) {
+function pkKeyExpr(meta, fechaCols) {
   const tipo = new Map(meta.cols.map((c) => [c.column_name, String(c.data_type || '').toLowerCase()]));
   return meta.pk.map((k) => {
     const t = tipo.get(k);
+    // Fecha VERIFICADA como de medianoche → se compara el día, que los dos lados producen igual.
+    if (fechaCols && fechaCols.has(k)) return `coalesce(to_char(date_trunc('day', ${qid(k)}), 'YYYY-MM-DD'), chr(1))`;
     const base = t === 'numeric' ? `trim_scale(${qid(k)})::text` : `${qid(k)}::text`;
     return `coalesce(${base}, chr(1))`;
   }).join(` || '|' || `);
 }
 
 /**
- * ¿Se puede comparar la PK de esta tabla? Devuelve null si sí, o el motivo si no.
+ * ¿Se puede comparar la PK de esta tabla? Devuelve `{ motivo }` si NO, o `{ fechaCols }` si sí.
  * Es un freno de CORRECCIÓN, no de rendimiento: comparar mal no da error, da un veredicto falso.
+ *
+ * ⭐ `[OBS.12]` Antes vetaba TODA PK con fecha, y eso dejaba fuera a las tablas contables
+ * `kdc2YYMM` — justo donde el residuo entra a la balanza y al P&L. El veto era correcto como
+ * default y equivocado como final: el problema no es que haya un timestamp, es que el ODS lo trae
+ * corrido. Si el origen lo guarda a medianoche, el día es idéntico de los dos lados.
+ * Medido 2026-09-29 en la rama 00: `kdc22608`/`kdc22609` tienen **cero** filas con hora en la
+ * réplica, y en el ODS sólo existen las horas `00:00` y `06:00`. Acá se vuelve a medir en cada
+ * corrida en vez de confiar en esa medición: una medición con fecha es código que caduca.
  */
-function pkNoComparable(meta) {
+async function pkNoComparable(meta, local, prod, table, code) {
   const tipo = new Map(meta.cols.map((c) => [c.column_name, c.data_type]));
-  const malas = meta.pk.filter((k) => TIPOS_PK_VETADOS.has(String(tipo.get(k) || '').toLowerCase()));
-  if (!malas.length) return null;
-  return `PK con fecha (${malas.map((k) => `${k}:${tipo.get(k)}`).join(', ')}) — los timestamps del ODS `
-    + 'anteriores al 2026-09-23 estan corridos 6 h; comparar daria falta-y-sobra a la vez';
+  const conFecha = meta.pk.filter((k) => TIPOS_PK_FECHA.has(String(tipo.get(k) || '').toLowerCase()));
+  if (!conFecha.length) return { fechaCols: null };
+
+  const fechaCols = new Set();
+  for (const k of conFecha) {
+    // (a) el ORIGEN tiene que ser semántica de fecha pura.
+    const nz = Number((await local.query(
+      `SELECT count(*)::bigint n FROM md.${qid(table)} WHERE ${qid(k)} IS NOT NULL AND ${qid(k)}::time <> '00:00:00'`)).rows[0].n);
+    if (nz > 0) {
+      return { motivo: `PK con fecha ${k}:${tipo.get(k)} y el origen le pone HORA real en ${nz} filas `
+        + '— no es semantica de fecha, comparar por dia daria un veredicto falso' };
+    }
+    // (b) el corrimiento del ODS tiene que ser POSITIVO y chico, o el día ya se movió.
+    let hi = null;
+    try {
+      hi = (await prod.query(
+      `SELECT max(${qid(k)}::time)::text h FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 AND ${qid(k)} IS NOT NULL`,
+        [code])).rows[0].h;
+    } catch (e) {
+      return { motivo: 'PK con fecha ' + k + ': no pude medir el corrimiento en el ODS (' + String(e.message).slice(0, 50) + ')' };
+    }
+    if (hi && Number(String(hi).slice(0, 2)) >= SHIFT_MAX_HORAS) {
+      return { motivo: `PK con fecha ${k}: el ODS llega a ${hi} sobre un origen de medianoche `
+        + `(tope ${SHIFT_MAX_HORAS} h) — eso ya no parece huso horario sino dia corrido` };
+    }
+    fechaCols.add(k);
+  }
+  return { fechaCols };
 }
 
 /** ¿Cuáles de estas llaves SIGUEN existiendo en md.<table> (tabla COMPLETA, sin ventana)? El re-chequeo
@@ -267,8 +310,8 @@ async function reconcile(local, prod, code, table) {
   if (!meta.pk.length) return { suc: code, tabla: table, skip: 'sin PK' };
   // `[ODS.2]` Antes de comparar NADA: si la PK no es comparable, el veredicto sería falso en las dos
   // direcciones (falta y sobra la misma fila) y `--delete-sobrantes` borraría vivos.
-  const pkMal = pkNoComparable(meta);
-  if (pkMal) return { suc: code, tabla: table, skip: pkMal };
+  const pkChk = await pkNoComparable(meta, local, prod, table, code);
+  if (pkChk.motivo) return { suc: code, tabla: table, skip: pkChk.motivo };
 
   const pkList = meta.pk.map(qid).join(', ');
   // Misma ventana en los DOS lados (replica y ODS comparten columnas): kdm1 = c9 OR c68.
@@ -279,15 +322,20 @@ async function reconcile(local, prod, code, table) {
   const wLoc = SIN_VENTANA ? '' : `WHERE ${ventana}`;
   const wOds = SIN_VENTANA ? '' : `AND ${ventana}`;
 
-  const keyExpr = pkKeyExpr(meta);
-  const loc = (await local.query(`SELECT ${pkList}, ${keyExpr} AS _k FROM md.${qid(table)} ${wLoc}`)).rows;
+  const keyExpr = pkKeyExpr(meta, pkChk.fechaCols);
+  // La llave EXACTA (timestamp entero) desempata dentro de un grupo de dia duplicado.
+  const keyExprExact = pkKeyExpr(meta, null);
+  // ⛔ El timestamp se lee como TEXTO, no como Date: el driver devuelve un Date de JS y al
+  // mandarlo de vuelta lo reescribe con huso — que es EXACTAMENTE el bug que estamos limpiando.
+  const tsSel = [...(pkChk.fechaCols || [])].map((k) => `, ${qid(k)}::text AS ${qid('_t_' + k)}`).join('');
+  const loc = (await local.query(`SELECT ${pkList}, ${keyExpr} AS _k, ${keyExprExact} AS _x FROM md.${qid(table)} ${wLoc}`)).rows;
   // Freno #1: una réplica que devuelve 0 filas en el scope NO prueba "todo se borró en origen" —
   // prueba réplica rota/vacía. Con el ODS lleno, borrar por esto lo vaciaría. Nunca se borra así.
   if (!loc.length) return { suc: code, tabla: table, local: 0, faltan: 0, ...(DELETE_SOB ? { skip_delete: 'replica 0 filas en scope — NO se borra (posible replica rota)' } : {}) };
 
   // El ODS es multi-sucursal: SIEMPRE filtrar por `sucursal`, o se compara contra las 7 ramas.
   const pro = (await prod.query(
-    `SELECT ${pkList}, ${keyExpr} AS _k FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 ${wOds}`, [code])).rows;
+    `SELECT ${pkList}, ${keyExpr} AS _k, ${keyExprExact} AS _x${tsSel} FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 ${wOds}`, [code])).rows;
   const presentes = new Set(pro.map((r) => r._k));
   const locales = new Set(loc.map((r) => r._k));
   // `--full` no repone (sería re-ship masivo sobre tablas de millones). `--chicas` SÍ: su universo
@@ -325,6 +373,58 @@ async function reconcile(local, prod, code, table) {
       extra.borrados = borrados;
     } else if (confirmadas.length) {
       extra.borrarian = confirmadas.length; // dry-run
+    }
+  }
+
+
+  // ── DEDUP DE PK CON FECHA (OBS.12, gated) ────────────────────────────────────────────────
+  // ⭐ Un UPDATE en Kepler puede aterrizar en el ODS como INSERT. `c2` está en la PK y existen DOS
+  // renderizados del mismo instante: el poll escribía +6 h hasta el 2026-09-23 y 00:00 desde
+  // entonces. El UPSERT no reconoce la fila como la misma, así que la INSERTA — y el ODS se queda
+  // con el ANTES y el DESPUÉS de la misma póliza, los dos sumando.
+  // Medido 2026-09-29 en `kdc22608`: el folio 25097 está a las 06:00 con $25,755.15 y a las 00:00
+  // con $0.00 y concepto `BAJA` — Kepler la canceló y el ODS conserva la versión viva.
+  // ⛔ `--delete-sobrantes` NO lo arregla: con la llave por día la fila SÍ existe en el origen, así
+  // que no es sobrante. Es un problema de IDENTIDAD, no de borrado. Son defectos distintos.
+  // ⭐ Cuál sobra no se decide por regla ("la de las 06:00"): lo decide el ORIGEN. Se conserva la
+  // copia cuyo timestamp EXACTO está en el replica y se borran las otras. Si NINGUNA empareja, no
+  // se toca nada y se reporta: ahí no sabemos cuál es la viva, y adivinar borra dinero bueno.
+  if (pkChk.fechaCols && pkChk.fechaCols.size && pro.length) {
+    const exactosOrigen = new Set(loc.map((r) => r._x));
+    const porDia = new Map();
+    for (const r of pro) { const a = porDia.get(r._k); if (a) a.push(r); else porDia.set(r._k, [r]); }
+    const stale = [];
+    let ambiguos = 0;
+    for (const rows of porDia.values()) {
+      if (rows.length < 2) continue;
+      const vivas = rows.filter((r) => exactosOrigen.has(r._x));
+      if (!vivas.length) { ambiguos++; continue; }
+      for (const r of rows) if (!exactosOrigen.has(r._x)) stale.push(r);
+    }
+    if (ambiguos) extra.dup_sin_original = ambiguos;
+    if (stale.length) {
+      extra.dup_stale = stale.length;
+      // Mismo freno que el DELETE: una réplica rota haría parecer stale a medio ODS.
+      if (stale.length > MAX_DELETE_FRAC * pro.length) {
+        extra.dedupe_abortado = `${stale.length}/${pro.length} (${(100 * stale.length / pro.length).toFixed(0)}%) > ${(100 * MAX_DELETE_FRAC).toFixed(0)}% — ABORTADO, revisar a mano`;
+      } else if (DEDUPE && APPLY) {
+        const dupMeta = { table, pk: meta.pk, columns: [{ name: 'sucursal', type: 'text' }, ...meta.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))] };
+        let borrados = 0;
+        for (let i = 0; i < stale.length; i += SHIP_BATCH) {
+          const chunk = stale.slice(i, i + SHIP_BATCH).map((r) => {
+            const o = { sucursal: code };
+            // El timestamp va como TEXTO (`_t_<col>`): Postgres lo castea del literal y no hay huso
+            // de por medio. Mandar el Date de JS reintroduciría el corrimiento que venimos a limpiar.
+            for (const k of meta.pk) o[k] = Object.prototype.hasOwnProperty.call(r, '_t_' + k) ? r['_t_' + k] : r[k];
+            return o;
+          });
+          await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: dupMeta, client: prod });
+          borrados += chunk.length;
+        }
+        extra.dup_borrados = borrados;
+      } else if (DEDUPE) {
+        extra.dup_borrarian = stale.length; // dry-run
+      }
     }
   }
 
