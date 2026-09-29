@@ -1519,7 +1519,7 @@ export class ExpenseProofsService {
          * nadie toque este archivo. No cuesta un indice — sobre una vista de `kepler_ods` no
          * hay ninguno que perder.
          */
-        .whereRaw(`upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ?`, [u])
+        .whereRaw(`upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ?`, [u])
         .whereRaw(`coalesce(btrim(r.estado),'') <> 'C'`)
         .whereNotExists(function () {
           this.select(trx.raw('1')).from('finance.expense_proofs as p')
