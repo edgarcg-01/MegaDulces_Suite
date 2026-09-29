@@ -3,6 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { permissionGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { vendorGuard } from './modules/vendor/vendor.guard';
+import { routePickGuard } from './modules/vendor/route-pick.guard';
 import { riderGuard } from './modules/rider/rider.guard';
 
 /**
@@ -21,9 +22,18 @@ export const appRoutes: Routes = [
       { path: '', redirectTo: 'route-home', pathMatch: 'full' },
       {
         path: 'route-home',
+        // [VR.SUP.1] El supervisor escoge qué ruta trabaja hoy antes de ver "Mi ruta".
+        canActivate: [routePickGuard],
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-route-home.component').then(
             (m) => m.VendorRouteHomeComponent,
+          ),
+      },
+      {
+        path: 'route-pick',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-route-pick.component').then(
+            (m) => m.VendorRoutePickComponent,
           ),
       },
       { path: 'new-order', redirectTo: 'route-home', pathMatch: 'full' },
