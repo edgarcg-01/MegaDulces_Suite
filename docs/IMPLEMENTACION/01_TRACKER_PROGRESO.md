@@ -6178,6 +6178,27 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   **⚠️ NO probado en vivo:** la única base alcanzable es prod y el usuario `francisco` es solo lectura.
   **Deploy: migración ANTES que el código** (la regla de cartera referencia la tabla).
 
+## VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales)
+
+Plan en [`FASE_VK`](FASES/FASE_VK_CARTERA_KEPLER.md). Ficha de cliente `kdud.c12` verificada como
+fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra capturas del ERP.
+
+- [ ] 🔨 `[VK.1]` Liga ruta Suite ↔ vendedor Kepler: `trade.catalogs.erp_source_branch/erp_vendor_code`
+  (mig `20260928210000`) + alta de las 4 rutas vecinales ligadas y con sucursal de surtido (mig
+  `20260928210200`): PH 1 → `01:1V001`, PH 2 → `01:1V002`, La Piedad Abastos → `02:1V003`,
+  Yurécuaro → `04:1V004`.
+- [ ] 🔨 `[VK.2]` Vista `analytics.v_route_cartera_erp` (mig `20260928210100`) sobre `v_customer_master`,
+  sin internos ni NO USAR. Dry-run en prod: 86 / 115 / 158 / 143 clientes, igual a la ficha.
+- [ ] 🔨 `[VK.3]` Ancla `commercial.customers.erp_source_branch/erp_customer_code` (UNIQUE parcial + CHECK).
+- [ ] 🔨 `[VK.4]` `syncErpCarteraForToday` al abrir "Mi ruta" / "Por visitar": crea anclas, refresca
+  nombre/ruta/crédito desde Kepler y suelta a los que Kepler sacó. Alta manual bloqueada en rutas Kepler.
+  Campo `source` (`kepler` | `manual`) en el feed.
+- [ ] ⬜ `[VK.5]` Pedido a cliente Kepler: funciona por el ancla; falta smoke HTTP.
+- [ ] ⬜ `[VK.6]` Pestaña "compran en tu ruta, ficha de otro vendedor" (17 clientes).
+- **⚠️ NO probado en vivo** (misma causa que VR.SUP.1). **Pendiente de datos (admin):** usuarios de
+  Candy Salgado (PH 1) y Rafael Villalobos (PH 2) no existen; Paulina `42pmpb` tiene rol `cajero` y sin
+  supervisor; falta ponerles `supervisor = mauricio_ramirez` (ya existe, `supervisor_ventas`) y su agenda.
+
 ---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
 

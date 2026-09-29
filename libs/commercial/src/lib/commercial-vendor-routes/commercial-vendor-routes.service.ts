@@ -11,6 +11,7 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql, vendorTodayRouteIdsSql } from '../shared/vendor-cartera.sql';
+import { syncErpCarteraForToday, isErpGovernedRoute } from '../shared/vendor-cartera-erp';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
@@ -721,8 +722,10 @@ export class CommercialVendorRoutesService {
   async myCoverageToday() {
     const me = this.tenantCtx.get()?.userId;
     if (!me) return [];
-    return this.tk.run(async (trx) =>
-      trx('commercial.customers as c')
+    return this.tk.run(async (trx) => {
+      // [VK.4] Rutas gobernadas por Kepler: su cartera se sincroniza desde la ficha antes de leer.
+      await syncErpCarteraForToday(trx, me);
+      return trx('commercial.customers as c')
         .whereNull('c.deleted_at')
         .whereRaw(vendorTodayRouteExistsSql('c'), [me])
         .select(
@@ -748,8 +751,8 @@ export class CommercialVendorRoutesService {
             [me],
           ),
         )
-        .orderByRaw('c.visit_sequence asc nulls last, c.name asc'),
-    );
+        .orderByRaw('c.visit_sequence asc nulls last, c.name asc');
+    });
   }
 
   /**
@@ -764,6 +767,8 @@ export class CommercialVendorRoutesService {
     const me = this.tenantCtx.get()?.userId;
     if (!me) return [];
     return this.tk.run(async (trx) => {
+      // [VK.4] Rutas gobernadas por Kepler: su cartera se sincroniza desde la ficha antes de leer.
+      await syncErpCarteraForToday(trx, me);
       const customers = await trx('commercial.customers as c')
         .whereNull('c.deleted_at')
         .whereRaw(vendorTodayRouteExistsSql('c'), [me])
@@ -775,6 +780,8 @@ export class CommercialVendorRoutesService {
           'c.sales_route',
           'c.phone',
           'c.whatsapp',
+          // [VK.4] De dónde sale el cliente: 'kepler' = su ficha la gobierna el ERP.
+          trx.raw(`CASE WHEN c.erp_customer_code IS NOT NULL THEN 'kepler' ELSE 'manual' END AS source`),
           trx.raw(
             `EXISTS (
                SELECT 1 FROM commercial.vendor_visits vv
@@ -1202,6 +1209,15 @@ export class CommercialVendorRoutesService {
           salesRoute = chosen;
           visitDays = [...(byRoute.get(chosen) || [])].sort((x, y) => x - y);
         }
+      }
+
+      // [VK.4] En una ruta gobernada por Kepler los clientes VIENEN de Kepler: un alta
+      // manual acá sería un cliente que Kepler no conoce (y que la próxima sincronización
+      // no podría gobernar). Se da de alta en Kepler y aparece solo al abrir la ruta.
+      if (salesRoute && (await isErpGovernedRoute(trx, salesRoute))) {
+        throw new BadRequestException(
+          'Los clientes de esta ruta vienen de Kepler: dalo de alta en Kepler y aparecerá solo en tu ruta.',
+        );
       }
 
       // Price list default del tenant → el cliente queda pedible al instante.

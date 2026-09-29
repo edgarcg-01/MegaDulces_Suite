@@ -79,6 +79,8 @@ export interface HomeCustomer {
   pending_total: number;
   has_preventa_pending: boolean;
   pending_orders: HomePendingOrder[];
+  /** [VK.4] 'kepler' = su ficha la gobierna el ERP (se corrige en Kepler); 'manual' = alta de la app. */
+  source?: 'kepler' | 'manual';
 }
 
 /**
