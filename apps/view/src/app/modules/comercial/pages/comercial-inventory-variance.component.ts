@@ -79,7 +79,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   [value]="pl.del_top" sub="se cuentan todos los meses"></app-metric-card>
                 <app-metric-card class="panel-col-3" label="De la ola"
                   [value]="pl.de_la_ola" sub="un tercio del catálogo"></app-metric-card>
-                <app-metric-card class="panel-col-3" label="Cobertura del trimestre"
+                <app-metric-card format="text" class="panel-col-3" label="Cobertura del trimestre"
                   [valueText]="cobertura()?.cubre_todo ? 'las 3 olas' : 'incompleta'"
                   [tone]="cobertura()?.cubre_todo ? 'ok' : 'bad'"
                   [sub]="'desvío máx. ' + (cobertura()?.desvio_max_pct ?? '—') + '%'"></app-metric-card>
@@ -90,11 +90,11 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </p>
               }
               <p-table [value]="pl.items" styleClass="surf-table" [scrollable]="true" scrollHeight="360px">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr><th>SKU</th><th>ABC</th><th>Motivo</th><th class="num">Score</th>
                       <th class="num">Señales</th><th>Salvedad</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-i>
+                <ng-template #body let-i>
                   <tr>
                     <td class="tabular">{{ i.sku }}</td>
                     <td>{{ i.abc_class || '—' }}</td>
@@ -132,11 +132,11 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
               </p>
             }
             <p-table [value]="k.periodos" styleClass="surf-table">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th>Trimestre</th><th class="num">Almacenes</th><th>Cuáles</th>
                     <th class="num">Contado</th><th class="num">% descuadre</th><th>Salvedad</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-p>
+              <ng-template #body let-p>
                 <tr>
                   <td>{{ p.periodo }}</td>
                   <td class="num tabular">{{ p.almacenes }}</td>
@@ -194,12 +194,12 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
             <p-table [value]="r.items" styleClass="surf-table" [scrollable]="true"
               scrollHeight="420px" [loading]="loadingReinc()">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th>SKU</th><th>Alm.</th><th class="num">Contado</th>
                     <th class="num">Descuadres</th><th>Patrón</th><th>Forma</th>
                     <th class="num">Retiene</th><th class="num">Neto</th><th>Qué significa</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-i>
+              <ng-template #body let-i>
                 <tr>
                   <td class="tabular">{{ i.sku }}</td>
                   <td class="tabular">{{ i.warehouse_code }}</td>
@@ -224,7 +224,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <td class="inv-var-salv">{{ lectura(i) }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="9" class="inv-var-note">
                   Sin SKUs con {{ r.min_conteos }} conteos o más en este filtro.
                 </td></tr>
@@ -243,13 +243,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
       @if (vista === 'diferencias') {
       <div class="surf-grid inv-var-kpis">
-        <app-metric-card class="panel-col-3" label="Sobrante" tone="warn"
+        <app-metric-card format="text" class="panel-col-3" label="Sobrante" tone="warn"
           [valueText]="fmtMoney(totals().sobrante)"
           [sub]="totals().skusSobrante + ' SKUs con más físico que teórico'"></app-metric-card>
-        <app-metric-card class="panel-col-3" label="Faltante" tone="bad"
+        <app-metric-card format="text" class="panel-col-3" label="Faltante" tone="bad"
           [valueText]="fmtMoney(totals().faltante)"
           [sub]="totals().skusFaltante + ' SKUs con menos físico que teórico'"></app-metric-card>
-        <app-metric-card class="panel-col-3" label="Neto"
+        <app-metric-card format="text" class="panel-col-3" label="Neto"
           [valueText]="fmtMoney(totals().neto)"
           sub="Sobrante menos faltante"></app-metric-card>
         <app-metric-card class="panel-col-3" label="Eventos"
@@ -259,7 +259,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
       <p-table [value]="events()" [loading]="loading()" dataKey="rowKey" styleClass="surf-table"
         selectionMode="single" [(selection)]="selected" (selectionChange)="openDetail()">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Almacén</th><th>Fecha</th><th>Tipo</th>
             <th class="num">SKUs sobrante</th><th class="num">$ sobrante</th>
@@ -267,7 +267,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <th class="num">$ neto</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-e>
+        <ng-template #body let-e>
           <tr [pSelectableRow]="e">
             <td>{{ e.warehouse_code }} — {{ e.warehouse_name }}</td>
             <td>{{ e.fecha }}</td>
@@ -285,7 +285,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <td class="num tabular">{{ fmtMoney(e.pesos_neto) }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="inv-var-empty">
             No hay conteos en el período. El inventario completo de Kepler es trimestral.
           </td></tr>
@@ -322,13 +322,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
           <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="surf-table"
             [scrollable]="true" scrollHeight="420px">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>SKU</th><th>Descripción</th><th>Unidad</th><th>Signo</th>
                 <th class="num">Cantidad</th><th class="num">Costo</th><th class="num">Importe</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-l>
+            <ng-template #body let-l>
               <tr>
                 <td class="tabular">{{ l.sku }}</td>
                 <td>{{ l.descripcion }}</td>

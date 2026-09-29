@@ -141,13 +141,13 @@ import { environment } from '../../../../environments/environment';
         } @else {
           <p-table [value]="trips()" [scrollable]="true" scrollHeight="460px" styleClass="p-datatable-sm et-table"
                    selectionMode="single" [(selection)]="selected" (selectionChange)="openTrip($event)" dataKey="guia_digital">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>Guía</th><th>Fecha</th><th class="num">Paradas</th>
                 <th>Unidad</th><th>Chofer</th><th>Dónde está</th><th class="num">Valor</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-t>
+            <ng-template #body let-t>
               <tr [pSelectableRow]="t" [class.et-row-hoy]="t.en_calle">
                 <td><code class="et-code">{{ t.guia_digital }}</code></td>
                 <td>{{ t.fecha | date: 'dd MMM' }}</td>
