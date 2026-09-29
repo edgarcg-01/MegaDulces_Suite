@@ -105,7 +105,9 @@ export function cuerpoReporteCliente(
       <td>${esc(d.origen_label)}</td>
       <td>${esc(d.sucursal_nombre || d.sucursal)}${d.caja != null ? ' · caja ' + d.caja : ''}</td>
       <td>${esc(d.atendio || '—')}</td>
-      <td class="m r">${d.descuento > 0 ? money(d.descuento) : '—'}</td>
+      <td class="m r">${d.descuento > 0
+        ? money(d.descuento) + (d.descuento_pct ? ` <i>(${d.descuento_pct}%)</i>` : '')
+        : '—'}</td>
       <td class="m r${d.total < 0 ? ' neg' : ''}">${money(d.total)}</td>
     </tr>${partidas(d)}`).join('');
 
@@ -138,7 +140,7 @@ export function cuerpoReporteCliente(
 
   <div class="tot">
     <div><span>Documentos</span><b class="m">${docs.length}</b></div>
-    <div><span>Descuento</span><b class="m">${money(desc)}</b></div>
+    <div><span>Descuento de cliente</span><b class="m">${money(desc)}</b></div>
     <div><span>Notas de crédito</span><b class="m">${abonos.length}</b></div>
     <div class="fin"><span>Total del periodo</span><b class="m">${money(total)}</b></div>
   </div>
@@ -148,7 +150,7 @@ export function cuerpoReporteCliente(
   <table class="det">
     <thead><tr>
       <th>Folio</th><th>Fecha</th><th>Tipo</th><th>Sucursal</th><th>Atendió</th>
-      <th class="r">Descuento</th><th class="r">Total</th>
+      <th class="r">Descuento de cliente</th><th class="r">Total</th>
     </tr></thead>
     <tbody>${filas || '<tr><td colspan="7" class="vacio">Sin documentos.</td></tr>'}</tbody>
     <tfoot><tr>
