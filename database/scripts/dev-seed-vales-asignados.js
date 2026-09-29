@@ -37,10 +37,25 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), qu
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 
 const T = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const USUARIO = 'demo_captura';      // cajero: LEVANTA gastos (no ve el detalle, es correcto)
-const OTRO = 'demo_ana';             // cajero: para comprobar que no ve lo ajeno
-const APROBADOR = 'demo_gx20';       // tesoreria: SÍ ve el detalle y aprueba
+/**
+ * A quién se le asignan los vales. Se cambia sin tocar el archivo:
+ *   node database/scripts/dev-seed-vales-asignados.js --usuario=otro_username
+ */
+const arg = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').split('=').slice(1).join('=').trim();
+const USUARIO = arg('usuario') || process.env.SEED_USER || 'david_cisneros';
+const OTRO = arg('otro') || 'demo_ana';   // para comprobar que no ve lo ajeno
+const APROBADOR = 'demo_gx20';            // tesorería: ve el detalle y aprueba
 const CLAVE = 'demo1234';
+/**
+ * ⛔ **La contraseña sólo se le toca a los `demo_*`.** `USUARIO` puede ser una persona real
+ * —es el caso normal— y pisarle la contraseña por una prueba la dejaría sin entrar a lo suyo.
+ */
+const esDemo = (u) => /^demo_/.test(u);
+/**
+ * Cómo queda atribuido el expediente. Se resuelve contra la tabla al arrancar (el `nombre`
+ * del usuario), no acá: `let` porque el helper `expediente()` lo cierra por referencia.
+ */
+let CREADO_POR = '';
 /** Todo lo sembrado vive en este rango de folios. Es la marca, y lo que se limpia. */
 const PREFIJO = '00970';
 
@@ -76,7 +91,7 @@ const gasto = (folio, solicitudFolio, over = {}) => ({
 /** Un expediente NUESTRO. `status` decide qué etapa se ve. */
 const expediente = (folio, status, over = {}) => ({
   tenant_id: T,
-  solicitante: 'DEMO CAPTURA',
+  solicitante: CREADO_POR.toUpperCase(),
   departamento: 'FINANZAS',
   sucursal: '00',
   fecha_gasto: hace(3),
@@ -87,7 +102,7 @@ const expediente = (folio, status, over = {}) => ({
   status,
   clasificacion: 'no_comprobable',
   forma_pago: 'efectivo',
-  created_by: USUARIO,
+  created_by: CREADO_POR,
   ...over,
 });
 
@@ -108,7 +123,25 @@ async function limpiar() {
     process.exit(1);
   }
 
-  console.log(`\n[GX.41] datos de prueba · usuario «${USUARIO}» · folios ${PREFIJO}xx\n`);
+  /**
+   * ⚠️ El `created_by` de un expediente NO es el username: la app guarda ahí
+   * `full_name || username`, que es lo que se le muestra a una persona. Sembrando el username
+   * los expedientes **no le aparecen** en «Mis gastos» — y la pantalla se ve perfecta, sólo que
+   * vacía. Se resuelve contra la tabla, no se adivina.
+   */
+  const fila = await knex('users').where('username', USUARIO).first('nombre', 'role_name', 'activo');
+  if (!fila) {
+    console.error(`⛔ El usuario «${USUARIO}» no existe en esta base. Probá con --usuario=<username>.`);
+    await knex.destroy();
+    process.exit(1);
+  }
+  if (!fila.activo) console.log(`  ⚠️ «${USUARIO}» está INACTIVO: no va a poder entrar.`);
+  CREADO_POR = String(fila.nombre || '').trim() || USUARIO;
+
+  console.log(`
+[GX.41] datos de prueba · usuario «${USUARIO}» (${fila.role_name}) · folios ${PREFIJO}xx`);
+  console.log(`        los expedientes se le atribuyen como «${CREADO_POR}», que es lo que guarda created_by
+`);
 
   /**
    * ⚠️ **Sin almacenamiento, «Subir evidencia» falla.** El vale aparece y el botón lleva a la
@@ -189,9 +222,11 @@ async function limpiar() {
    */
   const bcrypt = require('bcryptjs');
   const hash = await bcrypt.hash(CLAVE, 10);
-  const tocados = await knex('users')
-    .whereIn('username', [USUARIO, OTRO, APROBADOR])
-    .update({ password_hash: hash, must_change_password: false });
+  const demos = [USUARIO, OTRO, APROBADOR].filter(esDemo);
+  const tocados = demos.length
+    ? await knex('users').whereIn('username', demos).update({ password_hash: hash, must_change_password: false })
+    : 0;
+  if (!esDemo(USUARIO)) console.log(`  (a «${USUARIO}» NO se le tocó la contraseña: no es un usuario de demostración)`);
   console.log(`  contraseña «${CLAVE}» puesta en ${tocados} usuario(s) de demo`);
 
   // ── Resumen ────────────────────────────────────────────────────────────────────────
@@ -221,9 +256,9 @@ async function limpiar() {
     · «Subir evidencia» abre la captura con el folio ya puesto
 
   Entrás con:
-    ${USUARIO} / ${CLAVE}   (cajero — levanta; NO ve el detalle: 403 a propósito)
-    ${OTRO} / ${CLAVE}       (cajero — sólo tiene que ver el 0097021)
-    ${APROBADOR} / ${CLAVE}       (tesorería — ve el expediente completo y aprueba)
+    ${USUARIO}${esDemo(USUARIO) ? ` / ${CLAVE}` : '   ← con TU contraseña de siempre'}
+    ${OTRO} / ${CLAVE}   — sólo tiene que ver el ${PREFIJO}21, ninguno de los tuyos
+    ${APROBADOR} / ${CLAVE}   — tesorería: ve el expediente completo y aprueba
 
   Para borrarlo todo:  node database/scripts/dev-seed-vales-asignados.js --limpiar
 `);
