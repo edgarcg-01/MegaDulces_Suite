@@ -71,8 +71,12 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
            ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
           AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
         WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
+          -- Una fecha explicita REEMPLAZA la ventana, no se le suma: con el AND de los 30
+          -- dias, pedir la carga de una sucursal vieja (06, el 2026-08-14) devolvia cero y
+          -- el script decia "la carga no ocurrio" sobre una migracion que si ocurrio.
+          -- (Sin acentos ni backticks: esto vive dentro de un template literal.)
+          AND ($2::date IS NOT NULL OR (m.c9 >= current_date - 30 AND m.c9 <= current_date))
           AND ($2::date IS NULL OR m.c9::date = $2::date)
-          AND m.c9 >= current_date - 30 AND m.c9 <= current_date
         GROUP BY 1,2,3 ORDER BY 2, 3`,
       [KEP_SUC, FECHA]);
 
@@ -160,25 +164,74 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
       process.exit(0);
     }
 
-    console.log('── Documentos de carga encontrados ──');
+    console.log('── Documentos encontrados ──');
     for (const c of cargas) {
       console.log(`   ${c.fecha}  N-A-${c.doctype} folio ${c.folio}`
         + `  ${num(c.lineas)} líneas · ${money(c.pesos)} · ${num(c.unidades)} u`);
     }
-    const cap = cargas.find((c) => c.doctype === '45');
-    const ent = cargas.find((c) => c.doctype === '30');
+
+    // ⛔ UN DOCUMENTO NO ES UNA CARGA POR ESTAR DENTRO DE LA VENTANA.
+    // La primera versión tomaba lo que hubiera en 30 días y lo trataba como la carga inicial.
+    // Medido contra la sucursal 06: su carga fue el 2026-08-14 —fuera de la ventana— así que
+    // el script agarró su CONTEO TRIMESTRAL del 09-04 y publicó "546 SKUs no llegaron (3.6%)"
+    // como si fuera cobertura de migración. La cifra real de esa migración es 327 (0.9%).
+    // El número no estaba mal: estaba midiendo OTRA COSA y no lo decía.
+    // Se identifica por FIRMA, no por fecha: en una carga inicial la entrada replica la
+    // captura (±1 línea) porque no hay teórico previo contra el cual descuadrar.
+    const porFecha = new Map();
+    for (const c of cargas) {
+      if (!porFecha.has(c.fecha)) porFecha.set(c.fecha, {});
+      porFecha.get(c.fecha)[c.doctype] = c;
+    }
+    let cap = null, ent = null, esCargaInicial = false, fechaElegida = null;
+    for (const [f, par] of [...porFecha.entries()].sort().reverse()) {
+      const firma = par['45'] && par['30'] && Math.abs(par['45'].lineas - par['30'].lineas) <= 1;
+      if (firma) { cap = par['45']; ent = par['30']; esCargaInicial = true; fechaElegida = f; break; }
+    }
+    if (!cap) {  // no hay carga inicial en la ventana: se usa lo más reciente, DECLARÁNDOLO
+      const [f, par] = [...porFecha.entries()].sort().reverse()[0];
+      cap = par['45'] || null; ent = par['30'] || null; fechaElegida = f;
+    }
+
+    console.log(`\n   → documento analizado: ${fechaElegida}`);
+    if (esCargaInicial) {
+      console.log('     firma de CARGA INICIAL (la entrada replica la captura) ✔');
+    } else {
+      console.log('     ⚠️ NO tiene firma de carga inicial: parece un CONTEO (la entrada está');
+      console.log('        muy por debajo de la captura). Los bloques 1 y 3 de abajo miden');
+      console.log('        contra ESE documento, así que NO son cobertura de migración.');
+      console.log('        Si la carga de esta sucursal es más vieja que la ventana, pasá --fecha.');
+    }
 
     // ── 1. La captura y la entrada tienen que cuadrar entre sí ───────────────
     console.log('\n── 1. ¿La carga cuadra consigo misma? ──');
     if (cap && ent) {
+      // ⚠️ LÍNEAS y PESOS no son la misma alarma, y mezclarlos hace gritar al script por lo
+      // que no es. Medido en la carga de 06: las líneas cuadran exacto (Δ 0) y los pesos
+      // difieren $63,835 sobre $11.9M (0.54%) — eso es redondeo de costo entre los dos
+      // documentos, no mercancía que no entró. Lo que sí dejó 1,964 líneas afuera en Padre
+      // Hidalgo fue un descuadre DE LÍNEAS.
       const dLin = cap.lineas - ent.lineas;
       const dPes = Number(cap.pesos) - Number(ent.pesos);
-      const cuadra = Math.abs(dLin) <= 1 && Math.abs(dPes) < 1;
+      const pctPes = Number(cap.pesos) !== 0 ? Math.abs(100 * dPes / Number(cap.pesos)) : 0;
       console.log(`   captura ${num(cap.lineas)} líneas / ${money(cap.pesos)}`
         + `   ·   entrada ${num(ent.lineas)} líneas / ${money(ent.pesos)}`);
-      if (cuadra) console.log('   ✔ cuadran (como en 06, 07 y 08)');
-      else { alarmas++; console.log(`   ⛔ NO cuadran: Δ ${dLin} líneas, Δ ${money(dPes)}`
-        + ' — en Padre Hidalgo esto mismo dejó 1,964 líneas sin entrar'); }
+
+      if (Math.abs(dLin) <= 1) {
+        console.log(`   ✔ LÍNEAS cuadran (Δ ${dLin}) — todo lo capturado tiene su entrada`);
+      } else {
+        alarmas++;
+        console.log(`   ⛔ LÍNEAS NO cuadran: Δ ${num(dLin)} — hay capturas sin entrada.`);
+        console.log('      Es lo que en Padre Hidalgo dejó 1,964 líneas afuera.');
+      }
+      if (pctPes < 1) {
+        console.log(`   ✔ PESOS dentro de tolerancia (Δ ${money(dPes)}, ${pctPes.toFixed(2)}%)`
+          + ' — diferencia de redondeo de costo, no de mercancía');
+      } else {
+        alarmas++;
+        console.log(`   ⛔ PESOS descuadran ${pctPes.toFixed(2)}% (Δ ${money(dPes)})`
+          + ' — demasiado para ser redondeo; revisar costos de la carga');
+      }
     } else {
       console.log(`   ⚠️  NO MEDIDO: falta ${cap ? 'la entrada N-A-30' : 'la captura N-A-45'}.`);
     }
@@ -213,6 +266,8 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
 
     // ── 3. Cobertura: qué NO llegó desde Wincaja ─────────────────────────────
     console.log('\n── 3. Cobertura: ¿qué SKUs de Wincaja NO llegaron? ──');
+    // Se mide contra el documento ELEGIDO por firma (misma fecha), no contra "lo que haya en
+    // 30 días" — ver el comentario del bloque 0.
     const [cob] = await q(
       `WITH carga AS (
          SELECT DISTINCT l.c8 AS sku
@@ -221,14 +276,14 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
              ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
             AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
           WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4='45'
-            AND m.c9 >= current_date - 30 AND m.c9 <= current_date)
+            AND m.c9::date = $3::date)
        SELECT count(*) FILTER (WHERE w.sku IN (SELECT sku FROM carga))::int AS cargados,
               count(*) FILTER (WHERE w.sku NOT IN (SELECT sku FROM carga))::int AS faltan,
               round(sum(w.valor_inventario) FILTER (WHERE w.sku NOT IN (SELECT sku FROM carga)),2) AS pesos_faltan,
               round(sum(w.valor_inventario),2) AS pesos_total
          FROM wincaja.v_stock w
         WHERE w.source_branch=$2 AND w.existencia > 0 AND w.in_kepler_catalog`,
-      [KEP_SUC, WIN_BRANCH]);
+      [KEP_SUC, WIN_BRANCH, fechaElegida]);
 
     const pct = Number(cob.pesos_total) > 0 ? (100 * Number(cob.pesos_faltan) / Number(cob.pesos_total)) : 0;
     console.log(`   cargados ${num(cob.cargados)}  ·  NO llegaron ${num(cob.faltan)}`
@@ -236,8 +291,9 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
     if (Number(cob.faltan) > 0) {
       alarmas++;
       console.log('   ⛔ Hay SKUs con existencia en Wincaja, presentes en el catálogo de Kepler,');
-      console.log('      que no entraron. Referencia de las migraciones anteriores: 06 → 327 (0.9%),');
-      console.log('      07 → 435 (4.3%), 08 → 583 (1.6%). Lista completa abajo.');
+      console.log('      que no entraron. Referencia (medida el 2026-09-28 contra la CARGA de cada una;');
+      console.log('      una cifra escrita a mano envejece sin avisar): 06 → 327 (0.9%) · 07 → 435 (4.3%)');
+      console.log('      · 08 → 583 (1.6%). Lista completa abajo.');
       const det = await q(
         `WITH carga AS (
            SELECT DISTINCT l.c8 AS sku
@@ -246,7 +302,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
                ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
               AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
             WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4='45'
-              AND m.c9 >= current_date - 30 AND m.c9 <= current_date)
+              AND m.c9::date = $3::date)
          SELECT w.sku, round(w.existencia::numeric,2) AS existencia,
                 round(w.valor_inventario::numeric,2) AS valor
            FROM wincaja.v_stock w
