@@ -42,9 +42,18 @@ const SRC = `
 `;
 
 (async () => {
-  const cfg = process.env.DATABASE_URL_NEW
-    ? { client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW) ? false : { rejectUnauthorized: false } }, pool: { min: 0, max: 3 } }
-    : require(path.resolve(__dirname, '..', '..', 'knexfile-newdb.js')).development;
+  // ⚠️ Sin `DATABASE_URL_NEW` esto caía al `knexfile-newdb.js`, que **no viaja en la imagen**
+  // de ingesta: el fallo real ("falta la variable") salía disfrazado de
+  // `Cannot find module '/app/database/knexfile-newdb.js'`, que manda a buscar un archivo
+  // perdido en vez de la credencial que falta. Fail-fast diciendo la verdad, como ya hace su
+  // hermano import-cedis-cadence-wincaja.
+  if (!process.env.DATABASE_URL_NEW) {
+    console.error('falta la URL de la DB destino: exportá DATABASE_URL_NEW.'
+      + ' Dentro del contenedor de ingesta el env se carga de /secrets/feeds.env'
+      + ' (`set -a; . /secrets/feeds.env; set +a`) — crond no lo hereda.');
+    process.exit(1);
+  }
+  const cfg = { client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW) ? false : { rejectUnauthorized: false } }, pool: { min: 0, max: 3 } };
   const db = knexLib(cfg);
   try {
     // [IC.CEDIS] El CEDIS migra su PdV a Kepler. Este importer hace un MERGE con DELETE de lo
