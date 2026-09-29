@@ -5,6 +5,40 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — Auditoría de la capa de datos: el resolvedor del corte de ERP tiene una llave que no resuelve (`[AUD-DAT.11]`)
+
+**Cómo se llegó:** revisión cruzada con la sesión que trabaja `[IC.CEDIS]`. Ellos midieron que `commercial.warehouses.kepler_code` y `wincaja.branches` contestan la misma pregunta y **ya discrepan hoy para el CEDIS**. Al verificar eso de forma independiente apareció una tercera divergencia, dentro del propio resolvedor canónico.
+
+### El hallazgo, medido en prod
+
+`analytics.v_branch_erp_cutover.warehouse_code` **mezcla dos convenciones**:
+
+| llave | resuelve contra `commercial.warehouses.code` |
+|---|---|
+| `warehouse_code` | **2 de 8** (sólo `30→08` y `32→07`) |
+| `kepler_code` | **8 de 8** |
+
+Las dos migraciones recientes guardan el código de Kepler; las seis viejas guardan el nombre del almacén Wincaja (`MD-10 MD-40 MD-42 MD-44 MD-50 MD-54`), que **no existe como almacén vivo ni aparece en `mv_wincaja_sales_daily` ni en `mv_kepler_sales_daily`**. El procedimiento cambió en alguna migración y nadie movió las filas viejas.
+
+### Lo que costaba
+
+`test-newdb-vendor-identity-cutover.js` —el candado de que la identidad del vendedor sobrevive al cambio de ERP— unía por `warehouse_code`. Sus dos `INNER JOIN` devolvían **cero para 3 de las 5 plazas con corte real**, las dos más grandes incluidas (rama 10: 841,204 filas Wincaja · rama 50: 634,251), y el test publicaba ✔ sobre las 2 restantes **sin declarar que se saltaba el 60 % del universo**.
+
+### Lo que se hizo
+1. Unir por `kepler_code`, que matchea las dos matvistas en las ocho ramas.
+2. **Bloque de cobertura** que declara cuántas plazas se alcanzan a los dos lados **antes** de juzgar, y se pone rojo si alguna queda ciega.
+
+**Antes/después:** de 2 de 5 plazas a **5 de 5**; de 6 pares candidatos en 2 plazas a **10 en 4**. Las cuatro identidades nuevas (`sergio-mendoza` en la 01 y tres en la 06) se venían validando a ciegas.
+
+### Lo que NO se hizo, con motivo
+**La vista no se normalizó.** `warehouse_code` tiene otros lectores y cambiarla es una decisión aparte. Queda **declarada** como incoherencia medida, con aserciones que la clavan en `test-newdb-cedis-source-guard.js` — incluida una que se pone **roja el día que alguien la normalice**, que es justo cuando hay que releer el bloque. *Una aserción que sólo comprueba el estado roto se vuelve mentira el día que se arregla.*
+
+### Lecciones
+- **Un test que no encuentra nada no dice "todo bien", dice "no medí".** Es el mismo patrón que `[AUD-DAT.10]`: el universo recortado en silencio se lee idéntico al universo sano.
+- **Declarar la cobertura ANTES del veredicto**, no después. Si el conteo de lo alcanzado va al final, nadie lo lee.
+- ⚠️ **Mi primera medición fue más angosta que el defecto**: medí 3 de 5 porque me quedé dentro del alcance del test (sólo ramas con fecha de corte real). El defecto son **6 de 8**. Al acotar una medición al consumidor que la disparó, se subestima el hallazgo.
+
+---
 ## 2026-09-28 — Auditoría de la capa de datos: la venta mensual por producto se DERIVA de la diaria (`[AUD-DAT.10]`)
 
 **Cómo se llegó:** la auditoría de la capa de datos midió que **21 objetos de `analytics` responden "¿cuánto se vendió?"** y se contradicen. El par `product_sales_daily` / `product_sales_monthly` era el caso más claro: mismo schema, mismo carril nocturno, nombres hermanos, y el encabezado de la diaria afirmaba textualmente *"MISMO join + filtro que el mensual (para que el diario sume EXACTO al mensual)"*.
