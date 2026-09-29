@@ -37,7 +37,12 @@
  */
 
 exports.up = async function up(knex) {
-  await knex.raw('CREATE SCHEMA IF NOT EXISTS analytics');
+  // `CREATE SCHEMA IF NOT EXISTS` pide el privilegio CREATE sobre la base AUNQUE el schema ya
+  // exista — Postgres valida el permiso antes que la condición. Con un rol de aplicación sin
+  // ese privilegio, la migración muere en la primera línea por algo que no necesitaba hacer.
+  const [{ hay }] = (await knex.raw(
+    `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'analytics') AS hay`)).rows;
+  if (!hay) await knex.raw('CREATE SCHEMA analytics');
 
   const [{ ok }] = (await knex.raw(`
     SELECT (to_regclass('kepler_ods.kdm1') IS NOT NULL
