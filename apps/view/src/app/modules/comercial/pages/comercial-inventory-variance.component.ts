@@ -268,8 +268,12 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           </tr>
         </ng-template>
         <ng-template #body let-e>
-          <tr [pSelectableRow]="e">
-            <td>{{ e.warehouse_code }} — {{ e.warehouse_name }}</td>
+          <tr [pSelectableRow]="e" class="inv-var-row"
+              [class.inv-var-row-sel]="selected?.rowKey === e.rowKey">
+            <td>
+              <i class="pi" [ngClass]="selected?.rowKey === e.rowKey ? 'pi-angle-down' : 'pi-angle-right'"
+                 aria-hidden="true"></i>
+              {{ e.warehouse_code }} — {{ e.warehouse_name }}</td>
             <td>{{ e.fecha }}</td>
             <td>
               @if (e.tipo_evento === 'carga_inicial') {
@@ -320,12 +324,23 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </div>
           }
 
+          <!-- ⛔ El "debía haber" es DERIVADO: Kepler emite la diferencia, no el teórico.
+               Cuánto no se pudo reconstruir va en pantalla, no en un .md que nadie abre. -->
+          @if (sinTeorico() > 0) {
+            <p class="inv-var-warn">
+              ⚠️ <strong>{{ sinTeorico() }} de {{ lines().length }}</strong> renglones sin
+              «debía haber»: el ajuste de Kepler excede lo capturado, así que el teórico daría
+              negativo. Se muestran igual con su diferencia, que sí es dato directo.
+            </p>
+          }
+
           <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="surf-table"
             [scrollable]="true" scrollHeight="420px">
             <ng-template #header>
               <tr>
-                <th>SKU</th><th>Descripción</th><th>Unidad</th><th>Signo</th>
-                <th class="num">Cantidad</th><th class="num">Costo</th><th class="num">Importe</th>
+                <th>SKU</th><th>Descripción</th><th>Un.</th>
+                <th class="num">Debía haber</th><th class="num">Se contó</th>
+                <th class="num">Diferencia</th><th class="num">Costo</th><th class="num">Importe</th>
               </tr>
             </ng-template>
             <ng-template #body let-l>
@@ -333,14 +348,27 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 <td class="tabular">{{ l.sku }}</td>
                 <td>{{ l.descripcion }}</td>
                 <td>{{ l.unidad_erp }}</td>
-                <td>
-                  <p-tag [severity]="l.signo === 'sobrante' ? 'warn' : 'danger'"
-                    [value]="l.signo"></p-tag>
+                <!-- DERIVADO (contado −/+ diferencia): Kepler no guarda el teórico. Lo que no
+                     se puede reconstruir sale con guion y su motivo, nunca con un número. -->
+                <td class="num tabular">
+                  @if (l.teorico === null || l.teorico === undefined) {
+                    <span class="inv-var-nd" [pTooltip]="l.teorico_salvedad || ''">—</span>
+                  } @else { {{ l.teorico }} }
                 </td>
-                <td class="num tabular">{{ l.cantidad }}</td>
+                <td class="num tabular">{{ l.contado ?? '—' }}</td>
+                <td class="num tabular"
+                    [class.inv-var-mas]="l.signo === 'sobrante'"
+                    [class.inv-var-menos]="l.signo === 'faltante'">
+                  {{ l.signo === 'sobrante' ? '+' : '−' }}{{ l.cantidad }}
+                </td>
                 <td class="num tabular">{{ fmtMoney(l.costo_unitario) }}</td>
                 <td class="num tabular">{{ fmtMoney(l.importe) }}</td>
               </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="8" class="inv-var-note">
+                Sin renglones para este evento con el filtro actual.
+              </td></tr>
             </ng-template>
           </p-table>
         </section>
@@ -352,6 +380,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .inv-var-toggle { display: inline-flex; gap: .5rem; align-items: center; font-size: .8125rem; }
     .inv-var-note { font-size: .8125rem; color: var(--text-muted, #78716c); margin: 0 0 .75rem; }
     .inv-var-kpis { margin-bottom: 1rem; }
+    .inv-var-row { cursor: pointer; }
+    .inv-var-row:hover { background: var(--surface-hover, rgba(0,0,0,.035)); }
+    .inv-var-row-sel { background: var(--surface-hover, rgba(0,0,0,.055)); }
+    .inv-var-row .pi { font-size: .75rem; opacity: .55; margin-right: .35rem; }
+    .inv-var-nd { opacity: .5; cursor: help; }
+    .inv-var-mas { color: var(--p-amber-600, #b45309); }
+    .inv-var-menos { color: var(--p-red-600, #dc2626); }
     .inv-var-detail { margin-top: 1.25rem; }
     .inv-var-detail h2 { font-size: 1rem; margin: 0 0 .5rem; }
     .inv-var-coverage { display: flex; gap: .625rem; align-items: center; flex-wrap: wrap;
@@ -411,6 +446,10 @@ export class ComercialInventoryVarianceComponent {
     { label: 'Todos los almacenes', value: null as string | null },
     ...this.warehouses().map((w) => ({ label: `${w.code} — ${w.name}`, value: w.id })),
   ]);
+
+  /** Cuántos renglones del detalle no tienen «debía haber» reconstruible. */
+  readonly sinTeorico = computed(
+    () => this.lines().filter((l) => (l as { teorico?: number | null }).teorico == null).length);
 
   readonly totals = computed(() => {
     const e = this.events();
