@@ -184,6 +184,54 @@ Son SKUs **con existencia en Wincaja y presentes en el catálogo de Kepler** (lo
 
 ---
 
+### 1.11 Cómo está implementado hoy el CEDIS de Wincaja (investigado 2026-09-28)
+
+**El pipeline, eslabón por eslabón:**
+
+| # | Pieza | Dónde | Estado medido |
+|---|---|---|---|
+| 1 | `0 BPIRAPUATO MOV.MDB` | `Z:/Salidas/Bases/Actuales` (`\\192.168.0.245\D`) | ⚠️ `Z:` es unidad **mapeada por sesión** |
+| 2 | Réplica cruda (Fase WR) `wincaja-inc` + `wincaja-hash` | **PM2 en `.249`**, Jet 32-bit → `:5433/wincaja` schema `w00` | ⏹️ **DETENIDOS 2026-09-22** |
+| 3 | Ship a prod | schema `wincaja.*` (39 tablas) en `postgres_platform` | último import **2026-09-22 11:01** |
+| 4 | `wincaja.v_stock` | vista; emite `warehouse_code = 'MD-00'` | 253 SKUs con existencia |
+| 5 | `import-cedis-stock-wincaja.js` (RA-PRO.24) | **REPLACE** de `commercial.stock` del almacén `00` | última escritura **2026-09-22 11:05** |
+| 6 | Consumidores | `v_erp_stock_on_hand`, `v_warehouse_box_factor` (unen por `wincaja_source_branch`), `/compras` (reorden, traspasos), `warehouse-order.contract.ts` (`CEDIS → ['00','MD-00']`) | vivos |
+
+⛔ **El CEDIS es el ÚNICO carril que le quedaba a la réplica Wincaja**: `wincaja-replica-config.js` tiene `BRANCHES` con **una sola entrada**. Las demás (`30`, `32`, `50`, `10`) salieron al migrar a Kepler. ⭐ **Cuando el CEDIS se vaya, toda la infraestructura Wincaja queda sin propósito** — y con ella el último bloqueo de «todo en Linux» de la Fase VL.
+
+⛔ **Y ya está congelado, desde antes del 30:** el último movimiento del CEDIS en la réplica es del **2026-09-18** — diez días. `ops/README.md` ya lo tenía medido (`[VL.14]`, *"Wincaja se apagó el 2026-09-19… el CEDIS paró el 09-18"*). ⚠️ Con dos causas posibles que **no distinguí**: que el CEDIS dejara de operar, o que la **copia del `.mdb`** a `Z:` parara. En cualquiera de las dos, **la existencia del CEDIS que la app publica hoy tiene 10 días de antigüedad y nadie lo declara** (`commercial.stock`: 248 SKUs / 188,347 unidades, escritas el 22-sep).
+
+### 1.11b ⭐ La migración es una UNIFICACIÓN, no un almacén nuevo
+
+La pregunta que yo había dejado abierta (*"¿con qué código entra el CEDIS?"*) **se responde sola al mirar qué hace hoy la `00` de Kepler**. En 30 días mueve:
+
+| Doctype | Qué es | Docs |
+|---|---|---:|
+| `X-D-26` | Transferencia a proveedor | 1,928 |
+| `U-A-5` | Cobro PUE | 1,736 |
+| `U-D-13` | Factura Cred No Fiscal | 1,597 |
+| `X-A-10` / `X-A-15` | Gastos / Solicitud de gasto | 1,136 / 1,123 |
+| `X-A-35`→`40`→`37`→`20` | **la cadena de compra completa** | 406 / 493 / 497 / 492 |
+| `U-D-40` / `U-D-41` | Pedido / **Embarque Telemarketing** | 229 / 220 |
+
+**La `00` de Kepler no es un almacén muerto: es el centro administrativo del CEDIS** — compra para toda la red, paga proveedores, absorbe los gastos, cobra y factura mayoreo. Lo único que **no** tiene es el almacén **físico**: ni traspasos ni inventario físico, y su "existencia" es el acumulado sin salidas del bug `c4 = 0`.
+
+⭐ **Entonces el 30 no nace un almacén: la sucursal `00` recupera su cuerpo.** No hay colisión de código — `wincaja.branches` ya declara `kepler_code = '00'` para `BPIRAPUATO`, o sea que el destino siempre fue ése. Lo que discrepa es `commercial.warehouses`, que tiene `kepler_code = NULL` porque hoy su existencia viene de Wincaja.
+
+⛔⛔ **El riesgo concreto, y es el grande:** la existencia actual de Kepler `00` son **122,798,871 unidades en 4,652 SKUs** de basura acumulada. **Si la carga inicial del 30 se suma a ese saldo en vez de reemplazarlo, el CEDIS arranca su vida en Kepler con una existencia absurda** — y como es su primer inventario, no hay baseline contra el cual notarlo. Esto hay que verificarlo **el mismo día**.
+
+### 1.11c Checklist del 30-sep (IC.CEDIS)
+
+1. ⛔ **Apagar `import-cedis-stock-wincaja.js`.** Hace **REPLACE** del almacén `00`: si queda vivo, **borra lo que Kepler cargue** y lo sustituye por un `.mdb` que ya nadie actualiza.
+2. ⛔ **Verificar el saldo de arranque**: que la carga **reemplace** los 122.8M de unidades basura de Kepler `00`, no que se sume.
+3. `commercial.warehouses` code `00` → `kepler_code = '00'` (hoy `NULL`).
+4. `wincaja.branches` `00` → `status` de `live_on_wincaja` a `transition`.
+5. Las vistas que unen el CEDIS por `wincaja_source_branch` (`v_erp_stock_on_hand`, `v_warehouse_box_factor`, gate de unidad) pasan a resolverlo por `kepler_code`.
+6. **Correr la compuerta de cobertura** con la foto del 18-sep (§1.10): qué SKUs de Wincaja `00` no llegaron.
+7. Retirar los carriles PM2 de Wincaja (ya detenidos) **y sus sondas** → desbloquea el cierre de `.249` (Fase VL).
+
+---
+
 ## 2. Decisiones (Edgar, 2026-09-28)
 
 | # | Decisión | Consecuencia |
@@ -217,7 +265,7 @@ Orden por valor entregado, no por dependencia técnica. **IC.0 entrega valor sin
 
 | Sprint | Entrega | Por qué |
 |---|---|---|
-| **IC.CEDIS** ⏰ | **Compuerta de migración — se corre el 30-sep o el 1-oct, no después.** Comparar la existencia congelada de Wincaja `00` contra el `N-A-45` de carga del CEDIS y **listar SKU por SKU lo que no llegó**, con su valor. Entregable: la lista en manos de almacén, no un reporte. Se aplica igual a los **1,345 SKUs / $516,521** que ya quedaron fuera en `06`/`07`/`08` — esa revisión no tiene prisa, la del CEDIS sí | **La ventana se cierra**: una vez que el CEDIS opere en Kepler, no se podrá distinguir lo que nunca cargó de lo que se vendió. Es una consulta de segundos contra $7.6M que nunca se ha verificado (§1.10) |
+| **IC.CEDIS** ⏰ | **El checklist de §1.11c, el 30-sep.** Sus dos renglones críticos no son la compuerta: son **apagar `import-cedis-stock-wincaja.js`** (hace REPLACE — si queda vivo **borra lo que Kepler cargue**) y **verificar que la carga REEMPLACE los 122.8M de unidades basura** de Kepler `00`, no que se sume. Más la compuerta de cobertura con la foto del 18-sep, y el re-mapeo (`kepler_code`, `wincaja.branches`, las vistas que unen por `wincaja_source_branch`). Los **1,345 SKUs / $516,521** de `06`/`07`/`08` se revisan igual, pero sin prisa | **La ventana se cierra**: una vez que el CEDIS opere en Kepler no se podrá distinguir lo que nunca cargó de lo que se vendió. Y el importer vivo es un **daño activo**, no un riesgo pasivo (§1.11) |
 | **IC.0** ⭐ | **Ver la diferencia que ya existe.** Vista `analytics.v_erp_physical_count_variance` (derive-no-copy sobre `kdm1`/`kdm2`) y página `/almacen/inventory/diferencias`: sobrante/faltante por sucursal × mes × SKU, con drill al SKU. **Marca `07`/`08` como carga inicial** para que no contaminen. **Prototipo ya corrido: 117 ms sobre todo el histórico.** | El descuadre de $6.65M del trimestral **no se ve en ninguna pantalla**. Cero conteo nuevo, valor el día 1 |
 | **IC.0b** | **La cobertura, declarada.** En la misma pantalla: qué NO se contó y cuánto vale — los **4,022** SKUs del hueco real, **más el CEDIS entero** ($7.6M sin contar jamás), **más** la marca de que `07`/`08` fueron carga inicial y `00`-Kepler es oficinas | Un conteo sin cobertura declarada se lee como "todo está bien". Regla de la casa: lo que no se midió se declara, nunca se dibuja como cero |
 | **IC.1** | **El teórico correcto.** Mover el conteo de `commercial.stock` a `analytics.v_erp_stock_truth`, resolviendo el ERP con `v_branch_erp_cutover` (tras el 30-sep el CEDIS **ya es Kepler**; sólo las rutas Wincaja quedan del otro lado); estampar en el item la unidad resuelta por `v_unit_truth` y el método; `NULL` con motivo cuando no se resuelve. ⚠️ **`v_erp_stock_truth` hace timeout al agregarla entera** — acotar por almacén o materializar (medir antes de elegir) | 91% a 100%. Sin esto seguimos mandando gente al anaquel por diferencias falsas |
@@ -255,6 +303,7 @@ Si el parcial rotativo y el top hacen su trabajo, el trimestral de dic-2026 debe
 - **Conteo offline (Fase OFF)** — existe a medias; se activa cuando el conteo con celular tenga uso real y la señal del almacén lo exija. Encenderlo antes es optimizar algo que nadie usa.
 - **La `00` de Kepler (oficinas)** — **no se cuenta**: sus 122.8M de unidades son un artefacto del bug `c4 = 0`, no mercancía (§1.3b). Se excluye de toda métrica, no se declara como hueco.
 - **El camino Wincaja para el CEDIS** — **descartado** por decisión de Edgar: migra a Kepler el 30-sep y se le da seguimiento a Kepler únicamente (§1.10). Las **rutas** (`RUTA-*`) siguen en Wincaja y quedan fuera de esta fase.
+- ⭐ **Efecto colateral que no es de esta fase pero conviene cobrar:** el CEDIS era la **única** sucursal que le quedaba al carril de réplica Wincaja (§1.11). Al irse, la infraestructura Access (PM2 en `.249`, Jet 32-bit sobre `Z:`) queda sin propósito — lo que la Fase VL tenía anotado como su último bloqueo. **Retirar los carriles Y sus sondas** (una sonda huérfana deja un verde incondicional, o un rojo eterno).
 - **Por qué el sobrante neto es +$4.35M** — no se sabe. IC.1b prueba la hipótesis de unidad; si la descarta, queda abierto con nombre y monto. ⚠️ Y **el cutover no lo explica**: `01` es outlier contra sucursales que migraron después y contra las que nunca migraron (§1.3c).
 
 ---
@@ -274,7 +323,9 @@ Si el parcial rotativo y el top hacen su trabajo, el trimestral de dic-2026 debe
 ## 8. Preguntas abiertas para operación
 
 1. ~~¿La `00` es CEDIS u OFICINAS?~~ **Resuelto (Edgar, 2026-09-28):** la `00` de Kepler es **oficinas**; el CEDIS es **Wincaja `0 BPIRAPUATO`** (`MD-00`). Ver §1.3b — cambió el alcance de la fase.
-2. ⏰ **¿Con qué código de sucursal entra el CEDIS a Kepler?** La `00` de Kepler **ya está ocupada por oficinas** (§1.3b). Si el CEDIS entra como `00` hay colisión; si entra con otro código hay que mapear `warehouses.kepler_code`. **Se sabe el 30** — y IC.CEDIS no corre sin esa respuesta.
+2. ~~¿Con qué código entra el CEDIS?~~ **Respondida por la medición (§1.11b): como `00`, la que ya existe.** No hay colisión — la `00` de Kepler ya es el centro administrativo del CEDIS (compra, paga, cobra, factura mayoreo) y lo único que le falta es el almacén físico. `wincaja.branches` ya declaraba `kepler_code='00'`. **Falta confirmarlo con quien ejecuta la migración**, no descubrirlo.
+2b. ⏰ **¿La carga del 30 REEMPLAZA o SUMA** sobre los 122.8M de unidades basura de Kepler `00`? Es el riesgo de mayor monto y se verifica el mismo día.
+2c. **¿El CEDIS dejó de operar el 18-sep, o sólo paró la copia del `.mdb`?** No lo distinguí (§1.11). Cambia si la foto del corte está completa.
 3. **¿Quién captura el archivo en Kepler** (IC.7) y en qué ventana? Sin dueño, el ciclo no cierra.
 4. **¿El parcial congela movimientos?** Hoy `openCycleCount` va con `freeze = false` por default — razonable para no parar el almacén, pero hay que confirmarlo.
 5. **Morelia (`07`/`08`)**: migraron el 2026-09-08 y el 09-19 (§1.3c). ¿Desde qué trimestre entran al KPI — dic-2026 o mar-2027?
