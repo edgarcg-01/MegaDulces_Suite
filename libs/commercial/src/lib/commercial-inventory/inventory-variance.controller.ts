@@ -141,4 +141,39 @@ export class InventoryVarianceController {
       limit: limit ? Number(limit) : undefined,
     });
   }
+
+  // ── [IC.11] Conciliación entre dos conteos: a dónde se fue la mercancía ──────────────
+  @Get('rollforward/periodos')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Los períodos conciliables (dos conteos consecutivos del mismo almacén), y los '
+      + 'almacenes que NO tienen par con su motivo — uno que desaparece del selector se lee '
+      + 'como que no tiene problema.',
+  })
+  rollforwardPeriodos() {
+    return this.service.rollforwardPeriodos();
+  }
+
+  @Get('rollforward')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Conciliación de un período: contado inicial + compras + recibido − vendido − '
+      + 'enviado = esperado, contra lo contado al final. Lo que los movimientos NO explican es '
+      + 'la merma real. Los totales son del PERÍODO, no de la página.',
+  })
+  rollforward(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('desde') desde: string,
+    @Query('hasta') hasta: string,
+    @Query('veredicto') veredicto?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.rollforward({
+      warehouse_id: warehouseId,
+      desde,
+      hasta,
+      veredicto,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
 }
