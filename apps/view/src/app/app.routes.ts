@@ -1,6 +1,5 @@
 import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
-import { LoginComponent } from './modules/auth/login/login.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
@@ -15,8 +14,15 @@ import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
 export const routes: Routes = [
   {
+    // `[BND.3]` ⚠️ LAZY a propósito, aunque sea la primera pantalla. Era la ÚNICA ruta eager
+    // aparte del shell, y con ella viajaba `@angular/forms` entero al arranque: 57.7 KB medidos
+    // dentro del `main` de producción, para TODO el mundo — incluida la mayoría, que llega con
+    // sesión abierta y nunca ve este formulario. Ningún otro archivo del grafo eager importa
+    // forms (verificado), así que sale del `main` con la ruta.
+    // El costo es una petición de ~70 KB antes de pintar el login; el beneficio es que el resto
+    // de la app arranca 70 KB más liviana siempre.
     path: 'login',
-    component: LoginComponent
+    loadComponent: () => import('./modules/auth/login/login.component').then((m) => m.LoginComponent)
   },
   // `[SN.3]` "Mi trabajo": la landing por espacios de responsabilidad (ADR-061). Conserva la URL
   // `/projects` a propósito: renombrarla es cosmético y toca 7 archivos + la PWA. Lazy como el
