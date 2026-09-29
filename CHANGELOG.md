@@ -9,6 +9,43 @@
 ---
 
 ## [Unreleased]
+### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
+El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve
+días de hueco"*— y el archivo tenía **cuatro**. Retirar ese bloque sin leer el resto, como decía el
+plan, habría dejado tres vivas.
+
+- ⛔ **Llevaba su PROPIA copia del corte** en una constante `CUTOVER`, **vieja en 2 de 3 desde
+  VSO.3** (`01` decía `2026-07-01`, el dato dice `06-27`; `02` decía `2025-10-01`, dice `10-10`) y
+  **ciega a Morelia `07` y `08`**. ⭐ Los dos defectos **se protegían**: con el corte equivocado,
+  *"¿hay ALGUNA venta de cada lado?"* sigue dando ✔ porque sobra Wincaja antes de julio y sobra
+  Kepler después. `test-newdb-branch-cutover.js` (SB.1) ya había **nombrado** esta constante como
+  una de las tres copias desincronizadas… y arregló las otras dos.
+- **El detector de doble conteo no tenía prueba negativa**, y no es redundante con el delegado:
+  mide sobre el **artefacto publicado**, así que ve duplicados que no vienen del corte.
+- ⛔ **Nunca terminaba**: un `count(*)` sobre la vista entera (**>60 s**) sólo para saber si cada
+  pierna tenía datos, y un `to_char(business_date,'YYYY-MM')` en el `WHERE` que **anula el índice**
+  (la trampa de LC.16 que `CLAUDE.md` ya documenta, cobrada ahora en un candado). Con el
+  `statement_timeout` de 1 min el archivo moría con `ERR` y exit 1 — indistinguible de *"el
+  sell-out está doble-contando"*.
+
+**Changed** — el corte se LEE de `analytics.v_branch_erp_cutover` (**8 cortes, no 3**) · prueba
+negativa que **adultera el mapa** y exige el choque · el HUECO se delega **y se comprueba que el
+delegado esté registrado en el runner** (delegar en algo que no corre es borrar la prueba, VSO.11) ·
+`EXISTS` en vez de `count(*)` (**33 ms contra >60 s**) · rango de fechas · `SET statement_timeout`
+propio y acotado · un timeout es **NO MEDIDO**, no una falla. **Contra prod: 9 OK · 0 fallas ·
+2 NO MEDIDOS en 2m31s.**
+
+⭐⭐ **Encontró algo real a la primera:** `2026-06` con **Δ $916,629.73**, exactamente el hueco de
+Padre Hidalgo de VSO.3 (el rollup se refrescó 06:28, la migración entró 13:42). Se **declara con
+fecha de vencimiento**: antes es NO MEDIDO, después queda inerte y el bloque se pone **ROJO si el
+desfase sigue** — una declaración que se apaga sola o grita sola.
+
+⚠️ **Tres correcciones a mediciones propias:** leer el resolvedor por `JSON.stringify` convierte
+`-infinity` en `null` (llegué a creer que Kepler `03/04/05` no publicaban — misma familia que LC.16:
+*el valor está bien y el transporte miente*) · la primera prueba negativa usó una rama **sin una
+sola fila** y dio 0, que se lee igual que *"no hay dientes"* · y *"el rango tampoco salva al bloque
+4"* era falso: lo salva a medias.
+
 ### Internal — dónde viven los descuentos de cliente, y auditoría de `/comercial/tickets` (DC, 2026-09-28)
 Investigación, **sin código**. El descuento negociado de un cliente vive en **`kdud.c17`** (%, en el
 maestro de Kepler) y el ERP lo copia a cada documento (`kdm1.c19` = %, `kdm1.c13` = monto),
