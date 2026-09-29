@@ -5,6 +5,60 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-28 — Revisión de diseño móvil: la tabla densa, y una regla del propio DESIGN.md que era falsa (`[UIM.0-3]`)
+
+**Cómo se llegó:** pedido del usuario — *"en diseños de ui mobile las tablas densas están mal
+diseñadas"*, con `/almacen/inventory/existencia` como ejemplo. La revisión empezó midiendo la
+pantalla y terminó corrigiendo la regla que la pantalla estaba obedeciendo.
+
+### Lo que la medición cambió del pedido
+
+El pedido era arreglar pantallas. Lo medido dice que el origen es **normativo**: `DESIGN.md` §553
+mandaba *"scroll horizontal con primera columna pegada"* **sin condición de ancho**, y
+`DESIGN_TABLES.md` §6 dejaba la vista apilada como *"no obligatorio por spec"*. Por eso en dos años
+nadie la construyó.
+
+A 390 px: `.ex-sku` 104 px + `.ex-name` 240 px, **congeladas** = **344 de 390 (88%)**. Ventana de
+dato: **46 px**; una columna de almacén pide 88. **No cabe ni una cifra completa**, y desplazarse no
+ayuda porque lo congelado no se mueve.
+
+### La regla nueva, en una pregunta
+
+**¿Qué son las columnas?** Campos de un registro → **apilar** (mecánico). Valores de otra dimensión
+(un **pivote**) → **perder un eje**: la dimensión se elige arriba como alcance y la comparación se
+muda al detalle. ⛔ Apilar un pivote da N renglones por registro — peor que el scroll, y sin poder
+comparar. Y ese caso **el CSS no lo puede resolver**: hay que decidir qué se le pide al servidor.
+
+### Hallazgos colaterales, los dos peores del día
+
+1. **`--text-color-secondary` no existe** y estaba en **164 declaraciones de `color` en 25 archivos,
+   ninguna con respaldo**: todas caían en `inherit`. La jerarquía atenuada **no existía** en 25
+   pantallas, y el build nunca lo dijo porque para el navegador no es un error. ⭐ Lo que duele: el
+   diagnóstico **ya estaba escrito** en `tienda-cambios-precio.component.ts` desde hacía dos meses —
+   se arregló esa pantalla y nadie contó el resto.
+2. **Mi propia compuerta se delató**: analiza por **archivo** y la unidad real es la **tabla**. Al
+   apilar una de las dos tablas de `compras-pedido-real`, dio por saldada la otra. Se documentó el
+   límite y las entradas de deuda ganaron `parcial: true` + **motivo que se imprime**.
+
+### Lecciones
+
+- **Cuando una pantalla está mal y obedece la norma, el defecto es la norma.** Arreglar la pantalla
+  sin tocar la regla garantiza que la próxima nazca igual.
+- **Un token que no existe no es un defecto DE UNA PANTALLA**: hay que contarlo en todo el repo el
+  mismo día. Un `var()` sin respaldo que no resuelve deja la declaración inválida y, si la propiedad
+  es heredada, cae en `inherit` — se ve "casi bien", que es la peor forma de estar roto.
+- **Una compuerta hay que romperla a propósito, y además ver dónde NO mira.** La prueba negativa
+  (7 casos) pasó desde el primer día; el punto ciego por archivo-vs-tabla sólo apareció al usarla.
+- **Un primitivo con dos variantes y un solo consumidor tiene una variante de más.** `.dt-stack-wide`
+  se retiró antes de entregar: rompía el presupuesto de bundle por 408 bytes, y subirlo para que
+  entrara algo que nadie usa era el atajo exacto que la fase vino a cerrar.
+
+### Estado
+
+10 pantallas apiladas + 1 parcial, de 11. Compuerta en CI con su prueba negativa en paso propio.
+**⛔ Falta validación visual a 390 px de las 11** — no se puede desde CLI.
+
+---
 ## 2026-09-28 — Auditoría de la capa de datos: el resolvedor del corte de ERP tiene una llave que no resuelve (`[AUD-DAT.11]`)
 
 **Cómo se llegó:** revisión cruzada con la sesión que trabaja `[IC.CEDIS]`. Ellos midieron que `commercial.warehouses.kepler_code` y `wincaja.branches` contestan la misma pregunta y **ya discrepan hoy para el CEDIS**. Al verificar eso de forma independiente apareció una tercera divergencia, dentro del propio resolvedor canónico.

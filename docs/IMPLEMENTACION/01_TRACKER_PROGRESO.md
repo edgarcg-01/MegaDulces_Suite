@@ -6388,6 +6388,67 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
 
 ---
 
+## UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual)
+
+**Nace de una revisión de `/almacen/inventory/existencia` en móvil, y el hallazgo reformula el pedido:
+la regla estaba mal, no la pantalla.** `DESIGN.md` §553 mandaba *"scroll horizontal con primera
+columna pegada"* **sin condición de ancho** y `DESIGN_TABLES.md` §6 dejaba la vista apilada como
+*"no obligatorio por spec"* — por eso nadie la construyó en dos años. La pantalla **obedecía**.
+
+**Medido a 390 px:** `.ex-sku` 6.5rem (104 px) + `.ex-name` 15rem (240 px), las dos **congeladas** =
+**344 px de 390 = 88%** ocupado por la identificación. Quedan **46 px** de ventana para el dato y una
+columna de almacén pide 88: **no cabe ni una cifra completa**, y desplazarse no ayuda porque lo
+congelado no se mueve.
+
+- [x] **[UIM.0]** ✅ `--text-color-secondary` **no existe** en `tokens.css` y estaba en **164
+  declaraciones de `color` en 25 archivos, ninguna con respaldo** → todas caían en `inherit`: la
+  jerarquía atenuada no existía en 25 pantallas. Renombradas a `--text-muted` (el propio
+  `tokens.css:213` ya declaraba ese mapeo). ⭐ El diagnóstico **ya estaba escrito** en
+  `tienda-cambios-precio.component.ts` desde hacía dos meses: se arregló esa pantalla y nadie contó
+  el resto. Commit `db311158`.
+- [x] **[UIM.1]** ✅ Doctrina + primitivo + compuerta. La regla se decide con **una pregunta: ¿qué
+  son las columnas?** Campos de un registro → **apilar**; valores de otra dimensión (pivote) →
+  **perder un eje**. ⛔ Apilar un pivote da N renglones por registro: peor que el scroll.
+  `libs/ui-web/src/dense-table.css` (importado por las 3 apps, ADR-056), selectores de **anatomía**
+  (sirve para `p-table` y `<table>` plana), corte por **`@container`** (§76). Compuerta
+  `npm run check:tables` con **prueba negativa** (7 casos). `existencia` como referencia: ejercita
+  **las dos mitades** — la matriz pierde el eje (el almacén pasa a ser alcance, reusando el filtro
+  que ya existía) y la tabla del side-peek se apila. Commit `553552ea`.
+- [x] **[UIM.2]** ✅ Adopción: **10 pantallas apiladas + 1 parcial**, de 11. Commits `5f7d6374`,
+  `4be473a5`, `03083350`.
+  - `admin-responsabilidades` 52 · `comercial-expedientes` 54 · `admin-puestos` 56 ·
+    `admin-personas` 58 · `comercial-wincaja` 60 · `televenta-quotes` 60 ·
+    `comercial-documentos` 62 · `compras-reclamos` 62 · `televenta-quote-detail` 64 ·
+    `admin-db-health` 48×3.
+  - ⚠️ **`compras-pedido-real` PARCIAL**: se apiló su tabla de inventario muerto (60rem, 7 campos);
+    **la rejilla de pedido (78rem) no**. Son 15 columnas con captura estilo Excel y dos tablas
+    anidadas en la fila expandida: apilar es técnicamente correcto pero da 15 renglones por SKU, y
+    **cuál de los 15 sobrevive en un teléfono no es decisión de CSS** — la toma quien usa la
+    pantalla. El motivo vive en la lista `DEUDA` de la compuerta y **se imprime en cada corrida**.
+- [x] **[UIM.3]** ✅ La compuerta entra a `ci.yml`, con su prueba negativa **en un paso propio y
+  primero**: si dejó de detectar lo que dice detectar, el verde del barrido no significa nada.
+
+**Dos defectos del propio trabajo, encontrados al aplicarlo:**
+1. El primitivo centraba `td[colspan]` — puesto pensando en la fila de "sin datos", y un `colspan`
+   **también es la fila expandida**. Centrar esa celda centraba un layout entero. Retirado.
+2. **La compuerta analiza por ARCHIVO y la unidad real es la TABLA**: al apilar una de las dos
+   tablas de `pedido-real` dio por saldada la otra. Mirar por tabla exigiría amarrar cada
+   `min-width` con su elemento, y ahí el ancho **ni está en el template** (`readonly tableStyle`).
+   En vez de fingir precisión, la entrada lleva `parcial: true`, no se poda sola, y el límite queda
+   escrito arriba de la lista.
+
+**⛔ PENDIENTE — validación visual a 390 px de las 11 pantallas.** Es lo único que falta y no se
+puede hacer desde CLI (los dev servers los levanta Edgar). Qué mirar: que los `data-label` digan lo
+mismo que su encabezado; que en las tres con acciones (`expedientes`, `documentos`, `quote-detail`)
+los botones no se amontonen; que en `db-health` las tres tarjetas apilen **independiente** (cada una
+es su propio contenedor, que era la intención); y en `existencia`, que el aviso de alcance se lea y
+que soltar la columna congelada no rompa el encabezado pegajoso.
+
+**Deuda adyacente medida, NO hecha:** `--danger-fg` **no existe** y tiene **28 usos en 5 archivos**,
+todos **con respaldo** — o sea que pintan, pero son **seis rojos distintos** hardcodeados
+(`#DC2626`, `#dc2626`, `#c0392b`, `#b91c1c`, `#b42318`) que **no voltean en oscuro**, para un
+semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso) y `--danger-bg` (1).
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

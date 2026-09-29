@@ -316,6 +316,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:templates
 
+      # `[UIM.1]` Tabla ancha sin salida en estrecho. Su prueba negativa corre PRIMERO y en su
+      # propio paso, a propósito: si la compuerta dejó de detectar lo que dice detectar, el verde
+      # del barrido no significa nada — y ese orden es lo que distingue una compuerta de una
+      # intención. Ver DESIGN_TABLES.md §6 y scripts/check-dense-tables.js.
+      - name: Dense table gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:tables:self
+
+      - name: Dense table gate (ancha sin apilado ni pérdida de eje)
+        if: ${{ !cancelled() }}
+        run: npm run check:tables
+
       # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
       # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
       # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el
