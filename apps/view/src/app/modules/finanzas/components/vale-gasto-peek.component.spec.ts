@@ -221,12 +221,29 @@ describe('ValeGastoPeekComponent', () => {
         expect(fix.nativeElement.querySelector('.vp-prov-chk')).not.toBeNull();
       });
 
-      /** La fecha aparece recién al marcar: sin marca no significa nada. */
-      it('la fecha esperada aparece al marcar', () => {
+      /**
+       * ⭐ `[GX.51]` **Ya NO hay fecha límite.** Se retiró por pedido del usuario: la factura
+       * del pago llega cuando llega y no depende de nadie de la casa, así que ponerle
+       * vencimiento era inventar un plazo que nadie podía cumplir ni hacer cumplir.
+       *
+       * En su lugar, al marcar aparece la nota de que **queda abierto**. La marca sigue: lo
+       * que se quita es el plazo, no la deuda.
+       */
+      it('[GX.51] al marcar dice que queda abierto, y NO pide fecha', () => {
         montar(V(), ['aprobar', 'rechazar']);
-        expect(fix.nativeElement.querySelector('#vp-esperado')).toBeNull();
+        expect(fix.nativeElement.querySelector('.vp-prov-libre')).toBeNull();
         marcar();
-        expect(fix.nativeElement.querySelector('#vp-esperado')).not.toBeNull();
+        expect(fix.nativeElement.querySelector('#vp-esperado')).toBeNull();
+        const nota = fix.nativeElement.querySelector('.vp-prov-libre') as HTMLElement;
+        expect(nota).not.toBeNull();
+        expect(nota.textContent).toMatch(/sin fecha l[ií]mite/i);
+      });
+
+      /** ⛔ Y el texto del default de 15 días se fue con ella: ya no hay tal cosa. */
+      it('[GX.51] no queda rastro de los 15 días', () => {
+        montar(V(), ['aprobar', 'rechazar']);
+        marcar();
+        expect(fix.nativeElement.textContent).not.toContain('15 días');
       });
 
       it('marcada, el botón lo dice y la marca viaja', () => {
@@ -241,14 +258,20 @@ describe('ValeGastoPeekComponent', () => {
         expect(emitidos[0].provisional).toBe(true);
       });
 
-      it('la fecha que se escribe es la que viaja', () => {
+      /**
+       * ⛔ `[GX.51]` **Nunca viaja una fecha**, ni aunque el signal traiga algo de antes. El
+       * campo se conserva en el contrato porque hay expedientes viejos que la tienen y
+       * borrarlo del tipo los volvería ilegibles — pero ya no se manda.
+       */
+      it('[GX.51] la aprobación provisional viaja SIN fecha', () => {
         montar(V(), ['aprobar', 'rechazar']);
         marcar();
-        c.esperado.set('2026-10-15');
+        c.esperado.set('2026-10-15');   // residuo: aunque esté, no debe viajar
         const emitidos: AprobacionVale[] = [];
         c.aprobar.subscribe((a) => emitidos.push(a));
         c.emitirAprobacion(c.vale()!);
-        expect(emitidos[0].comprobante_esperado_at).toBe('2026-10-15');
+        expect(emitidos[0].provisional).toBe(true);
+        expect(emitidos[0].comprobante_esperado_at).toBeNull();
       });
 
       /**

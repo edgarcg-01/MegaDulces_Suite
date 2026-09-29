@@ -822,11 +822,13 @@ export class ExpenseProofsService {
            *
            * ⚠️ Lo decide el CONTENIDO (`quedaDebiendoComprobante`), no una casilla: si
            * dependiera de que la persona la marque, una cotizacion sin marcar cerraria el
-           * vale sin deber nada. Sin fecha la deuda no envejece y nadie la reclama, asi que
-           * se le pone la misma ventana de 15 dias que usa la aprobacion.
+           * vale sin deber nada.
+           *
+           * `[GX.51]` **Sin fecha limite**, igual que la aprobacion: la factura del pago llega
+           * cuando llega. Cuanto lleva esperando se sabe desde `created_at`.
            */
           ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: llevaEvidencia, forma_pago: formaPago })
-            ? { provisional: true, comprobante_esperado_at: trx.raw("(now() + interval '15 days')::date") }
+            ? { provisional: true }
             : {}),
         })
         .returning(['id', 'folio_solicitud', 'status']);
@@ -927,12 +929,23 @@ export class ExpenseProofsService {
           // deja de leerse, y el silencio acá significa «la visión no objetó nada».
           revision_nota: aviso,
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
-          // [GX.30] La marca y su fecha. Sin fecha la deuda no envejece y nadie la reclama
-          // nunca: por eso, marcado como provisional y sin fecha, se pone a 15 dias.
+          /**
+           * `[GX.51]` **Sin fecha limite.** Acá se ponían 15 días por defecto (GX.30) con este
+           * razonamiento: «sin fecha la deuda no envejece y nadie la reclama nunca». Se retiró
+           * por pedido del usuario, y el razonamiento no se pierde — se corrige:
+           *
+           * La factura del pago **llega cuando llega**, y no depende de nadie de la casa.
+           * Ponerle vencimiento era inventar un plazo que nadie podía cumplir ni hacer cumplir,
+           * y una fecha inventada envejece igual pero ADEMÁS miente.
+           *
+           * ⚠️ Lo que la fecha cuidaba se conserva: cuánto lleva esperando se sabe desde
+           * `validated_at`, que es cuándo se aprobó. Lo que se deja de afirmar es CUÁNDO vence.
+           *
+           * La columna se conserva y se respeta si alguien la manda —hay expedientes viejos
+           * con valor y borrarla los volvería ilegibles—, pero ya no se inventa un default.
+           */
           provisional: prov,
-          comprobante_esperado_at: prov
-            ? (esperado || trx.raw("(now() + interval '15 days')::date"))
-            : null,
+          comprobante_esperado_at: prov ? (esperado || null) : null,
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');
