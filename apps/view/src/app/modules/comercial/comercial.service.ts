@@ -1567,6 +1567,26 @@ export class ComercialService {
     return this.http.get<InventoryVarianceCoverage>(`${this.base}/inventory/variance/coverage`, { params: p });
   }
 
+  // ── [IC.5/IC.8] Programa de conteo y KPI ──────────────────────────────────────────────
+  inventoryCountPlan(params: { warehouse_id: string; ola?: number; top_n?: number; limit?: number }) {
+    let p = new HttpParams().set('warehouse_id', params.warehouse_id);
+    if (params.ola != null) p = p.set('ola', String(params.ola));
+    if (params.top_n != null) p = p.set('top_n', String(params.top_n));
+    if (params.limit != null) p = p.set('limit', String(params.limit));
+    return this.http.get<InventoryCountPlan>(`${this.base}/inventory/variance/plan`, { params: p });
+  }
+
+  inventoryWaveCoverage(warehouseId: string) {
+    const p = new HttpParams().set('warehouse_id', warehouseId);
+    return this.http.get<InventoryWaveCoverage>(`${this.base}/inventory/variance/plan/coverage`, { params: p });
+  }
+
+  inventoryVarianceKpi(warehouseId?: string) {
+    let p = new HttpParams();
+    if (warehouseId) p = p.set('warehouse_id', warehouseId);
+    return this.http.get<InventoryVarianceKpi>(`${this.base}/inventory/variance/kpi`, { params: p });
+  }
+
   inventoryReconcile(countId: string) {
     return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
   }
@@ -2876,6 +2896,49 @@ export interface InventoryVarianceCoverage {
   dias_desde_conteo: number;
   /** NULL cuando no se pudo medir — no es lo mismo que cobertura cero. */
   pct_cubierto: number | null;
+}
+
+/** [IC.5] El plan del mes: la ola rotativa + el top. */
+export interface InventoryCountPlan {
+  ola: number;
+  ola_origen: 'explicita' | 'del_mes';
+  total: number;
+  del_top: number;
+  de_la_ola: number;
+  /** Si el LIMIT recortó. Un plan truncado en silencio deja SKUs sin contar. */
+  truncado: boolean;
+  items: {
+    product_id: string; sku: string; abc_class: string | null;
+    score: number; senales_usadas: number;
+    score_salvedad: string | null; ola: number; es_top: boolean; motivo: 'top' | 'ola';
+  }[];
+}
+
+export interface InventoryWaveCoverage {
+  total: number;
+  olas: { ola: number; skus: number; pct: number | null }[];
+  cubre_todo: boolean;
+  desvio_max_pct: number | null;
+}
+
+/** [IC.8] El KPI: ¿el parcial hace que el trimestral encuentre menos? */
+export interface InventoryVarianceKpi {
+  periodos: {
+    periodo: string; eventos: number; almacenes: number; codigos: string[];
+    sobrante: string; faltante: string; valor_contado: string;
+    pct_descuadre: number | null;
+    /** `denominador_incompleto` = el % es imposible y no entra a la tendencia. */
+    salvedad: string | null;
+  }[];
+  tendencia: {
+    de: string; a: string;
+    pct_antes: number | null; pct_despues: number | null;
+    /** NULL cuando no se puede comparar — no es lo mismo que "no cambió". */
+    delta_pp: number | null;
+    comparable: boolean; motivo: string | null; almacenes_comunes: string[];
+  } | null;
+  veredicto: 'mejora' | 'sin_mejora' | 'sin_base_de_comparacion';
+  periodos_descartados: number;
 }
 
 export interface InventoryIra {
