@@ -78,9 +78,52 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
 
     if (!cargas.length) {
       console.log(`⚠️  NO MEDIDO: no hay documentos N-A-45/N-A-30 en la sucursal Kepler '${KEP_SUC}'`
-        + `${FECHA ? ` con fecha ${FECHA}` : ' en los últimos 30 días'}.`);
-      console.log('    La carga todavía no ocurrió (o entró con OTRA sucursal/almacén).');
-      console.log('    ⛔ Esto NO es un visto bueno: es que no hay nada que medir todavía.\n');
+        + ` (almacén '${KEP_SUC}')${FECHA ? ` con fecha ${FECHA}` : ' en los últimos 30 días'}.`);
+      console.log('    ⛔ Esto NO es un visto bueno: es que no hay nada que medir todavía.');
+
+      // ⛔ "No hay nada acá" y "no hay nada" no son lo mismo, y confundirlos es JUSTO el modo
+      // de fallo que esta compuerta existe para cerrar: si el CEDIS entra con otro código de
+      // sucursal —o como otro almacén `c1` dentro de la misma, como la ruta '01-006' dentro
+      // de '01'— este script diría NO MEDIDO para siempre y se leería como "todavía no pasó".
+      // Así que antes de rendirse, BARRE TODO y muestra lo que encuentre.
+      console.log('\n── Barrido: ¿hay alguna carga reciente en OTRA sucursal o almacén? ──');
+      const otras = await q(
+        `SELECT m.sucursal, m.c1 AS almacen, to_char(m.c9,'YYYY-MM-DD') AS fecha,
+                m.c4 AS doctype, m.c6 AS folio, count(l.*)::int AS lineas,
+                round(sum(l.c13::numeric),2) AS pesos
+           FROM kepler_ods.kdm1 m
+           JOIN kepler_ods.kdm2 l
+             ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
+            AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
+          WHERE m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
+            AND m.c9 >= current_date - 15 AND m.c9 <= current_date
+          GROUP BY 1,2,3,4,5 ORDER BY 3 DESC, 1, 2 LIMIT 25`, []);
+
+      if (!otras.length) {
+        console.log('   ✔ tampoco hay cargas en ninguna otra sucursal en 15 días.');
+        console.log('     El cutover no ha ocurrido en ningún lado. Volver a correr el día D.');
+      } else {
+        console.log('   ⚠️ SÍ hay documentos de carga/conteo en otros lados — revisar si alguno');
+        console.log('      es el CEDIS entrando con otro código:\n');
+        console.log('   sucursal almacén  fecha        doc    folio      líneas        pesos');
+        for (const o of otras) {
+          console.log(`   ${String(o.sucursal).padEnd(8)} ${String(o.almacen).padEnd(8)}`
+            + ` ${o.fecha}  N-A-${o.doctype} ${String(o.folio).padEnd(9)}`
+            + ` ${String(num(o.lineas)).padStart(7)} ${String(money(o.pesos)).padStart(13)}`);
+        }
+        console.log('\n   Si el CEDIS es alguno de ésos, volvé a correr con:');
+        console.log('     CEDIS_KEPLER_SUCURSAL=<sucursal> node database/scripts/check-cedis-cutover.js');
+      }
+
+      // Y la otra mitad de la pregunta: ¿la sucursal destino ya existe en el ODS?
+      const [existe] = await q(
+        `SELECT count(*)::int AS filas,
+                round(sum(GREATEST(c4::numeric + c8::numeric - c9::numeric,0)),0) AS saldo
+           FROM kepler_ods.kdil WHERE sucursal=$1 AND c1=$1`, [KEP_SUC]);
+      console.log(`\n   Estado de la sucursal '${KEP_SUC}' en el ODS hoy:`
+        + ` ${num(existe.filas)} SKUs, saldo ${num(existe.saldo)} u`);
+      console.log('   (ése es el saldo PREVIO contra el que se va a comparar el día D — punto 2)');
+      console.log('');
       await db.end();
       process.exit(0);
     }
