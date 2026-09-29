@@ -21,6 +21,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 const { Client } = require('pg');
+const { checkCedisSource, reportCedisGuard } = require('../lib/cedis-source-guard');
 
 const M = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -36,6 +37,18 @@ const NUM = (c) => `COALESCE(NULLIF(regexp_replace(${c}::text,'[^0-9.-]','','g')
   await db.connect();
   try {
     console.log(`\n=== RA-PRO.25: cadencia de surtido CEDIS → sucursal (Wincaja, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+
+    // [IC.CEDIS] Misma puerta que RA-PRO.24: tras el cutover a Kepler, Wincaja deja de ser la
+    // fuente del CEDIS; y una fuente rancia publicaría una cadencia de surtido que ya no ocurre
+    // — que es peor que no publicarla, porque el reorden la usa para decidir cuándo pedir.
+    const guard = await checkCedisSource(db, {
+      tenant: M, cedisCode: CEDIS_CODE, wincajaBranch: CEDIS_BRANCH,
+    });
+    if (!reportCedisGuard(guard, 'RA-PRO.25')) {
+      console.log('  → analytics.cedis_supply_cadence se deja INTACTA.');
+      await db.end();
+      return;
+    }
 
     await db.query(`CREATE SCHEMA IF NOT EXISTS analytics`);
     await db.query(`CREATE TABLE IF NOT EXISTS analytics.cedis_supply_cadence (

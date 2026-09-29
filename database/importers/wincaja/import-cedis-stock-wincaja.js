@@ -24,6 +24,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 const knexLib = require('knex');
+const { checkCedisSource, reportCedisGuard } = require('../lib/cedis-source-guard');
 
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
@@ -46,6 +47,18 @@ const SRC = `
     : require(path.resolve(__dirname, '..', '..', 'knexfile-newdb.js')).development;
   const db = knexLib(cfg);
   try {
+    // [IC.CEDIS] El CEDIS migra su PdV a Kepler. Este importer hace un MERGE con DELETE de lo
+    // que no venga de Irapuato: pasado el cutover, eso BORRA lo que Kepler cargue. Y la fuente
+    // ya está muerta desde el 2026-09-18. Las dos puertas viven en lib/cedis-source-guard.
+    const guard = await checkCedisSource(db, {
+      tenant: TENANT, cedisCode: CEDIS_CODE, wincajaBranch: WINCAJA_CEDIS_BRANCH,
+    });
+    if (!reportCedisGuard(guard, 'RA-PRO.24')) {
+      console.log('  → el stock del CEDIS se deja INTACTO (no se borra ni se sobreescribe).');
+      await db.destroy();
+      return;
+    }
+
     const wh = (await db.raw(`SELECT id FROM commercial.warehouses WHERE tenant_id=? AND code=? AND deleted_at IS NULL`, [TENANT, CEDIS_CODE])).rows[0];
     if (!wh) { console.error(`No existe warehouse CEDIS code=${CEDIS_CODE}`); await db.destroy(); process.exit(1); }
 
