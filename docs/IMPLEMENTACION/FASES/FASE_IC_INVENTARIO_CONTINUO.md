@@ -2,6 +2,7 @@
 
 > **Estado: 🔨 DISEÑADO (planeación) 2026-09-28 — ADR-079 propuesto.**
 > **Pedido (Edgar, 2026-09-28):** mantener **tres** tipos de inventario — **completo** (trimestral, lo genera Kepler), **parcial** (mensual, nuestro) y **por productos top** (nuestro) — con interfaces para generarlos y **mostrar las diferencias**.
+> ✅ **El guard ya está en producción** (imagen `3892fdba2ab0`, 2026-09-28): verificado **dentro de `feeds-cron`** con el env real — los dos importers dan `⛔ SKIP (source_stale)`.
 > ⏰ **URGENTE por calendario:** el **CEDIS migra a Kepler el 30-sep-2026**. El sprint **IC.CEDIS** se corre ese día o el 1-oct — después la ventana se cierra (§1.10).
 > **Tesis:** el conteo ya está construido y **nunca se usó**; el trimestral de Kepler ya se hace y **no se ve en ninguna pantalla**. Esta fase no construye un módulo de inventario: **conecta el que existe al proceso real** y hace visible el descuadre que hoy nadie mira.
 
@@ -246,7 +247,7 @@ La pregunta que yo había dejado abierta (*"¿con qué código entra el CEDIS?"*
 4. `wincaja.branches` `00` → `status` de `live_on_wincaja` a `transition`.
 5. ⛔ **NO unir el CEDIS por `warehouse_code`.** Medido: `v_branch_erp_cutover.warehouse_code` **mezcla dos convenciones** — sólo las 2 migraciones recientes (`30`→`08`, `32`→`07`) guardan el código Kepler; las **6** viejas guardan el nombre Wincaja (`MD-10`, `MD-42`, `MD-50`…) que **no existe** como `code` en `commercial.warehouses`. Resuelve **2 de 8**; `kepler_code` resuelve **8 de 8**. ⚠️ **Al CEDIS le toca la convención vieja**: su `warehouse_code` es `MD-00` y su almacén real es `code='00'` — el día que entre a la vista, un INNER JOIN por ahí da **cero en silencio**. Usar `kepler_code` o `wincaja_source_branch`. (Reportado por la sesión de [AUD-DAT.11]; clavado con aserción en el smoke.)
 6. Las vistas que unen el CEDIS por `wincaja_source_branch` (`v_erp_stock_on_hand`, `v_warehouse_box_factor`, gate de unidad) pasan a resolverlo por `kepler_code`.
-7. **Correr la compuerta de cobertura** con la foto del 18-sep (§1.10): qué SKUs de Wincaja `00` no llegaron.
+7. ✅ **La compuerta existe y está probada**: `node database/scripts/check-cedis-cutover.js` (sólo lee). Mide los 4 puntos de arriba y **entrega la lista accionable** (SKU, existencia, valor) de lo que no llegó. Ejercida contra la migración real de Morelia Abastos: reproduce las cifras a mano (583 SKUs / $274,036 / 1.6%). Corrida hoy contra el CEDIS dice **`NO MEDIDO`** — la carga aún no ocurrió, y eso **no es un visto bueno**: qué SKUs de Wincaja `00` no llegaron.
 8. Retirar los carriles PM2 de Wincaja (ya detenidos) **y sus sondas** → desbloquea el cierre de `.249` (Fase VL).
 
 ---
