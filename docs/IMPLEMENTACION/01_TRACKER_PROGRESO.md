@@ -5887,6 +5887,15 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   `app.routes.ts`** — el botón del sidebar no cargaba nada. Fix de una línea siguiendo el patrón
   de `bancos`/`pagos-comprobantes` (gateada por `FINANCE_PAYMENTS_VER`). Verificado con
   `nx build view` + confirmando que el chunk lazy del componente quedó en el bundle de producción.
+- [x] **TP.11** — 2026-09-29: **el mismo hueco de TP.9, en las otras dos pantallas.**
+  `ComprasObligacionesComponent` y `ComprasCuentasPagoComponent` (TP.2/TP.7) existían con su
+  backend registrado en `AppModule`, pero sin ruta, sin menú y sin `route` en el `authz-tree`
+  → el permiso `COMPRAS_OBLIGACIONES_*` se podía repartir y no llevaba a ninguna pantalla.
+  Rutas `/compras/obligaciones` y `/compras/cuentas-pago` (gate `COMPRAS_OBLIGACIONES_VER`,
+  igual que los GET del backend) + menú Compras › Catálogo + `route` en el árbol.
+  `GESTIONAR` sin `VER` declarado en `DEUDA` de `landing-guards.spec.ts`. Vitest core+dashboard
+  **120/120**, `tsc --noEmit` 0 errores; **`nx build view` NO corrido** (OOM en la máquina).
+  ⚠️ **El permiso sigue sin repartir a ningún rol**: sólo lo ven `superadmin`/`admin` por nombre.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
