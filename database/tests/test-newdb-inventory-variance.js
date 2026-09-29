@@ -137,6 +137,44 @@ const t = (name, cond, extra) => {
       Number(cruz.delta) < 1, `vista ${cruz.vista} vs crudo ${cruz.crudo}, Δ ${cruz.delta}`);
     console.log(`     sep-2026 sobrante de conteos: $${Number(cruz.vista || 0).toLocaleString('en-US')}`);
 
+    // ── 4b. ⛔ ANTI-RÉPLICA: ningún documento de un almacén AJENO a su sucursal ──
+    // Medido: `kepler_ods.kdm1` con sucursal='03' trae 220 cabeceras del almacén '02'
+    // (nov-2025 a ene-2026) — la misma réplica cruzada que `kdil` ya documenta. Sin filtro,
+    // 220 documentos de La Piedad se publican como descuadre de 8ESQ.
+    // ⚠️ Esta aserción existe porque el bloque 4 NO cubría el arreglo: su ventana es
+    // sep-2026 y la réplica es de nov-ene, así que pasaba en verde sin ejercerlo.
+    const [rep] = (await q(
+      `SELECT count(*)::int AS n FROM analytics.v_erp_physical_count_variance
+        WHERE kepler_almacen <> kepler_sucursal
+          AND kepler_almacen NOT LIKE kepler_sucursal || '-%'`)).rows;
+    t('⛔ ANTI-RÉPLICA: ningún renglón viene de un almacén ajeno a su sucursal',
+      Number(rep.n) === 0, `${rep.n} renglones replicados`);
+
+    // Y el contrapeso: los SUB-ALMACENES legítimos SÍ tienen que estar. Un filtro
+    // `almacen = sucursal` a secas los habría borrado — la única carga de Padre Hidalgo
+    // vive en el almacén '01-006' (la Ruta 28).
+    const [sub] = (await q(
+      `SELECT count(*)::int AS n FROM analytics.v_erp_physical_count_variance
+        WHERE kepler_almacen LIKE kepler_sucursal || '-%'`)).rows;
+    t('los SUB-ALMACENES legítimos (01-006 = Ruta 28) SÍ entran',
+      Number(sub.n) > 0, `${sub.n} renglones de sub-almacén`);
+
+    // ── 4c. ⛔ Un evento con MUCHOS folios se clasifica por el TOTAL ────────────
+    // Medido: hay eventos con 64 folios del mismo doctype en la misma fecha. Agrupando por
+    // folio y comparando con max() se contrasta el folio más grande de captura contra el más
+    // grande de entrada, no el total del evento — y la firma de carga inicial deja de
+    // significar lo que dice. Estos eventos multi-folio son conteos reales, no cargas.
+    const [multi] = (await q(
+      `SELECT count(*)::int AS mal FROM analytics.v_erp_physical_count_variance v
+        WHERE v.tipo_evento = 'carga_inicial'
+          AND EXISTS (SELECT 1 FROM kepler_ods.kdm1 m
+                       WHERE m.sucursal = v.kepler_sucursal AND m.c1 = v.kepler_almacen
+                         AND m.c9::date = v.fecha AND m.c2 = 'N' AND m.c4 = '45'
+                       GROUP BY m.sucursal, m.c1, m.c9::date
+                      HAVING count(DISTINCT m.c6) > 5)`)).rows;
+    t('⛔ un evento con muchos folios NO se clasifica como carga inicial (se suma, no max())',
+      Number(multi.mal) === 0, `${multi.mal} renglones mal clasificados`);
+
     // ── 5. ⛔ La 00 es OFICINAS y NO entra ─────────────────────────────────────
     const [of] = (await q(
       `SELECT count(*)::int AS n FROM analytics.v_erp_physical_count_variance
