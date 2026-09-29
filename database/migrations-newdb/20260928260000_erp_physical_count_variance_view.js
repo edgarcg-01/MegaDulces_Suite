@@ -55,14 +55,24 @@ exports.up = async function up(knex) {
     WITH doc AS (
       -- Un renglón por documento (sucursal, ALMACEN, fecha, doctype). El almacen es parte de
       -- la identidad: sin el, dos documentos distintos con el mismo folio se funden.
+      -- ⛔ SIN el folio en el GROUP BY: un mismo evento puede traer DECENAS de folios del
+      -- mismo doctype (medido: 64 en la 02 del 2026-01-08, 62 en nov-2025). Agrupando por
+      -- folio y sacando despues max() se compara el folio MAS GRANDE de captura contra el
+      -- mas grande de entrada, en vez del total del evento -- y la firma de carga inicial
+      -- deja de significar lo que dice. Lo destapo el candado cruzado con IC.3.
       SELECT m.sucursal, m.c1 AS almacen, m.c9::date AS fecha, m.c3 AS nat, m.c4 AS tipo_doc,
-             m.c6 AS folio, count(l.*)::int AS lineas
+             count(l.*)::int AS lineas
         FROM kepler_ods.kdm1 m
         JOIN kepler_ods.kdm2 l
           ON l.sucursal = m.sucursal AND l.c1 = m.c1 AND l.c2 = m.c2 AND l.c3 = m.c3
          AND l.c4 = m.c4 AND l.c5 = m.c5 AND l.c6 = m.c6
        WHERE m.c2 = 'N' AND m.c4 IN ('30', '45') AND m.c3 IN ('A', 'D')
-       GROUP BY 1, 2, 3, 4, 5, 6
+       -- ⛔ ANTI-REPLICA: el almacen tiene que PERTENECER a la sucursal. Medido: la
+       -- sucursal 03 arrastra 220 cabeceras del almacen 02 (nov-2025 a ene-2026), el mismo
+       -- fenomeno que kdil ya documenta. Sin este filtro se atribuyen a 8ESQ documentos que
+       -- son de La Piedad. El LIKE conserva los SUB-ALMACENES legitimos (01-006 = Ruta 28).
+       AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
+       GROUP BY 1, 2, 3, 4, 5
     ),
     firma AS (
       -- CARGA INICIAL: la entrada replica la captura (mas menos una linea) y no hay faltante.
@@ -105,6 +115,11 @@ exports.up = async function up(knex) {
       LEFT JOIN catalog.products pr
         ON pr.tenant_id = w.tenant_id AND pr.sku = btrim(l.c8) AND pr.deleted_at IS NULL
      WHERE m.c2 = 'N' AND m.c4 = '30' AND m.c3 IN ('A', 'D')
+       -- ⛔ ANTI-REPLICA: el almacen tiene que PERTENECER a la sucursal. Medido: la
+       -- sucursal 03 arrastra 220 cabeceras del almacen 02 (nov-2025 a ene-2026), el mismo
+       -- fenomeno que kdil ya documenta. Sin este filtro se atribuyen a 8ESQ documentos que
+       -- son de La Piedad. El LIKE conserva los SUB-ALMACENES legitimos (01-006 = Ruta 28).
+       AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
        AND btrim(l.c8) <> ALL (ARRAY['00001', '00002', '00022'])
   `);
 
