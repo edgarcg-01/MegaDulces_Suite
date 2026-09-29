@@ -9,6 +9,57 @@
 ---
 
 ## [Unreleased]
+### Fixed — el ingreso publicado de agosto iba $77,131.36 alto, y el candado no lo iba a ver hasta el 1-nov (IG.0.3, 2026-09-29)
+Nace de auditar `/finanzas/ingresos` bajo ADR-059. El módulo está **bien construido**
+(derive-no-copy sobre `kepler_ods`, cero importers, árbitro registrado, prueba negativa que
+demuestra +45.6% sin el filtro de CEDIS) y el candado corría **18 ✓ / 0 ✗**.
+
+⛔ **El árbitro no se había podrido: tenía razón.** `analytics.sales_by_channel_monthly` lee el
+Kepler vivo del CEDIS (`md_00`) por LAN; el publicado deriva del ODS. Diff fila por fila:
+
+```
+2026-06  ODS  750 · ERP  750 · fantasma  0 ($0.00)       · pendiente  0
+2026-07  ODS 1227 · ERP 1227 · fantasma  0 ($0.00)       · pendiente  0
+2026-08  ODS 1345 · ERP 1341 · fantasma  4 ($77,131.36)  · pendiente  0   ⛔
+2026-09  ODS 1464 · ERP 1482 · fantasma 13 ($333,478.28) · pendiente 31 ($1,174,184.04)
+```
+
+**Agosto: 4 pólizas (25097, 25285, 25310, 25333) que el ERP ya no tiene y el ODS sí.** `pendiente 0`
+prueba que no se renumeraron: **se borraron**. Es el DELETE que el CDC no propaga (Fase OBS). Lo
+confirma el tiempo: la migración declaraba `ago +$77,131.36` el 25-sep y cuatro días después es **el
+mismo importe al centavo** — un desfase se cierra, éste no se movió.
+
+⭐ **Un delta tiene DOS mecánicas y son opuestas en qué hacer** (fantasma = el publicado va alto,
+propagar el DELETE · pendiente = nadie está mal, esperar). En el total se ven idénticas; sólo el
+diff fila por fila las separa. El candado imprimía un número y el lector no podía distinguirlas.
+
+⭐ **Y llegaba tarde.** `mesesCerrados()` salta el mes en curso **y el anterior** —con razón, ahí el
+delta del total mezcla las dos causas— pero eso dejaba un hueco nacido en septiembre invisible hasta
+el **1 de noviembre**, y los defectos nacen justo ahí. El diff sí puede afirmar sobre el mes
+anterior, porque distingue las causas: el bloque 6 cubre `mesesCerrados(2) + mes anterior + mes
+vivo`, afirma `fantasma = 0` y **nombra los folios**. Agosto salta hoy, no el 1-oct.
+
+⛔ **El encabezado del candado afirmaba algo falso**: que el árbitro lee «las réplicas por sucursal».
+El `MAP` del importer es UNA entrada (leer las 6 duplicaba ~$62M). Esa frase era la justificación
+escrita de que el árbitro no es un espejo (ADR-059 R5); la independencia real es **no pasar por el
+CDC**. Corregido.
+
+⚠️ El mes vivo se comparaba contra una **foto de edad desconocida**. Ahora se imprime
+(`2026-09-29 03:36 — 12.2 h`): sin eso, un Δ de millones se lee igual que uno de pesos.
+
+⚠️ El diff necesita LAN a `md_00` — desde dev reporta **NO MEDIDO**, nunca ✔ por vacuidad. Corre
+completo desde `prod-api` en `md`: **20 ✓ / 1 ✗ / 2 ⊘**. El ✗ es real y se deja rojo.
+
+⛔ **Cuatro hipótesis mías sobre Morelia Abastos, las cuatro falsas** (filtro `c14`, filtro
+`BAJA/CANCELADA`, asientos migrados a `md_30`, rezago global) — detalle en `VERDAD_ABSOLUTA.md`
+§9.16. Su "corte" de $3.4M era **desfase de una corrida**; el daño estaba en el mes que yo daba por
+sano. Y eran **dos hechos apilados**: su TLMKT sí paró el 17-sep (real, ambas fuentes coinciden) y
+su mostrador sólo estaba desfasado.
+
+Detalle en [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md) §15 · candado
+`database/tests/test-newdb-income-parity.js`.
+
+
 ### Fixed — el motor de PROMOS era ciego a Kepler, y pagaba sobre el 31.7% de la venta (VSO.18, 2026-09-29)
 Nace de un reporte: *"$6.00 por cliente distinto al que se le venda el 97191, todas las rutas, del
 11/08 al 11/09 — no funciona"*.

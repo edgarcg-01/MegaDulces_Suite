@@ -13,8 +13,24 @@
  *     sólo CEDIS + sólo UD1301 (lo correcto) ....... $55,940,323.96
  *
  * El árbitro es `analytics.sales_by_channel_monthly`, que llena `import-sales-by-channel.js`
- * leyendo las **réplicas por sucursal** — otra fuente y otro camino. Que los dos coincidan es lo
- * que prueba que la derivación es correcta.
+ * leyendo **el Kepler vivo del CEDIS (`md_00`) por LAN**: la MISMA contabilidad, por otro camino
+ * y **sin pasar por el CDC**. Que los dos coincidan prueba que la derivación es correcta; que NO
+ * coincidan dice de qué lado está el hueco.
+ *
+ * ⛔ Acá decía «leyendo las réplicas por sucursal» y es FALSO desde que el importer se acotó a
+ * CEDIS — su `MAP` es UNA sola entrada, porque leer las 6 duplicaba ~$62M. La independencia del
+ * árbitro nunca fue la sucursal: es no pasar por el CDC. Importa porque esa frase era la
+ * justificación escrita de por qué el árbitro no es un espejo (ADR-059 R5).
+ *
+ * ── LAS DOS MECÁNICAS QUE PRODUCEN UN DELTA, Y NO SON LA MISMA ───────────────────────────
+ * Medido fila por fila contra `md_00` el 2026-09-29 (bloque 6):
+ *   · **mes CERRADO, derivado > feed** → el ODS conserva filas que el ERP **ya no tiene**. Es el
+ *     DELETE que el CDC no propaga. ago-2026: **4 filas, $77,131.36** (pólizas 25097, 25285,
+ *     25310, 25333, todas `401-002`). Acá el equivocado es **el número PUBLICADO**, no el árbitro.
+ *   · **mes VIVO, cualquier signo** → desfase de lectura: el feed es una foto de las 03:35 y el
+ *     ODS va al minuto. Medido: los 10 asientos de «P.V. Morelia Abastos» del 19→28-sep estaban
+ *     en las DOS fuentes y sólo faltaban en la foto. Se cura en la corrida siguiente.
+ * Un delta que no dice cuál de las dos es se lee igual que «ya se arreglará».
  *
  * ── LOS TRES ESTADOS, NO DOS ─────────────────────────────────────────────────────────────
  * ADR-056: lo que no se puede medir se DECLARA.
@@ -23,6 +39,9 @@
  *     en momentos distintos (el ODS por CDC al minuto, el feed a las 03:35), así que un delta chico
  *     es sano. Medido 2026-09-25: ago **+$77,131.36** (el ODS va adelante) y sep **−$793,318.13**
  *     (el ODS va ATRÁS: le faltan renglones — es `AUD-ODS-01` del lado del ingreso).
+ *     ⭐ Al 2026-09-29 el de agosto sigue siendo **$77,131.36 exacto**: cuatro días sin moverse.
+ *     Un desfase se cierra solo; ése no — por eso el bloque 6 lo mira fila por fila en vez de
+ *     esperar a que el mes «cierre» y el candado se ponga rojo sin decir por qué.
  *   · **sin datos** → `NO MEDIDO`, nunca ✔ por vacuidad.
  *
  * ── Y LA PRUEBA NEGATIVA ─────────────────────────────────────────────────────────────────
@@ -54,6 +73,34 @@ function mesesCerrados(n = 6) {
   }
   return out.reverse();
 }
+
+/** La URL del Kepler vivo del CEDIS vive en UN solo lugar: el importer del árbitro. Acá se LEE de
+ *  ahí en vez de copiarla — una credencial duplicada es una credencial que se desincroniza, y este
+ *  archivo no tiene por qué saberla. `EXPENSES_BRANCH_MAP` (el mismo env del importer) gana. */
+function fuenteDelArbitro() {
+  try {
+    if (process.env.EXPENSES_BRANCH_MAP) {
+      const m = JSON.parse(process.env.EXPENSES_BRANCH_MAP).find((x) => x.code === '00');
+      if (m && m.url) return m.url;
+    }
+    const f = require('path').join(__dirname, '..', 'importers', 'kepler', 'import-sales-by-channel.js');
+    const m = require('fs').readFileSync(f, 'utf8').match(/url: '([^']+)'/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+// El MISMO alcance que aplica el importer, para que el diff compare peras con peras: si alguien
+// mueve el filtro de un lado y no del otro, lo que aparece no es un hueco, es el cambio.
+const WHERE_401 = `c3 LIKE '401%' AND COALESCE(c5,0) <> 0
+    AND (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) = 'UD1301'
+    AND (c14 IS NULL OR btrim(c14) = '' OR btrim(c14) = '00')`;
+// ⚠️ `c1` (el folio de póliza) es NUMERIC en el ODS: `btrim(c1)` revienta con «no existe la
+// función btrim(numeric)». Va a `::text` — y es la columna que hace identificable cada fila.
+const SELECT_401 = (sch, tbl) => `SELECT to_char(c2,'YYYY-MM-DD') f, btrim(c3) c3, btrim(c4) c4,
+    c5::numeric v, btrim(c6) c6, c1::text c1 FROM ${sch}.${tbl} WHERE ${WHERE_401}`;
+const claveFila = (r) => [r.f, r.c3, r.c4, Number(r.v).toFixed(2), r.c6, r.c1].join('|');
+const netoDe = (ks) => ks.reduce((t, k) => { const p = k.split('|'); return t + (p[2] === 'A' ? 1 : -1) * Number(p[3]); }, 0);
+const tablaDe = (ym) => `kdc2${ym.slice(2, 4)}${ym.slice(5, 7)}`;
 
 const ultimoDia = (ym) => {
   const [y, m] = ym.split('-').map(Number);
@@ -191,6 +238,17 @@ const ultimoDia = (ym) => {
   const [{ v: fv }] = (await knex.raw(
     `SELECT COALESCE(SUM(ventas),0)::numeric AS v FROM analytics.sales_by_channel_monthly WHERE tenant_id = ? AND anio_mes = ?`,
     [M, ymVivo])).rows;
+  // ⚠️ Esto compara contra una FOTO nocturna. Sin decir de cuándo es la foto, un Δ de millones se
+  // lee igual que uno de pesos. Medido 2026-09-29: la foto de las 03:36 no traía los 10 asientos
+  // de «P.V. Morelia Abastos» del 19→28-sep que el ERP sí tenía al mediodía — no faltaba dinero,
+  // faltaba una corrida.
+  const [edadFeed] = (await knex.raw(
+    `SELECT to_char(max(updated_at) AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS sello,
+            round((EXTRACT(EPOCH FROM (now() - max(updated_at))) / 3600.0)::numeric, 1) AS horas
+       FROM analytics.sales_by_channel_monthly WHERE tenant_id = ?`, [M])).rows;
+  console.log(`  · la foto del árbitro es de ${(edadFeed && edadFeed.sello) || '(nunca se escribió)'}` +
+    ` — ${edadFeed && edadFeed.horas !== null ? edadFeed.horas + ' h de antigüedad' : 'antigüedad sin medir'}`);
+
   const dLive = Number(dv) - Number(fv);
   console.log(`  · ${ymVivo}: derivado ${money(dv)} · feed ${money(fv)} · Δ ${money(dLive)}` +
     (dLive < 0 ? '  ⚠️ el ODS va ATRÁS del feed (síntoma de AUD-ODS-01)' : ''));
@@ -243,6 +301,74 @@ const ultimoDia = (ym) => {
       WHERE tenant_id = ? AND (fecha < ?::date OR fecha > ?::date)`,
     [`${ymRef}-01`, ultimoDia(ymRef), M, `${ymRef}-01`, ultimoDia(ymRef)])).rows[0].n;
   ok(fuera === 0, `ninguna fila fuera del rango pedido (${fuera})`);
+
+  // ── 6. ¿De qué LADO está el hueco? — fila por fila contra el ERP ─────────────────────────
+  // Un delta, solo, no dice nada: puede ser el ODS conservando filas que el ERP ya borró (defecto
+  // real, y significa que el número PUBLICADO va alto) o la foto nocturna sin los asientos de hoy
+  // (se cura sola). En el total se ven IDÉNTICOS y son opuestos en qué hacer. Sólo el diff fila
+  // por fila los separa, y para eso hay que alcanzar `md_00` por LAN: desde una máquina de dev
+  // normalmente NO se puede, y entonces esto se DECLARA — nunca se salta en silencio (ADR-056).
+  console.log('');
+  console.log('6) De qué lado está el hueco — diff fila por fila contra el Kepler vivo');
+  const srcUrl = fuenteDelArbitro();
+  let src = null;
+  if (!srcUrl) {
+    declarar('no se pudo resolver la URL del Kepler del CEDIS — diff NO MEDIDO');
+  } else {
+    try {
+      src = new (require('pg').Client)({ connectionString: srcUrl, statement_timeout: 120000 });
+      await src.connect();
+    } catch (e) {
+      src = null;
+      declarar('md_00 no es alcanzable desde acá — diff NO MEDIDO (' + String(e.message).slice(0, 70) + ')');
+    }
+  }
+  if (src) {
+    try {
+      // ⭐ El mes ANTERIOR es justo el que el bloque 1 NO puede afirmar —su delta mezcla desfase
+      // con defecto— y justo donde vive un daño recién nacido: con la ventana de 2 meses de
+      // `mesesCerrados()`, un hueco nacido en septiembre no se vería hasta el 1 de noviembre.
+      // El diff sí lo puede afirmar, porque separa las dos causas: lo PENDIENTE es tiempo, lo
+      // FANTASMA es un DELETE sin propagar. Por eso acá la ventana incluye el mes anterior.
+      const [anioV, mesV] = ymVivo.split('-').map(Number);
+      const prev = new Date(anioV, mesV - 2, 1);
+      const mesAnterior = prev.getFullYear() + '-' + String(prev.getMonth() + 1).padStart(2, '0');
+      const mesesDiff = [...new Set([...mesesCerrados(2), mesAnterior, ymVivo])];
+      for (const ym of mesesDiff) {
+        const tblYm = tablaDe(ym);
+        if (!(await knex.raw('SELECT to_regclass(?) AS t', ['kepler_ods.' + tblYm])).rows[0]?.t) {
+          declarar(ym + ': no existe kepler_ods.' + tblYm); continue;
+        }
+        let filasSrc;
+        try { filasSrc = (await src.query(SELECT_401('md', tblYm))).rows; }
+        catch (e) { declarar(ym + ': el ERP no devolvió md.' + tblYm + ' (' + String(e.message).slice(0, 60) + ')'); continue; }
+        const filasOds = (await knex.raw(SELECT_401('kepler_ods', tblYm))).rows;
+        const S = new Map(), O = new Map();
+        for (const r of filasSrc) { const k = claveFila(r); S.set(k, (S.get(k) || 0) + 1); }
+        for (const r of filasOds) { const k = claveFila(r); O.set(k, (O.get(k) || 0) + 1); }
+        // «fantasma» = el ODS la tiene y el ERP ya no. «pendiente» = al revés.
+        const fantasma = [...O].filter(([k, n]) => n > (S.get(k) || 0)).map(([k]) => k);
+        const pendiente = [...S].filter(([k, n]) => n > (O.get(k) || 0)).map(([k]) => k);
+        const detalle = ym + ': ODS ' + filasOds.length + ' filas · ERP ' + filasSrc.length
+          + ' · fantasma ' + fantasma.length + ' (' + money(netoDe(fantasma)) + ')'
+          + ' · pendiente ' + pendiente.length + ' (' + money(netoDe(pendiente)) + ')';
+        if (ym === ymVivo) {
+          console.log('  · ' + detalle);
+          console.log('    (mes vivo: lo PENDIENTE es el CDC al minuto y se cierra solo; lo FANTASMA no)');
+          declarar(ym + ': mes vivo — el diff se informa, no se afirma');
+        } else {
+          const folios = fantasma.slice(0, 8).map((k) => k.split('|')[5]).join(', ')
+            + (fantasma.length > 8 ? ' (+' + (fantasma.length - 8) + ')' : '');
+          ok(fantasma.length === 0, detalle + (fantasma.length
+            ? '  ⛔ el ODS conserva filas que el ERP YA NO tiene: es el DELETE que el CDC no propaga,'
+              + ' y significa que el número PUBLICADO va ALTO — el árbitro tiene razón.'
+              + ' Pólizas: ' + folios + '.'
+              + ' ⚠️ NO se arregla aflojando la tolerancia: se arregla propagando el DELETE.'
+            : ''));
+        }
+      }
+    } finally { await src.end().catch(() => {}); }
+  }
 
   console.log(`\n=== ${pass} ✓ / ${fail} ✗ / ${nomedido} ⊘ NO MEDIDO ===\n`);
   await knex.destroy();
