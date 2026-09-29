@@ -12,6 +12,74 @@ import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component'
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+
+/**
+ * `[GX.46]` `asignado` es una etapa **de esta pantalla**, no del contrato: el contrato decide
+ * el ciclo de un expediente NUESTRO, y un vale asignado todavia no lo es. Meterla alla habria
+ * obligado a `etapaDeEjercicio()` a contemplar un caso que nunca va a recibir.
+ */
+type EtapaLista = EtapaEjercicio | 'asignado';
+
+/**
+ * `[GX.47]` **Cuatro pestañas, no siete.** Pedido del usuario: «solo todos, en tramite,
+ * rechazados y por ejercer».
+ *
+ * Las etapas finas no desaparecen — siguen en el CHIP de cada renglón, que es donde importan
+ * («Autorizado en Kepler», «Sin medir», «Ejercido»). Lo que se agrupa es el FILTRO, porque
+ * siete pestañas para 26 renglones parten la lista en pedazos de dos y tres.
+ *
+ * El criterio del agrupado es **de qué lado está parado el vale**:
+ *   · `en_tramite` — todavía depende de nosotros (o de que suba la evidencia).
+ *   · `por_ejercer` — ya lo firmamos; espera a Kepler.
+ *   · `rechazada`  — se lo devolvieron.
+ *
+ * ⚠️ **Lo que se pierde, dicho:** `ejercido` y `cancelado_kepler` se quedan **sin pestaña
+ * propia** — se ven en «Todos», con su chip verde y su frase, pero no se pueden filtrar. Se
+ * decidió así porque «por ejercer» conteniendo lo ya ejercido sería un nombre que miente.
+ */
+type GrupoSeccion = 'todos' | 'en_tramite' | 'rechazada' | 'por_ejercer';
+
+const GRUPOS: readonly { id: GrupoSeccion; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: 'en_tramite', label: 'En trámite' },
+  { id: 'rechazada', label: 'Rechazados' },
+  { id: 'por_ejercer', label: 'Por ejercer' },
+];
+
+/**
+ * A qué pestaña cae cada etapa. `null` para las que no tienen pestaña: caen sólo en «Todos».
+ *
+ * ⛔ Devolver un grupo por defecto sería peor que devolver `null`: una etapa nueva se metería
+ * callada en una pestaña que no le corresponde, y el contador diría otra cosa que la lista.
+ */
+function grupoDe(e: EtapaLista | null): GrupoSeccion | null {
+  switch (e) {
+    case 'asignado': case 'en_captura': return 'en_tramite';
+    case 'rechazada': return 'rechazada';
+    case 'por_ejercer': case 'autorizado': case 'sin_medir': return 'por_ejercer';
+    default: return null;   // ejercido, cancelado_kepler, o sin etapa
+  }
+}
+
+/** Una fila de la lista, venga de Kepler o de un expediente nuestro. */
+interface FilaLista {
+  key: string;
+  folio: string;
+  sucursal: string | null;
+  fecha: string | null;
+  importe: number;
+  titulo: string | null;
+  detalle: string | null;
+  etapa: EtapaLista | null;
+  etapa_label: string;
+  etapa_explicacion: string;
+  status: string | null;
+  motivo_rechazo: string | null;
+  /** Sólo los asignados: si Kepler ya genero su gasto. */
+  aplicada: boolean | null;
+  /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
+  proof: ExpenseProof | null;
+}
 import { RouterLink } from '@angular/router';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 
@@ -58,55 +126,13 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       @else if (error()) { <div class="mg-err">{{ error() }}</div> }
       @else {
         <!--
-          [GX.41] Los vales que Kepler le asigno por la caja «Solicita». Van ARRIBA de todo
-          porque son lo unico de esta pantalla que le pide hacer algo: el resto es consulta.
-          No tienen expediente nuestro todavia -- se vuelven uno cuando les sube la evidencia.
+          [GX.46] Aca vivia el cuadro naranja con los vales asignados, y se retiro por pedido
+          del usuario: «todo el cuadro naranja ya que abajo salen los vales».
+          ⛔ NO se borraron los vales: se MUDARON a la lista de abajo, como una fila mas con
+          su propia etapa. Borrarlos a secas los habria dejado sin ninguna pantalla -- con
+          «Levantamiento de gasto» fuera del menu (GX.42), ese boton es el unico camino para
+          subirle evidencia a un vale.
         -->
-        @if (asignados().length) {
-          <section class="mg-asig">
-            <!--
-              [GX.45] El titulo «Te tocan a vos» se retiro por pedido del usuario. La frase de
-              abajo ya dice lo mismo y con mas precision (quien los levanto y que falta), asi
-              que el titulo era un renglon que repetia. El contador se mueve a la frase.
-            -->
-            <p class="mg-asig-sub">
-              <i class="pi pi-inbox" aria-hidden="true"></i>
-              <strong>{{ asignados().length }}</strong>
-              {{ asignados().length === 1 ? 'vale levantado' : 'vales levantados' }} a tu nombre en Kepler.
-              Falta que les subas la evidencia.
-            </p>
-            @for (v of asignados(); track v.sucursal + v.folio) {
-              <article class="mg-asig-it">
-                <div class="mg-it-head">
-                  <span class="mg-folio">{{ v.folio }}</span>
-                  <span class="mg-faint">suc {{ v.sucursal }}</span>
-                  @if (v.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
-                  <span class="mg-grow"></span>
-                  <span class="mg-imp">{{ money(v.importe) }}</span>
-                </div>
-                <div class="mg-it-con">{{ v.destinatario || '—' }}</div>
-                <div class="mg-it-meta">
-                  <span>{{ diaLocal(v.fecha) | date: 'dd/MM/yy' }}</span>
-                  @if (v.concepto) { <span>·</span><span>{{ v.concepto }}</span> }
-                </div>
-                <!--
-                  [GX.42] Apunta a /finanzas/gastos, que es la ruta REAL.
-                  /finanzas/capturar-gasto es un redirect con redirectTo en forma de string, y
-                  sus vecinos de app.routes.ts usan la forma con funcion JUSTO para conservar
-                  los query params -- o sea que por el redirect el folio y la sucursal se
-                  perdian y la captura abria vacia.
-                  Sin acentos graves aca: dentro de un template literal CIERRAN el literal y
-                  rompen el build. Es la quinta vez que pasa en este repo.
-                -->
-                <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
-                   [queryParams]="{ folio: v.folio, sucursal: v.sucursal }">
-                  <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir evidencia
-                </a>
-              </article>
-            }
-          </section>
-        }
-
         <!-- La respuesta a «¿en qué quedaron?», arriba y sin tener que contar renglones. -->
         <div class="mg-kpis">
           <div class="mg-kpi">
@@ -182,40 +208,63 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           </div>
         } @else {
           <section class="mg-lista">
-            @for (p of visibles(); track p.id) {
-              <article class="mg-item" role="button" tabindex="0"
-                       [attr.aria-label]="'Ver el vale ' + (p.folio_solicitud || 'sin folio')"
-                       (click)="abrir(p)" (keydown.enter)="abrir(p)"
-                       (keydown.space)="abrir(p); $event.preventDefault()">
+            @for (p of visibles(); track p.key) {
+              <!--
+                [GX.46] UNA sola lista. El vale que Kepler asigno y el expediente nuestro se
+                pintan igual; lo unico que cambia es que el primero todavia no se puede abrir
+                (no hay expediente que mostrar) y en su lugar ofrece subir la evidencia.
+              -->
+              <article class="mg-item" [class.pend]="p.etapa === 'asignado'"
+                       [attr.role]="p.proof ? 'button' : null" [attr.tabindex]="p.proof ? 0 : null"
+                       [attr.aria-label]="p.proof ? ('Ver el vale ' + p.folio) : null"
+                       (click)="p.proof && abrir(p.proof)"
+                       (keydown.enter)="p.proof && abrir(p.proof)"
+                       (keydown.space)="p.proof && abrir(p.proof); p.proof && $event.preventDefault()">
                 <div class="mg-it-head">
-                  <span class="mg-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
+                  <span class="mg-folio">{{ p.folio || 'sin folio' }}</span>
                   @if (p.sucursal) { <span class="mg-faint">suc {{ p.sucursal }}</span> }
                   <span class="mg-grow"></span>
                   <span class="mg-imp">{{ money(p.importe) }}</span>
                 </div>
-                <div class="mg-it-con">{{ p.proveedor || '—' }}</div>
+                <div class="mg-it-con">{{ p.titulo || '—' }}</div>
                 <div class="mg-it-meta">
-                  <span>{{ diaLocal(p.fecha_gasto) | date: 'dd/MM/yy' }}</span>
-                  @if (p.clasificacion) { <span>·</span><span>{{ tipoGasto(p.clasificacion) }}</span> }
+                  <span>{{ diaLocal(p.fecha) | date: 'dd/MM/yy' }}</span>
+                  @if (p.detalle) { <span>·</span><span>{{ p.detalle }}</span> }
                 </div>
                 <div class="mg-it-chips">
-                  <span class="mg-chip" [class.ok]="p.status === 'validada'"
-                        [class.warn]="p.status === 'revision' || p.status === 'aprobada'"
-                        [class.bad]="p.status === 'rechazada'">{{ estado(p.status) }}</span>
-                  @if (p.status === 'aprobada') {
-                    <span class="mg-chip warn">te toca subir la evidencia</span>
+                  @if (p.etapa === 'asignado') {
+                    <span class="mg-chip warn">{{ p.etapa_label }}</span>
+                    @if (p.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
+                  } @else {
+                    <span class="mg-chip" [class.ok]="p.status === 'validada'"
+                          [class.warn]="p.status === 'revision' || p.status === 'aprobada'"
+                          [class.bad]="p.status === 'rechazada'">{{ estado(p.status) }}</span>
+                    @if (p.status === 'aprobada') {
+                      <span class="mg-chip warn">te toca subir la evidencia</span>
+                    }
                   }
                   <!--
                     [GX.39] La etapa de EJERCICIO. Sólo tiene algo que decir cuando nuestro
                     tramite ya cerro: antes de eso el chip de estado ya lo dice todo, y dos
                     chips diciendo lo mismo con distintas palabras confunden.
                   -->
-                  @if (p.etapa && p.etapa !== 'en_captura' && p.etapa !== 'rechazada') {
+                  @if (p.etapa && p.etapa !== 'en_captura' && p.etapa !== 'rechazada' && p.etapa !== 'asignado') {
                     <span class="mg-chip" [class.ok]="p.etapa === 'ejercido' || p.etapa === 'autorizado'"
                           [class.warn]="p.etapa === 'por_ejercer'"
                           [class.faint]="p.etapa === 'sin_medir'">{{ p.etapa_label }}</span>
                   }
                 </div>
+                <!--
+                  [GX.46] El vale que Kepler asigno todavia no tiene expediente: en vez de
+                  abrirse, ofrece el camino para crearlo. Va a /finanzas/gastos (la ruta REAL)
+                  con el folio y la sucursal; el redirect /finanzas/capturar-gasto los perdia.
+                -->
+                @if (p.etapa === 'asignado') {
+                  <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
+                     [queryParams]="{ folio: p.folio, sucursal: p.sucursal }">
+                    <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir evidencia
+                  </a>
+                }
                 <!-- El motivo del rechazo va COMPLETO: es lo que hay que corregir. -->
                 @if (p.motivo_rechazo) { <div class="mg-it-nota bad">Te lo devolvieron: {{ p.motivo_rechazo }}</div> }
                 <!-- ⭐ La frase textual del pedido: «su gasto se aprobó y se ejerció». -->
@@ -330,7 +379,7 @@ export class FinanzasMisGastosComponent {
    * es un filtro del servidor (sale de cruzar con Kepler, no es una columna), asi que pedirla
    * como parametro obligaria a cruzar el universo entero para devolver 20 filas.
    */
-  readonly seccion = signal<'todos' | EtapaEjercicio>('todos');
+  readonly seccion = signal<GrupoSeccion>('todos');
 
   /**
    * ⛔ **Sin una sola etapa resuelta, la barra NO se pinta.** Lo encontro su propia prueba:
@@ -339,7 +388,38 @@ export class FinanzasMisGastosComponent {
    * que medimos y dio cero, cuando no medimos nada. Es el mismo defecto que la fase existe
    * para arreglar, cometido en la pantalla que lo arregla (ADR-056).
    */
-  readonly hayEtapas = computed(() => this.filas().some((p) => !!p.etapa));
+  readonly hayEtapas = computed(() => this.unificadas().some((p) => !!p.etapa));
+
+  /**
+   * `[GX.46]` **UNA sola lista.** El vale que Kepler asigno y el expediente nuestro se
+   * muestran juntos, porque para la persona son la misma cosa en momentos distintos: uno
+   * espera que le suba la evidencia, el otro ya la tiene.
+   *
+   * ⛔ Los asignados van PRIMERO y no es un capricho de orden: son los unicos de la pantalla
+   * que piden hacer algo. El resto es consulta.
+   *
+   * ⚠️ `proof` en `null` marca al que **no tiene expediente**: no se puede abrir (no hay nada
+   * que mostrar) y en su lugar ofrece el boton para crearlo. Sin esa distincion, el click
+   * abriria un visor vacio.
+   */
+  readonly unificadas = computed<FilaLista[]>(() => [
+    ...this.asignados().map((v): FilaLista => ({
+      key: `k:${v.sucursal}:${v.folio}`,
+      folio: v.folio, sucursal: v.sucursal, fecha: v.fecha, importe: v.importe,
+      titulo: v.destinatario, detalle: v.concepto,
+      etapa: 'asignado', etapa_label: 'Falta tu evidencia',
+      etapa_explicacion: 'Lo levantaron a tu nombre en Kepler. Falta que le subas la evidencia.',
+      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
+    })),
+    ...this.filas().map((p): FilaLista => ({
+      key: `p:${p.id}`,
+      folio: p.folio_solicitud, sucursal: p.sucursal, fecha: p.fecha_gasto, importe: p.importe,
+      titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
+      etapa: p.etapa ?? null, etapa_label: p.etapa_label ?? '',
+      etapa_explicacion: p.etapa_explicacion ?? '',
+      status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,
+    })),
+  ]);
 
   /**
    * `[GX.41]` Los vales que Kepler le asigno. Salen del SERVIDOR ya recortados por su
@@ -350,30 +430,22 @@ export class FinanzasMisGastosComponent {
 
   /** ⚠️ Las etapas de CIERRE se agrupan bajo «Por ejercer»/«Ejercido»; el resto es «en tramite». */
   readonly secciones = computed(() => {
-    const f = this.filas();
+    const f = this.unificadas();
     if (!this.hayEtapas()) return [];
-    const n = (e: EtapaEjercicio) => f.filter((p) => p.etapa === e).length;
-    return ([
-      { id: 'todos' as const, label: 'Todos', n: f.length },
-      { id: 'en_captura' as const, label: 'En trámite', n: n('en_captura') },
-      { id: 'por_ejercer' as const, label: 'Por autorizar', n: n('por_ejercer') },
-      // `[GX.43]` La `A` de «Autorizacion de Sol Gasto» en Kepler: autorizado, falta el dinero.
-      { id: 'autorizado' as const, label: 'Autorizado', n: n('autorizado') },
-      { id: 'ejercido' as const, label: 'Ejercido', n: n('ejercido') },
-      // ⛔ «Sin medir» SOLO aparece si hay alguno. Una pestana permanente en 0 ensena a
-      // ignorarla, y el dia que tenga algo nadie la mira.
-      ...(n('sin_medir') ? [{ id: 'sin_medir' as const, label: 'Sin medir', n: n('sin_medir') }] : []),
-      ...(n('cancelado_kepler') ? [{ id: 'cancelado_kepler' as const, label: 'Cancelado en Kepler', n: n('cancelado_kepler') }] : []),
-    ]);
+    const n = (g: GrupoSeccion) => f.filter((p) => grupoDe(p.etapa) === g).length;
+    return GRUPOS.map((g) => ({ id: g.id, label: g.label, n: g.id === 'todos' ? f.length : n(g.id) }));
   });
 
   readonly visibles = computed(() => {
     const s = this.seccion();
-    return s === 'todos' ? this.filas() : this.filas().filter((p) => p.etapa === s);
+    return s === 'todos' ? this.unificadas() : this.unificadas().filter((p) => grupoDe(p.etapa) === s);
   });
 
   readonly etiquetaSeccion = computed(() =>
     this.secciones().find((s) => s.id === this.seccion())?.label ?? '');
+
+  /** `[GX.47]` Lo que NO entra en ninguna pestaña, para poder decirlo en vez de esconderlo. */
+  readonly fueraDePestanas = computed(() => this.unificadas().filter((p) => grupoDe(p.etapa) === null).length);
 
   /** La frase larga de la etapa abierta. Sale de la primera fila: el texto es el mismo para todas. */
   readonly explicacionSeccion = computed(() => this.visibles()[0]?.etapa_explicacion ?? '');
@@ -414,7 +486,10 @@ export class FinanzasMisGastosComponent {
    * palabras que ve quien aprueba: a él «aprobada» le dice que ya firmó; a quien capturó le
    * dice que todavía le toca hacer algo.
    */
-  estado(s: string): string {
+  // `[GX.46]` Acepta `null`: en la lista unificada, el vale que Kepler asigno no tiene
+  // `status` nuestro -- no existe de este lado todavia.
+  estado(s: string | null): string {
+    if (!s) return '';
     return ({
       recibida: 'Esperando firma',
       aprobada: 'Aprobado',
