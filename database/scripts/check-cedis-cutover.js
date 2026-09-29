@@ -62,7 +62,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
     // ⚠️ El join lleva `c1` (el ALMACÉN): el folio no es único entre almacenes de la misma
     // sucursal y sin esa columna las líneas se duplican (FASE_IC §1.9).
     const cargas = await q(
-      `SELECT m.c6 AS folio, to_char(m.c9,'YYYY-MM-DD') AS fecha, m.c4 AS doctype,
+      `SELECT m.c1 AS almacen, m.c6 AS folio, to_char(m.c9,'YYYY-MM-DD') AS fecha, m.c4 AS doctype,
               count(l.*)::int AS lineas,
               round(sum(l.c13::numeric),2) AS pesos,
               round(sum(l.c9::numeric),2) AS unidades
@@ -70,7 +70,11 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
          JOIN kepler_ods.kdm2 l
            ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
           AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
-        WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
+        -- NO se fija el almacen a c1 = sucursal: la carga puede caer en un SUB-ALMACEN y
+        -- quedar invisible. Paso de verdad -- la unica carga de Padre Hidalgo esta en el
+        -- almacen 01-006 (la Ruta 28), no en 01, y con el filtro fijo el script decia que
+        -- no habia carga sobre una sucursal que si cargo (mal, pero cargo).
+        WHERE m.sucursal=$1 AND m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
           -- Una fecha explicita REEMPLAZA la ventana, no se le suma: con el AND de los 30
           -- dias, pedir la carga de una sucursal vieja (06, el 2026-08-14) devolvia cero y
           -- el script decia "la carga no ocurrio" sobre una migracion que si ocurrio.
@@ -85,7 +89,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
           -- (Sin acentos ni backticks: esto vive dentro de un template literal.)
           AND ($2::date IS NOT NULL OR (m.c9 >= current_date - 30 AND m.c9 <= current_date))
           AND ($2::date IS NULL OR m.c9::date BETWEEN $2::date - 3 AND $2::date + 1)
-        GROUP BY 1,2,3 ORDER BY 2, 3`,
+        GROUP BY 1,2,3,4 ORDER BY 3, 1, 4`,
       [KEP_SUC, FECHA]);
 
     if (!cargas.length) {
@@ -122,27 +126,41 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
                 round(max(d.pesos) FILTER (WHERE d.doctype='45'),2) AS cap_pesos,
                 max(d.lineas) FILTER (WHERE d.doctype='30') AS ent_lineas,
                 EXISTS (SELECT 1 FROM commercial.warehouses w
-                         WHERE w.kepler_code = d.sucursal AND w.deleted_at IS NULL) AS ya_mapeada
-           FROM docs d GROUP BY 1,2,3 ORDER BY 3 DESC, 1, 2 LIMIT 25`, []);
+                         WHERE w.kepler_code = d.sucursal AND w.deleted_at IS NULL) AS ya_mapeada,
+                EXISTS (SELECT 1 FROM commercial.warehouses w
+                         WHERE w.kepler_code = d.sucursal AND w.code = $1
+                           AND w.deleted_at IS NULL) AS es_el_cedis
+           FROM docs d GROUP BY 1,2,3 ORDER BY 3 DESC, 1, 2 LIMIT 25`, [CEDIS_CODE]);
 
-      const candidatas = otras.filter((o) => !o.ya_mapeada);
+      // ⚠️ El criterio NO es "está mapeada" sino "está mapeada a un almacén que NO es el
+      // CEDIS". Una sucursal mapeada a OTRO warehouse ya tiene dueño y no puede ser el CEDIS
+      // entrando; pero si alguien mapeara el CEDIS a un código nuevo antes de la carga, el
+      // filtro ingenuo la descartaría justo por haber hecho bien el paso 3 del checklist.
+      const candidatas = otras.filter((o) => !o.ya_mapeada || o.es_el_cedis);
       // Firma de carga inicial: la entrada replica la captura (±1 línea).
       const marca = (o) => (o.cap_lineas && o.ent_lineas
         && Math.abs(o.cap_lineas - o.ent_lineas) <= 1) ? 'CARGA INICIAL' : 'conteo';
 
+      // Se lista el detalle SOLO si hay algo que revisar. Imprimir cuatro conteos
+      // trimestrales ajenos todos los días, para terminar diciendo que ninguno importa, es
+      // hacerle leer al humano lo que el script ya decidió.
       if (!otras.length) {
         console.log('   ✔ no hay cargas ni conteos en ninguna sucursal en 15 días.');
+      } else if (!candidatas.length) {
+        const cargas = otras.filter((o) => marca(o) === 'CARGA INICIAL').length;
+        console.log(`   revisadas ${otras.length} (${cargas} con firma de carga, ${otras.length - cargas} conteos)`
+          + ' — todas en sucursales que ya tienen dueño.');
       } else {
-        console.log('   suc almacén  fecha        captura      entrada  tipo           ¿candidata?');
+        console.log('   suc  almacén   fecha       captura  entrada  tipo           veredicto');
         for (const o of otras) {
           const tipo = marca(o);
-          const cand = o.ya_mapeada
-            ? `no — ya es ${o.sucursal}`
-            : (tipo === 'CARGA INICIAL' ? '⛔ SÍ — revisar' : 'no — es un conteo');
-          console.log(`   ${String(o.sucursal).padEnd(3)} ${String(o.almacen).padEnd(8)}`
-            + ` ${o.fecha}  ${String(num(o.cap_lineas || 0)).padStart(7)} líns`
-            + ` ${String(num(o.ent_lineas || 0)).padStart(7)} líns`
-            + `  ${tipo.padEnd(13)} ${cand}`);
+          const cand = (!o.ya_mapeada || o.es_el_cedis)
+            ? (tipo === 'CARGA INICIAL' ? '⛔ REVISAR' : 'no — es un conteo')
+            : `no — ya es de ${o.sucursal}`;
+          console.log(`   ${String(o.sucursal).padEnd(4)} ${String(o.almacen).padEnd(9)}`
+            + ` ${o.fecha}  ${String(num(o.cap_lineas || 0)).padStart(7)}`
+            + ` ${String(num(o.ent_lineas || 0)).padStart(8)}`
+            + `  ${tipo.padEnd(14)} ${cand}`);
         }
       }
 
@@ -174,7 +192,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
 
     console.log('── Documentos encontrados ──');
     for (const c of cargas) {
-      console.log(`   ${c.fecha}  N-A-${c.doctype} folio ${c.folio}`
+      console.log(`   ${c.fecha}  almacén ${String(c.almacen).padEnd(8)} N-A-${c.doctype} folio ${c.folio}`
         + `  ${num(c.lineas)} líneas · ${money(c.pesos)} · ${num(c.unidades)} u`);
     }
 
@@ -186,19 +204,26 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
     // El número no estaba mal: estaba midiendo OTRA COSA y no lo decía.
     // Se identifica por FIRMA, no por fecha: en una carga inicial la entrada replica la
     // captura (±1 línea) porque no hay teórico previo contra el cual descuadrar.
-    const porFecha = new Map();
+    // La clave es (almacén, fecha) — el eje almacén es parte de la identidad del documento.
+    const porDoc = new Map();
     for (const c of cargas) {
-      if (!porFecha.has(c.fecha)) porFecha.set(c.fecha, {});
-      porFecha.get(c.fecha)[c.doctype] = c;
+      const k = `${c.fecha}|${c.almacen}`;
+      if (!porDoc.has(k)) porDoc.set(k, {});
+      porDoc.get(k)[c.doctype] = c;
     }
-    let cap = null, ent = null, esCargaInicial = false, fechaElegida = null;
-    for (const [f, par] of [...porFecha.entries()].sort().reverse()) {
+    let cap = null, ent = null, esCargaInicial = false, fechaElegida = null, almElegido = null;
+    for (const [k, par] of [...porDoc.entries()].sort().reverse()) {
       const firma = par['45'] && par['30'] && Math.abs(par['45'].lineas - par['30'].lineas) <= 1;
-      if (firma) { cap = par['45']; ent = par['30']; esCargaInicial = true; fechaElegida = f; break; }
+      if (firma) {
+        cap = par['45']; ent = par['30']; esCargaInicial = true;
+        [fechaElegida, almElegido] = k.split('|');
+        break;
+      }
     }
-    if (!cap) {  // no hay carga inicial en la ventana: se usa lo más reciente, DECLARÁNDOLO
-      const [f, par] = [...porFecha.entries()].sort().reverse()[0];
-      cap = par['45'] || null; ent = par['30'] || null; fechaElegida = f;
+    if (!cap) {  // no hay carga inicial: se usa lo más reciente, DECLARÁNDOLO
+      const [k, par] = [...porDoc.entries()].sort().reverse()[0];
+      cap = par['45'] || null; ent = par['30'] || null;
+      [fechaElegida, almElegido] = k.split('|');
     }
 
     console.log(`\n   → documento analizado: ${fechaElegida}`);
@@ -246,6 +271,32 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
         console.log(`   ⛔ PESOS descuadran ${pctPes.toFixed(2)}% (Δ ${money(dPes)})`
           + ' — demasiado para ser redondeo; revisar costos de la carga');
       }
+
+      // ⛔ DIMENSIONAMIENTO — lo que la consistencia interna NO puede ver.
+      // Un documento puede cuadrar consigo mismo y estar mal dimensionado: la carga de la
+      // ruta 01-006 de Padre Hidalgo trae 324 líneas y cuadra PERFECTO (captura 324 ==
+      // entrada 324, Δ $0), mientras Wincaja `10` tenía 2,963 SKUs con existencia. Cuadrar
+      // consigo mismo no dice nada sobre el alcance. (Encontrado por [AUD-DAT.11].)
+      const [orig] = await q(
+        `SELECT count(*)::int AS skus FROM wincaja.v_stock
+          WHERE source_branch=$1 AND existencia > 0 AND in_kepler_catalog`, [WIN_BRANCH]);
+      if (Number(orig.skus) > 0) {
+        const cob = 100 * cap.lineas / Number(orig.skus);
+        console.log(`   dimensionamiento      : ${num(cap.lineas)} líneas cargadas`
+          + ` contra ${num(orig.skus)} SKUs con existencia en Wincaja ${WIN_BRANCH}`
+          + ` (${cob.toFixed(0)}%)`);
+        if (cob < 70) {
+          alarmas++;
+          console.log('   ⛔ ALARMA: la carga es MUCHO más chica que el inventario de origen.');
+          console.log('      Cuadra consigo misma pero deja fuera la mayor parte del almacén.');
+          console.log('      Es lo que le pasó a Padre Hidalgo: cargó una ruta y no el almacén.');
+        } else {
+          console.log('   ✔ el tamaño de la carga es del orden del inventario de origen');
+        }
+      } else {
+        console.log(`   ⚠️ NO MEDIDO el dimensionamiento: Wincaja ${WIN_BRANCH} no tiene SKUs`
+          + ' con existencia contra los cuales comparar');
+      }
     } else {
       console.log(`   ⚠️  NO MEDIDO: falta ${cap ? 'la entrada N-A-30' : 'la captura N-A-45'}.`);
     }
@@ -289,7 +340,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
            JOIN kepler_ods.kdm2 l
              ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
             AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
-          WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4='45'
+          WHERE m.sucursal=$1 AND m.c1=$4 AND m.c2='N' AND m.c3='A' AND m.c4='45'
             AND m.c9::date = $3::date)
        SELECT count(*) FILTER (WHERE w.sku IN (SELECT sku FROM carga))::int AS cargados,
               count(*) FILTER (WHERE w.sku NOT IN (SELECT sku FROM carga))::int AS faltan,
@@ -297,11 +348,30 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
               round(sum(w.valor_inventario),2) AS pesos_total
          FROM wincaja.v_stock w
         WHERE w.source_branch=$2 AND w.existencia > 0 AND w.in_kepler_catalog`,
-      [KEP_SUC, WIN_BRANCH, fechaElegida]);
+      [KEP_SUC, WIN_BRANCH, fechaElegida, almElegido]);
 
     const pct = Number(cob.pesos_total) > 0 ? (100 * Number(cob.pesos_faltan) / Number(cob.pesos_total)) : 0;
     console.log(`   cargados ${num(cob.cargados)}  ·  NO llegaron ${num(cob.faltan)}`
       + `  ·  ${money(cob.pesos_faltan)} de ${money(cob.pesos_total)} (${pct.toFixed(1)}%)`);
+
+    // ⚠️ La existencia de Wincaja es la foto de HOY de una réplica congelada, no la del día
+    // de la carga. Cuanto más vieja la carga, menos vale la comparación: para una migración
+    // reciente es casi exacta; a tres meses ya hay otra historia en el medio. Se DECLARA en
+    // vez de dejar que el % se lea con la misma confianza en los dos casos. ([AUD-DAT.11])
+    const [fw] = await q(
+      `SELECT to_char(max(fecha),'YYYY-MM-DD') AS ultimo,
+              (current_date - max(fecha)::date) AS dias
+         FROM wincaja.maestro_mov_almacen
+        WHERE source_branch=$1 AND fecha <= current_date`, [WIN_BRANCH]);
+    if (fw && fw.ultimo) {
+      const desfase = Math.abs(Math.round((new Date(fw.ultimo) - new Date(fechaElegida)) / 86400000));
+      console.log(`   ⓘ la foto de Wincaja ${WIN_BRANCH} es del ${fw.ultimo}`
+        + ` y la carga del ${fechaElegida} → ${desfase} día(s) de desfase`);
+      if (desfase > 21) {
+        console.log('     ⚠️ desfase grande: este % es ORIENTATIVO, no cobertura exacta de la');
+        console.log('        migración — entre una fecha y otra hubo movimientos reales.');
+      }
+    }
     if (Number(cob.faltan) > 0) {
       alarmas++;
       console.log('   ⛔ Hay SKUs con existencia en Wincaja, presentes en el catálogo de Kepler,');
