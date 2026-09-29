@@ -141,6 +141,36 @@ const t = (name, cond, extra) => {
         `SELECT 1 FROM analytics.v_branch_erp_cutover WHERE tenant_id=? AND wincaja_source_branch=?`,
         [TENANT, BRANCH])).rows.length === 0);
 
+    // ── 4c. `warehouse_code` NO resuelve: la columna sana es `kepler_code` ─────
+    // Reportado por la sesión de [AUD-DAT.11] y verificado acá: `v_branch_erp_cutover`
+    // .warehouse_code mezcla dos convenciones — las migraciones recientes (30→'08', 32→'07')
+    // guardan el código Kepler, y las viejas guardan el nombre Wincaja ('MD-10', 'MD-42'…),
+    // que NO existe como `code` en `commercial.warehouses`. Un INNER JOIN por esa columna da
+    // CERO en silencio para la mayoría de las plazas.
+    // ⛔ Y al CEDIS le toca la convención vieja: su `warehouse_code` es 'MD-00' mientras que
+    //    su almacén real es `code='00'`. El día que entre a la vista, unir por ahí da cero.
+    const conv = (await db.raw(
+      `SELECT count(*)::int total,
+              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM commercial.warehouses w
+                 WHERE w.code = v.warehouse_code AND w.deleted_at IS NULL))::int por_warehouse_code,
+              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM commercial.warehouses w
+                 WHERE w.kepler_code = v.kepler_code AND w.deleted_at IS NULL))::int por_kepler_code
+         FROM analytics.v_branch_erp_cutover v WHERE v.tenant_id = ?`, [TENANT])).rows[0];
+
+    t('`kepler_code` resuelve contra commercial.warehouses en TODAS las ramas (es la columna sana)',
+      conv.por_kepler_code === conv.total, JSON.stringify(conv));
+    t('PRUEBA de la incoherencia: `warehouse_code` NO resuelve en todas — unir por ahí da cero mudo',
+      conv.por_warehouse_code < conv.total,
+      `resuelven ${conv.por_warehouse_code}/${conv.total} — si esto se empareja, alguien normalizó la vista y hay que revisar este bloque`);
+    console.log(`     convención de warehouse_code: resuelve ${conv.por_warehouse_code}/${conv.total};`
+      + ` kepler_code resuelve ${conv.por_kepler_code}/${conv.total}`);
+
+    const cedisWc = (await db.raw(
+      `SELECT warehouse_code FROM wincaja.branches WHERE source_branch = ?`, [BRANCH])).rows[0];
+    t('el CEDIS trae la convención VIEJA (warehouse_code ≠ su code real) — no unir por ahí el 30',
+      cedisWc && cedisWc.warehouse_code === 'MD-00',
+      `warehouse_code=${cedisWc && cedisWc.warehouse_code} vs code real '${CEDIS_CODE}'`);
+
     // ── 5. Almacén inexistente ────────────────────────────────────────────────
     const sinWh = await checkCedisSource(db, { tenant: TENANT, cedisCode: '__NO_EXISTE__', wincajaBranch: BRANCH });
     t('PRUEBA NEGATIVA: almacén inexistente cierra con warehouse_missing',
