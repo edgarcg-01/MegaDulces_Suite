@@ -109,6 +109,24 @@ async function limpiar() {
   }
 
   console.log(`\n[GX.41] datos de prueba · usuario «${USUARIO}» · folios ${PREFIJO}xx\n`);
+
+  /**
+   * ⚠️ **Sin almacenamiento, «Subir evidencia» falla.** El vale aparece y el botón lleva a la
+   * captura, pero al adjuntar el archivo el backend contesta «Almacenamiento no configurado».
+   * Es el bloqueo que deja la prueba a la mitad, así que se avisa acá y no cuando la persona
+   * ya perdió el rato llenando el formulario.
+   */
+  const faltaS3 = ['S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']
+    .filter((k) => !String(process.env[k] || '').trim());
+  if (faltaS3.length) {
+    console.log(`  ⚠️ FALTA ALMACENAMIENTO (${faltaS3.join(', ')}): se va a VER el vale, pero NO se le podrá subir la evidencia.`);
+    console.log('     Un servidor S3 local, si hace falta:');
+    console.log('       docker run -d --name tm-s3 -p 8333:8333 chrislusf/seaweedfs:latest' + String.fromCharCode(92));
+    console.log('         server -dir=/data -s3 -s3.port=8333 -master.volumeSizeLimitMB=512');
+    console.log('     (desde Git Bash, con MSYS_NO_PATHCONV=1 adelante: si no, convierte /data a una ruta de Windows)');
+    console.log('     y en .env:  S3_ENDPOINT=http://localhost:8333  S3_BUCKET=tm-local  S3_REGION=auto');
+    console.log('                 S3_ACCESS_KEY_ID=tmlocal  S3_SECRET_ACCESS_KEY=tmlocal12345');
+  }
   await limpiar();
   if (SOLO_LIMPIAR) { console.log('\n✅ sólo limpieza, nada sembrado\n'); await knex.destroy(); return; }
 
