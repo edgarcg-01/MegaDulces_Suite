@@ -6631,8 +6631,13 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   TRIFUEGO 97191, participan todas las rutas, del 11/08 al 11/09 — no funciona"*.
   **Su promo NO fallaba: no tenía base.** La última venta de RUTA del `97191` fue el **2025-09-24**,
   once meses antes de la ventana; en 11-ago→11-sep vendió en mayoreo, crédito y mostrador y **cero
-  en ruta**. El motor acierta; lo que falta es que la pantalla lo DIGA («ese producto no se vendió
-  por ruta en ese periodo») en vez de devolver un vacío que se lee como falla.
+  en ruta**. El motor acierta.
+  ⛔ **CORRECCIÓN MÍA (`[VSO.19]`, con captura a la vista):** escribí acá, en el CHANGELOG y en el
+  commit que *"falta que la pantalla lo diga"*. **Es falso: la pantalla YA lo decía** — «Sin ventas
+  del producto en ruta para el periodo» — y además el parseo de la IA acertó en todo (SKU resuelto,
+  `RD / reparto` leído de «todas las rutas», `$6.00 / clientes (≥1 paq)`, fechas exactas). El
+  sistema acertó de punta a punta; el que describió mal fue yo. **Afirmé una carencia de UI sin
+  haber abierto la UI** — exactamente el error que esta fase persigue: opinar sin medir.
   ⛔ **Pero buscándolo apareció algo mucho más grande.** `analytics.v_seller_sales_lines` —el
   universo con el que se CALCULA Y SE PAGA un incentivo— leía `wincaja.v_sales_lines` +
   `route_push_lines` y **de `kepler_ods` no leía nada**. No estaba mal cuando se escribió: entonces
@@ -6670,6 +6675,27 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   coincidan al peso. Una copia medida no es una copia suelta.
   ⚠️ **Quinta vez** que un acento grave dentro de un template literal rompe un archivo en este repo.
   **Candado nuevo `test-newdb-promo-engine-coverage.js`: 4 OK · 0 fallas**, registrado en el runner.
+- [x] **`[VSO.19]`** ✅ **La pantalla decía la verdad; yo dije que no. Y la verdad no alcanzaba.**
+  Edgar mandó la captura del módulo: el parseo de la IA resolvió el SKU, leyó `RD / reparto` de
+  «participan todas las rutas», `$6.00 / clientes (≥1 paq)` y las fechas exactas, y cerró con
+  **«Sin ventas del producto en ruta para el periodo.»** Todo correcto.
+  ⛔ **Yo había escrito tres veces —tracker, CHANGELOG y commit— que "falta que la pantalla lo
+  diga".** Afirmé una carencia de UI **sin abrir la UI**. Ya está corregido en los tres lugares.
+  ⭐ **Pero la frase, siendo cierta, deja al usuario sin siguiente paso.** Medido con esa misma
+  promo: en ruta fueron **0 clientes**, y el producto **sí se vendió a 13** — 12 en mayoreo (11 de
+  Padre Hidalgo, 1 de Morelia) y 1 en mostrador de 8 Esquinas. Y el porqué es estructural: la
+  última venta por RUTA del `97191` fue el **2025-09-24**, once meses antes, y **hoy no hay
+  existencia en ninguna camioneta** — sólo en almacenes de sucursal (Canindo 216, Abastos 96, PH
+  59, 8ESQ 45, Zamora 26, Piedad 10). **La promo no falló al calcular: se diseñó sobre el único
+  canal que no mueve ese producto.**
+  El resultado vacío ahora agrega: *«⚠️ Pero SÍ se vendió a 13 cliente(s) en otros canales: 12 en
+  mayoreo, 1 en mostrador. Si la mecánica apuntaba a ellos, el renglón "Participan:" del enunciado
+  es el que hay que cambiar.»* Cuesta **una consulta que sólo corre en el caso vacío**, y el
+  mensaje nombra el canal elegido en vez de decir «ruta» fijo.
+  ⚠️ **Y el número que se publica sólo es confiable desde hoy**: corrido ayer, el motor era ciego a
+  Kepler (`[VSO.18]`) y habría dicho **$6.00** en vez de $78 en los otros canales — los $36 de
+  Sergio y los $30 de Cinthia están en Padre Hidalgo, que migró el 27-jun. **El cero de rutas sí
+  era correcto ayer y hoy.**
   ⬜ **Declarado, no hecho:** `fetchSelloutRows` (el pivote) **no** se tocó — ahí el traslape SÍ
   duplicaría importes, así que sigue con el plan estricto; y `selloutUsesRollup` se llama **dos
   veces** por reporte (desde `selloutFreshness` y desde `selloutLeaves`), una consulta de más.

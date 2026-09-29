@@ -986,6 +986,33 @@ export class RoutePromoService {
 
       // La unidad se nombra en la etiqueta: "≥3 PAQ" dice algo, "≥3 pza" mentía.
       const uLbl = unit.unit_base || 'u';
+
+      // [VSO.19] Cuando el resultado viene VACÍO, decir «no hubo ventas en ese canal» es CIERTO y
+      // deja al usuario sin siguiente paso. Medido con la promo real del `97191` (11-ago→11-sep):
+      // en ruta fueron 0 clientes, pero el producto **sí se vendió a 13 clientes** — 11 en mayoreo
+      // de Padre Hidalgo, 1 en mayoreo de Morelia y 1 en mostrador de 8 Esquinas. El canal elegido
+      // era el único que no lo mueve: su última venta por RUTA fue el **2025-09-24**, once meses
+      // antes, y hoy no hay existencia en ninguna camioneta, sólo en almacenes de sucursal.
+      // O sea: la promo no falló al calcular, se diseñó sobre un canal que no vende ese producto.
+      // Eso el motor lo puede decir, y cuesta UNA consulta que sólo corre en el caso vacío.
+      let notaVacia = `Sin ventas del producto en ${canales.length === 1 ? CANAL_LABEL[canales[0] as PromoCanal] || canales[0] : 'los canales elegidos'} para el periodo.`;
+      if (!out.length && skus.length) {
+        const otros: any[] = (await trx.raw(
+          `SELECT canal, count(DISTINCT cliente) FILTER (
+                    WHERE cliente IS NOT NULL AND btrim(cliente) <> '' AND cliente <> '0001') AS clientes
+             FROM analytics.v_seller_sales_lines
+            WHERE tenant_id = ? AND sku = ANY(?) AND business_date BETWEEN ?::date AND ?::date
+              AND NOT (canal = ANY(?))
+            GROUP BY 1 HAVING count(*) > 0 ORDER BY 2 DESC`,
+          [tenantId, skus, period.from, period.to, canales],
+        )).rows.filter((r: any) => Number(r.clientes) > 0);
+        if (otros.length) {
+          const det = otros.map((r: any) => `${Number(r.clientes)} en ${CANAL_LABEL[r.canal as PromoCanal] || r.canal}`).join(', ');
+          const tot = otros.reduce((s: number, r: any) => s + Number(r.clientes), 0);
+          notaVacia += ` ⚠️ Pero SÍ se vendió a ${tot} cliente(s) en otros canales: ${det}.`
+            + ' Si la mecánica apuntaba a ellos, el renglón "Participan:" del enunciado es el que hay que cambiar.';
+        }
+      }
       return {
         enunciado, rule, product, period,
         metric_label: rule.metric === 'piezas' ? `Unidades (${uLbl})` : METRIC_LABEL[rule.metric],
@@ -1001,7 +1028,7 @@ export class RoutePromoService {
         total_unidades, total_importe,
         note: out.length
           ? `${out.length} ruta(s) con actividad · $${rule.rate.toFixed(2)} × ${(rule.metric === 'piezas' ? `unidades (${uLbl})` : METRIC_LABEL[rule.metric].toLowerCase())}.`
-          : 'Sin ventas del producto en ruta para el periodo.',
+          : notaVacia,
         generated_at: new Date().toISOString(),
         freshness,
       };
