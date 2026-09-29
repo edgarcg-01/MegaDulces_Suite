@@ -406,6 +406,16 @@ export class ComprobacionesService {
    * Busca la SOLICITUD contra la que se sube el comprobante. El folio se resuelve por
    * valor numérico: teclear los últimos dígitos alcanza («23» → `0000023`).
    */
+  /**
+   * `[GX.49]` Abrir UN vale concreto (desde «Subir evidencia»). **No es el buscador**: pide
+   * folio Y sucursal y, por eso, puede traer un vale de cualquier fecha. El buscador filtra a
+   * HOY —correcto para teclear— y por eso no podía abrir un vale de ayer.
+   */
+  solicitudExacta(folio: string, sucursal: string): Observable<SolicitudSug[]> {
+    return this.http.get<SolicitudSug[]>(`${this.base}/solicitud-exacta`,
+      { params: new HttpParams().set('folio', folio).set('sucursal', sucursal) });
+  }
+
   searchSolicitudes(q: string, limit = 20): Observable<SolicitudSug[]> {
     return this.http.get<SolicitudSug[]>(`${this.base}/search-solicitudes`,
       { params: new HttpParams().set('q', q).set('limit', String(limit)) });

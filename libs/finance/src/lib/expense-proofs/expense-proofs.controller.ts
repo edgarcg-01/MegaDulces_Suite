@@ -6,6 +6,8 @@ import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
+// `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
+import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
 import type { ValeAsignado } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
@@ -74,6 +76,18 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Busca la SOLICITUD (XA1501) contra la que se sube el comprobante. Folio por valor numérico (los últimos dígitos bastan) o beneficiario. Acotado a las áreas del usuario; sin áreas, sólo folio exacto.' })
   searchSolicitudes(@Query('q') q: string, @Query('limit') limit?: string, @Req() req?: AuthedRequest) {
     return this.svc.searchSolicitudes(q, limit ? Number(limit) : undefined, req?.user);
+  }
+
+  /**
+   * `[GX.49]` Abrir UN vale concreto, desde «Subir evidencia». **No es el buscador**: pide
+   * folio Y sucursal, devuelve a lo sumo una fila, y por eso puede saltarse el filtro de HOY
+   * que el buscador sí aplica. Sin eso, un vale de ayer no se podía abrir.
+   */
+  @Get('solicitud-exacta')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @ApiOperation({ summary: '[GX.49] La solicitud de Kepler por folio + sucursal exactos, de cualquier fecha. Para abrir un vale asignado, no para buscar.' })
+  solicitudExacta(@Query('folio') folio: string, @Query('sucursal') sucursal: string, @Req() req?: AuthedRequest): Promise<SolicitudKepler[]> {
+    return this.svc.solicitudExacta(folio, sucursal, req?.user);
   }
 
   @Get('mine')

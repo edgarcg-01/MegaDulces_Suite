@@ -294,9 +294,16 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
     return { comp: fix.componentInstance, fix };
   };
 
-  /** Deja pasar las llamadas que la pantalla hace al arrancar y devuelve la de la búsqueda. */
-  const buscada = (rows: unknown[]) => {
-    const reqs = http.match((r) => r.url.includes('/search-solicitudes'));
+  /**
+   * Deja pasar las llamadas del arranque y devuelve la del LOOKUP.
+   *
+   * ⭐ `[GX.49]` Es `/solicitud-exacta`, **no** `/search-solicitudes`. El buscador filtra a
+   * las solicitudes de HOY (GX.18) y un vale asignado puede ser de ayer: por el buscador,
+   * «Subir evidencia» abria la pantalla VACIA. Medido en runtime: `search-solicitudes` daba
+   * 0 filas para un vale de hace tres dias y el lookup exacto daba 1.
+   */
+  const buscada = (rows: unknown[], ruta = '/solicitud-exacta') => {
+    const reqs = http.match((r) => r.url.includes(ruta));
     for (const r of reqs) r.flush(rows);
     http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
     return reqs;
@@ -309,17 +316,34 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
     usuario: null, estado: 'N', ...over,
   });
 
-  it('sin folio en la URL no busca nada', () => {
+  it('sin folio en la URL no pide nada', () => {
     montar({});
-    expect(http.match((r) => r.url.includes('/search-solicitudes')).length).toBe(0);
+    expect(http.match((r) => r.url.includes('solicitud')).length).toBe(0);
     http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
   });
 
-  it('con folio en la URL, busca ESE folio', () => {
-    montar({ folio: '0009946' });
+  /**
+   * ⭐ **Con sucursal va por el LOOKUP EXACTO, que no filtra por fecha.** Éste es el arreglo:
+   * por el buscador, un vale de ayer no se podia abrir y la pantalla salia vacia — se lee
+   * como que los botones no funcionan, que es exactamente como se reporto.
+   */
+  it('[GX.49] con folio Y sucursal pide el lookup exacto, no el buscador', () => {
+    montar({ folio: '0009946', sucursal: '00' });
     const reqs = buscada([SOL()]);
     expect(reqs.length).toBe(1);
-    expect(reqs[0].request.urlWithParams).toContain('0009946');
+    expect(reqs[0].request.urlWithParams).toContain('folio=0009946');
+    expect(reqs[0].request.urlWithParams).toContain('sucursal=00');
+    expect(reqs[0].request.url).not.toContain('search-solicitudes');
+  });
+
+  /**
+   * ⚠️ Sin sucursal se cae al buscador a proposito: el lookup exige las dos cosas porque,
+   * sin el filtro de fecha, un folio suelto dejaria enumerar 10,082 solicitudes en vez de ~30.
+   */
+  it('[GX.49] sin sucursal se cae al buscador', () => {
+    montar({ folio: '0009946' });
+    const reqs = buscada([SOL()], '/search-solicitudes');
+    expect(reqs.length).toBe(1);
   });
 
   it('⭐ abre el vale: el folio queda seleccionado', () => {
@@ -347,7 +371,7 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
   /** Ni aunque venga otro folio parecido en los resultados. */
   it('no abre un folio distinto al pedido', () => {
     const { comp } = montar({ folio: '0009946' });
-    buscada([SOL({ folio: '0009947' })]);
+    buscada([SOL({ folio: '0009947' })], '/search-solicitudes');
     expect(comp.gasto()).toBeNull();
   });
 });

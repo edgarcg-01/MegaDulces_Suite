@@ -898,7 +898,19 @@ export class FinanzasCapturarGastoComponent {
     const folio = (qp.get('folio') || '').trim();
     if (!folio) return;
     const suc = (qp.get('sucursal') || '').trim();
-    this.svc.searchSolicitudes(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
+    /**
+     * ⭐ `[GX.49]` **Por `solicitudExacta`, NO por el buscador.** El buscador filtra a las
+     * solicitudes de HOY (GX.18, para que el desplegable no traiga ruido) — y un vale que
+     * Kepler asigno puede ser de ayer o de la semana pasada. Con el buscador, «Subir
+     * evidencia» abria esta pantalla **vacia**: sin solicitud no hay botones que mostrar, y
+     * se lee como que los botones no funcionan. Medido: `search-solicitudes?q=0097001`
+     * devolvia 0 para un vale de hace tres dias.
+     *
+     * ⚠️ Sin sucursal se cae al buscador: `solicitudExacta` exige las dos cosas a proposito
+     * (sin la fecha, un folio suelto dejaria enumerar 10,082 solicitudes en vez de ~30).
+     */
+    const fuente = suc ? this.svc.solicitudExacta(folio, suc) : this.svc.searchSolicitudes(folio);
+    fuente.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
       // ⛔ Con la sucursal a mano se exige exacta: 373 folios viven en mas de una plaza y
       // tomar la primera abriria el vale de otra tienda con el importe de otra tienda.
       const hit = (rows || []).find((r) => r.folio === folio && (!suc || String(r.sucursal || '') === suc));
