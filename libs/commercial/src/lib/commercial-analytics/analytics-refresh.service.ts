@@ -25,6 +25,12 @@ import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
  * más tarde y sin spamear el log.
  */
 const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = [
+  // `[MR.8.5]` (mig 20260929130000) Copia materializada de `analytics.v_erp_unit_cost`, sin un
+  // cambio de lógica. La vista enumera el cartesiano completo (180,384 filas / 161,147 buffers)
+  // y cuesta **~1.25 s por pase** — que `/comercial/rentabilidad` pagaba en CADA consulta, y el
+  // desglose tres veces. Poblarla es un solo pase de la vista (~968 ms), así que entra al array
+  // de 15 min sin `everyMin`: es barata y el costo unitario sí se mueve en el día (recepciones).
+  { name: 'analytics.mv_erp_unit_cost' },
   { name: 'analytics.mv_sales_overview_30d' },
   { name: 'analytics.mv_top_customers_30d' },
   { name: 'analytics.mv_top_products_30d' },

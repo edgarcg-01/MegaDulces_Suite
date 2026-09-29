@@ -703,7 +703,10 @@ export class CommercialProfitabilityService {
         // [KE.3] El inventario se valua con el resolvedor unico, al MISMO grano que la
         // cantidad (almacen x producto). Antes multiplicaba por `cost_base`, que es un costo
         // por PRODUCTO y global: medido, valuaba $5.49M por encima del testigo del ERP.
-        .leftJoin({ uc: 'analytics.v_erp_unit_cost' }, function (this: any) {
+        // [MR.8.5] La MATERIALIZADA. Es `SELECT *` de la vista, sin un cambio de lógica; existe
+        // por costo: la vista enumera el cartesiano completo (180,384 filas / 161,147 buffers) y
+        // cuesta ~1.25 s por pase, que esta pantalla pagaba en cada consulta.
+        .leftJoin({ uc: 'analytics.mv_erp_unit_cost' }, function (this: any) {
           this.on('uc.tenant_id', '=', 'st.tenant_id')
             .andOn('uc.warehouse_id', '=', 'st.warehouse_id')
             .andOn('uc.product_id', '=', 'st.product_id');
@@ -852,7 +855,10 @@ export class CommercialProfitabilityService {
           unverified: Number(inv?.unverified) || 0,
           /** [KE.3] Con qué se valuó y sobre cuántas filas — sin esto, un total calculado
            *  sobre el 60% del inventario se lee igual que uno sobre el 100% (ADR-056). */
-          costo_resolver: 'analytics.v_erp_unit_cost',
+          // Se nombra la matview, que es lo que de verdad produjo el número. La lógica es la de
+          // `v_erp_unit_cost` (su cuerpo es `SELECT *` de ella), pero el dato es tan fresco como
+          // su último refresh — y un rótulo que nombra la fuente equivocada ya costó caro acá.
+          costo_resolver: 'analytics.mv_erp_unit_cost',
           /** [MR.8.0g] Universo COMPLETO (antes venía ya filtrado por "tiene costo"). */
           filas: Number(inv?.filas) || 0,
           filas_valuadas: Number(inv?.filas_valuadas) || 0,
@@ -1088,7 +1094,15 @@ export class CommercialProfitabilityService {
           )
           // Factor de caja CANÓNICO. Nunca derivarlo acá: `is_master_suspect`
           // marca los que un humano tiene que revisar (granel donde c84 son kilos).
-          .leftJoin({ bf: 'analytics.v_product_box_factor' }, function (this: any) {
+          //
+          // [MR.8.5] Se lee la MATERIALIZADA, no la vista. No es un atajo a ciegas: se comparó
+          // fila por fila contra `v_product_box_factor` en prod — 11,274 filas en las dos y
+          // **cero** diferencias en las tres columnas que se usan (`box_factor`,
+          // `is_master_suspect`, `factor_unit`). Cuesta 2 ms contra 264 ms.
+          // ⚠️ Es la misma definición materializada por `20260924235000` (AX-PERF.1): si esa
+          // matview deja de refrescarse, acá se lee un factor viejo. Su frescura la vigila
+          // `db-health`; si alguna vez divergen, el candado de unidades lo caza antes que esto.
+          .leftJoin({ bf: 'analytics.mv_product_box_factor' }, function (this: any) {
             this.on('bf.product_id', '=', 'p.id').andOn('bf.tenant_id', '=', 'p.tenant_id');
           });
 
@@ -1102,7 +1116,7 @@ export class CommercialProfitabilityService {
                   `(SELECT st.product_id, st.warehouse_id, SUM(st.quantity) AS qty,
                            SUM(st.quantity * uc.costo_unitario) AS value
                       FROM commercial.stock st
-                      LEFT JOIN analytics.v_erp_unit_cost uc
+                      LEFT JOIN analytics.mv_erp_unit_cost uc
                              ON uc.tenant_id = st.tenant_id
                             AND uc.warehouse_id = st.warehouse_id
                             AND uc.product_id = st.product_id
@@ -1118,7 +1132,7 @@ export class CommercialProfitabilityService {
                   `(SELECT st.product_id, SUM(st.quantity) AS qty,
                            SUM(st.quantity * uc.costo_unitario) AS value
                       FROM commercial.stock st
-                      LEFT JOIN analytics.v_erp_unit_cost uc
+                      LEFT JOIN analytics.mv_erp_unit_cost uc
                              ON uc.tenant_id = st.tenant_id
                             AND uc.warehouse_id = st.warehouse_id
                             AND uc.product_id = st.product_id
@@ -1213,22 +1227,51 @@ export class CommercialProfitabilityService {
         SKU_ONLY_SORT.has(sortKey) && level !== 'sku' ? 'revenue' : SORT_SQL[sortKey] ?? 'revenue';
       const dir = opts.dir === 'asc' ? 'ASC' : 'DESC';
 
-      const rows = await grouped()
+      /**
+       * [MR.8.5] **Una pasada, no tres.**
+       *
+       * Esto corría `grouped()` para las filas, `grouped()` OTRA VEZ envuelto en un `count(*)`,
+       * y `build()` una tercera para los totales. Las tres pagan lo mismo, y lo caro no es el
+       * fact (139 ms) sino los dos resolvedores que cuelgan del join: `v_erp_unit_cost`
+       * **1,357 ms** y `v_product_box_factor` 490 ms. Medido en prod: breakdown SKU 30d
+       * **4,726 ms**, sucursal 6,483 ms, SKU 365d **12,493 ms** — contra el gate de <1 s.
+       *
+       * El conteo y los totales salen de **ventanas sobre el mismo resultado agrupado**:
+       * Postgres evalúa `OVER ()` ANTES del `LIMIT`, así que cubren el universo entero y no la
+       * página. Un solo escaneo.
+       *
+       * ⚠️ `SUM(inventory_value) OVER ()` da NULL cuando la columna es `NULL::numeric` (nivel
+       * canal) — que es exactamente lo que devolvía la consulta vieja. No se convierte a 0: por
+       * canal el inventario no existe, y un $0 se leería como "no hay stock".
+       */
+      const rows = await trx
+        .from(grouped().as('g'))
+        .select(
+          'g.*',
+          trx.raw('COUNT(*) OVER ()::int AS _total'),
+          trx.raw('SUM(g.revenue) OVER ()::numeric AS _sum_revenue'),
+          trx.raw('SUM(g.revenue_costed) OVER ()::numeric AS _sum_revenue_costed'),
+          trx.raw('SUM(g.margin_amount) OVER ()::numeric AS _sum_margin_amount'),
+          trx.raw('SUM(g.inventory_value) OVER ()::numeric AS _sum_inventory_value'),
+        )
         .orderByRaw(`${sortExpr} ${dir} NULLS LAST, name ASC`)
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      const [{ total }] = await trx.from(grouped().as('g')).count<{ total: string }[]>('* as total');
-
-      const [sum] = await build().select(
-        trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
-        trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue_costed'),
-        trx.raw(`COALESCE(SUM(${CommercialProfitabilityService.MARGIN}), 0)::numeric AS margin_amount`),
-        trx.raw(invExpr),
-      );
-      const sumRev = Number(sum?.revenue) || 0;
-      const sumRevCosted = Number(sum?.revenue_costed) || 0;
-      const sumMargin = Number(sum?.margin_amount) || 0;
+      /**
+       * Si la página quedó vacía **y no es la primera**, el `COUNT(*) OVER ()` no viaja en
+       * ninguna fila y el total saldría 0 — que es distinto de "no hay nada". Sólo en ese caso
+       * se paga el conteo aparte; en el camino normal no se ejecuta nunca.
+       */
+      let total = rows.length ? Number(rows[0]._total) || 0 : 0;
+      if (!rows.length && page > 1) {
+        const [c] = await trx.from(grouped().as('g')).count<{ total: string }[]>('* as total');
+        total = Number(c?.total) || 0;
+      }
+      const sumRev = rows.length ? Number(rows[0]._sum_revenue) || 0 : 0;
+      const sumRevCosted = rows.length ? Number(rows[0]._sum_revenue_costed) || 0 : 0;
+      const sumMargin = rows.length ? Number(rows[0]._sum_margin_amount) || 0 : 0;
+      const sumInventory = rows.length ? rows[0]._sum_inventory_value : null;
 
       return {
         level,
@@ -1287,7 +1330,7 @@ export class CommercialProfitabilityService {
           margin_pct: sumRevCosted > 0 ? (sumMargin / sumRevCosted) * 100 : null,
           gap_amount: sumRevCosted > 0 ? sumRevCosted * (target / 100) - sumMargin : null,
           /** Cuadra contra `overview.inventory.in_scope` cuando no hay filtros. Null por canal. */
-          inventory_value: sum?.inventory_value == null ? null : Number(sum.inventory_value) || 0,
+          inventory_value: sumInventory == null ? null : Number(sumInventory) || 0,
         },
         pagination: {
           page,
