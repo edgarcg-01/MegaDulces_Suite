@@ -85,12 +85,13 @@ import { AdminService } from '../admin.service';
         </div>
       }
 
-      <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="8"
+      <!-- [UIM.2] Apilado por campos: las 5 columnas son campos de UNA responsabilidad. -->
+      <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="8"
                       emptyIcon="pi-flag" emptyTitle="Sin responsabilidades en el catálogo"
                       emptyHint="El catálogo se siembra con las bandejas de trabajo que la suite ya conoce."
                       (retry)="cargar()">
         <p-table [value]="filas()" [scrollable]="true" scrollHeight="flex"
-                 styleClass="p-datatable-sm ar-table" [rowHover]="true" dataKey="key"
+                 styleClass="p-datatable-sm ar-table dt-stack" [rowHover]="true" dataKey="key"
                  [tableStyle]="{ 'min-width': '52rem' }">
           <ng-template #header>
             <tr>
@@ -104,18 +105,18 @@ import { AdminService } from '../admin.service';
           <ng-template #body let-r>
             <tr class="ar-row" [class.ar-row-sel]="sel()?.key === r.key" (click)="abrir(r)"
                 tabindex="0" (keydown.enter)="abrir(r)" [attr.aria-label]="'Responsabilidad ' + r.label">
-              <td class="ar-sticky">
+              <td class="ar-sticky dt-id" role="cell">
                 <span class="ar-nombre">{{ r.label }}</span>
                 <span class="ar-code mono">{{ r.key }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Eje de reparto">
                 @if (r.dimension) {
                   <span class="comm-code">{{ r.dimension }}</span>
                 } @else {
                   <span class="ar-falta">sin eje · se reparte por responsabilidad sola</span>
                 }
               </td>
-              <td>
+              <td role="cell" data-label="Qué permiso la abre">
                 @if (r.claves_declaradas) {
                   @for (k of r.permission_keys; track k) {
                     <span class="comm-code ar-mas">{{ k }}</span>
@@ -124,8 +125,8 @@ import { AdminService } from '../admin.service';
                   <span class="ar-falta">sin declarar</span>
                 }
               </td>
-              <td class="ar-r comm-num">{{ r.puestos }}</td>
-              <td class="ar-r comm-num">{{ r.personas_directas }}</td>
+              <td class="ar-r comm-num dt-num" role="cell" data-label="Puestos">{{ r.puestos }}</td>
+              <td class="ar-r comm-num dt-num" role="cell" data-label="Personas directas">{{ r.personas_directas }}</td>
             </tr>
           </ng-template>
         </p-table>

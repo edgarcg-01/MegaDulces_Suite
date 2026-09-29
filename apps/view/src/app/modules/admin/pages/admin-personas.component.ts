@@ -125,8 +125,8 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
                         : 'Lo que ves acá está acotado a tu alcance: quien administra ve a todos, un encargado ve a su sucursal y un supervisor a su equipo.'"
                       [emptyCta]="hayFiltro() ? 'Limpiar filtros' : null"
                       emptyCtaIcon="pi pi-filter-slash"
-                      (retry)="recargar()" (cta)="limpiarFiltros()">
-        <p-table [value]="filas()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm ap-table"
+                      (retry)="recargar()" (cta)="limpiarFiltros()" class="dt-scope">
+        <p-table [value]="filas()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm ap-table dt-stack"
                  [rowHover]="true" dataKey="id" [tableStyle]="{ 'min-width': '58rem' }"
                  [lazy]="true" [paginator]="total() > pageSize()" [rows]="pageSize()" [totalRecords]="total()"
                  [first]="(page() - 1) * pageSize()" (onLazyLoad)="paginar($any($event))">
@@ -144,13 +144,14 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
             <tr class="ap-row" [class.ap-row-sel]="sel()?.id === u.id" (click)="abrirFicha(u)"
                 tabindex="0" (keydown.enter)="abrirFicha(u)"
                 [attr.aria-label]="'Ficha de ' + (u.nombre || u.username)">
-              <td class="ap-sticky">
+              <!-- [UIM.2] Apilado por campos: las 6 columnas son campos de UNA persona. -->
+              <td class="ap-sticky dt-id" role="cell">
                 <div class="ap-persona">
                   <span class="ap-nombre">{{ u.nombre || u.username }}</span>
                   <span class="ap-user mono">&#64;{{ u.username }}</span>
                 </div>
               </td>
-              <td>
+              <td role="cell" data-label="Puesto · Departamento">
                 @if (u.position_name) {
                   <span class="ap-puesto">{{ u.position_name }}</span>
                 } @else {
@@ -158,10 +159,10 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
                 }
                 <span class="ap-sub">{{ u.department_name || '—' }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Perfil de acceso">
                 <span class="comm-code">{{ u.role_name || '—' }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Dónde opera">
                 @if (u.warehouse_name) {
                   <span>{{ u.warehouse_name }}</span>
                 } @else if (u.route_name_today) {
@@ -172,14 +173,14 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
                   <span class="ap-falta">red</span>
                 }
               </td>
-              <td>
+              <td role="cell" data-label="Estado">
                 @if (u.kind !== 'interno') {
                   <p-tag [value]="claseDeCuenta(u.kind)" severity="secondary" styleClass="ap-chip"></p-tag>
                 }
                 <p-tag [value]="estadoLabel(u.status)" [severity]="estadoTono(u.status)"
                        styleClass="ap-chip"></p-tag>
               </td>
-              <td class="ap-r comm-num">{{ u.last_login_at ? (u.last_login_at | date: 'dd/MM/yy') : 'nunca' }}</td>
+              <td class="ap-r comm-num dt-num" role="cell" data-label="Última entrada">{{ u.last_login_at ? (u.last_login_at | date: 'dd/MM/yy') : 'nunca' }}</td>
             </tr>
           </ng-template>
         </p-table>

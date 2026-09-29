@@ -86,12 +86,13 @@ import { AdminService } from '../admin.service';
         <span class="ax-count">{{ visibles().length | number }} de {{ puestos().length | number }} puesto(s)</span>
       </div>
 
-      <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="10"
+      <!-- [UIM.2] Apilado por campos: las 7 columnas son campos de UN puesto. -->
+      <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="10"
                       emptyIcon="pi-sitemap" emptyTitle="Ningún puesto con estos filtros"
                       emptyHint="Probá con «Todos los departamentos»."
                       (retry)="cargar()">
         <p-table [value]="visibles()" [scrollable]="true" scrollHeight="flex"
-                 styleClass="p-datatable-sm ax-table" [rowHover]="true" dataKey="code"
+                 styleClass="p-datatable-sm ax-table dt-stack" [rowHover]="true" dataKey="code"
                  [tableStyle]="{ 'min-width': '56rem' }">
           <ng-template #header>
             <tr>
@@ -107,15 +108,15 @@ import { AdminService } from '../admin.service';
           <ng-template #body let-p>
             <tr class="ax-row" [class.ax-row-sel]="sel()?.code === p.code" (click)="abrir(p)"
                 tabindex="0" (keydown.enter)="abrir(p)" [attr.aria-label]="'Puesto ' + p.name">
-              <td class="ax-sticky">
+              <td class="ax-sticky dt-id" role="cell">
                 <span class="ax-nombre">{{ p.name }}</span>
                 <span class="ax-code mono">{{ p.code }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Departamento">
                 {{ p.department_name || '—' }}
                 <span class="ax-sub">eje {{ p.eje_efectivo || 'sin declarar' }}</span>
               </td>
-              <td>
+              <td role="cell" data-label="Perfil que propone">
                 @if (p.default_role) {
                   <span class="comm-code">{{ p.default_role }}</span>
                   @for (c of p.default_complements; track c) {
@@ -125,16 +126,16 @@ import { AdminService } from '../admin.service';
                   <span class="ax-falta">no propone</span>
                 }
               </td>
-              <td>
+              <td role="cell" data-label="Reporta a">
                 @if (p.reports_to_name) {
                   {{ p.reports_to_name }}
                 } @else {
                   <span class="ax-falta">raíz</span>
                 }
               </td>
-              <td class="ax-r comm-num">{{ p.personas }}</td>
-              <td class="ax-r comm-num">{{ p.responsabilidades }}</td>
-              <td class="ax-r comm-num">{{ p.puestos_a_cargo }}</td>
+              <td class="ax-r comm-num dt-num" role="cell" data-label="Personas">{{ p.personas }}</td>
+              <td class="ax-r comm-num dt-num" role="cell" data-label="Responde de">{{ p.responsabilidades }}</td>
+              <td class="ax-r comm-num dt-num" role="cell" data-label="A cargo">{{ p.puestos_a_cargo }}</td>
             </tr>
           </ng-template>
         </p-table>

@@ -174,7 +174,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
           ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
 
-        <div class="table-card">
+        <!-- [UIM.2] Apilado por campos: las 8 columnas son campos de UNA cotizacion. -->
+        <div class="table-card dt-scope">
           @if (rows().length === 0) {
             <div class="empty">
               <p class="empty-title">No hay cotizaciones en este filtro.</p>
@@ -190,7 +191,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                  y no se pintaba UNA sola fila. El scroll horizontal lo da el contenedor. -->
             <p-table
               [value]="rows()"
-              styleClass="p-datatable-sm"
+              styleClass="p-datatable-sm dt-stack"
               [tableStyle]="{ 'min-width': '60rem' }"
             >
               <ng-template #header>
@@ -211,7 +212,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                 <tr class="fila" [routerLink]="['/telemarketing/cotizaciones', q.id]" tabindex="0"
                     (keydown.enter)="abrir(q.id)" (keydown.space)="abrir(q.id)"
                     [attr.aria-label]="'Abrir la cotización ' + q.code">
-                  <td class="mono">
+                  <td class="mono dt-id" role="cell">
                     {{ q.code }}
                     @if (q.order_code) {
                       <span class="lineage" [title]="'Convertida en el pedido ' + q.order_code">
@@ -219,7 +220,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                       </span>
                     }
                   </td>
-                  <td>
+                  <td role="cell" data-label="Cliente">
                     <span class="recipient">{{ q.recipient_name }}</span>
                     @if (q.customer_code) {
                       <span class="cust-code">{{ q.customer_code }}</span>
@@ -228,15 +229,15 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                       <span class="cust-code prospect">Prospecto</span>
                     }
                   </td>
-                  <td>{{ originLabel(q.origin) }}</td>
-                  <td>
+                  <td role="cell" data-label="Origen">{{ originLabel(q.origin) }}</td>
+                  <td role="cell" data-label="Estado">
                     <p-tag [value]="statusLabel(q.status)" [severity]="statusSeverity(q.status)"></p-tag>
                   </td>
-                  <td>
+                  <td role="cell" data-label="Vigencia">
                     <span [class.overdue]="isOverdue(q)">{{ q.valid_until }}</span>
                     <span class="days">{{ expiryHint(q) }}</span>
                   </td>
-                  <td class="num">
+                  <td class="num dt-num" role="cell" data-label="Renglones">
                     {{ q.line_count }}
                     @if (q.unmatched_count > 0) {
                       <!-- Lo que el cliente pidió y no casó con el catálogo. Es demanda que
@@ -246,8 +247,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                       </span>
                     }
                   </td>
-                  <td class="num">{{ q.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="muted">{{ q.created_by_username || '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="Total">{{ q.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="muted" role="cell" data-label="Cotizó">{{ q.created_by_username || '—' }}</td>
                 </tr>
               </ng-template>
             </p-table>

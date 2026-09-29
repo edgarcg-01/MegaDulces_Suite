@@ -103,7 +103,8 @@ import {
     }
 
     <!-- Tabla -->
-    <div class="card-premium card-flat tabla-wrap">
+    <!-- [UIM.2] Apilado por campos: las 8 columnas son campos de UN documento. -->
+    <div class="card-premium card-flat tabla-wrap dt-scope">
       <app-load-state
         [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && rows().length === 0"
         emptyIcon="pi-file" emptyTitle="Sin documentos en el periodo"
@@ -124,7 +125,7 @@ import {
                  [rowsPerPageOptions]="[50, 100, 200]" [showCurrentPageReport]="true"
                  currentPageReportTemplate="{first} a {last} de {totalRecords} documentos"
                  [rowHover]="true" size="small"
-                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs dt-stack"
                  [tableStyle]="{ 'min-width': '62rem' }"
                  [selection]="sel()" (selectionChange)="sel.set($event)" selectionMode="multiple">
           <ng-template #header>
@@ -147,19 +148,19 @@ import {
             <!-- La fila abre el detalle; el checkbox NO (su celda corta la propagación), o
                  palomear una factura abriría el side-peek encima de la tabla cada vez. -->
             <tr class="fila-click" (click)="abrir(d)">
-              <td class="c-folio" (click)="$event.stopPropagation()">
+              <td class="c-folio dt-id" role="cell" (click)="$event.stopPropagation()">
                 <p-tablecheckbox [value]="d" />
                 <span>
                   <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
                   <span class="sub">{{ d.doc_label }}</span>
                 </span>
               </td>
-              <td>
+              <td role="cell" data-label="Cliente">
                 <span class="nom">{{ d.cliente_nombre }}</span>
                 <span class="sub mono">{{ d.cliente_code }}@if (d.vendedor_nombre) { · {{ d.vendedor_nombre }} }</span>
               </td>
-              <td class="mono">{{ d.fecha | date: 'dd/MM/yy' }}</td>
-              <td>
+              <td class="mono" role="cell" data-label="Fecha">{{ d.fecha | date: 'dd/MM/yy' }}</td>
+              <td role="cell" data-label="Vence">
                 <span class="mono" [class.derivada]="d.vencimiento_source !== 'erp'"
                       [pTooltip]="d.vencimiento_source === 'erp'
                         ? 'Fecha registrada en la cartera del ERP.'
@@ -172,20 +173,20 @@ import {
                   <span class="sub">{{ d.dias_credito }} días</span>
                 }
               </td>
-              <td class="r mono strong">{{ d.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-              <td class="r mono">
+              <td class="r mono strong dt-num" role="cell" data-label="Total">{{ d.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+              <td class="r mono dt-num" role="cell" data-label="Saldo">
                 @if (d.saldo === null) { <span class="sub">—</span> }
                 @else if (+d.saldo > 0.005) {
                   <span class="debe">{{ d.saldo | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
                 } @else { <span class="sub">$0.00</span> }
               </td>
-              <td>
+              <td role="cell" data-label="Cobro">
                 <p-tag [severity]="COBRO_TONE[d.estatus_cobro]" [value]="COBRO_LABEL[d.estatus_cobro]" styleClass="tg" />
                 @if (d.estatus_cobro === 'pagada' && d.dias_pago !== null) {
                   <span class="sub">en {{ d.dias_pago }}d</span>
                 }
               </td>
-              <td class="c acciones">
+              <td class="c acciones dt-actions" role="cell">
                 @if (d.cancelada) {
                   <p-tag severity="secondary" value="Cancelada" styleClass="tg" />
                 } @else {

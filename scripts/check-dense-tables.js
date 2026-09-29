@@ -48,17 +48,9 @@ const UMBRAL_REM = 48;
  * cuando sobra es una lista que crece para siempre.
  */
 const DEUDA = new Set([
-  'apps/view/src/app/modules/admin/pages/admin-personas.component.ts',
-  'apps/view/src/app/modules/admin/pages/admin-puestos.component.ts',
-  'apps/view/src/app/modules/admin/pages/admin-responsabilidades.component.ts',
-  'apps/view/src/app/modules/comercial/pages/comercial-documentos.component.ts',
-  'apps/view/src/app/modules/comercial/pages/comercial-expedientes.component.ts',
-  'apps/view/src/app/modules/comercial/pages/comercial-wincaja.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-reclamos.component.ts',
   'apps/view/src/app/modules/dashboard/admin-db-health/admin-db-health.component.ts',
-  'apps/view/src/app/modules/televenta/pages/televenta-quote-detail.component.ts',
-  'apps/view/src/app/modules/televenta/pages/televenta-quotes.component.ts',
 ]);
 
 const RE_MINWIDTH = /'min-width'\s*:\s*'([0-9.]+)rem'/g;

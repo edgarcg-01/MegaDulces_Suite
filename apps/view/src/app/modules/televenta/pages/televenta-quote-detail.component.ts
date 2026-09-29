@@ -544,14 +544,15 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         }
 
         <!-- ── Los renglones agregados ─────────────────────────────────────────────────── -->
-        <div class="table-card">
+        <!-- [UIM.2] Apilado por campos: las 9 columnas son campos de UN renglon. -->
+        <div class="table-card dt-scope">
           @if (!q.lines.length) {
             <div class="empty">
               <p class="empty-title">Esta cotización todavía no tiene renglones.</p>
               <p class="empty-hint">Usá la Captura manual arriba para buscar artículos y agregarlos uno a uno.</p>
             </div>
           } @else {
-            <p-table [value]="q.lines" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '64rem' }">
+            <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '64rem' }">
               <ng-template #header>
                 <tr>
                   <th class="num">#</th>
@@ -567,8 +568,8 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               </ng-template>
               <ng-template #body let-l>
                 <tr [class.row-gift]="l.parent_line_number !== null">
-                  <td class="num mono">{{ l.line_number }}</td>
-                  <td>
+                  <td class="num mono dt-num" role="cell" data-label="Renglón">{{ l.line_number }}</td>
+                  <td class="dt-id" role="cell">
                     @if (l.parent_line_number !== null) {
                       <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ l.parent_line_number }}</span>
                     }
@@ -577,7 +578,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       <span class="sin-casar">sin casar con el catálogo</span>
                     }
                   </td>
-                  <td>
+                  <td role="cell" data-label="Presentación">
                     @if (l.qty_unit) {
                       {{ l.qty_unit }}
                       @if (num(l.qty_factor)) { <span class="factor">x{{ num(l.qty_factor) }}</span> }
@@ -585,7 +586,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       <span class="t-none">sin registrar</span>
                     }
                   </td>
-                  <td class="num">
+                  <td class="num dt-num" role="cell" data-label="Cantidad">
                     @if (editable() && l.parent_line_number === null) {
                       <div class="inline-qty-box">
                         <input
@@ -604,8 +605,8 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       {{ num(l.quantity) }}
                     }
                   </td>
-                  <td class="num muted">{{ dinero(l.list_price) }}</td>
-                  <td class="num">
+                  <td class="num muted dt-num" role="cell" data-label="Lista">{{ dinero(l.list_price) }}</td>
+                  <td class="num dt-num" role="cell" data-label="Precio">
                     @if (num(l.unit_price) !== null) {
                       <div class="p-unit-cell">
                         <span class="p-unit-main">{{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
@@ -617,12 +618,12 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       <span class="t-none">sin precio</span>
                     }
                   </td>
-                  <td>
+                  <td role="cell" data-label="De dónde sale">
                     <p-tag [value]="fuenteLabel(l.price_source)" [severity]="fuenteTono(l.price_source)"></p-tag>
                     @if (num(l.discount_pct)) { <span class="dto">−{{ num(l.discount_pct) }}%</span> }
                   </td>
-                  <td class="num">{{ num(l.line_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="num">
+                  <td class="num dt-num" role="cell" data-label="Importe">{{ num(l.line_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num dt-actions" role="cell">
                     @if (editable() && l.parent_line_number === null) {
                       <button
                         pButton
