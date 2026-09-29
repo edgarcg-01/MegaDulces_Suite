@@ -4,7 +4,7 @@
     "secure": false,
     "changeOrigin": true
   },
-  "/socket.io": {
+  "/reports/socket.io": {
     "target": "http://localhost:3401",
     "secure": false,
     "ws": true

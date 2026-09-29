@@ -3808,3 +3808,60 @@ avisá) en vez de tipar local y dejar la duplicación viva.
 
 **Regla:** antes de abrir un PR, correr el gate. Verde en `tsc` y en los builds **no dice nada**
 sobre el tipado del borde — misma familia que **§68** (`nx build` verde no dice nada sobre si la app arranca).
+
+---
+
+## 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.io`
+
+**Síntoma**, tal cual sale del panel de red:
+
+```
+products   500  xhr   ventas-detalle.component.ts:353   1.0 kB   1 min
+routes     304  xhr   ventas-detalle.component.ts:299   0.9 kB   45.23 s
+socket.io/?EIO=4&transport=websocket  Finished  ws  20.00 s
+socket.io/?EIO=4&transport=websocket  Finished  ws  20.00 s
+socket.io/?EIO=4&transport=websocket  Finished  ws  19.96 s
+```
+
+Se lee como «las consultas están lentas». **No lo están.** Medido contra la misma DB que nombra el
+`.env` (2026-09-29):
+
+```
+conectar                       36 ms
+routes            20 filas      9 ms en frío ·  3 ms en caliente
+products       5,000 filas     25 ms  (matvista poblada: 6,016 sku / 6,298 cliente)
+```
+
+**La causa.** El servidor monta socket.io en `path: '/reports/socket.io'`
+([`apps/api/src/main.ts`](../apps/api/src/main.ts)) y **los 13 servicios de socket del front** lo
+piden con ese mismo path. `apps/view/proxy.conf.json` enrutaba **`/socket.io`** — el path por
+default, que **no usa nadie**. Así que el upgrade nunca ocurría: la petición caía en el dev server
+de Angular, que no habla socket.io, y moría a los **20 s** (el `timeout` por default de
+socket.io-client) para reintentar hasta 10 veces.
+
+**Por qué arrastra a lo demás, que es la parte que no se ve.** Con HTTP/1.1 el navegador permite
+~6 conexiones por origen. Tres websockets colgados se quedan con tres de esos seis durante 20 s,
+una y otra vez, así que los XHR **hacen cola**. Por eso un `304` —que no trae cuerpo y el servidor
+resuelve en milisegundos— aparece con **45 s**: ese número es espera, no trabajo.
+
+⚠️ **Ojo con esa lectura, igual.** Un `304` largo *también* puede ser trabajo real cuando el ETag
+se calcula sobre el cuerpo completo (el servidor hace la consulta y recién después decide que no
+cambió). Las dos explicaciones dan el mismo renglón en DevTools. **Lo que las separa es cronometrar
+la consulta aparte**, que es lo que hicimos arriba: 3 ms.
+
+**El arreglo** es una línea en `apps/view/proxy.conf.json` — la regla exacta, no `/reports` a secas,
+para no tapar ninguna ruta del front:
+
+```json
+"/reports/socket.io": { "target": "http://localhost:3401", "secure": false, "ws": true }
+```
+
+⚠️ **Antes de culpar al proxy, mirá si el API está arriba.** En el caso que originó esta entrada
+**sólo escuchaba el 4200**; en el 3401 no había nada, y un proxy sin destino da 500 y esperas largas
+por su cuenta. `Get-NetTCPConnection -State Listen | ? LocalPort -in 3401,4200` lo dice en un
+segundo. Son **dos** fallas distintas que producen el mismo síntoma, y arreglar una sola deja la
+pantalla igual de lenta.
+
+⚠️ `environment.apiUrl` es `'/api'` (relativo), así que `wsBase()` devuelve el origen del dev server
+y **todo el tráfico de sockets pasa por el proxy**. Con una `apiUrl` absoluta iría directo al API y
+esta trampa no aparecería — por eso no se ve en producción, donde Caddy sirve todo del mismo origen.

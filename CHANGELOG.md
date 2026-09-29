@@ -9,6 +9,50 @@
 ---
 
 ## [Unreleased]
+### Fixed — en local fallaban TODOS los websockets: el proxy de dev enruta un path que no usa nadie (2026-09-29)
+Sale de *«en local sigue tardando demasiado»*, con este panel de red: `products` **500 en 1 min**,
+`routes` **304 en 45.23 s**, y tres websockets muriendo a los **20.00 s** clavados.
+
+⛔ **Se lee como consultas lentas y no lo son.** Medido contra la misma DB que nombra el `.env`:
+
+```
+conectar                       36 ms
+routes            20 filas      9 ms en frío ·  3 ms en caliente
+products       5,000 filas     25 ms   (la matvista SÍ está poblada: 6,016 sku / 6,298 cliente)
+```
+
+⛔ **La causa real:** el servidor monta socket.io en `path: '/reports/socket.io'`
+(`apps/api/src/main.ts`) y **los 13 servicios de socket del front** piden ese path.
+`apps/view/proxy.conf.json` enrutaba **`/socket.io`** — el path por default, **que no usa nadie**.
+El upgrade nunca ocurría, moría a los 20 s (el `timeout` de socket.io-client) y reintentaba hasta
+10 veces.
+
+⭐ **Y por eso arrastraba a lo demás**, que es la parte que no se ve: con HTTP/1.1 el navegador da
+~6 conexiones por origen; tres websockets colgados se quedan con tres durante 20 s, en bucle, y los
+XHR hacen cola. Un `304` no trae cuerpo y el servidor lo resuelve en milisegundos — **los 45 s eran
+espera, no trabajo**. ⚠️ Con la salvedad de que un `304` largo *también* puede ser trabajo real
+cuando el ETag se calcula sobre el cuerpo completo: las dos explicaciones dan el mismo renglón, y lo
+que las separa es **cronometrar la consulta aparte**.
+
+⚠️ **Eran DOS fallas con el mismo síntoma.** En el momento de mirarlo, **el API no estaba corriendo**
+— sólo escuchaba el 4200; en el 3401 no había nada, y un proxy sin destino da 500 y esperas largas
+por su cuenta. Arreglar una sola deja la pantalla igual de lenta.
+
+También, en `/dashboard/ventas-detalle`: **el catálogo de rutas se pedía dos veces** por carga (el
+componente en `ngOnInit` y otra vez dentro del `forkJoin` de `getDetalleReport`), y como `forkJoin`
+espera a TODAS, la segunda se sumaba al tiempo de la pantalla. `shareReplay(1)` sin `refCount` las
+colapsa en una.
+
+⚠️ **Declarado, NO tocado** (cambia lo que muestra la pantalla, no es mío decidirlo): `salesByRoute`
+se pide **por AÑO** sin importar el rango elegido y el recorte se hace en el navegador
+(`synthesizeReport`) — sin medir, porque sin el API arriba no se puede. Y hay **datos inventados en
+el front**: `DRIVER_MAP` clava nombres de chofer y supervisor por ruta, y el `catchError` del
+catálogo devuelve **14 rutas hardcodeadas** que se pintan como si fueran reales — un respaldo que
+no declara que es respaldo es justo lo que ADR-056 prohíbe.
+
+`nx test view -- detalle-home.service` 3/3 · `nx build view` OK. Trampa documentada en
+[`docs/GOTCHAS.md`](docs/GOTCHAS.md) §73.
+
 ### Fixed — un UPDATE de Kepler entra al ODS como INSERT: 1,737 pólizas duplicadas por $22,796,303.99 (OBS.12, 2026-09-29)
 Sale de perseguir los $77,131.36 de agosto del ingreso. **La causa que yo había publicado era falsa**
 y la corrección importa, porque los dos defectos se arreglan con herramientas distintas.
