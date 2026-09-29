@@ -6195,9 +6195,15 @@ fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra cap
   Campo `source` (`kepler` | `manual`) en el feed.
 - [ ] ⬜ `[VK.5]` Pedido a cliente Kepler: funciona por el ancla; falta smoke HTTP.
 - [ ] ⬜ `[VK.6]` Pestaña "compran en tu ruta, ficha de otro vendedor" (17 clientes).
-- **⚠️ NO probado en vivo** (misma causa que VR.SUP.1). **Pendiente de datos (admin):** usuarios de
-  Candy Salgado (PH 1) y Rafael Villalobos (PH 2) no existen; Paulina `42pmpb` tiene rol `cajero` y sin
-  supervisor; falta ponerles `supervisor = mauricio_ramirez` (ya existe, `supervisor_ventas`) y su agenda.
+- **⚠️ NO probado en vivo** (misma causa que VR.SUP.1).
+- ✅ **Usuarios resueltos (medido en prod 2026-09-29, solo lectura):** `candelaria_salgado` (PH 1),
+  `rafael.villalobos` (PH 2), `42pmpb` Paulina (Abastos) y `jlh_lopez` Juan Ángel (Yurécuaro) activos,
+  rol `vendedor_ruta`, `supervisor_id = mauricio_ramirez`.
+- ⬜ **Pendiente de datos DESPUÉS de la mig `20260928210200`:** agenda (`daily_assignments`) de los 4 —
+  hoy **0 filas**, y sin agenda "Mi ruta" sale vacía y el supervisor no ve opciones en `/vendor/route-pick`
+  (las opciones salen de la agenda del equipo). No se puede capturar antes: las rutas nacen con la mig.
+- ⚠️ La zona `YURECUARO` **no existe** en prod (`LA PIEDAD VECINAL` sí): la ruta de Yurécuaro nace sin
+  zona (la mig lo declara en el log). Las 3 rutas vecinales que ya existen son de Morelia, no chocan.
 
 ---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
