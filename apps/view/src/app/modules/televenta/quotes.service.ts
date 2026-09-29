@@ -153,6 +153,14 @@ export interface QuoteLine {
   line_number: number;
   product_id: string | null;
   product_name: string | null;
+  /**
+   * SKU real del catálogo. ⚠️ NO usar `requested_text` para esto: es NULL en todo renglón que
+   * casó con el catálogo (sólo guarda lo que el cliente escribió cuando NO casó), así que
+   * usarlo como SKU imprimía "ART" en el entregable.
+   */
+  product_sku: string | null;
+  product_content: string | null;
+  product_barcode: string | null;
   requested_text: string | null;
   quantity: number | string;
   unit_price: number | string | null;
@@ -177,6 +185,12 @@ export interface QuoteDetail {
   recipient_name: string;
   customer_code: string | null;
   erp_customer_code: string | null;
+  /** Nombre del cliente de mayoreo, congelado al crear. Es lo que rotula el entregable. */
+  erp_customer_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  salesperson_code: string | null;
+  salesperson_name: string | null;
   source_branch: string | null;
   terms_source: string;
   terms_discount_pct: number | string | null;
