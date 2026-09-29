@@ -29,11 +29,19 @@ export const CATALOGO_TABS: PageTab[] = [
   },
   {
     label: 'Costos y precios',
-    route: '/compras/catalogo/costos',
+    /**
+     * El tab abre la pantalla que YA FUNCIONA (diferencias de precio), no el cascarón.
+     *
+     * `Precios distintos` era un tab propio y el comprador lo usa hoy. Si el tab apuntara
+     * a `/catalogo/costos`, esa pantalla quedaría detrás de un «contenido por desarrollar»
+     * y de un clic extra: una función que sirve no se degrada para hacerle lugar a una que
+     * todavía no existe. Cuando `/catalogo/costos` tenga contenido se invierten `route` y
+     * `alsoActiveOn`, y nadie pierde nada en el camino.
+     */
+    route: '/compras/catalogo/precios',
     icon: 'pi pi-dollar',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
-    // La pantalla existente de diferencias es contenido especializado de este apartado.
-    alsoActiveOn: ['/compras/catalogo/precios'],
+    alsoActiveOn: ['/compras/catalogo/costos'],
   },
   {
     label: 'Listas de precios',
