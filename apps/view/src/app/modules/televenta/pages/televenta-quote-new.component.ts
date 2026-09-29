@@ -1320,7 +1320,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (this.modo() === 'contacto') {
       return this.contactoNombre.trim().length > 0;
     }
-    return !!this.cliente() || this.terminoCliente.trim().length > 0;
+    return !!this.cliente();
   });
 
   readonly puedeAgregarArticulo = computed(() => {
