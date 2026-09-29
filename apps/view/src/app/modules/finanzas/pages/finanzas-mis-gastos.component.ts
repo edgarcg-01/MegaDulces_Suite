@@ -10,6 +10,8 @@ import {
 } from '../comprobaciones.service';
 import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+// `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
+import type { EtapaEjercicio } from '@megadulces/contracts';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 
 /**
@@ -70,6 +72,27 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           </div>
         </div>
 
+        <!--
+          [GX.39] Las secciones que pidio el usuario: «por ejercer» (firmado, esperando a
+          Kepler) y «ejercido» (el dinero salio). Filtran lo YA CARGADO, sin otro viaje.
+          La cuenta dice «de los N cargados» a proposito: son las filas que vinieron, no el
+          universo -- leerlo como total es la trampa que GX.35 ya cobro una vez aca.
+        -->
+        @if (hayEtapas()) {
+        <div class="mg-etapas" role="tablist" aria-label="Etapa del gasto">
+          @for (s of secciones(); track s.id) {
+            <button type="button" role="tab" class="mg-etapa"
+                    [class.on]="seccion() === s.id" [attr.aria-selected]="seccion() === s.id"
+                    (click)="seccion.set(s.id)">
+              {{ s.label }} <span class="mg-etapa-n">{{ s.n }}</span>
+            </button>
+          }
+        </div>
+        @if (seccion() !== 'todos' && explicacionSeccion()) {
+          <p class="mg-muted mg-etapa-ayuda">{{ explicacionSeccion() }}</p>
+        }
+        }
+
         <div class="mg-barra">
           <span class="p-input-icon-left mg-buscar">
             <i class="pi pi-search" aria-hidden="true"></i>
@@ -79,12 +102,16 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           @if (q) { <button type="button" class="mg-link" (click)="q = ''; cargar()">limpiar</button> }
         </div>
 
-        @if (!filas().length) {
+        @if (!visibles().length) {
           <div class="mg-vacio">
             <i class="pi pi-inbox" aria-hidden="true"></i>
             <div>
               @if (q) {
                 <strong>Ninguno de tus gastos coincide con «{{ q }}».</strong>
+              } @else if (seccion() !== 'todos' && filas().length) {
+                <!-- ⚠️ Otra afirmacion: SI levanto gastos, sólo que ninguno esta en esta etapa. -->
+                <strong>Ninguno de tus gastos está en «{{ etiquetaSeccion() }}».</strong>
+                <div class="mg-muted">Tenés {{ filas().length }} en las otras etapas.</div>
               } @else {
                 <strong>Todavía no levantaste ningún gasto.</strong>
                 <div class="mg-muted">Cuando levantes uno, aparece acá con su estado.</div>
@@ -95,7 +122,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           </div>
         } @else {
           <section class="mg-lista">
-            @for (p of filas(); track p.id) {
+            @for (p of visibles(); track p.id) {
               <article class="mg-item" role="button" tabindex="0"
                        [attr.aria-label]="'Ver el vale ' + (p.folio_solicitud || 'sin folio')"
                        (click)="abrir(p)" (keydown.enter)="abrir(p)"
@@ -118,9 +145,21 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                   @if (p.status === 'aprobada') {
                     <span class="mg-chip warn">te toca subir la evidencia</span>
                   }
+                  <!--
+                    [GX.39] La etapa de EJERCICIO. Sólo tiene algo que decir cuando nuestro
+                    tramite ya cerro: antes de eso el chip de estado ya lo dice todo, y dos
+                    chips diciendo lo mismo con distintas palabras confunden.
+                  -->
+                  @if (p.etapa === 'por_ejercer' || p.etapa === 'ejercido' || p.etapa === 'sin_medir' || p.etapa === 'cancelado_kepler') {
+                    <span class="mg-chip" [class.ok]="p.etapa === 'ejercido'"
+                          [class.warn]="p.etapa === 'por_ejercer'"
+                          [class.faint]="p.etapa === 'sin_medir'">{{ p.etapa_label }}</span>
+                  }
                 </div>
                 <!-- El motivo del rechazo va COMPLETO: es lo que hay que corregir. -->
                 @if (p.motivo_rechazo) { <div class="mg-it-nota bad">Te lo devolvieron: {{ p.motivo_rechazo }}</div> }
+                <!-- ⭐ La frase textual del pedido: «su gasto se aprobó y se ejerció». -->
+                @if (p.etapa === 'ejercido') { <div class="mg-it-nota ok">{{ p.etapa_explicacion }}</div> }
               </article>
             }
           </section>
@@ -143,6 +182,17 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       font-size: var(--fs-xs); cursor: pointer; }
 
     .mg-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+
+    /* [GX.39] Las secciones de ejercicio. Pildoras, no pestanas con linea: caben en movil. */
+    .mg-etapas { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+    .mg-etapa { display: inline-flex; align-items: center; gap: var(--sp-1);
+      border: 1px solid var(--border); background: var(--bg-1); color: var(--fg-2);
+      border-radius: var(--r-full, 999px); padding: 0.25rem 0.7rem; font: inherit;
+      font-size: var(--fs-xs); cursor: pointer; }
+    .mg-etapa:hover { border-color: var(--action); }
+    .mg-etapa.on { background: var(--action); border-color: var(--action); color: var(--action-fg, #fff); }
+    .mg-etapa-n { font-variant-numeric: tabular-nums; opacity: 0.75; }
+    .mg-etapa-ayuda { margin: 0; }
     .mg-kpi { flex: 1 1 10rem; display: flex; flex-direction: column; gap: 2px;
       background: var(--card-bg); border: 1px solid var(--border-color);
       border-radius: var(--r-md); padding: var(--sp-3); }
@@ -197,6 +247,50 @@ export class FinanzasMisGastosComponent {
    */
   private readonly reporte = signal<{ recibidas: number; validadas: number; rechazadas: number } | null>(null);
   readonly kpis = computed(() => this.reporte() ?? { recibidas: 0, validadas: 0, rechazadas: 0 });
+
+  /**
+   * `[GX.39]` La seccion abierta. Filtra lo YA CARGADO — no dispara otro viaje: la etapa no
+   * es un filtro del servidor (sale de cruzar con Kepler, no es una columna), asi que pedirla
+   * como parametro obligaria a cruzar el universo entero para devolver 20 filas.
+   */
+  readonly seccion = signal<'todos' | EtapaEjercicio>('todos');
+
+  /**
+   * ⛔ **Sin una sola etapa resuelta, la barra NO se pinta.** Lo encontro su propia prueba:
+   * con un servidor que no manda `etapa` (uno viejo, o un vale que el backend no pudo
+   * resolver) las pestanas salian «En tramite 0 · Por ejercer 0 · Ejercido 0» — que AFIRMA
+   * que medimos y dio cero, cuando no medimos nada. Es el mismo defecto que la fase existe
+   * para arreglar, cometido en la pantalla que lo arregla (ADR-056).
+   */
+  readonly hayEtapas = computed(() => this.filas().some((p) => !!p.etapa));
+
+  /** ⚠️ Las etapas de CIERRE se agrupan bajo «Por ejercer»/«Ejercido»; el resto es «en tramite». */
+  readonly secciones = computed(() => {
+    const f = this.filas();
+    if (!this.hayEtapas()) return [];
+    const n = (e: EtapaEjercicio) => f.filter((p) => p.etapa === e).length;
+    return ([
+      { id: 'todos' as const, label: 'Todos', n: f.length },
+      { id: 'en_captura' as const, label: 'En trámite', n: n('en_captura') },
+      { id: 'por_ejercer' as const, label: 'Por ejercer', n: n('por_ejercer') },
+      { id: 'ejercido' as const, label: 'Ejercido', n: n('ejercido') },
+      // ⛔ «Sin medir» SOLO aparece si hay alguno. Una pestana permanente en 0 ensena a
+      // ignorarla, y el dia que tenga algo nadie la mira.
+      ...(n('sin_medir') ? [{ id: 'sin_medir' as const, label: 'Sin medir', n: n('sin_medir') }] : []),
+      ...(n('cancelado_kepler') ? [{ id: 'cancelado_kepler' as const, label: 'Cancelado en Kepler', n: n('cancelado_kepler') }] : []),
+    ]);
+  });
+
+  readonly visibles = computed(() => {
+    const s = this.seccion();
+    return s === 'todos' ? this.filas() : this.filas().filter((p) => p.etapa === s);
+  });
+
+  readonly etiquetaSeccion = computed(() =>
+    this.secciones().find((s) => s.id === this.seccion())?.label ?? '');
+
+  /** La frase larga de la etapa abierta. Sale de la primera fila: el texto es el mismo para todas. */
+  readonly explicacionSeccion = computed(() => this.visibles()[0]?.etapa_explicacion ?? '');
 
   constructor() { this.cargar(); }
 

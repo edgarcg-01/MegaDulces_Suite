@@ -128,4 +128,115 @@ describe('FinanzasMisGastosComponent', () => {
     const req = http.expectOne((x) => x.url.includes('/mine') && x.params.get('search') === 'CAPUFE');
     req.flush(REPORTE());
   });
+
+  /**
+   * `[GX.39]` — **«Por ejercer» y «Ejercido»: la etapa que decide Kepler.**
+   *
+   * Pedido del usuario: después de la luz verde, el vale espera a que apliquen el gasto en
+   * Kepler, y cuando eso pasa se le avisa que «se aprobó y se ejerció».
+   *
+   * ⛔ Lo que esta pantalla NO puede hacer es **calcular la etapa**. La decide el servidor con
+   * `etapaDeEjercicio()` del contrato compartido; si acá se dedujera de `status`, habría dos
+   * reglas y un vale diría «por ejercer» del lado del campo y otra cosa del lado de
+   * Aprobación. Por eso las pruebas mandan la etapa YA RESUELTA y verifican que se muestre —
+   * no que se infiera.
+   */
+  describe('[GX.39] la etapa de ejercicio', () => {
+    const CON_ETAPAS = (): ExpenseProofsReport => ({
+      kpis: { total: 4, recibidas: 1, validadas: 2, rechazadas: 0, en_revision: 0 },
+      etapas_de_la_pagina: { en_captura: 1, por_ejercer: 1, ejercido: 1, sin_medir: 1 },
+      rows: [
+        FILA({ id: 'a', status: 'recibida', folio_solicitud: '0001', etapa: 'en_captura', etapa_label: 'En trámite', etapa_explicacion: 'Tu gasto esta en tramite con nosotros.' }),
+        FILA({ id: 'b', status: 'validada', folio_solicitud: '0002', etapa: 'por_ejercer', etapa_label: 'Por ejercer', etapa_explicacion: 'Aprobado. Esta esperando a que apliquen el gasto en Kepler.' }),
+        FILA({ id: 'c', status: 'validada', folio_solicitud: '0003', etapa: 'ejercido', etapa_label: 'Ejercido', etapa_explicacion: 'Tu gasto se aprobo y se ejercio: el dinero salio.' }),
+        FILA({ id: 'd', status: 'validada', folio_solicitud: '0004', etapa: 'sin_medir', etapa_label: 'Sin medir', etapa_explicacion: 'Todavia no podemos ver el estado en Kepler.' }),
+      ],
+    });
+
+    it('pinta las secciones con su cuenta', () => {
+      montar(CON_ETAPAS());
+      const chips = [...fix.nativeElement.querySelectorAll('.mg-etapa')].map((e) => (e as HTMLElement).textContent?.trim());
+      expect(chips.some((t) => t?.startsWith('Todos') && t.includes('4'))).toBe(true);
+      expect(chips.some((t) => t?.startsWith('Por ejercer') && t.includes('1'))).toBe(true);
+      expect(chips.some((t) => t?.startsWith('Ejercido') && t.includes('1'))).toBe(true);
+    });
+
+    it('al abrir «Por ejercer» sólo quedan los de esa etapa', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('por_ejercer');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
+      expect(fix.nativeElement.textContent).toContain('0002');
+      expect(fix.nativeElement.textContent).not.toContain('0003');
+    });
+
+    /** ⭐ La frase textual del pedido, y sólo sobre el que se ejerció. */
+    it('al ejercido le dice que el dinero salió; al que espera, no', () => {
+      montar(CON_ETAPAS());
+      const notas = [...fix.nativeElement.querySelectorAll('.mg-it-nota.ok')].map((e) => (e as HTMLElement).textContent || '');
+      expect(notas.length).toBe(1);
+      expect(notas[0]).toContain('ejerci');
+      expect(notas[0]).toContain('dinero');
+    });
+
+    /**
+     * ⛔ El caso que sostiene la fase: **«sin medir» no puede leerse como «por ejercer»**.
+     * Decir «esperando a Kepler» sobre algo que no pudimos mirar es afirmar que Kepler no lo
+     * aplicó — y lo único cierto es que no lo sabemos (ADR-056).
+     */
+    it('«sin medir» es su propia sección y no cae en «por ejercer»', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('por_ejercer');
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).not.toContain('0004');
+      c.seccion.set('sin_medir');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
+      expect(fix.nativeElement.textContent).toContain('0004');
+    });
+
+    /**
+     * ⚠️ Una pestaña permanente en 0 enseña a ignorarla, y el día que tenga algo nadie la
+     * mira. «Sin medir» y «Cancelado en Kepler» sólo aparecen si hay alguno.
+     */
+    it('no pinta las secciones excepcionales cuando están vacías', () => {
+      montar(REPORTE());
+      const chips = [...fix.nativeElement.querySelectorAll('.mg-etapa')].map((e) => (e as HTMLElement).textContent?.trim() || '');
+      expect(chips.some((t) => t.startsWith('Sin medir'))).toBe(false);
+      expect(chips.some((t) => t.startsWith('Cancelado'))).toBe(false);
+    });
+
+    /**
+     * ⚠️ «Esta sección no tiene nada» y «no levantaste nada» son afirmaciones DISTINTAS. La
+     * segunda sobre alguien que sí levantó gastos lo manda a capturarlos de nuevo.
+     */
+    it('una sección vacía no dice que no levantaste nada', () => {
+      montar(CON_ETAPAS());
+      c.seccion.set('cancelado_kepler');
+      fix.detectChanges();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).not.toContain('Todavía no levantaste');
+      expect(txt).toContain('en las otras etapas');
+    });
+
+    /**
+     * ⛔ **La prueba que encontró el defecto en esta misma pantalla.** Con un servidor que no
+     * manda `etapa`, la barra salía «En trámite 0 · Por ejercer 0 · Ejercido 0» — que AFIRMA
+     * que medimos y dio cero, cuando no medimos nada. Es el mismo error que la fase existe
+     * para arreglar, cometido en la pantalla que lo arregla. La barra entera desaparece.
+     */
+    it('sin una sola etapa resuelta, la barra de secciones NO se pinta', () => {
+      montar(REPORTE());
+      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBe(0);
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).not.toContain('Por ejercer');
+      expect(txt).not.toContain('Ejercido');
+    });
+
+    /** Y basta con que UNA fila la traiga: no hace falta que todas estén resueltas. */
+    it('con una sola fila resuelta, la barra aparece', () => {
+      montar({ ...REPORTE(), rows: [FILA({ id: 'x', etapa: 'ejercido', etapa_label: 'Ejercido' })] });
+      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBeGreaterThan(0);
+    });
+  });
 });

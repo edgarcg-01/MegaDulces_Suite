@@ -68,6 +68,8 @@ export * from './http/vendor-route-day-pick.contract';
 export * from './finance/forma-pago.contract';
 export * from './finance/aporte-solicitante.contract';
 export * from './finance/reapertura.contract';
+// `[GX.39]` etapa de EJERCICIO: lo que pasa despues de que firmamos, del lado de Kepler.
+export * from './finance/ejercicio.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:

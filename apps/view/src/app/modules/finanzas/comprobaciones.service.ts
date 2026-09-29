@@ -5,6 +5,9 @@ import { environment } from '../../../environments/environment';
 // [GX.14] El catálogo de formas de pago y la compuerta NO se copian acá: se importan del
 // contrato compartido, que es el mismo que valida el backend.
 import type { FormaPagoId } from '@megadulces/contracts';
+// `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
+// exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
+import type { EtapaEjercicio } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -98,10 +101,29 @@ export interface ExpenseProof {
   motivo_rechazo: string | null;
   created_by: string | null;
   created_at: string;
+  /**
+   * `[GX.39]` **La etapa de EJERCICIO**: lo que pasa después de que firmamos, del lado de
+   * Kepler. NO se calcula acá — la decide `etapaDeEjercicio()` en el servidor, con la misma
+   * función que probaría el frontend si la calculara. Viaja resuelta para que no haya dos
+   * reglas.
+   *
+   * ⚠️ `sin_medir` no es «por ejercer»: es que no pudimos ver el estado en Kepler. Se
+   * muestra como tal (ADR-056).
+   */
+  etapa?: EtapaEjercicio;
+  etapa_label?: string;
+  etapa_explicacion?: string;
 }
 
 export interface ExpenseProofsReport {
   kpis: { total: number; recibidas: number; validadas: number; rechazadas: number; en_revision?: number };
+  /**
+   * `[GX.39]` ⚠️ Se llama `de_la_pagina` **a propósito**: son las filas que vinieron, no el
+   * universo. La etapa sale de cruzar con Kepler, no es una columna de la tabla, y cruzar
+   * los miles de folios del tenant para pintar tres números costaría más de lo que vale.
+   * Leerlo como total es la trampa que GX.35 ya cobró una vez con estos mismos KPI.
+   */
+  etapas_de_la_pagina?: Record<string, number>;
   rows: ExpenseProof[];
 }
 
