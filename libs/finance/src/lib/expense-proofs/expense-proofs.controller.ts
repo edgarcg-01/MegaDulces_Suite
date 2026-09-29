@@ -6,6 +6,8 @@ import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
 import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
+// `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
+import type { ValeAsignado } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
@@ -77,17 +79,28 @@ export class ExpenseProofsController {
   @Get('mine')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
-  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['list']> {
+  async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest):
+    Promise<Awaited<ReturnType<ExpenseProofsService['list']>> & { asignados: ValeAsignado[] }> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
     // `[GX.39]` `etapas_de_la_pagina` vacio, no con ceros por etapa: cero vales no es
     // «cero por ejercer», es que no hay nada que contar.
-    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, rows: [] };
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, rows: [], asignados: [] };
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
-    return this.svc.list({ mine: actor, search, dia, limit: limit ? Number(limit) : undefined });
+    /**
+     * `[GX.41]` Ademas de lo que capturo, **lo que Kepler le asigno por la caja «Solicita»**.
+     * Va con el `username`, NO con `actor`: `actor` es `full_name || username` (lo que se le
+     * muestra a una persona) y la caja de Kepler trae el usuario. Pasarle `actor` dejaria sin
+     * vales a todo el que tenga nombre completo cargado, y en silencio.
+     */
+    const [propio, asignados] = await Promise.all([
+      this.svc.list({ mine: actor, search, dia, limit: limit ? Number(limit) : undefined }),
+      this.svc.valesAsignados(req?.user?.username),
+    ]);
+    return { ...propio, asignados };
   }
 
   @Get('resumen')

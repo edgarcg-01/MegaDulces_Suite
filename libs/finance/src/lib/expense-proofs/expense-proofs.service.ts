@@ -25,6 +25,9 @@ import {
   ETIQUETA_ETAPA, EXPLICACION_ETAPA, etapaDeEjercicio,
   type EstadoKepler, type EtapaEjercicio,
 } from '@megadulces/contracts';
+// `[GX.41]` A quien le toca un vale de Kepler lo decide UNA funcion, compartida con el
+// frontend: la caja «Solicita» trae un username nuestro y tiene que casar exacto.
+import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from '@megadulces/contracts';
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
   type EtapaGasto, type ParticionDelDia,
@@ -1296,6 +1299,83 @@ export class ExpenseProofsService {
       cfdi_disponible: false,
       cfdi_motivo: 'Kepler no guarda el UUID fiscal del gasto (verificado). El CFDI del proveedor, cuando existe, se casa aparte por RFC e importe.',
     };
+  }
+
+  /**
+   * `[GX.41]` ⭐ **Los vales que Kepler le asigna a esta persona por la caja «Solicita».**
+   *
+   * Pedido textual: *«lo que vas a leer en ese campo es un username, el cual debera coincidir
+   * con alguno de nuestros usuarios en suite (…) va a aparecer ese vale en la seccion de "Mis
+   * Gastos" en el perfil del usuario que vinculaste»*.
+   *
+   * ## No crea nada: DERIVA
+   * Estos vales **no tienen expediente nuestro todavia**. No se insertan filas en
+   * `expense_proofs` para «reservarlos» — eso seria materializar un documento que ya vive en
+   * Kepler, y ademas dejaria basura el dia que el vale se cancele alla. Se leen en vivo de
+   * `analytics.expense_requests` (vista derive-no-copy) y se vuelven expediente **recien
+   * cuando la persona les sube la evidencia**, por el camino normal (`create`).
+   *
+   * ## ⛔ El que YA capturo no se muestra dos veces
+   * El `NOT EXISTS` cruza por **folio + sucursal**, no por folio solo: 373 folios viven en mas
+   * de una plaza y excluir por folio pelado le escondería a alguien el vale de su tienda
+   * porque otra ya lo capturo. Verificado en prod: los 9 expedientes que existen casan por el
+   * par exacto.
+   *
+   * ## ⚠️ Lo que se deja afuera, con motivo
+   * Los **cancelados** en Kepler (`estado = 'C'`). Un vale cancelado en la lista de «te toca
+   * subir la evidencia» es ruido, y una lista con ruido ensena a ignorarla. Lo aplicado SI se
+   * muestra: puede seguir necesitando su comprobante.
+   */
+  async valesAsignados(username?: string, limit = 50): Promise<ValeAsignado[]> {
+    this.tenantCtx.requireTenantId();
+    /**
+     * ⚠️ El username, NO `full_name`. `created_by` guarda `full_name || username` porque es
+     * lo que se le muestra a una persona; la caja de Kepler trae el **usuario**. Mezclarlos
+     * haria que a quien tiene nombre completo cargado no le llegara ningun vale, en silencio.
+     */
+    const u = normalizarUsuarioKepler(username);
+    if (u.length < LARGO_MINIMO_USUARIO) return [];
+
+    return this.tk.run(async (trx) => {
+      const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
+      if (!reg.rows[0]?.t) return [];
+
+      const rows: Record<string, unknown>[] = await trx('analytics.expense_requests as r')
+        .where('r.tenant_id', this.tenantCtx.requireTenantId())
+        /**
+         * La vista YA publica `solicitante` normalizado. Se vuelve a normalizar igual: asi la
+         * igualdad no depende de una decision interna de la vista, que puede cambiar sin que
+         * nadie toque este archivo. No cuesta un indice — sobre una vista de `kepler_ods` no
+         * hay ninguno que perder.
+         */
+        .whereRaw(`upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ?`, [u])
+        .whereRaw(`coalesce(btrim(r.estado),'') <> 'C'`)
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.expense_proofs as p')
+            .whereRaw('p.tenant_id = r.tenant_id')
+            .whereRaw('p.folio_solicitud = r.folio')
+            .whereRaw('p.sucursal = r.sucursal');
+        })
+        .orderBy('r.fecha', 'desc')
+        .limit(Math.min(200, Math.max(1, Number(limit) || 50)))
+        .select('r.sucursal', 'r.folio', 'r.solicitante', 'r.beneficiario', 'r.concepto',
+          'r.estado', 'r.aplicada', trx.raw(`to_char(r.fecha,'YYYY-MM-DD') AS fecha`),
+          trx.raw('r.importe::numeric AS importe'));
+
+      return rows.map((r): ValeAsignado => ({
+        sucursal: String(r['sucursal'] ?? ''),
+        folio: String(r['folio'] ?? ''),
+        fecha: (r['fecha'] as string) ?? null,
+        importe: Number(r['importe'] ?? 0),
+        solicita: (r['solicitante'] as string) ?? null,
+        // El destinatario sale del MISMO vale de Kepler, como pidio el usuario.
+        destinatario: (r['beneficiario'] as string) ?? null,
+        concepto: (r['concepto'] as string) ?? null,
+        estado: (r['estado'] as string) ?? null,
+        aplicada: r['aplicada'] === null || r['aplicada'] === undefined ? null : !!r['aplicada'],
+        vinculado_por: 'solicita',
+      }));
+    });
   }
 
   /**

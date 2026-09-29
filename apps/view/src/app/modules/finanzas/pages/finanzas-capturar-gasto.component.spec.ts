@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
+import { ActivatedRoute, provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.component';
 
@@ -23,7 +24,10 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [FinanzasCapturarGastoComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      // `[GX.41]` La pantalla inyecta `ActivatedRoute` para poder abrirse con el folio ya
+      // puesto desde «Mis gastos». Sin el router, TODO este archivo se cae -- que es como
+      // se descubrió: inyectar una dependencia nueva rompe cada spec del componente.
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
     comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
     http = TestBed.inject(HttpTestingController);
@@ -229,5 +233,94 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.formaPago.set('efectivo');
     expect(comp.puedeEnviar()).toBe(false);
     expect(comp.enviarLabel()).toContain('Falta');
+  });
+});
+
+
+/**
+ * `[GX.41]` — **Llegar a la captura con el folio ya puesto.**
+ *
+ * Desde «Mis gastos» → «Subir evidencia», el folio y la plaza viajan en la URL. Lo que se
+ * prueba no es que el parámetro se lea: es que **se abra el vale correcto, y ninguno más**.
+ *
+ * ⛔ **373 folios viven en más de una plaza.** Tomar el primer resultado abriría el vale de
+ * otra tienda —con el importe y el beneficiario de otra tienda— y la pantalla se vería
+ * perfecta. Por eso la sucursal, cuando viene, se exige exacta.
+ */
+describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
+  let http: HttpTestingController;
+
+  const montar = (qp: Record<string, string>) => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [FinanzasCapturarGastoComponent],
+      providers: [
+        provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: { get: (k: string) => qp[k] ?? null } } },
+        },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    const fix = TestBed.createComponent(FinanzasCapturarGastoComponent);
+    return { comp: fix.componentInstance, fix };
+  };
+
+  /** Deja pasar las llamadas que la pantalla hace al arrancar y devuelve la de la búsqueda. */
+  const buscada = (rows: unknown[]) => {
+    const reqs = http.match((r) => r.url.includes('/search-solicitudes'));
+    for (const r of reqs) r.flush(rows);
+    http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
+    return reqs;
+  };
+
+  const SOL = (over: Record<string, unknown> = {}) => ({
+    folio: '0009946', sucursal: '00', beneficiario: 'TAVISA', importe: 1583.86,
+    solicitante: 'DEMO_CAPTURA', fecha: '2026-09-28', concepto: 'COMBUSTIBLE',
+    rfc: null, iva: 0, autoriza: null, referencia: null, cuenta_clave: null,
+    usuario: null, estado: 'N', ...over,
+  });
+
+  it('sin folio en la URL no busca nada', () => {
+    montar({});
+    expect(http.match((r) => r.url.includes('/search-solicitudes')).length).toBe(0);
+    http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
+  });
+
+  it('con folio en la URL, busca ESE folio', () => {
+    montar({ folio: '0009946' });
+    const reqs = buscada([SOL()]);
+    expect(reqs.length).toBe(1);
+    expect(reqs[0].request.urlWithParams).toContain('0009946');
+  });
+
+  it('⭐ abre el vale: el folio queda seleccionado', () => {
+    const { comp } = montar({ folio: '0009946', sucursal: '00' });
+    buscada([SOL()]);
+    expect(comp.gasto()?.folio).toBe('0009946');
+    expect(comp.gasto()?.sucursal).toBe('00');
+  });
+
+  /** ⛔ El caso que sostiene el bloque: el mismo folio en dos plazas. */
+  it('⛔ con la sucursal en la URL, NO abre el de la otra plaza', () => {
+    const { comp } = montar({ folio: '0009946', sucursal: '02' });
+    buscada([SOL({ sucursal: '00' }), SOL({ sucursal: '02', importe: 999 })]);
+    expect(comp.gasto()?.sucursal).toBe('02');
+    expect(comp.gasto()?.importe).toBe(999);
+  });
+
+  /** ⚠️ Un folio que el feed todavía no trajo NO puede inventar un vale. */
+  it('si el folio no aparece, no abre nada', () => {
+    const { comp } = montar({ folio: '0009946', sucursal: '00' });
+    buscada([]);
+    expect(comp.gasto()).toBeNull();
+  });
+
+  /** Ni aunque venga otro folio parecido en los resultados. */
+  it('no abre un folio distinto al pedido', () => {
+    const { comp } = montar({ folio: '0009946' });
+    buscada([SOL({ folio: '0009947' })]);
+    expect(comp.gasto()).toBeNull();
   });
 });

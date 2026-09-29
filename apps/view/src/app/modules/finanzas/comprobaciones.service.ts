@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
-import type { EtapaEjercicio } from '@megadulces/contracts';
+import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -124,6 +124,13 @@ export interface ExpenseProofsReport {
    * Leerlo como total es la trampa que GX.35 ya cobró una vez con estos mismos KPI.
    */
   etapas_de_la_pagina?: Record<string, number>;
+  /**
+   * `[GX.41]` Los vales que **Kepler le asignó** a esta persona por la caja «Solicita», y que
+   * todavía **no tienen expediente nuestro**. No son `ExpenseProof`: no tienen `id`, `status`
+   * ni archivos, porque no existen de este lado. Se vuelven expediente cuando les sube la
+   * evidencia. Sólo viene en `/mine`.
+   */
+  asignados?: ValeAsignado[];
   rows: ExpenseProof[];
 }
 
