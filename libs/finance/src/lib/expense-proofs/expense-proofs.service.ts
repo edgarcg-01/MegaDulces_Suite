@@ -929,7 +929,23 @@ export class ExpenseProofsService {
       && !files.some((f) => String(f?.role || '').startsWith('comprobante'));
 
     let nextStatus: string;
-    if (soloCotizacion) {
+    /**
+     * `[GX.56]` ⭐ **La casilla del aprobador manda.** Pedido textual: *«cuando activemos este
+     * apartado "Esto es una prefactura o cotización, todavía falta el comprobante" y demos
+     * click en "Aprobar como provisional" se le regrese al usuario y se le permita volver a
+     * adjuntar la evidencia para que lo vuelva a enviar»*.
+     *
+     * ⛔ Antes, marcar la casilla con un comprobante ya adjunto cerraba igual en `validada`:
+     * la marca quedaba puesta, el vale cerrado, y **el camino para subir la factura no
+     * existía** —`addEvidence` sólo opera sobre `aprobada`—. O sea que la casilla decía «falta
+     * el comprobante» y al mismo tiempo daba el trámite por terminado.
+     *
+     * Ahora el que la marca es el que decide: si dice que falta, el vale vuelve.
+     *
+     * ⚠️ `soloCotizacion` se conserva **además** (GX.54): cubre al aprobador que NO marca la
+     * casilla sobre un vale que sólo trae cotización. Son dos señales de lo mismo y basta una.
+     */
+    if (prov || soloCotizacion) {
       nextStatus = 'aprobada';
     } else if (!lleva) {
       nextStatus = 'validada';
