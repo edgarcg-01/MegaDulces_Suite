@@ -4478,6 +4478,16 @@ RE.13/RE.16 partieron el proceso por **trabajo** y eso quedó bien; faltó cerra
   - ⚠️ **`analytics.erp_purchase_adjustments` está VACÍA en local** (el importer no corre acá), así que el camino real no se ejercitó con datos de producción — de ahí que el smoke siembre en transacción.
   - **Queda abierto (21.4/21.5):** hoy el cuadre es una foto **bien etiquetada**, no una verdad que se actualice. Cerrarlo pide un scanner que revisite las recepciones cuando entra un ajuste nuevo, y la naturaleza del ajuste persistida en `discrepancy_kind`.
 
+- [ ] **[RE.30]** 🔨 **El plazo de pago es del PROVEEDOR, no del documento de Kepler** (2026-09-29) — primera etapa de darle vida a `/compras/obligaciones` como lo que es: la **entrega de Compras a Finanzas** (qué se recibió, cuánto se debe, cuándo vence) y su regreso cuando se paga. Definido con Francisco: plazo en **días exactos**, cada proveedor corre **desde factura o desde recepción**, y si Finanzas rechaza una relación regresa **sólo el renglón**.
+  - 📏 **Medido contra prod (read-only) antes de diseñar:** (1) **la fecha de recepción física NO existe en Kepler** — en el 89% de las 11,295 recepciones de 2026 vale de entrada, orden de entrada y aplicación comparten UNA fecha, la de factura; y la columna de la vista que se llama `receipt_date` **es la fecha de factura** (el vencimiento de Kepler = esa fecha + plazo "fecha factura" en el 99.9%). `c68` cae 1–2 días DESPUÉS del documento: parece fecha de captura (**hipótesis, sin árbitro todavía**) → la recepción la captura la zona. (2) **"Contado" es un hueco del catálogo**: en 2026, 207 proveedores ($94.0M) salen SIEMPRE de contado y 97 ($234.7M) mixtos. (3) El código de proveedor Kepler↔catálogo casa al **100%** (10,296 recepciones, $495.2M). (4) ⚠️ **`COMPRAS_OBLIGACIONES_VER/_GESTIONAR` estaban en CERO roles en prod** — el módulo sólo lo abría el superadmin (mismo defecto que LC.6.2).
+  - **Se extiende `catalog.suppliers`, no se duplica:** `credit_days` ya existía (Fase PP, 25/1,318 llenos desde el Excel); se agrega `credit_term_base` (factura/recepción) + quién lo confirmó + `is_internal` con motivo. Tres estados que no se confunden: NULL = sin capturar · 0 = contado confirmado · >0 = crédito. Historial append-only `catalog.supplier_credit_terms_history` (RLS). El importer del Excel **ya no pisa** un plazo confirmado a mano.
+  - **Pantalla:** pestaña **"Plazos por proveedor"** dentro de `/compras/obligaciones` (la captura manual queda en "Capturadas a mano"). Lista de trabajo ordenada por lo recibido en 12 meses, con lo que dice Kepler al lado y marca "Difiere de Kepler" (tolerancia ±3 d: su "30 días" es mes de calendario). **Contra prod: 307 proveedores, 285 sin plazo, 22 sin confirmar, 46 cubren el 80%**; arriba aparecen entidades internas (Sucursal Padre Hidalgo 322 $31.4M, el dueño $21.1M) que son traspasos, no deuda.
+  - ⚠️ **Por qué pestaña y no página propia:** el bundle inicial de `view` está a **<0.5 KB del tope de 1.40 MB** — una entrada de menú + ruta + nodo del árbol lo pasó por 95 bytes. La pestaña vive en el chunk diferido de Obligaciones. **El próximo que agregue un renglón al menú lo va a romper** — decisión de Edgar si se sube el tope.
+  - **Permisos:** ver = `COMPRAS_PROVEEDORES_VER`; cambiar el plazo = `COMPRAS_OBLIGACIONES_GESTIONAR`, repartido por la mig `…140100` sólo a `gerente_compras`, `compras`, `compras_operaciones`. **`auxiliar_compras` fuera a propósito** hasta confirmar si es el staff de zona (Morelia/Zamora/La Piedad).
+  - ✅ `nx build api` y `nx build view` verdes · eslint de los archivos nuevos 0 errores/0 warnings · SQL del listado corrido read-only contra prod vía knex (246 ms).
+  - ⏳ **NO aplicado:** las migraciones `20260929140000` + `20260929140100` (el `.env` local apunta a prod) · QA visual · re-login de compras. Sin commit (el checkout lo comparte otra sesión).
+  - ➡️ **Siguen:** RE.31 fecha de recepción capturada por la zona (+ envío de papeles) · RE.32 relación de entrega a Finanzas (folio, expediente completo, rechazo por renglón) → nace la obligación · RE.33 regreso de Finanzas (fecha de pago, NC descontadas, días recepción→pago). ⚠️ **"Qué vence" (RE.3) calcula con el `c18` de Kepler** → hereda el "contado" falso; tiene que pasar a este plazo.
+
 - [x] **[RE.29]** 🔨 **El filtro de periodo, que el endpoint ya sabía hacer** (2026-09-10) — lo pidió el dev de pantallas mirando la barra de filtros de `Costo por compra`. `from`/`to` están en el contrato de `listReceipts` desde RE.13.0 y el backend **ya los aplica a las filas y a los KPIs** (`base()` y `kpiBase()`), pero ninguna de las dos superficies del listado los mandaba: la única ventana era el botón de rezago, o sea *"desde el arranque"* contra *"todo lo anterior"*. Un mes cerrado no se podía pedir — y en el lente del dinero eso **es** la pregunta (*"¿cuánto pagamos en agosto?"*).
   - **Se calca de `/compras/costo-neto`**, su hermana del mismo grupo: `p-datepicker` + los presets compartidos (`DATE_PRESET_OPTIONS`/`datePresetRange`). Jakob — dos pantallas del mismo proyecto no pueden filtrar fecha de dos maneras. `p-datepicker` y no `input type="date"`: el nativo no toma el tema (misma razón que RE.17.5 para el último `select` crudo).
   - 🔴 **El rango solo NO alcanzaba, y se probó rompiéndolo:** el carril `al_dia` clava `receipt_date >= reception_start` en el server, así que mandar `from`/`to` sin tocarlo devuelve **cero filas y ninguna explicación**. Medido en `platform_test`: enero-2026 con carril `al_dia` = **0 filas / $0**; el mismo rango con `carril=todo` = **1,135 entradas / $50,385,662.92**. Por eso un periodo explícito **manda sobre el carril** (`carril()` devuelve `todo`), y entrar al rezago suelta el rango: dos ventanas que se intersectan en silencio es la trampa de la que se sale acá.
@@ -6214,6 +6224,35 @@ fuente: **95.4 %** contra quién les vende (`kdm1`, 60 d) y **46/46** contra cap
 - ✅ Zona: las 4 rutas cuelgan de `LA PIEDAD VECINAL` (existe en prod). Yurécuaro la opera la suc 04
   pero **reporta a La Piedad Vecinal** (decisión de negocio 2026-09-29) — la mig pedía una zona
   `YURECUARO` que no existe. Las 3 rutas vecinales que ya existen son de Morelia, no chocan.
+- [ ] 🔨 `[VK.1.1]` **Las rutas quedaron DUPLICADAS** (medido en prod 2026-09-29, solo lectura): migs
+  VK aplicadas (batch 569–571), pero la seed creó "Ruta Vecinal Padre Hidalgo 1/2" y "Ruta Vecinal La
+  Piedad Abastos" cuando las rutas reales YA existían desde julio como `RVPH01` / `RVPH02` / `RVLPA01`,
+  que son las que tienen a los vendedores colgados (`users.route_id`). Clientes Kepler en una ruta,
+  vendedores en otra → **0 anclas creadas**, "Mi ruta" vacía. Decisión Francisco: **se quedan las RV\***.
+  Mig `20260929120000_vk_consolida_rutas_rv`: pasa la liga Kepler a las RV\*, baja lógica de las 3
+  duplicadas SOLO si no tienen nada colgado (medido: 0 usuarios/agenda/clientes/tiendas/capturas),
+  Yurécuaro (sin RV\*) se renombra `RVYUR01`, `jlh_lopez.route_id = RVYUR01`, y **agenda L–S** de los 4
+  (decisión Francisco). No pisa un día ya asignado: `candelaria_salgado` trae "RUTA 21" los martes
+  (alta a mano 29-sep 00:59) → queda y se declara en el log.
+- [ ] 🔨 `[VK.2.1]` La vista trae lo que Kepler ya tiene (mig `20260929120100`): estado, CP, zona, RFC
+  (sin genérico), **teléfono `kdud.c7`** y correo `c11` (decode nuevo). Cobertura sobre los 496: domicilio
+  **495**, RFC real 35, teléfono **12 (2.4 %)** → el teléfono lo sigue capturando el vendedor.
+  El sync escribe el domicilio en `shipping_address` (`source: 'kepler'`) → "Buscar cliente" lo muestra;
+  teléfono/correo: lo capturado en campo GANA, Kepler solo llena huecos. GPS nunca se toca.
+- [ ] 🔨 `[VK.4.1]` `syncErpCarteraForRoutes`: al abrir `/vendor/route-pick`, el supervisor pone al día
+  las rutas Kepler de TODO su equipo (no solo la de hoy) — el conteo de cada opción deja de salir en 0
+  y "Buscar cliente" encuentra a los 496. Vista filtrada por ruta: 15 ms.
+- 🧪 **Validado en copia desechable, NO en prod** (2026-09-29): `francisco` es solo lectura
+  (`default_transaction_read_only=on`), así que se levantó un Postgres 17 local y se le clonaron (lectura
+  desde prod) las 17 tablas y 5 vistas que tocan las migs y el sync. Se corrieron **las migs reales y el
+  sync real compilado del repo**: **31/31** — migs idempotentes (2ª corrida no cambia nada), candado
+  negativo (duplicada con 1 cliente NO se da de baja), 4 RV\* ligadas con surtido, agenda L–S, martes de
+  Candelaria intacto, `security_invoker` + GRANT tras el REPLACE, **496 anclas** `K<suc>-<clave>` (2ª corrida
+  0/0/0), teléfono capturado y GPS no se pisan, Kepler cambia nombre → refresca, Kepler saca de ruta →
+  se suelta sin borrar, y "Mi ruta" hoy: PH 2 **115**, Abastos **158**, Yurécuaro **137**; Candelaria **0**
+  (martes = RUTA 21, declarado). ⚠️ **Yurécuaro son 137, no 143**: los 6 que faltan se llaman "NO TOCAR …"
+  (el personal defendiéndose de la colisión de claves) y la vista los excluye a propósito; el 143 del
+  dry-run de VK.2 era el conteo crudo de la ficha. **Aplicar: migs ANTES que el código.**
 
 ---
 ## VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod)
