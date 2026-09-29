@@ -6166,6 +6166,15 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
 
 ## Fase CAT — Catálogo de productos (proyecto Compras)
 
+- [x] **[CAT-OPS.1]** 🧪 **Estructura del centro operativo de catálogo** — la navegación de
+  `/compras/catalogo` queda organizada en Resumen, Productos, Solicitudes, Incidencias, Costos y
+  precios, Listas de precios, Códigos y Reportes. Las pantallas existentes conservan sus rutas;
+  `Precios distintos` queda identificado como contenido de Costos y precios. Los apartados nuevos
+  usan un cascarón explícito de alcance pendiente para no fingir datos ni operaciones todavía.
+  Reutiliza `COMMERCIAL_PRODUCTS_VER`, sin migraciones ni permisos nuevos. Verificado con suite
+  `view` (1,240 aprobadas; 3 pendientes), build de producción de las cuatro apps y los tres gates locales. Pendiente:
+  validación visual light, dark y móvil antes de merge.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran
