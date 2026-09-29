@@ -5940,13 +5940,23 @@ TP.6-TP.8+TP.10".
       sola factura** (filtra por `descuento > 0` sobre ese mismo campo): *un filtro que siempre
       devuelve vacío se lee como un hecho del negocio, no como un defecto*. Roto a propósito:
       **4/7 en rojo** con el código viejo. · *2026-09-28*
-- [ ] **[TK.d4]** ⬜ **Medir `c19` en `U-D-10`** y cerrar o reabrir el punto. La revisión pedía
-      exponer `descuento_pct` en `erp_sale_tickets` y leerlo en `detalleMostrador()`, donde hoy hay
-      un `null` clavado. **No se hizo**: `ERP_KEPLER` §3.1 mide que el par `c13`+`c19` aplica
-      **sólo** a telemarketing y crédito, así que ese `null` no es un olvido. Y **no se pudo medir
-      `c19` desde la sesión** (`platform_test` da `3D000` detrás de un pooler, el ODS local tiene
-      69 filas de `kdm1`, el proxy público de Railway no contesta) → se **declara** en vez de
-      suponerlo, con la consulta escrita en `FASE_TK` §7.2 (ADR-056).
+- [x] **[TK.d4]** 🧪 ⭐ **El ticket de mostrador SÍ trae porcentaje — se cerró primero como «no se
+      hace» y la medición lo refutó a mitad del lote.** `detalleMostrador()` tenía
+      `descuento_pct_erp: null` clavado y tenía motivo: `ERP_KEPLER` §3.1 midió que en `U-D-10`
+      la cabecera es 0.00 en el **100%** de 30,549 documentos. No se pudo medir `c19` desde la
+      sesión (`platform_test` da `3D000` detrás de un pooler, el ODS local tiene 69 filas de
+      `kdm1`, el proxy de Railway no contesta) → se **declaró en vez de suponerlo** (ADR-056).
+      **Ese 100% se había medido SIN Morelia**: las ramas `06`/`07`/`08` sí cobran el descuento
+      del cliente en caja (20 tickets, $1,948.15 — Fase DC §6). Mig `20260928260000` aditiva
+      (22 → 23 columnas, candado antes y después, idempotente) + el servicio la lee.
+      ⭐ **Declarar en vez de adivinar fue lo que permitió corregir**: cambiar el `null` «porque
+      sí» habría hecho el acierto indistinguible de la suerte. · *2026-09-28*
+- [x] **[TK.d3b]** 🧪 ⛔ **Y la columna obvia era la equivocada.** El primer arreglo de `[TK.d3]`
+      leyó `i.descuento` = `kdm1.c13`; la Fase DC midió el mismo día que **`c13` no es lo
+      descontado** — viaja SIN impuesto y el total CON. En `07 U-D-10 s4 f0000513` el real es
+      **$147.43** y `c13` dice **$135.26**: publicarlo **subdeclara 8.3%**. Se usa
+      `descuento_efectivo`, que reproduce los $147.43 al centavo, con su prueba negativa para que
+      nadie lo «simplifique» de vuelta. · *2026-09-28*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
       la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.

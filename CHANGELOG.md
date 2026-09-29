@@ -88,11 +88,21 @@ atrapó nada porque el componente **no tenía una sola prueba** — `tsc` no ent
 - **Changed** el renglón se llama **«Descuento de cliente»** en los tres papeles y en la pantalla
   —el nombre que Kepler le da en su propia pantalla (`ERP_KEPLER` §4)— en vez de «Descuento del
   documento (3% del ERP)», y el de 80 mm deja de ser el único que se calla el porcentaje.
-- **Internal** 4 specs nuevos (26 casos), 2 de ellos **rotos a propósito** para verificar el rojo:
-  4/7 y 2/6. El candado de la tabla es de **paridad** `<th>`↔`<td>`, no de contenido.
-- ⛔ **No se hizo**, con motivo medido: exponer `descuento_pct` en `erp_sale_tickets` para
-  mostrador. La cabecera no aplica a `U-D-10` y **no se pudo medir `c19` desde esta sesión** — se
-  declara con la consulta escrita en [`FASE_TK`](docs/IMPLEMENTACION/FASES/FASE_TK_TICKETS_VENTA.md) §7.2 en vez de suponerlo.
+⛔ **Y la columna obvia era la equivocada.** El primer arreglo leyó `i.descuento` = `kdm1.c13`, y
+la Fase DC midió el mismo día que **`c13` NO es lo que se descontó: viaja SIN impuesto y el total
+CON**. En `07 U-D-10 s4 f0000513` el real es **$147.43** y `c13` dice **$135.26** — publicarlo
+**subdeclara 8.3%**. Se usa `descuento_efectivo`, que reproduce los $147.43 al centavo.
+
+⭐ **Y el ticket de mostrador SÍ trae porcentaje**, contra lo que decía la medición vieja: ese
+«100% con `c13` en cero» se tomó **sin Morelia**. Las ramas `06`, `07` y `08` cobran el descuento
+del cliente en caja (20 tickets, $1,948.15). La vista gana `descuento_pct` (mig `20260928260000`,
+aditiva, 22 → 23 columnas con candado antes y después) y `detalleMostrador()` la lee.
+
+- **Internal** 5 specs nuevos (30 casos), 3 de ellos **rotos a propósito** para verificar el rojo:
+  2/8, 2/6 y 2/4. El candado de la tabla es de **paridad** `<th>`↔`<td>`, no de contenido.
+- ⭐ `[TK.d1]` y el spec del componente coinciden con `[TK.a3]`/`[TK.a5]` de la auditoría §7 que
+  otra sesión publicó el mismo día: ella los **midió**, este lote los **arregla**. Lo demás de esa
+  auditoría (`a1`, `a2`, `a4`, `a6`) **no se toca acá**, y `[TK.a1]`/`[TK.a2]` pesan más que esto.
 
 ### Removed — una alarma que le mentía al Sell-Out en cada arranque de prod (VSO.12, 2026-09-28)
 Apareció verificando el deploy de la fase VSO, en el log de `prod-api`:

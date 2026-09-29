@@ -385,7 +385,8 @@ Lleva candado: falla si las 22 columnas actuales no quedan idénticas o si el co
 
 | qué | resultado |
 |---|---|
-| `customer-report-descuento.spec.ts` (nuevo) | **9/9** · rojo **4/9** con el código viejo |
+| `customer-report-descuento.spec.ts` (nuevo) | **8/8** · rojo **2/8** al volver a `i.descuento` |
+| `ticket-mostrador-pct.spec.ts` (nuevo) | **4/4** · rojo **2/4** con el `null` clavado |
 | `comercial-tickets.component.spec.ts` (nuevo — el `[TK.a5]` de §7.5) | **6/6** · rojo **2/6** sin los dos `<th>` |
 | `ticket-carta-descuento.spec.ts` · `ticket-venta-descuento.spec.ts` (nuevos) | **4/4** · **5/5** |
 | `reporte-cliente-papel.spec.ts` (+4) | **22/22** |
