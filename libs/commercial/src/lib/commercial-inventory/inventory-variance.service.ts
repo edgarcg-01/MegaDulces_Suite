@@ -597,11 +597,30 @@ export class InventoryVarianceService {
       const nom = new Map(
         (nombres as { sku: string; nombre: string }[]).map((x) => [x.sku, x.nombre]));
 
+      // ⛔ LA FRESCURA, y acá no es adorno. Esto sale de una MATVIEW que se refresca una vez al
+      // día: si el refresco se para, la pantalla NO se vacía ni avisa — sigue mostrando la merma
+      // del período anterior como si fuera la de este, que es la clase de fallo que no se nota
+      // hasta que alguien decide con ella. El veredicto es TERNARIO: un booleano no puede decir
+      // "no sé" (ADR-056), y `null` cuando el latido no existe NO es lo mismo que "está fresco".
+      const [latido] = await knex('analytics.cron_runs')
+        .where({ job_key: 'analytics_refresh_count_rollforward' })
+        .select('last_finish', 'status')
+        .orderBy('last_finish', 'desc')
+        .limit(1);
+
       return {
         totales: tot,
         items: (items as Record<string, unknown>[]).map((r) => ({
           ...r, descripcion: nom.get(String(r['sku'])) ?? null,
         })),
+        freshness: {
+          data_as_of: latido?.['last_finish'] ?? null,
+          status: !latido ? 'unknown'
+            : latido['status'] === 'ok' ? 'fresh' : 'stale',
+          motivo: !latido
+            ? 'la matview nunca registró un refresco: no se sabe de cuándo es este dato'
+            : null,
+        },
       };
     });
   }

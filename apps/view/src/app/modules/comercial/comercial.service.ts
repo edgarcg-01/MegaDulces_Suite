@@ -1613,7 +1613,9 @@ export class ComercialService {
       .set('hasta', params.hasta);
     if (params.veredicto) p = p.set('veredicto', params.veredicto);
     if (params.limit) p = p.set('limit', String(params.limit));
-    return this.http.get<{ totales: RollforwardTotales; items: RollforwardItem[] }>(
+    return this.http.get<{
+      totales: RollforwardTotales; items: RollforwardItem[]; freshness: RollforwardFreshness;
+    }>(
       `${this.base}/inventory/variance/rollforward`, { params: p });
   }
 
@@ -3047,6 +3049,13 @@ export interface RollforwardTotales {
   /** Filas con 'debía quedar' negativo. NO son simétricas: inflan el sobrante y nunca la merma. */
   imposibles: number;
   importe_imposible: string;
+}
+
+/** [VP/ADR-056] El veredicto es TERNARIO: un booleano no puede decir "no sé". */
+export interface RollforwardFreshness {
+  data_as_of: string | null;
+  status: 'fresh' | 'stale' | 'unknown';
+  motivo: string | null;
 }
 
 export interface RollforwardPeriodo {
