@@ -292,7 +292,7 @@ Orden por valor entregado, no por dependencia técnica. **IC.0 entrega valor sin
 | **IC.1c** ⭐ | **El CEDIS, primer conteo físico de su historia** — ya sobre Kepler, después de la migración. 248 SKUs con existencia, $7.6M | Cabe en un día y prueba el circuito completo (contar → diferencia → export) con riesgo mínimo. **El mejor piloto de la fase**, y su primer completo de Kepler no llega hasta ~dic |
 | **IC.1b** | **Explicar el sobrante.** La unidad **ya casi queda descartada** (§1.5: la conversión mide bien). La hipótesis viva es §1.9b: **PH no tiene carga inicial de su almacén principal** — cruzar los SKUs que sobraron en sep contra los que Wincaja `10` tenía y Kepler nunca cargó | $4.25M en una sola sucursal, y **el sobrante va de 6.5% a 31% en TODAS**. Si es carga incompleta, no es merma y nadie debe investigarlo como robo |
 | **IC.2** ✅ | **HECHO 2026-09-28** (commit `8bc363b4`, mig `20260928270000`) — `almacenista` gana **VER** (no tenía ni eso) y **CONTAR**, y **pierde SUPERVISAR**: `GET /counts/:id/items` devuelve el teórico y va con ese permiso, así que un contador que lo tenga **rompe el conteo ciego**. `marketing` pierde **RECONCILIAR**. Smoke **8/0** como **TRINQUETE** (5 roles ya combinaban CONTAR+SUPERVISAR: no exige arreglar el pasado, exige que no empeore). Declarado sin tocar: `encargado_tienda` (7 personas) puede **AJUSTAR sin CONTAR**. **Permisos y segregación.** `CONTAR` al `almacenista`; quitar `RECONCILIAR` a `marketing`; **prueba negativa** (romper la compuerta a propósito y verificar el rojo) | Desbloquea a las 4 personas que cuentan. Un gate sin prueba negativa es una intención |
-| **IC.3** | **Histórico de descuadre por SKU.** Vista derivada de los 4 trimestres de ajustes (2025-Q4 a 2026-Q3) por (sucursal, SKU): veces que descuadró, pesos, signo | Es la 4ª señal de D2 **y** la más preventiva: contar seguido lo que siempre falla |
+| **IC.3** ✅ | **HECHO 2026-09-28** (commit `b5935891`) — `analytics.v_sku_count_variance_history` (934 ms, 18,327 filas). **El universo son las CAPTURAS, no los ajustes** (si no, *contado 8 veces y descuadró 1* se ve igual que *contado 1 vez y descuadró 1*), y la **tasa es NULL bajo 2 observaciones**: la 02 tiene 7 conteos pero la 01 y la 06 tienen **uno**, y publicar 1-de-1 como 100% haría que el top priorice los almacenes con menos historia. Medido: el SKU `17063` de la 02 descuadró **6 de 6 veces, $3,318,784**. Smoke **9/0**. ⭐ **Su candado cruzado destapó 2 bugs en IC.0** (ver §1.12). **Histórico de descuadre por SKU.** Vista derivada de los 4 trimestres de ajustes (2025-Q4 a 2026-Q3) por (sucursal, SKU): veces que descuadró, pesos, signo | Es la 4ª señal de D2 **y** la más preventiva: contar seguido lo que siempre falla |
 | **IC.4** | **Score del top** (`analytics.v_count_priority_score`): las 4 señales de D2 normalizadas, con el peso de cada una **visible en pantalla** | Un score opaco no se audita. Que se vea por qué un SKU está en la lista |
 | **IC.5** | **Plan rotativo del parcial.** Reparte el catálogo en 3 olas por almacén; `openCycleCount` ya acota el folio | Es D3. La mecánica ya existe: falta el reparto y que nadie quede sin tocar |
 | **IC.6** | **Programa de inventario**: una pantalla con los tres ritmos — qué toca este mes, qué se contó, qué falta, cuándo cae el trimestral de Kepler | Hoy el trimestral es una fecha que alguien recuerda |
@@ -305,6 +305,19 @@ Orden por valor entregado, no por dependencia técnica. **IC.0 entrega valor sin
 **MVP original = IC.CEDIS + IC.0 + IC.0b + IC.1 + IC.2.** Con eso se protege la migración del CEDIS, se ve el descuadre real, se cuenta contra la fuente buena y las personas correctas pueden contar.
 
 ⚠️ **Requisito transversal de toda vista que toque `kdm2`:** el join lleva **`c1`** (el almacén), y el smoke lleva una aserción contra la duplicación — §1.9.
+
+---
+
+### 1.12 ⛔ Dos bugs que sólo apareció al cruzar dos implementaciones (2026-09-28)
+
+IC.0 estaba commiteada, con su smoke en **10/0** y cuadrando contra el ODS crudo al centavo. El candado que compara su resultado con el de IC.3 encontró una divergencia de **$449,517**, y detrás había dos defectos reales:
+
+1. ⛔ **Réplica cruzada.** `kepler_ods.kdm1` con `sucursal='03'` trae **220 cabeceras del almacén `02`** (nov-2025 a ene-2026) — el mismo fenómeno que `kdil` ya documenta. La vista las atribuía a **8ESQ siendo de La Piedad**. ⚠️ El filtro correcto **no** es `almacen = sucursal` a secas: eso borraría los **sub-almacenes legítimos**, y la única carga de Padre Hidalgo vive en el almacén `01-006` (la Ruta 28).
+2. ⛔ **`max()` sobre folios.** El CTE agrupaba incluyendo el folio y la firma hacía `max(lineas)`. Hay eventos con **64 folios** del mismo doctype en la misma fecha, así que se comparaba el folio más grande de captura contra el más grande de entrada — no el total.
+
+⭐ **La lección de método:** el smoke de IC.0 verificaba la vista **contra sí misma** (contra el ODS crudo con su propia lógica) y pasó los dos bugs. Lo que los encontró fue **comparar dos implementaciones independientes del mismo concepto**. Y la aserción que faltaba no era gratis: el bloque de cuadre filtra sep-2026 y la réplica es de nov-ene, así que **pasaba en verde sin ejercer el arreglo**.
+
+⚠️ El candado cruzado también estaba **mal planteado**: exigía igualdad entre las dos vistas cuando miden universos distintos a propósito (IC.0 trae todo el descuadre; IC.3 sólo el de los SKUs que estuvieron en la captura). Ahora exige **dirección** — el historial es un subconjunto y nunca puede exceder — y que la brecha no crezca: hoy **0.87%**. Exigir Δ cero habría obligado a romper uno de los dos diseños para que el test pasara.
 
 ---
 
