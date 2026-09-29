@@ -148,6 +148,7 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       '/almacen/inventory/abc',
       '/almacen/inventory/aisles',
       '/almacen/inventory/ira',
+      '/almacen/inventory/diferencias',
       '/almacen/inventory/count',
     ],
     tabs: [
@@ -156,6 +157,9 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       { label: 'Cíclico (ABC)', icon: 'pi pi-sync', route: '/almacen/inventory/abc', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
       { label: 'Pasillos', icon: 'pi pi-th-large', route: '/almacen/inventory/aisles', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR, exact: true },
       { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/almacen/inventory/ira', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
+      // [IC.0] El descuadre del trimestral de Kepler. Gate VER (lectura) y no SUPERVISAR:
+      // el permiso ya esta repartido a 10 roles, incluida direccion y prevencion.
+      { label: 'Diferencias', icon: 'pi pi-exclamation-triangle', route: '/almacen/inventory/diferencias', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
     ],
     focusEntries: [
       // Pantalla del contador: handheld, con `countFocusGuard` en canDeactivate.

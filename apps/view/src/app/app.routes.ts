@@ -1039,6 +1039,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // [IC.0] Diferencias del conteo físico de Kepler — el descuadre que ya existe y no
+        // se veía en ninguna pantalla. Gate VER: es lectura, y ese permiso ya está repartido.
+        path: 'inventory/diferencias',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-variance.component').then(m => m.ComercialInventoryVarianceComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
         // Fase I.3 — supervisor: lista + apertura de folios
         path: 'inventory/sessions',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
