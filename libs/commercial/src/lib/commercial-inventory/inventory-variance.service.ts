@@ -150,6 +150,119 @@ export class InventoryVarianceService {
     });
   }
 
+  /**
+   * [IC.8] ⭐ EL KPI DE LA FASE — ¿sirvió?
+   *
+   * La tesis de IC.5 es que contar un tercio del catálogo cada mes hace que el trimestral de
+   * Kepler encuentre menos descuadre. Esto lo mide, y la fase se vuelve **falsable**: si el
+   * trimestre siguiente no baja, el parcial no está funcionando y hay que decirlo en vez de
+   * seguir contando.
+   *
+   * ── Las tres cosas que este cálculo NO puede hacer mal ──────────────────────────────────
+   *
+   * 1. **Excluir cargas iniciales.** Son $30.8M de migraciones de ERP. Mezcladas, cualquier
+   *    tendencia es ruido.
+   * 2. **Normalizar por lo contado.** Un trimestre donde se contó la mitad tiene la mitad del
+   *    descuadre sin haber mejorado nada. Se compara el **% sobre el valor contado**, no los
+   *    pesos absolutos.
+   * 3. **No comparar peras con manzanas.** Los almacenes entran y salen (Morelia no tiene
+   *    conteos, PH tiene uno). Si un período tiene almacenes que el otro no, la comparación
+   *    global miente — por eso se devuelve `comparable` y la lista de los que están en ambos.
+   */
+  async kpi(params: { warehouse_id?: string } = {}) {
+    return this.tk.run(async (knex) => {
+      const { rows } = await knex.raw(
+        `WITH ev AS (
+           SELECT v.warehouse_id, v.warehouse_code, v.fecha,
+                  sum(CASE WHEN v.signo = 'sobrante' THEN v.importe ELSE 0 END) AS sobrante,
+                  sum(CASE WHEN v.signo = 'faltante' THEN v.importe ELSE 0 END) AS faltante
+             FROM analytics.v_erp_physical_count_variance v
+            WHERE v.tipo_evento = 'conteo'          -- una carga inicial no es descuadre
+              AND (?::uuid IS NULL OR v.warehouse_id = ?::uuid)
+            GROUP BY 1, 2, 3
+         ),
+         contado AS (
+           -- El denominador: lo que se contó en ese evento. Sin esto, un trimestre con menos
+           -- conteo parece una mejora.
+           SELECT w.id AS warehouse_id, m.c9::date AS fecha,
+                  sum(l.c13::numeric) AS valor_contado
+             FROM kepler_ods.kdm1 m
+             JOIN kepler_ods.kdm2 l
+               ON l.sucursal = m.sucursal AND l.c1 = m.c1 AND l.c2 = m.c2 AND l.c3 = m.c3
+              AND l.c4 = m.c4 AND l.c5 = m.c5 AND l.c6 = m.c6
+             JOIN commercial.warehouses w
+               ON w.kepler_code = m.sucursal AND w.kepler_code <> '00' AND w.deleted_at IS NULL
+            WHERE m.c2 = 'N' AND m.c3 = 'A' AND m.c4 = '45'
+              AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
+            GROUP BY 1, 2
+         )
+         SELECT to_char(ev.fecha, 'YYYY-"T"Q')                    AS periodo,
+                count(*)::int                                     AS eventos,
+                count(DISTINCT ev.warehouse_code)::int            AS almacenes,
+                array_agg(DISTINCT ev.warehouse_code ORDER BY ev.warehouse_code) AS codigos,
+                round(sum(ev.sobrante), 2)                        AS sobrante,
+                round(sum(ev.faltante), 2)                        AS faltante,
+                round(sum(coalesce(c.valor_contado, 0)), 2)       AS valor_contado,
+                CASE WHEN sum(coalesce(c.valor_contado, 0)) > 0
+                     THEN round(100 * (sum(ev.sobrante) + sum(ev.faltante))
+                                / sum(c.valor_contado), 2) END    AS pct_descuadre
+           FROM ev LEFT JOIN contado c
+             ON c.warehouse_id = ev.warehouse_id AND c.fecha = ev.fecha
+          GROUP BY 1 ORDER BY 1`,
+        [params.warehouse_id ?? null, params.warehouse_id ?? null],
+      );
+
+      // La comparación sólo vale entre períodos con los MISMOS almacenes.
+      // ⛔ Un pct > 100 es IMPOSIBLE de leer como "descuadró más de lo que hay": significa
+      // que el DENOMINADOR no cubre al numerador. Medido: 2025-T4 da 115.25%, porque en esos
+      // conteos la captura venía partida en decenas de folios y el valor capturado que
+      // alcanzamos a sumar no cubre todos los SKUs que después se ajustaron.
+      // Se MARCA en vez de explicarse sin medirlo, y no se usa para la tendencia: una serie
+      // que arranca en un número imposible haría ver una mejora que nadie produjo.
+      const periodos = rows.map((r: Record<string, unknown>) => {
+        const pct = r['pct_descuadre'] != null ? Number(r['pct_descuadre']) : null;
+        return {
+          ...r,
+          pct_descuadre: pct,
+          salvedad: pct != null && pct > 100 ? 'denominador_incompleto' : null,
+        };
+      });
+      let tendencia: Record<string, unknown> | null = null;
+      // Sólo períodos con denominador sano entran a la tendencia.
+      const sanos = periodos.filter((p) => p.salvedad == null);
+      if (sanos.length >= 2) {
+        const [prev, ult] = [sanos[sanos.length - 2], sanos[sanos.length - 1]];
+        const a = new Set(prev.codigos as string[]);
+        const b = new Set(ult.codigos as string[]);
+        const comunes = [...b].filter((x) => a.has(x));
+        const mismos = comunes.length === a.size && comunes.length === b.size;
+        tendencia = {
+          de: prev.periodo, a: ult.periodo,
+          pct_antes: prev.pct_descuadre, pct_despues: ult.pct_descuadre,
+          // NULL, no 0: "no se puede comparar" no es "no cambió".
+          delta_pp: (prev.pct_descuadre != null && ult.pct_descuadre != null && mismos)
+            ? Number((ult.pct_descuadre - prev.pct_descuadre).toFixed(2)) : null,
+          comparable: mismos,
+          motivo: mismos ? null
+            : `los períodos no tienen los mismos almacenes (${[...a].join(',')} vs ${[...b].join(',')})`,
+          almacenes_comunes: comunes,
+        };
+      }
+      return {
+        periodos,
+        tendencia,
+        // Sin al menos dos trimestres con los mismos almacenes, esto todavía no puede
+        // responder si la fase sirvió — y decirlo es parte de la respuesta.
+        veredicto: tendencia?.comparable
+          ? ((tendencia['delta_pp'] as number) < 0 ? 'mejora' : 'sin_mejora')
+          : 'sin_base_de_comparacion',
+        // Cuántos períodos quedaron fuera por denominador imposible. Si son muchos, el KPI
+        // todavía no se puede usar y hay que arreglar la medida antes que el proceso.
+        periodos_descartados: periodos.length - sanos.length,
+      };
+    });
+  }
+
   /** Almacenes y fechas con conteo, para poblar los filtros sin adivinar. */
   async events() {
     return this.tk.run(async (knex) =>

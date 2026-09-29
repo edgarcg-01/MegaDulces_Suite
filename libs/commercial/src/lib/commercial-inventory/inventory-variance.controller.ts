@@ -62,6 +62,18 @@ export class InventoryVarianceController {
     return this.service.coverage({ warehouse_id: warehouseId, fecha });
   }
 
+  // ── [IC.8] El KPI de la fase ─────────────────────────────────────────────────────────
+  @Get('kpi')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: '¿Sirvió? Descuadre por trimestre como % del valor contado, sin cargas '
+      + 'iniciales. Devuelve `comparable: false` cuando los períodos no tienen los mismos '
+      + 'almacenes — comparar ahí mentiría.',
+  })
+  kpi(@Query('warehouse_id') warehouseId?: string) {
+    return this.service.kpi({ warehouse_id: warehouseId });
+  }
+
   // ── [IC.5] El plan del mes ───────────────────────────────────────────────────────────
   @Get('plan')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)

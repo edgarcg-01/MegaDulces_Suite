@@ -235,6 +235,28 @@ export class InventoryCountController {
     return this.service.keplerAdjustmentExport(id);
   }
 
+  // ── [IC.7] El acuse: sin esto el ciclo no cierra ─────────────────────────────────────
+  @Post(':id/kepler-export/ack')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
+  @ApiOperation({
+    summary: 'Confirmar que el archivo YA se capturó en Kepler, con quién y cuándo. '
+      + 'Mientras no se capture, el ERP sigue con su saldo viejo y el conteo siguiente '
+      + 'vuelve a encontrar la misma diferencia.',
+  })
+  keplerExportAck(
+    @Param('id') id: string,
+    @Body() body: { kepler_folio?: string; notas?: string },
+  ) {
+    return this.service.keplerExportAck(id, body ?? {});
+  }
+
+  @Get(':id/kepler-export/status')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Estado del archivo: exportado / capturado / sin emitir' })
+  keplerExportStatus(@Param('id') id: string) {
+    return this.service.keplerExportStatus(id);
+  }
+
   @Post(':id/reconcile')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
   @ApiOperation({ summary: 'Reconciliar: ajustar stock al físico + cerrar folio' })

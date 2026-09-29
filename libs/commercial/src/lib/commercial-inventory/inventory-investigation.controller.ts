@@ -37,6 +37,17 @@ export class InventoryInvestigationController {
     return this.service.fromCount(body?.count);
   }
 
+  // ── [IC.9] Alimentar la bandeja con el descuadre REAL, el de Kepler ──────────────────
+  @Post('from-kepler')
+  @RequirePermissions(Permission.COMMERCIAL_PREVENTION_GESTIONAR)
+  @ApiOperation({
+    summary: 'Abrir expedientes desde el conteo trimestral de Kepler. Con umbral: septiembre '
+      + 'tiene 7,301 SKUs descuadrados y abrirlos todos vacía la bandeja de sentido.',
+  })
+  fromKepler(@Body() body: { warehouse_id: string; fecha: string; min_importe?: number; max_items?: number }) {
+    return this.service.fromKeplerVariance(body);
+  }
+
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_PREVENTION_VER)
   @ApiOperation({ summary: 'Bandeja de expedientes (filtros: status/warehouse_id/product_id)' })
