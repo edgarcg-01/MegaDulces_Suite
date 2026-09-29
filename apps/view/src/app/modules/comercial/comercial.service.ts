@@ -2896,6 +2896,14 @@ export interface InventoryVarianceLine {
   kepler_sucursal: string;
   kepler_almacen: string;
   tipo_evento: 'conteo' | 'carga_inicial';
+  /** [IC.0c] DERIVADO (contado −/+ diferencia). Kepler NO guarda el teórico: se revisaron las
+   *  38 columnas de la línea de captura y no está. NULL cuando el ajuste excede lo capturado
+   *  — medido: reconstruye el 100% de los faltantes y el 81% de los sobrantes. */
+  teorico?: number | null;
+  /** Lo CONTADO, dato directo de la captura N-A-45. */
+  contado?: number | null;
+  /** Por qué no hay teórico, cuando no lo hay. Nunca se rellena con un número. */
+  teorico_salvedad?: string | null;
 }
 
 export interface InventoryVarianceCoverage {

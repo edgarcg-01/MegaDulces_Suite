@@ -74,6 +74,28 @@ export class InventoryVarianceService {
   }
 
   /** Detalle SKU por SKU de un evento (almacén + fecha). Es la lista accionable. */
+  /**
+   * [IC.0c] El detalle SKU por SKU — con lo que DEBÍA haber contra lo que SALIÓ.
+   *
+   * La versión anterior mostraba sólo la diferencia, que es lo único que Kepler emite. Para
+   * decidir algo hace falta el par: si el sistema decía 108 y se contaron 1,232, el sobrante de
+   * 1,124 se explica solo; si decía 2,051 y se contaron 1,474, es otra conversación.
+   *
+   * ── ⛔ De dónde sale cada número, porque NO son del mismo tipo ──────────────────────────
+   *
+   * · `contado`   → DATO DIRECTO. La captura `N-A-45` (`c9` de cada línea). Medido en el
+   *                 evento 02/2026-09-23: 2,370 SKUs capturados, y los 1,144 que tienen ajuste
+   *                 están todos en la captura.
+   * · `diferencia`→ DATO DIRECTO. El ajuste `N-A-30` / `N-D-30`.
+   * · `teorico`   → **DERIVADO**: `contado − diferencia`. Kepler **no lo guarda**: se revisaron
+   *                 las 38 columnas de la línea de captura buscando el valor esperado y no está.
+   *
+   * ⛔ Y el derivado NO siempre es posible: en **80 de 1,144 SKUs (6.99%)** del mismo evento da
+   * NEGATIVO, que es físicamente imposible. La causa está medida: la captura y el ajuste no
+   * comparten grano — para el SKU 88045 la captura trae costo 5.28 y factor 16, y su ajuste
+   * costo 5.07 y factor 0. Esos casos salen con `teorico = null` y `teorico_salvedad`, nunca
+   * con un número inventado (ADR-056).
+   */
   async detail(params: {
     warehouse_id: string;
     fecha: string;
@@ -82,18 +104,51 @@ export class InventoryVarianceService {
   }) {
     const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 2000);
     return this.tk.run(async (knex) => {
-      const q = knex('analytics.v_erp_physical_count_variance as v')
-        .select(
-          'v.sku', 'v.product_id', 'v.descripcion', 'v.unidad_erp', 'v.signo',
-          'v.cantidad', 'v.costo_unitario', 'v.importe', 'v.folio',
-          'v.kepler_sucursal', 'v.kepler_almacen', 'v.tipo_evento',
+      const filtroSigno = params.signo ? 'AND v.signo = ?' : '';
+      const binds: (string | number)[] = [params.warehouse_id, params.fecha];
+      if (params.signo) binds.push(params.signo);
+      binds.push(params.fecha, limit);
+
+      // ⛔ ANTI-RÉPLICA en la consulta a kdm1: el almacén tiene que PERTENECER a la sucursal.
+      // La sucursal 03 arrastra 220 cabeceras del almacén 02, y sin esto el "contado" de 8ESQ
+      // se mezcla con el de La Piedad. El LIKE conserva los sub-almacenes legítimos (01-006).
+      const { rows } = await knex.raw(`
+        WITH v AS (
+          SELECT v.sku, v.product_id, v.descripcion, v.unidad_erp, v.signo, v.cantidad,
+                 v.costo_unitario, v.importe, v.folio, v.kepler_sucursal, v.kepler_almacen,
+                 v.tipo_evento
+            FROM analytics.v_erp_physical_count_variance v
+           WHERE v.warehouse_id = ? AND v.fecha = ? ${filtroSigno}
+        ),
+        capt AS (
+          SELECT btrim(l.c8) AS sku, sum(l.c9::numeric) AS contado
+            FROM kepler_ods.kdm1 m
+            JOIN kepler_ods.kdm2 l
+              ON l.sucursal = m.sucursal AND l.c1 = m.c1 AND l.c2 = m.c2 AND l.c3 = m.c3
+             AND l.c4 = m.c4 AND l.c5 = m.c5 AND l.c6 = m.c6
+           WHERE m.c2 = 'N' AND m.c3 = 'A' AND m.c4 = 45
+             AND m.c9::date = ?::date
+             AND m.sucursal IN (SELECT DISTINCT kepler_sucursal FROM v)
+             AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
+           GROUP BY 1
         )
-        .where('v.warehouse_id', params.warehouse_id)
-        .andWhere('v.fecha', params.fecha)
-        .orderBy('v.importe', 'desc')
-        .limit(limit);
-      if (params.signo) q.andWhere('v.signo', params.signo);
-      return q;
+        SELECT v.*,
+               c.contado,
+               -- El signo manda: un SOBRANTE quiere decir que se contó de MÁS.
+               CASE WHEN c.contado IS NULL THEN NULL
+                    WHEN (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
+                               ELSE c.contado + v.cantidad END) < 0 THEN NULL
+                    ELSE (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
+                               ELSE c.contado + v.cantidad END) END AS teorico,
+               CASE WHEN c.contado IS NULL THEN 'el SKU no aparece en la captura de ese dia'
+                    WHEN (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
+                               ELSE c.contado + v.cantidad END) < 0
+                      THEN 'no reconstruible: el ajuste excede lo contado (captura y ajuste con distinto grano)'
+                    ELSE NULL END AS teorico_salvedad
+          FROM v LEFT JOIN capt c ON c.sku = v.sku
+         ORDER BY v.importe DESC
+         LIMIT ?`, binds);
+      return rows;
     });
   }
 

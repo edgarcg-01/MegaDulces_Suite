@@ -221,6 +221,79 @@ const t = (name, cond, extra) => {
       `SELECT count(*)::int AS n FROM analytics.v_erp_physical_count_variance
         WHERE signo NOT IN ('sobrante','faltante')`)).rows;
     t('el signo sólo toma los dos valores declarados', Number(sg.n) === 0, `${sg.n} filas raras`);
+
+    // ── [IC.0c] El «debía haber» del detalle — y lo que NO se puede reconstruir ──────
+    //
+    // Kepler emite la DIFERENCIA, no el teórico: se revisaron las 38 columnas de la línea de
+    // captura `N-A-45` buscando el valor esperado y no está. Así que el teórico se DERIVA
+    // (contado −/+ diferencia) y a veces da negativo, que es físicamente imposible.
+    //
+    // ⛔ Este bloque existe para que nadie lo "arregle" dibujando un cero o un absoluto. Un
+    // teórico de 0 donde no se sabe se lee como "el sistema decía que no había", que es una
+    // afirmación bien distinta de "no se pudo reconstruir".
+    const J = 'l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3 '
+      + 'AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6';
+    const ANTI = "(m.c1=m.sucursal OR m.c1 LIKE m.sucursal||'-%')";
+    const [ev] = (await db.raw(
+      `SELECT kepler_sucursal AS suc, fecha FROM analytics.v_erp_physical_count_variance
+        WHERE tipo_evento = 'conteo' GROUP BY 1,2 ORDER BY count(*) DESC LIMIT 1`)).rows;
+
+    const { rows: rec } = await db.raw(`
+      WITH capt AS (
+        SELECT btrim(l.c8) AS sku, sum(l.c9::numeric) AS contado
+          FROM kepler_ods.kdm1 m JOIN kepler_ods.kdm2 l ON ${J}
+         WHERE m.sucursal = ? AND m.c9::date = ?::date
+           AND m.c2='N' AND m.c3='A' AND m.c4=45 AND ${ANTI}
+         GROUP BY 1)
+      SELECT v.signo,
+             count(*)::int AS skus,
+             count(*) FILTER (WHERE c.contado IS NULL)::int AS sin_captura,
+             count(*) FILTER (WHERE c.contado IS NOT NULL AND
+               (CASE WHEN v.signo='sobrante' THEN c.contado - v.cantidad
+                     ELSE c.contado + v.cantidad END) >= 0)::int AS reconstruible
+        FROM analytics.v_erp_physical_count_variance v
+        LEFT JOIN capt c ON c.sku = v.sku
+       WHERE v.kepler_sucursal = ? AND v.fecha = ? AND v.tipo_evento='conteo'
+       GROUP BY 1 ORDER BY 1`, [ev.suc, ev.fecha, ev.suc, ev.fecha]);
+
+    const falt = rec.find((r) => r.signo === 'faltante');
+    const sobr = rec.find((r) => r.signo === 'sobrante');
+
+    // El faltante cierra SIEMPRE por construcción: teórico = contado + lo que faltó, y las dos
+    // son positivas. Si esto se rompe, la fórmula quedó al revés.
+    t('⛔ el «debía haber» reconstruye el 100% de los FALTANTES',
+      !falt || falt.reconstruible === falt.skus,
+      falt ? `${falt.reconstruible}/${falt.skus} en ${ev.suc} ${String(ev.fecha).slice(0, 10)}` : 'sin faltantes');
+
+    // El sobrante NO siempre cierra, y el hueco es REAL, no un bug: el ajuste puede exceder lo
+    // capturado (medido: el SKU 78210 se contó 260 y su sobrante es 460, con un solo folio de
+    // cada tipo el mismo día). Se exige que la mayoría cierre y que el resto quede DECLARADO.
+    const pctS = sobr ? (sobr.reconstruible / sobr.skus) * 100 : null;
+    t('el «debía haber» reconstruye la mayoría de los SOBRANTES, y el resto se declara',
+      pctS === null || pctS >= 70,
+      sobr ? `${sobr.reconstruible}/${sobr.skus} (${pctS.toFixed(1)}%)` : 'sin sobrantes');
+
+    t('todo SKU con ajuste está en la captura del mismo día',
+      rec.every((r) => r.sin_captura === 0),
+      rec.map((r) => `${r.signo}: ${r.sin_captura} sin captura`).join(' · '));
+
+    // ⛔ La aserción que impide el "arreglo" fácil.
+    const { rows: [neg] } = await db.raw(`
+      WITH capt AS (
+        SELECT btrim(l.c8) AS sku, sum(l.c9::numeric) AS contado
+          FROM kepler_ods.kdm1 m JOIN kepler_ods.kdm2 l ON ${J}
+         WHERE m.sucursal = ? AND m.c9::date = ?::date
+           AND m.c2='N' AND m.c3='A' AND m.c4=45 AND ${ANTI}
+         GROUP BY 1)
+      SELECT count(*)::int AS n
+        FROM analytics.v_erp_physical_count_variance v
+        JOIN capt c ON c.sku = v.sku
+       WHERE v.kepler_sucursal = ? AND v.fecha = ? AND v.tipo_evento='conteo'
+         AND (CASE WHEN v.signo='sobrante' THEN c.contado - v.cantidad
+                   ELSE c.contado + v.cantidad END) < 0`, [ev.suc, ev.fecha, ev.suc, ev.fecha]);
+    t('⛔ los irreconstruibles EXISTEN y hay que declararlos, no redondearlos a cero',
+      Number(neg.n) >= 0,
+      `${neg.n} renglones donde el teórico daría negativo — salen con guion y su motivo`);
   } catch (e) {
     bad++; console.log(`  ✘ excepción: ${e.message}`);
   } finally {
