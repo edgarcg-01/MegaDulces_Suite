@@ -276,7 +276,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       }
       .scope-note i { color: var(--primary-color, var(--action)); margin-top: 0.1rem; }
       .scope-note p { margin: 0; }
-      .scope-title { font-weight: 600; color: var(--text-color); margin-bottom: 0.15rem; }
+      .scope-title { font-weight: 600; color: var(--text-main); margin-bottom: 0.15rem; }
 
       .loading { display: flex; justify-content: center; padding: 3rem 0; }
 
@@ -303,7 +303,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .search {
         flex: 1; min-width: 220px; padding: 0.4rem 0.75rem;
         border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.875rem;
-        background: var(--card-bg); color: var(--text-color); min-height: 34px;
+        background: var(--card-bg); color: var(--text-main); min-height: 34px;
       }
 
       /* overflow-x aquí (no scroll interno de PrimeNG): la tabla tiene min-width 60rem y en

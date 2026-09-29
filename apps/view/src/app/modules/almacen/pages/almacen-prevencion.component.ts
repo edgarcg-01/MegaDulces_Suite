@@ -162,7 +162,7 @@ import { MonitoreoService } from '../monitoreo.service';
     .pv-sub { font-size: .82rem; color: var(--text-muted); margin: 0; }
     .pv-detail-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: .75rem; }
     .pv-facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-bottom: 1rem; }
-    .pv-fact { display: flex; flex-direction: column; background: var(--surface-ground, var(--surface-50)); border-radius: 8px; padding: .5rem .6rem; }
+    .pv-fact { display: flex; flex-direction: column; background: var(--surface-ground, var(--surface-ground)); border-radius: 8px; padding: .5rem .6rem; }
     .pv-fact-l { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .pv-fact-n { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .pv-neg { color: var(--bad-fg, #b91c1c); }

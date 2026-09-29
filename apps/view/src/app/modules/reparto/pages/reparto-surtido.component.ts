@@ -369,18 +369,18 @@ type Paso = 'pool' | 'recorrido';
     .su-h2 { font-size: .95rem; font-weight: 700; margin: 0; }
     .su-sub { font-size: .8rem; color: var(--text-muted); margin: .15rem 0 0; }
     .su-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; margin-bottom: .75rem; flex-wrap: wrap; }
-    .su-sel { font-size: .8rem; font-weight: 700; color: var(--action, var(--primary-color)); }
+    .su-sel { font-size: .8rem; font-weight: 700; color: var(--action, var(--action)); }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .strong { font-weight: 700; }
 
     /* Pasos */
     .su-steps { display: flex; gap: .5rem; margin-bottom: 1rem; }
     .su-step { flex: 1; display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .5rem .75rem; background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); cursor: pointer; color: var(--text-muted); font-family: inherit; font-size: .85rem; font-weight: 600; }
-    .su-step.on { border-color: var(--action, var(--primary-color)); color: var(--text-color); }
+    .su-step.on { border-color: var(--action, var(--action)); color: var(--text-main); }
     .su-step:disabled { opacity: .5; cursor: not-allowed; }
-    .su-step:focus-visible { outline: 2px solid var(--action, var(--primary-color)); outline-offset: 2px; }
+    .su-step:focus-visible { outline: 2px solid var(--action, var(--action)); outline-offset: 2px; }
     .su-step-n { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--surface-ground); font-family: var(--font-mono); font-size: .75rem; flex-shrink: 0; }
-    .su-step.on .su-step-n { background: var(--action, var(--primary-color)); color: #fff; }
+    .su-step.on .su-step-n { background: var(--action, var(--action)); color: #fff; }
     .su-step-t { flex: 1; text-align: left; }
     .su-step-b { font-size: .75rem; font-weight: 700; }
 
@@ -392,12 +392,12 @@ type Paso = 'pool' | 'recorrido';
     /* Tabla del pool */
     .su-check { width: 2.5rem; text-align: center; }
     .su-row { cursor: pointer; }
-    .su-row.sel { background: color-mix(in srgb, var(--action, var(--primary-color)) 8%, transparent); }
+    .su-row.sel { background: color-mix(in srgb, var(--action, var(--action)) 8%, transparent); }
     .num { text-align: right; }
 
     /* Olas vivas */
     .su-olas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
-    .su-ola { width: 100%; min-height: 44px; display: flex; align-items: center; gap: .6rem; padding: .5rem .75rem; background: var(--surface-ground); border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); cursor: pointer; font-family: inherit; font-size: .85rem; color: var(--text-color); }
+    .su-ola { width: 100%; min-height: 44px; display: flex; align-items: center; gap: .6rem; padding: .5rem .75rem; background: var(--surface-ground); border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); cursor: pointer; font-family: inherit; font-size: .85rem; color: var(--text-main); }
     .su-ola-meta { flex: 1; text-align: left; color: var(--text-muted); font-size: .8rem; }
 
     /* Avance */
@@ -407,7 +407,7 @@ type Paso = 'pool' | 'recorrido';
     .su-av-item.bad .su-av-n { color: var(--warn-fg, var(--orange-600)); }
     .su-av-l { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
     .su-av-bar { flex: 1; min-width: 8rem; height: 6px; border-radius: 999px; background: var(--surface-ground); overflow: hidden; }
-    .su-av-bar > span { display: block; height: 100%; background: var(--action, var(--primary-color)); transition: width 250ms ease-out; }
+    .su-av-bar > span { display: block; height: 100%; background: var(--action, var(--action)); transition: width 250ms ease-out; }
 
     /* Renglones del recorrido */
     .su-lineas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }

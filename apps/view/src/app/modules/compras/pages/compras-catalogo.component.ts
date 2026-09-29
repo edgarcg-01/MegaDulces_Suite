@@ -457,7 +457,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
       border-radius: 6px; background: var(--c-surface-1);
       font-size: var(--fs-xs); color: var(--c-text-2);
     }
-    .pp-aviso-warn { border-left-color: var(--warn-fg); background: var(--warn-bg); }
+    .pp-aviso-warn { border-left-color: var(--warn-fg); background: var(--warn-soft-bg); }
     .pp-aviso i { margin-top: .1rem; }
     .pp-aviso strong { display: block; color: var(--c-text-1); }
 

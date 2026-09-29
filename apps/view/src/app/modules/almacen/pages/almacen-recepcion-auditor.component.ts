@@ -325,7 +325,7 @@ interface ValePendiente extends ReceivingLine {
       background: var(--surface-ground); font-size: var(--fs-sm, .85rem); font-weight: 500; }
     .rec-pol-form { margin-bottom: 1rem; }
     .rec-check { flex-direction: row; align-items: center; gap: .5rem; padding-top: 1.5rem; }
-    .rec-check > span { font-weight: 500; color: var(--text-color); }
+    .rec-check > span { font-weight: 500; color: var(--text-main); }
   `],
 })
 export class AlmacenRecepcionAuditorComponent implements OnInit {

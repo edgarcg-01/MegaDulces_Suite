@@ -229,7 +229,7 @@ import {
     .cf-kpi:first-child { border-left: 0; }
     .cf-kpi-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: 1.5rem; font-weight: 800; color: var(--text-main); line-height: 1.1; }
-    .cf-kpi.alerta .cf-kpi-n { color: var(--tone-warn); }
+    .cf-kpi.alerta .cf-kpi-n { color: var(--warn-fg); }
     .cf-kpi-l { font-size: var(--fs-sm, .8rem); font-weight: 700; color: var(--text-main); }
     .cf-kpi-nota { font-size: var(--fs-xs, .7rem); color: var(--text-muted); }
 
@@ -245,13 +245,13 @@ import {
       color: var(--text-main); vertical-align: top; }
     .cf-tabla .num { text-align: right; }
     .cf-tabla .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .cf-tabla tr:hover td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+    .cf-tabla tr:hover td { background: color-mix(in srgb, var(--text-main) 3%, transparent); }
 
     .cf-prod { display: block; font-weight: 600; }
     .cf-sku { display: inline-block; font-size: var(--fs-xs, .7rem); color: var(--text-muted); }
     /* El aviso lleva icono Y texto: el color nunca es el único portador del significado. */
     .cf-flag { display: flex; align-items: center; gap: .3rem; margin-top: .15rem;
-      font-size: var(--fs-xs, .7rem); color: var(--tone-warn); font-weight: 600; }
+      font-size: var(--fs-xs, .7rem); color: var(--warn-fg); font-weight: 600; }
     .cf-muted { color: var(--text-muted); font-style: normal; }
 
     /* FLT.24 — El destino: color + TEXTO, nunca color solo. Piso resalta porque es lo único
@@ -260,10 +260,10 @@ import {
     .cf-destino { display: inline-block; font-size: var(--fs-xs, .72rem); font-weight: 700;
       padding: .15rem .5rem; border-radius: 999px; white-space: nowrap;
       border: 1px solid var(--border-color); color: var(--text-muted); }
-    .cf-destino.d-piso { color: var(--tone-ok);
-      border-color: color-mix(in srgb, var(--tone-ok) 45%, transparent); }
-    .cf-destino.d-inventario { color: var(--tone-warn);
-      border-color: color-mix(in srgb, var(--tone-warn) 45%, transparent); }
+    .cf-destino.d-piso { color: var(--ok-fg);
+      border-color: color-mix(in srgb, var(--ok-fg) 45%, transparent); }
+    .cf-destino.d-inventario { color: var(--warn-fg);
+      border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); }
     .cf-destino.d-compras { color: var(--text-main); }
     .cf-dec { font-weight: 700; font-size: var(--fs-sm, .8rem); }
 
@@ -276,7 +276,7 @@ import {
 
     .cf-skel { display: flex; flex-direction: column; gap: .4rem; }
     .cf-skel-row { height: 2.6rem; border-radius: var(--r-sm, 6px);
-      background: color-mix(in srgb, var(--ink) 7%, transparent); animation: cfPulse 1.4s ease-in-out infinite; }
+      background: color-mix(in srgb, var(--text-main) 7%, transparent); animation: cfPulse 1.4s ease-in-out infinite; }
     @keyframes cfPulse { 0%, 100% { opacity: .5 } 50% { opacity: .9 } }
     @media (prefers-reduced-motion: reduce) { .cf-skel-row { animation: none; } }
 
@@ -284,9 +284,9 @@ import {
     .cf-dlg-sub { margin: .1rem 0 .9rem; font-size: var(--fs-sm, .8rem); color: var(--text-muted); }
     .cf-dlg-lbl { display: block; margin: .7rem 0 .3rem; font-size: var(--fs-sm, .8rem);
       font-weight: 700; color: var(--text-main); }
-    .cf-req { color: var(--tone-warn); }
+    .cf-req { color: var(--warn-fg); }
     .cf-dlg-nota { width: 100%; }
-    .cf-dlg-err { margin: .6rem 0 0; font-size: var(--fs-sm, .8rem); color: var(--tone-bad); }
+    .cf-dlg-err { margin: .6rem 0 0; font-size: var(--fs-sm, .8rem); color: var(--bad-fg); }
     :host ::ng-deep .cf-sel-full { width: 100%; }
 
     @media (max-width: 48rem) {

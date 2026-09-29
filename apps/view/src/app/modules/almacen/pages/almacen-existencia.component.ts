@@ -336,7 +336,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       font-size: .74rem; font-weight: 600; color: var(--text-muted); line-height: 1.4; }
     .ex-unit button + button { border-left: 1px solid var(--border-color); }
     .ex-unit button:hover { background: var(--surface-hover); }
-    .ex-unit button.on { background: var(--surface-200, #e9e9e7); color: var(--text-color); }
+    .ex-unit button.on { background: var(--surface-200, #e9e9e7); color: var(--text-main); }
     .ex-unit button:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
     /* El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
     .ex-u { margin-left: .22rem; font-size: .68rem; color: var(--text-muted); font-weight: 500; }
