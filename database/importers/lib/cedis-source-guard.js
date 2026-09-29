@@ -53,6 +53,15 @@ async function checkCedisSource(db, opts) {
   };
 
   // ── A) ¿el CEDIS ya vive en Kepler? ────────────────────────────────────────
+  // ⛔ SE PREGUNTA A LAS DOS TABLAS, y no es paranoia: hoy **ya discrepan**.
+  //    `commercial.warehouses` code '00' → kepler_code NULL
+  //    `wincaja.branches`      branch '00' → kepler_code '00', kepler_cutover_date NULL
+  //    El resolvedor canónico `analytics.v_branch_erp_cutover` sale de `wincaja.branches`
+  //    (filtra kepler_code NOT NULL **y** kepler_cutover_date NOT NULL), y es ahí donde se
+  //    marcaron las cuatro migraciones anteriores. Si el día del cutover alguien pone la
+  //    fecha sólo en `wincaja.branches` —lo más probable, porque es el procedimiento que ya
+  //    siguieron— una puerta que mirara únicamente `warehouses` NO cerraría.
+  //    Gracias a la sesión de [AUD-DAT.10] por señalar esta familia de defecto.
   const [wh] = await run(
     `SELECT kepler_code, wincaja_source_branch
        FROM commercial.warehouses
@@ -65,8 +74,23 @@ async function checkCedisSource(db, opts) {
   }
   if (wh.kepler_code) {
     return { ok: false, reason: 'cutover_done',
-      detail: `El CEDIS ya declara kepler_code='${wh.kepler_code}' → su fuente es Kepler, `
-        + `no Wincaja. Este feed queda retirado (ver FASE_IC §1.11c).` };
+      detail: `El CEDIS ya declara commercial.warehouses.kepler_code='${wh.kepler_code}' → su `
+        + `fuente es Kepler, no Wincaja. Este feed queda retirado (ver FASE_IC §1.11c).` };
+  }
+
+  // El resolvedor canónico de la frontera Wincaja→Kepler (derivado de wincaja.branches).
+  const [cut] = await run(
+    `SELECT kepler_code, to_char(cutover_date, 'YYYY-MM-DD') AS cutover
+       FROM analytics.v_branch_erp_cutover
+      WHERE tenant_id = ? AND wincaja_source_branch = ? AND cutover_date <= current_date`,
+    [tenant, wincajaBranch]);
+
+  if (cut) {
+    return { ok: false, reason: 'cutover_done',
+      detail: `v_branch_erp_cutover ya declara el cutover de la rama ${wincajaBranch} a Kepler `
+        + `'${cut.kepler_code}' el ${cut.cutover}. La fuente del CEDIS es Kepler. `
+        + `⚠️ Falta además poner commercial.warehouses.kepler_code (hoy NULL) — las dos tablas `
+        + `responden la misma pregunta y hay que dejarlas de acuerdo (FASE_IC §1.11c paso 3).` };
   }
 
   // ── B) ¿la fuente sigue viva? ──────────────────────────────────────────────
