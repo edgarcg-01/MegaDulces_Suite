@@ -113,6 +113,92 @@ export function etapaDeEjercicio(e: EstadoEjercicio): EtapaEjercicio {
   return 'por_ejercer';
 }
 
+/**
+ * `[GX.48]` **La constancia de autorizacion de Kepler.**
+ *
+ * Pedido del usuario: *«cuando el vale sea autorizado en kepler debe generar un doc que es una
+ * autorizacion de gasto (…) para agregarla al vale correspondiente de suite»*.
+ *
+ * ## ⛔ Ese documento NO existe en la base de Kepler. Medido.
+ * Se buscó de cinco formas independientes el 2026-09-29, y ninguna lo encontró:
+ *
+ *  · Las **200 columnas** de `kdm1`, comparando las 697 solicitudes en `N` contra las 8,878
+ *    en `A`/`F`: **lo unico que cambia al autorizar es `c43`**, de `N` a `A`. Una letra.
+ *  · **Ninguna** columna de fecha se llena al autorizar.
+ *  · `c30` (el area que autoriza) es **igual** antes y despues — se captura al levantar el
+ *    vale, no al autorizarlo.
+ *  · `kdm2` tiene **0 lineas** para estos doctypes: son solo cabecera.
+ *  · **Cero columnas binarias** (`bytea`/`oid`) en las 241 tablas del ODS. Si Kepler guardara
+ *    un archivo, estaria ahi.
+ *  · `kdlogmov` (158,907 filas) registra **catalogos** (clientes, direcciones, bancos), no
+ *    movimientos de `kdm1`: cero eventos de autorizacion.
+ *
+ * Si Kepler imprime una hoja, **la imprime y no la guarda**.
+ *
+ * ## Entonces la constancia se GENERA, no se jala — y dice de donde sale cada cosa
+ * Reproduce la fila que se ve en la pantalla «Autorizacion de Sol Gasto» con los datos que
+ * Kepler **si** tiene. Y lo que no tiene va en `no_consta`: declarado, no dibujado (ADR-056).
+ *
+ * ⛔ **No se guarda de nuestro lado.** Se deriva cada vez de la vista: si en Kepler cancelan
+ * el vale, la constancia desaparece sola. Una copia seguiria afirmando una autorizacion que
+ * ya no existe.
+ */
+export interface AutorizacionKepler {
+  /** El identificador que muestra la columna `Documento`: `XA1501-0009008`. */
+  documento: string;
+  /** La letra tal cual la guarda Kepler, sin traducir: es lo que dice su pantalla. */
+  autorizado: 'A' | 'F';
+  /** Cómo se lee esa letra. */
+  autorizado_label: string;
+  monto: number;
+  /**
+   * ⚠️ Es la fecha **del documento**, no la de la autorizacion. Kepler no guarda cuando se
+   * autorizo; llamarla «fecha de autorizacion» seria ponerle nombre de un dato que no hay.
+   */
+  fecha_documento: string | null;
+  destinatario: string | null;
+  concepto: string | null;
+  /** `c30`. Sucio a proposito: conviven FINANZAS / DPTO FINANZAS / DEPARTAMENTO DE FINANSAS. */
+  area_autoriza: string | null;
+  /** ⛔ Lo que Kepler NO registra. Va en la constancia para que nadie lo dé por sabido. */
+  no_consta: readonly string[];
+}
+
+/** Lo que Kepler no guarda de la autorizacion, y por eso ninguna constancia puede afirmarlo. */
+export const NO_CONSTA_EN_KEPLER: readonly string[] = [
+  'La fecha y hora en que se autorizó',
+  'Quién la autorizó (sólo queda el área)',
+];
+
+/**
+ * Arma la constancia. ⛔ `null` mientras el vale no esté autorizado: antes de la `A` no hay
+ * autorizacion que constatar, y una constancia vacia se lee como que si la hubo.
+ */
+export function constanciaDeAutorizacion(d: {
+  folio?: string | null;
+  estado?: EstadoKepler | string | null;
+  importe?: number | null;
+  fecha?: string | null;
+  destinatario?: string | null;
+  concepto?: string | null;
+  area_autoriza?: string | null;
+}): AutorizacionKepler | null {
+  const doc = documentoKepler(d.folio, d.estado);
+  if (!doc) return null;
+  const letra = d.estado === 'F' ? 'F' : 'A';
+  return {
+    documento: doc,
+    autorizado: letra,
+    autorizado_label: letra === 'F' ? 'Autorizado y aplicado — el dinero salió' : 'Autorizado',
+    monto: Number(d.importe ?? 0),
+    fecha_documento: d.fecha ?? null,
+    destinatario: d.destinatario ?? null,
+    concepto: d.concepto ?? null,
+    area_autoriza: d.area_autoriza ?? null,
+    no_consta: NO_CONSTA_EN_KEPLER,
+  };
+}
+
 /** Lo que se le muestra a la persona. Corto: va en un chip. */
 export const ETIQUETA_ETAPA: Record<EtapaEjercicio, string> = {
   en_captura: 'En tramite',

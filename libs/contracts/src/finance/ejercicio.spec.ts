@@ -1,6 +1,6 @@
 import {
   ETAPAS_VISIBLES, ETIQUETA_ETAPA, EXPLICACION_ETAPA,
-  documentoKepler, etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
+  NO_CONSTA_EN_KEPLER, constanciaDeAutorizacion, documentoKepler, etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
 } from './ejercicio.contract';
 
 /**
@@ -166,5 +166,76 @@ describe('[GX.43] el documento con el que Kepler respalda la autorizacion', () =
     expect(documentoKepler('', 'A')).toBeNull();
     expect(documentoKepler(null, 'A')).toBeNull();
     expect(documentoKepler('   ', 'A')).toBeNull();
+  });
+});
+
+/**
+ * `[GX.48]` — **La constancia de autorizacion.**
+ *
+ * ⛔ Kepler NO guarda ningun documento al autorizar: se midio de cinco formas y lo unico que
+ * cambia es `c43`, de `N` a `A`. Asi que la constancia se **genera** con lo que Kepler si
+ * tiene, y lo que no tiene se DECLARA. Lo que estas pruebas vigilan es justamente eso: que no
+ * afirme nada que la base no respalde.
+ */
+describe('[GX.48] la constancia de autorizacion de Kepler', () => {
+  const datos = () => ({
+    folio: '0009008', estado: 'A' as const, importe: 224.4, fecha: '2026-09-04',
+    destinatario: 'BBVA MEXICO SA', concepto: 'COMISION', area_autoriza: 'FINANZAS',
+  });
+
+  it('reproduce la fila de «Autorizacion de Sol Gasto»', () => {
+    const c = constanciaDeAutorizacion(datos());
+    expect(c).toBeTruthy();
+    expect(c?.documento).toBe('XA1501-0009008');
+    expect(c?.autorizado).toBe('A');
+    expect(c?.monto).toBe(224.4);
+    expect(c?.destinatario).toBe('BBVA MEXICO SA');
+    expect(c?.area_autoriza).toBe('FINANZAS');
+  });
+
+  /**
+   * ⛔ **La prueba que sostiene el bloque.** Kepler no guarda ni la fecha ni la persona de la
+   * autorizacion. Una constancia que las omitiera en silencio se leeria como completa.
+   */
+  it('DECLARA lo que Kepler no registra', () => {
+    const c = constanciaDeAutorizacion(datos());
+    expect(c?.no_consta).toEqual(NO_CONSTA_EN_KEPLER);
+    expect(c?.no_consta.length).toBeGreaterThan(0);
+    expect(c?.no_consta.join(' ')).toMatch(/fecha/i);
+    expect(c?.no_consta.join(' ')).toMatch(/qui[eé]n/i);
+  });
+
+  /**
+   * ⚠️ Y el campo de fecha se llama `fecha_documento`, no `fecha_autorizacion`: es la del
+   * documento. Ponerle el otro nombre seria bautizar un dato que no existe.
+   */
+  it('la fecha es la del DOCUMENTO, y el nombre del campo lo dice', () => {
+    const c = constanciaDeAutorizacion(datos());
+    expect(c?.fecha_documento).toBe('2026-09-04');
+    expect(Object.keys(c ?? {})).not.toContain('fecha_autorizacion');
+  });
+
+  it('la F se lee como autorizado Y aplicado', () => {
+    const c = constanciaDeAutorizacion({ ...datos(), estado: 'F' });
+    expect(c?.autorizado).toBe('F');
+    expect(c?.autorizado_label).toMatch(/dinero/i);
+  });
+
+  /** ⛔ Antes de la `A` no hay nada que constatar. Una constancia vacia diria que si la hubo. */
+  it('no existe mientras el vale no este autorizado', () => {
+    expect(constanciaDeAutorizacion({ ...datos(), estado: 'N' })).toBeNull();
+    expect(constanciaDeAutorizacion({ ...datos(), estado: 'C' })).toBeNull();
+    expect(constanciaDeAutorizacion({ ...datos(), estado: null })).toBeNull();
+    expect(constanciaDeAutorizacion({ ...datos(), folio: null })).toBeNull();
+  });
+
+  /** Los campos que Kepler puede traer vacios llegan `null`, nunca inventados. */
+  it('lo que falta va en null, no en un texto de relleno', () => {
+    const c = constanciaDeAutorizacion({ folio: '0009008', estado: 'A' });
+    expect(c?.destinatario).toBeNull();
+    expect(c?.concepto).toBeNull();
+    expect(c?.area_autoriza).toBeNull();
+    expect(c?.fecha_documento).toBeNull();
+    expect(c?.monto).toBe(0);
   });
 });
