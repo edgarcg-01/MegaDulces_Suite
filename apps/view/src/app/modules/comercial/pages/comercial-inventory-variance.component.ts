@@ -12,6 +12,7 @@ import {
   ComercialService, InventoryVarianceEvent, InventoryVarianceLine,
   InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
   InventoryReincidencia, InventoryReincidenciaItem,
+  RollforwardPeriodos, RollforwardPeriodo, RollforwardItem, RollforwardTotales,
 } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
@@ -147,6 +148,139 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </tr>
               </ng-template>
             </p-table>
+          }
+        </section>
+      }
+
+      @if (vista === 'conciliacion') {
+        <!-- [IC.11] A dónde se fue la mercancía entre dos conteos -->
+        <section class="inv-var-prog">
+          <div class="inv-var-filters">
+            <p-select [options]="rfOpciones()" optionLabel="label" optionValue="value"
+              [(ngModel)]="rfSel" (onChange)="loadRf()" placeholder="Elegí un período"
+              styleClass="inv-var-wh" [filter]="true"></p-select>
+            <p-select [options]="rfVeredictos" optionLabel="label" optionValue="value"
+              [(ngModel)]="rfVeredicto" (onChange)="loadRf()" placeholder="Todos"
+              styleClass="inv-var-wh"></p-select>
+          </div>
+
+          @if (rf(); as r) {
+            <!-- Q.1 answer-first: la conclusión antes que la evidencia. Q.2: en llano. -->
+            <p class="inv-var-lectura">{{ rfLectura() }}</p>
+
+            @if (rfCobertura(); as cob) {
+              @if (cob.pct >= 20) {
+                <p class="inv-var-warn">
+                  ⚠️ <strong>{{ cob.sin }} de {{ cob.total }} SKUs ({{ cob.pct }}%)</strong> estaban
+                  en el primer conteo y <strong>no en el segundo</strong>: su diferencia es
+                  desconocida, no cero. El total de arriba no cubre esa parte del almacén.
+                </p>
+              }
+            }
+
+            <!-- ⛔ La segunda salvedad, y NO es simétrica: un esperado negativo sólo puede
+                 caer del lado del sobrante, así que lo exagera. -->
+            @if (r.totales.imposibles > 0) {
+              <p class="inv-var-warn">
+                ⚠️ <strong>{{ r.totales.imposibles }} SKUs</strong> salieron más de lo que el conteo
+                anterior decía que había, o sea que falta una entrada sin capturar. Su
+                «debía quedar» es imposible y sólo puede caer del lado del sobrante:
+                <strong>{{ fmtMoney(+r.totales.importe_imposible) }}</strong> del sobrante de
+                abajo viene de ahí, y no es mercancía que apareció.
+              </p>
+            }
+
+            <!-- La cadena, en orden de lectura: de lo que había a lo que quedó sin explicar -->
+            <div class="surf-grid inv-var-kpis">
+              <app-metric-card class="panel-col-2" label="Había (conteo anterior)"
+                format="text" [valueText]="(+r.totales.contado_inicio).toLocaleString('es-MX')"
+                sub="unidades contadas"></app-metric-card>
+              <app-metric-card class="panel-col-2" label="Entró"
+                format="text" [valueText]="(+r.totales.compras + +r.totales.recibido).toLocaleString('es-MX')"
+                [sub]="'compra ' + (+r.totales.compras).toLocaleString('es-MX') + ' · traspaso ' + (+r.totales.recibido).toLocaleString('es-MX')"></app-metric-card>
+              <app-metric-card class="panel-col-2" label="Salió"
+                format="text" [valueText]="(+r.totales.vendido + +r.totales.enviado).toLocaleString('es-MX')"
+                [sub]="'venta ' + (+r.totales.vendido).toLocaleString('es-MX') + ' · traspaso ' + (+r.totales.enviado).toLocaleString('es-MX')"></app-metric-card>
+              <app-metric-card class="panel-col-2" label="Debía quedar"
+                format="text" [valueText]="(+r.totales.esperado).toLocaleString('es-MX')"
+                sub="había + entró − salió"></app-metric-card>
+              <app-metric-card class="panel-col-2" label="Se contó"
+                format="text" [valueText]="(+r.totales.contado_fin).toLocaleString('es-MX')"
+                sub="conteo siguiente"></app-metric-card>
+              <app-metric-card class="panel-col-2" label="Falta sin explicar" tone="bad"
+                format="text" [valueText]="fmtMoney(-(+r.totales.importe_merma))"
+                [sub]="r.totales.merma + ' SKUs'"></app-metric-card>
+            </div>
+
+            <p-table [value]="r.items" styleClass="surf-table" [scrollable]="true"
+              scrollHeight="420px" [loading]="loadingRf()">
+              <ng-template #header>
+                <tr>
+                  <th>SKU</th><th>Descripción</th>
+                  <th class="num">Había</th><th class="num">Entró</th><th class="num">Salió</th>
+                  <th class="num">Debía quedar</th><th class="num">Se contó</th>
+                  <th class="num">Sin explicar</th><th class="num">$</th><th>Veredicto</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-i>
+                <tr>
+                  <td class="tabular">{{ i.sku }}</td>
+                  <td>{{ i.descripcion || '—' }}</td>
+                  <td class="num tabular">{{ +i.contado_inicio }}</td>
+                  <td class="num tabular">{{ (+i.compras + +i.recibido) || '—' }}</td>
+                  <td class="num tabular">{{ (+i.vendido + +i.enviado) || '—' }}</td>
+                  <td class="num tabular">
+                    @if (i.esperado_imposible) {
+                      <span class="inv-var-imposible"
+                        pTooltip="Imposible: salió más de lo que había. Falta una entrada sin capturar, así que su diferencia no es confiable."
+                      >{{ +i.esperado }}</span>
+                    } @else { {{ +i.esperado }} }
+                  </td>
+                  <!-- ⛔ Guion, no cero: NULL acá significa que nadie lo volvió a contar. -->
+                  <td class="num tabular">
+                    @if (i.contado_fin === null) {
+                      <span class="inv-var-nd" pTooltip="No se volvió a contar: su diferencia es desconocida">—</span>
+                    } @else { {{ +i.contado_fin }} }
+                  </td>
+                  <td class="num tabular"
+                      [class.inv-var-menos]="i.veredicto === 'merma'"
+                      [class.inv-var-mas]="i.veredicto === 'sobrante'">
+                    {{ i.no_explicado === null ? '—' : (+i.no_explicado > 0 ? '+' : '') + (+i.no_explicado) }}
+                  </td>
+                  <td class="num tabular">
+                    {{ i.importe_no_explicado === null ? '—' : fmtMoney(+i.importe_no_explicado) }}
+                  </td>
+                  <td><p-tag [severity]="vereSev(i.veredicto)" [value]="vereLabel(i.veredicto)"></p-tag></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="10" class="inv-var-note">
+                  Sin renglones con este filtro.
+                </td></tr>
+              </ng-template>
+            </p-table>
+          } @else if (!rfSel) {
+            <p class="inv-var-note">Elegí un período para ver a dónde se fue la mercancía.</p>
+          }
+
+          <!-- ⛔ Los almacenes que NO se pueden conciliar van EN PANTALLA: uno ausente de un
+               selector se lee como que no tiene problema. -->
+          @if (rfPeriodos()?.sin_par; as sp) {
+            @if (sp.length) {
+              <h2 class="inv-var-h2">Sin comparación posible</h2>
+              <p-table [value]="sp" styleClass="surf-table">
+                <ng-template #header>
+                  <tr><th>Almacén</th><th class="num">Conteos</th><th>Por qué</th></tr>
+                </ng-template>
+                <ng-template #body let-x>
+                  <tr>
+                    <td class="tabular">{{ x.code }} — {{ x.name }}</td>
+                    <td class="num tabular">{{ x.capturas }}</td>
+                    <td class="inv-var-salv">{{ x.motivo }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            }
           }
         </section>
       }
@@ -380,11 +514,15 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .inv-var-toggle { display: inline-flex; gap: .5rem; align-items: center; font-size: .8125rem; }
     .inv-var-note { font-size: .8125rem; color: var(--text-muted, #78716c); margin: 0 0 .75rem; }
     .inv-var-kpis { margin-bottom: 1rem; }
+    .inv-var-lectura { font-size: var(--fs-base); color: var(--fg-1); margin: .25rem 0 1rem;
+      max-width: 68ch; line-height: 1.45; }
     .inv-var-row { cursor: pointer; }
     .inv-var-row:hover { background: var(--surface-hover, rgba(0,0,0,.035)); }
     .inv-var-row-sel { background: var(--surface-hover, rgba(0,0,0,.055)); }
     .inv-var-row .pi { font-size: .75rem; opacity: .55; margin-right: .35rem; }
     .inv-var-nd { opacity: .5; cursor: help; }
+    .inv-var-imposible { color: var(--p-red-600, #dc2626); text-decoration: underline dotted;
+      text-underline-offset: 2px; cursor: help; }
     .inv-var-mas { color: var(--p-amber-600, #b45309); }
     .inv-var-menos { color: var(--p-red-600, #dc2626); }
     .inv-var-detail { margin-top: 1.25rem; }
@@ -415,12 +553,39 @@ export class ComercialInventoryVarianceComponent {
   readonly reinc = signal<InventoryReincidencia | null>(null);
   readonly loadingReinc = signal(false);
 
+  readonly rfPeriodos = signal<RollforwardPeriodos | null>(null);
+  readonly rf = signal<{ totales: RollforwardTotales; items: RollforwardItem[] } | null>(null);
+  readonly loadingRf = signal(false);
+
   readonly vistas = [
     { label: 'Diferencias', value: 'diferencias' },
     { label: 'Programa', value: 'programa' },
     { label: 'Reincidencia', value: 'reincidencia' },
+    { label: 'Conciliación', value: 'conciliacion' },
   ];
-  vista: 'diferencias' | 'programa' | 'reincidencia' = 'diferencias';
+  vista: 'diferencias' | 'programa' | 'reincidencia' | 'conciliacion' = 'diferencias';
+  rfSel: string | null = null;
+  rfVeredicto: string | null = null;
+
+  readonly rfVeredictos = [
+    { label: 'Todos', value: null as string | null },
+    { label: 'Falta (merma)', value: 'merma' },
+    { label: 'Sobra', value: 'sobrante' },
+    { label: 'Cuadra', value: 'cuadra' },
+    { label: 'Sin recontar', value: 'no_recontado' },
+  ];
+
+  readonly rfOpciones = computed(() => (this.rfPeriodos()?.periodos ?? []).map((x) => ({
+    label: `${x.warehouse_code} — ${x.desde} → ${x.hasta}`,
+    value: `${x.warehouse_id}|${x.desde}|${x.hasta}`,
+  })));
+
+  readonly rfPeriodoSel = computed<RollforwardPeriodo | null>(() => {
+    const v = this.rfSel; if (!v) return null;
+    const [id, d, h] = v.split('|');
+    return (this.rfPeriodos()?.periodos ?? []).find(
+      (x) => x.warehouse_id === id && x.desde === d && x.hasta === h) ?? null;
+  });
   patronFilter: string | null = null;
 
   readonly patrones = [
@@ -471,7 +636,72 @@ export class ComercialInventoryVarianceComponent {
   onVista() {
     if (this.vista === 'programa') this.loadPrograma();
     else if (this.vista === 'reincidencia') this.loadReincidencia();
+    else if (this.vista === 'conciliacion') this.loadConciliacion();
     else this.load();
+  }
+
+  loadConciliacion() {
+    if (!this.rfPeriodos()) {
+      this.api.inventoryRollforwardPeriodos().subscribe({
+        next: (r) => {
+          this.rfPeriodos.set(r);
+          // Arranca en el período más reciente del almacén filtrado, o el primero que haya:
+          // una pantalla que abre vacía obliga a adivinar qué elegir.
+          const pref = this.warehouseFilter
+            ? r.periodos.find((x) => x.warehouse_id === this.warehouseFilter)
+            : r.periodos[0];
+          if (pref) { this.rfSel = `${pref.warehouse_id}|${pref.desde}|${pref.hasta}`; this.loadRf(); }
+        },
+        error: () => this.rfPeriodos.set(null),
+      });
+    } else if (this.rfSel) this.loadRf();
+  }
+
+  loadRf() {
+    if (!this.rfSel) { this.rf.set(null); return; }
+    const [warehouse_id, desde, hasta] = this.rfSel.split('|');
+    this.loadingRf.set(true);
+    this.api.inventoryRollforward({
+      warehouse_id, desde, hasta,
+      veredicto: this.rfVeredicto ?? undefined, limit: 150,
+    }).subscribe({
+      next: (r) => { this.rf.set(r); this.loadingRf.set(false); },
+      error: () => { this.rf.set(null); this.loadingRf.set(false); },
+    });
+  }
+
+  /**
+   * [Q.2 de DESIGN.md] El número no se muestra solo: se explica en llano. Es la primera línea
+   * de la pantalla porque la conclusión va antes que la evidencia (Q.1, answer-first).
+   */
+  readonly rfLectura = computed(() => {
+    const t = this.rf()?.totales; const p = this.rfPeriodoSel();
+    if (!t || !p) return '';
+    const merma = Math.abs(Number(t.importe_merma || 0));
+    const sobra = Number(t.importe_sobrante || 0);
+    const neto = sobra - merma;
+    const q = `En ${p.warehouse_name}, entre el ${p.desde} y el ${p.hasta} (${t.dias} días), `;
+    if (t.merma === 0 && t.sobrante === 0) return q + 'todo lo contado se explica con los movimientos.';
+    const cuerpo = neto < 0
+      ? `faltan ${this.fmtMoney(merma)} que los movimientos no explican`
+      : `sobran ${this.fmtMoney(sobra)} que los movimientos no explican`;
+    return q + cuerpo + ` (${t.merma} SKUs faltan, ${t.sobrante} sobran, ${t.cuadra} cuadran).`;
+  });
+
+  /** ⛔ Qué parte del almacén NO mide este período. Si es la mayoría, el total engaña. */
+  readonly rfCobertura = computed(() => {
+    const t = this.rf()?.totales; if (!t || !t.skus) return null;
+    return { sin: t.sin_recontar, total: t.skus, pct: Math.round((t.sin_recontar / t.skus) * 100) };
+  });
+
+  vereSev(v: string): 'danger' | 'warn' | 'success' | 'secondary' {
+    return v === 'merma' ? 'danger' : v === 'sobrante' ? 'warn'
+      : v === 'cuadra' ? 'success' : 'secondary';
+  }
+
+  vereLabel(v: string): string {
+    return { merma: 'Falta', sobrante: 'Sobra', cuadra: 'Cuadra',
+      no_recontado: 'Sin recontar' }[v] ?? v;
   }
 
   /**

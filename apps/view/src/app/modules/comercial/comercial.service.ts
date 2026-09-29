@@ -1597,6 +1597,26 @@ export class ComercialService {
       `${this.base}/inventory/variance/reincidencia`, { params: p });
   }
 
+  /** [IC.11] Los períodos conciliables + los almacenes sin par. */
+  inventoryRollforwardPeriodos() {
+    return this.http.get<RollforwardPeriodos>(
+      `${this.base}/inventory/variance/rollforward/periodos`);
+  }
+
+  /** [IC.11] La conciliación de un período. Los totales son del PERÍODO, no de la página. */
+  inventoryRollforward(params: {
+    warehouse_id: string; desde: string; hasta: string; veredicto?: string; limit?: number;
+  }) {
+    let p = new HttpParams()
+      .set('warehouse_id', params.warehouse_id)
+      .set('desde', params.desde)
+      .set('hasta', params.hasta);
+    if (params.veredicto) p = p.set('veredicto', params.veredicto);
+    if (params.limit) p = p.set('limit', String(params.limit));
+    return this.http.get<{ totales: RollforwardTotales; items: RollforwardItem[] }>(
+      `${this.base}/inventory/variance/rollforward`, { params: p });
+  }
+
   inventoryReconcile(countId: string) {
     return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
   }
@@ -2991,6 +3011,54 @@ export interface InventoryReincidencia {
   umbrales: { se_compensa: number; persiste: number; un_solo_evento: number };
   /** Lo que NO se puede juzgar. Se muestra: esconderlo se lee como "no tiene problema". */
   sin_base: { skus: number; pesos_abs: string; almacenes: string; motivo: string };
+}
+
+/**
+ * [IC.11] Conciliación entre dos conteos — a dónde se fue la mercancía.
+ *
+ * `esperado = contado_inicio + compras + recibido − vendido − enviado`, contra `contado_fin`.
+ * Lo que la resta no explica es la merma real del período: mercancía que estaba, se movió y no
+ * llegó. Es distinto del descuadre contra el ERP, que arrastra errores de captura viejos.
+ */
+export interface RollforwardItem {
+  sku: string; product_id: string | null; descripcion: string | null;
+  contado_inicio: string; compras: string; recibido: string;
+  vendido: string; enviado: string; esperado: string;
+  /** NULL = el SKU no se volvió a contar. Su merma es DESCONOCIDA, no cero. */
+  contado_fin: string | null;
+  no_explicado: string | null;
+  importe_no_explicado: string | null;
+  costo_unitario: string | null;
+  veredicto: 'cuadra' | 'merma' | 'sobrante' | 'no_recontado';
+  /** El 'debía quedar' dio NEGATIVO: salió más de lo que había. Falta una entrada que no
+   *  capturamos, así que su sobrante no es mercancía que apareció. */
+  esperado_imposible?: boolean;
+  kepler_sucursal: string; kepler_almacen: string;
+}
+
+export interface RollforwardTotales {
+  skus: number; dias: number;
+  contado_inicio: string; compras: string; recibido: string; vendido: string; enviado: string;
+  esperado: string; contado_fin: string; no_explicado: string;
+  importe_merma: string; importe_sobrante: string;
+  cuadra: number; merma: number; sobrante: number;
+  /** Los que NO se volvieron a contar. Va en el encabezado: si son la mayoría, el total no mide el almacén. */
+  sin_recontar: number;
+  /** Filas con 'debía quedar' negativo. NO son simétricas: inflan el sobrante y nunca la merma. */
+  imposibles: number;
+  importe_imposible: string;
+}
+
+export interface RollforwardPeriodo {
+  warehouse_id: string; warehouse_code: string; warehouse_name: string;
+  desde: string; hasta: string; dias: number;
+  skus: string; skus_merma: number; sin_recontar: number; importe_merma: string;
+}
+
+export interface RollforwardPeriodos {
+  periodos: RollforwardPeriodo[];
+  /** Almacenes que NO se pueden conciliar, con su motivo. Se muestran: esconderlos miente. */
+  sin_par: { code: string; name: string; capturas: number; motivo: string }[];
 }
 
 export interface InventoryIra {

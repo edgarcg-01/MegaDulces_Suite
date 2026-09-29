@@ -457,6 +457,152 @@ export class InventoryVarianceService {
     };
   }
 
+  /**
+   * [IC.11] Los PERÍODOS que se pueden conciliar — dos conteos consecutivos del mismo almacén.
+   *
+   * ⛔ Devuelve también los almacenes que NO tienen par, con su motivo. Un almacén que
+   * desaparece de un selector se lee como "ese no tiene problema", y son tres: Padre Hidalgo
+   * (tiene dos capturas pero en almacenes DISTINTOS — la tienda `01` y la Ruta 28 `01-006`;
+   * compararlas sería mezclar una tienda con una ruta) y las dos de Morelia, con una sola
+   * captura cada una.
+   *
+   * ⚠️ Una MATVIEW no soporta RLS (limitación de Postgres), así que el tenant se filtra A MANO
+   * en toda consulta de acá abajo. `tk.run` setea el GUC, pero la matview no lo mira.
+   */
+  async rollforwardPeriodos() {
+    return this.tk.run(async (knex) => {
+      const periodos = await knex('analytics.mv_erp_count_rollforward as r')
+        .where('r.tenant_id', knex.raw('public.current_tenant_id()'))
+        .select('r.warehouse_id', 'r.warehouse_code', 'r.warehouse_name')
+        .select(knex.raw("to_char(r.desde,'YYYY-MM-DD') AS desde"))
+        .select(knex.raw("to_char(r.hasta,'YYYY-MM-DD') AS hasta"))
+        .select(knex.raw('max(r.dias)::int AS dias'))
+        .count<Record<string, unknown>[]>('* as skus')
+        .select(knex.raw(`count(*) FILTER (WHERE r.veredicto = 'merma')::int AS skus_merma`))
+        .select(knex.raw(`count(*) FILTER (WHERE r.veredicto = 'no_recontado')::int AS sin_recontar`))
+        .select(knex.raw(`coalesce(sum(r.importe_no_explicado)
+          FILTER (WHERE r.veredicto = 'merma'), 0) AS importe_merma`))
+        .groupBy('r.warehouse_id', 'r.warehouse_code', 'r.warehouse_name', 'r.desde', 'r.hasta')
+        .orderBy([{ column: 'r.warehouse_code' }, { column: 'r.hasta', order: 'desc' }]);
+
+      // Lo que NO se puede conciliar, con nombre y motivo.
+      const { rows: sinPar } = await knex.raw(`
+        SELECT w.code, w.name,
+               (SELECT count(DISTINCT m.c1 || '|' || m.c9::date)::int
+                  FROM kepler_ods.kdm1 m
+                 WHERE m.sucursal = w.kepler_code
+                   AND m.c2='N' AND m.c3='A' AND m.c4::int = 45
+                   AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')) AS capturas
+          FROM commercial.warehouses w
+         WHERE w.tenant_id = public.current_tenant_id()
+           AND w.kepler_code IS NOT NULL AND w.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM analytics.mv_erp_count_rollforward r
+                            WHERE r.warehouse_id = w.id)
+         ORDER BY w.code`);
+
+      return {
+        periodos,
+        sin_par: sinPar.map((x: Record<string, unknown>) => ({
+          ...x,
+          motivo: Number(x['capturas']) < 2
+            ? 'un solo conteo: hace falta un segundo para comparar'
+            : 'sus conteos son de almacenes distintos (p. ej. la tienda y una ruta), y no son comparables entre sí',
+        })),
+      };
+    });
+  }
+
+  /**
+   * [IC.11] La conciliación de UN período: a dónde se fue la mercancía.
+   *
+   * Los totales se calculan sobre TODO el período, no sobre la página — si el encabezado dijera
+   * la suma de las 100 filas visibles, cambiaría al paginar y nadie podría citarlo.
+   *
+   * ⛔ `sin_recontar` va en el encabezado a propósito: son SKUs que estaban en el primer conteo
+   * y NO en el segundo, así que su merma es DESCONOCIDA, no cero. En el par más flaco son 2,265
+   * de 2,403 — o sea que ese período casi no mide nada, y la pantalla tiene que decirlo antes
+   * de que alguien lea el total como si cubriera el almacén.
+   *
+   * ⛔ Y `imposibles` es la otra salvedad, que además NO es simétrica: 993 filas (3.8%) tienen
+   * un "debía quedar" NEGATIVO — salió más de lo que el conteo anterior decía que había, lo cual
+   * sólo puede significar que falta una entrada que no capturamos. De esas 993, **cero** caen en
+   * merma y 356 en sobrante, porque contra un esperado imposible lo contado siempre parece de
+   * más. Van marcadas fila por fila (`esperado_imposible`) y contadas aparte: sin eso, el total
+   * de sobrante se lee como mercancía que apareció.
+   */
+  async rollforward(params: {
+    warehouse_id: string;
+    desde: string;
+    hasta: string;
+    veredicto?: string;
+    limit?: number;
+  }) {
+    const limit = Math.min(1000, Math.max(1, Number(params.limit) || 150));
+    return this.tk.run(async (knex) => {
+      const base = () => knex('analytics.mv_erp_count_rollforward as r')
+        .where('r.tenant_id', knex.raw('public.current_tenant_id()'))
+        .andWhere('r.warehouse_id', params.warehouse_id)
+        .andWhereRaw('r.desde = ?::date', [params.desde])
+        .andWhereRaw('r.hasta = ?::date', [params.hasta]);
+
+      const [tot] = await base()
+        .select(knex.raw(`
+          count(*)::int AS skus,
+          coalesce(sum(r.contado_inicio), 0) AS contado_inicio,
+          coalesce(sum(r.compras), 0)  AS compras,
+          coalesce(sum(r.recibido), 0) AS recibido,
+          coalesce(sum(r.vendido), 0)  AS vendido,
+          coalesce(sum(r.enviado), 0)  AS enviado,
+          coalesce(sum(r.esperado), 0) AS esperado,
+          coalesce(sum(r.contado_fin), 0) AS contado_fin,
+          coalesce(sum(r.no_explicado), 0) AS no_explicado,
+          coalesce(sum(r.importe_no_explicado) FILTER (WHERE r.veredicto='merma'), 0) AS importe_merma,
+          coalesce(sum(r.importe_no_explicado) FILTER (WHERE r.veredicto='sobrante'), 0) AS importe_sobrante,
+          count(*) FILTER (WHERE r.veredicto='cuadra')::int       AS cuadra,
+          count(*) FILTER (WHERE r.veredicto='merma')::int        AS merma,
+          count(*) FILTER (WHERE r.veredicto='sobrante')::int     AS sobrante,
+          count(*) FILTER (WHERE r.veredicto='no_recontado')::int AS sin_recontar,
+          -- ⛔ El "debía quedar" IMPOSIBLE. Medido en prod: 993 de 26,133 filas (3.8%) dan un
+          -- esperado NEGATIVO, o sea que salió más de lo que había según el conteo anterior.
+          -- Eso no es merma ni sobrante: es que falta una entrada que no estamos capturando.
+          -- Y NO es neutro: de esas 993, CERO caen en merma y 356 en sobrante -- cuando el
+          -- esperado es imposible, lo contado siempre parece de más. O sea que inflan el
+          -- sobrante en una direccion sola, y publicar el total sin decirlo lo exagera.
+          count(*) FILTER (WHERE r.esperado < 0)::int AS imposibles,
+          coalesce(sum(r.importe_no_explicado)
+            FILTER (WHERE r.esperado < 0 AND r.veredicto = 'sobrante'), 0) AS importe_imposible,
+          max(r.dias)::int AS dias`));
+
+      const q = base()
+        .select('r.sku', 'r.product_id', 'r.contado_inicio', 'r.compras', 'r.recibido',
+          'r.vendido', 'r.enviado', 'r.esperado', 'r.contado_fin', 'r.no_explicado',
+          'r.importe_no_explicado', 'r.costo_unitario', 'r.veredicto',
+          'r.kepler_sucursal', 'r.kepler_almacen')
+        .select(knex.raw('(r.esperado < 0) AS esperado_imposible'))
+        // Ordena por lo que QUEDA en dinero. El desempate por SKU es lo que vuelve el orden
+        // estable entre dos corridas — sin eso no se puede demostrar que un cambio no lo movió.
+        .orderByRaw('abs(coalesce(r.importe_no_explicado, 0)) DESC, r.sku')
+        .limit(limit);
+      if (params.veredicto) q.andWhere('r.veredicto', params.veredicto);
+
+      const [items, nombres] = await Promise.all([
+        q,
+        knex('catalog.products as p')
+          .where('p.tenant_id', knex.raw('public.current_tenant_id()'))
+          .whereNull('p.deleted_at')
+          .select('p.sku', 'p.name'),
+      ]);
+      const nom = new Map((nombres as { sku: string; name: string }[]).map((x) => [x.sku, x.name]));
+
+      return {
+        totales: tot,
+        items: (items as Record<string, unknown>[]).map((r) => ({
+          ...r, descripcion: nom.get(String(r['sku'])) ?? null,
+        })),
+      };
+    });
+  }
+
   /** Almacenes y fechas con conteo, para poblar los filtros sin adivinar. */
   async events() {
     return this.tk.run(async (knex) =>

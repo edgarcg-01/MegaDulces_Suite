@@ -183,6 +183,31 @@ async function arbitrar(c, suc, code, fecha, venta, entrada) {
   t('no_explicado = contado_fin − esperado, en todas las que se recontaron',
     id.mal2 === 0, `${id.mal2} filas no cierran`);
 
+  // ── 6-bis. El "debía quedar" IMPOSIBLE, y por qué NO se puede clampear a cero ───────
+  //
+  // 993 filas (3.8%) dan un esperado NEGATIVO: salió más de lo que el conteo anterior decía que
+  // había, lo cual sólo puede significar que falta una entrada sin capturar.
+  //
+  // ⛔ La tentación es `GREATEST(esperado, 0)`. Sería un desastre silencioso: con el esperado en
+  // cero, `no_explicado = contado_fin - 0` sigue siendo positivo, así que esos SKUs pasarían de
+  // "sobrante inflado" a "sobrante MÁS inflado" — y si alguien en cambio clampeara el
+  // `no_explicado`, los convertiría en merma que NUNCA ocurrió. La asimetría medida es la prueba
+  // de que hay que declararlos, no corregirlos: de 993, CERO caen en merma.
+  const [imp] = (await c.query(`
+    SELECT count(*) FILTER (WHERE esperado < 0)::int AS imposibles,
+           count(*) FILTER (WHERE esperado < 0 AND veredicto = 'merma')::int AS neg_merma,
+           count(*) FILTER (WHERE esperado < 0 AND veredicto = 'sobrante')::int AS neg_sobrante,
+           count(*)::int AS filas
+      FROM analytics.mv_erp_count_rollforward`)).rows;
+  t('⛔ el esperado imposible es ASIMÉTRICO: nunca cae en merma, sólo infla el sobrante',
+    imp.neg_merma === 0,
+    `${imp.imposibles} de ${imp.filas} (${(imp.imposibles / imp.filas * 100).toFixed(1)}%) · `
+    + `${imp.neg_sobrante} en sobrante · ${imp.neg_merma} en merma`);
+
+  t('los imposibles NO están clampeados a cero — se declaran con su número real',
+    imp.imposibles > 0,
+    'si esto llegara a 0, revisar que nadie haya metido un GREATEST(esperado, 0)');
+
   // ── 7. La pantalla se abre o no se usa ─────────────────────────────────────────────
   const [wh] = (await c.query(
     'SELECT warehouse_id, hasta FROM analytics.mv_erp_count_rollforward LIMIT 1')).rows;
