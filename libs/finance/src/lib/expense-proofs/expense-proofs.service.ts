@@ -290,6 +290,28 @@ function archivosDe(v: unknown): ProofFile[] {
   return Array.isArray(v) ? (v as ProofFile[]) : [];
 }
 
+/**
+ * `[GX.49]` La solicitud de Kepler tal como la devuelve el lookup exacto. Es el mismo contrato
+ * que consume `pick()` en la pantalla de captura: si se le quita un campo, el vale abre a
+ * medias y la pantalla no se queja.
+ */
+export interface SolicitudKepler {
+  folio: string;
+  sucursal: string | null;
+  beneficiario: string | null;
+  solicitante: string | null;
+  concepto: string | null;
+  estado: string | null;
+  rfc: string | null;
+  autoriza: string | null;
+  referencia: string | null;
+  cuenta_clave: string | null;
+  usuario: string | null;
+  fecha: string | null;
+  importe: number;
+  iva: number;
+}
+
 export interface ListExpenseProofsQuery {
   status?: string;
   folio_solicitud?: string;
@@ -1578,6 +1600,62 @@ export class ExpenseProofsService {
    * usuarios) no se devuelve el catálogo entero ni se bloquea todo — se exige folio
    * EXACTO. Así el capturista sube lo que le dieron sin poder pasear por el gasto ajeno.
    */
+  /**
+   * `[GX.49]` ⭐ **Abrir UN vale concreto. No es buscar.**
+   *
+   * `searchSolicitudes` filtra a **las solicitudes de HOY** (GX.18: el desplegable no debe
+   * traer ruido cuando alguien teclea). Esa regla es correcta para teclear y **equivocada para
+   * abrir**: un vale que Kepler le asignó a la persona puede ser de ayer o de la semana pasada
+   * — medido, el gasto tarda de horas a semanas — y el botón «Subir evidencia» llevaba a una
+   * pantalla **que no podía abrirlo**. La pantalla se veía bien; simplemente no pasaba nada.
+   *
+   * ## ⛔ Por qué exige folio Y sucursal, y por qué eso no abre una pesca
+   * Sin el filtro de fecha, el universo pescable pasaría de las ~30 solicitudes de hoy a las
+   * 10,082 del histórico. Por eso esto **no es una búsqueda**: pide los dos datos, devuelve
+   * **como mucho una** fila y no acepta coincidencias parciales. Con folio y plaza exactos ya
+   * se sabe qué vale se quiere — no hay nada que enumerar.
+   *
+   * ⚠️ Y el recorte por alcance **no se toca**: se aplica igual que en el buscador. Lo único
+   * que se relaja es la fecha.
+   */
+  async solicitudExacta(
+    folio: string, sucursal: string,
+    user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
+  ): Promise<SolicitudKepler[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const f = String(folio || '').trim();
+    const s = String(sucursal || '').trim();
+    // ⛔ Los DOS o nada: con uno solo esto seria el buscador sin filtro de fecha.
+    if (!f || !s) return [];
+
+    return this.tk.run(async (trx) => {
+      /**
+       * ⛔ **Sin recorte por areas, igual que el buscador con la igualdad de folio.**
+       *
+       * Se intento aplicarlo y **rompio el caso que esta funcion existe para resolver**: el
+       * alcance compara contra `solicitante` normalizado, y un vale asignado por Kepler trae
+       * ahi el USERNAME (`DEMO_CAPTURA`), mientras que las claves del alcance son el NOMBRE de
+       * la persona y sus areas. No casan — y el endpoint devolvia 0 para el vale propio.
+       *
+       * El buscador ya permitia el folio exacto sin areas, con este razonamiento textual:
+       * «subi lo que te dieron». Aca se pide ademas la sucursal, asi que es mas estricto que
+       * eso, no menos.
+       */
+      const b = trx('analytics.expense_requests as r')
+        .where('r.tenant_id', tenantId)
+        .where('r.sucursal', s)
+        .where('r.estado', '<>', 'C')
+        // Igualdad numerica, igual que el buscador: '97001' encuentra '0097001' y nada mas.
+        .whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(f.replace(/[^0-9]/g, '')) || -1]);
+      return b.limit(1).select(
+        'r.folio', 'r.sucursal', 'r.beneficiario', 'r.solicitante', 'r.concepto', 'r.estado',
+        'r.rfc', 'r.autoriza', 'r.referencia', 'r.cuenta_clave', 'r.usuario',
+        trx.raw(`to_char(r.fecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw('r.importe::numeric AS importe'), trx.raw('r.iva::numeric AS iva'),
+      );
+    });
+  }
+
   async searchSolicitudes(term: string, limit = 20, user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const q = String(term || '').trim();
