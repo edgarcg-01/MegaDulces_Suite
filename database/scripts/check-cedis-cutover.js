@@ -74,9 +74,17 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
           -- Una fecha explicita REEMPLAZA la ventana, no se le suma: con el AND de los 30
           -- dias, pedir la carga de una sucursal vieja (06, el 2026-08-14) devolvia cero y
           -- el script decia "la carga no ocurrio" sobre una migracion que si ocurrio.
+          --
+          -- Y se busca en [fecha-3, fecha+1], no en el dia exacto: LA FECHA DE CARGA NO ES
+          -- LA FECHA DE CORTE. Medido en las tres migraciones, la carga es SIEMPRE el dia
+          -- ANTERIOR al cutover_date (06 14/15-ago, 07 07/08-sep, 08 18/19-sep). Quien tome
+          -- la fecha de v_branch_erp_cutover y la pase tal cual le erraria por un dia y
+          -- veria NO MEDIDO sobre una migracion que si ocurrio.
+          -- No es "barrer hasta encontrar algo": es una ventana chica alrededor de una fecha
+          -- que alguien pidio a proposito, y el script DECLARA que dia termino usando.
           -- (Sin acentos ni backticks: esto vive dentro de un template literal.)
           AND ($2::date IS NOT NULL OR (m.c9 >= current_date - 30 AND m.c9 <= current_date))
-          AND ($2::date IS NULL OR m.c9::date = $2::date)
+          AND ($2::date IS NULL OR m.c9::date BETWEEN $2::date - 3 AND $2::date + 1)
         GROUP BY 1,2,3 ORDER BY 2, 3`,
       [KEP_SUC, FECHA]);
 
@@ -194,6 +202,12 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
     }
 
     console.log(`\n   → documento analizado: ${fechaElegida}`);
+    if (FECHA && fechaElegida !== FECHA) {
+      const dias = Math.round((new Date(FECHA) - new Date(fechaElegida)) / 86400000);
+      console.log(`     ⓘ pediste ${FECHA} y se usó ${fechaElegida} (${dias} día(s) antes).`);
+      console.log('       La fecha de CARGA no es la de CORTE: en las tres migraciones medidas');
+      console.log('       la carga cae el día ANTERIOR al cutover_date del resolvedor.');
+    }
     if (esCargaInicial) {
       console.log('     firma de CARGA INICIAL (la entrada replica la captura) ✔');
     } else {
