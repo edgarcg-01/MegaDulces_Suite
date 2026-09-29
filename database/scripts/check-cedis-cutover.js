@@ -86,33 +86,65 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
       // sucursal —o como otro almacén `c1` dentro de la misma, como la ruta '01-006' dentro
       // de '01'— este script diría NO MEDIDO para siempre y se leería como "todavía no pasó".
       // Así que antes de rendirse, BARRE TODO y muestra lo que encuentre.
-      console.log('\n── Barrido: ¿hay alguna carga reciente en OTRA sucursal o almacén? ──');
+      // El barrido CLASIFICA; no le pasa una lista cruda al humano para que la revise él.
+      // Dos hechos alcanzan para decidir cada fila sin preguntarle a nadie:
+      //   · si la sucursal YA está mapeada en commercial.warehouses, no puede ser el CEDIS
+      //     entrando (ese almacén ya tiene dueño);
+      //   · una CARGA INICIAL tiene firma propia — captura ≈ entrada línea por línea y peso
+      //     por peso, y faltante $0 — mientras que un conteo trimestral tiene la entrada MUY
+      //     por debajo de la captura. Es lo que distingue a Morelia (08) de los trimestrales.
+      console.log('\n── Barrido: ¿el CEDIS entró con otro código? ──');
       const otras = await q(
-        `SELECT m.sucursal, m.c1 AS almacen, to_char(m.c9,'YYYY-MM-DD') AS fecha,
-                m.c4 AS doctype, m.c6 AS folio, count(l.*)::int AS lineas,
-                round(sum(l.c13::numeric),2) AS pesos
-           FROM kepler_ods.kdm1 m
-           JOIN kepler_ods.kdm2 l
-             ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
-            AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
-          WHERE m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
-            AND m.c9 >= current_date - 15 AND m.c9 <= current_date
-          GROUP BY 1,2,3,4,5 ORDER BY 3 DESC, 1, 2 LIMIT 25`, []);
+        `WITH docs AS (
+           SELECT m.sucursal, m.c1 AS almacen, m.c9::date AS f, m.c4 AS doctype,
+                  count(l.*)::int AS lineas, sum(l.c13::numeric) AS pesos
+             FROM kepler_ods.kdm1 m
+             JOIN kepler_ods.kdm2 l
+               ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
+              AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
+            WHERE m.c2='N' AND m.c3='A' AND m.c4 IN ('45','30')
+              AND m.c9 >= current_date - 15 AND m.c9 <= current_date
+            GROUP BY 1,2,3,4)
+         SELECT d.sucursal, d.almacen, to_char(d.f,'YYYY-MM-DD') AS fecha,
+                max(d.lineas) FILTER (WHERE d.doctype='45') AS cap_lineas,
+                round(max(d.pesos) FILTER (WHERE d.doctype='45'),2) AS cap_pesos,
+                max(d.lineas) FILTER (WHERE d.doctype='30') AS ent_lineas,
+                EXISTS (SELECT 1 FROM commercial.warehouses w
+                         WHERE w.kepler_code = d.sucursal AND w.deleted_at IS NULL) AS ya_mapeada
+           FROM docs d GROUP BY 1,2,3 ORDER BY 3 DESC, 1, 2 LIMIT 25`, []);
+
+      const candidatas = otras.filter((o) => !o.ya_mapeada);
+      // Firma de carga inicial: la entrada replica la captura (±1 línea).
+      const marca = (o) => (o.cap_lineas && o.ent_lineas
+        && Math.abs(o.cap_lineas - o.ent_lineas) <= 1) ? 'CARGA INICIAL' : 'conteo';
 
       if (!otras.length) {
-        console.log('   ✔ tampoco hay cargas en ninguna otra sucursal en 15 días.');
-        console.log('     El cutover no ha ocurrido en ningún lado. Volver a correr el día D.');
+        console.log('   ✔ no hay cargas ni conteos en ninguna sucursal en 15 días.');
       } else {
-        console.log('   ⚠️ SÍ hay documentos de carga/conteo en otros lados — revisar si alguno');
-        console.log('      es el CEDIS entrando con otro código:\n');
-        console.log('   sucursal almacén  fecha        doc    folio      líneas        pesos');
+        console.log('   suc almacén  fecha        captura      entrada  tipo           ¿candidata?');
         for (const o of otras) {
-          console.log(`   ${String(o.sucursal).padEnd(8)} ${String(o.almacen).padEnd(8)}`
-            + ` ${o.fecha}  N-A-${o.doctype} ${String(o.folio).padEnd(9)}`
-            + ` ${String(num(o.lineas)).padStart(7)} ${String(money(o.pesos)).padStart(13)}`);
+          const tipo = marca(o);
+          const cand = o.ya_mapeada
+            ? `no — ya es ${o.sucursal}`
+            : (tipo === 'CARGA INICIAL' ? '⛔ SÍ — revisar' : 'no — es un conteo');
+          console.log(`   ${String(o.sucursal).padEnd(3)} ${String(o.almacen).padEnd(8)}`
+            + ` ${o.fecha}  ${String(num(o.cap_lineas || 0)).padStart(7)} líns`
+            + ` ${String(num(o.ent_lineas || 0)).padStart(7)} líns`
+            + `  ${tipo.padEnd(13)} ${cand}`);
         }
-        console.log('\n   Si el CEDIS es alguno de ésos, volvé a correr con:');
-        console.log('     CEDIS_KEPLER_SUCURSAL=<sucursal> node database/scripts/check-cedis-cutover.js');
+      }
+
+      if (!candidatas.length) {
+        console.log('\n   ✔ VEREDICTO: ninguna es el CEDIS. Todas las sucursales con actividad ya');
+        console.log('     están mapeadas en commercial.warehouses, así que ya tienen dueño.');
+        console.log('     El cutover del CEDIS no ha ocurrido. Volver a correr el día D.');
+      } else {
+        alarmas++;
+        console.log(`\n   ⛔ VEREDICTO: ${candidatas.length} sucursal(es) SIN mapear con actividad —`);
+        console.log('     alguna podría ser el CEDIS entrando por otro lado. Volvé a correr con:');
+        for (const c of candidatas) {
+          console.log(`       CEDIS_KEPLER_SUCURSAL=${c.sucursal} node database/scripts/check-cedis-cutover.js`);
+        }
       }
 
       // Y la otra mitad de la pregunta: ¿la sucursal destino ya existe en el ODS?
