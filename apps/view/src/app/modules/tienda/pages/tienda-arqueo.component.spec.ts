@@ -12,7 +12,11 @@ import { TiendaArqueoComponent } from './tienda-arqueo.component';
 
 // `p-table` observa su tamaño con ResizeObserver, que jsdom no trae.
 if (typeof (globalThis as any).ResizeObserver === 'undefined') {
-  (globalThis as any).ResizeObserver = class { observe(): void {} unobserve(): void {} disconnect(): void {} };
+  (globalThis as any).ResizeObserver = class {
+    observe(): void { /* el mock no observa: sólo evita que p-table reviente en jsdom */ }
+    unobserve(): void { /* idem */ }
+    disconnect(): void { /* idem */ }
+  };
 }
 
 /**
