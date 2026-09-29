@@ -323,16 +323,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
-          // ⚠️ SIN `route`: TP dejó el backend y su smoke, pero `/compras/obligaciones` no
-          // existe en `app.routes.ts` — y una `route` puesta «para cuando llegue» convierte al
-          // permiso en candidato de aterrizaje hacia la nada.
-          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
           // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
           // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
           // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.
-          // ⚠️ Ídem: `/compras/cuentas-pago` tampoco existe todavía. Comparte las dos claves con
-          // el nodo de arriba, así que de poco habría servido quitárselas a uno solo.
-          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', route: '/compras/cuentas-pago', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
         ],
       },
       {
