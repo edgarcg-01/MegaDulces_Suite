@@ -18,6 +18,8 @@
     "lint:changed": "node scripts/lint-changed.js",
     "check:templates": "node scripts/check-template-literals.js",
     "check:tables": "node scripts/check-dense-tables.js",
+    "check:tokens": "node scripts/check-css-tokens.js",
+    "check:tokens:self": "node scripts/check-css-tokens.js --self-test",
     "check:tables:self": "node scripts/check-dense-tables.js --self-test",
     "check:provenance": "node scripts/check-provenance.js",
     "check:docker": "node scripts/check-docker-context.js",

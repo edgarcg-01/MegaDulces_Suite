@@ -241,7 +241,10 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     :host ::ng-deep .fb-pin.p-inputtext { width: 100%; font-size: var(--fs-xs); padding: 2px var(--sp-2); }
 
     .fb-colored > td { background: color-mix(in srgb, var(--g, transparent) 8%, transparent); }
-    .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
+    /* [UIM.5] Se retiro .fb-legend-item.active: la leyenda vive en el HIJO
+       (bancos-movimientos), y con encapsulacion emulada el estilo del padre no la alcanza.
+       Ademas usaba var(--g), que el hijo inyecta con [style.--g]: aca nunca existio.
+       Regla muerta por partida doble; el hijo ya tiene la suya. */
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .fb-match-rate.warn { color: var(--warn-fg); }
     .fb-adminseg button.active { color: var(--action); border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }

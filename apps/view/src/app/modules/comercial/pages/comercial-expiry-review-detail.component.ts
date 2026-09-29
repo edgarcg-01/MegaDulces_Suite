@@ -269,7 +269,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-head-text { flex: 1; min-width: 0; }
     .erd-head-text h1 { margin: 0; }
     .erd-sub { margin: .15rem 0 0; font-size: var(--fs-sm, .85rem); color: var(--c-text-2, var(--text-muted)); }
-    .surf-card { background: var(--surface-card, var(--c-bg-1)); border: 1px solid var(--border-soft, var(--c-border)); border-radius: var(--radius-lg, 12px); padding: 1rem; }
+    .surf-card { background: var(--surface-card, var(--c-bg-1)); border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); padding: 1rem; }
     .erd-form { margin-bottom: 1.25rem; }
     .erd-form-title { margin: 0 0 .75rem; font-size: var(--fs-md, 1rem); }
     .erd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
@@ -278,7 +278,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-lbl { font-size: var(--fs-xs, .72rem); text-transform: uppercase; letter-spacing: .03em; color: var(--c-text-2, var(--text-muted)); }
     .erd-full, :host ::ng-deep .erd-full, :host ::ng-deep .erd-full input { width: 100%; }
     .erd-chips { display: flex; gap: .4rem; }
-    .erd-chip { flex: 1; padding: .55rem .5rem; border-radius: var(--radius-md, 8px); border: 1px solid var(--border-soft, var(--c-border)); background: transparent; color: var(--c-text-1); font-size: var(--fs-sm, .85rem); cursor: pointer; min-height: 44px; }
+    .erd-chip { flex: 1; padding: .55rem .5rem; border-radius: var(--radius-md, 8px); border: 1px solid var(--border-color); background: transparent; color: var(--c-text-1); font-size: var(--fs-sm, .85rem); cursor: pointer; min-height: 44px; }
     .erd-chip.on[data-c="bueno"] { background: var(--good-soft-bg, #e6f4ea); border-color: var(--good-fg, #1a7f37); color: var(--good-fg, #1a7f37); }
     .erd-chip.on[data-c="regular"] { background: var(--warn-soft-bg, #fff4e5); border-color: var(--warn-fg, #b25e00); color: var(--warn-fg, #b25e00); }
     .erd-chip.on[data-c="malo"] { background: var(--bad-soft-bg, #fdeaea); border-color: var(--bad-fg, #b42318); color: var(--bad-fg, #b42318); }
@@ -320,7 +320,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-scan-miss { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; padding: .45rem .6rem;
       border: 1px solid var(--warn-border, #fde68a); background: var(--warn-soft-bg, #fef3c7);
       border-radius: var(--radius-md, 8px); color: var(--warn-soft-fg, #92400e); font-size: .76rem; }
-    .erd-pickbtn { display: inline-flex; align-items: center; gap: .5rem; padding: .6rem .9rem; border: 1px dashed var(--border-soft, var(--c-border)); border-radius: var(--radius-md, 8px); cursor: pointer; color: var(--c-text-1); font-size: var(--fs-sm, .85rem); min-height: 44px; }
+    .erd-pickbtn { display: inline-flex; align-items: center; gap: .5rem; padding: .6rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--radius-md, 8px); cursor: pointer; color: var(--c-text-1); font-size: var(--fs-sm, .85rem); min-height: 44px; }
     .erd-pickbtn.busy { opacity: .6; cursor: default; }
     .erd-photo { position: relative; display: inline-block; }
     .erd-photo img { max-height: 80px; border-radius: var(--radius-md, 8px); display: block; }
