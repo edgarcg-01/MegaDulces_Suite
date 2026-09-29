@@ -244,9 +244,10 @@ La pregunta que yo había dejado abierta (*"¿con qué código entra el CEDIS?"*
 2. ⛔ **PENDIENTE — el de mayor monto, y no lo puedo cerrar yo.** Verificar que la carga **reemplace** el saldo previo de Kepler `00` y no se **sume** a él. Es `N-A-30` = *entrada*, o sea que por construcción **suma a `c8`** (§1.11b-bis). No lo arreglamos desde acá: no escribimos al SoR (ADR-040). Lo que sí se puede es **medirlo el mismo día** y avisar.
 3. `commercial.warehouses` code `00` → `kepler_code = '00'` (hoy `NULL`).
 4. `wincaja.branches` `00` → `status` de `live_on_wincaja` a `transition`.
-5. Las vistas que unen el CEDIS por `wincaja_source_branch` (`v_erp_stock_on_hand`, `v_warehouse_box_factor`, gate de unidad) pasan a resolverlo por `kepler_code`.
-6. **Correr la compuerta de cobertura** con la foto del 18-sep (§1.10): qué SKUs de Wincaja `00` no llegaron.
-7. Retirar los carriles PM2 de Wincaja (ya detenidos) **y sus sondas** → desbloquea el cierre de `.249` (Fase VL).
+5. ⛔ **NO unir el CEDIS por `warehouse_code`.** Medido: `v_branch_erp_cutover.warehouse_code` **mezcla dos convenciones** — sólo las 2 migraciones recientes (`30`→`08`, `32`→`07`) guardan el código Kepler; las **6** viejas guardan el nombre Wincaja (`MD-10`, `MD-42`, `MD-50`…) que **no existe** como `code` en `commercial.warehouses`. Resuelve **2 de 8**; `kepler_code` resuelve **8 de 8**. ⚠️ **Al CEDIS le toca la convención vieja**: su `warehouse_code` es `MD-00` y su almacén real es `code='00'` — el día que entre a la vista, un INNER JOIN por ahí da **cero en silencio**. Usar `kepler_code` o `wincaja_source_branch`. (Reportado por la sesión de [AUD-DAT.11]; clavado con aserción en el smoke.)
+6. Las vistas que unen el CEDIS por `wincaja_source_branch` (`v_erp_stock_on_hand`, `v_warehouse_box_factor`, gate de unidad) pasan a resolverlo por `kepler_code`.
+7. **Correr la compuerta de cobertura** con la foto del 18-sep (§1.10): qué SKUs de Wincaja `00` no llegaron.
+8. Retirar los carriles PM2 de Wincaja (ya detenidos) **y sus sondas** → desbloquea el cierre de `.249` (Fase VL).
 
 ---
 
