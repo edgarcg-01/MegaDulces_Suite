@@ -9,6 +9,43 @@
 ---
 
 ## [Unreleased]
+### Fixed — el motor de PROMOS era ciego a Kepler, y pagaba sobre el 31.7% de la venta (VSO.18, 2026-09-29)
+Nace de un reporte: *"$6.00 por cliente distinto al que se le venda el 97191, todas las rutas, del
+11/08 al 11/09 — no funciona"*.
+
+**Esa promo no fallaba: no tenía base.** La última venta de RUTA del `97191` fue el **2025-09-24**,
+once meses antes. Lo que falta ahí es que la pantalla lo **diga**, en vez de un vacío que se lee
+como falla.
+
+⛔ **Pero buscándolo apareció algo mayor.** `analytics.v_seller_sales_lines` —el universo con el que
+se **calcula y se paga** un incentivo— leía Wincaja + el push de rutas y **de `kepler_ods` nada**.
+No estaba mal cuando se escribió; **se pudre un escalón por cutover, y nadie lo vio porque sigue
+devolviendo números**: un cero se investiga, un número más chico se cobra.
+
+```
+cobertura contra el sell-out
+ene 94.5% · jun 82.6% · jul 66.5% (PH cortó 27-jun)
+ago 56.8% (Canindo 15-ago) · sep 31.7% (Morelia 08 y 19-sep)
+por canal en septiembre: mostrador 24% · mayoreo 23% · vecinal 14%
+```
+
+- **Added** — `analytics.v_kepler_seller_lines` (venta Kepler a grano de línea, con cliente y
+  vendedor, filtrada por `v_branch_erp_cutover`) entra a la unión. **Mig 20260929120000, batch 580
+  en prod.** Antes/después del mes en curso: mayoreo **$2.97M → $12.71M**, mostrador **$7.14M →
+  $30.27M**, vecinal **$0.47M → $3.36M**. Cobertura de agosto: **100% / 100% / 100%**.
+- **Fixed** — el motor nombraba al vendedor sólo contra Wincaja: los **57 pares Kepler salían con
+  código en vez de persona** (0 de 57). Cascada `vendor_identity → wincaja.vendedores → kduv`:
+  **0% → 89%**. ⭐ `vendor_identity` va primero **a propósito**: funde a la misma persona a los dos
+  lados de un corte, y una promo de agosto-septiembre **cruza tres**.
+- **Added** — `test-newdb-promo-engine-coverage.js` (4 OK): la pierna nueva cuadra **al peso** con
+  `mv_kepler_sales_daily` + piso de cobertura por canal + el pago tiene nombre. Con prueba negativa.
+- ⛔ **Corrección medida a lo que dije antes**: *"las promos de ruta pagan sobre la mitad"* es
+  **falso**. `ruta` nunca estuvo afectado — sube por `route_push_lines`, sin una sola caída en los
+  cortes. El canal `ruta` de Kepler es residual (un documento en agosto, cliente literal `RUTA 28`).
+- ⚠️ **El candado me corrigió**: puse el tope de vendedores sin nombre en 8 y midió 9 → rojo. Al
+  investigar, **7 de los 9 no son "sin nombre" sino venta SIN VENDEDOR asignado**. Dos ausencias
+  distintas; el tope real es **2**.
+
 ### Changed — las consultas que arman los filtros pasaron de >1 s a ~0.3 s (VSO.17, 2026-09-29)
 Pedido: *"que estén optimizadas, sean rápidas y funcionen en sincronía con los filtros"*.
 
