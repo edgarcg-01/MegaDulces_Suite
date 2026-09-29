@@ -710,6 +710,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </p-dialog>
       } @else if (mode()==='muerto') {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
+        <!-- [UIM.2] Apilado por campos: las 7 columnas son campos de UN renglón muerto.
+             ⛔ La rejilla de PEDIDO (la otra tabla de esta pantalla, 78rem) NO se apiló: ver
+             el motivo en la lista DEUDA de scripts/check-dense-tables.js. -->
+        <div class="dt-scope">
         <div class="pr-filters">
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
@@ -720,7 +724,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </div>
         <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                 styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
+                 styleClass="p-datatable-sm pr-table dt-stack" [tableStyle]="deadTableStyle">
           <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
               <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
@@ -728,19 +732,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           </ng-template>
           <ng-template #body let-r>
             <tr>
-              <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
-              <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
-              <td class="pr-r pr-muted" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
-              <td class="pr-r pr-muted" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
-              <td class="pr-r pr-val pr-strong">{{ money(r.dead_value) }}</td>
-              <td class="pr-muted">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
-              <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
+              <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
+              <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code }}</td>
+              <td class="pr-r pr-muted dt-num" role="cell" data-label="Existencia (cajas)" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
+              <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
+              <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Inmovilizado">{{ money(r.dead_value) }}</td>
+              <td class="pr-muted" role="cell" data-label="Última actividad">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
+              <td class="pr-supp" role="cell" data-label="Proveedor">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
             <tr><td colspan="7" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin stock muerto.</p><span>Ningún producto activo con existencia y sin rotación.</span></td></tr>
           </ng-template>
         </p-table>
+        </div>
       } @else {
         <!-- [RA-PRO.63] FLUJO: requisición → OC Kepler → entrada, y productos negados. Componente propio. -->
         <app-compras-flujo />
