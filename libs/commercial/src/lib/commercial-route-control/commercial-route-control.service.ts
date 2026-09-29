@@ -23,6 +23,7 @@ import {
   ROUTE_TICKET_TYPES,
   UpdateRouteTicketDto,
 } from './dto/route-ticket.dto';
+import { vendorTodayRouteIdsSql } from '../shared/vendor-cartera.sql';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -234,16 +235,12 @@ export class CommercialRouteControlService {
       const userId = this.requireUserId();
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
-      // 1) Asignación del día (daily_assignments → catalogs rutas). Fuente
-      //    autoritativa: es la ruta que el propio vendedor ve en "Mi ruta".
-      const assigned = await trx('public.daily_assignments as da')
-        .join('public.catalogs as cat', function () {
-          this.on('cat.id', '=', 'da.route_id')
-            .andOnVal('cat.catalog_id', '=', 'rutas')
-            .andOnNull('cat.deleted_at');
-        })
-        .where('da.user_id', userId)
-        .whereRaw(`da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int`)
+      // 1) Ruta del día — la escogida por el supervisor [VR.SUP.1] o su agenda
+      //    (daily_assignments). Fuente autoritativa: es la que ve en "Mi ruta".
+      const assigned = await trx('public.catalogs as cat')
+        .where('cat.catalog_id', 'rutas')
+        .whereNull('cat.deleted_at')
+        .whereRaw(`cat.id IN (${vendorTodayRouteIdsSql()})`, [userId])
         .distinct('cat.value as value')
         .orderBy('value');
       if (assigned.length === 1) return ok(assigned[0].value);
