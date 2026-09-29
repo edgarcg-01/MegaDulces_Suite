@@ -84,6 +84,7 @@ function servicio(rows: Canned = {}) {
 const FACTURA = (over: Record<string, unknown> = {}) => ({
   id: '05UF1001-0000912', sucursal: '05', folio: '0000912', fecha: '2026-09-05',
   atendio: 'Rosa Maria', total: '24000.00', doc_tipo: 'factura', doc_prefix: 'UF1001',
+  // El `descuento_efectivo` de la vista: 24000 / (1 − 0.03) − 24000 = 742.27
   caja: null, descuento_documento: '742.27', descuento_pct: '3', ...over,
 });
 
@@ -94,8 +95,22 @@ describe('[TK.d3] el descuento de cliente en el reporte', () => {
     const { svc, capturado, knex } = servicio();
     await svc.reporte('10448', {}, null);
     const sql = sqlDeFacturas(capturado);
-    expect(sql).toContain('"i"."descuento"');
+    expect(sql).toContain('descuento_efectivo');
     expect(sql).toContain('descuento_pct');
+    await knex.destroy();
+  });
+
+  /**
+   * ⛔ La columna obvia es la EQUIVOCADA, y este candado existe para que nadie la «simplifique»
+   * de vuelta. `i.descuento` es `kdm1.c13`, que viaja SIN impuesto mientras el total va CON:
+   * medido en la Fase DC, en `07 U-D-10 s4 f0000513` el descuento real es $147.43 y `c13` dice
+   * $135.26 — publicarlo subdeclara 8.3%.
+   */
+  it('NO lee c13: el descuento se deriva del total, no se copia de la cabecera', async () => {
+    const { svc, capturado, knex } = servicio();
+    await svc.reporte('10448', {}, null);
+    const sql = sqlDeFacturas(capturado);
+    expect(sql).not.toMatch(/"i"[.]"descuento"(?!_)/);
     await knex.destroy();
   });
 
