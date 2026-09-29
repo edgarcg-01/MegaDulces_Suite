@@ -1,4 +1,4 @@
-import { faltaParaMandar, puedeMandar, type EstadoAporte } from './aporte-solicitante.contract';
+import { faltaParaMandar, puedeMandar, quedaDebiendoComprobante, type EstadoAporte } from './aporte-solicitante.contract';
 import { FORMAS_PAGO, codigoKepler, esFormaPagoValida, exigeDetalle, formaPago } from './forma-pago.contract';
 
 /**
@@ -112,6 +112,93 @@ describe('[GX.14] la compuerta de quien gasta', () => {
     // cuelga de `exige_evidencia`.
     expect(faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: 'Caja chica', archivos: [], exige_evidencia: false })).toEqual([]);
     expect(faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: false }).map((f) => f.id)).toEqual(['forma_pago']);
+  });
+
+  /**
+   * ⭐ `[GX.44]` **UN archivo alcanza, sea lo que sea.**
+   *
+   * Pedido textual: *«solo debe de tener un archivo de evidencia ya sea foto o un doc, debe
+   * dejarlo enviar, al igual una cotizacion»*. Lo que cambia NO es el rigor sino CUÁNDO se
+   * exige el comprobante: antes, quien sólo tenía la cotización de lo que iba a comprar se
+   * quedaba trabado y el gasto **no entraba al sistema**.
+   */
+  it('una COTIZACIÓN sola alcanza para mandar', () => {
+    expect(faltaParaMandar({
+      ...completo(),
+      archivos: [{ role: 'cotizacion', live: false }],
+    })).toEqual([]);
+  });
+
+  it('cualquiera de las tres cotizaciones cuenta', () => {
+    for (const role of ['cotizacion', 'cotizacion_2', 'cotizacion_3']) {
+      expect(faltaParaMandar({ ...completo(), archivos: [{ role, live: false }] }), role).toEqual([]);
+    }
+  });
+
+  /** ⛔ Pero SIGUE haciendo falta algo: cero archivos no se manda. */
+  it('sin ningún archivo no se manda', () => {
+    const faltan = faltaParaMandar({ ...completo(), archivos: [] });
+    expect(faltan.map((f) => f.id)).toEqual(['evidencia']);
+  });
+
+  /** ⛔ Y la solicitud firmada NO es respaldo del gasto: es el permiso, no el papel. */
+  it('la solicitud firmada sigue sin alcanzar', () => {
+    expect(faltaParaMandar({
+      ...completo(),
+      archivos: [{ role: 'solicitud_kepler', live: true }],
+    }).map((f) => f.id)).toEqual(['evidencia']);
+  });
+
+  describe('[GX.44] el vale que queda DEBIENDO su comprobante', () => {
+    /**
+     * *«cuando es cotización se queda abierto para que cuando compre lo que cotizó suba la
+     * factura»*. Se manda, pero nace sabiendo que debe.
+     */
+    it('con sólo cotización, queda debiendo', () => {
+      expect(quedaDebiendoComprobante({
+        ...completo(), archivos: [{ role: 'cotizacion', live: false }],
+      })).toBe(true);
+    });
+
+    it('con el comprobante, no debe nada', () => {
+      expect(quedaDebiendoComprobante({
+        ...completo(), archivos: [{ role: 'comprobante_1', live: true }],
+      })).toBe(false);
+    });
+
+    /** Con los dos tampoco: el comprobante ya está, la cotización es contexto. */
+    it('con cotización Y comprobante, no debe nada', () => {
+      expect(quedaDebiendoComprobante({
+        ...completo(),
+        archivos: [{ role: 'cotizacion', live: false }, { role: 'comprobante_1', live: true }],
+      })).toBe(false);
+    });
+
+    /**
+     * ⛔ **Sin archivos NO queda debiendo: queda sin mandar.** Son cosas distintas, y
+     * confundirlas dejaría entrar un vale vacío marcado como «pendiente de factura».
+     */
+    it('sin archivos no «debe»: directamente no se puede mandar', () => {
+      expect(quedaDebiendoComprobante({ ...completo(), archivos: [] })).toBe(false);
+      expect(faltaParaMandar({ ...completo(), archivos: [] }).length).toBe(1);
+    });
+
+    /** Un gasto que no exige evidencia no puede deber un comprobante que nadie le pidió. */
+    it('un no comprobable nunca queda debiendo', () => {
+      expect(quedaDebiendoComprobante({
+        forma_pago: 'efectivo', archivos: [{ role: 'cotizacion' }], exige_evidencia: false,
+      })).toBe(false);
+    });
+
+    /**
+     * ⚠️ Lo decide el CONTENIDO, no quien captura. Si dependiera de una casilla, alguien
+     * podría mandar una cotización sin marcarla y el vale cerraría sin deber nada.
+     */
+    it('no hay forma de mandar una cotización sin que quede debiendo', () => {
+      const soloCotizacion = { ...completo(), archivos: [{ role: 'cotizacion' }] };
+      expect(faltaParaMandar(soloCotizacion)).toEqual([]);
+      expect(quedaDebiendoComprobante(soloCotizacion)).toBe(true);
+    });
   });
 
   it('cada faltante trae texto corto para el botón y texto largo para el 400', () => {

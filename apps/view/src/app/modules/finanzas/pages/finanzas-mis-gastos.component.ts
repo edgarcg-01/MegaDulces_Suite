@@ -64,12 +64,17 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
         -->
         @if (asignados().length) {
           <section class="mg-asig">
-            <header class="mg-asig-h">
+            <!--
+              [GX.45] El titulo «Te tocan a vos» se retiro por pedido del usuario. La frase de
+              abajo ya dice lo mismo y con mas precision (quien los levanto y que falta), asi
+              que el titulo era un renglon que repetia. El contador se mueve a la frase.
+            -->
+            <p class="mg-asig-sub">
               <i class="pi pi-inbox" aria-hidden="true"></i>
-              <strong>Te tocan a vos</strong>
-              <span class="mg-asig-n">{{ asignados().length }}</span>
-            </header>
-            <p class="mg-muted mg-asig-sub">Los levantaron a tu nombre en Kepler. Falta que les subas la evidencia.</p>
+              <strong>{{ asignados().length }}</strong>
+              {{ asignados().length === 1 ? 'vale levantado' : 'vales levantados' }} a tu nombre en Kepler.
+              Falta que les subas la evidencia.
+            </p>
             @for (v of asignados(); track v.sucursal + v.folio) {
               <article class="mg-asig-it">
                 <div class="mg-it-head">
@@ -84,7 +89,16 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                   <span>{{ diaLocal(v.fecha) | date: 'dd/MM/yy' }}</span>
                   @if (v.concepto) { <span>·</span><span>{{ v.concepto }}</span> }
                 </div>
-                <a class="mg-asig-b" [routerLink]="['/finanzas/capturar-gasto']"
+                <!--
+                  [GX.42] Apunta a /finanzas/gastos, que es la ruta REAL.
+                  /finanzas/capturar-gasto es un redirect con redirectTo en forma de string, y
+                  sus vecinos de app.routes.ts usan la forma con funcion JUSTO para conservar
+                  los query params -- o sea que por el redirect el folio y la sucursal se
+                  perdian y la captura abria vacia.
+                  Sin acentos graves aca: dentro de un template literal CIERRAN el literal y
+                  rompen el build. Es la quinta vez que pasa en este repo.
+                -->
+                <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
                    [queryParams]="{ folio: v.folio, sucursal: v.sucursal }">
                   <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir evidencia
                 </a>
@@ -196,8 +210,8 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
                     tramite ya cerro: antes de eso el chip de estado ya lo dice todo, y dos
                     chips diciendo lo mismo con distintas palabras confunden.
                   -->
-                  @if (p.etapa === 'por_ejercer' || p.etapa === 'ejercido' || p.etapa === 'sin_medir' || p.etapa === 'cancelado_kepler') {
-                    <span class="mg-chip" [class.ok]="p.etapa === 'ejercido'"
+                  @if (p.etapa && p.etapa !== 'en_captura' && p.etapa !== 'rechazada') {
+                    <span class="mg-chip" [class.ok]="p.etapa === 'ejercido' || p.etapa === 'autorizado'"
                           [class.warn]="p.etapa === 'por_ejercer'"
                           [class.faint]="p.etapa === 'sin_medir'">{{ p.etapa_label }}</span>
                   }
@@ -236,7 +250,9 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
     .mg-asig-h { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-1); }
     .mg-asig-n { font-size: var(--fs-xs); background: var(--action); color: var(--action-fg, #fff);
       border-radius: var(--r-full, 999px); padding: 0 0.5rem; font-variant-numeric: tabular-nums; }
-    .mg-asig-sub { margin: 0; }
+    .mg-asig-sub { margin: 0; display: flex; align-items: center; gap: var(--sp-2);
+      font-size: var(--fs-sm); color: var(--fg-2); }
+    .mg-asig-sub strong { color: var(--fg-1); font-variant-numeric: tabular-nums; }
     .mg-asig-it { display: flex; flex-direction: column; gap: var(--sp-1);
       border-top: 1px solid var(--border); padding-top: var(--sp-2); }
     .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
@@ -340,7 +356,9 @@ export class FinanzasMisGastosComponent {
     return ([
       { id: 'todos' as const, label: 'Todos', n: f.length },
       { id: 'en_captura' as const, label: 'En trámite', n: n('en_captura') },
-      { id: 'por_ejercer' as const, label: 'Por ejercer', n: n('por_ejercer') },
+      { id: 'por_ejercer' as const, label: 'Por autorizar', n: n('por_ejercer') },
+      // `[GX.43]` La `A` de «Autorizacion de Sol Gasto» en Kepler: autorizado, falta el dinero.
+      { id: 'autorizado' as const, label: 'Autorizado', n: n('autorizado') },
       { id: 'ejercido' as const, label: 'Ejercido', n: n('ejercido') },
       // ⛔ «Sin medir» SOLO aparece si hay alguno. Una pestana permanente en 0 ensena a
       // ignorarla, y el dia que tenga algo nadie la mira.

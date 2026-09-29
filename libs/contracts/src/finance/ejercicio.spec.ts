@@ -1,6 +1,6 @@
 import {
   ETAPAS_VISIBLES, ETIQUETA_ETAPA, EXPLICACION_ETAPA,
-  etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
+  documentoKepler, etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
 } from './ejercicio.contract';
 
 /**
@@ -20,10 +20,30 @@ describe('[GX.39] la etapa de ejercicio', () => {
     expect(etapaDeEjercicio(ejercido())).toBe('ejercido');
   });
 
-  /** ⭐ Lo que el usuario pidio: firmamos, y queda esperando a Kepler. */
-  it('firmado pero Kepler todavia no lo aplica => por ejercer', () => {
-    expect(etapaDeEjercicio({ ...ejercido(), kepler_aplicada: false, kepler_estado: 'A' })).toBe('por_ejercer');
+  /** Firmamos, y queda esperando a que Kepler lo autorice. */
+  it('firmado pero Kepler todavia no lo autoriza => por autorizar', () => {
     expect(etapaDeEjercicio({ ...ejercido(), kepler_aplicada: false, kepler_estado: 'N' })).toBe('por_ejercer');
+  });
+
+  /**
+   * `[GX.43]` **La `A` de «Autorizacion de Sol Gasto» es su propia etapa.**
+   *
+   * Aca esta prueba decia que `A` era `por_ejercer`, igual que `N`. Se cambio por pedido del
+   * usuario, y la medicion le da la razon: en prod hay **929 solicitudes en `A`**, de las
+   * cuales 645 ya tienen su gasto y **284 no**. Colapsar `N` y `A` escondia a esas 284 — la
+   * persona no podia distinguir «nadie lo miro» de «ya lo autorizaron, falta el dinero».
+   */
+  it('la A de Kepler es «autorizado», NO «por autorizar»', () => {
+    expect(etapaDeEjercicio({ ...ejercido(), kepler_aplicada: false, kepler_estado: 'A' })).toBe('autorizado');
+  });
+
+  it('⛔ y «autorizado» NO es «ejercido»: la A no dice que el dinero salio', () => {
+    expect(etapaDeEjercicio({ ...ejercido(), kepler_aplicada: false, kepler_estado: 'A' })).not.toBe('ejercido');
+  });
+
+  /** Pero si el puente YA ve el gasto, eso manda sobre la A: el dinero salio. */
+  it('con el gasto ya creado, la A pasa a ejercido', () => {
+    expect(etapaDeEjercicio({ ...ejercido(), kepler_aplicada: true, kepler_estado: 'A' })).toBe('ejercido');
   });
 
   /**
@@ -80,7 +100,7 @@ describe('[GX.39] la etapa de ejercicio', () => {
 });
 
 describe('[GX.39] los textos', () => {
-  const TODAS: EtapaEjercicio[] = ['en_captura', 'por_ejercer', 'ejercido', 'cancelado_kepler', 'rechazada', 'sin_medir'];
+  const TODAS: EtapaEjercicio[] = ['en_captura', 'por_ejercer', 'autorizado', 'ejercido', 'cancelado_kepler', 'rechazada', 'sin_medir'];
 
   it('cada etapa tiene chip corto y explicacion larga', () => {
     for (const e of TODAS) {
@@ -101,8 +121,8 @@ describe('[GX.39] los textos', () => {
     expect(EXPLICACION_ETAPA['sin_medir']).not.toContain('esperando');
   });
 
-  it('las secciones visibles son las tres del pedido, en orden', () => {
-    expect(ETAPAS_VISIBLES).toEqual(['en_captura', 'por_ejercer', 'ejercido']);
+  it('las secciones visibles siguen la progresion real de Kepler: N -> A -> F', () => {
+    expect(ETAPAS_VISIBLES).toEqual(['en_captura', 'por_ejercer', 'autorizado', 'ejercido']);
   });
 });
 
@@ -117,8 +137,34 @@ describe('[GX.39] el aviso se manda UNA vez', () => {
   });
 
   it('no avisa de lo que todavia no termino', () => {
-    for (const e of ['en_captura', 'por_ejercer', 'sin_medir', 'rechazada', 'cancelado_kepler'] as EtapaEjercicio[]) {
+    for (const e of ['en_captura', 'por_ejercer', 'autorizado', 'sin_medir', 'rechazada', 'cancelado_kepler'] as EtapaEjercicio[]) {
       expect(seDebeAvisar(e, false)).toBe(false);
     }
+  });
+});
+
+describe('[GX.43] el documento con el que Kepler respalda la autorizacion', () => {
+  /** Es lo que muestra la columna `Documento` de «Autorizacion de Sol Gasto». */
+  it('reproduce lo que muestra la pantalla de Kepler', () => {
+    expect(documentoKepler('0009008', 'A')).toBe('XA1501-0009008');
+    expect(documentoKepler('0008885', 'F')).toBe('XA1501-0008885');
+  });
+
+  /**
+   * Antes de la `A` no hay documento que mostrar: el papel existe en Kepler desde que se
+   * levanta, pero no respalda ninguna autorizacion. Ponerlo en el expediente diria que hay
+   * un permiso que nadie dio.
+   */
+  it('no lo da antes de que lo autoricen', () => {
+    expect(documentoKepler('0009008', 'N')).toBeNull();
+    expect(documentoKepler('0009008', 'C')).toBeNull();
+    expect(documentoKepler('0009008', null)).toBeNull();
+    expect(documentoKepler('0009008', undefined)).toBeNull();
+  });
+
+  it('sin folio no inventa un documento', () => {
+    expect(documentoKepler('', 'A')).toBeNull();
+    expect(documentoKepler(null, 'A')).toBeNull();
+    expect(documentoKepler('   ', 'A')).toBeNull();
   });
 });

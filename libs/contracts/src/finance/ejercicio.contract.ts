@@ -50,8 +50,14 @@ export type EstadoKepler = 'N' | 'A' | 'F' | 'C';
 export type EtapaEjercicio =
   /** Nuestro tramite sigue abierto. Kepler todavia no es asunto de nadie. */
   | 'en_captura'
-  /** ⭐ Firmamos. Ahora espera a que Kepler aplique el gasto. */
+  /** ⭐ Firmamos. Espera a que lo AUTORICEN en Kepler (la columna «Autorizado» sigue en `N`). */
   | 'por_ejercer'
+  /**
+   * ⭐ `[GX.43]` **Autorizado en Kepler**: en «Autorización de Sol Gasto» le pusieron la `A`.
+   * A partir de acá el documento `XA1501-<folio>` es parte del expediente — es el papel con
+   * el que Kepler dice que ese gasto quedó autorizado.
+   */
+  | 'autorizado'
   /** ⭐ Kepler ya genero el gasto: el dinero salio. */
   | 'ejercido'
   /** La solicitud se cancelo en Kepler. No hay nada que perseguir. */
@@ -95,6 +101,14 @@ export function etapaDeEjercicio(e: EstadoEjercicio): EtapaEjercicio {
    */
   if (e.kepler_estado === 'C') return 'cancelado_kepler';
   if (e.kepler_estado === 'F') return 'ejercido'; // el testigo que acierta 7,949 de 7,949
+  /**
+   * `[GX.43]` **La `A` es su propia etapa, no un «por ejercer» más.** Antes `N` y `A` caían
+   * las dos acá y la persona no podía distinguir «nadie lo miró todavía» de «ya lo
+   * autorizaron, falta que salga el dinero». Medido en prod: **929 solicitudes en `A`**, de
+   * las cuales 645 ya tienen su gasto y **284 no** — o sea que la `A` NO implica ejercido, y
+   * colapsarlas escondía justo a esas 284.
+   */
+  if (e.kepler_estado === 'A') return 'autorizado';
   if (!medido) return 'sin_medir';
   return 'por_ejercer';
 }
@@ -102,7 +116,8 @@ export function etapaDeEjercicio(e: EstadoEjercicio): EtapaEjercicio {
 /** Lo que se le muestra a la persona. Corto: va en un chip. */
 export const ETIQUETA_ETAPA: Record<EtapaEjercicio, string> = {
   en_captura: 'En tramite',
-  por_ejercer: 'Por ejercer',
+  por_ejercer: 'Por autorizar',
+  autorizado: 'Autorizado en Kepler',
   ejercido: 'Ejercido',
   cancelado_kepler: 'Cancelado en Kepler',
   rechazada: 'Devuelto',
@@ -112,7 +127,8 @@ export const ETIQUETA_ETAPA: Record<EtapaEjercicio, string> = {
 /** La frase larga: explica QUE se espera, que es lo que la persona viene a preguntar. */
 export const EXPLICACION_ETAPA: Record<EtapaEjercicio, string> = {
   en_captura: 'Tu gasto esta en tramite con nosotros.',
-  por_ejercer: 'Aprobado. Esta esperando a que apliquen el gasto en Kepler.',
+  por_ejercer: 'Aprobado de este lado. Espera a que lo autoricen en Kepler.',
+  autorizado: 'Autorizado en Kepler. Falta que salga el dinero.',
   ejercido: 'Tu gasto se aprobo y se ejercio: el dinero salio.',
   cancelado_kepler: 'La solicitud se cancelo en Kepler.',
   rechazada: 'Te lo devolvieron. Revisa el motivo y volve a mandarlo.',
@@ -120,7 +136,25 @@ export const EXPLICACION_ETAPA: Record<EtapaEjercicio, string> = {
 };
 
 /** ⭐ Las etapas que el usuario pidio ver como seccion propia, en el orden en que se leen. */
-export const ETAPAS_VISIBLES: EtapaEjercicio[] = ['en_captura', 'por_ejercer', 'ejercido'];
+export const ETAPAS_VISIBLES: EtapaEjercicio[] = ['en_captura', 'por_ejercer', 'autorizado', 'ejercido'];
+
+/**
+ * `[GX.43]` **El documento con el que Kepler respalda la autorización.**
+ *
+ * Es lo que se ve en la pantalla «Autorización de Sol Gasto», columna `Documento`:
+ * `XA1501-0009008`. No es un dato nuevo ni hace falta traerlo de ningún lado — se **deriva**
+ * del tipo de documento y el folio que ya tenemos. `kdm1.c63` guarda literalmente el prefijo
+ * `XA1501-`, así que esto reproduce lo que el ERP muestra, no lo inventa.
+ *
+ * ⛔ Devuelve `null` hasta que Kepler lo autoriza (`A`) o lo aplica (`F`): antes de eso el
+ * documento existe pero **no respalda ninguna autorización**, y ponerlo en el expediente
+ * diría que hay un permiso que nadie dio.
+ */
+export function documentoKepler(folio: string | null | undefined, estado?: EstadoKepler | string | null): string | null {
+  const f = String(folio ?? '').trim();
+  if (!f) return null;
+  return estado === 'A' || estado === 'F' ? `XA1501-${f}` : null;
+}
 
 /** Un gasto ejercido es el unico que cierra la historia: ahi se avisa, y una sola vez. */
 export function seDebeAvisar(etapa: EtapaEjercicio, yaAvisado: boolean): boolean {

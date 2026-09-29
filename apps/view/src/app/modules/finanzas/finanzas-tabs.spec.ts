@@ -14,8 +14,10 @@ import { Permission } from '../../core/constants/permissions';
  * "mismo orden en sidebar y pestañas" — pero nada lo comprobaba.
  */
 describe('[GX.18] las puertas del gasto en el nav', () => {
-  const RUTAS = ['/finanzas/gastos', '/finanzas/aprobacion-gastos', '/finanzas/gastos-historial'] as const;
+  const RUTAS = ['/finanzas/aprobacion-gastos', '/finanzas/gastos-historial'] as const;
   const TABLERO = '/finanzas/gastos-tablero';
+  /** `[GX.42]` La captura salió del nav; su ruta no. Se comprueba igual que el tablero. */
+  const CAPTURA = '/finanzas/gastos';
 
   /** El sidebar se declara en campos privados del componente: se comprueba sobre el fuente. */
   function fuenteSidebar(): string {
@@ -31,18 +33,55 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
   }
 
   /**
-   * [GX.25] Son TRES: levantar, firmar y consultar. El historial es el tercero -- lo que
-   * la persona levanto sigue existiendo despues de enviarlo, y alguien tiene que poder
-   * volver a verlo.
+   * `[GX.42]` Eran TRES (levantar, firmar, consultar). **Levantar salió del nav** por pedido
+   * del usuario: el gasto ya no se busca, LLEGA — Kepler lo asigna por la caja «Solicita» y
+   * aparece en «Mis gastos» con su botón para subirle la evidencia.
    */
-  it('las tres rutas tienen pestaña, en ese orden', () => {
+  it('las rutas del gasto tienen pestaña, en ese orden', () => {
     const rutas = FINANZAS_TABS.map((t) => t.route).filter((r) => RUTAS.includes(r as typeof RUTAS[number]));
     expect(rutas).toEqual([...RUTAS]);
   });
 
-  it('el sidebar lista las mismas tres rutas', () => {
+  it('el sidebar lista las mismas rutas', () => {
     const fuente = fuenteSidebar();
     for (const r of RUTAS) expect(fuente).toContain("route: '" + r + "'");
+  });
+
+  /**
+   * ⭐ **La misma distinción que el tablero: se esconde la puerta, NO se borra la ruta.**
+   * A `/finanzas/gastos` lleva el botón «Subir evidencia» de «Mis gastos», con el folio y la
+   * sucursal en la URL. Si alguien «limpia» la ruta creyendo que sobra, ese botón deja de
+   * llevar a ningún lado — y la pantalla se ve igual de bien.
+   */
+  it('[GX.42] la captura NO está en el nav, pero su ruta sigue existiendo', () => {
+    expect(FINANZAS_TABS.map((t) => t.route)).not.toContain(CAPTURA);
+    expect(fuenteSidebar()).not.toContain("route: '" + CAPTURA + "'");
+
+    const CANDIDATAS = ['src/app/app.routes.ts', 'apps/view/src/app/app.routes.ts'];
+    let rutas: string | null = null;
+    for (const c of CANDIDATAS) {
+      try { rutas = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ }
+    }
+    if (rutas === null) throw new Error('NO MEDIDO: no se pudo leer app.routes.ts');
+    expect(rutas).toContain("path: 'gastos'");
+  });
+
+  /**
+   * ⛔ Y el botón que la usa tiene que seguir apuntándole. Sin esto, quitar la pestaña deja
+   * la ruta viva pero sin nadie que la abra — que es lo mismo que haberla borrado.
+   */
+  it('[GX.42] «Mis gastos» sigue teniendo el botón que lleva a la captura', () => {
+    const CANDIDATAS = [
+      'src/app/modules/finanzas/pages/finanzas-mis-gastos.component.ts',
+      'apps/view/src/app/modules/finanzas/pages/finanzas-mis-gastos.component.ts',
+    ];
+    let src: string | null = null;
+    for (const c of CANDIDATAS) { try { src = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ } }
+    if (src === null) throw new Error('NO MEDIDO: no se pudo leer finanzas-mis-gastos.component.ts');
+    expect(src).toContain("routerLink]=\"['" + CAPTURA + "']\"");
+    // ⛔ Y con el folio Y la sucursal: 373 folios viven en más de una plaza.
+    expect(src).toContain('folio: v.folio');
+    expect(src).toContain('sucursal: v.sucursal');
   });
 
   /**
@@ -67,16 +106,14 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
   });
 
   /**
-   * ⭐ La prueba negativa del `anyOf` que se quitó: la ruta es `canActivate: []` («para este
-   * tendrán acceso todos»), así que un gate en la pestaña la escondería a 66 de los 166
-   * usuarios activos que la ruta SÍ deja entrar — medido en `platform_test`.
+   * `[GX.42]` Acá vivía la prueba negativa del `anyOf` de «Levantamiento de gasto». Se retiró
+   * con la pestaña. Lo que cuidaba —que la ruta es `canActivate: []` y un gate en la pestaña
+   * la escondería a 66 de los 166 activos— ya no aplica: sin pestaña no hay gate que poner.
+   *
+   * ⚠️ Lo que sí quedó vigilado es lo otro: que la RUTA siga viva y que el botón le apunte.
    */
-  it('«Levantamiento de gasto» no lleva compuerta: ni permission ni anyOf', () => {
-    const t = FINANZAS_TABS.find((x) => x.route === '/finanzas/gastos');
-    expect(t).toBeTruthy();
-    expect(t?.label).toBe('Levantamiento de gasto');
-    expect(t?.permission).toBeUndefined();
-    expect(t?.anyOf).toBeUndefined();
+  it('ya no hay pestaña de «Levantamiento de gasto»', () => {
+    expect(FINANZAS_TABS.some((x) => x.label === 'Levantamiento de gasto')).toBe(false);
   });
 
   it('firmar exige COMPROBAR', () => {
