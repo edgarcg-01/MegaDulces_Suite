@@ -917,7 +917,21 @@ export class ComercialSellOutComponent {
       // [U.7] Las cajas salen de v_unit_truth.metodo_cajas (dinero>peso>divisor verificado>declarar),
       // NO de "Unidades / UXC" (esa cascada se retiró: publicaba 716,742 piezas como cajas).
       { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Venta convertida a caja' },
-      { label: this.rowNounCap(r), value: r.rows.length, sub: r.row_dim === 'brand' ? 'Con venta · click para ver' : r.row_dim === 'month' ? 'Meses con venta' : 'Con venta en el periodo' },
+      // [VSO.14] Este KPI contaba RENGLONES y los rotulaba «Con venta en el periodo». Dejó de ser
+      // cierto el día que el backend pasó a traer el CATÁLOGO COMPLETO por decisión de Edgar
+      // (2026-07-15: «mostrar TODO producto activo, venta 0 permitido»), y nadie tocó la etiqueta.
+      // Medido en prod con Hershey ago-2026: la pantalla decía **127** y con venta hubo **70** —
+      // 58 renglones (45.3%) sin un peso. El número que se publica ahora es el que vendió, y el
+      // renglonaje se declara al lado en vez de disfrazarse de venta.
+      ...(() => {
+        const conVenta = r.rows.filter((x) => Number(x.total?.monto ?? 0) !== 0).length;
+        const sinVenta = r.rows.length - conVenta;
+        const sub = r.row_dim === 'brand' ? 'Con venta · click para ver'
+          : r.row_dim === 'month' ? 'Meses con venta'
+            : sinVenta > 0 ? `Con venta · ${r.rows.length.toLocaleString('es-MX')} en la tabla (${sinVenta.toLocaleString('es-MX')} sin venta)`
+              : 'Con venta en el periodo';
+        return [{ label: this.rowNounCap(r), value: conVenta, sub }];
+      })(),
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
     ];
   });

@@ -3533,7 +3533,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, retailCodes, plazasCanon, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, retailCodes, fuentes, plazasCanon, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -3662,7 +3662,10 @@ export class CommercialAnalyticsService {
 
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
       // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
-      const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
+      // [VSO.14] `s.source` se agrega acá para que la línea de PROCEDENCIA se derive del periodo en
+      // vez de estar escrita a mano (ver `sellOutCoverage`). No cuesta un viaje más: es la misma
+      // consulta, una columna más.
+      const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.source, s.warehouse_code, s.branch_name',
         (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
 
       // [VSO.13] PISO DE COBERTURA. `retailRows` son los almacenes con venta EN EL PERIODO, así que
@@ -3702,8 +3705,14 @@ export class CommercialAnalyticsService {
       }
       return {
         brand: b, products: ps, raw: rawRows,
-        retail: retailRows.map((r: { branch_name: string }) => r.branch_name),
+        // ⚠️ Con `source` en el SELECT una misma sucursal puede venir DOS veces (las dos piernas del
+        // cutover en el mes del corte), así que `retail` se deduplica: alimenta una lista que se
+        // imprime y un `missing` que se lee.
+        retail: retailRows
+          .map((r: { branch_name: string }) => r.branch_name)
+          .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
         retailCodes: retailRows.map((r: { warehouse_code: string }) => r.warehouse_code),
+        fuentes: retailRows.map((r: { source: string; branch_name: string }) => ({ source: r.source, branch: r.branch_name })),
         plazasCanon,
         boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv,
       };
@@ -4100,7 +4109,7 @@ export class CommercialAnalyticsService {
       // ⛔ El gran total NO lleva `units`: suma productos distintos, y ahí no hay una sola unidad
       // que nombrar. En unidad base la pantalla deja el total en cajas y lo rotula.
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
-      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers,
+      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers, fuentes,
         // [VSO.13] Plazas que el resolvedor declara y que el PERIODO no tiene. No es "no vendieron":
         // es que no estaban en el universo, y la diferencia cambia cómo se lee el número.
         plazasCanon
@@ -6669,12 +6678,38 @@ export class CommercialAnalyticsService {
     withData: string[],
     retail: string[],
     excludedTransfers = 0,
+    fuentes: Array<{ source: string; branch: string }> = [],
     outOfScope: string[] = [],
   ): SellOutReport['coverage'] {
     const set = new Set(withData);
     const missing = retail.filter((n) => !set.has(n));
+
+    // [VSO.14] La PROCEDENCIA se deriva del periodo. Antes era una constante idéntica para toda
+    // marca y todo periodo, y **se contradecía con su propio reporte**: decía que Canindo era
+    // Kepler, y en la captura de Hershey de ago-2026 Canindo aportó $63,901.11 desde WINCAJA (su
+    // corte fue el 15-ago, a media captura) más $26,595.22 de sus rutas — $90,496.33 mal
+    // atribuidos, el 8.4% del número publicado. Y ya era falsa de plano: Morelia Madero pasó a
+    // Kepler el 08-sep y Abastos el 19-sep, así que en cualquier periodo de septiembre la frase
+    // decía que Morelia era Wincaja. Es la MISMA falla que [SB.1]/[VSO.7] persiguieron en el SQL
+    // —el corte escrito como literal— sobreviviendo en prosa, donde ningún candado lee.
+    const porFuente = new Map<string, string[]>();
+    for (const f of fuentes) {
+      if (!f?.source || !f?.branch) continue;
+      const lista = porFuente.get(f.source) ?? [];
+      if (!lista.includes(f.branch)) lista.push(f.branch);
+      porFuente.set(f.source, lista);
+    }
+    const ROTULO: Record<string, string> = { kepler: 'Kepler del ODS', wincaja: 'Wincaja' };
+    const tramos = [...porFuente.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([src, br]) => `${ROTULO[src] ?? src} (${br.slice().sort((x, y) => x.localeCompare(y, 'es')).join(', ')})`);
     const parts: string[] = [
-      'Fuente unificada — venta real: Kepler del ODS (Padre Hidalgo, La Piedad, 8 Esquinas, Yurécuaro, Zamora, Canindo) + Wincaja (Morelia Abastos/Madero). Las rutas de reparto (venta a bordo) suben del Kepler local de cada camioneta.',
+      tramos.length
+        ? `Fuente unificada — venta real DE ESTE PERIODO: ${tramos.join(' + ')}. `
+          + 'Las rutas de reparto (venta a bordo) suben del Kepler local de cada camioneta.'
+        // Sin `fuentes` no se inventa la frase: se declara que no se midió, en vez de repetir de
+        // memoria una lista que ya demostró envejecer.
+        : 'Fuente unificada Kepler + Wincaja. ⓘ Procedencia por sucursal NO MEDIDA en esta respuesta.',
     ];
     if (excludedTransfers > 0) {
       const m = Math.round(excludedTransfers).toLocaleString('es-MX');

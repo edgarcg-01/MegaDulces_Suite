@@ -6366,11 +6366,50 @@ en los canales, sucursales y vendedores"*. Todo medido contra prod (`pg-prod` en
   resuelve **2 de 8**. Verificado contra prod: ago-2026 → ninguna fuera; ago-2025 → 8ESQ, Yurécuaro,
   Zamora; ene-2026 → Yurécuaro, Zamora.
   **Candado: 11 OK · 0 fallas · 2 NO MEDIDOS en 2m37s** (el bloque 5 cuesta +6 s).
-  ⬜ **Queda abierto y es decisión de Edgar:** excluir o no los $520,619.90; la línea de procedencia
-  del reporte sigue siendo un **literal** que dice que Canindo es Kepler (mal por $90,496.33 = 8.4%
-  en la captura de Hershey de ago-2026) y que ya es falsa para cualquier periodo de septiembre; y el
-  KPI «PRODUCTOS · Con venta en el periodo» cuenta **renglones del catálogo**, no venta (127 contra
-  **70** con venta; 58 filas sin un peso).
+  ➡️ Los tres puntos abiertos los cerró **`[VSO.14]`**, y el primero **al revés** de como los planteé.
+- [x] **`[VSO.14]`** ✅ **«Investígalo y conclúyelo tú» — y la conclusión fue que mi propia propuesta
+  borraba venta real.** Edgar delegó las tres decisiones abiertas de `[VSO.13]`.
+  **⛔ Los $520,619.90 NO se excluyen — son venta REAL con la fecha rota.**
+  Yo había ofrecido sacarlos llamándolos *«carga inicial»* y *«fecha centinela»*, o sea basura.
+  **La investigación lo refutó tres veces seguidas**, y ejecutarlo habría borrado ingreso:
+  1. El `2000-01-01` de Wincaja **no es relleno**: trae varios vendedores y varios canales. Y el
+     **`consecutivo` del POS lo acota** — cada movimiento cae entre dos vecinos con **la misma
+     fecha real** (`2025-02-17` antes *y* después). Medido sobre los **344** movimientos con esa
+     fecha: **297 (86.3%) con fecha recuperable al día exacto**, 47 acotados a un rango, **0 sin
+     vecino**. Es un campo de fecha **vacío en el origen**, no una venta inventada.
+  2. El día de 8 Esquinas (`2025-01-09`) tampoco es catálogo: son **814 documentos `U-D-10` (Ticket
+     Contado Caja)** con su propio `c1='03'`. Lo que lo delata es otra cosa — **los 814 a la MISMA
+     hora (06h) y folios `0000001 → 0000196`**: secuencia arrancada de cero y un solo timestamp =
+     **carga de migración de tickets que ocurrieron ANTES**.
+  3. Mi firma original (*«una fila por SKU»*) era inservible: es la forma normal del día de una ruta.
+  **Qué significa:** el dinero **está**, pero en el **mes equivocado**. No infla el total del
+  universo; desordena la serie mensual y le inventa historia a una plaza. **Se DECLARA, no se
+  repara**: reparar la fecha mueve **meses CERRADOS** y este proyecto no tiene `analytics.period_close`
+  (**VP.4**) — nadie podría explicar después por qué cambió un mes ya reportado.
+  **⛔ Dos falsas alarmas mías, medidas y descartadas.**
+  · Vi que el ODS tiene **34,688 movimientos de venta** de 8 Esquinas en oct–dic 2025 que el
+  sell-out no publica, y lo llamé el hallazgo más grave de la sesión. **Falso.** El filtro
+  `btrim(h.c1) = btrim(h.sucursal)` existe para no doble-contar las copias entre réplicas, y esos
+  documentos llevan `c1='02'`: **los 32,274 existen TAMBIÉN en la réplica `02`**, así que ya se
+  publican bajo La Piedad, que es lo que dice su encabezado. El filtro acierta.
+  · ⛔ Hallazgo de paso **no corregido**: `mv_kepler_sales_daily` trae **otro mapeo de sucursal
+  clavado** (`'10'→'01'`, `'42'→'02'`, `'50'→'06'`) — **sexta copia** de lo que el resolvedor posee.
+  **✅ La línea de procedencia ahora se DERIVA del periodo.**
+  Era una constante idéntica para toda marca y todo periodo, **y se contradecía con su propio
+  reporte**: decía que Canindo era Kepler, y en la captura de Hershey de ago-2026 Canindo aportó
+  **$63,901.11 desde Wincaja** (corte el 15-ago, a media captura) más $26,595.22 de sus rutas —
+  **$90,496.33 mal atribuidos, 8.4% del número publicado**. Y ya era falsa de plano para septiembre.
+  Ahora sale de `s.source` (columna agregada a una consulta que ya existía: **cero viajes extra**).
+  Verificado contra prod: **ago-2026 pone Canindo en las DOS fuentes** y **sep-2026 pone Morelia en
+  Kepler**. Sin datos de fuente **no inventa la frase**: declara «procedencia NO MEDIDA».
+  **✅ El KPI deja de llamar venta al renglonaje.**
+  Contaba `rows.length` y lo rotulaba *«Con venta en el periodo»*. Dejó de ser cierto cuando el
+  backend pasó a traer el **catálogo completo** (decisión de Edgar, 2026-07-15) y nadie tocó la
+  etiqueta. Ahora publica **los que vendieron** y declara el resto al lado: Hershey ago-2026 pasa de
+  decir **127** a decir **70 · 127 en la tabla (57 sin venta)**.
+  **Verificación: candado 11 OK · 0 fallas · 2 NO MEDIDOS · `api:typecheck` limpio · `build view` OK
+  · eslint 0 errores en los 3 archivos** (los 2 que aparecen son ternarias-como-sentencia
+  preexistentes en las líneas 1408/1417, que este cambio no tocó).
 
 ---
 ## 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28)
