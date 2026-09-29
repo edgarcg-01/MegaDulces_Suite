@@ -834,7 +834,17 @@ export class ExpenseProofsService {
            * `[GX.51]` **Sin fecha limite**, igual que la aprobacion: la factura del pago llega
            * cuando llega. Cuanto lleva esperando se sabe desde `created_at`.
            */
-          ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: llevaEvidencia, forma_pago: formaPago })
+          /**
+           * ⛔ `exige_evidencia: true` FIJO, igual que la compuerta de arriba — y por la misma
+           * razón que `[GX.31]`. Acá decía `llevaEvidencia`, y con `no_comprobable` (que es
+           * TODO lo que levanta esta pantalla desde GX.19) eso es **false**: la función salía
+           * por su primera línea y **la deuda no se marcaba nunca**. El vale entraba con su
+           * cotización y cerraba sin deber nada.
+           *
+           * La pregunta «¿queda debiendo?» no depende de la clase de gasto: depende de si lo
+           * que subió es sólo una cotización. Lo encontró el candado de GX.31.
+           */
+          ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: true, forma_pago: formaPago })
             ? { provisional: true }
             : {}),
         })

@@ -316,6 +316,48 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
     usuario: null, estado: 'N', ...over,
   });
 
+  /**
+   * `[GX.55]` — **El vale aprobado que todavía DEBE su comprobante abre en modo evidencia.**
+   *
+   * ⛔ Acá `modo()` hacía `(requiere_evidencia && !comprobante)` a secas. Con `[GX.19]` la
+   * captura se fija en `no_comprobable`, así que `requiere_evidencia` es **false para todo lo
+   * que se levanta hoy** y el vale caía en `cerrada`: la pantalla lo daba por terminado
+   * mientras el chip le decía a la persona «te toca subir la factura del pago».
+   *
+   * `provisional` significa literalmente «aprobado pero debiendo el comprobante». Es esa marca
+   * la que manda, no la clasificación — que dice qué clase de gasto es, no si se le debe un papel.
+   */
+  describe('[GX.55] el vale provisional abre para recibir su factura', () => {
+    const conExistente = (over: Record<string, unknown>) => {
+      const { comp } = montar({});
+      http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
+      comp.existing.set({ id: 'x', status: 'aprobada', comprobante: false, ...over } as never);
+      return comp;
+    };
+
+    it('⭐ provisional y sin comprobante → modo EVIDENCIA, aunque no requiera evidencia', () => {
+      const comp = conExistente({ requiere_evidencia: false, provisional: true });
+      expect(comp.modo()).toBe('evidencia');
+    });
+
+    /** ⛔ La prueba negativa: sin la marca, ese mismo vale se da por cerrado. */
+    it('sin `provisional`, el mismo vale cae en «cerrada»', () => {
+      const comp = conExistente({ requiere_evidencia: false, provisional: false });
+      expect(comp.modo()).toBe('cerrada');
+    });
+
+    /** El camino viejo sigue valiendo: un comprobable sin comprobante también abre. */
+    it('el comprobable sin comprobante sigue abriendo', () => {
+      const comp = conExistente({ requiere_evidencia: true, provisional: false });
+      expect(comp.modo()).toBe('evidencia');
+    });
+
+    /** ⛔ Y con el comprobante ya adjunto no hay nada que subir, marca o no marca. */
+    it('con el comprobante puesto, cierra', () => {
+      expect(conExistente({ requiere_evidencia: true, provisional: true, comprobante: true }).modo()).toBe('cerrada');
+    });
+  });
+
   it('sin folio en la URL no pide nada', () => {
     montar({});
     expect(http.match((r) => r.url.includes('solicitud')).length).toBe(0);
