@@ -32,6 +32,7 @@ import { branchName } from '../../../core/constants/store-branches';
 import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
+import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -1242,7 +1243,14 @@ export class ComprasEntradasPendientesComponent {
   // ── alcance: decide si hay selector, chip fijo, o bloqueo explicado ──
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
   readonly sinAlcance = computed(() => { const a = this.alcance(); return !!a && a.length === 0; });
-  readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * ⭐ La regla vive en `sucursal-selector.ts`, con su prueba negativa. Estaba copiada a mano en
+   * las TRES pantallas de entradas, idéntica — y por eso el mismo defecto estaba en las tres:
+   * el selector desaparecía al elegir una sucursal, dejando el filtro puesto y sin forma de
+   * soltarlo (ni recargando: viaja en la URL). Una regla repetida se arregla tantas veces como
+   * copias tenga.
+   */
+  readonly variasSucursales = computed(() => ofrecerSelectorSucursal(this.alcance(), this.sucursalSel()));
   readonly unaSucursal = computed(() => { const a = this.alcance(); return a && a.length === 1 ? this.suc(a[0]) : null; });
   /**
    * Con alcance `all` las opciones salen del CATÁLOGO, no de las filas de la página: con

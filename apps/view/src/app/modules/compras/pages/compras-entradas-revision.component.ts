@@ -24,6 +24,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComprasService, AdjustmentForEntradaRow, type AdjustmentExplicacion, type AdjustmentLinesResponse } from '../compras.service';
 import { receiptVerdict, plural, MOTIVOS_RECHAZO, motivoLabel } from '../receipt-verdict';
+import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import { branchName } from '../../../core/constants/store-branches';
 import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money } from '../../../shared/util';
@@ -931,7 +932,14 @@ export class ComprasEntradasRevisionComponent {
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
-  readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * ⭐ La regla vive en `sucursal-selector.ts`, con su prueba negativa. Estaba copiada a mano en
+   * las TRES pantallas de entradas, idéntica — y por eso el mismo defecto estaba en las tres:
+   * el selector desaparecía al elegir una sucursal, dejando el filtro puesto y sin forma de
+   * soltarlo (ni recargando: viaja en la URL). Una regla repetida se arregla tantas veces como
+   * copias tenga.
+   */
+  readonly variasSucursales = computed(() => ofrecerSelectorSucursal(this.alcance(), this.sucursalSel()));
   /**
    * Con alcance `all`, del catálogo — no de la cola, que puede no traer todas las sucursales.
    * `[RE.23]` El catálogo es la RED (9); las 7 Kepler dejaban Morelia sin poder filtrarse.
