@@ -1097,6 +1097,7 @@ const CRON_JOBS: CronCfg[] = [
   // anterior — y la unidad es justo lo que ADR-057 existe para no adivinar.
   { key: 'analytics_refresh_unit_truth',      label: 'Refresh MV verdad de unidad',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_standard_cost',   label: 'Refresh MV actividad costo estándar (CE.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_cost_origin',     label: 'Refresh MV origen del costo (CE.11)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no
@@ -1121,6 +1122,16 @@ const CRON_JOBS: CronCfg[] = [
   // ⚠️ El primer REFRESH (400 d) pasa de 300 s: nace WITH NO DATA y su poblado inicial va en
   // ventana, una vez. Lo que se vigila aca es que NO SE QUEDE VIEJA.
   { key: 'analytics_refresh_erp_margin',      label: 'Refresh MV árbitro de costo',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // ⛔ [PR.S2.1] La cascada de precio se materializó el 2026-09-30 y nació SIN carril que la
+  // refrescara ni umbral que lo notara — el mismo defecto que la fila de arriba documenta, y que
+  // se repitió igual. Una MV que nadie refresca no se ve rota: se ve idéntica, publicando el
+  // descuento por cliente del día que se creó.
+  { key: 'analytics_refresh_price_waterfall', label: 'Refresh MV cascada de precio (PR.S2.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // ⭐⭐ [PR.S2.4] Las 28 señales del motor de margen. Sin umbral el sensor cae en
+  // `cfg ? classify : 'ok'` y una MV parada se ve VERDE — y acá eso es el motor proponiendo
+  // precios con el costo, el inventario y la fuga de hace semanas, con la misma cara de confianza
+  // que si fueran de hoy. La fila lleva `calculado_al`, pero nadie lo mira si nada se pone rojo.
+  { key: 'analytics_refresh_price_signals',   label: 'Refresh MV señales de precio (PR.S2.4)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },

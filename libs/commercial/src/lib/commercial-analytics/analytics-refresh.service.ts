@@ -246,6 +246,12 @@ export class AnalyticsRefreshService {
       // en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y acá no es cosmético: la
       // ventana de la MV ES la ventana que la pantalla rotula «30 días».
       ['analytics.mv_kepler_standard_cost_activity', 'analytics_refresh_standard_cost', 'Refresh MV actividad del costo estándar (nightly)', []],
+      // [CE.11] Que MOVIMIENTO dejo el costo del ERP donde esta. `deps` vacio: sale del ODS.
+      // Se materializa porque el barrido de kdm2 para documentos que NO son venta no tiene indice
+      // (los dos que hay son parciales sobre c2='U'); medido, 2.1 s — barato de noche, caro con
+      // un gate de 1 s. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_cost_origin`): sin el, una MV
+      // parada se ve VERDE (OBS.1), y acá eso seria la pantalla explicando con un movimiento viejo.
+      ['analytics.mv_kepler_cost_origin', 'analytics_refresh_cost_origin', 'Refresh MV origen del costo (nightly)', []],
       /**
        * ⭐⭐ `[PR.R1]` EL ÁRBITRO DEL COSTO. La MV que decide si el margen de toda la Suite
        * es una medición o un espejo del markup.
@@ -274,6 +280,38 @@ export class AnalyticsRefreshService {
        * archivo ya documenta tres veces).
        */
       ['analytics.mv_erp_margin_daily', 'analytics_refresh_erp_margin', 'Refresh MV árbitro de costo (nightly)', []],
+      /**
+       * ⛔ `[PR.S2.1]` La cascada agregada al grano (sucursal, sku). **Se materializó el
+       * 2026-09-30 y quedó fuera de este array** — el mismo defecto que el comentario de arriba
+       * documenta para `mv_erp_margin_daily`, repetido por mí tres párrafos después de leerlo.
+       *
+       * Una matvista que nadie refresca no se ve rota: se ve **igual**, publicando el descuento
+       * por cliente del día que se creó. `deps` vacío: sale de `v_price_waterfall`, que sale
+       * del ODS.
+       */
+      ['analytics.mv_price_waterfall_sku', 'analytics_refresh_price_waterfall',
+        'Refresh MV cascada de precio por SKU (nightly)', []],
+      /**
+       * ⭐⭐ `[PR.S2.4]` Las 28 señales del motor de margen, al grano de decisión.
+       *
+       * Se materializa por un costo **medido**, no por costumbre: la consulta que hace una
+       * pantalla —`WHERE sucursal + ORDER BY + LIMIT 50`— pasó de **1,622 ms** con 16 señales a
+       * **118,754 ms** con 28. No es volumen, es el `LIMIT`: con 14 joins el planner apuesta a
+       * un plan de arranque rápido y pierde. El barrido completo sí está bien (2.9 s), así que
+       * refrescarla es barato.
+       *
+       * ⭐ `deps` NO está vacío, y es lo que separa *ordenar* de *depender* (ADR-056): la vista
+       * de señales LEE estas tres matvistas. Si una no se refrescó, publicar señales igual
+       * mezclaría una pierna de hoy con dos de ayer, y la mezcla no se ve — se ve completa.
+       *
+       * ⚠️ Su umbral vive en `CRON_JOBS` (`analytics_refresh_price_signals`) o el sensor cae en
+       * `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Acá eso sería el motor
+       * proponiendo precios con el costo, el inventario y la fuga de hace semanas.
+       */
+      ['analytics.mv_price_signals', 'analytics_refresh_price_signals',
+        'Refresh MV señales de precio (nightly)',
+        ['analytics.mv_price_waterfall_sku', 'analytics.mv_erp_count_rollforward',
+          'analytics.mv_kepler_standard_cost_activity']],
     ] as const) {
       const start = Date.now();
       let ok = false;
