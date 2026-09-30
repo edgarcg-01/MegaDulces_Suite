@@ -143,7 +143,7 @@ export class TicketCartaService {
   private pie(doc: TicketDetalle): string {
     return `<div style="width:100%;font-family:'Segoe UI',sans-serif;font-size:7.5pt;color:#8a8078;
       padding:0 9mm;display:flex;justify-content:space-between">
-      <span>${esc(doc.origen_label)} ${esc(doc.id)} &middot; documento informativo, no fiscal</span>
+      <span>${esc(doc.origen_label)} ${esc(doc.id)} &middot; documento informativo</span>
       <span>Pagina <span class="pageNumber"></span> de <span class="totalPages"></span></span></div>`;
   }
 
@@ -329,8 +329,8 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
 </div>
 <div class="rule"></div>
 
-<!-- El banderín "NO FISCAL" se retiró a pedido de Edgar (2026-09-18). La leyenda NO desaparece
-     del documento: sigue en el pie de cada página ("documento informativo, no fiscal"), que es
+<!-- El banderín "NO FISCAL" se retiró a pedido de Edgar (2026-09-18), y la leyenda «no fiscal»
+     del pie también (TK.14, pedido del usuario 2026-09-30). El pie dice «documento informativo», que es
      donde la llevan los demás papeles de la suite. Lo que se quitó es el bloque grande que se
      comía el ancho arriba del contenido, no la declaración. -->
 <div class="info">

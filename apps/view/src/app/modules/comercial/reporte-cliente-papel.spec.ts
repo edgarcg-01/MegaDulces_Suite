@@ -129,9 +129,12 @@ describe('la fecha no se corre de día', () => {
   });
 });
 
-describe('no es comprobante fiscal, y no se rompe con lo que venga de Kepler', () => {
+describe('se declara informativo, y no se rompe con lo que venga de Kepler', () => {
   it('lo dice en el pie', () => {
-    expect(cuerpoReporteCliente(C, [D({})], SIN, 0)).toContain('Documento informativo, no fiscal');
+    // `[TK.14]` Sin «fiscal» ni «no fiscal» en el papel (pedido del usuario 2026-09-30).
+    const t = cuerpoReporteCliente(C, [D({})], SIN, 0);
+    expect(t).toContain('Documento informativo.');
+    expect(t.toLowerCase()).not.toContain('fiscal');
   });
 
   /** El nombre viene de Kepler: si trae `<` o `&`, no puede romper el papel. */

@@ -234,7 +234,11 @@ export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras',
   // `/compras/compras-360` es un redirect (RE.20.1); el destino real es costo-por-compra.
   { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra' },
   { perm: Permission.COMPRAS_COSTO_NETO_VER, url: '/compras/costo-neto' },
-  { perm: Permission.COMPRAS_COSTO_ESTANDAR_VER, url: '/compras/costo-estandar' },
+  // ⛔ [CE.6] DESCABLEADA 2026-09-30, igual que su ruta en app.routes.ts y su renglón del menú:
+  // `compras-costo-estandar.component.ts` no está en main. Mientras tanto la portada NO puede
+  // mandar a nadie ahí — el permiso ya está repartido en prod y aterrizaría en un 404. Se vuelve
+  // a cablear en el mismo commit que suba el componente.
+  // { perm: Permission.COMPRAS_COSTO_ESTANDAR_VER, url: '/compras/costo-estandar' },
   { perm: Permission.COMPRAS_DESCUENTOS_VER, url: '/compras/descuentos' },
   { perm: Permission.COMPRAS_PROVEEDORES_VER, url: '/compras/proveedores' },
   { perm: Permission.COMPRAS_CATEGORIAS_VER, url: '/compras/categorias' },

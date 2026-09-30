@@ -274,6 +274,23 @@ const LIMITE_POR_UNIVERSO = 200;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
 
+/**
+ * `[TK.14]` El tipo de documento, sin «Fiscal» / «No Fiscal» (pedido del usuario 2026-09-30:
+ * ninguno de los papeles lo dice). La vista del ERP rotula el U-D-12 «Factura Cont No Fiscal»; se
+ * limpia AQUÍ, en el único punto por el que el rótulo llega a los tres papeles y a la pantalla, y
+ * no en la vista: otros consumidores (cartera, finanzas) sí distinguen por ese texto.
+ */
+export function rotuloSinFiscal(label: string | null): string | null {
+  if (!label) return label;
+  const limpio = label
+    .replace(/\s*\(?\bno\s+fiscal\b\)?/gi, '')
+    .replace(/\s*\(?\bfiscal\b\)?/gi, '')
+    .replace(/\bCont\b\.?$/i, 'de contado')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return limpio || null;
+}
+
 /** Lo que se entendió de lo que el humano tecleó. */
 export interface FolioBuscado {
   /** El texto normalizado (sin espacios, en mayúsculas). `''` si no tecleó nada. */
@@ -586,7 +603,7 @@ export class CommercialTicketsService {
         .orderBy('linea');
 
       return this.armar({
-        id: cab.folio_digital, origen: 'mostrador', doc_label: cab.doc_label,
+        id: cab.folio_digital, origen: 'mostrador', doc_label: rotuloSinFiscal(cab.doc_label),
         sucursal: cab.sucursal, sucursal_nombre: cab.warehouse_name, caja: cab.caja,
         folio: cab.folio, fecha: cab.fecha,
         cliente_nombre: cab.cliente_nombre, cliente_rfc: cab.cliente_rfc,
@@ -628,7 +645,7 @@ export class CommercialTicketsService {
       // truena — falla ruidosa, no hace falta detectarla. La que puede estar a medias es ésta.
       const soporteLista = await this.soporteLista(trx);
       return this.armar({
-        id: cab.folio_digital, origen, doc_label: cab.doc_label,
+        id: cab.folio_digital, origen, doc_label: rotuloSinFiscal(cab.doc_label),
         sucursal: cab.sucursal, sucursal_nombre: null, caja: null,
         folio: cab.folio, fecha: cab.fecha,
         cliente_nombre: cab.cliente_nombre, cliente_rfc: cab.cliente_rfc,
