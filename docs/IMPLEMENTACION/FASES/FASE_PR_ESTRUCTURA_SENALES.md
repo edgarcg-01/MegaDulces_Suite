@@ -10,6 +10,46 @@
 
 ---
 
+## 0 · ⭐ La capa 1 es una TABLA, no este documento
+
+`analytics.price_signal_registry` (batch 611) declara las **46** señales con su familia, unidad,
+dirección, fuente exacta, estado y **cobertura medida con su fecha**.
+
+**Existe como tabla y no como markdown por una razón medida:** un documento **no avisa cuando
+deja de ser cierto**. La Fase CDRP lo pagó — una medición que sostenía una decisión vivía en un
+`COMMENT ON TABLE` de prod y **envejeció en tres días** sin que nada se pusiera rojo.
+
+⭐ El candado **cruza lo declarado contra lo que existe**: una señal que dice `cableada` y cuya
+columna no está en `v_price_signals` pone la migración en rojo. Eso un documento no lo puede hacer.
+
+> ### ⭐⭐ La regla de oro, en un CHECK
+> ```
+> peso_max ≤ cobertura_pct / 100
+> ```
+> El peso de una señal **nunca puede exceder su cobertura**. Sin esto el motor promediaría la
+> fuga —**6 %** de las celdas, 33 % de la venta— con la terminación —**100 %**— y estaría
+> decidiendo el precio del mostrador, dos tercios de la venta, con evidencia que **no lo
+> incluye**. No se puede sostener en un `const`: vive en la tabla.
+
+⛔ **Corrección de conteo.** El plan decía **41 señales**. Son **46**: 11 costo + 10 demanda +
+6 cliente + 8 psicología + 4 inventario + 2 competencia + 5 estrategia. Sumé mal, y el candado del
+registro lo verifica — es exactamente lo que un documento no hace.
+
+### El estado real, medido
+
+| estado | señales | qué significa |
+|---|---|---|
+| **cableada** | **16** | está en `v_price_signals` y el motor la puede leer hoy |
+| **disponible** | **13** | la fuente existe y está poblada, pero nadie la lee |
+| ⛔ **no existe** | **17** | hay que construirla o capturarla — **cada una con su motivo escrito** |
+| | **46** | de las cuales **35** son núcleo del v1 |
+
+⚠️ **Corrijo una afirmación mía**: dije que el motor pasó "de 14 a 34 señales". Son **16
+cableadas** — las otras columnas de la vista son derivadas y veredictos, no señales distintas. El
+registro convirtió una cifra vaga en una auditable, que es para lo que existe.
+
+---
+
 ## 1 · El objeto central: la **señal**
 
 Todo el motor se apoya en una sola idea: **una señal es un número con su procedencia y su
