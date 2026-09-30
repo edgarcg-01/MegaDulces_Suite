@@ -95,15 +95,20 @@ describe('ComercialTicketsComponent', () => {
   };
 
   describe('[TK.d1] la tabla de partidas', () => {
+    /**
+     * `[TK.13]` Cambió el formato de la tabla (pedido del usuario): lista − descuento = c/desc →
+     * sin impuestos + IVA/IEPS = neto, y cada impuesto sale sólo si el documento lo causa. Lo que
+     * este candado protege NO cambió: un encabezado por columna, en el orden en que el cuerpo las
+     * emite. El documento de prueba sólo trae IVA, así que IEPS no debe aparecer.
+     */
     it('con impuesto desglosado hay un encabezado por columna', () => {
       const { ths, tds, texto } = tabla();
       expect(tds.length).toBeGreaterThan(0);
       expect(ths.length).toBe(tds.length);
-      // Y los dos que faltaban están, en el orden en que el cuerpo los emite.
-      expect(texto).toContain('IEPS');
       expect(texto).toContain('IVA');
-      expect(texto.indexOf('IEPS')).toBeLessThan(texto.indexOf('IVA'));
-      expect(texto.at(-1)).toBe('Importe');
+      expect(texto).not.toContain('IEPS');
+      expect(texto.indexOf('Sin impuestos')).toBeLessThan(texto.indexOf('IVA'));
+      expect(texto.at(-1)).toBe('Neto');
     });
 
     /**
