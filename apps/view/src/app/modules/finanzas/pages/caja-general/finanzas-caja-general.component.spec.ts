@@ -206,6 +206,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
+      abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
       ...over,
     };
 
@@ -1440,5 +1441,98 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     });
     expect(comp.malFechados()).toBeNull();
     expect(fx.nativeElement.innerHTML).not.toContain('fechados');
+  });
+
+  // ── 21 · [CG.29] JERARQUIA Y "DONDE RINDO CUENTAS" ────────────────────────────────────────
+  //
+  // El peor defecto de la pantalla era mio: el bloque se llamaba "Cierre de la jornada" y NO
+  // TENIA UN SOLO BOTON. Prometia un acto y entregaba un informe. El mecanismo existia, pero
+  // entraba por un "Abrir corte" gris y chico en medio de una linea de texto -- y nadie busca
+  // "corte" cuando quiere rendir cuentas del dia.
+
+  it('⭐ el cierre de la jornada TIENE la accion, y se llama como la gente la busca', () => {
+    const fx = montar({
+      saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
+    });
+    const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
+    expect(panel).toContain('rendir cuentas');
+    // Y NO se llama "corte", que es el nombre interno del mecanismo.
+    expect(panel).not.toContain('Abrir corte');
+  });
+
+  it('⭐ [el gesto unico] sin corte abierto, rendir cuentas pide el fondo y sigue al conteo', () => {
+    // El arqueo exigia abrir el corte a las 8am para poder cerrarlo a las 7pm. Nadie lo hacia:
+    // hay CERO cortes en produccion. Aca el gesto es uno solo, en el momento natural.
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.cerrarJornada();
+    expect(comp.aperturaAbierta()).toBe(true);
+    expect(comp.cierreAbierto()).toBe(false);
+
+    comp.abrirCorte();                       // la persona confirma el fondo
+    expect(svc['abrirCorte']).toHaveBeenCalled();
+    expect(comp.cierreAbierto()).toBe(true); // …y cae DERECHO en el conteo
+  });
+
+  it('con corte abierto va derecho al conteo, sin volver a pedir el fondo', () => {
+    // ⚠️ La fixture SALDO trae `corte_abierto: null`. Mi primera version decia "SALDO trae corte
+    // abierto" en un comentario y montaba con el default: la prueba fallaba por la fixture, no
+    // por el codigo. Un comentario no cambia lo que la fixture dice.
+    montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, sin_corte_abierto: false,
+        corte_abierto: { id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 500, ya_reconto: false },
+      })),
+    });
+    comp.cerrarJornada();
+    expect(comp.aperturaAbierta()).toBe(false);
+    expect(comp.cierreAbierto()).toBe(true);
+  });
+
+  it('⛔ [negativa] cancelar la apertura NO deja la intencion colgada', () => {
+    // Sin esto, el siguiente corte que alguien abriera por su cuenta saltaria al conteo solo.
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.cerrarJornada();
+    comp.cancelarApertura();
+    expect(comp.aperturaAbierta()).toBe(false);
+
+    comp.abrirCorte();
+    expect(comp.cierreAbierto()).toBe(false);
+  });
+
+  it('⛔ [negativa] sin saber si hay corte NO se ofrece rendir cuentas', () => {
+    // Abrir un segundo corte sobre uno vivo es el peor final. Si no se pudo medir, se reintenta.
+    const fx = montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    expect(comp.saldoSinMedir()).toBe(true);
+    const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
+    expect(panel).toContain('Reintentar');
+    expect(panel).not.toContain('rendir cuentas');
+  });
+
+  it('el subtitulo dice el estado de HOY, no la cobertura del catalogo', () => {
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    expect(comp.subtituloJornada()).toContain('no rendiste cuentas');
+  });
+
+  it('⛔ [negativa] "sin medir" no se dice igual que "ya rendiste"', () => {
+    montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    expect(comp.subtituloJornada()).toContain('no se pudo medir');
+    expect(comp.subtituloJornada()).not.toContain('no rendiste cuentas');
+  });
+
+  it('los limites estructurales arrancan plegados y los accionables no', () => {
+    // Antes eran tres avisos naranjas iguales y dos salian todos los dias. Un aviso inmutable que
+    // grita se deja de leer, y se lleva puesto al que si importaba.
+    const fx = montar({
+      arqueoDia: vi.fn(() => of({
+        ...ARQUEO,
+        no_medido: ['Todavia no rendiste cuentas de esta jornada: esto es el movimiento REGISTRADO.'],
+        limites: ['Del cajero se cuadra el FLUJO del dia, no su contenido.', 'La cola de Kepler no entra.'],
+      })),
+    });
+    expect(comp.limitesAbiertos()).toBe(false);
+    const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
+    expect(panel).toContain('Todavia no rendiste cuentas');   // el accionable, a la vista
+    expect(panel).toContain('Que NO cubre este cuadre (2)');   // los permanentes, contados y plegados
+    expect(panel).not.toContain('La cola de Kepler no entra');
   });
 });

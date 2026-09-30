@@ -631,6 +631,15 @@ export interface ArqueoDia {
     ultimo_movimiento: string | null;
   } | null;
   corte_abierto: { id: string; folio: string; fecha: string } | null;
-  /** Lo que NO se puede afirmar, con su razón. Se PINTA; un hueco callado se lee como cero. */
+  /**
+   * `[CG.29]` Lo que ESTA jornada no pudo afirmar y que **alguien puede cambiar hoy**. Se pinta
+   * fuerte: es lo que separa «el movimiento registrado» de «un arqueo firmado».
+   */
   no_medido: string[];
+  /**
+   * `[CG.29]` Lo que este cuadre **nunca** va a cubrir, por cómo son las fuentes. Permanente: sale
+   * todos los días. Va en segundo plano — un aviso que aparece siempre y que nadie puede resolver
+   * deja de leerse, y se lleva puesto al que sí importaba.
+   */
+  limites?: string[];
 }
