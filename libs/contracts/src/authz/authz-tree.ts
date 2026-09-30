@@ -150,6 +150,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },
+          { id: 'price-experiments', label: 'Experimentos de precio', route: '/comercial/experimentos-precio', view: [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER], manage: [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
           { id: 'promotions', label: 'Promociones', route: '/comercial/promotions', view: [Permission.COMMERCIAL_PROMOTIONS_VER], manage: [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR] },
           { id: 'erp-promos', label: 'Promos del ERP', route: '/comercial/erp-promos', view: [Permission.COMMERCIAL_ERP_PROMOS_VER], manage: [] },
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
@@ -260,6 +261,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // que obligó a corregir Caducidades, donde el gate en VER le negaba la pantalla al
           // colaborador que únicamente captura.
           { id: 'store-stockouts', label: 'Lista de faltantes', route: '/tienda/faltantes', view: [Permission.STORE_STOCKOUT_VER], manage: [Permission.STORE_STOCKOUT_CAPTURAR] },
+          // `[BP.2]` Misma lección que faltantes y caducidades: la ruta la abre CUALQUIERA de las
+          // dos claves. Quien sólo registra su autorización tiene que poder entrar a la pantalla
+          // donde la registra, aunque no le toque mirar la bitácora completa de la plaza.
+          { id: 'store-pos-voids', label: 'Retiros en caja', route: '/tienda/retiros', view: [Permission.STORE_POS_VOID_VER], manage: [Permission.STORE_POS_VOID_CAPTURAR] },
           // `[CH.1.2]` SIN `route` a propósito: la pantalla del checador es `[CH.0.10]` y
           // todavía no existe. Estar acá lo hace visible y quitable desde /admin/roles (un
           // permiso fuera del árbol no tiene casilla: nadie lo ve ni lo puede revocar);
@@ -306,6 +311,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
           { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
+          { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           // WMS-REC.8 — misma pareja de permisos que Hallazgos (la bandeja es del

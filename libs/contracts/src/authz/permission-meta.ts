@@ -49,6 +49,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.STORE_PRICE_CHECK_VER]: { label: 'Verificador de precios', description: 'Consultar en mostrador el precio de venta de un producto por clave o código de barras, con respaldo offline (Proyecto Tienda). Sólo precio de venta: no expone costo ni margen.', category: 'Tienda' },
   [Permission.STORE_STOCKOUT_CAPTURAR]: { label: 'Reportar faltantes de piso', description: 'Reportar desde el mostrador lo que un cliente pidió y no había: agotado, no se maneja en la plaza, no está en el catálogo, o el código no pasó al escanear (Proyecto Tienda). Es captura, no consulta: no expone la bandeja de Compras.', category: 'Tienda' },
   [Permission.STORE_STOCKOUT_VER]: { label: 'Ver faltantes de la sucursal', description: 'Consultar lo reportado como faltante en la sucursal y la lista de códigos que más fallan al escanear, para la herramienta de caja (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_POS_VOID_CAPTURAR]: { label: 'Registrar retiro de producto del ticket', description: 'Registrar que se autorizó quitar o reducir un renglón del ticket en caja: qué producto, cuánto y por qué. Lo captura quien AUTORIZA (es su firma), porque Kepler exige su contraseña pero no guarda el hecho en ningún lado.', category: 'Tienda' },
+  [Permission.STORE_POS_VOID_VER]: { label: 'Ver bitácora de retiros en caja', description: 'Consultar los renglones retirados del ticket por sucursal, caja y supervisor. Señal antifraude: sirve a supervisión de tienda y a prevención de pérdidas.', category: 'Tienda' },
   [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
@@ -67,6 +69,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR]: { label: 'Gestionar Almacenes', description: 'Alta y edición de almacenes (incluye almacén default).', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_VER]: { label: 'Ver Precios', description: 'Consultar listas de precios y precios por cliente.', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_GESTIONAR]: { label: 'Gestionar Precios', description: 'Crear listas y cargar/editar precios de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER]: { label: 'Ver Experimentos de precio', description: 'Resultados y lista de captura del experimento de aterrizaje psicológico del precio.', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR]: { label: 'Diseñar Experimentos de precio', description: 'Diseñar y asignar un experimento: decide qué precios se mueven y sobre qué venta. Separado de Gestionar Precios a propósito.', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Ajustes de stock', description: 'Consola de ajuste sobre el libro transaccional (commercial.stock) y el apartado. Para el censo físico es EXISTENCIA_VER.', category: 'Comercial' },
   // La descripción dice la FUENTE a propósito: es lo que distingue esta pantalla de la de ajustes.
   [Permission.EXISTENCIA_VER]: { label: 'Ver Existencia', description: 'Matriz de existencia producto × almacén, derivada del ERP (ODS). Vive en Almacén y en Compras.', category: 'Comercial' },
@@ -224,6 +228,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   // reparta creyendo que sí.
   [Permission.COMPRAS_360_VER]: { label: 'Ver Costo por compra (retirado)', description: 'Sin uso desde RE.20.1: la pantalla se fusionó con el Listado de entradas y hoy la gatea "Ver Entradas". Dar este permiso no abre nada.', category: 'Compras' },
   [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo por proveedor', description: 'La misma cifra agregada por proveedor (landed cost): compras − descuento efectivo. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_COSTO_ESTANDAR_VER]: { label: 'Ver Costo estandar', description: 'El costo de la ficha de Kepler (el que fija el precio de venta) contra el costo de reposicion del ERP, por sucursal y SKU. Solo lectura: se corrige en Kepler.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_VER]: { label: 'Ver Descuentos y apoyos', description: 'Ajustes de compra (X-D-40/55), descuentos/apoyos y facturas duplicadas. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_GESTIONAR]: { label: 'Gestionar Descuentos', description: 'Empujar facturas duplicadas a la bandeja de hallazgos.', category: 'Compras' },
   [Permission.COMPRAS_HALLAZGOS_VER]: { label: 'Ver Hallazgos', description: 'Bandeja de hallazgos de reabastecimiento (agotados/bajo reorden). Solo lectura.', category: 'Compras' },

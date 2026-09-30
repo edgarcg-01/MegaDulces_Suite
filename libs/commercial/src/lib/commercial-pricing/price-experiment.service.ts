@@ -261,3 +261,96 @@ export class PriceExperimentService {
     };
   }
 }
+
+/**
+ * `[PR.D2b]` — Lectura y captura. Se separa del diseñador a propósito: **diseñar** decide qué
+ * precios se mueven, **capturar** registra que ya se movieron, y son dos permisos distintos.
+ */
+@Injectable()
+export class PriceExperimentReadService {
+  private readonly log = new Logger(PriceExperimentReadService.name);
+
+  constructor(private readonly tk: TenantKnexService) {}
+
+  /** Los experimentos, con su avance de captura — que es lo que dice si se puede medir. */
+  async listar(): Promise<unknown[]> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(`
+        SELECT e.id, e.nombre, e.estado, e.tipo, e.modo_aterrizaje, e.semilla,
+               e.fecha_inicio, e.fecha_fin, e.resultado, e.resultado_motivo, e.created_at,
+               count(u.id)::int                                            AS unidades,
+               count(u.id) FILTER (WHERE u.rama = 'tratamiento')::int      AS tratamiento,
+               count(u.id) FILTER (WHERE u.rama = 'control')::int          AS control,
+               count(u.id) FILTER (WHERE u.rama = 'tratamiento'
+                                     AND u.aplicado_at IS NOT NULL)::int   AS capturadas,
+               min(u.aplicado_at)                                          AS primera_captura,
+               max(u.aplicado_at)                                          AS ultima_captura,
+               /**
+                * ⚠️ La dispersion de la captura. Si el tratamiento se captura a lo largo de
+                * semanas, las dos ramas dejan de compartir calendario y la estacionalidad entra
+                * como sesgo. Se publica para que se vea, no se esconde.
+                */
+               EXTRACT(DAY FROM (max(u.aplicado_at) - min(u.aplicado_at)))::int AS dias_dispersion
+          FROM commercial.price_experiments e
+          LEFT JOIN commercial.price_experiment_units u
+                 ON u.tenant_id = e.tenant_id AND u.experiment_id = e.id
+         GROUP BY e.id, e.nombre, e.estado, e.tipo, e.modo_aterrizaje, e.semilla,
+                  e.fecha_inicio, e.fecha_fin, e.resultado, e.resultado_motivo, e.created_at
+         ORDER BY e.created_at DESC`);
+      return rows;
+    });
+  }
+
+  /**
+   * ⭐ La lista para capturar en Kepler. Sólo el TRATAMIENTO pendiente: el control no se toca,
+   * y mandarlo a alguien que captura es la forma más fácil de arruinar el experimento.
+   */
+  async listaDeCaptura(experimentId: string): Promise<unknown[]> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(`
+        SELECT u.id, u.sucursal, u.sku, u.estrato,
+               u.precio_antes, u.precio_propuesto,
+               round((100.0 * (u.precio_propuesto - u.precio_antes) / u.precio_antes)::numeric, 2)
+                 AS alza_pct,
+               u.aplicado_at, u.aplicado_por
+          FROM commercial.price_experiment_units u
+         WHERE u.experiment_id = ?
+           AND u.rama = 'tratamiento'
+         ORDER BY u.aplicado_at NULLS FIRST, u.sucursal, u.sku`, [experimentId]);
+      return rows;
+    });
+  }
+
+  /**
+   * Marca una unidad como capturada. ⛔ Sólo el tratamiento: marcar un control como "aplicado"
+   * no tiene sentido y el servicio se niega en vez de dejar un registro confuso.
+   */
+  async marcarAplicada(unitId: string, actor: string): Promise<{ id: string; aplicado_at: Date }> {
+    return this.tk.run(async (trx) => {
+      const [u] = await trx('commercial.price_experiment_units')
+        .where({ id: unitId }).select('rama', 'aplicado_at');
+      if (!u) throw new BadRequestException('la unidad no existe');
+      if (u.rama !== 'tratamiento') {
+        throw new BadRequestException(
+          'sólo el tratamiento se captura: el control no se toca, ése es su trabajo');
+      }
+      if (u.aplicado_at) throw new ConflictException('esa unidad ya estaba capturada');
+
+      const [r] = await trx('commercial.price_experiment_units')
+        .where({ id: unitId })
+        .update({ aplicado_at: trx.fn.now(), aplicado_por: actor })
+        .returning(['id', 'aplicado_at']);
+      return r;
+    });
+  }
+
+  /** El resultado. Sale de la vista que se escribió ANTES de asignar (el pre-registro). */
+  async resultados(experimentId: string): Promise<unknown[]> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT * FROM analytics.v_price_experiment_results WHERE experiment_id = ?`,
+        [experimentId]);
+      return rows;
+    });
+  }
+}
