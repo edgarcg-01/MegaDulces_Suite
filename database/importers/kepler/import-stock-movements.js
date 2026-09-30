@@ -312,11 +312,16 @@ async function main() {
     const skipAutolink = process.env.SKIP_AUTOLINK === '1' || process.argv.includes('--no-autolink');
     const linked = skipAutolink ? { rowCount: 0 } : await db.query(`
       WITH ship AS (
-        SELECT folio, doc_serie, warehouse_id, doc_date, dest_code
+        -- OJO DISTINCT: stock_movements es por RENGLON. Sin esto la CTE traia una fila por linea,
+        -- el LATERAL se ejecutaba una vez POR LINEA en vez de por documento (de ahi los ~9 min), y
+        -- n contaba renglones: un documento de 80 lineas pesaba 80 veces mas que uno de 1.
+        SELECT DISTINCT folio, doc_serie, warehouse_id, doc_date, dest_code
         FROM analytics.stock_movements
         WHERE tenant_id=$1 AND doc_code='TrsfShip' AND dest_code IS NOT NULL
           AND doc_date >= $2
           AND dest_code !~* '^\\s*(R\\.[DV]|R[DV]|RUTA)'
+      ), envios AS (
+        SELECT dest_code, count(*)::int total FROM ship GROUP BY dest_code
       ), pair AS (
         SELECT s.dest_code, r.warehouse_id AS rcv_wh, count(*)::int n
         FROM ship s
@@ -330,13 +335,32 @@ async function main() {
         ) r ON true
         GROUP BY s.dest_code, r.warehouse_id
       ), best AS (
-        SELECT DISTINCT ON (dest_code) dest_code, rcv_wh FROM pair ORDER BY dest_code, n DESC
+        SELECT DISTINCT ON (p.dest_code) p.dest_code, p.rcv_wh, p.n, e.total
+        FROM pair p JOIN envios e ON e.dest_code = p.dest_code
+        ORDER BY p.dest_code, p.n DESC
       )
       UPDATE analytics.transfer_dest_map dm
         SET warehouse_id=b.rcv_wh, updated_at=now()
       FROM best b
       JOIN commercial.warehouses w ON w.id=b.rcv_wh AND w.tenant_id=$1 AND w.code NOT ILIKE 'RUTA%'
-      WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL`, [M, cutoff]);
+      WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL
+        -- [DM.11e] UMBRAL DE EVIDENCIA. Antes bastaba con ganar el conteo: DISTINCT ON ...
+        -- ORDER BY n DESC, sin minimo ni dominancia. Y los folios son secuencia POR SUCURSAL, asi
+        -- que se parean entre sucursales por coincidencia. Resultado medido: TI000 (el CEDIS, cuya
+        -- recepcion NO vive en esta tabla) quedo atado a 8ESQ con 2 pareos sobre 15 envios --
+        -- 13 % -- y se llevo $123,454.08 en 120 dias.
+        --
+        -- Los vinculos legitimos, medidos en prod el 2026-09-30 sobre 180 dias, van de 82 % a
+        -- 97 % (TI006 82 / TI009 86 / TI007 87 / TI002 90 / TI001 91 / TI008 95 / TI003 97), asi
+        -- que el 60 % los deja pasar a todos y corta el caso malo por mas del doble de margen.
+        --
+        -- Lo que no llega al umbral se queda en NULL, o sea el destino se DECLARA desconocido y se
+        -- cura a mano. Una pantalla que dice "(sin destino)" se investiga; una que dice "8ESQ" se
+        -- cobra. TI004 mide 26 % y su vinculo actual es CORRECTO -- no se rompe porque el UPDATE
+        -- solo toca filas en NULL, pero deja claro que el umbral rechaza casos buenos y por eso la
+        -- salida es declarar, nunca adivinar.
+        AND b.n >= 3
+        AND b.n::numeric >= 0.60 * b.total`, [M, cutoff]);
     if (linked.rowCount) console.log(`[DM.11d] auto-ligados ${linked.rowCount} dest_code → almacén por recepción.`);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas. Días sin cambio: intactos.`);
