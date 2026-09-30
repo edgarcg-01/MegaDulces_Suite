@@ -269,7 +269,10 @@ async function reconKepler(db) {
       console.warn(`[WARN] ${plazosOmitidos.length} plazo(s) fuera de 0..365 o no enteros — NO se aplicaron: ${plazosOmitidos.join(', ')}`);
     }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] payment_program upsert=${up} · términos aplicados a ${tset} proveedores.`);
+    // `tset` cuenta proveedores TOCADOS (invoice_type se aplica aunque el plazo se omita): se separa
+    // para que el total no se lea como "plazos aplicados".
+    console.log(`\n[APPLY] payment_program upsert=${up} · términos aplicados a ${tset} proveedores`
+      + (plazosOmitidos.length ? ` (${plazosOmitidos.length} sin plazo: fuera de rango)` : '') + '.');
   } catch (e) { await db.query('ROLLBACK'); throw e; }
   // NOTA PP.4: NO se auto-deriva kepler_matched — el match per-pago vs Kepler 201 resultó poco
   // confiable (pagos batcheados / monto posteado distinto / cruce de mes → falsos "sin registro",

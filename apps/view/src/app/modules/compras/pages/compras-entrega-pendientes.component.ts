@@ -65,9 +65,9 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
       }
     }
 
-    <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
+    <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
                     emptyTitle="Nada pendiente de entregar" emptyHint="Cambia las fechas o la base de fecha." (retry)="load()">
-      <p-table [value]="rows()" size="small" class="surf-table ep-table" rowGroupMode="subheader" groupRowsBy="sucursal" dataKey="key"
+      <p-table [value]="rows()" size="small" class="surf-table ep-table dt-stack" rowGroupMode="subheader" groupRowsBy="sucursal" dataKey="key"
                [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
@@ -84,33 +84,37 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
         </ng-template>
         <ng-template #groupheader let-r>
           <tr class="ep-group">
-            <td>
+            <td class="dt-actions" role="cell">
               @if (canDeliver()) {
                 <p-checkbox [binary]="true" [ngModel]="grupoCompleto(r.sucursal)" (onChange)="toggleGrupo(r.sucursal, $event.checked)"
                             [ariaLabel]="'Marcar todas las de ' + nombre(r.sucursal)" />
               }
             </td>
-            <td colspan="7"><b>{{ nombre(r.sucursal) }}</b> · {{ grupo(r.sucursal)?.rows?.length }} entradas</td>
-            <td class="ta-r mono"><b>{{ money(grupo(r.sucursal)?.total ?? 0) }}</b></td>
+            <td colspan="7" role="cell"><b>{{ nombre(r.sucursal) }}</b> · {{ grupo(r.sucursal)?.rows?.length }} entradas</td>
+            <td class="ta-r mono dt-num" role="cell" data-label="Total sucursal"><b>{{ money(grupo(r.sucursal)?.total ?? 0) }}</b></td>
           </tr>
         </ng-template>
         <ng-template #body let-r>
           <tr [class.ep-sel]="sel().has(r.key)">
-            <td>
+            <td class="dt-actions" role="cell" data-label="Entregar">
               @if (canDeliver()) {
                 <p-checkbox [binary]="true" [ngModel]="sel().has(r.key)" (onChange)="toggle(r.key)" [ariaLabel]="'Entregar ' + r.folio" />
               }
             </td>
-            <td class="mono">{{ dia(r.reception_date) }}</td>
-            <td class="mono ep-muted">{{ dia(r.invoice_date) }}</td>
-            <td>{{ r.supplier_name || r.supplier_code || '—' }}
-              @if (r.times_rejected) { <p-tag severity="warn" [value]="'Rechazada ' + r.times_rejected + '×'" styleClass="ep-tag" [title]="r.last_rejection_reason || ''" /> }
+            <td class="mono" role="cell" data-label="Recepción">{{ dia(r.reception_date) }}</td>
+            <td class="mono ep-muted" role="cell" data-label="Factura">{{ dia(r.invoice_date) }}</td>
+            <td class="dt-id" role="cell" data-label="Proveedor">{{ r.supplier_name || r.supplier_code || '—' }}
+              @if (r.times_rejected) {
+                <p-tag severity="warn" [value]="'Rechazada ' + r.times_rejected + '×'" styleClass="ep-tag" />
+                <!-- El motivo va como texto visible, no en [title]: el title no existe en touch (DESIGN_TABLES §6). -->
+                @if (r.last_rejection_reason) { <span class="ep-reason">{{ r.last_rejection_reason }}</span> }
+              }
             </td>
-            <td class="mono">{{ r.folio }}</td>
-            <td class="mono ep-muted">{{ r.oc_folio || '—' }}</td>
-            <td><span class="ep-ev" [class.ep-ev-none]="r.evidence_status === 'sin_evidencia'">{{ evidencia(r.evidence_status) }}</span></td>
-            <td class="ta-r mono ep-muted">{{ r.days_waiting ?? '—' }}</td>
-            <td class="ta-r mono">{{ money(r.amount) }}</td>
+            <td class="mono" role="cell" data-label="Folio Kepler">{{ r.folio }}</td>
+            <td class="mono ep-muted" role="cell" data-label="OC">{{ r.oc_folio || '—' }}</td>
+            <td role="cell" data-label="Evidencia"><span class="ep-ev" [class.ep-ev-none]="r.evidence_status === 'sin_evidencia'">{{ evidencia(r.evidence_status) }}</span></td>
+            <td class="ta-r mono ep-muted dt-num" role="cell" data-label="Días desde la recepción">{{ r.days_waiting ?? '—' }}</td>
+            <td class="ta-r mono dt-num" role="cell" data-label="Importe">{{ money(r.amount) }}</td>
           </tr>
         </ng-template>
       </p-table>
@@ -164,6 +168,7 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
     .ep-ev { font-size:.74rem; }
     .ep-ev-none { color: var(--text-faint); }
     :host ::ng-deep .ep-tag { font-size:.62rem; margin-left:.3rem; }
+    .ep-reason { display:block; font-size:.72rem; color: var(--text-muted); }
     .ep-foot { position: sticky; bottom: 0; display:flex; gap:.6rem; align-items:center; justify-content:flex-end;
       padding: .5rem .75rem; background: var(--surface-bg, var(--card-bg)); border-top: 1px solid var(--border-color); font-size:.84rem; }
     .ep-foot > span { margin-right:auto; }

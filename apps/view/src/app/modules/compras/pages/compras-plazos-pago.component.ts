@@ -96,10 +96,10 @@ const STATUS_LABEL: Record<Status, string> = {
         </p-iconfield></div>
       </div>
 
-      <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
+      <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
                       emptyTitle="Nada en este filtro" emptyHint="Cambia el filtro o la búsqueda." (retry)="load()">
         <p-table [value]="rows()" [scrollable]="true" scrollHeight="flex" [paginator]="rows().length > 100" [rows]="100"
-                 size="small" class="surf-table pp-table">
+                 size="small" class="surf-table pp-table dt-stack">
           <ng-template #header>
             <tr>
               <th>Proveedor</th>
@@ -114,27 +114,27 @@ const STATUS_LABEL: Record<Status, string> = {
           </ng-template>
           <ng-template #body let-r>
             <tr>
-              <td>
+              <td class="dt-id" role="cell" data-label="Proveedor">
                 <div class="pp-name">{{ r.name }}</div>
                 <div class="pp-code">{{ r.code }}</div>
               </td>
-              <td class="ta-r mono">{{ money(r.received_amount) }}</td>
-              <td class="ta-r mono">{{ r.received_count }}</td>
-              <td class="pp-muted">
+              <td class="ta-r mono dt-num" role="cell" data-label="Recibido 12m (con IVA)">{{ money(r.received_amount) }}</td>
+              <td class="ta-r mono dt-num" role="cell" data-label="Recepciones">{{ r.received_count }}</td>
+              <td class="pp-muted" role="cell" data-label="Kepler dice">
                 {{ r.kepler_condition || '—' }}
-                @if (r.kepler_variants > 1) { <span class="pp-variants" [title]="'Kepler tiene ' + r.kepler_variants + ' condiciones distintas para este proveedor'">{{ r.kepler_variants }} variantes</span> }
+                @if (r.kepler_variants > 1) { <span class="pp-variants">{{ r.kepler_variants }} variantes</span> }
               </td>
-              <td>{{ termLabel(r) }}</td>
-              <td>
+              <td role="cell" data-label="Plazo">{{ termLabel(r) }}</td>
+              <td role="cell" data-label="Estado">
                 <p-tag [value]="statusLabel(r.status)" [severity]="statusSeverity(r.status)" styleClass="pp-tag" />
                 @if (r.differs_from_kepler) { <p-tag value="Difiere de Kepler" severity="warn" styleClass="pp-tag" /> }
               </td>
-              <td class="pp-muted">
+              <td class="pp-muted" role="cell" data-label="Confirmó">
                 @if (r.credit_terms_updated_by) { {{ r.credit_terms_updated_by }} · {{ r.credit_terms_updated_at | date: 'dd/MM/yy' }} }
                 @else if (r.credit_days != null && !r.is_internal) { Excel del programa de pagos }
                 @else { — }
               </td>
-              <td>
+              <td class="dt-actions" role="cell">
                 @if (canEdit()) {
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="openEdit(r)" [attr.aria-label]="'Editar plazo de ' + r.name">
                     <span class="pi pi-pencil" aria-hidden="true"></span>

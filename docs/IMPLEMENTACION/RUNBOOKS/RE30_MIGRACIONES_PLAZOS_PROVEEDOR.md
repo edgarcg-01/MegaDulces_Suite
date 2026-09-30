@@ -201,8 +201,12 @@ no depende de ella (sólo toca `identity.role_permissions`), pero el orden del r
   = 25 de 1,318 con valor, rango 8–30 → los CHECK validan sin fallar. `UNIQUE (tenant_id, id)` existe para el FK.
 - **180100:** los 4 roles tienen 1 fila cada uno y ninguno tiene todavía `COMPRAS_OBLIGACIONES_*`.
 - **180200:** el SELECT nuevo corrido contra la vista viva: 20/20 columnas con el mismo nombre y tipo en el
-  mismo orden, 12,867 = 12,867 filas, `EXCEPT ALL` 0/0 en las 19 columnas comparables (sin `computed_at = now()`);
-  las 4 nuevas son `date, text, text, text`. El `down` reproduce la vista viva (`EXCEPT ALL` 0/0). `kdm1.c68` es
+  mismo orden, 12,875 = 12,875 filas; las 4 nuevas son `date, text, text, text`.
+  ⚠️ **Revisión PR #192: los LATERAL de orden (X-A-40) y vale (X-A-37) ahora filtran el almacén** (`btrim(c1) =
+  sucursal`), porque el folio se repite por almacén y el renglón lo elegía el plan (492 y 497 grupos ambiguos →
+  0 y 0). **Cambia columnas existentes, a propósito**: `vale_folio`/`oc_folio` en 490 renglones, todos de la
+  sucursal `03` (la única con 3 almacenes; bug PREEXISTENTE de la vista viva). Las otras 17 columnas: `EXCEPT ALL`
+  0/0. Detalle y medición en la cabecera de la migración. El `down` reproduce la vista viva (`EXCEPT ALL` 0/0). `kdm1.c68` es
   `timestamp` → el `::date` no puede fallar por texto sucio. Sin dependientes en `pg_depend`, ninguna función la
   usa como tipo de fila. `relacl` = `app_runtime`, `dev_ro` (los re-aplica).
 - **180300:** las 3 tablas y sus 4 índices no existen; `public.current_tenant_id()`, `identity.tenants`,

@@ -41,6 +41,24 @@
  * direcciones** (`EXCEPT ALL`), monto de 30 días idéntico ($51,202,834.22); 30 días 60 → 80 ms,
  * vista completa 202 → 314 ms. `fecha_recepcion_fuente = 'vale'` en las 12,846.
  *
+ * ── ⚠️ Corrección de la revisión (PR #192, 2026-09-30): los dos LATERAL filtran el ALMACÉN (`c1`) ──
+ * La PK de `kdm1` es `(sucursal, c1, c2, c3, c4, c6)` y el folio se REPITE por almacén. La vista
+ * viva ya filtraba `btrim(ap.c1) = ap.sucursal` en la aplicación, pero NO en la orden (X-A-40) ni en
+ * el vale (X-A-37), y el `ORDER BY btrim(c6)` no desempata (dentro del grupo `c6` es constante): el
+ * renglón lo elegía el plan. Medido en prod (sólo lectura): 492 grupos de vale y 497 de orden con
+ * más de un candidato → **0 y 0** con `btrim(c1) = sucursal`, y sin perder ningún renglón.
+ *   · Ejemplo: aplicación `03/0000001` (almacén 03, CL005, $277,157.54) tomaba el vale del almacén
+ *     02 ($0.00, otro documento); con el filtro toma el suyo (almacén 03, CL005, $277,156.34).
+ *   · **Esto SÍ cambia columnas existentes** — es un bug PREEXISTENTE de la vista viva que RE.31
+ *     vuelve portante: `vale_folio` en 318 renglones ($11.26M) y `oc_folio` en 482, TODOS de la
+ *     sucursal `03` (la única con 3 almacenes), facturas 2025-01 → 2026-04; `fecha_recepcion`
+ *     distinta de la versión sin filtro en 494 ($19.14M). Las otras 17 columnas, idénticas.
+ *   · Contra la fecha de factura: «recepción ANTES de la factura» baja de 570 a **123**; mismo día
+ *     sube de 8,014 a 8,461. «>300 días» sube de 32 a 79: los 47 nuevos son de la `03` con factura
+ *     `c9` = 2025-01-09 EXACTO y captura en enero de 2026 — el año mal tecleado en Kepler; la
+ *     captura (reloj del sistema) es la buena. Es dato del ERP; se declara, no se corrige.
+ *   · El `down` restaura la vista viva TAL CUAL (con el bug): un `down` es volver, no arreglar.
+ *
  * ── Permisos y locks ────────────────────────────────────────────────────────────────────
  * La vista no tiene `security_invoker` y sus lectores son `app_runtime` y `dev_ro` (leído de
  * `relacl`, no de `information_schema`, que sólo muestra los grants que ve el usuario que consulta).
@@ -112,10 +130,10 @@ exports.up = async function up(knex) {
                         NULLIF(btrim(v_1.c69::text), ''::text) AS cap_hora,
                         NULLIF(btrim(v_1.c67::text), ''::text) AS cap_usuario
                        FROM kepler_ods.kdm1 v_1
-                      WHERE v_1.sucursal = oe_1.sucursal AND v_1.c2 = 'X'::text AND v_1.c3 = 'A'::text AND btrim(v_1.c4::text) = '37'::text AND btrim(v_1.c6) = btrim(oe_1.c39)
+                      WHERE v_1.sucursal = oe_1.sucursal AND btrim(v_1.c1) = v_1.sucursal AND v_1.c2 = 'X'::text AND v_1.c3 = 'A'::text AND btrim(v_1.c4::text) = '37'::text AND btrim(v_1.c6) = btrim(oe_1.c39)
                       ORDER BY (btrim(v_1.c6))
                      LIMIT 1) v ON true
-              WHERE oe_1.sucursal = ap.sucursal AND oe_1.c2 = 'X'::text AND oe_1.c3 = 'A'::text AND btrim(oe_1.c4::text) = '40'::text AND btrim(oe_1.c6) = btrim(ap.c39)
+              WHERE oe_1.sucursal = ap.sucursal AND btrim(oe_1.c1) = oe_1.sucursal AND oe_1.c2 = 'X'::text AND oe_1.c3 = 'A'::text AND btrim(oe_1.c4::text) = '40'::text AND btrim(oe_1.c6) = btrim(ap.c39)
               ORDER BY (btrim(oe_1.c39))
              LIMIT 1) oe ON true
          LEFT JOIN commercial.warehouses wk ON wk.tenant_id = '${M}'::uuid AND wk.code::text = ap.sucursal AND wk.deleted_at IS NULL

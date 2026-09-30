@@ -43,9 +43,9 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
       </button>
     </div>
 
-    <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
+    <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !rows().length"
                     emptyTitle="Sin entregas" emptyHint="Las entregas se generan en la pestaña Por entregar." (retry)="load()">
-      <p-table [value]="rows()" size="small" class="surf-table en-table">
+      <p-table [value]="rows()" size="small" class="surf-table en-table dt-stack">
         <ng-template #header>
           <tr>
             <th>Folio</th><th>Entregada</th><th>Entregó</th><th>Recibe</th><th class="ta-r">Entradas</th><th class="ta-r">Importe</th><th>Estado</th>
@@ -54,14 +54,14 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
         </ng-template>
         <ng-template #body let-d>
           <tr>
-            <td class="mono"><b>{{ d.code }}</b></td>
-            <td class="mono">{{ d.delivered_at | date: 'dd/MM/yy HH:mm' }}</td>
-            <td>{{ d.delivered_by_name || d.delivered_by }}</td>
-            <td>{{ d.recipient_name || d.recipient_username }} @if (d.recipient_username === me()) { <span class="en-me">(tú)</span> }</td>
-            <td class="ta-r mono">{{ d.line_count }}</td>
-            <td class="ta-r mono">{{ money(d.total_amount) }}</td>
-            <td><p-tag [value]="estado(d.status)" [severity]="sev(d.status)" styleClass="en-tag" /></td>
-            <td class="en-actions">
+            <td class="mono dt-id" role="cell" data-label="Folio"><b>{{ d.code }}</b></td>
+            <td class="mono" role="cell" data-label="Entregada">{{ d.delivered_at | date: 'dd/MM/yy HH:mm' }}</td>
+            <td role="cell" data-label="Entregó">{{ d.delivered_by_name || d.delivered_by }}</td>
+            <td role="cell" data-label="Recibe">{{ d.recipient_name || d.recipient_username }} @if (d.recipient_username === me()) { <span class="en-me">(tú)</span> }</td>
+            <td class="ta-r mono dt-num" role="cell" data-label="Entradas">{{ d.line_count }}</td>
+            <td class="ta-r mono dt-num" role="cell" data-label="Importe">{{ money(d.total_amount) }}</td>
+            <td role="cell" data-label="Estado"><p-tag [value]="estado(d.status)" [severity]="sev(d.status)" styleClass="en-tag" /></td>
+            <td class="en-actions dt-actions" role="cell">
               <button pButton type="button" class="p-button-sm p-button-text" (click)="open(d)" [attr.aria-label]="'Ver ' + d.code"><span class="pi pi-eye" aria-hidden="true"></span></button>
               <button pButton type="button" class="p-button-sm p-button-text" (click)="pdf(d)" [attr.aria-label]="'PDF de ' + d.code"><span class="pi pi-file-pdf" aria-hidden="true"></span></button>
             </td>
@@ -84,7 +84,8 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
           </div>
         }
 
-        <p-table [value]="d.lines" size="small" class="surf-table en-table" rowGroupMode="subheader" groupRowsBy="sucursal" dataKey="id">
+        <div class="dt-scope">
+        <p-table [value]="d.lines" size="small" class="surf-table en-table dt-stack" rowGroupMode="subheader" groupRowsBy="sucursal" dataKey="id">
           <ng-template #header>
             <tr>
               @if (canReceive(d)) { <th style="width:5.5rem">Rechazar</th> }
@@ -92,20 +93,20 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
             </tr>
           </ng-template>
           <ng-template #groupheader let-l>
-            <tr class="en-group"><td [attr.colspan]="canReceive(d) ? 7 : 6"><b>{{ grupoDe(l.sucursal)?.nombre }}</b> · {{ grupoDe(l.sucursal)?.rows?.length }}</td>
-              <td class="ta-r mono"><b>{{ money(subtotal(l.sucursal)) }}</b></td></tr>
+            <tr class="en-group"><td [attr.colspan]="canReceive(d) ? 7 : 6" role="cell"><b>{{ grupoDe(l.sucursal)?.nombre }}</b> · {{ grupoDe(l.sucursal)?.rows?.length }}</td>
+              <td class="ta-r mono dt-num" role="cell" data-label="Total sucursal"><b>{{ money(subtotal(l.sucursal)) }}</b></td></tr>
           </ng-template>
           <ng-template #body let-l>
             <tr [class.en-rej]="rej().has(l.id) || l.status === 'rechazado'">
               @if (canReceive(d)) {
-                <td><p-checkbox [binary]="true" [ngModel]="rej().has(l.id)" (onChange)="toggleRej(l.id)" [ariaLabel]="'Rechazar ' + l.folio" /></td>
+                <td class="dt-actions" role="cell" data-label="Rechazar"><p-checkbox [binary]="true" [ngModel]="rej().has(l.id)" (onChange)="toggleRej(l.id)" [ariaLabel]="'Rechazar ' + l.folio" /></td>
               }
-              <td class="mono">{{ dia(l.reception_date) }}</td>
-              <td class="mono en-muted">{{ dia(l.invoice_date) }}</td>
-              <td>{{ l.supplier_name || l.supplier_code || '—' }}</td>
-              <td class="mono">{{ l.folio }}</td>
-              <td>{{ evidencia(l.evidence_status) }}</td>
-              <td>
+              <td class="mono" role="cell" data-label="Recepción">{{ dia(l.reception_date) }}</td>
+              <td class="mono en-muted" role="cell" data-label="Factura">{{ dia(l.invoice_date) }}</td>
+              <td class="dt-id" role="cell" data-label="Proveedor">{{ l.supplier_name || l.supplier_code || '—' }}</td>
+              <td class="mono" role="cell" data-label="Folio Kepler">{{ l.folio }}</td>
+              <td role="cell" data-label="Evidencia">{{ evidencia(l.evidence_status) }}</td>
+              <td role="cell" data-label="Estado">
                 @if (canReceive(d) && rej().has(l.id)) {
                   <input pInputText type="text" class="en-reason" placeholder="Motivo (obligatorio)" [ngModel]="rej().get(l.id)"
                          (ngModelChange)="setReason(l.id, $event)" [attr.aria-label]="'Motivo de rechazo de ' + l.folio" />
@@ -113,10 +114,11 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
                   {{ lineaLabel(l.status) }} @if (l.rejection_reason) { <span class="en-muted">· {{ l.rejection_reason }}</span> }
                 }
               </td>
-              <td class="ta-r mono">{{ money(l.amount) }}</td>
+              <td class="ta-r mono dt-num" role="cell" data-label="Importe">{{ money(l.amount) }}</td>
             </tr>
           </ng-template>
         </p-table>
+        </div>
 
         @if (canCancel(d)) {
           <div class="en-cancel">
