@@ -6109,8 +6109,9 @@ TP.6-TP.8+TP.10".
         `755256028` descableó la ruta y el menú de Costo estándar (su componente no está en main)
         pero dejó su nodo en `authz-tree` y su candidato en `permission.guard`. Bug real, no sólo de
         la prueba: los diez roles con `COMPRAS_COSTO_ESTANDAR_VER` en prod veían una tarjeta y una
-        portada hacia un 404. Descableados también, comentados con la nota de volver a cablearlos
-        junto con el componente. · *2026-09-30*
+        portada hacia un 404. ⚠️ Lo arregló **en paralelo el propio autor del descableado**
+        (`d6f235286`, mismo cambio); al integrar main se tomó SU versión de los dos archivos. Lo
+        que aporta este item es `detalle-home`. · *2026-09-30*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
       la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.

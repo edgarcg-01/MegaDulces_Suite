@@ -11,7 +11,8 @@
 - **TK.a3**: las 4 fallas de `view:test` eran de main. Dos, una prueba escrita para el tablero que
   inventaba KPIs (`[AUD-DAT.21]` los pasó a `null`). Dos, un descableado a medias de Costo estándar
   que dejó el nodo del árbol y el candidato de la portada apuntando a una ruta comentada — un 404
-  real para diez roles en prod.
+  real para diez roles en prod. Ese segundo lo corrigió en paralelo su autor (`d6f235286`, el mismo
+  cambio): al integrar main se tomó su versión.
 - **Lección**: *descablear una pantalla es cuatro lugares, no dos* — ruta, menú, nodo de
   `authz-tree` (alimenta «Mi trabajo») y candidato de `permission.guard` (la portada del proyecto).
   `landing-guards.spec` es el que lo detecta.
