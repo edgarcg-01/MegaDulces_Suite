@@ -96,7 +96,8 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
    */
   ck('⭐⭐ CERO señales en `disponible` (la capa 2 está completa)', r.disponibles === 0,
     `quedan ${r.disponibles} fuentes pobladas que nadie lee`);
-  ck('las 28 señales cableadas', r.cableadas === 28, `hay ${r.cableadas}`);
+  ck('las 29 señales cableadas (28 + A4, el árbitro del costo)', r.cableadas === 29,
+    `hay ${r.cableadas}`);
   ck('⛔ lo refutado no pesa (cobertura y peso en cero)',
     (await q(`SELECT count(*)::int n FROM analytics.price_signal_registry
                WHERE estado = 'refutada' AND (cobertura_pct <> 0 OR peso_max <> 0)`))[0].n === 0);
@@ -260,6 +261,7 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
            count(*) FILTER (WHERE f9_cobertura  = 'completa')::int f9,
            count(*) FILTER (WHERE f10_cobertura = 'completa')::int f10,
            count(*) FILTER (WHERE f12_cobertura = 'completa')::int f12,
+           count(*) FILTER (WHERE f13_cobertura = 'completa')::int f13,
            count(*) FILTER (WHERE u1_fuente_peldano = 'vendido')::int p_vendido,
            count(*) FILTER (WHERE u1_fuente_peldano = 'base_sin_venta')::int p_base,
            count(*) FILTER (WHERE f8_veredicto = 'escalera_incoherente')::int incoherentes
@@ -270,7 +272,7 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
   console.log(`     psicología ${pc(v.f1)} · meta ${pc(v.f2)} · costo ${pc(v.f3)} · `
     + `cliente ${pc(v.f4)} · inventario ${pc(v.f5)} · demanda ${pc(v.f6)}`);
   console.log(`     historial ${pc(v.f7)} · escalera ${pc(v.f8)} · merma ${pc(v.f9)} · `
-    + `canasta ${pc(v.f10)} · faltantes ${pc(v.f12)}`);
+    + `canasta ${pc(v.f10)} · faltantes ${pc(v.f12)} · ⭐ margen realizado ${pc(v.f13)}`);
 
   ck('la vista devuelve el grano medido (86,163 celdas)', v.filas === 86163, `hay ${v.filas}`);
   /**
@@ -278,7 +280,7 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
    * INNER — y el motor creería que el mostrador tiene evidencia de cliente. La incomparabilidad
    * de las coberturas es la tesis entera de esta capa: si se borra, se borró por un bug.
    */
-  const distintas = new Set([v.f1, v.f3, v.f4, v.f5, v.f6, v.f7, v.f9, v.f10, v.f12]).size;
+  const distintas = new Set([v.f1, v.f3, v.f4, v.f5, v.f6, v.f7, v.f9, v.f10, v.f12, v.f13]).size;
   ck('⭐ las coberturas de las familias son DISTINTAS entre sí', distintas >= 8,
     `sólo ${distintas} valores distintos: algún LEFT JOIN se comporta como INNER`);
   ck('⛔ la cobertura de cliente es mucho menor que la de psicología (el mostrador es anónimo)',
@@ -300,6 +302,9 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
            count(*) FILTER (WHERE f9_cobertura  <> 'completa' AND f9_motivo  IS NULL)::int m9,
            count(*) FILTER (WHERE f10_cobertura <> 'completa' AND f10_motivo IS NULL)::int m10,
            count(*) FILTER (WHERE f12_cobertura <> 'completa' AND f12_motivo IS NULL)::int m12,
+           count(*) FILTER (WHERE f13_cobertura <> 'completa' AND f13_motivo IS NULL)::int m13,
+           count(*) FILTER (WHERE f13_veredicto = 'sin_evidencia_de_margen'
+                              AND a4_margen_realizado_pct IS NOT NULL)::int fg13,
            count(*) FILTER (WHERE f4_veredicto = 'sin_evidencia_de_cliente'
                               AND c2_fuga_pct IS NOT NULL)::int fg4,
            count(*) FILTER (WHERE f5_veredicto = 'sin_evidencia_de_inventario'
@@ -314,12 +319,12 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
            --    lo mismo que nunca-contado, y la vista tiene que separarlas.
            count(*) FILTER (WHERE f9_veredicto = 'contado_sin_recontar')::int sin_recontar
       FROM ${FUENTE}`);
-  const mudas = m.m2 + m.m4 + m.m5 + m.m6 + m.m7 + m.m8 + m.m9 + m.m10 + m.m12;
-  ck('⛔ cero ausencias mudas en las 9 familias que declaran motivo', mudas === 0,
-    `f2=${m.m2} f4=${m.m4} f5=${m.m5} f6=${m.m6} f7=${m.m7} f8=${m.m8} f9=${m.m9} f10=${m.m10} f12=${m.m12}`);
+  const mudas = m.m2 + m.m4 + m.m5 + m.m6 + m.m7 + m.m8 + m.m9 + m.m10 + m.m12 + m.m13;
+  ck('⛔ cero ausencias mudas en las 10 familias que declaran motivo', mudas === 0,
+    `f2=${m.m2} f4=${m.m4} f5=${m.m5} f6=${m.m6} f7=${m.m7} f8=${m.m8} f9=${m.m9} f10=${m.m10} f12=${m.m12} f13=${m.m13}`);
   ck('⛔ cero valores publicados sin evidencia que los respalde',
-    m.fg4 + m.fg5 + m.fg9 + m.fg12 === 0,
-    `cliente=${m.fg4} inventario=${m.fg5} merma=${m.fg9} faltantes=${m.fg12}`);
+    m.fg4 + m.fg5 + m.fg9 + m.fg12 + m.fg13 === 0,
+    `cliente=${m.fg4} inventario=${m.fg5} merma=${m.fg9} faltantes=${m.fg12} margen=${m.fg13}`);
   ck('⛔ ningún peldaño de respaldo reportado como claro', m.respaldo_mentiroso === 0);
   ck('⭐ contado-sin-recontar se distingue de nunca-contado', m.sin_recontar > 0,
     'la vista no separa las dos ausencias del conteo');
@@ -377,6 +382,7 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
              count(*) FILTER (WHERE f5_cobertura = 'completa')::int f5,
              count(*) FILTER (WHERE f9_veredicto = 'merma')::int merma,
              count(*) FILTER (WHERE f12_cobertura = 'completa')::int f12,
+           count(*) FILTER (WHERE f13_cobertura = 'completa')::int f13,
              round(sum(COALESCE(d8_prima_caja_pct, 0))::numeric, 2) prima
         FROM ${obj} WHERE sucursal = '03'`))[0];
     const t3 = Date.now();
