@@ -43,7 +43,35 @@ const MAX_MIN = Math.max(1, Number(process.env.ODS_HB_MAX_MIN) || 20);
 const IGNORE_ERROR = /^(1|true|yes)$/i.test(String(process.env.ODS_HB_IGNORE_ERROR || ''));
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
-(async () => {
+/**
+ * `[OBS.4.4]` — **¿Hay OTRO proceso entregando en este carril, AHORA?**
+ *
+ * La guarda de dueno existe por un incidente real (04-09-2026): el contenedor llevaba 15 h
+ * colgado y salia `healthy` porque una tarea de Windows escribia ese mismo renglon desde la
+ * maquina de al lado. `analytics.cron_runs` tiene PK `(tenant_id, job_key)` — UNA fila por
+ * carril, sin host —, asi que dos procesos con la misma clave se pisan el renglon y este
+ * chequeo le toma el pulso al otro.
+ *
+ * ⛔ PERO la version anterior preguntaba solo `host <> yo`, SIN MIRAR LA EDAD. Eso trata a un
+ * CADAVER igual que a un competidor vivo: despues de cualquier redespliegue el renglon conserva
+ * el hostname del contenedor ANTERIOR, y el nuevo se declara enfermo por un proceso que ya no
+ * existe. Medido en `md` el 2026-09-30 sobre `ods-reconcile-full`: el host que lo "bloqueaba"
+ * (`b9318f893483`) no aparecia en `docker ps -a`; `ods-autoheal` reinicio el contenedor **109
+ * veces en 30 h** y de paso mato el trabajo nocturno a mitad de camino, cada noche.
+ *
+ * El arreglo es que la propiedad CADUQUE. "Otro esta entregando" solo puede ser cierto mientras
+ * el latido de ese otro este FRESCO; si esta vencido, no entrega nadie — y el veredicto correcto
+ * es el de antiguedad de siempre, no un error especial de "hay otro proceso".
+ *
+ * ⚠️ Esto NO afloja la proteccion del incidente: ahi el host ajeno mantenia el renglon FRESCO
+ * (esa era justo la trampa), asi que sigue cayendo en este predicado y sigue dando enfermo.
+ */
+function otroEntregando(fila, yo, maxMin) {
+  if (!fila || !fila.host || fila.host === yo) return false;
+  return Number(fila.min_age) <= maxMin;
+}
+
+async function main() {
   if (!URL_ || !KEYS.length) { console.log('health: sin ODS_HB_URL/ODS_HB_KEY — no se evalúa'); process.exit(0); }
   const c = new Client({
     connectionString: URL_,
@@ -83,7 +111,7 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
     if (KEYS.length > 1) {
       const YO = require('os').hostname();
       const vivas = filas.filter((f) => {
-        if (f.host && f.host !== YO) return false;                 // la late otro proceso
+        if (otroEntregando(f, YO, MAX_MIN)) return false;          // la late otro proceso, y esta vivo
         if (Number(f.min_age) > MAX_MIN) return false;              // vieja
         if (f.status === 'error' && !IGNORE_ERROR) return false;
         return true;
@@ -111,14 +139,18 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
     // la máquina de al lado. Un carril = UN dueño; si el renglón trae otro `host`, este contenedor
     // no está entregando aunque el carril "lata".
     const YO = require('os').hostname();
-    if (r.host && r.host !== YO) {
-      console.error(`health: ${KEY} lo está latiendo '${r.host}', no yo ('${YO}') — hay otro proceso en el mismo carril`);
+    if (otroEntregando(r, YO, MAX_MIN)) {
+      console.error(`health: ${KEY} lo está latiendo '${r.host}' (hace ${age.toFixed(1)} min), no yo ('${YO}') — hay otro proceso VIVO en el mismo carril`);
       process.exit(1);
     }
+    // Host ajeno pero VENCIDO = el cadáver de un contenedor anterior, no un competidor. No se
+    // bloquea por eso; decide la antigüedad de abajo, que es la pregunta real. Se nombra igual
+    // para que el operador no crea que el carril es suyo cuando no lo es.
+    const ajenoMuerto = r.host && r.host !== YO ? ` (último latido de '${r.host}', ya vencido)` : '';
     // `running` es legítimo mientras la pasada dure menos que el tope. Pasado el tope no dice
     // "trabajando", dice COLGADO — y un carril colgado no entrega, así que se reinicia.
     if (age > MAX_MIN) {
-      console.error(`health: ${KEY} lleva ${age.toFixed(1)} min sin avanzar (tope ${MAX_MIN}, status=${r.status})`);
+      console.error(`health: ${KEY} lleva ${age.toFixed(1)} min sin avanzar (tope ${MAX_MIN}, status=${r.status})${ajenoMuerto}`);
       process.exit(1);
     }
     if (r.status === 'error' && !IGNORE_ERROR) {
@@ -138,4 +170,9 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
     console.error(`health: no se pudo verificar (${String(e.message).slice(0, 80)})`);
     process.exit(1);
   } finally { await c.end().catch(() => {}); }
-})();
+}
+
+// Requerible sin ejecutar: el candado `test-newdb-health-owner-expiry.js` importa
+// `otroEntregando` y lo ejerce con filas sintéticas. Como script se comporta igual que siempre.
+if (require.main === module) main();
+module.exports = { otroEntregando };
