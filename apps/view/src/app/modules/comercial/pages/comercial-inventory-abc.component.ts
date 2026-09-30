@@ -117,7 +117,11 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->
-        <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+        <!-- [UIM.6] Las diez columnas son CAMPOS de un renglón (clase, SKU, producto, almacén,
+             valor, fecha, cadencia, estado), así que apilar es lo correcto: el .dt-scope va en el
+             contenedor porque un elemento no puede ser su propio container-query. -->
+        <div class="dt-scope">
+        <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra dt-stack"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
@@ -129,24 +133,24 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
           </ng-template>
           <ng-template #body let-it>
             <tr>
-              <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
-              <td><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
+              <td role="cell" data-label="Clase"><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
+              <td role="cell" data-label="Por que"><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
                          [pTooltip]="motivoTooltip(it)"></p-tag></td>
-              <td class="abc-mono">{{ it.sku || '—' }}</td>
-              <td class="abc-name">{{ it.product_name || '—' }}</td>
-              <td class="abc-mono">{{ it.warehouse_code }}</td>
+              <td class="abc-mono" role="cell" data-label="SKU">{{ it.sku || '—' }}</td>
+              <td class="abc-name dt-id" role="cell">{{ it.product_name || '—' }}</td>
+              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code }}</td>
               <!-- Guion, no $0: un valor cero por falta de demanda NO es un valor de cero. -->
-              <td class="abc-num">
+              <td class="abc-num dt-num" role="cell" data-label="Valor anual">
                 @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                 @else { <span class="abc-nd" pTooltip="Sin demanda medida en la ventana: no es valor cero, es no medido">&mdash;</span> }
               </td>
-              <td class="abc-num">
+              <td class="abc-num dt-num" role="cell" data-label="% del almacén">
                 @if (+(it.value_share || 0) > 0) { {{ (+(it.value_share || 0) * 100) | number:'1.0-2' }}% }
                 @else { <span class="abc-nd">&mdash;</span> }
               </td>
-              <td class="abc-mono">{{ it.last_counted_at ? (it.last_counted_at | date:'dd/MM/yy') : 'Nunca' }}</td>
-              <td class="abc-num">{{ it.cadence_days }} d</td>
-              <td><p-tag [value]="dueLabel(it)" [severity]="dueSeverity(it)"></p-tag></td>
+              <td class="abc-mono" role="cell" data-label="Último conteo">{{ it.last_counted_at ? (it.last_counted_at | date:'dd/MM/yy') : 'Nunca' }}</td>
+              <td class="abc-num dt-num" role="cell" data-label="Cadencia">{{ it.cadence_days }} d</td>
+              <td role="cell" data-label="Estado"><p-tag [value]="dueLabel(it)" [severity]="dueSeverity(it)"></p-tag></td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
@@ -159,9 +163,11 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             </td></tr>
           </ng-template>
         </p-table>
+        </div>
       } @else {
         <!-- CLASIFICACIÓN ABC -->
-        <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+        <div class="dt-scope">
+        <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra dt-stack"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
@@ -172,18 +178,18 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
           </ng-template>
           <ng-template #body let-it>
             <tr>
-              <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
-              <td><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
+              <td role="cell" data-label="Clase"><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
+              <td role="cell" data-label="Por que"><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
                          [pTooltip]="motivoTooltip(it)"></p-tag></td>
-              <td class="abc-mono">{{ it.sku || '—' }}</td>
-              <td class="abc-name">{{ it.product_name || '—' }}</td>
-              <td class="abc-mono">{{ it.warehouse_code }}</td>
-              <td class="abc-num">
+              <td class="abc-mono" role="cell" data-label="SKU">{{ it.sku || '—' }}</td>
+              <td class="abc-name dt-id" role="cell">{{ it.product_name || '—' }}</td>
+              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code }}</td>
+              <td class="abc-num dt-num" role="cell" data-label="Valor anual">
                 @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                 @else { <span class="abc-nd" pTooltip="Sin demanda medida: no es valor cero, es no medido">&mdash;</span> }
               </td>
-              <td class="abc-num">{{ it.units_window }}</td>
-              <td class="abc-num">{{ (+it.value_share * 100) | number:'1.0-1' }}%</td>
+              <td class="abc-num dt-num" role="cell" data-label="Unidades">{{ it.units_window }}</td>
+              <td class="abc-num dt-num" role="cell" data-label="% acum.">{{ (+it.value_share * 100) | number:'1.0-1' }}%</td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
@@ -196,6 +202,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             </td></tr>
           </ng-template>
         </p-table>
+        </div>
       }
     </div>
   `,
