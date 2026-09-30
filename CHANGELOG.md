@@ -9,6 +9,22 @@
 ---
 
 ## [Unreleased]
+### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
+- `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
+  por folio, clave o nombre. `GET /commercial/tickets/bandeja`.
+- Carta PDF, pantalla y rollo de 80 mm desglosan cada partida por pieza y en total: precio de lista,
+  descuento, precio con descuento, sin impuestos, IVA/IEPS y neto. El descuento de cliente va
+  repartido en la partida; la columna Neto suma el total al centavo.
+- El rollo lleva la razón social del emisor y la marca de REIMPRESIÓN con fecha y hora.
+
+### Changed — Ningún papel dice «fiscal» ni «no fiscal» (TK.14, 2026-09-30)
+- Carta PDF, reporte por cliente, anexo de venta y guía de cobranza. «Factura Cont No Fiscal» se
+  imprime como «Factura de contado».
+
+### Fixed — `view:test` en rojo en main: Costo estándar descableado a medias y un spec del tablero viejo (TK.a3)
+
+### Fixed — El buscador por folio ordenaba por día de la semana y mutilaba las tarjetas (TK.a1/a2)
+
 ### Fixed — en local fallaban TODOS los websockets: el proxy de dev enruta un path que no usa nadie (2026-09-29)
 Sale de *«en local sigue tardando demasiado»*, con este panel de red: `products` **500 en 1 min**,
 `routes` **304 en 45.23 s**, y tres websockets muriendo a los **20.00 s** clavados.
