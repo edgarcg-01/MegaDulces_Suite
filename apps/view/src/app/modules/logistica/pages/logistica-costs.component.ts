@@ -1,4 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+// [CGU.5] La pestana de costo por GUIA del ERP. Vive aca y no en una pantalla nueva: esta ya es
+// la superficie de costos de Logistica, con su ruta y su permiso repartidos.
+import { GuideCostPanelComponent } from '../components/guide-cost-panel.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -38,7 +42,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, DatePickerModule, SelectModule,
     TagModule, TooltipModule, ToastModule,
-    MetricCardComponent,
+    MetricCardComponent, GuideCostPanelComponent, SegmentedComponent,
   ],
   providers: [MessageService],
   template: `
@@ -56,6 +60,20 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <button pButton (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Aplicar</span></button>
         </div>
       </header>
+
+      <!-- [CGU.5] Dos superficies de costo que NO son la misma cosa: el embarque propio de la app
+           (hoy con 0 filas capturadas) y la guia real del ERP, cuyo costo se ATRIBUYE desde la
+           contabilidad. Se muestran separadas para que nadie las sume por error. -->
+      <div class="logc-tabs">
+        <app-segmented [options]="tabs" [value]="tab()" (valueChange)="tab.set($any($event))"
+                       ariaLabel="Vista de costos" />
+      </div>
+
+      <ng-container *ngIf="tab() === 'erp'">
+        <app-guide-cost-panel />
+      </ng-container>
+
+      <ng-container *ngIf="tab() === 'propios'">
     
       <!-- KPIs (J14/J15: jerarquía + color + count-up) -->
       <div class="surf-grid">
@@ -135,8 +153,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </p-table>
           </div>
         </section>
+      </ng-container>
       </div>
-    
+
       <!-- Edit Dialog -->
       <p-dialog [(visible)]="editDialog" [modal]="true" [style]="{ width: '720px' }"
         header="Editar costos del embarque" [closable]="!saving()">
@@ -225,6 +244,15 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LogisticaCostsComponent {
+  /** [CGU.5] `erp` arranca por default: es la pestana que TIENE datos. La de embarques propios
+      depende de una captura que hoy esta en cero filas, y abrir en una tabla vacia se lee como
+      "no hay costos", que es falso. */
+  readonly tab = signal<'erp' | 'propios'>('erp');
+  readonly tabs: SegOption[] = [
+    { label: 'Por guia (ERP)', value: 'erp' },
+    { label: 'Por embarque propio', value: 'propios' },
+  ];
+
   private readonly api = inject(LogisticaService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);

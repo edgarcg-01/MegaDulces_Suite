@@ -1111,6 +1111,42 @@ export class LogisticaService {
     return this.http.get<PendingByRouteRow[]>(`${this.base}/analytics/pending-by-route`);
   }
 
+  // ── `[CGU.5]` Costo por GUÍA del ERP ─────────────────────────────────────
+  //
+  // Tres niveles: las guías con su costo atribuido → esa guía concepto por concepto → los
+  // renglones de póliza reales. Sólo los dos primeros son atribuidos; el tercero es dinero
+  // tal cual lo asentó Contabilidad.
+  //
+  // ⚠️ `costo` puede venir `null` y eso NO es cero: significa que no se registró gasto para ese
+  // canal en esa ventana. La pantalla tiene que pintarlo como "sin medir", porque un 0 dice
+  // "ese viaje fue gratis" — y de ahí sale un ROI infinito.
+  guideCosts(opts: { from?: string; to?: string; canal?: string; sucursal?: string; limit?: number } = {})
+    : Observable<GuideCostList> {
+    let p = new HttpParams();
+    Object.entries(opts).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    });
+    return this.http.get<GuideCostList>(`${this.base}/erp-shipments/costs`, { params: p });
+  }
+  guideCostBreakdown(sucursal: string, guia: string, from?: string, to?: string)
+    : Observable<GuideCostBreakdown> {
+    let p = new HttpParams();
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return this.http.get<GuideCostBreakdown>(
+      `${this.base}/erp-shipments/costs/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}`,
+      { params: p });
+  }
+  guideCostLines(sucursal: string, guia: string, concepto: string, from?: string, to?: string)
+    : Observable<GuideCostLines> {
+    let p = new HttpParams();
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return this.http.get<GuideCostLines>(
+      `${this.base}/erp-shipments/costs/${encodeURIComponent(sucursal)}/`
+      + `${encodeURIComponent(guia)}/${encodeURIComponent(concepto)}`, { params: p });
+  }
+
   // ── J.9 Expenses summary (Costs page KPI) ────────────────────────────────
   expensesSummary(from?: string, to?: string): Observable<ExpenseSummary> {
     let p = new HttpParams();
@@ -1639,4 +1675,100 @@ export interface VehicleAssignment {
   observations?: string | null;
   scan_url?: string | null;
   status: 'vigente' | 'devuelto' | 'cancelado';
+}
+
+// ── `[CGU.5]` Tipos del costo por guía ─────────────────────────────────────────────────
+//
+// ⚠️ `costo`, `costo_por_parada` y `mercancia` son `number | null` a propósito. El null viaja
+// crudo desde el backend y significa "no se midió", no "cero". Tipar esto como `number` obliga
+// a un `?? 0` en la plantilla, y ese cero es el que produce el ROI infinito.
+
+export interface GuideCostRow {
+  dia: string;
+  sucursal: string;
+  guia: string;
+  canal: 'cliente' | 'carga_ruta' | 'traspaso';
+  paradas: number;
+  mercancia: number | null;
+  costo: number | null;
+  costo_por_parada: number | null;
+  costo_estado: 'atribuido' | 'no_medido';
+  costo_motivo: string | null;
+  conceptos: number | null;
+  /** Si alguna parte del costo se repartió, el total NO se puede presentar como directo. */
+  origen_peor: 'directo' | 'atribuido' | null;
+  /** Qué porcentaje del costo viene del bucket administrativo prorrateado. */
+  pct_admin: number | null;
+  transporte_clave: string | null;
+  unidades: number;
+}
+
+export interface MargenDeclarado {
+  disponible: false;
+  motivo: string;
+  requiere: string;
+}
+
+export interface GuideCostList {
+  guias: GuideCostRow[];
+  cobertura: { measured: boolean; pct: number | null; note: string };
+  margen_declarado: MargenDeclarado;
+}
+
+export interface GuideCostConcepto {
+  concepto: string;
+  cuenta_mayor: string;
+  fuente: 'departamento' | 'otros_admin';
+  ventana: 'diario' | 'mes';
+  origen: 'directo' | 'atribuido';
+  paradas_guia: number;
+  paradas_bucket: number;
+  n_guias_bucket: number;
+  atribuido: number;
+  /** paradas_guia / paradas_bucket — publicado para que el reparto sea auditable. */
+  share: number | null;
+  pct_del_total: number | null;
+  dia: string;
+}
+
+export interface GuideCostBreakdown {
+  sucursal: string;
+  guia: string;
+  total: number;
+  conceptos: GuideCostConcepto[];
+  margen_declarado: MargenDeclarado;
+}
+
+export interface GuideCostPolizaLine {
+  fecha: string;
+  doc_tipo: string;
+  doc_folio: string;
+  linea: number;
+  sucursal: string;
+  cuenta: string;
+  cuenta_nombre: string | null;
+  beneficiario: string | null;
+  comentario: string | null;
+  dpto_nombre: string | null;
+  /** El importe de la PÓLIZA COMPLETA, no la parte de esta guía. La parte = importe × share. */
+  importe: number;
+}
+
+export interface GuideCostLines {
+  sucursal: string;
+  guia: string;
+  concepto: string;
+  bucket: {
+    canal: string;
+    ventana: 'diario' | 'mes';
+    fuente: string;
+    dia: string;
+    total_bucket: number;
+    atribuido_a_esta_guia: number;
+    share: number | null;
+    paradas_guia: number;
+    paradas_bucket: number;
+    nota: string;
+  } | null;
+  lineas: GuideCostPolizaLine[];
 }
