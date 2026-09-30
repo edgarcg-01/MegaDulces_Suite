@@ -9,6 +9,53 @@
 ---
 
 ## [Unreleased]
+### Fixed — el tope de la lista de cambios contaba renglones, no etiquetas (ETQ-CAMBIOS.7, 2026-09-30)
+Continuación del audit de `/tienda/etiquetas/cambios`. **Dos correcciones a lo que yo mismo
+reporté**, las dos por medir mal:
+
+⛔ **Dije que el tope era 200 y que truncaba el 30% de los días. Los dos números eran míos, no del
+sistema.** `TOPE_CAMBIOS` vale **300**, y yo había pasado `201` como parámetro en mi sonda
+asumiendo 200. Con el tope real: **13.0%** de los días-plaza truncan (96 de 739 en 90 días).
+
+⭐ **Y el arreglo no era subir el tope: era dejar de contar dos veces.** `LabelModel` es por
+PRODUCTO y lleva todos los precios en una sola etiqueta (pieza, paquete, caja), mientras la bitácora
+escribe una fila **por unidad**. Marcar dos renglones del mismo SKU mandaba **una sola** etiqueta a
+la cola (el `resolve` deduplica por `new Set`), así que la lista sobre-representaba el trabajo y el
+tope recortaba etiquetas que sí cabían.
+
+Medido sobre 90 días (739 días-plaza):
+
+```
+                      máx   prom   días que truncan (tope 300)
+contando renglones    636    161     96   (13.0%)
+contando productos    245     69      0   (0%)
+```
+
+El peor día lo dice todo: sucursal **06, 20-ago → 636 renglones pero sólo 115 productos** (5.5
+unidades por producto). El tope ataba justo donde la duplicación era máxima: la encargada veía 300
+de 636 renglones. Ahora ve **sus 115 productos completos**, en 33 ms.
+
+El tope ahora cuenta productos y `truncado` sale de la consulta (`productos_del_dia`) en vez de
+deducirse del largo de la lista — deducirlo diría "truncado" en días completos, porque un producto
+trae varias filas. La pantalla dice **cuántos productos cambiaron y cuántos se muestran**, no
+cuántos renglones.
+
+Además, las filas del mismo SKU ahora salen **juntas y ordenadas entre sí**. Antes el orden era el
+delta de cada renglón, así que la pieza y la caja del mismo producto podían quedar a 80 filas de
+distancia y se leían como dos productos distintos.
+
+⭐ Y esto **disuelve el tercer hallazgo del audit** sin escribir nada: el orden por `|delta|` en
+pesos sin mirar rotación sólo importaba porque el tope ataba. Con 0 días truncados en 90, el orden
+ya no decide qué se ve. No hacía falta un orden por rotación; hacía falta dejar de duplicar.
+
+⚠️ **Séptima vez que un backtick rompe algo acá**: esta vez `` `[ETQ-CAMBIOS.7]` `` dentro del
+template literal de la SQL, que cortó la cadena y tiró 13 errores de compilación.
+
+`nx build api` OK. ⚠️ `nx build view` queda **rojo por archivos de otra sesión** en este árbol
+compartido (`persona-datos.component.ts` 13 errores, `persona-detalle.component.ts`; ambos con ` M`
+sin commitear). Ninguno de mis archivos aparece en la lista de errores. Sin ejercer el gesto: el API
+local no corre.
+
 ### Fixed — 13 de 33 personas abrían /etiquetas/cambios en un callejón sin salida (ETQ-CAMBIOS.6, 2026-09-30)
 Auditoría de `/tienda/etiquetas/cambios`. **La pantalla está bien construida** —verificado contra la
 base y la plantilla, no contra sus comentarios—: cobertura de las 9 sucursales Kepler frescas hasta
