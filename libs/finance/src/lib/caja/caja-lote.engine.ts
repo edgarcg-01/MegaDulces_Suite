@@ -140,6 +140,17 @@ export interface ReglaGasto {
   match_beneficiario: string | null;
   kepler_cuenta: string;
   kepler_concepto: string;
+  /**
+   * `[CG.27-B.0]` La vida de la regla viaja EN LA REGLA, no sólo en el `WHERE` del SELECT.
+   *
+   * `reglasDeGasto()` ya filtra `active` y `suppressed_at` en SQL, así que en producción una
+   * regla apagada nunca llegaba acá. Pero el motor también lo usan las pruebas, la
+   * previsualización de un sembrado y ahora el autofill — y ahí sí llegaban. La prueba de
+   * paridad lo destapó: una regla `active:false` **seguía clasificando** por este camino.
+   * Opcionales porque el SELECT no siempre las trae; ausente = viva.
+   */
+  active?: boolean | null;
+  suppressed_at?: Date | string | null;
 }
 
 export interface MovimientoAClasificar {
@@ -170,11 +181,76 @@ export function aplicaPatron(patron: string | null | undefined, texto: string | 
   if (patron.length > REGLA_MAX_PATRON) return false;
   const t = String(texto ?? '').slice(0, REGLA_MAX_TEXTO);
   if (!t) return false;
+  let re: RegExp;
   try {
-    return new RegExp(patron, 'i').test(t);
+    re = new RegExp(patron, 'i');
   } catch {
     return false;                                 // patrón inválido: no aplica, no rompe
   }
+  if (re.test(t)) return true;
+  // `[CG.27-B.0]` Segundo intento contra el texto NORMALIZADO, y es lo que cierra la divergencia
+  // entre los dos motores. El autofill normalizaba el texto de entrada y **no el patrón**, así que
+  // una regla declarada con acento o espacio doble matcheaba en la bandeja y no en el autofill.
+  //
+  // ⚠️ Se prueba el crudo PRIMERO y el normalizado después: así esto sólo puede AGREGAR matches,
+  // nunca quitar uno que hoy funciona. Y no se normaliza el patrón — plegarle los acentos a un
+  // regex puede romperle una clase de caracteres, y el patrón lo escribe una persona.
+  const n = normalizaTexto(t);
+  return n !== t && re.test(n);
+}
+
+/**
+ * `[CG.27-B.0]` Normaliza un texto para comparar: mayúsculas, sin acentos, espacios colapsados.
+ *
+ * Vive acá y no en `caja-autofill.engine.ts` porque ahora la usan LOS DOS motores, y este archivo
+ * no importa nada (el otro sí puede importar de éste sin ciclo). El autofill la reexporta con su
+ * nombre viejo para no tocar a sus consumidores.
+ */
+export function normalizaTexto(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Una regla juega si está activa y no fue suprimida por su propia tasa de corrección. */
+export function reglaVive(r: Pick<ReglaGasto, 'active' | 'suppressed_at'>): boolean {
+  return r.active !== false && !r.suppressed_at;
+}
+
+/**
+ * ⭐ `[CG.27-B.0]` **EL matcher. UNO solo, para los dos caminos.**
+ *
+ * Devuelve la regla que aplica, o `null`. Lo que antes estaba duplicado —y divergente— entre
+ * `cuentaPorRegla` (bandeja/lote) y `classifyByRules` (autofill) vive acá:
+ *
+ *   · sólo reglas vivas (`active` y sin `suppressed_at`);
+ *   · sólo reglas con al menos un matcher y con el par contable completo;
+ *   · orden por `priority` y **desempate total por `id`** — sin él, dos reglas de igual prioridad
+ *     mandan el dinero a cuentas distintas según cómo viniera ordenado el SELECT;
+ *   · **la primera que aplica gana**, y aplica sólo si TODOS sus matchers no nulos dan;
+ *   · si ninguna aplica, `null`. **Jamás un default.**
+ */
+export function reglaQueAplica<T extends ReglaGasto>(
+  reglas: readonly T[] | null | undefined,
+  mov: { tipo?: string | null; glosa?: string | null; beneficiario?: string | null },
+): T | null {
+  const vivas = [...(reglas ?? [])]
+    .filter(reglaVive)
+    .filter((r) => r.match_tipo || r.match_glosa || r.match_beneficiario)
+    .filter((r) => r.kepler_cuenta && r.kepler_concepto)
+    .sort((a, b) => Number(a.priority) - Number(b.priority)
+      || String(a.id ?? '').localeCompare(String(b.id ?? '')));
+  for (const r of vivas) {
+    if (!aplicaPatron(r.match_tipo, mov.tipo)) continue;
+    if (!aplicaPatron(r.match_glosa, mov.glosa)) continue;
+    if (!aplicaPatron(r.match_beneficiario, mov.beneficiario)) continue;
+    return r;
+  }
+  return null;
 }
 
 /**
@@ -197,18 +273,12 @@ export function cuentaPorRegla(
   mov: MovimientoAClasificar, reglas: readonly ReglaGasto[] | null | undefined,
 ): Confirmable {
   if (!(Number(mov.monto) > 0)) return { ok: false, motivo: 'sin_monto' };
-  const vivas = [...(reglas ?? [])]
-    .filter((r) => r.match_tipo || r.match_glosa || r.match_beneficiario)
-    .filter((r) => r.kepler_cuenta && r.kepler_concepto)
-    .sort((a, b) => Number(a.priority) - Number(b.priority)
-      || String(a.id ?? '').localeCompare(String(b.id ?? '')));
-  for (const r of vivas) {
-    if (!aplicaPatron(r.match_tipo, mov.tipo)) continue;
-    if (!aplicaPatron(r.match_glosa, mov.glosa)) continue;
-    if (!aplicaPatron(r.match_beneficiario, mov.beneficiario)) continue;
-    return { ok: true, kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto };
-  }
-  return { ok: false, motivo: 'sin_regla' };
+  // La decisión vive en `reglaQueAplica`, compartida con el autofill. Acá sólo se le pone la
+  // forma que este camino necesita: si los dos la calcularan por su cuenta, volverían a divergir.
+  const r = reglaQueAplica(reglas, mov);
+  return r
+    ? { ok: true, kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto }
+    : { ok: false, motivo: 'sin_regla' };
 }
 
 // ── El resultado del lote ──────────────────────────────────────────────────────────────────────

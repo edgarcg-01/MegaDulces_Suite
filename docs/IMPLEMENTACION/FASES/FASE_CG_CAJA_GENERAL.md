@@ -540,7 +540,16 @@ Reglas de esta capa, y son duras:
 Para lo que la historia no cubre (gasto nuevo, proveedor nuevo, concepto genérico):
 `finance.caja_classify_rules`, **calcado de `finance.bank_classify_rules` (CB.6, ADR-033)** —
 regex sobre glosa / beneficiario, ordenadas por `priority`, **la primera que aplica gana**, y si
-ninguna aplica → `sin_clasificar` (no un default). Editable desde Admin, igual que las de bancos.
+ninguna aplica → `sin_clasificar` (no un default).
+
+> ⚠️ **Corrección (2026-09-29).** Acá decía *“Editable desde Admin, igual que las de bancos”*.
+> **Las dos mitades de esa frase eran falsas**: nunca existió un Admin de reglas de caja, y **el
+> de bancos fue borrado** en el commit `6b44ed8a` (`[CB.14]`, *“edición no usada”*), dejando
+> `bank.service.ts` con `createRule`/`updateRule`/`deleteRule` **sin un solo llamador**. Hasta
+> `[CG.27-B.0]` las reglas de caja sólo se podían **crear**, de a una desde la captura, y una
+> regla mal declarada sólo se corregía por SQL. Ahora hay `GET /reglas` y `PATCH /reglas/:id`
+> (sin `DELETE`: una regla que ya clasificó dinero se **desactiva**), y viven en la pantalla de
+> caja, que es donde se trabaja — no en un Admin aparte, que es justo lo que se borró por no usarse.
 
 La razón de que exista esta capa está escrita en CB.6: *"cada patrón nuevo hoy exige cambio de
 código + redeploy, y arriesga que las dos copias se desincronicen"*. No repetir ese error.
@@ -951,7 +960,9 @@ eso es correcto.
   propone. Nunca un valor pelón.
 - **Vista de aprendizaje** (nivel 2) sobre `analytics.expense_entries`: `(beneficiario|rfc|familia)`
   → `(cuenta, concepto)` dominante con su soporte. Derivada, no materializada.
-- `finance.caja_classify_rules` + su vista Admin, calcado de `bank_classify_rules` (CB.6).
+- `finance.caja_classify_rules` + su edición. ⚠️ **Ya no se calca la “vista Admin” de
+  `bank_classify_rules`: esa vista se borró** (`[CB.14]`) por no usarse. La edición vive en
+  `/finanzas/caja-general`, junto a la lista de recurrentes sin regla (`[CG.27]`).
 - **Telemetría de corrección desde el día uno**: qué propuso, qué guardó el humano, por campo y por
   fuente. Sin eso no se puede aplicar la regla 4 del §8.5 y el motor se degrada sin que nadie lo
   note.
