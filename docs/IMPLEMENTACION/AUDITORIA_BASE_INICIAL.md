@@ -824,6 +824,64 @@ primero el hueco, después el retiro del importer.
 
 ---
 
+## Addendum — `AUD-DAT.21`: `/comercial/ventas-por-ruta` publica $3.08 M de venta que no existe (2026-09-29)
+
+**Estado: ABIERTO — documentado, no corregido.** Decisión del usuario el 2026-09-29: sólo documentarlo
+por ahora. El candado `database/tests/test-newdb-ventas-detalle-parity.js` queda **en rojo** en su
+bloque 4 a propósito: el defecto es del dato, no del candado.
+
+### Lo medido
+
+Las rutas `WIN-321` y `WIN-322` están colgadas de **dos almacenes que son el mismo lugar**, con venta
+idéntica al centavo, y `salesByRoute` (el camino por default de la pantalla) agrupa por almacén, así
+que **suma las dos**:
+
+```
+WIN-321 → 07     "Morelia Madero"               $1,604,419.17
+WIN-321 → MD-32  "Almacén Morelia Madero (32)"  $1,604,419.17
+```
+
+### Es residuo, no un segundo flujo real
+
+La marca de escritura lo separa sin ambigüedad:
+
+| almacén | filas | última escritura |
+|---|---|---|
+| `07` (código Kepler) | 13 | **2026-09-22 07:51** — viva |
+| `MD-32` (código Wincaja) | 13 | **2026-09-10 06:59** — congelada |
+
+Entre el 10 y el 22 de septiembre el importer `import-sales-by-route-monthly.js` cambió el mapeo
+ruta→almacén del código Wincaja al de Kepler y **nunca borró las filas viejas**: hace UPSERT, no
+reemplazo. Las 13 filas de `MD-32` ya no se escriben y nadie las va a actualizar nunca.
+
+### El monto
+
+Venta fantasma publicada en 2026, por mes: enero $580,431 · febrero $611,300 · marzo $558,638 ·
+abril $557,156 · mayo $543,138 · junio $222,342 · julio $6,845. **Total $3,079,850.80.**
+Se apaga sola a partir de agosto porque esas dos rutas dejaron de vender.
+
+### Hallazgo vecino, del mismo addendum (esto NO es defecto, es una base distinta)
+
+`analytics.sales_by_route_monthly` guarda el **importe crudo**, y medido contra la matvista diaria se
+cumple la identidad `mensual == venta(push) + subtotal(wincaja)`. O sea que la misma columna trae el
+monto **con** impuesto para lo que viene de Kepler y **sin** impuesto para lo que viene de Wincaja.
+No es un error de nadie, pero **mezcla dos bases**: la tendencia mes contra mes de esa pantalla queda
+distorsionada justo a través del cutover Wincaja→Kepler, que es el período que más se mira.
+En un mes 100 % Kepler (2026-09) las dos pantallas coinciden **ruta por ruta, al centavo**.
+
+### Cómo se arregla cuando se decida
+
+Cualquiera de las tres, en este orden de preferencia:
+
+1. `DELETE` de las 13 filas cuyo almacén ya no se escribe, en ventana nocturna, con respaldo previo.
+   Es la única que deja la tabla correcta **para todos los consumidores**, no sólo para esta pantalla.
+2. Que el importer **borre el mes que reescribe** en vez de sólo hacer UPSERT — arregla la causa,
+   pero el residuo viejo sigue hasta que corra.
+3. Deduplicar en la consulta tomando la fila más reciente por `(mes, ruta)` — arregla la pantalla hoy
+   y deja la tabla sucia para el resto.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
