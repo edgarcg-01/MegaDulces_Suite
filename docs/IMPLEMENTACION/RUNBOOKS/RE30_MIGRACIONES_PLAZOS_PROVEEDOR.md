@@ -191,12 +191,11 @@ no depende de ella (sólo toca `identity.role_permissions`), pero el orden del r
 - Ledger `public.knex_migrations`: ninguna de las 4 aplicada, ni con el nombre viejo; `identity.knex_migrations`
   sin filas del 29-sep; `knex_migrations_lock.is_locked = 0`. `check-migration-collisions` y
   `check-applied-migrations` contra prod: verdes.
-- ⚠️ **Prod tiene 6 migraciones registradas que NO están en `main`** (otra sesión, precios, batches 616–621):
-  `20260930220000_price_signals_v4_arbitro`, `…220100_price_signal_registry_a4`, `…230000_analytics_price_action`,
-  `…230100_price_action_unidades`, `…230200_price_action_umbral`, `…240000_grant_margin_engine_perm`. Si al
-  aplicar desde `prod-api` knex dice *«migration directory is corrupt»*, hay que copiar ESOS archivos al
-  contenedor también (ya aplicados: knex no los corre, sólo necesita verlos — cabecera de
-  `apply-one-migration-prod.js`). No son de este PR.
+- Prod vs `main` (re-medido tras el rebase, 950 filas, batch máx. 628): **0 migraciones aplicadas sin archivo en
+  `main`**. (Horas antes eran 6 de precios, batches 616–621; ya entraron a `main`.) Si al aplicar desde `prod-api`
+  knex dice *«migration directory is corrupt»*, es que la IMAGEN del contenedor es de un commit viejo: hay que
+  copiarle los archivos que el error nombra (ya aplicados: knex no los corre, sólo necesita verlos — cabecera
+  de `apply-one-migration-prod.js`).
 - **180050:** las 6 columnas y los 3 CHECK no existen; nombres de constraint e índice libres; `credit_days`
   = 25 de 1,318 con valor, rango 8–30 → los CHECK validan sin fallar. `UNIQUE (tenant_id, id)` existe para el FK.
 - **180100:** los 4 roles tienen 1 fila cada uno y ninguno tiene todavía `COMPRAS_OBLIGACIONES_*`.
