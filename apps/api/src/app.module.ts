@@ -54,12 +54,9 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
-// [CE.2] DESCABLEADO 2026-09-30. El modulo NO esta commiteado: vive sin trackear en el arbol de
-// trabajo compartido, y `libs/commercial/src/index.ts` tampoco lo exporta en main. El import
-// compilaba en local (donde los archivos existen) y rompia el build de PROD con TS2724, que dejo
-// al auto-deploy fallando cuatro veces seguidas con prod congelado. Se vuelve a cablear en el
-// MISMO commit que traiga `libs/commercial/src/lib/commercial-standard-cost/` y su export.
-// import { CommercialStandardCostModule } from '@megadulces/commercial';
+// [CE.2] Costo estandar de Kepler por producto. Recableado: el modulo y su export ya vienen
+// en ESTE commit, que es la condicion que dejo escrita el descableado de las 11:25.
+import { CommercialStandardCostModule } from '@megadulces/commercial';
 import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
@@ -67,8 +64,7 @@ import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 // [FLT] Lista de faltantes — el piso reporta la venta que NO ocurrió (ningún feed puede verla).
 import { CommercialStockoutsModule } from '@megadulces/commercial';
 // [BP] Bitácora de retiros en caja — Kepler autentica el retiro con supervisor y no lo guarda.
-// DESCABLEADO 2026-09-30 por el mismo motivo que [CE.2] arriba: el modulo no esta commiteado.
-// import { CommercialPosVoidsModule } from '@megadulces/commercial';
+import { CommercialPosVoidsModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
@@ -191,15 +187,13 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialPricingModule,
       CommercialProfitabilityModule,
       // [CE.2] Costo estandar de Kepler por producto (solo lectura sobre analytics).
-      // Descableado: ver la nota del import.
-      // CommercialStandardCostModule,
+      CommercialStandardCostModule,
       CommercialCommissionsModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
       CommercialStockoutsModule,
-      // Descableado: ver la nota del import.
-      // CommercialPosVoidsModule,
+      CommercialPosVoidsModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
       CommercialHomeDeliveryModule,
