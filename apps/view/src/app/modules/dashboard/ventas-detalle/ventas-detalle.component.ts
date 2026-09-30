@@ -164,9 +164,11 @@ export class VentasDetalleComponent implements OnInit {
   readonly chartMetricOptions = [
     { label: 'Venta $', value: 'revenue' as const },
     { label: 'Tickets', value: 'tickets' as const },
-    { label: 'Unidades', value: 'units' as const },
+    // `[AUD-DAT.21]` Decia «Unidades» y graficaba `count(*)` de renglones. La fuente por rango
+    // no tiene cantidad vendida, asi que la serie se rotula por lo que de verdad cuenta.
+    { label: 'Renglones', value: 'lines' as const },
   ];
-  readonly chartMetric = signal<'revenue' | 'tickets' | 'units'>('revenue');
+  readonly chartMetric = signal<'revenue' | 'tickets' | 'lines'>('revenue');
 
   // ── Estado de Datos ───────────────────────────────────────────────────
   readonly loading = signal<boolean>(true);
@@ -250,7 +252,7 @@ export class VentasDetalleComponent implements OnInit {
     if (!rep || !rep.series.length) return { labels: [], datasets: [] };
 
     const color = this.cssVar('--action', '#F05A28');
-    const pick = (s: typeof rep.series[0]) => (m === 'revenue' ? s.revenue : m === 'tickets' ? s.tickets : s.units);
+    const pick = (s: typeof rep.series[0]) => (m === 'revenue' ? s.revenue : m === 'tickets' ? s.tickets : s.lines);
 
     return {
       labels: rep.series.map((s) => s.label),

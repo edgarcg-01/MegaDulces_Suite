@@ -269,14 +269,23 @@
       }
 
       <!-- Columna 5 -->
-      <app-metric-card
-        label="CLIENTES"
-        [value]="r.kpis.customers.cur"
-        format="number"
-        [accent]="'var(--chart-7)'"
-        [delta]="r.kpis.customers.delta_pct"
-        sub="con compra en ruta en el período"
-      ></app-metric-card>
+      @if (r.kpis.customers.cur !== null) {
+        <app-metric-card
+          label="CLIENTES"
+          [value]="r.kpis.customers.cur!"
+          format="number"
+          [accent]="'var(--chart-7)'"
+          [delta]="r.kpis.customers.delta_pct"
+          sub="con compra en ruta en el período"
+        ></app-metric-card>
+      } @else {
+        <app-metric-card
+          label="CLIENTES"
+          format="text"
+          [accent]="'var(--chart-7)'"
+          sub="la fuente no cuenta clientes por rango"
+        ></app-metric-card>
+      }
       @if (r.kpis.revenue_per_customer.cur !== null) {
         <app-metric-card
           label="VENTA POR CLIENTE"
@@ -369,13 +378,13 @@
             </div>
             <div class="tf-cm-item">
               <span class="tf-cm-lbl">Unidades</span>
-              <span class="tf-cm-val">{{ num(r.channels.rd.units) }}</span>
+              <span class="tf-cm-val">{{ num(r.channels.rd.lines) }}</span>
               <span class="tf-cm-sub">piezas/kg</span>
             </div>
             <div class="tf-cm-item">
               <span class="tf-cm-lbl">Margen</span>
-              <span class="tf-cm-val">{{ money(r.channels.rd.margin) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.rd.margin_pct }}% margen</span>
+              <span class="tf-cm-val">{{ r.channels.rd.margin === null ? '—' : money(r.channels.rd.margin!) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.rd.margin_pct === null ? 'el costo no está en la fuente' : r.channels.rd.margin_pct + '% de la venta con costo' }}</span>
             </div>
           </div>
         </div>
@@ -411,13 +420,13 @@
             </div>
             <div class="tf-cm-item">
               <span class="tf-cm-lbl">Unidades</span>
-              <span class="tf-cm-val">{{ num(r.channels.vecinal.units) }}</span>
+              <span class="tf-cm-val">{{ num(r.channels.vecinal.lines) }}</span>
               <span class="tf-cm-sub">piezas/kg</span>
             </div>
             <div class="tf-cm-item">
               <span class="tf-cm-lbl">Margen</span>
-              <span class="tf-cm-val">{{ money(r.channels.vecinal.margin) }}</span>
-              <span class="tf-cm-sub">{{ r.channels.vecinal.margin_pct }}% margen</span>
+              <span class="tf-cm-val">{{ r.channels.vecinal.margin === null ? '—' : money(r.channels.vecinal.margin!) }}</span>
+              <span class="tf-cm-sub">{{ r.channels.vecinal.margin_pct === null ? 'el costo no está en la fuente' : r.channels.vecinal.margin_pct + '% de la venta con costo' }}</span>
             </div>
           </div>
         </div>
@@ -449,8 +458,8 @@
                 <td class="ta-r strong text-brand">{{ money(b.revenue) }}</td>
                 <td class="ta-r">{{ num(b.tickets) }}</td>
                 <td class="ta-r">{{ b.tickets > 0 ? money(b.avg_ticket) : '—' }}</td>
-                <td class="ta-r tf-muted">{{ money(b.margin) }}</td>
-                <td class="ta-r">{{ num(b.units) }}</td>
+                <td class="ta-r tf-muted">{{ b.margin === null ? '—' : money(b.margin!) }}</td>
+                <td class="ta-r">{{ num(b.lines) }}</td>
               </tr>
             </ng-template>
           </p-table>
@@ -537,8 +546,8 @@
               <td class="ta-r tabular-nums">{{ money(rt.avg_ticket) }}</td>
               <td class="ta-r tabular-nums">{{ numDec(rt.basket, 1) }}</td>
               <td class="ta-r tabular-nums tf-muted">
-                {{ money(rt.margin) }}
-                <span class="text-[10px] block text-content-faint">{{ rt.margin_pct }}%</span>
+                {{ rt.margin === null ? '—' : money(rt.margin!) }}
+                <span class="text-[10px] block text-content-faint">{{ rt.margin_pct === null ? 'sin costo' : rt.margin_pct + '%' }}</span>
               </td>
               <td class="ta-c">
                 <button
@@ -620,7 +629,7 @@
                   {{ p.canal_predominante === 'rd' ? 'Ruta Directa' : p.canal_predominante === 'vecinal' ? 'Preventa' : 'Mixto' }}
                 </span>
               </td>
-              <td class="ta-r tabular-nums">{{ num(p.units) }}</td>
+              <td class="ta-r tabular-nums">{{ num(p.lines) }}</td>
               <td class="ta-r tabular-nums font-bold text-brand">{{ money(p.revenue) }}</td>
               <td class="ta-r tabular-nums">{{ moneyDec(p.avg_price) }}</td>
               <td class="ta-r tabular-nums font-semibold">{{ p.share_pct }}%</td>
