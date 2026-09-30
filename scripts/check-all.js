@@ -87,6 +87,12 @@ const COMPUERTAS = [
   // un `migrate:latest` fresco. Patrón que ya cobró cuatro veces (#122/#128/#133/#138). Sólo toca
   // la red (prod) si el diff modifica algún archivo de migración; si no, sale verde sin conectar.
   { nombre: 'migrations', cmd: 'node database/scripts/check-applied-migrations.js', que: 'no se edita una migración ya aplicada en prod (llega a fresh, no a prod)' },
+  // Knex ordena por NOMBRE COMPLETO, no por el timestamp: dos migraciones con el mismo prefijo se
+  // aplican en orden alfabético, o sea al azar respecto de la intención. Con ~10 sesiones poniendo
+  // el timestamp a mano no es teórico — medido el 2026-09-30: `20260930120000` con CINCO archivos.
+  // Sólo marca lo que TODAVÍA se puede renombrar: un archivo ya en main o ya aplicado en prod está
+  // congelado, y renombrarlo deja el ledger apuntando a un archivo inexistente.
+  { nombre: 'mig-colisiones', cmd: 'node scripts/check-migration-collisions.js', que: 'dos migraciones no comparten timestamp (knex las ordena por nombre, no por fecha)' },
   // [ODS.1] Una lista de sucursales escrita a mano falla HACIA ABAJO y en silencio: el proceso
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
   // que no mira no puede faltarle nada. Ya cobró dos veces (Morelia fuera de `mv_sales_blended`
