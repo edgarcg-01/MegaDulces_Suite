@@ -32,8 +32,20 @@ export interface MargenObjetivo {
   min_motivo: string | null;
 }
 
-/** El valor que había clavado en el código antes de esta tabla. Se conserva como red, DECLARADO. */
-export const MARGIN_TARGET_FALLBACK = 15;
+/**
+ * La última red, para cuando no hay tabla ni fila. **Nunca debería usarse en prod** — y por eso
+ * `target_source` lo delata (`hardcoded_fallback_sin_tabla` / `_sin_fila`).
+ *
+ * ⭐ `[PR.E0d]`: era **15**, que no salía de ningún lado — la constante que estaba clavada en
+ * tres archivos. Hoy es la política que Kepler ya aplica, ponderada por el peldaño que de verdad
+ * se vende: **11.55 %**, medido sobre $86 M de venta de 90 días con 99.74 % de pareo, y validado
+ * contra un testigo independiente (el margen que el negocio reporta, ~11.5 %).
+ *
+ * ⛔ Con 15 acá, un destino sin la tabla publicaría una meta **3.5 pp alta** y haría ver bajo
+ * meta a un catálogo que está en meta. El número vive en la fila default de
+ * `commercial.margin_targets`, que el test re-mide contra Kepler; esto es sólo el piso.
+ */
+export const MARGIN_TARGET_FALLBACK = 11.55;
 
 /**
  * Resuelve la meta con la cascada **producto > categoría > proveedor > default**.
