@@ -65,6 +65,15 @@ const APP_SOURCES: SourceCfg[] = [
   // que además se refresca cada 15-30 min, no nightly.
   { key: 'in_transit',      label: 'Pedido (demanda/stock/OC)', table: 'analytics.replenishment_plan', tsCandidates: ['computed_at', 'updated_at'], warnH: 6,   critH: 14,  cadence: 'cada 15-30 min' },
   { key: 'sales_stats',     label: 'Sell-out ABC',            table: 'analytics.product_sales_stats',  tsCandidates: ['computed_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
+  // `[CGU.6]` Gasto contable — la fuente del costo logístico por guía (`/logistica/costs`).
+  // ⛔ Estaba SIN VIGILAR: `grep expense_entries db-health.service.ts` daba **0** hasta hoy,
+  // mientras el resto de los facts sí tenían sonda. Lo único que la cubría era el latido de
+  // `feed_nightly`, que es del LOTE entero: si este importer falla y los otros doce pasan, el
+  // tablero queda verde.
+  // ⭐ Y el modo de falla no es que la pantalla se vea vacía, es peor: el costo llega **$0**,
+  // el margen sale completo y el ROI se ve EXCELENTE. Una pantalla de rentabilidad que se pone
+  // optimista cuando se le corta la fuente es justo lo que no puede pasar.
+  { key: 'expense_entries', label: 'Gasto contable (costo logístico)', table: 'analytics.expense_entries', tsCandidates: ['computed_at'], warnH: 30, critH: 54, cadence: 'nightly (import-expenses-polizas)' },
   // Blend consolidado (Kepler+Wincaja+rutas del ODS) = fuente de los KPIs `network*` del Command Center.
   // ⚠️ CUELGA de `mv_kepler_sales_daily`: un `DROP … CASCADE` de ese matview la mata en silencio — pasó
   // el 2026-09-08 (una migración de canal la dropeó de colateral y no la recreó) y el Command Center leyó
@@ -380,6 +389,26 @@ const APP_SOURCES: SourceCfg[] = [
     warnH: 30, critH: 50, cadence: 'nightly (reconcile-route-provenance on-prem)',
   },
   // Venta consolidada (Kepler + Wincaja) por FECHA de venta — que el dato avance día a día.
+  {
+    // `[CGU.6]` El gasto logístico POR FECHA DE PÓLIZA — que el dato AVANCE, no sólo que el
+    // proceso corra. Son dos preguntas distintas y la de arriba no contesta ésta: un importer
+    // que corre y no trae nada refresca `computed_at` igual, y el sensor de proceso lo ve
+    // fresco. Acotado a las cuentas logísticas (602/604/606/611) a propósito: el resto del
+    // gasto puede estar al día y el de transporte parado, y el agregado lo escondería — la
+    // misma lección que obligó a la sonda de Wincaja POR-ALMACÉN.
+    key: 'expense_log_date', label: 'Gasto logístico — último día con dato',
+    table: 'analytics.expense_entries', tsCandidates: [],
+    sql: `SELECT max(fecha)::timestamp AS last_update,
+                 'último gasto de transporte ' || coalesce(to_char(max(fecha),'DD/MM'),'—') AS note_extra
+            FROM analytics.expense_entries
+           WHERE left(cuenta,3) IN ('602','604','606','611')
+             AND fecha BETWEEN CURRENT_DATE - 60 AND CURRENT_DATE`,
+    // Umbrales MEDIDOS, no supuestos (prod, 180 días): entre dos días con póliza de transporte
+    // el hueco máximo es de **2 días** (fin de semana), promedio 1.1, p95 2. Se pone el warn al
+    // doble del peor caso observado (4 d) para que un puente largo no grite en falso, y el crit
+    // a 7 d. Un umbral apretado aquí enseñaría a ignorar el tablero, que es peor que no tenerlo.
+    warnH: 96, critH: 168, cadence: 'nightly (import-expenses-polizas)',
+  },
   {
     key: 'sales_daily_date', label: 'Ventas — último día con dato', table: 'analytics.sales_daily', tsCandidates: [],
     sql: `SELECT max(sale_date)::timestamp AS last_update,
@@ -1107,6 +1136,11 @@ const CRON_JOBS: CronCfg[] = [
   // Acá no es cosmético: /almacen/inventory/diferencias seguiría publicando el descuadre del
   // trimestre pasado, y su banda de dinero en disputa, como si fueran los de este.
   { key: 'analytics_refresh_count_variance',    label: 'Refresh MV descuadre de conteos (IC.12)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [CGU.6] La MV del costo por guia. ⚠️ El umbral sigue a la cadencia del LATIDO, no a la del
+  // refresco: la MV se refresca cada 30 min, pero ese array escribe un latido AGREGADO y la llave
+  // POR MV la escribe el loop NOCTURNO. Umbral de nocturno (26/50), no de 30 min -- con warn a 2 h
+  // esta fila estaria roja todo el dia y nadie volveria a mirar el tablero.
+  { key: 'analytics_refresh_guide_cost',        label: 'Refresh MV costo por guia (CGU.6)', cadence: 'nightly (+ cada 30 min sin latido propio)', warnH: 26, critH: 50 },
   // [UX.0] ⛔ El umbral más estrecho del tablero, y con razón: si el medidor de uso se muere, la
   // tabla deja de crecer y «0 hits» se lee EXACTAMENTE igual que «nadie usa esa pantalla». Su
   // falla produce la conclusión opuesta a la verdad, y encima sobre la herramienta con la que se

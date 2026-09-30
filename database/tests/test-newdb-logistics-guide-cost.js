@@ -137,6 +137,31 @@ function cuerpoMatview(sql) {
       Math.abs(total - origen) <= tol, `delta ${(total - origen).toFixed(2)}`);
     t('la matview NO esta vacia (trampa de RLS: una MV vacia se ve "fresca")', filas > 0);
 
+    // ── 1b. EL GRANO SOBRE TODA LA HISTORIA, no sólo la ventana ──────────────────────
+    //
+    // ⭐ Esta aserción existe por un caso REAL: la primera versión del UNIQUE no incluía
+    // `cuenta_mayor`, el candado medía agosto-2026 —donde hay CERO colisiones— y pasó en verde.
+    // Al aplicar a prod el índice no se pudo crear: sobre la historia completa hay 6 duplicados,
+    // todos del 2026-02-26, porque **el mismo concepto vive en varias cuentas contables**
+    // (`VIATICOS ENTREGA CLIENTES` está en 611, 602 y 608).
+    // *Probar un mes no prueba la historia.* Si la matview está aplicada, se mide contra ella.
+    const [{ hay_mv }] = (await knex.raw(
+      `SELECT to_regclass('analytics.mv_logistics_guide_cost') IS NOT NULL AS hay_mv`)).rows;
+    if (!hay_mv) {
+      noMedido('grano sobre la historia completa', 'la matview no esta aplicada en esta base');
+    } else {
+      const [{ dup_hist, filas_hist }] = (await knex.raw(`
+        SELECT (SELECT count(*)::int FROM (
+                  SELECT 1 FROM analytics.mv_logistics_guide_cost
+                   GROUP BY tenant_id, dia, sucursal, guia, canal, concepto, cuenta_mayor,
+                            fuente, ventana
+                  HAVING count(*) > 1) x) AS dup_hist,
+               (SELECT count(*)::int FROM analytics.mv_logistics_guide_cost) AS filas_hist`)).rows;
+      t(`el grano es unico en TODA la historia (${filas_hist} filas materializadas)`,
+        Number(dup_hist) === 0, `${dup_hist} colisiones`);
+      t('la matview materializada tiene filas', Number(filas_hist) > 0);
+    }
+
     // ── 2. NO duplica ─────────────────────────────────────────────────────────────────
     const [{ dup }] = (await knex.raw(`
       SELECT count(*)::int dup FROM (

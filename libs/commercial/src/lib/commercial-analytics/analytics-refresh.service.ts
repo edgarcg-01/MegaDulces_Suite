@@ -87,6 +87,15 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // nadie que la escriba = rojo permanente, que entrena a ignorar el tablero igual que un verde
   // falso. El precio de dejarla en los dos lados es UN refresco redundante de 9 s al día.
   { name: 'analytics.mv_unit_truth', everyMin: 30 },
+  // [CGU.6] Costo logistico atribuido por guia de embarque (`/logistica/costs`).
+  // `everyMin: 30` MEDIDO, no elegido de oido: el `REFRESH CONCURRENTLY` tarda **7.2 s** sobre
+  // 108,221 filas / 57 MB. Y va cada 30 min y no nocturna a proposito: **el embarque es dato del
+  // dia en curso** -- quien abre esta pantalla quiere ver los viajes de hoy, y una MV nocturna le
+  // sacaria justo el dia que mas mira. Mismo criterio que mv_rd_route_daily_200d.
+  // ⚠️ Su umbral esta en `CRON_JOBS` (`analytics_refresh_guide_cost`): sin esa fila el sensor cae
+  // en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y parada no vacia la pantalla:
+  // la deja publicando el costo de hace dias como si fuera el de hoy.
+  { name: 'analytics.mv_logistics_guide_cost', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
@@ -234,6 +243,16 @@ export class AnalyticsRefreshService {
       // no es cosmético: cuando envejece, un producto cuya unidad base cambió sigue publicándose
       // con la anterior, y la unidad es justo lo que ADR-057 existe para no adivinar.
       ['analytics.mv_unit_truth', 'analytics_refresh_unit_truth', 'Refresh MV verdad de unidad (nightly)', []],
+      // [CGU.6] Costo logistico atribuido por guia. `deps` vacio: deriva de dos vistas que salen
+      // de `expense_entries` y del ODS, no de otra MV.
+      // ⚠️ Esta ADEMAS en el array de 30 min, y esa duplicidad es el punto: el embarque es dato
+      // del dia en curso, asi que necesita refrescarse seguido, pero aquel array escribe UN latido
+      // AGREGADO (`analytics_refresh`) y el umbral `analytics_refresh_guide_cost` quedaria
+      // registrado sin nadie que lo escriba = ROJO permanente, que entrena a ignorar el tablero
+      // igual que un verde falso. El loop nocturno es el unico que lleva llave POR MV. Precio: un
+      // refresco redundante de 7.2 s al dia. Mismo arreglo que `mv_unit_truth`.
+      ['analytics.mv_logistics_guide_cost', 'analytics_refresh_guide_cost',
+        'Refresh MV costo por guia (nightly)', []],
       // [SD-PAY] Condición de pago (credito/contado) por canal. `deps` vacío: deriva directo del ODS
       // (kdm1 header total c16 + kdud días c16). Aditiva — no la lee el linaje principal. ⚠️ Su umbral
       // vive en `CRON_JOBS` (`analytics_refresh_payment_terms`): sin eso el sensor cae en `cfg ? classify : 'ok'`

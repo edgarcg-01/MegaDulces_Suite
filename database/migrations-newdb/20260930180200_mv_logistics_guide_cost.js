@@ -230,12 +230,23 @@ exports.up = async function up(knex) {
     WHERE COALESCE(t.paradas, 0) = 0
   `);
 
-  // UNIQUE para REFRESH CONCURRENTLY. `fuente` y `ventana` van en el grano: un mismo concepto
-  // puede llegar por las dos vias (departamento propio y reparto de otros) y en las dos ventanas.
+  // UNIQUE para REFRESH CONCURRENTLY. `fuente` y `ventana` van en el grano porque un mismo
+  // concepto puede llegar por las dos vias (departamento propio y reparto de otros) y en las
+  // dos ventanas.
+  //
+  // ⭐ Y `cuenta_mayor` TAMBIEN, por un caso que un mes de prueba no muestra: **el mismo concepto
+  // vive en varias cuentas contables**. `VIATICOS ENTREGA CLIENTES` aparece en `611` (viaticos y
+  // comisiones), `602` (viaticos logistica) y `608` (viaticos administrativos), asi que el bucket
+  // -que agrupa por cuenta- produce dos filas para la misma guia y el mismo concepto. Sin la
+  // cuenta en la llave, el indice no se puede crear.
+  //
+  // ⚠️ **Se descubrio al aplicar a prod, no al probar.** El candado media agosto-2026 y ahi hay
+  // CERO colisiones; sobre la historia completa son 6, todas del 2026-02-26 en la sucursal 02.
+  // *Probar un mes no prueba la historia* -- por eso el candado ahora mide las dos ventanas.
   await knex.raw(`
     CREATE UNIQUE INDEX ux_mv_logistics_guide_cost
       ON analytics.mv_logistics_guide_cost
-         (tenant_id, dia, sucursal, guia, canal, concepto, fuente, ventana)
+         (tenant_id, dia, sucursal, guia, canal, concepto, cuenta_mayor, fuente, ventana)
   `);
   await knex.raw(`
     CREATE INDEX ix_mv_logistics_guide_cost_dia
