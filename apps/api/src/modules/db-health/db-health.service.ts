@@ -888,6 +888,10 @@ const CRON_JOBS: CronCfg[] = [
   // [CC.10] Sin este renglón el latido de `cobranza_gap` no sirve de nada: el sensor caería en
   // `cfg ? classify : 'ok'` y un cron parado se vería verde. Van juntos, siempre.
   { key: 'cobranza_gap',        label: 'Brecha banco↔cobro (abonos sin ligar)', cadence: 'diario 07:45 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [CG.25] Sin este renglón el latido de `caja_fecha_futura` no sirve: el sensor caería en el
+  // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
+  // este job existe para no repetir.
+  { key: 'caja_fecha_futura',   label: 'Caja: movimientos fechados adelante', cadence: 'diario 07:15 MX', warnH: 26, critH: 50, maxRunH: 1 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   // ── [NORM.3] EL CARRIL QUE ERA MUDO ─────────────────────────────────────────────────────────

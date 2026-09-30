@@ -3,10 +3,14 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { PushDirectivesService } from './push-directives.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
+import { resolveMarginTarget } from '../shared/margin-target';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SEV_WEIGHT: Record<string, number> = { info: 1, warn: 2, critical: 3 };
-const MARGIN_TARGET_PCT = 15; // objetivo de margen al estimar el uplift de review_price
+// [PR.E0b] la constante se retiro: la meta sale de commercial.margin_targets via
+// resolveMarginTarget(). Se resuelve UNA vez por corrida y baja por parametro — ni
+// estado mutable en el servicio (es singleton y se pisaria entre peticiones concurrentes)
+// ni una consulta por finding.
 const num = (v: any, d = 0) => (v != null && !isNaN(Number(v)) ? Number(v) : d);
 const round3 = (x: number) => Math.round(x * 1000) / 1000;
 
@@ -103,19 +107,19 @@ export class CommercialActionsService {
   }
 
   /** Impacto $ desde la evidencia de un finding atómico (per-unidad para margen). */
-  private impactForFinding(f: any): { kind: string; value: number; basis: string } | null {
+  private impactForFinding(f: any, metaPct: number): { kind: string; value: number; basis: string } | null {
     if (f.finding_type !== 'margin_laggard') return null;
     const e = parseEvidence(f.evidence);
     const price = num(e.price);
     const marginPct = num(e.margin_pct);
     if (price <= 0) return null;
-    const uplift = ((MARGIN_TARGET_PCT - marginPct) / 100) * price;
+    const uplift = ((metaPct - marginPct) / 100) * price;
     if (uplift <= 0) return null;
     return { kind: 'per_unit_margin_uplift_mxn', value: Math.round(uplift * 100) / 100, basis: 'evidence' };
   }
 
   /** Impacto $ de un diagnóstico desde sus findings bundleados (uplift mensual de margen). */
-  private impactForDiagnosis(d: any, byId: Map<string, any>): { kind: string; value: number; basis: string } | null {
+  private impactForDiagnosis(d: any, byId: Map<string, any>, metaPct: number): { kind: string; value: number; basis: string } | null {
     if (d.root_cause !== 'unprofitable_deadweight') return null;
     const fids = parseArray(d.finding_ids);
     let price = 0;
@@ -138,7 +142,7 @@ export class CommercialActionsService {
       }
     }
     if (!hasMargin || price <= 0) return null;
-    const perUnit = ((MARGIN_TARGET_PCT - marginPct) / 100) * price;
+    const perUnit = ((metaPct - marginPct) / 100) * price;
     if (perUnit <= 0) return null;
     // dead-stock: unidades ~0 → el impacto real es liberar capital, no margen mensual.
     const monthly = hasUnits ? perUnit * units : 0;
@@ -158,6 +162,8 @@ export class CommercialActionsService {
     // (no anidar tk.run).
     const confMap = await this.calibration.getConfidence();
     return this.tk.run(async (trx) => {
+      // [PR.E0b] UNA sola resolucion por corrida, dentro de la transaccion (tk.run no se anida).
+      const { target: metaPct } = await resolveMarginTarget(trx);
       const diagnoses = await trx('commercial.commercial_diagnoses')
         .where({ status: 'open' })
         .select('id', 'root_cause', 'severity', 'subject_type', 'subject_id', 'label', 'confidence', 'summary', 'finding_ids', 'finding_types');
@@ -179,7 +185,7 @@ export class CommercialActionsService {
         const l2vals = types.length ? types.map((t: string) => confMap.get(t) ?? 0.6) : [0.6];
         const l2avg = l2vals.reduce((a, b) => a + b, 0) / l2vals.length;
         const conf = round3(((d.confidence != null ? Number(d.confidence) : 0.6) + l2avg) / 2);
-        const impact = this.impactForDiagnosis(d, byId);
+        const impact = this.impactForDiagnosis(d, byId, metaPct);
         actions.push({
           tenant_id: trx.raw('public.current_tenant_id()'),
           finding_id: null,
@@ -208,7 +214,7 @@ export class CommercialActionsService {
         const actionType = ACTION_FOR[f.finding_type];
         if (!actionType) continue;
         const conf = confMap.get(f.finding_type) ?? 0.6; // T.L2: precisión aprendida
-        const impact = this.impactForFinding(f);
+        const impact = this.impactForFinding(f, metaPct);
         actions.push({
           tenant_id: trx.raw('public.current_tenant_id()'),
           finding_id: f.id,

@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
+import { resolveMarginTarget, MARGIN_TARGET_FALLBACK } from '../shared/margin-target';
 
 /**
  * [SD.3] Fuente del hecho de venta — migrada del linaje IMPERATIVO al DERIVADO del ODS.
@@ -77,7 +79,7 @@ const WINDOWS: Record<MarginWindow, { days: number }> = {
 /**
  * [MR.8.5b] Las ventanas que `analytics.mv_profitability_sales_agg` tiene **materializadas**.
  *
- * ⛔ Espejo EXPLÍCITO de la lista de la migración `20260929140000`, y a propósito **no** se
+ * ⛔ Espejo EXPLÍCITO de la lista de la migración `20260929170000`, y a propósito **no** se
  * deriva de `WINDOWS`. Derivarlo invertiría el modo de falla: agregar una ventana a `WINDOWS`
  * sin materializarla haría que `salesAgg` consultara el rollup por un `window_days` que no
  * existe y devolviera **cero filas** — una pantalla en blanco que se lee como "no hubo venta".
@@ -186,9 +188,15 @@ export class CommercialProfitabilityService {
     return WINDOWS[w as MarginWindow] ?? WINDOWS['30d'];
   }
 
-  private target(t?: number) {
-    const n = Number(t);
-    return Number.isFinite(n) && n > 0 && n < 100 ? n : 15;
+  /**
+   * `[PR.E0b]` La meta sale de `commercial.margin_targets`, no de una constante.
+   *
+   * ⛔ El resolvedor NO vive acá: vive en `../shared/margin-target.ts` porque
+   * `commercial-intelligence` también lo necesita, y un primitivo con dos implementaciones
+   * diverge (ADR-059 R6). Este método es sólo el puente al helper único.
+   */
+  private resolveTarget(trx: Knex, explicito?: number) {
+    return resolveMarginTarget(trx, explicito);
   }
 
   /**
@@ -625,9 +633,11 @@ export class CommercialProfitabilityService {
   /** Resumen: la respuesta a "dónde estamos" antes de cualquier drill-down. */
   async overview(opts: { window?: MarginWindow; target?: number } = {}) {
     const w = this.win(opts.window);
-    const target = this.target(opts.target);
 
     return this.tk.run(async (trx) => {
+      // [PR.E0b] La meta sale de commercial.margin_targets. Se resuelve DENTRO de la
+      // transacción porque `tk.run` no se anida (RLS forzada: la tabla no se lee fuera).
+      const { target, target_source, target_locked } = await this.resolveTarget(trx, opts.target);
       const [tot] = await this.baseSql(trx, w.days).select(
         trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue_all'),
         trx.raw('COALESCE(SUM(s.revenue_costed), 0)::numeric AS revenue'),
@@ -858,6 +868,13 @@ export class CommercialProfitabilityService {
       return {
         window: opts.window ?? '30d',
         target,
+        /**
+         * [PR.E0b] ⭐ De dónde salió la meta. Un default MEDIDO no es un default AUTORIZADO:
+         * `default_medido` = "así se opera hoy, nadie lo firmó"; `manual` = Dirección lo fijó;
+         * `hardcoded_fallback_*` = la migración 20260929170000 no está aplicada en este destino.
+         */
+        target_source,
+        target_locked,
         revenue,
         cost,
         margin_amount: marginAmount,
@@ -1041,7 +1058,9 @@ export class CommercialProfitabilityService {
    */
   async breakdown(opts: BreakdownOpts = {}) {
     const w = this.win(opts.window);
-    const target = this.target(opts.target);
+    // [PR.E0b] valor de arranque; el `tk.run` de más abajo lo reasigna desde la tabla.
+    // Se usa la constante DECLARADA del resolvedor único, no un 15 suelto.
+    let target = MARGIN_TARGET_FALLBACK;
     // Default SKU: el producto es la unidad que se mira, los agregados son el resumen.
     const level: MarginLevel = (
       ['supplier', 'brand', 'category', 'sku', 'warehouse', 'channel'] as const
@@ -1102,6 +1121,8 @@ export class CommercialProfitabilityService {
       : 'COALESCE(SUM(stk.value), 0)::numeric AS inventory_value';
 
     return this.tk.run(async (trx) => {
+      // [PR.E0b] la meta sale de commercial.margin_targets (no se anida tk.run).
+      ({ target } = await this.resolveTarget(trx, opts.target));
       const build = () => {
         let q = this.baseSql(trx, w.days, scope)
           .leftJoin({ sup: 'catalog.suppliers' }, function (this: any) {
@@ -1394,9 +1415,10 @@ export class CommercialProfitabilityService {
   async supplierLevers(supplierId: string, opts: { window?: MarginWindow; target?: number } = {}) {
     if (!UUID_REGEX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
     const w = this.win(opts.window);
-    const target = this.target(opts.target);
 
     return this.tk.run(async (trx) => {
+      // [PR.E0b] la meta sale de la tabla, no de la constante.
+      const { target } = await this.resolveTarget(trx, opts.target);
       const sup = await trx('catalog.suppliers')
         .where({ id: supplierId })
         .first('id', 'code', 'name', 'credit_days', 'lead_time_days', 'min_order_boxes');
