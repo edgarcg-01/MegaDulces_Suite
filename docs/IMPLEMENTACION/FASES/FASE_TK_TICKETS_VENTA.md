@@ -406,3 +406,81 @@ negativa es una intención.
 - **Validación visual** de la tabla con impuesto desglosado y de los tres papeles.
 - ⛔ **`[TK.a1]` y `[TK.a2]` de §7 siguen abiertos** y pesan más que este lote: la lista de
   candidatos sale mutilada en TODA búsqueda y «lo más reciente» ordena por día de la semana.
+
+## 9. TK.12 + TK.13 — Bandeja por filtros, y el desglose que se le entrega al cliente (2026-09-30)
+
+### 9.1 `[TK.12]` La bandeja
+
+La pantalla sólo sabía responder «dame ESTE folio». Ahora arranca mostrando lo que existe: sucursal
+(las del alcance del usuario) · rango de fechas (hoy, en México) · cliente (maestro de Kepler), y un
+buscador que afina dentro por folio, clave o nombre. Mismos tres universos y la misma fila que
+`buscar()`, para que el panel de detalle no se entere de por dónde llegó el `id`.
+
+⚠️ **Sin `ORDER BY` en el ERP, y por eso el tope se declara.** El orden lo da el JS; si un canal llega
+a 1,000 filas la respuesta dice `truncado` y el aviso lo pone en palabras: la lista no está completa
+**y ni siquiera se puede afirmar que sean las más recientes**. El rango se topa en 31 días.
+
+⭐ **Medido contra prod en la revisión del PR #193** (sólo lectura):
+
+    mostrador  1 día 37 ms · 7 días 31 ms · 31 días 39 ms
+    facturas   1 día  7 ms · 7 días 38 ms · 31 días 42 ms
+
+La velocidad no era el problema: **el tope sí**. Mostrador son 82,456 documentos en 31 días y 8
+plazas = **2,660/día** (se había estimado 2,100) y el día más cargado, 4,038. Con 1,000 por canal el
+filtro POR DEFECTO ya salía truncado (~25% del día), y un aviso que sale siempre deja de leerse. El
+mismo día de 4,038: `limit 1,001` 41 ms · `3,001` 104 ms · `6,001` **153 ms** (el día entero) →
+**tope a 5,000**. El calendario ya no deja elegir más de 31 días; si se teclea, se recorre la otra
+punta en vez de devolver un 400.
+
+Dos sospechas de la revisión que **quedaron refutadas**, para que nadie las reconstruya: la columna
+`fecha` de las dos vistas es `date` en prod (el `whereBetween` no recorta el último día), y
+`unaccent()` sin calificar resuelve con el rol real de la app (su `search_path` arranca en
+`identity`).
+
+### 9.2 `[TK.a1]`/`[TK.a2]` cerrados de paso
+
+La bandeja nació con `to_char` y el buscador por folio —al que la bandeja manda cuando no encuentra
+algo en el rango— heredaba los dos defectos de §7.1/§7.2. Tres `select` pasan a texto.
+
+### 9.3 `[TK.13]` El desglose
+
+Pedido explícito: *«el cliente que tiene descuentos que los desglose y que, una vez conocido el precio
+neto, se le desglosen los impuestos, en cada partida y al total»*. Reemplaza el formato de TK.11
+(cinco columnas, impuestos al pie).
+
+    lista − descuento = precio c/desc   →   sin impuestos + IVA/IEPS = neto
+
+- **El descuento de cliente se reparte en la partida** con el mismo `factor` (total ÷ Σ renglones)
+  que `armar()` ya usaba para el impuesto, así el IVA/IEPS sale del precio YA descontado y todas las
+  columnas suman al documento. El importe es el MEDIDO, nunca `kdm1.c13` (§8, TK.d3b).
+- **La cifra exacta es la de partida.** Se redondea una vez y el residuo se carga a la partida mayor
+  → Σ neto = total **al centavo**. La unitaria se deriva (÷ cantidad) y se cierra en su propio
+  renglón (el impuesto unitario es lo que falta de `sin_impuestos` a `neto`).
+- **Carta y pantalla** (acomodo marcado por el usuario sobre el PDF): renglón del producto con
+  «VALOR UNITARIO» y **sin neto**; renglón «Total partida · PZA × 4» con el neto; con una pieza, un
+  solo renglón «PZA × 1» con su neto. Columnas de descuento, IVA e IEPS sólo si el documento las
+  trae. Reimpresión con fecha y hora bajo el título.
+- **Rollo de 80 mm** (maqueta «C» elegida por el usuario): nombre · código / `c/u` / sus impuestos /
+  la partida entera a la derecha / sus impuestos 12 mm antes del borde (8 caracteres a 1.5875 mm).
+  Encabezado: MEGA DULCES · razón social de `fiscal.issuer_config` · sucursal · REIMPRESIÓN con
+  hora de México. La marca de reimpresión **vuelve** (TK.5 la había quitado del papel).
+- **Respaldo**: si un documento no trae `desglose` (API anterior, o un fixture a mano) los dos
+  papeles lo derivan de los campos que ya existían; el derivado no puede repartir el descuento de
+  cliente y sólo muestra el de producto.
+
+### 9.4 Verificación
+
+- 282 documentos del seed (`database/scripts/dev-seed-tickets-bandeja.js`: IVA 16%, IEPS 8%,
+  descuento de cliente 3/5/10%) cuadran partida por partida y contra el total, por HTTP.
+- PDF y rollo leídos a ojo con un ticket que trae descuento de producto, de cliente, IVA e IEPS.
+- Specs: `ticket-desglose` (con prueba negativa del residuo), `ticket-carta-desglose` (con prueba
+  negativa del neto vacío), `bandeja-tickets` (rango), `ticket-venta` (acomodo y sangría exacta de 8).
+  Los de TK.d1/TK.d2 siguen verdes; la paridad de TK.d1 se ajustó al formato nuevo sin aflojar su
+  candado (un encabezado por columna).
+- Se retiran `ticket-carta-neto.spec.ts` y `ticket-venta-neto.spec.ts`: probaban las columnas «Neto»
+  que este formato sustituye.
+
+### 9.5 Pendiente
+
+- Validación visual en el navegador real de la carta y el rollo impresos (papel).
+- Redeploy `api` + `view` (sin migraciones ni permisos nuevos → sin re-login).

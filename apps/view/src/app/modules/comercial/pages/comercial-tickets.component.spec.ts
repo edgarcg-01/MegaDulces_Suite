@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import { ComercialTicketsComponent } from './comercial-tickets.component';
+import { ComercialTicketsComponent, sumarDias } from './comercial-tickets.component';
 import type { TicketVenta, TicketVentaLinea, TicketVentaCascada } from '../ticket-venta';
 import type { TicketCandidato } from '../tickets.service';
 
@@ -95,15 +95,20 @@ describe('ComercialTicketsComponent', () => {
   };
 
   describe('[TK.d1] la tabla de partidas', () => {
+    /**
+     * `[TK.13]` Cambió el formato de la tabla (pedido del usuario): lista − descuento = c/desc →
+     * sin impuestos + IVA/IEPS = neto, y cada impuesto sale sólo si el documento lo causa. Lo que
+     * este candado protege NO cambió: un encabezado por columna, en el orden en que el cuerpo las
+     * emite. El documento de prueba sólo trae IVA, así que IEPS no debe aparecer.
+     */
     it('con impuesto desglosado hay un encabezado por columna', () => {
       const { ths, tds, texto } = tabla();
       expect(tds.length).toBeGreaterThan(0);
       expect(ths.length).toBe(tds.length);
-      // Y los dos que faltaban están, en el orden en que el cuerpo los emite.
-      expect(texto).toContain('IEPS');
       expect(texto).toContain('IVA');
-      expect(texto.indexOf('IEPS')).toBeLessThan(texto.indexOf('IVA'));
-      expect(texto.at(-1)).toBe('Importe');
+      expect(texto).not.toContain('IEPS');
+      expect(texto.indexOf('Sin impuestos')).toBeLessThan(texto.indexOf('IVA'));
+      expect(texto.at(-1)).toBe('Neto');
     });
 
     /**
@@ -146,6 +151,58 @@ describe('ComercialTicketsComponent', () => {
       const t = (fix.nativeElement as HTMLElement).textContent ?? '';
       expect(t).toContain('Descuento de cliente');
       expect(t).not.toContain('0% declarado');
+    });
+  });
+  /**
+   * `[TK.12]` Revisión del PR #193: el tope de 31 días vivía sólo en el backend, así que elegir 60
+   * días en el calendario devolvía un 400. Ahora el calendario no deja elegirlo, y si se TECLEA
+   * una fecha fuera de rango la otra punta se recorre.
+   */
+  describe('[TK.12] el rango de la bandeja respeta los 31 días', () => {
+    it('mover «desde» 60 días atrás recorre «hasta» a 31 días', () => {
+      c.fDesde.set('2026-09-01');
+      c.fHasta.set('2026-09-30');
+      c.cambiarDesde('2026-08-01');
+      expect(c.fDesde()).toBe('2026-08-01');
+      expect(c.fHasta()).toBe('2026-08-31');
+    });
+
+    it('mover «hasta» lejos de «desde» recorre «desde»', () => {
+      c.fDesde.set('2026-08-01');
+      c.fHasta.set('2026-08-10');
+      c.cambiarHasta('2026-09-30');
+      expect(c.fHasta()).toBe('2026-09-30');
+      expect(c.fDesde()).toBe('2026-08-31');
+    });
+
+    it('si se cruzan, la otra punta se iguala en vez de mandar un rango al revés', () => {
+      c.fDesde.set('2026-09-10');
+      c.fHasta.set('2026-09-12');
+      c.cambiarDesde('2026-09-20');
+      expect(c.fHasta()).toBe('2026-09-20');
+    });
+
+    it('un rango dentro de los 31 días no se toca', () => {
+      c.fDesde.set('2026-09-01');
+      c.fHasta.set('2026-09-15');
+      c.cambiarHasta('2026-09-20');
+      expect(c.fDesde()).toBe('2026-09-01');
+    });
+
+    it('el calendario no ofrece fechas fuera de la ventana de 31 días', () => {
+      c.fDesde.set('2026-09-01');
+      c.fHasta.set('2026-09-15');
+      fix.detectChanges();
+      const [desde, hasta] = Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('input[type="date"]'));
+      expect(hasta.getAttribute('max')).toBe('2026-10-01');
+      expect(desde.getAttribute('min')).toBe('2026-08-16');
+    });
+
+    it('sumarDias cruza meses y años, y no inventa una fecha de una rota', () => {
+      expect(sumarDias('2026-12-15', 30)).toBe('2027-01-14');
+      expect(sumarDias('2028-02-28', 1)).toBe('2028-02-29');
+      expect(sumarDias('', 30)).toBe('');
+      expect(sumarDias('2026-9-1', 30)).toBe('');
     });
   });
 });

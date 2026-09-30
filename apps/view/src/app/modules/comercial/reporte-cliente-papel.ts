@@ -161,7 +161,7 @@ export function cuerpoReporteCliente(
   </table>
 
   <p class="pie">
-    Documento informativo, no fiscal.
+    Documento informativo.
     ${fuera > 0
       ? `Incluye <b>${docs.length} de ${docs.length + fuera}</b> documentos del periodo: ${fuera} quedaron fuera por decisión de quien lo emitió.`
       : 'Incluye todos los documentos del periodo.'}

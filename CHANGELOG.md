@@ -9,6 +9,21 @@
 ---
 
 ## [Unreleased]
+### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
+- `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
+  por folio, clave o nombre. `GET /commercial/tickets/bandeja`.
+- Carta PDF, pantalla y rollo de 80 mm desglosan cada partida por pieza y en total: precio de lista,
+  descuento, precio con descuento, sin impuestos, IVA/IEPS y neto. El descuento de cliente va
+  repartido en la partida; la columna Neto suma el total al centavo.
+- El rollo lleva la razón social del emisor y la marca de REIMPRESIÓN con fecha y hora.
+
+### Changed — Ningún papel dice «fiscal» ni «no fiscal» (TK.14, 2026-09-30)
+- Carta PDF, reporte por cliente, anexo de venta y guía de cobranza. «Factura Cont No Fiscal» se
+  imprime como «Factura de contado».
+
+### Fixed — `view:test` en rojo en main: Costo estándar descableado a medias y un spec del tablero viejo (TK.a3)
+
+### Fixed — El buscador por folio ordenaba por día de la semana y mutilaba las tarjetas (TK.a1/a2)
 ### Added — `main` no tenía NINGUNA protección, y la documentación decía que sí (2026-09-30)
 
 Auditoría de CI/CD. Lo medido contradice tres afirmaciones del propio repo:

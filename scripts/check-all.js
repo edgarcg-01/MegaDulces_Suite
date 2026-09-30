@@ -93,6 +93,12 @@ const COMPUERTAS = [
   // Sólo marca lo que TODAVÍA se puede renombrar: un archivo ya en main o ya aplicado en prod está
   // congelado, y renombrarlo deja el ledger apuntando a un archivo inexistente.
   { nombre: 'mig-colisiones', cmd: 'node scripts/check-migration-collisions.js', que: 'dos migraciones no comparten timestamp (knex las ordena por nombre, no por fecha)' },
+  // ⭐ Prod congelada 3 HORAS el 2026-09-30: código commiteado apuntando a archivos sin trackear.
+  // Compilar en el árbol de trabajo compila el commit MÁS lo sucio de las ~10 sesiones, y ahí esos
+  // archivos SÍ existen; Docker compila el commit pelado. Un build local verde no dice nada sobre
+  // un commit. Por eso este candado lee el ÁRBOL DE GIT, nunca el disco. Validado: contra
+  // `af6a88d0` encuentra las 4 referencias rotas y ninguna de más.
+  { nombre: 'commit-wiring', cmd: 'node scripts/check-commit-wiring.js', que: 'lo que el commit referencia viaja EN el commit (no sólo en tu árbol de trabajo)' },
   // [ODS.1] Una lista de sucursales escrita a mano falla HACIA ABAJO y en silencio: el proceso
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
   // que no mira no puede faltarle nada. Ya cobró dos veces (Morelia fuera de `mv_sales_blended`

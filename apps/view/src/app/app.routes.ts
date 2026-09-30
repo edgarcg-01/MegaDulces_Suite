@@ -956,6 +956,7 @@ export const routes: Routes = [
       {
         // [CE.6] Costo estándar del catálogo de Kepler (el que fija el precio) contra el costo
         // de reposición del ERP. Sólo lectura: se corrige en Kepler, que es el SoR del catálogo.
+        // Recableada: el componente y su servicio vienen en ESTE commit.
         path: 'costo-estandar',
         loadComponent: () => import('./modules/compras/pages/compras-costo-estandar.component').then(m => m.ComprasCostoEstandarComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
