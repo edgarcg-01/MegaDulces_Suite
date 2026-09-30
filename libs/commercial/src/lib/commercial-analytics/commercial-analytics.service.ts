@@ -192,6 +192,27 @@ export interface SalesByRouteOption {
   route_no: string;
 }
 
+export interface SalesByRouteDashboard {
+  /** Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`. */
+  series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
+  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
+  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
+  /**
+   * El hueco del COSTO, DECLARADO en vez de rellenado. `revenue_with_cost` es el denominador
+   * honesto: el push de camionetas no trae costo (`costo_status='sin_dato_en_la_fuente'`), asi
+   * que un margen sobre la venta TOTAL estaria dividiendo por un numero que el costo no cubre.
+   */
+  coverage: {
+    revenue: number;
+    revenue_with_cost: number;
+    cost: number;
+    margin_pct: number | null;
+    cost_coverage_pct: number;
+    /** Hasta cuando alcanza la matvista, para que la frescura viaje con el dato (ADR-056). */
+    data_as_of: string | null;
+  };
+}
+
 export interface SalesByRouteDetail {
   route_no: string;
   route_code: string;
@@ -5958,6 +5979,157 @@ export class CommercialAnalyticsService {
    */
   async salesByRouteClients(): Promise<{ value: string; label: string }[]> {
     return this.routeFilterOptions('cliente');
+  }
+
+  /**
+   * `[AUD-DAT.18]` — **Los bloques de `/dashboard/ventas-detalle` que estaban INVENTADOS.**
+   *
+   * El frontend armaba tres bloques sin tocar la base, en un metodo llamado `synthesizeReport`:
+   *
+   *   - **la serie diaria** de la grafica: tomaba el total del periodo, lo dividia entre los dias
+   *     y lo modulaba con pesos inventados por dia de semana (0.15 domingo, 1.35 vie/sab) mas
+   *     `varFactor = 0.88 + ((i * 17) % 25) / 100` -- una ondulacion derivada del indice del
+   *     bucle, para que la curva pareciera organica;
+   *   - **el margen**: `dayRev * 0.125`, un 12.5 % plano;
+   *   - **Top Productos y Top Clientes**: arreglos escritos a mano con `share` fijo, y las
+   *     unidades salian de `parseInt(sku.slice(0,2)) % 15`.
+   *
+   * Y el 12.5 % no era una aproximacion: tapaba un hueco. Medido en prod el 2026-09-29 sobre el
+   * ultimo mes cerrado, **el costo solo existe en el 12.4 % de la venta de ruta**
+   * ($883,701.87 con costo contra $6,467,210.96 sin el). El push de camionetas no trae costo y
+   * la fuente lo declara (`costo_status='sin_dato_en_la_fuente'`). Por eso aca el margen NO se
+   * publica sobre la venta total: viaja con `revenue_with_cost` y su cobertura.
+   *
+   * De donde sale cada cosa:
+   *   - serie diaria -> `analytics.mv_rd_route_daily_200d` (ya materializada, refresco cada
+   *     30 min, y declara la procedencia de cada numero: `subtotal_origen`, `venta_origen`,
+   *     `costo_status`). Medido: **1.7 ms** para un mes.
+   *   - top productos / clientes -> la union LEAN de las tres ramas de `v_route_sales_lines`,
+   *     sin sus LATERAL de enriquecimiento (`[AUD-DAT.17]`, `[RR-PROMO.6]`). Con los LATERAL,
+   *     un mes costaba **1,608 ms**.
+   *
+   * `business_date <= CURRENT_DATE` no es cosmetico: la fuente trae fechas futuras corruptas
+   * (`mv_rd_route_daily_200d` llega a 2026-12-06). Mismo filtro que usa `salesByRouteDetail`.
+   */
+  async salesByRouteDashboard(from: string, to: string): Promise<SalesByRouteDashboard> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dRx.test(from) || !dRx.test(to)) throw new BadRequestException('from/to deben ser YYYY-MM-DD');
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    // La union LEAN: mismas tres ramas que `analytics.v_route_sales_lines`, sin el
+    // enriquecimiento por linea que estos agregados no leen. Ver `[AUD-DAT.17]`.
+    const LINEAS = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'ruta_venta'
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE
+      UNION ALL
+      SELECT rpl.tenant_id, rpl.business_date, rpl.cliente, rpl.sku, rpl.qty, rpl.importe, rpl.folio
+        FROM analytics.route_push_lines rpl
+       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE
+      UNION ALL
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
+         AND vl.business_date < '2026-06-28'::date
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
+    const RANGO = [from, to, from, to, from, to];
+
+    return this.tk.run(async (trx) => {
+      const series = (await trx.raw(
+        `SELECT to_char(business_date,'YYYY-MM-DD') AS date,
+                round(sum(venta),2)::float          AS revenue,
+                sum(lineas)::int                    AS units,
+                sum(tickets)::int                   AS tickets,
+                round(sum(costo),2)::float          AS cost
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            AND business_date <= CURRENT_DATE
+          GROUP BY business_date ORDER BY business_date`, [tenantId, from, to])).rows;
+
+      const cov = (await trx.raw(
+        `SELECT round(sum(venta),2)::float revenue,
+                round(sum(venta) FILTER (WHERE costo IS NOT NULL),2)::float revenue_with_cost,
+                round(sum(costo),2)::float cost,
+                to_char(max(business_date),'YYYY-MM-DD') data_as_of
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            AND business_date <= CURRENT_DATE`, [tenantId, from, to])).rows[0];
+
+      // UN SOLO BARRIDO para las dos listas. Medido: el escaneo de `lineas` cuesta ~1.1 s y
+      // productos y clientes agregan EXACTAMENTE las mismas filas -- en dos consultas se pagaba
+      // dos veces. `MATERIALIZED` es explicito a proposito: Postgres ya materializa un CTE
+      // referenciado mas de una vez, pero dejarlo escrito evita que alguien agregue un tercer
+      // uso y el plan cambie sin que nadie lo note.
+      const tops = (await trx.raw(
+        `WITH lineas AS MATERIALIZED (${LINEAS}),
+              mias AS (SELECT * FROM lineas WHERE tenant_id = ?),
+              p AS (
+                SELECT 'sku'::text kind, l.sku AS code,
+                       round(sum(l.importe),2)::float rev, round(sum(l.qty),2)::float units,
+                       0::int tickets
+                  FROM mias l WHERE l.sku IS NOT NULL
+                 GROUP BY l.sku ORDER BY 3 DESC NULLS LAST LIMIT 10),
+              c AS (
+                SELECT 'cliente'::text kind, l.cliente AS code,
+                       round(sum(l.importe),2)::float rev, 0::float units,
+                       count(DISTINCT l.consecutivo)::int tickets
+                  FROM mias l
+                 WHERE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001'
+                 GROUP BY l.cliente ORDER BY 3 DESC NULLS LAST LIMIT 10),
+              u AS (SELECT * FROM p UNION ALL SELECT * FROM c)
+         SELECT u.kind, u.code, u.rev, u.units, u.tickets,
+                COALESCE(
+                  CASE WHEN u.kind = 'sku'
+                       THEN (SELECT pp.nombre FROM catalog.products pp
+                              WHERE pp.tenant_id = ? AND pp.sku = u.code AND pp.deleted_at IS NULL
+                              ORDER BY pp.sku LIMIT 1)
+                       ELSE (SELECT cc.nombre FROM wincaja.clientes cc
+                              WHERE cc.tenant_id = ? AND cc.cliente = u.code
+                              ORDER BY cc.cliente, cc.source_dataset DESC LIMIT 1)
+                  END, u.code) AS name
+           FROM u`,
+        [...RANGO, tenantId, tenantId, tenantId])).rows;
+      // El rotulo se resuelve DESPUES del LIMIT 10: son 20 lookups, no uno por linea. Ese
+      // detalle es justo lo que hacia cara a la consulta que este metodo reemplaza.
+      const prods = tops.filter((r: any) => r.kind === 'sku')
+        .map((r: any) => ({ sku: r.code, name: r.name, revenue: r.rev, units: r.units }));
+      const clis = tops.filter((r: any) => r.kind === 'cliente')
+        .map((r: any) => ({ code: r.code, name: r.name, revenue: r.rev, tickets: r.tickets }));
+
+      const revenue = num(cov?.revenue);
+      const revWithCost = num(cov?.revenue_with_cost);
+      const cost = num(cov?.cost);
+      const totProd = prods.reduce((a: number, r: any) => a + num(r.revenue), 0);
+
+      return {
+        series: series.map((r: any) => ({
+          date: r.date, revenue: num(r.revenue), units: num(r.units),
+          tickets: num(r.tickets),
+          // null, NO 0: un dia sin costo en la fuente no vendio con costo cero.
+          cost: r.cost === null ? null : num(r.cost),
+        })),
+        top_products: prods.map((r: any) => ({
+          sku: r.sku, name: r.name, revenue: num(r.revenue), units: num(r.units),
+          share_pct: totProd > 0 ? Number(((num(r.revenue) / totProd) * 100).toFixed(1)) : 0,
+        })),
+        top_clients: clis.map((r: any) => ({
+          code: r.code, name: r.name, revenue: num(r.revenue), tickets: num(r.tickets),
+        })),
+        coverage: {
+          revenue, revenue_with_cost: revWithCost, cost,
+          // El margen se calcula SOBRE LO QUE TIENE COSTO. Si nada lo tiene, es null: no hay
+          // margen que reportar, y un 0 % se leeria como "vendimos sin ganancia".
+          margin_pct: revWithCost > 0
+            ? Number((((revWithCost - cost) / revWithCost) * 100).toFixed(2)) : null,
+          cost_coverage_pct: revenue > 0
+            ? Number(((revWithCost / revenue) * 100).toFixed(1)) : 0,
+          data_as_of: cov?.data_as_of ?? null,
+        },
+      };
+    });
   }
 
   async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
