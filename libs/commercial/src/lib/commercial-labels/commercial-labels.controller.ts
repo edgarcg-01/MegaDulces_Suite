@@ -41,6 +41,21 @@ export class CommercialLabelsController {
     return this.svc.priceChanges(sucursal ?? null, fecha ?? null);
   }
 
+  @Get('price-changes/branches')
+  @RequirePermissions(Permission.STORE_LABELS_VER)
+  @ApiOperation({
+    summary: 'Etiquetera — plazas que la bitácora puede servir, para quien no tiene tienda propia.',
+    description:
+      'La pantalla de cambios toma la plaza del `warehouse_code` del usuario. 13 de las 33 personas ' +
+      'con este permiso no tienen ninguna (Compras, Dirección, Supervisión, superadmin): para ellas ' +
+      'la lista es la única forma de entrar. Se DERIVA de `analytics.v_label_price_changes`, así que ' +
+      'no puede ofrecer una plaza sin datos. `ultimo_dia` deja ver de una si alguna se quedó atrás. ' +
+      'Acotada a 60 días por costo (3,738 ms → 173 ms); hoy las 9 plazas están activas.',
+  })
+  priceChangeBranches() {
+    return this.svc.priceChangeBranches();
+  }
+
   @Post('resolve')
   @RequirePermissions(Permission.STORE_LABELS_VER)
   @ApiOperation({

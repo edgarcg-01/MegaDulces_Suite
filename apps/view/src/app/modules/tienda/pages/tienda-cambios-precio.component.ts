@@ -7,7 +7,8 @@ import { rxResource } from '@angular/core/rxjs-interop';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { AuthService } from '../../../core/services/auth.service';
-import { EtiquetasService, PriceChange } from '../etiquetas.service';
+import { of } from 'rxjs';
+import { EtiquetasService, PriceChange, PriceChangeBranch } from '../etiquetas.service';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 
 /**
@@ -76,6 +77,22 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
       border-radius:var(--radius-sm); background:var(--card-bg); color:var(--fg-1);
       font-size:var(--fs-sm); font-variant-numeric:tabular-nums; min-height:var(--row-h-sm); }
     .cpr-bar input[type=date]:focus-visible{ outline:2px solid var(--action-ring); outline-offset:1px; }
+
+    /* [ETQ-CAMBIOS.6] El selector de plaza para quien no tiene tienda propia. Sólo tokens que
+       este archivo ya usa: la lección de [ETQ-CAMBIOS.5] fue que un token inexistente no "se ve
+       distinto", deja la declaración inválida y el estilo simplemente no existe. */
+    .cpr-plazas{ display:grid; grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));
+      gap:.6rem; margin-top:.9rem; }
+    .cpr-plaza{ display:flex; flex-direction:column; align-items:flex-start; gap:.15rem;
+      padding:.7rem .85rem; text-align:left; cursor:pointer;
+      background:var(--card-bg); border:1px solid var(--border-color);
+      border-radius:var(--radius-sm); color:var(--fg-1); }
+    .cpr-plaza:hover{ background:var(--table-hover); }
+    .cpr-plaza:focus-visible{ outline:2px solid var(--action-ring); outline-offset:1px; }
+    .cpr-plaza b{ font-size:var(--fs-sm); font-weight:var(--fw-bold); }
+    .cpr-plaza span{ font-size:var(--fs-xs); color:var(--fg-2); }
+    .cpr-plaza-activa{ font-size:var(--fs-xs); color:var(--fg-2); }
+    .cpr-plaza-activa b{ color:var(--fg-1); }
 
     /* Avisos. Elevación = borde hairline SIN sombra (datos densos 1); el tono lo lleva el
        borde izquierdo con token semantico, nunca un hex. */
@@ -154,16 +171,52 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
         <p>Lo que el ERP movió ese día en tu tienda. Marca lo que quieras y mándalo a la cola de impresión.</p>
       </div>
 
-      @if (!sucursal) {
+      <!-- [ETQ-CAMBIOS.6] Sin tienda propia ya no es un callejón: se elige una. La bitácora sigue
+           siendo por plaza —no se mezcla nada—, lo que cambia es que ahora hay de dónde elegir.
+           Quien SÍ tiene tienda no ve esto: queda anclado a la suya. -->
+      @if (!sucursal()) {
         <div class="cpr-nota is-info">
           <i class="pi pi-info-circle"></i>
           <div>
             <b>Tu usuario no tiene tienda asignada</b>
-            <span>No hay de dónde leer los cambios: la bitácora es por producto y sucursal. Mezclar
-              plazas diría que cambió algo que en tu tienda no cambió.</span>
+            <span>La bitácora es por plaza: mezclarlas diría que cambió algo que en esa tienda no
+              cambió. Elegí cuál querés revisar.</span>
           </div>
         </div>
+
+        @if (plazas.isLoading()) {
+          <div class="cpr-nota" role="status"><i class="pi pi-spin pi-spinner"></i><div>
+            <b>Buscando las plazas con bitácora…</b></div></div>
+        } @else if (plazas.error()) {
+          <div class="cpr-nota is-warn" role="alert"><i class="pi pi-exclamation-triangle"></i><div>
+            <b>No se pudo leer la lista de plazas</b>
+            <span>No es que no haya: es que no se pudo preguntar. Reintentá en un momento.</span>
+          </div></div>
+        } @else if ((plazas.value() ?? []).length === 0) {
+          <div class="cpr-nota is-warn" role="alert"><i class="pi pi-exclamation-triangle"></i><div>
+            <b>La bitácora no tiene ninguna plaza con movimiento reciente</b>
+            <span>La lista se arma con lo que registró el ERP en los últimos 60 días. Vacía significa
+              que el carril que la trae dejó de entregar, no que nadie cambió un precio.</span>
+          </div></div>
+        } @else {
+          <div class="cpr-plazas">
+            @for (p of plazas.value() ?? []; track p.sucursal) {
+              <button type="button" class="cpr-plaza" (click)="elegirPlaza(p.sucursal)">
+                <b>{{ p.nombre || ('Plaza ' + p.sucursal) }}</b>
+                <span>{{ p.sucursal }} · hasta {{ p.ultimo_dia }}</span>
+              </button>
+            }
+          </div>
+        }
       } @else {
+        @if (!sucursalPropia) {
+          <div class="cpr-bar">
+            <p-button label="Cambiar de plaza" icon="pi pi-arrow-left" size="small" [text]="true"
+                      (onClick)="elegirPlaza(null)" />
+            <span class="spacer"></span>
+            <span class="cpr-plaza-activa">Viendo <b>{{ nombrePlaza() }}</b></span>
+          </div>
+        }
         <div class="cpr-bar">
           <label for="cpr-fecha">Día</label>
           <input id="cpr-fecha" type="date" [ngModel]="fecha()" (ngModelChange)="verDia($event)" [max]="hoy" />
@@ -342,8 +395,32 @@ export class TiendaCambiosPrecioComponent {
   private readonly router = inject(Router);
 
   readonly tabs = ETIQUETAS_TABS;
-  /** Misma fuente de plaza que la etiquetera: la tienda del propio usuario. */
-  readonly sucursal = this.auth.user()?.warehouse_code || null;
+
+  /**
+   * `[ETQ-CAMBIOS.6]` La tienda del propio usuario — **validada con la MISMA forma que exige el
+   * backend** (`\d{2}`). Antes acá bastaba con que no fuera vacía, y el backend sólo acepta dos
+   * dígitos: una plaza con otra forma (`RUTA-21`) pasaba el `@if`, el backend la rechazaba y la
+   * pantalla mostraba una tabla VACÍA — que se lee "no cambió nada" en vez de "tu plaza no sirve
+   * acá". Medido el 2026-09-30: hoy **cero** usuarios tienen una plaza así, o sea que era una
+   * trampa armada, no un incendio. Validar del mismo lado que el backend la desarma.
+   */
+  readonly sucursalPropia = /^[0-9]{2}$/.test(String(this.auth.user()?.warehouse_code ?? ''))
+    ? String(this.auth.user()?.warehouse_code) : null;
+
+  /** La que eligió quien NO tiene tienda propia. */
+  readonly sucursalElegida = signal<string | null>(null);
+
+  /** La plaza efectiva. Quien tiene la suya queda ANCLADO: el selector no es para espiar otra tienda. */
+  readonly sucursal = computed(() => this.sucursalPropia ?? this.sucursalElegida());
+
+  /**
+   * `[ETQ-CAMBIOS.6]` Sólo se pide si el usuario no tiene tienda propia — que es el 39% de quienes
+   * pueden abrir esta pantalla (13 de 33: Compras, Dirección, Supervisión, superadmin).
+   */
+  readonly plazas = rxResource({
+    params: () => ({ necesita: this.sucursalPropia === null }),
+    stream: ({ params }) => params.necesita ? this.svc.priceChangeBranches() : of([] as PriceChangeBranch[]),
+  });
 
   /** Altos de fila del esqueleto. Dimensionado = cero salto de layout al llegar el dato. */
   readonly esqueleto = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -360,7 +437,7 @@ export class TiendaCambiosPrecioComponent {
   }
 
   readonly datos = rxResource({
-    params: () => ({ suc: this.sucursal, f: this.fecha() }),
+    params: () => ({ suc: this.sucursal(), f: this.fecha() }),
     stream: ({ params }) => this.svc.priceChanges(params.suc, params.f),
   });
 
@@ -421,6 +498,24 @@ export class TiendaCambiosPrecioComponent {
     this.sel.set(new Set<string>());
     this.fecha.set(dia);
   }
+
+  /**
+   * `[ETQ-CAMBIOS.6]` Cambiar de plaza LIMPIA la selección, por la misma razón que cambiar de día:
+   * lo marcado para 8 Esquinas no es lo que se imprime en Canindo. Y ahí el error no se ve — la
+   * etiqueta sale con el precio de la otra tienda.
+   */
+  elegirPlaza(suc: string | null): void {
+    this.sel.set(new Set<string>());
+    this.sucursalElegida.set(suc);
+  }
+
+  /** El nombre de la plaza que se está viendo, para que el encabezado no diga sólo "07". */
+  readonly nombrePlaza = computed(() => {
+    const s = this.sucursal();
+    if (!s) return '';
+    const p = (this.plazas.value() ?? []).find((x) => x.sucursal === s);
+    return p?.nombre || `Plaza ${s}`;
+  });
 
   alternar(r: PriceChange): void {
     const k = this.clave(r);

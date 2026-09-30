@@ -9,6 +9,52 @@
 ---
 
 ## [Unreleased]
+### Fixed — 13 de 33 personas abrían /etiquetas/cambios en un callejón sin salida (ETQ-CAMBIOS.6, 2026-09-30)
+Auditoría de `/tienda/etiquetas/cambios`. **La pantalla está bien construida** —verificado contra la
+base y la plantilla, no contra sus comentarios—: cobertura de las 9 sucursales Kepler frescas hasta
+hoy, consulta en **5–15 ms**, y declara de verdad el truncamiento, el ruido de centavo (27.1% de los
+movimientos), la fecha de la fuente y la frescura en **tres** estados, `unknown` incluido.
+
+⛔ **El hallazgo:** la plaza sale del `warehouse_code` del propio usuario, y **13 de las 33 personas
+con `STORE_LABELS_VER` no tienen ninguna** (`superadmin` 6, `auxiliar_compras` 4, `direccion` 2,
+`supervisor` 1 — el 39%). El vacío que veían era honesto pero sin salida: Compras, Dirección y
+Supervisión **no tienen "su tienda"**, y son justo quienes miran varias.
+
+Ahora eligen. Quien SÍ tiene tienda **queda anclado a la suya** y no ve el selector: esto no es una
+puerta para espiar otra plaza. Cambiar de plaza limpia la selección por la misma razón que cambiar
+de día — lo marcado para 8 Esquinas no es lo que se imprime en Canindo, y ahí el error no se ve: la
+etiqueta sale con el precio de la otra tienda.
+
+⭐ **La lista se DERIVA de `analytics.v_label_price_changes`, no de una constante.** Dos razones
+medidas: así el selector no puede ofrecer una plaza que devuelva vacío, y `STORE_BRANCHES` del
+frontend rotula la `00` como «CEDIS» cuando la sucursal `00` de la bitácora de Kepler es
+**OFICINAS** — copiarla habría propagado el rótulo equivocado.
+
+⚠️ **Cota de 60 días, declarada:** sin ella el `max(fecha)` recorre la bitácora entera y tarda
+**3,738 ms** contra **173 ms**. El precio es que una plaza sin movimiento en 61 días desaparecería
+del selector; medido hoy, las 9 tienen movimiento **hasta hoy**.
+
+También cerrado, y era una trampa armada: el front daba por buena cualquier `warehouse_code` no
+vacía y el backend sólo acepta `\d{2}`. Una plaza con otra forma (`RUTA-21`) pasaba el `@if`, el
+backend la rechazaba y salía una **tabla vacía** — «no cambió nada» en vez de «tu plaza no sirve
+acá». Medido: **cero** usuarios así hoy. Validar del mismo lado que el backend la desarma.
+
+**Declarado, NO arreglado** (fuera del alcance de esta pantalla): `var(--text-color-secondary)`
+tiene **cero definiciones** en `libs/design-tokens/tokens.css` y sobreviven **23 usos reales de CSS
+en 3 archivos** (`commercial-map.component.css`, `styles.css`). El encabezado de esta misma pantalla
+afirma que `[UIM.1]` los renombró todos: hoy eso es falso, y es literalmente la lección que ese
+comentario enseña.
+
+**Sigue abierto del audit:** el **30% de los días-plaza no cabe** en el tope de 200 (82 de 274 en 30
+días, picos de 509). En esos días hay 332 renglones / 151 productos y se ven **120: se caen 31
+(21%)**. Y trunca justo los días de recotización masiva (02-sep y 22-sep pegaron en *todas* las
+plazas). Lo agrava que el **82.9%** de los (plaza, día, SKU) trae más de una unidad, así que 200
+renglones nunca fueron 200 productos. El orden que sobrevive al tope es **|delta| en pesos, sin
+mirar rotación** — criterio que sólo ahora se vuelve estructural.
+
+`nx build api` + `nx build view` OK. ⚠️ **Sin ejercer el gesto**: el API local no está corriendo, así
+que el clic en el selector no se probó contra el cableado real.
+
 ### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
 
 Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
