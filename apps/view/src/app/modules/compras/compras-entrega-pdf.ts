@@ -73,9 +73,12 @@ export async function generarEntregaPdf(d: PurchaseDeliveryDetail, emitido: Date
   const nCols = head.length;
   const body: unknown[][] = [];
   let n = 0;
+  // El subtotal por sucursal suma lo mismo que "Total entregado" (sin cancelados): los renglones
+  // cancelados se siguen listando, pero no cuentan — si no, el brinco y el pie no cuadrarían.
+  const subtotal = new Map(agruparPorSucursal(vivos).map((g) => [g.sucursal, g.total]));
   for (const g of agruparPorSucursal(d.lines)) {
     body.push([{ content: `${g.nombre} · ${g.rows.length} entrada${g.rows.length === 1 ? '' : 's'}`, colSpan: nCols - 1, styles: { fontStyle: 'bold', fillColor: RULE, textColor: HEAD } },
-      { content: money(g.total), styles: { fontStyle: 'bold', fillColor: RULE, halign: 'right' } }]);
+      { content: money(subtotal.get(g.sucursal) ?? 0), styles: { fontStyle: 'bold', fillColor: RULE, halign: 'right' } }]);
     for (const l of g.rows as PurchaseDeliveryLine[]) {
       n++;
       const tachado = l.status === 'rechazado' || l.status === 'cancelado';

@@ -31,6 +31,12 @@
  *     auxiliar de compras (`rafael_quirino`). Por rol recibe `PLAZOS_AUTORIZAR`. Si no debe
  *     negociar plazos, se le cambia el rol en `/admin/personas` — es decisión de negocio, no de
  *     esta migración (el permiso se da por rol; recortarlo por persona escondería el desajuste).
+ *   · ⚠️ **Declarado, roles SECUNDARIOS (`identity.user_roles`):** `jesus_carrillo` (jefe de
+ *     Finanzas, rol principal `finanzas_operativo`) tiene como adicionales `compras`,
+ *     `gerente_compras`, `direccion`, `auxiliar_compras` y `compras_operaciones` → recibe también
+ *     `_GESTIONAR` y `PLAZOS_AUTORIZAR`, y además es receptor válido de entregas. El servicio impide
+ *     que una misma persona entregue y reciba LA MISMA entrega; la separación completa (que no
+ *     opere los dos lados) es decisión del PM. Medido en prod el 2026-09-29.
  *
  * ── Mecánica (misma que `20260915130000_grant_payment_calendar_autorizar.js`) ───────────
  *   · Idempotente por `permissions -> 'KEY' IS NULL`: un `false` puesto a mano en `/admin/roles`
@@ -51,6 +57,8 @@ const GRANTS = {
 };
 
 exports.up = async function up(knex) {
+  const { rows: ur } = await knex.raw(`SELECT to_regclass('identity.user_roles') IS NOT NULL AS ok`);
+  const hasUserRoles = !!ur[0]?.ok;
   for (const [perm, roles] of Object.entries(GRANTS)) {
     const { rows } = await knex.raw(
       `SELECT id, role_name, permissions -> ?::text AS ya
@@ -77,9 +85,15 @@ exports.up = async function up(knex) {
     if (faltan.length) console.log(`${TAG} ${perm}: roles inexistentes en este entorno (se omiten): ${faltan.join(', ')}`);
 
     const { rows: cob } = await knex.raw(
-      `SELECT count(DISTINCT u.id)::int AS personas
+      // Rol principal + roles adicionales (`identity.user_roles`, ID.13): la misma unión del login.
+      `WITH roles AS (
+         SELECT u.id AS user_id, u.tenant_id, lower(u.role_name) AS role_name FROM identity.users u
+         ${hasUserRoles ? 'UNION SELECT ur.user_id, ur.tenant_id, lower(ur.role_name) FROM identity.user_roles ur' : ''}
+       )
+       SELECT count(DISTINCT u.id)::int AS personas
          FROM identity.role_permissions rp
-         JOIN identity.users u ON u.tenant_id = rp.tenant_id AND lower(u.role_name) = lower(rp.role_name)
+         JOIN roles r ON r.tenant_id = rp.tenant_id AND r.role_name = lower(rp.role_name)
+         JOIN identity.users u ON u.id = r.user_id
         WHERE rp.deleted_at IS NULL AND u.deleted_at IS NULL AND u.activo
           AND (rp.permissions->>?::text)::boolean IS TRUE`,
       [perm],

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
@@ -141,7 +141,7 @@ interface SupplierOpt{ id: string; name: string; code: string; is_critical: bool
     .obl-dlg-actions { margin-top:.8rem; }
   `],
 })
-export class ComprasObligacionesComponent {
+export class ComprasObligacionesComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -186,6 +186,12 @@ export class ComprasObligacionesComponent {
     const pedida = this.route.snapshot.queryParamMap.get('tab') as Tab | null;
     const validas = this.tabOpts().map((o) => o.value);
     return pedida && validas.includes(pedida) ? pedida : (validas[0] as Tab);
+  }
+
+  // Si se entra directo con `?tab=capturadas`, la lista manual se pide al abrir (si no, se vería
+  // "Sin obligaciones" sin haber consultado — hallazgo de la revisión del PR).
+  ngOnInit(): void {
+    if (this.tab() === 'capturadas' && !this.manualLoaded) { this.manualLoaded = true; this.load(); }
   }
 
   // La lista manual se pide al abrir su pestaña, no al entrar.

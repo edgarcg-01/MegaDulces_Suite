@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
@@ -33,14 +33,14 @@ export class SupplierCreditTermsController {
 
   @Get(':id/history')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)
-  history(@Param('id') id: string): Promise<SupplierCreditTermsHistoryRow[]> {
+  history(@Param('id', ParseUUIDPipe) id: string): Promise<SupplierCreditTermsHistoryRow[]> {
     return this.svc.history(id);
   }
 
   @Put(':id')
   @RequirePermissions(Permission.COMPRAS_PLAZOS_AUTORIZAR)
   @ApiOperation({ summary: 'Fija el plazo pactado: días exactos + desde cuándo corre (factura/recepción), o marca el proveedor como interno con motivo. Guarda historial.' })
-  update(@Param('id') id: string, @Body() dto: UpdateSupplierCreditTermsDto, @Req() req: AuthedRequest): Promise<SupplierCreditTermsUpdated> {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSupplierCreditTermsDto, @Req() req: AuthedRequest): Promise<SupplierCreditTermsUpdated> {
     return this.svc.update(id, dto, req.user?.username || 'sistema');
   }
 }

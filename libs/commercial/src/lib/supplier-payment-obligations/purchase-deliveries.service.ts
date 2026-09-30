@@ -13,6 +13,8 @@ const MAX_ITEMS = 500;
 const MAX_PENDING = 3000;
 /** Departamentos cuya gente puede RECIBIR una entrega (además de tener FINANCE_PAYMENTS_GESTIONAR). */
 const RECIPIENT_DEPARTMENTS = ['finanzas', 'tesoreria'];
+/** Los `line_id` llegan en el cuerpo: uno mal formado daría 22P02 (500) en Postgres. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Readiness { view: boolean; tables: boolean; internal: boolean }
 type Trx = Knex.Transaction;
@@ -103,9 +105,13 @@ export class PurchaseDeliveriesService {
               AND l.receipt_folio = r.folio AND l.status = 'rechazado') rj ON true`
         : 'LEFT JOIN LATERAL (SELECT 0 AS n, NULL::text AS last_reason) rj ON true';
 
+      // El catálogo de proveedores es de códigos KEPLER: los de Wincaja no casan con él y un código
+      // que coincidiera por azar con un proveedor interno escondería la entrada. Sólo se une Kepler.
+      const supJoin = `LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND btrim(s.code) = r.proveedor_code
+                         AND s.deleted_at IS NULL AND r.source_branch LIKE 'md\\_%'`;
       const base = `
         FROM analytics.erp_goods_receipts r
-        LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND btrim(s.code) = r.proveedor_code AND s.deleted_at IS NULL
+        ${supJoin}
         LEFT JOIN LATERAL (SELECT p.status FROM finance.goods_receipt_proofs p
                             WHERE p.tenant_id = r.tenant_id AND p.sucursal = r.sucursal AND p.folio = r.folio
                             ORDER BY p.created_at DESC LIMIT 1) ev ON true
@@ -121,7 +127,7 @@ export class PurchaseDeliveriesService {
                r.monto AS amount,
                to_char(r.fecha_vence, 'YYYY-MM-DD') AS kepler_due_date,
                ev.status AS evidence_status,
-               (current_date - COALESCE(${recepCol}, r.receipt_date))::int AS days_waiting,
+               ((now() AT TIME ZONE 'America/Mexico_City')::date - COALESCE(${recepCol}, r.receipt_date))::int AS days_waiting,
                rj.n AS times_rejected, rj.last_reason AS last_rejection_reason
         ${base} AND NOT ${internal}
         ORDER BY r.sucursal, ${dateExpr} NULLS LAST, r.proveedor_nombre NULLS LAST, r.folio
@@ -130,12 +136,17 @@ export class PurchaseDeliveriesService {
       const { rows: cnt } = await trx.raw(`
         SELECT count(*) FILTER (WHERE ${internal})::int AS internos
         ${base}`, b);
+      // Lo que el filtro por recepción deja FUERA porque no tiene fecha de recepción (Wincaja): se
+      // cuenta en el MISMO periodo, medido con la fecha de factura, y sin los internos — si no, el
+      // aviso sumaría todo lo que existe, no lo del rango elegido.
       let sinRecepcion = 0;
       if (basis === 'recepcion') {
-        const wb = { ...b };
         const w2 = where.filter((x) => !x.startsWith(dateExpr));
+        if (from) w2.push('r.receipt_date >= :from::date');
+        if (to) w2.push('r.receipt_date <= :to::date');
         const { rows: nr } = await trx.raw(
-          `SELECT count(*)::int AS n FROM analytics.erp_goods_receipts r WHERE ${w2.join(' AND ')} AND r.fecha_recepcion IS NULL`, wb);
+          `SELECT count(*)::int AS n FROM analytics.erp_goods_receipts r ${supJoin}
+            WHERE ${w2.join(' AND ')} AND r.fecha_recepcion IS NULL AND NOT ${internal}`, b);
         sinRecepcion = nr[0]?.n ?? 0;
       }
 
@@ -177,10 +188,18 @@ export class PurchaseDeliveriesService {
 
   /** Misma consulta dentro de una transacción ya abierta (GOTCHAS §2: una petición, una trx). */
   private async recipientsIn(trx: Trx, tenantId: string): Promise<DeliveryRecipient[]> {
+    // Una persona puede tener varios roles (`identity.user_roles`, ID.13): el permiso cuenta venga
+    // del rol principal o de uno adicional — la misma unión que arma el login.
     const { rows } = await trx.raw(`
+      WITH roles AS (
+        SELECT u.id AS user_id, lower(u.role_name) AS role_name FROM identity.users u WHERE u.tenant_id = :t
+        UNION
+        SELECT ur.user_id, lower(ur.role_name) FROM identity.user_roles ur WHERE ur.tenant_id = :t
+      )
       SELECT DISTINCT u.username, COALESCE(u.nombre, u.username) AS name, u.position_code
         FROM identity.users u
-        JOIN identity.role_permissions rp ON rp.tenant_id = u.tenant_id AND lower(rp.role_name) = lower(u.role_name)
+        JOIN roles r ON r.user_id = u.id
+        JOIN identity.role_permissions rp ON rp.tenant_id = u.tenant_id AND lower(rp.role_name) = r.role_name
                                          AND rp.deleted_at IS NULL
        WHERE u.tenant_id = :t AND u.deleted_at IS NULL AND u.activo
          AND u.department_code = ANY(:deps::text[])
@@ -215,6 +234,16 @@ export class PurchaseDeliveriesService {
     if (items.length > MAX_ITEMS) throw new BadRequestException(`Máximo ${MAX_ITEMS} entradas por entrega.`);
     if (!dto.recipient_username) throw new BadRequestException('Elige a la persona de Finanzas que recibe.');
     const basis: DeliveryDateBasis = dto.date_basis === 'factura' ? 'factura' : 'recepcion';
+    // El periodo es informativo (lo que el auxiliar tenía filtrado), pero va al papel firmado: se
+    // valida aquí para que una fecha mala sea un 400 claro y no un 500 de Postgres (22007 / CHECK).
+    const pFrom = dto.period_from || null;
+    const pTo = dto.period_to || null;
+    for (const d of [pFrom, pTo]) {
+      if (d && (!PurchaseDeliveriesService.ymd.test(d) || Number.isNaN(Date.parse(d)))) {
+        throw new BadRequestException(`Fecha inválida en el periodo: ${d}. Usa AAAA-MM-DD.`);
+      }
+    }
+    if (pFrom && pTo && pFrom > pTo) throw new BadRequestException('La fecha inicial del periodo es posterior a la final.');
     const tenantId = this.tenantCtx.requireTenantId();
 
     try {
@@ -238,7 +267,8 @@ export class PurchaseDeliveriesService {
             FROM analytics.erp_goods_receipts r
             JOIN unnest(:s::text[], :p::text[], :f::text[]) AS k(sucursal, doc_prefix, folio)
               ON k.sucursal = r.sucursal AND k.doc_prefix = r.doc_prefix AND k.folio = r.folio
-            LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND btrim(s.code) = r.proveedor_code AND s.deleted_at IS NULL
+            LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND btrim(s.code) = r.proveedor_code
+                                         AND s.deleted_at IS NULL AND r.source_branch LIKE 'md\\_%'
            WHERE r.tenant_id = :t`,
           { t: tenantId, s: items.map((i) => i.sucursal), p: items.map((i) => i.doc_prefix), f: items.map((i) => i.folio) });
 
@@ -261,8 +291,8 @@ export class PurchaseDeliveriesService {
           tenant_id: tenantId,
           code,
           date_basis: basis,
-          period_from: dto.period_from || null,
-          period_to: dto.period_to || null,
+          period_from: pFrom,
+          period_to: pTo,
           delivered_by: username,
           delivered_by_name: deliverer?.nombre ?? null,
           recipient_username: recipient.username,
@@ -305,6 +335,7 @@ export class PurchaseDeliveriesService {
   async receive(id: string, dto: { rejections?: { line_id: string; reason: string }[] }, username: string): Promise<PurchaseDeliveryDetail> {
     const rejections = dto.rejections || [];
     if (rejections.some((r) => !r.reason?.trim())) throw new BadRequestException('Cada renglón rechazado necesita un motivo.');
+    if (rejections.some((r) => !UUID_RE.test(String(r.line_id ?? '')))) throw new BadRequestException('Renglón inválido en los rechazos.');
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       if (!(await this.readiness(trx)).tables) throw new ServiceUnavailableException('Falta la migración de entregas (RE.32).');

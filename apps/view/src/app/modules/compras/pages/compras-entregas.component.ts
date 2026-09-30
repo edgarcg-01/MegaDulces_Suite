@@ -93,7 +93,7 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
           </ng-template>
           <ng-template #groupheader let-l>
             <tr class="en-group"><td [attr.colspan]="canReceive(d) ? 7 : 6"><b>{{ grupoDe(l.sucursal)?.nombre }}</b> · {{ grupoDe(l.sucursal)?.rows?.length }}</td>
-              <td class="ta-r mono"><b>{{ money(grupoDe(l.sucursal)?.total ?? 0) }}</b></td></tr>
+              <td class="ta-r mono"><b>{{ money(subtotal(l.sucursal)) }}</b></td></tr>
           </ng-template>
           <ng-template #body let-l>
             <tr [class.en-rej]="rej().has(l.id) || l.status === 'rechazado'">
@@ -198,6 +198,8 @@ export class ComprasEntregasComponent implements OnInit {
   readonly cancelReason = signal('');
   readonly saving = signal(false);
   private readonly grupos = computed(() => agruparPorSucursal(this.det()?.lines ?? []));
+  /** Subtotal sin cancelados: cuadra con el total del PDF (los cancelados se listan pero no suman). */
+  private readonly subtotales = computed(() => new Map(agruparPorSucursal((this.det()?.lines ?? []).filter((l) => l.status !== 'cancelado')).map((g) => [g.sucursal, g.total])));
 
   readonly receiveBlock = computed<string | null>(() => {
     const d = this.det();
@@ -234,6 +236,7 @@ export class ComprasEntregasComponent implements OnInit {
     return s === 'entregado' ? 'Por confirmar' : s === 'aceptado' ? 'Aceptado' : s === 'rechazado' ? 'Rechazado' : 'Cancelado';
   }
   grupoDe(suc: string) { return this.grupos().find((g) => g.sucursal === suc); }
+  subtotal(suc: string): number { return this.subtotales().get(suc) ?? 0; }
 
   /** Sólo la persona a quien se le entregó, con el permiso de pagos, y mientras siga por confirmar. */
   canReceive(d: PurchaseDeliveryDetail): boolean {

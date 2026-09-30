@@ -136,6 +136,13 @@ aparte (el guard es por clave exacta, GOTCHAS §4) y **fuera de los presets**, i
   **puesto** es auxiliar de compras. Por rol recibe `PLAZOS_AUTORIZAR`. Si no debe negociar plazos, se le
   cambia el rol en `/admin/personas`: es decisión de negocio, y recortarlo por persona escondería el
   desajuste entre rol y puesto.
+- ⚠️ **Declarado — roles secundarios (`identity.user_roles`), medido en prod:** `jesus_carrillo` (jefe de
+  Finanzas) tiene como adicionales `compras`, `gerente_compras`, `direccion`, `auxiliar_compras` y
+  `compras_operaciones`. Con esta migración recibe también `_GESTIONAR` y `PLAZOS_AUTORIZAR`, y además es
+  receptor válido de entregas. El servicio impide que una persona entregue y reciba **la misma** entrega;
+  que no opere los dos lados del flujo es decisión tuya (quitarle esos roles adicionales).
+- (El conteo de personas de la tabla es por rol **principal**; la migración imprime el total real
+  incluyendo roles adicionales.)
 
 ### Mecánica (calcada de `20260915130000_grant_payment_calendar_autorizar.js`)
 

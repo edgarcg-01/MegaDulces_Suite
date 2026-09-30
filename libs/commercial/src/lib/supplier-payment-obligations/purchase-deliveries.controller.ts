@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import type {
@@ -54,7 +54,7 @@ export class PurchaseDeliveriesController {
 
   @Get(':id')
   @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)
-  detail(@Param('id') id: string): Promise<PurchaseDeliveryDetail> {
+  detail(@Param('id', ParseUUIDPipe) id: string): Promise<PurchaseDeliveryDetail> {
     return this.svc.detail(id);
   }
 
@@ -68,14 +68,14 @@ export class PurchaseDeliveriesController {
   @Post(':id/recibir')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Finanzas confirma la entrega. Los renglones en `rejections` (con motivo) regresan a pendientes; el resto queda aceptado.' })
-  receive(@Param('id') id: string, @Body() body: { rejections?: { line_id: string; reason: string }[] }, @Req() req: AuthedRequest): Promise<PurchaseDeliveryDetail> {
+  receive(@Param('id', ParseUUIDPipe) id: string, @Body() body: { rejections?: { line_id: string; reason: string }[] }, @Req() req: AuthedRequest): Promise<PurchaseDeliveryDetail> {
     return this.svc.receive(id, body || {}, req.user?.username || 'sistema');
   }
 
   @Post(':id/cancelar')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
   @ApiOperation({ summary: 'Compras cancela una entrega que Finanzas todavía no confirma (con motivo). Todo regresa a pendientes.' })
-  cancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest): Promise<PurchaseDeliveryDetail> {
+  cancel(@Param('id', ParseUUIDPipe) id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest): Promise<PurchaseDeliveryDetail> {
     return this.svc.cancel(id, body?.reason, req.user?.username || 'sistema');
   }
 }
