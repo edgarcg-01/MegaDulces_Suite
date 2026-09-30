@@ -89,9 +89,51 @@ async function rechaza(c, etiqueta, sql, params) {
   [TENANT]);
   ck('existe la fila default del tenant', !!def);
   if (def) {
-    ck('el objetivo es el 15 que estaba en el código (cero-diff)', Number(def.margen_objetivo) === 15,
-      `es ${def.margen_objetivo}`);
-    ck("source = 'default_medido' (medido ≠ autorizado)", def.source === 'default_medido', def.source);
+    ck("source = 'kepler_ponderado_peldano_vendido' (la política que el ERP ya aplica)",
+      def.source === 'kepler_ponderado_peldano_vendido' || def.manual_lock === true, def.source);
+
+    /**
+     * ⭐⭐ NO se afirma una constante: se RE-MIDE.
+     *
+     * El default salió de ponderar la meta de Kepler por el peldaño que de verdad se vende
+     * (`[PR.E0d]`). Un número medido clavado en un test es una medición con fecha de caducidad
+     * que nadie revisa — la Fase CDRP ya pagó esa: una medición que sostenía una decisión vivía
+     * en un `COMMENT ON TABLE` de prod y **envejeció en tres días** sin que nada se pusiera rojo.
+     *
+     * Acá el test vuelve a calcularlo y compara. Si la fila se aleja de lo que Kepler dice hoy,
+     * o la política de precios se movió (y alguien tiene que enterarse) o el cálculo se rompió.
+     * Las dos merecen un rojo.
+     */
+    const [viva] = await q(`
+      WITH s AS (
+        SELECT source_branch AS sucursal, sku, factor_sale, sum(monto_neto) AS venta
+          FROM analytics.mv_kepler_sales_daily
+         WHERE business_date >= CURRENT_DATE - 90 AND monto_neto > 0
+         GROUP BY 1,2,3
+      )
+      SELECT round((sum(s.venta * m.margen_venta_pct) / NULLIF(sum(s.venta),0))::numeric, 3) meta
+        FROM s JOIN analytics.v_kepler_margin_target m
+          ON m.sucursal = s.sucursal AND m.sku = s.sku AND m.veredicto = 'capturado'
+         AND abs(COALESCE(m.factor,1) - COALESCE(s.factor_sale,1)) < 0.01`);
+
+    if (viva?.meta == null) {
+      // ADR-056: sin venta con qué medirlo no hay ✔ ni ✖ — se declara.
+      console.log('  ⓘ NO MEDIDO: sin venta pareada en este destino, no hay con qué re-medir la meta.');
+    } else if (def.manual_lock) {
+      console.log(`  ⓘ la fila tiene manual_lock (${def.margen_objetivo}%): la fijó un humano, `
+        + `no se compara contra Kepler (${viva.meta}%).`);
+    } else {
+      // Tolerancia DECLARADA: la ventana de 90 días rodante mueve el ponderado unas décimas.
+      // Más de 1.5 pp no es deriva, es un cambio de política o un cálculo roto.
+      const d = Math.abs(Number(def.margen_objetivo) - Number(viva.meta));
+      ck(`⭐ el default sigue siendo lo que Kepler dice HOY (${viva.meta}%, Δ ${d.toFixed(3)} pp)`,
+        d <= 1.5, `la fila dice ${def.margen_objetivo}% y Kepler ${viva.meta}%`);
+    }
+
+    // ⛔ Y que NO haya vuelto al 15 sin fuente que esta fase retiró.
+    ck('⛔ el 15 sin fuente no volvió', Number(def.margen_objetivo) !== 15,
+      'la fila default volvió al valor que no salía de ningún lado');
+
     ck('manual_lock arranca en false', def.manual_lock === false);
     // ⭐ El piso NO se inventa: va NULL CON MOTIVO. Un piso dibujado decide precios.
     ck('⭐ margen_minimo es NULL (el piso no es determinable, D13)', def.margen_minimo === null,

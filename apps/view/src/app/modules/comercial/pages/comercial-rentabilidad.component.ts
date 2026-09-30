@@ -1049,12 +1049,17 @@ export class ComercialRentabilidadComponent {
 
   /**
    * `[PR.E0b]` La meta **efectiva**: el override del usuario si lo hay, si no la que resolvió el
-   * servidor desde `commercial.margin_targets`. El `15` final es sólo la red por si el servidor
+   * servidor desde `commercial.margin_targets`. El número final es sólo la red por si el servidor
    * todavía no respondió — y en ese caso `targetSource` lo dice.
+   *
+   * ⭐ `[PR.E0d]`: esa red era **15** y no salía de ningún lado. Hoy es **11.55 %**, la política
+   * que Kepler ya aplica ponderada por el peldaño que de verdad se vende (94.5 % de la venta es
+   * mayoreo, no pieza). Tiene que seguir a `MARGIN_TARGET_FALLBACK` del backend: si divergen, la
+   * pantalla parpadea de una meta a otra mientras carga.
    *
    * ⛔ Lee `overview()`, así que NO puede usarse en los `params` de los resources: sería un ciclo.
    */
-  readonly target = computed(() => this.targetOverride() ?? (this.overview() as any)?.target ?? 15);
+  readonly target = computed(() => this.targetOverride() ?? (this.overview() as any)?.target ?? 11.55);
 
   /**
    * De dónde salió la meta. ⭐ Un default **medido** no es un default **autorizado**:
