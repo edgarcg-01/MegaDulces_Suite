@@ -18,16 +18,28 @@ import type { TicketCandidato, TicketOrigen } from './commercial-tickets.service
  * al tope, lo que se devuelve es un subconjunto del rango **que ni siquiera se puede afirmar que
  * sean los más recientes** → `truncado: true` + aviso para acortar el rango o buscar.
  *
- * ── ⚠️⚠️ NO MEDIDO ────────────────────────────────────────────────────────────────────────
- * La base local no tiene `analytics.erp_sale_tickets` ni volumen de `kdm1` (81 filas), así que
- * esta consulta **no tiene medición propia**. Referencias heredadas, no de esta forma exacta:
- * mostrador por (sucursal, cliente, 30 d) = 50 ms (TK.7); facturas por rango sin orden ≈ 1 s
- * (la vista todavía trae su `DISTINCT ON`, deuda con nombre en la mig 20260921220000). Por eso
- * el rango se TOPA en `MAX_DIAS` y arranca en un solo día.
+ * ── MEDIDO CONTRA PROD (revisión de Edgar en el PR #193, 2026-09-30, sólo lectura) ─────────
+ * Tiempo, con el tope viejo de 1,000:
+ *
+ *     mostrador  1 día   37 ms  ·  7 días  31 ms  ·  31 días  39 ms
+ *     facturas   1 día    7 ms  ·  7 días  38 ms  ·  31 días  42 ms
+ *
+ * La velocidad no era el problema; el TOPE sí. Mostrador: 82,456 documentos en 31 días y 8
+ * plazas = **2,660/día**, y el día más cargado (26-sep) **4,038**. Con 1,000, el filtro POR
+ * DEFECTO (hoy, todas las plazas) ya salía truncado, mostrando ~25% del día: el aviso salía casi
+ * siempre, y un aviso que sale siempre deja de leerse. El mismo día de 4,038 documentos:
+ *
+ *     limit 1,001    41 ms   (25% del día)
+ *     limit 3,001   104 ms
+ *     limit 6,001   153 ms   (el día ENTERO)
+ *
+ * Por eso el tope es 5,000: entra un día completo de la red con margen, a ~150 ms (el gate es
+ * 1 s). El aviso de `truncado` queda para lo que de verdad no cabe: rangos de varios días sin
+ * elegir sucursal ni buscar.
  */
 
-/** Filas que se piden POR UNIVERSO. Un día de las nueve plazas en mostrador son ~2,100. */
-const LIMITE_POR_UNIVERSO = 1000;
+/** Filas que se piden POR UNIVERSO. Medido: el día más cargado de la red son 4,038 en mostrador. */
+const LIMITE_POR_UNIVERSO = 5000;
 /** Rango máximo. Más que esto no es una bandeja, es un reporte (y la vista de facturas lo sufre). */
 const MAX_DIAS = 31;
 

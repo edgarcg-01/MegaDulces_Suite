@@ -32,6 +32,20 @@ function hoyMx(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 }
 
+/**
+ * Suma días a una fecha AAAA-MM-DD sin pasar por la zona del navegador: a mediodía UTC ningún
+ * huso de México mueve el día. `''` si la fecha viene rota (un `type=date` a medio teclear).
+ */
+export function sumarDias(iso: string, dias: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+/** El mismo tope que `BandejaTicketsService.MAX_DIAS`. El backend es el que manda. */
+const MAX_DIAS_BANDEJA = 31;
+
 @Component({
   selector: 'app-comercial-tickets',
   standalone: true,
@@ -71,11 +85,13 @@ function hoyMx(): string {
         }
 
         <div class="tk-fecha">
-          <input pInputText type="date" [ngModel]="fDesde()" [max]="fHasta()"
-                 (ngModelChange)="fDesde.set($event); recargar()" aria-label="Desde" />
+          <!-- El rango máximo (31 días) lo hace cumplir el backend; acá el calendario no deja
+               elegir más, y si se TECLEA una fecha fuera de rango se recorre la otra punta. -->
+          <input pInputText type="date" [ngModel]="fDesde()" [min]="masDias(fHasta(), -(MAX_DIAS - 1))" [max]="fHasta()"
+                 (ngModelChange)="cambiarDesde($event)" aria-label="Desde" />
           <span aria-hidden="true">→</span>
-          <input pInputText type="date" [ngModel]="fHasta()" [min]="fDesde()"
-                 (ngModelChange)="fHasta.set($event); recargar()" aria-label="Hasta" />
+          <input pInputText type="date" [ngModel]="fHasta()" [min]="fDesde()" [max]="masDias(fDesde(), MAX_DIAS - 1)"
+                 (ngModelChange)="cambiarHasta($event)" aria-label="Hasta" />
         </div>
 
         <p-autocomplete [(ngModel)]="clienteSel" [suggestions]="clienteSugs()"
@@ -489,6 +505,34 @@ export class ComercialTicketsComponent {
       // Con UNO solo no hay nada que elegir; con varios elige la persona.
       if (r?.filas.length === 1) this.abrir(r.filas[0]);
     });
+    this.recargar();
+  }
+
+  readonly MAX_DIAS = MAX_DIAS_BANDEJA;
+  readonly masDias = sumarDias;
+
+  /**
+   * Al mover una punta del rango, si queda a más de 31 días de la otra, la otra se RECORRE en
+   * vez de mandar un rango que el backend va a rechazar con 400. Y si se cruzan (desde > hasta),
+   * la otra punta se iguala.
+   */
+  cambiarDesde(v: string): void {
+    this.fDesde.set(v);
+    if (v && this.fHasta()) {
+      const tope = sumarDias(v, MAX_DIAS_BANDEJA - 1);
+      if (this.fHasta() > tope) this.fHasta.set(tope);
+      if (this.fHasta() < v) this.fHasta.set(v);
+    }
+    this.recargar();
+  }
+
+  cambiarHasta(v: string): void {
+    this.fHasta.set(v);
+    if (v && this.fDesde()) {
+      const tope = sumarDias(v, -(MAX_DIAS_BANDEJA - 1));
+      if (this.fDesde() < tope) this.fDesde.set(tope);
+      if (this.fDesde() > v) this.fDesde.set(v);
+    }
     this.recargar();
   }
 
