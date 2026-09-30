@@ -5,6 +5,63 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué
+
+**Disparador:** Edgar — *"hay que arreglarlo"*, sobre el hecho de fondo que dejaron IC.12, ABC.6
+e IRA.1: tres pantallas midiendo un proceso que no corre.
+
+### Lo primero fue descartar lo obvio
+
+**No son los permisos.** `COMMERCIAL_INVENTORY_CONTAR` lo tienen 6 roles / **19 personas**,
+`SUPERVISAR` 13 y `RECONCILIAR` 11. La inversión que `FASE_IC` §1.6 documentó —*quien cuenta no
+podía contar*— la cerró IC.2 y hoy está repartida en prod.
+
+**Y no son conteos operativos fallidos:** los 6 folios los abrió `superoot`, o sea Sistemas
+probando en junio. **Nunca hubo un conteo real.**
+
+### La causa, y no es un bug
+
+`reconcile()` tiene un *coverage guard*: si queda **un solo** SKU sin contar, no se puede cerrar
+—*«un no-contado NO se trata como cero»*—. Es correcto y deliberado. El problema es **cuándo se
+entera uno**: sólo apretando «Reconciliar» y recibiendo un 409.
+
+Un folio completo de **3,664 SKUs** exige contar los 3,664 para cerrarse. Medido, folio por
+folio: 3,663 · 3,664 · 3,663 · 2,093 · 3,664 · 2,091 sin contar. **Avance entre 0.00% y 0.14%.**
+Eso no se abandona por desidia: se abandona porque era imposible, y nada en la pantalla lo dijo
+hasta el final.
+
+⭐ **El mecanismo correcto ya existía y estaba bien hecho:** el folio cíclico se genera con
+**50 SKUs** (tope 500), que sí se cuenta y se cierra en un turno. Lo que faltaba no era
+construirlo — era **decir el bloqueo antes**.
+
+### Lo que se hizo
+
+Los cuatro guards de `reconcile()` se extrajeron a **`bloqueosParaReconciliar()`**, que ahora
+consumen **los dos**: `reconcile()` para rechazar y `getProgress()` para avisar. Una sola
+definición, y la razón es concreta: si divergieran, el supervisor vería «listo para cerrar» y el
+botón devolvería 409. Es el mismo pecado que ABC.6 cometió y corrigió el mismo día.
+
+La pantalla del folio ahora muestra, **arriba del botón**, qué falta (*«3,663 SKU(s) sin ningún
+conteo…»*), el avance (*«van 1 de 3,664 contados, 0.03%»*) y la regla en llano: *un folio se
+cierra completo o se cancela; lo no contado no se toma como cero*. El botón «Reconciliar» se
+apaga con el motivo en el tooltip. ⚠️ Si el backend no manda el campo —deploy viejo— **no** se
+bloquea: un `undefined` no puede apagar un botón que antes funcionaba.
+
+### Lo que NO se hizo, y por qué
+
+**`ENABLE_CYCLE_COUNT_CRON` no está definida en prod**, así que el cron que abriría folios
+cíclicos solos no corre. Encenderlo crea folios todos los días en todos los almacenes: es una
+decisión de operación, no de una revisión de pantalla, y se declara en vez de decidirla acá.
+
+**Candado:** `test-newdb-count-cerrable.js` — **9 ✓ / 0 ✗ / 1 no medido**. Exige que los bloqueos
+**discriminen** (una fila completa y resuelta no puede disparar ninguno: una regla que siempre
+dice que sí deja el botón apagado para siempre, que es peor que el 409) y que sean independientes
+entre sí. Incluye una comprobación **estructural** —una definición, dos consumidores— declarada
+como lo que es: no prueba la regla, sólo que no hay dos copias.
+
+`nx build api` + `nx build view` OK. **Sin migración. Pendiente: redeploy.**
+
+---
 ## 2026-09-30 — IRA.1: la pantalla de exactitud no decía que el proceso nunca corrió
 
 **Disparador:** Edgar — `/almacen/inventory/ira`, siguiente pantalla del barrido de almacén.

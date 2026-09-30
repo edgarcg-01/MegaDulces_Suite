@@ -2946,6 +2946,12 @@ export interface InventorySupervisorProgress {
   discrepancies: number;
   resolved: number;
   value_at_variance: number | string;
+  /** [CNT.1] Lo que impide cerrar el folio, en el mismo orden en que `reconcile()` los evalúa
+   *  — y con el MISMO método, no una copia. Antes esto sólo se sabía apretando el botón y
+   *  recibiendo un 409, después de haber contado o de haber abandonado. */
+  bloqueos?: { code: string; items: number; mensaje: string }[];
+  /** Vacío + folio abierto = se puede reconciliar. No es una opinión de la pantalla. */
+  puede_reconciliar?: boolean;
   by_counter: { user_id: string; counts: number; discrepancies: number }[];
 }
 
