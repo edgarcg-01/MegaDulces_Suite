@@ -17,12 +17,16 @@ export class InventoryAbcController {
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
-  @ApiOperation({ summary: 'Clasificación ABC vigente por (almacén, producto) (?warehouse_id=&abc_class=A|B|C) — ABC.0' })
+  @ApiOperation({ summary: 'Clasificación ABC vigente por (almacén, producto) (?warehouse_id=&abc_class=A|B|C&limit=). [ABC.6] Devuelve { items, total, truncado, criterio } — antes era un array con LIMIT 2000 mudo — y cada fila trae `motivo_clase`: una C sin demanda NO es de bajo valor, es no medida.' })
   list(
     @Query('warehouse_id') warehouseId?: string,
     @Query('abc_class') abcClass?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.service.listAbc({ warehouse_id: warehouseId, abc_class: abcClass });
+    return this.service.listAbc({
+      warehouse_id: warehouseId, abc_class: abcClass,
+      limit: limit != null ? Number(limit) : undefined,
+    });
   }
 
   @Get('summary')
@@ -45,17 +49,19 @@ export class InventoryAbcController {
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({
     summary:
-      'Qué toca contar (conteo cíclico): ABC × historial reconciliado → next_due por cadencia de clase (?warehouse_id=&abc_class=&only_due=false) — ABC.1',
+      'Qué toca contar (conteo cíclico): ABC × historial reconciliado → next_due por cadencia de clase (?warehouse_id=&abc_class=&only_due=false&limit=) — ABC.1. [ABC.6] `by_class` se cuenta sobre TODO el universo y no sobre la página: contarlo después del LIMIT publicaba «A 2000 · B 0 · C 0» con 6,822 B y 27,671 C vencidas esperando.',
   })
   cycleDue(
     @Query('warehouse_id') warehouseId?: string,
     @Query('abc_class') abcClass?: string,
     @Query('only_due') onlyDue?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.service.cycleDue({
       warehouse_id: warehouseId,
       abc_class: abcClass,
       only_due: onlyDue === 'false' ? false : true,
+      limit: limit != null ? Number(limit) : undefined,
     });
   }
 

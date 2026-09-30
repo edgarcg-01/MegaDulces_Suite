@@ -100,6 +100,10 @@ export * from './lib/provenance/freshness';
 // [CC.10] El otro lado del mismo par: `freshness` LEE `analytics.cron_runs`, esto lo ESCRIBE.
 // Estaba copiado a mano en 7 servicios cuando el octavo iba a nacer.
 export * from './lib/provenance/cron-heartbeat';
+// [UX.0] Qué pantallas se usan. Vive acá y no en `apps/api` porque es un primitivo de la
+// plataforma —lo consumen todas las apps por el mismo interceptor global— y porque ADR-056 pide
+// que un mecanismo genérico viva en `libs/` compartido, no adentro de la fase que lo inventó.
+export * from './lib/observability/usage-metrics.interceptor';
 // [CPU.2] «Preferí la copia materializada y declará su edad». Mismo patrón que los dos de arriba:
 // estaba bien resuelto en UN servicio (`commercial-bi-almacen`) mientras el de al lado tenía la
 // vista viva clavada a mano en tres lugares, quemando el 16.4 % del SQL de prod.

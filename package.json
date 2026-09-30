@@ -27,6 +27,8 @@
     "check:ts7paths": "node scripts/check-ts7-paths.js",
     "check:powershell": "node scripts/check-powershell.js",
     "check:migrations": "node database/scripts/check-applied-migrations.js",
+    "check:mig-colisiones": "node scripts/check-migration-collisions.js",
+    "check:mig-colisiones:self": "node scripts/check-migration-collisions.js --self-test",
     "api": "nx serve api",
     "api:dev": "nx build api && concurrently -k -n build,api -c blue,green \"nx build api --watch\" \"node --watch dist/apps/api/main.js\"",
     "view": "nx serve view",

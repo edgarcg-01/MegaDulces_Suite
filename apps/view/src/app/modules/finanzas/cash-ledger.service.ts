@@ -408,6 +408,13 @@ export interface PendientesResponse {
    * tampoco puede desaparecer de la pantalla.
    */
   fuera_de_ventana?: { movimientos: number; monto: number };
+  /**
+   * `[CG.28]` Los que el ERP fechó DESPUÉS de hoy. Quedan fuera de la lista — una ventana de
+   * "los últimos N días" que deja entrar el futuro no es una ventana — pero se cuentan y se
+   * publican: no son trabajo de caja, son un error de captura que alguien tiene que ir a corregir
+   * en Kepler.
+   */
+  mal_fechados?: { movimientos: number; monto: number };
   rows: MovimientoPendiente[];
   /**
    * CG — Lo que el BUSCADOR encuentra FUERA del efectivo inferido: documentos POR PAGAR —
@@ -624,6 +631,15 @@ export interface ArqueoDia {
     ultimo_movimiento: string | null;
   } | null;
   corte_abierto: { id: string; folio: string; fecha: string } | null;
-  /** Lo que NO se puede afirmar, con su razón. Se PINTA; un hueco callado se lee como cero. */
+  /**
+   * `[CG.29]` Lo que ESTA jornada no pudo afirmar y que **alguien puede cambiar hoy**. Se pinta
+   * fuerte: es lo que separa «el movimiento registrado» de «un arqueo firmado».
+   */
   no_medido: string[];
+  /**
+   * `[CG.29]` Lo que este cuadre **nunca** va a cubrir, por cómo son las fuentes. Permanente: sale
+   * todos los días. Va en segundo plano — un aviso que aparece siempre y que nadie puede resolver
+   * deja de leerse, y se lleva puesto al que sí importaba.
+   */
+  limites?: string[];
 }
