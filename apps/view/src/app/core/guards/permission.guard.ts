@@ -156,6 +156,7 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_CUSTOMERS_VER, url: '/comercial/customers' },
   { perm: Permission.COMMERCIAL_PRICING_VER, url: '/comercial/pricing' },
   { perm: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, url: '/comercial/experimentos-precio' },
+  { perm: Permission.COMMERCIAL_MARGIN_ENGINE_VER, url: '/comercial/motor-margen' },
   { perm: Permission.COMMERCIAL_SELLOUT_VER, url: '/comercial/sell-out' },
   { perm: Permission.COMMERCIAL_SALIDAS_VER, url: '/comercial/salidas' },
   { perm: Permission.COMMERCIAL_ROUTE_SALES_VER, url: '/comercial/ventas-por-ruta' },
