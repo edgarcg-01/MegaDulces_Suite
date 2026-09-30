@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, of } from 'rxjs';
 import { map, catchError, shareReplay } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
-import { ComercialService, SalesByRouteOption, SalesByRouteReport, SalesByRouteRow } from '../../comercial/comercial.service';
+import { ComercialService, SalesByRouteDashboard, SalesByRouteOption, SalesByRouteReport, SalesByRouteRow } from '../../comercial/comercial.service';
 
 export interface DetalleKpi {
   cur: number;
@@ -214,14 +214,27 @@ export class DetalleHomeService {
     const prevFrom = prevFromDate.toISOString().slice(0, 10);
     const prevTo = prevToDate.toISOString().slice(0, 10);
 
+    // `[AUD-DAT.18]` Dos llamadas MENOS y una de verdad.
+    //
+    // ⛔ `salesByRouteProducts()` y `salesByRouteClients()` viajaban en este forkJoin, se pasaban a
+    // `synthesizeReport(...)` y **el metodo no las leia**. Eran 10,000 opciones por carga tiradas a
+    // la basura — y la de clientes medía **96 segundos** en la base (`[AUD-DAT.17]`). Los combos de
+    // filtro se piden cuando el usuario los abre, no por adelantado.
+    //
+    // ⭐ `salesByRouteDashboard` trae lo que antes se INVENTABA en el navegador: la serie diaria
+    // real, el top de productos y de clientes real, y la COBERTURA DEL COSTO. Pide el periodo
+    // elegido, no el anio entero.
     return forkJoin({
       routesRep: this.comercial.salesByRoute({ year }).pipe(catchError(() => of(null))),
       routesCatalog: this.loadRoutesCatalog(),
-      productsCatalog: this.comercial.salesByRouteProducts().pipe(catchError(() => of([]))),
-      clientsCatalog: this.comercial.salesByRouteClients().pipe(catchError(() => of([]))),
+      dash: this.comercial.salesByRouteDashboard(params.from, params.to).pipe(catchError(() => of(null))),
+      // El periodo PREVIO sale de la MISMA consulta, en paralelo: no cuesta tiempo de pared y
+      // mata cuatro factores inventados (x0.93 tickets, x0.95 unidades, x0.88 clientes,
+      // x0.123 margen) sobre los que se calculaba CADA delta porcentual de la pantalla.
+      dashPrev: this.comercial.salesByRouteDashboard(prevFrom, prevTo).pipe(catchError(() => of(null))),
     }).pipe(
-      map(({ routesRep, routesCatalog, productsCatalog, clientsCatalog }) => {
-        return this.synthesizeReport(params, { from: prevFrom, to: prevTo, days }, routesRep, routesCatalog, productsCatalog, clientsCatalog);
+      map(({ routesRep, routesCatalog, dash, dashPrev }) => {
+        return this.synthesizeReport(params, { from: prevFrom, to: prevTo, days }, routesRep, routesCatalog, dash, dashPrev);
       })
     );
   }
@@ -231,8 +244,8 @@ export class DetalleHomeService {
     prevPeriod: { from: string; to: string; days: number },
     rep: SalesByRouteReport | null,
     catalog: DetalleRouteCatalogItem[],
-    products: { value: string; label: string }[],
-    clients: { value: string; label: string }[]
+    dash: SalesByRouteDashboard | null,
+    dashPrev: SalesByRouteDashboard | null
   ): DetalleReport {
     const fromMonth = params.from.slice(5, 7);
     const toMonth = params.to.slice(5, 7);
@@ -392,15 +405,36 @@ export class DetalleHomeService {
 
     // Totales calculados
     const totalRev = filteredRows.reduce((acc, r) => acc + r.revenue, 0);
-    const totalRevPrev = filteredRows.reduce((acc, r) => acc + r.revenue_prev, 0);
+    // `[AUD-DAT.18]` LA VENTA DEL PERIODO PREVIO, REAL. Acá se sumaba `r.revenue_prev`, que por
+    // ruta vale `rev * (0.92 + (parseInt(route_no) % 15) * 0.01)` — o sea que el delta porcentual
+    // MAS VISIBLE de la pantalla salia de los digitos del numero de ruta. Ahora sale de la misma
+    // consulta, pedida para el rango anterior.
+    //
+    // ⚠️ SIGUE PENDIENTE, declarado: `revenue_prev`, `margin`, `basket` y `customers` POR RUTA
+    // siguen inventados (lineas ~305-314). Corregirlos exige que el backend devuelva el agregado
+    // por ruta para los dos periodos, no solo el total. Hoy sus columnas no se pintan en la tabla,
+    // pero el dato esta en el contrato y alguien lo va a leer.
+    const totalRevPrev = dashPrev?.coverage.revenue ?? 0;
     const totalTickets = filteredRows.reduce((acc, r) => acc + r.tickets, 0);
-    const totalTicketsPrev = Math.round(totalTickets * 0.93);
+    // `[AUD-DAT.18]` EL PERIODO PREVIO, REAL. Acá se multiplicaba el periodo actual por factores
+    // fijos —tickets x0.93, unidades x0.95, clientes x0.88, margen x0.123— y sobre ESO se calculaba
+    // cada delta porcentual que la pantalla publica. Ahora los cuatro salen de la misma consulta,
+    // pedida para el rango anterior.
+    const totalTicketsPrev = dashPrev?.series.reduce((a, p) => a + p.tickets, 0) ?? 0;
     const totalUnits = filteredRows.reduce((acc, r) => acc + r.units, 0);
-    const totalUnitsPrev = Math.round(totalUnits * 0.95);
-    const totalMargin = filteredRows.reduce((acc, r) => acc + r.margin, 0);
-    const totalMarginPrev = Math.round(totalRevPrev * 0.123);
+    const totalUnitsPrev = dashPrev?.series.reduce((a, p) => a + p.units, 0) ?? 0;
+    // ⛔ EL MARGEN SE CALCULA SOBRE LO QUE TIENE COSTO, no sobre la venta total. Medido en prod:
+    // en el ultimo mes cerrado el costo solo existe en el 12.4 % de la venta de ruta, porque el
+    // push de camionetas no lo trae y la fuente lo DECLARA (`costo_status`). Repartir un 12.5 %
+    // plano sobre el total, como se hacia acá, era tapar ese hueco con un numero redondo.
+    const totalMargin = dash ? Math.round(dash.coverage.revenue_with_cost - dash.coverage.cost) : 0;
+    const totalMarginPrev = dashPrev
+      ? Math.round(dashPrev.coverage.revenue_with_cost - dashPrev.coverage.cost) : 0;
     const totalCustomers = filteredRows.reduce((acc, r) => acc + r.customers, 0);
-    const totalCustomersPrev = Math.round(totalCustomers * 0.88);
+    // Los clientes del periodo previo no vienen en este agregado (exigiria el distinct por
+    // cliente del rango anterior). Se DECLARA en cero para que el delta salga `null` abajo, en
+    // vez de inventar un x0.88 que se leeria como una caida real.
+    const totalCustomersPrev = 0;
 
     // Calcular share por ruta
     filteredRows.forEach((r) => {
@@ -480,8 +514,11 @@ export class DetalleHomeService {
 
     // Métricas 10 KPIs
     const revDelta = totalRevPrev > 0 ? Number((((totalRev - totalRevPrev) / totalRevPrev) * 100).toFixed(1)) : null;
-    const marginPctCur = totalRev > 0 ? Number(((totalMargin / totalRev) * 100).toFixed(1)) : null;
-    const marginPctPrev = totalRevPrev > 0 ? Number(((totalMarginPrev / totalRevPrev) * 100).toFixed(1)) : null;
+    // `coverage.margin_pct` ya viene calculado sobre `revenue_with_cost` en el backend, y llega
+    // `null` cuando NADA del periodo tiene costo: no hay margen que reportar, y un 0 % se leeria
+    // como «vendimos sin ganancia».
+    const marginPctCur = dash?.coverage.margin_pct ?? null;
+    const marginPctPrev = dashPrev?.coverage.margin_pct ?? null;
     const marginDelta = totalMarginPrev > 0 ? Number((((totalMargin - totalMarginPrev) / totalMarginPrev) * 100).toFixed(1)) : null;
 
     const avgTicketCur = totalTickets > 0 ? Math.round(totalRev / totalTickets) : 0;
@@ -527,92 +564,60 @@ export class DetalleHomeService {
       revenue_per_customer: { cur: revPerCustomerCur, prev: revPerCustomerPrev, delta_pct: revPerCustomerDelta },
     };
 
-    // Serie diaria para gráficas (distribuida día a día a lo largo del período)
-    const series: DetalleSeriesPoint[] = [];
-    const startDate = new Date(Date.parse(params.from));
-    const stepRev = totalRev / days;
-    const stepTks = totalTickets / days;
-    const stepUnits = totalUnits / days;
-
-    for (let i = 0; i < days; i++) {
-      const curDate = new Date(startDate.getTime() + i * 86400000);
-      const isoStr = curDate.toISOString().slice(0, 10);
-      const dayOfWeek = curDate.getDay(); // 0 domingo, 6 sábado
-
-      // Rutas tienen volumen más bajo los domingos (o nulo) y picos a mitad de semana / sábado
-      const dayWeight = dayOfWeek === 0 ? 0.15 : (dayOfWeek === 5 || dayOfWeek === 6 ? 1.35 : 1.05);
-      const varFactor = 0.88 + ((i * 17) % 25) / 100;
-      const dayRev = Math.round(stepRev * dayWeight * varFactor);
-      const dayTks = Math.round(stepTks * dayWeight * varFactor);
-      const dayUnits = Math.round(stepUnits * dayWeight * varFactor);
-      const dayMargin = Math.round(dayRev * 0.125);
-
-      const dLabel = curDate.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
-      series.push({
-        date: isoStr,
-        label: dLabel,
-        revenue: dayRev,
-        margin: dayMargin,
-        units: dayUnits,
-        tickets: dayTks,
-      });
-    }
+    // `[AUD-DAT.18]` LA SERIE REAL, una fila por dia, de `analytics.mv_rd_route_daily_200d`.
+    //
+    // ⛔ Acá se REPARTIA el total del periodo entre los dias y se lo modulaba con pesos inventados
+    // por dia de semana (0.15 domingo, 1.35 vie/sab) mas `varFactor = 0.88 + ((i*17)%25)/100`, una
+    // ondulacion derivada del indice del bucle para que la curva pareciera organica. El margen era
+    // `dayRev * 0.125`, un 12.5 % plano.
+    //
+    // ⚠️ El costo llega `null` en los dias que la fuente no lo tiene (el push de camionetas no trae
+    // costo, y la fuente lo declara). `null`, NO cero: un dia sin costo no vendio con costo cero.
+    const series: DetalleSeriesPoint[] = (dash?.series ?? []).map((p) => ({
+      date: p.date,
+      label: new Date(`${p.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+      revenue: p.revenue,
+      margin: p.cost === null ? 0 : Math.round(p.revenue - p.cost),
+      units: p.units,
+      tickets: p.tickets,
+    }))
 
     // Top Productos de Ruta
-    const sampleProducts = [
-      { sku: '80501', nombre: 'PALETA PAYASO 45G RISI', brand: 'Risi', canal: 'rd' as const, share: 0.082 },
-      { sku: '10204', nombre: 'MAZAPAN DE LA ROSA GIGANTE 50G', brand: 'De La Rosa', canal: 'ambos' as const, share: 0.074 },
-      { sku: '30450', nombre: 'PULPARINDO EXTRA PICANTE 20PZ', brand: 'De La Rosa', canal: 'rd' as const, share: 0.061 },
-      { sku: '45012', nombre: 'PELON PELO RICO ORIGINAL 30G', brand: 'Hershey', canal: 'ambos' as const, share: 0.055 },
-      { sku: '11002', nombre: 'CHOCOLATE CARLOS V 20G DISPLAY', brand: 'Nestlé', canal: 'vecinal' as const, share: 0.048 },
-      { sku: '77021', nombre: 'CHICLES BUBBALOO MORA AZUL 47PZ', brand: 'Mondelez', canal: 'rd' as const, share: 0.042 },
-      { sku: '65033', nombre: 'PALETA VERO MANGO CON CHILE 40PZ', brand: 'Vero / Barcel', canal: 'rd' as const, share: 0.039 },
-      { sku: '22090', nombre: 'DUVALIN BI-SABOR FRESA VAINILLA 18PZ', brand: 'Ricolino', canal: 'vecinal' as const, share: 0.035 },
-      { sku: '80120', nombre: 'BOMBON CORONADO FRESA 500G', brand: 'Coronado', canal: 'vecinal' as const, share: 0.031 },
-      { sku: '90411', nombre: 'TAMARINDO ROCKALETA BOLA 30PZ', brand: 'Sonric\'s', canal: 'rd' as const, share: 0.028 },
-    ];
-
-    let runningShare = 0;
-    const top_products: DetalleTopProduct[] = sampleProducts.map((p) => {
-      const pRev = Math.round(totalRev * p.share);
-      const pUnits = Math.round(pRev / (24 + (parseInt(p.sku.slice(0, 2), 10) % 15)));
-      const pAvgPrice = pUnits > 0 ? Number((pRev / pUnits).toFixed(2)) : 0;
-      const sharePct = Number((p.share * 100).toFixed(1));
-      runningShare += sharePct;
-
+    // `[AUD-DAT.18]` TOP PRODUCTOS REALES. Acá vivia un arreglo de 10 SKUs escritos a mano con
+    // `share` fijo (0.082, 0.074, …) y las unidades salian de `parseInt(sku.slice(0,2)) % 15`.
+    let cum = 0;
+    const top_products: DetalleTopProduct[] = (dash?.top_products ?? []).map((p) => {
+      cum += p.share_pct;
       return {
         sku: p.sku,
-        nombre: p.nombre,
-        brand: p.brand,
-        canal_predominante: p.canal,
-        revenue: pRev,
-        units: pUnits,
-        avg_price: pAvgPrice,
-        share_pct: sharePct,
-        cum_share_pct: Number(runningShare.toFixed(1)),
+        nombre: p.name,
+        // ⚠️ La marca no viene en esta consulta: se DECLARA vacia en vez de inventarse.
+        brand: '',
+        canal_predominante: 'ambos' as const,
+        revenue: p.revenue,
+        units: p.units,
+        avg_price: p.units > 0 ? Number((p.revenue / p.units).toFixed(2)) : 0,
+        share_pct: p.share_pct,
+        cum_share_pct: Number(cum.toFixed(1)),
       };
     });
 
-    // Clientes de Ruta
-    const sampleCustomers = [
-      { code: 'CLI-8041', name: 'ABARROTES LA GUADALUPANA', route: 'WIN-21', tks: 14, rev: 38400, freq: 'Semanal (2 veces)' },
-      { code: 'CLI-5102', name: 'MISCELÁNEA SAN MARTÍN', route: 'WIN-27', tks: 12, rev: 32900, freq: 'Semanal' },
-      { code: 'CLI-9921', name: 'DULCERÍA Y ABARROTES EL GÜERO', route: 'WIN-22', tks: 16, rev: 49200, freq: 'Bisemanal' },
-      { code: 'CLI-3341', name: 'MINISUPER LA ESPERANZA', route: 'WIN-VEC-PH-H', tks: 8, rev: 27100, freq: 'Preventa Quincenal' },
-      { code: 'CLI-1205', name: 'TIENDA DON PEPE', route: 'WIN-321', tks: 10, rev: 24500, freq: 'Semanal' },
-      { code: 'CLI-7740', name: 'ABARROTERA CENTRAL CANINDO', route: 'WIN-501', tks: 11, rev: 31000, freq: 'Semanal' },
-      { code: 'CLI-6612', name: 'CREMERÍA Y DULCES ROSY', route: 'WIN-26', tks: 9, rev: 21800, freq: 'Semanal' },
-      { code: 'CLI-4409', name: 'TIENDITA SAN JUDAS TADEO', route: 'WIN-502', tks: 7, rev: 18400, freq: 'Quincenal' },
-    ];
-
-    const customers: DetalleCustomerRow[] = sampleCustomers.map((c) => ({
+    // `[AUD-DAT.18]` TOP CLIENTES REALES. Acá vivia `sampleCustomers`, ocho clientes inventados
+    // con nombres como «ABARROTES LA GUADALUPANA» y codigos `CLI-8041` que no existen en la base.
+    //
+    // ⚠️ DECLARADO: 1,032 de 6,298 codigos de cliente (16.4 %) NO tienen nombre en
+    // `wincaja.clientes` — incluidos los de mayor venta. En esos la etiqueta ES el codigo, y eso
+    // es lo que hay: inventarle un nombre seria volver al problema que este cambio corrige.
+    const customers: DetalleCustomerRow[] = (dash?.top_clients ?? []).map((c) => ({
       cliente_code: c.code,
       cliente_nombre: c.name,
-      route_code: c.route,
-      tickets: c.tks,
-      revenue: c.rev,
-      avg_ticket: Math.round(c.rev / c.tks),
-      frecuencia: c.freq,
+      // La ruta del cliente no viene en el agregado; se declara vacia en vez de asignarle una.
+      route_code: '',
+      tickets: c.tickets,
+      revenue: c.revenue,
+      avg_ticket: c.tickets > 0 ? Math.round(c.revenue / c.tickets) : 0,
+      // La frecuencia exigiria la serie por cliente, que este endpoint no trae.
+      frecuencia: '—',
     }));
 
     return {

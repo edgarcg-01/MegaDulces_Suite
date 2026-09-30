@@ -1731,6 +1731,17 @@ export class ComercialService {
     return this.http.get<SalesByRouteReport>(`${this.base}/analytics/sales-by-route`, { params: this.salesByRouteParams(p) });
   }
 
+  /**
+   * `[AUD-DAT.18]` Los bloques REALES de `/dashboard/ventas-detalle` para un rango: serie diaria,
+   * top productos, top clientes y la COBERTURA DEL COSTO. Reemplaza tres bloques que el frontend
+   * inventaba. Pide el periodo elegido, no el anio entero.
+   */
+  salesByRouteDashboard(from: string, to: string) {
+    return this.http.get<SalesByRouteDashboard>(`${this.base}/analytics/sales-by-route/dashboard`, {
+      params: new HttpParams().set('from', from).set('to', to),
+    });
+  }
+
   salesByRouteRoutes() {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
@@ -2235,6 +2246,21 @@ export interface SalesByRouteParams {
   sku?: string;
   /** Filtro por cliente (código exacto) — re-agrega desde la tabla-hecho. */
   client?: string;
+}
+
+export interface SalesByRouteDashboard {
+  series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
+  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
+  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
+  /**
+   * El hueco del COSTO, declarado. Medido en prod: en el ultimo mes cerrado el costo solo existe
+   * en el 12.4 % de la venta de ruta, asi que el margen se calcula sobre `revenue_with_cost` y
+   * NUNCA sobre la venta total. `margin_pct` es `null` cuando no hay costo con que calcularlo.
+   */
+  coverage: {
+    revenue: number; revenue_with_cost: number; cost: number;
+    margin_pct: number | null; cost_coverage_pct: number; data_as_of: string | null;
+  };
 }
 
 export interface SalesByRouteOption {

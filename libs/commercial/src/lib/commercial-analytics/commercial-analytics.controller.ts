@@ -964,6 +964,22 @@ export class CommercialAnalyticsController {
     return this.service.salesByRouteClients();
   }
 
+  @Get('sales-by-route/dashboard')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR [AUD-DAT.18] - Los bloques REALES de /dashboard/ventas-detalle para un rango: serie '
+      + 'diaria, top productos, top clientes y la COBERTURA DEL COSTO. Reemplaza tres bloques que '
+      + 'el frontend inventaba (la serie se repartia con pesos por dia de semana y una ondulacion '
+      + 'derivada del indice del bucle; el margen era un 12.5 % plano; top productos y clientes '
+      + 'eran arreglos escritos a mano). Medido en prod: el costo solo existe en el 12.4 % de la '
+      + 'venta de ruta del ultimo mes cerrado, asi que el margen viaja con revenue_with_cost y su '
+      + 'cost_coverage_pct en vez de publicarse sobre la venta total. Params: from, to (YYYY-MM-DD).',
+  })
+  salesByRouteDashboard(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.salesByRouteDashboard(from, to);
+  }
+
   @Get('sales-by-route/detail')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Desglose de una ruta: productos, serie diaria, clientes y tickets. Params: route (WIN-<code>), year.' })
