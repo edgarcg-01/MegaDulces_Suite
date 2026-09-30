@@ -92,8 +92,43 @@ al aplicar la migración). Registrado en `run-all-tests.js`.
 tooltip posterior; `tsc --noEmit` del app deja **un solo archivo con errores y no es de esta
 fase** (`finanzas/cash-ledger.service.ts`, de otra sesión en el mismo árbol).
 
-**Pendiente:** aplicar `20260929200000_erp_count_variance_mv_rung.js` a prod + redeploy. Sin
-migraciones de permisos → **no hace falta re-login**.
+### 🚀 Aplicada a prod (2026-09-30 08:1x MX, batch 599)
+
+Autorizada por Edgar (*"aplicala ya"*). **64.0 s**, identidad `7688376744939610156` verificada
+por el candado del script. Pre-vuelo por **`pg_locks` ⋈ `pg_stat_activity`** y no por
+`knex_migrations_lock.is_locked` —que ya mintió una vez en CE.8— : sólo el shipper del CDC
+activo, 0 locks en espera.
+
+⚠️ **Se aplicó en horario hábil, a sabiendas.** La regla de la casa prohíbe *escrituras pesadas*
+en horario hábil; esto es 64 s de **lectura** con `ACCESS SHARE` sobre `kdm1`/`kdm2` —que no
+bloquea al CDC— y la escritura es una relación nueva de 31k filas sin contención con nadie. Es
+la misma corrección que CE.8 ya había hecho sobre una advertencia propia exagerada.
+
+**Verificado contra el objeto real:** candado **22 ✓ / 0 ✗ / 1 no medido**, y sin regresión en
+IC.0 18/0 · IC.3 9/0 · IC.10 17/0. La vista conserva `security_invoker` y su GRANT (ADR-057, que
+avisa que un `CREATE OR REPLACE` puede perderlos). MV poblada, 12 MB, 3 índices.
+
+**El efecto del punto 2, medido después de aplicar:**
+
+| | antes | después |
+|---|---:|---:|
+| `summary()` — la tabla que abre la página | 2,020–2,240 ms | **41 ms** |
+| `detail()` al abrir un evento | 1,390 ms | **3 ms** |
+| `events()` | 1,880 ms | **20 ms** |
+| `reincidencia` (concentración) | 2,260 ms | **67 ms** |
+
+**La banda en disputa, ya desde el objeto real** (conteos, 338 renglones, $6,845,042 publicados
+contra $487,715 al costo contado): `01` 43 renglones / $3,107,804 → $200,260 · `02` 99 /
+$1,080,784 · `04` 77 / $893,746 · `05` 63 / $729,273 · `03` 46 / $690,573 · `06` 10 / $342,862.
+⭐ En Padre Hidalgo esos **43 renglones son el 57 % de todo su descuadre** — el outlier del 31 %
+que la fase arrastraba sin explicar.
+
+⚠️ **La pantalla todavía no es rápida para nadie:** el API desplegado sigue leyendo la vista. El
+salto y la banda en pantalla llegan con el redeploy. El único `no medido` que queda es el latido
+del refresco, que se escribe cuando el worker lleve el código.
+
+**Pendiente:** `git push` (sin autorizar) + redeploy. Sin migraciones de permisos → **no hace
+falta re-login**.
 
 ---
 ## 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una columna
