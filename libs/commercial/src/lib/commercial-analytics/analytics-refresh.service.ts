@@ -211,6 +211,18 @@ export class AnalyticsRefreshService {
       // mostrando la merma del trimestre pasado como si fuera la de este.
       ['analytics.mv_erp_count_rollforward', 'analytics_refresh_count_rollforward',
         'Refresh MV roll-forward de conteos (nightly)', []],
+      // [IC.12] El descuadre del conteo físico + el peldaño del costo declarado. `deps` vacío:
+      // sale de `v_erp_physical_count_variance` (vista, no MV) y del ODS.
+      //
+      // ⛔ Va en el lote NOCTURNO por las dos razones medidas: el poblado cuesta **92 s** (el CTE
+      // del testigo recorre todos los `N-A-45` de la historia) y el pool admin es 0-2; y no hace
+      // falta más seguido, porque Kepler emite un conteo cada TRES MESES.
+      //
+      // ⚠️ Su umbral está en `CRON_JOBS` (`analytics_refresh_count_variance`). Sin esa fila el
+      // sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y acá la MV
+      // parada no vacía la pantalla: la deja publicando el descuadre del trimestre anterior.
+      ['analytics.mv_erp_physical_count_variance', 'analytics_refresh_count_variance',
+        'Refresh MV descuadre de conteos (nightly)', []],
       // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
       // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
       // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 
 /**
@@ -9,7 +10,17 @@ import { TenantKnexService } from '@megadulces/platform-core';
  * $2.26M de faltante sobre $34.1M contados, con el sobrante entre 6.5% y 31% del valor
  * contado según la sucursal. No falta información: falta dónde mirarla.
  *
- * Lee de `analytics.v_erp_physical_count_variance` (derivada del ODS, cero importers).
+ * Lee de `analytics.mv_erp_physical_count_variance` (IC.12) — la misma derivación del ODS de
+ * IC.0, materializada por COSTO (la pantalla abría en 2.2 s contra un gate de 1 s) y con el
+ * PELDAÑO DEL COSTO declarado fila por fila.
+ *
+ * ⛔ **Una matview no soporta RLS** (limitación de Postgres): el tenant se filtra A MANO en
+ * toda consulta que la toque. `tk.run` setea el GUC y la matview no lo mira.
+ *
+ * 3. **El peldaño.** El ajuste de Kepler declara la cantidad en PIEZAS y la valúa al costo de
+ *    la CAJA en una parte de los renglones. Arbitrado contra la captura del mismo día: **338
+ *    renglones publican $6,845,043 donde al costo contado serían $487,714**. El `importe` NO
+ *    se corrige (es el que Kepler asentó, ADR-040); se DECLARA cuánto está en disputa.
  *
  * ── Dos cosas que este servicio NO puede dejar de declarar ──────────────────────────────
  *
@@ -29,6 +40,28 @@ export class InventoryVarianceService {
   constructor(private readonly tk: TenantKnexService) {}
 
   /**
+   * `[IC.12]` La frescura de una MV, en TRES estados.
+   *
+   * Un booleano no puede decir "no sé" (ADR-056): si el job nunca escribió un latido, el dato
+   * puede ser de la migración inicial o de hace un mes, y las dos cosas se ven igual desde acá.
+   * `unknown` NO es `fresh`, y por eso son tres y no dos.
+   */
+  private async frescura(knex: Knex, jobKey: string) {
+    const [latido] = await knex('analytics.cron_runs')
+      .where({ job_key: jobKey })
+      .select('last_finish', 'status')
+      .orderBy('last_finish', 'desc')
+      .limit(1);
+    return {
+      data_as_of: latido?.['last_finish'] ?? null,
+      status: !latido ? 'unknown' : latido['status'] === 'ok' ? 'fresh' : 'stale',
+      motivo: !latido
+        ? 'la matview nunca registró un refresco: no se sabe de cuándo es este dato'
+        : null,
+    };
+  }
+
+  /**
    * Resumen por evento de conteo: una fila por (almacén, fecha), con su descuadre.
    * `include_initial_load` existe para poder VER las cargas iniciales, no para mezclarlas:
    * vienen con `tipo_evento` y el consumidor las pinta distinto.
@@ -40,7 +73,10 @@ export class InventoryVarianceService {
     include_initial_load?: boolean;
   }) {
     return this.tk.run(async (knex) => {
-      const q = knex('analytics.v_erp_physical_count_variance as v')
+      // ⚠️ MATVIEW: Postgres no soporta RLS sobre una matview, así que el tenant se filtra A
+      // MANO en toda consulta de acá abajo. `tk.run` setea el GUC y la matview no lo mira.
+      const q = knex('analytics.mv_erp_physical_count_variance as v')
+        .where('v.tenant_id', knex.raw('public.current_tenant_id()'))
         .select(
           'v.warehouse_id',
           'v.warehouse_code',
@@ -52,6 +88,15 @@ export class InventoryVarianceService {
           knex.raw("coalesce(round(sum(v.importe) filter (where v.signo = 'sobrante'), 2), 0) as pesos_sobrante"),
           knex.raw("coalesce(round(sum(v.importe) filter (where v.signo = 'faltante'), 2), 0) as pesos_faltante"),
           knex.raw("coalesce(round(sum(case when v.signo = 'sobrante' then v.importe else -v.importe end), 2), 0) as pesos_neto"),
+          // [IC.12] LA BANDA EN DISPUTA. `peldano_arriba` = el costo del ajuste es >= 2x el que
+          // la captura de ese mismo día implica, y 2 es el factor de caja MÍNIMO del catálogo
+          // (Fase CE): por debajo de eso no puede ser un salto de peldaño.
+          knex.raw("count(*) filter (where v.costo_veredicto = 'peldano_arriba')::int as skus_peldano"),
+          knex.raw("coalesce(round(sum(v.importe) filter (where v.costo_veredicto = 'peldano_arriba'), 2), 0) as pesos_peldano"),
+          knex.raw("coalesce(round(sum(v.importe_en_costo_contado) filter (where v.costo_veredicto = 'peldano_arriba'), 2), 0) as pesos_peldano_contado"),
+          // Lo que NO se pudo juzgar va aparte y nunca dentro de "coincide".
+          knex.raw("count(*) filter (where v.costo_veredicto = 'sin_testigo')::int as skus_sin_testigo"),
+          knex.raw("coalesce(round(sum(v.importe) filter (where v.costo_veredicto = 'sin_testigo'), 2), 0) as pesos_sin_testigo"),
         )
         .groupBy('v.warehouse_id', 'v.warehouse_code', 'v.warehouse_name', 'v.fecha', 'v.tipo_evento')
         .orderBy([{ column: 'v.fecha', order: 'desc' }, { column: 'v.warehouse_code' }]);
@@ -61,15 +106,25 @@ export class InventoryVarianceService {
       if (params.date_from) q.where('v.fecha', '>=', params.date_from);
       if (params.date_to) q.where('v.fecha', '<=', params.date_to);
 
-      const rows = await q;
-      return rows.map((r: Record<string, unknown>) => ({
-        ...r,
-        // El % se calcula sobre lo que se contó, no sobre el total del almacén: es la
-        // pregunta que el supervisor hace ("de lo que conté, cuánto bailó").
-        pesos_sobrante: Number(r['pesos_sobrante']),
-        pesos_faltante: Number(r['pesos_faltante']),
-        pesos_neto: Number(r['pesos_neto']),
-      }));
+      const [rows, freshness] = await Promise.all([
+        q, this.frescura(knex, 'analytics_refresh_count_variance'),
+      ]);
+      return {
+        items: rows.map((r: Record<string, unknown>) => ({
+          ...r,
+          // El % se calcula sobre lo que se contó, no sobre el total del almacén: es la
+          // pregunta que el supervisor hace ("de lo que conté, cuánto bailó").
+          pesos_sobrante: Number(r['pesos_sobrante']),
+          pesos_faltante: Number(r['pesos_faltante']),
+          pesos_neto: Number(r['pesos_neto']),
+          pesos_peldano: Number(r['pesos_peldano']),
+          pesos_peldano_contado: Number(r['pesos_peldano_contado']),
+          pesos_sin_testigo: Number(r['pesos_sin_testigo']),
+        })),
+        // ⛔ Esto sale de una MV que se refresca una vez al día. Si el refresco se para, la
+        // pantalla NO se vacía ni avisa: sigue mostrando el descuadre del trimestre anterior.
+        freshness,
+      };
     });
   }
 
@@ -95,6 +150,14 @@ export class InventoryVarianceService {
    * comparten grano — para el SKU 88045 la captura trae costo 5.28 y factor 16, y su ajuste
    * costo 5.07 y factor 0. Esos casos salen con `teorico = null` y `teorico_salvedad`, nunca
    * con un número inventado (ADR-056).
+   *
+   * ── `[IC.12]` De dónde sale ahora ────────────────────────────────────────────────────────
+   *
+   * El SQL crudo que vivía acá se fue a `analytics.mv_erp_physical_count_variance`, y no sólo
+   * por velocidad (1.39 s → lectura de matview). Su CTE `capt` filtraba la captura por
+   * SUCURSAL y no por ALMACÉN: el día que la tienda `01` y la Ruta 28 (`01-006`) cuenten el
+   * mismo día, el «se contó» de la tienda sumaba el de la ruta. En la matview la llave del
+   * testigo lleva el almacén, y la definición del teórico existe **una sola vez**.
    */
   async detail(params: {
     warehouse_id: string;
@@ -104,53 +167,26 @@ export class InventoryVarianceService {
   }) {
     const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 2000);
     return this.tk.run(async (knex) => {
-      const filtroSigno = params.signo ? 'AND v.signo = ?' : '';
-      const binds: (string | number)[] = [params.warehouse_id, params.fecha];
-      if (params.signo) binds.push(params.signo);
-      binds.push(params.fecha, limit);
-
-      // ⛔ ANTI-RÉPLICA en la consulta a kdm1: el almacén tiene que PERTENECER a la sucursal.
-      // La sucursal 03 arrastra 220 cabeceras del almacén 02, y sin esto el "contado" de 8ESQ
-      // se mezcla con el de La Piedad. El LIKE conserva los sub-almacenes legítimos (01-006).
-      const { rows } = await knex.raw(`
-        WITH v AS (
-          SELECT v.sku, v.product_id, v.descripcion, v.unidad_erp, v.signo, v.cantidad,
-                 v.costo_unitario, v.importe, v.folio, v.kepler_sucursal, v.kepler_almacen,
-                 v.tipo_evento
-            FROM analytics.v_erp_physical_count_variance v
-           WHERE v.warehouse_id = ? AND v.fecha = ? ${filtroSigno}
-        ),
-        capt AS (
-          SELECT btrim(l.c8) AS sku, sum(l.c9::numeric) AS contado
-            FROM kepler_ods.kdm1 m
-            JOIN kepler_ods.kdm2 l
-              ON l.sucursal = m.sucursal AND l.c1 = m.c1 AND l.c2 = m.c2 AND l.c3 = m.c3
-             AND l.c4 = m.c4 AND l.c5 = m.c5 AND l.c6 = m.c6
-           WHERE m.c2 = 'N' AND m.c3 = 'A' AND m.c4 = 45
-             AND m.c9::date = ?::date
-             AND m.sucursal IN (SELECT DISTINCT kepler_sucursal FROM v)
-             AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
-           GROUP BY 1
-        )
-        SELECT v.*,
-               c.contado,
-               -- El signo manda: un SOBRANTE quiere decir que se contó de MÁS.
-               CASE WHEN c.contado IS NULL THEN NULL
-                    WHEN (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
-                               ELSE c.contado + v.cantidad END) < 0 THEN NULL
-                    ELSE (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
-                               ELSE c.contado + v.cantidad END) END AS teorico,
-               CASE WHEN c.contado IS NULL THEN 'el SKU no aparece en la captura de ese dia'
-                    WHEN (CASE WHEN v.signo = 'sobrante' THEN c.contado - v.cantidad
-                               ELSE c.contado + v.cantidad END) < 0
-                      THEN 'no reconstruible: el ajuste excede lo contado (captura y ajuste con distinto grano)'
-                    ELSE NULL END AS teorico_salvedad
-          FROM v LEFT JOIN capt c ON c.sku = v.sku
-         ORDER BY v.importe DESC
-         LIMIT ?`, binds);
-      return rows;
+      // ⚠️ MATVIEW: sin RLS. El tenant se filtra a mano.
+      const q = knex('analytics.mv_erp_physical_count_variance as v')
+        .where('v.tenant_id', knex.raw('public.current_tenant_id()'))
+        .andWhere('v.warehouse_id', params.warehouse_id)
+        .andWhereRaw('v.fecha = ?::date', [params.fecha])
+        .select('v.sku', 'v.product_id', 'v.descripcion', 'v.unidad_erp', 'v.signo',
+          'v.cantidad', 'v.costo_unitario', 'v.importe', 'v.folio', 'v.kepler_sucursal',
+          'v.kepler_almacen', 'v.tipo_evento', 'v.contado', 'v.teorico', 'v.teorico_salvedad',
+          // [IC.12] El peldaño del costo, fila por fila. `razon_costo` va expuesta para que
+          // cualquiera pueda juzgar el renglón sin creerle a la etiqueta.
+          'v.costo_contado', 'v.razon_costo', 'v.costo_veredicto',
+          'v.importe_en_costo_contado', 'v.ficha_peldano', 'v.ficha_costo_base',
+          'v.ficha_costo_caja', 'v.ficha_factor_caja')
+        .orderBy('v.importe', 'desc')
+        .limit(limit);
+      if (params.signo) q.andWhere('v.signo', params.signo);
+      return q;
     });
   }
+
 
   /**
    * ⛔ LA COBERTURA — lo que el conteo NO tocó.
@@ -168,9 +204,11 @@ export class InventoryVarianceService {
     return this.tk.run(async (knex) => {
       const { rows } = await knex.raw(
         `WITH contado AS (
+           -- ⚠️ MATVIEW sin RLS: el tenant va a mano.
            SELECT DISTINCT v.sku
-             FROM analytics.v_erp_physical_count_variance v
-            WHERE v.warehouse_id = ? AND v.fecha = ?
+             FROM analytics.mv_erp_physical_count_variance v
+            WHERE v.tenant_id = public.current_tenant_id()
+              AND v.warehouse_id = ? AND v.fecha = ?
          ),
          -- La captura incluye SKUs que NO descuadraron y por eso no están en la vista de
          -- varianza. Para la cobertura hace falta el universo CONTADO, no el DESCUADRADO.
@@ -239,8 +277,9 @@ export class InventoryVarianceService {
            SELECT v.warehouse_id, v.warehouse_code, v.fecha,
                   sum(CASE WHEN v.signo = 'sobrante' THEN v.importe ELSE 0 END) AS sobrante,
                   sum(CASE WHEN v.signo = 'faltante' THEN v.importe ELSE 0 END) AS faltante
-             FROM analytics.v_erp_physical_count_variance v
-            WHERE v.tipo_evento = 'conteo'          -- una carga inicial no es descuadre
+             FROM analytics.mv_erp_physical_count_variance v
+            WHERE v.tenant_id = public.current_tenant_id()   -- MATVIEW: sin RLS, tenant a mano
+              AND v.tipo_evento = 'conteo'          -- una carga inicial no es descuadre
               AND (?::uuid IS NULL OR v.warehouse_id = ?::uuid)
             GROUP BY 1, 2, 3
          ),
@@ -408,8 +447,9 @@ export class InventoryVarianceService {
       SELECT warehouse_id, sku, max(abs(neto_ev)) AS mayor_evento, count(*)::int AS eventos
         FROM (SELECT warehouse_id, sku, fecha,
                      sum(CASE WHEN signo = 'sobrante' THEN importe ELSE -importe END) AS neto_ev
-                FROM analytics.v_erp_physical_count_variance
-               WHERE tipo_evento = 'conteo' ${wh ? 'AND warehouse_id = ?' : ''}
+                FROM analytics.mv_erp_physical_count_variance
+               WHERE tenant_id = public.current_tenant_id()   -- MATVIEW: sin RLS
+                 AND tipo_evento = 'conteo' ${wh ? 'AND warehouse_id = ?' : ''}
                GROUP BY 1, 2, 3) e
        GROUP BY 1, 2`;
 
@@ -602,25 +642,14 @@ export class InventoryVarianceService {
       // del período anterior como si fuera la de este, que es la clase de fallo que no se nota
       // hasta que alguien decide con ella. El veredicto es TERNARIO: un booleano no puede decir
       // "no sé" (ADR-056), y `null` cuando el latido no existe NO es lo mismo que "está fresco".
-      const [latido] = await knex('analytics.cron_runs')
-        .where({ job_key: 'analytics_refresh_count_rollforward' })
-        .select('last_finish', 'status')
-        .orderBy('last_finish', 'desc')
-        .limit(1);
+      const freshness = await this.frescura(knex, 'analytics_refresh_count_rollforward');
 
       return {
         totales: tot,
         items: (items as Record<string, unknown>[]).map((r) => ({
           ...r, descripcion: nom.get(String(r['sku'])) ?? null,
         })),
-        freshness: {
-          data_as_of: latido?.['last_finish'] ?? null,
-          status: !latido ? 'unknown'
-            : latido['status'] === 'ok' ? 'fresh' : 'stale',
-          motivo: !latido
-            ? 'la matview nunca registró un refresco: no se sabe de cuándo es este dato'
-            : null,
-        },
+        freshness,
       };
     });
   }
@@ -628,7 +657,8 @@ export class InventoryVarianceService {
   /** Almacenes y fechas con conteo, para poblar los filtros sin adivinar. */
   async events() {
     return this.tk.run(async (knex) =>
-      knex('analytics.v_erp_physical_count_variance as v')
+      knex('analytics.mv_erp_physical_count_variance as v')
+        .where('v.tenant_id', knex.raw('public.current_tenant_id()'))   // MATVIEW: sin RLS
         .distinct('v.warehouse_id', 'v.warehouse_code', 'v.warehouse_name', 'v.fecha', 'v.tipo_evento')
         .orderBy([{ column: 'v.fecha', order: 'desc' }, { column: 'v.warehouse_code' }])
         .limit(200),
