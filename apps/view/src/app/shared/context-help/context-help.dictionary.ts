@@ -1357,4 +1357,82 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // CE.9 — DESIGN §P + §Q.7. La pantalla tenía las definiciones sueltas en un Record del
+  // template, que es justo lo que §P prohíbe: la fuente de la explicación es este diccionario.
+  // Los siete veredictos son el vocabulario que decide a quién se persigue, y tres de ellos
+  // son AUSENCIAS distintas entre sí — confundirlas es el error que la vista existe para evitar.
+  'costo-estandar': {
+    title: 'Costo estándar — guía',
+    intro: 'Con qué costo está poniendo precio Kepler, y si se parece a lo que cuesta reponer hoy. Todo sale del ERP: acá no se captura ni se corrige nada.',
+    groups: [
+      {
+        heading: 'Los dos costos que se comparan',
+        entries: [
+          { term: 'Costo estándar', def: 'El que vive en la ficha del producto de Kepler. NO es un promedio: cambia de golpe cuando alguien edita la ficha. Es el que FIJA EL PRECIO — precio = costo x (1 + margen) x (1 + impuesto) cuadra en el 97.75% del catálogo.' },
+          { term: 'Costo de reposición', def: 'Lo que el ERP dice que cuesta reponer esa pieza en ESA plaza hoy. Es el testigo contra el que se juzga la ficha.' },
+          { term: 'Último costo', def: 'Lo último que se pagó, con su fecha. Contexto, no árbitro: una compra puntual no desmiente al costo de reposición.' },
+          { term: 'Desviación', def: 'Cuánto se aleja la reposición de la ficha, en porcentaje SOBRE LA FICHA. Positiva = reponer cuesta más de lo que dice la ficha.' },
+          { term: 'Impacto 30 d', def: 'La desviación por unidad multiplicada por lo que se vendió en la ventana. Es el dinero real en juego. Sale vacío cuando las dos magnitudes no están en la misma unidad.' },
+        ],
+      },
+      {
+        heading: 'El peldaño — por qué a veces no se puede restar',
+        entries: [
+          { term: 'Peldaño', def: 'Kepler guarda hasta tres unidades por producto (pieza, paquete, caja) con su factor. El testigo del ERP no siempre viene en la misma que el costo estándar.' },
+          { term: 'base', def: 'El testigo vino en la unidad base, la misma del costo estándar. Se puede restar: la cifra es comparable.' },
+          { term: 'no resuelve', def: 'El testigo no cae en ninguno de los tres peldaños. Restarlo inventaría una desviación de 10x o 20x, así que NO se resta: la fila sale sin cifra. Es el 4.17% de los pares.' },
+          { term: 'Sin valorar', def: 'Cuántas filas quedaron FUERA de las sumas de dinero. Va siempre pegado al total: leer la suma sin este acompañante afirma más de lo que el dato sostiene.' },
+        ],
+      },
+      {
+        heading: 'Los siete veredictos — y las tres ausencias que NO son la misma',
+        entries: [
+          { term: 'Estándar por debajo', def: 'La ficha cuesta menos que reponer. Es el que cuesta dinero: subdeclara el costo de lo vendido e INFLA el margen publicado.' },
+          { term: 'Estándar por encima', def: 'La ficha cuesta más que reponer. Sobredeclara el costo. Compensa parcialmente al anterior, por eso se publica el neto y no sólo una mitad.' },
+          { term: 'Al día', def: 'Ficha y reposición coinciden dentro de un centavo.' },
+          { term: 'No comparable', def: 'AUSENCIA 1 de 3. Hay testigo pero viene en otro peldaño. No es un hueco de datos: es una unidad que no empata, y se declara en vez de estimarse.' },
+          { term: 'Sin costo en el ERP', def: 'AUSENCIA 2 de 3, y el HUECO REAL: el producto SÍ vendió y el ERP no le tiene costo en esa plaza. Son pocos y estaban enterrados bajo 125 veces su tamaño hasta que se separaron de la siguiente.' },
+          { term: 'Sin operación en la plaza', def: 'AUSENCIA 3 de 3, y no es un hueco: la ficha existe en las 9 plazas aunque el producto no se maneje ahí. Es el maestro replicado, y son más de la mitad de las filas. Por eso están escondidas por default.' },
+          { term: 'Sin costo estándar', def: 'La ficha no tiene costo capturado. Sin eso, el precio de ese producto no se puede explicar.' },
+        ],
+      },
+      {
+        heading: 'El cuadre del precio',
+        entries: [
+          { term: 'Precio que no cuadra', def: 'La fórmula de Kepler reconstruida no da el precio que tiene la ficha. Algo de los tres insumos (costo, margen, impuesto) no es el que se usó.' },
+          { term: 'No medible', def: 'No alcanza para juzgar, y se dice el motivo. El caso típico: sin venta en la ventana no hay tasa de impuesto observada, y un producto sin venta NO es un producto exento — por eso va vacío y nunca en cero.' },
+          { term: 'Tasas distintas', def: 'El mismo producto cobró más de una tasa en la ventana. El impuesto que se usa es la moda, y la pantalla lo avisa en el detalle.' },
+        ],
+      },
+      {
+        heading: 'Hasta dónde llega lo que ves',
+        entries: [
+          { term: 'Ventana de actividad', def: 'Los últimos 30 días, sostenidos por una vista materializada. Si no se refrescó, esa frase deja de ser cierta — por eso la fecha de corte se imprime en pantalla y no en un log.' },
+          { term: 'Alcance del tablero', def: 'Los mosaicos y los chips miden la sucursal + el texto del buscador, igual que la tabla. El chip de veredicto NO se aplica a los conteos: los chips son el selector, y tienen que seguir mostrando el reparto completo.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Cómo se corrige un costo estándar',
+        kind: 'fix',
+        intro: 'Esta pantalla es de sólo lectura sobre el ERP. El costo estándar se edita en Kepler, que es el sistema de registro del catálogo.',
+        steps: [
+          'Ordená por Impacto 30 d: arriba está el dinero, no el porcentaje más feo. Una desviación del 300% sobre algo que no se vende no es el problema.',
+          'Abrí la fila y mirá la escalera: si el testigo dice otro peldaño, lo que hay que arreglar es la UNIDAD de la ficha, no el número del costo.',
+          'Mirá el mismo producto en todas las plazas. La ficha se mantiene por sucursal: si sólo una divergió, se corrige esa; si divergieron todas, el criterio cambió.',
+          'Corregí la ficha en Kepler. El cambio llega acá por el ODS, y la fila se recalcula sola en el siguiente refresco.',
+        ],
+      },
+      {
+        heading: 'Cuando la fila dice No comparable',
+        kind: 'info',
+        steps: [
+          'No hay nada que corregir en el costo: los dos números son correctos y están en unidades distintas.',
+          'Si te interesa la cifra, el arreglo de fondo es declarar bien el peldaño del producto en Kepler; mientras tanto la fila se queda sin desviación a propósito.',
+        ],
+      },
+    ],
+  },
 };
