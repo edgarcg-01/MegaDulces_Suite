@@ -758,6 +758,28 @@ export interface AbcRow {
   value_share: number | string;
   window_days: number;
   computed_at: string;
+  /** [ABC.6] POR QUÉ tiene esa clase. Es la columna CANÓNICA `clase_motivo` (KE.4b), no una
+   *  derivación del frontend. `sin_demanda` = el ALMACÉN entero no vende (el CEDIS). */
+  motivo_clase?: 'pareto' | 'sin_demanda' | 'sin_costo';
+  /** [ABC.6] El hecho que el motivo canónico no distingue: esta FILA no movió una unidad.
+   *  Medido: 5,865 filas con demanda 0 en almacenes que SÍ venden quedan rotuladas `pareto`. */
+  sin_demanda_en_fila?: boolean;
+}
+
+/** [ABC.6] El criterio, con la data: lo que la pantalla necesita para explicar la letra. */
+export interface AbcCriterio {
+  metrica: string; demanda: string; costo: string; corte: string;
+  ventana_dias: number; cadencia_dias: Record<'A' | 'B' | 'C', number>;
+}
+
+/** [ABC.6] `listAbc` devolvía un array con `LIMIT 2000` MUDO sobre 39,480 filas. */
+export interface AbcListResult {
+  items: AbcRow[];
+  total: number;
+  mostradas: number;
+  limit: number;
+  truncado: boolean;
+  criterio: AbcCriterio;
 }
 
 export interface AbcSummary {
@@ -775,6 +797,13 @@ export interface CycleDueItem {
   product_name: string | null;
   abc_class: 'A' | 'B' | 'C';
   annual_value: number | string;
+  units_window?: number | string;
+  value_share?: number | string;
+  window_days?: number;
+  computed_at?: string;
+  /** [ABC.6] Ver `AbcRow.motivo_clase`. */
+  motivo_clase?: 'pareto' | 'sin_demanda' | 'sin_costo';
+  sin_demanda_en_fila?: boolean;
   last_counted_at: string | null;
   cadence_days: number;
   next_due: string | null;
@@ -785,8 +814,16 @@ export interface CycleDueItem {
 export interface CycleDueResult {
   cadence_days: Record<'A' | 'B' | 'C', number>;
   only_due: boolean;
+  /** [ABC.6] El total REAL de vencidas. Antes era el de la PÁGINA: con las 4,987 A comiéndose
+   *  el `LIMIT 2000`, la pantalla publicaba «2,000 · A 2000 · B 0 · C 0» con 6,822 B y 27,671 C
+   *  esperando. Subdeclaraba el trabajo en 95% y afirmaba dos ceros falsos. */
   count: number;
   by_class: Record<'A' | 'B' | 'C', number>;
+  /** Cuántas filas viajan en esta respuesta. */
+  mostradas: number;
+  limit: number;
+  /** Se declara: una página recortada y un universo chico se leen igual sin esto. */
+  truncado: boolean;
   items: CycleDueItem[];
 }
 
@@ -1270,21 +1307,23 @@ export class ComercialService {
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<AbcSummary>(`${this.base}/inventory/abc/summary`, { params });
   }
-  listAbc(opts: { warehouse_id?: string; abc_class?: string } = {}) {
+  listAbc(opts: { warehouse_id?: string; abc_class?: string; limit?: number } = {}) {
     let params = new HttpParams();
     if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
     if (opts.abc_class) params = params.set('abc_class', opts.abc_class);
-    return this.http.get<AbcRow[]>(`${this.base}/inventory/abc`, { params });
+    if (opts.limit != null) params = params.set('limit', String(opts.limit));
+    return this.http.get<AbcListResult>(`${this.base}/inventory/abc`, { params });
   }
   refreshAbc(windowDays?: number) {
     return this.http.post<{ classified: number; window_days: number; by_class: Record<string, { count: number; value: number }> }>(
       `${this.base}/inventory/abc/refresh`, { window_days: windowDays });
   }
-  cycleDue(opts: { warehouse_id?: string; abc_class?: string; only_due?: boolean } = {}) {
+  cycleDue(opts: { warehouse_id?: string; abc_class?: string; only_due?: boolean; limit?: number } = {}) {
     let params = new HttpParams();
     if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
     if (opts.abc_class) params = params.set('abc_class', opts.abc_class);
     if (opts.only_due === false) params = params.set('only_due', 'false');
+    if (opts.limit != null) params = params.set('limit', String(opts.limit));
     return this.http.get<CycleDueResult>(`${this.base}/inventory/abc/cycle-due`, { params });
   }
   generateCycleFolios(body: { warehouse_id?: string; max_items?: number }) {

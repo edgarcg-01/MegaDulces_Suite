@@ -12,7 +12,9 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, AbcRow, AbcSummary, CycleDueResult, Warehouse } from '../comercial.service';
+import {
+  ComercialService, AbcRow, AbcListResult, AbcSummary, CycleDueResult, Warehouse,
+} from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
@@ -45,6 +47,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         <div class="abc-head-actions">
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="abc-wh" ariaLabel="Filtrar por almacén"></p-select>
+          <p-select [options]="clases" [(ngModel)]="claseFiltro" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="abc-cls" ariaLabel="Filtrar por clase"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
           <button pButton type="button" [text]="true" severity="secondary" size="small" (click)="recalc()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular ABC</span></button>
           <button pButton type="button" size="small" (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()" [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Generar folios</span></button>
@@ -87,29 +91,66 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       <p-selectbutton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
                       [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectbutton>
 
+      <!-- [ABC.6] EL CRITERIO, en pantalla. La letra sin su regla no se puede discutir: quien
+           mira la tabla no tenia como saber por que un SKU es A y el de al lado es C. -->
+      @if (criterio(); as cr) {
+        <p class="abc-criterio">
+          <b>Como se decide la clase:</b> {{ cr.metrica }}, sobre los ultimos {{ cr.ventana_dias }} dias.
+          {{ cr.corte }}. Se cuenta cada <b>A {{ cr.cadencia_dias.A }} d</b> &middot;
+          <b>B {{ cr.cadencia_dias.B }} d</b> &middot; <b>C {{ cr.cadencia_dias.C }} d</b>.
+          <span class="abc-criterio-src">Demanda: {{ cr.demanda }} &mdash; Costo: {{ cr.costo }}</span>
+        </p>
+      }
+
+      <!-- El recorte se DECLARA: una pagina recortada y un universo chico se leen igual. -->
+      @if (view() === 'due' && due()?.truncado) {
+        <p class="abc-trunc">
+          Se muestran <b>{{ due()?.mostradas }}</b> de <b>{{ due()?.count }}</b> pendientes.
+          Filtra por almacen o por clase para ver el resto &mdash; la lista corta en {{ due()?.limit }}.
+        </p>
+      }
+      @if (view() !== 'due' && lista()?.truncado) {
+        <p class="abc-trunc">
+          Se muestran <b>{{ lista()?.mostradas }}</b> de <b>{{ lista()?.total }}</b> SKUs clasificados.
+        </p>
+      }
+
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->
         <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
-              <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
+              <th scope="col">Clase</th><th scope="col">Por que</th><th scope="col">SKU</th>
+              <th scope="col">Producto</th><th scope="col">Almacén</th>
+              <th scope="col" class="abc-num">Valor anual</th><th scope="col" class="abc-num">% del almacén</th>
               <th scope="col">Último conteo</th><th scope="col" class="abc-num">Cadencia</th><th scope="col">Estado</th>
             </tr>
           </ng-template>
           <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
+              <td><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
+                         [pTooltip]="motivoTooltip(it)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
               <td class="abc-name">{{ it.product_name || '—' }}</td>
               <td class="abc-mono">{{ it.warehouse_code }}</td>
+              <!-- Guion, no $0: un valor cero por falta de demanda NO es un valor de cero. -->
+              <td class="abc-num">
+                @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                @else { <span class="abc-nd" pTooltip="Sin demanda medida en la ventana: no es valor cero, es no medido">&mdash;</span> }
+              </td>
+              <td class="abc-num">
+                @if (+(it.value_share || 0) > 0) { {{ (+(it.value_share || 0) * 100) | number:'1.0-2' }}% }
+                @else { <span class="abc-nd">&mdash;</span> }
+              </td>
               <td class="abc-mono">{{ it.last_counted_at ? (it.last_counted_at | date:'dd/MM/yy') : 'Nunca' }}</td>
               <td class="abc-num">{{ it.cadence_days }} d</td>
               <td><p-tag [value]="dueLabel(it)" [severity]="dueSeverity(it)"></p-tag></td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="7" class="comm-empty-cell">
+            <tr><td colspan="10" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-check-circle"></i></span>
                 <h3>Nada pendiente de contar</h3>
@@ -124,23 +165,29 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
-              <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
+              <th scope="col">Clase</th><th scope="col">Por que</th><th scope="col">SKU</th>
+              <th scope="col">Producto</th><th scope="col">Almacén</th>
               <th scope="col" class="abc-num">Valor anual</th><th scope="col" class="abc-num">Unidades</th><th scope="col" class="abc-num">% acum.</th>
             </tr>
           </ng-template>
           <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
+              <td><p-tag [value]="motivoLabel(it)" [severity]="motivoSeverity(it)"
+                         [pTooltip]="motivoTooltip(it)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
               <td class="abc-name">{{ it.product_name || '—' }}</td>
               <td class="abc-mono">{{ it.warehouse_code }}</td>
-              <td class="abc-num">{{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="abc-num">
+                @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                @else { <span class="abc-nd" pTooltip="Sin demanda medida: no es valor cero, es no medido">&mdash;</span> }
+              </td>
               <td class="abc-num">{{ it.units_window }}</td>
               <td class="abc-num">{{ (+it.value_share * 100) | number:'1.0-1' }}%</td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="7" class="comm-empty-cell">
+            <tr><td colspan="8" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-sort-amount-down"></i></span>
                 <h3>Sin clasificación ABC</h3>
@@ -155,6 +202,22 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   styles: [`
     .abc-head-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     :host ::ng-deep .abc-wh { min-width: 220px; }
+    :host ::ng-deep .abc-cls { min-width: 130px; }
+    /* [ABC.6] El criterio, antes de la tabla: la letra sin su regla no se puede discutir. */
+    .abc-criterio {
+      font-size: var(--fs-xs); color: var(--fg-3); margin: 0 0 .75rem;
+      max-width: 96ch; line-height: 1.5;
+    }
+    .abc-criterio b { color: var(--fg-2); }
+    .abc-criterio-src { display: block; font-size: var(--fs-nano); opacity: .75; margin-top: .15rem; }
+    /* El recorte se declara, y se ve: no es una nota al pie. */
+    .abc-trunc {
+      font-size: var(--fs-xs); color: var(--warn-fg); margin: 0 0 .75rem;
+      padding: .4rem .7rem; border-left: 3px solid var(--warn-fg);
+      background: color-mix(in srgb, var(--warn-fg) 7%, transparent); border-radius: 4px;
+    }
+    /* Guion, no cero: un valor ausente por falta de demanda no es un valor de cero. */
+    .abc-nd { opacity: .5; cursor: help; }
     .abc-bento { margin-bottom: 1rem; }
     .abc-dist-card {
       position: relative; display: flex; flex-direction: column; gap: .5rem;
@@ -208,9 +271,21 @@ export class ComercialInventoryAbcComponent {
   }
   dueItems = computed(() => this.matchProd(this.due()?.items ?? []));
   classRows = computed(() => this.matchProd(this.rows()));
+  readonly criterio = computed(() => this.lista()?.criterio ?? null);
   summary = signal<AbcSummary | null>(null);
-  rows = signal<AbcRow[]>([]);
+  lista = signal<AbcListResult | null>(null);
+  rows = computed<AbcRow[]>(() => this.lista()?.items ?? []);
   due = signal<CycleDueResult | null>(null);
+
+  /** [ABC.6] Filtro por clase: sin esto B y C eran INALCANZABLES desde la pantalla — no por
+   *  diseño, sino porque las 4,987 A se comían el LIMIT de la agenda. */
+  claseFiltro = signal<'A' | 'B' | 'C' | null>(null);
+  readonly clases = [
+    { label: 'Todas', value: null as 'A' | 'B' | 'C' | null },
+    { label: 'Sólo A', value: 'A' as const },
+    { label: 'Sólo B', value: 'B' as const },
+    { label: 'Sólo C', value: 'C' as const },
+  ];
 
   total = computed(() => this.summary()?.total_count ?? 0);
 
@@ -233,12 +308,13 @@ export class ComercialInventoryAbcComponent {
     const wh = this.whParam();
     forkJoin({
       summary: this.svc.abcSummary(wh),
-      rows: this.svc.listAbc({ warehouse_id: wh }),
-      due: this.svc.cycleDue({ warehouse_id: wh, only_due: true }),
+      rows: this.svc.listAbc({ warehouse_id: wh, abc_class: this.claseFiltro() ?? undefined }),
+      due: this.svc.cycleDue({
+        warehouse_id: wh, only_due: true, abc_class: this.claseFiltro() ?? undefined }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.summary.set(r.summary); this.rows.set(r.rows || []); this.due.set(r.due); this.loading.set(false); },
+        next: (r) => { this.summary.set(r.summary); this.lista.set(r.rows); this.due.set(r.due); this.loading.set(false); },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar ABC' }); },
       });
   }
@@ -307,6 +383,59 @@ export class ComercialInventoryAbcComponent {
   classSeverity(c: string): 'success' | 'warn' | 'secondary' {
     return c === 'A' ? 'success' : c === 'B' ? 'warn' : 'secondary';
   }
+
+  /**
+   * `[ABC.6]` POR QUÉ el SKU tiene esa letra.
+   *
+   * El motivo viene de la columna **canónica** `clase_motivo` (KE.4b) — no se deriva acá: una
+   * segunda definición del mismo concepto es el defecto que KE.4 cerró cuando la pantalla
+   * mostraba otra clase que el motor. Lo único que agrega el frontend es el DETALLE del Pareto
+   * (top 80 / siguiente 15 / último 5), que sale de `abc_class` y no es otra regla.
+   *
+   * ⚠️ Y declara la contradicción medida: hay 5,865 filas con demanda CERO que el resolvedor
+   * rotula `pareto`, porque su `sin_demanda` mira el almacén entero y no la fila. No se
+   * re-etiquetan (esa etiqueta decide compra en `import-network-reorder`): se dice.
+   */
+  motivoLabel(it: { motivo_clase?: string; abc_class?: string; sin_demanda_en_fila?: boolean }): string {
+    if (it.motivo_clase === 'sin_demanda') return 'Almacén sin demanda';
+    if (it.motivo_clase === 'sin_costo') return 'Sin costo medido';
+    if (it.sin_demanda_en_fila) return 'Sin demanda en 90 d';
+    return { A: 'Top 80% del valor', B: 'Siguiente 15%', C: 'Último 5% del valor' }[it.abc_class ?? ''] ?? '—';
+  }
+
+  /** Lo no medido NO va en gris de "bajo valor": es un hueco, y se ve distinto. */
+  motivoSeverity(it: { motivo_clase?: string; abc_class?: string; sin_demanda_en_fila?: boolean }):
+    'success' | 'warn' | 'secondary' | 'info' {
+    if (it.motivo_clase !== 'pareto' || it.sin_demanda_en_fila) return 'info';
+    return it.abc_class === 'A' ? 'success' : it.abc_class === 'B' ? 'warn' : 'secondary';
+  }
+
+  /** La cuenta completa, para que la letra se pueda auditar sin salir de la fila. */
+  motivoTooltip(it: {
+    motivo_clase?: string; sin_demanda_en_fila?: boolean; annual_value?: number | string;
+    units_window?: number | string; value_share?: number | string; window_days?: number;
+  }): string {
+    const v = Number(it.annual_value || 0);
+    const u = Number(it.units_window || 0);
+    const d = it.window_days || 90;
+    if (it.motivo_clase === 'sin_demanda')
+      return 'Este ALMACÉN no registra demanda: no vende, distribuye por traspaso (el CEDIS). '
+        + 'La clase ABC no significa nada ahí, y su reabasto se planea aparte con demanda dependiente.';
+    if (it.motivo_clase === 'sin_costo')
+      return `Se movieron ${u.toLocaleString('es-MX')} unidades en ${d} días, pero el costo `
+        + 'unitario no resolvió contra el ERP, así que el valor no se puede calcular.';
+    if (it.sin_demanda_en_fila)
+      return `Este SKU no movió una sola unidad en ${d} días en este almacén, así que su valor `
+        + 'anual es $0 y no hay Pareto que lo ordene. ⚠️ El resolvedor lo rotula «pareto» porque '
+        + 'su regla mira la demanda del almacén entero, no la de la fila — son 5,865 casos '
+        + 'medidos. Es C por falta de medición, no por bajo valor.';
+    const share = Number(it.value_share || 0) * 100;
+    return `${u.toLocaleString('es-MX')} unidades en ${d} días × costo unitario = `
+      + `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} al año, que es el `
+      + `${share.toFixed(2)}% del valor de consumo de este almacén. `
+      + 'El corte es Pareto POR ALMACÉN: A hasta el 80% acumulado, B hasta el 95%, C el resto.';
+  }
+
   dueLabel(it: { is_due: boolean; last_counted_at: string | null; days_overdue: number | null }): string {
     if (!it.is_due) return 'A tiempo';
     if (it.last_counted_at == null) return 'Nunca contado';
