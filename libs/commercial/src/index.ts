@@ -18,6 +18,11 @@ export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module'
 // [FLT] Lista de faltantes: la venta que NO ocurrió, reportada desde el piso.
 export * from './lib/commercial-stockouts/commercial-stockouts.module';
 export * from './lib/commercial-stockouts/floor-stockouts.service';
+// [BP] Bitácora de retiros en caja: Kepler exige contraseña de supervisor y no guarda el hecho.
+export * from './lib/commercial-pos-voids/commercial-pos-voids.module';
+export * from './lib/commercial-pos-voids/pos-line-voids.service';
+export * from './lib/commercial-standard-cost/commercial-standard-cost.module';
+export * from './lib/commercial-standard-cost/standard-cost.service';
 export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-payments/commercial-payments.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.module';

@@ -945,16 +945,14 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-costo-neto.component').then(m => m.ComprasCostoNetoComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_COSTO_NETO_VER)]
       },
-      // ⛔ [CE.6] DESCABLEADA 2026-09-30. `compras-costo-estandar.component.ts` NO está
-      //    commiteado: vive sin trackear en el árbol de trabajo compartido, así que el
-      //    `import()` compilaba en local y rompía el build de PROD (TS2307 + "Could not
-      //    resolve"), dejando al auto-deploy fallando y a prod congelada. Se vuelve a cablear
-      //    en el MISMO commit que traiga el componente y su servicio.
-      // {
-      //   path: 'costo-estandar',
-      //   loadComponent: () => import('./modules/compras/pages/compras-costo-estandar.component').then(m => m.ComprasCostoEstandarComponent),
-      //   canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
-      // },
+      {
+        // [CE.6] Costo estándar del catálogo de Kepler (el que fija el precio) contra el costo
+        // de reposición del ERP. Sólo lectura: se corrige en Kepler, que es el SoR del catálogo.
+        // Recableada: el componente y su servicio vienen en ESTE commit.
+        path: 'costo-estandar',
+        loadComponent: () => import('./modules/compras/pages/compras-costo-estandar.component').then(m => m.ComprasCostoEstandarComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
+      },
       {
         // CXP.7 — "Cuadre y deuda por proveedor" SE MUDÓ a Finanzas (CxP/Tesorería). Redirects
         // para bookmarks/links viejos de Compras.
@@ -1376,14 +1374,17 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-faltantes.component').then(m => m.TiendaFaltantesComponent),
         canActivate: [anyPermissionGuard(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)]
       },
-      // ⛔ `[BP.8]` DESCABLEADA 2026-09-30, mismo motivo que [CE.6] arriba:
-      //    `tienda-retiros.component.ts` no está commiteado y el `import()` rompía el build de
-      //    prod. Se vuelve a cablear en el MISMO commit que traiga el componente.
-      // {
-      //   path: 'retiros',
-      //   loadComponent: () => import('./modules/tienda/pages/tienda-retiros.component').then(m => m.TiendaRetirosComponent),
-      //   canActivate: [anyPermissionGuard(Permission.STORE_POS_VOID_VER, Permission.STORE_POS_VOID_CAPTURAR)]
-      // },
+      {
+        // `[BP.8]` Retiros en caja: el renglón que se quitó del ticket, con quién lo autorizó.
+        // Medido el 2026-09-28 — Kepler exige la contraseña del supervisor y después NO guarda
+        // el hecho en ningún lado, así que el único instrumento que queda es la persona.
+        //
+        // Gate de CUALQUIERA de los dos, igual que Faltantes y Caducidades: quien sólo registra
+        // tiene que poder entrar a la pantalla donde registra y ver lo que registró.
+        path: 'retiros',
+        loadComponent: () => import('./modules/tienda/pages/tienda-retiros.component').then(m => m.TiendaRetirosComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_POS_VOID_VER, Permission.STORE_POS_VOID_CAPTURAR)]
+      },
       {
         // Caducidades de tienda (2026-09-08): captura directa, un producto a la
         // vez, en la sucursal del usuario. Reemplaza el alta por "hoja" que

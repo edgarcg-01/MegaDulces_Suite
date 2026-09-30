@@ -705,7 +705,21 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const total = tarjetas().length;
     expect(total).toBeGreaterThan(10);
     buscar('compras');
-    expect(tarjetas().length).toBeLessThan(total);
+    // ⚠️ Acá decía `tarjetas().length < total`, y **comparaba dos poblaciones distintas**: sin
+    // texto `a.mt-cell` son las entradas de los espacios; con texto son ésas MÁS los submódulos
+    // que casan (`.is-sub`), que sólo se pintan al buscar. Con suficientes submódulos de Compras
+    // el filtrado empata al total y la prueba se pone roja sin que nada esté mal — pasó al
+    // agregar `/compras/costo-estandar`.
+    //
+    // ⚠️ Tampoco sirve exigir que el TEXTO de cada celda diga «compras»: el haystack de una
+    // entrada incluye sus módulos y su origen (a propósito — «bancos» tiene que encontrar
+    // Finanzas), así que hay entradas que casan legítimamente sin mostrar la palabra.
+    //
+    // La comparación que sí es como con como: las entradas de espacio (`a.mt-cell` que NO son
+    // `.is-sub`) antes y después de buscar. Ésas son la misma población en los dos momentos.
+    const entradas = () => Array.from(q<HTMLAnchorElement>('a.mt-cell:not(.is-sub)'));
+    expect(entradas().length).toBeLessThan(total);
+    expect(entradas().length).toBeGreaterThan(0);
     expect(Array.from(tarjetas()).every((a) => (a.textContent ?? '').length > 0)).toBe(true);
     // Espacios sin coincidencias no se pintan.
     expect(q('section.mt-space').length).toBeLessThan(6);
