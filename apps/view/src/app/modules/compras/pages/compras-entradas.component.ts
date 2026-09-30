@@ -34,6 +34,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
+import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import {
   FuenteRecepcion, REQUIRED_BY_SOURCE, receptionSource, roleOptsFor,
   coveredTypes, checklist, missingGroups, detectedDocs,
@@ -2285,7 +2286,14 @@ export class ComprasEntradasComponent {
   }
 
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
-  readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * ⭐ La regla vive en `sucursal-selector.ts`, con su prueba negativa. Estaba copiada a mano en
+   * las TRES pantallas de entradas, idéntica — y por eso el mismo defecto estaba en las tres:
+   * el selector desaparecía al elegir una sucursal, dejando el filtro puesto y sin forma de
+   * soltarlo (ni recargando: viaja en la URL). Una regla repetida se arregla tantas veces como
+   * copias tenga.
+   */
+  readonly variasSucursales = computed(() => ofrecerSelectorSucursal(this.alcance(), this.sucursalSel()));
   /**
    * `[RE.23]` El problema que resolvió el fallback y que sigue vigente: con alcance
    * `all` el server no manda lista, y el desplegable se armaba con las sucursales
