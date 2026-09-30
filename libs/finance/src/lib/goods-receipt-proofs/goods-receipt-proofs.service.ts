@@ -463,6 +463,35 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * ⛔ **Dos preguntas distintas que se contestaban con el mismo número**, y por eso el selector
+   * de sucursal desaparecía al usarlo.
+   *
+   *  · `visibles` — *¿qué PUEDE ver esta persona?* No depende del filtro. Es lo que la pantalla
+   *    necesita para decidir si ofrece el selector y con qué opciones lo llena.
+   *  · `filtrado` — *¿qué está viendo AHORA?* = lo anterior recortado a lo que pidió. Va al WHERE.
+   *
+   * La respuesta publicaba `filtrado` bajo el nombre `alcance`, así que al elegir una sucursal
+   * el front recibía una lista de UNO. Con eso: `variasSucursales()` (`length > 1`) daba false y
+   * **escondía el control entero**, y `sucursalOpts()` se quedaba con esa única opción. El filtro
+   * seguía puesto, sin control para cambiarlo ni para soltarlo — y como viaja en la URL
+   * (`?suc=`), recargar tampoco rescataba: la única salida era editar la barra de direcciones.
+   * Pasaba en las TRES pantallas que leen este campo (listado, pendientes y revisión).
+   *
+   * El nombre ya decía cuál de las dos correspondía: *alcance* es lo que alcanzás a ver, no lo
+   * que estás mirando. Y `total_visibles` —la longitud— queda bien por el mismo cambio.
+   */
+  private async alcanceSucursales(pedido?: string[] | null): Promise<{
+    visibles: string[] | null;
+    filtrado: string[] | null;
+  }> {
+    const s = await this.scope.current();
+    return {
+      visibles: this.scope.intersect(s, 'warehouse', null),
+      filtrado: this.scope.intersect(s, 'warehouse', pedido ?? null),
+    };
+  }
+
+  /**
    * `[RE.20.6]` — **el alcance también manda al ESCRIBIR.** El permiso dice *qué* podés hacer;
    * el alcance dice *sobre qué*. Tener `_VALIDAR` no es tener `_VALIDAR sobre CEDIS`.
    *
@@ -496,7 +525,9 @@ export class GoodsReceiptProofsService {
    */
   async listReceipts(q: ListReceiptsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    // `filtrado` filtra; `visibles` se PUBLICA. Ver `alcanceSucursales()`: confundirlos escondía
+    // el selector de sucursal justo al usarlo.
+    const { visibles, filtrado: alcance } = await this.alcanceSucursales(q.warehouse_codes);
     const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || Number(q.limit) || 300));
     const page = Math.max(1, Number(q.page) || 1);
 
@@ -850,7 +881,7 @@ export class GoodsReceiptProofsService {
         },
         // El alcance viaja al front para que la vista sepa si mostrar el selector de
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
-        alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+        alcance: { sucursales: visibles, total_visibles: visibles ? visibles.length : null },
         settings: cfg,
         // RE.20.1 — sólo con `lente=dinero`; el lente de proceso no paga el join ni lo recibe.
         totales: totales ? {
@@ -1716,7 +1747,7 @@ export class GoodsReceiptProofsService {
    */
   async twins(q: { estado?: 'propuesto' | 'vigente' | 'todos'; warehouse_codes?: string[] | null; search?: string; limit?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const alcance = await this.sucursalesVisibles(q.warehouse_codes);
+    const { visibles, filtrado: alcance } = await this.alcanceSucursales(q.warehouse_codes);
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     return this.tk.run(async (trx) => {
       if (!(await this.hayPares(trx))) return { rows: [], kpis: { propuestos: 0, vigentes: 0, monto_propuesto: 0 }, total: 0 };
@@ -1779,7 +1810,7 @@ export class GoodsReceiptProofsService {
           monto_propuesto: Number(k.monto_propuesto),
         },
         total: Number(k.total),
-        alcance: { sucursales: alcance, total_visibles: alcance ? alcance.length : null },
+        alcance: { sucursales: visibles, total_visibles: visibles ? visibles.length : null },
       };
     });
   }
