@@ -311,7 +311,14 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
           { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
-          { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
+          // ⛔ [CE.6] Descableado 2026-09-30 junto con su ruta y su renglón del sidebar: el
+          //    componente `compras-costo-estandar.component.ts` no está commiteado. El nodo se
+          //    quita del árbol porque el árbol es lo que promete que una clave ABRE algo: con la
+          //    ruta comentada y el nodo puesto, `landing-guards.spec` acusa —con razón— que
+          //    COMPRAS_COSTO_ESTANDAR_VER manda a una ruta que no existe. El permiso sigue en el
+          //    enum y repartido en prod (mig 20260929160200); lo que no existe es la pantalla.
+          //    Vuelve en el MISMO commit que traiga el componente.
+          // { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           // WMS-REC.8 — misma pareja de permisos que Hallazgos (la bandeja es del
