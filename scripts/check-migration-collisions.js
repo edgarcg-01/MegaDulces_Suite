@@ -173,6 +173,21 @@ if (process.argv.includes('--self-test')) {
   ck('un archivo que no es migración se ignora sin romper',
     analizar(['README.md', 'sin-timestamp.js', '20260930120000_a.js'], new Set()).length === 0);
 
+  // 6. ⭐ REGRESIÓN (PR #192, 2026-09-30). Una rama 37 commits atrás no tiene EN DISCO la
+  //    migración que otra sesión ya mergeó a main. Si el universo es sólo el disco, el grupo
+  //    queda con un miembro y el candado da VERDE — en el escenario exacto para el que existe.
+  //    El universo tiene que ser disco ∪ main, porque la colisión aparece al MERGEAR.
+  const dsk = ['20260929180000_la_mia.js'];
+  const mn = ['20260929180000_de_otra_sesion.js'];
+  ck('[el bug] mirando SÓLO el disco, la rama atrasada no ve la colisión',
+    analizar(dsk, new Set(mn)).length === 0);
+  ck('[el fix] con el universo disco ∪ main la ve, y sólo la mía es renombrable',
+    (() => {
+      const g = analizar([...dsk, ...mn], new Set(mn));
+      return g.length === 1 && g[0].renombrables.length === 1
+        && g[0].renombrables[0] === '20260929180000_la_mia.js';
+    })());
+
   console.log(fallas ? `\n  ${fallas} falla(s)\n` : '\n  self-test OK\n');
   process.exit(fallas ? 1 : 0);
 }
@@ -180,7 +195,7 @@ if (process.argv.includes('--self-test')) {
 (async () => {
   const soloGit = process.argv.includes('--solo-git');
   const raiz = path.resolve(__dirname, '..');
-  const archivos = fs.readdirSync(path.join(raiz, DIR)).filter((f) => f.endsWith('.js'));
+  const enDisco = fs.readdirSync(path.join(raiz, DIR)).filter((f) => f.endsWith('.js'));
 
   let enMain;
   try {
@@ -189,6 +204,19 @@ if (process.argv.includes('--self-test')) {
     console.error(`⛔ NO MEDIDO: no se pudo leer origin/main (${e.message.split('\n')[0]}).`);
     process.exit(2);
   }
+
+  /**
+   * ⭐ El universo es DISCO ∪ origin/main, no sólo el disco.
+   *
+   * Medido el 2026-09-30 con el PR #192: su rama estaba 37 commits atrás, así que las dos
+   * migraciones `20260929180000_*` que ya viven en main NO estaban en su árbol. La suya, con ese
+   * mismo prefijo, quedaba sola en su grupo y el candado daba VERDE — justo en el escenario para
+   * el que existe, una rama que no vio lo que otra sesión mergeó mientras tanto.
+   *
+   * Mirar sólo el disco mide la rama contra sí misma. La colisión aparece al MERGEAR, así que el
+   * universo tiene que incluir lo que hay en main aunque el checkout no lo tenga bajado.
+   */
+  const archivos = [...new Set([...enDisco, ...enMain])].sort();
 
   if (soloGit) {
     // Sin prod no se puede distinguir "recién escrita" de "aplicada y sin pushear". Se DECLARA.
