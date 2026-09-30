@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Guía de Cobranza: Total factura · Abonos/Pagos · Saldo (GT.17, 2026-09-30)
+- Cada factura de la guía imprime su total, lo abonado (pagos y notas de crédito) y el saldo, en vez
+  de Descuento e Importe. Sin cartera el abono sale «—». Las guías archivadas se reimprimen igual que
+  se firmaron.
+
 ### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
 - `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
   por folio, clave o nombre. `GET /commercial/tickets/bandeja`.
