@@ -420,9 +420,22 @@ buscador que afina dentro por folio, clave o nombre. Mismos tres universos y la 
 a 1,000 filas la respuesta dice `truncado` y el aviso lo pone en palabras: la lista no está completa
 **y ni siquiera se puede afirmar que sean las más recientes**. El rango se topa en 31 días.
 
-⚠️⚠️ **NO MEDIDO.** La base local no tenía `analytics.erp_sale_tickets` (se aplicaron 6 migraciones a
-`platform_local`, una por una) y el volumen es el del seed. Queda por medir contra prod antes de
-darla por buena: la vista de facturas todavía trae su `DISTINCT ON` (deuda con nombre, §TK.7).
+⭐ **Medido contra prod en la revisión del PR #193** (sólo lectura):
+
+    mostrador  1 día 37 ms · 7 días 31 ms · 31 días 39 ms
+    facturas   1 día  7 ms · 7 días 38 ms · 31 días 42 ms
+
+La velocidad no era el problema: **el tope sí**. Mostrador son 82,456 documentos en 31 días y 8
+plazas = **2,660/día** (se había estimado 2,100) y el día más cargado, 4,038. Con 1,000 por canal el
+filtro POR DEFECTO ya salía truncado (~25% del día), y un aviso que sale siempre deja de leerse. El
+mismo día de 4,038: `limit 1,001` 41 ms · `3,001` 104 ms · `6,001` **153 ms** (el día entero) →
+**tope a 5,000**. El calendario ya no deja elegir más de 31 días; si se teclea, se recorre la otra
+punta en vez de devolver un 400.
+
+Dos sospechas de la revisión que **quedaron refutadas**, para que nadie las reconstruya: la columna
+`fecha` de las dos vistas es `date` en prod (el `whereBetween` no recorta el último día), y
+`unaccent()` sin calificar resuelve con el rol real de la app (su `search_path` arranca en
+`identity`).
 
 ### 9.2 `[TK.a1]`/`[TK.a2]` cerrados de paso
 
@@ -469,6 +482,5 @@ neto, se le desglosen los impuestos, en cada partida y al total»*. Reemplaza el
 
 ### 9.5 Pendiente
 
-- Medir la bandeja contra prod (tiempo de la vista de facturas por rango).
 - Validación visual en el navegador real de la carta y el rollo impresos (papel).
 - Redeploy `api` + `view` (sin migraciones ni permisos nuevos → sin re-login).

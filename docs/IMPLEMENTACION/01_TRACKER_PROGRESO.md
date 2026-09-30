@@ -6066,11 +6066,13 @@ TP.6-TP.8+TP.10".
       de la bandeja afina por folio (contiene), clave de cliente (empieza con) o nombre (contiene,
       sin acentos con `unaccent`). `GET /commercial/tickets/bandeja` (`BandejaTicketsService`), los
       tres universos, alcance por `ScopeService`. ⚠️ Sin `ORDER BY` en el ERP (el mismo motivo
-      medido de `buscar()`: 23,856 ms contra 970 ms) → tope de 1,000 por canal y, si se llega,
+      medido de `buscar()`: 23,856 ms contra 970 ms) → tope por canal y, si se llega,
       **`truncado` + aviso**: «no necesariamente trae los más recientes». Si la bandeja no encuentra
-      algo en el rango, ofrece el buscador de folio en TODAS las fechas. ⚠️⚠️ **NO MEDIDO contra
-      volumen real** (la base local no tenía la vista); con el seed de desarrollo responde en
-      30–90 ms, que no dice nada de prod. · *2026-09-30*
+      algo en el rango, ofrece el buscador de folio en TODAS las fechas. ⭐ **Medido contra prod en
+      la revisión del PR #193** (Edgar): 7–42 ms de 1 a 31 días; pero con el tope de 1,000 el filtro
+      por defecto ya salía truncado (mostrador = 2,660 docs/día, pico 4,038 el 26-sep) → **tope a
+      5,000** (el día entero sale en 153 ms). Y el calendario ya no deja elegir más de 31 días: si
+      se teclea, la otra punta se recorre en vez de devolver un 400. · *2026-09-30*
 - [x] **[TK.a1]/[TK.a2]** 🧪 **Cerrados de paso**: `buscar()` saca la fecha con `to_char` en los
       tres universos. Verificado por HTTP contra la API local: el folio `0018665` vuelve como
       `2026-09-29 · 2026-09-27 · 2026-09-24` — texto y de más reciente a más viejo. · *2026-09-30*
