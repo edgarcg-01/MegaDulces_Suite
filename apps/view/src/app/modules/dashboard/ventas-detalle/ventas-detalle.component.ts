@@ -172,6 +172,15 @@ export class VentasDetalleComponent implements OnInit {
   readonly loading = signal<boolean>(true);
   readonly error = signal<boolean>(false);
   readonly report = signal<DetalleReport | null>(null);
+  /**
+   * `[AUD-DAT.20]` Las dos tablas pesadas cargan APARTE y después. Su espera es propia: la
+   * pantalla no se bloquea por ellas, pero tampoco se dibujan vacías como si no hubiera venta.
+   */
+  readonly topsLoading = signal<boolean>(false);
+  /** Rango (`from|to`) cuyas listas ya están cargadas: evita reconsultar al volver a la pestaña. */
+  readonly topsLoadedFor = signal<string>('');
+  /** Con qué se calcularon esas dos listas (si Wincaja entró en el universo y por qué). */
+  readonly topsFuente = signal<{ incluye_wincaja: boolean; wincaja_ultimo_dia: string | null; motivo: string } | null>(null);
 
   // Días transcurridos
   readonly days = computed(() => {
@@ -332,6 +341,8 @@ export class VentasDetalleComponent implements OnInit {
 
   setTab(tab: DetalleTabId): void {
     this.activeTab.set(tab);
+    // `[AUD-DAT.20]` Abrir «Productos» o «Clientes» es lo que dispara su consulta.
+    this.ensureTops();
   }
 
   loadData(): void {
@@ -354,12 +365,53 @@ export class VentasDetalleComponent implements OnInit {
         next: (data) => {
           this.report.set(data);
           this.loading.set(false);
+          // El rango cambió: lo que estuviera cargado ya no corresponde.
+          this.topsLoadedFor.set('');
+          this.ensureTops();
         },
         error: (err) => {
           console.error('[DetalleHome] Error al cargar análisis:', err);
           this.error.set(true);
           this.loading.set(false);
         },
+      });
+  }
+
+  /**
+   * `[AUD-DAT.20]` — **Top Productos y Top Clientes se piden cuando se MIRAN, no antes.**
+   *
+   * Las dos tablas viven en sus propias pestañas y la pestaña de entrada es «Tráfico», así que
+   * en la carga normal de la pantalla **nadie las está viendo**. Traerlas igual era pagar
+   * 3,941 ms medidos —y el escaneo correspondiente en la base— por dos tablas que la mayoría de
+   * las visitas no abre. Se piden al abrir la pestaña y se recuerdan por rango: volver a la
+   * pestaña no vuelve a consultar; cambiar el rango sí.
+   */
+  private ensureTops(): void {
+    const tab = this.activeTab();
+    if (tab !== 'productos' && tab !== 'clientes') return;
+    const f = this.from(), t = this.to();
+    if (!f || !t) return;
+    const clave = `${f}|${t}`;
+    if (this.topsLoadedFor() === clave || this.topsLoading()) return;
+
+    this.topsLoading.set(true);
+    this.detalleSvc
+      .getTops(f, t)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (tops) => {
+          this.topsLoading.set(false);
+          // Si el usuario ya cambió el rango, esta respuesta es vieja: se descarta en vez de
+          // pintarse sobre un periodo que no es el suyo.
+          if (this.from() !== f || this.to() !== t) return;
+          const rep = this.report();
+          if (rep) {
+            this.report.set({ ...rep, top_products: tops.top_products, customers: tops.customers });
+          }
+          this.topsFuente.set(tops.fuente);
+          this.topsLoadedFor.set(clave);
+        },
+        error: () => this.topsLoading.set(false),
       });
   }
 

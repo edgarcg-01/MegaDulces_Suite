@@ -1742,6 +1742,13 @@ export class ComercialService {
     });
   }
 
+  /** `[AUD-DAT.20]` Top productos y top clientes. Se pide APARTE y DESPUES: ver el tipo. */
+  salesByRouteTops(from: string, to: string) {
+    return this.http.get<SalesByRouteTops>(`${this.base}/analytics/sales-by-route/tops`, {
+      params: new HttpParams().set('from', from).set('to', to),
+    });
+  }
+
   salesByRouteRoutes() {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
@@ -2250,8 +2257,6 @@ export interface SalesByRouteParams {
 
 export interface SalesByRouteDashboard {
   series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
-  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
-  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
   /**
    * El hueco del COSTO, declarado. Medido en prod: en el ultimo mes cerrado el costo solo existe
    * en el 12.4 % de la venta de ruta, asi que el margen se calcula sobre `revenue_with_cost` y
@@ -2261,6 +2266,17 @@ export interface SalesByRouteDashboard {
     revenue: number; revenue_with_cost: number; cost: number;
     margin_pct: number | null; cost_coverage_pct: number; data_as_of: string | null;
   };
+}
+
+/**
+ * `[AUD-DAT.20]` Las dos listas pesadas, en su propia llamada porque cuestan tres ordenes de
+ * magnitud mas que el resto del tablero (7 ms contra 3,941 ms medidos) y viven debajo del pliegue.
+ */
+export interface SalesByRouteTops {
+  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
+  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
+  /** Con que se calcularon: si Wincaja entro en el universo y por que. */
+  fuente: { incluye_wincaja: boolean; wincaja_ultimo_dia: string | null; motivo: string };
 }
 
 export interface SalesByRouteOption {

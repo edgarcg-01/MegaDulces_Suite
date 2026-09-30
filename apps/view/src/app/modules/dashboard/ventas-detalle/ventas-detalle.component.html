@@ -586,7 +586,15 @@
           </p-iconfield>
         </div>
 
-        <p-table [value]="filteredProducts()" class="p-datatable-sm tf-table" [rowHover]="true">
+        @if (topsFuente(); as fte) {
+          <p class="tf-muted text-xs mb-2">{{ fte.motivo }}</p>
+        }
+        <p-table
+          [value]="filteredProducts()"
+          [loading]="topsLoading()"
+          class="p-datatable-sm tf-table"
+          [rowHover]="true"
+        >
           <ng-template #header>
             <tr>
               <th class="ta-c">#</th>
@@ -655,7 +663,15 @@
           </p-iconfield>
         </div>
 
-        <p-table [value]="filteredCustomers()" class="p-datatable-sm tf-table" [rowHover]="true">
+        @if (topsFuente(); as fte) {
+          <p class="tf-muted text-xs mb-2">{{ fte.motivo }}</p>
+        }
+        <p-table
+          [value]="filteredCustomers()"
+          [loading]="topsLoading()"
+          class="p-datatable-sm tf-table"
+          [rowHover]="true"
+        >
           <ng-template #header>
             <tr>
               <th>Código</th>
