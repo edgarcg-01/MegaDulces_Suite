@@ -297,6 +297,10 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Cartera',
   'Comercial · Pedidos',
   'Comercial · Promociones',
+  // `[MKT.1/6]` Los acuerdos con proveedor son su PROYECTO propio (`/mkt`), no una
+  // pantalla de Comercial -- pero la categoria agrupa el selector de `persona-acceso`, y
+  // ahi se lee al lado de Promociones, que es lo que la gente busca cuando viene por esto.
+  'MKT · Acuerdos',
   'Comercial · Thot',
   'Comercial · Inventario físico',
   // `[AU.6]` Estas tres FALTABAN y las usan 27 permisos (Compras 23, Almacén 2, Surtido 2).
