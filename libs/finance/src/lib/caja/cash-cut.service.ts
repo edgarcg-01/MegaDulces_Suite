@@ -522,18 +522,33 @@ export class CashCutService {
         .first('id', 'folio', 'fecha');
 
       // ── 3. Lo que NO se puede afirmar, dicho con nombre (ADR-056) ────────────────────────
+      //
+      // ⭐ `[CG.29]` Van en DOS listas, y la distinción es de jerarquía, no de estilo:
+      //
+      //   · `no_medido` — lo que ESTA jornada no pudo afirmar y **alguien puede cambiar hoy**
+      //     (no hay corte abierto, el feed del cajero no está, apareció un tipo desconocido).
+      //   · `limites`   — lo que este cuadre **nunca** va a cubrir, por cómo son las fuentes.
+      //     Es permanente: sale todos los días, para siempre.
+      //
+      // Mezclarlas fue un error mío: la pantalla pintaba tres avisos naranjas iguales, dos de
+      // ellos inmutables. Un aviso que aparece siempre y que nadie puede resolver deja de leerse,
+      // y se lleva puesto al que sí importaba.
       const no_medido: string[] = [];
+      const limites: string[] = [];
+
       if (!hayCaos) {
         no_medido.push('El feed del cajero (CAOS) no está en este entorno: del día sólo se puede cuadrar la caja general.');
       } else if (sucursal !== '00') {
-        no_medido.push(`El cajero (CAOS) es un único dispositivo en oficinas: la sucursal ${sucursal} no tiene cajero que cuadrar.`);
+        limites.push(`El cajero (CAOS) es un único dispositivo en oficinas: la sucursal ${sucursal} no tiene cajero que cuadrar.`);
       } else {
-        no_medido.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');
+        limites.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');
       }
       if (!corte) {
-        no_medido.push('No hay corte abierto en esta sucursal, así que el día no se puede comparar contra un conteo físico: esto es el movimiento REGISTRADO, no un arqueo firmado.');
+        // ⭐ Éste es el único que la persona puede resolver, y es justamente el que separa
+        // «el movimiento registrado» de «un arqueo firmado». Va arriba y solo.
+        no_medido.push('Todavía no rendiste cuentas de esta jornada: esto es el movimiento REGISTRADO, no un arqueo firmado contra un conteo físico.');
       }
-      no_medido.push('La cola de Kepler no entra en este cuadre: el ERP tarda una mediana de 3 días en capturar el documento, así que el efectivo de hoy todavía no está allá.');
+      limites.push('La cola de Kepler no entra en este cuadre: el ERP tarda una mediana de 3 días en capturar el documento, así que el efectivo de hoy todavía no está allá.');
       if (cajero && (cajero['tipos_desconocidos'] as unknown[]).length > 0) {
         no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');
       }
@@ -554,6 +569,7 @@ export class CashCutService {
           ? { id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10) }
           : null,
         no_medido,
+        limites,
       };
     });
   }

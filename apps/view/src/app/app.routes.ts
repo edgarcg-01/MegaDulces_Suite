@@ -293,6 +293,20 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
       },
       {
+        // [PR.D2] El experimento de aterrizaje psicológico del precio: la lista para capturar
+        // en Kepler (que es read-only por decisión, ADR-040) y el veredicto de no-inferioridad.
+        path: 'experimentos-precio',
+        loadComponent: () => import('./modules/comercial/pages/comercial-experimentos-precio.component').then(m => m.ComercialExperimentosPrecioComponent),
+        // ⭐ anyPermissionGuard, no permissionGuard: `landing-guards.spec` lo atrapó. Un rol con
+        // sólo GESTIONAR y sin VER rebotaría en el índice del proyecto. La migración de reparto
+        // garantiza que GESTIONAR ⊆ VER, pero el guard NO debe depender de que los datos se
+        // mantengan así — la puerta se defiende sola.
+        canActivate: [anyPermissionGuard(
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_VER,
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR,
+        )]
+      },
+      {
         // [CAT.1] El catálogo se mudó a Compras (/compras/catalogo). Se deja el redirect porque hay
         // enlaces internos y marcadores del equipo apuntando a esta ruta.
         path: 'products',
@@ -931,6 +945,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-costo-neto.component').then(m => m.ComprasCostoNetoComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_COSTO_NETO_VER)]
       },
+      // ⛔ [CE.6] DESCABLEADA 2026-09-30. `compras-costo-estandar.component.ts` NO está
+      //    commiteado: vive sin trackear en el árbol de trabajo compartido, así que el
+      //    `import()` compilaba en local y rompía el build de PROD (TS2307 + "Could not
+      //    resolve"), dejando al auto-deploy fallando y a prod congelada. Se vuelve a cablear
+      //    en el MISMO commit que traiga el componente y su servicio.
+      // {
+      //   path: 'costo-estandar',
+      //   loadComponent: () => import('./modules/compras/pages/compras-costo-estandar.component').then(m => m.ComprasCostoEstandarComponent),
+      //   canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
+      // },
       {
         // CXP.7 — "Cuadre y deuda por proveedor" SE MUDÓ a Finanzas (CxP/Tesorería). Redirects
         // para bookmarks/links viejos de Compras.
@@ -1352,6 +1376,14 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-faltantes.component').then(m => m.TiendaFaltantesComponent),
         canActivate: [anyPermissionGuard(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)]
       },
+      // ⛔ `[BP.8]` DESCABLEADA 2026-09-30, mismo motivo que [CE.6] arriba:
+      //    `tienda-retiros.component.ts` no está commiteado y el `import()` rompía el build de
+      //    prod. Se vuelve a cablear en el MISMO commit que traiga el componente.
+      // {
+      //   path: 'retiros',
+      //   loadComponent: () => import('./modules/tienda/pages/tienda-retiros.component').then(m => m.TiendaRetirosComponent),
+      //   canActivate: [anyPermissionGuard(Permission.STORE_POS_VOID_VER, Permission.STORE_POS_VOID_CAPTURAR)]
+      // },
       {
         // Caducidades de tienda (2026-09-08): captura directa, un producto a la
         // vez, en la sucursal del usuario. Reemplaza el alta por "hoja" que

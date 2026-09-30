@@ -18,6 +18,182 @@
   HEAD..origin/main -- <mis rutas>`.*
 - Detalle: `FASE_TK_TICKETS_VENTA.md` §9.
 
+## 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué
+
+**Disparador:** Edgar — *"hay que arreglarlo"*, sobre el hecho de fondo que dejaron IC.12, ABC.6
+e IRA.1: tres pantallas midiendo un proceso que no corre.
+
+### Lo primero fue descartar lo obvio
+
+**No son los permisos.** `COMMERCIAL_INVENTORY_CONTAR` lo tienen 6 roles / **19 personas**,
+`SUPERVISAR` 13 y `RECONCILIAR` 11. La inversión que `FASE_IC` §1.6 documentó —*quien cuenta no
+podía contar*— la cerró IC.2 y hoy está repartida en prod.
+
+**Y no son conteos operativos fallidos:** los 6 folios los abrió `superoot`, o sea Sistemas
+probando en junio. **Nunca hubo un conteo real.**
+
+### La causa, y no es un bug
+
+`reconcile()` tiene un *coverage guard*: si queda **un solo** SKU sin contar, no se puede cerrar
+—*«un no-contado NO se trata como cero»*—. Es correcto y deliberado. El problema es **cuándo se
+entera uno**: sólo apretando «Reconciliar» y recibiendo un 409.
+
+Un folio completo de **3,664 SKUs** exige contar los 3,664 para cerrarse. Medido, folio por
+folio: 3,663 · 3,664 · 3,663 · 2,093 · 3,664 · 2,091 sin contar. **Avance entre 0.00% y 0.14%.**
+Eso no se abandona por desidia: se abandona porque era imposible, y nada en la pantalla lo dijo
+hasta el final.
+
+⭐ **El mecanismo correcto ya existía y estaba bien hecho:** el folio cíclico se genera con
+**50 SKUs** (tope 500), que sí se cuenta y se cierra en un turno. Lo que faltaba no era
+construirlo — era **decir el bloqueo antes**.
+
+### Lo que se hizo
+
+Los cuatro guards de `reconcile()` se extrajeron a **`bloqueosParaReconciliar()`**, que ahora
+consumen **los dos**: `reconcile()` para rechazar y `getProgress()` para avisar. Una sola
+definición, y la razón es concreta: si divergieran, el supervisor vería «listo para cerrar» y el
+botón devolvería 409. Es el mismo pecado que ABC.6 cometió y corrigió el mismo día.
+
+La pantalla del folio ahora muestra, **arriba del botón**, qué falta (*«3,663 SKU(s) sin ningún
+conteo…»*), el avance (*«van 1 de 3,664 contados, 0.03%»*) y la regla en llano: *un folio se
+cierra completo o se cancela; lo no contado no se toma como cero*. El botón «Reconciliar» se
+apaga con el motivo en el tooltip. ⚠️ Si el backend no manda el campo —deploy viejo— **no** se
+bloquea: un `undefined` no puede apagar un botón que antes funcionaba.
+
+### Lo que NO se hizo, y por qué
+
+**`ENABLE_CYCLE_COUNT_CRON` no está definida en prod**, así que el cron que abriría folios
+cíclicos solos no corre. Encenderlo crea folios todos los días en todos los almacenes: es una
+decisión de operación, no de una revisión de pantalla, y se declara en vez de decidirla acá.
+
+**Candado:** `test-newdb-count-cerrable.js` — **9 ✓ / 0 ✗ / 1 no medido**. Exige que los bloqueos
+**discriminen** (una fila completa y resuelta no puede disparar ninguno: una regla que siempre
+dice que sí deja el botón apagado para siempre, que es peor que el 409) y que sean independientes
+entre sí. Incluye una comprobación **estructural** —una definición, dos consumidores— declarada
+como lo que es: no prueba la regla, sólo que no hay dos copias.
+
+`nx build api` + `nx build view` OK. **Sin migración. Pendiente: redeploy.**
+
+---
+## 2026-09-30 — IRA.1: la pantalla de exactitud no decía que el proceso nunca corrió
+
+**Disparador:** Edgar — `/almacen/inventory/ira`, siguiente pantalla del barrido de almacén.
+
+### Lo que mostraba y lo que pasaba
+
+Cuatro tarjetas: IRA «—», exactitud por valor «—», **variación neta «$0»**, folios reconciliados
+«0». Dos tablas con mensajes de vacío distintos. Nada más.
+
+Lo que pasaba, medido en prod: **cero folios reconciliados**. Los 6 que existen están
+`cancelled`, abiertos entre el **15 y el 19-jun-2026** en los almacenes `01` y `02`, con
+**18,845 renglones** de los que se contaron **9 — el 0.05%**. O sea: el conteo se intentó una vez
+en junio, se tocaron nueve renglones y se abandonó.
+
+⭐ **De cuatro guiones nadie deduce eso.** El IRA sólo mira `status='reconciled'`, y un folio
+cancelado desaparece del universo — justo cuando es *todo* lo que hay. Ahora el servicio devuelve
+`sin_reconciliar` (folios, renglones, contados, fechas y almacenes por estado) y la pantalla lo
+dice **primero**, antes de los medidores: *«Ningún folio reconciliado todavía, así que no hay
+exactitud que medir — lo que falta no es descuadre, es el proceso»*.
+
+### Dos defectos de la misma familia
+
+⛔ **`$0` donde no había base.** «Cero pesos de variación» y «no hay con qué calcularla» se leen
+igual en una tarjeta de dinero. Los tres importes pasan a **NULL**, y la leyenda deja de decir
+«sin diferencia» —una afirmación que nadie midió— para decir «sin folios reconciliados que
+medir».
+
+⛔ **El costo ausente entraba como CERO.** El `COALESCE(i.unit_cost, uc.costo_unitario, …, 0)`
+termina en `0`, así que un SKU sin testigo aporta 0 al teórico **y** 0 a la varianza: una
+diferencia sin costo se ve como si no hubiera diferencia, e **infla `value_accuracy_pct`**. Se
+cuenta aparte (`items_sin_costo`) y la pantalla lo declara. ⚠️ Hoy `v_erp_unit_cost` cubre el
+**100%** de las celdas con existencia, así que el daño es **potencial y no actual** — pero eso es
+una medición de hoy, no una garantía, y el candado la re-mide en cada corrida.
+
+También se explicó la tolerancia: con el default en 0, «exacto» significa **diferencia cero**, y
+eso ahora se lee en la tarjeta en vez de un «tolerancia 0%» que no dice nada.
+
+### Una corrección a mi propio censo
+
+Mi barrido de las 30 pantallas marcó esta como **sin estado vacío**, porque buscaba el
+`emptymessage` de PrimeNG. La pantalla sí los tiene, escritos a mano (`@else { <p
+class="ira-empty">`). O sea que el «20 de 30 con estado vacío» que reporté **subestima**. La
+métrica medía el organismo, no la propiedad.
+
+**Candado:** `test-newdb-ira-declara.js` — **8 ✓ / 0 ✗**, con prueba negativa de filas fabricadas
+(la misma diferencia de 10 piezas pesa cero sin costo) porque sin eso «exactitud por valor 100%»
+no distingue un inventario perfecto de un catálogo sin costos. Vigila el **contrato**, no un
+número: el día que se reconcilie un folio, las aserciones cambian de rama solas.
+
+`nx build api` + `nx build view` OK. **Sin migración. Pendiente: redeploy.**
+
+---
+## 2026-09-30 — ABC.6: el conteo cíclico decía «2,000 pendientes» cuando eran 39,480, y la letra no decía por qué
+
+**Disparador:** Edgar, sobre `/almacen/inventory/abc` — *"mencionamos ABC, pero no mencionamos
+por qué cada producto va en cada categoría, tampoco mostramos o tenemos un orden para mostrar
+los B y C"*.
+
+### Los dos ceros falsos
+
+El KPI publicaba **«Por contar ahora 2,000 · A 2000 · B 0 · C 0»**. Lo vencido, medido:
+**A 4,987 · B 6,822 · C 27,671 = 39,480** — todo el catálogo, porque nunca se contó nada.
+
+La causa es una sola línea: `by_class` se contaba **después** del `LIMIT 2000`. Con el orden
+A→B→C, las 4,987 filas clase A se comían el límite enteras, y el resumen —calculado sobre la
+página— afirmaba que no había ni una B ni una C pendiente. **Subdeclaraba el trabajo en 95% y
+hacía desaparecer dos clases enteras del plan sin que nadie lo decidiera.**
+
+⭐ Y B y C no eran invisibles *por diseño* sino *por truncamiento*, que es peor: un diseño se
+discute, un truncamiento no se ve. Ahora el conteo sale de un `COUNT` sobre todo, la página se
+declara (`truncado`, `mostradas` de `count`), hay filtro por clase, y **dentro de la clase manda
+el valor anual descendente** — con `last_counted_at` NULL en el 100% de las filas, ordenar por
+esa columna era un desempate arbitrario disfrazado de prioridad.
+
+### El porqué de la letra — y una corrección que me hice a mí mismo
+
+Primero **re-deriví** el motivo en el servicio con un `CASE`. Estaba mal, y el propio repo lo
+dijo: `commercial.abc_classification` **ya trae la columna canónica `clase_motivo`** (KE.4b,
+poblada desde `analytics.v_abc_class`), y `computeAbc` la copia desde hace semanas. Inventar una
+segunda definición es exactamente el defecto que KE.4 cerró, cuando la pantalla mostraba otra
+clase que el motor y coincidían en el 64%. Se retiró el `CASE` y se consume la columna.
+
+⚠️ **Pero la comparación destapó un hallazgo real, que se DECLARA y no se corrige.**
+`clase_motivo = 'sin_demanda'` mira `adu_almacen`, o sea la demanda del **almacén entero**: hoy
+son las **10,125 filas del CEDIS**, que no vende sino que distribuye por traspaso. Hay **5,865
+filas más** con demanda `0` y valor `$0` **en almacenes que sí venden**, y caen en el `ELSE` →
+`pareto`. La pantalla decía *"es C por su lugar en el Pareto"* sobre una fila que no tiene valor
+que ordenar.
+
+⛔ **No se re-etiqueta, y la razón es concreta:** `import-network-reorder.js:99` decide el nivel
+de servicio del CEDIS con `clase_motivo = 'sin_demanda' THEN 'A'`. Cambiar esa etiqueta mueve
+una decisión de **compra**, y eso es de la fase KE, no de una revisión de pantalla. Lo que se
+hace es exponer el hecho (`sin_demanda_en_fila`) al lado del motivo canónico.
+
+### Lo que la pantalla muestra ahora
+
+El criterio completo antes de la tabla (métrica, ventana, corte de Pareto, cadencias, y de qué
+fuente salen demanda y costo), el motivo por fila con la cuenta entera en el tooltip
+(`unidades × costo = valor anual`, y su % del almacén), el aviso de recorte, el filtro por clase
+—sin él B y C eran inalcanzables desde la pantalla— y **guion en vez de `$0`** donde no hubo
+demanda: un valor ausente no es un valor de cero.
+
+### Lecciones
+
+1. ⭐ **Antes de derivar un concepto, buscar si ya tiene columna.** Me ahorré publicar una
+   segunda verdad por revisar el label de un test ajeno (`test-newdb-abc-class-truth.js`), no
+   por mirar el schema.
+2. ⛔ **Un agregado calculado después de paginar miente siempre**, y miente hacia abajo, que es
+   la dirección que nadie audita.
+3. ⚠️ **Sexta vez** que un acento grave en un comentario dentro de un template literal rompe el
+   build de este repo.
+
+**Candado:** `test-newdb-abc-motivo.js` — **13 ✓ / 0 ✗**, con la prueba negativa que reproduce el
+bug (`contando sobre la página, B y C dan CERO` y el total baja de 39,480 a 2,000). Registrado en
+`run-all-tests.js`. `nx build api` + `nx build view` OK.
+
+**Sin migración:** es cambio de código. **Pendiente: redeploy.**
+
+---
 ## 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo
 
 **Disparador:** Edgar — *"analiza /almacen/inventory/diferencias"*, y después *"arranca"* sobre
@@ -142,6 +318,49 @@ del refresco, que se escribe cuando el worker lleve el código.
 
 **Pendiente:** `git push` (sin autorizar) + redeploy. Sin migraciones de permisos → **no hace
 falta re-login**.
+
+---
+## 2026-09-30 — CE.11: «no explicas por qué», y la explicación que yo tenía en la cabeza era falsa
+
+**Disparador:** Edgar — *"mencionas que la reposición es más alta en algunos lugares pero no
+explicas por qué… al dar clic debemos explicar cosas que supones"*.
+
+Tenía razón dos veces. La fila afirmaba un hecho sin su causa, **y mi causa era falsa**. Yo
+suponía *"esa plaza compró más caro"*. El caso en pantalla: del `20119` hay **una sola compra en
+6 meses** y es del CEDIS a $138.44; lo que dejó a la plaza 01 en $189.07 fue un **`N-A-30`
+«Entrada Inventario físico»** del 11-sep. La plaza no compró: recibió, y el costo se lo fijó un
+conteo.
+
+⭐⭐ **Y no es un caso raro: medido sobre 33,286 pares, el 71.3 % de los costos de reposición
+atribuibles los fijó un movimiento de INVENTARIO FÍSICO, contra 27.5 % de la cadena de compra.**
+Eso cambia la conversación entera: «la ficha está vieja» presupone que alguien compró más caro.
+
+### Lecciones
+
+1. ⭐⭐ **«Explicá por qué» es una prueba, no un pedido de redacción.** Al ir a buscar la causa
+   para escribirla, la causa resultó ser otra. Si la hubiera escrito de memoria, la pantalla
+   habría publicado una explicación falsa con la autoridad de estar impresa al lado del número.
+2. ⭐ **Un candado copiado de otra migración vigila la operación de la otra migración.** `[CE.9]`
+   midió **cero** dependientes de la vista y por eso se permitió un `DROP`; horas después ya eran
+   **dos** y el guard heredado frenó una migración que sólo **agrega** columnas con
+   `CREATE OR REPLACE` — algo que Postgres permite con dependientes vivos. *La medición envejeció
+   en un día, y el guard estaba vigilando la operación equivocada.*
+3. **La forma de la consulta, no el volumen.** El primer intento de atribución tardaba **más de 4
+   minutos y moría**: `LEFT JOIN` + `DISTINCT ON` resuelto por bucles anidados. Con `JOIN` y los
+   pares del costo como lado externo: **2.1 s**. Lo mismo, 120× más rápido.
+4. **El rótulo se toma del ERP, no se escribe.** Los nombres salen de `kdmm` — y ahí apareció que
+   Kepler **repite claves**: `N-D-5` tiene cinco nombres distintos. Se declara con
+   `origen_nombre_ambiguo` en vez de elegir uno callado.
+
+### Entregado
+
+`analytics.mv_kepler_cost_origin` (batch **606**) + nueve columnas `origen_*` en la vista, el
+refresco nocturno con **umbral en `CRON_JOBS`**, y el detalle de la pantalla explicando en una
+oración qué movimiento dejó ese costo — o diciendo que no se pudo atribuir (24.7 %), en vez de
+suponer. Más el bloque **«Si capturás el costo nuevo»** con las dos salidas de la decisión.
+
+**Falta:** la migración de la vista (`20260930150000`) esperando que otra sesión suelte un lock de
+9+ minutos sobre la vista; redeploy api + view; re-login; validación visual.
 
 ---
 ## 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una columna

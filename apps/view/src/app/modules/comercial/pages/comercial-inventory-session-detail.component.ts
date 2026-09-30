@@ -11,6 +11,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { TooltipModule } from 'primeng/tooltip';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
@@ -45,7 +46,7 @@ interface LiveCountEntry {
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, DialogModule, InputNumberModule, InputTextModule,
     ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule, SelectModule,
-    MetricStripComponent,
+    MetricStripComponent, TooltipModule,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -125,6 +126,30 @@ interface LiveCountEntry {
         </div>
       }
 
+      <!-- [CNT.1] QUE FALTA PARA PODER CERRAR, antes del boton y no despues del 409.
+           Medido en prod: los 6 folios que existen estan CANCELADOS -- 18,845 renglones y 9
+           contados. El coverage guard de reconcile() es correcto y de diseno (un no-contado no
+           es un cero), pero solo se enteraba quien apretaba el boton al final. -->
+      @if (!isTerminal() && progress(); as pr) {
+        @if (pr.bloqueos?.length) {
+          <div class="in-bloqueos">
+            <b>Falta para poder cerrar este folio:</b>
+            <ul>
+              @for (b of pr.bloqueos; track b.code) { <li>{{ b.mensaje }}</li> }
+            </ul>
+            @if (pr.total) {
+              <span class="in-bloqueos-pie">
+                Van {{ pr.counted_once | number }} de {{ pr.total | number }} contados
+                ({{ pr.coverage_pct }}%). Un folio se cierra completo o se cancela: lo no contado
+                no se toma como cero.
+              </span>
+            }
+          </div>
+        } @else if (pr.puede_reconciliar) {
+          <p class="in-listo">Todo contado y resuelto: el folio se puede reconciliar.</p>
+        }
+      }
+
       <!-- Acciones -->
       @if (!isTerminal()) {
         <div class="in-actions">
@@ -133,7 +158,9 @@ interface LiveCountEntry {
             <button pButton size="small" [text]="true" severity="secondary" [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"><span class="p-button-icon p-button-icon-left pi pi-users" aria-hidden="true"></span><span class="p-button-label">Equipos por pasillo</span></button>
           }
           @if (canReconcile()) {
-            <button pButton size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Reconciliar</span></button>
+            <button pButton size="small" severity="success" [loading]="reconciling()"
+                    [disabled]="bloqueado()" [pTooltip]="bloqueoResumen()"
+                    (click)="confirmReconcile()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Reconciliar</span></button>
           }
           @if (canReconcile()) {
             <button pButton size="small" [text]="true" severity="danger" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar folio</span></button>
@@ -282,6 +309,16 @@ interface LiveCountEntry {
     </div>
   `,
   styles: [`
+    /* [CNT.1] Lo que falta para cerrar va ARRIBA del boton y se ve: no es una nota al pie. */
+    .in-bloqueos {
+      font-size: var(--fs-xs); color: var(--warn-fg); margin: 0 0 1rem;
+      padding: .55rem .8rem; border-left: 3px solid var(--warn-fg);
+      background: color-mix(in srgb, var(--warn-fg) 7%, transparent); border-radius: 4px;
+      line-height: 1.5; max-width: 90ch;
+    }
+    .in-bloqueos ul { margin: .25rem 0 .25rem 1.1rem; padding: 0; }
+    .in-bloqueos-pie { display: block; color: var(--fg-3); margin-top: .25rem; }
+    .in-listo { font-size: var(--fs-xs); color: var(--ok-fg); margin: 0 0 1rem; }
     .in-head-actions { display: flex; gap: .5rem; align-items: center; }
     .in-live { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--ok-fg); padding: .2rem .5rem; border-radius: 99px; background: color-mix(in srgb, var(--ok-fg) 14%, transparent); }
     .in-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-fg); animation: in-pulse 1.4s ease-in-out infinite; }
@@ -390,6 +427,23 @@ export class ComercialInventorySessionDetailComponent {
   loading = signal(false);
   computing = signal(false);
   reconciling = signal(false);
+
+  /**
+   * [CNT.1] El boton se apaga cuando el servidor dice que no se puede cerrar. No es una regla
+   * del frontend: `bloqueos` sale del MISMO metodo que `reconcile()` usa para rechazar.
+   * ⚠️ Si el backend no manda el campo (deploy viejo), NO se bloquea: un `undefined` no puede
+   * apagar un boton que antes funcionaba.
+   */
+  bloqueado(): boolean {
+    const b = this.progress()?.bloqueos;
+    return Array.isArray(b) && b.length > 0;
+  }
+
+  bloqueoResumen(): string {
+    const b = this.progress()?.bloqueos;
+    if (!Array.isArray(b) || !b.length) return '';
+    return 'No se puede cerrar todavia: ' + b.map((x) => x.mensaje).join(' ');
+  }
   resolving = signal(false);
 
   filter = signal<string>('all');

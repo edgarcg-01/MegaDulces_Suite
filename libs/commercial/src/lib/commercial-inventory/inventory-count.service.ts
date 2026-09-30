@@ -759,6 +759,28 @@ export class InventoryCountService {
    * Costo: `i.unit_cost` congelado al reconciliar; si no, [KE.3] el resolvedor unico
    * `analytics.v_erp_unit_cost` (testigo del MISMO ERP y almacen); ultimo recurso el proxy
    * de `inventory.products`. Antes el fallback era `cost_base` del catalogo. (SUPERVISAR)
+   *
+   * ── `[IRA.1]` TRES COSAS QUE ESTA PANTALLA CALLABA (medidas en prod, 2026-09-30) ────────
+   *
+   * 1. ⛔ **No decía que el proceso nunca corrió.** El IRA sólo mira `status='reconciled'`, y
+   *    en prod hay **CERO**. Los 6 folios que existen están `cancelled`: se abrieron entre el
+   *    15 y el 19-jun-2026 en los almacenes `01` y `02` con **18,845 renglones**, de los que
+   *    se contaron **9 (0.05%)**. La pantalla mostraba «—», «$0», «0 folios» y dos mensajes de
+   *    vacío distintos — nadie podía deducir de ahí que lo que falta no es descuadre sino el
+   *    proceso entero. Ahora se devuelve `sin_reconciliar` con ese censo, y es lo primero que
+   *    la pantalla dice.
+   *
+   * 2. ⛔ **`net_variance_value` salía en `$0` sin base.** Cero pesos de variación y "no hay
+   *    con qué calcular la variación" son cosas distintas, y en una tarjeta de dinero se leen
+   *    igual. Los tres importes salen **NULL** cuando no hay un solo ítem (ADR-056).
+   *
+   * 3. ⛔ **El costo ausente entraba como CERO.** El `COALESCE(...)` termina en `0`, así que un
+   *    SKU sin testigo de costo aporta 0 al teórico **y** 0 a la varianza — o sea que una
+   *    diferencia sin costo se ve como si no hubiera diferencia, e **infla**
+   *    `value_accuracy_pct`. Hoy `v_erp_unit_cost` cubre el **100%** de las celdas con
+   *    existencia, así que el daño es potencial y no actual; pero eso es una medición de hoy,
+   *    no una garantía. Se cuenta y se devuelve `items_sin_costo` para que la pantalla pueda
+   *    declararlo en vez de que el porcentaje suba solo.
    */
   async iraMetrics(q: { warehouse_id?: string; from?: string; to?: string; tolerance_pct?: number }) {
     if (q.warehouse_id && !UUID.test(q.warehouse_id))
@@ -783,14 +805,36 @@ export class InventoryCountService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = c.tenant_id AND w.id = c.warehouse_id
         WHERE ${filters.join(' AND ')}`;
 
+      // `costoCrudo` es la misma cadena SIN el `0` final: sirve para CONTAR los que no tienen
+      // testigo, que es lo que el COALESCE con cero vuelve invisible.
+      const costoCrudo = `COALESCE(i.unit_cost, uc.costo_unitario,
+        ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0))`;
       const ov = (await trx.raw(
         `SELECT COUNT(*)::int AS total_items,
                 COUNT(*) FILTER (WHERE ${accurate})::int AS accurate_items,
                 COUNT(DISTINCT c.id)::int AS folios,
+                COUNT(*) FILTER (WHERE ${costoCrudo} IS NULL)::int AS items_sin_costo,
                 COALESCE(SUM(i.expected_qty * ${cost}), 0)::numeric AS expected_value,
                 COALESCE(SUM(ABS(COALESCE(i.variance,0)) * ${cost}), 0)::numeric AS abs_variance_value,
                 COALESCE(SUM(COALESCE(i.variance,0) * ${cost}), 0)::numeric AS net_variance_value
          ${baseFrom}`, binds)).rows[0];
+
+      // ⛔ EL CENSO DE LO QUE EL IRA NO MIRA. Un folio cancelado desaparece del universo, y con
+      // el proceso sin arrancar eso es TODO lo que hay: sin esto la pantalla no puede distinguir
+      // "no hay descuadre" de "nunca se reconcilió un conteo".
+      const otros = (await trx.raw(
+        `SELECT c.status, COUNT(DISTINCT c.id)::int AS folios, COUNT(i.*)::int AS renglones,
+                COUNT(i.*) FILTER (WHERE i.status <> 'pending')::int AS tocados,
+                MIN(c.created_at)::date AS desde, MAX(c.created_at)::date AS hasta,
+                COALESCE(string_agg(DISTINCT w.code, ', ' ORDER BY w.code), '') AS almacenes
+           FROM commercial.inventory_counts c
+           LEFT JOIN commercial.inventory_count_items i
+             ON i.count_id = c.id AND i.tenant_id = c.tenant_id
+           LEFT JOIN commercial.warehouses w ON w.id = c.warehouse_id
+          WHERE c.status <> 'reconciled'
+            ${q.warehouse_id ? 'AND c.warehouse_id = ?' : ''}
+          GROUP BY 1 ORDER BY 2 DESC`,
+        q.warehouse_id ? [q.warehouse_id] : [])).rows;
 
       const byReason = (await trx.raw(
         `SELECT COALESCE(i.reason_code, 'sin_clasificar') AS reason_code,
@@ -820,9 +864,21 @@ export class InventoryCountService {
         accurate_items: accurateN,
         ira_pct: total ? +((accurateN / total) * 100).toFixed(2) : null,
         value_accuracy_pct: expVal ? +((1 - absVar / expVal) * 100).toFixed(2) : null,
-        net_variance_value: +Number(ov.net_variance_value).toFixed(2),
-        abs_variance_value: +absVar.toFixed(2),
-        expected_value: +expVal.toFixed(2),
+        // ⛔ NULL y no 0 cuando no hay un solo item: "cero pesos de variacion" y "no hay con que
+        // calcularla" se leen igual en una tarjeta de dinero, y son cosas distintas (ADR-056).
+        net_variance_value: total ? +Number(ov.net_variance_value).toFixed(2) : null,
+        abs_variance_value: total ? +absVar.toFixed(2) : null,
+        expected_value: total ? +expVal.toFixed(2) : null,
+        /** Items cuyo costo no resolvio: entran al calculo valuados en CERO, o sea que una
+         *  diferencia sin costo se ve como si no hubiera diferencia e infla la exactitud. */
+        items_sin_costo: Number(ov.items_sin_costo) || 0,
+        /** Lo que el IRA NO mira: todo folio que no llego a `reconciled`. Con el proceso sin
+         *  arrancar, esto es lo unico que hay que contar. */
+        sin_reconciliar: otros.map((r: any) => ({
+          status: r.status,
+          folios: Number(r.folios), renglones: Number(r.renglones), tocados: Number(r.tocados),
+          desde: r.desde, hasta: r.hasta, almacenes: r.almacenes,
+        })),
         by_reason: byReason.map((r: any) => ({
           reason_code: r.reason_code,
           items: Number(r.items),
@@ -891,6 +947,17 @@ export class InventoryCountService {
       const total = Number(agg.total) || 0;
       const counted = Number(agg.counted_once) || 0;
       const countedPass = Number(agg.counted_pass) || 0;
+
+      // [CNT.1] ⛔ ¿SE PUEDE CERRAR, Y SI NO, QUE FALTA? Con el MISMO metodo que usa
+      // `reconcile()` para rechazar. Antes esto solo se sabia apretando el boton y recibiendo
+      // un 409 -- despues de haber contado, o de haber abandonado. Los 6 folios de prod estan
+      // cancelados justo por eso: 18,845 renglones y 9 contados.
+      const itemsGuard = await trx('commercial.inventory_count_items')
+        .where({ count_id: countId })
+        .select('count_1', 'status', 'final_qty', 'reason_code', 'expected_qty', 'book_at_count');
+      const bloqueos = ['reconciled', 'cancelled'].includes(count.status)
+        ? [] : this.bloqueosParaReconciliar(count, itemsGuard);
+
       return {
         folio: count.folio,
         status: count.status,
@@ -899,6 +966,11 @@ export class InventoryCountService {
         coverage_pct: total ? +((counted / total) * 100).toFixed(1) : 0,
         pass_coverage_pct: total ? +((countedPass / total) * 100).toFixed(1) : 0,
         ...agg,
+        /** Lo que impide cerrar, en el orden en que `reconcile()` los evalua. */
+        bloqueos,
+        /** Vacio + folio abierto = se puede reconciliar. No es una opinion de la pantalla. */
+        puede_reconciliar: bloqueos.length === 0
+          && !['reconciled', 'cancelled'].includes(count.status),
         by_counter: byCounter,
       };
     });
@@ -1198,6 +1270,68 @@ export class InventoryCountService {
    * con su saldo viejo y el siguiente folio va a volver a encontrar la misma diferencia. El
    * ajuste local no la cierra del lado del ERP.
    */
+  /**
+   * `[CNT.1]` **LO QUE FALTA PARA PODER CERRAR EL FOLIO — una sola definición.**
+   *
+   * ⛔ Por qué existe, medido en prod el 2026-09-30: hay **6 folios y los 6 están
+   * `cancelled`**. Se abrieron entre el 15 y el 19-jun-2026 con **18,845 renglones** y se
+   * contaron **9 (0.05%)**. La razón es el *coverage guard* de `reconcile()`, que es correcto y
+   * de diseño —*un no-contado NO se trata como cero*— pero **sólo se entera de que no puede
+   * cerrar quien aprieta el botón al final**, y para entonces ya contó 3,664 SKUs o abandonó.
+   *
+   * Un folio completo de 3,664 SKUs exige contar los 3,664 para cerrarse. Operativamente eso no
+   * pasa en una tienda: por eso existe el folio cíclico de 50. Lo que faltaba no era el
+   * mecanismo, era **decirlo ANTES**.
+   *
+   * ⭐ Y va acá, compartido, por una razón concreta: la primera versión de esta revisión duplicó
+   * un criterio que ya existía (ABC.6, `clase_motivo`) y publicó una segunda verdad. Acá el
+   * mismo array lo consume `reconcile()` para rechazar y `getProgress()` para avisar: si un día
+   * divergen, es porque alguien tocó UNA línea, no dos.
+   */
+  private bloqueosParaReconciliar(
+    count: Record<string, any>,
+    items: Record<string, any>[],
+  ): { code: string; items: number; mensaje: string }[] {
+    const b: { code: string; items: number; mensaje: string }[] = [];
+
+    const uncounted = items.filter((it) => it.count_1 == null);
+    if (uncounted.length) b.push({
+      code: 'sin_contar', items: uncounted.length,
+      mensaje: `${uncounted.length} SKU(s) sin ningún conteo. Cuéntalos o cancela el folio `
+        + '(un no-contado NO se trata como cero).',
+    });
+
+    const disc = items.filter((it) => it.status === 'discrepancy');
+    if (disc.length) b.push({
+      code: 'discrepancias', items: disc.length,
+      mensaje: `${disc.length} discrepancia(s) sin resolver.`,
+    });
+
+    const unresolved = items.filter((it) => it.final_qty == null);
+    if (unresolved.length) b.push({
+      code: 'sin_valor_final', items: unresolved.length,
+      mensaje: `${unresolved.length} item(s) sin valor final. Corré "calcular discrepancias" o resolvelos.`,
+    });
+
+    // Opt-in: sólo si el folio define umbral de recuento. Una merma grande no se postea al
+    // ledger sin clasificar — alimenta el shrinkage por causa del IRA.
+    const umbral = Number(count.recount_threshold_pct) || 0;
+    if (umbral > 0) {
+      const sinMotivo = items.filter((it) => {
+        if (it.final_qty == null) return false;
+        const baseline = this.varianceBaseline(count, it);
+        const v = Number(it.final_qty) - baseline;
+        return Math.abs(v) > Math.abs(baseline) * umbral / 100 && !it.reason_code;
+      });
+      if (sinMotivo.length) b.push({
+        code: 'varianza_sin_motivo', items: sinMotivo.length,
+        mensaje: `${sinMotivo.length} ítem(s) con varianza material sin motivo. `
+          + 'Clasificá la causa (reason_code) al resolverlos.',
+      });
+    }
+    return b;
+  }
+
   async reconcile(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
 
@@ -1223,39 +1357,12 @@ export class InventoryCountService {
         .where({ count_id: countId })
         .select('*');
 
-      // ── COVERAGE GUARD: ningún "no contado" puede pasar como cero ──
-      const uncounted = items.filter((it) => it.count_1 == null);
-      if (uncounted.length)
-        throw new ConflictException(
-          `No se puede reconciliar: ${uncounted.length} SKU(s) sin ningún conteo. Cuéntalos o cancela el folio (un no-contado NO se trata como cero).`,
-        );
-      const pendingDiscrepancies = items.filter((it) => it.status === 'discrepancy');
-      if (pendingDiscrepancies.length)
-        throw new ConflictException(
-          `No se puede reconciliar: ${pendingDiscrepancies.length} discrepancia(s) sin resolver.`,
-        );
-      const unresolved = items.filter((it) => it.final_qty == null);
-      if (unresolved.length)
-        throw new ConflictException(
-          `No se puede reconciliar: ${unresolved.length} item(s) sin valor final. Corré "calcular discrepancias" o resolvelos.`,
-        );
-
-      // #9 — exigir causa en varianzas materiales (opt-in: solo si el folio define
-      // un umbral de recuento). Una merma/sobrante grande no se postea al ledger
-      // sin clasificar — alimenta el shrinkage por causa (IRA by_reason).
-      const reasonThreshold = Number(count.recount_threshold_pct) || 0;
-      if (reasonThreshold > 0) {
-        const unclassified = items.filter((it) => {
-          if (it.final_qty == null) return false;
-          const baseline = this.varianceBaseline(count, it);
-          const v = Number(it.final_qty) - baseline;
-          return Math.abs(v) > Math.abs(baseline) * reasonThreshold / 100 && !it.reason_code;
-        });
-        if (unclassified.length)
-          throw new ConflictException(
-            `No se puede reconciliar: ${unclassified.length} ítem(s) con varianza material sin motivo. Clasificá la causa (reason_code) al resolverlos.`,
-          );
-      }
+      // ── LOS GUARDS DE VALIDEZ ── Se evaluan con `bloqueosParaReconciliar`, el MISMO metodo
+      // que consume `getProgress()` para avisar antes. Una sola definicion: si divergieran, el
+      // supervisor veria "listo para cerrar" y el boton devolveria 409.
+      const bloqueos = this.bloqueosParaReconciliar(count, items);
+      if (bloqueos.length)
+        throw new ConflictException(`No se puede reconciliar: ${bloqueos[0].mensaje}`);
 
       // ── FREEZE INTEGRITY GUARD ── (validez del conteo; va con los demás guards
       // de validez, ANTES del de autoridad). El ajuste fija el saldo de forma

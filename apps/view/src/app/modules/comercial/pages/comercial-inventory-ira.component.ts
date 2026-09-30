@@ -41,6 +41,42 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       </div>
 
       @if (data(); as d) {
+        <!-- [IRA.1] ANSWER-FIRST. El IRA solo mira folios RECONCILIADOS; si no hay ninguno, las
+             cuatro tarjetas salen en guion y nadie puede deducir que lo que falta no es
+             descuadre sino el proceso entero. Medido en prod: 6 folios cancelados, 18,845
+             renglones y 9 contados. Eso es un diagnostico; cuatro guiones no lo son. -->
+        @if (!d.folios) {
+          <p class="ira-alerta">
+            <b>Ningun folio reconciliado todavia</b>, asi que no hay exactitud que medir &mdash;
+            lo que falta no es descuadre, es el proceso.
+            @if (d.sin_reconciliar.length) {
+              @for (o of d.sin_reconciliar; track o.status) {
+                <span class="ira-alerta-det">
+                  Hay <b>{{ o.folios }}</b> folio(s) en estado <b>{{ estadoLabel(o.status) }}</b>
+                  con <b>{{ o.renglones | number }}</b> renglones, de los que se contaron
+                  <b>{{ o.tocados | number }}</b>
+                  ({{ o.renglones ? ((o.tocados / o.renglones) * 100 | number:'1.0-2') : 0 }}%)
+                  &mdash; {{ o.desde | date:'dd/MM/yy' }} a {{ o.hasta | date:'dd/MM/yy' }},
+                  almacenes {{ o.almacenes || '&mdash;' }}.
+                </span>
+              }
+            } @else {
+              <span class="ira-alerta-det">Tampoco hay folios abiertos ni cancelados.</span>
+            }
+          </p>
+        }
+
+        <!-- El costo ausente entra al calculo valuado en CERO, o sea que una diferencia sin
+             costo se ve como si no hubiera diferencia. Se declara en vez de dejar que el
+             porcentaje suba solo. -->
+        @if (d.items_sin_costo > 0) {
+          <p class="ira-alerta">
+            <b>{{ d.items_sin_costo | number }}</b> renglones no tienen costo que resolver.
+            Entran valuados en cero, asi que su diferencia no pesa y la
+            <b>exactitud por valor sale mas alta de lo que es</b>.
+          </p>
+        }
+
         <div class="surf-grid ira-bento">
           <app-metric-card class="panel-col-3"
             label="IRA (piezas)"
@@ -52,16 +88,22 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             label="Exactitud por valor"
             [variant]="d.value_accuracy_pct !== null ? 'gauge' : 'plain'" format="text" valueText="—"
             [value]="d.value_accuracy_pct ?? 0" [gaugeMax]="100" accent="var(--chart-2)"
-            [sub]="'teórico ' + money0(d.expected_value)"></app-metric-card>
+            [sub]="d.expected_value !== null ? ('teórico ' + money0(d.expected_value)) : 'sin base para calcularlo'"></app-metric-card>
 
           <app-metric-card class="panel-col-3"
-            label="Variación neta" [value]="d.net_variance_value" format="currency"
+            label="Variación neta"
+            [variant]="d.net_variance_value !== null ? 'plain' : 'plain'"
+            [format]="d.net_variance_value !== null ? 'currency' : 'text'"
+            [value]="d.net_variance_value ?? 0" valueText="&mdash;"
             [accent]="varianceAccent(d.net_variance_value)"
             [sub]="varianceLabel(d)"></app-metric-card>
 
           <app-metric-card class="panel-col-3"
             label="Folios reconciliados" [value]="d.folios" format="number"
-            accent="var(--chart-6)" [sub]="'tolerancia ' + d.tolerance_pct + '%'"></app-metric-card>
+            accent="var(--chart-6)"
+            [sub]="d.tolerance_pct === 0
+              ? 'tolerancia 0%: exacto = diferencia CERO'
+              : ('tolerancia ' + d.tolerance_pct + '% del teórico')"></app-metric-card>
         </div>
 
         <section class="ira-section">
@@ -117,6 +159,14 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .ira-section h2 { font-size: 1rem; margin: 0 0 .5rem; }
     .ira-folio { font-family: var(--font-mono, monospace); }
     .ira-empty { color: var(--c-text-2); font-size: .9rem; }
+    /* [IRA.1] El diagnostico va arriba y se ve: no es una nota al pie. */
+    .ira-alerta {
+      font-size: var(--fs-xs); color: var(--warn-fg); margin: 0 0 1rem;
+      padding: .5rem .8rem; border-left: 3px solid var(--warn-fg);
+      background: color-mix(in srgb, var(--warn-fg) 7%, transparent); border-radius: 4px;
+      line-height: 1.5; max-width: 96ch;
+    }
+    .ira-alerta-det { display: block; color: var(--fg-3); margin-top: .2rem; }
   `],
 })
 export class ComercialInventoryIraComponent {
@@ -134,6 +184,12 @@ export class ComercialInventoryIraComponent {
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
   private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
   data = signal<InventoryIra | null>(null);
+
+  /** [IRA.1] El estado del folio, en llano: la pantalla la lee quien cuenta, no quien codea. */
+  estadoLabel(st: string): string {
+    return { cancelled: 'cancelado', open: 'abierto', counting: 'en conteo',
+      review: 'en revisión', closed: 'cerrado' }[st] ?? st;
+  }
   private reasonMap = signal<Record<string, string>>({});
 
   constructor() {
@@ -167,14 +223,18 @@ export class ComercialInventoryIraComponent {
     if (pct >= 90) return 'var(--warn-fg)';
     return 'var(--bad-fg)';
   }
-  varianceAccent(v: number): string {
+  /** [IRA.1] `null` = no hay con qué calcularla, y eso NO es un acento neutro de "cero". */
+  varianceAccent(v: number | null): string {
+    if (v === null) return 'var(--chart-8)';
     if (v < 0) return 'var(--bad-fg)';
     if (v > 0) return 'var(--ok-fg)';
     return 'var(--chart-8)';
   }
   varianceLabel(d: InventoryIra): string {
+    // ⛔ "sin diferencia" sobre cero folios es una afirmación que nadie midió.
+    if (d.net_variance_value === null) return 'sin folios reconciliados que medir';
     const dir = d.net_variance_value < 0 ? 'merma' : d.net_variance_value > 0 ? 'sobrante' : 'sin diferencia';
-    return `${dir} · |Δ| ${this.money0(d.abs_variance_value)}`;
+    return `${dir} · |Δ| ${this.money0(d.abs_variance_value ?? 0)}`;
   }
 
   iraSeverity(pct: number | null): 'success' | 'warn' | 'danger' | 'secondary' {

@@ -112,6 +112,21 @@ export enum Permission {
   STORE_STOCKOUT_CAPTURAR = 'STORE_STOCKOUT_CAPTURAR',
   STORE_STOCKOUT_VER = 'STORE_STOCKOUT_VER',
 
+  // Módulo: Tienda — Bitácora de renglones retirados del ticket (`[BP]`). Medido el 2026-09-28
+  // contra las 9 ramas y en vivo en una caja: cuando el cajero quita un producto del ticket,
+  // Kepler EXIGE contraseña de supervisor (`POS.k_passRow=1`) y después **no lo escribe en
+  // ningún lado** — `pv_aut_cambios.kpl` sólo lee para validar, la marca "ELIMINADO" vive en
+  // memoria, y el guardado rechaza cualquier renglón en cantidad 0. Cero coincidencias en las
+  // 46 columnas de texto de `kdm2`. Tampoco hay parámetro que prender: `kdconfig` trae el
+  // catálogo completo de 48 y ninguno es de bitácora. Por eso el dato nace de una persona.
+  //
+  // Dos claves porque parten dos oficios, igual que faltantes y arqueo:
+  //  · CAPTURAR — quien AUTORIZA el retiro lo registra. Es su firma, no la del cajero.
+  //  · VER      — supervisión de tienda y prevención de pérdidas, que es el consumidor natural
+  //    de una señal antifraude.
+  STORE_POS_VOID_CAPTURAR = 'STORE_POS_VOID_CAPTURAR',
+  STORE_POS_VOID_VER = 'STORE_POS_VOID_VER',
+
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',
@@ -121,6 +136,11 @@ export enum Permission {
   COMMERCIAL_WAREHOUSES_GESTIONAR = 'COMMERCIAL_WAREHOUSES_GESTIONAR',
   COMMERCIAL_PRICING_VER = 'COMMERCIAL_PRICING_VER',
   COMMERCIAL_PRICING_GESTIONAR = 'COMMERCIAL_PRICING_GESTIONAR',
+  // [PR.D2] El experimento de precio. Permiso PROPIO y separado de PRICING: diseñar un
+  // experimento decide qué precios se van a mover y sobre qué venta, así que no viaja
+  // de paquete con "ver listas de precios".
+  COMMERCIAL_PRICE_EXPERIMENT_VER = 'COMMERCIAL_PRICE_EXPERIMENT_VER',
+  COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR = 'COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR',
 
   // Módulo: Comercial — Inventario
   COMMERCIAL_INVENTORY_VER = 'COMMERCIAL_INVENTORY_VER',
@@ -455,6 +475,11 @@ export enum Permission {
   // Análisis (solo lectura).
   COMPRAS_360_VER = 'COMPRAS_360_VER',
   COMPRAS_COSTO_NETO_VER = 'COMPRAS_COSTO_NETO_VER',
+  // `[CE.3]` Costo estandar del catalogo de Kepler (el que FIJA el precio), contra el costo de
+  // reposicion del ERP. Clave PROPIA y no `COMPRAS_COSTO_NETO_VER` reusada: el hermano publica
+  // el landed cost por proveedor (lo que salio de la chequera) y esto publica el DATO MAESTRO
+  // con el que se pone precio. Distinto dueno: quien lo corrige edita el catalogo, no la compra.
+  COMPRAS_COSTO_ESTANDAR_VER = 'COMPRAS_COSTO_ESTANDAR_VER',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',
