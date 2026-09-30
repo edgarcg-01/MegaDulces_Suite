@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# Compuerta de push del repo. Vive VERSIONADA acá (no en `.git/hooks/`, que no
+# viaja con el clon) y se activa con:
+#
+#     npm run hooks:install        # = git config core.hooksPath .githooks
+#
+# Toda la lógica está en `scripts/gate-push.js`, con el porqué medido. Este
+# archivo es sólo el puente: git le pasa por stdin las refs del push.
+#
+# ⚠️ Si Node no está disponible, la compuerta NO frena el trabajo: avisa y deja
+#    pasar. Una compuerta que rompe el flujo por su propia infraestructura se
+#    desactiva a la semana, y entonces no protege de nada.
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "⚠️  compuerta de push: no encontré node en el PATH. Se deja pasar; el CI decide." >&2
+  exit 0
+fi
+
+exec node "$(git rev-parse --show-toplevel)/scripts/gate-push.js"

@@ -189,12 +189,24 @@ El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave 
 
 > El repo históricamente trabajó con push directo a `main` (1 dev). **Eso ya no aplica.**
 
-1. **Rama por feature**: `git checkout -b feat/<descripción-corta>` desde `main` actualizado.
+### 8.0 Lo primero, una sola vez por máquina
+
+```bash
+npm run hooks:install
+```
+
+Activa la **compuerta de push** del repo (`.githooks/pre-push`). Sin esto no hay NADA que te
+frene: hoy `main` no tiene protección del lado de GitHub (ver el ⚠️ de abajo). Tarda ~2.5 s por
+push y es lo único que separa un commit roto de la rama de la que se deploya.
+
+---
+
+1. **Rama por feature**: `git switch -c feat/<descripción-corta>` desde `main` actualizado.
 2. **Commits** con la convención del tracker: `feat([RA.11]): descripción` — el código entre brackets viene del tracker.
 3. **Abrí un PR** contra `main`. El CI (build + lint/test affected + secret-scan) debe pasar en verde.
 4. **Al menos 1 review** de otro dev antes de mergear.
-5. **`main` está protegida** — nadie pushea directo (ver con el lead la config de branch protection en GitHub).
-6. Al mergear: cerrá el item en el tracker.
+5. **Nadie pushea directo a `main`.** La compuerta de §8.0 lo bloquea en tu máquina.
+6. Al mergear: se hace **squash** y la rama se borra sola. Cerrá el item en el tracker.
 
 **Antes de pedir review, localmente:**
 ```bash
@@ -203,23 +215,56 @@ npx nx affected -t test          # tests de lo que tocaste
 npx nx run-many -t build -p api view portal vendor --configuration=production
 ```
 
-⚠️ **El CI verde NO está forzado por GitHub.** Medido el 2026-09-10: `main` exige 1 aprobación de
-CODEOWNERS, pero **no tiene ningún required status check** — un PR con el CI en rojo se puede
-mergear igual. O sea las cuatro compuertas del repo (secret-scan, build, TS.0 de tipado, y la de
-procedencia de ADR-056) hoy **informan, no bloquean**. Hasta que se activen como checks
-obligatorios, mirá el CI antes de aprobar: es responsabilidad del reviewer, no del servidor.
+---
+
+### ⚠️ Qué está forzado de verdad hoy, y qué no — medido el 2026-09-30
+
+No hay ninguna protección del lado de GitHub. **Ninguna.** El repo pasó a privado y la cuenta está
+en plan free, así que GitHub responde `403` tanto a `branches/main/protection` como a `rulesets`:
+
+> *"Upgrade to GitHub Pro or make this repository public to enable this feature."*
+
+Esto **no es un descuido de nadie**: la compuerta no existe porque el plan no la incluye. La línea
+que antes decía *"`main` está protegida"* quedó de cuando el repo era público — y era falsa desde
+entonces, porque aun con protección `required_status_checks` estaba en `null`.
+
+Lo que eso costó, medido sobre los 30 días previos:
+
+| Qué se midió | Resultado |
+| --- | --- |
+| Commits a `main` que entraron por **push directo**, sin PR | **~58 de 60** |
+| De los últimos 20 pushes a `main`: **rojos** | **15** |
+| …de esos mismos 20: **verdes** | **1** |
+
+El CI **no está roto** — corre y atrapa defectos reales. El problema es que corre *después* del
+merge, sobre la rama de la que se deploya.
+
+**Qué hay en su lugar, en orden de quién manda:**
+
+1. **La compuerta de push (§8.0)** — es de *cliente*. Bloquea el push directo a `main` y los gates
+   baratos sobre **tus** archivos (no te frena la deuda ajena del repo). Se puede evadir con
+   `--no-verify`, y no protege de un force-push desde la web. Es lo que hay hoy.
+2. **El reviewer** — mirá el CI antes de aprobar. Hoy es responsabilidad de la persona, no del servidor.
+3. **`scripts/apply-branch-protection.js`** — la protección real, ya escrita como código. El día que
+   la cuenta pase a GitHub Pro es un comando (`npm run branch-protection -- --apply`) y no un
+   recuerdo de qué casillas palomear. Hasta entonces sale `403` y te lo dice.
 
 ---
 
 ### 8.1 Si clonaste el repo ANTES de tener acceso de escritura
 
-El repo es público, así que se puede clonar sin ser colaborador — y si trabajaste así, tus commits
+⚠️ El repo **era** público y hoy es **privado** (y además se renombró a `MegaDulces_Suite`). Si
+clonaste en esa época sin ser colaborador, tus commits
 probablemente quedaron en tu `main` local, que **no se puede empujar** (está protegida). Los cambios
 no se pierden; hay que moverlos a una rama.
 
 ```bash
 # 1. Aceptá la invitación de colaborador que te llegó por correo (o en
-#    https://github.com/edgarcg-01/Trade_marketing/invitations). Sin eso, el push rebota con 403.
+#    https://github.com/edgarcg-01/MegaDulces_Suite/invitations). Sin eso, el push rebota con 403.
+#
+#    ⚠️ El repo se renombró: si tu clon es viejo, tu `origin` todavía dice `Trade_marketing`.
+#       GitHub redirige, pero conviene corregirlo:
+#         git remote set-url origin https://github.com/edgarcg-01/MegaDulces_Suite.git
 
 # 2. Mirá qué tenés: commits propios en main local + lo que no esté commiteado.
 git log --oneline origin/main..HEAD      # tus commits que no están en el remoto
