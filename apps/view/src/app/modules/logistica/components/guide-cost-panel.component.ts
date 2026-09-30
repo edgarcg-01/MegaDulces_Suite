@@ -6,10 +6,14 @@ import { TagModule } from 'primeng/tag';
 import { DrawerModule } from 'primeng/drawer';
 import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
+import { InputTextModule } from 'primeng/inputtext';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
 import { LogisticaService, GuideCostRow, GuideCostBreakdown, GuideCostLines,
-         GuideCostConceptoCat } from '../logistica.service';
+         GuideCostFiltroOpcion } from '../logistica.service';
+
+/** Opción de filtro con su etiqueta ya armada para el select. */
+type Opt = GuideCostFiltroOpcion & { etiqueta: string };
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
@@ -33,12 +37,14 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
   standalone: true,
   imports: [
     CommonModule, FormsModule, TableModule, TagModule, DrawerModule,
-    DatePickerModule, SelectModule, SkeletonModule, ButtonModule, SegmentedComponent,
+    DatePickerModule, SelectModule, InputTextModule, SkeletonModule, ButtonModule,
+    SegmentedComponent,
     MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Filtros -->
+    <!-- Filtros. Dos filas: el periodo y el canal arriba (lo que cambia el universo), el
+         resto abajo (lo que acota dentro de el). -->
     <div class="gc-bar">
       <div class="gc-field">
         <label>Desde</label>
@@ -50,16 +56,50 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         <p-datepicker [(ngModel)]="hasta" dateFormat="yy-mm-dd" [showIcon]="true"
                       appendTo="body" (onSelect)="cargar()" />
       </div>
-      <div class="gc-field">
+      <div class="gc-field gc-grow">
         <label>Canal</label>
         <app-segmented [options]="canales" [value]="canal()"
                        (valueChange)="setCanal($event)" ariaLabel="Canal de la guía" />
       </div>
+    </div>
+
+    <div class="gc-bar gc-bar2">
+      <div class="gc-field">
+        <label>Sucursal</label>
+        <p-select [options]="f().sucursales" [(ngModel)]="sucursal" optionLabel="etiqueta"
+                  optionValue="valor" placeholder="Todas" [showClear]="true"
+                  appendTo="body" (onChange)="cargar()" />
+      </div>
+      <div class="gc-field">
+        <label>Unidad</label>
+        <p-select [options]="f().unidades" [(ngModel)]="unidad" optionLabel="etiqueta"
+                  optionValue="valor" placeholder="Todas" [showClear]="true" [filter]="true"
+                  appendTo="body" (onChange)="cargar()" />
+      </div>
       <div class="gc-field gc-grow">
         <label>Tipo de gasto</label>
-        <p-select [options]="conceptos()" [(ngModel)]="conceptoFiltro" optionLabel="etiqueta"
-                  optionValue="concepto" placeholder="Todos los tipos" [showClear]="true"
+        <p-select [options]="f().conceptos" [(ngModel)]="conceptoFiltro" optionLabel="etiqueta"
+                  optionValue="valor" placeholder="Todos los tipos" [showClear]="true"
                   [filter]="true" appendTo="body" (onChange)="cargar()" />
+      </div>
+      <div class="gc-field">
+        <label>Buscar guía</label>
+        <input pInputText [(ngModel)]="guiaBuscar" placeholder="folio…"
+               (keyup.enter)="cargar()" (blur)="cargar()" />
+      </div>
+      <div class="gc-field">
+        <label>Ordenar por</label>
+        <p-select [options]="ordenes" [(ngModel)]="orden" optionLabel="label" optionValue="value"
+                  appendTo="body" (onChange)="cargar()" />
+      </div>
+      <div class="gc-field gc-check">
+        <!-- El filtro de CALIDAD del dato: que guias no se estan pudiendo costear. -->
+        <label for="gcSinCosto">
+          <input id="gcSinCosto" type="checkbox" [(ngModel)]="soloSinCosto" (change)="cargar()" />
+          Sólo sin costear
+        </label>
+        <button pButton [text]="true" size="small" (click)="limpiar()"
+                *ngIf="hayFiltros()">Limpiar</button>
       </div>
     </div>
 
@@ -77,6 +117,11 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         <strong>{{ r.pesos_movidos_por_peso_gastado !== null
                    ? ('$' + r.pesos_movidos_por_peso_gastado) : 'sin medir' }}</strong>
         <small>de mercancía movida</small>
+      </div>
+      <div class="gc-roi-cell gc-roi-merc" *ngIf="lista()?.mercancia as mc">
+        <span>Mercancía movida</span>
+        <strong>{{ mc.valor | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
+        <small [title]="mc.nota">valor de lo movido, no su costo</small>
       </div>
       <div class="gc-roi-cell gc-roi-nm" *ngIf="lista()?.margen_declarado as m">
         <span>Margen de ganancia</span>
@@ -297,6 +342,15 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       margin:.15rem 0; }
     .gc-roi-cell small { font-size:.72rem; color:var(--text-muted,#78716c); }
     .gc-roi-nm strong { color:var(--text-muted,#a8a29e); font-size:1rem; font-style:italic; }
+    /* La mercancia se separa visualmente del costo operativo: son dos naturalezas distintas y
+       sumarlas no significa nada. */
+    .gc-roi-merc { border-left:3px solid var(--border-strong,#d6d3d1); }
+    .gc-bar2 { padding-top:.2rem; border-top:1px dashed var(--border,#e7e5e4); }
+    .gc-bar2 .gc-field { min-width:10rem; }
+    .gc-check { justify-content:flex-end; flex-direction:row; align-items:center; gap:.6rem; }
+    .gc-check label { display:flex; align-items:center; gap:.35rem; cursor:pointer;
+      font-size:.78rem; text-transform:none; color:var(--text,#292524); }
+    .gc-check input[type=checkbox] { accent-color:var(--action,#c2410c); }
   `],
 })
 export class GuideCostPanelComponent implements OnInit {
@@ -312,9 +366,23 @@ export class GuideCostPanelComponent implements OnInit {
   desde = new Date(Date.now() - 30 * 864e5);
   hasta = new Date();
   readonly canal = signal('');
-  /** Catálogo de tipos de gasto: sale de los datos, no de una lista fija. */
-  readonly conceptos = signal<Array<GuideCostConceptoCat & { etiqueta: string }>>([]);
+  /** Catálogo de filtros: sale de los datos, no de listas fijas. */
+  readonly f = signal<{ conceptos: Opt[]; sucursales: Opt[]; unidades: Opt[] }>(
+    { conceptos: [], sucursales: [], unidades: [] });
   conceptoFiltro: string | null = null;
+  sucursal: string | null = null;
+  unidad: string | null = null;
+  guiaBuscar = '';
+  soloSinCosto = false;
+  orden = 'fecha';
+  readonly ordenes = [
+    { label: 'Más reciente', value: 'fecha' },
+    { label: 'Mayor costo', value: 'costo' },
+    // Otra pregunta distinta: un viaje de 19 paradas siempre cuesta más en total.
+    { label: 'Mayor costo por parada', value: 'por_parada' },
+    { label: 'Más paradas', value: 'paradas' },
+    { label: 'Mayor mercancía', value: 'mercancia' },
+  ];
   readonly lista = signal<import('../logistica.service').GuideCostList | null>(null);
   readonly cargando = signal(false);
   readonly guias = computed(() => this.lista()?.guias ?? []);
@@ -334,21 +402,46 @@ export class GuideCostPanelComponent implements OnInit {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  setCanal(v: string) { this.canal.set(v); this.conceptoFiltro = null; this.cargar(); }
+  setCanal(v: string) {
+    // El canal cambia el universo: los catálogos se recalculan y un concepto o una unidad del
+    // canal anterior puede no existir acá. Se limpian en vez de dejar un filtro que no aplica.
+    this.canal.set(v); this.conceptoFiltro = null; this.unidad = null; this.cargar();
+  }
+
+  private opt(o: { valor: string; detalle?: string; guias: number }, sub: string) {
+    return { ...o, etiqueta: `${o.detalle || o.valor} · ${sub}` };
+  }
+
+  hayFiltros() {
+    return !!(this.sucursal || this.unidad || this.conceptoFiltro || this.guiaBuscar.trim()
+      || this.soloSinCosto || this.orden !== 'fecha' || this.canal());
+  }
+
+  limpiar() {
+    this.sucursal = null; this.unidad = null; this.conceptoFiltro = null;
+    this.guiaBuscar = ''; this.soloSinCosto = false; this.orden = 'fecha';
+    this.canal.set(''); this.cargar();
+  }
 
   cargar() {
     this.cargando.set(true);
     this.sel = null; this.detalle.set(null);
-    this.api.guideCostConceptos({
+    this.api.guideCostFiltros({
       from: this.fmt(this.desde), to: this.fmt(this.hasta), canal: this.canal() || undefined,
     }).subscribe({
-      next: (cs) => this.conceptos.set(cs.map((c) => ({
-        ...c, etiqueta: `${c.concepto} · ${c.guias} guías`,
-      }))),
+      next: (r) => this.f.set({
+        conceptos: r.conceptos.map((o) => this.opt(o, `${o.guias} guías`)),
+        sucursales: r.sucursales.map((o) => this.opt(o, `${o.guias} guías · ${o.paradas} paradas`)),
+        unidades: r.unidades.map((o) => this.opt(o, `${o.guias} guías`)),
+      }),
     });
     this.api.guideCosts({
       from: this.fmt(this.desde), to: this.fmt(this.hasta),
-      canal: this.canal() || undefined, concepto: this.conceptoFiltro || undefined, limit: 300,
+      canal: this.canal() || undefined, concepto: this.conceptoFiltro || undefined,
+      sucursal: this.sucursal || undefined, unidad: this.unidad || undefined,
+      guia: this.guiaBuscar.trim() || undefined,
+      solo_sin_costo: this.soloSinCosto || undefined,
+      orden: this.orden, limit: 300,
     }).subscribe({
       next: (r) => { this.lista.set(r); this.cargando.set(false); },
       error: () => { this.cargando.set(false); },

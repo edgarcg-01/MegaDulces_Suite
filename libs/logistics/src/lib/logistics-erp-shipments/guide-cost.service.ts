@@ -55,7 +55,11 @@ export class GuideCostService {
    * pantalla se calcularía sobre una muestra sesgada (sólo los días que tuvieron gasto) y
    * nadie lo sabría.
    */
-  async listCosts(q: { from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string; limit?: string }) {
+  async listCosts(q: {
+    from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string;
+    unidad?: string; guia?: string; min_costo?: string; solo_sin_costo?: string;
+    orden?: string; limit?: string;
+  }) {
     const { from, to } = rango(q);
     const limit = Math.min(500, Math.max(1, parseInt(q.limit || '200', 10) || 200));
 
@@ -64,10 +68,21 @@ export class GuideCostService {
       // `?` posicional. Usar `$N` acá rompe TODA query parametrizada con "Expected N bindings,
       // saw M" — es el bug que tumbó la Fase CV entera (CV.7) y sólo aparece contra una base
       // real, nunca en el build. Por eso el tenant se repite en el array: se liga dos veces.
+      // ⭐ Los filtros se construyen UNA vez y se aplican a la lista Y a los totales. Si
+      // divergieran, el KPI de la cabecera volveria a no cuadrar con la tabla de abajo -- que es
+      // exactamente el bug que ya se pago una vez con la paginacion.
       const filtros: string[] = [];
+      const fparams: any[] = [];
+      if (q.canal) { filtros.push('AND a.canal = ?'); fparams.push(q.canal); }
+      if (q.sucursal) { filtros.push('AND a.sucursal = ?'); fparams.push(q.sucursal); }
+      if (q.unidad) { filtros.push('AND a.transporte_clave = ?'); fparams.push(q.unidad); }
+      // Busqueda por folio de guia: prefijo, para poder teclear '15' y ver 0001540, 0001552...
+      if (q.guia) { filtros.push('AND a.guia ILIKE ?'); fparams.push(`%${q.guia}%`); }
+      // Estos dos miran el COSTO, que vive en el LEFT JOIN. `solo_sin_costo` es el que contesta
+      // "que guias no estoy pudiendo costear", o sea la calidad del dato, no el dinero.
+      if (q.solo_sin_costo === 'true') filtros.push('AND c.costo IS NULL');
+      else if (q.min_costo) { filtros.push('AND c.costo >= ?'); fparams.push(Number(q.min_costo)); }
       const params: any[] = [M, M, from, to];
-      if (q.canal) { filtros.push('AND a.canal = ?'); params.push(q.canal); }
-      if (q.sucursal) { filtros.push('AND a.sucursal = ?'); params.push(q.sucursal); }
       // Filtrar por TIPO DE GASTO: deja las guias que cargan ese concepto. El costo de la fila
       // sigue siendo el TOTAL de la guia, no el del concepto -- filtrar no es recalcular, y una
       // columna que cambia de significado segun el filtro es una trampa.
@@ -76,9 +91,19 @@ export class GuideCostService {
                         WHERE k.tenant_id = a.tenant_id AND k.dia = a.dia
                           AND k.sucursal = a.sucursal AND k.guia = a.guia
                           AND k.concepto = ?)`);
-        params.push(q.concepto);
+        fparams.push(q.concepto);
       }
-      params.push(limit);
+      // El orden: por costo es el default util (donde esta el dinero), pero ver las mas CARAS
+      // POR PARADA es otra pregunta -- un viaje de 19 paradas siempre va a costar mas en total.
+      const ORDENES: Record<string, string> = {
+        costo: 'c.costo DESC NULLS LAST, a.dia DESC',
+        por_parada: '(c.costo / NULLIF(a.paradas,0)) DESC NULLS LAST',
+        fecha: 'a.dia DESC, c.costo DESC NULLS LAST',
+        paradas: 'a.paradas DESC, c.costo DESC NULLS LAST',
+        mercancia: 'a.mercancia DESC NULLS LAST',
+      };
+      const orden = ORDENES[q.orden || ''] || ORDENES['fecha'];
+      params.push(...fparams, limit);
 
       const { rows } = await trx.raw(
         `SELECT a.dia, a.sucursal, a.guia, a.canal, a.paradas, a.mercancia,
@@ -104,7 +129,7 @@ export class GuideCostService {
             AND a.dia >= ?::date AND a.dia <= ?::date
             AND a.canal IN ('cliente', 'carga_ruta', 'traspaso')
             ${filtros.join(' ')}
-          ORDER BY a.dia DESC, c.costo DESC NULLS LAST
+          ORDER BY ${orden}
           LIMIT ?`,
         params,
       );
@@ -142,9 +167,8 @@ export class GuideCostService {
            ) c ON c.dia=a.dia AND c.sucursal=a.sucursal AND c.guia=a.guia AND c.canal=a.canal
           WHERE a.tenant_id = ?::uuid AND a.dia >= ?::date AND a.dia <= ?::date
             AND a.canal IN ('cliente','carga_ruta','traspaso')
-            ${q.canal ? 'AND a.canal = ?' : ''}
-            ${q.sucursal ? 'AND a.sucursal = ?' : ''}`,
-        [M, M, from, to, ...(q.canal ? [q.canal] : []), ...(q.sucursal ? [q.sucursal] : [])],
+            ${filtros.join(' ')}`,
+        [M, M, from, to, ...fparams],
       )).rows;
 
       const costoTotal = Number(tot.costo_total || 0);
@@ -161,13 +185,26 @@ export class GuideCostService {
           mostradas: guias.length,
           truncado: guias.length < Number(tot.guias_total),
         },
+        // ⭐ LA MERCANCIA VA EN SU PROPIO BLOQUE, separada del costo operativo (pedido explicito).
+        // Son dos naturalezas distintas y sumarlas no significaria nada: una es lo que cuesta
+        // MOVER, la otra es lo que vale LO MOVIDO.
+        mercancia: {
+          valor: mercTotal,
+          naturaleza: 'mixta',
+          nota: 'Valor de lo movido, NO su costo. Para el canal cliente es precio de venta; para '
+              + 'traspaso y carga a ruta es valor de transferencia -- medido sobre 1,418 SKUs que '
+              + 'viajan por ambos, el traspaso sale a 0.840x el precio al cliente, cercano a '
+              + 'costo pero no verificado como tal. El COGS real no esta disponible (ver '
+              + 'margen_declarado).',
+        },
         // Lo que se puede decir del retorno SIN inventar un margen (ver `margen_declarado`).
         retorno: {
           erosion_pct: mercTotal ? Number((100 * costoTotal / mercTotal).toFixed(2)) : null,
           pesos_movidos_por_peso_gastado: costoTotal
             ? Number((mercTotal / costoTotal).toFixed(1)) : null,
-          nota: 'Erosion logistica = costo atribuido / mercancia movida. NO es margen: la '
-              + 'mercancia del traspaso y la carga a ruta es valor de transferencia, no venta.',
+          nota: 'Erosion logistica = costo OPERATIVO atribuido / valor de la mercancia movida. '
+              + 'NO es margen, y las dos cifras son de naturaleza distinta: el costo operativo es '
+              + 'gasto del periodo, el valor movido no es costo de mercancia.',
         },
         cobertura: {
           measured: Number(tot.guias_total) > 0,
@@ -181,29 +218,72 @@ export class GuideCostService {
   }
 
   /**
-   * El catálogo de tipos de gasto del período — alimenta el filtro de la pantalla.
+   * El catálogo de TODO lo que el filtro necesita, en un solo viaje: tipos de gasto, sucursales
+   * y unidades, cada uno con su población.
    *
-   * ⚠️ Sale de los datos, no de una lista fija: si Contabilidad da de alta un concepto nuevo,
-   * aparece solo. Una lista quemada en el front lo dejaría invisible y nadie se enteraría.
+   * ⚠️ Sale de los datos, no de listas fijas: una sucursal nueva o una unidad que empieza a
+   * embarcar aparecen solas. Una lista quemada en el front las dejaría invisibles y nadie se
+   * enteraría — el filtro diría "no hay" cuando lo cierto es "no lo sé".
+   *
+   * ⭐ Cada opción trae su conteo de guías. Un filtro que ofrece una opción y devuelve cero
+   * resultados hace perder el tiempo; con el conteo a la vista, el usuario sabe antes de hacer
+   * clic.
    */
-  async conceptos(q: { from?: string; to?: string; canal?: string }) {
+  async filtros(q: { from?: string; to?: string; canal?: string }) {
     const { from, to } = rango(q);
     return this.tk.run(M, async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT concepto,
-                string_agg(DISTINCT cuenta_mayor, '+' ORDER BY cuenta_mayor) AS cuentas,
-                string_agg(DISTINCT ventana, '+')  AS ventanas,
+      const canalSql = q.canal ? 'AND canal = ?' : '';
+      const canalArg = q.canal ? [q.canal] : [];
+
+      const { rows: conceptos } = await trx.raw(
+        `SELECT concepto AS valor,
+                string_agg(DISTINCT cuenta_mayor, '+' ORDER BY cuenta_mayor) AS detalle,
                 count(DISTINCT sucursal || guia)::int AS guias,
-                round(sum(atribuido)::numeric, 2)  AS total
+                round(sum(atribuido)::numeric, 2)     AS total
            FROM analytics.mv_logistics_guide_cost
           WHERE tenant_id = ?::uuid AND dia >= ?::date AND dia <= ?::date
-            AND origen <> 'sin_actividad'
-            ${q.canal ? 'AND canal = ?' : ''}
-          GROUP BY 1
-          ORDER BY sum(atribuido) DESC`,
-        [M, from, to, ...(q.canal ? [q.canal] : [])],
+            AND origen <> 'sin_actividad' ${canalSql}
+          GROUP BY 1 ORDER BY sum(atribuido) DESC`,
+        [M, from, to, ...canalArg],
       );
-      return rows.map((r: any) => ({ ...r, total: Number(r.total), guias: Number(r.guias) }));
+
+      // Sucursal y unidad salen de la ACTIVIDAD, no del costo: una guía sin gasto atribuible
+      // igual ocurrió, y tiene que poder filtrarse (es justo la que hay que ir a mirar).
+      const { rows: sucursales } = await trx.raw(
+        `SELECT sucursal AS valor, count(*)::int AS guias, sum(paradas)::int AS paradas
+           FROM analytics.v_logistics_activity_daily
+          WHERE tenant_id = ?::uuid AND dia >= ?::date AND dia <= ?::date
+            AND canal IN ('cliente','carga_ruta','traspaso') ${canalSql}
+          GROUP BY 1 ORDER BY 2 DESC`,
+        [M, from, to, ...canalArg],
+      );
+
+      // La unidad se muestra por su NOMBRE ("FORD 450"), no por su clave ("00008"): nadie filtra
+      // por un código que no sabe de memoria. El nombre vive en los encabezados, no en la vista
+      // de actividad, así que se resuelve acá -- son 29 unidades, el join es barato.
+      const { rows: unidades } = await trx.raw(
+        `SELECT a.transporte_clave AS valor,
+                coalesce(max(h.transporte_descripcion), a.transporte_clave) AS detalle,
+                count(*)::int AS guias, sum(a.paradas)::int AS paradas
+           FROM analytics.v_logistics_activity_daily a
+           LEFT JOIN analytics.erp_shipment_headers h
+             ON h.tenant_id = a.tenant_id AND h.transporte_clave_kepler = a.transporte_clave
+          WHERE a.tenant_id = ?::uuid AND a.dia >= ?::date AND a.dia <= ?::date
+            AND a.canal IN ('cliente','carga_ruta','traspaso')
+            AND a.transporte_clave IS NOT NULL
+            ${q.canal ? 'AND a.canal = ?' : ''}
+          GROUP BY 1 ORDER BY 3 DESC`,
+        [M, from, to, ...canalArg],
+      );
+
+      const num = (r: any) => ({ ...r, guias: Number(r.guias),
+        paradas: r.paradas === undefined ? undefined : Number(r.paradas),
+        total: r.total === undefined ? undefined : Number(r.total) });
+      return {
+        conceptos: conceptos.map(num),
+        sucursales: sucursales.map(num),
+        unidades: unidades.map(num),
+      };
     });
   }
 

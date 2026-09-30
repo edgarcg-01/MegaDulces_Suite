@@ -74,11 +74,11 @@ export class ErpShipmentsController {
     return this.cost.listCosts(q);
   }
 
-  @Get('costs/conceptos')
+  @Get('costs/filtros')
   @RequirePermissions(Permission.LOGISTICS_EXPENSES_VER)
-  @ApiOperation({ summary: 'Catálogo de tipos de gasto del período — alimenta el filtro' })
-  costConceptos(@Query() q: any) {
-    return this.cost.conceptos(q);
+  @ApiOperation({ summary: 'Catálogo de filtros del período (tipos de gasto, sucursales, unidades) con su población' })
+  costFiltros(@Query() q: any) {
+    return this.cost.filtros(q);
   }
 
   @Get('costs/:sucursal/:guia')

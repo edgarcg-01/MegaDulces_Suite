@@ -113,7 +113,28 @@ function cuerpoMatview(sql) {
       .replace(/analytics\.v_logistics_activity_daily/g, 'v_logistics_activity_daily')
       .replace(/analytics\.v_logistics_expense_channel/g, 'v_logistics_expense_channel');
 
-    await knex.raw(`CREATE TEMP VIEW cgu_probe AS ${probe}`);
+    // ⛔⛔ EL CANDADO MIDE EL OBJETO APLICADO, NO EL SQL RECONSTRUIDO -- cuando el objeto existe.
+    //
+    // Reconstruir el SQL desde la migración es lo correcto MIENTRAS haya una sola migración que
+    // defina el objeto. En cuanto otra lo redefine (acá `[CGU.8]` amplió el universo del gasto y
+    // `[CGU.9]` acotó el bucket administrativo), extraer de la PRIMERA es leer una versión muerta:
+    // el candado daba **12 verdes cuadrando $1,290,298** cuando lo que corría en prod ya sumaba
+    // **$2,269,610**. Verde sobre la versión equivocada es peor que rojo.
+    //
+    // Regla: si la matview está aplicada, se mide contra ella. El SQL inline queda como camino de
+    // respaldo para cuando el objeto todavía no existe -- que es cuando igual hace falta probar.
+    const [{ hay_mv0 }] = (await knex.raw(
+      `SELECT to_regclass('analytics.mv_logistics_guide_cost') IS NOT NULL AS hay_mv0`)).rows;
+    const fuente = hay_mv0 ? 'analytics.mv_logistics_guide_cost' : null;
+    if (fuente) {
+      await knex.raw(
+        `CREATE TEMP VIEW cgu_probe AS SELECT * FROM ${fuente}
+          WHERE dia >= DATE '${MES_DESDE}' AND dia < DATE '${MES_HASTA}'`);
+      console.log(`  (midiendo el OBJETO APLICADO ${fuente})\n`);
+    } else {
+      await knex.raw(`CREATE TEMP VIEW cgu_probe AS ${probe}`);
+      console.log('  (la matview no esta aplicada: se mide el SQL de las migraciones)\n');
+    }
     // La actividad aparte, para el anti-espejo: hace falta la mercancia por guia, que vive en la
     // vista de actividad y no viaja en la matview de costo.
     await knex.raw(`CREATE TEMP VIEW cgu_act AS ${ventana(act)}`);
@@ -122,12 +143,16 @@ function cuerpoMatview(sql) {
     const [q] = (await knex.raw(`
       SELECT (SELECT round(sum(atribuido)::numeric,2) FROM cgu_probe) AS total,
              (SELECT count(*) FROM cgu_probe)                          AS filas,
-             (SELECT round(sum(e.importe * CASE WHEN e.cargo_abono='A' THEN -1 ELSE 1 END)::numeric,2)
-                FROM analytics.expense_entries e
-               WHERE left(e.cuenta,3) IN ('602','604','606','611')
-                 AND e.fecha >= DATE '${MES_DESDE}' AND e.fecha < DATE '${MES_HASTA}'
-                 AND (CASE WHEN e.dpto_nombre ~* 'VECINAL' THEN 'x'
-                           WHEN e.dpto_nombre ~* 'PISO'    THEN 'x' ELSE 'ok' END) = 'ok'
+             -- ⚠️ El testigo sale de la VISTA aplicada, no de un filtro de cuentas copiado acá.
+             -- Copiarlo obligaba a mantener dos definiciones del universo en sincronía, y cuando
+             -- CGU.8 lo amplio, el candado siguio midiendo el viejo y dio verde sobre una
+             -- versión muerta. La vista es el eslabón ANTES del reparto: comparar contra ella es
+             -- lo que vigila que repartir no pierda ni duplique, que es el trabajo de la matview.
+             (SELECT round(sum(gasto)::numeric, 2)
+                FROM analytics.v_logistics_expense_channel
+               WHERE dia >= DATE '${MES_DESDE}' AND dia < DATE '${MES_HASTA}'
+                 AND (canal IN ('cliente','carga_ruta','traspaso')
+                      OR (canal = 'otros' AND cuenta_mayor IN ('602','604','606','611')))
              ) AS origen`)).rows;
     const total = Number(q.total || 0), origen = Number(q.origen || 0), filas = Number(q.filas || 0);
     // Tolerancia PROPORCIONAL a las filas: cada una redondea a 2 decimales, asi que el residuo
