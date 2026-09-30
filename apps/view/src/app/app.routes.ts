@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -186,11 +186,8 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
         canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
       },
-      {
-        path: 'erp-promos',
-        loadComponent: () => import('./modules/comercial/pages/comercial-erp-promos.component').then(m => m.ComercialErpPromosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ERP_PROMOS_VER)]
-      },
+      // `[MKT.0]` Promos del ERP se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
+      { path: 'erp-promos', redirectTo: '/mkt/erp-promos', pathMatch: 'full' },
       {
         path: 'sell-out',
         loadComponent: () => import('./modules/comercial/pages/comercial-sell-out.component').then(m => m.ComercialSellOutComponent),
@@ -321,11 +318,8 @@ export const routes: Routes = [
         redirectTo: '/compras/catalogo',
         pathMatch: 'full'
       },
-      {
-        path: 'promotions',
-        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
-      },
+      // `[MKT.0]` Promociones se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
+      { path: 'promotions', redirectTo: '/mkt/promotions', pathMatch: 'full' },
       {
         // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar.
         path: 'empuje',
@@ -575,6 +569,57 @@ export const routes: Routes = [
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+    ]
+  },
+  // ── Proyecto MKT (mercadotecnia) `[MKT.0]` ──────────────────────────
+  // Proyecto propio en el espacio Comercial. Nace con las pantallas de promociones que
+  // vivían en /comercial; mismos componentes y permisos, sólo cambia la casa.
+  {
+    path: 'mkt',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: mktHomeGuard redirige a la primera superficie accesible del rol.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [mktHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
+      },
+      {
+        path: 'promotions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
+      },
+      {
+        path: 'erp-promos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-erp-promos.component').then(m => m.ComercialErpPromosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ERP_PROMOS_VER)]
+      },
+      // `[MKT.1]` Acuerdos con proveedor (MKTN001) + su expediente por plaza.
+      // `anyPermissionGuard` a propósito: quien sube la evidencia de su sucursal entra con
+      // MKT_AGREEMENT_EVIDENCE_SUBIR. Con un guard de sólo VER, el encargado de plaza vería la
+      // entrada del menú y rebotaría al entrar. El recorte de QUÉ plazas ve lo hace el alcance.
+      {
+        path: 'acuerdos',
+        loadComponent: () => import('./modules/comercial/pages/mkt-acuerdos.component').then(m => m.MktAcuerdosComponent),
+        // GESTIONAR va en la lista aunque hoy nadie lo tenga suelto: el reparto se edita desde
+        // /admin/roles y basta con guardar el mapa para dejar a alguien con la clave de gestión
+        // sin la de lectura — vería la entrada en la landing y rebotaría al entrar. Lo midió
+        // `landing-guards.spec`.
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)]
+      },
+      // `[MKT.6]` El RESULTADO del acuerdo: ¿movió la aguja? Pantalla aparte de `acuerdos`
+      // porque son dos preguntas distintas —"se ejecutó" y "sirvió"— y mezclarlas haría que
+      // "subió tres fotos" y "vendió $12,000 más" se lean como el mismo hecho.
+      // Mismas dos audiencias que el expediente, y por eso el mismo `anyPermissionGuard`: la
+      // plaza que sube la evidencia tiene derecho a saber si su exhibición vendió. El recorte
+      // de QUÉ plazas ve lo hace el alcance en el servidor, no este guard.
+      {
+        path: 'resultado',
+        loadComponent: () => import('./modules/comercial/pages/mkt-resultado.component').then(m => m.MktResultadoComponent),
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)]
       },
     ]
   },

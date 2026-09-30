@@ -23,6 +23,10 @@ export * from './lib/commercial-pos-voids/commercial-pos-voids.module';
 export * from './lib/commercial-pos-voids/pos-line-voids.service';
 export * from './lib/commercial-standard-cost/commercial-standard-cost.module';
 export * from './lib/commercial-standard-cost/standard-cost.service';
+// [MKT.1] Acuerdos con proveedor (formato MKTN001) y su expediente por plaza.
+// NO confundir con commercial-promotions, que es el motor de PRECIO de los pedidos.
+export * from './lib/commercial-promo-agreements/commercial-promo-agreements.module';
+export * from './lib/commercial-promo-agreements/promo-agreements.service';
 export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-payments/commercial-payments.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.module';
@@ -78,3 +82,8 @@ export * from './lib/commercial-customers/commercial-customers.service';
 export * from './lib/commercial-alerts/alerts.service';
 export * from './lib/entity-ref/entity-ref.module';
 export * from './lib/entity-ref/entity-ref.types';
+
+// [MKT.6] La otra mitad de la pregunta que abre [MKT.1]: el expediente prueba que la promoción
+// se EJECUTÓ; esto mide si SIRVIÓ, leyendo la venta del ERP contra una línea base.
+export * from './lib/commercial-promo-sellout/commercial-promo-sellout.module';
+export * from './lib/commercial-promo-sellout/promo-sellout.service';

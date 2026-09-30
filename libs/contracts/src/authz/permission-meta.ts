@@ -106,6 +106,11 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PROMOTIONS_VER]: { label: 'Ver Promociones', description: 'Consultar campañas y promociones vigentes.', category: 'Comercial · Promociones' },
   [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR]: { label: 'Gestionar Promociones', description: 'Crear y editar promociones y campañas.', category: 'Comercial · Promociones' },
 
+  // MKT — acuerdos con proveedor (formato MKTN001)
+  [Permission.MKT_AGREEMENTS_VER]: { label: 'Ver Acuerdos con proveedor', description: 'Consultar los acuerdos promocionales negociados (formato MKTN001): mecánica, canales participantes, expediente y avance. El alcance decide qué plazas se ven.', category: 'MKT · Acuerdos' },
+  [Permission.MKT_AGREEMENTS_GESTIONAR]: { label: 'Gestionar Acuerdos con proveedor', description: 'Levantar el formato MKTN001, editarlo, autorizarlo (asigna folio) y cerrarlo. Incluye ver el monto negociado y el presupuesto.', category: 'MKT · Acuerdos' },
+  [Permission.MKT_AGREEMENT_EVIDENCE_SUBIR]: { label: 'Subir evidencia de promoción', description: 'Adjuntar la evidencia de ejecución (foto de exhibición, cenefa, anaquel) al expediente de su propia plaza. No permite crear ni autorizar acuerdos.', category: 'MKT · Acuerdos' },
+
   // Telemarketing (el ERP y el rol de prod lo llaman asi)
   [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Telemarketing', description: 'Acceso de lectura al módulo de telemarketing / call center: resumen del canal (facturación del ERP + actividad), cola de leads y reservas.', category: 'Telemarketing' },
   [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Telemarketing', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Telemarketing' },

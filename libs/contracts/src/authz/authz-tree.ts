@@ -152,13 +152,31 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },
           { id: 'price-experiments', label: 'Experimentos de precio', route: '/comercial/experimentos-precio', view: [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER], manage: [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
           { id: 'margin-engine', label: 'Motor de margen', route: '/comercial/motor-margen', view: [Permission.COMMERCIAL_MARGIN_ENGINE_VER], manage: [] },
-          { id: 'promotions', label: 'Promociones', route: '/comercial/promotions', view: [Permission.COMMERCIAL_PROMOTIONS_VER], manage: [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR] },
-          { id: 'erp-promos', label: 'Promos del ERP', route: '/comercial/erp-promos', view: [Permission.COMMERCIAL_ERP_PROMOS_VER], manage: [] },
+          // Promociones y Promos del ERP se mudaron a su PROYECTO propio `mkt` (/mkt) — ver el nodo abajo.
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
           { id: 'intelligence', label: 'Inteligencia (hallazgos / acciones / autonomía)', route: '/comercial/command-center', view: [Permission.COMMERCIAL_INTELLIGENCE_VER], manage: [] },
           { id: 'route-control', label: 'Control de ruta / tickets', route: '/comercial/route-tickets', view: [Permission.ROUTE_CONTROL_VER], manage: [Permission.ROUTE_TICKET_CAPTURE] },
           { id: 'carga', label: 'Carga al camión', route: '/comercial/orders', view: [Permission.COMMERCIAL_CARGA_VER], manage: [Permission.COMMERCIAL_CARGA_GESTIONAR] },
+        ],
+      },
+      {
+        // `[MKT.0]` MKT como PROYECTO propio (pedido del usuario 2026-09-28): nace con lo de
+        // mercadotecnia que ya existía en Comercial / Ventas. Mismos permisos, sólo cambia la casa
+        // (y la URL; las viejas `/comercial/promotions|erp-promos` quedan como redirect).
+        id: 'mkt',
+        label: 'MKT',
+        icon: 'pi pi-megaphone',
+        route: '/mkt',
+        modules: [
+          { id: 'promotions', label: 'Promociones', route: '/mkt/promotions', view: [Permission.COMMERCIAL_PROMOTIONS_VER], manage: [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR] },
+          { id: 'erp-promos', label: 'Promos del ERP', route: '/mkt/erp-promos', view: [Permission.COMMERCIAL_ERP_PROMOS_VER], manage: [] },
+          // `[MKT.1]` Los acuerdos con proveedor (formato MKTN001) y su expediente por plaza.
+          // `view` incluye la clave de evidencia a propósito: quien sube la foto de su sucursal
+          // tiene que poder ENTRAR a la pantalla; si sólo se listara `MKT_AGREEMENTS_VER`, el
+          // encargado de plaza vería la entrada del menú apagada y no podría trabajar su propio
+          // expediente. El recorte de QUÉ plazas ve no lo hace el permiso: lo hace el alcance.
+          { id: 'agreements', label: 'Acuerdos con proveedor', route: '/mkt/acuerdos', view: [Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR], manage: [Permission.MKT_AGREEMENTS_GESTIONAR] },
         ],
       },
       {

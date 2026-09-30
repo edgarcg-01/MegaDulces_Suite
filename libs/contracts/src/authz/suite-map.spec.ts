@@ -112,8 +112,8 @@ describe('validateSuiteMap · pruebas NEGATIVAS (el validador tiene que ponerse 
 
   it('módulo inexistente', () => {
     const mapa = clonar();
-    (entrada(mapa, 'mkt-promociones') as { module: string }).module = 'fantasma';
-    expect(validateSuiteMap(mapa).join('\n')).toMatch(/módulo inexistente: comercial\/fantasma/);
+    (entrada(mapa, 'apc-hallazgos-finanzas') as { module: string }).module = 'fantasma';
+    expect(validateSuiteMap(mapa).join('\n')).toMatch(/módulo inexistente: finanzas\/fantasma/);
   });
 
   it('un proyecto con dos casas primarias', () => {
@@ -198,10 +198,12 @@ describe('resolveProjectForUrl / resolveSpaceForUrl · por segmento, nunca por p
 
   it('el espacio es el de la casa PRIMARIA, aunque haya cross-links al mismo módulo', () => {
     expect(resolveSpaceForUrl('/admin/roles')?.space.id).toBe('configuracion-de-la-suite');
-    // /comercial/promotions aparece en Mercadotecnia como cross-link; la casa es Ventas.
-    const com = resolveSpaceForUrl('/comercial/promotions');
+    // /comercial/orders: su casa es Ventas (la entrada primaria del proyecto comercial).
+    const com = resolveSpaceForUrl('/comercial/orders');
     expect(com?.space.id).toBe('comercial');
     expect(com?.entry.id).toBe('ventas-backoffice');
+    // `[MKT.0]` Promociones ya no es de Ventas: su casa es MKT, en el mismo espacio.
+    expect(resolveSpaceForUrl('/mkt/promotions')?.entry.id).toBe('mkt');
     // /almacen/prevencion está enlazado desde Auditoría; su casa es Almacenes y Logística.
     expect(resolveSpaceForUrl('/almacen/prevencion')?.space.id).toBe('almacenes-y-logistica');
     expect(resolveSpaceForUrl('/nada')).toBeNull();
@@ -242,9 +244,9 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
       'auditoria-prevencion-control',
       'configuracion-de-la-suite',
     ]);
-    // Doce puertas primarias: los 13 proyectos menos WhatsApp, que no tiene ruta.
-    // (+1 vs antes: Presupuestos es módulo propio desde Fase PU, ya no tab de Finanzas.)
-    expect(primaryDestinations(vis)).toHaveLength(12);
+    // Trece puertas primarias: los 14 proyectos menos WhatsApp, que no tiene ruta.
+    // (+1 Presupuestos, módulo propio desde Fase PU; +1 MKT, proyecto propio desde [MKT.0].)
+    expect(primaryDestinations(vis)).toHaveLength(13);
     expect(ids(vis)).not.toContain('whatsapp-bot');
   });
 
