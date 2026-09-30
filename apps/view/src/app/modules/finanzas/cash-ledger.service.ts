@@ -206,6 +206,19 @@ export class CashLedgerService {
     return this.http.get<SaldoResponse>(`${this.base}/saldo/${encodeURIComponent(sucursal)}`);
   }
 
+  /**
+   * `[CG.26]` El cierre de la jornada: el día en caja general y en el cajero (CAOS).
+   *
+   * ⭐ **No depende de que haya corte abierto**, y eso es el punto: el panel de «Arqueo final del
+   * día» que ya existía colgaba de `corteAbierto()`, y en prod hay CERO cortes — o sea que no lo
+   * vio nunca nadie.
+   */
+  arqueoDia(f: { fecha?: string; sucursal?: string } = {}): Observable<ArqueoDia> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.http.get<ArqueoDia>(`${this.base}/arqueo-dia`, { params: p });
+  }
+
   cortes(f: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number } = {}): Observable<{ rows: CorteCaja[]; limit: number }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -481,6 +494,55 @@ export interface SaldoResponse {
   /**
    * CS.3.11 — Movimiento del CAJERO (CAOS) en el período del corte, para conciliar la caja chica
    * (efectivo suelto) contra la bóveda. Sólo en oficinas (sucursal 00) con corte abierto; `null` si no.
+   *
+   * `[CG.26]` `dotado`/`vaciado`/`otros` se sumaron cuando se midió que la conciliación miraba
+   * **2 de los 6 tipos** del cajero. Van en piernas SEPARADAS de depósito/dispensación: `Dotar` y
+   * `Vaciar Stocks` mueven la bóveda contra el exterior, no contra la caja chica, y sumarlos ahí
+   * daría un «caja chica conciliada» inventado.
    */
-  cajero?: { depositado: number; dispensado: number; movimientos: number; desde: string } | null;
+  cajero?: {
+    depositado: number; dispensado: number; movimientos: number; desde: string;
+    dotado?: number; vaciado?: number;
+    otros?: { movimientos: number; monto: number };
+  } | null;
+}
+
+/** `[CG.26]` Una pierna del cajero, tal como el dispositivo la declara. */
+export interface ArqueoTipoCajero {
+  type_id: number;
+  etiqueta: string;
+  movimientos: number;
+  monto: number;
+  /** El tipo no está en el catálogo medido: se pinta aparte y NO se suma a ninguna pierna. */
+  desconocido: boolean;
+}
+
+/**
+ * `[CG.26]` El cierre de la jornada.
+ *
+ * ⛔ `cajero.neto` es el **movimiento del día**, NO el efectivo que hay en la máquina: CAOS no
+ * publica su contenido, y el flujo acumulado da negativo porque el saldo anterior al arranque del
+ * feed no se conoce. Rotularlo «saldo» sería publicar un número que no existe.
+ */
+export interface ArqueoDia {
+  fecha: string;
+  sucursal: string;
+  caja_general: {
+    movimientos: number; cancelados: number;
+    ingresos: number; gastos: number; depositos: number;
+    /** ingresos − gastos − depósitos. Sin fondo inicial: eso compone el esperado, que va gateado. */
+    neto: number;
+  };
+  /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
+  cajero: {
+    por_tipo: ArqueoTipoCajero[];
+    entra: number; sale: number; neto: number;
+    depositado: number; dispensado: number; dotado: number; vaciado: number;
+    movimientos: number;
+    tipos_desconocidos: Array<{ type_id: number; etiqueta: string; monto: number }>;
+    ultimo_movimiento: string | null;
+  } | null;
+  corte_abierto: { id: string; folio: string; fecha: string } | null;
+  /** Lo que NO se puede afirmar, con su razón. Se PINTA; un hueco callado se lee como cero. */
+  no_medido: string[];
 }

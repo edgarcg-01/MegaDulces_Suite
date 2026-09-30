@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -243,6 +243,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
+    /* [CG.26] .ta-r se usaba 12 veces en esta plantilla y NO ESTABA DEFINIDA en ningun lado
+       alcanzable: el bloque local define .ta-c, FINANZAS_SHARED_STYLES la excluye a proposito, y
+       en styles.css solo existe ".ta-r > .surf-sort". O sea que los importes de la bandeja y del
+       libro nunca estuvieron alineados a la derecha. Otras ~10 pantallas la definen local. */
+    .ta-r { text-align:right; }
     .cg-print { background:none; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
       cursor:pointer; color:var(--action); padding:.25rem .55rem; min-height:2rem; min-width:2.2rem; }
     .cg-print:hover { border-color:var(--action); }
@@ -254,6 +259,20 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-conc-row { display:flex; justify-content:space-between; gap:1rem; font-size:var(--fs-sm); }
     .cg-conc-row .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:.3rem; font-weight:600; }
+    /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
+       cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
+    .cg-conc-wide { max-width:none; }
+    .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
+    .cg-conc-fecha { max-width:11rem; }
+    .cg-conc-cols { display:grid; grid-template-columns:1fr 1fr; gap:1rem 1.75rem; margin-top:.35rem; }
+    @media (max-width:760px) { .cg-conc-cols { grid-template-columns:1fr; } }
+    .cg-conc-col { display:flex; flex-direction:column; gap:.3rem; min-width:0; }
+    .cg-conc-sub { font-size:var(--fs-sm); }
+    .cg-conc-tbl { margin-bottom:.3rem; }
+    /* Lo no medido se ve COMO aviso, no como letra chica decorativa: es la diferencia entre
+       "movimiento del dia" y "cuanto hay en el cajero". */
+    .cg-conc-nm { margin:.5rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
+      color:var(--warn-fg, var(--text-2)); display:flex; flex-direction:column; gap:.2rem; }
     /* CS.3.13 — campo «venta a crédito» (se descuenta del efectivo esperado). */
     .cg-credito { display:flex; flex-direction:column; gap:.3rem; border:1px solid var(--border-color);
       border-radius:var(--r-md,8px); padding:.5rem .7rem; }
@@ -347,48 +366,118 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </div>
 
-      <!-- CG — ARQUEO FINAL DEL DÍA: cómo quedó la caja general, con los ingresos y egresos del
-           corte y las dos piernas del cajero (CAOS). Modelo «cajas separadas»: el cajero es la
-           bóveda, la caja chica es el efectivo suelto.
+      <!-- ⭐ [CG.26] EL CIERRE DE LA JORNADA: como quedo el dia en caja general y en el cajero.
 
-           ⛔ CG.19 — La composición SÓLO se pinta cuando el servidor ya reveló el esperado. La
-           suma "fondo + ingresos − egresos − depósitos" ES el esperado: publicarla mientras
-           alguien cuenta a ciegas sería devolverle por la ventana justo lo que se le oculta.
-           (Sin acentos graves acá adentro: esto vive en un template literal y un backtick lo
+           Este bloque YA EXISTIA y NUNCA lo vio nadie: colgaba de "@if (corteAbierto())" y en prod
+           hay CERO cortes. Se le cambio la fuente, no la forma -- reestructurar es renombrar y
+           reordenar, no rediseniar. Ahora sale de "arqueo-dia", que no depende de que alguien se
+           haya acordado de abrir un corte.
+
+           (Sin acentos graves aca adentro: esto vive en un template literal y un backtick lo
             CIERRA. Es la quinta vez que pasa en el repo.) -->
-      @if (corteAbierto()) {
-        <div class="cg-conc">
-          <strong class="cg-conc-h">Arqueo final del día</strong>
-          @if (arqueoFinal(); as a) {
-            <div class="cg-conc-row"><span>Fondo inicial <small class="fin-dim">(apertura del corte)</small></span>
-              <span class="mono">{{ money(a.fondo) }}</span></div>
-            <div class="cg-conc-row"><span>Ingresos del corte</span>
-              <span class="mono">+ {{ money(a.ingresos) }}</span></div>
-            <div class="cg-conc-row"><span>Egresos del corte</span>
-              <span class="mono">− {{ money(a.gastos) }}</span></div>
-            <div class="cg-conc-row"><span>Depósitos al banco</span>
-              <span class="mono">− {{ money(a.depositos) }}</span></div>
-            <div class="cg-conc-row cg-conc-tot"><span>Esperado en caja general</span>
-              <span class="mono">{{ money(a.esperado) }}</span></div>
-            @if (a.cajero; as cj) {
-              <div class="cg-conc-row"><span>Depositado al cajero <small class="fin-dim">(salió de caja chica)</small></span>
-                <span class="mono">− {{ money(cj.depositado) }}</span></div>
-              <div class="cg-conc-row"><span>Dispensado del cajero <small class="fin-dim">(entró a caja chica)</small></span>
-                <span class="mono">+ {{ money(cj.dispensado) }}</span></div>
-              @if (a.conciliada !== null) {
-                <div class="cg-conc-row cg-conc-tot"><span>Caja chica conciliada <small class="fin-dim">(esperado − depositado + dispensado)</small></span>
-                  <span class="mono">{{ money(a.conciliada) }}</span></div>
-              }
-              <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero desde que abrió el corte.</small>
-            }
-          } @else {
-            <small class="fin-dim">El cierre del día se muestra al revelar el esperado (permiso de cierre): mientras se cuenta, el arqueo es CIEGO.</small>
-            @if (conciliacionCajero(); as cj) {
-              <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero (CAOS) desde que abrió el corte.</small>
-            }
-          }
+      <div class="cg-conc cg-conc-wide">
+        <div class="cg-conc-head">
+          <strong class="cg-conc-h">Cierre de la jornada</strong>
+          <input pInputText type="date" class="cg-conc-fecha"
+                 [ngModel]="arqueoFecha()" (ngModelChange)="setArqueoFecha($event)"
+                 aria-label="Jornada a revisar" />
         </div>
-      }
+
+        @if (cargandoArqueo()) {
+          <small class="fin-dim">Midiendo la jornada...</small>
+        } @else if (arqueo(); as a) {
+          <div class="cg-conc-cols">
+
+            <!-- IZQUIERDA: nuestro libro -->
+            <div class="cg-conc-col">
+              <strong class="cg-conc-sub">Caja general <small class="fin-dim">(nuestro libro)</small></strong>
+              <div class="cg-conc-row"><span>Ingresos</span>
+                <span class="mono">+ {{ money(a.caja_general.ingresos) }}</span></div>
+              <div class="cg-conc-row"><span>Gastos</span>
+                <span class="mono">&minus; {{ money(a.caja_general.gastos) }}</span></div>
+              <div class="cg-conc-row"><span>Depositos al banco</span>
+                <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
+              <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
+                <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
+              <small class="fin-dim">
+                {{ a.caja_general.movimientos }} movimiento(s) registrado(s){{ a.caja_general.cancelados ? ', ' + a.caja_general.cancelados + ' cancelado(s)' : '' }}.
+              </small>
+
+              <!-- ⛔ CG.19 sigue intacto: el ESPERADO no se compone aca. La suma
+                   "fondo + ingresos - egresos - depositos" ES el esperado, y publicarla mientras
+                   alguien cuenta a ciegas seria devolverle por la ventana lo que se le oculta.
+                   Lo unico que se dice es SI hay corte, que no es secreto. -->
+              @if (a.corte_abierto; as c) {
+                <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                <!-- El esperado y la caja chica conciliada SOLO existen cuando el servidor ya los
+                     revelo (permiso de cierre). "arqueoFinal()" devuelve null mientras esten
+                     ocultos, asi que este bloque no se pinta y no hay nada que tapar. -->
+                @if (arqueoFinal(); as af) {
+                  <div class="cg-conc-row cg-conc-tot"><span>Esperado en caja general</span>
+                    <span class="mono">{{ money(af.esperado) }}</span></div>
+                  @if (af.conciliada !== null) {
+                    <div class="cg-conc-row"><span>Caja chica conciliada <small class="fin-dim">(esperado &minus; depositado + dispensado)</small></span>
+                      <span class="mono">{{ money(af.conciliada) }}</span></div>
+                  }
+                }
+              }
+            </div>
+
+            <!-- DERECHA: el cajero (CAOS), con SUS SEIS TIPOS -->
+            <div class="cg-conc-col">
+              <strong class="cg-conc-sub">Cajero (CAOS) <small class="fin-dim">(la boveda)</small></strong>
+              @if (a.cajero; as cj) {
+                <table class="cg-tbl cg-conc-tbl">
+                  <caption class="cg-cap">Movimientos del cajero en la jornada, por tipo</caption>
+                  <thead>
+                    <tr><th scope="col">Tipo</th><th scope="col" class="ta-r">Movs</th><th scope="col" class="ta-r">Monto</th></tr>
+                  </thead>
+                  <tbody>
+                    @for (t of cj.por_tipo; track t.type_id) {
+                      <tr [class.cg-trabada]="t.desconocido">
+                        <td>
+                          {{ t.etiqueta }}
+                          @if (t.desconocido) {
+                            <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
+                          }
+                        </td>
+                        <td class="ta-r mono">{{ t.movimientos }}</td>
+                        <td class="ta-r mono">{{ money(t.monto) }}</td>
+                      </tr>
+                    } @empty {
+                      <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
+                    }
+                  </tbody>
+                </table>
+                <div class="cg-conc-row"><span>Entra <small class="fin-dim">(deposito + dotar)</small></span>
+                  <span class="mono">+ {{ money(cj.entra) }}</span></div>
+                <div class="cg-conc-row"><span>Sale <small class="fin-dim">(dispensar + vaciar)</small></span>
+                  <span class="mono">&minus; {{ money(cj.sale) }}</span></div>
+                <!-- ⛔ "Movimiento del dia", NUNCA "saldo": CAOS no publica su contenido y el
+                     acumulado del flujo da negativo porque el efectivo anterior al feed no se sabe. -->
+                <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
+                  <span class="mono">{{ money(cj.neto) }}</span></div>
+                <small class="fin-dim">
+                  {{ cj.movimientos }} movimiento(s) del cajero en la jornada.
+                </small>
+              } @else {
+                <small class="fin-dim">Sin cajero que cuadrar en esta sucursal. El motivo esta abajo.</small>
+              }
+            </div>
+          </div>
+
+          <!-- ⛔ Lo que NO se puede afirmar se PINTA. Un hueco callado se lee como cero, y aca la
+               diferencia entre "flujo del dia" y "cuanto hay en el cajero" es justamente esto. -->
+          @if (a.no_medido.length) {
+            <ul class="cg-conc-nm">
+              @for (m of a.no_medido; track m) { <li>{{ m }}</li> }
+            </ul>
+          }
+        } @else {
+          <!-- Tercer estado. "Sin medir" no es "el dia estuvo en cero". -->
+          <small class="fin-hint-warn">No se pudo medir la jornada. No es que no haya movimiento: es que no se pudo leer.</small>
+        }
+      </div>
 
       <app-metric-strip [items]="kpis()"></app-metric-strip>
 
@@ -1499,8 +1588,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * CS.3.11 — Conciliación con el CAJERO (CAOS): el movimiento de la bóveda desde que abrió el corte.
    * `cajaChicaConciliada` = esperado − depositado al cajero + dispensado del cajero (modelo cajas
    * separadas). Sólo cuando el esperado está REVELADO (`saldo != null`); si no, se declara.
+   *
+   * ⚠️ `[CG.26]` retiró `conciliacionCajero` (era `saldoResp()?.cajero`): su único uso era pintar
+   * "N movimientos del cajero desde que abrió el corte" mientras el arqueo estaba ciego, y el
+   * panel nuevo publica el movimiento del cajero **siempre**, con sus seis tipos y sin depender de
+   * que haya corte. Un computed que ya no tiene lector se borra, no se deja "por si acaso".
    */
-  conciliacionCajero = computed(() => this.saldoResp()?.cajero ?? null);
   cajaChicaConciliada = computed<number | null>(() => {
     const s = this.saldoResp(); const cj = s?.cajero;
     if (!cj || s?.saldo == null) return null;
@@ -1691,6 +1784,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cargarCajas();
     this.cargarPendientes();
     this.cargarFrecuentes();
+    // [CG.26] El cierre de la jornada se pide al abrir, como todo lo demás: si hubiera que pedirlo
+    // con un clic, nadie cerraría el día.
+    this.cargarArqueo();
     this.enVivo();
   }
 
@@ -1831,6 +1927,33 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // pinta "Abrir corte" en ese caso — no sabemos si hay uno abierto.
       error: () => this.saldoResp.set(null),
     });
+  }
+
+  // ── [CG.26] El cierre de la jornada ──────────────────────────────────────────────────────
+  //
+  // ⭐ Va SEPARADO de `cargarSaldo()` a propósito: aquél depende de que haya corte abierto y esto
+  // no. El panel de "Arqueo final del día" colgaba de `corteAbierto()` y en prod hay CERO cortes,
+  // así que no lo vio nunca nadie.
+
+  /** La jornada que se está mirando. Hoy en MÉXICO, no en UTC (a las 18:00 locales ya es mañana). */
+  arqueoFecha = signal(todayMx());
+  arqueo = signal<ArqueoDia | null>(null);
+  /** `null` NO es "el día está en cero": es que no se pudo medir, y la pantalla lo dice. */
+  arqueoSinMedir = computed(() => this.arqueo() === null);
+  cargandoArqueo = signal(false);
+
+  cargarArqueo(): void {
+    this.cargandoArqueo.set(true);
+    this.svc.arqueoDia({ fecha: this.arqueoFecha(), sucursal: this.sucursalActiva }).subscribe({
+      next: (r) => { this.arqueo.set(r); this.cargandoArqueo.set(false); },
+      error: () => { this.arqueo.set(null); this.cargandoArqueo.set(false); },
+    });
+  }
+
+  setArqueoFecha(v: string): void {
+    if (!v) return;
+    this.arqueoFecha.set(String(v).slice(0, 10));
+    this.cargarArqueo();
   }
 
   abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }
