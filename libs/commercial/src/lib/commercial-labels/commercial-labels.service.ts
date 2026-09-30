@@ -330,6 +330,42 @@ export class CommercialLabelsService {
     });
   }
 
+  /**
+   * `[ETQ-CAMBIOS.6]` Las plazas que la bitácora PUEDE servir, para quien no tiene tienda propia.
+   *
+   * ⛔ Existe porque la pantalla se lee de `warehouse_code` del usuario y **13 de las 33 personas
+   * con `STORE_LABELS_VER` no tienen ninguna** (medido 2026-09-30: `superadmin` 6,
+   * `auxiliar_compras` 4, `direccion` 2, `supervisor` 1). Para ellas la pantalla abría en un
+   * vacío que explicaba por qué no había nada — honesto, pero sin salida: Compras, Dirección y
+   * Supervisión no tienen "su tienda", y son justo quienes miran varias.
+   *
+   * ⭐ La lista se DERIVA de `analytics.v_label_price_changes`, no de una constante. Dos razones
+   * medidas: (1) así el selector no puede ofrecer una plaza que devuelva vacío, y (2)
+   * `STORE_BRANCHES` del frontend rotula la `00` como «CEDIS» y la sucursal `00` de la bitácora
+   * de Kepler es OFICINAS — copiar esa lista habría propagado el rótulo equivocado.
+   *
+   * ⚠️ **Cota de 60 días, y es a propósito**: sin ella el `max(fecha)` recorre la bitácora entera
+   * y tarda **3,738 ms** contra **173 ms** con cota (medido en prod). El precio es que una plaza
+   * que lleve 61 días sin mover un precio desaparecería del selector; medido hoy, las 9 tienen
+   * movimiento **hasta el día de hoy**, así que no se pierde ninguna. Si alguna vez se pierde,
+   * el síntoma es "falta mi tienda", no un número mal.
+   */
+  async priceChangeBranches(): Promise<{ sucursal: string; nombre: string | null; ultimo_dia: string }[]> {
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(`
+        SELECT v.sucursal, max(v.fecha)::text AS ultimo_dia, max(w.name) AS nombre
+          FROM analytics.v_label_price_changes v
+          LEFT JOIN commercial.warehouses w ON w.code = v.sucursal AND w.deleted_at IS NULL
+         WHERE v.fecha >= CURRENT_DATE - 60
+         GROUP BY 1 ORDER BY 1`);
+      return (r?.rows ?? []).map((x: any) => ({
+        sucursal: String(x.sucursal),
+        nombre: x.nombre ?? null,
+        ultimo_dia: String(x.ultimo_dia),
+      }));
+    });
+  }
+
   /** Ayer en hora de México, que es el día que el operador quiere revisar al abrir la tienda. */
   private static ayer(): string {
     const hoyMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
