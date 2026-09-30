@@ -35,8 +35,16 @@
  *   · No corre build, typecheck ni tests — eso es del CI (minutos, no segundos).
  *     Acá sólo viven los escaneos estáticos que cuestan ~10 s en total.
  *   · No protege contra `--no-verify`, ni contra un force-push hecho desde otra
- *     máquina o desde la web de GitHub. Es una compuerta de CLIENTE. La de
- *     servidor la desbloquea el plan de GitHub (ver `scripts/apply-branch-protection.js`).
+ *     máquina o desde la web de GitHub, ni existe para quien no corrió
+ *     `npm run hooks:install`. Es una compuerta de CLIENTE: sirve por RAPIDEZ
+ *     —te dice en 2.5 s lo que el CI te diría en 5 min— no por autoridad.
+ *
+ *     ⭐ La que manda es `[CI.SELLO]`, del lado del servidor: el job `sellar` de
+ *     `ci.yml` mueve la rama marcadora `ci-green` cuando pasan `build` y
+ *     `secret-scan`, y `ops/prod/auto-deploy.sh` se niega a desplegar un commit
+ *     que `ci-green` no haya bendecido. Esa no se evade.
+ *     ⛔ La protección de rama de GitHub NO es una opción: el repo es privado en
+ *     plan free y la cuenta no pasa a Pro (decisión del 2026-09-30).
  *   · No mide si tu cambio MEJORA la deuda; sólo que no la empeore en tus archivos.
  *
  * Uso: lo invoca `.githooks/pre-push` (ver `npm run hooks:install`).
