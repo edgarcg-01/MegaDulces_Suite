@@ -241,6 +241,19 @@ export class CashLedgerController {
     return this.cortes.saldo(sucursal, this.revela(req));
   }
 
+  /**
+   * `[CG.26]` — El ARQUEO DE FIN DE JORNADA. Va ANTES de `@Get(':id')` como el resto del archivo.
+   *
+   * No exige corte abierto: en prod hay CERO cortes, asi que atar el cierre del dia a que alguien
+   * se acuerde de abrir uno es lo mismo que no tener cierre. Si hay corte, se informa.
+   */
+  @Get('arqueo-dia')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.26 — Cierre de jornada: el dia en caja general y en el cajero (CAOS), con los SEIS tipos del cajero y lo que no se puede afirmar declarado. `fecha` por default = hoy en Mexico; la jornada del cajero sale de su propio `accounting_date`.' })
+  arqueoDia(@Query('fecha') fecha?: string, @Query('sucursal') sucursal?: string) {
+    return this.cortes.arqueoDelDia(fecha, sucursal || '00');
+  }
+
   @Get('cortes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Cortes de caja. Filtros: from, to, sucursal, estado.' })

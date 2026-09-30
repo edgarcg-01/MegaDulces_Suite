@@ -23,6 +23,30 @@ export interface CerrarCorteInput { conteo?: ConteoDenominacion[]; morralla?: nu
 
 interface Usuario { id?: string; username?: string }
 
+/**
+ * `[CG.26]` Los tipos de movimiento del cajero (CAOS / AST700), **medidos**, no supuestos.
+ *
+ * Al 2026-09-29 el feed trae SEIS y la conciliación miraba DOS:
+ *
+ *   | id | etiqueta              | movs |        monto | ¿se contaba? |
+ *   |----|-----------------------|------|--------------|--------------|
+ *   |  0 | Deposito              |  675 | $16,495,700  | sí           |
+ *   |  4 | Dispensar             |  324 | $16,461,720  | sí           |
+ *   |  8 | Dotar                 |   11 |  $1,500,120  | ⛔ NO         |
+ *   |  5 | Vaciar Stocks         |    6 |  $2,350,370  | ⛔ NO         |
+ *   |  7 | Cambio                |    4 |         $0   | ⛔ NO         |
+ *   | 13 | Contenido Modificado  |    1 |        $20   | ⛔ NO         |
+ *
+ * ⛔ `Dotar` y `Vaciar Stocks` mueven efectivo REAL de la bóveda (la cargan desde afuera / la
+ * vacían hacia afuera). Ignorarlos son **$3,850,510** que el cuadre no podía explicar. El último
+ * fue el **2026-09-08**, así que no es historia vieja.
+ *
+ * ⚠️ Van en piernas SEPARADAS de depósito/dispensación a propósito: no son caja chica. Sumarlas
+ * ahí haría que «caja chica conciliada» diera un número inventado.
+ */
+const CAOS = { DEPOSITO: 0, DISPENSAR: 4, VACIAR: 5, CAMBIO: 7, DOTAR: 8, CONTENIDO: 13 } as const;
+const TIPOS_CONOCIDOS = Object.values(CAOS);
+
 @Injectable()
 export class CashCutService {
   constructor(
@@ -324,13 +348,28 @@ export class CashCutService {
       .where('tenant_id', tenantId)
       .where('occurred_at', '>=', desde)
       .select(
-        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = 0), 0)::numeric AS depositado`),
-        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = 4), 0)::numeric AS dispensado`),
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.DEPOSITO}), 0)::numeric AS depositado`),
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.DISPENSAR}), 0)::numeric AS dispensado`),
+        // ⛔ Lo que ANTES no se contaba. `Dotar` mete efectivo a la bóveda y `Vaciar Stocks` lo
+        // saca, y los dos quedaban fuera del cuadre: medido, $1,500,120 + $2,350,370 = $3.85M
+        // invisibles. No son caja chica (entran/salen por fuera), pero un cuadre que los ignora
+        // no puede explicar por qué la bóveda cambió — y el último fue el 2026-09-08, no en 2024.
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.DOTAR}), 0)::numeric AS dotado`),
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.VACIAR}), 0)::numeric AS vaciado`),
+        trx.raw(`count(*) FILTER (WHERE type_id NOT IN (${TIPOS_CONOCIDOS.join(',')}))::int AS otros_movs`),
+        trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id NOT IN (${TIPOS_CONOCIDOS.join(',')})), 0)::numeric AS otros_monto`),
         trx.raw(`count(*)::int AS movimientos`),
       );
     return {
       depositado: Number(r?.depositado ?? 0),
       dispensado: Number(r?.dispensado ?? 0),
+      // Las dos piernas que no son caja chica, expuestas APARTE en vez de sumadas: mezclarlas con
+      // el depósito/dispensación haría que la caja chica conciliada diera cualquier cosa.
+      dotado: Number(r?.dotado ?? 0),
+      vaciado: Number(r?.vaciado ?? 0),
+      // ⚠️ Un tipo de CAOS que no conocemos NO se suma a ninguna pierna: se DECLARA. Si mañana el
+      // cajero emite un tipo nuevo, acá aparece con su monto en vez de desaparecer en silencio.
+      otros: { movimientos: Number(r?.otros_movs ?? 0), monto: Number(r?.otros_monto ?? 0) },
       movimientos: Number(r?.movimientos ?? 0),
       desde: desde instanceof Date ? desde.toISOString() : String(desde),
     };
@@ -366,6 +405,155 @@ export class CashCutService {
         // chica contra la bóveda. Los montos son hechos del cajero (no gateados); la caja chica
         // conciliada la calcula el front sólo cuando `saldo` (esperado) se revela.
         cajero,
+      };
+    });
+  }
+
+  /**
+   * ⭐ `[CG.26]` — **EL ARQUEO DE FIN DE JORNADA: ¿cuadró el día en caja general y en el cajero?**
+   *
+   * Pedido de Edgar (2026-09-29): *"un arqueo diario al finalizar la jornada para ver que todo
+   * cuadró en caja general y CAOS"*.
+   *
+   * ── Por qué NO alcanzaba con lo que ya había ───────────────────────────────────────────────
+   * El arqueo existente (`saldo`) es **del corte**, no del día: su ventana es
+   * `occurred_at >= corte.created_at` **sin tope superior**, así que un corte abierto una semana
+   * concilia una semana. Y sobre todo **exige que alguien haya abierto un corte**, y en prod hay
+   * CERO cortes — o sea que hoy no existe forma de cerrar un día.
+   *
+   * Éste no depende de que haya corte. Si lo hay lo muestra; si no, el día igual se puede cuadrar.
+   *
+   * ── La jornada la declara el cajero, no nuestro calendario ────────────────────────────────
+   * El día es `accounting_date` de CAOS, **no** `occurred_at`. Medido: viene poblado en
+   * **1,021 de 1,021** filas y difiere del día natural de México en **1**. Esa fila es
+   * precisamente un movimiento pasada la medianoche que pertenece a la jornada anterior — que es
+   * lo que "fin de jornada" significa. `shift_id` NO sirve: está **100 % en NULL**.
+   *
+   * ── Qué se puede afirmar y qué no ─────────────────────────────────────────────────────────
+   * ⛔ **CAOS no publica su contenido.** No hay columna de saldo, stacker ni denominación
+   * (verificado: cero columnas que matcheen saldo/balance/bag/stacker/denom). Del cajero se
+   * cuadra el **FLUJO** (lo que entró contra lo que salió), nunca "cuánto hay adentro".
+   *
+   * ⛔ **Y el flujo acumulado NO es el efectivo de la máquina.** Medido desde que arranca el feed:
+   * entra $17,995,820 − sale $18,812,090 = **−$816,270**. Negativo, porque el cajero ya tenía
+   * efectivo antes del 2026-05-27 y ese saldo inicial **no lo sabemos**. Por eso el neto se
+   * publica como *movimiento del día* y el acumulado no se publica como saldo.
+   *
+   * ⚠️ **El cuadre contra Kepler no es de hoy, y no por culpa del feed.** El feed está al día (su
+   * última captura es de hoy), pero el ERP tarda una **mediana de 3 días** en capturar el
+   * documento: el efectivo de hoy aparece en Kepler recién dentro de unos días. Por eso la cola
+   * del ERP no se usa acá para decir si el día cuadró.
+   */
+  async arqueoDelDia(fecha: string | undefined, sucursal: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const dia = String(
+        fecha || (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text d`)).rows[0].d,
+      ).slice(0, 10);
+
+      // ── 1. Caja general: lo que NUESTRO libro registró en esa jornada ────────────────────
+      const [libro] = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, sucursal, fecha: dia })
+        .whereNull('deleted_at')
+        .select(
+          trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado')::int AS movimientos`),
+          trx.raw(`count(*) FILTER (WHERE estado = 'cancelado')::int AS cancelados`),
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos`),
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos`),
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='deposito'),0)::numeric AS depositos`),
+        );
+      const ingresos = Number(libro?.ingresos ?? 0);
+      const gastos = Number(libro?.gastos ?? 0);
+      const depositos = Number(libro?.depositos ?? 0);
+
+      // ── 2. El cajero (CAOS): la jornada COMPLETA, con los seis tipos ─────────────────────
+      // ⚠️ CAOS no tiene columna de sucursal: es un único dispositivo, en oficinas. Para cualquier
+      // otra sucursal se devuelve `null` y se DICE por qué, en vez de mostrar ceros que se leerían
+      // como "el cajero no se movió".
+      const hayCaos = (await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`))
+        .rows?.[0]?.t;
+      let cajero: Record<string, unknown> | null = null;
+      if (hayCaos && sucursal === '00') {
+        const porTipo = await trx('analytics.caos_cash_movements')
+          .where({ tenant_id: tenantId, accounting_date: dia })
+          .groupBy('type_id', 'type_label')
+          .orderBy('type_id')
+          .select(
+            'type_id',
+            trx.raw(`coalesce(type_label, '(tipo ' || type_id || ' sin etiqueta)') AS etiqueta`),
+            trx.raw(`count(*)::int AS movimientos`),
+            trx.raw(`coalesce(sum(abs(total)), 0)::numeric AS monto`),
+            trx.raw(`(type_id NOT IN (${TIPOS_CONOCIDOS.join(',')})) AS desconocido`),
+          );
+        const suma = (ids: readonly number[]) => porTipo
+          .filter((t: { type_id: number }) => ids.includes(Number(t.type_id)))
+          .reduce((a: number, t: { monto: string }) => a + Number(t.monto), 0);
+        // Entra a la bóveda: lo depositado (viene de caja chica) + lo dotado (viene de afuera).
+        const entra = suma([CAOS.DEPOSITO, CAOS.DOTAR]);
+        // Sale de la bóveda: lo dispensado (va a caja chica) + lo vaciado (se lo llevan afuera).
+        const sale = suma([CAOS.DISPENSAR, CAOS.VACIAR]);
+        const desconocidos = porTipo.filter((t: { desconocido: boolean }) => t.desconocido);
+        const [ult] = await trx('analytics.caos_cash_movements')
+          .where({ tenant_id: tenantId })
+          .max({ al: 'occurred_at' });
+        cajero = {
+          por_tipo: porTipo.map((t: Record<string, unknown>) => ({
+            type_id: Number(t['type_id']), etiqueta: t['etiqueta'],
+            movimientos: Number(t['movimientos']), monto: Number(t['monto']),
+            desconocido: !!t['desconocido'],
+          })),
+          entra, sale,
+          // El movimiento NETO del día. NO es "lo que hay en el cajero": ver el encabezado.
+          neto: Number((entra - sale).toFixed(2)),
+          // Las cuatro piernas por separado, porque significan cosas distintas.
+          depositado: suma([CAOS.DEPOSITO]), dispensado: suma([CAOS.DISPENSAR]),
+          dotado: suma([CAOS.DOTAR]), vaciado: suma([CAOS.VACIAR]),
+          movimientos: porTipo.reduce((a: number, t: { movimientos: number }) => a + Number(t.movimientos), 0),
+          // Un tipo que no conocemos se DECLARA con su monto; nunca se reparte a una pierna.
+          tipos_desconocidos: desconocidos.map((t: Record<string, unknown>) => ({
+            type_id: Number(t['type_id']), etiqueta: t['etiqueta'], monto: Number(t['monto']),
+          })),
+          ultimo_movimiento: (ult as { al?: string } | undefined)?.al ?? null,
+        };
+      }
+
+      const corte = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal, estado: 'borrador' })
+        .first('id', 'folio', 'fecha');
+
+      // ── 3. Lo que NO se puede afirmar, dicho con nombre (ADR-056) ────────────────────────
+      const no_medido: string[] = [];
+      if (!hayCaos) {
+        no_medido.push('El feed del cajero (CAOS) no está en este entorno: del día sólo se puede cuadrar la caja general.');
+      } else if (sucursal !== '00') {
+        no_medido.push(`El cajero (CAOS) es un único dispositivo en oficinas: la sucursal ${sucursal} no tiene cajero que cuadrar.`);
+      } else {
+        no_medido.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');
+      }
+      if (!corte) {
+        no_medido.push('No hay corte abierto en esta sucursal, así que el día no se puede comparar contra un conteo físico: esto es el movimiento REGISTRADO, no un arqueo firmado.');
+      }
+      no_medido.push('La cola de Kepler no entra en este cuadre: el ERP tarda una mediana de 3 días en capturar el documento, así que el efectivo de hoy todavía no está allá.');
+      if (cajero && (cajero['tipos_desconocidos'] as unknown[]).length > 0) {
+        no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');
+      }
+
+      return {
+        fecha: dia,
+        sucursal,
+        caja_general: {
+          movimientos: Number(libro?.movimientos ?? 0),
+          cancelados: Number(libro?.cancelados ?? 0),
+          ingresos, gastos, depositos,
+          // Lo que el día le dejó a la caja chica según el libro. Sin fondo inicial: eso compone el
+          // `esperado` del corte y vive gateado en `saldo()` (CG.19, arqueo ciego).
+          neto: Number((ingresos - gastos - depositos).toFixed(2)),
+        },
+        cajero,
+        corte_abierto: corte
+          ? { id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10) }
+          : null,
+        no_medido,
       };
     });
   }
