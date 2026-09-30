@@ -5,6 +5,18 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test`
+- **TK.14**: se quitó «fiscal / no fiscal» de la carta PDF, reporte por cliente, anexo (AX), guía de
+  cobranza y del tipo de documento («Factura Cont No Fiscal» → «Factura de contado»).
+- **TK.a3**: las 4 fallas de `view:test` eran de main. Dos, una prueba escrita para el tablero que
+  inventaba KPIs (`[AUD-DAT.21]` los pasó a `null`). Dos, un descableado a medias de Costo estándar
+  que dejó el nodo del árbol y el candidato de la portada apuntando a una ruta comentada — un 404
+  real para diez roles en prod.
+- **Lección**: *descablear una pantalla es cuatro lugares, no dos* — ruta, menú, nodo de
+  `authz-tree` (alimenta «Mi trabajo») y candidato de `permission.guard` (la portada del proyecto).
+  `landing-guards.spec` es el que lo detecta.
+- Suites completas: `view` 1,333 · `commercial` 299 · `api` 23 · `contracts` 233, todo verde.
+
 ## 2026-09-30 — TK.12 + TK.13: bandeja de tickets por filtros, y desglose por pieza y partida
 - **Bandeja** (`/comercial/tickets`): sucursal · rango · cliente, y buscador por folio/clave/nombre.
   Sin `ORDER BY` en el ERP → el tope se DECLARA (`truncado`). ⚠️ No medida contra volumen real.

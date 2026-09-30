@@ -646,7 +646,7 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 <div class="rule"></div>
 
 <div class="nofiscal"><span class="badge">Anexo</span>
-  <span>Documento <b>informativo, sin validez fiscal</b>. Tu comprobante es el CFDI timbrado que se entrega junto a este detalle.</span></div>
+  <span>Documento <b>informativo</b>. Tu comprobante es el CFDI timbrado que se entrega junto a este detalle.</span></div>
 
 <!-- Tres columnas, no dos: el alto de esta tira lo fijaba la columna MÁS LARGA, y "Datos del
      pedido" tenía 7 renglones contra 4 del cliente — 3 renglones de alto pagados en blanco al

@@ -311,7 +311,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
           { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
-          { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
+          // ⛔ [CE.6] DESCABLEADO 2026-09-30, igual que su ruta en app.routes.ts, su renglón del
+          // menú y su candidato de la portada: `compras-costo-estandar.component.ts` no está en
+          // main. Este nodo alimenta las tarjetas de «Mi trabajo»: dejarlo le ofrecía a los diez
+          // roles que ya tienen el permiso en prod una tarjeta hacia una página inexistente.
+          // Se vuelve a cablear en el mismo commit que suba el componente.
+          // { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           // WMS-REC.8 — misma pareja de permisos que Hallazgos (la bandeja es del

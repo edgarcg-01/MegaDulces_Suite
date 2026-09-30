@@ -48,7 +48,9 @@ const MARCA = 'DEV-SEED-TK10';
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 /** Usuario y contraseña son el mismo: es andamio local, no una cuenta. */
 const USUARIO = 'dev_tk10';
-const EMISOR = 'EMISOR DE DESARROLLO LOCAL (NO FISCAL)';
+const EMISOR = 'EMISOR DE DESARROLLO LOCAL';
+/** El nombre que usaban las corridas anteriores: `--limpiar` también lo borra. */
+const EMISOR_VIEJO = 'EMISOR DE DESARROLLO LOCAL (NO FISCAL)';
 const SUCURSALES = ['01', '02', '03'];
 const DIAS = 10;
 const limpiar = process.argv.includes('--limpiar');
@@ -93,7 +95,7 @@ async function borrar(trx) {
   const nu = await trx('kepler_ods.kdud').whereIn('c2', CLIENTES.map((c) => c[0])).del();
   const nv = await trx('kepler_ods.kduv').whereIn('c2', [...CAJEROS, ...VENDEDORES].map((c) => c[0])).del();
   const nx = await trx('identity.users').where({ tenant_id: TENANT, username: USUARIO }).del();
-  const ne = await trx('fiscal.issuer_config').where({ tenant_id: TENANT, tax_name: EMISOR }).del();
+  const ne = await trx('fiscal.issuer_config').where({ tenant_id: TENANT }).whereIn('tax_name', [EMISOR, EMISOR_VIEJO]).del();
   return { documentos: n1, renglones: n2.rowCount, clientes: nu, personal: nv, usuario: nx, emisor: ne };
 }
 

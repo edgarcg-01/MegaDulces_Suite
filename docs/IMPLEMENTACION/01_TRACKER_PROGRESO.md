@@ -6091,6 +6091,26 @@ TP.6-TP.8+TP.10".
       venta rotulada «Venta»; la partida entera alineada a la derecha y sus impuestos 12 mm (8
       caracteres) antes del borde. Verificado: los 282 documentos del seed cuadran partida por
       partida y contra el total, y el PDF se leyó a ojo. · *2026-09-30*
+- [x] **[TK.14]** 🧪 **Sin «fiscal» ni «no fiscal» en ningún papel** (pedido del usuario
+      2026-09-30). Pie de la carta PDF, reporte por cliente, anexo de venta (AX) y guía de cobranza;
+      y el tipo de documento «Factura Cont No Fiscal» (rótulo de la vista del ERP) sale como
+      «Factura de contado» por `rotuloSinFiscal()`, limpiado en el servicio de tickets y NO en la
+      vista, porque otros consumidores sí distinguen por ese texto. ⚠️ Los chips «fiscal / no
+      fiscal» de las comprobaciones de gasto (Finanzas) NO se tocaron: otro dominio y trabajo en
+      curso de la sesión de gastos. Con prueba negativa (reponer la leyenda en el pie la pone roja).
+      · *2026-09-30*
+- [x] **[TK.a3]** 🧪 **Las 4 pruebas en rojo de `view:test` que venían de main**, arregladas:
+      · `detalle-home.service.spec.ts` (2) seguía afirmando el tablero de ANTES de `[AUD-DAT.21]`:
+        su doble no traía `salesByRouteDashboard` (el servicio tronaba) y exigía `> 0` en clientes y
+        unidades, que hoy se DECLARAN en `null` porque se inventaban (clientes = tickets × 0.45).
+        Reescrita contra el contrato actual, con números exactos y el margen sólo de lo que tiene
+        costo.
+      · `landing-guards` «NO REBOTE» y `mi-trabajo` «filtra los módulos…» — misma causa: el commit
+        `755256028` descableó la ruta y el menú de Costo estándar (su componente no está en main)
+        pero dejó su nodo en `authz-tree` y su candidato en `permission.guard`. Bug real, no sólo de
+        la prueba: los diez roles con `COMPRAS_COSTO_ESTANDAR_VER` en prod veían una tarjeta y una
+        portada hacia un 404. Descableados también, comentados con la nota de volver a cablearlos
+        junto con el componente. · *2026-09-30*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
       la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
