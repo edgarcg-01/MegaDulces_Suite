@@ -71,7 +71,134 @@ const DEUDA = new Map([
   }],
 ]);
 
+/**
+ * DEUDA DECLARADA DE LA 2a AGUJA -- las 79 que la compuerta escondia hasta el 2026-09-29.
+ *
+ * No se silencian: se CUENTAN y se imprimen en cada corrida. La compuerta nacio mirando
+ * `min-width` y por eso daba VERDE a toda tabla que declarara su ancho como anchos de columna
+ * en CSS. Al abrirle el segundo ojo aparecieron 79 de golpe: no son una regresion, son lo que
+ * ya estaba y no se veia. La peor tiene 30 columnas.
+ *
+ * La IDENTIDAD importa, no el conteo: un archivo nuevo que no este en esta lista ROMPE la
+ * compuerta aunque ese mismo dia se haya arreglado otro. Un techo numerico dejaria pasar el
+ * cambio uno-por-uno.
+ *
+ * Podar esta lista AVISA pero no rompe, al reves que DEUDA: son 79 entradas repartidas entre
+ * ~10 sesiones, y hacer fallar el build del que arreglo una pantalla ajena es exactamente como
+ * se termina apagando una compuerta.
+ */
+const DEUDA_COLUMNAS = new Set([
+  'apps/view/src/app/modules/almacen/pages/almacen-analisis-bi.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-autoabasto.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-cuadre.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-movimientos.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesion.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesiones.component.ts',
+  'apps/view/src/app/modules/almacen/pages/almacen-riesgo.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-comisiones.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-customers-360.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-dead-stock.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-egreso-detalle.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-egresos.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-inventory-expiring.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-inventory-health.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-inventory-session-detail.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-inventory-variance.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-order-detail.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-pricing.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-promotions.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-razonamiento.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-rentabilidad.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-route-tickets.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-salidas.component.ts',
+  'apps/view/src/app/modules/comercial/pages/comercial-tickets.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-catalogo.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-cuadre-proveedor.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-entradas-control.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-entradas.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-existencia-critica.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-flujo.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-hallazgos.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-oc-abiertas.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-ordenes.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-proveedores.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-que-toca.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-requisicion-detalle.component.ts',
+  'apps/view/src/app/modules/compras/pages/compras-requisiciones.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/contabilidad-cfdi.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/contabilidad-descarga.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/contabilidad-diagnostico.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/contabilidad-facturar.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/libro-compras/libro-compras.component.ts',
+  'apps/view/src/app/modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component.ts',
+  'apps/view/src/app/modules/dashboard/routes-analysis/routes-analysis.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/bancos/bancos-capturas.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/bancos/bancos-contpaqi.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/bancos/bancos-cuentas.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/bancos/bancos-three-way.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/bancos/caja-ingreso-ref.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/caja-general/finanzas-caja-general.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/caos/finanzas-caos.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-caja.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-cancelados.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-cartera-dia.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-cartera.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-cobranza.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-pagos-comprobantes.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-presupuesto.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-programa-pagos.component.ts',
+  'apps/view/src/app/modules/finanzas/pages/finanzas-solicitudes.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-actividad.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-costs.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-fleet.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-gasto-ruta.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-payroll.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-reports.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-shipments.component.ts',
+  'apps/view/src/app/modules/logistica/pages/logistica-staff.component.ts',
+  'apps/view/src/app/modules/reparto/pages/home-delivery-tracking.component.ts',
+  'apps/view/src/app/modules/televenta/pages/televenta-quote-new.component.ts',
+  'apps/view/src/app/modules/tienda/analisis/analisis-cascada.component.ts',
+  'apps/view/src/app/modules/tienda/analisis/analisis-clientes.component.ts',
+  'apps/view/src/app/modules/tienda/analisis/analisis-productos.component.ts',
+  'apps/view/src/app/modules/tienda/analisis/analisis-top.component.ts',
+  'apps/view/src/app/modules/tienda/pages/tienda-arqueo.component.ts',
+  'apps/view/src/app/modules/tienda/pages/tienda-caducidades-expediente.component.ts',
+  'apps/view/src/app/modules/tienda/pages/tienda-cajas.component.ts',
+]);
+
 const RE_MINWIDTH = /'min-width'\s*:\s*'([0-9.]+)rem'/g;
+
+/**
+ * ⛔ SEGUNDA AGUJA — el falso negativo que esta compuerta tuvo desde el día uno (hallado 2026-09-29
+ * revisando `/compras/costo-estandar`).
+ *
+ * La primera aguja busca `min-width`, porque así declaran su ancho las tablas que la compuerta
+ * nació mirando. Pero **el ancho se puede declarar de otra forma**: esa pantalla lo ponía como
+ * anchos de columna en su CSS —`6 + 4 + 4.5 + 8×3 + 6 + 6.5 + 11 = 62rem = 992 px`— y la compuerta
+ * imprimía *"ninguna NUEVA sin salida en estrecho"* sobre una tabla que desborda 2.3× un teléfono.
+ * Una compuerta que sólo conoce una sintaxis miente sobre su propia cobertura.
+ *
+ * Sumar los `width:` del CSS sería frágil (hay que saber qué selector cae en un `<th>`). El
+ * proxy robusto es **cuántas columnas tiene la fila de encabezado más ancha**: se lee del
+ * template, no depende de cómo se escribió el ancho, y 8 columnas densas no entran en 430 px
+ * aunque ninguna declare nada.
+ *
+ * Se cuenta POR `<tr>`, no por archivo: un archivo con tres tablas de cuatro columnas suma doce
+ * y ninguna de las tres es ancha. El máximo de un solo encabezado es la cifra que importa.
+ */
+const UMBRAL_COLS = 8;
+
+function maxColumnas(src) {
+  let max = 0;
+  for (const chunk of src.split(/<tr[\s>]/)) {
+    const n = chunk.split(/<th[\s>]/).length - 1;
+    if (n > max) max = n;
+  }
+  return max;
+}
 
 function analizar(src) {
   const anchos = [];
@@ -80,8 +207,13 @@ function analizar(src) {
   while ((m = RE_MINWIDTH.exec(src)) !== null) anchos.push(parseFloat(m[1]));
 
   const grandes = anchos.filter((n) => n >= UMBRAL_REM);
-  if (!grandes.length) return null;
+  const cols = maxColumnas(src);
+  // Ancha por columnas SOLO cuando no declaró min-width: si lo declaró y es chico, la pantalla ya
+  // dijo cuánto mide y se le cree — el conteo de columnas es el sustituto de una declaración que falta.
+  const anchaPorColumnas = !anchos.length && cols >= UMBRAL_COLS;
+  if (!grandes.length && !anchaPorColumnas) return null;
 
+  const porColumnas = !grandes.length;
   const tieneStack = /\bdt-stack\b/.test(src);
   const tieneMatrix = /\bdt-matrix-ok\b/.test(src);
   const tieneScope = /\bdt-scope\b/.test(src);
@@ -89,14 +221,19 @@ function analizar(src) {
   if (!tieneStack && !tieneMatrix) {
     return {
       anchos: grandes,
-      motivo:
-        'declara min-width >= ' + UMBRAL_REM + 'rem y no dice qué hace en estrecho: ' +
-        'le falta dt-stack (+ dt-scope), o dt-matrix-ok si es un pivote.',
+      cols,
+      motivo: porColumnas
+        ? 'su encabezado más ancho tiene ' + cols + ' columnas y NO declara min-width, así que ' +
+          'nada dice qué hace en estrecho: le falta dt-stack (+ dt-scope), o dt-matrix-ok si es ' +
+          'un pivote. (Declarar el min-width real tampoco la salva: la deja del otro lado del umbral.)'
+        : 'declara min-width >= ' + UMBRAL_REM + 'rem y no dice qué hace en estrecho: ' +
+          'le falta dt-stack (+ dt-scope), o dt-matrix-ok si es un pivote.',
     };
   }
   if (tieneStack && !tieneScope) {
     return {
       anchos: grandes,
+      cols,
       motivo:
         'lleva dt-stack pero NINGÚN dt-scope: sin contenedor declarado la consulta no mide nada ' +
         'y el apilado no ocurre. Se ve igual de roto, pero en verde.',
@@ -115,6 +252,20 @@ if (process.argv.includes('--self-test')) {
     ['stack con scope', "<div class=\"dt-scope\"> [tableStyle]=\"{ 'min-width': '60rem' }\" styleClass=\"dt-stack\"", false],
     ['pivote declarado', "[tableStyle]=\"{ 'min-width': '60rem' }\" styleClass=\"dt-matrix-ok\"", false],
     ['angosta, no aplica', "[tableStyle]=\"{ 'min-width': '32rem' }\"", false],
+
+    // ── 2ª aguja: ancho declarado como COLUMNAS, sin min-width ───────────────────────────────
+    // El caso REAL que se coló: /compras/costo-estandar, 10 columnas y 62rem repartidos en CSS.
+    ['10 columnas sin min-width ni salida', '<tr>' + '<th>x</th>'.repeat(10) + '</tr>', true],
+    ['justo en el umbral de columnas', '<tr>' + '<th>x</th>'.repeat(8) + '</tr>', true],
+    ['10 columnas con scope+stack', '<div class="dt-scope"><tr>' + '<th>x</th>'.repeat(10) + '</tr> styleClass="dt-stack"', false],
+    ['10 columnas con stack pero sin scope', '<tr>' + '<th>x</th>'.repeat(10) + '</tr> styleClass="dt-stack"', true],
+    ['7 columnas: cabe, no aplica', '<tr>' + '<th>x</th>'.repeat(7) + '</tr>', false],
+    // ⛔ El falso positivo que obliga a contar POR FILA y no por archivo: tres tablas chicas
+    // suman 15 <th> y ninguna de las tres es ancha.
+    ['tres tablas de 5, ninguna ancha', ('<tr>' + '<th>x</th>'.repeat(5) + '</tr>').repeat(3), false],
+    // Si ya declaró un ancho y es chico, se le cree: el conteo sustituye a una declaración
+    // AUSENTE, no la contradice.
+    ['angosta declarada, con muchas columnas', "[tableStyle]=\"{ 'min-width': '32rem' }\" <tr>" + '<th>x</th>'.repeat(10) + '</tr>', false],
   ];
   let fallos = 0;
   for (const [nombre, src, debeFallar] of casos) {
@@ -155,19 +306,27 @@ const archivos = [];
 for (const app of APPS) recorrer(path.join(RAIZ, app), archivos);
 
 const malos = [];
+/** Las de la 2a aguja que ya estaban: se cuentan e imprimen, no rompen. */
+const cohorte = [];
 const enDeuda = [];
 const vistos = new Set();
 let conAncho = 0;
 
 for (const f of archivos) {
   const src = fs.readFileSync(f, 'utf8');
-  if (!src.includes('min-width')) continue;
+  // ⛔ Acá estaba el agujero: el barrido SALTABA todo archivo sin `min-width`, así que la segunda
+  // aguja nunca habría llegado a mirarlo. Ahora entra cualquier archivo que tenga encabezado de
+  // tabla; los que no tienen ni `<th` ni ancho declarado siguen sin costar nada.
+  if (!src.includes('min-width') && !src.includes('<th')) continue;
   const rel = path.relative(RAIZ, f).replace(/\\/g, '/');
   const r = analizar(src);
   if (r) {
     conAncho++;
     vistos.add(rel);
     if (DEUDA.has(rel)) enDeuda.push({ rel, ...DEUDA.get(rel), ...r });
+    // Deuda de la 2a aguja: la pantalla ya estaba asi antes de que la compuerta pudiera verla.
+    // Se cuenta y se imprime aparte; lo que NO puede pasar es que entre una nueva.
+    else if (!r.anchos.length && DEUDA_COLUMNAS.has(rel)) cohorte.push({ rel, ...r });
     else malos.push({ rel, ...r });
   } else if (/'min-width'\s*:\s*'[0-9.]+rem'/.test(src)) {
     conAncho++;
@@ -181,6 +340,15 @@ for (const f of archivos) {
 
 // La lista de deuda se cae sola cuando sobra: un archivo que ya se arregló (o que se renombró)
 // tiene que SALIR de la lista, y eso sólo pasa si la compuerta lo reclama.
+// La cohorte de la 2a aguja se poda con AVISO, no con rojo: ver el comentario de DEUDA_COLUMNAS.
+const podables = [...DEUDA_COLUMNAS].filter((d) => !cohorte.some((e) => e.rel === d));
+if (podables.length) {
+  console.log(`\n✅ ${podables.length} pantalla(s) de la deuda por columnas ya NO la necesitan:`);
+  for (const s of podables.slice(0, 10)) console.log(`   · ${s}`);
+  if (podables.length > 10) console.log(`   · …y ${podables.length - 10} más`);
+  console.log('   Sacalas de DEUDA_COLUMNAS en scripts/check-dense-tables.js.\n');
+}
+
 const sobrantes = [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d));
 if (sobrantes.length) {
   console.error('\n❌ Estos archivos están en la lista de deuda y ya no la necesitan:');
@@ -194,7 +362,11 @@ if (malos.length) {
   console.error('');
   for (const m of malos) {
     console.error(`❌ ${m.rel}`);
-    console.error(`   min-width: ${m.anchos.map((n) => n + 'rem').join(', ')}`);
+    console.error(
+      m.anchos.length
+        ? `   min-width: ${m.anchos.map((n) => n + 'rem').join(', ')}`
+        : `   columnas: ${m.cols} en el encabezado más ancho (sin min-width declarado)`,
+    );
     console.error(`   ${m.motivo}`);
   }
   console.error(`\n${malos.length} de ${conAncho} tabla(s) anchas sin salida en estrecho.`);
@@ -221,7 +393,18 @@ const deudaTxt = enDeuda.length
     '\n   No son un aprobado: son el trabajo que falta. Tracker: [UIM.2].'
   : '';
 
+// La cohorte de la 2a aguja se imprime SIEMPRE, con su peor caso. Un número que no se ve cada
+// corrida deja de doler, y este mide cuántas pantallas densas no entran hoy en un teléfono.
+const cohorteTxt = cohorte.length
+  ? `\n⚠️  ${cohorte.length} pantalla(s) en DEUDA por ANCHO DE COLUMNAS (2ª aguja, 2026-09-29):\n` +
+    `     ocho columnas o más y sin min-width declarado, o sea nada dice qué hacen en un teléfono.\n` +
+    `     Las peores: ` +
+    [...cohorte].sort((a, b) => b.cols - a.cols).slice(0, 5)
+      .map((c) => `${c.rel.split('/').pop().replace('.component.ts', '')} (${c.cols})`).join(' · ') +
+    `\n   No son un aprobado: es lo que la compuerta no podía ver hasta hoy. Tracker: [UIM.2].`
+  : '';
+
 console.log(
-  `✅ ${archivos.length} componente(s) · ${conAncho} tabla(s) con ancho mínimo declarado: ` +
-  `ninguna NUEVA sin salida en estrecho.${deudaTxt}`,
+  `✅ ${archivos.length} componente(s) · ${conAncho} tabla(s) con ancho declarado: ` +
+  `ninguna NUEVA sin salida en estrecho.${deudaTxt}${cohorteTxt}`,
 );
