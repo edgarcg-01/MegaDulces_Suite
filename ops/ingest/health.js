@@ -53,9 +53,30 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
   });
   try {
     await c.connect();
+    // ⛔ [OBS.4.3] UNA CORRIDA EN CURSO **ES** ENTREGA. Acá decía `COALESCE(last_finish,
+    // last_start)` a secas, o sea que la antigüedad se medía SIEMPRE contra el último FIN. Para
+    // un carril diario eso es un abrazo mortal, y se cobró:
+    //
+    //   `ods-reconcile-full` corre una vez al día (02:10 MX) y su tope es 1560 min (26 h).
+    //   Arranca, `hb.begin()` marca `running` y reclama el host — pero `last_finish` sigue siendo
+    //   el de AYER, así que este chequeo lo lee como vencido, sale 1, y `ods-autoheal` reinicia
+    //   el contenedor a los ~10 minutos. El trabajo muere a mitad, nunca escribe `last_finish`,
+    //   y al día siguiente pasa exactamente lo mismo.
+    //
+    //   Medido en `md` el 2026-09-30: **109 reinicios en 30 h**, uno cada 15 min clavados, y en
+    //   el log del contenedor el trabajo aparece arrancando a las 08:10:00Z (= 02:10 MX) y
+    //   cortándose ahí. El sensor de db-health lo reportaba como «SIN CORRER hace 36 h; la última
+    //   terminó bien». Las dos cosas eran ciertas: arrancaba cada noche y lo mataban.
+    //
+    // Con `running` la antigüedad se mide contra `last_start`, que es lo que de verdad dice si
+    // está trabajando. ⚠️ Y se mide, no se exime: un proceso COLGADO en `running` supera `MAX_MIN`
+    // igual y se reinicia — que es lo correcto. La diferencia es entre «lleva 5 min produciendo»
+    // y «lleva 26 h clavado», que antes se leían idéntico.
     const filas = (await c.query(
       `SELECT job_key, status, host,
-              GREATEST(EXTRACT(EPOCH FROM (now() - COALESCE(last_finish, last_start)))/60, 0) AS min_age
+              GREATEST(EXTRACT(EPOCH FROM (now() - CASE WHEN status = 'running'
+                                                        THEN COALESCE(last_start, last_finish)
+                                                        ELSE COALESCE(last_finish, last_start) END))/60, 0) AS min_age
          FROM analytics.cron_runs WHERE tenant_id=$1 AND job_key = ANY($2)`, [TENANT, KEYS])).rows;
 
     // ── Modo CANARIO (varias claves): sano si CUALQUIERA entrega. Ver el encabezado.

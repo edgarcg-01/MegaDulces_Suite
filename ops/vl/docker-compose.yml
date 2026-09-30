@@ -298,8 +298,33 @@ services:
     # Misma forma que `feeds-cron`: la agenda es un archivo del repo, horneado en la imagen.
     entrypoint: ["/bin/sh", "-c"]
     command: ["crontab /app/ops/vl/crontab.reconcile-full && exec crond -f -d 8"]
+    # ⛔ [OBS.4.3] ESTE CONTENEDOR ES UN PLANIFICADOR, NO UN CARRIL — y confundirlo se comió el
+    # trabajo todas las noches.
+    #
+    # Tenía el healthcheck de ENTREGA (`ops/ingest/health.js`), que exige que el latido del carril
+    # sea reciente. Los demás carriles corren con `--watch` y laten seguido, así que les calza. Éste
+    # corre UNA VEZ AL DÍA y, peor, escribe su latido **sólo al TERMINAR** (`latir()` en
+    # reconcile-ods-window.js; no usa `hb.begin()`, o sea que nunca existe un estado `running`).
+    #
+    # Resultado medido en `md` el 2026-09-30:
+    #   1. el despliegue de hace 28 h creó un contenedor nuevo, con hostname nuevo;
+    #   2. la fila de `cron_runs` seguía con el hostname del PREDECESOR (la escribió él, el 29-sep);
+    #   3. la guarda de dueño de health.js dice "lo late otro, no yo" y sale 1 — sin mirar la edad,
+    #      o sea que un CADÁVER bloquea el carril igual que un competidor vivo;
+    #   4. `ods-autoheal` lo reinicia: **109 reinicios en 30 h, uno cada 15 min clavados**;
+    #   5. el trabajo dispara a las 02:10 MX, corre ~10 min y el reinicio lo MATA antes de
+    #      `latir()` → la fila nunca se actualiza → el hostname sigue siendo ajeno → volver a (3).
+    #
+    # El tablero lo reportaba como «SIN CORRER hace 36 h; la última terminó bien». Las dos mitades
+    # eran ciertas: arrancaba cada noche y lo mataban.
+    #
+    # Ahora el chequeo verifica lo que este contenedor SÍ es responsable de: que su planificador
+    # esté vivo. La ENTREGA la juzga `db-health` con el umbral de `cdc_reconcile_full` en
+    # `CRON_JOBS` (warnH 25 / critH 30) — que es el canal que destapó esto, y que por ADR-053 tiene
+    # que ser distinto del que se vigila. Matar al planificador porque su carga diaria todavía no
+    # aterrizó es pedirle a un reloj que demuestre la hora antes de darle cuerda.
     healthcheck:
-      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      test: ["CMD-SHELL", "pidof crond >/dev/null"]
       interval: 300s
       timeout: 30s
       start_period: 300s
