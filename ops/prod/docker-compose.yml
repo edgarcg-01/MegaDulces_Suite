@@ -396,12 +396,23 @@ services:
     environment:
       TZ: America/Mexico_City
       NODE_ENV: production
-      # ⭐ [INFRA.1] ACÁ NO ES PREPARACIÓN, ES UN HUECO QUE SE CIERRA HOY.
-      # `finance-jobs.service.ts` lo dice en su propio encabezado: "hace falta REDIS_URL
-      # para que el `emit` del worker llegue a los sockets del API". Los dos procesos
-      # tienen servidores io SEPARADOS, así que hasta ahora un evento nacido en un cron
-      # del worker se emitía contra un servidor sin un solo cliente conectado: no llegaba
-      # a nadie, y no fallaba nada — el modo de falla favorito de este sistema.
+      # [INFRA.1] Acá `REDIS_URL` da CACHÉ COMPARTIDA con el API y deja lista la cola de
+      # BullMQ. Nada más — y conviene decir qué NO da, porque la primera versión de este
+      # comentario afirmaba que cerraba el hueco de tiempo real del worker, y es falso:
+      #
+      # ⛔ EL WORKER NO TIENE SERVIDOR io. `main.ts` lo arranca con
+      # `createApplicationContext` (sin HTTP ni WS), así que no hay servidor al que
+      # enganchar el adapter — el log del worker, a diferencia del de `api`, no imprime
+      # ninguna línea de `SocketIOAdapter`. Y los gateways empiezan con
+      # `if (!this.server) return;`, o sea que un `emit` nacido en un cron del worker es
+      # un **no-op silencioso**: no llega a nadie y no falla nada.
+      #
+      # `finance-jobs.service.ts` dice "hace falta REDIS_URL para que el emit del worker
+      # llegue a los sockets del API". Es cierto y es INSUFICIENTE: falta además
+      # `@socket.io/redis-emitter` (NO instalado — verificado), que es justamente la pieza
+      # que publica a estos mismos canales desde un proceso sin servidor io.
+      #
+      # DECLARADO, con nombre: el tiempo real originado en el worker sigue sin llegar.
       REDIS_URL: redis://redis:6379
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
