@@ -546,7 +546,7 @@ function sweepStaleOrphans(steps) {
     const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
     // pathOf: una entrada puede ser `[ruta, ...flags]` (ver arriba); basename() sobre el Array explota.
     const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
-    const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
+    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps1,
       '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
       // windowsHide: el default de Node es FALSE y esto abriría una consola en el escritorio
       // cada vez que el orquestador arranca. Mismo criterio que `lib/access-adapter.js`.

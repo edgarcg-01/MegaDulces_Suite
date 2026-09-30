@@ -333,7 +333,10 @@ async function flushJet(c, schema, table, cols, conflict, dataset, rows, occ) {
 /** Un solo scan Jet → JSONL a temp → se consume línea por línea (memoria constante). */
 async function streamTableJet(mdb, table, onBatch, batchRows) {
   const out = path.join(os.tmpdir(), `wcj_h_${process.pid}_${Date.now()}.jsonl`);
-  const res = spawnSync(A.PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', A.READ_PS,
+  // `-WindowStyle Hidden`: `windowsHide` de Node NO se aplica bajo PM2 — medido el 2026-09-29,
+  // el conhost nace SIN `--headless`, o sea con ventana. Este va del lado de PowerShell.
+  const res = spawnSync(A.PS32, ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+    '-ExecutionPolicy', 'Bypass', '-File', A.READ_PS,
     '-Mdb', mdb, '-Table', table, '-Columns', '*', '-Out', out],
   { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
   if (res.error || res.status !== 0) {

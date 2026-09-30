@@ -61,7 +61,7 @@ function runQuery(mdb, query) {
   // windowsHide: sin esto, cada lectura del .mdb abre una consola de PS32 en el escritorio.
   // `run-wincaja-live.ps1` llama a este extractor DOS veces por pasada (ventas + movimientos) y
   // la tarea corre cada 10 min. Mismo arreglo que ya tenía `lib/access-adapter.js`.
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true });
+  const res = spawnSync(PS32, ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true });
   if (res.status !== 0) throw new Error(`extract-query falló: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   try {
     return fs.readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));

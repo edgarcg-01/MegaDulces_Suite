@@ -32,11 +32,33 @@ function tmpOut(tag) {
   return path.join(os.tmpdir(), `acc_${tag}_${Date.now()}_${Math.round(process.hrtime()[1] % 1e6)}.jsonl`);
 }
 
-/** Corre un .ps1 en PS 32-bit. Lanza si status != 0. Devuelve el stdout (para el "ROWS=n"/"TABLES=n"). */
+/**
+ * Corre un .ps1 en PS 32-bit. Lanza si status != 0. Devuelve el stdout (para el "ROWS=n"/"TABLES=n").
+ *
+ * ── POR QUE DOS CANDADOS Y NO UNO ───────────────────────────────────────────────────────────
+ * `windowsHide: true` se agrego el 2026-08-20 para que cada lectura del `.mdb` no abriera una
+ * consola en el escritorio. **No alcanza.** Medido en esta maquina el 2026-09-29 con el carril
+ * `wincaja-inc` corriendo bajo PM2 (arrancado ese mismo dia, o sea con este codigo):
+ *
+ *     conhost.exe  padre=powershell.exe(SysWOW64)  cmd="conhost.exe 0x4"
+ *
+ * Sin `--headless`. Cuando Windows aplica `CREATE_NO_WINDOW` —que es lo que `windowsHide` pide—
+ * el conhost se lanza CON `--headless`; el de otro proceso de la misma maquina lo traia. O sea
+ * que la bandera de Node **no se esta aplicando** en el arranque que hace PM2, y la ventana sale
+ * igual. No se diagnostico mas a fondo porque el remedio no depende de la causa.
+ *
+ * `-WindowStyle Hidden` es del lado de PowerShell y no pasa por libuv, asi que tapa el caso que
+ * `windowsHide` deja escapar. Se dejan **los dos**: si manana `windowsHide` vuelve a funcionar,
+ * no hay ventana ni siquiera un parpadeo; y si no, PowerShell se esconde sola.
+ *
+ * ⚠️ El orden importa: los parametros propios de `powershell.exe` van ANTES de `-File`. Todo lo
+ * que va despues de `-File` es argumento DEL SCRIPT, no del host.
+ */
 function runPs(psFile, args) {
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile, ...args], {
+  const res = spawnSync(PS32, ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+    '-ExecutionPolicy', 'Bypass', '-File', psFile, ...args], {
     encoding: 'utf8', maxBuffer: STDOUT_MAX,
-    windowsHide: true, // NO abrir ventana de consola por cada lectura (bajo PM2/interactivo salían visibles)
+    windowsHide: true, // no alcanza solo: ver el bloque de arriba
   });
   if (res.error) throw new Error(`PS32 no arrancó (${psFile}): ${res.error.message}`);
   if (res.status !== 0) throw new Error(`PS32 falló (${path.basename(psFile)}): ${(res.stderr || res.stdout || '').slice(0, 400)}`);
