@@ -88,6 +88,23 @@ export interface TicketVentaLinea {
   /** [TK.10] Precio pagado SIN impuestos. `null` = el desglose no cuadra. */
   precio_neto_desc: number | null;
   ieps_tasa: number;
+  /** [TK.13] Lo que se imprime: por pieza y por partida. Ver `DesgloseMonto`. */
+  desglose: { unitario: DesgloseMonto; partida: DesgloseMonto; descuento_cliente: number };
+}
+
+/**
+ * `[TK.13]` Un juego de valores del desglose: lista − descuento = c/desc → sin imp + IVA + IEPS = neto.
+ * El descuento ya incluye el del CLIENTE repartido en la partida. `null` = no se puede publicar
+ * (sin lista contra qué comparar, o el impuesto no reproduce la cabecera del ERP), nunca 0.
+ */
+export interface DesgloseMonto {
+  lista: number | null;
+  descuento: number;
+  con_descuento: number;
+  sin_impuestos: number | null;
+  iva: number | null;
+  ieps: number | null;
+  neto: number;
 }
 
 export interface TicketVentaCascada {
@@ -110,6 +127,8 @@ export interface TicketVentaCascada {
   ieps_lineas: number;
   /** [TK.10] Σ sin impuestos. Cierra: importe_neto + IEPS + IVA = total. `null` si no cuadra. */
   importe_neto: number | null;
+  /** [TK.13] Σ de las partidas, columna por columna: la fila de totales del desglose. */
+  desglose_total: DesgloseMonto;
 }
 
 export interface TicketVenta {
@@ -133,10 +152,64 @@ export interface TicketVenta {
   atendio: string | null;
   atendio_rol: string | null;
   impuestos_incluidos: boolean;
+  /**
+   * `[TK.13]` Razón social del EMISOR (de `fiscal.issuer_config`, la agrega el controller).
+   * `null`/ausente = no hay identidad configurada: el ticket omite el renglón, no lo inventa.
+   */
+  emisor_nombre?: string | null;
   lineas: TicketVentaLinea[];
   cascada: TicketVentaCascada;
   cuadra: boolean;
   aviso: string | null;
+}
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * `[TK.13]` El desglose de una partida. Lo manda el backend; si no viene —una API desplegada
+ * ANTES de este cambio— se deriva de los campos que ya existían, para que el papel no truene.
+ *
+ * ⚠️ El derivado NO puede repartir el descuento de cliente (para eso hace falta el documento
+ * completo, y lo hace el backend): en ese caso la partida muestra sólo el descuento por
+ * producto. No inventa: donde no hay lista, `null`; sin cuadre fiscal, impuestos en `null`.
+ */
+export function desgloseDe(l: TicketVentaLinea, desglosado: boolean): TicketVentaLinea['desglose'] {
+  if (l.desglose) return l.desglose;
+  const q = l.cantidad > 0 ? l.cantidad : 1;
+  const sin = desglosado ? r2(l.importe - l.iva - l.ieps) : null;
+  const partida: DesgloseMonto = {
+    lista: l.lista_conocida ? r2(l.precio_lista * l.cantidad) : null,
+    descuento: l.lista_conocida ? l.descuento_linea : 0,
+    con_descuento: l.importe, sin_impuestos: sin,
+    iva: desglosado ? l.iva : null, ieps: desglosado ? l.ieps : null, neto: l.importe,
+  };
+  const netoU = r2(l.importe / q);
+  const sinU = sin != null ? r2(sin / q) : null;
+  const impU = sinU != null ? r2(netoU - sinU) : null;
+  const unitario: DesgloseMonto = {
+    lista: l.lista_conocida ? l.precio_lista : null,
+    descuento: l.lista_conocida ? l.descuento_unitario : 0,
+    con_descuento: netoU, sin_impuestos: sinU,
+    iva: impU == null ? null : (l.impuesto_tipo === 'iva' ? impU : 0),
+    ieps: impU == null ? null : (l.impuesto_tipo === 'ieps' ? impU : 0),
+    neto: netoU,
+  };
+  return { unitario, partida, descuento_cliente: 0 };
+}
+
+/** `[TK.13]` La fila de totales: la del backend, o la suma de las partidas si no vino. */
+export function desgloseTotalDe(t: TicketVenta): DesgloseMonto {
+  if (t.cascada.desglose_total) return t.cascada.desglose_total;
+  const ps = t.lineas.map((l) => desgloseDe(l, t.cascada.impuesto_desglosado).partida);
+  const suma = (k: 'sin_impuestos' | 'iva' | 'ieps') =>
+    ps.some((p) => p[k] == null) ? null : r2(ps.reduce((a, p) => a + (p[k] as number), 0));
+  return {
+    lista: ps.some((p) => p.lista != null) ? t.cascada.importe_lista : null,
+    descuento: r2(ps.reduce((a, p) => a + p.descuento, 0)),
+    con_descuento: r2(ps.reduce((a, p) => a + p.con_descuento, 0)),
+    sin_impuestos: suma('sin_impuestos'), iva: suma('iva'), ieps: suma('ieps'),
+    neto: r2(ps.reduce((a, p) => a + p.neto, 0)),
+  };
 }
 
 /** Caracteres por renglón a 80 mm / 10px monoespaciada. Ver la cabecera: está MEDIDO. */
@@ -203,45 +276,86 @@ function envolver(texto: string, ancho = ANCHO): string[] {
 }
 
 /**
- * Un producto, en hasta TRES renglones (ver la cabecera: en 45 caracteres no hay columnas).
- *
- *     PALETA PAYASO CHICO 20G
- *       12 PZA x 5.00                        60.00
- *       Lista 6.00 · Desc -12.00 · IVA 8.28
- *
- *   1. **Nombre**, con el renglón entero para él. Es lo único de ancho variable y su p95 medido
- *      en el anexo es 41 caracteres, así que a 45 casi nunca se recorta.
- *   2. **La operación**: cuánto, por cuánto, igual a cuánto. Se lee sola, sin encabezado de
- *      columnas — que a este ancho costaría un renglón por ticket y no cabría igual.
- *   3. **Lo que hay que declarar**: precio de lista, descuento e impuesto. ⚠️ Si no hay nada
- *      que declarar, este renglón NO se imprime: un `Desc 0.00` se leería como «te descontamos
- *      cero», y un `IVA 0.00` como «no causó», cuando puede ser que no se sepa.
- *
- * ⭐ IVA e IEPS se escriben con su nombre y no con una letra clave. En el formato anterior iban
- * en una celda de 11 caracteres y había que rotular `V=IVA I=IEPS` en el encabezado; acá el
- * renglón es libre, así que la palabra entra y la leyenda sobra. Sigue valiendo el hecho que lo
- * permite: **nunca coinciden** en el mismo renglón (0 de 123,203, en los tres doctipos).
+ * `[TK.13]` Cuánto se separa del borde derecho el renglón de impuestos de la PARTIDA: 12 mm,
+ * pedido por el usuario. A 10px Courier cada carácter mide 6px = 1.5875 mm → 12 mm son 7.56
+ * caracteres; se redondea a 8 (12.7 mm). ⚠️ Si cambia `ANCHO` o el font-size, se recalcula.
  */
-function producto(nombre: string, operacion: string, importe: string, declara: string[]): string[] {
-  const out = [esc(corta(nombre, ANCHO))];
-  out.push(fila('  ' + operacion, importe));
+const SANGRIA_IMP_PARTIDA = 8;
 
-  // ⚠️ Se empaca por CONCEPTO, no por palabra. `envolver()` parte por `\s+`, y con montos
-  // grandes ("Lista 58.88 · Desc -2,381.40 · IEPS 1,655.42" son 44 y no caben en los 43 útiles)
-  // eso dejaba `IEPS` al final de un renglón y `1,655.42` al principio del siguiente: una
-  // etiqueta separada de su monto, que es exactamente lo que un desglose no puede hacer.
-  // ⚠️ Y el sangrado se agrega DESPUÉS de componer cada renglón: anteponerlo al texto lo pierde,
-  // porque el envoltorio rejunta con un solo espacio.
-  const util = ANCHO - 2;
-  let ln = '';
-  for (const item of declara) {
-    if (!ln) ln = item;
-    else if ((ln + ' · ' + item).length <= util) ln += ' · ' + item;
-    else { out.push(esc('  ' + ln)); ln = item; }
+/**
+ * Un renglón pegado al borde DERECHO, dejando `hueco` caracteres libres al final. Si no cabe
+ * con el hueco, se pega al borde; si ni así cabe, se recorta — un renglón del rollo nunca pasa
+ * de `ANCHO` (se partiría en el papel y lo que se parte es el importe).
+ */
+function aLaDerecha(t: string, hueco = 0): string {
+  const h = t.length + hueco <= ANCHO ? hueco : 0;
+  const s = t.length + h <= ANCHO ? t : corta(t, ANCHO - h);
+  return esc(' '.repeat(ANCHO - h - s.length) + s + ' '.repeat(h));
+}
+
+/**
+ * `[TK.13]` Una partida en el rollo, en el acomodo que eligió el usuario (maqueta «C»):
+ *
+ *     PALOMITA JUMBO QUESO 800GR FROCKITAS    00038   ← 1 · nombre · código
+ *       c/u 75.31 -9.08 = 66.23                       ← 2 · valor unitario
+ *       s/imp 57.10 + IVA 16% 9.13                    ← 3 · impuestos del unitario
+ *                   x4 PZA 301.24 -36.32 = 264.92     ← 4 · la partida, TODA a la derecha
+ *               s/imp 228.38 + IVA 36.54              ← 5 · sus impuestos, 12 mm antes del borde
+ *
+ * ⭐ La columna derecha trae SIEMPRE el importe de la partida, y su suma es el TOTAL del ticket.
+ * Por eso, con UNA pieza (donde unitario = partida y no hay renglones 2–3), el único renglón de
+ * la cuenta va a la derecha y el de impuestos con la misma sangría de 12 mm.
+ *
+ *   · Sin descuento no se imprime `-0.00` (se leería «te descontamos cero»).
+ *   · El renglón `s/imp` sólo va si el impuesto cuadra con la cabecera del ERP y el producto lo
+ *     causa: si no causa ninguno, «sin impuestos» es el mismo número que el neto.
+ *   · IVA e IEPS nunca coinciden en un renglón (0 de 123,203), así que va uno u otro.
+ */
+function partidaTermica(l: TicketVentaLinea, desglosado: boolean): string[] {
+  const d = desgloseDe(l, desglosado);
+  const out: string[] = [];
+  const base = l.descripcion || l.sku || 'PRODUCTO';
+  // La equivalencia de peldaño ("35 CJA") va pegada al nombre si cabe: es descriptiva.
+  const conEq = l.equivalencia ? `${base} (${l.equivalencia})` : base;
+  out.push(fila(conEq.length + (l.sku?.length ?? 0) + 1 <= ANCHO ? conEq : base, l.sku || ''));
+
+  const unidad = l.unidad ? ' ' + l.unidad : '';
+  /** `c/u 75.31 -9.08 = 66.23` — lista − descuento = precio con descuento. */
+  const cuenta = (etiqueta: string, m: DesgloseMonto) => (m.descuento > 0 && m.lista != null
+    ? `${etiqueta} ${money(m.lista)} -${money(m.descuento)} = ${money(m.con_descuento)}`
+    : `${etiqueta} ${money(m.con_descuento)}`);
+  /** `s/imp 57.10 + IVA 16% 9.13`. En pedidos (sin impuesto adentro) cierra con `= neto`. */
+  const impuestos = (m: DesgloseMonto, conTasa: boolean): string | null => {
+    const iva = m.iva ?? 0;
+    const ieps = m.ieps ?? 0;
+    if (m.sin_impuestos == null || (iva <= 0 && ieps <= 0)) return null;
+    const tasa = (v: number) => (conTasa && v > 0 ? ` ${Math.round(v * 100)}%` : '');
+    const imp = iva > 0 ? `IVA${tasa(l.iva_tasa)} ${money(iva)}` : `IEPS${tasa(l.ieps_tasa)} ${money(ieps)}`;
+    const cierre = m.con_descuento !== m.neto ? ` = ${money(m.neto)}` : '';
+    return `s/imp ${money(m.sin_impuestos)} + ${imp}${cierre}`;
+  };
+
+  if (l.cantidad !== 1) {
+    out.push(esc('  ' + cuenta('c/u', d.unitario)));
+    const iu = impuestos(d.unitario, true);
+    if (iu) out.push(esc('  ' + iu));
   }
-  if (ln) out.push(esc('  ' + corta(ln, util)));
+  // La partida: toda a la derecha, y sus impuestos 12 mm antes del borde.
+  const etiquetaPartida = l.cantidad === 1 ? `1${unidad}` : `x${cant(l.cantidad)}${unidad}`;
+  out.push(aLaDerecha(cuenta(etiquetaPartida, d.partida)));
+  const ip = impuestos(d.partida, l.cantidad === 1);
+  if (ip) out.push(aLaDerecha(ip, SANGRIA_IMP_PARTIDA));
   return out;
 }
+
+/** `dd/MM/yy HH:mm` en hora de México — la del momento de reimprimir. */
+const ahoraMx = (d: Date): string => {
+  const p = new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d).reduce<Record<string, string>>((a, x) => ({ ...a, [x.type]: x.value }), {});
+  return `${p['day']}/${p['month']}/${p['year']} ${p['hour']}:${p['minute']}`;
+};
 
 const fechaCorta = (iso: string | null): string => {
   if (!iso) return 'sin fecha';
@@ -255,28 +369,24 @@ const fechaCorta = (iso: string | null): string => {
  * Arma el cuerpo del ticket. Separado del render para poder probarlo sin un navegador
  * (igual que `cuerpoTicket` del arqueo, que tiene su propia spec).
  */
-export function cuerpoTicketVenta(t: TicketVenta): string {
+export function cuerpoTicketVenta(t: TicketVenta, ahora: Date = new Date()): string {
   const L: string[] = [];
   const c = t.cascada;
-  // El precio de lista sólo se imprime si algún renglón tiene con qué compararse.
-  const conLista = c.lineas_con_lista > 0;
-  // El desglose de impuesto por producto sale SOLO si la suma de los renglones reproduce la que
-  // declara el documento (lo verifica el backend contra la cabecera de Kepler). Unos importes
-  // que no suman lo declarado son peores que no tenerlos (ADR-056).
-  const conImp = c.impuesto_desglosado;
-  // [TK.10] Los netos cuelgan del MISMO cuadre que el impuesto: se derivan de la cascada
-  // fiscal, asi que sin ese cuadre no se pueden publicar. Y el del documento se imprime solo
-  // si el backend lo pudo calcular: un `null` aca significa "no se sabe", no "cero".
-  const conNeto = conImp && c.importe_neto != null;
 
   // ── Encabezado. A 45 caracteres ya no caben dos columnas, así que va centrado y apilado,
-  //    como cualquier ticket de rollo.
+  //    como cualquier ticket de rollo. `[TK.13]` Orden pedido por el usuario: marca, razón
+  //    social del emisor, sucursal y la marca de REIMPRESIÓN con su fecha y hora.
   L.push(centro('MEGA DULCES'));
+  if (t.emisor_nombre) L.push(...envolver(t.emisor_nombre).map(centro));
   const plaza = t.sucursal_nombre || t.sucursal;
   if (plaza) L.push(centro(plaza));
+  // ⚠️ La hora que se imprime es la de la REIMPRESIÓN, y va rotulada como tal. La de la venta
+  // no existe: Kepler no la guarda (sus 10 columnas timestamp están en 00:00:00). Por eso la
+  // fecha de abajo dice «Venta»: son dos fechas distintas y el papel no puede mezclarlas.
+  L.push(centro('REIMPRESIÓN ' + ahoraMx(ahora)));
   // La identidad COMPLETA (`05UD1005-0006440`) va arriba y no al pie: es lo que se vuelve a
   // teclear en la pantalla para encontrar este mismo documento.
-  L.push(fila((t.caja != null ? 'Caja ' + t.caja : ''), fechaCorta(t.fecha)));
+  L.push(fila((t.caja != null ? 'Caja ' + t.caja : ''), 'Venta ' + fechaCorta(t.fecha)));
   L.push(fila('Folio', t.id));
   // El tipo de documento sólo se imprime cuando NO hay caja: con caja, `doc_label` es
   // "Ticket Contado Caja 5" y repite lo que ya dice el renglón de arriba. Sin caja
@@ -292,66 +402,30 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
     L.push(centro('SIN RENGLONES'));
     L.push(...envolver('Este documento no tiene detalle de productos en el sistema.').map(esc));
   } else {
-    for (const l of t.lineas) {
-      const base = l.descripcion || l.sku || 'PRODUCTO';
-      // La equivalencia de peldaño ("35 CJA") va pegada al nombre si cabe. Es DESCRIPTIVA, no
-      // entra en la aritmética, y sigue estando en la carta y en la pantalla.
-      const conEq = l.equivalencia ? `${base} (${l.equivalencia})` : base;
-      const nombre = conEq.length <= ANCHO ? conEq : base;
-      const unidad = l.unidad ? ' ' + l.unidad : '';
-      const operacion = `${cant(l.cantidad)}${unidad} x ${money(l.precio_pagado)}`;
-
-      // Lo que hay que declarar de este producto. Vacío ⇒ el renglón no se imprime.
-      const declara: string[] = [];
-      if (conLista && l.lista_conocida && l.descuento_linea > 0) {
-        declara.push('Lista ' + money(l.precio_lista));
-      }
-      if (l.descuento_linea > 0) declara.push('Desc -' + money(l.descuento_linea));
-      // IVA e IEPS con su nombre, no con una letra clave: acá el renglón es libre y la palabra
-      // entra. Nunca vienen los dos (0 de 123,203 renglones medidos).
-      if (conImp && l.iva > 0) declara.push('IVA ' + money(l.iva));
-      if (conImp && l.ieps > 0) declara.push('IEPS ' + money(l.ieps));
-      // [TK.10] Los netos, con UNA condicion que no es cosmetica: se imprimen solo si DIFIEREN
-      // del precio del que salen. Un renglon sin impuesto tiene neto == pagado, y repetir el
-      // mismo numero con otra etiqueta en un papel de 45 caracteres no informa: se lee como una
-      // correccion. Es la misma regla que ya rige a "Lista" y al descuento en este ticket.
-      const netoDifiere = l.precio_neto != null && l.precio_neto !== l.precio_lista;
-      const netoDescDifiere = l.precio_neto_desc != null && l.precio_neto_desc !== l.precio_pagado;
-      if (conNeto && netoDifiere && l.descuento_linea > 0) {
-        declara.push('Neto ' + money(l.precio_neto as number));
-      }
-      if (conNeto && netoDescDifiere) {
-        // Sin descuento los dos netos son el MISMO numero: va uno solo, sin sufijo.
-        const solo = !netoDifiere || l.descuento_linea <= 0;
-        declara.push((solo ? 'Neto ' : 'Neto c/desc ') + money(l.precio_neto_desc as number));
-      }
-
-      L.push(...producto(nombre, operacion, money(l.importe), declara));
-    }
+    for (const l of t.lineas) L.push(...partidaTermica(l, c.impuesto_desglosado));
   }
 
   L.push(linea());
 
-  // ── Totales, uno por renglón: a 45 caracteres no caben en línea como en el formato ancho.
-  if (c.descuento_precio > 0 || c.descuento_documento !== 0) {
-    L.push(fila('Lista', pesos(c.importe_lista)));
-  }
-  if (c.descuento_precio > 0) L.push(fila('Descuento', '-' + pesos(c.descuento_precio)));
-  // `[TK.d2]` El mismo nombre que la carta y la pantalla, y CON el porcentaje: el papel del
-  // mostrador era el único de los tres que se lo callaba. A 45 caracteres entra de sobra
-  // (28 el rótulo más largo + 10 el importe), y `fila()` recorta si algún día no entrara.
+  // ── Totales, uno por renglón. Salen del MISMO desglose que las partidas (`desglose_total`):
+  //    si salieran de la cabecera del ERP, el papel podría decir dos IVA distintos por centavos.
+  const tot = desgloseTotalDe(t);
+  if (tot.descuento > 0 && tot.lista != null) L.push(fila('Precio de lista', pesos(tot.lista)));
+  if (c.descuento_precio > 0) L.push(fila('Descuento en precio', '-' + pesos(c.descuento_precio)));
+  // `[TK.d2]` El mismo nombre que la carta y la pantalla, y CON el porcentaje. El importe es el
+  // MEDIDO (Σ renglones − total), nunca `kdm1.c13`: ése viaja sin impuesto y subdeclara (TK.d3b).
   if (c.descuento_documento > 0) {
     const pct = c.descuento_documento_pct_erp ? ` (${c.descuento_documento_pct_erp}%)` : '';
     L.push(fila(`Descuento de cliente${pct}`, '-' + pesos(c.descuento_documento)));
-  } else if (c.descuento_documento < 0) {
-    // Hay documentos donde el total es MAYOR que la suma de renglones (redondeo a favor del
-    // cliente). Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
-    L.push(fila('Ajuste', pesos(-c.descuento_documento)));
   }
-  if (conNeto) L.push(fila('Importe neto', pesos(c.importe_neto as number)));
-  if (conNeto && t.impuestos_incluidos && c.ieps) L.push(fila('IEPS', pesos(c.ieps)));
-  if (conNeto && t.impuestos_incluidos && c.iva) L.push(fila('IVA', pesos(c.iva)));
-  if (!t.impuestos_incluidos && c.iva) L.push(fila('IVA', pesos(c.iva)));
+  // Hay documentos cuyo total queda ARRIBA de sus renglones (redondeo a favor del cliente).
+  // Llamarlo "descuento negativo" confundiría; se nombra por lo que es.
+  if (c.descuento_documento < 0) L.push(fila('Ajuste', pesos(-c.descuento_documento)));
+  if (tot.sin_impuestos != null) {
+    L.push(fila('Sin impuestos', pesos(tot.sin_impuestos)));
+    if (tot.iva) L.push(fila('IVA', pesos(tot.iva)));
+    if (tot.ieps) L.push(fila('IEPS', pesos(tot.ieps)));
+  }
   L.push(fila('TOTAL', pesos(c.total)));
 
   if (c.descuento_total > 0) {

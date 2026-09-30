@@ -5,6 +5,19 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — TK.12 + TK.13: bandeja de tickets por filtros, y desglose por pieza y partida
+- **Bandeja** (`/comercial/tickets`): sucursal · rango · cliente, y buscador por folio/clave/nombre.
+  Sin `ORDER BY` en el ERP → el tope se DECLARA (`truncado`). ⚠️ No medida contra volumen real.
+- **Desglose** en carta, pantalla y rollo: lista − descuento = c/desc → sin impuestos + IVA/IEPS =
+  neto, por pieza y por partida, con el descuento de cliente repartido; Σ neto = total al centavo.
+- **Cerrados de paso** `[TK.a1]`/`[TK.a2]`: la fecha del buscador viaja como texto.
+- **Lección**: se construyó sobre una base vieja (la rama del checkout compartido no tenía TK.11 ni
+  TK.d1–d4 de `main`). Guardado tal cual, habría borrado en silencio la paridad de TK.d1, el rótulo de
+  TK.d2 y el porcentaje de TK.d4. Se rehízo encima de `origin/main` en un worktree propio y las
+  pruebas de esas fases siguen verdes. *Antes de commitear sobre un checkout compartido: `git log
+  HEAD..origin/main -- <mis rutas>`.*
+- Detalle: `FASE_TK_TICKETS_VENTA.md` §9.
+
 ## 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo
 
 **Disparador:** Edgar — *"analiza /almacen/inventory/diferencias"*, y después *"arranca"* sobre

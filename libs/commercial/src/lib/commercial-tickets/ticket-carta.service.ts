@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AnexoVentaService } from '../commercial-sales-documents/anexo-venta.service';
 import { CommercialSalesDocumentsService } from '../commercial-sales-documents/commercial-sales-documents.service';
-import type { TicketDetalle, TicketLinea } from './commercial-tickets.service';
+import type { DesgloseMonto, TicketDesglose, TicketDetalle, TicketLinea } from './commercial-tickets.service';
 
 /**
  * Fase TK.3 — El MISMO ticket, en tamaño carta.
@@ -34,6 +34,90 @@ const money = (n: unknown) =>
 /** Cantidades: enteras se ven enteras; a granel conservan sus decimales (0.6 KG es una venta real). */
 const cant = (n: number) => Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
 
+/**
+ * `[TK.13]` Qué columnas opcionales lleva ESTE documento. Se decide una vez, por documento:
+ *   · `lista` — si algún renglón tiene contra qué comparar (antes del 2026-08-13 Kepler no la
+ *     guarda y, sin descuento de cliente, la columna entera sería guiones);
+ *   · `desc` — si hay algún descuento (el 70% de los tickets de mostrador no trae ninguno);
+ *   · `imp`/`iva`/`ieps` — sólo si el impuesto de los renglones reproduce la cabecera del ERP, y
+ *     cada impuesto sólo si el documento lo causa. Columnas que no suman lo declarado son peores
+ *     que no tenerlas (ADR-056).
+ */
+export interface Cols { lista: boolean; desc: boolean; imp: boolean; iva: boolean; ieps: boolean }
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * `[TK.13]` El desglose de una partida. `armar()` siempre lo llena; si no viene (un documento
+ * armado a mano, o de antes de este cambio) se deriva de los campos que ya existían. El derivado
+ * NO reparte el descuento de cliente: para eso hace falta el documento entero, y lo hace `armar()`.
+ */
+export function desgloseLinea(l: TicketLinea, desglosado: boolean): TicketDesglose {
+  if (l.desglose) return l.desglose;
+  const q = l.cantidad > 0 ? l.cantidad : 1;
+  const sin = desglosado ? r2(l.importe - l.iva - l.ieps) : null;
+  const partida: DesgloseMonto = {
+    lista: l.lista_conocida ? r2(l.precio_lista * l.cantidad) : null,
+    descuento: l.lista_conocida ? l.descuento_linea : 0,
+    con_descuento: l.importe, sin_impuestos: sin,
+    iva: desglosado ? l.iva : null, ieps: desglosado ? l.ieps : null, neto: l.importe,
+  };
+  const netoU = r2(l.importe / q);
+  const sinU = sin != null ? r2(sin / q) : null;
+  const impU = sinU != null ? r2(netoU - sinU) : null;
+  return {
+    partida,
+    unitario: {
+      lista: l.lista_conocida ? l.precio_lista : null,
+      descuento: l.lista_conocida ? l.descuento_unitario : 0,
+      con_descuento: netoU, sin_impuestos: sinU,
+      iva: impU == null ? null : (l.impuesto_tipo === 'iva' ? impU : 0),
+      ieps: impU == null ? null : (l.impuesto_tipo === 'ieps' ? impU : 0),
+      neto: netoU,
+    },
+    descuento_cliente: 0,
+  };
+}
+
+/** `[TK.13]` La fila de totales: la de `armar()`, o la suma de las partidas si no vino. */
+export function desgloseTotal(doc: TicketDetalle): DesgloseMonto {
+  if (doc.cascada.desglose_total) return doc.cascada.desglose_total;
+  const ps = doc.lineas.map((l) => desgloseLinea(l, doc.cascada.impuesto_desglosado).partida);
+  const suma = (k: 'sin_impuestos' | 'iva' | 'ieps') =>
+    ps.some((x) => x[k] == null) ? null : r2(ps.reduce((a, x) => a + (x[k] as number), 0));
+  return {
+    lista: ps.some((x) => x.lista != null) ? doc.cascada.importe_lista : null,
+    descuento: r2(ps.reduce((a, x) => a + x.descuento, 0)),
+    con_descuento: r2(ps.reduce((a, x) => a + x.con_descuento, 0)),
+    sin_impuestos: suma('sin_impuestos'), iva: suma('iva'), ieps: suma('ieps'),
+    neto: r2(ps.reduce((a, x) => a + x.neto, 0)),
+  };
+}
+
+/** `dd/MM/yy HH:mm` en hora de México: el momento de la REIMPRESIÓN (Kepler no guarda la de la venta). */
+export function reimpresionMx(d: Date): string {
+  const p = new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d).reduce<Record<string, string>>((a, x) => ({ ...a, [x.type]: x.value }), {});
+  return `${p['day']}/${p['month']}/${p['year']} ${p['hour']}:${p['minute']}`;
+}
+
+export function columnasDe(doc: TicketDetalle): Cols {
+  const t = desgloseTotal(doc);
+  const imp = doc.cascada.impuesto_desglosado && t.sin_impuestos != null;
+  return {
+    lista: t.lista != null && t.descuento > 0,
+    desc: t.descuento > 0,
+    imp,
+    iva: imp && (t.iva ?? 0) > 0,
+    ieps: imp && (t.ieps ?? 0) > 0,
+  };
+}
+
+/** Columnas de dinero: c/desc y neto siempre, más las opcionales. */
+const nCols = (c: Cols) => 2 + [c.lista, c.desc, c.imp, c.iva, c.ieps].filter(Boolean).length;
+
 @Injectable()
 export class TicketCartaService {
   constructor(
@@ -64,91 +148,98 @@ export class TicketCartaService {
   }
 
   /**
-   * Un renglón de la tabla. Dos columnas son condicionales:
-   *   · la de descuento existe sólo si el documento trae alguno (el 70% no);
-   *   · la de precio de lista desaparece ENTERA cuando ningún renglón lo tiene — es lo que
-   *     pasa en todo documento anterior al 2026-08-13, cuando Kepler empezó a guardarlo.
-   *     Dejarla con guiones o en $0.00 le daría al cliente un "antes costaba nada".
+   * `[TK.13]` Las celdas de dinero de UN juego de valores (unitario, partida o total), en el
+   * orden en que se lee la cuenta:  lista − descuento = c/desc → sin imp. + IVA + IEPS = neto.
+   *
+   * Las columnas opcionales se deciden por DOCUMENTO (`Cols`), no por renglón: una columna que
+   * aparece en unas filas y en otras no desalinea la tabla.
    */
+  private celdas(m: DesgloseMonto, cols: Cols, l?: TicketLinea, conNeto = true): string {
+    // Guion y no $0.00: un producto que no causa IEPS no es uno al que se le cobró cero.
+    const imp = (v: number | null, tasa?: number) => v == null
+      ? '<i>sin dato</i>'
+      : v > 0 ? `${money(v)}${tasa ? ` <i>${Math.round(tasa * 100)}%</i>` : ''}` : '<i>&ndash;</i>';
+    return `
+      ${cols.lista ? `<td class="r ${m.descuento > 0 ? 'tachado' : ''}">${m.lista != null ? money(m.lista) : '<i>&ndash;</i>'}</td>` : ''}
+      ${cols.desc ? `<td class="r ahorro">${m.descuento > 0 ? '-' + money(m.descuento) : ''}</td>` : ''}
+      <td class="r fuerte">${money(m.con_descuento)}</td>
+      ${cols.imp ? `<td class="r neto">${m.sin_impuestos != null ? money(m.sin_impuestos) : '<i>sin dato</i>'}</td>` : ''}
+      ${cols.iva ? `<td class="r">${imp(m.iva, l?.iva_tasa)}</td>` : ''}
+      ${cols.ieps ? `<td class="r">${imp(m.ieps, l?.ieps_tasa)}</td>` : ''}
+      <td class="r fuerte">${conNeto ? money(m.neto) : ''}</td>`;
+  }
+
   /**
-   * Un renglon. [TK.11] CINCO columnas de dinero y ni una mas, porque asi se leen como una sola
-   * frase de izquierda a derecha: costaba TANTO, pagaste TANTO, te bajamos TANTO por pieza,
-   * TANTO en total, son TANTOS.
+   * `[TK.13]` Una partida, con el acomodo que el usuario marcó sobre el PDF:
    *
-   * ⛔ Salieron de la tabla, por pedido del usuario sobre el papel ya impreso:
-   *   · `Neto` y `Neto c/desc` (TK.10) — eran el MISMO precio en otra unidad al lado del precio
-   *     de verdad: cuatro columnas de precio compitiendo. Es lo que confundia al cliente.
-   *   · `IEPS` e `IVA` por renglon (TK.4) — no desaparecen del papel: bajan al pie, a la linea
-   *     que ya existia («Los precios ya incluyen impuestos · IVA … · IEPS …»). Ahi cumplen sin
-   *     pelear con la lectura renglon por renglon.
-   * El calculo de los cuatro SIGUE vivo en el backend; sólo dejan de imprimirse aca.
+   *   · renglón del producto: la cantidad dice «VALOR UNITARIO» y el NETO va vacío — los valores
+   *     son por pieza, y un neto por pieza al lado del de la partida se lee como dos cobros;
+   *   · renglón «Total partida»: la cantidad dice «PZA × 4» y aquí sí va el neto, que es lo que
+   *     suma al total del documento.
    *
-   * Las dos condicionales que quedan son las de siempre: la de descuento existe solo si el
-   * documento trae alguno (el 70% no), y la de precio de lista desaparece ENTERA cuando ningun
-   * renglon lo tiene — todo documento anterior al 2026-08-13.
+   * Con UNA pieza el unitario ES la partida: va un solo renglón, con «PZA × 1» y su neto, para
+   * que la columna de neto siga trayendo el importe de cada partida.
    */
-  private fila(l: TicketLinea, conDesc: boolean, conLista: boolean): string {
-    const rebaja = l.descuento_linea > 0;
-    // ⚠️ El descuento POR PIEZA depende del precio de lista: sin lista conocida no se sabe
-    // cuanto se bajo por unidad, y decir 0.00 seria afirmar que no hubo descuento.
-    const porPieza = l.lista_conocida && rebaja ? '-' + money(l.descuento_unitario) : '';
-    return `<tr>
-      <td><div class="p-name">${esc(l.descripcion || l.sku || '')}</div>
-        <div class="p-sku">${esc(l.sku || '')}${l.equivalencia ? ` &middot; equivale a ${esc(l.equivalencia)}` : ''}</div></td>
-      <td class="r">${cant(l.cantidad)}${l.unidad ? ` <i>${esc(l.unidad)}</i>` : ''}</td>
-      ${conLista ? `<td class="r ${rebaja ? 'tachado' : ''}">${l.lista_conocida ? money(l.precio_lista) : '<i>sin dato</i>'}</td>` : ''}
-      <td class="r fuerte">${money(l.precio_pagado)}</td>
-      ${conDesc ? `<td class="r ahorro">${porPieza}</td>
-      <td class="r ahorro fuerte">${rebaja ? '-' + money(l.descuento_linea) : ''}</td>` : ''}
-      <td class="r fuerte">${money(l.importe)}</td>
+  private fila(l: TicketLinea, cols: Cols, desglosado: boolean): string {
+    const d = desgloseLinea(l, desglosado);
+    const unidad = l.unidad ? `${esc(l.unidad)} ` : '';
+    const producto = `<td><div class="p-name">${esc(l.descripcion || l.sku || '')}</div>
+        <div class="p-sku">Código ${esc(l.sku || 's/c')}${l.equivalencia ? ` &middot; equivale a ${esc(l.equivalencia)}` : ''}</div></td>`;
+    const cuantas = `<td class="r">${unidad}<i>&times;</i> ${cant(l.cantidad)}</td>`;
+    if (l.cantidad === 1) {
+      return `<tr class="u uno">${producto}${cuantas}${this.celdas(d.partida, cols, l)}</tr>`;
+    }
+    return `<tr class="u">${producto}
+      <td class="r vu">Valor unitario</td>
+      ${this.celdas(d.unitario, cols, l, false)}
+    </tr><tr class="pt">
+      <td class="pt-l">Total partida</td>
+      ${cuantas}
+      ${this.celdas(d.partida, cols, l)}
     </tr>`;
   }
 
-  private html(doc: TicketDetalle, emisor: { rfc: string; nombre: string; cp: string }): string {
+  private html(doc: TicketDetalle, emisor: { rfc: string; nombre: string; cp: string }, ahora: Date = new Date()): string {
     const c = doc.cascada;
-    // La columna de descuento se imprime sólo si hay alguno: en el mostrador, 70 de cada 100
-    // tickets no traen ninguno y una columna de guiones sólo gasta ancho del nombre del producto.
-    const conDesc = c.descuento_precio > 0;
-    // Cobertura del precio de lista, DECLARADA. Sin ella la columna "Precio de lista" no se
-    // imprime en blanco ni en cero: no se imprime, y el aviso dice por que.
-    const conLista = c.lineas_con_lista > 0;
-    // [TK.11] Ya no hay columnas de impuesto ni de neto, asi que `impuesto_desglosado` dejo de
-    // gobernar la TABLA. Sigue gobernando el PIE: la linea «los precios ya incluyen impuestos ·
-    // IVA … · IEPS …» solo se imprime cuando la suma de los renglones reproduce la cabecera.
-    const filas = doc.lineas.map((l) => this.fila(l, conDesc, conLista)).join('\n');
+    const t = desgloseTotal(doc);
+    const cols = columnasDe(doc);
+    const filas = doc.lineas.map((l) => this.fila(l, cols, c.impuesto_desglosado)).join('\n');
     const logo = this.anexo.logo();
 
-    // Los renglones del resumen se arman como lista y se filtran: un "- $0.00" invita a
-    // buscar un descuento que no existe.
-    // "Precio de lista" solo si hay algo que restarle: sin descuento es el total repetido con
-    // otro nombre, y dos cifras iguales con etiquetas distintas se leen como una correccion.
-    const hayQueRestar = c.descuento_precio > 0 || c.descuento_documento !== 0;
-    const resumen: string[] = hayQueRestar
-      ? [`<tr><td>Precio de lista</td><td class="r">${money(c.importe_lista)}</td></tr>`]
-      : [];
+    // ── Resumen. Sale del MISMO desglose que la fila de totales de la tabla: si saliera de la
+    // cabecera del ERP, el papel podría decir dos IVA distintos por un centavo.
+    // Un "- $0.00" invita a buscar un descuento que no existe: las filas en cero no van.
+    const resumen: string[] = [];
+    if (t.descuento > 0 && t.lista != null) {
+      resumen.push(`<tr><td>Precio de lista</td><td class="r">${money(t.lista)}</td></tr>`);
+    }
     if (c.descuento_precio > 0) {
       resumen.push(`<tr class="desc"><td>Descuento en precio</td><td class="r">-${money(c.descuento_precio)}</td></tr>`);
     }
+    // `[TK.d2]` «Descuento de cliente» con su porcentaje pelado. El importe es el MEDIDO por
+    // armar() (Σ renglones − total), nunca `kdm1.c13`, que viaja sin impuesto (TK.d3b).
     if (c.descuento_documento > 0) {
-      // `[TK.d2]` «Descuento del documento (3% del ERP)» no le dice nada al cliente: nombra al
-      // papel y al sistema, no a lo que pasó. Kepler rotula ese campo (`kdm1.c19`) «Descuento
-      // Cliente» en su propia pantalla, y `ERP_KEPLER` §3.1 lo define como el descuento
-      // comercial sobre el total. Se usa ESE nombre, y el porcentaje se muestra pelado.
       const pct = c.descuento_documento_pct_erp ? ` <i>(${c.descuento_documento_pct_erp}%)</i>` : '';
       resumen.push(`<tr class="desc"><td>Descuento de cliente${pct}</td><td class="r">-${money(c.descuento_documento)}</td></tr>`);
-    } else if (c.descuento_documento < 0) {
-      // Medido en el anexo: hay documentos donde el total es MAYOR que la suma de renglones
-      // (redondeo a favor del cliente). Llamarlo "descuento negativo" confundiria; se nombra.
+    }
+    // Medido en el anexo: hay documentos donde el total es MAYOR que la suma de renglones
+    // (redondeo a favor del cliente). Llamarlo "descuento negativo" confundiria; se nombra.
+    if (c.descuento_documento < 0) {
       resumen.push(`<tr><td>Ajuste de redondeo</td><td class="r">${money(-c.descuento_documento)}</td></tr>`);
     }
-    if (!doc.impuestos_incluidos && c.iva != null && c.iva > 0) {
-      resumen.push(`<tr><td>IVA</td><td class="r">${money(c.iva)}</td></tr>`);
+    if (t.sin_impuestos != null) {
+      resumen.push(`<tr class="neto"><td>Subtotal sin impuestos</td><td class="r">${money(t.sin_impuestos)}</td></tr>`);
+      if (t.iva) resumen.push(`<tr><td>IVA</td><td class="r">${money(t.iva)}</td></tr>`);
+      if (t.ieps) resumen.push(`<tr><td>IEPS</td><td class="r">${money(t.ieps)}</td></tr>`);
     }
     resumen.push(`<tr class="total"><td>Total pagado</td><td class="r">${money(c.total)}</td></tr>`);
 
-    const impuestos = doc.impuestos_incluidos
-      ? `<p class="nota">Los precios ya incluyen impuestos${c.iva ? ` &middot; IVA ${money(c.iva)}` : ''}${c.ieps ? ` &middot; IEPS ${money(c.ieps)}` : ''}.</p>`
-      : '<p class="nota">Los precios se muestran sin impuestos; el IVA se suma en el resumen.</p>';
+    // Cuando el desglose fiscal no cuadra con la cabecera, se DICE por qué faltan las columnas.
+    const impuestos = !cols.imp
+      ? '<p class="nota">No se desglosan impuestos: la suma por producto no reproduce la que declara el documento en el ERP.</p>'
+      : doc.impuestos_incluidos
+        ? '<p class="nota">Cada partida: precio de lista &minus; descuento = precio con descuento, que ya incluye impuestos. Sin impuestos + IVA/IEPS = neto a pagar.</p>'
+        : '<p class="nota">Los precios se muestran sin impuestos; el IVA se suma en el neto.</p>';
 
     return `<meta charset="utf-8"><title>Ticket de venta ${esc(doc.id)}</title>
 <style>
@@ -177,16 +268,25 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 .sec-h h2{font-size:11pt;font-weight:700;margin:0}
 .sec-h span{font-size:8pt;color:var(--muted)}
 table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:8.5pt}
-/* [TK.11] SIETE columnas como maximo: producto, cantidad, y las cinco de dinero. Antes eran
-   diez y el nombre del producto habia caido a 20%. Con siete vuelve a 30% (~59mm), arriba del
-   p95 medido de 41 caracteres, asi que deja de partirse en dos renglones. */
-col.c-prod{width:30%}col.c-cant{width:10%}col.c-pl{width:12%}col.c-pp{width:13%}
-col.c-ds{width:11%}col.c-imp{width:13%}
-/* Sin descuento son cinco columnas y el nombre se queda con lo que sobra. */
-table.det.sin-desc col.c-prod{width:41%}table.det.sin-desc col.c-cant{width:12%}
-table.det.sin-desc col.c-pl,table.det.sin-desc col.c-pp,table.det.sin-desc col.c-imp{width:15%}
-/* Los dos descuentos se tintan juntos: son un par (por pieza y total), no dos datos sueltos. */
-table.det td.ahorro,table.det thead th.ahorro{background:var(--save-soft)}
+/* [TK.13] El nombre es lo unico elastico: toma lo que dejan las columnas de dinero (auto).
+   Con las 9 columnas quedan ~26% (~51mm), arriba del p95 de 41 caracteres a 8.5pt. */
+col.c-prod{width:auto}col.c-cant{width:9%}col.c-n{width:9.5%}
+table.det tbody tr.u td{border-bottom:none}
+/* El renglon de partida se lee como el total de la de arriba: mas chico, gris, sin nombre. */
+table.det tbody tr.pt td{font-size:7.8pt;color:var(--ink-2);background:var(--soft);padding-top:1px;padding-bottom:2px}
+table.det tbody tr.pt td.pt-l{text-align:right;font-size:7pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+table.det tbody tr:not(.u) td{border-bottom:1px solid var(--line-2)}
+table.det tbody tr.u:last-child td{border-bottom:1px solid var(--line-2)}
+/* [TK.13] La marca de reimpresion y el rotulo del renglon unitario. */
+.hd-title .reimp{margin-top:3px;font-size:8pt;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:700}
+table.det td.vu{font-size:6.8pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;white-space:nowrap}
+table.det tfoot tr.tot td{border-top:1.5px solid var(--ink);font-weight:800;padding:4px 5px;text-align:right}
+table.det tfoot tr.tot td:first-child{text-align:left;font-size:7pt;letter-spacing:.08em;text-transform:uppercase}
+/* El neto se tinta para que se lea como un bloque y no se confunda con el precio cobrado:
+   son la misma magnitud en otra unidad (sin impuesto), y mezclarlas es el error caro. */
+table.det td.neto,table.det thead th.neto{background:var(--accent-soft)}
+table.det td.neto{color:var(--accent)}
+table.det thead th.neto{color:var(--accent)}
 table.det thead{display:table-header-group}
 table.det thead th{font-size:7pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;
   text-align:right;padding:3px 5px;border-bottom:1.5px solid var(--ink)}
@@ -205,7 +305,7 @@ td i{font-style:normal;color:var(--muted);font-size:7pt;font-weight:600}
 .cierre{display:flex;gap:10px;margin-top:9px;break-inside:avoid;align-items:flex-start}
 .cierre .hueco{flex:1 1 auto}
 table.res{border-collapse:collapse;flex:0 0 78mm;font-size:9.5pt}
-table.res td{padding:3px 8px;border-bottom:1px solid var(--line-2)}
+table.res td{padding:3px 8px;border-bottom:1px solid var(--line-2);white-space:nowrap}
 table.res td.r{text-align:right;font-weight:700;white-space:nowrap}
 table.res tr.desc td{color:var(--save)}
 table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-size:11.5pt;font-weight:800;padding-top:5px}
@@ -219,6 +319,7 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
   <div class="hd-title">
     <div class="sub">${esc(doc.origen_label)}</div>
     <h1>Detalle de tu compra</h1>
+    <div class="reimp">Reimpresión ${esc(reimpresionMx(ahora))}</div>
   </div>
   <div class="emisor">
     <b>${esc(emisor.nombre)}</b>
@@ -259,14 +360,16 @@ table.res tr.total td{border-top:1.5px solid var(--ink);border-bottom:none;font-
 
 <div class="sec-h"><h2>Productos</h2>
   <span>${doc.lineas.length} renglon${doc.lineas.length === 1 ? '' : 'es'}</span></div>
-<table class="det ${conDesc ? '' : 'sin-desc'} ">
-  <colgroup><col class="c-prod"><col class="c-cant">${conLista ? '<col class="c-pl">' : ''}<col class="c-pp">${conDesc ? '<col class="c-ds"><col class="c-ds">' : ''}<col class="c-imp"></colgroup>
+<table class="det">
+  <colgroup><col class="c-prod"><col class="c-cant">${'<col class="c-n">'.repeat(nCols(cols))}</colgroup>
   <thead><tr>
-    <th class="l">Producto</th><th>Cantidad</th>${conLista ? '<th>Precio original</th>' : ''}<th>${conLista ? 'Precio con desc.' : 'Precio'}</th>
-    ${conDesc ? '<th class="ahorro">Desc. por pieza</th><th class="ahorro">Descuento total</th>' : ''}
-    <th>Total a pagar</th>
+    <th class="l">Producto</th><th>Cantidad</th>
+    ${cols.lista ? '<th>Precio lista</th>' : ''}${cols.desc ? '<th>Descuento</th>' : ''}
+    <th>Precio c/desc</th>${cols.imp ? '<th class="neto">Sin impuestos</th>' : ''}
+    ${cols.iva ? '<th>IVA</th>' : ''}${cols.ieps ? '<th>IEPS</th>' : ''}<th>Neto</th>
   </tr></thead>
   <tbody>${filas}</tbody>
+  <tfoot><tr class="tot"><td>Totales</td><td></td>${this.celdas(t, cols)}</tr></tfoot>
 </table>
 
 <div class="cierre">

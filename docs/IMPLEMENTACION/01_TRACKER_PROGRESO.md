@@ -6060,6 +6060,35 @@ TP.6-TP.8+TP.10".
       **$147.43** y `c13` dice **$135.26**: publicarlo **subdeclara 8.3%**. Se usa
       `descuento_efectivo`, que reproduce los $147.43 al centavo, con su prueba negativa para que
       nadie lo «simplifique» de vuelta. · *2026-09-28*
+- [x] **[TK.12]** 🧪 **Bandeja de tickets: la pantalla deja de exigir un folio.** Filtros de
+      sucursal (las que alcanza el usuario, `DataScopeService`), rango de fechas (arranca en HOY de
+      México, máximo 31 días) y cliente (autocomplete del maestro `v_customer_master`); el buscador
+      de la bandeja afina por folio (contiene), clave de cliente (empieza con) o nombre (contiene,
+      sin acentos con `unaccent`). `GET /commercial/tickets/bandeja` (`BandejaTicketsService`), los
+      tres universos, alcance por `ScopeService`. ⚠️ Sin `ORDER BY` en el ERP (el mismo motivo
+      medido de `buscar()`: 23,856 ms contra 970 ms) → tope de 1,000 por canal y, si se llega,
+      **`truncado` + aviso**: «no necesariamente trae los más recientes». Si la bandeja no encuentra
+      algo en el rango, ofrece el buscador de folio en TODAS las fechas. ⚠️⚠️ **NO MEDIDO contra
+      volumen real** (la base local no tenía la vista); con el seed de desarrollo responde en
+      30–90 ms, que no dice nada de prod. · *2026-09-30*
+- [x] **[TK.a1]/[TK.a2]** 🧪 **Cerrados de paso**: `buscar()` saca la fecha con `to_char` en los
+      tres universos. Verificado por HTTP contra la API local: el folio `0018665` vuelve como
+      `2026-09-29 · 2026-09-27 · 2026-09-24` — texto y de más reciente a más viejo. · *2026-09-30*
+- [x] **[TK.13]** 🧪 **Desglose por pieza y por partida en los tres papeles** (pedido del usuario,
+      reemplaza el formato de TK.11). `armar()` gana `desglose` por renglón —`unitario` y `partida`,
+      cada uno lista − descuento = c/desc → sin impuestos + IVA/IEPS = neto— y
+      `cascada.desglose_total`. El descuento de CLIENTE va **repartido en la partida** con el mismo
+      factor que ya usaba el impuesto, así el IVA/IEPS sale del precio YA descontado; el residuo de
+      centavos se carga a la partida mayor y **Σ neto = total al centavo** (con prueba negativa).
+      Carta PDF y pantalla: columnas Producto (nombre, código) · Cantidad · Precio lista ·
+      Descuento* · Precio c/desc · Sin impuestos · IVA* · IEPS* · Neto; renglón «VALOR UNITARIO»
+      sin neto + renglón «Total partida · PZA × 4» con neto + fila de Totales (acomodo marcado por
+      el usuario sobre el PDF). Rollo de 80 mm: encabezado MEGA DULCES · razón social del emisor
+      (de `fiscal.issuer_config`, verificado en prod: LUIS FRANCISCO LOPEZ GUTIERREZ) · sucursal ·
+      **REIMPRESIÓN con fecha y hora de México** (vuelve: TK.5 la había quitado) y la fecha de la
+      venta rotulada «Venta»; la partida entera alineada a la derecha y sus impuestos 12 mm (8
+      caracteres) antes del borde. Verificado: los 282 documentos del seed cuadran partida por
+      partida y contra el total, y el PDF se leyó a ojo. · *2026-09-30*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
       la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
