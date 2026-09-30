@@ -219,32 +219,44 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
               <span>Costo atribuido</span>
               <strong>{{ d.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>
             </div>
-            <table class="surf-table surf-table--plain gc-conc">
-              <thead>
-                <tr><th>Tipo de gasto</th><th class="comm-num">Importe</th><th>Reparto</th></tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let c of d.conceptos" (click)="abrirConcepto(c.concepto)"
-                    class="gc-crow" tabindex="0" role="button"
-                    (keydown.enter)="abrirConcepto(c.concepto)">
-                  <td>
-                    <span class="gc-cname">{{ c.concepto }}</span>
-                    <small class="gc-admin">
-                      <span *ngIf="c.de_prorrateo">incluye {{ c.de_prorrateo | currency:'MXN':'symbol-narrow':'1.0-0' }} de prorrateo · </span>
-                      cuenta {{ c.cuentas }}
-                    </small>
-                  </td>
-                  <td class="comm-num">{{ c.atribuido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td>
-                    <!-- El denominador a la vista: sin él, "atribuido" hay que creerlo -->
-                    <small class="gc-share">
-                      {{ c.paradas_guia }} de {{ c.paradas_bucket }} paradas
-                      · {{ c.ventanas === 'mes' ? 'del mes' : c.ventanas === 'diario' ? 'del día' : c.ventanas }}
-                    </small>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <!-- Agrupado por FAMILIA y plegable: el combustible es UNA linea de 13%, no tres
+                 conceptos perdidos entre 97. Se abre para ver de que se compone. -->
+            <div class="gc-fams">
+              <div class="gc-fam" *ngFor="let f of detalle()?.familias">
+                <button class="gc-fam-head" (click)="toggleFam(f.familia)"
+                        [attr.aria-expanded]="abierta() === f.familia">
+                  <i class="pi" [class.pi-chevron-right]="abierta() !== f.familia"
+                     [class.pi-chevron-down]="abierta() === f.familia"></i>
+                  <span class="gc-fam-name">{{ etiquetaFam(f.familia) }}</span>
+                  <span class="gc-fam-n">{{ f.conceptos.length }}</span>
+                  <span class="gc-fam-pct">{{ f.pct_del_total }}%</span>
+                  <strong>{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>
+                </button>
+                <table class="surf-table surf-table--plain gc-conc"
+                       *ngIf="abierta() === f.familia">
+                  <tbody>
+                    <tr *ngFor="let c of f.conceptos" (click)="abrirConcepto(c.concepto)"
+                        class="gc-crow" tabindex="0" role="button"
+                        (keydown.enter)="abrirConcepto(c.concepto)">
+                      <td>
+                        <span class="gc-cname">{{ c.concepto }}</span>
+                        <small class="gc-admin">
+                          <span *ngIf="c.de_prorrateo">incluye {{ c.de_prorrateo | currency:'MXN':'symbol-narrow':'1.0-0' }} de prorrateo · </span>
+                          cuenta {{ c.cuentas }}
+                        </small>
+                      </td>
+                      <td class="comm-num">{{ c.atribuido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td>
+                        <small class="gc-share">
+                          {{ c.paradas_guia }} de {{ c.paradas_bucket }} paradas
+                          · {{ c.ventanas === 'mes' ? 'del mes' : c.ventanas === 'diario' ? 'del día' : c.ventanas }}
+                        </small>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <p class="gc-hint"><i class="pi pi-arrow-right"></i> Clic en un tipo de gasto para ver
               las pólizas que lo componen</p>
           </ng-container>
@@ -345,6 +357,20 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     /* La mercancia se separa visualmente del costo operativo: son dos naturalezas distintas y
        sumarlas no significa nada. */
     .gc-roi-merc { border-left:3px solid var(--border-strong,#d6d3d1); }
+    .gc-fams { display:flex; flex-direction:column; gap:.3rem; }
+    .gc-fam { border:1px solid var(--border,#e7e5e4); border-radius:var(--radius-sm,6px);
+      overflow:hidden; }
+    .gc-fam-head { display:flex; align-items:center; gap:.5rem; width:100%; padding:.55rem .7rem;
+      background:var(--surface,#fff); border:0; cursor:pointer; text-align:left; font-size:.82rem; }
+    .gc-fam-head:hover, .gc-fam-head:focus-visible { background:var(--surface-soft,#faf9f7);
+      outline:none; }
+    .gc-fam-head i { font-size:.7rem; color:var(--text-muted,#78716c); }
+    .gc-fam-name { font-weight:600; flex:1; }
+    .gc-fam-n { font-size:.7rem; color:var(--text-muted,#78716c);
+      background:var(--surface-soft,#faf9f7); padding:.05rem .4rem; border-radius:999px; }
+    .gc-fam-pct { font-size:.72rem; color:var(--text-muted,#78716c); min-width:2.6rem;
+      text-align:right; }
+    .gc-fam-head strong { font-variant-numeric:tabular-nums; min-width:6.5rem; text-align:right; }
     .gc-bar2 { padding-top:.2rem; border-top:1px dashed var(--border,#e7e5e4); }
     .gc-bar2 .gc-field { min-width:10rem; }
     .gc-check { justify-content:flex-end; flex-direction:row; align-items:center; gap:.6rem; }
@@ -390,6 +416,22 @@ export class GuideCostPanelComponent implements OnInit {
   sel: GuideCostRow | null = null;
   readonly detalle = signal<GuideCostBreakdown | null>(null);
   readonly cargandoDet = signal(false);
+
+  /** Qué familia está abierta. Una sola a la vez: el detalle es para comparar, no para inundar. */
+  readonly abierta = signal<string | null>(null);
+  toggleFam(f: string) { this.abierta.set(this.abierta() === f ? null : f); }
+
+  readonly FAM_LABEL: Record<string, string> = {
+    personal: 'Personal (sueldos, comisiones, bonos)',
+    combustible: 'Combustible',
+    vehiculo: 'Vehículo (arrendamiento, mantenimiento, seguro)',
+    viaje: 'Viaje (casetas, viáticos, maniobras)',
+    valores: 'Traslado de valores',
+    local: 'Local (renta y servicios)',
+    tecnologia: 'Tecnología (GPS, telefonía)',
+    otros: 'Otros',
+  };
+  etiquetaFam(f: string) { return this.FAM_LABEL[f] || f; }
 
   verLineas = false;
   readonly conceptoSel = signal<string | null>(null);
