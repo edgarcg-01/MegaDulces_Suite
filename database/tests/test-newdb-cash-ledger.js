@@ -359,6 +359,48 @@ const baseMov = (over = {}) => ({
         ok(true, `hay ${frio} corte(s) firmado(s) → la exclusión de congelados es medible acá`);
       }
     }
+    // ── [CG.26] El arqueo de fin de jornada: el cajero (CAOS) ────────────────────────────────
+    //
+    // El candado que importa: que NINGÚN type_id del cajero quede fuera del catálogo. La
+    // conciliación miraba 2 de 6 tipos y dejaba $3,850,510 sin explicar; el 2026-09-08 eso valió
+    // $23,000 de error en el neto de un solo día (dijo $84,640 donde eran $61,640).
+    console.log('\n── 7c. [CG.26] Arqueo de jornada: el cajero ──');
+    {
+      const hay = (await knex.raw(`SELECT to_regclass('analytics.caos_cash_movements') t`)).rows[0].t;
+      if (!hay) {
+        skip('`analytics.caos_cash_movements` no existe en esta DB → el arqueo del cajero no se '
+          + 'puede ejercer. NO es un ✓.');
+      } else {
+        const CONOCIDOS = [0, 4, 5, 7, 8, 13];
+        const tipos = await knex.raw(
+          `SELECT DISTINCT type_id, type_label FROM analytics.caos_cash_movements WHERE tenant_id=?`, [T]);
+        if (tipos.rows.length === 0) {
+          skip('el feed del cajero está VACÍO en esta DB → no hay tipos que verificar. NO es un ✓.');
+        } else {
+          // ⛔ Prueba de SORPRESA, no de lo ya medido: si el cajero emite un tipo nuevo, esto se
+          // pone rojo en vez de que su dinero desaparezca dentro de un "otros" que nadie mira.
+          const nuevos = tipos.rows.filter((t) => !CONOCIDOS.includes(Number(t.type_id)));
+          ok(nuevos.length === 0,
+            `los ${tipos.rows.length} tipos del cajero están en el catálogo de CG.26`
+            + (nuevos.length ? ` — APARECIÓ UNO NUEVO: ${nuevos.map((n) => `${n.type_id}=${n.type_label}`).join(', ')}` : ''));
+
+          // `accounting_date` es la llave de la JORNADA. Si dejara de venir, el arqueo diario
+          // agruparía por un campo vacío y todos los días saldrían en cero sin avisar.
+          const ad = (await knex.raw(
+            `SELECT count(*)::int n, count(accounting_date)::int con
+               FROM analytics.caos_cash_movements WHERE tenant_id=?`, [T])).rows[0];
+          ok(ad.con === ad.n, `la jornada del cajero está declarada en las ${ad.n} filas (accounting_date, ${ad.con} pobladas)`);
+
+          // ⛔ Lo que NO se puede afirmar, y por eso el arqueo publica FLUJO y no saldo: el cajero
+          // no dice cuánto tiene adentro, y el acumulado arranca sin saldo inicial (da NEGATIVO).
+          const cols = (await knex.raw(
+            `SELECT count(*)::int n FROM information_schema.columns
+              WHERE table_schema='analytics' AND table_name='caos_cash_movements'
+                AND column_name ~* 'saldo|balance|bag|stacker|denom'`)).rows[0].n;
+          ok(cols === 0, `CAOS no publica su contenido (${cols} columnas de saldo) → el arqueo cuadra FLUJO, nunca "cuánto hay adentro"`);
+        }
+      }
+    }
     console.log('\n── 8. Lo que NO se puede medir acá, declarado ──');
     const ee = await knex.raw(`SELECT count(*)::int n FROM analytics.expense_entries`);
     if (ee.rows[0].n === 0) {
