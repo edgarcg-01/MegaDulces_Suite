@@ -5,6 +5,73 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — ABC.6: el conteo cíclico decía «2,000 pendientes» cuando eran 39,480, y la letra no decía por qué
+
+**Disparador:** Edgar, sobre `/almacen/inventory/abc` — *"mencionamos ABC, pero no mencionamos
+por qué cada producto va en cada categoría, tampoco mostramos o tenemos un orden para mostrar
+los B y C"*.
+
+### Los dos ceros falsos
+
+El KPI publicaba **«Por contar ahora 2,000 · A 2000 · B 0 · C 0»**. Lo vencido, medido:
+**A 4,987 · B 6,822 · C 27,671 = 39,480** — todo el catálogo, porque nunca se contó nada.
+
+La causa es una sola línea: `by_class` se contaba **después** del `LIMIT 2000`. Con el orden
+A→B→C, las 4,987 filas clase A se comían el límite enteras, y el resumen —calculado sobre la
+página— afirmaba que no había ni una B ni una C pendiente. **Subdeclaraba el trabajo en 95% y
+hacía desaparecer dos clases enteras del plan sin que nadie lo decidiera.**
+
+⭐ Y B y C no eran invisibles *por diseño* sino *por truncamiento*, que es peor: un diseño se
+discute, un truncamiento no se ve. Ahora el conteo sale de un `COUNT` sobre todo, la página se
+declara (`truncado`, `mostradas` de `count`), hay filtro por clase, y **dentro de la clase manda
+el valor anual descendente** — con `last_counted_at` NULL en el 100% de las filas, ordenar por
+esa columna era un desempate arbitrario disfrazado de prioridad.
+
+### El porqué de la letra — y una corrección que me hice a mí mismo
+
+Primero **re-deriví** el motivo en el servicio con un `CASE`. Estaba mal, y el propio repo lo
+dijo: `commercial.abc_classification` **ya trae la columna canónica `clase_motivo`** (KE.4b,
+poblada desde `analytics.v_abc_class`), y `computeAbc` la copia desde hace semanas. Inventar una
+segunda definición es exactamente el defecto que KE.4 cerró, cuando la pantalla mostraba otra
+clase que el motor y coincidían en el 64%. Se retiró el `CASE` y se consume la columna.
+
+⚠️ **Pero la comparación destapó un hallazgo real, que se DECLARA y no se corrige.**
+`clase_motivo = 'sin_demanda'` mira `adu_almacen`, o sea la demanda del **almacén entero**: hoy
+son las **10,125 filas del CEDIS**, que no vende sino que distribuye por traspaso. Hay **5,865
+filas más** con demanda `0` y valor `$0` **en almacenes que sí venden**, y caen en el `ELSE` →
+`pareto`. La pantalla decía *"es C por su lugar en el Pareto"* sobre una fila que no tiene valor
+que ordenar.
+
+⛔ **No se re-etiqueta, y la razón es concreta:** `import-network-reorder.js:99` decide el nivel
+de servicio del CEDIS con `clase_motivo = 'sin_demanda' THEN 'A'`. Cambiar esa etiqueta mueve
+una decisión de **compra**, y eso es de la fase KE, no de una revisión de pantalla. Lo que se
+hace es exponer el hecho (`sin_demanda_en_fila`) al lado del motivo canónico.
+
+### Lo que la pantalla muestra ahora
+
+El criterio completo antes de la tabla (métrica, ventana, corte de Pareto, cadencias, y de qué
+fuente salen demanda y costo), el motivo por fila con la cuenta entera en el tooltip
+(`unidades × costo = valor anual`, y su % del almacén), el aviso de recorte, el filtro por clase
+—sin él B y C eran inalcanzables desde la pantalla— y **guion en vez de `$0`** donde no hubo
+demanda: un valor ausente no es un valor de cero.
+
+### Lecciones
+
+1. ⭐ **Antes de derivar un concepto, buscar si ya tiene columna.** Me ahorré publicar una
+   segunda verdad por revisar el label de un test ajeno (`test-newdb-abc-class-truth.js`), no
+   por mirar el schema.
+2. ⛔ **Un agregado calculado después de paginar miente siempre**, y miente hacia abajo, que es
+   la dirección que nadie audita.
+3. ⚠️ **Sexta vez** que un acento grave en un comentario dentro de un template literal rompe el
+   build de este repo.
+
+**Candado:** `test-newdb-abc-motivo.js` — **13 ✓ / 0 ✗**, con la prueba negativa que reproduce el
+bug (`contando sobre la página, B y C dan CERO` y el total baja de 39,480 a 2,000). Registrado en
+`run-all-tests.js`. `nx build api` + `nx build view` OK.
+
+**Sin migración:** es cambio de código. **Pendiente: redeploy.**
+
+---
 ## 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo
 
 **Disparador:** Edgar — *"analiza /almacen/inventory/diferencias"*, y después *"arranca"* sobre
@@ -129,6 +196,49 @@ del refresco, que se escribe cuando el worker lleve el código.
 
 **Pendiente:** `git push` (sin autorizar) + redeploy. Sin migraciones de permisos → **no hace
 falta re-login**.
+
+---
+## 2026-09-30 — CE.11: «no explicas por qué», y la explicación que yo tenía en la cabeza era falsa
+
+**Disparador:** Edgar — *"mencionas que la reposición es más alta en algunos lugares pero no
+explicas por qué… al dar clic debemos explicar cosas que supones"*.
+
+Tenía razón dos veces. La fila afirmaba un hecho sin su causa, **y mi causa era falsa**. Yo
+suponía *"esa plaza compró más caro"*. El caso en pantalla: del `20119` hay **una sola compra en
+6 meses** y es del CEDIS a $138.44; lo que dejó a la plaza 01 en $189.07 fue un **`N-A-30`
+«Entrada Inventario físico»** del 11-sep. La plaza no compró: recibió, y el costo se lo fijó un
+conteo.
+
+⭐⭐ **Y no es un caso raro: medido sobre 33,286 pares, el 71.3 % de los costos de reposición
+atribuibles los fijó un movimiento de INVENTARIO FÍSICO, contra 27.5 % de la cadena de compra.**
+Eso cambia la conversación entera: «la ficha está vieja» presupone que alguien compró más caro.
+
+### Lecciones
+
+1. ⭐⭐ **«Explicá por qué» es una prueba, no un pedido de redacción.** Al ir a buscar la causa
+   para escribirla, la causa resultó ser otra. Si la hubiera escrito de memoria, la pantalla
+   habría publicado una explicación falsa con la autoridad de estar impresa al lado del número.
+2. ⭐ **Un candado copiado de otra migración vigila la operación de la otra migración.** `[CE.9]`
+   midió **cero** dependientes de la vista y por eso se permitió un `DROP`; horas después ya eran
+   **dos** y el guard heredado frenó una migración que sólo **agrega** columnas con
+   `CREATE OR REPLACE` — algo que Postgres permite con dependientes vivos. *La medición envejeció
+   en un día, y el guard estaba vigilando la operación equivocada.*
+3. **La forma de la consulta, no el volumen.** El primer intento de atribución tardaba **más de 4
+   minutos y moría**: `LEFT JOIN` + `DISTINCT ON` resuelto por bucles anidados. Con `JOIN` y los
+   pares del costo como lado externo: **2.1 s**. Lo mismo, 120× más rápido.
+4. **El rótulo se toma del ERP, no se escribe.** Los nombres salen de `kdmm` — y ahí apareció que
+   Kepler **repite claves**: `N-D-5` tiene cinco nombres distintos. Se declara con
+   `origen_nombre_ambiguo` en vez de elegir uno callado.
+
+### Entregado
+
+`analytics.mv_kepler_cost_origin` (batch **606**) + nueve columnas `origen_*` en la vista, el
+refresco nocturno con **umbral en `CRON_JOBS`**, y el detalle de la pantalla explicando en una
+oración qué movimiento dejó ese costo — o diciendo que no se pudo atribuir (24.7 %), en vez de
+suponer. Más el bloque **«Si capturás el costo nuevo»** con las dos salidas de la decisión.
+
+**Falta:** la migración de la vista (`20260930150000`) esperando que otra sesión suelte un lock de
+9+ minutos sobre la vista; redeploy api + view; re-login; validación visual.
 
 ---
 ## 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una columna

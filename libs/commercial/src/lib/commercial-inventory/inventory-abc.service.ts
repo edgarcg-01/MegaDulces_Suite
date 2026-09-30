@@ -191,13 +191,51 @@ export class InventoryAbcService {
    * ABC.1 — qué toca contar (conteo cíclico): cruza la clasificación ABC con el
    * historial reconciliado para calcular `next_due = last_counted_at + cadencia(clase)`.
    * Nunca contado → due ya. Ordena por prioridad (A primero, más vencido primero).
+   *
+   * ── `[ABC.6]` DOS DEFECTOS MEDIDOS EN PROD (2026-09-30), los dos del mismo `LIMIT 2000` ──
+   *
+   * 1. ⛔ **`by_class` se contaba sobre la PÁGINA, no sobre el universo.** Con todo el catálogo
+   *    sin contar nunca, las 4,987 A se comían el límite enteras y la pantalla publicaba
+   *    **«2,000 pendientes · A 2000 · B 0 · C 0»** cuando lo vencido era **39,480 (A 4,987 ·
+   *    B 6,822 · C 27,671)**. O sea: subdeclaraba el trabajo en 95% y afirmaba DOS CEROS
+   *    FALSOS. Un cero de más no es un número chico: es una clase entera que desaparece del
+   *    plan sin que nadie lo decida.
+   *
+   * 2. ⛔ **Y B y C no eran invisibles por diseño, sino por truncamiento** — que es peor,
+   *    porque el diseño se discute y el truncamiento no se ve. Ahora el conteo por clase sale
+   *    de un `COUNT` sobre TODO, la página se declara `truncado`, y el orden dentro de cada
+   *    clase pasa a ser el **valor anual descendente**: con `last_counted_at` NULL en todas las
+   *    filas, ordenar por esa columna era un desempate arbitrario disfrazado de prioridad.
+   *
+   * ── El PORQUÉ de la clase viaja con la fila ─────────────────────────────────────────────
+   *
+   * `motivo_clase` es la columna **canónica** `clase_motivo` (KE.4b), que la tabla ya traía
+   * poblada desde `analytics.v_abc_class`. ⛔ La primera versión de este cambio la **re-derivaba**
+   * acá — una segunda definición del mismo concepto, que es exactamente el defecto que KE.4
+   * cerró cuando la pantalla mostraba otra clase que el motor (coincidían en 64%).
+   *
+   * ⚠️ **HALLAZGO DECLARADO, NO CORREGIDO** (medido en prod 2026-09-30): `clase_motivo` marca
+   * `sin_demanda` cuando el **ALMACÉN entero** no vende — `adu_almacen <= 0` en la vista, que
+   * hoy son las **10,125 filas del CEDIS**, que distribuye por traspaso. Pero hay **5,865 filas
+   * más** con `avg_daily_units = 0` y `annual_value = $0` **en almacenes que sí venden**, y esas
+   * caen en el `ELSE` y se rotulan `pareto`: o sea *"es C por su lugar en el Pareto"* sobre una
+   * fila que no tiene valor que ordenar.
+   *
+   * ⛔ **No se arregla acá y hay una razón concreta:** `import-network-reorder.js:99` decide el
+   * nivel de servicio del CEDIS con `clase_motivo = 'sin_demanda' THEN 'A'`. Cambiar la
+   * semántica de esa etiqueta mueve una decisión de COMPRA, y eso es de la fase KE, no de una
+   * revisión de pantalla. Lo que sí se hace es **exponer el hecho** (`sin_demanda_en_fila`) al
+   * lado del motivo, para que la pantalla no afirme un Pareto sobre un valor ausente.
    */
-  async cycleDue(query: { warehouse_id?: string; abc_class?: string; only_due?: boolean } = {}) {
+  async cycleDue(query: {
+    warehouse_id?: string; abc_class?: string; only_due?: boolean; limit?: number;
+  } = {}) {
     if (query.warehouse_id && !UUID.test(query.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
     if (query.abc_class && !['A', 'B', 'C'].includes(String(query.abc_class).toUpperCase()))
       throw new BadRequestException('abc_class debe ser A, B o C');
     const onlyDue = query.only_due !== false; // default true
+    const limit = Math.min(5000, Math.max(50, Number(query.limit) || 2000));
 
     return this.tk.run(async (trx) => {
       const filters: string[] = [];
@@ -217,63 +255,140 @@ export class InventoryAbcService {
            GROUP BY c.warehouse_id, i.product_id
         ),
         ranked AS (
-          SELECT a.warehouse_id, a.product_id, a.abc_class, a.annual_value, lc.last_counted_at,
-                 (CASE a.abc_class WHEN 'A' THEN ${CADENCE_DAYS.A} WHEN 'B' THEN ${CADENCE_DAYS.B} ELSE ${CADENCE_DAYS.C} END) AS cadence_days
+          SELECT a.warehouse_id, a.product_id, a.abc_class, a.annual_value, a.units_window,
+                 a.value_share, a.window_days, a.computed_at, lc.last_counted_at,
+                 (CASE a.abc_class WHEN 'A' THEN ${CADENCE_DAYS.A} WHEN 'B' THEN ${CADENCE_DAYS.B} ELSE ${CADENCE_DAYS.C} END) AS cadence_days,
+                 -- EL PORQUE, con la fila. Sale de la columna CANONICA que la tabla ya trae
+                 -- (KE.4b, poblada desde analytics.v_abc_class): pareto / sin_demanda / sin_costo.
+                 -- Derivarlo aca seria una SEGUNDA definicion, que es justo el defecto que KE.4
+                 -- cerro cuando la pantalla mostraba otra clase que el motor (64% de acuerdo).
+                 a.clase_motivo AS motivo_clase,
+                 -- ⚠️ HALLAZGO DECLARADO, no corregido (ver el bloque de arriba): hay filas con
+                 -- demanda CERO que el resolvedor rotula 'pareto'. Esto NO las re-etiqueta --
+                 -- expone el hecho medible al lado del motivo, para que la pantalla no diga
+                 -- "es C por su lugar en el Pareto" sobre una fila sin valor que ordenar.
+                 (coalesce(a.units_window, 0) = 0) AS sin_demanda_en_fila
             FROM commercial.abc_classification a
             LEFT JOIN last_counted lc ON lc.warehouse_id = a.warehouse_id AND lc.product_id = a.product_id
             ${whereInner}
+        ),
+        -- ⛔ EL CONTEO REAL, sobre TODO el universo y no sobre la página. Contarlo después del
+        -- LIMIT es lo que publicaba «B 0 · C 0» con 6,822 y 27,671 vencidas esperando.
+        totales AS (
+          SELECT abc_class, count(*)::int AS vencidas
+            FROM ranked r ${onlyDue ? `WHERE ${dueExpr}` : ''}
+           GROUP BY 1
+        ),
+        pagina AS (
+          SELECT r.warehouse_id, w.code AS warehouse_code, r.product_id, p.sku, p.nombre AS product_name,
+                 r.abc_class, r.annual_value, r.units_window, r.value_share, r.window_days,
+                 r.computed_at, r.motivo_clase, r.last_counted_at, r.cadence_days,
+                 (r.last_counted_at + (r.cadence_days || ' days')::interval) AS next_due,
+                 ${dueExpr} AS is_due,
+                 CASE WHEN r.last_counted_at IS NULL THEN NULL
+                      ELSE EXTRACT(DAY FROM now() - (r.last_counted_at + (r.cadence_days || ' days')::interval))::int END AS days_overdue
+            FROM ranked r
+            JOIN commercial.warehouses w ON w.id = r.warehouse_id
+            LEFT JOIN public.products p ON p.id = r.product_id
+            ${onlyDue ? `WHERE ${dueExpr}` : ''}
+           -- Dentro de la clase manda el VALOR, no last_counted_at: con todo sin contar esa
+           -- columna es NULL en el 100% de las filas y el "más vencido primero" era un
+           -- desempate arbitrario disfrazado de prioridad. El desempate final por product_id
+           -- es lo que vuelve el orden estable entre dos corridas.
+           ORDER BY CASE r.abc_class WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END,
+                    r.last_counted_at ASC NULLS FIRST, r.annual_value DESC, r.product_id
+           LIMIT ${limit}
         )
-        SELECT r.warehouse_id, w.code AS warehouse_code, r.product_id, p.sku, p.nombre AS product_name,
-               r.abc_class, r.annual_value, r.last_counted_at, r.cadence_days,
-               (r.last_counted_at + (r.cadence_days || ' days')::interval) AS next_due,
-               ${dueExpr} AS is_due,
-               CASE WHEN r.last_counted_at IS NULL THEN NULL
-                    ELSE EXTRACT(DAY FROM now() - (r.last_counted_at + (r.cadence_days || ' days')::interval))::int END AS days_overdue
-          FROM ranked r
-          JOIN commercial.warehouses w ON w.id = r.warehouse_id
-          LEFT JOIN public.products p ON p.id = r.product_id
-          ${onlyDue ? `WHERE ${dueExpr}` : ''}
-         ORDER BY CASE r.abc_class WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END, r.last_counted_at ASC NULLS FIRST
-         LIMIT 2000
+        SELECT (SELECT json_agg(x) FROM (SELECT * FROM pagina) x)   AS items,
+               (SELECT json_agg(t) FROM (SELECT * FROM totales) t)  AS totales
         `,
         binds,
       )).rows;
 
+      const items = rows[0]?.items || [];
       const by_class: Record<string, number> = { A: 0, B: 0, C: 0 };
-      for (const r of rows) if (r.is_due) by_class[r.abc_class] = (by_class[r.abc_class] || 0) + 1;
-      return { cadence_days: CADENCE_DAYS, only_due: onlyDue, count: rows.length, by_class, items: rows };
+      for (const t of (rows[0]?.totales || [])) by_class[t.abc_class] = Number(t.vencidas);
+      const total = by_class.A + by_class.B + by_class.C;
+      return {
+        cadence_days: CADENCE_DAYS,
+        only_due: onlyDue,
+        /** ⛔ El total REAL de vencidas, no el de la página. Era el defecto. */
+        count: total,
+        by_class,
+        /** Cuántas filas viajan en esta respuesta. */
+        mostradas: items.length,
+        limit,
+        /** Se DECLARA: una página recortada y un universo chico se leen igual sin esto. */
+        truncado: total > items.length,
+        items,
+      };
     });
   }
 
-  /** Lee la clasificación vigente (con nombre de producto/almacén). */
-  async listAbc(query: { warehouse_id?: string; abc_class?: string } = {}) {
+  /**
+   * Lee la clasificación vigente (con nombre de producto/almacén).
+   *
+   * `[ABC.6]` Devolvía un array pelado con `LIMIT 2000` **mudo**: 39,480 filas clasificadas y
+   * la pantalla mostraba 2,000 sin decir que había recortado. Ahora devuelve el total real y
+   * `truncado`, y cada fila trae **por qué** tiene esa clase.
+   */
+  async listAbc(query: { warehouse_id?: string; abc_class?: string; limit?: number } = {}) {
     if (query.warehouse_id && !UUID.test(query.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
     if (query.abc_class && !['A', 'B', 'C'].includes(query.abc_class))
       throw new BadRequestException('abc_class debe ser A, B o C');
+    const limit = Math.min(5000, Math.max(50, Number(query.limit) || 2000));
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.abc_classification as a')
-        .join('commercial.warehouses as w', 'w.id', 'a.warehouse_id')
-        .leftJoin('public.products as p', 'p.id', 'a.product_id');
-      if (query.warehouse_id) q = q.where('a.warehouse_id', query.warehouse_id);
-      if (query.abc_class) q = q.where('a.abc_class', query.abc_class);
-      return q
-        .select(
-          'a.warehouse_id',
-          'w.code as warehouse_code',
-          'a.product_id',
-          'p.sku as sku',
-          'p.nombre as product_name',
-          'a.abc_class',
-          'a.annual_value',
-          'a.units_window',
-          'a.value_share',
-          'a.window_days',
-          'a.computed_at',
-        )
-        .orderBy('a.warehouse_id', 'asc')
-        .orderBy('a.annual_value', 'desc')
-        .limit(2000);
+      const base = () => {
+        let q = trx('commercial.abc_classification as a');
+        if (query.warehouse_id) q = q.where('a.warehouse_id', query.warehouse_id);
+        if (query.abc_class) q = q.where('a.abc_class', query.abc_class);
+        return q;
+      };
+      const [items, [{ total }]] = await Promise.all([
+        base()
+          .join('commercial.warehouses as w', 'w.id', 'a.warehouse_id')
+          .leftJoin('public.products as p', 'p.id', 'a.product_id')
+          .select(
+            'a.warehouse_id',
+            'w.code as warehouse_code',
+            'a.product_id',
+            'p.sku as sku',
+            'p.nombre as product_name',
+            'a.abc_class',
+            'a.annual_value',
+            'a.units_window',
+            'a.value_share',
+            'a.window_days',
+            'a.computed_at',
+            // El mismo criterio que la agenda, escrito UNA vez acá abajo tampoco: si algún día
+            // son tres consumidores, sube a una vista. Con dos, duplicarlo se ve.
+            // La columna CANONICA (KE.4b), no una segunda derivacion.
+            'a.clase_motivo as motivo_clase',
+            trx.raw('(coalesce(a.units_window, 0) = 0) AS sin_demanda_en_fila'),
+          )
+          .orderBy('a.warehouse_id', 'asc')
+          .orderBy('a.annual_value', 'desc')
+          .orderBy('a.product_id', 'asc')     // desempate estable entre corridas
+          .limit(limit),
+        base().count<{ total: string }[]>('* as total'),
+      ]);
+      return {
+        items,
+        total: Number(total),
+        mostradas: items.length,
+        limit,
+        truncado: Number(total) > items.length,
+        /** El criterio, con la data: lo que la pantalla necesita para explicar la letra. */
+        criterio: {
+          metrica: 'valor de consumo anualizado = demanda diaria × 365 × costo unitario',
+          demanda: 'analytics.inventory_health.avg_daily_units (misma que usa el punto de reorden)',
+          costo: 'analytics.v_erp_unit_cost (kdik.c16 por pieza en Kepler · costo_promedio en Wincaja)',
+          corte: 'Pareto POR ALMACÉN — A hasta 80% del valor acumulado · B 80–95% · C el resto',
+          ventana_dias: DEFAULT_WINDOW_DAYS,
+          cadencia_dias: CADENCE_DAYS,
+        },
+      };
     });
   }
 }
