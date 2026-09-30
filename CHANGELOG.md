@@ -24,6 +24,55 @@
 ### Fixed — `view:test` en rojo en main: Costo estándar descableado a medias y un spec del tablero viejo (TK.a3)
 
 ### Fixed — El buscador por folio ordenaba por día de la semana y mutilaba las tarjetas (TK.a1/a2)
+### Added — `main` no tenía NINGUNA protección, y la documentación decía que sí (2026-09-30)
+
+Auditoría de CI/CD. Lo medido contradice tres afirmaciones del propio repo:
+
+| Lo que decía el repo | Lo medido el 2026-09-30 |
+| --- | --- |
+| CI `disabled_manually` desde el 2026-08-25, por facturación | **`active` y corriendo.** Se destrabó y nadie actualizó la doc |
+| «`main` está protegida» (`CLAUDE.md`, `ONBOARDING.md` §8) | **Sin protección alguna.** El repo pasó a privado en plan free → GitHub responde `403` a `branches/main/protection` **y** a `rulesets` |
+| «el repo es público» (`ONBOARDING.md` §8.1) | Privado, y además renombrado a `MegaDulces_Suite` |
+
+Lo que costó, sobre los 30 días previos: **~58 de 60 commits a `main` entraron por push directo**
+y de los últimos 20 pushes **15 quedaron rojos y 1 verde**. Las fallas son **reales**, no infra
+(dos veces ese día, `check:tokens` marcando `var(--token)` que no existen).
+
+⭐ **El CI no está roto — corre tarde**, después del merge y sobre la rama de la que se deploya.
+
+**Added**
+- `.githooks/pre-push` + `scripts/gate-push.js` — compuerta de push en dos capas: (1) bloquea el
+  push directo a `main`; (2) corre 6 gates estáticos en paralelo (~2.5 s) y bloquea **sólo** si el
+  hallazgo cae en un archivo que viaja en tu push. ⛔ La capa 2 es lo que lo hace sobrevivir: los
+  gates son de repo completo y el repo **tiene deuda preexistente**, así que un hook que corriera
+  el gate entero nacería rojo para todos y lo desactivarían el primer día.
+- `scripts/apply-branch-protection.js` — la protección real **como código** (3 required status
+  checks + squash + review), con verificación de que los nombres de los checks existan en corridas
+  reales: un nombre inventado deja el PR esperando para siempre. Hoy sale `403` y lo explica.
+- `npm run hooks:install` / `hooks:check` / `hooks:uninstall` / `branch-protection`.
+
+**Changed**
+- Repo: `delete_branch_on_merge` **on**, y merge **squash-only** (se apagaron merge-commit y rebase).
+- Ramas remotas: **13 → 3**. Se borraron 8 ya mergeadas, 2 duplicados exactos (`pr192`≡`feat/re30`,
+  `pr193`≡`feat/tk12`, mismo SHA), `production` (1,435 commits atrás, 0 adelante) y `nx-cloud-setup`
+  (superseded — su `nxCloudId` ya está en `main` y el commit **borra 70 líneas** de `nx.json`).
+- `ONBOARDING.md` §8 reescrito contra lo medido, con §8.0 nuevo. `ci.yml` y `CLAUDE.md` corregidos.
+
+**Fixed**
+- ⛔ **El `pre-commit` de gitleaks llevaba 2 meses sin correr para nadie.** Existía versionado desde
+  el 2026-07-24 —escrito *después* de una fuga de credenciales de prod al repo— pero nació
+  «opt-in» y sólo se mencionaba en este CHANGELOG, nunca en ONBOARDING. `core.hooksPath` estaba
+  sin configurar. `npm run hooks:install` lo activa junto con el `pre-push`.
+- `.gitattributes`: `.githooks/**  text eol=lf`. **Séptimo** caso del mismo patrón en este repo —
+  archivo sin extensión conocida, fuera de `ops/`, sin regla → `core.autocrlf=true` lo entrega con
+  CRLF y el hook muere con `bad interpreter: /bin/sh^M`, o sea **no-op silencioso en todas las
+  máquinas**. Regla amplia, siguiendo la lección de `[VL.11.A]`.
+
+**Internal** — las dos pruebas negativas encontraron bugs reales *antes* del commit:
+`readFileSync(0)` tira `EAGAIN` en Windows y el `catch` se lo tragaba → la compuerta imprimía `✓`
+sin haber leído una sola ref (verde sin medir nada); y el CRLF de arriba. Verificado que bloquea el
+commit exacto que tenía rojo a `main` (`fb618c166`) y que deja pasar un push limpio declarando la
+deuda ajena sin frenarla.
 
 ### Fixed — en local fallaban TODOS los websockets: el proxy de dev enruta un path que no usa nadie (2026-09-29)
 Sale de *«en local sigue tardando demasiado»*, con este panel de red: `products` **500 en 1 min**,

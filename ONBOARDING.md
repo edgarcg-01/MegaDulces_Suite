@@ -195,9 +195,19 @@ El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave 
 npm run hooks:install
 ```
 
-Activa la **compuerta de push** del repo (`.githooks/pre-push`). Sin esto no hay NADA que te
-frene: hoy `main` no tiene protección del lado de GitHub (ver el ⚠️ de abajo). Tarda ~2.5 s por
-push y es lo único que separa un commit roto de la rama de la que se deploya.
+Apunta git a `.githooks/`, que trae **dos** compuertas — y sin este comando **ninguna de las dos
+corre**:
+
+| Hook | Qué hace |
+| --- | --- |
+| `pre-commit` | Escaneo de secretos con **gitleaks**. Existe desde el 2026-07-24, se escribió *después de una fuga de credenciales de prod al repo* — y nació «opt-in», mencionado sólo en el CHANGELOG. Medido el 2026-09-30: `core.hooksPath` estaba **sin configurar**, o sea que llevaba **dos meses sin correr para nadie**. |
+| `pre-push` | Bloquea el push directo a `main` y corre 6 gates estáticos sobre **tus** archivos (~2.5 s, en paralelo). No te frena con la deuda preexistente del repo. |
+
+Hoy `main` no tiene protección del lado de GitHub (ver el ⚠️ de abajo), así que esto es lo único
+que separa un commit roto de la rama de la que se deploya.
+
+> `npm run hooks:check` te dice si quedó activo · `npm run hooks:uninstall` lo desactiva.
+> El escape de emergencia es `git push --no-verify`, y deja rastro: el CI lo va a marcar igual.
 
 ---
 
