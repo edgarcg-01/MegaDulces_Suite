@@ -1774,6 +1774,7 @@ export interface GuideCostList {
 
 export interface GuideCostConcepto {
   concepto: string;
+  familia_costo: string;
   /** Las cuentas contables donde vive ese concepto (puede ser más de una). */
   cuentas: string;
   ventanas: string;
@@ -1792,10 +1793,20 @@ export interface GuideCostConcepto {
   dia: string;
 }
 
+/** Una familia de costo con sus conceptos adentro — el agrupador que hace encontrable el gasto. */
+export interface GuideCostFamilia {
+  familia: string;
+  total: number;
+  pct_del_total: number | null;
+  conceptos: GuideCostConcepto[];
+}
+
 export interface GuideCostBreakdown {
   sucursal: string;
   guia: string;
   total: number;
+  familias: GuideCostFamilia[];
+  /** La lista plana se conserva: el drill a pólizas trabaja sobre el concepto. */
   conceptos: GuideCostConcepto[];
   margen_declarado: MargenDeclarado;
 }

@@ -298,7 +298,7 @@ export class GuideCostService {
       // daba. Las dos vias se conservan como columnas (`de_departamento` / `de_prorrateo`), que es
       // la informacion que el usuario necesita, sin partir el renglon en dos.
       const { rows } = await trx.raw(
-        `SELECT concepto,
+        `SELECT familia_costo, concepto,
                 string_agg(DISTINCT cuenta_mayor, '+' ORDER BY cuenta_mayor) AS cuentas,
                 string_agg(DISTINCT ventana, '+')                            AS ventanas,
                 round(sum(atribuido)::numeric, 2)                            AS atribuido,
@@ -316,14 +316,46 @@ export class GuideCostService {
            FROM analytics.mv_logistics_guide_cost
           WHERE tenant_id = ?::uuid AND sucursal = ? AND guia = ?
             AND dia >= ?::date AND dia <= ?::date
-          GROUP BY 1
+          GROUP BY 1, 2
           ORDER BY sum(atribuido) DESC`,
         [M, sucursal, guia, from, to],
       );
       const total = rows.reduce((s: number, r: any) => s + Number(r.atribuido), 0);
+
+      // ⭐ Agrupado por FAMILIA, con los conceptos adentro. El reporte que lo motivó: el
+      // combustible estaba —$294,991, el 13.0 %— pero partido en TRES conceptos entre 97, y
+      // ninguno se llama sólo "combustible". Un gasto que existe pero no se puede encontrar es,
+      // para quien mira la pantalla, un gasto que falta.
+      const porFamilia = new Map<string, any>();
+      for (const r of rows) {
+        const k = r.familia_costo || 'otros';
+        if (!porFamilia.has(k)) porFamilia.set(k, { familia: k, total: 0, conceptos: [] as any[] });
+        const f = porFamilia.get(k);
+        f.total += Number(r.atribuido);
+        f.conceptos.push({
+          ...r,
+          atribuido: Number(r.atribuido),
+          de_departamento: Number(r.de_departamento || 0),
+          de_prorrateo: Number(r.de_prorrateo || 0),
+          share: r.paradas_bucket
+            ? Number((Number(r.paradas_guia) / Number(r.paradas_bucket)).toFixed(4)) : null,
+        });
+      }
+      const familias = [...porFamilia.values()]
+        .map((f) => ({
+          ...f,
+          total: Number(f.total.toFixed(2)),
+          pct_del_total: total ? Number((100 * f.total / total).toFixed(1)) : null,
+          conceptos: f.conceptos.sort((a: any, b: any) => b.atribuido - a.atribuido),
+        }))
+        .sort((a, b) => b.total - a.total);
+
       return {
         sucursal, guia,
         total: Number(total.toFixed(2)),
+        familias,
+        // Se conserva la lista plana: el filtro por tipo de gasto y el drill a pólizas siguen
+        // trabajando sobre el concepto, que es el grano del que salen las pólizas.
         conceptos: rows.map((r: any) => ({
           ...r,
           atribuido: Number(r.atribuido),
