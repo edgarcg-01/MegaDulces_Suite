@@ -5,7 +5,7 @@ import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
-  esFechaFutura, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
+  esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
@@ -361,6 +361,192 @@ export class CashLedgerService {
         })
         .returning(['id', 'priority']);
       return { creada: true, id: row.id, priority: row.priority, patron };
+    });
+  }
+
+  /**
+   * ⭐ `[CG.27-B.1]` — **Los beneficiarios que REPITEN y nadie declaró su cuenta.**
+   *
+   * ── Por qué existe ─────────────────────────────────────────────────────────────────────────
+   * Medido sobre 180 días: **227 beneficiarios** reciben efectivo, y la recurrencia está partida
+   * en dos grupos que piden cosas distintas:
+   *
+   *   · **26 casi diarios** → **75.2 % de los documentos** y sólo 27.7 % del dinero.
+   *   · **32 semanales**    → 12.6 % de los documentos y **39.2 % del dinero**.
+   *
+   * De los **58 que repiten** (≥15 pagos), **32 tienen historia en `analytics.expense_entries`
+   * con dominancia ≥80 %** — a ésos el autorrelleno ya les puede proponer la cuenta. Los otros
+   * **26 no son proveedores**: son conceptos internos (13 cajas chicas, `NOMINA`, comisiones,
+   * bonos, tarjetas) que la contabilidad no postea con ese nombre, y valen **3,919 pagos**. Ésos
+   * necesitan que un humano declare la regla, una vez.
+   *
+   * Y hasta ahora **no había por dónde verlos**: la única puerta era el checkbox de la captura,
+   * movimiento por movimiento.
+   *
+   * ── Cómo se decide "sin regla", y por qué así ─────────────────────────────────────────────
+   * ⛔ Se corre **el mismo matcher que la bandeja** (`reglaQueAplica`, `[CG.27-B.0]`) sobre los
+   * movimientos REALES de cada beneficiario, con su glosa y su tipo. No se reimplementa el match
+   * ni se aproxima con un `ILIKE`: si esta lista y la captura usaran criterios distintos, la
+   * pantalla diría "falta declarar" sobre algo ya declarado, o al revés.
+   *
+   * ⚠️ Por eso se cuentan los pagos **cubiertos** y no sólo un sí/no: una regla con `match_glosa`
+   * puede clasificar una parte de los movimientos de un beneficiario y no el resto. Un booleano
+   * escondería ese caso; `pagos_con_regla` lo muestra.
+   *
+   * ── `[CG.27-B.3]` El recurrente que se cayó ───────────────────────────────────────────────
+   * `dias_sin_pago` sale de la misma consulta. Medido: **11 de los 58** llevan más de 21 días sin
+   * cobrar, encabezados por `ARTURO VILLARRUEL SAINZ` con **$1.46 M**. Que un recurrente deje de
+   * cobrar es una señal —se fue, o alguien dejó de pagarle— y hoy no la ve nadie.
+   *
+   * ⛔ **No va a `finance.findings`**, y el precedente está medido: esa bandeja acumuló **82,377
+   * filas en `nuevo` sin triage** (`[CC.10]`). Acá el trabajo cierra solo — se declara la regla, o
+   * se le vuelve a pagar, y la fila sale de la lista.
+   */
+  async recurrentesSinRegla(q: { dias?: number; min_pagos?: number; incluir_cubiertos?: boolean } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const dias = Math.min(Math.max(Number(q.dias) || 180, 7), 730);
+    const minPagos = Math.min(Math.max(Number(q.min_pagos) || 15, 2), 500);
+
+    return this.tk.run(async (trx) => {
+      // Los movimientos de los beneficiarios que repiten. Se traen crudos porque el matcher corre
+      // en JS: un regex de la base NUNCA toca el SQL (`knex.raw` se come los `?` y un cuantificador
+      // ya costó una columna entera en `20260819220000`).
+      //
+      // ⚠️ `fecha_valor <= hoy` deja fuera los documentos mal fechados del ERP ([CG.24]): un gasto
+      // de enero fechado en diciembre inflaría los "días sin pago" de su beneficiario al revés.
+      const movs = await trx.raw(`
+        WITH hoy AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+        base AS (
+          SELECT m.beneficiario, m.concepto, m.importe, m.fecha_valor, m.tipo_cuenta
+            FROM analytics.mv_caja_movimientos m CROSS JOIN hoy
+           WHERE m.tenant_id = ?
+             AND m.flujo = 'salida'
+             AND m.beneficiario IS NOT NULL
+             AND m.fecha_valor <= hoy.d
+             AND m.fecha_valor >= hoy.d - ?::int
+        ),
+        rec AS (
+          SELECT beneficiario FROM base GROUP BY 1 HAVING count(*) >= ?::int
+        )
+        SELECT b.beneficiario, b.concepto, b.importe::float AS importe, b.fecha_valor::text AS fecha_valor,
+               (SELECT d FROM hoy)::text AS hoy
+          FROM base b JOIN rec r ON r.beneficiario = b.beneficiario`,
+        [tenantId, dias, minPagos]);
+
+      const reglas = await this.reglasDeGasto(trx, tenantId);
+
+      /**
+       * ⭐ ¿La contabilidad puede PROPONERLE la cuenta a este beneficiario?
+       *
+       * ⛔ **Acá me equivoqué primero y la corrección cambia la conclusión de la fase.** Medí que
+       * "32 de los 58 recurrentes tienen historia en `analytics.expense_entries`" y lo di por
+       * accionable. Falso: esa medición sólo exigía que el NOMBRE apareciera. El Nivel 2 del
+       * autorrelleno exige el par completo (`whereNotNull('concepto')`), y con ese filtro son
+       * **3 de 58**. `concepto` viene poblado en el 67.2 % de las filas, pero no en las de ellos.
+       *
+       * O sea: el motor puede proponerle a **3**. Los otros **55 necesitan que un humano declare
+       * la regla**, y por eso esta lista es la entrega, no un adorno.
+       *
+       * ⚠️ Se pide el par DOMINANTE con su soporte, no "el último": un beneficiario que usó tres
+       * cuentas no determina ninguna, y proponerle la más reciente sería inventar.
+       */
+      const hist = await trx.raw(`
+        WITH cand AS (SELECT DISTINCT upper(btrim(beneficiario)) AS b
+                        FROM analytics.mv_caja_movimientos
+                       WHERE tenant_id = ? AND flujo = 'salida' AND beneficiario IS NOT NULL),
+        par AS (
+          SELECT upper(btrim(e.beneficiario)) AS b, e.cuenta, e.concepto, count(*) AS usos
+            FROM analytics.expense_entries e
+            JOIN cand c ON c.b = upper(btrim(e.beneficiario))
+           WHERE e.tenant_id = ? AND e.cuenta IS NOT NULL AND e.concepto IS NOT NULL
+           GROUP BY 1, 2, 3
+        ),
+        dom AS (
+          SELECT b, cuenta, concepto, usos,
+                 sum(usos) OVER (PARTITION BY b) AS tot,
+                 row_number() OVER (PARTITION BY b ORDER BY usos DESC, cuenta, concepto) AS rk
+            FROM par
+        )
+        SELECT b, cuenta, concepto, usos::int, tot::int FROM dom WHERE rk = 1`,
+        [tenantId, tenantId]);
+      const porHistoria = new Map<string, { cuenta: string; concepto: string; usos: number; tot: number }>();
+      for (const h of hist.rows as Array<Record<string, unknown>>) {
+        porHistoria.set(String(h['b']), {
+          cuenta: String(h['cuenta']), concepto: String(h['concepto']),
+          usos: Number(h['usos']), tot: Number(h['tot']),
+        });
+      }
+
+      // Agregación en JS, porque el veredicto de regla se decide fila por fila con el matcher real.
+      type Acc = {
+        beneficiario: string; pagos: number; pagos_con_regla: number; monto: number;
+        montos: number[]; ultimo: string;
+      };
+      const porBenef = new Map<string, Acc>();
+      let hoy = '';
+      for (const m of movs.rows as Array<Record<string, unknown>>) {
+        hoy = String(m['hoy']);
+        const b = String(m['beneficiario']);
+        const a = porBenef.get(b) ?? { beneficiario: b, pagos: 0, pagos_con_regla: 0, monto: 0, montos: [], ultimo: '' };
+        const importe = Number(m['importe']) || 0;
+        a.pagos += 1;
+        a.monto += importe;
+        a.montos.push(importe);
+        const f = String(m['fecha_valor']);
+        if (f > a.ultimo) a.ultimo = f;
+        // El MISMO matcher de la bandeja, con la glosa y el tipo reales del movimiento.
+        if (reglaQueAplica(reglas, { tipo: 'gasto', glosa: String(m['concepto'] ?? ''), beneficiario: b })) {
+          a.pagos_con_regla += 1;
+        }
+        porBenef.set(b, a);
+      }
+
+      const dia = (a: string, b: string) =>
+        Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+
+      const rows = [...porBenef.values()]
+        .filter((a) => (q.incluir_cubiertos ? true : a.pagos_con_regla === 0))
+        .map((a) => ({
+          beneficiario: a.beneficiario,
+          pagos: a.pagos,
+          pagos_con_regla: a.pagos_con_regla,
+          monto: Number(a.monto.toFixed(2)),
+          promedio: Number((a.monto / a.pagos).toFixed(2)),
+          // ⭐ El CV del importe es lo que decide el TRATO, y es lo único que discrimina de verdad:
+          // la cadencia no sirve (medida entre días distintos, la mediana es 2-5 días para TODOS,
+          // así que "lo esperado hoy" no separa a nadie). Con CV bajo el importe se puede proponer;
+          // con CV alto se propone la cuenta y JAMÁS el monto.
+          cv_importe: cvDe(a.montos),
+          ultimo_pago: a.ultimo,
+          dias_sin_pago: a.ultimo && hoy ? dia(a.ultimo, hoy) : null,
+          // `null` = la contabilidad NO tiene con qué proponerle nada, y hay que declararla a mano.
+          // No es lo mismo que "no propone": es que no hay de dónde.
+          propuesta_contable: propuestaDe(porHistoria.get(a.beneficiario.trim().toUpperCase())),
+        }))
+        .sort((x, y) => y.pagos - x.pagos);
+
+      return {
+        rows,
+        ventana_dias: dias,
+        min_pagos: minPagos,
+        /**
+         * El contador va SIEMPRE, aunque la lista esté plegada: una lista escondida no se trabaja,
+         * y "0 sin regla" por una consulta vacía no puede leerse igual que "ya está todo declarado".
+         */
+        medido: {
+          recurrentes: porBenef.size,
+          sin_regla: [...porBenef.values()].filter((a) => a.pagos_con_regla === 0).length,
+          pagos_sin_regla: [...porBenef.values()]
+            .filter((a) => a.pagos_con_regla === 0).reduce((s, a) => s + a.pagos, 0),
+          reglas_declaradas: reglas.length,
+          caidos: rows.filter((r) => (r.dias_sin_pago ?? 0) > CAIDO_DIAS).length,
+          // ⭐ El número que dimensiona el trabajo humano: a cuántos de los que faltan puede
+          // proponerles la contabilidad, y a cuántos no. Medido en prod: 3 y 55.
+          con_propuesta_contable: rows.filter((r) => r.propuesta_contable).length,
+          sin_de_donde_proponer: rows.filter((r) => !r.propuesta_contable).length,
+        },
+        caido_dias: CAIDO_DIAS,
+      };
     });
   }
 

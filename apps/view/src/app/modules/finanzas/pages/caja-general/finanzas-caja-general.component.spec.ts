@@ -28,7 +28,7 @@ import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component'
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
   type PendientesResponse, type Frecuente, type CajaKepler, type MovimientoPendiente,
-  type ArqueoDia,
+  type ArqueoDia, type RecurrentesResponse,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
@@ -146,6 +146,39 @@ const ARQUEO: ArqueoDia = {
   no_medido: ['Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.'],
 };
 
+/**
+ * `[CG.27-B.1]` Los recurrentes sin regla, con las proporciones REALES de prod: 58 que repiten,
+ * 57 sin regla, y sólo **3** a los que la contabilidad puede proponerles la cuenta.
+ */
+const RECURRENTES: RecurrentesResponse = {
+  rows: [
+    {
+      beneficiario: 'GASTOS GENERALES CAJA CHICA MORELIA ABASTOS',
+      pagos: 967, pagos_con_regla: 0, monto: 706742, promedio: 731,
+      cv_importe: 3.39, ultimo_pago: '2026-09-21', dias_sin_pago: 8, propuesta_contable: null,
+    },
+    {
+      beneficiario: 'CAPITAN DE MARCA',
+      pagos: 313, pagos_con_regla: 0, monto: 116550, promedio: 372,
+      cv_importe: 0.36, ultimo_pago: '2026-09-18', dias_sin_pago: 11,
+      propuesta_contable: { kepler_cuenta: '606-014', kepler_concepto: '074', soporte: 447, dominancia: 1 },
+    },
+    {
+      beneficiario: 'ARTURO VILLARRUEL SAINZ',
+      pagos: 23, pagos_con_regla: 0, monto: 1460355, promedio: 63494,
+      cv_importe: 1.2, ultimo_pago: '2026-08-27', dias_sin_pago: 33, propuesta_contable: null,
+    },
+  ],
+  ventana_dias: 180,
+  min_pagos: 15,
+  medido: {
+    recurrentes: 58, sin_regla: 57, pagos_sin_regla: 5688,
+    reglas_declaradas: 1, caidos: 11,
+    con_propuesta_contable: 3, sin_de_donde_proponer: 54,
+  },
+  caido_dias: 21,
+};
+
 describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let svc: Record<string, ReturnType<typeof vi.fn>>;
   let comp: FinanzasCajaGeneralComponent;
@@ -171,6 +204,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       declararRegla: vi.fn(() => of({ creada: true, id: 'r1' })),
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
       arqueoDia: vi.fn(() => of(ARQUEO)),
+      recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       ...over,
     };
 
@@ -543,6 +577,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // [CG.26] Este mock se arma a mano (no sale de `montar`), así que todo lo que `ngOnInit`
       // toque tiene que estar acá o el montaje revienta con "is not a function".
       arqueoDia: vi.fn(() => of(ARQUEO)),
+      recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -1267,5 +1302,105 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const antes = svc['arqueoDia'].mock.calls.length;
     comp.setArqueoFecha('');
     expect(svc['arqueoDia'].mock.calls.length).toBe(antes);
+  });
+
+  // ── 19 · [CG.27-B.1/B.3] LOS QUE REPITEN Y NADIE DECLARO SU CUENTA ────────────────────────
+  //
+  // Es el 69 % de los clics de la caja y no había por dónde verlo. Lo que estas pruebas fijan es
+  // que el CONTADOR esté siempre a la vista (una lista escondida no se trabaja) y que las dos
+  // ausencias distintas —"no propone" y "no hay de dónde proponer"— no se pinten igual.
+
+  it('el contador va SIEMPRE visible, aunque la lista esté plegada', () => {
+    const fx = montar();
+    expect(comp.recAbierto()).toBe(false);          // nace plegada: son 57 filas
+
+    const html: string = fx.nativeElement.innerHTML;
+    expect(html).toContain('Repiten y nadie declaro su cuenta');
+    expect(html).toContain('57 de 58');
+    expect(html).toContain('5688 pagos');
+  });
+
+  it('el contador separa "con propuesta" de "sin de dónde proponer": son dos trabajos distintos', () => {
+    // Uno es confirmar lo que la contabilidad ya hizo; el otro es decidir de cero. Medido en prod:
+    // 3 y 54. Juntarlos en un solo número escondería que casi nadie tiene propuesta.
+    montar();
+    const t = comp.textoRecurrentes(RECURRENTES);
+    expect(t).toContain('3 con propuesta');
+    expect(t).toContain('54 sin de d');
+    expect(t).toContain('11 dejaron de cobrar');
+  });
+
+  it('⛔ [negativa] si la medición falla NO dice "no hay ninguno": dice que no se midió', () => {
+    const fx = montar({ recurrentesSinRegla: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    expect(comp.recurrentes()).toBeNull();
+    const html: string = fx.nativeElement.innerHTML;
+    expect(html).toContain('Sin medir');
+    expect(html).not.toContain('sin de d');
+  });
+
+  it('⛔ [negativa] cero sin regla se dice como "ya está todo declarado", no como lista vacía', () => {
+    montar();
+    const t = comp.textoRecurrentes({
+      ...RECURRENTES,
+      medido: { ...RECURRENTES.medido, sin_regla: 0, pagos_sin_regla: 0, caidos: 0 },
+    });
+    expect(t).toContain('ya tienen su cuenta declarada');
+  });
+
+  it('el CV decide qué se le puede proponer: fijo, variable o muy variable', () => {
+    montar();
+    const [caja, capitan, arturo] = RECURRENTES.rows;
+    // CAPITAN DE MARCA, CV 0.36 → el importe casi no se mueve.
+    expect(comp.esImporteProponible(capitan)).toBe(true);
+    expect(comp.textoImporte(capitan)).toContain('fijo');
+    // CAJA CHICA, CV 3.39 → la cuenta sí, el monto jamás.
+    expect(comp.esImporteProponible(caja)).toBe(false);
+    expect(comp.textoImporte(caja)).toBe('muy variable');
+    expect(comp.textoImporte(arturo)).toBe('variable');
+  });
+
+  it('⛔ [negativa] un CV sin medir NO se pinta igual que un CV de cero', () => {
+    // 0 significa "siempre el mismo importe", que es la señal más fuerte que hay acá. Pintarlo
+    // como "sin medir" sería perder justo la mejor.
+    montar();
+    const base = RECURRENTES.rows[1];
+    expect(comp.textoImporte({ ...base, cv_importe: null })).toBe('sin medir');
+    expect(comp.textoImporte({ ...base, cv_importe: 0 })).toContain('fijo');
+    expect(comp.esImporteProponible({ ...base, cv_importe: null })).toBe(false);
+  });
+
+  it('abrir la lista pinta las filas, con el par propuesto y su respaldo', async () => {
+    const fx = montar();
+    comp.recAbierto.set(true);
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const tabla: string = fx.nativeElement.querySelector('.cg-rec').innerHTML;
+    expect(tabla).toContain('CAPITAN DE MARCA');
+    expect(tabla).toContain('606-014 / 074');
+    expect(tabla).toContain('447 antecedentes');
+    // ⛔ La otra ausencia: no es que el motor no proponga, es que no hay de dónde.
+    expect(tabla).toContain('Sin de donde proponer');
+  });
+
+  it('declarar desde la lista abre la captura con el beneficiario y el par ya puestos', () => {
+    montar();
+    comp.declararDesdeRecurrente(RECURRENTES.rows[1]);
+
+    expect(comp.f().tipo).toBe('gasto');
+    expect(comp.f().beneficiario).toBe('CAPITAN DE MARCA');
+    // La propuesta viaja, para que la persona confirme en vez de teclear.
+    expect(comp.f().kepler_cuenta).toBe('606-014');
+    expect(comp.f().kepler_concepto).toBe('074');
+  });
+
+  it('⛔ [negativa] sin propuesta contable NO se inventa una cuenta', () => {
+    montar();
+    comp.declararDesdeRecurrente(RECURRENTES.rows[0]);   // el que no tiene historia
+
+    expect(comp.f().beneficiario).toBe('GASTOS GENERALES CAJA CHICA MORELIA ABASTOS');
+    expect(comp.f().kepler_cuenta).toBeNull();
+    expect(comp.f().kepler_concepto).toBeNull();
   });
 });
