@@ -5,50 +5,54 @@ name: CI
 # production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
 # Angular ANTES de que Railway deploye un build roto.
 #
-# ⛔ ESTE WORKFLOW NO CORRE, Y YA SE SABE POR QUÉ (medido el 2026-09-17).
+# ─── ESTADO REAL, medido el 2026-09-30 ────────────────────────────────────────────────────
 #
-# La causa la dice GitHub con todas las letras, en las anotaciones de la última corrida
-# (`gh run view 32897778959`):
+# ✅ ESTE WORKFLOW SÍ CORRE. Está `active` y corrió hoy.
 #
-#     "The job was not started because your account is locked due to a billing issue."
+# ⚠️ Lo que decía este bloque hasta hoy —que el workflow estaba `disabled_manually` desde el
+#    2026-08-25 por la facturación bloqueada de la cuenta— **quedó viejo**. La facturación se
+#    destrabó, el workflow se reactivó, y las corridas arrancan normal. Si llegaste acá por ese
+#    párrafo: ya no aplica. (Se deja escrito el episodio porque explica el hueco de agosto.)
 #
-# Los 3 jobs mueren en 2–3 s sin arrancar. **No es el workflow, ni los runners, ni cuota**: el
-# repo es PÚBLICO y de una cuenta personal, donde Actions es gratis e ilimitado. Es la CUENTA
-# (`edgarcg-01`) la que está bloqueada, y eso frena Actions entero.
+# ⛔ PERO EL CI NO BLOQUEA NADA, y ahora por OTRA razón — peor que la anterior:
 #
-#   ⭐ Lo destraba el dueño de la cuenta en la configuración de facturación de GitHub.
-#      NO hay nada que arreglar en este repo, y reactivar el workflow sin resolver eso
-#      sólo devuelve las corridas en rojo de 3 segundos.
+#    El repo pasó a PRIVADO y la cuenta está en plan free. GitHub responde **403** tanto a
+#    `repos/.../branches/main/protection` como a `repos/.../rulesets`:
 #
-# Estado medido: `disabled_manually` · última corrida **2026-08-25** · las 25 previas en rojo,
-# todas por el mismo bloqueo. Desde entonces se mergeó sin que corriera ni una vez.
+#        "Upgrade to GitHub Pro or make this repository public to enable this feature."
 #
-# ⚠️ Y hace falta un SEGUNDO paso que se olvida: `main` exige review, pero su branch protection
-# NO tiene ningún required status check (`required_status_checks: null`). Aun con la facturación
-# resuelta y el workflow encendido, esto **no bloquearía un merge** hasta que se agreguen.
+#    O sea: `main` hoy no tiene **ninguna** protección. Ni review obligatorio, ni required
+#    status checks, ni freno al force-push. Antes faltaban los checks; ahora falta todo.
 #
-# Mientras tanto la compuerta vive en la máquina de cada quien: **`npm run check`**
-# (scripts/check-all.js) corre las seis —templates, boundary, provenance, lint, test, build— y
-# dice cuál pasa. Medido el 2026-09-17 al crearlo: **2 de 6 en verde**, y ninguna rojez era
-# reciente. Ése es el costo de tener esto apagado.
+# Lo que eso cuesta, medido sobre los 30 días previos:
 #
-# ─── `[NX.5]` Qué falta para que esto valga, en orden ──────────────────────────────────────
-# El workflow ya está cableado a Nx Cloud (ver el bloque `env:` de abajo). Las tres cosas que
-# quedan NO se resuelven desde el repo, y sin las dos primeras esto sigue sin correr:
+#     · ~58 de 60 commits a `main` entraron por **push directo**, no por PR.
+#     · De los últimos 20 pushes a `main`: **15 rojos, 1 verde**, 4 cancelados.
+#     · Las fallas son REALES, no infra: dos veces hoy fue `check:tokens` marcando
+#       `var(--token)` que no existen — una declaración que el navegador tira en silencio.
 #
-#   1. DESTRABAR la facturación de la cuenta `edgarcg-01`. Hasta que pase, cualquier corrida
-#      muere en 3 s sin arrancar, con o sin Nx Cloud.
-#   2. REACTIVAR el workflow (`gh workflow enable CI`) — hoy está `disabled_manually`.
-#   3. Cargar el secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets and variables → Actions).
-#      Sin él, el CI corre igual pero SIN caché remoto: el paso "Declarar el caché remoto" lo
-#      grita como warning en vez de dejarlo pasar callado.
+# ⭐ El CI no está roto: atrapa defectos de verdad. Lo que falla es CUÁNDO — corre después del
+#    merge, sobre la rama de la que se deploya. Por eso la compuerta se movió al push.
 #
-# Y la cuarta, que es la que convierte esto en una compuerta de verdad: agregar los required
-# status checks a la branch protection de `main`. Medido el 2026-09-18: `required_status_checks`
-# sigue en `null`, así que aun con todo lo de arriba resuelto un PR rojo se puede mergear igual.
+# ─── Qué falta, en orden, y quién lo puede hacer ───────────────────────────────────────────
 #
-# Flujo de equipo (3 devs): rama por feature → PR → 1 review (CODEOWNERS) → merge a main.
-# Ver ONBOARDING.md §8.
+#   1. [DEV, hoy]   `npm run hooks:install` en cada máquina. Activa `.githooks/pre-push`:
+#                   bloquea el push directo a `main` y corre los gates baratos sobre TUS
+#                   archivos (~2.5 s, 6 gates en paralelo). Es lo único que hay hoy.
+#   2. [DUEÑO]      Pasar la cuenta `edgarcg-01` a GitHub Pro. Es lo que desbloquea la
+#                   protección real sobre un repo privado. (Volver el repo a público también
+#                   la desbloquea, pero NO se recomienda: los docs traen IPs internas,
+#                   hostnames de DB y cifras del negocio.)
+#   3. [LEAD]       `npm run branch-protection -- --apply` — ya está escrito como código en
+#                   `scripts/apply-branch-protection.js`, con los 3 checks obligatorios y la
+#                   verificación de que sus nombres existan de verdad. Mientras siga el 403,
+#                   el script sale con un mensaje que lo explica.
+#   4. [LEAD]       Secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets → Actions). Sin él el CI
+#                   corre igual pero sin caché remoto, y el paso "Declarar el caché remoto" lo
+#                   grita como warning en vez de dejarlo pasar callado.
+#
+# Flujo de equipo: rama por feature → PR → 1 review (CODEOWNERS) → squash a main (la rama se
+# borra sola). Ver ONBOARDING.md §8.
 #
 # NO publica imágenes: Railway construye desde el repo en cada push. Este job
 # es puramente un gate de calidad.

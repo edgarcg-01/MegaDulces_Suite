@@ -62,6 +62,16 @@ ops/**/*.yml    text eol=lf
 # ⚠️ Si algún día entra un binario a `ops/`, hay que exceptuarlo con `-text` explícito.
 ops/**          text eol=lf
 
+# ⛔ SÉPTIMO caso del mismo patrón, y esta vez el archivo nació HOY (2026-09-30): los git
+# hooks del repo. `.githooks/pre-push` no termina en `.sh`, no está bajo `ops/`, y con
+# `core.autocrlf=true` git avisó en el `git add` — "LF will be replaced by CRLF".
+# Un hook con CRLF no falla raro: falla con `bad interpreter: /bin/sh^M` en Git Bash y en
+# Linux, o sea que la compuerta de push **no corre en ninguna máquina del equipo** y el
+# push pasa derecho. Otra vez lo mismo: no se rompe, se vuelve un no-op silencioso.
+# Regla AMPLIA a propósito, siguiendo [VL.11.A]: el directorio entero es shell que ejecuta
+# `sh`, así que el próximo hook nace correcto sin que nadie se acuerde de esta línea.
+.githooks/**    text eol=lf
+
 # -- [VL.11.B] Los MOLDES de configuracion, y los guiones de Windows ---------
 # ⛔ `*.env` ya tenia regla, pero **`service.env.example` NO la hereda** -- termina en
 # `.example`, no en `.env`. Medido: 19 bytes CR en lo que git entrega. Y es el archivo que
