@@ -25,14 +25,27 @@ import { TenantKnexService } from '@megadulces/platform-core';
 
 /** Los estratos, con su δ y el n que el diseño exige. Medidos, no elegidos. */
 export const ESTRATOS: ReadonlyArray<{
-  clave: string; min: number; max: number; deltaPct: number; nPorRama: number; viable: boolean;
+  clave: string; min: number; max: number; deltaPct: number; nPorRama: number;
+  viable: boolean; elegibles: number;
 }> = [
-  { clave: 'a_bajo_10',   min: 1,   max: 10,      deltaPct: 19.85, nPorRama: 291,     viable: true },
-  { clave: 'b_10_50',     min: 10,  max: 50,      deltaPct: 7.09,  nPorRama: 2630,    viable: true },
-  { clave: 'c_50_100',    min: 50,  max: 100,     deltaPct: 3.04,  nPorRama: 14900,   viable: true },
-  // ⛔ Arriba de $100 el alza de aterrizar es 0.258 % y el δ tolerable 1.09 %: haría falta un n
-  //    de ~118,000 por rama y sólo hay 10,637 celdas. NO es viable, y se dice.
-  { clave: 'd_sobre_100', min: 100, max: 1e9,     deltaPct: 1.09,  nPorRama: 118000,  viable: false },
+  { clave: 'a_bajo_10',   min: 1,   max: 10,  deltaPct: 19.85, nPorRama: 291,
+    viable: true,  elegibles: 924 },
+  { clave: 'b_10_50',     min: 10,  max: 50,  deltaPct: 7.09,  nPorRama: 2630,
+    viable: true,  elegibles: 6120 },
+  /**
+   * ⛔ $50-100 NO es viable, y la corrección vino de correr la consulta real contra prod.
+   * El dimensionamiento dijo "justo" mirando las 24,295 celdas del rango — pero al aplicar los
+   * filtros de elegibilidad (sólo precios sucios, con venta, sin oscilación) quedan **3,808**
+   * contra las **29,800** que el diseño exige. *Contar el rango no es contar el universo.*
+   */
+  { clave: 'c_50_100',    min: 50,  max: 100, deltaPct: 3.04,  nPorRama: 14900,
+    viable: false, elegibles: 3808 },
+  /**
+   * ⛔ Arriba de $100 el alza de aterrizar es 0.258 % y el δ tolerable 1.09 %: harían falta
+   * ~118,000 unidades por rama y hay **1,228** elegibles. Dos órdenes de magnitud.
+   */
+  { clave: 'd_sobre_100', min: 100, max: 1e9, deltaPct: 1.09,  nPorRama: 118000,
+    viable: false, elegibles: 1228 },
 ];
 
 /** Cuántos cambios en 7 días delatan un precio que oscila entre dos escritores. */
