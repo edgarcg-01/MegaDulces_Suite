@@ -9,7 +9,7 @@
  */
 import {
   esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, rankearFrecuentes,
-  esFechaFutura, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
+  esFechaFutura, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
 
@@ -313,5 +313,81 @@ describe('esFechaFutura — el documento fechado adelante no se confirma en lote
     expect(TEXTO_NO_CONFIRMABLE.fecha_futura).toMatch(/fecha/i);
     // Exhaustividad: si mañana se agrega un motivo y nadie le escribe el texto, esto se pone rojo.
     for (const t of Object.values(TEXTO_NO_CONFIRMABLE)) expect(t.length).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * `[CG.27-B.1]` El CV del importe es lo ÚNICO que discrimina para decidir qué proponerle a un
+ * beneficiario. La cadencia no sirve: medida entre días distintos, la mediana es 2-5 días para
+ * TODOS los recurrentes, así que "lo esperado hoy" no separa a nadie.
+ */
+describe('cvDe — estabilidad del importe', () => {
+  it('importe siempre igual → 0, que es la señal más fuerte que hay acá', () => {
+    expect(cvDe([500, 500, 500])).toBe(0);
+  });
+
+  it('separa a los estables de los erráticos, con los valores medidos en prod', () => {
+    // CAPITAN DE MARCA da 0.36 y GASTOS GENERALES OFICINAS 4.39: dos mundos.
+    const estable = cvDe([100, 110, 95, 105])!;
+    // ⚠️ La forma errática real NO es "valores muy distintos": es **muchos chicos y uno enorme**,
+    // que es como se ve una caja chica. Mi primer fixture ([10, 5000, 80, 30000]) daba 1.64 y la
+    // prueba salió roja — inventar números para una aserción de umbral no prueba el umbral.
+    const erratico = cvDe([50, 40, 60, 55, 45, 50, 40, 60, 50, 12000])!;
+    expect(estable).toBeLessThan(0.6);
+    expect(erratico).toBeGreaterThan(2);
+  });
+
+  it('⛔ [negativa] con menos de dos muestras devuelve null, NO 0', () => {
+    // Un 0 significa "siempre el mismo importe". Confundirlo con "no se pudo medir" haría
+    // proponer importes sobre nada.
+    expect(cvDe([500])).toBeNull();
+    expect(cvDe([])).toBeNull();
+    expect(cvDe(null)).toBeNull();
+  });
+
+  it('⛔ [negativa] con media cero devuelve null en vez de dividir por cero', () => {
+    expect(cvDe([0, 0, 0])).toBeNull();
+    expect(cvDe([-50, 50])).toBeNull();
+  });
+
+  it('descarta valores no finitos en vez de propagar NaN', () => {
+    expect(cvDe([100, NaN, 100, Infinity] as number[])).toBe(0);
+  });
+});
+
+describe('propuestaDe — la cuenta que la contabilidad ya usó', () => {
+  const h = (usos: number, tot: number) => ({ cuenta: '606-014', concepto: '074', usos, tot });
+
+  it('con soporte y dominancia suficientes, propone el par con su respaldo', () => {
+    // El caso real de CAPITAN DE MARCA en prod: 447 usos, dominancia 1.00.
+    const p = propuestaDe(h(447, 447))!;
+    expect(p.kepler_cuenta).toBe('606-014');
+    expect(p.kepler_concepto).toBe('074');
+    expect(p.soporte).toBe(447);
+    expect(p.dominancia).toBe(1);
+  });
+
+  it('⛔ [negativa] soporte insuficiente NO propone — mismos umbrales que el autorrelleno', () => {
+    expect(propuestaDe(h(2, 2))).toBeNull();
+  });
+
+  it('⛔ [negativa] dominancia repartida NO propone: un beneficiario con tres cuentas no determina ninguna', () => {
+    expect(propuestaDe(h(4, 10))).toBeNull();      // 0.40
+    expect(propuestaDe(h(5, 10))).toBeNull();      // 0.50
+    expect(propuestaDe(h(6, 10))).not.toBeNull();  // 0.60, el umbral exacto
+  });
+
+  it('⛔ [negativa] sin historia, o con media cuenta, NO propone', () => {
+    expect(propuestaDe(null)).toBeNull();
+    expect(propuestaDe(undefined)).toBeNull();
+    expect(propuestaDe({ cuenta: '606-014', concepto: '', usos: 99, tot: 99 })).toBeNull();
+    expect(propuestaDe({ cuenta: '', concepto: '074', usos: 99, tot: 99 })).toBeNull();
+  });
+});
+
+describe('CAIDO_DIAS — cuándo un recurrente cuenta como caído', () => {
+  it('son 21 días, y no 30, porque el hueco normal llega a 17', () => {
+    // Con 30 se perderían los 11 que hoy están caídos en prod.
+    expect(CAIDO_DIAS).toBe(21);
   });
 });

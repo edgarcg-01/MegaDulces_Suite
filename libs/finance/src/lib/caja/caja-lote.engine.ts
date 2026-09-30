@@ -216,6 +216,61 @@ export function normalizaTexto(s: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * `[CG.27-B.3]` Días sin cobrar a partir de los cuales un recurrente cuenta como **caído**.
+ *
+ * 21 y no 30: medido entre días distintos, la cadencia de TODOS los recurrentes tiene mediana de
+ * **2 a 5 días** y el hueco máximo observado ronda los 13-17. A los 21 ya no es un puente ni una
+ * quincena: es que dejó de cobrar. Con 30 se perderían los 11 que hoy están caídos.
+ */
+export const CAIDO_DIAS = 21;
+
+/**
+ * `[CG.27-B.1]` Coeficiente de variación del importe (σ/μ), a dos decimales.
+ *
+ * ⭐ Es lo ÚNICO que discrimina para decidir qué se le puede proponer a un beneficiario. La
+ * cadencia no sirve —medida bien, la mediana es 2-5 días para todos— pero el CV parte el
+ * universo limpio: `CAPITAN DE MARCA` 0.36 y `BOTANAS PAU` 0.43 contra `GASTOS GENERALES OFICINAS`
+ * **4.39**. Con CV bajo el importe se puede proponer; con CV alto, la cuenta sí y el monto jamás.
+ *
+ * ⚠️ Devuelve `null`, no 0, cuando no se puede calcular (menos de dos muestras, o media cero). Un
+ * CV de 0 significa "siempre el mismo importe", que es la señal más fuerte que existe acá —
+ * confundirlo con "no se pudo medir" haría proponer importes sobre nada.
+ */
+export function cvDe(valores: readonly number[] | null | undefined): number | null {
+  const v = (valores ?? []).map(Number).filter((n) => Number.isFinite(n));
+  if (v.length < 2) return null;
+  const media = v.reduce((a, b) => a + b, 0) / v.length;
+  if (!media) return null;
+  const varianza = v.reduce((a, b) => a + (b - media) ** 2, 0) / (v.length - 1);
+  return Math.round((Math.sqrt(varianza) / Math.abs(media)) * 100) / 100;
+}
+
+/**
+ * `[CG.27-B.1]` La propuesta contable de un beneficiario, o `null` con el motivo implícito.
+ *
+ * ⛔ Mismos umbrales que el Nivel 2 del autorrelleno (`LEARNED_DEFAULTS`: 3 usos, 60 % de
+ * dominancia) **a propósito**: si esta lista propusiera con un criterio más flojo, ofrecería un
+ * par que el autorrelleno después se niega a proponer, y la persona no entendería por qué.
+ *
+ * ⚠️ Soporte bajo o dominancia baja → **no propone**. Un default disfrazado es peor que un campo
+ * vacío, porque se acepta sin mirarlo.
+ */
+export function propuestaDe(
+  h: { cuenta: string; concepto: string; usos: number; tot: number } | null | undefined,
+): { kepler_cuenta: string; kepler_concepto: string; soporte: number; dominancia: number } | null {
+  if (!h || !h.cuenta || !h.concepto) return null;
+  if (h.tot < 3) return null;
+  const dominancia = h.usos / h.tot;
+  if (dominancia < 0.6) return null;
+  return {
+    kepler_cuenta: h.cuenta,
+    kepler_concepto: h.concepto,
+    soporte: h.tot,
+    dominancia: Math.round(dominancia * 100) / 100,
+  };
+}
+
 /** Una regla juega si está activa y no fue suprimida por su propia tasa de corrección. */
 export function reglaVive(r: Pick<ReglaGasto, 'active' | 'suppressed_at'>): boolean {
   return r.active !== false && !r.suppressed_at;

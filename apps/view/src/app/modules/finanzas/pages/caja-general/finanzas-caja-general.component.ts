@@ -18,7 +18,8 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type RecurrentesResponse,
+  type RecurrenteSinRegla } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -261,6 +262,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:.3rem; font-weight:600; }
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
+    /* [CG.27] La lista de recurrentes sin regla. */
+    .cg-rec .cg-tbl td { vertical-align:top; }
+    .cg-cv { font-size:var(--fs-xs); color:var(--text-2); }
+    .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     .cg-conc-wide { max-width:none; }
     .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
@@ -685,6 +690,99 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           </div>
         </section>
       }
+
+      <!-- ⭐ [CG.27-B.1/B.3] LOS QUE REPITEN Y NADIE DECLARO SU CUENTA.
+           Es el 69% de los clics de la caja, y hasta ahora no habia por donde verlo: la unica
+           puerta era el checkbox de la captura, movimiento por movimiento.
+
+           El contador va SIEMPRE visible, aunque la lista este plegada: una lista escondida no se
+           trabaja, y un "0 sin regla" por una consulta vacia no puede leerse como "ya esta todo
+           declarado". -->
+      <section class="cg-bandeja cg-rec">
+        <div class="cg-bandeja-head">
+          <strong>Repiten y nadie declaro su cuenta</strong>
+          <span class="cg-bandeja-sp"></span>
+          @if (recurrentes(); as rc) {
+            <small class="fin-dim">{{ textoRecurrentes(rc) }}</small>
+            <p-button size="small" severity="secondary" [text]="true"
+                      [label]="recAbierto() ? 'Ocultar' : 'Ver los ' + rc.medido.sin_regla"
+                      (onClick)="recAbierto.set(!recAbierto())"></p-button>
+          } @else {
+            <!-- Tercer estado: no es "no hay ninguno", es que no se midio. -->
+            <small class="fin-hint-warn">Sin medir: no se pudo leer la lista.</small>
+          }
+        </div>
+
+        @if (recAbierto()) {
+        @if (recurrentes(); as rc) {
+          <table class="cg-tbl">
+            <caption class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</caption>
+            <thead>
+              <tr>
+                <th scope="col">Beneficiario</th>
+                <th scope="col" class="ta-r">Pagos</th>
+                <th scope="col" class="ta-r">Monto</th>
+                <th scope="col">Importe</th>
+                <th scope="col">Cuenta</th>
+                <th scope="col" class="ta-r">Sin cobrar</th>
+                <th scope="col"><span class="sr-only">Declarar</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of rc.rows; track r.beneficiario) {
+                <tr>
+                  <td>
+                    {{ r.beneficiario }}
+                    @if (r.pagos_con_regla > 0) {
+                      <!-- Cobertura PARCIAL: una regla con match_glosa puede clasificar una parte de
+                           sus movimientos y no el resto. Un si/no lo esconderia. -->
+                      <small class="fin-hint-warn d-block">{{ r.pagos_con_regla }} de sus pagos ya los clasifica una regla.</small>
+                    }
+                  </td>
+                  <td class="ta-r mono">{{ r.pagos }}</td>
+                  <td class="ta-r mono">{{ money(r.monto) }}</td>
+                  <td>
+                    <!-- ⭐ El CV decide QUE se le puede proponer. Es lo unico que discrimina: la
+                         cadencia da 2-5 dias para todos. -->
+                    <span class="cg-cv" [class.cg-cv-fijo]="esImporteProponible(r)">{{ textoImporte(r) }}</span>
+                  </td>
+                  <td>
+                    @if (r.propuesta_contable; as p) {
+                      <span class="fin-hint-ok">{{ p.kepler_cuenta }} / {{ p.kepler_concepto }}</span>
+                      <small class="fin-dim d-block">{{ p.soporte }} antecedentes, {{ pctDominancia(p) }}% coinciden</small>
+                    } @else {
+                      <small class="fin-dim">Sin de donde proponer: la contabilidad no tiene su par.</small>
+                    }
+                  </td>
+                  <td class="ta-r mono">
+                    @if (r.dias_sin_pago !== null) {
+                      <span [class.fin-neg]="r.dias_sin_pago > rc.caido_dias">{{ r.dias_sin_pago }} d</span>
+                    } @else { <span class="cg-na">&mdash;</span> }
+                  </td>
+                  <td class="ta-c">
+                    <!-- Se abre la captura con el beneficiario puesto: declarar la regla es el
+                         checkbox que ya existe, ahi mismo. No se inventa una segunda puerta. -->
+                    <p-button size="small" severity="secondary" [text]="true" icon="pi pi-pencil"
+                              [ariaLabel]="'Declarar la cuenta de ' + r.beneficiario"
+                              (onClick)="declararDesdeRecurrente(r)"></p-button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
+              }
+            </tbody>
+          </table>
+
+          @if (rc.medido.caidos > 0) {
+            <!-- [CG.27-B.3] Que un recurrente deje de cobrar es una senial: se fue, o alguien dejo
+                 de pagarle. No va a la bandeja de hallazgos: aca el trabajo cierra solo. -->
+            <small class="fin-hint-warn d-block">
+              {{ rc.medido.caidos }} lleva(n) mas de {{ rc.caido_dias }} dias sin cobrar, marcados en rojo.
+            </small>
+          }
+        }
+        }
+      </section>
 
       <div class="fin-filters">
         <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
@@ -1787,6 +1885,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // [CG.26] El cierre de la jornada se pide al abrir, como todo lo demás: si hubiera que pedirlo
     // con un clic, nadie cerraría el día.
     this.cargarArqueo();
+    this.cargarRecurrentes();
     this.enVivo();
   }
 
@@ -1954,6 +2053,65 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (!v) return;
     this.arqueoFecha.set(String(v).slice(0, 10));
     this.cargarArqueo();
+  }
+
+  // ── [CG.27-B.1/B.3] Los que repiten y nadie declaró su cuenta ────────────────────────────
+
+  recurrentes = signal<RecurrentesResponse | null>(null);
+  /** Nace PLEGADO: son 57 filas. Lo que va siempre a la vista es el CONTADOR, no la tabla. */
+  recAbierto = signal(false);
+
+  cargarRecurrentes(): void {
+    this.svc.recurrentesSinRegla().subscribe({
+      // `null` NO es "no hay ninguno": la cabecera lo declara como sin medir.
+      next: (r) => this.recurrentes.set(r),
+      error: () => this.recurrentes.set(null),
+    });
+  }
+
+  textoRecurrentes(rc: RecurrentesResponse): string {
+    const m = rc.medido;
+    if (!m.sin_regla) return `Los ${m.recurrentes} que repiten ya tienen su cuenta declarada.`;
+    const caidos = m.caidos ? ` · ${m.caidos} dejaron de cobrar` : '';
+    // Se dice cuántos puede proponer la contabilidad y cuántos NO, porque son dos trabajos
+    // distintos: uno es confirmar, el otro es decidir.
+    return `${m.sin_regla} de ${m.recurrentes} · ${m.pagos_sin_regla} pagos en ${rc.ventana_dias} días `
+      + `· ${m.con_propuesta_contable} con propuesta, ${m.sin_de_donde_proponer} sin de dónde${caidos}`;
+  }
+
+  /** ⭐ El CV decide qué se le puede proponer. Debajo de 0.6 el importe casi no se mueve. */
+  esImporteProponible(r: RecurrenteSinRegla): boolean {
+    return r.cv_importe !== null && r.cv_importe < 0.6;
+  }
+
+  textoImporte(r: RecurrenteSinRegla): string {
+    // ⚠️ `null` y `0` son cosas distintas: 0 es "siempre el mismo importe" (la señal más fuerte),
+    // `null` es "no se pudo medir". Pintarlos igual sería perder justo la mejor señal.
+    if (r.cv_importe === null) return 'sin medir';
+    if (r.cv_importe < 0.6) return `~${money(r.promedio)} fijo`;
+    if (r.cv_importe < 2) return 'variable';
+    return 'muy variable';
+  }
+
+  pctDominancia(p: { dominancia: number }): number {
+    return Math.round(p.dominancia * 100);
+  }
+
+  /**
+   * Abre la captura con el beneficiario puesto. Declarar la regla es el checkbox que YA existe
+   * ahí (CG.22.6): no se inventa una segunda puerta para lo mismo.
+   */
+  declararDesdeRecurrente(r: RecurrenteSinRegla): void {
+    this.abrirCaptura();
+    this.setF('tipo', 'gasto' as TipoMovimiento);
+    this.setF('beneficiario', r.beneficiario);
+    // Si la contabilidad tiene su par, se ofrece — con su respaldo a la vista, nunca pelado.
+    if (r.propuesta_contable) {
+      this.setF('kepler_cuenta', r.propuesta_contable.kepler_cuenta);
+      this.setF('kepler_concepto', r.propuesta_contable.kepler_concepto);
+      this.conceptoManual.set(true);
+    }
+    this.pedirPropuesta();
   }
 
   abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }

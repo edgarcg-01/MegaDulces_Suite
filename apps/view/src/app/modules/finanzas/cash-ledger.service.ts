@@ -219,6 +219,33 @@ export class CashLedgerService {
     return this.http.get<ArqueoDia>(`${this.base}/arqueo-dia`, { params: p });
   }
 
+  /**
+   * `[CG.27-B.1]` Los que repiten y nadie declaró su cuenta. Es el 69 % de los clics de la caja.
+   */
+  recurrentesSinRegla(f: { dias?: number; min_pagos?: number; incluir_cubiertos?: boolean } = {}): Observable<RecurrentesResponse> {
+    // ⚠️ Sin el `v !== ''` del resto del archivo, y a propósito: acá los valores son `number` y
+    // `boolean`, así que compararlos con una cadena vacía es código muerto — y el compilador lo
+    // dice (TS2367). Copiar el bucle de al lado sin mirar los tipos rompía el build.
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null) p = p.set(k, String(v));
+    return this.http.get<RecurrentesResponse>(`${this.base}/recurrentes-sin-regla`, { params: p });
+  }
+
+  /** `[CG.27-B.0]` Las reglas ya declaradas. Hasta ahora sólo se podían escribir. */
+  reglas(f: { incluir_inactivas?: boolean; limit?: number } = {}): Observable<{ rows: ReglaCaja[]; limit: number; has_more: boolean }> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null) p = p.set(k, String(v));
+    return this.http.get<{ rows: ReglaCaja[]; limit: number; has_more: boolean }>(`${this.base}/reglas`, { params: p });
+  }
+
+  /**
+   * `[CG.27-B.0]` Corrige o APAGA una regla. ⛔ No hay `DELETE`: una regla que ya clasificó dinero
+   * se desactiva, no se borra.
+   */
+  actualizarRegla(id: string, body: { kepler_cuenta?: string; kepler_concepto?: string; sucursal?: string; active?: boolean; nota?: string }): Observable<ReglaCaja> {
+    return this.http.patch<ReglaCaja>(`${this.base}/reglas/${encodeURIComponent(id)}`, body);
+  }
+
   cortes(f: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number } = {}): Observable<{ rows: CorteCaja[]; limit: number }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -505,6 +532,60 @@ export interface SaldoResponse {
     dotado?: number; vaciado?: number;
     otros?: { movimientos: number; monto: number };
   } | null;
+}
+
+/** `[CG.27-B.0]` Una regla de clasificación declarada. */
+export interface ReglaCaja {
+  id: string;
+  priority: number;
+  match_tipo: string | null;
+  match_glosa: string | null;
+  /** El patrón crudo, a la vista: es lo que hay que poder mirar para entender qué clasifica. */
+  match_beneficiario: string | null;
+  kepler_cuenta: string;
+  kepler_concepto: string;
+  active: boolean;
+  suppressed_at: string | null;
+  applied_count?: number;
+  corrected_count?: number;
+  note?: string | null;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * `[CG.27-B.1]` Un beneficiario que repite y al que ninguna regla viva clasifica.
+ *
+ * ⛔ `propuesta_contable` en `null` NO es "el motor no propuso": es que **no hay de dónde**. Medido
+ * en prod: de los 57 sin regla, sólo **3** tienen en la contabilidad un par (cuenta, concepto) con
+ * soporte y dominancia suficientes. Los otros 54 los tiene que declarar una persona.
+ */
+export interface RecurrenteSinRegla {
+  beneficiario: string;
+  pagos: number;
+  /** Cuántos de sus pagos SÍ clasifica alguna regla. Un booleano escondería la cobertura parcial. */
+  pagos_con_regla: number;
+  monto: number;
+  promedio: number;
+  /** σ/μ del importe. `null` = no se pudo medir; **0 es una señal, no un hueco**. */
+  cv_importe: number | null;
+  ultimo_pago: string;
+  dias_sin_pago: number | null;
+  propuesta_contable: { kepler_cuenta: string; kepler_concepto: string; soporte: number; dominancia: number } | null;
+}
+
+export interface RecurrentesResponse {
+  rows: RecurrenteSinRegla[];
+  ventana_dias: number;
+  min_pagos: number;
+  /** El contador va SIEMPRE: una lista escondida no se trabaja, y un 0 por consulta vacía no puede leerse como "ya está todo". */
+  medido: {
+    recurrentes: number; sin_regla: number; pagos_sin_regla: number;
+    reglas_declaradas: number; caidos: number;
+    con_propuesta_contable: number; sin_de_donde_proponer: number;
+  };
+  caido_dias: number;
 }
 
 /** `[CG.26]` Una pierna del cajero, tal como el dispositivo la declara. */

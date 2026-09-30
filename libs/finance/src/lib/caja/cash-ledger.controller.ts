@@ -249,6 +249,25 @@ export class CashLedgerController {
     return this.svc.actualizarRegla(id, body ?? {}, this.user(req));
   }
 
+  /**
+   * ⭐ `[CG.27-B.1/B.3]` — va ANTES de `@Get(':id')` como el resto. Los que repiten y nadie declaró
+   * su cuenta, más los que dejaron de cobrar. Es el 69 % de los clics de la caja.
+   */
+  @Get('recurrentes-sin-regla')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.27 — Beneficiarios que repiten (>= min_pagos en la ventana) y que NINGUNA regla viva clasifica, con su CV de importe y sus dias sin pago. El veredicto de regla lo da el MISMO matcher que la bandeja, corrido sobre los movimientos reales: una lista con otro criterio diria "falta declarar" sobre algo ya declarado.' })
+  recurrentesSinRegla(
+    @Query('dias') dias?: string,
+    @Query('min_pagos') minPagos?: string,
+    @Query('incluir_cubiertos') incluirCubiertos?: string,
+  ) {
+    return this.svc.recurrentesSinRegla({
+      dias: dias ? Number(dias) : undefined,
+      min_pagos: minPagos ? Number(minPagos) : undefined,
+      incluir_cubiertos: incluirCubiertos === 'true',
+    });
+  }
+
   @Get('frecuentes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CG.20 — Los pares (cuenta, concepto, beneficiario) que ESE capturista más repite, para ofrecerlos de un toque. Medido: 57% de los gastos cae en un par usado 3+ veces. ⚠️ Para lo que NO tiene documento en Kepler: desde CG.21 el gasto con documento se confirma desde la bandeja. Esto baja los clics, no vuelve auditable el dato.' })
