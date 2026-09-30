@@ -969,15 +969,32 @@ export class CommercialAnalyticsController {
   @ApiOperation({
     summary:
       'RR [AUD-DAT.18] - Los bloques REALES de /dashboard/ventas-detalle para un rango: serie '
-      + 'diaria, top productos, top clientes y la COBERTURA DEL COSTO. Reemplaza tres bloques que '
-      + 'el frontend inventaba (la serie se repartia con pesos por dia de semana y una ondulacion '
-      + 'derivada del indice del bucle; el margen era un 12.5 % plano; top productos y clientes '
-      + 'eran arreglos escritos a mano). Medido en prod: el costo solo existe en el 12.4 % de la '
+      + 'diaria y COBERTURA DEL COSTO. Reemplaza bloques que el frontend inventaba (la serie se '
+      + 'repartia con pesos por dia de semana y una ondulacion derivada del indice del bucle; el '
+      + 'margen era un 12.5 % plano). Medido en prod: el costo solo existe en el 12.4 % de la '
       + 'venta de ruta del ultimo mes cerrado, asi que el margen viaja con revenue_with_cost y su '
-      + 'cost_coverage_pct en vez de publicarse sobre la venta total. Params: from, to (YYYY-MM-DD).',
+      + 'cost_coverage_pct en vez de publicarse sobre la venta total. [AUD-DAT.20] Las dos listas '
+      + 'pesadas se mudaron a sales-by-route/tops: esto responde en 7 ms y pinta la pantalla. '
+      + 'Params: from, to (YYYY-MM-DD).',
   })
   salesByRouteDashboard(@Query('from') from: string, @Query('to') to: string) {
     return this.service.salesByRouteDashboard(from, to);
+  }
+
+  @Get('sales-by-route/tops')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR [AUD-DAT.20] - Top 10 productos y top 10 clientes de ruta en un rango. Endpoint APARTE '
+      + 'porque cuesta tres ordenes de magnitud mas que el resto del tablero (serie + cobertura '
+      + '7 ms contra 3,941 ms de estas dos listas) y vive debajo del pliegue: la pantalla pinta '
+      + 'sin esperarlo y estas listas llegan despues. Ademas acota las ramas de Wincaja con una '
+      + 'cota CONSULTADA (la venta de ruta migro a Kepler y Wincaja no aporta desde el 2026-08-12) '
+      + ', lo que baja una ventana post-corte de 3,941 ms a 195 ms con resultado identico. La '
+      + 'respuesta declara en "fuente" si Wincaja entro y por que. Params: from, to (YYYY-MM-DD).',
+  })
+  salesByRouteTops(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.salesByRouteTops(from, to);
   }
 
   @Get('sales-by-route/detail')

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, of } from 'rxjs';
 import { map, catchError, shareReplay } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
-import { ComercialService, SalesByRouteDashboard, SalesByRouteOption, SalesByRouteReport, SalesByRouteRow } from '../../comercial/comercial.service';
+import { ComercialService, SalesByRouteDashboard, SalesByRouteOption, SalesByRouteReport, SalesByRouteRow, SalesByRouteTops } from '../../comercial/comercial.service';
 
 export interface DetalleKpi {
   cur: number;
@@ -545,43 +545,11 @@ export class DetalleHomeService {
       tickets: p.tickets,
     }))
 
-    // Top Productos de Ruta
-    // `[AUD-DAT.18]` TOP PRODUCTOS REALES. Acá vivia un arreglo de 10 SKUs escritos a mano con
-    // `share` fijo (0.082, 0.074, …) y las unidades salian de `parseInt(sku.slice(0,2)) % 15`.
-    let cum = 0;
-    const top_products: DetalleTopProduct[] = (dash?.top_products ?? []).map((p) => {
-      cum += p.share_pct;
-      return {
-        sku: p.sku,
-        nombre: p.name,
-        // ⚠️ La marca no viene en esta consulta: se DECLARA vacia en vez de inventarse.
-        brand: '',
-        canal_predominante: 'ambos' as const,
-        revenue: p.revenue,
-        units: p.units,
-        avg_price: p.units > 0 ? Number((p.revenue / p.units).toFixed(2)) : 0,
-        share_pct: p.share_pct,
-        cum_share_pct: Number(cum.toFixed(1)),
-      };
-    });
-
-    // `[AUD-DAT.18]` TOP CLIENTES REALES. Acá vivia `sampleCustomers`, ocho clientes inventados
-    // con nombres como «ABARROTES LA GUADALUPANA» y codigos `CLI-8041` que no existen en la base.
-    //
-    // ⚠️ DECLARADO: 1,032 de 6,298 codigos de cliente (16.4 %) NO tienen nombre en
-    // `wincaja.clientes` — incluidos los de mayor venta. En esos la etiqueta ES el codigo, y eso
-    // es lo que hay: inventarle un nombre seria volver al problema que este cambio corrige.
-    const customers: DetalleCustomerRow[] = (dash?.top_clients ?? []).map((c) => ({
-      cliente_code: c.code,
-      cliente_nombre: c.name,
-      // La ruta del cliente no viene en el agregado; se declara vacia en vez de asignarle una.
-      route_code: '',
-      tickets: c.tickets,
-      revenue: c.revenue,
-      avg_ticket: c.tickets > 0 ? Math.round(c.revenue / c.tickets) : 0,
-      // La frecuencia exigiria la serie por cliente, que este endpoint no trae.
-      frecuencia: '—',
-    }));
+    // `[AUD-DAT.20]` Las dos listas llegan DESPUES, por `getTops()`. Nacen vacias a proposito:
+    // el resto de la pantalla no las necesita para pintarse y ellas costaban 3,941 ms medidos
+    // contra los 7 ms de todo lo demas. El componente las inyecta cuando llegan.
+    const top_products: DetalleTopProduct[] = [];
+    const customers: DetalleCustomerRow[] = [];
 
     return {
       period: { from: params.from, to: params.to, days },
@@ -595,5 +563,61 @@ export class DetalleHomeService {
       customers,
       routes_catalog: catalog,
     };
+  }
+
+  /**
+   * `[AUD-DAT.20]` — **Las dos listas pesadas, DIFERIDAS.**
+   *
+   * Medido en prod el 2026-09-29: serie + cobertura del periodo cuestan **7 ms**; estas dos
+   * listas costaban **3,941 ms**. Pedirlas en el mismo `forkJoin` obligaba a esperar 4 segundos
+   * para pintar un encabezado que ya estaba listo — y peor: el periodo PREVIO tambien las pedia,
+   * **y nadie las lee** (los deltas salen de `series` y `coverage`). Esa llamada, la de 7.57 s
+   * del panel de red, era desperdicio entero.
+   *
+   * Ahora: la pantalla pinta con la llamada liviana y estas dos tablas se piden aparte.
+   */
+  getTops(from: string, to: string): Observable<{
+    top_products: DetalleTopProduct[];
+    customers: DetalleCustomerRow[];
+    fuente: SalesByRouteTops['fuente'] | null;
+  }> {
+    return this.comercial.salesByRouteTops(from, to).pipe(
+      map((t) => {
+        let cum = 0;
+        return {
+          top_products: t.top_products.map((p) => {
+            cum += p.share_pct;
+            return {
+              sku: p.sku,
+              nombre: p.name,
+              // ⚠️ La marca no viene en esta consulta: se DECLARA vacia en vez de inventarse.
+              brand: '',
+              canal_predominante: 'ambos' as const,
+              revenue: p.revenue,
+              units: p.units,
+              avg_price: p.units > 0 ? Number((p.revenue / p.units).toFixed(2)) : 0,
+              share_pct: p.share_pct,
+              cum_share_pct: Number(cum.toFixed(1)),
+            };
+          }),
+          // ⚠️ DECLARADO: 1,032 de 6,298 codigos de cliente (16.4 %) NO tienen nombre en
+          // `wincaja.clientes` — incluidos los de mayor venta. En esos la etiqueta ES el codigo:
+          // inventarle un nombre seria volver al problema que `[AUD-DAT.18]` corrigio.
+          customers: t.top_clients.map((c) => ({
+            cliente_code: c.code,
+            cliente_nombre: c.name,
+            // La ruta del cliente no viene en el agregado; se declara vacia, no se asigna una.
+            route_code: '',
+            tickets: c.tickets,
+            revenue: c.revenue,
+            avg_ticket: c.tickets > 0 ? Math.round(c.revenue / c.tickets) : 0,
+            // La frecuencia exigiria la serie por cliente, que este endpoint no trae.
+            frecuencia: '—',
+          })),
+          fuente: t.fuente,
+        };
+      }),
+      catchError(() => of({ top_products: [], customers: [], fuente: null }))
+    );
   }
 }

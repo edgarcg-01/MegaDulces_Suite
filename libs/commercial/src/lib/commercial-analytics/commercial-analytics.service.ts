@@ -195,8 +195,6 @@ export interface SalesByRouteOption {
 export interface SalesByRouteDashboard {
   /** Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`. */
   series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
-  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
-  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
   /**
    * El hueco del COSTO, DECLARADO en vez de rellenado. `revenue_with_cost` es el denominador
    * honesto: el push de camionetas no trae costo (`costo_status='sin_dato_en_la_fuente'`), asi
@@ -211,6 +209,24 @@ export interface SalesByRouteDashboard {
     /** Hasta cuando alcanza la matvista, para que la frescura viaje con el dato (ADR-056). */
     data_as_of: string | null;
   };
+}
+
+/**
+ * `[AUD-DAT.20]` — Las dos listas PESADAS, separadas del tablero a proposito.
+ *
+ * Viven en su propio endpoint porque cuestan tres ordenes de magnitud mas que el resto de la
+ * pantalla (medido: serie + cobertura **7 ms**, estas dos listas **3,941 ms**) y estan **debajo
+ * del pliegue**. Pedirlas junto con los KPIs obligaba a esperarlas para pintar el encabezado.
+ */
+export interface SalesByRouteTops {
+  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
+  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
+  /**
+   * CON QUE se calcularon estas dos listas (ADR-056: el numero viaja con su procedencia).
+   * `incluye_wincaja` en `false` NO significa que falte venta: significa que en esta ventana
+   * Wincaja no tiene ni una linea de ruta, y se midio antes de decidirlo.
+   */
+  fuente: { incluye_wincaja: boolean; wincaja_ultimo_dia: string | null; motivo: string };
 }
 
 export interface SalesByRouteDetail {
@@ -6018,25 +6034,8 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const num = (v: any) => Number(v) || 0;
 
-    // La union LEAN: mismas tres ramas que `analytics.v_route_sales_lines`, sin el
-    // enriquecimiento por linea que estos agregados no leen. Ver `[AUD-DAT.17]`.
-    const LINEAS = `
-      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
-        FROM wincaja.v_sales_lines vl
-       WHERE vl.sale_channel = 'ruta_venta'
-         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE
-      UNION ALL
-      SELECT rpl.tenant_id, rpl.business_date, rpl.cliente, rpl.sku, rpl.qty, rpl.importe, rpl.folio
-        FROM analytics.route_push_lines rpl
-       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE
-      UNION ALL
-      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
-        FROM wincaja.v_sales_lines vl
-       WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
-         AND vl.business_date < '2026-06-28'::date
-         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
-    const RANGO = [from, to, from, to, from, to];
-
+    // `[AUD-DAT.20]` Este metodo ya NO trae las dos listas pesadas: viven en `salesByRouteTops`.
+    // Las dos consultas que quedan leen una matvista de 656 kB y responden en **7 ms** juntas.
     return this.tk.run(async (trx) => {
       const series = (await trx.raw(
         `SELECT to_char(business_date,'YYYY-MM-DD') AS date,
@@ -6058,14 +6057,134 @@ export class CommercialAnalyticsService {
           WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
             AND business_date <= CURRENT_DATE`, [tenantId, from, to])).rows[0];
 
-      // UN SOLO BARRIDO para las dos listas. Medido: el escaneo de `lineas` cuesta ~1.1 s y
-      // productos y clientes agregan EXACTAMENTE las mismas filas -- en dos consultas se pagaba
-      // dos veces. `MATERIALIZED` es explicito a proposito: Postgres ya materializa un CTE
-      // referenciado mas de una vez, pero dejarlo escrito evita que alguien agregue un tercer
-      // uso y el plan cambie sin que nadie lo note.
+      const revenue = num(cov?.revenue);
+      const revWithCost = num(cov?.revenue_with_cost);
+      const cost = num(cov?.cost);
+
+      return {
+        series: series.map((r: any) => ({
+          date: r.date, revenue: num(r.revenue), units: num(r.units),
+          tickets: num(r.tickets),
+          // null, NO 0: un dia sin costo en la fuente no vendio con costo cero.
+          cost: r.cost === null ? null : num(r.cost),
+        })),
+        coverage: {
+          revenue, revenue_with_cost: revWithCost, cost,
+          // El margen se calcula SOBRE LO QUE TIENE COSTO. Si nada lo tiene, es null: no hay
+          // margen que reportar, y un 0 % se leeria como "vendimos sin ganancia".
+          margin_pct: revWithCost > 0
+            ? Number((((revWithCost - cost) / revWithCost) * 100).toFixed(2)) : null,
+          cost_coverage_pct: revenue > 0
+            ? Number(((revWithCost / revenue) * 100).toFixed(1)) : 0,
+          data_as_of: cov?.data_as_of ?? null,
+        },
+      };
+    });
+  }
+
+  /**
+   * `[AUD-DAT.20]` — **Top Productos y Top Clientes, y por que ya no tardan 4 segundos.**
+   *
+   * ── LO QUE SE MIDIO (prod, 2026-09-29) ─────────────────────────────────────────────────────
+   * La union de tres ramas costaba **3,941 ms** para un mes. El plan mostro donde se iba:
+   *
+   *     rama Wincaja ruta ........ 3,954 ms -> **rows=0**   (593,016 paginas de buffer)
+   *     rama vecinal PH .......... 	167 ms -> **rows=0**
+   *     route_push_lines .........   31 ms ->  67,894 filas   <- lo unico que aporta
+   *
+   * Dos de las tres ramas se llevaban el 99 % del tiempo para no devolver nada. No es un bug de
+   * la vista: es que **la venta de ruta migro de Wincaja a Kepler**. Medido por mes:
+   *
+   *     2026-05   Wincaja $6,056,041   Kepler   $696,618
+   *     2026-07   Wincaja $2,422,729   Kepler $5,230,021
+   *     2026-08   Wincaja   $883,702   Kepler $6,467,211
+   *     2026-09   Wincaja         $0   Kepler $6,205,083
+   *
+   * ── LA COTA SALE DEL DATO, NUNCA CLAVADA ───────────────────────────────────────────────────
+   * El ultimo dia con venta de ruta en Wincaja se **consulta** (2 ms sobre una matvista de
+   * 656 kB). Si la ventana pedida arranca despues, las dos ramas de Wincaja se omiten.
+   *
+   * ⛔ La primera version de esa cota daba **2026-12-06**: hay UNA fila corrupta con fecha
+   * futura ($261.91 / 2 tickets) y sin el tope a CURRENT_DATE la optimizacion quedaba envenenada
+   * en silencio — nunca habria saltado nada. La cota real es **2026-08-12**.
+   *
+   * ⚠️ Y si la ventana empieza antes de donde alcanza la matvista (200 dias), **no se salta**:
+   * no hay con que afirmar que Wincaja no aporta, y una omision sin evidencia es una perdida de
+   * venta, no una optimizacion.
+   *
+   * ── PRUEBA EN LAS DOS DIRECCIONES (sin esto el atajo es una intencion) ──────────────────────
+   *     ventana 31-ago -> 29-sep (post corte):  3,941 ms -> **195 ms**, resultado **IDENTICO**
+   *     ventana 01-ago -> 30-ago (con Wincaja): omitir cambia **10 de 20 filas** -> NO se omite
+   *
+   * Candado: `database/tests/test-newdb-route-tops-cutover.js`.
+   */
+  async salesByRouteTops(from: string, to: string): Promise<SalesByRouteTops> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dRx.test(from) || !dRx.test(to)) throw new BadRequestException('from/to deben ser YYYY-MM-DD');
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    const RAMA_PUSH = `
+      SELECT rpl.tenant_id, rpl.business_date, rpl.cliente, rpl.sku, rpl.qty, rpl.importe,
+             rpl.folio AS consecutivo
+        FROM analytics.route_push_lines rpl
+       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE`;
+    // ⚠️ El push va PRIMERO: en un UNION los nombres de columna los pone la primera rama, y por
+    // eso "folio" lleva alias explicito. Sin el alias la consulta truena con
+    // "column l.consecutivo does not exist" -- paso al escribir el candado.
+    const RAMA_WCJ_RUTA = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'ruta_venta'
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
+    const RAMA_WCJ_VECINAL = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
+         AND vl.business_date < '2026-06-28'::date
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
+
+    return this.tk.run(async (trx) => {
+      const corte = (await trx.raw(
+        `SELECT to_char(max(business_date) FILTER (
+                  WHERE venta_origen = 'derivado_tasa_linea' AND venta > 0),'YYYY-MM-DD') AS wincaja_ultimo,
+                to_char(min(business_date),'YYYY-MM-DD') AS piso
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date <= CURRENT_DATE`, [tenantId])).rows[0];
+
+      const piso: string | null = corte?.piso ?? null;
+      const wUlt: string | null = corte?.wincaja_ultimo ?? null;
+      // Solo se puede AFIRMAR que Wincaja no aporta si la matvista cubre toda la ventana pedida.
+      const cubierta = !!piso && from >= piso;
+      const saltar = cubierta && (wUlt === null || from > wUlt);
+      const motivo = !cubierta
+        ? `La ventana empieza antes del ${piso ?? '(sin piso)'}, donde la matvista de 200 dias ya no `
+          + 'alcanza a decir si Wincaja aporta: se leen las tres ramas.'
+        : wUlt === null
+          ? 'Wincaja no tiene ni un dia de venta de ruta en los 200 dias que cubre la matvista.'
+          : saltar
+            ? `Wincaja dejo de vender por ruta el ${wUlt} y la ventana arranca despues: sus dos ramas `
+              + 'no pueden aportar ni una linea.'
+            : `Wincaja aporta venta de ruta hasta el ${wUlt}, dentro de la ventana: se leen las tres ramas.`;
+
+      const ramas = [RAMA_PUSH];
+      const params: any[] = [from, to];
+      if (!saltar) {
+        ramas.push(RAMA_WCJ_RUTA, RAMA_WCJ_VECINAL);
+        params.push(from, to, from, to);
+      }
+      const LINEAS = ramas.join('\n      UNION ALL');
+
+      // UN SOLO BARRIDO para las dos listas y para el total. Productos y clientes agregan
+      // EXACTAMENTE las mismas filas: en dos consultas se pagaba el escaneo dos veces.
+      // "MATERIALIZED" es explicito a proposito -- Postgres ya materializa un CTE referenciado
+      // mas de una vez, pero dejarlo escrito evita que un tercer uso cambie el plan sin que nadie
+      // lo note.
       const tops = (await trx.raw(
         `WITH lineas AS MATERIALIZED (${LINEAS}),
               mias AS (SELECT * FROM lineas WHERE tenant_id = ?),
+              tot AS (SELECT sum(importe) AS rev FROM mias),
               p AS (
                 SELECT 'sku'::text kind, l.sku AS code,
                        round(sum(l.importe),2)::float rev, round(sum(l.qty),2)::float units,
@@ -6081,6 +6200,7 @@ export class CommercialAnalyticsService {
                  GROUP BY l.cliente ORDER BY 3 DESC NULLS LAST LIMIT 10),
               u AS (SELECT * FROM p UNION ALL SELECT * FROM c)
          SELECT u.kind, u.code, u.rev, u.units, u.tickets,
+                (SELECT rev FROM tot)::float AS total_periodo,
                 COALESCE(
                   CASE WHEN u.kind = 'sku'
                        THEN (SELECT pp.nombre FROM catalog.products pp
@@ -6091,43 +6211,21 @@ export class CommercialAnalyticsService {
                               ORDER BY cc.cliente, cc.source_dataset DESC LIMIT 1)
                   END, u.code) AS name
            FROM u`,
-        [...RANGO, tenantId, tenantId, tenantId])).rows;
-      // El rotulo se resuelve DESPUES del LIMIT 10: son 20 lookups, no uno por linea. Ese
-      // detalle es justo lo que hacia cara a la consulta que este metodo reemplaza.
-      const prods = tops.filter((r: any) => r.kind === 'sku')
-        .map((r: any) => ({ sku: r.code, name: r.name, revenue: r.rev, units: r.units }));
-      const clis = tops.filter((r: any) => r.kind === 'cliente')
-        .map((r: any) => ({ code: r.code, name: r.name, revenue: r.rev, tickets: r.tickets }));
-
-      const revenue = num(cov?.revenue);
-      const revWithCost = num(cov?.revenue_with_cost);
-      const cost = num(cov?.cost);
-      const totProd = prods.reduce((a: number, r: any) => a + num(r.revenue), 0);
+        [...params, tenantId, tenantId, tenantId])).rows;
+      // El rotulo se resuelve DESPUES del LIMIT 10: son 20 lookups, no uno por linea.
+      const total = num(tops[0]?.total_periodo);
 
       return {
-        series: series.map((r: any) => ({
-          date: r.date, revenue: num(r.revenue), units: num(r.units),
-          tickets: num(r.tickets),
-          // null, NO 0: un dia sin costo en la fuente no vendio con costo cero.
-          cost: r.cost === null ? null : num(r.cost),
+        // ⚠️ "share_pct" es sobre la venta de ruta DEL PERIODO, no sobre el top 10: un 8 % del
+        // top 10 y un 8 % del total son numeros distintos y el segundo es el que se lee.
+        top_products: tops.filter((r: any) => r.kind === 'sku').map((r: any) => ({
+          sku: r.code, name: r.name, revenue: num(r.rev), units: num(r.units),
+          share_pct: total > 0 ? Number(((num(r.rev) / total) * 100).toFixed(1)) : 0,
         })),
-        top_products: prods.map((r: any) => ({
-          sku: r.sku, name: r.name, revenue: num(r.revenue), units: num(r.units),
-          share_pct: totProd > 0 ? Number(((num(r.revenue) / totProd) * 100).toFixed(1)) : 0,
+        top_clients: tops.filter((r: any) => r.kind === 'cliente').map((r: any) => ({
+          code: r.code, name: r.name, revenue: num(r.rev), tickets: num(r.tickets),
         })),
-        top_clients: clis.map((r: any) => ({
-          code: r.code, name: r.name, revenue: num(r.revenue), tickets: num(r.tickets),
-        })),
-        coverage: {
-          revenue, revenue_with_cost: revWithCost, cost,
-          // El margen se calcula SOBRE LO QUE TIENE COSTO. Si nada lo tiene, es null: no hay
-          // margen que reportar, y un 0 % se leeria como "vendimos sin ganancia".
-          margin_pct: revWithCost > 0
-            ? Number((((revWithCost - cost) / revWithCost) * 100).toFixed(2)) : null,
-          cost_coverage_pct: revenue > 0
-            ? Number(((revWithCost / revenue) * 100).toFixed(1)) : 0,
-          data_as_of: cov?.data_as_of ?? null,
-        },
+        fuente: { incluye_wincaja: !saltar, wincaja_ultimo_dia: wUlt, motivo },
       };
     });
   }
