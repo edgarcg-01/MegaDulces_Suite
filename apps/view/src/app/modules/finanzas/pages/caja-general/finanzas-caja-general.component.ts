@@ -266,6 +266,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-rec .cg-tbl td { vertical-align:top; }
     .cg-cv { font-size:var(--fs-xs); color:var(--text-2); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
+    .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
+    .cg-kpi-h { margin-top:1.25rem; }
+    .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
+      color:var(--text-2); font-size:var(--fs-xs); text-decoration:underline; }
+    .cg-lim-tog:hover { color:var(--action); }
+    .cg-conc-lim { margin:.2rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
+      color:var(--text-2); display:flex; flex-direction:column; gap:.2rem; }
     .cg-conc-wide { max-width:none; }
     .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
@@ -332,7 +339,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Caja General</h1>
-          <p class="surf-page-sub">{{ coberturaTexto() }}</p>
+          <!-- ⭐ [CG.29] El subtitulo dice el ESTADO DE HOY, no la cobertura del catalogo.
+               Antes decia "2,672 conceptos de 2,815 - 87 sin subcuenta": un dato de
+               configuracion, correcto y util, ocupando el renglon mas visible de la pantalla.
+               Lo que la persona necesita saber al abrir es cuanto le falta confirmar y si ya
+               rindio cuentas del dia. La cobertura baja un escalon, no se pierde. -->
+          <p class="surf-page-sub">{{ subtituloJornada() }}</p>
+          <p class="surf-page-sub cg-sub-dim">{{ coberturaTexto() }}</p>
         </div>
         <div class="cg-head-actions">
           <!-- Sólo se bloquea con cobertura MEDIDA en cero. Si la medición falló no sabemos si hay
@@ -352,25 +365,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <p-message severity="warn" class="cg-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir.</p-message>
       }
 
-      <div class="fin-corte-bar">
-        <span class="fin-saldo">{{ textoSaldoUI() }}</span>
-        <!-- ⚠️ Tres estados, no dos. Cuando el saldo NO se pudo medir no sabemos si hay corte
-             abierto, y el @else pintaba "Abrir corte" -- o sea que la pantalla AFIRMABA que no
-             había ninguno. Ofrecer abrir un segundo corte sobre uno vivo es el peor final. -->
-        @if (saldoSinMedir()) {
-          <p-tag value="Corte sin medir" severity="warn"></p-tag>
-          <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
-                    [text]="true" (onClick)="cargarSaldo()"></p-button>
-        } @else if (corteAbierto()) {
-          <p-tag [value]="'Corte ' + corteAbierto()!.folio" severity="info"></p-tag>
-          <p-button label="Cerrar corte" icon="pi pi-lock" size="small" severity="secondary"
-                    (onClick)="abrirCierre()"></p-button>
-        } @else {
-          <p-button label="Abrir corte" icon="pi pi-unlock" size="small" severity="secondary"
-                    [disabled]="abriendo()" (onClick)="abrirApertura()"></p-button>
-        }
-      </div>
-
       <!-- ⭐ [CG.26] EL CIERRE DE LA JORNADA: como quedo el dia en caja general y en el cajero.
 
            Este bloque YA EXISTIA y NUNCA lo vio nadie: colgaba de "@if (corteAbierto())" y en prod
@@ -383,9 +377,35 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
       <div class="cg-conc cg-conc-wide">
         <div class="cg-conc-head">
           <strong class="cg-conc-h">Cierre de la jornada</strong>
+          <span class="cg-bandeja-sp"></span>
+
+          <!-- ⚠️ Tres estados, no dos. Cuando el saldo NO se pudo medir no sabemos si hay corte
+               abierto, y ofrecer abrirlo sobre uno vivo es el peor final. -->
+          @if (saldoSinMedir()) {
+            <p-tag value="Corte sin medir" severity="warn"></p-tag>
+          } @else if (corteAbierto(); as c) {
+            <p-tag [value]="'Corte ' + c.folio" severity="info"></p-tag>
+          }
+
           <input pInputText type="date" class="cg-conc-fecha"
                  [ngModel]="arqueoFecha()" (ngModelChange)="setArqueoFecha($event)"
                  aria-label="Jornada a revisar" />
+
+          <!-- ⭐ [CG.29] LA ACCION QUE FALTABA, Y ERA EL PEOR DEFECTO DE LA PANTALLA.
+               Este bloque se llamaba "Cierre de la jornada" y no tenia UN SOLO BOTON: prometia un
+               acto y entregaba un informe. Quien venia a rendir cuentas leia el titulo, no
+               encontraba con que, y se iba.
+               El mecanismo existia -- abrir corte, contar a ciegas, sellar, cerrar, autorizar --
+               pero entraba por un boton "Abrir corte" gris y chico, en medio de una linea de
+               texto. Nadie busca "corte" cuando quiere rendir cuentas del dia. -->
+          @if (saldoSinMedir()) {
+            <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
+                      [text]="true" (onClick)="cargarSaldo()"></p-button>
+          } @else {
+            <p-button [label]="corteAbierto() ? 'Rendir cuentas del dia' : 'Cerrar jornada y rendir cuentas'"
+                      icon="pi pi-lock" size="small" [disabled]="abriendo()"
+                      (onClick)="cerrarJornada()"></p-button>
+          }
         </div>
 
         @if (cargandoArqueo()) {
@@ -473,10 +493,25 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
 
           <!-- ⛔ Lo que NO se puede afirmar se PINTA. Un hueco callado se lee como cero, y aca la
                diferencia entre "flujo del dia" y "cuanto hay en el cajero" es justamente esto. -->
+          <!-- ⭐ [CG.29] DOS listas, no una. Antes eran tres avisos naranjas iguales y dos de
+               ellos eran permanentes -- salian todos los dias y nadie podia resolverlos. Un aviso
+               inmutable que grita se deja de leer, y se lleva puesto al que si importaba.
+               Arriba, lo que ESTA jornada no pudo afirmar y alguien puede cambiar hoy. -->
           @if (a.no_medido.length) {
             <ul class="cg-conc-nm">
               @for (m of a.no_medido; track m) { <li>{{ m }}</li> }
             </ul>
+          }
+          <!-- Abajo y en gris, lo que este cuadre NUNCA va a cubrir. No se esconde: se ordena. -->
+          @if (a.limites?.length) {
+            <button type="button" class="cg-lim-tog" (click)="limitesAbiertos.set(!limitesAbiertos())">
+              {{ limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre' }} ({{ a.limites!.length }})
+            </button>
+            @if (limitesAbiertos()) {
+              <ul class="cg-conc-lim">
+                @for (m of a.limites!; track m) { <li>{{ m }}</li> }
+              </ul>
+            }
           }
         } @else {
           <!-- Tercer estado. "Sin medir" no es "el dia estuvo en cero". -->
@@ -484,6 +519,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </div>
 
+      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de abajo), no del dia. Sin rotulo, su
+           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
+           numeros con la misma etiqueta, distinto periodo y un centimetro de distancia. -->
+      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
       <app-metric-strip [items]="kpis()"></app-metric-strip>
 
       <!-- CG.21 - Movimientos por confirmar, los DOS signos. Es la accion PRINCIPAL de la
@@ -1242,7 +1281,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
 
     <p-dialog [visible]="aperturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(aperturaAbierta)"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
-              header="Abrir corte de caja" [draggable]="false">
+              header="Con cuanto arranco la caja" [draggable]="false">
       <div class="fin-form">
         <div class="fin-row">
           <label for="cg-fondo">Fondo inicial</label>
@@ -1250,9 +1289,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          mode="currency" currency="MXN" locale="es-MX" />
         </div>
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
+        <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
+             persona confirma y cree que ya rindió cuentas. -->
+        <small class="fin-hint-ok">Al confirmar seguís directo al conteo del efectivo.</small>
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(aperturaAbierta)"></p-button>
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
         <!-- Sin bandera de ocupado, el doble clic abría DOS cortes. -->
         <p-button label="Abrir" icon="pi pi-check" size="small"
                   [disabled]="abriendo()" (onClick)="abrirCorte()"></p-button>
@@ -2066,6 +2108,56 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** `[CG.29]` Los límites estructurales arrancan plegados: salen todos los días. */
+  limitesAbiertos = signal(false);
+
+  /**
+   * ⭐ `[CG.29]` **RENDIR CUENTAS DE LA JORNADA, en un solo gesto.**
+   *
+   * ── El defecto que arregla, y es de diseño, no de código ────────────────────────────────
+   * El arqueo exigía **abrir el corte primero**, con su fondo inicial. O sea: una acción a las
+   * 8 de la mañana que habilita otra a las 7 de la tarde. Si nadie la hizo —y **nadie la hizo
+   * nunca: hay CERO cortes en producción**— al final del día no hay nada que cerrar, y el único
+   * botón a la vista dice *"Abrir corte"*, que a las 7 pm parece la acción equivocada.
+   *
+   * Acá el gesto es uno solo y en el momento natural: si falta el corte, se pide el fondo con el
+   * que arrancó la caja y **se encadena directo al conteo**. Si ya estaba abierto, va derecho.
+   *
+   * ⛔ No se afloja ningún candado. El conteo sigue siendo CIEGO (el esperado se revela al
+   * sellar, CG.19) y la doble llave sigue puesta: quien cierra **no** puede autorizar.
+   */
+  cerrarJornada(): void {
+    if (this.abriendo()) return;
+    if (this.corteAbierto()) { this.abrirCierre(); return; }
+    // Sin corte: se pide el fondo y, cuando el servidor confirme, se sigue al conteo.
+    this.cerrarTrasAbrir.set(true);
+    this.abrirApertura();
+  }
+
+  /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */
+  private cerrarTrasAbrir = signal(false);
+
+  /**
+   * `[CG.29]` El subtítulo de la página: el estado de HOY, no la cobertura del catálogo.
+   *
+   * ⚠️ Los tres estados se dicen distinto a propósito. "Sin medir" no es "todo al día", y
+   * "rendiste cuentas" no es lo mismo que "no hay nada que confirmar".
+   */
+  subtituloJornada = computed(() => {
+    const pend = this.confirmables();
+    const total = this.pendientes().length;
+    const trabajo = this.cargandoPend()
+      ? 'Midiendo lo que falta confirmar…'
+      : total === 0
+        ? 'Nada por confirmar en la ventana'
+        : `${pend} de ${total} se confirman de un clic`;
+    if (this.saldoSinMedir()) return `${trabajo} · no se pudo medir si hay corte abierto`;
+    const c = this.corteAbierto();
+    return c
+      ? `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas`
+      : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
+  });
+
   setArqueoFecha(v: string): void {
     if (!v) return;
     this.arqueoFecha.set(String(v).slice(0, 10));
@@ -2133,6 +2225,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }
 
+  /** Si se cancela la apertura, la intención de cerrar NO queda colgada esperando. */
+  cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
+
   abrirCorte(): void {
     if (this.abriendo()) return;
     this.abriendo.set(true);
@@ -2147,7 +2242,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.abriendo.set(false);
         this.aperturaAbierta.set(false);
         this.avisarOk('Corte abierto', `Fondo inicial ${money(this.fondoInicial())}`);
-        this.cargarSaldo(); this.cargarCortes();
+        this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo();
+        // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
+        // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le
+        // faltaba un segundo clic en otro lado.
+        if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
       },
       error: (e) => { this.abriendo.set(false); this.avisarError(e, 'No se pudo abrir el corte'); },
     });
