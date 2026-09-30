@@ -154,14 +154,47 @@ async function login(username) {
 
     // ── 5. Peldaño inexistente ─────────────────────────────────────────────────────────────
     console.log('\n5 — el peldaño que el producto no tiene');
+    // Sin CJA **y** sin BTO/CUB: un producto a granel sin caja SÍ tiene unidad mayor (el bulto),
+    // así que ya no sirve de ejemplo de "peldaño ausente" (ver 5b).
     const sinCaja = await knex.raw(
-      `SELECT sku FROM analytics.v_label_prices WHERE sucursal = ? AND piece_price > 0 AND box_price IS NULL LIMIT 1`, [BRANCH],
+      `SELECT v.sku FROM analytics.v_label_prices v
+        WHERE v.sucursal = ? AND v.piece_price > 0 AND v.box_price IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM kepler_ods.kdii k
+             WHERE btrim(k.sucursal) = v.sucursal AND btrim(k.c1) = v.sku
+               AND ((upper(btrim(k.c83)) IN ('BTO','CUB') AND floor(k.c84) > 1 AND k.c92 > 0)
+                 OR (upper(btrim(k.c80)) IN ('BTO','CUB') AND floor(k.c81) > 1 AND k.c91 > 0)))
+        LIMIT 1`, [BRANCH],
     );
     if (!sinCaja.rows.length) {
-      declarar('el peldaño ausente', 'todos los SKUs de la sucursal declaran caja');
+      declarar('el peldaño ausente', 'todos los SKUs de la sucursal declaran unidad mayor');
     } else {
       const caja = await req('POST', '/commercial/quotes/price-preview', op.token, { branch: BRANCH, sku: sinCaja.rows[0].sku, quantity: 1, rung: 'box' });
       check('pedir una presentación que el ERP no declara → NULL con motivo', caja.body?.unit_price === null && /no tiene el peldaño/.test(caja.body?.unpriced_reason || ''), JSON.stringify(caja.body?.unpriced_reason));
+    }
+
+    // ── 5b. La unidad mayor que NO se llama CJA (bulto / cubeta) ──────────────────────────────
+    // Bug 2026-09-30: 17083 (KG → BTO de 20 kg, $1,169.91) respondía "no tiene el peldaño box"
+    // porque el motor sólo leía 'CJA'. El árbitro es la ranura del propio `kdii` (c83/c84/c92).
+    console.log('\n5b — la unidad mayor que no se llama CJA');
+    const bto = await knex.raw(
+      `SELECT btrim(k.c1) AS sku, upper(btrim(k.c83)) AS unidad, floor(k.c84)::int AS factor, k.c92 AS precio
+         FROM kepler_ods.kdii k
+         JOIN analytics.v_label_prices v ON v.sucursal = btrim(k.sucursal) AND v.sku = btrim(k.c1)
+        WHERE btrim(k.sucursal) = ? AND v.box_price IS NULL AND v.box_size IS NULL
+          AND upper(btrim(k.c83)) IN ('BTO','CUB') AND floor(k.c84) > 1 AND k.c92 > 0
+        ORDER BY (btrim(k.c1) = '17083') DESC, btrim(k.c1)
+        LIMIT 1`, [BRANCH],
+    );
+    if (!bto.rows.length) {
+      declarar('la unidad mayor BTO/CUB', `ningún SKU de la sucursal ${BRANCH} tiene bulto o cubeta sin caja`);
+    } else {
+      const m = bto.rows[0];
+      const r = await req('POST', '/commercial/quotes/price-preview', op.token, { branch: BRANCH, sku: m.sku, quantity: 1, rung: 'box' });
+      check(`${m.sku} por ${m.unidad} tiene precio (no "sin peldaño")`, r.body?.list_price !== null && r.body?.list_price !== undefined, JSON.stringify(r.body?.unpriced_reason));
+      check(`el precio de lista es el de la ranura del ERP ($${m.precio})`, Math.abs(Number(r.body?.list_price) - Number(m.precio)) < 0.005, `list_price=${r.body?.list_price}`);
+      check(`el rótulo dice ${m.unidad}, no CJA`, r.body?.unit_label === m.unidad, `unit_label=${r.body?.unit_label}`);
+      check(`el factor es ${m.factor} unidades base`, Number(r.body?.unit_factor) === m.factor, `unit_factor=${r.body?.unit_factor}`);
     }
 
     // ── 6. ⭐ Las dos capas: el descuento del cliente NO toca el renglón ────────────────────

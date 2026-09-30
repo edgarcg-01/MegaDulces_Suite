@@ -111,7 +111,20 @@ export interface QuoteCatalogRow {
   piece_price: number | null;
   pack_size: number | null;
   box_size: number | null;
+  /** Rótulo del ERP de la unidad mayor: `CJA`, `BTO` (bulto) o `CUB` (cubeta). NULL = no declara. */
+  box_label: string | null;
   sold_by_kg: boolean;
+}
+
+/**
+ * Nombre para mostrar de la unidad mayor (el peldaño `box`). No siempre es "Caja": el granel se
+ * vende por bulto y algunos productos por cubeta, y el ERP lo declara así (`kdii.c83`/`c80`).
+ */
+export function nombreUnidadMayor(label: string | null | undefined): string {
+  const l = (label || '').trim().toUpperCase();
+  if (l === 'BTO' || l === 'BULTO') return 'Bulto';
+  if (l === 'CUB' || l === 'CUBETA') return 'Cubeta';
+  return 'Caja';
 }
 
 export interface PricedLine {

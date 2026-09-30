@@ -115,6 +115,11 @@ export interface QuoteCatalogRow {
   piece_price: number | null;
   pack_size: number | null;
   box_size: number | null;
+  /**
+   * Rótulo del ERP de la unidad mayor: `CJA`, o `BTO`/`CUB` cuando el producto no tiene caja
+   * (granel y cubeta). NULL = el ERP no declara unidad mayor. Es lo que rotula el botón.
+   */
+  box_label: string | null;
   sold_by_kg: boolean;
 }
 
@@ -512,22 +517,50 @@ export class CommercialQuotesService {
 
     return this.tk.run(async (knex) => {
       const res = await knex.raw(
+        // La unidad mayor se completa con BTO/CUB cuando no hay CJA: mismo criterio que
+        // `QuotePricingService.ladder`, o el botón diría "Caja" y la previa "Bulto".
         `
-        SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size, sold_by_kg
-          FROM analytics.v_label_prices
-         WHERE sucursal = :branch
-           AND (:term = ''
-                OR sku ILIKE :pre
-                OR barcode = :term
-                OR name ILIKE :like)
+        SELECT v.sku, v.name, v.content, v.barcode, v.unit_base, v.piece_price, v.pack_size,
+               COALESCE(v.box_size, m.factor) AS box_size,
+               CASE WHEN v.box_size IS NOT NULL THEN 'CJA' ELSE m.unidad END AS box_label,
+               v.sold_by_kg
+          FROM (
+            SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size, sold_by_kg
+              FROM analytics.v_label_prices
+             WHERE sucursal = :branch
+               AND (:term = ''
+                    OR sku ILIKE :pre
+                    OR barcode = :term
+                    OR name ILIKE :like)
+             ORDER BY
+               CASE WHEN upper(sku) = upper(:term) THEN 0
+                    WHEN barcode = :term          THEN 1
+                    WHEN sku ILIKE :pre           THEN 2
+                    ELSE 3 END,
+               name NULLS LAST,
+               sku
+             LIMIT :lim
+          ) v
+          LEFT JOIN LATERAL (
+            SELECT s.unidad, s.factor
+              FROM kepler_ods.kdii k
+              CROSS JOIN LATERAL (VALUES
+                (upper(btrim(k.c83)), floor(k.c84)::int, NULLIF(k.c92, 0), 1),
+                (upper(btrim(k.c80)), floor(k.c81)::int, NULLIF(k.c91, 0), 2)
+              ) AS s(unidad, factor, price, prioridad)
+             WHERE v.box_size IS NULL
+               AND btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
+               AND s.unidad IN ('BTO', 'CUB') AND s.factor > 1 AND s.price IS NOT NULL
+             ORDER BY s.prioridad
+             LIMIT 1
+          ) m ON true
          ORDER BY
-           CASE WHEN upper(sku) = upper(:term) THEN 0
-                WHEN barcode = :term          THEN 1
-                WHEN sku ILIKE :pre           THEN 2
+           CASE WHEN upper(v.sku) = upper(:term) THEN 0
+                WHEN v.barcode = :term          THEN 1
+                WHEN v.sku ILIKE :pre           THEN 2
                 ELSE 3 END,
-           name NULLS LAST,
-           sku
-         LIMIT :lim
+           v.name NULLS LAST,
+           v.sku
         `,
         { branch: suc, term, pre: `${term}%`, like: `%${term}%`, lim: n },
       );
@@ -544,6 +577,7 @@ export class CommercialQuotesService {
         piece_price: num(r['piece_price']),
         pack_size: num(r['pack_size']),
         box_size: num(r['box_size']),
+        box_label: (r['box_label'] as string) ?? null,
         sold_by_kg: r['sold_by_kg'] === true,
       }));
     });

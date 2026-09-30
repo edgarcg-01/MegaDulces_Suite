@@ -80,6 +80,11 @@ export interface LadderRung {
   size: number | null;
   /** Precio por volumen del ERP para ESTE peldaño (`kdpv_prod_util`), si existe. */
   volume: { min_qty: number; price: number } | null;
+  /**
+   * Ranura de `kdii` donde vive el peldaño (`unidad2`/`unidad3`), cuando se resolvió leyéndola.
+   * Las reglas de descuento se atan a la ranura; sin este dato se asume la del mapeo fijo.
+   */
+  aplica_a?: string | null;
 }
 
 export interface PriceStep {
@@ -216,16 +221,54 @@ export class QuotePricingService {
       }
     }
 
+    // ── La unidad mayor NO siempre se llama CJA ─────────────────────────────────────────────
+    // Medido en prod (2026-09-30): 170 SKUs (~1,500 filas sucursal×sku) tienen como unidad mayor
+    // el BULTO (`BTO`) o la CUBETA (`CUB`) y ninguna CJA. Ej.: 17083 "ALTOS CAM CHICA 1KG" =
+    // KG → BTO de 20 kg a $1,169.91 en `kdii.c83/c84/c92`, y Kepler lo VENDE así (223 renglones,
+    // factor 20 en el 100%, `mv_kepler_unit_ladder`). Leer sólo 'CJA' respondía "el ERP no
+    // declara esa presentación", que era falso.
+    // CJA sigue ganando cuando existe (sin cambio para el 99% del catálogo). Sólo se aceptan
+    // rótulos conocidos: `500`, `250`, `IND`… son unidad desconocida (UNIDADES_DE_MEDIDA §7.6).
+    // La ranura se conserva porque las reglas de descuento se atan a ella (`unidad2`/`unidad3`).
+    let boxLabel: string | null = boxPrice !== null || boxSize !== null ? 'CJA' : null;
+    let boxAplicaA: string | null = null;
+    if (boxPrice === null && boxSize === null) {
+      const mayorRes = await knex.raw(
+        `SELECT unidad, factor, price, aplica_a
+           FROM kepler_ods.kdii k
+           CROSS JOIN LATERAL (VALUES
+             (upper(btrim(k.c83)), floor(k.c84)::int, NULLIF(k.c92, 0), 'unidad3', 1),
+             (upper(btrim(k.c80)), floor(k.c81)::int, NULLIF(k.c91, 0), 'unidad2', 2)
+           ) AS s(unidad, factor, price, aplica_a, prioridad)
+          WHERE btrim(k.sucursal) = :branch AND btrim(k.c1) = :sku
+            AND s.unidad IN ('BTO', 'CUB') AND s.factor > 1 AND s.price IS NOT NULL
+          ORDER BY s.prioridad
+          LIMIT 1`,
+        { branch, sku },
+      );
+      if (mayorRes.rows.length) {
+        const m = mayorRes.rows[0];
+        boxLabel = m.unidad;
+        boxPrice = num(m.price);
+        boxSize = num(m.factor);
+        boxAplicaA = m.aplica_a;
+        // El volumen que se leyó arriba era el de una CJA que no existe como presentación: ese
+        // renglón de `kdpv_prod_util` (p. ej. 17083 CJA $1,072.61 sin precio de lista) es un
+        // residuo y no se mezcla con el precio del bulto.
+        boxVolume = null;
+      }
+    }
+
     if (!boxVolume && boxPrice !== null) {
       const kdpvRes = await knex.raw(
         `SELECT u.c7::numeric AS price, floor(u.c4::numeric)::int AS min_qty
            FROM kepler_ods.kdpv_prod_util u
           WHERE u.sucursal = :branch AND u.c1 = :sku
-            AND btrim(u.c2::text) = 'CJA'
+            AND upper(btrim(u.c2::text)) = :unidad
             AND u.c7::numeric > 0 AND floor(u.c4::numeric)::int > 1
           ORDER BY floor(u.c4::numeric)::int ASC, u.c7::numeric ASC
           LIMIT 1`,
-        { branch, sku },
+        { branch, sku, unidad: boxLabel ?? 'CJA' },
       );
       if (kdpvRes.rows.length) {
         boxVolume = volumeOf(kdpvRes.rows[0].min_qty, kdpvRes.rows[0].price);
@@ -255,10 +298,11 @@ export class QuotePricingService {
         },
         box: {
           rung: 'box',
-          label: (boxSize || p.box_size) ? 'CJA' : null,
+          label: boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null),
           price: boxPrice,
           size: boxSize,
           volume: boxVolume,
+          aplica_a: boxAplicaA,
         },
       },
     };
@@ -362,14 +406,14 @@ export class QuotePricingService {
     }
 
     // ── Mecanismos 2b–5: las reglas de descuento de producto ────────────────────────────────
-    const unitName = rung === 'box' ? 'CJA' : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
+    const unitName = rung === 'box' ? (step.label || 'CJA') : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
     const rules = await knex.raw(
       `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
               umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
          FROM analytics.v_erp_discount_rules
         WHERE tienda = :branch AND sku = :sku
           AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
-      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung], unitName },
+      { branch, sku, aplica_a: step.aplica_a ?? RUNG_TO_APLICA_A[rung], unitName },
     );
 
     let freeGoods: PricedLine['free_goods'] = null;
@@ -872,7 +916,8 @@ export class QuotePricingService {
    */
   private rungDeRotulo(label: string | null): Rung {
     const l = (label || '').trim().toUpperCase();
-    if (l === 'CJA' || l === 'CAJA') return 'box';
+    // BTO/CUB: la unidad mayor de granel y cubeta (ver `ladder`) viaja en el mismo peldaño.
+    if (l === 'CJA' || l === 'CAJA' || l === 'BTO' || l === 'BULTO' || l === 'CUB' || l === 'CUBETA') return 'box';
     if (l === 'PAQ') return 'pack';
     return 'base';
   }

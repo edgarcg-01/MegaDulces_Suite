@@ -154,7 +154,8 @@ export function getFactor(it: QuoteDeliverableItem): number | null {
 export function isUnidadMayor(it: QuoteDeliverableItem): boolean {
   if (it.rung === 'box' || it.rung === 'pack') return true;
   const u = (it.unit_label || '').toUpperCase();
-  return u.includes('CJA') || u.includes('CAJA') || u.includes('PAQ') || u.includes('PAQUETE');
+  return u.includes('CJA') || u.includes('CAJA') || u.includes('PAQ') || u.includes('PAQUETE')
+    || u === 'BTO' || u.includes('BULTO') || u === 'CUB' || u.includes('CUBETA');
 }
 
 function triggerDownload(blob: Blob, filename: string): void {
