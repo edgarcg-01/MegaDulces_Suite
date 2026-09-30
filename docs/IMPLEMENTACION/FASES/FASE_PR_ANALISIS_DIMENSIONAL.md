@@ -824,3 +824,93 @@ hasta que la clasificación se arregle. **Es decisión contable, no cálculo.**
 - ✅ El **hecho de venta del ERP es estable** y sirvió de control independiente para detectar
   la reclasificación. Es la fuente más confiable de las tres.
 - ⛔ `ledger_monthly` **no se usa para margen** hasta que 13.3 se resuelva.
+
+---
+
+## 14. ⭐⭐ La META de margen — Kepler ya la tiene escrita (PR.E0c/E0d, 2026-09-29)
+
+Disparado por Edgar: *«Kepler ya maneja un margen. Ese es el margen que tomamos como base.»*
+Tenía razón. Y el dato **ya estaba publicado** — `analytics.v_kepler_unit_ladder` expone
+`margen1/2/3` desde `kdii.c87/c88/c89`. No hubo que construir fuente: hubo que **convertir** y
+**ponderar**, y las dos cosas tenían trampa.
+
+### 14.1 La escala — es markup sobre COSTO
+
+| |
+|---|
+| `PV = costo × (1 + c87/100) × (1 + impuesto)` |
+
+Probado sobre **83,949 fichas sin usar la tasa fiscal**: el residuo `(PV/costo)/(1+m/100)` tiene
+que caer en un factor fiscal conocido.
+
+| interpretación | fichas | % |
+|---|---|---|
+| **markup sobre costo** | 83,202 | **99.11 %** |
+| margen sobre venta | 4,280 | 5.10 % |
+
+Y los residuos se concentran en **1.0800** (IEPS 8), **1.0000** (exento), **1.1600** (IVA 16) —
+exactos. **Control**: el `70001` tiene markup 19.7070 → **16.4627**, y la Fase CE ya publicaba
+16.46 % por otra vía.
+
+⛔ Toda la Fase MR mide **margen sobre venta**. La conversión `margen = 100m/(100+m)` vive **en un
+solo lugar**, `analytics.v_kepler_margin_target`.
+
+### 14.2 ⭐⭐ El peldaño — vale 8 pp
+
+El margen **no es uno por SKU**: **58,027 filas** donde la base y la Unidad Dos difieren. Y la
+venta **no ocurre en el peldaño base**:
+
+| peldaño | venta 90 d | meta de Kepler | mediana markup |
+|---|---|---|---|
+| 1 · pieza | $4,537,689 | **16.82 %** | 22.00 % |
+| 2 · mayoreo | $29,622,251 | **11.34 %** | 13.79 % |
+| 3 · mayoreo | $51,888,006 | **11.21 %** | 12.00 % |
+
+**El 94.5 % de la venta es mayoreo.**
+
+| ponderación | resultado |
+|---|---|
+| por el peldaño **base** | 19.56 % ⛔ |
+| por el peldaño **vendido** (cobertura de pareo 99.74 %) | ⭐ **11.55 %** |
+
+### 14.3 El árbitro — un testigo que no se toca con Kepler
+
+El negocio reporta **~11.5 %**. La ficha de precios del ERP por un lado y el resultado que reporta
+la empresa por el otro **dan el mismo número**.
+
+Eso no valida un cálculo: valida una **afirmación de negocio** — los precios **se están fijando
+como la política manda**. La brecha que este motor tiene que atacar **no está en la meta**: está
+en la **fuga** (§`[PR.W1]`: 1.82 % de descuento sobre lista en 30 d) y en el **costo real**.
+
+⛔ Lo que publicábamos era **15 %**, la constante clavada en tres archivos. Con ese número el
+catálogo entero se veía **bajo meta estando en meta**.
+
+### 14.4 Lo que el gate atrapó antes de tocar prod
+
+Se corrió **en seco** (el `SELECT` de la vista, sin crearla) y encontró dos defectos:
+
+| # | defecto | por qué |
+|---|---|---|
+| 1 | **1,012 filas** declaradas «sin meta» que sí la tienen | el `CASE` del veredicto mezclaba **dos preguntas** (¿hay meta? ¿hay costo?). Sin costo no se puede reconstruir el **precio**, pero la **meta** sigue ahí. Es la trampa de ADR-057 |
+| 2 | **72 filas** con «conversión rota» | comparaba `margen >= markup`, y con `round(...,4)` un markup de 0.0001 da margen 0.0001. **Mismo error que `[PR.W1.1]` el mismo día** — dos números redondeados en órdenes distintos |
+
+⭐ En el segundo caso la holgura **no es tolerancia**: es reconocer que el empate es legítimo. Se
+**cuenta** (`empate_por_redondeo`) en vez de tolerarse — la diferencia con el agujero de ayer.
+
+### 14.5 El número no se clavó: el test lo RE-MIDE
+
+El bloque del default vuelve a calcular el ponderado contra Kepler y se pone **rojo** si se desvía
+más de 1.5 pp. Una medición con fecha es código que caduca — la Fase CDRP ya pagó una que vivía en
+un `COMMENT ON TABLE` de prod y **envejeció en tres días** sin que nada avisara.
+
+Medido al aplicar: **15.000 % → 11.552 %**, pareado sobre **$86,047,946** en 23,419 combos.
+Test contra prod: **24 ✓ / 0 ✗**, Δ **0.000 pp**.
+
+### 14.6 Lo que sigue abierto
+
+- ⛔ El **piso** (`margen_minimo`) sigue **NULL con motivo** — depende de **D13**. Sin piso el
+  motor **no propone bajar**, sólo subir.
+- La cascada por SKU (`v_kepler_margin_target` por producto y peldaño) **está publicada pero sin
+  consumidor**: los 4 llamadores de hoy usan la meta agregada. Se engancha en **W4/M4**.
+- ⚠️ **1,012 fichas tienen meta y no tienen costo** — declaradas en `costo_presente`, no escondidas.
+- ⚠️ **142 SKUs con venta y sin margen en ficha** — caen al default.
