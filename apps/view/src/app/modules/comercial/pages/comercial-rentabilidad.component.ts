@@ -1011,7 +1011,16 @@ export class ComercialRentabilidadComponent {
   readonly WINDOWS = WINDOWS;
 
   readonly window = signal<MarginWindow>('30d');
-  readonly target = signal(15);
+  /**
+   * `[PR.E0b]` ⭐ Esto es el **override del usuario**, no la meta.
+   *
+   * Antes era `signal(15)` y se mandaba SIEMPRE a la API — así que el backend la recibía como
+   * override explícito y **nunca leía `commercial.margin_targets`**. Con la tabla puesta, eso
+   * habría dejado el cambio en un no-op: la meta seguiría saliendo del frontend.
+   *
+   * Arranca en `null` = «sin override, que mande la tabla». Sólo se llena si el usuario la mueve.
+   */
+  readonly targetOverride = signal<number | null>(null);
   readonly level = signal<MarginLevel>('sku');
   readonly band = signal<MarginBand | null>(null);
   readonly supplierId = signal<string | null>(null);
@@ -1032,11 +1041,31 @@ export class ComercialRentabilidadComponent {
 
   // ── Resumen ───────────────────────────────────────────────────────────
   private readonly ovRes = rxResource({
-    params: () => ({ w: this.window(), t: this.target(), k: this.tick() }),
-    stream: ({ params }) => this.api.overview({ window: params.w, target: params.t }),
+    params: () => ({ w: this.window(), t: this.targetOverride(), k: this.tick() }),
+    stream: ({ params }) => this.api.overview({ window: params.w, target: params.t ?? undefined }),
   });
   readonly overview = computed(() => this.ovRes.value() ?? null);
   readonly loading = computed(() => this.ovRes.isLoading());
+
+  /**
+   * `[PR.E0b]` La meta **efectiva**: el override del usuario si lo hay, si no la que resolvió el
+   * servidor desde `commercial.margin_targets`. El `15` final es sólo la red por si el servidor
+   * todavía no respondió — y en ese caso `targetSource` lo dice.
+   *
+   * ⛔ Lee `overview()`, así que NO puede usarse en los `params` de los resources: sería un ciclo.
+   */
+  readonly target = computed(() => this.targetOverride() ?? (this.overview() as any)?.target ?? 15);
+
+  /**
+   * De dónde salió la meta. ⭐ Un default **medido** no es un default **autorizado**:
+   * `default_medido` = «así se opera hoy, nadie lo firmó»; `manual` = Dirección la fijó;
+   * `hardcoded_fallback_*` = falta la migración 20260929170000 en el destino.
+   */
+  readonly targetSource = computed<string>(() => (
+    this.targetOverride() != null ? 'override_url' : ((this.overview() as any)?.target_source ?? 'desconocido')
+  ));
+  /** `true` cuando nadie firmó la meta todavía: la pantalla lo tiene que decir. */
+  readonly targetSinFirmar = computed(() => this.targetSource().startsWith('default') || this.targetSource().startsWith('hardcoded'));
 
   /** KPIs con el veredicto: cuánto vendemos, qué margen deja, cuánto falta. */
   readonly kpis = computed<MetricStripItem[]>(() => {
@@ -1209,9 +1238,9 @@ export class ComercialRentabilidadComponent {
   private readonly leverRes = rxResource({
     params: () => {
       const id = this.leverId();
-      return id ? { id, w: this.window(), t: this.target() } : undefined;
+      return id ? { id, w: this.window(), t: this.targetOverride() } : undefined;
     },
-    stream: ({ params }) => this.api.supplierLevers(params.id, { window: params.w, target: params.t }),
+    stream: ({ params }) => this.api.supplierLevers(params.id, { window: params.w, target: params.t ?? undefined }),
   });
   readonly levers = computed(() => this.leverRes.value() ?? null);
 
@@ -1222,7 +1251,7 @@ export class ComercialRentabilidadComponent {
     const lv = q.get('level') as MarginLevel | null;
     if (lv && LEVELS.some((x) => x.key === lv)) this.level.set(lv);
     const t = Number(q.get('target'));
-    if (t > 0 && t < 100) this.target.set(t);
+    if (t > 0 && t < 100) this.targetOverride.set(t);
     const b = q.get('band') as MarginBand | null;
     if (b) this.band.set(b);
     if (q.get('supplier_id')) {
@@ -1261,7 +1290,7 @@ export class ComercialRentabilidadComponent {
       this.toast.add({ severity: 'warn', summary: 'Objetivo inválido', detail: 'Tiene que estar entre 1 y 99.' });
       return;
     }
-    this.target.set(Math.round(n * 10) / 10);
+    this.targetOverride.set(Math.round(n * 10) / 10);
     this.syncUrl();
   }
 
@@ -1346,7 +1375,7 @@ export class ComercialRentabilidadComponent {
       queryParams: {
         window: this.window() === '30d' ? null : this.window(),
         level: this.level() === 'sku' ? null : this.level(),
-        target: this.target() === 15 ? null : this.target(),
+        target: this.targetOverride(),
         band: this.band() || null,
         supplier_id: this.supplierId() || null,
         supplier_name: this.supplierName() || null,
