@@ -24,6 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
+import { CAJA_VENTANA_DIAS } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
@@ -1402,5 +1403,42 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.f().beneficiario).toBe('GASTOS GENERALES CAJA CHICA MORELIA ABASTOS');
     expect(comp.f().kepler_cuenta).toBeNull();
     expect(comp.f().kepler_concepto).toBeNull();
+  });
+
+  // ── 20 · [CG.28] LA VENTANA TENIA PISO PERO NO TECHO ──────────────────────────────────────
+  //
+  // Medido en prod el 2026-09-30: con la ventana en 1 dia, la bandeja devolvia **7 filas y las 7
+  // eran documentos mal fechados** (6 X-D-26 + 1 U-A-5, todas de diciembre). El filtro era
+  // `fecha_valor >= desde` sin tope de arriba, asi que los unicos que pasaban un "ultimo dia"
+  // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
+  // tiene `fecha_valor` de hoy.
+
+  it('la ventana por default es la MEDIDA, no la de pruebas', () => {
+    // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
+    // que tenia que volver. Se quedo ocho dias.
+    montar();
+    expect(comp.ventanaDias()).toBe(CAJA_VENTANA_DIAS);
+  });
+
+  it('⛔ [negativa] los mal fechados se DICEN, no se esconden', () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, mal_fechados: { movimientos: 7, monto: 50796 },
+      })),
+    });
+    expect(comp.malFechados()).toEqual({ movimientos: 7, monto: 50796 });
+
+    const html: string = fx.nativeElement.innerHTML;
+    expect(html).toContain('7 documento(s) del ERP');
+    // Lo importante no es el numero: es que diga DONDE se arregla. Aca no se arreglan.
+    expect(html).toContain('Kepler');
+  });
+
+  it('sin mal fechados no se pinta el aviso: un "0 mal fechados" es ruido', () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, mal_fechados: { movimientos: 0, monto: 0 } })),
+    });
+    expect(comp.malFechados()).toBeNull();
+    expect(fx.nativeElement.innerHTML).not.toContain('fechados');
   });
 });
