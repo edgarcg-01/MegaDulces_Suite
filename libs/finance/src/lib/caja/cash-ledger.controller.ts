@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
@@ -217,6 +217,36 @@ export class CashLedgerController {
     @Req() req: AuthedRequest,
   ) {
     return this.svc.declararCuentaDeBeneficiario(body ?? {}, this.user(req));
+  }
+
+  /**
+   * `[CG.27-B.0]` — va ANTES de `@Get(':id')` como el resto. Lo que está declarado, listado.
+   * Hasta ahora las reglas sólo se podían escribir y no había forma de verlas.
+   */
+  @Get('reglas')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.27 — Las reglas de clasificacion declaradas, por prioridad. `incluir_inactivas=true` trae tambien las apagadas y las suprimidas.' })
+  listarReglas(@Query('incluir_inactivas') incluir?: string, @Query('limit') limit?: string) {
+    return this.svc.listarReglas({
+      incluir_inactivas: incluir === 'true',
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  /**
+   * `[CG.27-B.0]` Corrige o APAGA una regla. ⛔ No hay `DELETE`: una regla que ya clasificó
+   * dinero se desactiva, no se borra — borrarla dejaría movimientos con una cuenta que nadie
+   * puede explicar de dónde salió.
+   */
+  @Patch('reglas/:id')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.27 — Cambia el par contable de una regla o la desactiva. El PATRON no se edita: cambiarlo es otra regla (se apaga esta y se declara la nueva), o se reescribiria en silencio la explicacion de todo lo que ya clasifico.' })
+  actualizarRegla(
+    @Param('id') id: string,
+    @Body() body: { kepler_cuenta?: string; kepler_concepto?: string; sucursal?: string; active?: boolean; nota?: string },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.actualizarRegla(id, body ?? {}, this.user(req));
   }
 
   @Get('frecuentes')

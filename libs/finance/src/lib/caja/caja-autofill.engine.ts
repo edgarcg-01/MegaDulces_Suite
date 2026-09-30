@@ -1,3 +1,5 @@
+import { reglaQueAplica, reglaVive, normalizaTexto, type ReglaGasto } from './caja-lote.engine';
+
 /**
  * CG.17 — Motor de autorrelleno de Caja General: LA DECISIÓN, en funciones PURAS (ADR-070 §8).
  *
@@ -97,20 +99,24 @@ export const LEARNED_DEFAULTS = { minSupport: 3, minRatio: 0.6 } as const;
 /** Tasa de corrección a partir de la cual una regla deja de proponer (§8.5 regla 4). */
 export const RULE_SUPPRESSION_RATIO = 0.3;
 
-/** Normaliza para comparar: mayúsculas, sin acentos, espacios colapsados. */
-export function normalize(s: string | null | undefined): string {
-  if (!s) return '';
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toUpperCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+/**
+ * Normaliza para comparar: mayúsculas, sin acentos, espacios colapsados.
+ *
+ * ⚠️ `[CG.27-B.0]` La implementación se subió a `caja-lote.engine.ts` porque ahora la usan LOS
+ * DOS motores de reglas. Acá queda el alias para no tocar a sus consumidores: tener dos copias de
+ * esto es exactamente cómo los motores empezaron a divergir.
+ */
+export const normalize = normalizaTexto;
 
-/** Una regla juega si está activa y no fue suprimida por su propia tasa de corrección. */
+/**
+ * Una regla juega si está activa y no fue suprimida por su propia tasa de corrección.
+ *
+ * ⚠️ `[CG.27-B.0]` Delega en el compartido. Ojo con el matiz: la versión de acá exigía
+ * `active === true` y la compartida acepta `active` ausente como viva — porque no todo SELECT la
+ * trae, y una regla que el SQL ya filtró no puede quedar fuera por venir sin la columna.
+ */
 export function isRulePlayable(r: ClassifyRule): boolean {
-  return r.active === true && !r.suppressed_at;
+  return reglaVive(r);
 }
 
 /**
@@ -132,39 +138,19 @@ export function shouldSuppressRule(r: ClassifyRule, minApplied = 5): boolean {
  * ⚠️ Una regex inválida en la tabla NO puede tumbar la captura: esa regla se salta.
  */
 export function classifyByRules(rules: ClassifyRule[], input: ClassifyInput): Proposal<ConceptPair> {
-  const tipo = normalize(input.tipo);
-  const glosa = normalize(input.glosa);
-  const benef = normalize(input.beneficiario);
-
-  const playable = rules.filter(isRulePlayable).sort((a, b) => a.priority - b.priority);
-
-  for (const r of playable) {
-    const matchers: Array<[string | null, string]> = [
-      [r.match_tipo, tipo],
-      [r.match_glosa, glosa],
-      [r.match_beneficiario, benef],
-    ];
-    // Una regla sin ningún matcher aplicaría a todo (la DB lo impide con un CHECK, pero el
-    // motor no confía en eso: si llegara una, se ignora en vez de clasificarlo todo).
-    if (matchers.every(([pat]) => !pat)) continue;
-
-    let all = true;
-    for (const [pat, val] of matchers) {
-      if (!pat) continue;
-      let re: RegExp;
-      try { re = new RegExp(pat, 'i'); } catch { all = false; break; }
-      if (!re.test(val)) { all = false; break; }
-    }
-    if (all) {
-      return {
-        value: { kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto },
-        source: 'regla',
-        confidence: 0.7,
-        originId: r.id,
-      };
-    }
-  }
-  return { value: null, source: null, confidence: null, reason: 'sin_regla' };
+  // ⭐ `[CG.27-B.0]` El match lo decide `reglaQueAplica`, el MISMO que usa la bandeja. Acá antes
+  // vivía una copia del recorrido que normalizaba el texto de entrada pero no el patrón, no
+  // desempataba por `id` y no acotaba el largo del patrón: tres formas de dar un veredicto
+  // distinto al de la bandeja sobre la MISMA regla. La paridad la fija
+  // `caja-reglas-paridad.spec.ts`.
+  const r = reglaQueAplica(rules as unknown as ReglaGasto[], input);
+  if (!r) return { value: null, source: null, confidence: null, reason: 'sin_regla' };
+  return {
+    value: { kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto },
+    source: 'regla',
+    confidence: 0.7,
+    originId: r.id,
+  };
 }
 
 /**

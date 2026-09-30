@@ -365,6 +365,100 @@ export class CashLedgerService {
   }
 
   /**
+   * `[CG.27-B.0]` — **Las reglas declaradas, listadas.**
+   *
+   * Hasta ahora `finance.caja_classify_rules` sólo se podía ESCRIBIR, y de a una, desde el
+   * checkbox de la captura. No había forma de ver qué se había declarado: ni pantalla, ni
+   * endpoint. Una regla mal puesta sólo se corregía por SQL.
+   *
+   * ⚠️ El `patron` se devuelve crudo a propósito: es lo que hay que poder mirar para entender por
+   * qué una regla clasifica lo que clasifica.
+   */
+  async listarReglas(q: { incluir_inactivas?: boolean; limit?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 200, 1), 500);
+    return this.tk.run(async (trx) => {
+      let qb = trx('finance.caja_classify_rules').where('tenant_id', tenantId);
+      if (!q.incluir_inactivas) qb = qb.where('active', true).whereNull('suppressed_at');
+      const rows = await qb
+        .orderBy([{ column: 'priority', order: 'asc' }, { column: 'id', order: 'asc' }])
+        .limit(limit)
+        .select('id', 'priority', 'match_tipo', 'match_glosa', 'match_beneficiario',
+          'kepler_cuenta', 'kepler_concepto', 'active', 'suppressed_at',
+          'applied_count', 'corrected_count', 'note', 'created_by', 'created_at', 'updated_at');
+      return { rows, limit, has_more: rows.length === limit };
+    });
+  }
+
+  /**
+   * `[CG.27-B.0]` — **Corregir o APAGAR una regla ya declarada.**
+   *
+   * ⛔ **No hay `DELETE`, y es a propósito**: una regla que ya clasificó dinero se desactiva, no
+   * se borra. Borrarla dejaría movimientos apuntando a una cuenta que nadie puede explicar de
+   * dónde salió.
+   *
+   * ⛔ El par contable se valida contra el catálogo VIVO, igual que al declararla: si Kepler
+   * retiró el concepto, la regla no puede quedar apuntando ahí.
+   *
+   * ⚠️ El `patron` NO se puede editar. Cambiarlo es cambiar a qué beneficiario aplica, o sea otra
+   * regla: se apaga ésta y se declara la nueva, y el historial queda. Editar el patrón en su lugar
+   * reescribiría en silencio la explicación de todo lo que ya clasificó.
+   */
+  async actualizarRegla(
+    id: string,
+    input: { kepler_cuenta?: string; kepler_concepto?: string; sucursal?: string; active?: boolean; nota?: string },
+    user: { id?: string; username?: string },
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = await trx('finance.caja_classify_rules')
+        .where({ tenant_id: tenantId, id }).first();
+      // ⚠️ 404 y no 403 cuando el id es de otro tenant: RLS ya no la trajo, así que desde acá es
+      // indistinguible de "no existe" — y decir "existe pero no es tuya" filtraría que existe.
+      if (!r) throw new NotFoundException('Esa regla no existe.');
+
+      const patch: Record<string, unknown> = { updated_at: trx.fn.now() };
+
+      const cuenta = input.kepler_cuenta?.trim();
+      const concepto = input.kepler_concepto?.trim();
+      if (cuenta || concepto) {
+        // Media cuenta no contabiliza nada: el par va completo o no va.
+        if (!cuenta || !concepto) {
+          throw new BadRequestException('Para cambiar la cuenta hay que mandar la cuenta Y el concepto.');
+        }
+        await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+        patch['kepler_cuenta'] = cuenta;
+        patch['kepler_concepto'] = concepto;
+      }
+
+      if (input.active !== undefined) {
+        patch['active'] = !!input.active;
+        // Reactivar una regla que el motor había suprimido por su tasa de corrección sería
+        // devolverle la palabra sin que nada haya cambiado: se limpia la marca explícitamente.
+        if (input.active) patch['suppressed_at'] = null;
+      }
+
+      const nota = String(input.nota ?? '').trim();
+      if (nota) patch['note'] = nota;
+
+      if (Object.keys(patch).length === 1) {
+        throw new BadRequestException('No mandaste nada que cambiar.');
+      }
+
+      const [row] = await trx('finance.caja_classify_rules')
+        .where({ tenant_id: tenantId, id })
+        .update(patch)
+        .returning(['id', 'priority', 'match_beneficiario', 'kepler_cuenta', 'kepler_concepto', 'active']);
+
+      // ⚠️ Queda declarado: la tabla NO tiene `updated_by`, así que quién cambió la regla no se
+      // persiste. Se deja rastro en `note` cuando la mandan, y nada más. Ponerle columna de autor
+      // es una migración aparte — no se disfraza el hueco escribiendo el usuario en la nota.
+      void user;
+      return row;
+    });
+  }
+
+  /**
    * Registra un movimiento. TODO en una transacción: folio, validación del par contable,
    * cabecera y denominaciones. Si algo falla, el consecutivo tampoco avanza.
    */
