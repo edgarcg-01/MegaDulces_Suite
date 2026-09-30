@@ -384,6 +384,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Precios y promociones',
       items: [
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
+        { label: 'Experimentos de precio', icon: 'pi pi-chart-scatter', route: '/comercial/experimentos-precio', permission: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
       ],
@@ -816,6 +817,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
         { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
         { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
         // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
