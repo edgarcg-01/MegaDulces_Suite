@@ -21,7 +21,14 @@
 # Y eso lo hace MÁS seguro que el despliegue a mano de hoy, no menos: `ops/prod/deploy.sh`
 # archiva el HEAD de quien lo corre, así que puede subir a producción código que nadie revisó y
 # que no está en el remoto — medido el 2026-09-23, prod corrió durante horas un commit que no
-# estaba en `origin/main`. Acá sólo entra lo que pasó por la rama protegida.
+# estaba en `origin/main`. Acá sólo entra lo que está en el remoto.
+#
+# ⛔ ESTA LÍNEA DECÍA "lo que pasó por la rama protegida" Y ERA FALSO. Medido el 2026-09-30:
+# `main` **no tiene ninguna protección** — el repo es privado en plan free y GitHub responde 403
+# tanto a `branches/main/protection` como a `rulesets`, y la cuenta no va a pasar a Pro. O sea
+# que hasta hoy esto desplegaba lo que hubiera en `origin/main`, verde o rojo, sin que nada lo
+# mirara. La compuerta que esa frase daba por hecha es `[CI.SELLO]`, más abajo: exige que el
+# commit esté sellado por el CI (`build` + `secret-scan`) antes de construir.
 #
 # ── ⛔ AUTO-REVERSIÓN ───────────────────────────────────────────────────────
 # Si el humo del login falla, vuelve SOLO a la imagen anterior. No es exceso de celo: pasó ayer
@@ -36,7 +43,9 @@
 set -u
 
 REPO_DIR="${AUTO_DEPLOY_REPO:-$HOME/auto-deploy/repo}"
-REMOTO="git@github.com:edgarcg-01/Trade_marketing.git"
+# ⚠️ El repo se RENOMBRÓ a `MegaDulces_Suite` (medido el 2026-09-30). GitHub redirige el nombre
+#    viejo, así que esto venía funcionando por cortesía del redirect, no por estar bien.
+REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
 RAMA="${AUTO_DEPLOY_BRANCH:-main}"
 LLAVE="${AUTO_DEPLOY_KEY:-$HOME/.ssh/deploy_md}"
 # `[VL.20.4]` `SERVICIOS` YA NO SE FIJA ACÁ: se calcula más abajo, cuando ya se sabe contra qué
@@ -244,6 +253,55 @@ if [ -n "$PEND" ]; then
   exit 1
 fi
 di "migraciones: prod al día"
+
+# ── `[CI.SELLO]` La compuerta de CI, ANTES de construir ─────────────────────
+# Sólo se despliega un commit que el CI haya SELLADO (job `sellar` en ci.yml, que mueve la rama
+# marcadora `ci-green` cuando `build` y `secret-scan` pasan).
+#
+# ── Por qué acá y no en GitHub ──────────────────────────────────────────────
+# Porque la protección de rama no se va a comprar (decisión del 2026-09-30) y en un repo privado
+# de plan free no existe. La cabecera de este archivo decía "acá sólo entra lo que pasó por la
+# rama protegida" — **era falso**: `main` no tiene ninguna protección, así que hasta hoy este
+# script desplegaba lo que hubiera en `origin/main`, verde o rojo. Ésta es la compuerta que esa
+# frase daba por hecha.
+#
+# ⭐ Y es la única que NO se evade: `.githooks/pre-push` vive en la máquina de cada dev, se salta
+# con `--no-verify` y no existe para quien no corrió `npm run hooks:install`. Esto corre en `md`.
+#
+# ── Qué frena y qué no, a propósito ─────────────────────────────────────────
+#   · build roto o secreto filtrado → FRENA. Lo primero no funciona; lo segundo ya se filtró.
+#   · lint/tests/estilo (`verify`)  → NO frena. Hoy está rojo por deuda preexistente y exigirlo
+#     dejaría a producción sin despliegues desde el primer día. Se declara en el CI.
+#
+# ⚠️ "Todavía sin sello" NO es un error: el CI tarda ~4 min y la agenda dispara cada 5, así que
+#    la pasada que sigue a un push normalmente llega antes que el sello. Eso late `ok` y espera.
+#    Recién a los 30 min se vuelve error — para entonces no es que falte, es que falló.
+# ⚠️ Si `ci-green` no se puede traer, esto NO frena: no haber medido no es motivo para bloquear
+#    un despliegue (ADR-056, mismo criterio que la auto-reversión con la red caída).
+# ⚠️ La lógica NO vive acá: vive en `compuerta-ci.sh`, por lo mismo que `clasificar-migraciones.awk`
+#    — para que `test-compuerta-ci.sh` pueda correr EL MISMO archivo que corre en producción.
+COMPUERTA_CI="$HOME/ops/prod/compuerta-ci.sh"
+if [ "${AUTO_DEPLOY_SIN_CI:-0}" = "1" ]; then
+  di "compuerta CI: SALTEADA a mano (AUTO_DEPLOY_SIN_CI=1)"
+elif [ ! -f "$COMPUERTA_CI" ]; then
+  di "FALLO: falta $COMPUERTA_CI en md — la compuerta de CI no se puede evaluar."
+  latir error "falta compuerta-ci.sh en md"; exit 1
+else
+  VEREDICTO=$(sh "$COMPUERTA_CI" "$REPO_DIR" HEAD 2>&1); RC=$?
+  case "$RC" in
+    0)  di "compuerta CI: $VEREDICTO" ;;
+    10) di "compuerta CI: $VEREDICTO"
+        di "  El CI tarda ~4 min y esta agenda dispara cada 5; la pasada que viene lo agarra."
+        latir ok "esperando el sello del CI para $DESEADO"
+        exit 0 ;;
+    30) di "compuerta CI: $VEREDICTO — se sigue, no se frena por no haber medido (ADR-056)." ;;
+    *)  di "FRENADO: $VEREDICTO"
+        di "  O falló build/secret-scan, o el job 'sellar' no corrió. Mirá: gh run list --branch $RAMA --limit 3"
+        di "  Escape de emergencia: AUTO_DEPLOY_SIN_CI=1 sh \$HOME/ops/prod/auto-deploy.sh"
+        latir error "$DESEADO sin sello del CI — despliegue frenado"
+        exit 1 ;;
+  esac
+fi
 
 # ── Construir y recrear ─────────────────────────────────────────────────────
 # ⚠️ Las funciones se DEFINEN antes de usarlas: en `sh` no hay izado. Estaba declarada 50
