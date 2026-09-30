@@ -433,7 +433,7 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
 <div class="head">
   <div>
     <div class="emp">${this.esc(h.empresa)}</div>
-    <div class="sub">Documento interno de cobranza · no es comprobante fiscal</div>
+    <div class="sub">Documento interno de cobranza</div>
   </div>
   <div class="doc">
     <div class="tit">Guía de Cobranza</div>

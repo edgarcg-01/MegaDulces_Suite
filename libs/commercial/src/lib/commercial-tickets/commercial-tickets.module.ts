@@ -3,6 +3,7 @@ import { CommercialTicketsService } from './commercial-tickets.service';
 import { CommercialTicketsController } from './commercial-tickets.controller';
 import { TicketCartaService } from './ticket-carta.service';
 import { CustomerReportService } from './customer-report.service';
+import { BandejaTicketsService } from './bandeja-tickets.service';
 import { CommercialSalesDocumentsModule } from '../commercial-sales-documents/commercial-sales-documents.module';
 
 /**
@@ -21,7 +22,7 @@ import { CommercialSalesDocumentsModule } from '../commercial-sales-documents/co
 @Module({
   imports: [CommercialSalesDocumentsModule],
   controllers: [CommercialTicketsController],
-  providers: [CommercialTicketsService, TicketCartaService, CustomerReportService],
+  providers: [CommercialTicketsService, TicketCartaService, CustomerReportService, BandejaTicketsService],
   exports: [CommercialTicketsService, TicketCartaService, CustomerReportService],
 })
 export class CommercialTicketsModule {}

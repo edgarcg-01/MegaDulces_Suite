@@ -54,6 +54,8 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
+// [CE.2] Costo estandar de Kepler por producto. Recableado: el modulo y su export ya vienen
+// en ESTE commit, que es la condicion que dejo escrita el descableado de las 11:25.
 import { CommercialStandardCostModule } from '@megadulces/commercial';
 import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';

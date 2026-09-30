@@ -131,93 +131,90 @@ describe('cuerpoTicketVenta — grilla de 45 caracteres', () => {
   });
 });
 
-describe('cuerpoTicketVenta — el producto en tres renglones', () => {
-  /** El nombre tiene el renglón entero: es lo que se perdía cuando había 7 columnas. */
-  it('el nombre del producto va solo en su renglon, completo', () => {
-    const nombre = 'PALETA PAYASO VAINILLA CON CHOCOLATE 24P';  // 40, entra en 45
-    const out = lineas({ lineas: [L({ descripcion: nombre })] });
-    expect(out).toContain(nombre);
+describe('cuerpoTicketVenta — [TK.13] la partida escrita como cuenta', () => {
+  /** Una paleta: lista 6.00, pagada 5.00, 12 piezas, IVA 16%. */
+  const PALETA = L({ descripcion: 'PALETA PAYASO', sku: '900', cantidad: 12, unidad: 'PZA',
+    precio_lista: 6, precio_pagado: 5, descuento_unitario: 1, descuento_linea: 12, importe: 60,
+    impuesto_tipo: 'iva', iva: 8.28, ieps: 0, iva_tasa: 0.16, ieps_tasa: 0 });
+  const conPaleta = (extra: Partial<TicketVenta> = {}) => lineas({
+    lineas: [PALETA],
+    cascada: { ...BASE.cascada, importe_lista: 72, descuento_precio: 12, total: 60,
+      iva: 8.28, ieps: 0, descuento_total: 12, iva_lineas: 8.28, ieps_lineas: 0 },
+    ...extra,
   });
 
-  it('la operacion dice cuanto, por cuanto, igual a cuanto', () => {
-    const out = lineas({ lineas: [L({ cantidad: 12, unidad: 'PZA', precio_pagado: 5, importe: 60 })] });
-    const op = out.find((l) => l.includes(' x '));
-    expect(op).toContain('12 PZA x 5.00');
-    expect(op).toContain('60.00');
+  it('el nombre y el código van en el primer renglón', () => {
+    const out = conPaleta();
+    const r = out.find((l) => l.startsWith('PALETA PAYASO'));
+    expect(r).toBeDefined();
+    expect(r?.trimEnd().endsWith('900')).toBe(true);
   });
 
-  /**
-   * ⚠️ El candado de la forma: sin nada que declarar son DOS renglones, con algo son TRES.
-   * Si el tercero se imprimiera siempre, cada ticket crecería un 50% en papel y diría
-   * "Desc 0.00" — que se lee como una afirmación, no como un hueco.
-   */
-  it('sin nada que declarar el producto ocupa DOS renglones, no tres', () => {
-    const pelado = L({ descuento_linea: 0, lista_conocida: false, impuesto_tipo: null,
-      iva: 0, ieps: 0, ieps_tasa: 0 });
-    const uno = lineas({ lineas: [pelado], cascada: { ...BASE.cascada, lineas_con_lista: 0 } });
-    const dos = lineas({ lineas: [pelado, { ...pelado, linea: 2 }], cascada: { ...BASE.cascada, lineas_con_lista: 0 } });
-    expect(dos.length - uno.length).toBe(2);
+  it('renglón 2 y 3: el valor POR PIEZA y sus impuestos, a la izquierda', () => {
+    const out = conPaleta();
+    expect(out).toContain('  c/u 6.00 -1.00 = 5.00');
+    expect(out).toContain('  s/imp 4.31 + IVA 16% 0.69');
   });
 
   /**
-   * ⚠️ ESTA PRUEBA CAMBIO DE VALOR CON [TK.10], a proposito: antes decia TRES.
-   *
-   * Un producto con descuento E impuesto ahora declara cuatro conceptos —Lista, Desc, IVA y
-   * los dos netos— y en 43 caracteres utiles ya no entran en un renglon. El ticket pasa a
-   * CUATRO. Es el costo que se acepto al agregar las columnas, medido antes de escribirlas.
-   *
-   * Lo que NO puede cambiar, y por eso se comprueba abajo, es COMO se parte: por concepto,
-   * nunca dejando una etiqueta sin su monto.
+   * Pedido del usuario sobre la maqueta «C»: la partida va TODA alineada a la derecha (su
+   * importe cae en la columna derecha) y sus impuestos también a la derecha pero 12 mm antes
+   * del borde = 8 caracteres. Y ya no hay renglón «Neto partida».
    */
-  it('con descuento, impuesto y netos el producto ocupa CUATRO renglones', () => {
-    const corto = L({ descripcion: 'PALETA', cantidad: 12, unidad: 'PZA', precio_lista: 6,
-      precio_pagado: 5, descuento_linea: 12, importe: 60,
-      impuesto_tipo: 'iva', iva: 8.28, ieps: 0, iva_tasa: 0.16, ieps_tasa: 0 });
-    const uno = lineas({ lineas: [corto] });
-    const dos = lineas({ lineas: [corto, { ...corto, linea: 2 }] });
-    expect(dos.length - uno.length).toBe(4);
-
-    // 6.00/1.16 = 5.17 y 5.00/1.16 = 4.31: los dos netos salen del precio que esta al lado.
-    const txt = uno.join(String.fromCharCode(10));
-    expect(txt).toContain('Neto 5.17');
-    expect(txt).toContain('Neto c/desc 4.31');
-    // Ninguna etiqueta queda huerfana al final de su renglon.
-    for (const ln of uno) {
-      expect(ln.trimEnd().endsWith('Neto')).toBe(false);
-      expect(ln.trimEnd().endsWith('Neto c/desc')).toBe(false);
-    }
+  it('renglón 4: la partida entera pegada al borde derecho', () => {
+    const out = conPaleta();
+    const p = out.find((l) => l.includes('x12 PZA'));
+    expect(p?.trim()).toBe('x12 PZA 72.00 -12.00 = 60.00');
+    expect(p?.length).toBe(ANCHO);
   });
 
-  /**
-   * ⚠️ Lo encontró el candado, no la vista: con montos grandes el desglose pasa de los 43
-   * caracteres útiles, y el envoltorio por palabra dejaba `IEPS` al final de un renglón y
-   * `1,655.42` al principio del siguiente — una etiqueta separada de su monto. Ahora se empaca
-   * por CONCEPTO: baja el concepto entero o no baja.
-   */
-  it('cuando el desglose no cabe, baja el concepto entero y no parte el monto', () => {
-    const out = lineas({ lineas: [L({})] });          // Lista 58.88 · Desc -2,381.40 · IEPS 1,655.42
-    const texto = out.join('\n');
-    expect(texto).toContain('IEPS 1,655.42');
-    expect(texto).toContain('Desc -2,381.40');
-    expect(out.filter((l) => l.length > ANCHO)).toEqual([]);
-    // Y el concepto que bajó sigue sangrado como el de arriba.
-    expect(out.filter((l) => l.includes('IEPS 1,655.42'))[0].startsWith('  ')).toBe(true);
+  it('renglón 5: los impuestos de la partida a la derecha, dejando 12 mm (8 caracteres)', () => {
+    const out = conPaleta();
+    const i = out.find((l) => l.includes('s/imp 51.72 + IVA 8.28'));
+    expect(i?.length).toBe(ANCHO);
+    expect(i?.endsWith(' '.repeat(8))).toBe(true);
+    expect(i?.endsWith(' '.repeat(9))).toBe(false);
+    expect(out.join('\n')).not.toContain('Neto partida');
   });
 
-  /**
-   * ⚠️ Lo encontró la muestra renderizada: el desglose salía PEGADO AL MARGEN, desalineado de
-   * la operación que explica. `envolver()` parte por `\s+` y rejunta con un espacio, así que el
-   * sangrado tiene que agregarse DESPUÉS de envolver, no antes.
-   */
-  it('el desglose va sangrado como la operacion', () => {
-    const out = lineas({ lineas: [L({})] });
-    const op = out.find((l) => l.includes(' x '));
-    const desglose = out.find((l) => l.includes('Lista 58.88'));
-    expect(op?.startsWith('  ')).toBe(true);
-    expect(desglose?.startsWith('  ')).toBe(true);
+  it('con UNA pieza no repite: un solo juego de valores', () => {
+    const una = L({ descripcion: 'CHICLE', sku: '901', cantidad: 1, unidad: 'PZA',
+      precio_lista: 10, precio_pagado: 10, descuento_unitario: 0, descuento_linea: 0, importe: 10,
+      impuesto_tipo: 'ieps', iva: 0, ieps: 0.74, iva_tasa: 0, ieps_tasa: 0.08 });
+    const out = lineas({ lineas: [una], cascada: { ...BASE.cascada, total: 10, ieps_lineas: 0.74 } });
+    // Con una pieza la partida ES el unitario: un solo renglón, a la derecha, con su importe.
+    const r = out.find((l) => l.trim().startsWith('1 PZA'));
+    expect(r?.trim()).toBe('1 PZA 10.00');
+    expect(r?.length).toBe(ANCHO);
+    expect(out.some((l) => l.includes('c/u') || /\sx\d/.test(l))).toBe(false);
+    // Sin descuento no hay "-0.00": se leería «te descontamos cero».
+    expect(out.join('\n')).not.toContain('-0.00');
+    const imp = out.find((l) => l.includes('s/imp 9.26 + IEPS 8% 0.74'));
+    expect(imp?.endsWith(' '.repeat(8))).toBe(true);
   });
 
-  /** La equivalencia de peldaño va pegada al nombre si cabe; si no, se omite (es descriptiva). */
+  it('un producto sin impuesto no imprime el renglón s/imp (sería el mismo número)', () => {
+    const pelado = L({ descuento_linea: 0, descuento_unitario: 0, lista_conocida: false,
+      impuesto_tipo: null, iva: 0, ieps: 0, ieps_tasa: 0 });
+    const out = lineas({ lineas: [pelado], cascada: { ...BASE.cascada, lineas_con_lista: 0, ieps_lineas: 0 } });
+    expect(out.join('\n')).not.toContain('s/imp');
+  });
+
+  it('el descuento de CLIENTE que manda el backend se imprime dentro de la partida', () => {
+    const d = { lista: 60, descuento: 6, con_descuento: 54, sin_impuestos: 46.55, iva: 7.45, ieps: 0, neto: 54 };
+    const u = { lista: 5, descuento: 0.5, con_descuento: 4.5, sin_impuestos: 3.88, iva: 0.62, ieps: 0, neto: 4.5 };
+    const conCliente = { ...PALETA, precio_lista: 5, lista_conocida: false, descuento_linea: 0,
+      desglose: { unitario: u, partida: d, descuento_cliente: 6 } };
+    const out = lineas({
+      lineas: [conCliente],
+      cascada: { ...BASE.cascada, descuento_precio: 0, descuento_documento: 6, descuento_documento_pct_erp: 10,
+        total: 54, desglose_total: d },
+    });
+    expect(out).toContain('  c/u 5.00 -0.50 = 4.50');
+    expect(out.find((l) => l.includes('x12'))?.trim()).toBe('x12 PZA 60.00 -6.00 = 54.00');
+    expect(out.some((l) => l.startsWith('Descuento de cliente (10%)'))).toBe(true);
+  });
+
   it('la equivalencia se pega al nombre cuando cabe, y se omite cuando no', () => {
     const corto = lineas({ lineas: [L({ descripcion: 'GOMA A GRANEL', equivalencia: '35 CJA' })] });
     expect(corto.join('\n')).toContain('GOMA A GRANEL (35 CJA)');
@@ -229,12 +226,10 @@ describe('cuerpoTicketVenta — el producto en tres renglones', () => {
   });
 });
 
-describe('cuerpoTicketVenta — la cascada cierra', () => {
-  /** Extrae el número que sigue a una etiqueta dentro del bloque de totales. */
+describe('cuerpoTicketVenta — los totales cierran', () => {
+  /** Extrae el número que sigue a una etiqueta dentro del bloque de totales (con `$`). */
   const tras = (out: string[], etiqueta: string): number | null => {
-    // Se exige el `$`: los totales usan `pesos()` (con símbolo) y el desglose del producto usa
-    // `money()` (sin símbolo), así que "Lista 6.00" de un renglón NO se confunde con el total.
-    const re = new RegExp(etiqueta.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+-?\\$([\\d,]+\\.\\d{2})');
+    const re = new RegExp('^' + etiqueta.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+-?\\$([\\d,]+\\.\\d{2})');
     for (const l of out) {
       const m = re.exec(l);
       if (m) return Number(m[1].replace(/,/g, ''));
@@ -242,32 +237,23 @@ describe('cuerpoTicketVenta — la cascada cierra', () => {
     return null;
   };
 
-  it('lista - descuento en precio - descuento de cliente = total', () => {
-    const out = lineas({
-      cascada: { ...BASE.cascada, importe_lista: 24729.60, descuento_precio: 2381.40,
-        descuento_documento: 100, total: 22248.20, descuento_total: 2481.40 },
-    });
-    const lista = tras(out, 'Lista');
-    const d1 = tras(out, 'Descuento');
-    // `[TK.d2]` El rotulo cambio: antes decia «Desc. documento».
-    const d2 = tras(out, 'Descuento de cliente');
+  it('lista − descuento en precio = total, y sin impuestos + IEPS = total', () => {
+    const out = lineas({});
+    const lista = tras(out, 'Precio de lista');
+    const d1 = tras(out, 'Descuento en precio');
+    const sin = tras(out, 'Sin impuestos');
+    const ieps = tras(out, 'IEPS');
     const total = tras(out, 'TOTAL');
     expect(lista).toBe(24729.60);
     expect(d1).toBe(2381.40);
-    expect(d2).toBe(100);
-    expect(Number(((lista as number) - (d1 as number) - (d2 as number)).toFixed(2))).toBe(total);
-  });
-
-  it('el desglose del producto muestra lista y descuento', () => {
-    const out = lineas({}).join('\n');
-    expect(out).toContain('Lista 58.88');
-    expect(out).toContain('Desc -2,381.40');
+    expect(Number(((lista as number) - (d1 as number)).toFixed(2))).toBe(total);
+    expect(Number(((sin as number) + (ieps as number)).toFixed(2))).toBe(total);
   });
 
   it('un total MAYOR que los renglones se rotula ajuste, no descuento negativo', () => {
     const out = lineas({ cascada: { ...BASE.cascada, descuento_documento: -0.4 } }).join('\n');
     expect(out).toContain('Ajuste');
-    expect(out).not.toContain('Desc. documento');
+    expect(out).not.toContain('Descuento de cliente');
   });
 });
 
@@ -328,20 +314,42 @@ describe('cuerpoTicketVenta — lo que NO se imprime', () => {
    * ⚠️ Kepler NO guarda la hora del documento (medido: sus 10 columnas `timestamp` están en
    * 00:00:00). Si alguien mete una "Hora de venta", esto se cae.
    */
-  it('no imprime ninguna hora', () => {
-    const out = lineas({}).join('\n');
-    expect(out).not.toMatch(/Hora\b/);
-    expect(out).not.toMatch(/\d{1,2}:\d{2}/);
+  /**
+   * `[TK.13]` La ÚNICA hora del papel es la de la REIMPRESIÓN, rotulada como tal (pedido del
+   * usuario). La de la venta sigue sin imprimirse: Kepler no la guarda, y la fecha de la venta
+   * va rotulada «Venta» para que no se confunda con la de la reimpresión.
+   */
+  it('la única hora es la de la reimpresión, en hora de México, y rotulada', () => {
+    // 16:15 UTC = 10:15 en México (UTC-6).
+    const out = cuerpoTicketVenta(BASE, new Date('2026-09-30T16:15:00Z')).split('\n');
+    const horas = out.filter((l) => /\d{1,2}:\d{2}/.test(l));
+    expect(horas.length).toBe(1);
+    expect(horas[0].trim()).toBe('REIMPRESIÓN 30/09/26 10:15');
+    expect(out.some((l) => l.includes('Venta 26/08/26'))).toBe(true);
+    expect(out.join('\n')).not.toMatch(/Hora\b/);
+  });
+
+  it('encabezado: marca, razón social del emisor, sucursal y reimpresión, en ese orden', () => {
+    const out = cuerpoTicketVenta({ ...BASE, emisor_nombre: 'LUIS FRANCISCO LOPEZ GUTIERREZ' })
+      .split('\n').map((l) => l.trim());
+    expect(out[0]).toBe('MEGA DULCES');
+    expect(out[1]).toBe('LUIS FRANCISCO LOPEZ GUTIERREZ');
+    expect(out[2]).toBe('Zamora Centro');
+    expect(out[3].startsWith('REIMPRESIÓN ')).toBe(true);
+  });
+
+  it('sin identidad fiscal configurada omite la razón social, no la inventa', () => {
+    const out = cuerpoTicketVenta({ ...BASE, emisor_nombre: null }).split('\n').map((l) => l.trim());
+    expect(out[1]).toBe('Zamora Centro');
   });
 
   /**
-   * TK.5, decisión del usuario: el sello fiscal y la marca de reimpresión salen del PAPEL.
-   * Se prueba explícitamente para que nadie los reponga sin darse cuenta.
+   * TK.5, decisión del usuario: el sello fiscal sale del PAPEL. (La marca de reimpresión, que
+   * TK.5 también había quitado, VOLVIÓ en TK.13 a pedido del usuario: ver la prueba de la hora.)
    */
-  it('no imprime el sello fiscal ni la marca de reimpresion', () => {
+  it('no imprime el sello fiscal', () => {
     const out = lineas({}).join('\n');
     expect(out).not.toContain('comprobante fiscal');
-    expect(out).not.toContain('Reimpreso');
   });
 
   /**
