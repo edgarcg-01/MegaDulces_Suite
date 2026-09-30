@@ -150,6 +150,10 @@ y aun así publicaba el UxC desde otra columna.
 | **Unidades · ticket** | el renglón declara y el costo confirma | **95.75%** confirmado | ✅ **sí** |
 | **Unidades · `U-D-8`** | — | **no arbitrable** (límite de la fuente) | ⛔ **declarada, no arbitrada** |
 | **Venta de ruta de una sucursal que cambió de ERP** | la **frontera medida** entre los dos POS (último día del viejo + 1), no el máximo entre ellos | Canindo: +$728,711 en 2026 · agosto **+$808,409** que el `GREATEST` tapaba (§4.6) | ✅ **sí, con las 3 líneas de $6 del arranque declaradas** |
+| **Costo con el que se PUSO EL PRECIO** | la propia ficha de Kepler: `PV = c77 × (1+margen) × (1+impuesto)` | cuadra **99.24%** de lo evaluado; el tercer factor vale **81.6 pp** (prueba negativa) | ✅ **sí** — §16.1/16.2 |
+| **La META de margen** | `kdii.c87/c88/c89` ponderado por el **peldaño vendido**, contra el margen que el negocio reporta | **11.55%** · el testigo independiente dice **~11.5%** | ✅ **sí** — §16.8 |
+| **COGS de Kepler (documento vs kardex)** | el precio de la **entrada real** (`X-A-40`), testigo de transacción | **empate: 57.55% vs 40.39%**, errores medianos 2.66% y 2.48% | ⛔ **declarada, NO arbitrada** — §16.4 |
+| **Los 1,205 renglones con razón 10.000** | el **mecanismo**, no la estadística: el kardex multiplica el costo del peldaño alto por la cantidad base | **$613,646** sobre $99,394 de venta | ✅ **sí, el kardex está mal** — §16.3 |
 | **Wincaja (las tres)** | tiene árbitro propio, sin cablear | fuera de alcance por decisión | ⬜ **no empezado** |
 
 ---
@@ -451,7 +455,8 @@ divergir.
 | sell-out Kepler a grano día | `analytics.mv_kepler_sales_daily` | `analytics.sales_daily` para sell-out |
 | ⭐ **el CANAL de una fila de sell-out** (de negocio, no el crudo del ERP) | `analytics.sellout_channel_map` (+ `v_sellout_channel_coverage`) | enumerar canales a mano en el service o en el front: el universo publica SEIS crudos y las listas literales tenían CUATRO — `mayoreo` (U-D-8 telemarketing, $21.4M/90 d) y `contado_nf` quedaban sin rótulo, sin filtro y **sin hoja en el árbol**, que es lo que los tiraba. ⚠️ `wincaja:credito` (caja 70 «Mayoreo a credito») y `kepler:mayoreo` son EL MISMO canal a los dos lados del cutover. VSO.1 · §15 |
 | ⭐ **desde cuándo manda Kepler en una sucursal** (y hasta cuándo Wincaja) | `analytics.v_branch_erp_cutover` | escribir la fecha como literal en una vista (se copió 3 veces y divergió — SB.1), o **inferirla** de `last_movement_date`: es una DECISIÓN, y en La Piedad las dos piernas se traslapan 9 meses. La fecha correcta es el **traspaso real** del POS, no un fin de mes. VSO.3 · §15 |
-| costo pagado al proveedor | `analytics.v_supplier_cost_ladder` | un peldaño fijo de la escalera |
+| ⭐⭐ **el costo con el que se PUSO EL PRECIO** (el de la ficha de Kepler) | `analytics.v_kepler_standard_cost` | cualquiera de los otros cuatro costos: ninguno fija el precio. §16 |
+| costo pagado al proveedor | `analytics.v_supplier_cost_ladder` | un peldaño fijo de la escalera. ⛔ **Y NO sirve de árbitro del costo de la ficha: es un ESPEJO** — idéntico al centésimo en el 86.06% (§16.4) |
 | venta mensual por ruta | `analytics.sales_by_route_monthly` filtrando `route_code LIKE 'WIN-%'` | las series `c63` `UD100N` que hay en la misma tabla — son **cajas de mostrador**, no rutas |
 | quién escribió cada llave de venta-ruta | `analytics.v_route_monthly_provenance` | suponer que el gold es el universo más fresco |
 
@@ -616,6 +621,8 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ⛔ **`U-D-8` sin árbitro de COSTO** — `irresoluble_con_la_fuente` | **$16.05M / 90 d** (16,845 renglones `sin_costo`) | Kepler **no escribe** `c62` ni `c63` ahí (~98.85% vacíos), y ése es el único testigo independiente del **costo**. ⚠️ **Corregido 2026-09-12 (ADR-063): esto vale para el COSTO, NO para la UNIDAD.** La unidad de `U-D-8` está declarada por Kepler al **99.96%** (`c9 = c56 × c58`) — se buscaba un testigo externo para un factor con el que el ERP ya calcula. Ver §14. ⚠️ La Fase R además intentó cerrar el costo con `c58 × costo_del_almacén` y es un **espejo** (§9.10); su recheck medía las **piezas** (99.87%) y no el veredicto (**1.14%**), corregido en la mig `20260911200000` |
 | **`contradicho`** en ventas | 9,011 renglones / $2.17M | el costo contradice el factor declarado. Conjunto finito, enumerado |
 | **`contradicho_por_factor`** en existencia | 273 filas / $2.02M | `cost_base` por bulto contra `c16` por pieza |
+| ⛔ **la unidad base se contradice entre COMPRA y VENTA dentro del mismo Kepler** | ~$2.54M de inventario en disputa | `96087`: la ficha dice base = `PZA` a $10.28, la venta registra 120 `PZA` a $12.43 y la **compra** registra 180 `PAQ` a $102.764. `kdik` sigue al lado de compra y el documento de venta sigue a la ficha, así que `kdik.c16` no siempre vive en el peldaño base (**3.50% no cae en ninguno**). Sobre el inventario publicado: **71 celdas valúan $1,776,847 donde su costo estándar dice $161,625** (mediana 10.53×) + 4 en unidad tres ($32,601) + 498 sin resolver ($888,718). **No se elige un lado: se declara.** Necesita que operaciones diga cuál es la unidad real de esos SKUs. §16.5 |
+| ⛔ **para el COGS de Kepler no hay ganador medido** | ~2.5% entre los dos costos | Documento y kardex se contradicen en el **40.4%** de los renglones ($983,862 / 4.00 pp). Contra un testigo de transacción quedan en **57.55% vs 40.39%**, errores medianos 2.66% y 2.48%: **ninguno es "el costo real"**. Lo único arbitrado por mecanismo son los **1,205 renglones** donde el kardex multiplica el costo del peldaño alto por la cantidad base. §16.3 · §16.4 |
 | ~~la sucursal 07 no está cableada al mart~~ | **CERRADO 2026-09-10** | ✅ `md_07` (`127.0.0.1:5432/kepler_md_07`) registrado en `dim.sucursales`; el mart la consolidó y el fact la tomó **solo**. La venta publicada de Kepler sube **+2,076 celdas / +$344,505 (90 d)** y el gate quedó verde: cero celdas faltantes de la 07. ⚠️ Su historia arranca el **2026-09-08**: es lo que hay en su Kepler, no un recorte nuestro |
 | celdas que Kepler tiene y el fact no (K.4 residual) | **352 celdas / $60,731** | diagnosticado 2026-09-10: de los $1,558,529 que el candado reportaba, **$917,065 era el cutover de PH** y **$248,317 la suc 00** — dos exclusiones que el importer aplica **bien** y que el candado le cobraba. Comparar universos distintos no es medir una diferencia |
 | `units` que todavía transformamos | 5,835 celdas / **$1,851,531** | 3,948 ÷2 (500 g→kg) · 1,135 ×12 · 747 ×2 (**K.5**) |
@@ -975,6 +982,209 @@ contaminó las preguntas de *estado*.
 
 ---
 
+---
+
+## 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29)
+
+Edgar mandó la pantalla de utilidad de Kepler (`70001`, PH: *Monto sin IVA 86.00 · Costo de venta
+68.21 · Ganancia 17.79*) y pidió el costo estándar *"en una interfaz aparte… podemos denotar
+errores"*. Lo que destapó es que **Kepler tiene cinco costos y la pregunta decide cuál es la
+verdad**. Todo medido contra PROD.
+
+### 16.1 Los cinco, y qué contesta cada uno
+
+| pregunta | el costo | dónde | verificado |
+|---|---|---|---|
+| **¿con qué costo se PUSO EL PRECIO?** | **costo de la ficha** | `kdii.c77` (base) · `c78`/`c79` | `PV = c77 × (1+margen) × (1+impuesto)` cuadra **99.24%** |
+| ¿cuánto cuesta REPONER? | promedio ponderado por sucursal | `kdik.c16` | `= c8/c5` en **61.06%**, mediana **1.0000** (§3.4) |
+| ¿cuál fue la última compra? | último costo | `kdik.c18` | coincide con la última entrada en 21.50% |
+| ¿qué COGS registró el ERP? | costo del kardex, **extendido** | `kdij.c13` (= `c21`) | es lo que muestra la pantalla de utilidad |
+| ¿cuánto le PAGUÉ al proveedor? | escalera del proveedor | `v_supplier_cost_ladder` | §5 |
+
+⚠️ **"Costo estándar" es un nombre NUESTRO.** Kepler lo rotula simplemente *Costo* en la ficha
+(*Estructura de Unidades para POS*). Se le puso así porque se comporta como tal —predeterminado,
+escalón, base del precio, y su diferencia contra el real es una variación— pero **no es una
+etiqueta del ERP**.
+
+### 16.2 Qué es exactamente `c77`, medido
+
+- **Peldaño base.** `c78`/`c79` son el mismo costo × factor (98.6% / 98.5%).
+- **NETO de impuesto.** Contra la escalera del proveedor la mediana es **1.0000**, y se sostiene
+  por separado en los de IEPS 8 y en los de IVA 16. Entre los SKUs con impuesto medido, **1 de
+  1,883** cae en ×1.08 y **0 de 896** en ×1.16.
+- **Por sucursal.** 9,641 SKUs; **1,004 (10.4%) lo tienen distinto entre plazas**.
+- **Es el que el POS congela** en el renglón de venta (`kdm2.c62`).
+- ⭐ **Es una función ESCALÓN, no un dato diario.** Cambia en el **1.88%** de los días
+  (6,494 cambios en 344,839 observaciones día×SKU, 90 d). Entre los 10,801 pares que se venden
+  seguido: **60.41% NUNCA cambió en 90 días**, 19.97% una vez, 13.33% dos o tres, 6.29% cuatro o
+  más. El del kardex, en cambio, cambia el **10.11%** de los días — **5.4× más seguido**.
+
+⭐ **De ahí sale el daño: la brecha se abre sola.** Un lado congelado y el otro subiendo con cada
+compra. No es que alguien se equivoque: es que nadie vuelve a tocar la ficha.
+
+### 16.3 ⛔ Los dos costos de venta NO coinciden, y el que publica Kepler es el otro
+
+Sobre 336,805 renglones de ticket (`U-D-10`, 1–28 sep), cruzando por
+(sucursal, almacén, SKU, folio, línea, fecha):
+
+```text
+COGS con el costo del DOCUMENTO (kdm2.c62 × c56) .... $19,155,921
+COGS con el costo del KARDEX    (kdij.c13) .......... $20,139,783
+brecha .............................................. $983,862 · 5.14% · 4.00 pp de margen
+renglones en desacuerdo ............................. 136,161 = 40.4%
+```
+
+Y **la brecha tiene dos causas que NO se suman**:
+
+| clase | renglones | brecha | venta | razón mediana |
+|---|---|---|---|---|
+| idénticos | 260,471 (77.8%) | $3,781 | $18,925,263 | 1.000 |
+| deriva real | 65,808 (19.7%) | $101,761 | $4,852,720 | 1.038 |
+| ⛔ **unidad: el kardex un peldaño arriba** | **1,205 (0.36%)** | **$613,646** | **$99,394** | **10.000 exacta** |
+| sin explicar | 6,690 (2.0%) | $481,568 | $486,093 | 1.334 |
+
+**Lo del 10.000 es arbitrable por MECANISMO, no por estadística.** `96087`, suc 01, folio 0014045:
+vende 120 PZA = 12 PAQ a $12.43/PZA. El documento cuesta `102.76 × 12 = $1,233.12` (correcto,
+$10.28/pieza); el kardex cuesta **$12,331.68 = 102.764 × 120** — *tomó el costo del PAQUETE y lo
+multiplicó por la cantidad en PIEZAS*. Ahí el kardex está mal, y no hace falta un testigo.
+
+### 16.4 ⛔⛔ Para el resto NO hay ganador — y el testigo obvio era un ESPEJO (R5 en vivo)
+
+Primera medición: se arbitró documento contra kardex usando `v_supplier_cost_ladder.u1_cost`
+(lo pactado con el proveedor). Dio **documento 90.39%** con error mediano **0.0000**. Parecía
+zanjado.
+
+**Era un espejo.** `u1_cost` y `c77` son **idénticos al centésimo en el 86.06%** de los pares: el
+catálogo se captura desde la misma lista de precios del proveedor. La prueba comparaba `c77`
+consigo mismo.
+
+Rehecho con un testigo de **transacción** —el precio de la entrada real (`X-A-40`, `kdm2.c12`),
+acotado a las entradas cuya unidad base coincide con la de la ficha— sobre los 921 pares en
+disputa que representan 41,298 renglones:
+
+```text
+gana el DOCUMENTO .... 530 = 57.55%     error mediano 2.66%
+gana el KARDEX ....... 372 = 40.39%     error mediano 2.48%
+empate ................ 19 =  2.06%
+```
+
+**Empate técnico.** Ninguno de los dos es "el costo real"; los dos orbitan lo pagado con ~2.5% de
+error, en direcciones distintas. ⭐ Y el árbitro **contradice a los dos** (57/40), o sea esta vez
+no es espejo: R5 satisfecha.
+
+**Qué se declara, entonces:** para el COGS de Kepler **no hay un ganador medido**. Lo que sí está
+establecido es (a) que el del documento es el **costo con el que se puso el precio**, así que es el
+correcto para medir *contra qué se fijó el margen*; y (b) que el del kardex está **demostrablemente
+mal en 1,205 renglones** por el bug de peldaño. Elegir uno "porque sí" para publicar margen sería
+inventar el 2.5% que separa a los dos.
+
+### 16.5 La raíz: la unidad base se contradice DENTRO del mismo Kepler
+
+`96087 KINDER DELICE CARAMELO 10P`:
+
+- la **ficha** dice base = `PZA`, `c77` = 10.28, `f2` = 10 (PAQ), `f3` = 60 (CJA)
+- la **venta** registra 120 `PZA` a $12.43 — coherente con la ficha
+- la **compra** (`X-A-40`) registra **180 `PAQ` a $102.764** — o sea `c11 = PAQ`
+
+Compra y venta no declaran la misma unidad base para el mismo SKU. `kdik` sigue al lado de compra;
+el documento de venta sigue a la ficha. **No se elige un lado: se declara.** Y es lo que hace que
+`kdik.c16` no siempre viva en el peldaño base — base 95.83% · unidad dos 0.60% · unidad tres 0.07%
+· **no cae en ninguno 3.50%** (36,640 pares).
+
+Sobre el inventario publicado eso son **71 celdas que valúan $1,776,847 donde su costo estándar
+dice $161,625** (razón mediana 10.53×), +4 en unidad tres ($32,601) +498 sin resolver ($888,718) =
+**~$2.54M en disputa de $55.8M**.
+
+### 16.6 ⚠️ Y «Monto sin IVA» de la pantalla de Kepler trae el impuesto
+
+Verificado contra el total del encabezado (`kdm1.c16`), 23,506 tickets: la suma de renglones cuadra
+**en bruto 89.64%** y **en neto 8.66%**. En el mes, **$26,764,462 rotulados "sin IVA" contienen
+$2,237,689 de impuesto** (82.74% de los renglones lo llevan). Pasa con IVA y con IEPS.
+
+**El efecto compuesto, en un solo producto y un solo día** (`70001`, 29-sep):
+
+| cálculo | margen |
+|---|---|
+| lo que publica Kepler `(86.00 − 68.21)/86.00` | **20.69%** |
+| venta neta con el costo de la ficha | 16.46% |
+| venta neta con el costo del kardex | 14.34% |
+| **venta neta con lo que se pagó el 26-sep ($69.98/PAQ)** | **12.12%** |
+
+**Sobredeclara 8.6 pp.**
+
+### 16.7 Por qué `v_kepler_standard_cost` lee `kdik` directo y NO `v_erp_unit_cost`
+
+Parece una violación de *no re-derivar un primitivo* (§5) y no lo es — el motivo es **R1 + alcance**,
+y conviene dejarlo escrito para que nadie lo "unifique" por prolijidad, como advierte §12.3 para
+Compras:
+
+- el objeto auditado es **la ficha de Kepler** (`kdii`), que en Wincaja no existe. Meter el testigo
+  de Wincaja para juzgar una ficha de Kepler es exactamente el `COALESCE` que §12.2 prohíbe.
+- `v_erp_unit_cost` (y `v_kepler_unit_cost`) hacen `JOIN` contra `commercial.warehouses` y
+  `catalog.products`, o sea están acotados a **NUESTRO** catálogo. Consumirlos dejaba **57,782 de
+  86,638 filas (66.69%) sin testigo** — dos tercios del catálogo del ERP sin contraste, que es
+  justamente lo que la pantalla existe para auditar.
+
+⭐ **Y para que no puedan divergir, el candado lo cruza:** donde las dos tienen fila, el costo tiene
+que coincidir. Medido contra prod: **28,443 filas comunes, 0 difieren, mediana 1.000000** contra
+`v_erp_unit_cost.costo_erp`.
+
+*Reusar un primitivo no exime de medir su ALCANCE.*
+
+### 16.8 ⭐⭐ La META de margen: el negocio ya la tiene escrita, y no es la que publicábamos
+
+*(PR.E0c/E0d, 2026-09-29. Disparado por Edgar: «Kepler ya maneja un margen. Ese es el margen que
+tomamos como base».)*
+
+Tenía razón, y el dato **ya estaba publicado**: `analytics.v_kepler_unit_ladder` expone
+`margen1/2/3` desde `kdii.c87/c88/c89`. No hizo falta construir una fuente — hizo falta
+**convertirla** y **ponderarla**, y las dos cosas tenían trampa.
+
+**Trampa 1 — la escala.** `c87` es **markup sobre el COSTO**, no margen sobre la venta. Probado
+sobre 83,949 fichas **sin usar la tasa fiscal**: el residuo `(PV/costo)/(1+m/100)` tiene que caer
+en un factor fiscal conocido, y cae — **99.11%** se comporta como markup contra **5.10%** como
+margen, con los residuos concentrados en **1.0800** (IEPS), **1.0000** (exento) y **1.1600** (IVA).
+La conversión `margen = 100m/(100+m)` vive **sólo** en `analytics.v_kepler_margin_target`.
+Control: el `70001` tiene markup 19.7070 → **16.4627**, y §16.1 ya publicaba 16.46 por otra vía.
+
+**Trampa 2 — el peldaño, que vale 8 pp.** El margen **no es uno por SKU**: 58,027 filas donde la
+base y la Unidad Dos difieren. Y la venta **no ocurre en el peldaño base**:
+
+| peldaño | venta 90 d | meta de Kepler |
+|---|---|---|
+| 1 · pieza | $4,537,689 | 16.82% |
+| 2 · mayoreo | $29,622,251 | 11.34% |
+| 3 · mayoreo | $51,888,006 | 11.21% |
+
+**El 94.5% de la venta es mayoreo.** Ponderar el peldaño base da **19.56%**; ponderar el peldaño
+**vendido** (pareando `factor_sale` contra el `factor` de la escalera, cobertura **99.74%**) da
+**11.55%**.
+
+> ### ⭐ El árbitro: un testigo que no se toca con Kepler
+> El negocio reporta un margen de **~11.5%**. La ficha de precios del ERP por un lado y el
+> resultado que reporta la empresa por el otro **dan el mismo número**. Eso no valida un cálculo:
+> valida una afirmación de negocio — **los precios se están fijando como la política manda**, y la
+> brecha que hay que atacar no está en la meta sino en la **fuga** (1.82% de descuento sobre lista,
+> 30 d, §`[PR.W1]`) y en el costo real.
+
+⛔ **Lo que publicábamos era 15%**, y no salía de ningún lado: era la constante clavada en tres
+archivos del código. Con ese número el catálogo entero se veía **bajo meta estando en meta**.
+
+⚠️ **El veredicto de la vista responde UNA pregunta.** El primer intento mezclaba *«¿hay meta
+capturada?»* con *«¿hay costo?»* y declaraba «sin meta» a **1,012 filas que sí la tienen** — les
+falta el costo, que hace falta para reconstruir el **precio**, no para saber cuál es la **meta**.
+Es la trampa de ADR-057, otra vez.
+
+⚠️ **Y el gate estricto volvió a cobrar el redondeo**: comparar `margen >= markup` declaraba rotas
+**72 filas** donde el empate es legítimo (con `round(...,4)`, un markup de 0.0001 da margen
+0.0001). Mismo error que `[PR.W1.1]` el mismo día — *comparar dos números redondeados en órdenes
+distintos*. Acá la holgura **no es tolerancia**: es reconocer que el empate existe, y se **cuenta**
+en vez de tolerarse.
+
+⭐ **El número no se clavó en un test: el test lo RE-MIDE** contra Kepler y se pone rojo si se
+desvía más de 1.5 pp. Una medición con fecha es código que caduca — la Fase CDRP ya pagó una que
+vivía en un `COMMENT ON TABLE` y envejeció en tres días sin que nada avisara.
+
 ## 9. Hipótesis refutadas — no las reconstruyas
 
 Cada una se probó y **se cayó**. Están acá para que nadie pague el mismo camino.
@@ -1259,6 +1469,27 @@ resuelto.
 ⚠️ Y el tamaño real sólo apareció después de entender la causa: no eran 4 filas sino **1,737 grupos
 duplicados por $22,796,303.99** en nueve meses contables (§15.5). Buscar "borrados" no los
 encontraba; buscar "duplicados por identidad de PK" sí.
+
+### 9.18 ⛔⛔ `v_supplier_cost_ladder.u1_cost` como árbitro entre el costo del documento y el del kardex
+
+**Refutada el 2026-09-29 (CE), después de haberla dado por buena.** La pregunta era cuál de los dos
+costos de venta de Kepler —el del documento (`kdm2.c62`) o el del kardex (`kdij.c13`)— se parece a
+lo que de verdad se pagó. Se usó `u1_cost` (lo pactado con el proveedor) y dio un veredicto
+rotundo: **documento 90.39%, con error mediano 0.0000**.
+
+**Es un espejo.** `u1_cost` y el costo de la ficha `c77` son **idénticos al centésimo en 8,179 de
+9,504 pares = 86.06%**: el catálogo se captura desde la misma lista de precios del proveedor. La
+prueba estaba comparando `c77` **consigo mismo**, y por eso el error mediano daba exactamente cero
+— la firma clásica de R5.
+
+El testigo válido es de **transacción**: el precio de la entrada real (`X-A-40`, `kdm2.c12`),
+acotado a las entradas cuya unidad base coincide con la de la ficha. Con él el resultado se da
+vuelta y queda en **empate técnico: documento 57.55% · kardex 40.39% · empate 2.06%**, con errores
+medianos de 2.66% y 2.48%. Detalle en §16.4.
+
+⭐ **La lección operativa:** un error mediano de **0.0000** no es una victoria del árbitro, es una
+alarma. Cuando el testigo acierta perfecto, lo primero que hay que medir es si comparte insumo con
+el lado que está ganando.
 
 ## 10. Cómo se verifica
 
