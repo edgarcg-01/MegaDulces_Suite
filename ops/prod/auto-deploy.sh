@@ -281,11 +281,22 @@ di "migraciones: prod al día"
 # ⚠️ La lógica NO vive acá: vive en `compuerta-ci.sh`, por lo mismo que `clasificar-migraciones.awk`
 #    — para que `test-compuerta-ci.sh` pueda correr EL MISMO archivo que corre en producción.
 COMPUERTA_CI="$HOME/ops/prod/compuerta-ci.sh"
+AVISO_CI=""   # se llena sólo si se desplegó sin compuerta; viaja hasta el latido final
 if [ "${AUTO_DEPLOY_SIN_CI:-0}" = "1" ]; then
   di "compuerta CI: SALTEADA a mano (AUTO_DEPLOY_SIN_CI=1)"
 elif [ ! -f "$COMPUERTA_CI" ]; then
-  di "FALLO: falta $COMPUERTA_CI en md — la compuerta de CI no se puede evaluar."
-  latir error "falta compuerta-ci.sh en md"; exit 1
+  # ⛔ NO se frena por esto, y la primera versión SÍ lo hacía — habría parado TODOS los despliegues
+  #    desde el commit que la introdujo hasta que alguien hiciera el `scp`. Los archivos de
+  #    `ops/prod/` llegan a `md` a mano (igual que `clasificar-migraciones.awk`), así que "todavía
+  #    no está copiada" es el estado NORMAL el día que esto se publica, no una avería.
+  # ⚠️ Pero tampoco se finge verde: late `ok` con la nota que lo dice, así se ve en Salud BD que la
+  #    compuerta NO está puesta. Un gate ausente que no se declara es indistinguible de uno que
+  #    pasa — que es exactamente cómo este repo llegó a desplegar rojo sin que nadie lo notara.
+  di "compuerta CI: NO INSTALADA — falta $COMPUERTA_CI en md. Se sigue, pero NADIE está mirando el CI."
+  di "  Instalarla:  scp ops/prod/compuerta-ci.sh superoot@192.168.0.222:~/ops/prod/"
+  # ⚠️ El aviso viaja hasta el latido FINAL, no se late acá: el `latir ok` del cierre pisaría a
+  #    éste y en Salud BD no quedaría rastro de que se desplegó a ciegas.
+  AVISO_CI=" · ⚠️ SIN compuerta de CI (falta compuerta-ci.sh en md)"
 else
   VEREDICTO=$(sh "$COMPUERTA_CI" "$REPO_DIR" HEAD 2>&1); RC=$?
   case "$RC" in
@@ -465,7 +476,7 @@ case "$codigo" in
 esac
 
 di "DESPLEGADO $DESEADO (venía de $ANTERIOR)"
-latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS"
+latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
 
 # ── [VL.20.5] LA PODA, DESPUÉS DE DESPLEGAR ─────────────────────────────────────────────────
 # ⛔ Acá estaba el agujero: `podar_imagenes()` existía en `deploy.sh` y funcionaba, pero el
