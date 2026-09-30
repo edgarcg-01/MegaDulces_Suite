@@ -85,7 +85,7 @@ function runQuery(mdb, query) {
   // windowsHide: el default de Node es FALSE -> cada lectura del .mdb abría una consola de PS32
   // en el escritorio. Bajo la tarea `WincajaLive` (cada 10 min) eso son ventanas negras
   // apareciendo todo el día. Mismo arreglo que ya tenía `lib/access-adapter.js`.
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, windowsHide: true });
+  const res = spawnSync(PS32, ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Query', query, '-Out', out], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, windowsHide: true });
   if (res.status !== 0) throw new Error(`extract-query falló: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   let rows = [];
   try {

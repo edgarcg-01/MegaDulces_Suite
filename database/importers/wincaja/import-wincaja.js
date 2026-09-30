@@ -211,7 +211,7 @@ function extract(mdb, accessTable, cols) {
   // windowsHide: sin esto cada tabla leída abre una consola de PS32 en el escritorio.
   // Este importer es el masivo (no el live), pero el modo de falla es el mismo.
   // Mismo arreglo que ya tenían `lib/access-adapter.js` e `import-wincaja-hist.js`.
-  const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Table', accessTable, '-Out', out, '-Columns', colList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+  const res = spawnSync(PS32, ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Table', accessTable, '-Out', out, '-Columns', colList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   if (res.status !== 0) throw new Error(`extract ${accessTable}: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   const m = /ROWS=(\d+)/.exec(res.stdout || '');
   return { out, rows: m ? parseInt(m[1], 10) : null };
