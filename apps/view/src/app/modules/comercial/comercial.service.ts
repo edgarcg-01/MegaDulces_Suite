@@ -1550,7 +1550,11 @@ export class ComercialService {
     if (params.date_from) p = p.set('date_from', params.date_from);
     if (params.date_to) p = p.set('date_to', params.date_to);
     if (params.include_initial_load) p = p.set('include_initial_load', 'true');
-    return this.http.get<InventoryVarianceEvent[]>(`${this.base}/inventory/variance`, { params: p });
+    // [IC.12] Devuelve `{ items, freshness }` y no un array suelto: sale de una matview que se
+    // refresca una vez al día, y un número materializado se publica con la hora en que se
+    // calculó o no se publica (ADR-056).
+    return this.http.get<{ items: InventoryVarianceEvent[]; freshness: RollforwardFreshness }>(
+      `${this.base}/inventory/variance`, { params: p });
   }
 
   inventoryVarianceDetail(params: {
@@ -2959,6 +2963,16 @@ export interface InventoryVarianceEvent {
   pesos_sobrante: number;
   pesos_faltante: number;
   pesos_neto: number;
+  /** [IC.12] Renglones cuyo costo es >= 2x el que la captura de ese mismo día implica — o sea
+   *  valuados en otro peldaño de la escalera (el factor de caja MÍNIMO del catálogo es 2.00).
+   *  `pesos_peldano` es lo PUBLICADO; `pesos_peldano_contado`, lo que valdrían al costo contado. */
+  skus_peldano: number;
+  pesos_peldano: number;
+  pesos_peldano_contado: number;
+  /** Lo que no se pudo juzgar: el SKU no aparece en la captura de ese día. Nunca cuenta como
+   *  "coincide" — no medido no es medido bien (ADR-056). */
+  skus_sin_testigo: number;
+  pesos_sin_testigo: number;
 }
 
 export interface InventoryVarianceLine {
@@ -2982,6 +2996,22 @@ export interface InventoryVarianceLine {
   contado?: number | null;
   /** Por qué no hay teórico, cuando no lo hay. Nunca se rellena con un número. */
   teorico_salvedad?: string | null;
+  /** [IC.12] El costo que implica la captura de ese día para ese SKU (importe/unidades). Es el
+   *  testigo CONTEMPORÁNEO contra el que se juzga `costo_unitario`. */
+  costo_contado?: number | null;
+  /** `costo_unitario / costo_contado`. Va expuesta para poder juzgar la fila sin creerle a la
+   *  etiqueta: un 10.0 o un 12.0 clavado es un peldaño, un 1.03 es deriva de costo. */
+  razon_costo?: number | null;
+  /** Cinco estados, y ninguno es "todo bien por omisión". */
+  costo_veredicto?: 'coincide' | 'difiere' | 'peldano_arriba' | 'peldano_abajo' | 'sin_testigo';
+  /** Lo que el renglón valdría al costo que la captura implica. NO reemplaza a `importe`. */
+  importe_en_costo_contado?: number | null;
+  /** Dónde cae `costo_unitario` en la ficha de Kepler (`kdii`). Corrobora; no arbitra: la ficha
+   *  es la de HOY y los conteos llegan a diez meses atrás. */
+  ficha_peldano?: 'base' | 'caja' | 'ninguno' | 'sin_ficha';
+  ficha_costo_base?: number | null;
+  ficha_costo_caja?: number | null;
+  ficha_factor_caja?: number | null;
 }
 
 export interface InventoryVarianceCoverage {

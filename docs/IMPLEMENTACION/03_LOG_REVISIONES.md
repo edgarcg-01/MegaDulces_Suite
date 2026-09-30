@@ -5,6 +5,288 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo
+
+**Disparador:** Edgar — *"analiza /almacen/inventory/diferencias"*, y después *"arranca"* sobre
+los dos primeros puntos del análisis.
+
+### El hallazgo, y cómo se llegó
+
+La pantalla publica el descuadre del conteo trimestral de Kepler. El ajuste (`N-A-30`/`N-D-30`)
+declara `c11 = 'PZA'` y trae un `c12` que en una parte de los renglones es **el costo de la
+CAJA**. Como `importe = c9 × c12` se cumple en **7,301 de 7,301** filas de sep-2026, el factor de
+caja entra **entero** al dinero que la pantalla suma.
+
+Se arbitró con **dos testigos independientes que coinciden al centavo**: la captura `N-A-45` del
+mismo día/almacén/SKU (contemporánea) y la ficha `kdii` vía `analytics.v_kepler_standard_cost`
+(Fase CE). `02135`: ficha 5.20 la pieza / 62.39 la caja de 12, captura 5.20, **ajuste 62.39**.
+`88228`: 10.53 / 105.28 de 10, captura 10.53, **ajuste 105.28**.
+
+**Es asimétrico, y por eso fabrica el neto:** en sep-2026, con SKUs de factor > 1, **44 renglones
+de sobrante contra 1 de faltante**. Sobre toda la historia: **338 renglones publican $6,845,043
+donde al costo contado serían $487,714**.
+
+⭐ **Esto responde la pregunta que `FASE_IC` §6 tenía abierta con nombre y monto** (*"por qué el
+sobrante neto es +$4.35M — no se sabe"*), y **corrige el alcance de §1.5**: esa sección probó la
+unidad de la **cantidad** en una **carga inicial** y concluyó que la unidad no explicaba el
+sobrante. La conclusión era válida para lo que midió; el ajuste es otro documento, otra
+población y otra pregunta. *Una medición sobre otro universo es otra afirmación* (misma lección
+que CE.8).
+
+### Lo que hace que la regla sea creíble, y no una etiqueta bonita
+
+⭐ **El control de placebo.** La misma regla corrida sobre las **cargas iniciales** —que cuadran
+consigo mismas por construcción, captura == entrada línea por línea— marca **CERO de 8,643**, y
+sus 8,629 `coincide` reproducen $30,759,519 con **$7** de diferencia. En los conteos marca 338.
+Si fuera ruido marcaría las dos poblaciones por igual.
+
+Y el **bucket `coincide` reproduce lo publicado con 0.31 %** de desvío: si el testigo estuviera
+corrido, esa población también se desviaría y el `peldano_arriba` no significaría nada.
+
+⛔ **El `importe` NO se corrige.** Es el que Kepler asentó (ADR-040). Lo que se agrega es el
+veredicto por fila (`coincide` / `difiere` / `peldano_arriba` / `peldano_abajo` / `sin_testigo` —
+ninguno verde por omisión) y el contrafactual `importe_en_costo_contado`, para que la pantalla
+pueda decir **cuánto del total está en disputa** arriba del total que lo contiene.
+
+### El tiempo, medido antes de tocar nada
+
+`summary()` **2.02–2.24 s** en dos corridas contra prod, `events()` 1.88 s, `detail()` 1.39 s,
+`kpi()` 1.93 s, `reincidencia` sin almacén 2.26 s. La única pestaña rápida era la ya
+materializada (roll-forward, **40 ms**). Del `EXPLAIN`: el plan **re-deriva la escalera del ODS
+una vez por almacén** (`loops=8`) y el `LEFT JOIN catalog.products` cuesta **~480 ms** (2,236 →
+1,752 ms) aunque `summary()` no selecciona `product_id` — el `deleted_at IS NULL` impide que el
+planificador elimine el join.
+
+Se materializa: `analytics.mv_erp_physical_count_variance` (poblado 92 s, nocturno, umbral en
+`CRON_JOBS` como `analytics_refresh_count_variance` — sin esa fila el sensor cae en
+`cfg ? classify : 'ok'` y una MV parada se ve VERDE, lección OBS.1).
+
+### Un defecto que la materialización arregla por construcción
+
+`detail()` calculaba `contado` y `teorico` en SQL crudo con el CTE filtrado por **SUCURSAL** y no
+por **ALMACÉN**. Hoy no explota (medido: 0 fechas con dos almacenes), pero Padre Hidalgo tiene la
+tienda `01` y la Ruta 28 `01-006`: el día que cuenten juntas, el «se contó» de la tienda sumaba
+el de la ruta. En la matview la llave del testigo lleva el almacén, y **la definición del teórico
+existe una sola vez**.
+
+### Lecciones
+
+1. ⚠️ **Quinta vez que un acento grave en un comentario dentro de un template literal rompe el
+   build acá.** Pasó dos veces en esta sesión, en el mismo archivo.
+2. ⛔ **Mi propia aserción estaba mal antes que el código:** el candado exigía `sin_testigo ⟺
+   costo_contado IS NULL` y fallaron 16 filas — la captura las valuó en **cero**, así que
+   `costo_contado` existía (0) mientras el veredicto decía `sin_testigo`. Dos columnas contando
+   historias distintas de la misma fila. Se alineó la matview (un costo de cero **no es** un
+   testigo), no la aserción.
+3. ⭐ **El candado compara DOS derivaciones**, no la MV consigo misma — que es exactamente lo que
+   dejó pasar dos bugs en IC.0.
+4. ⚠️ El rol de `.env` corre con `default_transaction_read_only` (bien): el candado no puede
+   materializar a una tabla temporal, así que sin la MV aplicada **acota a 60 días y lo
+   DECLARA**, con una guarda que aborta si la migración cambia de forma — una ventana que no se
+   aplicó se lee igual que una que sí.
+
+**Candado:** `test-newdb-count-variance-rung.js` — **17 ✓ / 0 ✗ / 4 no medidos** (los 4 se miden
+al aplicar la migración). Registrado en `run-all-tests.js`.
+
+**Builds:** `nx build api` OK. `nx build view` verde con todos los cambios salvo un literal de
+tooltip posterior; `tsc --noEmit` del app deja **un solo archivo con errores y no es de esta
+fase** (`finanzas/cash-ledger.service.ts`, de otra sesión en el mismo árbol).
+
+**Pendiente:** aplicar `20260929200000_erp_count_variance_mv_rung.js` a prod + redeploy. Sin
+migraciones de permisos → **no hace falta re-login**.
+
+---
+## 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una columna
+
+**Disparador:** Edgar sobre la pantalla entregada — *"la información es ambigua… no nos dice
+mucho"* — y después, sobre mi propio mockup: *"¿cuándo dices subir el costo a qué te refieres?
+¿a qué te refieres con ficha?"*.
+
+### Lo que la pregunta destapó
+
+Las dos palabras eran mías. **«Ficha»** es el registro del producto en el catálogo de Kepler, y
+**es por plaza** (medido: 74 % de los cambios de costo tocan una sola sucursal). **«Subir el
+costo»** es el campo *Costo* de la fila Base — y ⛔ **no es un ajuste de datos: es un cambio de
+precio.** Medido sobre 6,501 cambios reales, **el precio siguió al costo en el 74.02 %** y sólo en
+el 1.28 % se quedó quieto. Mi columna «Qué hacer» proponía **6,300 aumentos de precio**
+(+$421,734/30 d, 328 por encima del 20 %) disfrazados de higiene de datos.
+
+⭐⭐ **Y del otro lado de esa bifurcación estaba el hallazgo que la fase entera buscaba sin saberlo:
+270 fichas venden BAJO COSTO al precio de hoy** — $326,959 de venta en 30 días, margen mediano
+−5.67 %, el peor −39.24 %. El catálogo lo esconde porque calcula el margen contra un costo que ya
+no se paga. Ésa es la lista que importa mañana, no las 6,300.
+
+### Lecciones
+
+1. ⭐⭐ **Preguntar qué significa una palabra de la interfaz es una prueba, no una formalidad.**
+   «Subir el costo» sonaba a captura rutinaria y era una decisión comercial de casi medio millón
+   de pesos al mes. La pantalla no puede proponer una acción sin medir qué desencadena.
+2. **El arreglo era el ORDEN, no un umbral nuevo.** `[CE.8]` probaba el atajo posicional antes que
+   los peldaños y con `f2 = 2` erraba. ⛔ Y la solución que parecía obvia —"el candidato más
+   cercano" con desempate de 3×— se descartó **probándola**: volvía ambiguo al `17182` (razón 1.99
+   con `f2 = 12`), que está bien. *Un peldaño tiene que casar fino; la deriva de costo no tiene
+   tope.*
+3. ⭐ **Dos campos que expresan el mismo hecho tienen que salir del mismo cálculo.** El candado se
+   puso rojo con 4 filas donde `vende_bajo_costo` discrepaba de `margen_real_pct < 0`: el margen se
+   publica redondeado y la bandera comparaba el crudo. Es un primitivo con dos implementaciones, a
+   escala de columna (`[CE.10]`).
+4. ⚠️ **Otra sesión reescribió el mismo servicio mientras yo lo editaba** (barrido único, −55 %,
+   `applySmartSearch`). Tres reemplazos míos cayeron al vacío y el cuarto dejó el archivo
+   incoherente. *Con el árbol compartido, leer el archivo antes de cada tanda de ediciones no es
+   prolijidad: es la única forma de no pisar trabajo ajeno.* Lo mío se integró en su estructura.
+5. ⚠️ **Sexta vez que un acento grave dentro de un template literal rompe el build**, ahora en una
+   migración. `check-template-literals.js` sólo mira componentes: **las migraciones no tienen
+   compuerta**. Deuda con nombre.
+
+### Entregado
+
+Migs **597** y **598** en prod. Cuatro columnas nuevas (`es_plaza_operativa`,
+`precio_si_conserva_margen`, `margen_real_pct`, `vende_bajo_costo`), el backend con la 00 fuera y
+declarada, y la pantalla con el titular de bajo costo, el aviso de que capturar mueve el precio, y
+las dos salidas de la decisión en columnas. **Candado 21 → 29, 0 fallas contra prod.**
+
+**Falta:** redeploy api + view, re-login, validación visual. Y el commit sigue sin hacerse.
+
+---
+## 2026-09-29 — Fase CE: el costo estándar de Kepler, y por qué su pantalla de utilidad miente
+
+**Disparador:** Edgar mandó una captura de la pantalla de utilidad de Kepler (`70001`, PH, almacén
+1: **Monto sin IVA 86.00 · Costo de venta 68.21 · Ganancia 17.79**) y pidió *"saquemos el costo
+estándar de cada producto… podemos denotar errores. analizalo"*. Todo lo que sigue se midió contra
+**prod** (`md`, `system_identifier 7688376744939610156`), sólo lectura.
+
+### Qué es el costo estándar
+
+`kdii.c77/c78/c79` — el costo de la ficha, uno por peldaño. Es predeterminado (cambia por escalón
+cuando alguien edita la ficha) y **es el que fija el precio**:
+`PV = costo × (1+margen%) × (1+impuesto%)`, que **cuadra al centavo en 41,470 de 42,424 = 97.75 %**.
+Es también el que el POS congela en el renglón (`kdm2.c62`). Cobertura 9,641 SKUs, 2 sin costo,
+**1,004 (10.4 %) con costo distinto entre plazas**.
+
+### Los cuatro errores, medidos
+
+1. **Kepler tiene DOS costos para el mismo renglón.** La pantalla lee el kardex (`kdij.c13` = 68.21),
+   el documento lee la ficha (`kdm2.c62` = 66.52). Sobre 336,805 renglones de ticket (1–28 sep):
+   COGS $19,155,921 vs $20,139,783 = **$983,862 · 5.14 % · 4.00 pp de margen**, con 40.4 % de los
+   renglones en desacuerdo.
+2. **«Monto sin IVA» sí trae el impuesto.** Verificado contra el total del encabezado: la suma de
+   renglones cuadra **en bruto 89.64 %** y en neto 8.66 %. $26.76 M rotulados "sin IVA" contienen
+   **$2,237,689 de impuesto**.
+3. **Cuatro márgenes el mismo día para el mismo producto**: Kepler publica 20.69 %; con venta neta
+   y costo estándar 16.46 %; con el kardex 14.34 %; **con lo que se pagó el 26-sep ($69.98/PAQ),
+   12.12 %.** Sobredeclara **8.6 pp**.
+4. **El peldaño del testigo no siempre es el base** (95.83 % sí, 3.50 % no cae en ninguno), y pega
+   en el inventario publicado: **71 celdas valúan $1,776,847 donde su costo estándar dice $161,625**
+   (razón mediana 10.53×) → **~$2.54 M en disputa** de $55.8 M.
+
+**La raíz de 1 y 4 es la misma**: en esos SKUs la **unidad base se contradice entre compra y venta
+dentro del mismo Kepler**. `96087`: la compra registra 180 **PAQ** a $102.764, la venta 120 **PZA**
+a $12.43, y la ficha dice base = PZA a $10.28. El kardex toma el costo del peldaño alto y lo
+multiplica por la cantidad base.
+
+### Lecciones
+
+1. **Desconfiar de la propia consulta cuando el número sorprende — otra vez, y esta vez el número
+   aguantó.** La razón exacta de `10.000` en 1,205 renglones olía a `NULL` mal tratado por mí. Se
+   midió antes de publicarla: `c56` y `c58` poblados en **1,205 de 1,205**. No era mío. *El
+   protocolo no es dudar y retroceder: es dudar y medir.*
+2. **Un hueco del 66 % puede ser de la herramienta, no del dato.** La primera versión de la vista
+   consumía `analytics.v_kepler_unit_cost` —el primitivo correcto, con su anti-réplica— y dejaba
+   **57,782 de 86,638 filas `sin_testigo`**. La causa: ese primitivo hace `JOIN` contra
+   `commercial.warehouses` y `catalog.products`, o sea que está acotado a NUESTRO catálogo, y la
+   pantalla existe justamente para auditar el de Kepler. **Reusar un primitivo no exime de medir su
+   alcance.** Se copió la regla y el candado exige que donde las dos tienen fila, coincidan.
+3. **Separar dos ausencias hizo visible un hueco de 424 filas.** `sin_testigo` valía 53,030 hasta
+   que se partió en «la ficha existe en las 9 plazas aunque el producto no opere ahí» (52,606, el
+   maestro replicado) y «vendió y el ERP no le tiene costo» (**424, el hueco real**). Una sola
+   etiqueta lo enterraba bajo 125× su tamaño.
+4. ⛔ **Casi publico una corrección FALSA a la doc canónica, y la salvó re-medir sobre el universo
+   del otro.** `ERP_KEPLER.md` §2.1 dice que `c16` coincide con la última compra sólo en 20.2 %.
+   Medí 72.41 % (y `c18` 21.50 %) y concluí que *"ese 20.2 % describe a `c18`"* — porque los
+   números se parecían. **Es falso.** Mi ventana era «última compra desde jun-2026» (9,814 pares);
+   la suya, 90 días. Re-medido sobre SU universo (33,089 pares): **`c16` == `c8/c5` en 61.06 % con
+   mediana 1.0000**, o sea **sí es el promedio ponderado**, y coincide con la última compra cuando
+   el precio es estable porque el promedio **converge**. *Una medición sobre otro universo es otra
+   afirmación, no una corrección de la primera* — y el parecido entre dos porcentajes no es
+   evidencia de nada. El doc quedó **precisado**, no refutado.
+5. **Una bandera de cuadre que omite un factor declara roto lo sano.**
+   `v_kepler_unit_ladder.pv_base_cuadra` prueba la fórmula sin impuesto y dice que la ficha no
+   cuadra en **79.3 %** de las filas. Con el impuesto, cuadra en **97.75 %**.
+6. **Quinta vez que un acento grave en un comentario rompe el build.** Dos `--` dentro del template
+   literal del `CREATE VIEW` llevaban backticks. El `node --check` lo agarró antes del build.
+7. **Un test puede ponerse rojo sin que nada esté mal, si compara dos poblaciones distintas.** El de
+   `mi-trabajo` medía `a.mt-cell` antes de buscar (entradas de espacio) contra después (ésas **más**
+   los submódulos que casan, que sólo se pintan al buscar): un módulo nuevo de Compras los empató.
+   Se corrigió a comparar como con como, y el conteo del spec de paridad pasó a **derivarse** de la
+   lista en vez de estar escrito a mano.
+
+### Entregado
+
+3 migraciones (matvista de actividad + vista `v_kepler_standard_cost` + reparto del permiso),
+módulo `commercial-standard-cost` (3 endpoints sólo lectura), permiso propio
+`COMPRAS_COSTO_ESTANDAR_VER`, pantalla `/compras/costo-estandar` (Operations, tabla densa +
+maestro-detalle con la escalera y el mismo SKU en las 9 plazas), candado
+`test-newdb-standard-cost` con 5 pruebas negativas, refresco nocturno enganchado con **umbral
+registrado en `CRON_JOBS`** (sin él, una matvista parada se ve verde — OBS.1).
+
+### 🚀 Aplicado a prod el mismo día (batches 587–589), candado 18/18
+
+Y dos lecciones más, del acto de aplicar:
+
+8. ⚠️ **Mi propia advertencia estaba exagerada.** Escribí *"la primera escanea 2.16 GB → fuera de
+   horario hábil"*. **Tardó 3.4 s.** El diagnóstico era correcto (seq scan, no hay índice por
+   fecha en `kdm2`) y la consecuencia no: un `CREATE MATERIALIZED VIEW` toma `ACCESS SHARE`, no
+   bloquea a los escritores del CDC, y el agregado ya estaba medido en ~4 s. *Un costo de lectura
+   no es una escritura pesada, y la regla de «nada pesado en horario hábil» habla de escrituras.*
+9. ⛔⛔ **El candado de migraciones dice "libre" mientras está tomado, y knex invita a romperlo.**
+   Dos intentos murieron con `Can't take lock … lock timeout` mientras
+   `knex_migrations_lock.is_locked` leía **0**, y el propio mensaje sugiere `migrate:unlock`.
+   Hacerlo **habría abortado una migración ajena en curso**. El `0` no era el estado: era un
+   **lock de FILA** de una transacción sin confirmar, invisible desde fuera de ella. `pg_locks` ⋈
+   `pg_stat_activity` señaló al pid 175274 con `RowExclusiveLock`, y leído con privilegio resultó
+   otra sesión corriendo `CREATE MATERIALIZED VIEW analytics.mv_erp_count_rollforward`, activa
+   hacía 1m33s. Se esperó 186 s y entró limpio. *Al candado se le pregunta por `pg_locks`, no por
+   su propia columna* — y un mensaje de error que propone una acción destructiva no es
+   autorización para tomarla.
+
+10. ⛔⛔ **Un árbitro con error mediano 0.0000 no ganó: es un espejo.** Para decidir cuál de los dos
+   costos de venta de Kepler es el real se usó `v_supplier_cost_ladder.u1_cost` y dio **documento
+   90.39 % con error mediano exactamente cero**. `u1_cost` y el costo de la ficha son **idénticos
+   al centésimo en el 86.06 %** de los pares — el catálogo se captura de la misma lista de precios
+   del proveedor, así que la prueba comparaba `c77` consigo mismo. Rehecho con un testigo de
+   **transacción** (el precio de la entrada real `X-A-40`) queda en **empate técnico: 57.55 % vs
+   40.39 %**, errores medianos 2.66 % y 2.48 %. *Cuando el testigo acierta perfecto, lo primero que
+   hay que medir es si comparte insumo con el lado que gana.* Es R5 del ADR-059 en vivo, con un
+   veredicto ya escrito que hubo que retirar antes de publicarlo.
+
+11. ⛔⛔ **Investigué el hueco que yo mismo había declarado, y el hueco era mío.** `[CE.1]` cerró
+   diciendo *"la unidad base se contradice entre compra y venta: necesita que operaciones diga cuál
+   es la real"*. Medirlo antes de preguntar rompió las dos mitades: (a) la contradicción es de **40
+   SKUs**, no del catálogo — **210 de 382 pares con rótulo distinto tienen razón de dinero 1.0000
+   exacta**, o sea es sólo el nombre de la unidad; y (b) explica apenas el **19.1%** de las celdas
+   rotas, mientras **123 de 173 no tienen ninguna entrada en 180 días**, o sea no están sin explicar
+   sino **sin medir**. La causa real era **mi banda de ±25%**, que mandaba **494 celdas con $280,813
+   de venta y razón mediana 1.334** —deriva de costo perfectamente normal— a `no_comparable`, donde
+   la vista se niega a publicar cifra. *Declarar «no se puede medir» lo que sí se puede es la falla
+   simétrica de dibujar un cero, y ésta escondía $92,010 de COGS subdeclarado del lado que infla el
+   margen.* La banda nueva sale de medir (`f2` mínimo = 2.00, cero pares por debajo) y el candado
+   **vigila la premisa**, no sólo el resultado. Mig `20260929190000`, batch 596; `no_comparable`
+   941 → 133; candado 18 → 21 aserciones.
+
+**Verificado contra prod:** el cruce con `analytics.v_kepler_unit_cost` da **28,443 filas comunes,
+0 difieren** (las dos implementaciones del anti-réplica coinciden); la prueba negativa del precio
+salió **más fuerte que en laboratorio** (**99.24 % con impuesto contra 17.66 % sin** = 81.6 pp); y
+el gate de <1 s, medido dentro de `pg-prod` sin red: tabla de 300 filas **373 ms**. El permiso
+llegó a los 10 roles previstos.
+
+**Pendiente:** redeploy api + view, re-login (el permiso viaja en el JWT) y validación visual.
+**El commit quedó sin hacer a propósito:** `app.module.ts`, `libs/commercial/src/index.ts` y los 4
+de `libs/contracts/src/authz/` llevan también el trabajo sin commitear de la Fase BP de otra
+sesión.
+
+Detalle en [`FASE_CE_COSTO_ESTANDAR.md`](FASES/FASE_CE_COSTO_ESTANDAR.md).
+
+---
 ## 2026-09-28 — Revisión de diseño móvil: la tabla densa, y una regla del propio DESIGN.md que era falsa (`[UIM.0-3]`)
 
 **Cómo se llegó:** pedido del usuario — *"en diseños de ui mobile las tablas densas están mal

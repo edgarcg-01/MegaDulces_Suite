@@ -1102,6 +1102,10 @@ const CRON_JOBS: CronCfg[] = [
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no
   // se nota hasta que alguien decide con ella.
   { key: 'analytics_refresh_count_rollforward', label: 'Refresh MV roll-forward de conteos', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [IC.12] Sin esta fila el sensor cae en `cfg ? classify : 'ok'` y la MV parada se ve VERDE.
+  // Acá no es cosmético: /almacen/inventory/diferencias seguiría publicando el descuadre del
+  // trimestre pasado, y su banda de dinero en disputa, como si fueran los de este.
+  { key: 'analytics_refresh_count_variance',    label: 'Refresh MV descuadre de conteos (IC.12)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // ⭐⭐ [PR.R1] El ARBITRO DEL COSTO. Sin este umbral el sensor caia en `cfg ? classify : 'ok'`
   // y una MV parada se veia VERDE — y esta no es una MV mas: es la que decide si el margen de
   // toda la Suite es una medicion o un espejo del markup.

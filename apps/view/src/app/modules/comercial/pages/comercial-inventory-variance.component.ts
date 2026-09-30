@@ -405,6 +405,45 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
       }
 
       @if (vista === 'diferencias') {
+      <!-- ⛔ Esto sale de una matview que se refresca una vez al día. Si el refresco se para, la
+           pantalla no se vacía ni avisa: sigue mostrando el descuadre del trimestre anterior.
+           El veredicto es TERNARIO: "unknown" no es "fresh" (ADR-056). -->
+      @if (frescura(); as f) {
+        <div class="inv-var-fresh">
+          @if (f.status === 'unknown') {
+            <p-tag severity="secondary" value="Frescura sin medir"></p-tag>
+            <span class="inv-var-salv">{{ f.motivo }}</span>
+          } @else {
+            <app-freshness-pill measures="data" [since]="f.data_as_of"
+              label="Calculado" [staleAfterSec]="129600"></app-freshness-pill>
+            <span class="inv-var-salv">se recalcula cada noche</span>
+          }
+        </div>
+      }
+
+      <!-- [IC.12] LA BANDA EN DISPUTA, antes que el total que la contiene (Q.1 answer-first).
+           El ajuste de Kepler declara la cantidad en PIEZAS y la valúa al costo de la CAJA en
+           una parte de los renglones: ese importe se suma a las tarjetas de abajo igual que el
+           resto, así que quien lee el total tiene que poder saber qué parte discute. -->
+      @if (expuesto(); as x) {
+        @if (x.skus > 0) {
+          <p class="inv-var-warn">
+            ⚠️ <strong>{{ x.skus }} renglones ({{ fmtMoney(x.publicado) }}{{ x.pct !== null ? ', el ' + x.pct + '% del total' : '' }})</strong>
+            están valuados a un costo <strong>al menos 2 veces</strong> el que la captura de ese
+            mismo día implica para el mismo SKU — la marca de que la cantidad va en piezas y el
+            costo en cajas. Al costo contado serían <strong>{{ fmtMoney(x.contado) }}</strong>:
+            hay <strong>{{ fmtMoney(x.diferencia) }}</strong> en disputa dentro de los números de
+            abajo. El importe es el que Kepler asentó y no se corrige; se declara.
+          </p>
+        }
+        @if (x.sinTestigo > 0) {
+          <p class="inv-var-note">
+            {{ x.sinTestigo }} renglones ({{ fmtMoney(x.pesosSinTestigo) }}) no se pudieron
+            juzgar: su SKU no aparece en la captura de ese día. No cuentan como correctos.
+          </p>
+        }
+      }
+
       <div class="surf-grid inv-var-kpis">
         <app-metric-card format="text" class="panel-col-3" label="Sobrante" tone="warn"
           [valueText]="fmtMoney(totals().sobrante)"
@@ -504,6 +543,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 <th>SKU</th><th>Descripción</th><th>Un.</th>
                 <th class="num">Debía haber</th><th class="num">Se contó</th>
                 <th class="num">Diferencia</th><th class="num">Costo</th><th class="num">Importe</th>
+                <!-- [IC.12] El costo del ajuste contra el que implica la captura del MISMO día. -->
+                <th>Costo vs. contado</th>
               </tr>
             </ng-template>
             <ng-template #body let-l>
@@ -526,10 +567,25 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 </td>
                 <td class="num tabular">{{ fmtMoney(l.costo_unitario) }}</td>
                 <td class="num tabular">{{ fmtMoney(l.importe) }}</td>
+                <!-- La RAZÓN va en el tooltip, no sólo la etiqueta: un 12.0 clavado es un
+                     peldaño y un 1.03 es deriva de costo, y eso se juzga viendo el número. -->
+                <td>
+                  <p-tag [severity]="veredictoSev(l.costo_veredicto)"
+                    [value]="veredictoLabel(l.costo_veredicto)"
+                    [pTooltip]="l.costo_contado != null
+                      ? 'La captura de ese día implica ' + fmtMoney(l.costo_contado)
+                        + ' por unidad (razón ' + l.razon_costo + '×)'
+                        + (l.ficha_peldano === 'caja' && l.ficha_costo_base != null
+                           ? '. La ficha de Kepler: ' + fmtMoney(l.ficha_costo_base) + ' la pieza, '
+                             + fmtMoney(l.ficha_costo_caja) + ' la caja de ' + l.ficha_factor_caja
+                           : '')
+                      : 'Sin costo contado con qué juzgarlo: el SKU no está en la captura de ese día, o la captura lo valuó en cero'"
+                  ></p-tag>
+                </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="8" class="inv-var-note">
+              <tr><td colspan="9" class="inv-var-note">
                 Sin renglones para este evento con el filtro actual.
               </td></tr>
             </ng-template>
@@ -574,6 +630,9 @@ export class ComercialInventoryVarianceComponent {
   readonly density = inject(TableDensityService);
 
   readonly events = signal<(InventoryVarianceEvent & { rowKey: string })[]>([]);
+  /** [IC.12] Sale de una matview: sin esto la pantalla publicaría un número sin decir de cuándo
+   *  es, que es el modo de falla que la Fase VP catalogó. Ternario: `unknown` no es `fresh`. */
+  readonly frescura = signal<RollforwardFreshness | null>(null);
   readonly lines = signal<InventoryVarianceLine[]>([]);
   readonly coverage = signal<InventoryVarianceCoverage | null>(null);
   readonly loading = signal(false);
@@ -660,6 +719,40 @@ export class ComercialInventoryVarianceComponent {
       skusFaltante: e.reduce((a, x) => a + Number(x.skus_faltante || 0), 0),
     };
   });
+
+  /**
+   * [IC.12] LA BANDA EN DISPUTA — cuánto del total de arriba está valuado a un costo que la
+   * captura de ese mismo día contradice por un factor de escalera.
+   *
+   * Va en pantalla y no en un `.md`: el importe de esos renglones se suma a las tarjetas igual
+   * que el resto, así que quien lee el total tiene que poder saber qué parte discute.
+   */
+  readonly expuesto = computed(() => {
+    const e = this.events();
+    const skus = e.reduce((a, x) => a + Number(x.skus_peldano || 0), 0);
+    const publicado = e.reduce((a, x) => a + Number(x.pesos_peldano || 0), 0);
+    const contado = e.reduce((a, x) => a + Number(x.pesos_peldano_contado || 0), 0);
+    const sinTestigo = e.reduce((a, x) => a + Number(x.skus_sin_testigo || 0), 0);
+    const total = this.totals().sobrante + this.totals().faltante;
+    return {
+      skus, publicado, contado, diferencia: publicado - contado, sinTestigo,
+      pesosSinTestigo: e.reduce((a, x) => a + Number(x.pesos_sin_testigo || 0), 0),
+      // NULL, no 0: sin total no hay porcentaje que calcular.
+      pct: total > 0 ? Math.round((publicado / total) * 1000) / 10 : null,
+    };
+  });
+
+  /** Etiqueta del veredicto del costo, en llano. */
+  veredictoLabel(v: string | undefined): string {
+    return { coincide: 'Cuadra', difiere: 'Diferencia',
+      peldano_arriba: 'Costo de caja', peldano_abajo: 'Costo por debajo',
+      sin_testigo: 'Sin testigo' }[v ?? ''] ?? '—';
+  }
+
+  veredictoSev(v: string | undefined): 'danger' | 'warn' | 'success' | 'secondary' {
+    return v === 'peldano_arriba' ? 'danger' : v === 'peldano_abajo' ? 'warn'
+      : v === 'coincide' ? 'success' : 'secondary';
+  }
 
   constructor() {
     this.api.listWarehouses(true).subscribe((w) => this.warehouses.set(w ?? []));
@@ -795,11 +888,15 @@ export class ComercialInventoryVarianceComponent {
       warehouse_id: this.warehouseFilter ?? undefined,
       include_initial_load: this.includeInitialLoad,
     }).subscribe({
-      next: (rows) => {
-        this.events.set((rows ?? []).map((r) => ({ ...r, rowKey: `${r.warehouse_id}|${r.fecha}` })));
+      next: (res) => {
+        this.events.set((res?.items ?? []).map(
+          (r) => ({ ...r, rowKey: `${r.warehouse_id}|${r.fecha}` })));
+        this.frescura.set(res?.freshness ?? null);
         this.loading.set(false);
       },
-      error: () => { this.events.set([]); this.loading.set(false); },
+      // ⛔ En el error la frescura se BORRA. Dejar la anterior haría que la píldora siguiera
+      // diciendo "actualizado" sobre una tabla vacía.
+      error: () => { this.events.set([]); this.frescura.set(null); this.loading.set(false); },
     });
   }
 
