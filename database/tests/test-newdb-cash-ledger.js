@@ -288,6 +288,77 @@ const baseMov = (over = {}) => ({
       } finally { await rt.destroy(); }
     }
 
+    // ── [CG.24/CG.25] La fecha adelantada: el freno y el seguimiento a Kepler ──────────────
+    //
+    // El defecto que ataca está medido en prod, no supuesto: el 2026-09-28 entró al libro
+    // `CG-2026-00002` con `fecha = 2026-12-10` — el `X-D-26 0001298`, un gasto de ENERO que Kepler
+    // fechó en diciembre. La pantalla lo rotulaba desde el 22-sep y el rótulo no frenaba, así que
+    // el libro pasó a publicar **1 de los 2** movimientos que tenía (el filtro por default de la
+    // pantalla va del 1º del mes a hoy).
+    console.log('\n── 7b. [CG.24/CG.25] Fecha adelantada ──');
+    {
+      const hoy = (await knex.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text d`)).rows[0].d;
+      const utc = (await knex.raw(`SELECT (now() AT TIME ZONE 'UTC')::date::text d`)).rows[0].d;
+      // El día de MÉXICO, no el del contenedor. Si esto se rompiera, el freno se apagaría solo a
+      // partir de las 18:00 locales — justo cuando se captura el cierre del día.
+      ok(/^\d{4}-\d{2}-\d{2}$/.test(hoy), `el día de México se resuelve en Postgres: ${hoy}`);
+      ok(true, `(referencia: en UTC sería ${utc}${utc !== hoy ? ' — y NO es el que manda' : ''})`);
+
+      // La consulta del vigilante, tal cual la corre `CajaFechaFuturaScannerService`. Acá sólo se
+      // comprueba que CORRE y devuelve la forma esperada: qué encuentre depende de la DB.
+      const med = await knex.raw(`
+        WITH hoy AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+        frio AS (SELECT id FROM finance.cash_ledger_cuts WHERE tenant_id=? AND estado IN ('cerrado','autorizado')),
+        libro AS (
+          SELECT l.monto, (l.corte_id IN (SELECT id FROM frio)) AS congelado
+            FROM finance.cash_ledger l CROSS JOIN hoy
+           WHERE l.tenant_id=? AND l.deleted_at IS NULL AND l.estado<>'cancelado' AND l.fecha > hoy.d)
+        SELECT (SELECT count(*)::int FROM libro) libro,
+               (SELECT count(*)::int FROM libro WHERE congelado) congelados,
+               (SELECT count(*)::int FROM finance.cash_ledger WHERE tenant_id=? AND deleted_at IS NULL) universo`,
+        [T, T, T]);
+      const rr = med.rows[0];
+      ok(Number.isInteger(rr.libro) && Number.isInteger(rr.congelados) && Number.isInteger(rr.universo),
+        `la medición del vigilante corre: libro=${rr.libro} congelados=${rr.congelados} universo=${rr.universo}`);
+
+      // ⛔ EL CONTROL QUE DE VERDAD IMPORTA. Un "0 candidatas" no prueba nada por sí solo: podría
+      // ser un join roto en vez de "no hay nada que seguir". Se comprueba que la llave del resync
+      // (`sucursal|doc_tipo|folio|clave_banco`) PEGUE contra el ERP; si deja de pegar, el
+      // seguimiento a Kepler se apagaría EN SILENCIO y nadie lo notaría.
+      const universoErp = (await knex.raw(
+        `SELECT count(*)::int n FROM analytics.mv_caja_movimientos WHERE tenant_id=?`, [T])).rows[0].n;
+      const conOrigen = (await knex.raw(
+        `SELECT count(*)::int n FROM finance.cash_ledger
+          WHERE tenant_id=? AND origen_ref IS NOT NULL AND deleted_at IS NULL`, [T])).rows[0].n;
+      if (universoErp === 0 || conOrigen === 0) {
+        skip('falta con qué ejercer el seguimiento a Kepler en esta DB '
+          + `(mv_caja_movimientos=${universoErp}, movimientos anclados=${conOrigen}). NO es un ✓. `
+          + 'Verificado a mano contra PROD el 2026-09-29: hoy 0 candidatas, y simulando que Kepler '
+          + 'corrige el documento, exactamente CG-2026-00002 pasa de 2026-12-10 a 2026-01-28.');
+      } else {
+        const ligadas = (await knex.raw(`
+          SELECT count(*)::int n
+            FROM finance.cash_ledger l
+            JOIN analytics.mv_caja_movimientos m
+              ON m.tenant_id = l.tenant_id
+             AND m.sucursal||'|'||m.doc_tipo||'|'||m.folio||'|'||m.clave_banco = l.origen_ref
+           WHERE l.tenant_id=? AND l.origen_ref IS NOT NULL AND l.deleted_at IS NULL`, [T])).rows[0].n;
+        ok(ligadas === conOrigen,
+          `la llave del resync pega contra el ERP: ${ligadas} de ${conOrigen} anclados encuentran su documento`);
+      }
+
+      // El vigilante NUNCA toca un movimiento congelado: si entró a un corte firmado, sus totales
+      // ya están autorizados y cambiarle la fecha por atrás volvería mentiroso ese corte.
+      const frio = (await knex.raw(`
+        SELECT count(*)::int n FROM finance.cash_ledger_cuts
+         WHERE tenant_id=? AND estado IN ('cerrado','autorizado')`, [T])).rows[0].n;
+      if (frio === 0) {
+        skip('no hay cortes cerrados ni autorizados en esta DB → la exclusión de movimientos '
+          + 'CONGELADOS no se puede ejercer. NO es un ✓. (En prod al 2026-09-29: 0 cortes en total.)');
+      } else {
+        ok(true, `hay ${frio} corte(s) firmado(s) → la exclusión de congelados es medible acá`);
+      }
+    }
     console.log('\n── 8. Lo que NO se puede medir acá, declarado ──');
     const ee = await knex.raw(`SELECT count(*)::int n FROM analytics.expense_entries`);
     if (ee.rows[0].n === 0) {

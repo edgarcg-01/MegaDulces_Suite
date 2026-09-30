@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from 
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
+import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 
 interface AuthedRequest {
   user?: {
@@ -31,6 +32,7 @@ export class CashLedgerController {
     private readonly svc: CashLedgerService,
     private readonly autofill: CajaAutofillService,
     private readonly cortes: CashCutService,
+    private readonly fechaFutura: CajaFechaFuturaScannerService,
   ) {}
 
   /** El JWT trae el id con nombres distintos según el emisor; se toma el primero que exista. */
@@ -158,6 +160,20 @@ export class CashLedgerController {
     @Query('limit') limit?: string,
   ) {
     return this.svc.ingresosPendientes({ sucursal, from, to, search, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
+   * `[CG.25]` — va ANTES de `@Get(':id')` como el resto del archivo. Dispara a mano el vigilante
+   * de la fecha adelantada: mide, sigue a Kepler en lo que ya se corrigió allá, y avisa.
+   *
+   * Existe para poder VERIFICARLO sin esperar a las 07:15, que es la única forma de saber que un
+   * cron hace lo que dice. Es idempotente: si no hay nada que seguir, no escribe nada.
+   */
+  @Post('fecha-futura/scan')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.25 — Corre ya el vigilante de fechas adelantadas: re-sincroniza las que Kepler ya corrigió y devuelve lo que sigue mal (libro, por capturar y congelados en un corte firmado).' })
+  scanFechaFutura() {
+    return this.fechaFutura.scan();
   }
 
   @Post('autofill')

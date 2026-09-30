@@ -218,7 +218,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
       color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
     .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
-    .cg-caos { border-color:var(--action); }
     .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
     .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left;
       cursor:pointer; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
@@ -233,7 +232,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
     .cg-caos-attach { color:var(--text-muted); font-size:var(--fs-micro); }
     .cg-caos-attach.cg-caos-alta { color:var(--action); }
-    .cg-caos-info { cursor:default; }
     .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
     .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
     .cg-cajero-head label { margin:0; }
@@ -349,22 +347,46 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </div>
 
-      <!-- CS.3.11 — Arqueo final: conciliación de la caja chica contra el CAJERO (CAOS). Sólo en
-           oficinas (00), con corte abierto. Modelo «cajas separadas»: el cajero es la bóveda. -->
-      @if (conciliacionCajero(); as cj) {
+      <!-- CG — ARQUEO FINAL DEL DÍA: cómo quedó la caja general, con los ingresos y egresos del
+           corte y las dos piernas del cajero (CAOS). Modelo «cajas separadas»: el cajero es la
+           bóveda, la caja chica es el efectivo suelto.
+
+           ⛔ CG.19 — La composición SÓLO se pinta cuando el servidor ya reveló el esperado. La
+           suma "fondo + ingresos − egresos − depósitos" ES el esperado: publicarla mientras
+           alguien cuenta a ciegas sería devolverle por la ventana justo lo que se le oculta.
+           (Sin acentos graves acá adentro: esto vive en un template literal y un backtick lo
+            CIERRA. Es la quinta vez que pasa en el repo.) -->
+      @if (corteAbierto()) {
         <div class="cg-conc">
-          <strong class="cg-conc-h">Conciliación con el cajero (CAOS)</strong>
-          <div class="cg-conc-row"><span>Depositado al cajero <small class="fin-dim">(salió de caja chica)</small></span>
-            <span class="mono">− {{ money(cj.depositado) }}</span></div>
-          <div class="cg-conc-row"><span>Dispensado del cajero <small class="fin-dim">(entró a caja chica)</small></span>
-            <span class="mono">+ {{ money(cj.dispensado) }}</span></div>
-          @if (cajaChicaConciliada(); as z) {
-            <div class="cg-conc-row cg-conc-tot"><span>Caja chica conciliada <small class="fin-dim">(esperado − depositado + dispensado)</small></span>
-              <span class="mono">{{ money(z) }}</span></div>
+          <strong class="cg-conc-h">Arqueo final del día</strong>
+          @if (arqueoFinal(); as a) {
+            <div class="cg-conc-row"><span>Fondo inicial <small class="fin-dim">(apertura del corte)</small></span>
+              <span class="mono">{{ money(a.fondo) }}</span></div>
+            <div class="cg-conc-row"><span>Ingresos del corte</span>
+              <span class="mono">+ {{ money(a.ingresos) }}</span></div>
+            <div class="cg-conc-row"><span>Egresos del corte</span>
+              <span class="mono">− {{ money(a.gastos) }}</span></div>
+            <div class="cg-conc-row"><span>Depósitos al banco</span>
+              <span class="mono">− {{ money(a.depositos) }}</span></div>
+            <div class="cg-conc-row cg-conc-tot"><span>Esperado en caja general</span>
+              <span class="mono">{{ money(a.esperado) }}</span></div>
+            @if (a.cajero; as cj) {
+              <div class="cg-conc-row"><span>Depositado al cajero <small class="fin-dim">(salió de caja chica)</small></span>
+                <span class="mono">− {{ money(cj.depositado) }}</span></div>
+              <div class="cg-conc-row"><span>Dispensado del cajero <small class="fin-dim">(entró a caja chica)</small></span>
+                <span class="mono">+ {{ money(cj.dispensado) }}</span></div>
+              @if (a.conciliada !== null) {
+                <div class="cg-conc-row cg-conc-tot"><span>Caja chica conciliada <small class="fin-dim">(esperado − depositado + dispensado)</small></span>
+                  <span class="mono">{{ money(a.conciliada) }}</span></div>
+              }
+              <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero desde que abrió el corte.</small>
+            }
           } @else {
-            <small class="fin-dim">La caja chica conciliada se muestra al revelar el esperado (permiso de cierre).</small>
+            <small class="fin-dim">El cierre del día se muestra al revelar el esperado (permiso de cierre): mientras se cuenta, el arqueo es CIEGO.</small>
+            @if (conciliacionCajero(); as cj) {
+              <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero (CAOS) desde que abrió el corte.</small>
+            }
           }
-          <small class="fin-dim">{{ cj.movimientos }} movimiento(s) del cajero desde que abrió el corte. El cajero es la bóveda; la caja chica es el efectivo suelto.</small>
         </div>
       }
 
@@ -546,23 +568,29 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </section>
 
-      <!-- CS.3.6 — El cajero (CAOS) YA lo contó la máquina y se ADJUNTA solo a su cobro/gasto de
-           Kepler arriba (no se captura aparte). Acá sólo se MENCIONAN los que el motor aún no pudo
-           conciliar — esperan su movimiento de Kepler, o se adjuntan a mano desde la captura. -->
-      @if (caosSinConciliar().length) {
-        <section class="cg-bandeja cg-caos">
+      <!-- CG — Lo que el BUSCADOR encuentra FUERA del efectivo que inferimos: documentos POR PAGAR,
+           gastos (XA1001) y órdenes de entrada (XA2001). Aparecen SÓLO al buscar — la bandeja de
+           arriba es la cola de efectivo, y un documento por pagar todavía no es un movimiento de
+           caja. Reusa las clases de fila de la lista del cajero (mismos primitivos visuales). -->
+      @if (pagables().length) {
+        <section class="cg-bandeja">
           <header class="cg-bandeja-head">
-            <h2 class="fin-h2"><i class="pi pi-lock" aria-hidden="true"></i> Cajero (CAOS) — sin conciliar</h2>
+            <h2 class="fin-h2"><i class="pi pi-file" aria-hidden="true"></i> Gastos y órdenes de entrada</h2>
             <span class="cg-bandeja-sp"></span>
-            <small class="fin-dim">{{ caosSinConciliar().length }} ya contados por la máquina, aún sin su movimiento de Kepler</small>
+            <small class="fin-dim">{{ pagables().length }} documento(s) por pagar que coinciden con la búsqueda — aún no son movimientos de caja</small>
           </header>
           <div class="cg-caos-list">
-            @for (m of caosSinConciliar(); track m.origen_ref) {
-              <div class="cg-caos-row cg-caos-info">
-                <span class="cg-caos-tag" [class.cg-caos-in]="m.tipo === 'ingreso'">{{ m.type_label }}</span>
-                <span class="mono cg-caos-monto">{{ money(m.monto) }}</span>
-                <span class="fin-dim cg-caos-ref">{{ m.ref || 'sin referencia' }}</span>
-                <span class="fin-dim">{{ m.user_external || '' }}</span>
+            @for (g of pagables(); track g.origen_ref) {
+              <div class="cg-caos-row">
+                <span class="cg-caos-tag">{{ g.pagable_label }}</span>
+                <span class="mono">{{ g.folio }}</span>
+                <span class="fin-dim">{{ g.fecha_valor }}</span>
+                <span class="cg-caos-ref">{{ g.beneficiario || 'sin beneficiario' }}
+                  @if (g.concepto) { <small class="fin-dim">· {{ g.concepto }}</small> }
+                </span>
+                <span class="mono cg-caos-monto">{{ money(g.monto) }}</span>
+                <p-button label="Pagar en efectivo" icon="pi pi-wallet" size="small" [text]="true"
+                          (onClick)="capturarDesdePagable(g)"></p-button>
               </div>
             }
           </div>
@@ -1283,22 +1311,15 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   caosElegido = signal<CaosCapturable | null>(null);
 
   /**
-   * CS.3.1c — Los movimientos de CAOS PENDIENTES de capturar, mostrados SOLOS en la bandeja (no un
-   * buscador opcional): el capturista los ve sin buscarlos. Al elegir uno, el arqueo de la máquina
-   * se precarga y se BLOQUEA, y sólo queda clasificar lo faltante.
+   * CG — Los documentos POR PAGAR que el BUSCADOR encontró fuera del efectivo inferido: gastos
+   * (`XA1001`) y órdenes de entrada (`XA2001`). Sólo se llenan al buscar.
+   *
+   * ⛔ Los movimientos del cajero (CAOS) SIN CONCILIAR ya no se listan. CAOS es el MISMO efectivo
+   * que la caja general de Kepler (`c45='0011'`), no una fuente aparte: mostrarlos sueltos invitaba
+   * a capturarlos como asiento propio y eso es doble conteo. Los que el motor SÍ concilia siguen
+   * viniendo pegados a su fila de Kepler (`caos_match`), que es donde sirven: autorrellenan el arqueo.
    */
-  caosPendientes = signal<CaosCapturable[]>([]);
-  cargandoCaosPend = signal(false);
-
-  /**
-   * CS.3.6 — Los movimientos del cajero que el motor NO pudo adjuntar a ningún pendiente de Kepler
-   * (sin conciliar). Informativos: ya los contó la máquina y esperan su cobro/gasto (o se adjuntan a
-   * mano desde la captura). Los que SÍ casaron aparecen pegados a su fila de Kepler, no acá.
-   */
-  caosSinConciliar = computed(() => {
-    const emparejados = new Set(this.pendientes().map((p) => p.caos_match?.origen_ref).filter(Boolean));
-    return this.caosPendientes().filter((c) => !emparejados.has(c.origen_ref));
-  });
+  pagables = signal<Array<MovimientoPendiente & { pagable_label: string }>>([]);
 
   /**
    * CS.3.4 — El detector DENTRO de la captura: candidatos del cajero propuestos para ESTE gasto y
@@ -1485,6 +1506,34 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (!cj || s?.saldo == null) return null;
     return Number(s.saldo) - Number(cj.depositado) + Number(cj.dispensado);
   });
+
+  /**
+   * CG — El ARQUEO FINAL DEL DÍA: cómo quedó la caja general considerando los ingresos y egresos
+   * del corte y las dos piernas del cajero (CAOS).
+   *
+   *     fondo inicial + ingresos − egresos − depósitos = esperado
+   *     esperado − depositado al cajero + dispensado del cajero = caja chica conciliada
+   *
+   * ⛔ CG.19 — Devuelve `null` mientras el esperado esté OCULTO, y la pantalla lo declara. No es
+   * cosmética: esa suma **ES** el esperado, así que componerla para quien cuenta a ciegas sería
+   * exactamente la fuga que la Capa 1b cerró (ahí el bug fue calcular el veredicto en el
+   * navegador). El servidor manda `saldo: null` cuando recorta; ése es el único permiso que se
+   * consulta acá — no se re-deriva de un rol en el cliente.
+   */
+  arqueoFinal = computed(() => {
+    const s = this.saldoResp(); const co = s?.corte_abierto;
+    if (!s || !co || s.saldo == null) return null;
+    const t = s.totales;
+    return {
+      fondo: Number(co.fondo_inicial) || 0,
+      ingresos: Number(t?.ingresos) || 0,
+      gastos: Number(t?.gastos) || 0,
+      depositos: Number(t?.depositos) || 0,
+      esperado: Number(s.saldo),
+      cajero: s.cajero ?? null,
+      conciliada: this.cajaChicaConciliada(),
+    };
+  });
   /**
    * ⛔ CG.19 Capa 1b — acá estaba la fuga. esperadoCorte leía saldoResp().totales.esperado y
    * veredicto calculaba la diferencia EN EL NAVEGADOR mientras la persona tecleaba: se contaba
@@ -1511,7 +1560,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // CS.3.7 — El arqueo se valida contra el desglose COMPLETO (cajero + reja), que es lo que va al
   // servidor y lo que cuadra con el monto. Validar sólo la reja (vacía cuando el cajero aportó todo)
   // bloquearía el guardado con 'arqueo_no_cuadra' pese a que el arqueo real sí cuadra.
-  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo({ ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito() }));
+  // `todayMx()` viaja como argumento (no lo lee el util) para que la lógica pura siga siendo
+  // probable con un día fijo. Ver `motivosDeBloqueo`.
+  bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(
+    { ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito() },
+    todayMx(),
+  ));
   /**
    * De dónde salió el concepto. Ahora depende TAMBIÉN de si se eligió a mano: antes sólo leía
    * `propuesta()`, así que después de elegir en el buscador seguía diciendo "Propuesto de la
@@ -1636,7 +1690,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // algo que aparezca después de un clic.
     this.cargarCajas();
     this.cargarPendientes();
-    this.cargarCaosPendientes();
     this.cargarFrecuentes();
     this.enVivo();
   }
@@ -1678,7 +1731,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
     // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
     // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
-    encuestarVisible(60000, () => { this.cargarPendientes(true); this.cargarCaosPendientes(true); }, { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => this.cargarPendientes(true), { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
@@ -1694,7 +1747,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // Refresco de fondo (llegó un aviso): en silencio, sin prender el indicador de carga (evita el
       // micro-parpadeo de la bandeja en cada NOTIFY). El saldo no tiene indicador, va normal.
       this.cargarPendientes(true);
-      this.cargarCaosPendientes(true);
       this.cargarSaldo();
     });
   }
@@ -2218,16 +2270,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * CS.3.1c — Trae los movimientos de CAOS pendientes para mostrarlos SOLOS en la bandeja. Se pide
-   * al cargar y en el repaso en vivo, igual que los de Kepler. Un fallo deja la sección vacía (no es
-   * la fuente de verdad del libro), pero no tumba la pantalla.
+   * CG — Abre la captura desde un documento POR PAGAR del buscador (gasto u orden de entrada).
+   *
+   * Reusa `capturarDesde()` a propósito: el pagable llega con la MISMA forma que un pendiente de
+   * caja, así que `guardar()` toma `origen_tipo` (`gasto`/`orden_entrada`) y `origen_ref` de la
+   * propia fila — sin una segunda ruta de captura que mantener en paralelo.
+   *
+   * ⚠️ El importe del documento NO se hereda como monto: igual que con un documento de Kepler, el
+   * monto SALE del arqueo (lo que de verdad se entrega en efectivo). El importe queda a la vista en
+   * la fila para comparar — un pago parcial es legítimo y forzarlo al total sería inventar.
    */
-  cargarCaosPendientes(bg = false): void {
-    if (!bg) this.cargandoCaosPend.set(true);
-    this.svc.caosCapturables({ limit: 50 }).subscribe({
-      next: (r) => { this.caosPendientes.set(r.rows ?? []); this.cargandoCaosPend.set(false); },
-      error: () => { this.caosPendientes.set([]); this.cargandoCaosPend.set(false); },
-    });
+  capturarDesdePagable(g: MovimientoPendiente & { pagable_label: string }): void {
+    this.capturarDesde(g);
   }
 
   /**
@@ -2362,6 +2416,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     }).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
+        // CG — los documentos POR PAGAR (gastos / órdenes de entrada) sólo vienen con búsqueda: sin
+        // término la lista llega vacía y la sección no se pinta, que es lo correcto.
+        this.pagables.set(r.pagables ?? []);
         this.confirmables.set(r.confirmables ?? 0);
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.

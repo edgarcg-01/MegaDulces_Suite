@@ -50,7 +50,8 @@ export type MotivoNoConfirmable =
   | 'sin_confirmar'   // hay propuesta, pero ningún humano la firmó
   | 'sin_cuenta'      // firmada la identidad, pero sin cuenta contable declarada
   | 'sin_monto'       // el documento del ERP no trae importe utilizable
-  | 'sin_regla';      // CG.21 · egreso: ninguna regla de `finance.caja_classify_rules` aplica
+  | 'sin_regla'       // CG.21 · egreso: ninguna regla de `finance.caja_classify_rules` aplica
+  | 'fecha_futura';   // el documento viene fechado DESPUÉS de hoy → su fecha es un error del ERP
 
 export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
@@ -58,7 +59,42 @@ export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
   sin_monto: 'El documento del ERP no trae importe: no hay nada que confirmar.',
   sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario. Se captura a mano.',
+  fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
+    + 'Capturalo a mano y corregí la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
 };
+
+/**
+ * ⛔ ¿La fecha del documento cae DESPUÉS de hoy? Entonces no se confirma en lote.
+ *
+ * No es una preferencia de estilo: está MEDIDO. El 2026-09-22 se contaron **8 documentos** del ERP
+ * con `fecha_valor` futura, y los seis de `X-D-26` dicen en su propio concepto *"28-01-2026"*,
+ * *"30-01-2026"*, *"21-01"* — son gastos de **enero** que Kepler fechó en **diciembre**.
+ *
+ * La pantalla ya los rotulaba con un aviso desde ese día, y el aviso **no alcanzó**: el
+ * 2026-09-28 se confirmó `X-D-26 0001298` y entró al libro como `CG-2026-00002` con
+ * `fecha = 2026-12-10`. Consecuencia medida: el filtro por default del libro (del 1º del mes a
+ * hoy) mostraba **1 movimiento de los 2 que había** — la mitad del libro invisible hasta
+ * diciembre. Un aviso que no frena es decoración (ADR-056).
+ *
+ * Por qué acá y no en un CHECK de la tabla: `current_date` es STABLE, no IMMUTABLE, y Postgres no
+ * admite funciones no inmutables en un CHECK. Y aunque lo admitiera, un CHECK dejaría sin registrar
+ * un depósito post-fechado legítimo sin forma de explicarlo; acá el motivo viaja con la fila.
+ *
+ * ⚠️ Compara texto `YYYY-MM-DD` contra texto `YYYY-MM-DD` a propósito: sin objetos `Date` no hay
+ * husos que corrijan de más. `hoy` lo pone el llamador (día de México), para que la prueba pueda
+ * fijarlo y no dependa del reloj.
+ */
+export function esFechaFutura(fecha: string | Date | null | undefined, hoy: string): boolean {
+  if (!fecha || !hoy) return false;
+  const f = fecha instanceof Date ? toYmd(fecha) : String(fecha).slice(0, 10);
+  return f.length === 10 && f > String(hoy).slice(0, 10);
+}
+
+/** `YYYY-MM-DD` de un `Date`, en sus propios componentes locales (sin `toISOString`, que corre el día). */
+function toYmd(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 /** Lo que la ruta tiene declarado. `null` = no existe fila en el mapa. */
 export interface MapaRuta {

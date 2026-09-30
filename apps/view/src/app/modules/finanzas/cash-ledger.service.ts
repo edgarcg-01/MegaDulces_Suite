@@ -341,7 +341,10 @@ export interface MovimientoPendiente {
     type_label: string; denominaciones: Array<{ denominacion: number; piezas: number }>;
     confianza: 'alta' | 'media' | 'baja'; motivos: string[];
   } | null;
-  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto';
+  motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto'
+    // El documento viene fechado DESPUÉS de hoy: no se confirma en lote, se captura a mano
+    // corrigiendo la fecha. Medido: 8 documentos del ERP, y uno ya entró al libro como diciembre.
+    | 'fecha_futura';
   motivo_texto?: string;
 }
 
@@ -366,6 +369,15 @@ export interface PendientesResponse {
    */
   fuera_de_ventana?: { movimientos: number; monto: number };
   rows: MovimientoPendiente[];
+  /**
+   * CG — Lo que el BUSCADOR encuentra FUERA del efectivo inferido: documentos POR PAGAR —
+   * gastos (`XA1001`) y órdenes de entrada (`XA2001`). Sólo viene cuando hay término de búsqueda;
+   * la lista por default es la cola de efectivo y estos no son (todavía) movimientos de caja.
+   *
+   * Comparte la forma de `MovimientoPendiente` para abrirse con la MISMA captura, pero llega
+   * siempre con `confirmable:false`: pagar uno exige elegir cuenta y contar el efectivo.
+   */
+  pagables?: Array<MovimientoPendiente & { pagable_label: string }>;
   limit: number;
   has_more: boolean;
   /**

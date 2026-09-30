@@ -138,13 +138,15 @@ export interface FormularioCaja {
 }
 
 export type MotivoBloqueo =
-  | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal'
+  | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal' | 'fecha_futura'
   | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra';
 
 /** Texto que ve el capturista. Dice QUÉ falta, no "formulario inválido". */
 export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
   falta_tipo: 'Elegí el tipo de movimiento.',
   falta_fecha: 'Falta la fecha.',
+  fecha_futura: 'Esa fecha es posterior a hoy. Poné el día en que se movió el efectivo: fechado adelante, '
+    + 'el movimiento desaparece del libro hasta que llegue ese mes.',
   falta_sucursal: 'Falta la sucursal.',
   falta_concepto: 'Falta la cuenta y el concepto de Kepler: sin eso el movimiento no se puede contabilizar.',
   falta_concepto_de_cuenta: 'Falta el concepto de Kepler de esa cuenta: elegilo para poder contabilizar.',
@@ -158,10 +160,18 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
  * ¿Se puede guardar? Devuelve TODOS los motivos, no el primero: que el capturista vea de una
  * vez lo que le falta en vez de descubrirlo de a uno.
  */
-export function motivosDeBloqueo(f: FormularioCaja): MotivoBloqueo[] {
+export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): MotivoBloqueo[] {
   const m: MotivoBloqueo[] = [];
   if (!f.tipo) m.push('falta_tipo');
   if (!f.fecha) m.push('falta_fecha');
+  // ⛔ Fechado DESPUÉS de hoy. Acá el freno sí es corregible: el campo de fecha del formulario es
+  // editable, así que la persona lee el motivo y lo arregla sin salir de la captura — que es
+  // justamente lo que el rótulo de la bandeja no ofrecía.
+  //
+  // `hoy` llega del llamador (día de México) y NO se lee del reloj acá: este archivo es lógica pura
+  // y una prueba que dependa de qué día se corre no prueba nada. Sin `hoy` el motivo no se evalúa,
+  // y por eso el candado que MANDA está en el servidor (`create()`), no acá.
+  else if (hoy && String(f.fecha).slice(0, 10) > String(hoy).slice(0, 10)) m.push('fecha_futura');
   if (!f.sucursal) m.push('falta_sucursal');
   // El par va COMPLETO o no va: media cuenta no contabiliza nada. CS.3.1b — si la cuenta ya está
   // (vino del documento o se eligió) y sólo falta el concepto, se dice ESO, no "falta la cuenta":
@@ -188,8 +198,8 @@ export function motivosDeBloqueo(f: FormularioCaja): MotivoBloqueo[] {
   return m;
 }
 
-export function puedeGuardar(f: FormularioCaja): boolean {
-  return motivosDeBloqueo(f).length === 0;
+export function puedeGuardar(f: FormularioCaja, hoy?: string | null): boolean {
+  return motivosDeBloqueo(f, hoy).length === 0;
 }
 
 // ── Cómo se le muestra al capturista de dónde salió un campo ────────────────────────────

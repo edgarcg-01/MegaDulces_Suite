@@ -5,7 +5,7 @@ import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
-  TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
+  esFechaFutura, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
@@ -411,6 +411,20 @@ export class CashLedgerService {
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
       // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y
       // confundirlos volvería a meter la fecha del ERP en un arqueo físico.
+
+      // ⛔ EL CANDADO de la fecha futura. Los dos avisos de la pantalla (el rótulo de la bandeja y
+      // el motivo de bloqueo del formulario) se pueden saltar —son del navegador—; éste no.
+      //
+      // Va acá y no en un CHECK de la tabla porque `current_date` es STABLE y Postgres no admite
+      // funciones no inmutables en un CHECK. Y es mejor así: un CHECK diría sólo "violación de
+      // restricción", y lo que la persona necesita saber es QUÉ corregir.
+      if (esFechaFutura(input.fecha, await this.hoyMx(trx))) {
+        throw new BadRequestException(
+          `La fecha ${String(input.fecha).slice(0, 10)} es posterior a hoy. `
+          + 'Casi siempre es un error de captura del ERP: corregí la fecha al día en que se movió el '
+          + 'efectivo. Un movimiento fechado adelante desaparece del libro hasta que llegue ese mes.');
+      }
+
       const snap = await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
@@ -615,8 +629,14 @@ export class CashLedgerService {
       // CS.3.13 — a cada cobro le marcamos si su cliente es de CRÉDITO (para auto-rellenar «venta a
       // crédito» en la captura, siempre editable). La condición sale de `analytics.v_cliente_credito`.
       const conCredito = await this.marcarClientesCredito(trx, conCaos);
+      // CG — el BUSCADOR suma los documentos POR PAGAR que caen FUERA del efectivo inferido: gastos
+      // (XA1001) y órdenes de entrada (XA2001). Sólo con término de búsqueda (red para lo fuera del
+      // modelo); nunca en la lista por default, que es la cola de trabajo del efectivo.
+      const pagables = q.search
+        ? await this.buscarPagables(trx, tenantId, String(q.search), Math.min(limit, 100))
+        : [];
       return {
-        rows: conCredito, limit, has_more: rows.length === limit,
+        rows: conCredito, pagables, limit, has_more: rows.length === limit,
         // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
         // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
         // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
@@ -632,6 +652,70 @@ export class CashLedgerService {
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
       };
     });
+  }
+
+  /**
+   * CG — El BUSCADOR suma, además de los movimientos de caja de Kepler, los documentos POR PAGAR
+   * que caen FUERA del efectivo inferido (`v_caja_movimientos_pendientes` = `c45='0011'`): los
+   * **gastos (`XA1001`)** y **órdenes de entrada (`XA2001`)**, ambos vivos en
+   * `analytics.expense_documents`. Es la red para lo que no está en la cola normal — por eso sólo
+   * responde con término de búsqueda, nunca en la lista por default.
+   *
+   * Devuelve la MISMA forma que un pendiente de caja (para pintarlos en el mismo buscador,
+   * rotulados con `pagable_label`). El monto es el importe del documento como PREFILL; al capturar,
+   * `origen_tipo` es `'gasto'`/`'orden_entrada'` (NO ancla: el monto real sale del arqueo) y el
+   * candado `ux_cash_ledger_origen_vivo (origen_tipo, origen_ref)` garantiza captura única.
+   *
+   * `analytics.expense_documents` NO tiene RLS (vista sobre el ODS) → filtro de tenant explícito.
+   * ⛔ Ni un `?` en el subquery de exclusión: knex lo tomaría como binding (ya costó una columna en
+   * `20260819220000`). Se guarda con `to_regclass` para entornos sin la vista (idempotente).
+   */
+  private async buscarPagables(trx: any, tenantId: string, search: string, limit: number) {
+    const existe = await trx.raw(`SELECT to_regclass('analytics.expense_documents') AS t`);
+    if (!existe.rows[0]?.t) return [];
+    const s = `%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = await trx('analytics.expense_documents as e')
+      .where('e.tenant_id', tenantId)
+      .whereIn('e.doc_tipo', ['XA1001', 'XA2001'])
+      .where((b: any) => b
+        .whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
+        .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
+        .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]))
+      .whereRaw(`NOT EXISTS (
+        SELECT 1 FROM finance.cash_ledger l
+         WHERE l.tenant_id = e.tenant_id
+           AND l.origen_tipo = CASE WHEN e.doc_tipo = 'XA1001' THEN 'gasto' ELSE 'orden_entrada' END
+           AND l.origen_ref = e.sucursal || '|' || e.doc_tipo || '|' || e.doc_folio
+           AND l.deleted_at IS NULL AND l.estado <> 'cancelado')`)
+      .orderBy('e.fecha', 'desc')
+      .limit(limit)
+      .select(
+        trx.raw(`e.sucursal || '|' || e.doc_tipo || '|' || e.doc_folio AS origen_ref`),
+        trx.raw(`'gasto'::text AS tipo`),
+        trx.raw(`CASE WHEN e.doc_tipo = 'XA1001' THEN 'gasto' ELSE 'orden_entrada' END AS origen_tipo`),
+        'e.sucursal', 'e.doc_tipo',
+        trx.raw(`e.doc_folio AS folio`),
+        'e.fecha',
+        'e.beneficiario', 'e.concepto',
+        trx.raw(`e.importe AS monto`),
+        trx.raw(`CASE WHEN e.doc_tipo = 'XA1001' THEN 'Gasto' ELSE 'Orden de entrada' END AS pagable_label`),
+      );
+    // Se emite la forma COMPLETA de un pendiente de caja a propósito: así la pantalla lo abre con
+    // el mismo `capturarDesde()` y `guardar()` toma `origen_tipo` de la propia fila, sin una
+    // segunda ruta de captura que mantener. Lo que un pagable NO tiene viaja explícito en null.
+    return (rows as any[]).map((r) => ({
+      origen_ref: r.origen_ref, tipo: r.tipo, origen_tipo: r.origen_tipo,
+      sucursal: r.sucursal, doc_tipo: r.doc_tipo, folio: r.folio,
+      fecha_valor: ymd(r.fecha) || '', beneficiario: r.beneficiario, concepto: r.concepto,
+      monto: Number(r.monto), pagable_label: r.pagable_label,
+      // No salió por una caja de `kdb1`: es una OBLIGACIÓN, todavía no un movimiento de efectivo.
+      clave_banco: '', caja_nombre: null, entidad_code: null, metodo: null,
+      // ⛔ NUNCA confirmable en lote: un documento por pagar exige elegir cuenta y CONTAR el
+      // efectivo. Confirmarlo de un clic daría por pagado un importe que nadie contó.
+      confirmable: false, kepler_cuenta: null, kepler_concepto: null,
+      motivo: 'sin_cuenta' as const,
+      motivo_texto: 'Documento por pagar: elegí la cuenta contable y contá el efectivo que se entrega.',
+    }));
   }
 
   /**
@@ -997,8 +1081,9 @@ export class CashLedgerService {
       }
     }
     const conceptos = await this.conceptosDeCuenta(trx, tenantId, [...paresCuenta.values()]);
+    const hoy = await this.hoyMx(trx);
 
-    return rows.map((r: any) => {
+    const conCuenta = rows.map((r: any) => {
       const v: Confirmable = r.tipo === 'ingreso'
         ? esConfirmable(
             { origen_ref: r.origen_ref, cliente_code: r.entidad_code, monto: Number(r.monto) },
@@ -1034,6 +1119,27 @@ export class CashLedgerService {
       return { ...r, confirmable: false, kepler_cuenta: null, kepler_concepto: null,
         motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
     });
+
+    // ⛔ El freno de FECHA FUTURA va al final y ORTOGONAL a la cuenta: no importa por qué camino se
+    // resolvió el par contable, un documento fechado después de hoy no entra en lote. Se conserva
+    // todo lo demás —incluida la cuenta ya resuelta— para que la captura a mano siga llegando
+    // rellenada y a la persona sólo le quede corregir la fecha. Ver `esFechaFutura`.
+    return conCuenta.map((f: any) => (esFechaFutura(f.fecha_valor, hoy)
+      ? { ...f, confirmable: false, motivo: 'fecha_futura', motivo_texto: TEXTO_NO_CONFIRMABLE.fecha_futura }
+      : f));
+  }
+
+  /**
+   * Hoy, en el día de MÉXICO, preguntado a Postgres.
+   *
+   * Se pide a la DB y no a `new Date()` del proceso por el mismo motivo que el resto de
+   * `libs/finance` (ver `customer-ledger.service.ts`): el contenedor puede correr en UTC, y con
+   * `toISOString()` el corte de día se mueve seis horas — justo a la hora en que se captura el
+   * cierre. `AT TIME ZONE` es explícito y no depende de cómo quedó configurado el servidor.
+   */
+  private async hoyMx(trx: any): Promise<string> {
+    const r = await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text AS d`);
+    return String(r.rows[0].d);
   }
 
   /** CS.3.1b — Llave del documento de caja = la misma que la póliza usa (doc_tipo COMPACTO). */

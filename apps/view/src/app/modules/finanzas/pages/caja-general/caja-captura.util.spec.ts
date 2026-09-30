@@ -118,6 +118,44 @@ describe('motivosDeBloqueo — la pantalla frena lo mismo que el servidor', () =
     expect(motivosDeBloqueo(formOk({ glosa: 'a'.repeat(GLOSA_MIN) }))).not.toContain('glosa_corta');
   });
 
+  /**
+   * CG — El freno que faltaba, y que ya costó un movimiento real.
+   *
+   * El 2026-09-28 entró al libro `CG-2026-00002` con `fecha = 2026-12-10`: era el `X-D-26 0001298`
+   * de Kepler, un gasto de ENERO ("GASTOS NF MORELIA 28-01-2026") mal fechado en el ERP. La bandeja
+   * lo rotulaba desde el 22-sep con "fecha posterior a hoy", pero el rótulo no frenaba nada.
+   * Consecuencia medida en prod: el filtro por default del libro mostraba **1 de los 2**
+   * movimientos que había.
+   *
+   * El día se pasa SIEMPRE explícito: una prueba de fechas que lea el reloj se pone verde o roja
+   * según cuándo se corra, y eso no es una prueba.
+   */
+  const HOY = '2026-09-29';
+
+  it('[negativa] una fecha POSTERIOR a hoy frena — es el caso de CG-2026-00002', () => {
+    const f = formOk({ fecha: '2026-12-10' });
+    expect(motivosDeBloqueo(f, HOY)).toContain('fecha_futura');
+    expect(puedeGuardar(f, HOY)).toBe(false);
+  });
+
+  it('hoy y el pasado NO frenan: corregir hacia atrás es legítimo, hacia adelante no', () => {
+    expect(motivosDeBloqueo(formOk({ fecha: HOY }), HOY)).not.toContain('fecha_futura');
+    expect(motivosDeBloqueo(formOk({ fecha: '2026-01-28' }), HOY)).not.toContain('fecha_futura');
+    expect(puedeGuardar(formOk({ fecha: HOY }), HOY)).toBe(true);
+  });
+
+  it('sin fecha el motivo es "falta_fecha", no "fecha_futura" — son dos problemas distintos', () => {
+    const m = motivosDeBloqueo(formOk({ fecha: null }), HOY);
+    expect(m).toContain('falta_fecha');
+    expect(m).not.toContain('fecha_futura');
+  });
+
+  it('sin `hoy` el motivo NO se evalúa — por eso el candado que manda vive en el servidor', () => {
+    // Documenta el límite a propósito: si un llamador olvida el día, la pantalla no frena y el
+    // 400 de `create()` es el que atrapa. Que esto quede escrito evita creer que alcanza con la UI.
+    expect(motivosDeBloqueo(formOk({ fecha: '2026-12-10' }))).not.toContain('fecha_futura');
+  });
+
   it('[negativa] monto cero o negativo frena', () => {
     expect(motivosDeBloqueo(formOk({ monto: 0 }))).toContain('monto_invalido');
     expect(motivosDeBloqueo(formOk({ monto: -5 }))).toContain('monto_invalido');
