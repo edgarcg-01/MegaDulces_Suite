@@ -863,8 +863,30 @@ export class CashLedgerService {
         .where('fecha_valor', '<', desde)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
+      /**
+       * ⛔ `[CG.28]` **EL TOPE DE ARRIBA, que faltaba.**
+       *
+       * La ventana era `fecha_valor >= desde` **sin tope superior**. Una ventana de "los últimos N
+       * días" que deja entrar el futuro no es una ventana: los únicos documentos que pasan un
+       * filtro de 1 día son justamente **los mal fechados**, porque el ERP captura con una mediana
+       * de 3 días de rezago y ningún documento legítimo tiene `fecha_valor` de hoy.
+       *
+       * Medido en prod el 2026-09-30, con la ventana como está puesta (1 día): la bandeja
+       * devolvía **7 filas y las 7 eran las mal fechadas** — 6 `X-D-26` y 1 `U-A-5`, todas de
+       * diciembre. O sea que la pantalla por default no mostraba trabajo: mostraba basura.
+       *
+       * ⚠️ Y no se esconden: se cuentan aparte y viajan en `mal_fechados`. Sacarlas de la lista
+       * sin decirlo las volvería invisibles, y alguien tiene que ir a corregirlas EN KEPLER —
+       * que es lo único que las saca de verdad (`[CG.25]` las sigue cuando eso pasa).
+       */
+      const hoy = await this.hoyMx(trx);
+      const adelante: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+        .where('fecha_valor', '>', hoy)
+        .count({ n: '*' }).sum({ monto: 'monto' }).first();
+
       let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
-        .where('fecha_valor', '>=', desde);
+        .where('fecha_valor', '>=', desde)
+        .where('fecha_valor', '<=', hoy);
       if (q.to) qb = qb.where('fecha_valor', '<=', q.to);
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
@@ -930,6 +952,10 @@ export class CashLedgerService {
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
+        // `[CG.28]` Los que el ERP fechó adelante de hoy. Fuera de la lista, pero NUNCA callados:
+        // no son trabajo de caja, son un error de captura de Kepler que alguien tiene que ir a
+        // corregir allá.
+        mal_fechados: { movimientos: Number(adelante?.n ?? 0), monto: Number(adelante?.monto ?? 0) },
       };
     });
   }

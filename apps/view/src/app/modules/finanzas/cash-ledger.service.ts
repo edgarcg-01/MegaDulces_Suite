@@ -408,6 +408,13 @@ export interface PendientesResponse {
    * tampoco puede desaparecer de la pantalla.
    */
   fuera_de_ventana?: { movimientos: number; monto: number };
+  /**
+   * `[CG.28]` Los que el ERP fechó DESPUÉS de hoy. Quedan fuera de la lista — una ventana de
+   * "los últimos N días" que deja entrar el futuro no es una ventana — pero se cuentan y se
+   * publican: no son trabajo de caja, son un error de captura que alguien tiene que ir a corregir
+   * en Kepler.
+   */
+  mal_fechados?: { movimientos: number; monto: number };
   rows: MovimientoPendiente[];
   /**
    * CG — Lo que el BUSCADOR encuentra FUERA del efectivo inferido: documentos POR PAGAR —

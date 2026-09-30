@@ -660,7 +660,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             registró, y hasta dónde se traen es una decisión aparte.
           </p>
         }
+        @if (malFechados(); as mf) {
+          <!-- ⛔ [CG.28] No es trabajo de caja: es un error de captura del ERP. Se dice cuantos son
+               y que se arreglan ALLA, porque es lo unico que los saca de la cola. -->
+          <small class="fin-hint-warn d-block cg-malfecha">
+            {{ mf.movimientos }} documento(s) del ERP por {{ money(mf.monto) }} vienen fechados
+            despues de hoy y quedan fuera de la lista. Se corrigen en Kepler; aca se actualizan solos.
+          </small>
+        }
       </section>
+
+      <!-- CG — Lo que el BUSCADOR encuentra FUERA del efectivo que inferimos: documentos POR PAGAR,
 
       <!-- CG — Lo que el BUSCADOR encuentra FUERA del efectivo que inferimos: documentos POR PAGAR,
            gastos (XA1001) y órdenes de entrada (XA2001). Aparecen SÓLO al buscar — la bandeja de
@@ -1578,15 +1588,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   ];
 
   /**
-   * ⚠️ **Puesto en 1 día (`desde ayer`) para las PRUEBAS de CG.21**, por pedido de Edgar
-   * (2026-09-22). Antes de operar de verdad tiene que volver a **45**, que es la ventana con
-   * razón medida (`CAJA_VENTANA_DIAS` en `@megadulces/contracts`): el rezago de captura es de
-   * 4.7 días de promedio y el peor caso fueron 34, así que con 1 día la bandeja deja fuera casi
-   * todo el trabajo real y lo manda al bloque de «anteriores a esta ventana».
+   * ⭐ `[CG.28]` **De vuelta en `CAJA_VENTANA_DIAS` (45).** Estuvo en 1 día desde el 2026-09-22,
+   * puesto para las PRUEBAS de CG.21, con este mismo comentario diciendo que antes de operar de
+   * verdad tenía que volver — y se quedó.
+   *
+   * Lo que el 1 día causaba, medido en prod el 2026-09-30: la bandeja devolvía **7 filas y las 7
+   * eran documentos mal fechados**. La razón es que la ventana no tenía tope de arriba (arreglado
+   * en el servidor), así que los únicos que pasaban un filtro de "último día" eran los de
+   * diciembre. Con el tope puesto, 1 día devolvería **cero**: el ERP captura con una mediana de
+   * **3 días** de rezago, así que ningún documento legítimo tiene `fecha_valor` de hoy.
+   *
+   * Medido por ventana (filas · gastos · ingresos): 1d → 7·6·1 (todas basura) · 3d → 19·6·13 ·
+   * 7d → 115·24·91 · **45d → 1,777·1,217·560**.
    *
    * Es un selector y no una constante escondida justamente para que moverlo no sea un deploy.
    */
-  ventanaDias = signal(1);
+  ventanaDias = signal(CAJA_VENTANA_DIAS);
   readonly opcionesVentana = [
     { label: 'Desde ayer', value: 1 },
     { label: '3 días', value: 3 },
@@ -2677,6 +2694,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * `app-load-state` mostrara el estado de carga un instante = **micro-parpadeo cada 60 s**. Los
    * refrescos del usuario (filtro, búsqueda, inicial) sí lo prenden: ahí el "cargando" es feedback.
    */
+  /**
+   * `[CG.28]` Documentos que el ERP fechó DESPUÉS de hoy: fuera de la bandeja, nunca callados.
+   *
+   * Medído el 2026-09-30: con la ventana en 1 día, la bandeja devolvía **7 filas y las 7 eran
+   * éstas**. La ventana no tenía tope de arriba, así que los únicos documentos que pasaban un
+   * filtro de "último día" eran justamente los mal fechados — el ERP captura con 3 días de
+   * mediana, y ninguno legitimo tiene `fecha_valor` de hoy.
+   */
+  malFechados = signal<{ movimientos: number; monto: number } | null>(null);
+
   cargarPendientes(bg = false): void {
     if (!bg) this.cargandoPend.set(true);
     // `0` = «Todo»: se manda una fecha muy vieja en vez de omitir `from`, porque omitirlo le
@@ -2708,6 +2735,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
         this.rezago.set(r.fuera_de_ventana && r.fuera_de_ventana.movimientos > 0 ? r.fuera_de_ventana : null);
+        // [CG.28] Los que el ERP fechó adelante. Fuera de la lista, pero a la vista: alguien tiene
+        // que ir a corregirlos en Kepler, que es lo unico que los saca de verdad.
+        this.malFechados.set(r.mal_fechados && r.mal_fechados.movimientos > 0 ? r.mal_fechados : null);
         this.errPend.set(null);
         this.cargandoPend.set(false);
         // Lo tecleado que sobrevivio a un refresh. Va DESPUES de tener las filas: sin ellas no
