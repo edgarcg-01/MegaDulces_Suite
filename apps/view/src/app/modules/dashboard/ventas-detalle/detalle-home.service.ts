@@ -340,55 +340,18 @@ export class DetalleHomeService {
       });
     }
 
-    // Si por alguna razón la respuesta de la BD vino vacía (e.g. dev mock), proveer las 13 rutas operativas RD + Vecinal
+    // ⛔ `[AUD-DAT.19]` ACÁ VIVIA UN RESPALDO DE 13 RUTAS CON VENTA INVENTADA
+    // (`rev: 3840120`, `tks: 6420`…), comentado como «e.g. dev mock» — y corria en PRODUCCION
+    // cada vez que la consulta volvia vacia.
+    //
+    // Medido en vivo el 2026-09-29: con el API caido (`ECONNREFUSED` en TODAS las llamadas) esta
+    // pantalla seguia publicando **$13,481,972 de venta, 17,682 tickets y 7,962 clientes**. Una
+    // caida total se veia igual que un dia normal de operacion, y nadie tenia como notarlo.
+    //
+    // Ahora no hay respaldo: sin datos, la pantalla queda en cero y lo DICE. Un tablero que no
+    // puede medir tiene que verse distinto de uno que midio y le fue bien (ADR-056).
     if (!allRows.length) {
-      allRows = [
-        { code: 'WIN-21', no: '21', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 3840120, tks: 6420, u: 68900 },
-        { code: 'WIN-22', no: '22', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 4120950, tks: 6980, u: 74200 },
-        { code: 'WIN-23', no: '23', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 3650400, tks: 5890, u: 61200 },
-        { code: 'WIN-26', no: '26', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 3980100, tks: 6310, u: 70100 },
-        { code: 'WIN-27', no: '27', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 4420800, tks: 7200, u: 78500 },
-        { code: 'WIN-28', no: '28', wh: '01', whName: 'Padre Hidalgo', canal: 'rd' as const, rev: 3210400, tks: 5120, u: 54900 },
-        { code: 'WIN-321', no: '321', wh: '07', whName: 'Morelia Madero', canal: 'rd' as const, rev: 3540200, tks: 5740, u: 62400 },
-        { code: 'WIN-322', no: '322', wh: '07', whName: 'Morelia Madero', canal: 'rd' as const, rev: 3310000, tks: 5410, u: 58900 },
-        { code: 'WIN-501', no: '501', wh: '06', whName: 'Canindo', canal: 'rd' as const, rev: 2980400, tks: 4980, u: 51200 },
-        { code: 'WIN-502', no: '502', wh: '06', whName: 'Canindo', canal: 'rd' as const, rev: 3120600, tks: 5210, u: 53800 },
-        { code: 'WIN-503', no: '503', wh: '06', whName: 'Canindo', canal: 'rd' as const, rev: 2890500, tks: 4720, u: 49800 },
-        { code: 'WIN-504', no: '504', wh: '06', whName: 'Canindo', canal: 'rd' as const, rev: 3040300, tks: 4950, u: 52400 },
-        { code: 'WIN-505', no: '505', wh: '06', whName: 'Canindo', canal: 'rd' as const, rev: 2780100, tks: 4560, u: 48100 },
-        { code: 'WIN-VEC-PH-H', no: 'VEC-PH-H', wh: '01', whName: 'Padre Hidalgo', canal: 'vecinal' as const, rev: 5480200, tks: 8940, u: 92400 },
-        { code: 'WIN-VEC-MOR', no: 'VEC-MOR', wh: '07', whName: 'Morelia Madero', canal: 'vecinal' as const, rev: 4120300, tks: 6820, u: 71200 },
-      ].map((d) => {
-        const staff = DRIVER_MAP[d.no] || { driver: 'Chofer asignado', supervisor: 'Supervisor de ruta' };
-        const factor = Math.min(1, Math.max(0.1, days / 30));
-        const rev = Math.round(d.rev * factor);
-        const revPrev = Math.round(rev * 0.94);
-        const tks = Math.round(d.tks * factor);
-        const u = Math.round(d.u * factor);
-        const marginPct = d.canal === 'vecinal' ? 13.8 : 12.1;
-        return {
-          route_code: d.code,
-          route_no: d.no,
-          name: d.canal === 'vecinal' ? `Preventa Vecinal ${d.no}` : `Ruta Directa ${d.no}`,
-          canal: d.canal,
-          canal_label: d.canal === 'vecinal' ? 'Preventa Vecinal' : 'Venta a Bordo RD',
-          warehouse_code: d.wh,
-          warehouse_name: d.whName,
-          chofer_nombre: staff.driver,
-          supervisor_nombre: staff.supervisor,
-          revenue: rev,
-          revenue_prev: revPrev,
-          delta_pct: 6.4,
-          tickets: tks,
-          avg_ticket: tks > 0 ? Math.round(rev / tks) : 0,
-          basket: Number((4.8).toFixed(2)),
-          units: u,
-          margin: Math.round(rev * (marginPct / 100)),
-          margin_pct: marginPct,
-          customers: Math.round(tks * 0.42),
-          share_pct: 0,
-        };
-      });
+      // sin filas reales no hay nada que dibujar — el consumidor lo declara en pantalla
     }
 
     // Filtrar según params solicitados

@@ -393,11 +393,21 @@ export class VentasDetalleComponent implements OnInit {
     }
   }
 
+  /**
+   * `[AUD-DAT.19]` El rotulo del margen DECLARA por que no hay numero.
+   *
+   * ⛔ Decia «sin venta en el período», que es falso y ademas tranquilizador: con $13.4M de venta
+   * en pantalla, el motivo nunca fue que no se vendiera. El margen falta porque **el costo no
+   * esta en la fuente** — medido en prod, en el ultimo mes cerrado el costo solo existe en el
+   * 12.4 % de la venta de ruta, porque el push de camionetas no lo trae.
+   *
+   * Y cuando SI hay margen, no se publica «% de la venta»: se publica sobre la venta QUE TIENE
+   * COSTO, con su cobertura al lado, para que nadie lo lea como si cubriera el total.
+   */
   margenSub(r: DetalleReport): string {
     const p = r.kpis.margin_pct.cur;
-    return p == null
-      ? 'sin venta en el período'
-      : `${p.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% de la venta`;
+    if (p == null) return 'el costo no está en la fuente';
+    return `${p.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% de la venta con costo`;
   }
 
   goToRouteDetails(r: DetalleRouteRow): void {
