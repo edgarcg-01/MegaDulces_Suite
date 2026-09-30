@@ -5,6 +5,58 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — IRA.1: la pantalla de exactitud no decía que el proceso nunca corrió
+
+**Disparador:** Edgar — `/almacen/inventory/ira`, siguiente pantalla del barrido de almacén.
+
+### Lo que mostraba y lo que pasaba
+
+Cuatro tarjetas: IRA «—», exactitud por valor «—», **variación neta «$0»**, folios reconciliados
+«0». Dos tablas con mensajes de vacío distintos. Nada más.
+
+Lo que pasaba, medido en prod: **cero folios reconciliados**. Los 6 que existen están
+`cancelled`, abiertos entre el **15 y el 19-jun-2026** en los almacenes `01` y `02`, con
+**18,845 renglones** de los que se contaron **9 — el 0.05%**. O sea: el conteo se intentó una vez
+en junio, se tocaron nueve renglones y se abandonó.
+
+⭐ **De cuatro guiones nadie deduce eso.** El IRA sólo mira `status='reconciled'`, y un folio
+cancelado desaparece del universo — justo cuando es *todo* lo que hay. Ahora el servicio devuelve
+`sin_reconciliar` (folios, renglones, contados, fechas y almacenes por estado) y la pantalla lo
+dice **primero**, antes de los medidores: *«Ningún folio reconciliado todavía, así que no hay
+exactitud que medir — lo que falta no es descuadre, es el proceso»*.
+
+### Dos defectos de la misma familia
+
+⛔ **`$0` donde no había base.** «Cero pesos de variación» y «no hay con qué calcularla» se leen
+igual en una tarjeta de dinero. Los tres importes pasan a **NULL**, y la leyenda deja de decir
+«sin diferencia» —una afirmación que nadie midió— para decir «sin folios reconciliados que
+medir».
+
+⛔ **El costo ausente entraba como CERO.** El `COALESCE(i.unit_cost, uc.costo_unitario, …, 0)`
+termina en `0`, así que un SKU sin testigo aporta 0 al teórico **y** 0 a la varianza: una
+diferencia sin costo se ve como si no hubiera diferencia, e **infla `value_accuracy_pct`**. Se
+cuenta aparte (`items_sin_costo`) y la pantalla lo declara. ⚠️ Hoy `v_erp_unit_cost` cubre el
+**100%** de las celdas con existencia, así que el daño es **potencial y no actual** — pero eso es
+una medición de hoy, no una garantía, y el candado la re-mide en cada corrida.
+
+También se explicó la tolerancia: con el default en 0, «exacto» significa **diferencia cero**, y
+eso ahora se lee en la tarjeta en vez de un «tolerancia 0%» que no dice nada.
+
+### Una corrección a mi propio censo
+
+Mi barrido de las 30 pantallas marcó esta como **sin estado vacío**, porque buscaba el
+`emptymessage` de PrimeNG. La pantalla sí los tiene, escritos a mano (`@else { <p
+class="ira-empty">`). O sea que el «20 de 30 con estado vacío» que reporté **subestima**. La
+métrica medía el organismo, no la propiedad.
+
+**Candado:** `test-newdb-ira-declara.js` — **8 ✓ / 0 ✗**, con prueba negativa de filas fabricadas
+(la misma diferencia de 10 piezas pesa cero sin costo) porque sin eso «exactitud por valor 100%»
+no distingue un inventario perfecto de un catálogo sin costos. Vigila el **contrato**, no un
+número: el día que se reconcilie un folio, las aserciones cambian de rama solas.
+
+`nx build api` + `nx build view` OK. **Sin migración. Pendiente: redeploy.**
+
+---
 ## 2026-09-30 — ABC.6: el conteo cíclico decía «2,000 pendientes» cuando eran 39,480, y la letra no decía por qué
 
 **Disparador:** Edgar, sobre `/almacen/inventory/abc` — *"mencionamos ABC, pero no mencionamos
