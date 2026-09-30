@@ -46,7 +46,7 @@ export class SupplierCreditTermsService {
   ) {}
 
   /**
-   * ¿Ya se aplicó `20260929180000_re30_supplier_credit_terms`? El PM aplica las migraciones aparte del
+   * ¿Ya se aplicó `20260929180050_re30_supplier_credit_terms`? El PM aplica las migraciones aparte del
    * despliegue, así que el código puede llegar antes que las columnas: sin esta sonda la lista daría
    * 500 (`42703`). Se prueban las dos piezas (columnas + historial); la migración las crea en UNA
    * transacción, pero un probe compartido que pregunta por la pieza equivocada ya tumbó una pantalla
@@ -60,7 +60,7 @@ export class SupplierCreditTermsService {
         to_regclass('catalog.supplier_credit_terms_history') IS NOT NULL AS t`);
     const ok = !!(r.rows[0]?.c && r.rows[0]?.t);
     if (ok) this.schemaReadyCache = true;
-    else this.logger.warn('RE.30: falta la migración 20260929180000 — plazos en sólo lectura.');
+    else this.logger.warn('RE.30: falta la migración 20260929180050 — plazos en sólo lectura.');
     return ok;
   }
 
@@ -203,7 +203,7 @@ export class SupplierCreditTermsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       if (!(await this.schemaReady(trx))) {
-        throw new ServiceUnavailableException('Falta aplicar la migración de plazos (20260929180000). Por ahora sólo se puede consultar.');
+        throw new ServiceUnavailableException('Falta aplicar la migración de plazos (20260929180050). Por ahora sólo se puede consultar.');
       }
       const prev = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).forUpdate().first();
       if (!prev) throw new NotFoundException('Proveedor no encontrado');

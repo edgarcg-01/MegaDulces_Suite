@@ -2,7 +2,7 @@
 
 > **Actualizado 2026-09-29 (tarde):** además de las 2 de plazos (RE.30), van **2 más** para la entrega
 > de compras a Finanzas: la fecha de recepción en la vista (RE.31, §9) y las tablas de la entrega
-> (RE.32, §10). **Orden de aplicación: `180000` → `180100` → `180200` → `180300`** (§5 y §11).
+> (RE.32, §10). **Orden de aplicación: `180050` → `180100` → `180200` → `180300`** (§5 y §11).
 
 > **Para:** Edgar (PM) — quien aplica migraciones en prod.
 > **De:** Francisco López (Dirección), que lleva el avance de Compras / Obligaciones a proveedor en este
@@ -13,7 +13,7 @@
 
 | # | Archivo | Qué hace | Filas de negocio que cambia | Lock | Reversible |
 |---|---|---|---|---|---|
-| 1 | `20260929180000_re30_supplier_credit_terms.js` | 6 columnas + 3 CHECK en `catalog.suppliers`; tabla de historial nueva | **0** (sólo DDL; las columnas nacen NULL / `false`) | ACCESS EXCLUSIVE breve, con `lock_timeout 3s` | `down` quita historial y CHECK; las columnas se quedan (aditivas) |
+| 1 | `20260929180050_re30_supplier_credit_terms.js` | 6 columnas + 3 CHECK en `catalog.suppliers`; tabla de historial nueva | **0** (sólo DDL; las columnas nacen NULL / `false`) | ACCESS EXCLUSIVE breve, con `lock_timeout 3s` | `down` quita historial y CHECK; las columnas se quedan (aditivas) |
 | 2 | `20260929180100_re30_grant_compras_obligaciones.js` | Reparte 3 permisos a 4 roles | **10** filas de `identity.role_permissions` (medido) | filas, no tabla | `down` quita sólo lo que puso |
 | 3 | `20260929180200_re31_goods_receipts_fecha_recepcion.js` | `CREATE OR REPLACE VIEW analytics.erp_goods_receipts`: +4 columnas al final (fecha/hora/usuario/fuente de recepción) | **0** (vista) — las 19 columnas existentes idénticas, medido (§9) | ACCESS EXCLUSIVE sobre la vista, `lock_timeout 3s` | `down` = DROP + CREATE con la definición viva |
 | 4 | `20260929180300_re32_purchase_deliveries.js` | 3 tablas nuevas: folio, entrega, renglones (RLS) | **0** (tablas nuevas vacías) | sólo FK a `identity.tenants` | `down` quita las 3 |
@@ -49,7 +49,7 @@ da de crédito y **desde cuándo corren** (fecha de factura o fecha de recepció
 
 ---
 
-## 2. Migración 1 — `20260929180000_re30_supplier_credit_terms.js`
+## 2. Migración 1 — `20260929180050_re30_supplier_credit_terms.js`
 
 ### Qué crea
 
@@ -181,7 +181,11 @@ Transacción `READ ONLY`, sin escribir nada. Resultado:
 `public.knex_migrations` el 29-sep ya tiene `120000`–`140000` (batches 572–583) **y
 `20260929170000_commercial_margin_targets.js` (batch 584), que todavía no está en `main`**. Además `main`
 trae `20260929140000_mv_profitability_sales_agg.js`, que chocaba con el primer nombre de estas. Por eso las
-4 van en la serie libre **`20260929180000` → `180100` → `180200` → `180300`**, en el orden en que se aplican.
+4 van en la serie **`20260929180050` → `180100` → `180200` → `180300`**, en el orden en que se aplican.
+**Corrección 2026-09-30 (revisión PR #192):** la primera se llamaba `20260929180000`, prefijo que `main` ya
+ocupaba con dos migraciones aplicadas en prod (`analytics_price_waterfall`, `cash_ledger_origen_pagable`).
+Se renombró a `180050` — no al siguiente libre (`180400`) — para que siga corriendo primero. La `180100`
+no depende de ella (sólo toca `identity.role_permissions`), pero el orden del runbook queda intacto.
 
 ---
 
@@ -191,7 +195,7 @@ Fuera de la ventana del respaldo diario (sostiene locks de toda la base mientras
 
 ```bash
 # 1) esquema
-node database/scripts/apply-one-migration-prod.js 20260929180000_re30_supplier_credit_terms.js
+node database/scripts/apply-one-migration-prod.js 20260929180050_re30_supplier_credit_terms.js
 # 2) permisos
 node database/scripts/apply-one-migration-prod.js 20260929180100_re30_grant_compras_obligaciones.js
 ```
@@ -352,7 +356,7 @@ la pestaña Entregas) y el Calendario de Pagos gana un botón "Entregas de Compr
 ## 11. Aplicar las 4, en orden
 
 ```bash
-node database/scripts/apply-one-migration-prod.js 20260929180000_re30_supplier_credit_terms.js
+node database/scripts/apply-one-migration-prod.js 20260929180050_re30_supplier_credit_terms.js
 node database/scripts/apply-one-migration-prod.js 20260929180100_re30_grant_compras_obligaciones.js
 node database/scripts/apply-one-migration-prod.js 20260929180200_re31_goods_receipts_fecha_recepcion.js
 node database/scripts/apply-one-migration-prod.js 20260929180300_re32_purchase_deliveries.js

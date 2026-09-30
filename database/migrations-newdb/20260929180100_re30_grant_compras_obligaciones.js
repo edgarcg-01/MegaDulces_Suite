@@ -44,6 +44,9 @@
  *   · Se apunta por `id` de fila, no por `role_name` (un rol tiene filas en varios tenants).
  *   · Imprime cuántas PERSONAS quedan con cada llave, no cuántos roles (`[2b]` del candado: un
  *     rol vacío no alcanza a nadie).
+ *   · `SET LOCAL lock_timeout = '3s'` (GOTCHAS §38): los `UPDATE` toman lock de fila en
+ *     `identity.role_permissions`, que el login lee; si una edición desde `/admin/roles` lo tiene
+ *     tomado, el peor caso es un reintento (`55P03`), no una cola que frene los logins.
  *   · Requiere RE-LOGIN: los permisos viajan en el JWT.
  *   · Después de aplicarla, el candado `[1]` deja de listar `COMPRAS_OBLIGACIONES_*`.
  *
@@ -57,6 +60,7 @@ const GRANTS = {
 };
 
 exports.up = async function up(knex) {
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
   const { rows: ur } = await knex.raw(`SELECT to_regclass('identity.user_roles') IS NOT NULL AS ok`);
   const hasUserRoles = !!ur[0]?.ok;
   for (const [perm, roles] of Object.entries(GRANTS)) {
@@ -114,6 +118,7 @@ exports.up = async function up(knex) {
 exports.down = async function down(knex) {
   // Quita SÓLO lo que esta migración pudo poner (true en estos roles). Un false manual se respeta,
   // y un true en otro rol (puesto a mano en /admin/roles) no se toca.
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
   for (const [perm, roles] of Object.entries(GRANTS)) {
     await knex.raw(
       `UPDATE identity.role_permissions
