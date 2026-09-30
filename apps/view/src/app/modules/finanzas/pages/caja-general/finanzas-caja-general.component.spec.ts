@@ -28,6 +28,7 @@ import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component'
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
   type PendientesResponse, type Frecuente, type CajaKepler, type MovimientoPendiente,
+  type ArqueoDia,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
@@ -119,6 +120,32 @@ const CAJAS: CajaKepler[] = [
   { clave: '0030', nombre: 'CAJA CHICA MORELIA ABASTOS', cuenta_contable: '102', documentos: 0 },
 ];
 
+/**
+ * `[CG.26]` El cierre de la jornada. La fixture usa el día REAL que destapó el defecto:
+ * **2026-09-08**, el único de las últimas semanas con `Dotar` y `Vaciar Stocks`. Con los dos tipos
+ * que la conciliación vieja miraba (0 y 4) el neto daba **$84,640**; con los cuatro que mueven
+ * efectivo da **$61,640**. $23,000 de diferencia en un solo día.
+ */
+const ARQUEO: ArqueoDia = {
+  fecha: '2026-09-08',
+  sucursal: '00',
+  caja_general: { movimientos: 3, cancelados: 1, ingresos: 5000, gastos: 1200, depositos: 800, neto: 3000 },
+  cajero: {
+    por_tipo: [
+      { type_id: 0, etiqueta: 'Deposito', movimientos: 6, monto: 101540, desconocido: false },
+      { type_id: 4, etiqueta: 'Dispensar', movimientos: 3, monto: 16900, desconocido: false },
+      { type_id: 5, etiqueta: 'Vaciar Stocks', movimientos: 2, monto: 566900, desconocido: false },
+      { type_id: 8, etiqueta: 'Dotar', movimientos: 5, monto: 543900, desconocido: false },
+      { type_id: 13, etiqueta: 'Contenido Modificado', movimientos: 1, monto: 20, desconocido: false },
+    ],
+    entra: 645440, sale: 583800, neto: 61640,
+    depositado: 101540, dispensado: 16900, dotado: 543900, vaciado: 566900,
+    movimientos: 17, tipos_desconocidos: [], ultimo_movimiento: '2026-09-08T18:00:00-06:00',
+  },
+  corte_abierto: null,
+  no_medido: ['Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.'],
+};
+
 describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let svc: Record<string, ReturnType<typeof vi.fn>>;
   let comp: FinanzasCajaGeneralComponent;
@@ -143,6 +170,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       crear: vi.fn(() => of({ id: 'm1' })),
       declararRegla: vi.fn(() => of({ creada: true, id: 'r1' })),
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
+      arqueoDia: vi.fn(() => of(ARQUEO)),
       ...over,
     };
 
@@ -512,6 +540,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       autofill: vi.fn(() => of({ concepto: null, provenance: null })), conceptos: vi.fn(() => of({ rows: [] })),
       crear: vi.fn(() => of({ id: 'm1' })),
       confirmarLote: vi.fn(() => of({ filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0 })),
+      // [CG.26] Este mock se arma a mano (no sale de `montar`), así que todo lo que `ngOnInit`
+      // toque tiene que estar acá o el montaje revienta con "is not a function".
+      arqueoDia: vi.fn(() => of(ARQUEO)),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -1111,5 +1142,130 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.guardar();
     const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(body['venta_credito']).toBe(1000);
+  });
+
+  // ── 18 · [CG.26] EL CIERRE DE LA JORNADA ──────────────────────────────────────────────────
+  //
+  // El bloque «Arqueo final del día» YA existía y colgaba de `@if (corteAbierto())`. En prod hay
+  // CERO cortes, así que no lo vio nunca nadie. Estas pruebas fijan las dos cosas que cambian:
+  // que se pinte SIN corte, y que el cajero muestre sus SEIS tipos y no dos.
+
+  /** El panel, ya en el DOM. Se acota al contenedor: `money()` de los KPIs colisiona con el de acá. */
+  function panelCierre(fx: ReturnType<typeof montar>): string {
+    const el = fx.nativeElement.querySelector('.cg-conc');
+    return el ? el.innerHTML : '';
+  }
+
+  it('⭐ [negativa] el cierre del día se pinta AUNQUE no haya corte abierto', () => {
+    // Éste es exactamente el estado de producción: sin cortes. Antes dejaba el panel invisible.
+    const fx = montar({
+      cortes: vi.fn(() => of({ rows: [] })),
+      saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
+    });
+    expect(comp.corteAbierto()).toBeNull();
+
+    const panel = panelCierre(fx);
+    expect(panel).toContain('Cierre de la jornada');
+    expect(panel).toContain('Caja general');
+    expect(panel).toContain('Cajero');
+  });
+
+  it('el cajero muestra sus SEIS tipos, no sólo depósito y dispensación', () => {
+    const fx = montar();
+    const panel = panelCierre(fx);
+    // Los dos que la conciliación vieja ignoraba y que mueven la bóveda de verdad.
+    expect(panel).toContain('Dotar');
+    expect(panel).toContain('Vaciar Stocks');
+    expect(panel).toContain('Deposito');
+    expect(panel).toContain('Dispensar');
+  });
+
+  it('el neto del cajero se rotula «movimiento del día», NUNCA «saldo»', () => {
+    // No es cosmética: el flujo acumulado da negativo porque el efectivo anterior al feed no se
+    // conoce. Publicarlo como saldo sería publicar un número que no existe.
+    const fx = montar();
+    const panel = panelCierre(fx);
+    expect(panel).toContain('Movimiento del dia');
+    expect(panel.toLowerCase()).not.toContain('saldo del cajero');
+  });
+
+  it('⛔ [negativa] sin cajero en la sucursal NO pinta ceros: pinta el motivo', () => {
+    const fx = montar({
+      arqueoDia: vi.fn(() => of({
+        ...ARQUEO, sucursal: '03', cajero: null,
+        no_medido: ['El cajero (CAOS) es un único dispositivo en oficinas: la sucursal 03 no tiene cajero que cuadrar.'],
+      })),
+    });
+    const panel = panelCierre(fx);
+    expect(panel).toContain('Sin cajero que cuadrar');
+    expect(panel).toContain('no tiene cajero que cuadrar');
+
+    // ⚠️ La aserción se acota a la COLUMNA DEL CAJERO, no al panel: "Movimiento del día" es
+    // también el total de la columna de caja general, que acá SÍ tiene que estar. Sobre el panel
+    // entero esta prueba fallaba por el rótulo de al lado — el mismo error que ya había costado
+    // una prueba en el bloque del arqueo ("$1,000" aparecía en la tira de KPIs).
+    const cols = fx.nativeElement.querySelectorAll('.cg-conc-col');
+    const colCajero: string = cols[cols.length - 1].innerHTML;
+    // Lo que NO puede pasar: que un cajero ausente se vea como un cajero quieto.
+    expect(colCajero).not.toContain('Movimiento del dia');
+    expect(colCajero).not.toContain('$');
+  });
+
+  it('⛔ [negativa] lo NO MEDIDO se pinta, no se esconde', () => {
+    const fx = montar();
+    const panel = panelCierre(fx);
+    expect(panel).toContain('no publica cu');   // "...no publica cuánto efectivo tiene adentro"
+    expect(fx.nativeElement.querySelector('.cg-conc-nm')).toBeTruthy();
+  });
+
+  it('un tipo de cajero DESCONOCIDO se pinta aparte y con aviso', () => {
+    const fx = montar({
+      arqueoDia: vi.fn(() => of({
+        ...ARQUEO,
+        cajero: {
+          ...ARQUEO.cajero!,
+          por_tipo: [...ARQUEO.cajero!.por_tipo, { type_id: 99, etiqueta: '(tipo 99 sin etiqueta)', movimientos: 1, monto: 500, desconocido: true }],
+          tipos_desconocidos: [{ type_id: 99, etiqueta: '(tipo 99 sin etiqueta)', monto: 500 }],
+        },
+        no_medido: [...ARQUEO.no_medido, 'El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.'],
+      })),
+    });
+    const panel = panelCierre(fx);
+    expect(panel).toContain('tipo 99');
+    expect(panel).toContain('NO se sumo a ninguna pierna');
+  });
+
+  it('⛔ [negativa] sin corte abierto el esperado NO aparece — el arqueo ciego sigue puesto', () => {
+    const fx = montar({
+      cortes: vi.fn(() => of({ rows: [] })),
+      saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true, saldo: null })),
+    });
+    const html: string = fx.nativeElement.innerHTML + document.body.innerHTML;
+    expect(html).not.toContain('Esperado en caja general');
+  });
+
+  it('⛔ [negativa] si la medición falla, el día NO se pinta en cero: se declara sin medir', () => {
+    const fx = montar({ arqueoDia: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    expect(comp.arqueo()).toBeNull();
+    expect(comp.arqueoSinMedir()).toBe(true);
+
+    const panel = panelCierre(fx);
+    expect(panel).toContain('No se pudo medir la jornada');
+    // Lo que no puede pasar: que un error de red se lea como una jornada sin movimiento.
+    expect(panel).not.toContain('Movimiento del dia');
+  });
+
+  it('cambiar la jornada vuelve a pedirla con esa fecha', () => {
+    montar();
+    comp.setArqueoFecha('2026-09-08');
+    expect(comp.arqueoFecha()).toBe('2026-09-08');
+    expect(svc['arqueoDia'].mock.calls.at(-1)?.[0]).toMatchObject({ fecha: '2026-09-08', sucursal: '00' });
+  });
+
+  it('una fecha vacía NO dispara una consulta con la fecha en blanco', () => {
+    montar();
+    const antes = svc['arqueoDia'].mock.calls.length;
+    comp.setArqueoFecha('');
+    expect(svc['arqueoDia'].mock.calls.length).toBe(antes);
   });
 });
