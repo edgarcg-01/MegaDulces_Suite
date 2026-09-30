@@ -312,7 +312,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
     /* [GX.41] «Te tocan a vos»: lo unico accionable de la pantalla, por eso se destaca. */
     .mg-asig { display: flex; flex-direction: column; gap: var(--sp-2);
       border: 1px solid var(--action); border-radius: var(--r-md); padding: var(--sp-3);
-      background: var(--bg-1); }
+      background: var(--surface-card); }
     .mg-asig-h { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-1); }
     .mg-asig-n { font-size: var(--fs-xs); background: var(--action); color: var(--action-fg, #fff);
       border-radius: var(--r-full, 999px); padding: 0 0.5rem; font-variant-numeric: tabular-nums; }
@@ -329,7 +329,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
     /* [GX.39] Las secciones de ejercicio. Pildoras, no pestanas con linea: caben en movil. */
     .mg-etapas { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .mg-etapa { display: inline-flex; align-items: center; gap: var(--sp-1);
-      border: 1px solid var(--border); background: var(--bg-1); color: var(--fg-2);
+      border: 1px solid var(--border); background: var(--surface-card); color: var(--fg-2);
       border-radius: var(--r-full, 999px); padding: 0.25rem 0.7rem; font: inherit;
       font-size: var(--fs-xs); cursor: pointer; }
     .mg-etapa:hover { border-color: var(--action); }

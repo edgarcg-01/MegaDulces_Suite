@@ -6060,6 +6060,58 @@ TP.6-TP.8+TP.10".
       **$147.43** y `c13` dice **$135.26**: publicarlo **subdeclara 8.3%**. Se usa
       `descuento_efectivo`, que reproduce los $147.43 al centavo, con su prueba negativa para que
       nadie lo «simplifique» de vuelta. · *2026-09-28*
+- [x] **[TK.12]** 🧪 **Bandeja de tickets: la pantalla deja de exigir un folio.** Filtros de
+      sucursal (las que alcanza el usuario, `DataScopeService`), rango de fechas (arranca en HOY de
+      México, máximo 31 días) y cliente (autocomplete del maestro `v_customer_master`); el buscador
+      de la bandeja afina por folio (contiene), clave de cliente (empieza con) o nombre (contiene,
+      sin acentos con `unaccent`). `GET /commercial/tickets/bandeja` (`BandejaTicketsService`), los
+      tres universos, alcance por `ScopeService`. ⚠️ Sin `ORDER BY` en el ERP (el mismo motivo
+      medido de `buscar()`: 23,856 ms contra 970 ms) → tope por canal y, si se llega,
+      **`truncado` + aviso**: «no necesariamente trae los más recientes». Si la bandeja no encuentra
+      algo en el rango, ofrece el buscador de folio en TODAS las fechas. ⭐ **Medido contra prod en
+      la revisión del PR #193** (Edgar): 7–42 ms de 1 a 31 días; pero con el tope de 1,000 el filtro
+      por defecto ya salía truncado (mostrador = 2,660 docs/día, pico 4,038 el 26-sep) → **tope a
+      5,000** (el día entero sale en 153 ms). Y el calendario ya no deja elegir más de 31 días: si
+      se teclea, la otra punta se recorre en vez de devolver un 400. · *2026-09-30*
+- [x] **[TK.a1]/[TK.a2]** 🧪 **Cerrados de paso**: `buscar()` saca la fecha con `to_char` en los
+      tres universos. Verificado por HTTP contra la API local: el folio `0018665` vuelve como
+      `2026-09-29 · 2026-09-27 · 2026-09-24` — texto y de más reciente a más viejo. · *2026-09-30*
+- [x] **[TK.13]** 🧪 **Desglose por pieza y por partida en los tres papeles** (pedido del usuario,
+      reemplaza el formato de TK.11). `armar()` gana `desglose` por renglón —`unitario` y `partida`,
+      cada uno lista − descuento = c/desc → sin impuestos + IVA/IEPS = neto— y
+      `cascada.desglose_total`. El descuento de CLIENTE va **repartido en la partida** con el mismo
+      factor que ya usaba el impuesto, así el IVA/IEPS sale del precio YA descontado; el residuo de
+      centavos se carga a la partida mayor y **Σ neto = total al centavo** (con prueba negativa).
+      Carta PDF y pantalla: columnas Producto (nombre, código) · Cantidad · Precio lista ·
+      Descuento* · Precio c/desc · Sin impuestos · IVA* · IEPS* · Neto; renglón «VALOR UNITARIO»
+      sin neto + renglón «Total partida · PZA × 4» con neto + fila de Totales (acomodo marcado por
+      el usuario sobre el PDF). Rollo de 80 mm: encabezado MEGA DULCES · razón social del emisor
+      (de `fiscal.issuer_config`, verificado en prod: LUIS FRANCISCO LOPEZ GUTIERREZ) · sucursal ·
+      **REIMPRESIÓN con fecha y hora de México** (vuelve: TK.5 la había quitado) y la fecha de la
+      venta rotulada «Venta»; la partida entera alineada a la derecha y sus impuestos 12 mm (8
+      caracteres) antes del borde. Verificado: los 282 documentos del seed cuadran partida por
+      partida y contra el total, y el PDF se leyó a ojo. · *2026-09-30*
+- [x] **[TK.14]** 🧪 **Sin «fiscal» ni «no fiscal» en ningún papel** (pedido del usuario
+      2026-09-30). Pie de la carta PDF, reporte por cliente, anexo de venta (AX) y guía de cobranza;
+      y el tipo de documento «Factura Cont No Fiscal» (rótulo de la vista del ERP) sale como
+      «Factura de contado» por `rotuloSinFiscal()`, limpiado en el servicio de tickets y NO en la
+      vista, porque otros consumidores sí distinguen por ese texto. ⚠️ Los chips «fiscal / no
+      fiscal» de las comprobaciones de gasto (Finanzas) NO se tocaron: otro dominio y trabajo en
+      curso de la sesión de gastos. Con prueba negativa (reponer la leyenda en el pie la pone roja).
+      · *2026-09-30*
+- [x] **[TK.a3]** 🧪 **Las 4 pruebas en rojo de `view:test` que venían de main**, arregladas:
+      · `detalle-home.service.spec.ts` (2) seguía afirmando el tablero de ANTES de `[AUD-DAT.21]`:
+        su doble no traía `salesByRouteDashboard` (el servicio tronaba) y exigía `> 0` en clientes y
+        unidades, que hoy se DECLARAN en `null` porque se inventaban (clientes = tickets × 0.45).
+        Reescrita contra el contrato actual, con números exactos y el margen sólo de lo que tiene
+        costo.
+      · `landing-guards` «NO REBOTE» y `mi-trabajo` «filtra los módulos…» — misma causa: el commit
+        `755256028` descableó la ruta y el menú de Costo estándar (su componente no está en main)
+        pero dejó su nodo en `authz-tree` y su candidato en `permission.guard`. Bug real, no sólo de
+        la prueba: los diez roles con `COMPRAS_COSTO_ESTANDAR_VER` en prod veían una tarjeta y una
+        portada hacia un 404. ⚠️ Lo arregló **en paralelo el propio autor del descableado**
+        (`d6f235286`, mismo cambio); al integrar main se tomó SU versión de los dos archivos. Lo
+        que aporta este item es `detalle-home`. · *2026-09-30*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos — ahora también
       la tabla **con impuesto desglosado**, que es donde salía corrida.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.

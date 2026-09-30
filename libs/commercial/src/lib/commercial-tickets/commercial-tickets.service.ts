@@ -119,6 +119,44 @@ export interface TicketLinea {
    * DOCUMENTO y vive en `importe_neto`.
    */
   precio_neto_desc: number | null;
+  /** `[TK.13]` Lo que imprimen los tres papeles, por pieza y por partida. Ver `TicketDesglose`. */
+  desglose: TicketDesglose;
+}
+
+/**
+ * `[TK.13]` Un juego de valores del desglose que se le entrega al cliente. Se lee como una cuenta:
+ *
+ *     lista − descuento = con_descuento  →  sin_impuestos + IVA + IEPS = neto
+ *
+ * ⭐ El descuento ES la suma de los dos: el del producto (precio de lista vs cobrado) y el del
+ * CLIENTE (el % del documento), éste ya repartido en la partida. Así la columna de impuestos se
+ * calcula sobre lo que de verdad se cobró y todas las columnas suman al total del documento.
+ */
+export interface DesgloseMonto {
+  /**
+   * Precio de referencia ANTES de todo descuento. `null` = no hay contra qué comparar: el ERP no
+   * guarda la lista de este renglón y tampoco hubo descuento de cliente. Nunca 0.
+   */
+  lista: number | null;
+  /** Producto + cliente. `0` = sin descuento (el papel deja la celda vacía, no imprime $0.00). */
+  descuento: number;
+  /** El precio ya descontado, tal como se cobra: con impuestos en Kepler, sin ellos en pedidos. */
+  con_descuento: number;
+  /** `null` = el impuesto de los renglones no reproduce la cabecera: no se publica (ADR-056). */
+  sin_impuestos: number | null;
+  iva: number | null;
+  ieps: number | null;
+  /** Lo que paga el cliente, con impuestos. Σ de las partidas = total del documento. */
+  neto: number;
+}
+
+export interface TicketDesglose {
+  /** Por pieza (o por kilo). Redondeado a centavos: × cantidad puede diferir de `partida` por centavos. */
+  unitario: DesgloseMonto;
+  /** La partida completa. Es la cifra EXACTA: la que suma al total del documento. */
+  partida: DesgloseMonto;
+  /** La parte del descuento de cliente (del documento) que le tocó a esta partida. */
+  descuento_cliente: number;
 }
 
 /**
@@ -169,6 +207,8 @@ export interface TicketCascada {
    * cuadra.
    */
   importe_neto: number | null;
+  /** `[TK.13]` La fila de TOTALES del desglose: Σ de las partidas, columna por columna. */
+  desglose_total: DesgloseMonto;
 }
 
 export interface TicketDetalle {
@@ -233,6 +273,23 @@ const LIMITE_POR_UNIVERSO = 200;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
+
+/**
+ * `[TK.14]` El tipo de documento, sin «Fiscal» / «No Fiscal» (pedido del usuario 2026-09-30:
+ * ninguno de los papeles lo dice). La vista del ERP rotula el U-D-12 «Factura Cont No Fiscal»; se
+ * limpia AQUÍ, en el único punto por el que el rótulo llega a los tres papeles y a la pantalla, y
+ * no en la vista: otros consumidores (cartera, finanzas) sí distinguen por ese texto.
+ */
+export function rotuloSinFiscal(label: string | null): string | null {
+  if (!label) return label;
+  const limpio = label
+    .replace(/\s*\(?\bno\s+fiscal\b\)?/gi, '')
+    .replace(/\s*\(?\bfiscal\b\)?/gi, '')
+    .replace(/\bCont\b\.?$/i, 'de contado')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return limpio || null;
+}
 
 /** Lo que se entendió de lo que el humano tecleó. */
 export interface FolioBuscado {
@@ -344,11 +401,14 @@ export class CommercialTicketsService {
       // ORDER BY en SQL). Se distingue de "hay mas de 50" a proposito.
       let topado = false;
 
+      // [TK.a1]/[TK.a2] La fecha viaja como TEXTO. Cruda, pg la entrega como objeto Date: la plantilla
+      // tronaba al pintarla (tarjetas mutiladas) y el sort de abajo comparaba "Sun Mar 15..." —
+      // o sea, ordenaba por día de la semana. Mismo criterio que la bandeja (TK.12).
       // ── Mostrador (U-D-10) ────────────────────────────────────────────────
       const tk = trx('analytics.erp_sale_tickets as t')
         .where('t.tenant_id', tenantId)
         .select('t.folio_digital as id', 't.sucursal', 't.warehouse_name as sucursal_nombre',
-          't.caja', 't.folio', 't.fecha', 't.cliente_nombre', 't.total')
+          't.caja', 't.folio', trx.raw("to_char(t.fecha,'YYYY-MM-DD') as fecha"), 't.cliente_nombre', 't.total')
         // Sin ORDER BY: es redundante (se reordena en JS) y es lo que dispara el mal plan sobre
         // estas vistas. Ver `LIMITE_POR_UNIVERSO`.
         .limit(LIMITE_POR_UNIVERSO + 1);
@@ -371,7 +431,7 @@ export class CommercialTicketsService {
       // ── Telemarketing y crédito (U-D-8 / U-D-12) ──────────────────────────
       const fa = trx('analytics.erp_sales_invoices as i')
         .where('i.tenant_id', tenantId)
-        .select('i.folio_digital as id', 'i.sucursal', 'i.doc_tipo', 'i.folio', 'i.fecha',
+        .select('i.folio_digital as id', 'i.sucursal', 'i.doc_tipo', 'i.folio', trx.raw("to_char(i.fecha,'YYYY-MM-DD') as fecha"),
           'i.cliente_nombre', 'i.total')
         // Idem: sin ORDER BY. Ésta es la que el servicio hermano midió en 23,856 ms con él.
         .limit(LIMITE_POR_UNIVERSO + 1);
@@ -405,7 +465,7 @@ export class CommercialTicketsService {
         .where('o.tenant_id', tenantId)
         .whereNull('o.deleted_at')
         .select('o.code as id', 'w.code as sucursal', 'w.name as sucursal_nombre', 'o.code as folio',
-          trx.raw('o.created_at::date as fecha'), 'c.name as cliente_nombre', 'o.total')
+          trx.raw("to_char((o.created_at AT TIME ZONE 'America/Mexico_City')::date,'YYYY-MM-DD') as fecha"), 'c.name as cliente_nombre', 'o.total')
         // Acá el ORDER BY SÍ se queda: `commercial.orders` es una tabla nuestra, chica y con
         // índice, no una vista derivada de 3.4M filas. El problema medido es de las otras dos.
         .orderBy('o.created_at', 'desc')
@@ -543,7 +603,7 @@ export class CommercialTicketsService {
         .orderBy('linea');
 
       return this.armar({
-        id: cab.folio_digital, origen: 'mostrador', doc_label: cab.doc_label,
+        id: cab.folio_digital, origen: 'mostrador', doc_label: rotuloSinFiscal(cab.doc_label),
         sucursal: cab.sucursal, sucursal_nombre: cab.warehouse_name, caja: cab.caja,
         folio: cab.folio, fecha: cab.fecha,
         cliente_nombre: cab.cliente_nombre, cliente_rfc: cab.cliente_rfc,
@@ -585,7 +645,7 @@ export class CommercialTicketsService {
       // truena — falla ruidosa, no hace falta detectarla. La que puede estar a medias es ésta.
       const soporteLista = await this.soporteLista(trx);
       return this.armar({
-        id: cab.folio_digital, origen, doc_label: cab.doc_label,
+        id: cab.folio_digital, origen, doc_label: rotuloSinFiscal(cab.doc_label),
         sucursal: cab.sucursal, sucursal_nombre: null, caja: null,
         folio: cab.folio, fecha: cab.fecha,
         cliente_nombre: cab.cliente_nombre, cliente_rfc: cab.cliente_rfc,
@@ -773,6 +833,8 @@ export class CommercialTicketsService {
         iva: 0, ieps: 0, impuesto_tipo: null,
         precio_neto: null, precio_neto_desc: null,
         iva_tasa: num(l['iva_tasa']), ieps_tasa: num(l['ieps_tasa']),
+        // Se llena al final, cuando ya se conoce el reparto del descuento y el cuadre fiscal.
+        desglose: null as unknown as TicketDesglose,
       };
     });
 
@@ -843,6 +905,86 @@ export class CommercialTicketsService {
       l.precio_neto = impuestoCuadra && l.lista_conocida ? r2(l.precio_lista / div) : null;
     }
 
+    // ── [TK.13] EL DESGLOSE QUE SE LE ENTREGA AL CLIENTE ─────────────────────────────────
+    //
+    // Pedido explícito: al cliente con descuento se le desglosa, y sobre el precio YA
+    // descontado se le separan los impuestos — por partida y en el total. El descuento del
+    // CLIENTE (el del documento) va REPARTIDO en cada partida con el mismo `factor` que ya usa el
+    // impuesto, así las columnas cuadran entre sí y contra la cabecera.
+    //
+    // ⚠️ La cifra exacta es la de PARTIDA: se redondea una vez y el residuo de centavos se le
+    // carga a la partida más grande, para que Σ neto = total del documento sin un centavo de
+    // diferencia. La unitaria se DERIVA de la partida (÷ cantidad) y por eso puede no dar la
+    // partida exacta al multiplicarla: el papel imprime las dos cuando la cantidad no es 1.
+    const netos = lineas.map((l) => (h.impuestos_incluidos
+      ? r2(l.importe * factor)
+      : r2(l.importe * factor + l.iva + l.ieps)));
+    if (h.impuestos_incluidos && netos.length) {
+      const dif = r2(r2(h.total) - netos.reduce((a, b) => a + b, 0));
+      // Sólo se absorbe el redondeo: una diferencia mayor es un documento que no cuadra, y eso
+      // lo declara `cuadra`/`aviso`, no se esconde en un renglón.
+      if (dif !== 0 && Math.abs(dif) <= Math.max(0.05, netos.length * 0.01)) {
+        const i = netos.indexOf(Math.max(...netos));
+        netos[i] = r2(netos[i] + dif);
+      }
+    }
+    lineas.forEach((l, i) => {
+      const neto = netos[i];
+      const conDesc = h.impuestos_incluidos ? neto : r2(l.importe * factor);
+      // Negativo = el total del documento quedó ARRIBA de sus renglones (redondeo a favor): no
+      // es un descuento y no se imprime como tal.
+      const descCliente = r2(l.importe - conDesc);
+      // `precio_lista` ya vale lo cobrado cuando el ERP no guarda la lista (ver arriba). Con
+      // descuento de cliente eso sigue siendo una referencia válida —el precio ANTES de ese
+      // descuento—; sin ninguno de los dos no hay contra qué comparar y va `null`, nunca 0.
+      const hayRef = l.lista_conocida || descCliente > 0;
+      const ref = r2(l.precio_lista * l.cantidad);
+      const sin = impuestoCuadra ? r2(neto - l.iva - l.ieps) : null;
+      const partida: DesgloseMonto = {
+        lista: hayRef ? ref : null,
+        descuento: hayRef ? Math.max(0, r2(ref - conDesc)) : 0,
+        con_descuento: conDesc,
+        sin_impuestos: sin,
+        iva: impuestoCuadra ? l.iva : null,
+        ieps: impuestoCuadra ? l.ieps : null,
+        neto,
+      };
+      // La unitaria se deriva y se CIERRA en su propio renglón: el impuesto unitario es lo que
+      // falta de `sin_impuestos` a `neto`, así la fila se suma sola. Como IVA e IEPS nunca
+      // coinciden (0 de 123,203), ese resto es entero de uno de los dos.
+      const q = l.cantidad > 0 ? l.cantidad : 1;
+      const netoU = r2(neto / q);
+      const conDescU = r2(conDesc / q);
+      const sinU = sin != null ? r2(sin / q) : null;
+      const impU = sinU != null ? r2(netoU - sinU) : null;
+      const unitario: DesgloseMonto = {
+        lista: hayRef ? l.precio_lista : null,
+        descuento: hayRef ? Math.max(0, r2(l.precio_lista - conDescU)) : 0,
+        con_descuento: conDescU,
+        sin_impuestos: sinU,
+        iva: impU == null ? null : (l.impuesto_tipo === 'iva' ? impU : 0),
+        ieps: impU == null ? null : (l.impuesto_tipo === 'ieps' ? impU : 0),
+        neto: netoU,
+      };
+      l.desglose = { unitario, partida, descuento_cliente: Math.max(0, descCliente) };
+    });
+    const sumaDe = (k: keyof DesgloseMonto) => {
+      const vs = lineas.map((l) => l.desglose.partida[k]);
+      return vs.some((v) => v == null) ? null : r2(vs.reduce<number>((a, v) => a + (v as number), 0));
+    };
+    const hayRefDoc = lineas.some((l) => l.desglose.partida.lista != null);
+    const desgloseTotal: DesgloseMonto = {
+      // La lista del TOTAL suma la referencia de todos los renglones (la cobrada donde el ERP no
+      // guarda la lista): es el mismo `importe_lista` de la cascada, no un segundo número.
+      lista: hayRefDoc ? importeLista : null,
+      descuento: r2(lineas.reduce((a, l) => a + l.desglose.partida.descuento, 0)),
+      con_descuento: r2(lineas.reduce((a, l) => a + l.desglose.partida.con_descuento, 0)),
+      sin_impuestos: sumaDe('sin_impuestos'),
+      iva: sumaDe('iva'),
+      ieps: sumaDe('ieps'),
+      neto: r2(lineas.reduce((a, l) => a + l.desglose.partida.neto, 0)),
+    };
+
     const descuentoTotal = r2(descuentoPrecio + (cuadra ? descuentoDocumento : 0));
     const cascada: TicketCascada = {
       importe_lista: importeLista,
@@ -860,6 +1002,7 @@ export class CommercialTicketsService {
       iva_lineas: ivaLineas,
       ieps_lineas: iepsLineas,
       importe_neto: impuestoCuadra ? r2(importeNeto) : null,
+      desglose_total: desgloseTotal,
     };
 
     return {

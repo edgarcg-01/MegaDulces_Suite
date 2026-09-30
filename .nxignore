@@ -11,3 +11,8 @@ scripts/*.ts
 # NO debe ser parte del workspace Nx (tiene su propio project.json para
 # shared-auth que colisiona con el nuestro).
 _imported
+
+# Worktrees de git creados DENTRO del repo (p. ej. .wt-gx37-56): son una segunda copia del
+# monorepo y sus project.json duplican los nombres de proyecto -> Nx no arma el grafo y el
+# dev server deja de recompilar. Los worktrees van fuera del repo; esto es la red por si no.
+.wt-*/

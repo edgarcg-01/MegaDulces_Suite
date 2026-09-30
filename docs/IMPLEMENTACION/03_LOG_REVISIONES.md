@@ -5,6 +5,32 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test`
+- **TK.14**: se quitó «fiscal / no fiscal» de la carta PDF, reporte por cliente, anexo (AX), guía de
+  cobranza y del tipo de documento («Factura Cont No Fiscal» → «Factura de contado»).
+- **TK.a3**: las 4 fallas de `view:test` eran de main. Dos, una prueba escrita para el tablero que
+  inventaba KPIs (`[AUD-DAT.21]` los pasó a `null`). Dos, un descableado a medias de Costo estándar
+  que dejó el nodo del árbol y el candidato de la portada apuntando a una ruta comentada — un 404
+  real para diez roles en prod. Ese segundo lo corrigió en paralelo su autor (`d6f235286`, el mismo
+  cambio): al integrar main se tomó su versión.
+- **Lección**: *descablear una pantalla es cuatro lugares, no dos* — ruta, menú, nodo de
+  `authz-tree` (alimenta «Mi trabajo») y candidato de `permission.guard` (la portada del proyecto).
+  `landing-guards.spec` es el que lo detecta.
+- Suites completas: `view` 1,333 · `commercial` 299 · `api` 23 · `contracts` 233, todo verde.
+
+## 2026-09-30 — TK.12 + TK.13: bandeja de tickets por filtros, y desglose por pieza y partida
+- **Bandeja** (`/comercial/tickets`): sucursal · rango · cliente, y buscador por folio/clave/nombre.
+  Sin `ORDER BY` en el ERP → el tope se DECLARA (`truncado`). ⚠️ No medida contra volumen real.
+- **Desglose** en carta, pantalla y rollo: lista − descuento = c/desc → sin impuestos + IVA/IEPS =
+  neto, por pieza y por partida, con el descuento de cliente repartido; Σ neto = total al centavo.
+- **Cerrados de paso** `[TK.a1]`/`[TK.a2]`: la fecha del buscador viaja como texto.
+- **Lección**: se construyó sobre una base vieja (la rama del checkout compartido no tenía TK.11 ni
+  TK.d1–d4 de `main`). Guardado tal cual, habría borrado en silencio la paridad de TK.d1, el rótulo de
+  TK.d2 y el porcentaje de TK.d4. Se rehízo encima de `origin/main` en un worktree propio y las
+  pruebas de esas fases siguen verdes. *Antes de commitear sobre un checkout compartido: `git log
+  HEAD..origin/main -- <mis rutas>`.*
+- Detalle: `FASE_TK_TICKETS_VENTA.md` §9.
+
 ## 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué
 
 **Disparador:** Edgar — *"hay que arreglarlo"*, sobre el hecho de fondo que dejaron IC.12, ABC.6

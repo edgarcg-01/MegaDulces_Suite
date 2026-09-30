@@ -127,10 +127,45 @@ export interface ReporteFiltrosUI {
   detalle?: boolean;
 }
 
+/** TK.12 — Una fila de la bandeja: la misma del buscador de folio, más la clave del cliente. */
+export interface BandejaFila extends TicketCandidato {
+  cliente_code: string | null;
+}
+
+export interface BandejaTickets {
+  desde: string;
+  hasta: string;
+  filas: BandejaFila[];
+  /** true ⇒ algún canal llegó al tope: la lista está incompleta y su orden no es garantía. */
+  truncado: boolean;
+  resumen: { documentos: number; importe: number };
+  aviso: string | null;
+}
+
+export interface BandejaFiltrosUI {
+  date_from: string;
+  date_to: string;
+  /** ⚠️ Viaja como `warehouse_codes`: ScopeService lo interseca con el alcance del usuario. */
+  warehouse_codes?: string | null;
+  /** Clave de cliente exacta. */
+  cliente?: string | null;
+  /** Folio, clave o nombre del cliente. */
+  q?: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketsService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/tickets`;
+
+  /** TK.12 — La bandeja. Los vacíos no viajan: un `''` en el query se lee como filtro puesto. */
+  bandeja(f: BandejaFiltrosUI): Observable<BandejaTickets> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(f)) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') params = params.set(k, String(v).trim());
+    }
+    return this.http.get<BandejaTickets>(`${this.base}/bandeja`, { params });
+  }
 
   buscar(q: string): Observable<TicketBusqueda> {
     return this.http.get<TicketBusqueda>(this.base, { params: { q } });

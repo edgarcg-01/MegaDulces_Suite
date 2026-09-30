@@ -264,15 +264,15 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
     .cg-rec .cg-tbl td { vertical-align:top; }
-    .cg-cv { font-size:var(--fs-xs); color:var(--text-2); }
+    .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
     .cg-kpi-h { margin-top:1.25rem; }
     .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
-      color:var(--text-2); font-size:var(--fs-xs); text-decoration:underline; }
+      color:var(--text-soft); font-size:var(--fs-xs); text-decoration:underline; }
     .cg-lim-tog:hover { color:var(--action); }
     .cg-conc-lim { margin:.2rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
-      color:var(--text-2); display:flex; flex-direction:column; gap:.2rem; }
+      color:var(--text-soft); display:flex; flex-direction:column; gap:.2rem; }
     .cg-conc-wide { max-width:none; }
     .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
@@ -284,7 +284,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* Lo no medido se ve COMO aviso, no como letra chica decorativa: es la diferencia entre
        "movimiento del dia" y "cuanto hay en el cajero". */
     .cg-conc-nm { margin:.5rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
-      color:var(--warn-fg, var(--text-2)); display:flex; flex-direction:column; gap:.2rem; }
+      color:var(--warn-fg, var(--text-soft)); display:flex; flex-direction:column; gap:.2rem; }
     /* CS.3.13 — campo «venta a crédito» (se descuenta del efectivo esperado). */
     .cg-credito { display:flex; flex-direction:column; gap:.3rem; border:1px solid var(--border-color);
       border-radius:var(--r-md,8px); padding:.5rem .7rem; }
