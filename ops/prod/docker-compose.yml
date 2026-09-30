@@ -259,6 +259,55 @@ services:
       retries: 5
       start_period: 30s
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # [INFRA.1] REDIS — la pieza que faltaba para que el API pueda correr en más
+  # de una réplica.
+  #
+  # ⭐ El código para usarlo YA ESTABA ESCRITO Y NUNCA SE ENCENDIÓ. `main.ts`
+  # (líneas 355-357) instala un `ReportsIoAdapter` que, si hay `REDIS_URL`,
+  # registra `@socket.io/redis-adapter`; sin ella avisa y sigue en memoria. Los
+  # 13 gateways son NAMESPACES del mismo servidor io (`/alerts`, `/store`,
+  # `/caja`, `/bancos`…), así que un solo adapter los cubre a todos.
+  #
+  # Sin esto, dos réplicas del API son una REGRESIÓN, no una mejora: un `emit`
+  # en la réplica A no llega a los sockets conectados a la B, y el tiempo real
+  # se vuelve una lotería según a quién te tocó el balanceador.
+  #
+  # ⚠️ `REDIS_URL` enciende TRES subsistemas a la vez, no uno. Los tres tienen
+  # degradación elegante y los tres son el modo de producción previsto:
+  #   1. socket.io  → broadcast entre instancias (el objetivo);
+  #   2. CacheModule → Keyv sobre Redis en vez de en memoria. OJO: hoy el API y
+  #      el worker tienen cachés SEPARADAS; a partir de acá la COMPARTEN. El
+  #      acceso tenant-aware va por `TenantCacheService` — una clave que no esté
+  #      scopeada por tenant deja de ser un problema de un proceso y pasa a
+  #      serlo de todos (`app.module.ts` ya lo advierte para `CacheInterceptor`);
+  #   3. WhatsAppQueueService → BullMQ en vez de in-process. Hoy está dormido
+  #      (Fase F sin desplegar), pero el módulo carga igual.
+  #
+  # ⛔ `maxmemory-policy noeviction` NO es negociable: BullMQ corrompe colas con
+  # cualquier política que desaloje claves. Y por eso tampoco se usa este Redis
+  # como caché "de usar y tirar" con LRU — el caché convive, acotado por el tope
+  # de memoria y por el TTL de 60 s que fija `CacheModule`.
+  #
+  # AOF encendido y volumen propio: cuesta poco (este Redis guarda kilobytes) y
+  # evita la trampa de que, cuando llegue la Fase F, una cola de mensajes
+  # desaparezca en un reinicio sin que nadie lo relacione con esta línea.
+  redis:
+    <<: *app
+    image: redis:7-alpine
+    container_name: prod-redis
+    command: ["redis-server", "--appendonly", "yes",
+              "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["redis-data:/data"]
+    # Sin `ports:` a propósito: sólo lo alcanzan los contenedores de esta red.
+    # Un Redis sin contraseña expuesto a la LAN es un agujero, no una comodidad.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ═══════════════════════════════════════════════════════════════════════════
   # LAS APPS
   # ═══════════════════════════════════════════════════════════════════════════
@@ -271,10 +320,15 @@ services:
     container_name: prod-api
     depends_on:
       pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
     ports: ["8080:10000"]
     environment:
       TZ: America/Mexico_City
       NODE_ENV: production
+      # [INFRA.1] Enciende el adapter de socket.io entre instancias (y con él, el caché
+      # compartido). Ver el bloque del servicio `redis` para los TRES subsistemas que
+      # despierta esta sola variable.
+      REDIS_URL: redis://redis:6379
       PORT: "10000"
       API_PORT: "3333"
       API_PREFIX: api
@@ -338,9 +392,17 @@ services:
     container_name: prod-worker
     depends_on:
       pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
     environment:
       TZ: America/Mexico_City
       NODE_ENV: production
+      # ⭐ [INFRA.1] ACÁ NO ES PREPARACIÓN, ES UN HUECO QUE SE CIERRA HOY.
+      # `finance-jobs.service.ts` lo dice en su propio encabezado: "hace falta REDIS_URL
+      # para que el `emit` del worker llegue a los sockets del API". Los dos procesos
+      # tienen servidores io SEPARADOS, así que hasta ahora un evento nacido en un cron
+      # del worker se emitía contra un servidor sin un solo cliente conectado: no llegaba
+      # a nadie, y no fallaba nada — el modo de falla favorito de este sistema.
+      REDIS_URL: redis://redis:6379
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
       # [VL.11.C] Sin `GIT_COMMIT_SHA`: lo hornea la imagen. Mismo motivo que en `api` —
@@ -593,3 +655,6 @@ volumes:
     # `sudo`, que en `md` pide contraseña interactiva. Queda declarado:
     #   [VL.9.x] LV dedicado para `pg-prod-data` sobre los ~450 G sin asignar del VG.
   pg-rag-data:
+  # [INFRA.1] Kilobytes: pub/sub de socket.io + caché con TTL de 60 s. El volumen existe por
+  # la cola de BullMQ que llegará con la Fase F, no por tamaño.
+  redis-data:
