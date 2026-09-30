@@ -1,6 +1,20 @@
 # Fase CG — Caja General: del Access "Control" a la plataforma
 
-> **Estado:** 🔨 DISEÑADO (planeación) 2026-09-18 · **ADR-070 propuesto**
+> **Estado:** 🟢 **ETAPA 2 EN PROD (beta) 2026-09-29** · **ADR-070 propuesto**
+>
+> ⚠️ **Este documento se quedó 11 días atrás de su propio código.** El plan de abajo sigue vigente
+> como plan, pero marcaba `CG.13`/`CG.14`/`CG.15`/`CG.17` como pendientes cuando ya estaban en
+> producción, y no menciona `CG.18`–`CG.24` ni las trece entregas de `CS.3` (la caja fuerte CAOS
+> como segunda fuente). **El estado real vive en el tracker**, bloque
+> *“Sprint CG.18–CG.24 + CS.3”* de [`01_TRACKER_PROGRESO.md`](../01_TRACKER_PROGRESO.md), medido
+> contra prod el 2026-09-29.
+>
+> Lo más importante que el plan no podía anticipar, y que conviene leer antes de seguir
+> construyendo: **la maquinaria está completa y la adopción es 2 movimientos contra 12,491
+> pendientes, con cero cortes de caja cerrados.** No falta módulo: falta que se use, y falta la
+> decisión humana de `CG.10b` (122 cuentas, 0 confirmadas). Lo que sí era un defecto —un aviso de
+> fecha futura que no frenaba, y que ya metió un movimiento de enero al libro como diciembre—
+> quedó cerrado en `CG.24`.
 >
 > Esta fase ya tiene código en producción (CG.0–CG.7: espejo + pantalla de lectura) **pero nunca
 > tuvo documento ni entrada en el tracker ni ADR**. Este archivo cierra esa deuda y plantea la

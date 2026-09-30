@@ -9,7 +9,7 @@
  */
 import {
   esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, rankearFrecuentes,
-  TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
+  esFechaFutura, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
 
@@ -262,5 +262,56 @@ describe('rankearFrecuentes — lo que se repite se ofrece, la casualidad no', (
     const muchos = Array.from({ length: 30 }, (_, i) => u('100' + i, '1', 10 + i));
     expect(rankearFrecuentes(muchos, 5)).toHaveLength(5);
     expect(rankearFrecuentes([])).toEqual([]);
+  });
+});
+
+/**
+ * CG — el freno de la fecha futura.
+ *
+ * Nace de un hecho, no de una hipótesis: `CG-2026-00002` entró al libro de prod el 2026-09-28 con
+ * `fecha = 2026-12-10`. El documento era `X-D-26 0001298`, un gasto de ENERO que Kepler fechó en
+ * diciembre — su propio concepto lo dice: "GASTOS NF MORELIA 28-01-2026". La pantalla lo rotulaba
+ * desde seis días antes y el rótulo no frenaba: el libro terminó publicando 1 de 2 movimientos.
+ */
+describe('esFechaFutura — el documento fechado adelante no se confirma en lote', () => {
+  const HOY = '2026-09-29';
+
+  it('⛔ [negativa] los 8 casos medidos del ERP son futuros contra el día de México', () => {
+    // Las fechas reales que `analytics.mv_caja_movimientos` tenía el 2026-09-29.
+    for (const f of ['2026-12-01', '2026-12-10', '2026-12-14']) {
+      expect(esFechaFutura(f, HOY)).toBe(true);
+    }
+  });
+
+  it('hoy NO es futuro — el corte es estricto, si no la caja no podría cerrarse en su propio día', () => {
+    expect(esFechaFutura(HOY, HOY)).toBe(false);
+  });
+
+  it('el pasado nunca es futuro: corregir hacia atrás sigue siendo legítimo', () => {
+    expect(esFechaFutura('2026-01-28', HOY)).toBe(false);
+  });
+
+  it('acepta un timestamp o un Date sin que el huso corra el día', () => {
+    expect(esFechaFutura('2026-12-10T00:00:00.000Z', HOY)).toBe(true);
+    // ⚠️ Un `Date` construido con componentes locales: con `toISOString()` un 29-sep a las 19:00 de
+    // México se lee como 30-sep UTC y esto se pondría rojo. Por eso el motor NO usa toISOString.
+    expect(esFechaFutura(new Date(2026, 8, 29, 19, 0, 0), HOY)).toBe(false);
+  });
+
+  it('sin fecha o sin día de referencia NO afirma nada — no inventa un veredicto', () => {
+    expect(esFechaFutura(null, HOY)).toBe(false);
+    expect(esFechaFutura(undefined, HOY)).toBe(false);
+    expect(esFechaFutura('', HOY)).toBe(false);
+    expect(esFechaFutura('2026-12-10', '')).toBe(false);
+  });
+
+  it('una fecha ilegible no se toma por futura', () => {
+    expect(esFechaFutura('10/12/2026', HOY)).toBe(false);
+  });
+
+  it('el motivo tiene texto propio: la persona tiene que saber QUÉ corregir', () => {
+    expect(TEXTO_NO_CONFIRMABLE.fecha_futura).toMatch(/fecha/i);
+    // Exhaustividad: si mañana se agrega un motivo y nadie le escribe el texto, esto se pone rojo.
+    for (const t of Object.values(TEXTO_NO_CONFIRMABLE)) expect(t.length).toBeGreaterThan(20);
   });
 });

@@ -41,6 +41,7 @@
 
 | **WR — Réplica cruda Wincaja (Access 97 → Postgres)** | 🟢 **carril VIVO en beta (WR.0–7 ✅)** · 🔨 **WR-hist EN CARGA 2026-09-01** | **Carril VIVO ✅**: réplica cruda continua en `:5433/wincaja` (`w30`/`w32`/`w00`, 70 tablas c/u, ~807k filas, Σ de control al centavo) con CDC dos carriles bajo **PM2** (`wincaja-inc` cada 2 min · `wincaja-hash` cada 60). WR.6 re-apuntó el bronze (`--source replica`); WR.7 endureció el "girar en cero" (4 días vivo sin mover un dato: descubrimiento vacío cacheado + heartbeat sin destino + una sucursal caída cortando el ciclo). **WR-hist 🔨** (decisión Edgar 2026-09-01: *mudar Wincaja actual e histórico a Postgres*; crudo local + agregados a prod, 2017–2025, las 70 tablas, y *"priorizar lo actual de prod, de reciente a viejo"*): **206 unidades / 23.4 GB** → schemas `hNN` con el corte en la identidad. **Los dos hallazgos que definieron el diseño:** cada carpeta `<año>` es el corte de ESE año (no un acumulado) y **el `Consecutivo` REINICIA en 1 cada año** (suc 32: 2021 `1..89,586` · 2025 `1..129,760`) → sin el corte en la identidad los años se pisan en silencio. **Herramienta cambiada:** mdbtools en contenedor en vez de Jet+PS32 — **97 s vs 554 s** por archivo (5.7×) con filas y ΣValorVenta **idénticos al centavo**; el cuello no era Postgres (16–31 s de escritura) sino `ConvertTo-Json` por fila. Identidad = surrogate `(_dataset, _row_hash)`, nunca la PK natural (mdbtools reporta PK en `ArticulosRelacion.CodigoBarras` y **los datos la violan**). **2026 ya está en prod** dentro del corte `actual` (ene–ago, 65–85k movs/mes), no como corte propio. Plan en [`FASE_WR`](FASES/FASE_WR_WINCAJA_REPLICA.md) §13. **Pendiente:** terminar la corrida (~9 h) + `wincaja-hist-verify.js` (cruce contra el bronze de prod, cargado con OTRO lector) + confirmar la caída de cobertura 20→9 sucursales de ene→ago 2026 + `.7z` 2009–2016 + los agregados a prod. | 85% (vivo ✅ · histórico en carga) |
 
+| **CE — Costo estándar de Kepler (el que fija el precio)** | 🚀 **CE.0–CE.7 · LAS 3 MIGS EN PROD 2026-09-29** — candado 18/18 contra prod · falta redeploy + re-login | Disparador: Edgar mandó la pantalla de utilidad de Kepler (`70001`: **Monto sin IVA 86.00 · Costo de venta 68.21 · Ganancia 17.79**) — *"saquemos el costo estándar de cada producto… podemos denotar errores"*. **Qué es:** `kdii.c77/c78/c79`, uno por peldaño, **predeterminado** (cambia por escalón al editar la ficha, no con cada compra) y **es el que fija el precio**: `PV = costo × (1+margen%) × (1+impuesto%)` **cuadra al centavo en 41,470 de 42,424 = 97.75 %**; es también el que el POS congela en el renglón (`kdm2.c62`). 9,641 SKUs, 2 sin costo, **1,004 (10.4 %) con costo distinto entre plazas**. **Los errores, medidos contra PROD:** (1) **Kepler tiene DOS costos para el mismo renglón** — la pantalla lee el kardex (`kdij.c13`=68.21), el documento la ficha (`kdm2.c62`=66.52): sobre 336,805 renglones de ticket, COGS **$19,155,921 vs $20,139,783 = $983,862 · 5.14 % · 4.00 pp**, 40.4 % en desacuerdo, y la brecha se parte en **deriva real ($101,761)** contra **1,205 renglones con razón EXACTA de 10.000 que cargan $613,646 sobre $99,394 de venta** (⚠️ se sospechó primero como bug propio y se midió: `c56`/`c58` poblados en 1,205 de 1,205); (2) **«Monto sin IVA» sí trae el impuesto** — la suma de renglones cuadra con el total del encabezado **en bruto 89.64 %** y en neto 8.66 %; $26.76 M rotulados "sin IVA" contienen **$2,237,689**; (3) **cuatro márgenes el mismo día para el mismo producto**: Kepler 20.69 % · estándar 16.46 % · kardex 14.34 % · **lo pagado el 26-sep ($69.98/PAQ) 12.12 %** → sobredeclara **8.6 pp**; (4) **el peldaño de `kdik.c16` no siempre es el base** (95.83 % sí, **3.50 % no cae en ninguno**) y pega en el inventario publicado: **71 celdas valúan $1,776,847 donde su estándar dice $161,625** → **~$2.54 M en disputa** de $55.8 M. **Raíz de (1) y (4): la unidad base se CONTRADICE entre compra y venta dentro del mismo Kepler** (`96087`: compra 180 **PAQ** a $102.764, venta 120 **PZA** a $12.43, ficha base=PZA a $10.28). **Una corrección a lo nuestro y una retractación mía:** `v_kepler_unit_ladder.pv_base_cuadra` omite el impuesto y por eso **declara roto un catálogo sano en el 79.3 %** de las filas; y ⛔ **yo afirmé —mal— que el *20.2 % coincide con la última compra* de `ERP_KEPLER.md` §2.1 describía a `c18`**: re-medido sobre SU universo (33,089 pares, no sólo los con compra reciente) **`c16` SÍ es el promedio ponderado** (`c8/c5` en 61.06 %, mediana 1.0000) y lo que cambia entre 20.2 % y mi 72.41 % es la VENTANA, no la columna — *una medición sobre otro universo es otra afirmación*. Y **Entregado:** mig `20260929160000` (matvista de actividad: impuesto observado + unidades BASE — ⛔ **no** `mv_kepler_sales_daily.units`, que está en el peldaño vendido) + `160100` (`analytics.v_kepler_standard_cost`, vista derive-no-copy, **7 veredictos**) + `160200` (permiso `COMPRAS_COSTO_ESTANDAR_VER` repartido **derivando del estado vivo**, lección `[LC.6.2]`), módulo `commercial-standard-cost` (3 endpoints, **sin GESTIONAR**: se corrige en Kepler, ADR-040), pantalla `/compras/costo-estandar`, candado `test-newdb-standard-cost` con **5 pruebas negativas**, refresco nocturno con **umbral en `CRON_JOBS`** (sin él una matvista parada se ve VERDE, OBS.1). **Reparto medido:** `sin_operacion` 52,606 · `al_dia` 22,218 · **`estandar_bajo` 6,960 (+$233,205)** · `estandar_alto` 3,016 (−$159,541) · `no_comparable` 939 (declarado, **no restado**) · `sin_estandar` 475 · **`sin_testigo` 424 (el hueco REAL, invisible hasta separarlo de `sin_operacion`: estaba enterrado bajo 125× su tamaño)**. ⚠️ **Esos $73,664 netos NO son los $983,862** — dos preguntas contra testigos distintos, no se suman. ⛔ **No se consumió `v_kepler_unit_cost`** pese a tener la regla anti-réplica: hace `JOIN` contra nuestro catálogo y dejaba **66.69 % sin testigo** (reusar un primitivo no exime de medir su ALCANCE); se copió la regla y el candado exige que donde las dos tienen fila, coincidan. Builds api+view ✅ · contracts 160 ✅ · view 1,237 ✅.  **🚀 LAS 3 MIGRACIONES EN PROD 2026-09-29 (batches 587–589), candado 18/18 contra prod, 0 no medidos.** Autorizado por Edgar. ⚠️ **Mi propia advertencia estaba exagerada:** dije *«la 1ª escanea 2.16 GB → fuera de horario»* y **tardó 3.4 s** — un `CREATE MATERIALIZED VIEW` toma `ACCESS SHARE`, no bloquea al CDC; *un costo de lectura no es una escritura pesada*. ⛔ **Lo que sí pasó:** dos intentos murieron con `lock timeout` mientras `knex_migrations_lock.is_locked` leía **0**, y el mensaje de knex invita a `migrate:unlock` — **hacerlo habría abortado una migración ajena en curso**. El `0` no era el estado: era un **lock de FILA** de una transacción sin confirmar, invisible desde `edgar`; `pg_locks ⋈ pg_stat_activity` mostró al pid 175274 corriendo `CREATE MATERIALIZED VIEW analytics.mv_erp_count_rollforward` de otra sesión. Se esperó 186 s. ⭐ *Al candado de migraciones se le pregunta por `pg_locks`, no por su propia columna.* **Verificado en prod:** el cruce con `v_kepler_unit_cost` da **28,443 filas comunes, 0 difieren**; la prueba negativa del precio salió más fuerte que en laboratorio (**99.24 % con impuesto vs 17.66 % sin** = 81.6 pp); gate de <1 s medido dentro de `pg-prod`: **tabla de 300 filas 373 ms**. Permiso repartido a los 10 roles previstos. **Falta: redeploy api+view + re-login + validación visual.** **El commit quedó SIN hacer a propósito**: 6 archivos compartidos llevan también el trabajo sin commitear de la Fase BP de otra sesión. Plan en [`FASE_CE`](FASES/FASE_CE_COSTO_ESTANDAR.md). |
 | **KP — Paridad con Kepler (la venta que entregamos == la que entrega el ERP)** | 🟡 **En progreso** — K.0 ✅ · K.1 ✅ · **K.3 ✅ PROD 2026-09-08** · K.4/K.5/K.6 ⬜ | Pedido de Edgar: *"enfoquemos que kepler queda idéntico, no haya diferencia entre lo que entrega Kepler y lo que entregamos nosotros"*. ⚠️ **Colisión de letra:** la fase **K** del tracker es *AI product match* (cerrada); esta línea se rotula **KP** y los commits en curso usan `[K.x]` — no unificar a mano sin revisar los dos. **K.0/K.1 ✅** (commit `dd5d1728`): `analytics.v_erp_sales_line_units` — el renglón de `kepler_ods.kdm2` declara su propia conversión (`c55/c56/c57/c58`) y **el COSTO la arbitra**: `c62 = u1_cost × c58` en **98.38%** de 688,471 renglónes, mediana **1.0000** exacta y parejo en las 7 sucursales. El precio **no vota** (contradecía 50,447 renglónes/$19.5M contra 288/$42.7k del costo: es descuento, no conflicto de unidad). Veredicto `certeza`: confirmado 95.78% · sin_costo 2.92% · contradicho 1.29% · sin_factor 0.01%. Candado `test-newdb-sales-line-units` 38/38. **K.3 ✅ PROD 2026-09-08 — la cifra publicada sube $15.8M / 90 d (+30.6%)**: `mart.ventas` filtraba `h.c4=10` (sólo el ticket) y dejaba fuera **`U-D-8` Factura Telemarketing $14,580,181** y **`U-D-12` Factura Cont No Fiscal $1,491,784**. Ahora `IN (8,10,12)` — **el mismo corte que `mv_kepler_sales_daily`**, con lo que el fact y el sell-out dejan de contradecirse (`U-D-6` fuera: re-factura los tickets en 93.1%; `U-D-13` traspaso fuera). **Y la mitad que el plan no contemplaba: el CANAL.** La tabla no llevaba el doctype y el canal salía sólo de `forma_pago` → el **100%** de `U-D-8` caía en `credito` (la rama `TI%`→mayoreo **nunca se dispara**), lo que habría inflado el crédito publicado de $6.5M a $20.8M (**3.2×**). `mart.ventas` gana `doctype smallint` **aditiva, al final y nullable** (hay un escritor fuera del repo — el push `ruta_NN` de .249 — y un INSERT posicional corto sigue siendo válido en Postgres: esas filas llegan NULL y el CASE cae en la rama de siempre). Se **retiró** la rama `TI%` con delta medido cero: sus documentos son 1,360 `U-D-40` Pedido y 1,254 `U-D-41` Embarque, y `TI001/TI002` no existen en `kdud`. **Verificado contra PROD** (⚠️ el `.env` del repo apunta a `platform_test`; prod es Railway): paridad **8/8** (cobertura del dinero **98.20%**, mostrador 99.75%, **`mayoreo` = 99.19% de `U-D-8`**), `fact-vs-kepler` **21/21** (la 01 pasó de **1.8621 → 1.0006**), `verify-no-transfer-leak` verde (venía **rojo desde antes** por los 4 canales `wincaja_*`), `unit-truth` 40/40, `warehouse-box-factor` 29/29, `sellout-parity` verde, RR2 37/37. **Prueba negativa:** con la regla vieja `mayoreo` da **$0**. ⚠️ **Knock-on de esta noche:** `import-demand-clean.js` (nightly) deriva la demanda de `sales_daily` → sube el **sugerido de compra** en `/compras`. **KE.1+KE.2 ✅ PROD 2026-09-08 — la EXISTENCIA gana testigo propio y baja $4.47M.** La *cantidad* ya era verdad (identidad `entradas−salidas=qty` con **cero sin explicar** en las 6 sucursales; y dos sospechas mias resultaron INFUNDADAS al medirlas: `kdil.c4` es 0 en el 100% — el `baseline=0` del dictamen es correcto — y la suc `00`, con 122,096,465 unidades fantasma, ya estaba excluida). Lo que no era verdad es el *valor*: se valuaba con `catalog.products` (costo por PRODUCTO, global, en la unidad que el catalogo tenga) cuando Kepler trae SU costo por **sucursal × SKU** en `kdik.c16`, al mismo grano que la cantidad. `cost_base/c16` = mediana **1.0000** (±2% en 72.46%) vs `cost_with_tax/c16` = **1.0800** → la pantalla publicaba **con impuesto**. Brecha **$5,638,775 = 13.21%**, partida en dos causas separables: **$2.79M de impuesto** y **$2.03M de factor de caja** en 273 filas de granel (razones 16.2 · 21.6 · 20.0 · 32.0 · 31.4 — ROLLO GUAYABA GRANEL, CHOC HERSHEY BARRA GRANEL 14KG, TURIN CONF SEMIAMARGO 16KG: `cost_base` por bulto, `c16` por pieza; ADR-051 + ADR-055 medidos sobre la valuacion del inventario). Antes→despues en la consulta real: **$66,625,522 → $62,155,495 (−6.71%)**, Kepler −11.2%, Wincaja sin cambio y sus 6,380 celdas DECLARADAS en `celdas_sin_costo_erp`. Migs `20260908180000` (`v_erp_stock_truth`, el veredicto — **no elige**: devuelve los dos costos y `valor_arbitrado` NULL sin testigo) y `20260908190000` (`v_kepler_unit_cost`, el primitivo en UN solo lugar, 21,801 filas, con el anti-replica que `kdik` exige: 3,667 de 31,084 filas traen el costo de OTRA sucursal). Candado `test-newdb-stock-truth` **21/21**, existencia 23/23 sin regresion. ⛔ **`U-D-8` no se puede arbitrar y la hipotesis obvia quedo REFUTADA**: `c62` y `c63` vacios en el 98.81% de sus renglones (99.99% poblados en el ticket), y el testigo sustituto `c12` vs `kdik.c16` **no discrimina** — en los 94 renglones `contradicho` de U-D-10 dice "todo bien" igual que en los 60,107 `confirmado`. Es un espejo, no un testigo; no se agrego. ⚠️ **Pendiente: la pantalla todavia no MUESTRA `celdas_sin_costo_erp`** (declararlo en el response no es declararlo al usuario — la falla de VP.0.1 una capa arriba). **K.4 ✅ DIAGNOSTICADO 2026-09-10 (KX.3):** el "hueco de $1.56M" era **71% exclusion deliberada**. Descomposicion: **$917,065 (70.62%) cutover PH** (almacen 01 pre-2026-07-01, que el importer excluye porque esa venta la entrega Wincaja) + **$248,317 suc 00** (OFICINAS, nunca se publica) + **$333,409 la sucursal 07 SIN CABLEAR** + **$60,764 perdida real del importer** (358 celdas). El candado comparaba dos poblaciones distintas — le cobraba al importer dos reglas que aplica bien. ⭐⭐ **Lo real: la suc 07 (Morelia Madero) se creo el 2026-09-09 en `warehouses` y `sales_daily` tiene CERO celdas suyas.** `dim.sucursales` del consolidado (lo que `mart.refresh_ventas` itera por dblink) llega hasta **md_06**; no existe `md_07`. El ODS si la trae → 1,657 celdas / $333,409 de venta real invisible, creciendo cada dia. **Es el caso que ilustra la REGLA PRINCIPAL:** el fact sale de `mart.ventas` (importer sobre 7 dblinks) y no del ODS, asi que una sucursal nueva hay que registrarla A MANO. ✅ **CERRADO el mismo dia:** Edgar registro `md_07` → `127.0.0.1:5432/kepler_md_07`; el mart la consolido (4,403 filas / $344,505) y el fact la tomo **solo** en su siguiente ciclo. **La venta publicada de Kepler sube +2,076 celdas / +$344,505 (90 d)** y el hueco de paridad cae de **6,834 celdas / $1,558,529** a **352 / $60,731**. ⚠️ La historia de la 07 arranca el 2026-09-08 (es lo que trae su Kepler). Candado `test-newdb-kepler-parity` con bloque 2 reescrito + **gate nuevo** *toda sucursal Kepler registrada tiene venta en el fact*, **rojo a proposito** hasta que se cablee. **Falta:** el K.4 residual (358 celdas / $60,764) · **K.5** dejar de transformar `units` (5,687 celdas; primero rastrear quién las consume como kilos) · **K.6** docs + ADR. Lección nueva: [`GOTCHAS.md` §38](../GOTCHAS.md) — correr un importer a mano con su tarea programada viva = te lo matan a los 13 min, y el síntoma es un `FATAL 57P01` que parece de Railway. **KX ✅ 2026-09-09 — la existencia mirada al REVES, y dos de nuestras propias verdades se cayeron.** Pedido de Edgar: *"no busquemos patrones en lo correcto, busquemos patrones en lo incorrecto"*. Sin mover ninguna cifra publicada. ⛔ **Dos checks del candado no podian ponerse rojos:** el `SIN EXPLICAR = 0` que la doc citaba como prueba de que la cantidad cerraba **era la definicion** (la consulta filtra `entradas-salidas >= 0`, o sea excluye los negativos, el unico residuo que hay), y el del anti-replica afirmaba su etiqueta con la condicion `replica > 0`, que pasa mientras la columna exista. ⭐ **El "anti-replica" NO es replica:** las 3,667 filas descartadas son todas de la suc **03**, casi todas del almacen **02**; contra suc02/alm02 solo **3.66%** tiene entradas identicas, **1,049 SKUs van por DELANTE** (una replica no adelanta al original) y **645 solo existen en la 03** — son **90,630 unidades** de existencia sin publicar, de naturaleza **no establecida** (falta preguntarle a operaciones si 8ESQ opera bodega en Abastos). ⭐ **Los negativos: 1,818 filas / −68,504 u**, con **748 SKUs que venden sin UNA sola entrada**; recortarlos a cero esta bien, pero **recortar no es explicar**, y su firma quedo medida: **no es error de unidad** (2 de 1,796 con firma de caja; mediana `salidas/entradas` = **1.090**, no 12 ni 24). Ahora tienen techo. ⭐⭐ **`kdik.c16` es COSTO PROMEDIO PONDERADO HISTORICO, no el costo de hoy:** `c5` son las **entradas acumuladas** (== `SUM(kdil.c8)` en **25,143/25,143 = 100.00%**), asi que el arbitro valua **~2% barato** de forma sistematica (mediana `c16/c18` = 0.9805; `c18` falta en el 56%). Tambien cierra la refutacion de `c5`, que decia que NO era la existencia sin decir que ES. ⭐⭐ **La causa de lo contradicho era otra:** en **62 SKUs las dos columnas del catalogo estan en unidades distintas, y al reves de lo que dicen sus nombres** — `cost_with_tax < cost_base` (imposible para un impuesto), y contra Kepler `cost_with_tax/c16` pega en **60 con mediana 1.000** contra `cost_base/c16` en 21 con **10.872**. Son los mismos nombres que la doc atribuia al factor de caja (`TURIN CONF BLANCO 16KG` $5,002.56 vs $152.11 = 1/32.9). ⚠️ Bomba latente: hoy ninguna cae al fallback `cost_base`, que las valuaria **~10.9× arriba**. **Y el recargo del catalogo son CUATRO tasas**, no una: ×1.000 · ×1.080 · ×1.160 · **×1.240 = IVA 16 + IEPS 8**. **Tres hipotesis refutadas, escritas para que nadie las reconstruya:** *es granel* (279 de 306 filas son `is_weight=false` y cargan $2.29M de $2.68M) · *es el factor de caja declarado* (contra `v_unit_truth` solo **28 de 306**; **0** con el `units_per_box` pagado; solo el 15% de las razones es casi-entera) · *un `cost_base` compartido* (va al reves: los costos unicos se contradicen mas, 2.25% vs 0.37%). ⭐ **La tasa de error no predice el dinero** (suc 04, peor tasa 36.02% → $114,670; suc 06, mejor 20.47% → **$2,981,753**) y esta **concentrado**: **100 filas de 18,967 cargan el 47%** de la brecha. ⚠⚠ **Y una RETRACTACION del mismo dia: el almacen 02 SI es replica.** Mi refutacion uso las entradas acumuladas de `kdil` — un **acumulado recalculable**, testigo debil. El fuerte estaba a mano: **37,020 de 37,020 (100.00%)** documentos de suc03/alm02 existen identicos en la suc 02, congelados el **2026-01-07**; publicarlos seria **doble conteo de 78,633 u**. **El filtro esta correcto y el hueco de 90,630 u no existe.** R6 gana su matiz: buscar en el error no exime de elegir el testigo MAS FUERTE. ✅ **APLICADO:** fallback del catalogo blindado con `LEAST` (sobre las 101 filas: viejo **$3,574,981**, blindado **$563,102**, ERP **$246,243** — de ×31.4 a ×1.00; y **100.00%** de los 9,070 SKUs sanos sin cambio) · la pantalla de existencia **ya declara con que se valuo** (metodo = costo promedio del ERP, no de reposicion) y muestra `celdas_sin_costo_erp`, que el backend devolvia desde ayer y nadie veia — cierra la falla de VP.0.1 una capa arriba · la respuesta gana `metodo_valuacion` y `celdas_costo_invertido`. Builds api+view verdes. **KX.2 ✅ 2026-09-09 — CAJAS.** ⛔ Primero el error que casi se repite: **`c58` (peldano cobrado) NO es testigo de `box_factor` (empaque)** — mediana 0.0667 = 1/15 y **15,587 de 19,787 pares** con el peldano menor, porque el mostrador vende piezas; usarlo como veredicto marcaria 15,587 pares sanos (el falso positivo de ADR-055). ⭐ **Pero una direccion SI es imposible:** el ERP vendiendo una unidad MAYOR que la caja — **41 pares / $1,395,458**, con **36 de 41 en `box_factor = 1`** y **35 de 41 de `override`** (razon mediana 12.00×); los nombres traen el numero (`GOMA A GRANEL LA ROSA 12KG` con c58 12, `CAR SURTIDO 18KG COLOMBINA` con 18, `ALMENDRA CONFITADA 10 KG` con 24): granel por kilo con el factor puesto a mano en 1. ⭐⭐ **El override es la peor fuente por dos ordenes de magnitud, y lo dice un testigo INDEPENDIENTE del de ADR-057** (ese era lo PAGADO, este es lo COBRADO): override **2.92%** contradicho · default 0.17% · kepler_c84 0.03% · etiquetera **0.02%** · factor_sale 0.00% — **el factor manual se equivoca 146× mas seguido que la etiquetera**. ⚠️ **El peldano de Wincaja es un NULL mudo:** 353,595 celdas / **$86,189,728** (55% del ingreso 90 d) con `rung_factor` NULL y `units_unresolved` marcando **64**. Hueco abierto, ahora medido. ⚠️ **Y otra mala atribucion mia:** partir el fact por `kepler_code IS NOT NULL` daba "Kepler sin peldano en el 73% de la suc 06" — falso: **01 y 06 tienen los DOS ERPs en el mismo almacen**, el ERP se distingue por CANAL. Kepler resuelve el **99.85%**. Alarme con $26.3M inexistentes. Candado `test-newdb-unit-truth` **40 → 45** (bloques 5bis/5ter) con **5 pruebas negativas**. **KX.4 ✅ PROD 2026-09-10 (batch 360) — se arreglo en la PRECEDENCIA, no a mano.** Edgar: *"nada de corregir desde ui... un 100% de que lo que decimos es real"*, y con razon medida: el override es la fuente que el ERP contradice **146× mas** que la etiquetera, asi que corregirlo a mano lo reproduce. **Lo que estaba mal era `GREATEST(COALESCE(ovr, <cadena>), 1)`**: el override gana siempre y nada lo desplaza. Regla nueva **semantica**: un override de **`1`** no puede tapar un factor del ERP > 1 — `1` significa "no viene en caja", lo mismo que el `default`, o sea **no aporta informacion** y borra evidencia. **Medido:** 278 overrides → 262 con valor > 1 (**intactos**) + 16 con `=1`, de los que **12 tapaban un `c84 > 1`**; ⭐ y esos 12 son **exactamente** los 12 que el peldano vendido contradice (medidos por separado, coinciden uno a uno) — la regla **cuesta cero** y meter `kdm2` a la vista costaba 29.5 s sin hallar un caso mas. **Resultado: contradicciones 41 → 8** ($1,395,458 → $370,806), de override **35 → 2**, **13 tumbados y los 13 recuperaron el factor del ERP**; la presentacion de cajas de esas celdas cae de **18,005 a 2,089** (8.6×). El descarte **no es silencioso**: `source = 'override_no_dato'`. ⛔ **Limite honesto del 100%:** un peldano mayor que la caja **no prueba** que la caja este mal (caja de 6 + paquete de 12 son compatibles); es inequivoco solo con `bf = 1`. Quedan **2 inequivocos** ($190,737, exigen el peldano PERSISTIDO — `sales_daily.rung_factor` dice **1.0000 en los 8** porque el fact lo deduce por PRECIO) y **6 ambiguos** ($180,069) que **se declaran**. `test-newdb-warehouse-box-factor` **30/30**: la asercion de ADR-055 (*"cero impacto en Kepler"*) se rompio a proposito y en vez de relajarla se volvio **mas fuerte** — exige que **todo** desalineamiento este explicado por su causa (79 filas, **100%** del guard, cero sin explicar). El CSV "para corregir desde la UI" se **retiro** del repo. **KX.5 ✅ PROD 2026-09-10 (batch 364) — el peldano cobrado PERSISTIDO, y lo inequivoco cae a CERO.** Edgar: *"armalo"*. Los 2 inequivocos no se podian cerrar con lo que habia (la cadena da 1; **`sales_daily.rung_factor` dice 1.0000 en los 8** porque el fact lo deduce por PRECIO; y `kdm2` dentro de una vista caliente cuesta **38 s**). `analytics.mv_kepler_sold_rung`: `max(kdm2.c58)` a grano **sucursal x SKU**, ventana **365 d**, **20,560 pares / 4,249 con peldano > 1** — materializar por COSTO es legitimo (GOTCHAS §19). ⭐ **Regla angosta a proposito: el piso aplica SOLO con `box_factor = 1`** (tercera aparicion de la trampa del eje: usarlo de frente marcaria **15,587 de 19,787 pares sanos**). Aplico a **2 filas**, las 2 declaradas (`ALTOS ROLLO ALTA 20X30 1KG` y `REYMA ROLLO ALTA 15X25 1KG`, 1→20). **Recorrido: contradicciones 41 → 8 → 6 · $1,395,458 → $370,806 → $189,376 · inequivocas 2 → 0.** Las 6 restantes son ambiguas por naturaleza y **se declaran**. Refresco enganchado a `AnalyticsRefreshService` (nightly, CONCURRENTLY, latido por MV) — no se invento mecanismo (ADR-056) — con umbral en `CRON_JOBS` (`analytics_refresh_sold_rung`), sin el cual una MV parada se veria VERDE (OBS.1). `unit-truth` **45 → 48** (gate **CERO inequivocas** + salud de la MV + techo del piso, 3 pruebas negativas). ⭐ Y `warehouse-box-factor` **se gano su sueldo**: se puso rojo solo al aplicar KX.5 (*"2 filas que el guard NO explica"*) — se **nombro** la 2ª causa en vez de relajar el techo, y una 3ª lo vuelve a poner rojo. **30/30**. Build api verde. Candado `test-newdb-stock-truth` **21 → 37** con **7 pruebas negativas** verificadas; mig **355** en prod, solo `COMMENT ON VIEW`; `docs/VERDAD_ABSOLUTA.md` gana la **regla R6** (*el patron se busca en lo incorrecto*), el mapa del error por causa nombrada y cuatro huecos nuevos con monto. | 78% |
 | **VP — Verdad y Procedencia (ADR-056)** | 🟡 **En progreso** — VP.0 ✅ · VP.1 ✅ · VP.2 🔨 | Nace de *"me dicen que los números de la empresa cambian"*. La auditoría midió que **no falta arquitectura**: cada primitivo (frescura, cobertura, unidad, versión de la regla, valor anterior, cuadre contra árbitro, latido) **ya existía bien hecho en UN solo dominio y nunca se generalizó** — frescura en 4 de 171 endpoints, latido en 13 de 109 importers y **0** de los de datos maestros, **6** menciones de `as_of` en 874 interfaces de respuesta. **VP.0 ✅** paró tres mentiras vivas: `FRESHNESS_UNKNOWN` con `stale:false` dejaba MUDA a la etiquetera cuando fallaba la medición (misma pantalla que imprimió precios 54% bajo costo); **21 de 24** píldoras decían "actualizado" midiendo el navegador; `db-health` daba **verde incondicional** a las 3 matvistas del sell-out por no tener umbral. **VP.1 ✅** cerró las tres capas ciegas del sell-out (el candado de paridad que el docstring prometía y no existía · el refresh que materializaba el rollup sobre una pierna caída · el monitor). **VP.2.1 ✅** subió la forma a `libs/contracts`; **VP.2.3 ✅** puso la 4ª compuerta en CI. **VP.2.2 ✅** — la compuerta se prendió en rojo sola (13 → 17: las 4 respuestas de la fase BI nacieron declarando `generated_at` y callando la edad) y al arreglarlas resultó que **el parser de la compuerta podía dar verde falso**: cerraba el cuerpo con un `}` a principio de línea, así que una interfaz de una sola línea se tragaba a la de abajo y lo tragado no se examinaba (probado: 0 deudas sobre un corpus con una real). Deuda real 21, cerradas las 8 nuevas, `BASELINE` sigue en 13. Y se descubrió que **Análisis recibía la frescura desde VP.0.3 y no la pintaba** — declarar sin mostrar, la falla de VP.0.1 una capa arriba; hay candado nuevo que exige las dos ramas del ternario en pantalla. La deuda cerró en **0** en tres tandas (13 → 5 → 0) y la compuerta es hoy **regla dura**; en el camino se descubrió que el parser podía dar verde falso, que `type` era una puerta de escape, y que el primitivo vivía en un DOMINIO (mudado a `platform-core`: `libs/trade` no depende de commercial a propósito). **Falta:** VP.3.4 (latido en los 9 importers), VP.4.2 (servir el mes cerrado del cierre — el único item que cambia lo que ve el usuario), VP.5.3 (la suite a CI con Postgres de servicio) y aplicar a prod las migraciones `20260907160000` (ledger fantasma) y `20260908150000` (índices de frescura). Plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) | 75% |
 | **SD — Retiro del linaje imperativo de ventas (`sales_daily` → ODS)** | 🔨 **SD.0+SD.1 ✅ · SD.3 🧪 · SD.4 🟡 · SD.4b folio-counting ✅ + SD-PAY condición de pago ✅ APLICADOS PROD 2026-09-14 · SD-CH mayoreo preservado ✅ APLICADO PROD 2026-09-15 · SD.3b+SD.4c 🧪 lectores migrados al twin 2026-09-17 (weekly-analytics + thot-tools + commercial-analytics; el twin NO estaba schema-blocked — tickets 99.68% + mayoreo presente ya vivían en prod; se corrigió el bug de excluir mayoreo del Command Center: +$9.77M/30d)** · SD.2/SD.5 ⬜ | Nace de la petición *"purgar todo lo inventado / no fresco / obsoleto"*. La purga de basura (5 respaldos `_bak` + 2 `pgboss` dated + 3 tablas trade dead-on-arrival con sus vistas shim `public.*` + 3 latidos zombie + `reorder_policy` stale de MD-32) **se aplicó a prod aparte** (batch 395/396, migs `20260911120000`/`130000`/`140000`/`150000`). **Esto es lo que quedó identificado como "inventado" pero que NO se puede purgar: es load-bearing.** `analytics.sales_daily` (3.76 GB) + su cadena de rollups imperativos = el MISMO hecho de venta que el ODS, materializado por importer. **65 servicios leen `sales_daily`** (entre ellos el motor de margen). No se purga: se declara no-autoritativa y se migran los lectores al linaje ODS, con candado de paridad. **SD.0 ✅ 2026-09-14 (medido en PROD) — el −$265k de `tienda` NO existía: era comparación apples-to-oranges (taxonomías de canal distintas + el "$21.30M tabla" omitía `mayoreo`).** Re-medido channel-agnóstico: las ramas fijas 01-06 **cuadran al 0.4%**; **toda** la brecha (~$3.73M/mes) son 6 almacenes `kind='truck'` (RUTA-21..28 Kepler + RUTA-3xx/5xx Wincaja, `kepler_code=null` → NO replican a `kepler_ods`) que entran por push→mart (`route_push_lines`) y faltan en `mv_kepler_sales_daily` (sólo ramas 01-07). ⭐ **Corrige el target:** el linaje ODS COMPLETO ya existe — **`mv_sales_blended` cuadra con la tabla al 0.19%** e incluye ramas+ruta+Wincaja; SD.3 pasa de "reconstruir" a "repuntar a `mv_sales_blended`". Migrar a `mv_kepler_sales_daily` (target viejo) habría tirado $3.62M/mes de ruta en silencio. Hereda ADR-056/VP + ADR-059. Plan en [`FASE_SD`](FASES/FASE_SD_RETIRO_LINAJE_VENTAS.md). **SD.1 ✅ candado `test-newdb-sales-lineage-parity` (11/11 prod, en run-all-tests). Falta SD.3 (repuntar los 65 lectores a `mv_sales_blended`, empezando por el motor de margen, con antes/después).** | SD.0+SD.1 ✅ · fase ~30% |
@@ -6179,8 +6180,22 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
   `caja_sin_concepto`, `caja_folio_duplicado`, `caja_usuario_generico`,
   `caja_anticipo_sin_comprobar`, `caja_cuenta_sin_descomponer`. Valor el día uno, sin tocar Access.
 
-### Sprint CG.17, CG.13–CG.15 — Etapa 2: el sub-módulo (la razón de ser) ⬜
-- [ ] **[CG.17]** ⬜ ⭐ **Motor de autorrelleno, ANTES de la pantalla.** `CajaAutofillService` con la
+### Sprint CG.17, CG.13–CG.15 — Etapa 2: el sub-módulo (la razón de ser) 🟢 EN PROD
+
+> ⚠️ **Este bloque estuvo 11 días desincronizado.** Los tres items de abajo se marcaban ⬜
+> mientras su código ya vivía en producción con **18 migraciones aplicadas**. Se corrige contra
+> medición (2026-09-29, prod read-only), no contra memoria. Detalle de lo medido en el bloque
+> `CG.18–CG.24` más abajo.
+
+- [x] **[CG.17]** ✅ 2026-09-18 · `CajaAutofillService` + `finance.caja_classify_rules` +
+  `caja_kepler_concept_map` (migs `20260918160000`). Cableado en `CashLedgerController`
+  (`POST /finance/cash-ledger/autofill`), devuelve por campo `value`/`source`/`confidence`/
+  `support`/`reason`. Insumos **medidos vivos en prod**: `analytics.expense_entries` 34,071 filas /
+  776 beneficiarios / 319 pares (cuenta, concepto), al día de hoy.
+  ⚠️ **Lo que NO se hizo y sigue abierto:** la *medición de arranque* (correr el motor contra los
+  12,253 movs de 2026 y reportar qué % habría acertado). Sin ella nadie sabe cuánto ahorra ni cuál
+  es el N de la revisión de contabilidad, que es lo que `CG.10b` necesita para dejar de estar en 0.
+- [ ] **[CG.17-viejo]** ⬜ ⭐ **Motor de autorrelleno, ANTES de la pantalla.** `CajaAutofillService` con la
   cascada de 5 niveles (contexto → **ligar documento** `fiscal.cfdis` 167,135 / `erp_collections`
   23,771 / `erp_supplier_payments` 4,010 / `bank_movements` → **aprendido de `expense_entries`** con
   soporte `n`/% → `finance.caja_classify_rules` molde CB.6 → OCR `extractRemision`). Devuelve **por
@@ -6189,7 +6204,11 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
   ⚠️ Telemetría de corrección desde el día uno → auto-supresión (`precision_score`, MAAT.2/L2).
   ⚠️ **Medición de arranque:** correr contra los 12,253 movs de 2026 ya capturados y reportar qué %
   de campos habría acertado — dimensiona el ahorro y el N de la revisión de contabilidad.
-- [ ] **[CG.13]** ⬜ ⭐ `finance.cash_ledger` + `_denominations`. **Folio atómico**
+- [x] **[CG.13]** ✅ 2026-09-18 · `finance.cash_ledger` + `_denominations` + `cash_ledger_sequences`
+  (mig `20260918150000`). Verificado en prod: folios `CG-2026-00001/00002` por secuencia atómica,
+  par contable `NOT NULL`, `glosa` con CHECK de largo, `created_by` uuid. Los cuatro defectos
+  medidos del Access mueren por construcción.
+- [ ] **[CG.13-viejo]** ⬜ ⭐ `finance.cash_ledger` + `_denominations`. **Folio atómico**
   (`order_sequences`) mata los duplicados · **`kepler_cuenta`/`kepler_concepto` NOT NULL** validados
   contra catálogo vivo + snapshot del nombre · **`glosa` NOT NULL** mata los $71.96M sin concepto ·
   `created_by` del JWT mata el usuario genérico. Sucursal y centro de costo como dimensiones
@@ -6197,7 +6216,16 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
 - [ ] **[CG.11]** ⬜ *(paralelo)* `finance.caja_expense_settlements` — comprobación de gasto con
   adjunto + OCR + cuadre, calcado de `collection_deposits` (CC). Ataca los **$4,675,503.50** de la
   cuenta `1010` que hoy no tienen aging.
-- [ ] **[CG.14]** ⬜ `/finanzas/caja-general`, superficie Operations, con las **mismas 6 operaciones y
+- [x] **[CG.14]** ✅ 2026-09-18 · `/finanzas/caja-general` (`finanzas-caja-general.component.ts`,
+  2,881 líneas) + entrada de menú + nodo en `authz-tree`. Permisos **propios** y **REPARTIDOS en
+  prod** — verificado: `FINANCE_CAJA_VER` en **11 roles**, `_AUTORIZAR` sólo en `direccion` y
+  `superadmin` (fuera de todo `MODULE_GROUP`, patrón TP.6). La lección LC.6.2 se cumplió.
+  ⚠️ **El criterio de aceptación sigue sin medirse**: nadie cronometró a un capturista real contra
+  Access. Y la adopción dice que aún no se usó en serio (ver `CG.18–CG.24`).
+  ⚠️ `/finanzas/caja` (el espejo legacy) **sigue colgando de `FINANCE_BANK_VER`** y sigue llamándose
+  *“Caja General”* en el menú, mientras la pantalla nueva se llama *“Caja (captura)”*: el nombre
+  canónico apunta a la pantalla vieja. Queda como deuda con nombre.
+- [ ] **[CG.14-viejo]** ⬜ `/finanzas/caja-general`, superficie Operations, con las **mismas 6 operaciones y
   los mismos nombres** que la gente ya usa. Permisos **propios** `FINANCE_CAJA_VER`/`_GESTIONAR`/
   **`_AUTORIZAR`** (fuera de todo `MODULE_GROUP`, patrón TP.6) — hoy todo cuelga de
   `FINANCE_BANK_VER`. ⚠️ **Un módulo no está entregado hasta que su permiso está REPARTIDO en
@@ -6205,9 +6233,166 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
   ⚠️ **Criterio de aceptación: un capturista real registra un gasto típico en MENOS tiempo que en
   Access.** Krmn hace 6,981 movs/año; si se vuelve más lento, el sub-módulo fracasa aunque el dato
   sea perfecto.
-- [ ] **[CG.15]** ⬜ Corte de caja con doble llave (capturar ≠ autorizar), estados
-  `borrador → cerrado → autorizado` molde `purchase_book_runs` + aviso WS por
-  `FINANCE_NOTIFIER_PORT`.
+- [x] **[CG.15]** 🧪 2026-09-18 · Corte con doble llave **escrito y probado en unitarias, NUNCA
+  ejercido en producción.** `finance.cash_ledger_cuts` + `_cut_denominations` + `v_cash_ledger_balance`
+  (mig `20260918180000`), estados `borrador → cerrado → autorizado`, `ux_cash_cut_abierto` (uno por
+  sucursal), quien cierra no autoriza (frenado en DB y en servicio), y el arqueo **ciego** de CG.19
+  (sellar antes de revelar) con reconteo con motivo.
+  ⚠️ **Medido en prod 2026-09-29: la tabla tiene CERO filas.** Toda la doble llave, el arqueo ciego
+  y el reconteo nunca corrieron con dinero real. Queda en 🧪, no ✅: un mecanismo que jamás se
+  ejerció no está verificado, por más unitarias que tenga.
+  ⚠️ El aviso WS por `FINANCE_NOTIFIER_PORT` al cerrar con diferencia **no se construyó**.
+
+### Sprint CG.18–CG.24 + CS.3 — Lo que se construyó y nadie anotó (registrado 2026-09-29)
+
+> ⚠️ **Deuda de tracker, no de código.** Entre el 19 y el 29 de septiembre entraron ~30 commits
+> (`CG.19`…`CG.23` y `CS.3.1`…`CS.3.13`) y en este archivo **sólo existía `[CG.22.4]`**; `CS.3`
+> tenía **cero menciones**, y `FASE_CG_CAJA_GENERAL.md` se cortaba en CG.17. Se registra de golpe,
+> con lo medido contra prod el 2026-09-29 (read-only), para que el archivo vuelva a servir de
+> memoria compartida. La regla que se violó está en `CLAUDE.md`: actualizar el tracker al cerrar un
+> item es **mandatorio**.
+
+- [x] **[CG.18–CG.19]** ✅ La captura **elige** en vez de teclear: bandeja de pendientes desde
+  Kepler (`finance.v_caja_movimientos_pendientes`, `c45='0011'` = CAJA GENERAL) + arqueo **ciego**
+  (`POST cortes/:id/contar` sella y recién entonces revela; `revela()` lee el PERMISO, no el rol).
+- [x] **[CG.20–CG.21]** ✅ Confirmación en **lote**, los dos signos, cada fila en SU transacción
+  (una que falla no tumba al resto) + `frecuentes` + cuenta por regla / por ruta / por contra-cuenta
+  del propio documento.
+- [x] **[CG.22]** ✅ Auditoría de la propia pantalla: el botón Guardar no servía, los 3 diálogos
+  abrían sin botones (`pTemplate="footer"` que PrimeNG 22 ignora), el arqueo estaba muerto, la
+  bandeja no persistía nada, y la pantalla se pintaba **sin un solo estilo** (19 clases `fin-*` que
+  no existían). Ver también `[CG.22.3]` (415 ms → 0.4 ms) y `[CG.22.4]` (el matview que se
+  reescribía entero cada minuto) en la Fase PERF.
+- [x] **[CG.23]** ✅ El arqueo deja de ser opcional y el monto **sale del conteo**, no del teclado.
+- [x] **[CS.3.1–CS.3.13]** ✅ La caja fuerte (CAOS) como **segunda fuente**: autorrelleno del arqueo
+  con lo que la máquina ya contó, detector que propone qué retiro pagó qué gasto, unión
+  CAOS↔Kepler por **ruta + fecha de negocio**, comprobante en la térmica, buscador universal,
+  arqueo final (caja chica contra cajero) y **venta a crédito** descontada del efectivo esperado.
+
+#### ⛔ `[CG.24]` · El aviso de fecha futura no frenaba — ✅ 2026-09-29
+
+El defecto y su consecuencia, **medidos en prod**, no supuestos:
+
+- El ERP trae **8 documentos con `fecha_valor` posterior a hoy**. Los seis `X-D-26` lo dicen en su
+  propio concepto: *“GASTOS NF MORELIA **28-01-2026**”*, *“**30-01-2026**”*, *“**21-01**”* — son
+  gastos de **enero** que Kepler fechó en **diciembre**.
+- La bandeja los rotulaba desde el **22-sep** con *“fecha posterior a hoy”*. El rótulo **no frenaba
+  nada**: ni `motivosDeBloqueo`, ni `create()`, ni un CHECK.
+- El **28-sep** se confirmó `X-D-26 0001298` y entró al libro como **`CG-2026-00002` con
+  `fecha = 2026-12-10`**.
+- ⭐ **Consecuencia medida:** el libro tiene **2** movimientos y el filtro por default de la
+  pantalla (del 1º del mes a hoy) mostraba **1**. La mitad del libro invisible hasta diciembre. Y
+  como el corte ata por `sucursal + corte_id IS NULL` **sin filtro de fecha**, ese movimiento SÍ
+  entra al corte de septiembre: corte y libro no pueden cuadrar para el mismo período.
+
+*Un aviso que no frena es decoración* (ADR-056). El freno queda en **tres capas**, y la que manda
+es la del servidor:
+
+1. **Lote** — `esFechaFutura()` en `caja-lote.engine.ts` + motivo `fecha_futura` en
+   `MotivoNoConfirmable`. `resolverCuentas()` lo aplica **al final y ortogonal a la cuenta**: no
+   importa por qué camino se resolvió el par contable. La fila conserva su cuenta (para que la
+   captura a mano llegue rellenada) y sólo pierde `confirmable` → el checkbox se deshabilita solo
+   y “marcar todas” la salta, sin tocar la pantalla.
+2. **Formulario** — motivo `fecha_futura` en `motivosDeBloqueo(f, hoy)`. Acá el freno **es
+   corregible**: el campo de fecha es editable, así que la persona lee el motivo y lo arregla sin
+   salir de la captura.
+3. **Servidor** — `create()` tira `BadRequestException` con el texto de qué corregir.
+
+⛔ **Por qué NO va en un CHECK de la tabla:** `current_date` es STABLE y Postgres no admite
+funciones no inmutables en un CHECK. Y aunque las admitiera, un CHECK dejaría sin registrar un
+depósito post-fechado legítimo sin forma de explicarlo, y sólo diría *“violación de restricción”*
+en vez de qué arreglar.
+
+⚠️ **El día llega SIEMPRE por parámetro**, nunca del reloj adentro de la lógica pura: una prueba de
+fechas que lea el reloj se pone verde o roja según cuándo se corra. En el servidor el día sale de
+Postgres (`AT TIME ZONE 'America/Mexico_City'`), no de `new Date()` del contenedor.
+
+**Pruebas negativas** (12 nuevas, `caja-lote.engine.spec.ts` + `caja-captura.util.spec.ts` +
+`finanzas-caja-general.component.spec.ts`): las 3 fechas futuras reales del ERP frenan; hoy y el
+pasado no; sin fecha el motivo es `falta_fecha` y no `fecha_futura`; un `Date` con componentes
+locales a las 19:00 MX **no** se lee como mañana; y el gesto completo — se captura
+`X-D-26 0001298`, se verifica que **no se mandó nada al servidor**, se corrige la fecha y recién
+entonces guarda.
+
+🧪 `nx test finance` **155** · `nx test view` **123** · builds api+view OK · lint 0 errores ·
+`check:templates` y `check-provenance` OK.
+
+⛔ **Falta**, y no lo hago solo: **`CG-2026-00002` sigue en prod con `fecha = 2026-12-10`.** El
+freno impide que se repita, no corrige lo ya escrito. Su fecha correcta es una decisión de
+Finanzas (el documento se capturó en Kepler el **2026-02-12** y su glosa dice **28-01-2026**), y
+tocar dinero en prod necesita autorización explícita.
+
+
+#### ✅ `[CG.25]` · La fecha adelantada se avisa, y cuando Kepler la corrige la seguimos — 2026-09-29
+
+Decisión de Edgar sobre la fila que `[CG.24]` no podía arreglar: *"debemos avisar cuando un
+movimiento esté en una fecha adelante, y una vez se actualicen en Kepler actualizarlos también
+nosotros"*. Hereda **ADR-040**: el ERP es el dueño del documento, nosotros **no le escribimos** —
+la corrección se hace allá y acá se **sigue**. Corregirla a mano de este lado crearía dos verdades
+para el mismo documento, que es el camino B del §6 de ADR-070, prohibido.
+
+`CajaFechaFuturaScannerService` (`@Cron` 07:15 MX) + `POST /finance/cash-ledger/fecha-futura/scan`
+para poder ejercerlo sin esperar al cron — *un cron que nadie puede disparar es un cron que nadie
+verifica*.
+
+Tres reglas duras:
+- ⛔ **Sólo re-sincroniza el estado malo conocido** (`fecha > hoy`). No persigue cualquier cambio de
+  fecha del ERP: si una persona ya corrigió a mano, seguir a Kepler ciegamente le **desharía** la
+  corrección.
+- ⛔ **Nunca toca un movimiento congelado** (corte `cerrado`/`autorizado`): sus totales ya están
+  firmados. Se cuentan aparte y se avisan para resolverlos a mano.
+- ⛔ **Avisa por la campana (`FINANCE_NOTIFIER_PORT`), NO escribe hallazgos.** Mismo criterio ya
+  medido en `CobranzaGapScannerService` (`[CC.10]`): `finance.findings` acumuló **82,377 filas en
+  `nuevo` sin triage**, y acá **el trabajo cierra el item solo** — arreglás la fecha en Kepler y la
+  fila sale de la consulta. Un hallazgo pediría un "confirmar/descartar" aparte que duplicaría la
+  acción real.
+
+⚠️ **La trampa de RLS, evitada a propósito:** `finance.cash_ledger` tiene RLS **forzado** y esto
+corre por `@Cron`, sin request → sin `set_config('app.tenant_id', …, true)` el universo sale en
+**cero** y el cero se lee como *"no hay nada mal"*. Es exactamente lo que le costó a `cobranza_gap`
+reportar 0 abonos todos los días (`[AUD-DAT.8]`). Por eso `rowsAffected` del latido es el
+**universo revisado**, no los defectos: si fueran los defectos, el día que todo esté bien el latido
+diría *"cero entregado"* y se pintaría rojo por estar sano.
+
+Umbral registrado en `CRON_JOBS` (`caja_fecha_futura`, diario 07:15 MX, warn 26 h / crit 50 h) —
+sin esa línea el sensor cae en el `cfg ? classify : 'ok'` y un cron parado se ve verde.
+
+**Verificado contra PROD (read-only, 2026-09-29), no por inspección:**
+
+| Comprobación | Resultado |
+|---|---|
+| Lo que el resync escribiría **hoy** | **0 filas** — Kepler todavía no corrige el documento |
+| ⭐ Control: simulando que Kepler **ya corrigió** | **1 fila**: `CG-2026-00002` pasaría de `2026-12-10` a `2026-01-28` |
+| La medición del aviso | `libro=1 ($1,060) · congelados=0 · universo=2 · pendientes=7` |
+| La llave del resync pega contra el ERP | **2 de 2** anclados encuentran su documento |
+
+⭐ **El control es lo que vuelve informativo al cero.** Un *"0 candidatas"* solo no prueba nada:
+podría ser un join roto en vez de *"no hay nada que seguir"*. Simulando la corrección, la consulta
+selecciona exactamente la fila esperada.
+
+⭐ **Y el smoke destapó en vivo por qué el día tiene que salir de Postgres en hora de México:** al
+correrlo eran **las 2026-09-30 en UTC y las 2026-09-29 en México**. Con `toISOString()` o el reloj
+del contenedor, el freno habría dejado pasar un movimiento fechado mañana.
+
+🧪 `test-newdb-cash-ledger.js` bloque **7b** (4 ✓ / 1 NO MEDIDO: no hay cortes firmados con qué
+ejercer la exclusión de congelados — se declara, no se pone ✔).
+
+#### ⚠️ Lo que el módulo NO tiene, medido el 2026-09-29
+
+Ningún defecto de código — la maquinaria está completa y sana (18/18 migraciones en prod, latidos
+`mv_caja_refresh` 52 s / `caja_general_ship` 25 s / `replica_all` 20 min, frescura publicada desde
+`analytics.cron_run_log` con el tenant correcto). Lo que falta es **uso y decisión humana**:
+
+| Qué | Medido |
+|---|---|
+| Movimientos capturados en el libro | **2**, contra **12,491** en la cola de pendientes |
+| Cortes de caja cerrados | **0** — `finance.cash_ledger_cuts` vacía |
+| Mapa de conceptos HITL (`CG.10b`) | **122 cuentas · 0 con propuesta · 0 confirmadas**, igual que el 18-sep |
+| Cola fuera de la ventana de 45 días | **10,675 movs / $138.1M** (declarado en pantalla, no escondido) |
+
+⭐ Es el patrón de la Fase IC: **no falta módulo, falta que se use.** El insumo para desbloquear
+`CG.10b` ya está vivo y fresco (`expense_entries`, 319 pares); lo que falta es la medición de
+arranque de `CG.17` para saber cuántos renglones tendría que revisar contabilidad de verdad.
 
 ### Sprint CG.16 — Corte del Access ⬜
 - [ ] **[CG.16]** ⬜ Doble corrida con cuadre al centavo, y apagar **sólo** los menús `Flujo` y

@@ -426,6 +426,12 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('glosa', 'gasto de caja chica');
     contar({ 500: 2, 100: 1 });        // 1100, contra un documento que dice 1060
 
+    // ⚠️ `GASTO_TRABADO` es el documento REAL que salió mal en prod (`X-D-26 0001298`, fechado
+    // 2026-12-10 por un error de captura de Kepler), así que el freno nuevo lo detiene. Corregir la
+    // fecha es exactamente lo que ahora tiene que hacer el capturista, y el campo es editable.
+    expect(comp.bloqueos()).toEqual(['fecha_futura']);
+    comp.setF('fecha', todayMx());
+
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
 
@@ -435,6 +441,30 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(body['origen_ref']).toBe(GASTO_TRABADO.origen_ref);
     // Sin esto el servidor relee el importe del ERP y lo contado no llega al libro.
     expect(body['monto_contado']).toBe(1100);
+  });
+
+  /**
+   * CG — ⛔ El freno de la fecha futura, en el caso que lo hizo falta.
+   *
+   * `GASTO_TRABADO` no es un fixture inventado: es `00|X-D-26|0001298|0011`, el documento que el
+   * 2026-09-28 entró al libro de producción como `CG-2026-00002` con `fecha = 2026-12-10`. Es un
+   * gasto de ENERO ("GASTOS NF MORELIA 28-01-2026") que Kepler fechó en diciembre. La bandeja ya
+   * lo rotulaba desde el 22-sep y el rótulo no frenaba: el libro terminó mostrando 1 de 2
+   * movimientos, porque el filtro por default va del 1º del mes a hoy.
+   */
+  it('⛔ [negativa] no deja guardar un documento fechado adelante de hoy', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'gasto de caja chica');
+    contar({ 500: 2, 100: 1 });
+
+    expect(comp.f().fecha).toBe('2026-12-10');   // la fecha llega del documento, como siempre
+    expect(comp.bloqueos()).toContain('fecha_futura');
+    comp.guardar();
+    // Lo que importa no es el aviso: es que NO se mandó nada al servidor.
+    expect(svc['crear']).not.toHaveBeenCalled();
   });
 
   // ── 9 · PERSISTENCIA: lo tecleado sobrevive a un F5 ──────────────────────────────────────
@@ -965,8 +995,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ── CS.3.1c · CAOS ENTRA SOLO A LA BANDEJA + ARQUEO BLOQUEADO ──────────────────────────────
   it('CS.3.7 — capturar desde la bandeja pone el efectivo de la máquina APARTE; la reja arranca en cero', () => {
     montar({ caosCapturables: vi.fn(() => of({ rows: [CAOS_DEP], limit: 100, has_more: false, desde: '2026-09-24' })) });
-    // Se ve sin buscarlo: la fuente ya no es un autocompletado opcional.
-    expect(comp.caosPendientes().length).toBe(1);
+    // ⛔ Los movimientos del cajero SIN CONCILIAR ya no se listan en la bandeja: son el MISMO
+    // efectivo que la caja general de Kepler (`c45='0011'`), y listarlos sueltos invitaba a
+    // capturarlos como asiento propio = doble conteo. La captura desde el cajero sigue viva para
+    // el que SÍ se concilió (llega pegado a su fila de Kepler como `caos_match`).
     comp.capturarDesdeCaos(CAOS_DEP);
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
     // El efectivo de la máquina va APARTE, no en la reja: la reja queda en cero (para la diferencia).
