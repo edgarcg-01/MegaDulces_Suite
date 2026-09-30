@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ErpShipmentsService } from './erp-shipments.service';
+import { GuideCostService } from './guide-cost.service';
 import { ErpShipmentsController } from './erp-shipments.controller';
 
 /**
@@ -10,7 +11,7 @@ import { ErpShipmentsController } from './erp-shipments.controller';
  */
 @Module({
   controllers: [ErpShipmentsController],
-  providers: [ErpShipmentsService],
-  exports: [ErpShipmentsService],
+  providers: [ErpShipmentsService, GuideCostService],
+  exports: [ErpShipmentsService, GuideCostService],
 })
 export class LogisticsErpShipmentsModule {}
