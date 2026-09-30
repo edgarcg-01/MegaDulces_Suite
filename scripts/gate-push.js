@@ -155,8 +155,18 @@ function archivosDelPush({ shaLocal, shaRemoto }) {
     base = shaRemoto;
   }
   try {
+    // ⛔ TRES puntos, no dos. `git diff A..B` es un diff de dos PUNTAS: si tu rama
+    //    está atrasada respecto del remoto, te atribuye también —al revés— todo lo
+    //    que el remoto cambió y vos no tenés. Medido el 2026-09-30 con `main`
+    //    ahead 9 / behind 13: la compuerta culpaba de `finanzas-caja-general`,
+    //    `finanzas-mis-gastos` y `compras-costo-estandar` a un push que no tocaba
+    //    ninguno de los tres. `A...B` arranca en el merge-base, que es la única
+    //    definición honesta de "lo que traigo yo".
+    //    ⚠️ En un push fast-forward normal los dos dan igual, así que esto NO se ve
+    //    hasta que alguien empuja desde una rama atrasada — y entonces la compuerta
+    //    frena por trabajo ajeno, que es como se pierde la confianza en un gate.
     return new Set(
-      git('diff', '--name-only', `${base}..${shaLocal}`)
+      git('diff', '--name-only', `${base}...${shaLocal}`)
         .split('\n')
         .map((f) => f.trim())
         .filter(Boolean),
