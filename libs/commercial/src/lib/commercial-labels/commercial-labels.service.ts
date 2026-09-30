@@ -196,16 +196,28 @@ export class CommercialLabelsService {
       SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
         FROM analytics.v_label_price_changes
        WHERE sucursal = ? AND fecha = ?::date
-    ), lista AS (
-      SELECT to_jsonb(d) AS fila, abs(d.delta) AS orden, d.sku
-        FROM dia d
-       WHERE abs(d.delta) > ${CommercialLabelsService.PISO_DELTA}
-       ORDER BY abs(d.delta) DESC, d.sku
+    ), vis AS (
+      SELECT * FROM dia WHERE abs(delta) > ${CommercialLabelsService.PISO_DELTA}
+    ), top AS (
+      -- [ETQ-CAMBIOS.7] El tope cuenta PRODUCTOS, no renglones. Una etiqueta lleva todos los
+      -- precios del producto (LabelModel: piece/pack/box), asi que el producto es la unidad de
+      -- trabajo; la bitácora, en cambio, escribe una fila POR UNIDAD.
+      SELECT sku, max(abs(delta)) AS orden
+        FROM vis GROUP BY sku
+       ORDER BY max(abs(delta)) DESC, sku
        LIMIT ?
+    ), lista AS (
+      -- Las filas del mismo SKU quedan JUNTAS y ordenadas entre sí: antes se ordenaba por el delta
+      -- de cada renglón, así que la pieza y la caja del mismo producto podían salir a 80 filas de
+      -- distancia y se leían como dos productos distintos.
+      SELECT to_jsonb(v) AS fila, t.orden, v.sku, abs(v.delta) AS orden_unidad
+        FROM vis v JOIN top t ON t.sku = v.sku
     )
     SELECT
-      (SELECT coalesce(jsonb_agg(fila ORDER BY orden DESC, sku), '[]'::jsonb) FROM lista) AS items,
+      (SELECT coalesce(jsonb_agg(fila ORDER BY orden DESC, sku, orden_unidad DESC), '[]'::jsonb)
+         FROM lista) AS items,
       (SELECT count(*)::int FROM dia WHERE abs(delta) <= ${CommercialLabelsService.PISO_DELTA}) AS ocultos_centavo,
+      (SELECT count(DISTINCT sku)::int FROM vis) AS productos_del_dia,
       (SELECT max(fecha)::text FROM analytics.v_label_price_changes WHERE sucursal = ?) AS fuente_al`;
 
   private static readonly TOLERANCIA_H: Record<string, number> = {
@@ -303,7 +315,8 @@ export class CommercialLabelsService {
    */
   async priceChanges(sucursal: string | null, fecha: string | null): Promise<{
     items: LabelPriceChange[]; fecha: string; truncado: boolean; fuente_al: string | null;
-    ocultos_centavo: number; freshness: LabelsFreshness;
+    ocultos_centavo: number; productos_del_dia: number; tope_productos: number;
+    freshness: LabelsFreshness;
   }> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
@@ -311,20 +324,26 @@ export class CommercialLabelsService {
       const freshness = await this.freshness(trx);
       // Sin plaza no hay nada que mostrar: la bitácora es por tienda y mezclarlas diría que
       // cambió algo que en TU tienda no cambió.
-      if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0, freshness };
+      if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0,
+        productos_del_dia: 0, tope_productos: CommercialLabelsService.TOPE_CAMBIOS, freshness };
       const r = await trx.raw(CommercialLabelsService.SQL_CAMBIOS,
-        [suc, dia, CommercialLabelsService.TOPE_CAMBIOS + 1, suc]);
+        [suc, dia, CommercialLabelsService.TOPE_CAMBIOS, suc]);
       const row = r?.rows?.[0] ?? {};
       const filas = (row.items ?? []) as LabelPriceChange[];
-      // Un tope que recorta en silencio se lee como "no hubo más". Se pide uno de más para poder
-      // DECIRLO, y recién ahí se recorta.
-      const truncado = filas.length > CommercialLabelsService.TOPE_CAMBIOS;
+      // `[ETQ-CAMBIOS.7]` El truncamiento se mide en PRODUCTOS, que es lo que se recorta, y sale
+      // de la consulta en vez de deducirse del largo de la lista: con el tope por producto, las
+      // filas devueltas pueden pasar del tope sin que se haya recortado nada (un producto trae
+      // varias unidades). Deducirlo del largo diría "truncado" en días completos.
+      const productosDelDia = Number(row.productos_del_dia ?? 0);
+      const truncado = productosDelDia > CommercialLabelsService.TOPE_CAMBIOS;
       return {
-        items: truncado ? filas.slice(0, CommercialLabelsService.TOPE_CAMBIOS) : filas,
+        items: filas,
         fecha: dia,
         truncado,
         fuente_al: (row.fuente_al ?? null) as string | null,
         ocultos_centavo: Number(row.ocultos_centavo ?? 0),
+        productos_del_dia: productosDelDia,
+        tope_productos: CommercialLabelsService.TOPE_CAMBIOS,
         freshness,
       };
     });

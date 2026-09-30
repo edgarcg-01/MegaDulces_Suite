@@ -281,8 +281,9 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
           <div class="cpr-nota" role="status">
             <i class="pi pi-filter"></i>
             <div>
-              <b>Ese día tuvo más cambios de los que caben en la lista.</b>
-              <span>Se muestran los {{ items().length }} de mayor diferencia.</span>
+              <b>Ese día tuvo más productos de los que caben en la lista.</b>
+              <span>Cambiaron {{ productosDelDia() }} productos y se muestran los
+                {{ topeProductos() }} de mayor diferencia.</span>
             </div>
           </div>
         }
@@ -445,6 +446,9 @@ export class TiendaCambiosPrecioComponent {
   readonly truncado = computed(() => this.datos.value()?.truncado === true);
   readonly fuenteAl = computed(() => this.datos.value()?.fuente_al ?? null);
   readonly ocultosCentavo = computed(() => this.datos.value()?.ocultos_centavo ?? 0);
+  /** `[ETQ-CAMBIOS.7]` El recorte se cuenta en PRODUCTOS (= etiquetas), no en renglones. */
+  readonly productosDelDia = computed(() => this.datos.value()?.productos_del_dia ?? 0);
+  readonly topeProductos = computed(() => this.datos.value()?.tope_productos ?? 0);
 
   /** El día pedido está más allá de lo que la bitácora alcanzó: la lista vacía NO significa "sin cambios". */
   readonly sinDato = computed(() => {
