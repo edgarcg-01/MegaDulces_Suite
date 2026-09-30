@@ -5,9 +5,11 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DrawerModule } from 'primeng/drawer';
 import { DatePickerModule } from 'primeng/datepicker';
+import { SelectModule } from 'primeng/select';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
-import { LogisticaService, GuideCostRow, GuideCostBreakdown, GuideCostLines } from '../logistica.service';
+import { LogisticaService, GuideCostRow, GuideCostBreakdown, GuideCostLines,
+         GuideCostConceptoCat } from '../logistica.service';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
@@ -31,7 +33,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
   standalone: true,
   imports: [
     CommonModule, FormsModule, TableModule, TagModule, DrawerModule,
-    DatePickerModule, SkeletonModule, ButtonModule, SegmentedComponent, MetricStripComponent,
+    DatePickerModule, SelectModule, SkeletonModule, ButtonModule, SegmentedComponent,
+    MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -47,14 +50,40 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         <p-datepicker [(ngModel)]="hasta" dateFormat="yy-mm-dd" [showIcon]="true"
                       appendTo="body" (onSelect)="cargar()" />
       </div>
-      <div class="gc-field gc-grow">
+      <div class="gc-field">
         <label>Canal</label>
         <app-segmented [options]="canales" [value]="canal()"
                        (valueChange)="setCanal($event)" ariaLabel="Canal de la guía" />
       </div>
+      <div class="gc-field gc-grow">
+        <label>Tipo de gasto</label>
+        <p-select [options]="conceptos()" [(ngModel)]="conceptoFiltro" optionLabel="etiqueta"
+                  optionValue="concepto" placeholder="Todos los tipos" [showClear]="true"
+                  [filter]="true" appendTo="body" (onChange)="cargar()" />
+      </div>
     </div>
 
     <app-metric-strip [items]="kpis()" ariaLabel="Costo logístico del período" />
+
+    <!-- El retorno que SÍ se puede medir. No es margen y lo dice. -->
+    <div class="gc-roi" *ngIf="lista()?.retorno as r">
+      <div class="gc-roi-cell">
+        <span>Erosión logística</span>
+        <strong>{{ r.erosion_pct !== null ? (r.erosion_pct + '%') : 'sin medir' }}</strong>
+        <small>del valor movido se va en logística</small>
+      </div>
+      <div class="gc-roi-cell">
+        <span>Por cada $1 de logística</span>
+        <strong>{{ r.pesos_movidos_por_peso_gastado !== null
+                   ? ('$' + r.pesos_movidos_por_peso_gastado) : 'sin medir' }}</strong>
+        <small>de mercancía movida</small>
+      </div>
+      <div class="gc-roi-cell gc-roi-nm" *ngIf="lista()?.margen_declarado as m">
+        <span>Margen de ganancia</span>
+        <strong>no disponible</strong>
+        <small [title]="m.motivo">{{ m.en_su_lugar || m.motivo }}</small>
+      </div>
+    </div>
 
     <!-- ⭐ La banda de lo que NO se midió va ARRIBA, no al pie: es la condición de lectura de
          todo lo de abajo, no una nota al margen. -->
@@ -155,14 +184,17 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
                     (keydown.enter)="abrirConcepto(c.concepto)">
                   <td>
                     <span class="gc-cname">{{ c.concepto }}</span>
-                    <small *ngIf="c.fuente === 'otros_admin'" class="gc-admin">prorrateo admin</small>
+                    <small class="gc-admin">
+                      <span *ngIf="c.de_prorrateo">incluye {{ c.de_prorrateo | currency:'MXN':'symbol-narrow':'1.0-0' }} de prorrateo · </span>
+                      cuenta {{ c.cuentas }}
+                    </small>
                   </td>
                   <td class="comm-num">{{ c.atribuido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td>
                     <!-- El denominador a la vista: sin él, "atribuido" hay que creerlo -->
                     <small class="gc-share">
                       {{ c.paradas_guia }} de {{ c.paradas_bucket }} paradas
-                      · {{ c.ventana === 'mes' ? 'del mes' : 'del día' }}
+                      · {{ c.ventanas === 'mes' ? 'del mes' : c.ventanas === 'diario' ? 'del día' : c.ventanas }}
                     </small>
                   </td>
                 </tr>
@@ -255,6 +287,16 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .gc-pol { width:100%; font-size:.8rem; }
     .gc-pick { padding:3rem 1rem; }
     .gc-sk { display:flex; flex-direction:column; gap:.4rem; }
+    .gc-roi { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.75rem;
+      margin:.9rem 0; }
+    .gc-roi-cell { padding:.7rem .9rem; border:1px solid var(--border,#e7e5e4);
+      border-radius:var(--radius-md,8px); background:var(--surface,#fff); }
+    .gc-roi-cell span { display:block; font-size:.72rem; color:var(--text-muted,#78716c);
+      font-weight:600; text-transform:uppercase; letter-spacing:.02em; }
+    .gc-roi-cell strong { display:block; font-size:1.35rem; font-variant-numeric:tabular-nums;
+      margin:.15rem 0; }
+    .gc-roi-cell small { font-size:.72rem; color:var(--text-muted,#78716c); }
+    .gc-roi-nm strong { color:var(--text-muted,#a8a29e); font-size:1rem; font-style:italic; }
   `],
 })
 export class GuideCostPanelComponent implements OnInit {
@@ -270,6 +312,9 @@ export class GuideCostPanelComponent implements OnInit {
   desde = new Date(Date.now() - 30 * 864e5);
   hasta = new Date();
   readonly canal = signal('');
+  /** Catálogo de tipos de gasto: sale de los datos, no de una lista fija. */
+  readonly conceptos = signal<Array<GuideCostConceptoCat & { etiqueta: string }>>([]);
+  conceptoFiltro: string | null = null;
   readonly lista = signal<import('../logistica.service').GuideCostList | null>(null);
   readonly cargando = signal(false);
   readonly guias = computed(() => this.lista()?.guias ?? []);
@@ -289,14 +334,21 @@ export class GuideCostPanelComponent implements OnInit {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  setCanal(v: string) { this.canal.set(v); this.cargar(); }
+  setCanal(v: string) { this.canal.set(v); this.conceptoFiltro = null; this.cargar(); }
 
   cargar() {
     this.cargando.set(true);
     this.sel = null; this.detalle.set(null);
+    this.api.guideCostConceptos({
+      from: this.fmt(this.desde), to: this.fmt(this.hasta), canal: this.canal() || undefined,
+    }).subscribe({
+      next: (cs) => this.conceptos.set(cs.map((c) => ({
+        ...c, etiqueta: `${c.concepto} · ${c.guias} guías`,
+      }))),
+    });
     this.api.guideCosts({
       from: this.fmt(this.desde), to: this.fmt(this.hasta),
-      canal: this.canal() || undefined, limit: 300,
+      canal: this.canal() || undefined, concepto: this.conceptoFiltro || undefined, limit: 300,
     }).subscribe({
       next: (r) => { this.lista.set(r); this.cargando.set(false); },
       error: () => { this.cargando.set(false); },
@@ -324,17 +376,24 @@ export class GuideCostPanelComponent implements OnInit {
       .subscribe({ next: (l) => this.lineas.set(l) });
   }
 
+  /**
+   * ⛔ Los KPIs vienen del SERVIDOR (`totales`), calculados sobre el rango COMPLETO.
+   *
+   * Sumarlos acá sobre `guias()` era el bug reportado: la lista trae 300 filas y en 30 días hay
+   * **847 guías**, así que el total mostraba **$349,691 contra $1,251,514 reales** — subdeclaraba
+   * el 72 % y se leía como un dato, no como un truncamiento. Un total que depende del tamaño de
+   * página no es un total.
+   */
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const g = this.guias();
-    const conCosto = g.filter((x) => x.costo !== null);
-    const total = conCosto.reduce((s, x) => s + (x.costo || 0), 0);
-    const paradas = g.reduce((s, x) => s + x.paradas, 0);
+    const t = this.lista()?.totales;
     const cob = this.lista()?.cobertura;
+    if (!t) return [];
     return [
-      { label: 'Costo atribuido', value: total, format: 'currency', tone: 'brand',
-        sub: `${conCosto.length} guías costeadas` },
-      { label: 'Guías', value: g.length, format: 'number', sub: `${paradas} paradas` },
-      { label: 'Costo por parada', value: paradas ? total / paradas : 0, format: 'currency',
+      { label: 'Costo atribuido', value: t.costo, format: 'currency', tone: 'brand',
+        sub: `${t.guias_con_costo} de ${t.guias} guías costeadas` },
+      { label: 'Guías', value: t.guias, format: 'number',
+        sub: t.truncado ? `${t.paradas} paradas · mostrando ${t.mostradas}` : `${t.paradas} paradas` },
+      { label: 'Costo por parada', value: t.costo_por_parada ?? 0, format: 'currency',
         sub: 'promedio del período' },
       { label: 'Cobertura', value: cob?.pct ?? 0, format: 'percent',
         sub: cob?.note || 'sin medir' },

@@ -1120,7 +1120,16 @@ export class LogisticaService {
   // ⚠️ `costo` puede venir `null` y eso NO es cero: significa que no se registró gasto para ese
   // canal en esa ventana. La pantalla tiene que pintarlo como "sin medir", porque un 0 dice
   // "ese viaje fue gratis" — y de ahí sale un ROI infinito.
-  guideCosts(opts: { from?: string; to?: string; canal?: string; sucursal?: string; limit?: number } = {})
+  guideCostConceptos(opts: { from?: string; to?: string; canal?: string } = {})
+    : Observable<GuideCostConceptoCat[]> {
+    let p = new HttpParams();
+    Object.entries(opts).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    });
+    return this.http.get<GuideCostConceptoCat[]>(
+      `${this.base}/erp-shipments/costs/conceptos`, { params: p });
+  }
+  guideCosts(opts: { from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string; limit?: number } = {})
     : Observable<GuideCostList> {
     let p = new HttpParams();
     Object.entries(opts).forEach(([k, v]) => {
@@ -1707,19 +1716,46 @@ export interface MargenDeclarado {
   disponible: false;
   motivo: string;
   requiere: string;
+  en_su_lugar?: string;
+}
+
+export interface GuideCostConceptoCat {
+  concepto: string; cuentas: string; ventanas: string; guias: number; total: number;
+}
+
+/** Totales del SERVIDOR sobre el rango completo — NO se suman en el cliente. */
+export interface GuideCostTotales {
+  guias: number; guias_con_costo: number; paradas: number;
+  costo: number; mercancia: number; costo_por_parada: number | null;
+  mostradas: number;
+  /** true = la lista está paginada y sumarla daría menos que `costo`. */
+  truncado: boolean;
+}
+
+export interface GuideCostRetorno {
+  /** costo logístico / mercancía movida. NO es margen. */
+  erosion_pct: number | null;
+  pesos_movidos_por_peso_gastado: number | null;
+  nota: string;
 }
 
 export interface GuideCostList {
   guias: GuideCostRow[];
+  totales: GuideCostTotales;
+  retorno: GuideCostRetorno;
   cobertura: { measured: boolean; pct: number | null; note: string };
   margen_declarado: MargenDeclarado;
 }
 
 export interface GuideCostConcepto {
   concepto: string;
-  cuenta_mayor: string;
-  fuente: 'departamento' | 'otros_admin';
-  ventana: 'diario' | 'mes';
+  /** Las cuentas contables donde vive ese concepto (puede ser más de una). */
+  cuentas: string;
+  ventanas: string;
+  /** Las dos vías por las que llega el gasto, separadas en vez de partir el renglón. */
+  de_departamento: number;
+  de_prorrateo: number;
+  renglones: number;
   origen: 'directo' | 'atribuido';
   paradas_guia: number;
   paradas_bucket: number;
