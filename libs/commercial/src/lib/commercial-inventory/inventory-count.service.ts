@@ -759,6 +759,28 @@ export class InventoryCountService {
    * Costo: `i.unit_cost` congelado al reconciliar; si no, [KE.3] el resolvedor unico
    * `analytics.v_erp_unit_cost` (testigo del MISMO ERP y almacen); ultimo recurso el proxy
    * de `inventory.products`. Antes el fallback era `cost_base` del catalogo. (SUPERVISAR)
+   *
+   * ── `[IRA.1]` TRES COSAS QUE ESTA PANTALLA CALLABA (medidas en prod, 2026-09-30) ────────
+   *
+   * 1. ⛔ **No decía que el proceso nunca corrió.** El IRA sólo mira `status='reconciled'`, y
+   *    en prod hay **CERO**. Los 6 folios que existen están `cancelled`: se abrieron entre el
+   *    15 y el 19-jun-2026 en los almacenes `01` y `02` con **18,845 renglones**, de los que
+   *    se contaron **9 (0.05%)**. La pantalla mostraba «—», «$0», «0 folios» y dos mensajes de
+   *    vacío distintos — nadie podía deducir de ahí que lo que falta no es descuadre sino el
+   *    proceso entero. Ahora se devuelve `sin_reconciliar` con ese censo, y es lo primero que
+   *    la pantalla dice.
+   *
+   * 2. ⛔ **`net_variance_value` salía en `$0` sin base.** Cero pesos de variación y "no hay
+   *    con qué calcular la variación" son cosas distintas, y en una tarjeta de dinero se leen
+   *    igual. Los tres importes salen **NULL** cuando no hay un solo ítem (ADR-056).
+   *
+   * 3. ⛔ **El costo ausente entraba como CERO.** El `COALESCE(...)` termina en `0`, así que un
+   *    SKU sin testigo de costo aporta 0 al teórico **y** 0 a la varianza — o sea que una
+   *    diferencia sin costo se ve como si no hubiera diferencia, e **infla**
+   *    `value_accuracy_pct`. Hoy `v_erp_unit_cost` cubre el **100%** de las celdas con
+   *    existencia, así que el daño es potencial y no actual; pero eso es una medición de hoy,
+   *    no una garantía. Se cuenta y se devuelve `items_sin_costo` para que la pantalla pueda
+   *    declararlo en vez de que el porcentaje suba solo.
    */
   async iraMetrics(q: { warehouse_id?: string; from?: string; to?: string; tolerance_pct?: number }) {
     if (q.warehouse_id && !UUID.test(q.warehouse_id))
@@ -783,14 +805,36 @@ export class InventoryCountService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = c.tenant_id AND w.id = c.warehouse_id
         WHERE ${filters.join(' AND ')}`;
 
+      // `costoCrudo` es la misma cadena SIN el `0` final: sirve para CONTAR los que no tienen
+      // testigo, que es lo que el COALESCE con cero vuelve invisible.
+      const costoCrudo = `COALESCE(i.unit_cost, uc.costo_unitario,
+        ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0))`;
       const ov = (await trx.raw(
         `SELECT COUNT(*)::int AS total_items,
                 COUNT(*) FILTER (WHERE ${accurate})::int AS accurate_items,
                 COUNT(DISTINCT c.id)::int AS folios,
+                COUNT(*) FILTER (WHERE ${costoCrudo} IS NULL)::int AS items_sin_costo,
                 COALESCE(SUM(i.expected_qty * ${cost}), 0)::numeric AS expected_value,
                 COALESCE(SUM(ABS(COALESCE(i.variance,0)) * ${cost}), 0)::numeric AS abs_variance_value,
                 COALESCE(SUM(COALESCE(i.variance,0) * ${cost}), 0)::numeric AS net_variance_value
          ${baseFrom}`, binds)).rows[0];
+
+      // ⛔ EL CENSO DE LO QUE EL IRA NO MIRA. Un folio cancelado desaparece del universo, y con
+      // el proceso sin arrancar eso es TODO lo que hay: sin esto la pantalla no puede distinguir
+      // "no hay descuadre" de "nunca se reconcilió un conteo".
+      const otros = (await trx.raw(
+        `SELECT c.status, COUNT(DISTINCT c.id)::int AS folios, COUNT(i.*)::int AS renglones,
+                COUNT(i.*) FILTER (WHERE i.status <> 'pending')::int AS tocados,
+                MIN(c.created_at)::date AS desde, MAX(c.created_at)::date AS hasta,
+                COALESCE(string_agg(DISTINCT w.code, ', ' ORDER BY w.code), '') AS almacenes
+           FROM commercial.inventory_counts c
+           LEFT JOIN commercial.inventory_count_items i
+             ON i.count_id = c.id AND i.tenant_id = c.tenant_id
+           LEFT JOIN commercial.warehouses w ON w.id = c.warehouse_id
+          WHERE c.status <> 'reconciled'
+            ${q.warehouse_id ? 'AND c.warehouse_id = ?' : ''}
+          GROUP BY 1 ORDER BY 2 DESC`,
+        q.warehouse_id ? [q.warehouse_id] : [])).rows;
 
       const byReason = (await trx.raw(
         `SELECT COALESCE(i.reason_code, 'sin_clasificar') AS reason_code,
@@ -820,9 +864,21 @@ export class InventoryCountService {
         accurate_items: accurateN,
         ira_pct: total ? +((accurateN / total) * 100).toFixed(2) : null,
         value_accuracy_pct: expVal ? +((1 - absVar / expVal) * 100).toFixed(2) : null,
-        net_variance_value: +Number(ov.net_variance_value).toFixed(2),
-        abs_variance_value: +absVar.toFixed(2),
-        expected_value: +expVal.toFixed(2),
+        // ⛔ NULL y no 0 cuando no hay un solo item: "cero pesos de variacion" y "no hay con que
+        // calcularla" se leen igual en una tarjeta de dinero, y son cosas distintas (ADR-056).
+        net_variance_value: total ? +Number(ov.net_variance_value).toFixed(2) : null,
+        abs_variance_value: total ? +absVar.toFixed(2) : null,
+        expected_value: total ? +expVal.toFixed(2) : null,
+        /** Items cuyo costo no resolvio: entran al calculo valuados en CERO, o sea que una
+         *  diferencia sin costo se ve como si no hubiera diferencia e infla la exactitud. */
+        items_sin_costo: Number(ov.items_sin_costo) || 0,
+        /** Lo que el IRA NO mira: todo folio que no llego a `reconciled`. Con el proceso sin
+         *  arrancar, esto es lo unico que hay que contar. */
+        sin_reconciliar: otros.map((r: any) => ({
+          status: r.status,
+          folios: Number(r.folios), renglones: Number(r.renglones), tocados: Number(r.tocados),
+          desde: r.desde, hasta: r.hasta, almacenes: r.almacenes,
+        })),
         by_reason: byReason.map((r: any) => ({
           reason_code: r.reason_code,
           items: Number(r.items),

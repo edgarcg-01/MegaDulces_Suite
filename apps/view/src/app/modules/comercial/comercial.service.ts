@@ -3202,9 +3202,20 @@ export interface InventoryIra {
   accurate_items: number;
   ira_pct: number | null;
   value_accuracy_pct: number | null;
-  net_variance_value: number;
-  abs_variance_value: number;
-  expected_value: number;
+  /** [IRA.1] NULL cuando no hay un solo ítem: "cero pesos de variación" y "no hay con qué
+   *  calcularla" se leen igual en una tarjeta de dinero, y son cosas distintas. */
+  net_variance_value: number | null;
+  abs_variance_value: number | null;
+  expected_value: number | null;
+  /** [IRA.1] Ítems cuyo costo no resolvió. Entran valuados en CERO, así que una diferencia sin
+   *  costo se ve como si no hubiera diferencia e INFLA `value_accuracy_pct`. */
+  items_sin_costo: number;
+  /** [IRA.1] Lo que el IRA no mira: todo folio que no llegó a `reconciled`. Medido en prod:
+   *  6 folios cancelados, 18,845 renglones, 9 contados — y la pantalla no lo decía. */
+  sin_reconciliar: {
+    status: string; folios: number; renglones: number; tocados: number;
+    desde: string | null; hasta: string | null; almacenes: string;
+  }[];
   by_reason: { reason_code: string; items: number; units: number; value: number }[];
   recent_folios: {
     count_id: string; folio: string; warehouse_id: string; warehouse_code: string | null;
