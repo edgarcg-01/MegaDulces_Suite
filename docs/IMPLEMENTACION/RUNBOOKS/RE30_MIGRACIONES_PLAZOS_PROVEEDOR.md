@@ -187,6 +187,31 @@ ocupaba con dos migraciones aplicadas en prod (`analytics_price_waterfall`, `cas
 Se renombró a `180050` — no al siguiente libre (`180400`) — para que siga corriendo primero. La `180100`
 no depende de ella (sólo toca `identity.role_permissions`), pero el orden del runbook queda intacto.
 
+**Pre-vuelo re-medido contra prod el 2026-09-30 (sólo lectura, `BEGIN READ ONLY`):**
+- Ledger `public.knex_migrations`: ninguna de las 4 aplicada, ni con el nombre viejo; `identity.knex_migrations`
+  sin filas del 29-sep; `knex_migrations_lock.is_locked = 0`. `check-migration-collisions` y
+  `check-applied-migrations` contra prod: verdes.
+- ⚠️ **Prod tiene 6 migraciones registradas que NO están en `main`** (otra sesión, precios, batches 616–621):
+  `20260930220000_price_signals_v4_arbitro`, `…220100_price_signal_registry_a4`, `…230000_analytics_price_action`,
+  `…230100_price_action_unidades`, `…230200_price_action_umbral`, `…240000_grant_margin_engine_perm`. Si al
+  aplicar desde `prod-api` knex dice *«migration directory is corrupt»*, hay que copiar ESOS archivos al
+  contenedor también (ya aplicados: knex no los corre, sólo necesita verlos — cabecera de
+  `apply-one-migration-prod.js`). No son de este PR.
+- **180050:** las 6 columnas y los 3 CHECK no existen; nombres de constraint e índice libres; `credit_days`
+  = 25 de 1,318 con valor, rango 8–30 → los CHECK validan sin fallar. `UNIQUE (tenant_id, id)` existe para el FK.
+- **180100:** los 4 roles tienen 1 fila cada uno y ninguno tiene todavía `COMPRAS_OBLIGACIONES_*`.
+- **180200:** el SELECT nuevo corrido contra la vista viva: 20/20 columnas con el mismo nombre y tipo en el
+  mismo orden, 12,867 = 12,867 filas, `EXCEPT ALL` 0/0 en las 19 columnas comparables (sin `computed_at = now()`);
+  las 4 nuevas son `date, text, text, text`. El `down` reproduce la vista viva (`EXCEPT ALL` 0/0). `kdm1.c68` es
+  `timestamp` → el `::date` no puede fallar por texto sucio. Sin dependientes en `pg_depend`, ninguna función la
+  usa como tipo de fila. `relacl` = `app_runtime`, `dev_ro` (los re-aplica).
+- **180300:** las 3 tablas y sus 4 índices no existen; `public.current_tenant_id()`, `identity.tenants`,
+  `app_runtime` y `dev_ro` sí. Ninguna entrada de la vista tiene monto ≤ 0 (el `CHECK amount > 0` no estorba).
+- Dueño: prod aplica como `postgres`, dueño de `catalog.suppliers` e `identity.role_permissions`; los
+  privilegios por defecto de `postgres` en `catalog`/`commercial` le dan lectura a `dev_ro` en las tablas nuevas.
+- `import-payment-program.js` ya no puede tumbar su importación entera por el CHECK 0..365: un plazo fuera de
+  rango o no entero se omite y se reporta (`[WARN]`).
+
 ---
 
 ## 5. Cómo aplicarlas
