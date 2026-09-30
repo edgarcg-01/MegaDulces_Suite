@@ -1106,6 +1106,11 @@ const CRON_JOBS: CronCfg[] = [
   // Acá no es cosmético: /almacen/inventory/diferencias seguiría publicando el descuadre del
   // trimestre pasado, y su banda de dinero en disputa, como si fueran los de este.
   { key: 'analytics_refresh_count_variance',    label: 'Refresh MV descuadre de conteos (IC.12)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [UX.0] ⛔ El umbral más estrecho del tablero, y con razón: si el medidor de uso se muere, la
+  // tabla deja de crecer y «0 hits» se lee EXACTAMENTE igual que «nadie usa esa pantalla». Su
+  // falla produce la conclusión opuesta a la verdad, y encima sobre la herramienta con la que se
+  // decide qué auditar. Descarga cada 60 s: warn a la hora, crítico a las tres.
+  { key: 'ui_usage_flush',                      label: 'Telemetría de uso del API (UX.0)', cadence: 'continuo @60s', warnH: 1, critH: 3 },
   // ⭐⭐ [PR.R1] El ARBITRO DEL COSTO. Sin este umbral el sensor caia en `cfg ? classify : 'ok'`
   // y una MV parada se veia VERDE — y esta no es una MV mas: es la que decide si el margen de
   // toda la Suite es una medicion o un espejo del markup.

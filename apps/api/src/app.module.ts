@@ -41,7 +41,9 @@ import { WebSocketModule } from '@megadulces/trade';
 import { NewDatabaseModule } from '@megadulces/platform-core';
 import { QueueModule } from '@megadulces/platform-core';
 import { TenantModule } from '@megadulces/platform-core';
-import { TenantContextInterceptor } from '@megadulces/platform-core';
+import {
+  TenantContextInterceptor, UsageMetricsInterceptor, USAGE_METRICS_DB, KNEX_NEW_DB,
+} from '@megadulces/platform-core';
 import { JwtAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
@@ -52,12 +54,15 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
+import { CommercialStandardCostModule } from '@megadulces/commercial';
 import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 // [FLT] Lista de faltantes — el piso reporta la venta que NO ocurrió (ningún feed puede verla).
 import { CommercialStockoutsModule } from '@megadulces/commercial';
+// [BP] Bitácora de retiros en caja — Kepler autentica el retiro con supervisor y no lo guarda.
+import { CommercialPosVoidsModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
@@ -179,11 +184,14 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialWarehousesModule,
       CommercialPricingModule,
       CommercialProfitabilityModule,
+      // [CE.2] Costo estandar de Kepler por producto (solo lectura sobre analytics).
+      CommercialStandardCostModule,
       CommercialCommissionsModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
       CommercialStockoutsModule,
+      CommercialPosVoidsModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
       CommercialHomeDeliveryModule,
@@ -505,6 +513,15 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
           // pero inocuos (el chequeo es idempotente).
           { provide: APP_GUARD, useClass: RolesGuard },
           { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
+          // [UX.0] La telemetría de uso. Va DESPUÉS del de tenant para que `req.user` ya esté
+          // resuelto cuando anota el rol. Acumula en memoria y descarga cada 60 s: el costo por
+          // request es sumar en un Map, no un INSERT.
+          // ⛔ Existe porque al 2026-09-30 la Suite tenía 285 pantallas desplegadas y CERO forma
+          // de saber cuáles se abren — ni Caddy loguea accesos ni el API loguea rutas. Sin esto,
+          // priorizar una auditoría de 285 pantallas es opinión (el precedente es la Fase IC: el
+          // módulo completo, en prod, con 6 folios y todos cancelados).
+          { provide: USAGE_METRICS_DB, useExisting: KNEX_NEW_DB },
+          { provide: APP_INTERCEPTOR, useClass: UsageMetricsInterceptor },
         ]
       : []),
   ],
