@@ -193,8 +193,30 @@ export interface SalesByRouteOption {
 }
 
 export interface SalesByRouteDashboard {
-  /** Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`. */
-  series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
+  /**
+   * Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`.
+   * ⚠️ `lines` son RENGLONES, no unidades: la matvista hace `count(*)`, nunca `sum(qty)`.
+   */
+  series: Array<{ date: string; revenue: number; lines: number; tickets: number; cost: number | null }>;
+  /**
+   * `[AUD-DAT.21]` El desglose POR RUTA **del mismo rango de fechas**, de la misma matvista.
+   *
+   * Existe porque el consumidor lo estaba derivando de `sales_by_route_monthly` —grano MENSUAL—
+   * y para cuadrarlo con un rango de fechas hacia dos cosas que no se pueden hacer: redondeaba
+   * el rango a meses enteros (el preset de 30 dias sumaba agosto COMPLETO mas septiembre
+   * COMPLETO) y, por debajo de 25 dias, **prorrateaba** el mes por `dias/30`. Con esto el
+   * desglose y los KPIs salen del MISMO dato y del MISMO periodo, y coinciden por construccion.
+   */
+  by_route: Array<{
+    route_code: string; route_no: string;
+    warehouse_code: string; warehouse_name: string;
+    /** Con impuesto, misma base que `coverage.revenue`. */
+    revenue: number;
+    /** Sin impuesto. La otra base, para poder cuadrar contra reportes que publican el neto. */
+    subtotal: number;
+    lines: number; tickets: number;
+    cost: number | null; revenue_with_cost: number;
+  }>;
   /**
    * El hueco del COSTO, DECLARADO en vez de rellenado. `revenue_with_cost` es el denominador
    * honesto: el push de camionetas no trae costo (`costo_status='sin_dato_en_la_fuente'`), asi
@@ -208,6 +230,11 @@ export interface SalesByRouteDashboard {
     cost_coverage_pct: number;
     /** Hasta cuando alcanza la matvista, para que la frescura viaje con el dato (ADR-056). */
     data_as_of: string | null;
+    /**
+     * DESDE cuando alcanza. La matvista guarda 200 dias: si el rango pedido empieza antes, lo
+     * que se publica NO es el rango pedido y hay que decirlo. El preset «Este ano» son 272 dias.
+     */
+    data_from: string | null;
   };
 }
 
@@ -6040,7 +6067,8 @@ export class CommercialAnalyticsService {
       const series = (await trx.raw(
         `SELECT to_char(business_date,'YYYY-MM-DD') AS date,
                 round(sum(venta),2)::float          AS revenue,
-                sum(lineas)::int                    AS units,
+                -- ⚠️ RENGLONES, no unidades: la matvista hace count(*), nunca sum(qty).
+                sum(lineas)::int                    AS lines,
                 sum(tickets)::int                   AS tickets,
                 round(sum(costo),2)::float          AS cost
            FROM analytics.mv_rd_route_daily_200d
@@ -6052,10 +6080,41 @@ export class CommercialAnalyticsService {
         `SELECT round(sum(venta),2)::float revenue,
                 round(sum(venta) FILTER (WHERE costo IS NOT NULL),2)::float revenue_with_cost,
                 round(sum(costo),2)::float cost,
-                to_char(max(business_date),'YYYY-MM-DD') data_as_of
+                to_char(max(business_date),'YYYY-MM-DD') data_as_of,
+                to_char(min(business_date),'YYYY-MM-DD') data_from
            FROM analytics.mv_rd_route_daily_200d
           WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
             AND business_date <= CURRENT_DATE`, [tenantId, from, to])).rows[0];
+
+      // `[AUD-DAT.21]` El desglose POR RUTA del MISMO rango. La atadura ruta -> almacen es la
+      // MISMA que usa `salesByRoute` (branches.is_route -> parent_branch -> warehouse), para que
+      // las dos pantallas hablen de la misma sucursal.
+      //
+      // ⛔ Los tres JOIN son LEFT a proposito. Con INNER, una ruta sin fila en `wincaja.branches`
+      // —`VEC-PH-H`, que no es numerica— desaparece del desglose y su venta se evapora sin que
+      // nada avise. Perder una fila es peor que no saber su almacen: lo segundo se declara.
+      const rutas = (await trx.raw(
+        `SELECT COALESCE(w.code, '(sin almacen)')                        AS warehouse_code,
+                COALESCE(w.name, initcap(pb.branch_name), 'Sin almacen') AS warehouse_name,
+                'WIN-' || d.route_code                                   AS route_code,
+                d.route_code                                             AS route_no,
+                round(sum(d.venta),2)::float                             AS revenue,
+                round(sum(d.subtotal),2)::float                          AS subtotal,
+                sum(d.lineas)::int                                       AS lines,
+                sum(d.tickets)::int                                      AS tickets,
+                round(sum(d.costo),2)::float                             AS cost,
+                round(sum(d.venta) FILTER (WHERE d.costo IS NOT NULL),2)::float AS revenue_with_cost
+           FROM analytics.mv_rd_route_daily_200d d
+           LEFT JOIN wincaja.branches b
+                  ON b.tenant_id = d.tenant_id AND b.source_branch = d.route_code AND b.is_route = true
+           LEFT JOIN wincaja.branches pb
+                  ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+           LEFT JOIN commercial.warehouses w
+                  ON w.tenant_id = d.tenant_id
+                 AND w.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+          WHERE d.tenant_id = ? AND d.business_date >= ? AND d.business_date <= ?
+            AND d.business_date <= CURRENT_DATE
+          GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC`, [tenantId, from, to])).rows;
 
       const revenue = num(cov?.revenue);
       const revWithCost = num(cov?.revenue_with_cost);
@@ -6063,10 +6122,18 @@ export class CommercialAnalyticsService {
 
       return {
         series: series.map((r: any) => ({
-          date: r.date, revenue: num(r.revenue), units: num(r.units),
+          date: r.date, revenue: num(r.revenue), lines: num(r.lines),
           tickets: num(r.tickets),
           // null, NO 0: un dia sin costo en la fuente no vendio con costo cero.
           cost: r.cost === null ? null : num(r.cost),
+        })),
+        by_route: rutas.map((r: any) => ({
+          route_code: r.route_code, route_no: r.route_no,
+          warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name,
+          revenue: num(r.revenue), subtotal: num(r.subtotal),
+          lines: num(r.lines), tickets: num(r.tickets),
+          cost: r.cost === null ? null : num(r.cost),
+          revenue_with_cost: num(r.revenue_with_cost),
         })),
         coverage: {
           revenue, revenue_with_cost: revWithCost, cost,
@@ -6077,6 +6144,7 @@ export class CommercialAnalyticsService {
           cost_coverage_pct: revenue > 0
             ? Number(((revWithCost / revenue) * 100).toFixed(1)) : 0,
           data_as_of: cov?.data_as_of ?? null,
+          data_from: cov?.data_from ?? null,
         },
       };
     });

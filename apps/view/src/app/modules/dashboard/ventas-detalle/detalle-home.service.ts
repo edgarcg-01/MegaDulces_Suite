@@ -27,7 +27,9 @@ export interface DetalleKpis {
   avg_line: DetalleRatioKpi;        // Valor por partida ($/renglón)
   units_per_ticket: DetalleRatioKpi;// Unidades por ticket
   avg_unit: DetalleRatioKpi;        // Valor unitario promedio ($/unidad)
-  customers: DetalleKpi;            // Clientes activos en ruta
+  // `[AUD-DAT.21]` Pasa a nullable: valía `tickets * 0.45` y ahora se DECLARA hasta que haya un
+  // `count(DISTINCT cliente)` por rango.
+  customers: DetalleRatioKpi;       // Clientes activos en ruta
   revenue_per_customer: DetalleRatioKpi; // Venta por cliente
 }
 
@@ -35,8 +37,10 @@ export interface DetalleSeriesPoint {
   date: string;
   label: string;
   revenue: number;
-  margin: number;
-  units: number;
+  /** `null` los dias que la fuente no trae costo. NUNCA 0: eso se leeria como margen cero. */
+  margin: number | null;
+  /** `[AUD-DAT.21]` RENGLONES. Se llamaba `units` y la fuente hace `count(*)`, no `sum(qty)`. */
+  lines: number;
   tickets: number;
 }
 
@@ -49,9 +53,11 @@ export interface DetalleChannelSummary {
   share_pct: number;
   tickets: number;
   avg_ticket: number;
-  units: number;
-  margin: number;
-  margin_pct: number;
+  /** `[AUD-DAT.21]` RENGLONES, no unidades. */
+  lines: number;
+  /** `null` si ninguna ruta del canal trae costo en el periodo. */
+  margin: number | null;
+  margin_pct: number | null;
   active_routes: number;
 }
 
@@ -66,15 +72,27 @@ export interface DetalleRouteRow {
   chofer_nombre?: string;
   supervisor_nombre?: string;
   revenue: number;
-  revenue_prev: number;
+  /**
+   * `[AUD-DAT.21]` DECLARADO. Valía `rev * (0.92 + (route_no % 15) * 0.01)` — o sea que el delta
+   * por ruta salía de los dígitos del número de ruta. Traerlo de verdad exige el mismo agregado
+   * para el periodo anterior; hasta entonces es `null`, no un número plausible.
+   */
+  revenue_prev: number | null;
   delta_pct: number | null;
   tickets: number;
   avg_ticket: number;
-  basket: number;
-  units: number;
-  margin: number;
-  margin_pct: number;
-  customers: number;
+  /** DECLARADO. Valía `4.2 + (route_no % 3) * 0.4`. */
+  basket: number | null;
+  /** DECLARADO: la fuente por rango cuenta RENGLONES, no unidades (`count(*)`, nunca `sum(qty)`). */
+  units: number | null;
+  /** Renglones del periodo. Esto SÍ lo trae la fuente. */
+  lines: number;
+  /** Real: `revenue_with_cost - cost`. `null` donde la fuente no trae costo (el push no lo trae). */
+  margin: number | null;
+  /** Real, sobre la venta CON costo. `null` si nada del periodo lo tiene. */
+  margin_pct: number | null;
+  /** DECLARADO. Valía `tickets * 0.45`. */
+  customers: number | null;
   share_pct: number;
 }
 
@@ -84,8 +102,10 @@ export interface DetalleBranchRow {
   revenue: number;
   tickets: number;
   avg_ticket: number;
-  margin: number;
-  units: number;
+  /** `null` si ninguna ruta de la sucursal trae costo en el periodo. */
+  margin: number | null;
+  /** `[AUD-DAT.21]` RENGLONES, no unidades. */
+  lines: number;
   routes_count: number;
 }
 
@@ -272,73 +292,53 @@ export class DetalleHomeService {
       'VEC-PH-H': { driver: 'Equipo Preventa Vecinal', supervisor: 'Ángel Alberto Vázquez' },
     };
 
-    let allRows: DetalleRouteRow[] = [];
-
-    if (rep?.rows?.length) {
-      allRows = rep.rows.map((r: SalesByRouteRow) => {
-        const isVecinal = r.route_code.includes('VEC') || r.route_code.includes('1V0') || r.route_no.includes('VEC');
-        const canal: 'rd' | 'vecinal' = isVecinal ? 'vecinal' : 'rd';
-
-        // Sumar meses que caen en el rango
-        let rev = 0;
-        let tks = 0;
-        let units = 0;
-
-        if (r.monthly) {
-          for (const [m, cell] of Object.entries(r.monthly)) {
-            if (m >= fromMonth && m <= toMonth) {
-              rev += Number(cell.revenue) || 0;
-              tks += Number(cell.tickets) || 0;
-              units += Number(cell.units) || 0;
-            }
-          }
-        }
-
-        // Si el periodo es menor a 1 mes completo, escalar proporcionalmente a los días
-        const scaleFactor = Math.min(1, Math.max(0.05, days / 30));
-        if (days < 25 && rev > 0) {
-          rev = Math.round(rev * scaleFactor);
-          tks = Math.round(tks * scaleFactor);
-          units = Math.round(units * scaleFactor);
-        }
-
-        const revPrev = Math.round(rev * (0.92 + (parseInt(r.route_no || '1', 10) % 15) * 0.01));
-        const delta = revPrev > 0 ? Number((((rev - revPrev) / revPrev) * 100).toFixed(1)) : null;
-
-        // Margen de ruta: típicamente 11% - 15% en dulce y abarrotes de ruta
-        const marginPct = isVecinal ? 13.5 : 12.2;
-        const margin = Math.round(rev * (marginPct / 100));
-
-        const avgTicket = tks > 0 ? Math.round(rev / tks) : 0;
-        const basket = tks > 0 ? Number((4.2 + (parseInt(r.route_no || '1', 10) % 3) * 0.4).toFixed(2)) : 0;
-        const customers = Math.round(Math.max(1, tks * 0.45));
-
-        const staff = DRIVER_MAP[r.route_no] || { driver: 'Chofer asignado', supervisor: 'Supervisor de ruta' };
-
-        return {
-          route_code: r.route_code,
-          route_no: r.route_no,
-          name: isVecinal ? `Ruta Vecinal ${r.route_no}` : `Ruta Directa ${r.route_no}`,
-          canal,
-          canal_label: isVecinal ? 'Preventa Vecinal' : 'Venta a Bordo RD',
-          warehouse_code: r.warehouse_code,
-          warehouse_name: r.warehouse_name,
-          chofer_nombre: staff.driver,
-          supervisor_nombre: staff.supervisor,
-          revenue: rev,
-          revenue_prev: revPrev,
-          delta_pct: delta,
-          tickets: tks,
-          avg_ticket: avgTicket,
-          basket,
-          units,
-          margin,
-          margin_pct: marginPct,
-          customers,
-          share_pct: 0, // calculado abajo
-        };
-      });
-    }
+    // ── `[AUD-DAT.21]` EL DESGLOSE POR RUTA, DEL RANGO PEDIDO ────────────────────────────────
+    //
+    // ⛔ ACÁ SE ARMABA EL RANGO A PARTIR DEL ROLLUP MENSUAL, y no se puede:
+    //
+    //     if (m >= fromMonth && m <= toMonth) { rev += cell.revenue; }   // meses ENTEROS
+    //     const scaleFactor = Math.min(1, Math.max(0.05, days / 30));
+    //     if (days < 25 && rev > 0) rev = Math.round(rev * scaleFactor); // y si no, PRORRATEO
+    //
+    // Con el preset «30 días» (31-ago → 29-sep) eso sumaba agosto COMPLETO más septiembre
+    // COMPLETO. Medido en prod el 2026-09-29: publicaba ~$13.48 M donde la venta real de esos
+    // 30 días es ~$6.21 M. Y por debajo de 25 días repartía el mes en línea recta, que no es la
+    // venta de esos días sino una estimación presentada como dato.
+    //
+    // Ahora el desglose viene del MISMO agregado y del MISMO periodo que los KPIs, así que la
+    // tabla y las tarjetas coinciden por construcción, no por coincidencia.
+    let allRows: DetalleRouteRow[] = (dash?.by_route ?? []).map((r) => {
+      const isVecinal = r.route_code.includes('VEC') || r.route_code.includes('1V0') || r.route_no.includes('VEC');
+      const staff = DRIVER_MAP[r.route_no] || { driver: 'Chofer asignado', supervisor: 'Supervisor de ruta' };
+      // El margen sale de lo que TIENE costo, nunca de la venta total: el push de camionetas no
+      // trae costo y la fuente lo declara (`costo_status`).
+      const conCosto = r.revenue_with_cost;
+      const margin = r.cost === null || conCosto <= 0 ? null : Math.round(conCosto - r.cost);
+      return {
+        route_code: r.route_code,
+        route_no: r.route_no,
+        name: isVecinal ? `Ruta Vecinal ${r.route_no}` : `Ruta Directa ${r.route_no}`,
+        canal: (isVecinal ? 'vecinal' : 'rd') as 'rd' | 'vecinal',
+        canal_label: isVecinal ? 'Preventa Vecinal' : 'Venta a Bordo RD',
+        warehouse_code: r.warehouse_code,
+        warehouse_name: r.warehouse_name,
+        chofer_nombre: staff.driver,
+        supervisor_nombre: staff.supervisor,
+        revenue: r.revenue,
+        // Los cuatro que valían una fórmula sobre el número de ruta ahora se DECLARAN.
+        revenue_prev: null,
+        delta_pct: null,
+        tickets: r.tickets,
+        avg_ticket: r.tickets > 0 ? Math.round(r.revenue / r.tickets) : 0,
+        basket: null,
+        units: null,
+        lines: r.lines,
+        margin,
+        margin_pct: margin === null ? null : Number(((margin / conCosto) * 100).toFixed(2)),
+        customers: null,
+        share_pct: 0, // calculado abajo
+      };
+    });
 
     // ⛔ `[AUD-DAT.19]` ACÁ VIVIA UN RESPALDO DE 13 RUTAS CON VENTA INVENTADA
     // (`rev: 3840120`, `tks: 6420`…), comentado como «e.g. dev mock» — y corria en PRODUCCION
@@ -384,8 +384,17 @@ export class DetalleHomeService {
     // cada delta porcentual que la pantalla publica. Ahora los cuatro salen de la misma consulta,
     // pedida para el rango anterior.
     const totalTicketsPrev = dashPrev?.series.reduce((a, p) => a + p.tickets, 0) ?? 0;
-    const totalUnits = filteredRows.reduce((acc, r) => acc + r.units, 0);
-    const totalUnitsPrev = dashPrev?.series.reduce((a, p) => a + p.units, 0) ?? 0;
+    // `[AUD-DAT.21]` RENGLONES, reales. Antes acá se sumaba `r.units` del rollup mensual — la
+    // cantidad vendida, pero de meses enteros y prorrateada. La fuente por rango cuenta renglones
+    // (`count(*)`), no unidades, así que se publica lo que de verdad es.
+    const totalLines = filteredRows.reduce((acc, r) => acc + r.lines, 0);
+    const totalLinesPrev = dashPrev?.series.reduce((a, p) => a + p.lines, 0) ?? 0;
+    // ⛔ UNIDADES: DECLARADAS. `analytics.v_rd_route_daily` hace `count(*)` y nunca `sum(qty)`,
+    // así que por rango de fechas NO hay cantidad vendida. Publicar los renglones bajo el rótulo
+    // «Unidades» sería cambiar la magnitud sin avisar. Se arregla agregando `sum(qty)` a esa
+    // vista; hasta entonces, null.
+    const totalUnits: number | null = null;
+    const totalUnitsPrev: number | null = null;
     // ⛔ EL MARGEN SE CALCULA SOBRE LO QUE TIENE COSTO, no sobre la venta total. Medido en prod:
     // en el ultimo mes cerrado el costo solo existe en el 12.4 % de la venta de ruta, porque el
     // push de camionetas no lo trae y la fuente lo DECLARA (`costo_status`). Repartir un 12.5 %
@@ -393,11 +402,11 @@ export class DetalleHomeService {
     const totalMargin = dash ? Math.round(dash.coverage.revenue_with_cost - dash.coverage.cost) : 0;
     const totalMarginPrev = dashPrev
       ? Math.round(dashPrev.coverage.revenue_with_cost - dashPrev.coverage.cost) : 0;
-    const totalCustomers = filteredRows.reduce((acc, r) => acc + r.customers, 0);
-    // Los clientes del periodo previo no vienen en este agregado (exigiria el distinct por
-    // cliente del rango anterior). Se DECLARA en cero para que el delta salga `null` abajo, en
-    // vez de inventar un x0.88 que se leeria como una caida real.
-    const totalCustomersPrev = 0;
+    // ⛔ CLIENTES: DECLARADOS. Acá se sumaba `r.customers`, que por ruta valía `tickets * 0.45`.
+    // El KPI «Clientes» de esta pantalla era, literalmente, los tickets multiplicados por 0.45.
+    // El conteo real exige un `count(DISTINCT cliente)` por rango, que este agregado no trae.
+    const totalCustomers: number | null = null;
+    const totalCustomersPrev: number | null = null;
 
     // Calcular share por ruta
     filteredRows.forEach((r) => {
@@ -410,13 +419,18 @@ export class DetalleHomeService {
 
     const rdRev = rdRows.reduce((acc, r) => acc + r.revenue, 0);
     const rdTks = rdRows.reduce((acc, r) => acc + r.tickets, 0);
-    const rdUnits = rdRows.reduce((acc, r) => acc + r.units, 0);
-    const rdMargin = rdRows.reduce((acc, r) => acc + r.margin, 0);
+    const rdLines = rdRows.reduce((acc, r) => acc + r.lines, 0);
+    // El margen se suma SOLO donde la fuente trae costo; si ninguna ruta lo trae, se DECLARA.
+    const conCostoRd = rdRows.filter((r) => r.margin !== null);
+    const rdMargin = conCostoRd.length ? conCostoRd.reduce((a, r) => a + (r.margin as number), 0) : null;
+    const rdRevConCosto = conCostoRd.reduce((a, r) => a + r.revenue, 0);
 
     const vecRev = vecinalRows.reduce((acc, r) => acc + r.revenue, 0);
     const vecTks = vecinalRows.reduce((acc, r) => acc + r.tickets, 0);
-    const vecUnits = vecinalRows.reduce((acc, r) => acc + r.units, 0);
-    const vecMargin = vecinalRows.reduce((acc, r) => acc + r.margin, 0);
+    const vecLines = vecinalRows.reduce((acc, r) => acc + r.lines, 0);
+    const conCostoVec = vecinalRows.filter((r) => r.margin !== null);
+    const vecMargin = conCostoVec.length ? conCostoVec.reduce((a, r) => a + (r.margin as number), 0) : null;
+    const vecRevConCosto = conCostoVec.reduce((a, r) => a + r.revenue, 0);
 
     const channels = {
       rd: {
@@ -428,9 +442,11 @@ export class DetalleHomeService {
         share_pct: totalRev > 0 ? Number(((rdRev / totalRev) * 100).toFixed(1)) : 0,
         tickets: rdTks,
         avg_ticket: rdTks > 0 ? Math.round(rdRev / rdTks) : 0,
-        units: rdUnits,
+        lines: rdLines,
         margin: rdMargin,
-        margin_pct: rdRev > 0 ? Number(((rdMargin / rdRev) * 100).toFixed(1)) : 0,
+        // ⚠️ El porcentaje va sobre la venta CON costo, no sobre la venta del canal.
+        margin_pct: rdMargin !== null && rdRevConCosto > 0
+          ? Number(((rdMargin / rdRevConCosto) * 100).toFixed(1)) : null,
         active_routes: rdRows.length,
       },
       vecinal: {
@@ -442,9 +458,10 @@ export class DetalleHomeService {
         share_pct: totalRev > 0 ? Number(((vecRev / totalRev) * 100).toFixed(1)) : 0,
         tickets: vecTks,
         avg_ticket: vecTks > 0 ? Math.round(vecRev / vecTks) : 0,
-        units: vecUnits,
+        lines: vecLines,
         margin: vecMargin,
-        margin_pct: vecRev > 0 ? Number(((vecMargin / vecRev) * 100).toFixed(1)) : 0,
+        margin_pct: vecMargin !== null && vecRevConCosto > 0
+          ? Number(((vecMargin / vecRevConCosto) * 100).toFixed(1)) : null,
         active_routes: vecinalRows.length,
       },
     };
@@ -458,14 +475,14 @@ export class DetalleHomeService {
         revenue: 0,
         tickets: 0,
         avg_ticket: 0,
-        margin: 0,
-        units: 0,
+        margin: null as number | null,
+        lines: 0,
         routes_count: 0,
       };
       b.revenue += r.revenue;
       b.tickets += r.tickets;
-      b.margin += r.margin;
-      b.units += r.units;
+      if (r.margin !== null) b.margin = (b.margin ?? 0) + r.margin;
+      b.lines += r.lines;
       b.routes_count += 1;
       branchMap.set(r.warehouse_code, b);
     });
@@ -490,8 +507,9 @@ export class DetalleHomeService {
 
     const ticketsDelta = totalTicketsPrev > 0 ? Number((((totalTickets - totalTicketsPrev) / totalTicketsPrev) * 100).toFixed(1)) : null;
 
-    const totalLines = Math.round(totalTickets * 4.8);
-    const totalLinesPrev = Math.round(totalTicketsPrev * 4.4);
+    // `[AUD-DAT.21]` Renglones por ticket, REAL. Acá vivían dos constantes: `totalTickets * 4.8`
+    // el periodo actual y `* 4.4` el anterior — o sea que el KPI «Canasta» siempre valía 4.8 y su
+    // delta siempre era el mismo +9.1 %, pasara lo que pasara en la operación.
     const basketCur = totalTickets > 0 ? Number((totalLines / totalTickets).toFixed(2)) : 0;
     const basketPrev = totalTicketsPrev > 0 ? Number((totalLinesPrev / totalTicketsPrev).toFixed(2)) : 0;
     const basketDelta = basketPrev > 0 ? Number((((basketCur - basketPrev) / basketPrev) * 100).toFixed(1)) : null;
@@ -500,18 +518,20 @@ export class DetalleHomeService {
     const avgLinePrev = totalLinesPrev > 0 ? Number((totalRevPrev / totalLinesPrev).toFixed(2)) : null;
     const avgLineDelta = (avgLineCur && avgLinePrev) ? Number((((avgLineCur - avgLinePrev) / avgLinePrev) * 100).toFixed(1)) : null;
 
-    const unitsPerTicketCur = totalTickets > 0 ? Number((totalUnits / totalTickets).toFixed(1)) : null;
-    const unitsPerTicketPrev = totalTicketsPrev > 0 ? Number((totalUnitsPrev / totalTicketsPrev).toFixed(1)) : null;
-    const unitsPerTicketDelta = (unitsPerTicketCur && unitsPerTicketPrev) ? Number((((unitsPerTicketCur - unitsPerTicketPrev) / unitsPerTicketPrev) * 100).toFixed(1)) : null;
+    // Sin unidades no hay unidades por ticket ni precio unitario promedio. `null`, no cero: la
+    // plantilla ya sabe ocultar la tarjeta cuando el valor no se pudo medir.
+    const unitsPerTicketCur: number | null = null;
+    const unitsPerTicketPrev: number | null = null;
+    const unitsPerTicketDelta: number | null = null;
 
-    const avgUnitCur = totalUnits > 0 ? Number((totalRev / totalUnits).toFixed(2)) : null;
-    const avgUnitPrev = totalUnitsPrev > 0 ? Number((totalRevPrev / totalUnitsPrev).toFixed(2)) : null;
-    const avgUnitDelta = (avgUnitCur && avgUnitPrev) ? Number((((avgUnitCur - avgUnitPrev) / avgUnitPrev) * 100).toFixed(1)) : null;
+    const avgUnitCur: number | null = null;
+    const avgUnitPrev: number | null = null;
+    const avgUnitDelta: number | null = null;
 
-    const customersDelta = totalCustomersPrev > 0 ? Number((((totalCustomers - totalCustomersPrev) / totalCustomersPrev) * 100).toFixed(1)) : null;
-    const revPerCustomerCur = totalCustomers > 0 ? Math.round(totalRev / totalCustomers) : null;
-    const revPerCustomerPrev = totalCustomersPrev > 0 ? Math.round(totalRevPrev / totalCustomersPrev) : null;
-    const revPerCustomerDelta = (revPerCustomerCur && revPerCustomerPrev) ? Number((((revPerCustomerCur - revPerCustomerPrev) / revPerCustomerPrev) * 100).toFixed(1)) : null;
+    const customersDelta: number | null = null;
+    const revPerCustomerCur: number | null = null;
+    const revPerCustomerPrev: number | null = null;
+    const revPerCustomerDelta: number | null = null;
 
     const kpis: DetalleKpis = {
       revenue: { cur: totalRev, prev: totalRevPrev, delta_pct: revDelta },
@@ -540,8 +560,8 @@ export class DetalleHomeService {
       date: p.date,
       label: new Date(`${p.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
       revenue: p.revenue,
-      margin: p.cost === null ? 0 : Math.round(p.revenue - p.cost),
-      units: p.units,
+      margin: p.cost === null ? null : Math.round(p.revenue - p.cost),
+      lines: p.lines,
       tickets: p.tickets,
     }))
 

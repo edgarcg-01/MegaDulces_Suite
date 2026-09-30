@@ -2256,7 +2256,18 @@ export interface SalesByRouteParams {
 }
 
 export interface SalesByRouteDashboard {
-  series: Array<{ date: string; revenue: number; units: number; tickets: number; cost: number | null }>;
+  /** ⚠️ `lines` son RENGLONES, no unidades: la fuente hace `count(*)`, nunca `sum(qty)`. */
+  series: Array<{ date: string; revenue: number; lines: number; tickets: number; cost: number | null }>;
+  /**
+   * `[AUD-DAT.21]` Desglose por ruta **del mismo rango de fechas**. Antes se derivaba del rollup
+   * MENSUAL redondeando el rango a meses enteros y prorrateando por `días/30`.
+   */
+  by_route: Array<{
+    route_code: string; route_no: string;
+    warehouse_code: string; warehouse_name: string;
+    revenue: number; subtotal: number; lines: number; tickets: number;
+    cost: number | null; revenue_with_cost: number;
+  }>;
   /**
    * El hueco del COSTO, declarado. Medido en prod: en el ultimo mes cerrado el costo solo existe
    * en el 12.4 % de la venta de ruta, asi que el margen se calcula sobre `revenue_with_cost` y
@@ -2264,7 +2275,10 @@ export interface SalesByRouteDashboard {
    */
   coverage: {
     revenue: number; revenue_with_cost: number; cost: number;
-    margin_pct: number | null; cost_coverage_pct: number; data_as_of: string | null;
+    margin_pct: number | null; cost_coverage_pct: number;
+    data_as_of: string | null;
+    /** DESDE cuándo alcanza la fuente (200 días). Si el rango pide más, hay que decirlo. */
+    data_from: string | null;
   };
 }
 
