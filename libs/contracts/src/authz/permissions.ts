@@ -141,6 +141,13 @@ export enum Permission {
   // de paquete con "ver listas de precios".
   COMMERCIAL_PRICE_EXPERIMENT_VER = 'COMMERCIAL_PRICE_EXPERIMENT_VER',
   COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR = 'COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR',
+  /**
+   * `[PR.V1]` El motor de margen. SOLO lectura: no hay _GESTIONAR porque Kepler es read-only
+   * (ADR-040) y el precio lo captura una persona alla. Y NO reusa COMMERCIAL_PRICING_VER, que
+   * en prod lo tienen 3 usuarios customer_b2b -que son CLIENTES- mas 35 de campo: esta pantalla
+   * publica costo, margen realizado y la fuga de descuento de todo el catalogo.
+   */
+  COMMERCIAL_MARGIN_ENGINE_VER = 'COMMERCIAL_MARGIN_ENGINE_VER',
 
   // Módulo: Comercial — Inventario
   COMMERCIAL_INVENTORY_VER = 'COMMERCIAL_INVENTORY_VER',

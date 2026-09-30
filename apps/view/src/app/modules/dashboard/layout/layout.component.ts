@@ -384,6 +384,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Precios y promociones',
       items: [
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
+        { label: 'Motor de margen',   icon: 'pi pi-sliders-h',    route: '/comercial/motor-margen', permission: Permission.COMMERCIAL_MARGIN_ENGINE_VER },
         { label: 'Experimentos de precio', icon: 'pi pi-chart-scatter', route: '/comercial/experimentos-precio', permission: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },

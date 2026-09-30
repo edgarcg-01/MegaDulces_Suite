@@ -307,6 +307,14 @@ export const routes: Routes = [
         )]
       },
       {
+        // [PR.V1] El motor de margen: el triage de precio por SKU y plaza, con lo que el motor
+        // NO puede ver declarado al lado. Un solo permiso y de lectura — no hay GESTIONAR
+        // porque Kepler es read-only (ADR-040) y el precio lo captura una persona allá.
+        path: 'motor-margen',
+        loadComponent: () => import('./modules/comercial/pages/comercial-motor-margen.component').then(m => m.ComercialMotorMargenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
+      },
+      {
         // [CAT.1] El catálogo se mudó a Compras (/compras/catalogo). Se deja el redirect porque hay
         // enlaces internos y marcadores del equipo apuntando a esta ruta.
         path: 'products',
