@@ -9251,3 +9251,40 @@ una moda de precios sobre **90 días**. Entró el 2026-08-25 (`9e42351a`) y duel
 - ⬜ La poda de índices exige **7 días** de `pg_stat_user_indexes` sin reinicio de `pg-prod`.
 - ⬜ La deuda con nombre del barrido de precio: una consulta sin filtro cada N minutos, en vez de
   ~3,164 búsquedas scoped. Exige primero hacerla terminar en un tiempo razonable.
+
+---
+
+## `[IC.CEDIS.12]` — El CEDIS vuelve a la existencia publicada, arbitrado (2026-10-01)
+
+**Estado: ✅ PROD** (batch 655, 0.2 s) · candado **15 ✓ / 0 ✗ / 2 NO MEDIDO** contra prod ·
+vista medida en **370–440 ms** (gate <1 s) · `nx build api` OK. Detalle en
+[`VERDAD_ABSOLUTA.md` §17.9](../VERDAD_ABSOLUTA.md).
+
+Cierra el reporte *"/compras/existencia no muestra el CEDIS"*, abierto desde el 30-sep y reabierto
+a conciencia el 01-oct al retirar la cifra en disputa (batch 653).
+
+- **El censo ya estaba.** El reporte de 123 páginas del ERP se corrió con *"omitir productos en
+  cero"* **en blanco**: trae el universo completo, 9,496 SKUs. La frase *"precisión no reclamable"*
+  de §17.8 venía de mi transcripción parcial, no del documento. ⭐ *Antes de declarar que falta
+  evidencia, agotar la que ya está sobre la mesa.*
+- **La fórmula nunca estuvo mal:** `c4+c8−c9` reproduce los 148 SKUs con saldo **148 de 148**. Lo
+  sucio era la **tabla** — `md_00` fue la base de PRUEBA del CEDIS hasta el corte del 30-sep.
+- **Regla publicada:** actividad posterior al corte (`v_branch_erp_cutover`), **127/127, precisión
+  100 %**, auto-sanable. Aplicada **sólo a la 00**, la única rama con árbitro.
+- **Cruce de dos implementaciones:** movimientos con `kdmm.c8='S'` desde el corte dan los mismos
+  340,077 u. ⚠️ Primero dieron 9× por unir `kdmm` **sin `sucursal`** — anti-réplica también en los
+  **catálogos**, no sólo en los hechos.
+- **Se retracta:** `kdik.c6` no es existencia (0 de 148); la regla del centinela cae por precisión
+  **8.4 %**; y el «35.82×» que mantenía roja la sonda `cedis_kepler_saldo` era **premisa falsa** —
+  habría quedado roja para siempre pidiendo corregir en Kepler una carga que estaba perfecta.
+
+### Pendientes con nombre
+- ⬜ **`git push` + redeploy** — la corrección de `cedis_kepler_saldo` es **código**: hasta que se
+  despliegue, el tablero muestra esa sonda en rojo sobre una premisa ya refutada. (La vista ya está
+  en prod por migración, así que la pantalla **no** depende del redeploy.)
+- ⬜ **21 SKUs / 17,394 u** confirmados por el ERP y anteriores al corte: vuelven al primer
+  movimiento. **SKU `99225`** (10 u) fuera de `catalog.products`.
+- ⬜ **Residuo latente 4,526 SKUs / 11.84 M u** (2,890 con acumulador sucio). El arreglo de fondo
+  es **purgarlo en Kepler**, no acá (ADR-040). Lo vigila el bloque `[4c]` del candado.
+- ⬜ **Ramas 06/07/08**: 8–14.5 % de sus SKUs no sobreviven la regla de corte. **No se tocaron por
+  falta de árbitro.** Lo destraba el mismo reporte corrido por sucursal.
