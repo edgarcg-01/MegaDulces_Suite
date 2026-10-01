@@ -68,7 +68,10 @@ di() { echo "[$(date '+%F %T %Z')] $*"; }
 # `prod-vendor` (el compose los nombra así; `pg-prod` y `pg-rag` NO siguen el patrón, pero este
 # carril no los toca).
 img_de()  { case "$1" in api) echo trade-prod-api ;; worker) echo trade-prod-worker ;; portal) echo trade-prod-portal ;; vendor) echo trade-prod-vendor ;; *) echo '' ;; esac; }
-cont_de() { case "$1" in api) echo prod-api ;; api2) echo prod-api-2 ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
+# [K3S.22] `api2` sale del mapa: el servicio se retiró del compose el 2026-10-01. Dejarlo acá
+# no es inocuo — `cont_de api2` devolvería `prod-api-2`, el carril intentaría recrear un
+# servicio que ya no existe, y fallaría cada 5 minutos sobre algo que está bien.
+cont_de() { case "$1" in api) echo prod-api ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
 
 # ── El diario se recorta solo ────────────────────────────────────────────────
 # `md` no tiene `logrotate` a mano para un usuario sin sudo, y una pasada cada 5 minutos escribe
@@ -176,7 +179,11 @@ fi
 # correr acá. Entonces se hace CONSERVADORA — ante cualquier cambio compartido (o ante la duda,
 # o si no se puede comparar) entran las cuatro. Equivocarse de más cuesta minutos de CPU;
 # equivocarse de menos deja producción atrás sin avisar, que es el defecto que esto cierra.
-SERVICIOS="api api2 worker"
+# [K3S.22] Sin `api2`: el servicio se retiró del compose el 2026-10-01. ⚠️ Ojo con la lección
+# que lo puso acá en primer lugar — `api2` ENTRÓ a esta lista porque NO estar en ella la dejó
+# ocho horas sirviendo otra versión. Sacarla ahora es correcto sólo porque el servicio dejó de
+# existir; si vuelve a haber una segunda réplica en Compose, tiene que volver a esta línea.
+SERVICIOS="api worker"
 _extra=''
 if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
   _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)

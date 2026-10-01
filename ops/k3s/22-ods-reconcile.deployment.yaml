@@ -33,7 +33,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: reconciliador
-          image: trade-ingest:latest
+          image: localhost:5000/trade-ingest:__COMMIT__
           imagePullPolicy: IfNotPresent
           command:
             - node
