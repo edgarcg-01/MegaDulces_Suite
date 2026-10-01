@@ -166,6 +166,51 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
     chk(gr.app === true && gr.dev === true,
       `SELECT concedido a app_runtime (${gr.app}) y dev_ro (${gr.dev})`);
 
+    // ── 7. ¿El CEDIS llegó al PROGRAMA DE CONTEO? ──────────────────────────────────────────
+    //
+    // Es el único camino a una existencia con testigo independiente: el conteo del corte es un
+    // ESPEJO (la entrada `N-A-30` posteó justo lo contado), así que hoy la cobertura arbitrada de
+    // verdad es 0%. Y el CEDIS tiene UN conteo físico en toda su historia -- el de la migración --
+    // contra 217 de la sucursal 02. Es el nodo menos contado de la red y el que surte a todos.
+    //
+    // La cadena es `v_erp_stock_on_hand` → `analytics.inventory_health` (nocturno 03:30) →
+    // `v_abc_class` → `commercial.abc_classification` → `v_count_priority_score` → el plan. O sea
+    // que el almacén `00` estaba fuera del programa **por la misma exclusión** que lo hacía
+    // invisible: nadie lo sacó del conteo a propósito.
+    //
+    // ⭐ Este bloque distingue DOS cosas que se ven igual y piden lo contrario:
+    //   · el nocturno todavía no corrió desde que se arregló la vista  → NO MEDIDO
+    //   · corrió DESPUÉS y el CEDIS igual no está                      → FALLA (algo lo tira)
+    // Sin esa distinción, el día del arreglo daría rojo y enseñaría a ignorar el candado.
+    console.log('\n[7] El CEDIS entró al programa de conteo rotativo');
+    const [prog] = await q(
+      `SELECT (SELECT max(computed_at) FROM commercial.abc_classification)            AS abc_al,
+              (SELECT migration_time FROM public.knex_migrations
+                WHERE name = '20261001130000_stock_on_hand_incluye_cedis.js')          AS fix_al,
+              (SELECT count(*) FROM commercial.abc_classification a
+                 JOIN commercial.warehouses w ON w.id = a.warehouse_id
+                WHERE w.code = $1)::int                                                AS abc_cedis,
+              (SELECT count(*) FROM analytics.v_count_priority_score s
+                 JOIN commercial.warehouses w ON w.id = s.warehouse_id
+                WHERE w.code = $1
+                  AND s.score_salvedad IS DISTINCT FROM 'sin_datos')::int              AS contables`,
+      [SUC]);
+
+    const corrio = prog.abc_al && prog.fix_al && new Date(prog.abc_al) > new Date(prog.fix_al);
+    if (prog.abc_cedis > 0) {
+      chk(prog.contables > 0,
+        `el CEDIS aporta ${n(prog.contables)} SKUs CONTABLES al plan `
+        + `(${n(prog.abc_cedis)} clasificados) — ya está en la ola rotativa`);
+    } else if (!corrio) {
+      nm('el nocturno de ABC (03:30) todavía no corrió desde que se arregló la vista — '
+        + `último cómputo ${prog.abc_al ? new Date(prog.abc_al).toISOString().slice(0, 16) : '(nunca)'}`
+        + '; el CEDIS entra en la próxima corrida');
+    } else {
+      chk(false,
+        '⛔ el ABC corrió DESPUÉS del arreglo y el CEDIS sigue sin clasificar — '
+        + 'algo más lo está sacando del programa de conteo');
+    }
+
     console.log(`\n=== ${ok} OK · ${fail} FALLA · ${skip} NO MEDIDO ===`);
     if (fail) process.exit(1);
     if (skip && ok === 0) return noMedido('no hubo con qué comprobar nada');
