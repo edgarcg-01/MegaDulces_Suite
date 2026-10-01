@@ -379,6 +379,8 @@ services:
   # ops/vl/crontab.feeds. `crond -f -d 8` = primer plano y log a stdout, para que
   # `docker compose logs feeds-cron` muestre lo que hizo cada carril.
   feeds-cron:
+    # [K3S.13] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: feeds-cron
     restart: unless-stopped
