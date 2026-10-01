@@ -661,7 +661,48 @@ la primera pestaña que esa persona sí puede abrir.
 
 ---
 
-## 18 · Lo que sigue
+## 18 · `[PR.V3]` · El rediseño de la cola, en el código
+
+El mockup se llevó a la pantalla real. Tres cambios, y el primero no es estético.
+
+### 1 · El flujo y el saldo dejan de compartir escala
+
+La pantalla publicaba **$60.46 M de saldo** y **$105 k de flujo** en la misma lista, con una sola
+columna de barras — y la barra del número 575× más grande salía **vacía**. Ahora son tres bloques:
+cuatro tarjetas de **flujo** que sí comparten escala, el **capital** aparte con borde punteado y
+sin barra (diciendo que le falta la tasa **E5**), y una tira callada para lo que no tiene decisión.
+
+### 2 · «Corregir la escaleraARITMÉTICA»
+
+Los dos chips iban pegados **sin un solo espacio**: no era un descuido de CSS, eran dos `<span>`
+hermanos sin regla que los separara. Ahora van en columna, y la tabla gana **costo** y **margen vs
+meta**, que estaban en los datos y no en pantalla.
+
+### 3 · La agrupación, y por qué NO se hizo en el servidor
+
+Medido en la cola real: **19 % de repetición** en el top 100 (100 filas, 81 SKUs), y el grupo más
+grande suma **$6,897**. ⛔ Eso **corrige el mockup**, que mostraba `10411` con 8 plazas y $54,780 —
+esa cifra venía de otra foto, no del top de hoy. Con ese tamaño no se paga agrupar del lado del
+servidor, así que se agrupa **lo que vino en la página** y la etiqueta lo dice: «la misma decisión
+en N plazas **de esta lista**». Prometer «en N plazas» a secas sería un total falso: el servidor
+manda el top por dinero y las plazas chicas del mismo SKU quedan fuera.
+
+⭐ La lógica se extrajo a `agrupar-cola.ts` **como función pura y con 8 pruebas**, porque es lo
+único del rediseño que puede estar mal en silencio: el conteo de plazas y la suma con NULLs. Una
+de las pruebas vigila justo eso — **si ninguna fila del grupo tiene monto, el grupo vale `null` y
+no cero** (ADR-056), y un NULL entre medibles no contamina la suma pero **sí sigue contando como
+plaza**.
+
+⚠️ La tabla quedó en **7 columnas contra el umbral de 8** de `check-dense-tables`: una columna más
+y hay que darle salida en pantalla estrecha.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** (+8) · lint 0 errores · gate de
+templates · `check-dense-tables` y `check-css-tokens` no señalan este archivo.
+**Validación visual pendiente** — es lo único que no puedo hacer yo.
+
+---
+
+## 19 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
