@@ -61,6 +61,19 @@ const COMPUERTAS = [
   //     `pTemplate="footer"` en un `p-dialog` abre el diálogo SIN BOTONES (GOTCHAS §59).
   { nombre: 'reactividad', cmd: 'node scripts/check-signal-reactivity.js', que: 'ningún computed() depende de un campo plano mutable' },
   { nombre: 'primeng', cmd: 'node scripts/check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)' },
+  /**
+   * ⛔ **Las cuatro de abajo faltaban acá, y el encabezado de este archivo dice "corre todas las
+   * que existen".** Hallado el 2026-10-01: `check-dense-tables` y `check-css-tokens` vivían en
+   * `gate-push.js` y NO en esta lista, así que `npm run check` —la compuerta que alguien corre a
+   * mano antes de entregar— no las ejecutaba. **Dos registros de compuertas que hay que mantener
+   * sincronizados a mano ya divergieron**; mientras sean dos listas, agregá en las DOS.
+   *   · tablas densas / tokens CSS: estaban sólo en el push.
+   *   · teclado / búsqueda: nacen en las dos el mismo día ([KBD.1] / [KBD.2]).
+   */
+  { nombre: 'tablas densas', cmd: 'node scripts/check-dense-tables.js', que: 'ninguna tabla nueva sin salida en un teléfono (DESIGN §553)' },
+  { nombre: 'tokens CSS', cmd: 'node scripts/check-css-tokens.js', que: 'sin var(--token) inexistente: la declaración se cae en silencio' },
+  { nombre: 'teclado', cmd: 'node scripts/check-keyboard-nav.js', que: 'lo que se hace con el mouse se puede hacer con el teclado (DESIGN D.7)' },
+  { nombre: 'búsqueda', cmd: 'node scripts/check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)' },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
