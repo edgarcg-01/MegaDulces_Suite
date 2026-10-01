@@ -1087,15 +1087,31 @@ de los `001`–`006` ya apuntaban ahí.
 **Se cae la restricción de LAN.** El README decía "no tiene alternativa Docker"
 porque `KP_CONCENTRADA` sólo se veía desde la oficina. Ya no aplica.
 
-### ⛔ Bloqueante de OPERACIÓN, no de código: 3 tablas no llegan al ODS
+### ✅ RESUELTO 2026-09-30 — el bloqueante de las 3 tablas se cerró solo, y el doc no se enteró
 
-`kdie` (familias), `kdif` (subfamilias) y `kdms` (sucursales) **no están en el
-set que el CDC embarca a prod**. El launcher `run-ods-live-loop.cmd` lista hoy
-`kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*`.
-Mientras no se les sume `kdie,kdif,kdms` (catálogos chicos → carril hash, mismo
-criterio que las tablas de finanzas en `RUNBOOK_REPLICACION_LOGICA.md` §8.E),
-quedan vacíos el árbol familia/subfamilia y el listado de sucursales.
-**Requiere editar el launcher y reiniciar el loop ODS.**
+> **Lo que decía:** `kdie` (familias), `kdif` (subfamilias) y `kdms` (sucursales) **no están en
+> el set que el CDC embarca a prod**; había que sumarlas al launcher `run-ods-live-loop.cmd` y
+> reiniciar el loop.
+
+**Medido contra prod (`railway`, `pg_is_in_recovery()=false`) el 2026-09-30:**
+
+| tabla | filas en `kepler_ods` | sucursales |
+|---|---:|---:|
+| `kdie` | 108 | 9 |
+| `kdif` | 2,079 | 9 |
+| `kdms` | 9 | 9 |
+
+Llegan completas, a las nueve. **Nadie editó ningún launcher: cambió la arquitectura debajo.**
+Desde `[VL.4]` (2026-09-11) los carriles corren en Docker Compose sobre `md`, y el carril
+**espejo** (`ods-live-mirror`, `KP_ODS_TABLES="*"`) embarca **todo `md.*` menos
+`ODS_EXCLUDE_TABLES`**. Las tres no están excluidas → las entrega el espejo. El launcher que
+este bloque mandaba a editar **ya no existe en el repo**.
+
+⚠️ **La lección, que es el motivo de dejar el bloque en vez de borrarlo:** un ⛔ sin fecha de
+re-medición sobrevive a su causa. Quien lo leyera hoy iría a editar un archivo inexistente para
+arreglar algo que no está roto. La lista de tablas vive ahora en un solo lugar ejecutable
+—[`ops/vl/docker-compose.yml`](../../../ops/vl/docker-compose.yml)— y su coherencia la candadea
+`database/tests/test-ods-lane-partition.js` (`[INFRA.4]`).
 
 ### Decisión que quedó abierta a propósito
 
