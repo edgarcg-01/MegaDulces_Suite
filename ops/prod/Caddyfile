@@ -43,6 +43,29 @@
 	}
 }
 
+# ── [INFRA.2] EL API, BALANCEADO ENTRE LAS DOS RÉPLICAS ─────────────────────
+# Snippet y no dos bloques copiados: las dos entradas (`megadulcessuite.com` e
+# `interno.…`) tienen que repartir IGUAL. Copiado a mano, un día una balancea y la otra no.
+#
+# `lb_policy cookie` — AFINIDAD DE SESIÓN, y existe por una razón medida, no por costumbre:
+# los clientes se conectan con `transports: ['websocket', 'polling']`. Websocket va PRIMERO
+# y no necesita afinidad (una conexión, una réplica, y el adapter de Redis de `[INFRA.1]`
+# hace que un emit en una alcance a la otra). Pero el `polling` de respaldo —el que usan los
+# navegadores detrás de un proxy corporativo que rompe el upgrade— hace VARIAS peticiones
+# HTTP por sesión, y si caen en réplicas distintas el handshake nunca cierra.
+#
+# Los chequeos activos son lo que convierte esto en despliegue sin caída: Caddy saca de
+# rotación la réplica que deja de contestar `/api/health`, así que recrear una no corta a
+# nadie. Sin ellos, balancear hacia un contenedor que se está reiniciando es repartir 502.
+(api-balanceado) {
+	reverse_proxy api:10000 api2:10000 {
+		lb_policy cookie
+		health_uri /api/health
+		health_interval 10s
+		health_timeout 3s
+	}
+}
+
 # ── Los tres destinos ───────────────────────────────────────────────────────
 # Verificados alcanzables por nombre desde la red `prod_default` (HTTP 200 los tres).
 # El tráfico entre este contenedor y las apps es interno y va en claro a propósito:
@@ -50,7 +73,7 @@
 
 megadulcessuite.com {
 	import tls-dns-cloudflare
-	reverse_proxy api:10000
+	import api-balanceado
 }
 
 # ⭐ [VL.11.A2] El nombre que NO necesita tocar un solo router.
@@ -70,7 +93,7 @@ megadulcessuite.com {
 # adentro y afuera siguen haciendo falta las entradas estáticas en los routers.
 interno.megadulcessuite.com {
 	import tls-dns-cloudflare
-	reverse_proxy api:10000
+	import api-balanceado
 }
 
 portal.megadulcessuite.com {

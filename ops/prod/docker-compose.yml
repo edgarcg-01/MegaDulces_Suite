@@ -322,7 +322,9 @@ services:
       pg-prod: { condition: service_healthy }
       redis:   { condition: service_healthy }
     ports: ["8080:10000"]
-    environment:
+    # ⚓ Anclado para que `api2` use EXACTAMENTE este bloque. Copiarlo a mano garantiza que
+    # un día diverjan y que la mitad del tráfico corra con otra configuración.
+    environment: &api-env
       TZ: America/Mexico_City
       NODE_ENV: production
       # [INFRA.1] Enciende el adapter de socket.io entre instancias (y con él, el caché
@@ -375,7 +377,7 @@ services:
       # sobre un esquema que ya las tiene. El restore trae el esquema completo; no hay nada
       # que migrar. Se corren a mano, una por una, cuando toque.
       RUN_MIGRATIONS_ON_BOOT: "0"
-    healthcheck:
+    healthcheck: &api-health
       # Mide que el API CONTESTE, no que el proceso exista. `start.sh` ya supervisa a los
       # dos hijos, pero un nginx vivo sirviendo 502 se ve "arriba" desde afuera.
       test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
@@ -383,6 +385,51 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # [INFRA.2] LA SEGUNDA RÉPLICA DEL API — para poder desplegar sin tirar el servicio.
+  #
+  # Hoy `prod-api` es UNA sola y cada despliegue la recreaba: con dinero real corriendo,
+  # eso es una caída programada por cada cambio. Con dos, se recrea una, se verifica, y
+  # recién entonces la otra.
+  #
+  # ⛔ POR QUÉ UN SERVICIO APARTE Y NO `--scale api=2`, que sería lo elegante:
+  # el `container_name: prod-api` lo IMPIDE. Medido con una corrida en seco el 2026-09-30:
+  #
+  #     WARNING: The "api" service is using the custom container name "prod-api".
+  #     Docker requires each container to have a unique name. Remove the custom name to
+  #     scale the service
+  #
+  # Y ese nombre está incrustado en **43 referencias de 11 archivos**, incluidos
+  # `restaurar.sh`, `auto-deploy.sh` y `apply-one-migration-prod.js` — o sea el camino por
+  # el que TODA migración llega a prod. Quitarlo es un refactor propio, con su medición;
+  # hacerlo de paso acá sería arriesgar la capacidad de migrar producción para ahorrarse
+  # ocho líneas de YAML.
+  #
+  # ── LAS CUATRO COSAS QUE SE VERIFICARON ANTES DE DUPLICAR EL PROCESO ──────
+  # Duplicar un proceso sólo es seguro si no duplica trabajo. Medido en el contenedor vivo:
+  #   1. `DISABLE_CRONS=true` → "los 51 @Cron están inertes en este proceso" (lo dice el
+  #      log). Los corre el worker. Además `SchedulerOwnershipService` es un segundo cinturón.
+  #   2. `RUN_MIGRATIONS_ON_BOOT=0` → "Migraciones delegadas a preDeployCommand — skip en
+  #      boot". Dos réplicas no compiten por el esquema.
+  #   3. El adapter de socket.io está ACTIVO sobre Redis (`[INFRA.1]`), así que un `emit` en
+  #      una réplica alcanza a los sockets de la otra. SIN eso, esta línea sería una
+  #      REGRESIÓN, no una mejora.
+  #   4. Los clientes usan `transports: ['websocket', 'polling']` — websocket PRIMERO, que no
+  #      necesita afinidad. El `polling` de respaldo sí, y por eso Caddy balancea con cookie.
+  #
+  # Sin `ports:` a propósito: al exterior se llega por Caddy. El `8080` del host lo sigue
+  # publicando `api`, que es a quien apuntan los runbooks.
+  api2:
+    <<: *app
+    image: trade-prod-api:latest
+    container_name: prod-api-2
+    depends_on:
+      pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
+    environment:
+      <<: *api-env
+    healthcheck: *api-health
 
   # Mismo binario, modo worker (WORKER=true → `bootstrapWorker`, sin HTTP/WS).
   # Acá SÍ viven los 51 @Cron y los consumidores de la cola pg-boss.
