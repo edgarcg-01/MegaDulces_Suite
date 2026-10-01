@@ -13,8 +13,8 @@ import { TextareaModule } from 'primeng/textarea';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
-  DevProjectsService, PRIORITY_LABEL, STATUS_LABEL,
-  type AttachmentSource, type DevProject, type DevProjectAttachment, type DevProjectDetail,
+  DevProjectsService, NOTE_KIND_LABEL, PRIORITY_LABEL, STATUS_LABEL,
+  type AttachmentSource, type DevProject, type DevProjectAttachment, type DevProjectDetail, type DevProjectNote,
   type DevProjectInput, type DevProjectPriority, type DevProjectStatus, type DevTeamMember,
 } from '../dev-projects.service';
 import { DictationController, browserRecognitionFactory, type RecognitionFactory } from '../dictation';
@@ -26,6 +26,8 @@ export interface PendingFile {
   blob: Blob;
   fileName: string;
   source: AttachmentSource;
+  /** `true` = evidencia de la nota que se está escribiendo, no del proyecto. */
+  forNote: boolean;
   progress: number | null;
   error: string | null;
   previewUrl: string | null;
@@ -141,6 +143,7 @@ const KIND_ICON: Record<string, string> = {
                 <tr>
                   <th>Folio</th><th>Proyecto</th><th>Responsable</th><th>Prioridad</th><th>Estado</th>
                   <th class="num" title="Archivos adjuntos"><i class="pi pi-paperclip" aria-label="Adjuntos"></i></th>
+                  <th class="num" title="Notas y modificaciones"><i class="pi pi-comments" aria-label="Notas"></i></th>
                   <th>Alta</th>
                 </tr>
               </thead>
@@ -154,10 +157,11 @@ const KIND_ICON: Record<string, string> = {
                     <td><span class="dp-pri" [attr.data-p]="p.priority">{{ priorityLabel[p.priority] }}</span></td>
                     <td><span class="dp-st" [attr.data-s]="p.status">{{ statusLabel[p.status] }}</span></td>
                     <td class="num">{{ p.attachments_count || '—' }}</td>
+                    <td class="num">{{ p.notes_count || '—' }}</td>
                     <td class="mono">{{ p.created_at | date:'dd/MM/yy' }}</td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="7" class="dp-empty">
+                  <tr><td colspan="8" class="dp-empty">
                     @if (loading()) { Cargando… }
                     @else if (projects().length) { Ningún proyecto con estos filtros. }
                     @else { Todavía no hay proyectos. @if (canManage()) { Da de alta el primero con «Nuevo proyecto». } }
@@ -192,22 +196,22 @@ const KIND_ICON: Record<string, string> = {
                 <span id="obj-label">Objetivo e instrucciones</span>
                 @if (canManage()) {
                   @if (dictationSupported) {
-                    <p-button [icon]="listening() ? 'pi pi-stop-circle' : 'pi pi-microphone'"
-                              [label]="listening() ? 'Detener dictado' : 'Dictar'"
-                              [severity]="listening() ? 'danger' : 'secondary'" [outlined]="!listening()" size="small"
-                              (onClick)="toggleDictation()" />
+                    <p-button [icon]="dictating('objective') ? 'pi pi-stop-circle' : 'pi pi-microphone'"
+                              [label]="dictating('objective') ? 'Detener dictado' : 'Dictar'"
+                              [severity]="dictating('objective') ? 'danger' : 'secondary'" [outlined]="!dictating('objective')" size="small"
+                              (onClick)="toggleDictation('objective')" />
                   } @else {
                     <span class="dp-hint">Dictado no disponible en este navegador (usa Chrome o Edge).</span>
                   }
                 }
               </div>
               <textarea pTextarea #objective rows="9" [(ngModel)]="form.objective" [disabled]="!canManage()"
-                        [readonly]="listening()" aria-labelledby="obj-label" class="dp-obj" [class.listening]="listening()"
+                        [readonly]="dictating('objective')" aria-labelledby="obj-label" class="dp-obj" [class.listening]="dictating('objective')"
                         placeholder="Qué se quiere lograr, para quién, y cómo se sabrá que quedó. Puedes escribir o dictar."></textarea>
-              @if (listening()) {
+              @if (dictating('objective')) {
                 <span class="dp-hint live" aria-live="polite"><span class="dp-mic-dot"></span>Escuchando… di «nueva línea» para cambiar de renglón.</span>
               }
-              @if (dictationError(); as d) { <span class="dp-hint bad">{{ d }}</span> }
+              @if (dictTarget() === 'objective' && dictationError(); as d) { <span class="dp-hint bad">{{ d }}</span> }
             </div>
 
             <div class="dp-grid">
@@ -240,10 +244,10 @@ const KIND_ICON: Record<string, string> = {
                   <p-button icon="pi pi-paperclip" label="Adjuntar archivos" severity="secondary" [outlined]="true" size="small"
                             (onClick)="fileInput.click()" />
                   <p-button icon="pi pi-camera" label="Tomar foto" severity="secondary" [outlined]="true" size="small"
-                            (onClick)="abrirCaptura('foto')" />
+                            (onClick)="abrirCaptura('foto', false)" />
                   <p-button icon="pi pi-video" label="Grabar video" severity="secondary" [outlined]="true" size="small"
-                            (onClick)="abrirCaptura('video')" />
-                  <input #fileInput type="file" multiple hidden (change)="onFiles($event, 'archivo')" />
+                            (onClick)="abrirCaptura('video', false)" />
+                  <input #fileInput type="file" multiple hidden (change)="onFiles($event, 'archivo', false)" />
                 </div>
               }
 
@@ -266,7 +270,7 @@ const KIND_ICON: Record<string, string> = {
                     }
                   </li>
                 }
-                @for (f of pending(); track f.key) {
+                @for (f of projectPending(); track f.key) {
                   <li class="pending">
                     @if (f.previewUrl) { <img class="dp-thumb" [src]="f.previewUrl" [alt]="f.fileName" /> }
                     @else { <i class="pi pi-file dp-thumb-icon" aria-hidden="true"></i> }
@@ -286,11 +290,130 @@ const KIND_ICON: Record<string, string> = {
                     }
                   </li>
                 }
-                @if (!(current()?.attachments?.length) && !pending().length) {
+                @if (!(current()?.attachments?.length) && !projectPending().length) {
                   <li class="dp-none">Sin archivos adjuntos.</li>
                 }
               </ul>
             </div>
+
+            @if (current(); as cur) {
+              <section class="dp-follow" aria-label="Seguimiento del proyecto">
+                <div class="dp-follow-head">
+                  <span class="dp-follow-title">Seguimiento</span>
+                  <span class="dp-hint">Notas, modificaciones pedidas y cada cambio que se le hace — también en proyectos terminados.</span>
+                </div>
+
+                @if (canManage()) {
+                  <div class="dp-composer">
+                    <div class="dp-kind" role="radiogroup" aria-label="Tipo de entrada">
+                      <button type="button" class="dp-chip" role="radio" [attr.aria-checked]="noteKind() === 'nota'"
+                              [class.on]="noteKind() === 'nota'" (click)="noteKind.set('nota')">
+                        <i class="pi pi-comment" aria-hidden="true"></i> Nota
+                      </button>
+                      <button type="button" class="dp-chip" role="radio" [attr.aria-checked]="noteKind() === 'modificacion'"
+                              [class.on]="noteKind() === 'modificacion'" (click)="noteKind.set('modificacion')">
+                        <i class="pi pi-pencil" aria-hidden="true"></i> Modificación
+                      </button>
+                      <span class="dp-spacer"></span>
+                      @if (dictationSupported) {
+                        <p-button [icon]="dictating('note') ? 'pi pi-stop-circle' : 'pi pi-microphone'"
+                                  [label]="dictating('note') ? 'Detener dictado' : 'Dictar'"
+                                  [severity]="dictating('note') ? 'danger' : 'secondary'" [outlined]="!dictating('note')" size="small"
+                                  (onClick)="toggleDictation('note')" />
+                      }
+                    </div>
+                    <textarea pTextarea rows="3" [(ngModel)]="noteDraft" class="dp-obj" [class.listening]="dictating('note')"
+                              [readonly]="dictating('note')" aria-label="Texto de la nota"
+                              [placeholder]="noteKind() === 'modificacion' ? 'Qué hay que cambiar de lo que ya se hizo, y por qué.' : 'Un avance, una aclaración, un acuerdo.'"></textarea>
+                    @if (dictating('note')) {
+                      <span class="dp-hint live" aria-live="polite"><span class="dp-mic-dot"></span>Escuchando…</span>
+                    }
+                    @if (dictTarget() === 'note' && dictationError(); as d) { <span class="dp-hint bad">{{ d }}</span> }
+                    @if (noteError(); as e) { <span class="dp-hint bad" role="alert">{{ e }}</span> }
+
+                    @if (notePending().length) {
+                      <ul class="dp-files">
+                        @for (f of notePending(); track f.key) {
+                          <li class="pending">
+                            @if (f.previewUrl) { <img class="dp-thumb" [src]="f.previewUrl" [alt]="f.fileName" /> }
+                            @else { <i class="pi pi-file dp-thumb-icon" aria-hidden="true"></i> }
+                            <div class="dp-file-meta">
+                              <span>{{ f.fileName }}</span>
+                              <small>{{ size(f.blob.size) }} ·
+                                @if (f.error) { <b class="bad">{{ f.error }}</b> }
+                                @else if (f.progress !== null) { subiendo {{ f.progress }}% }
+                                @else { se adjunta a la nota }
+                              </small>
+                            </div>
+                            @if (f.progress === null || f.error) {
+                              <p-button icon="pi pi-times" [text]="true" severity="secondary" size="small"
+                                        [ariaLabel]="'Descartar ' + f.fileName" (onClick)="descartar(f)" />
+                            }
+                          </li>
+                        }
+                      </ul>
+                    }
+
+                    <div class="dp-composer-foot">
+                      <p-button icon="pi pi-paperclip" [text]="true" severity="secondary" size="small" ariaLabel="Adjuntar archivos a la nota"
+                                (onClick)="noteFileInput.click()" />
+                      <p-button icon="pi pi-camera" [text]="true" severity="secondary" size="small" ariaLabel="Tomar foto para la nota"
+                                (onClick)="abrirCaptura('foto', true)" />
+                      <p-button icon="pi pi-video" [text]="true" severity="secondary" size="small" ariaLabel="Grabar video para la nota"
+                                (onClick)="abrirCaptura('video', true)" />
+                      <input #noteFileInput type="file" multiple hidden (change)="onFiles($event, 'archivo', true)" />
+                      <span class="dp-spacer"></span>
+                      <p-button icon="pi pi-send" [label]="noteKind() === 'modificacion' ? 'Registrar modificación' : 'Agregar nota'"
+                                size="small" (onClick)="agregarNota()" [loading]="savingNote()" [disabled]="!noteDraft.trim()" />
+                    </div>
+                  </div>
+                }
+
+                <div class="dp-counts dp-note-filter" aria-label="Filtrar seguimiento">
+                  @for (o of noteFilters; track o.value) {
+                    <button type="button" class="dp-chip" [class.on]="notesFilter() === o.value" (click)="notesFilter.set(o.value)">
+                      {{ o.label }} <b>{{ noteCount(cur, o.value) }}</b>
+                    </button>
+                  }
+                </div>
+
+                <ol class="dp-timeline">
+                  @for (n of visibleNotes(); track n.id) {
+                    <li class="dp-entry" [attr.data-k]="n.kind">
+                      <i [class]="noteIcon(n.kind) + ' dp-entry-icon'" aria-hidden="true"></i>
+                      <div class="dp-entry-body">
+                        <div class="dp-entry-head">
+                          <span class="dp-kind-tag" [attr.data-k]="n.kind">{{ noteKindLabel[n.kind] }}</span>
+                          <span class="dp-entry-who">{{ n.created_by_username || '—' }} · {{ n.created_at | date:'dd/MM/yy HH:mm' }}</span>
+                          @if (canManage() && n.kind !== 'cambio') {
+                            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small"
+                                      [ariaLabel]="'Quitar ' + noteKindLabel[n.kind]" (onClick)="quitarNota(n)" />
+                          }
+                        </div>
+                        <p class="dp-entry-text">{{ n.body }}</p>
+                        @if (n.attachments.length) {
+                          <ul class="dp-entry-files">
+                            @for (a of n.attachments; track a.id) {
+                              <li>
+                                @if (a.kind === 'imagen' && a.url) {
+                                  <a [href]="a.url" target="_blank" rel="noopener"><img class="dp-thumb sm" [src]="a.url" [alt]="a.file_name" loading="lazy" /></a>
+                                } @else {
+                                  <i [class]="kindIcon(a.kind)" aria-hidden="true"></i>
+                                  @if (a.url) { <a [href]="a.url" target="_blank" rel="noopener">{{ a.file_name }}</a> }
+                                  @else { <span>{{ a.file_name }}</span> }
+                                }
+                              </li>
+                            }
+                          </ul>
+                        }
+                      </div>
+                    </li>
+                  } @empty {
+                    <li class="dp-none">Sin entradas todavía.</li>
+                  }
+                </ol>
+              </section>
+            }
 
             @if (current(); as c) {
               <p class="dp-audit">Alta por {{ c.created_by_username || '—' }} el {{ c.created_at | date:'dd/MM/yyyy HH:mm' }}</p>
@@ -404,6 +527,34 @@ const KIND_ICON: Record<string, string> = {
     .dp-file-meta small { color: var(--text-muted); font-size: var(--fs-xs); }
     .dp-bar { height: 4px; background: var(--surface-2); border-radius: var(--r-pill); overflow: hidden; }
     .dp-bar span { display: block; height: 100%; background: var(--action); }
+    .dp-follow { display: flex; flex-direction: column; gap: var(--sp-3); border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
+    .dp-follow-head { display: flex; flex-direction: column; gap: 2px; }
+    .dp-follow-title { font-weight: 700; color: var(--text-main); font-size: var(--fs-sm); }
+    .dp-composer { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border-color);
+      border-radius: var(--r-md); background: var(--surface-2); }
+    .dp-kind { display: flex; align-items: center; gap: var(--sp-2); }
+    .dp-kind .dp-chip i { font-size: var(--fs-xs); margin-right: 2px; }
+    .dp-composer-foot { display: flex; align-items: center; gap: var(--sp-1); }
+    .dp-note-filter .dp-chip { font-size: var(--fs-xs); padding: 2px var(--sp-2); }
+    .dp-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .dp-entry { display: flex; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border-color); }
+    .dp-entry:last-child { border-bottom: 0; }
+    .dp-entry-icon { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 50%;
+      background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-xs); }
+    .dp-entry[data-k='modificacion'] .dp-entry-icon { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .dp-entry[data-k='nota'] .dp-entry-icon { background: var(--info-soft-bg); color: var(--info-soft-fg); }
+    .dp-entry-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .dp-entry-head { display: flex; align-items: center; gap: var(--sp-2); min-height: 28px; }
+    .dp-entry-who { color: var(--text-faint); font-size: var(--fs-xs); flex: 1; }
+    .dp-kind-tag { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+    .dp-kind-tag[data-k='modificacion'] { color: var(--warn-fg); }
+    .dp-kind-tag[data-k='nota'] { color: var(--info-fg); }
+    .dp-entry-text { margin: 0; white-space: pre-wrap; color: var(--text-main); font-size: var(--fs-sm); line-height: 1.45; overflow-wrap: anywhere; }
+    .dp-entry[data-k='cambio'] .dp-entry-text { color: var(--text-muted); font-size: var(--fs-xs); }
+    .dp-entry-files { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); font-size: var(--fs-xs); }
+    .dp-entry-files li { display: inline-flex; align-items: center; gap: var(--sp-1); }
+    .dp-entry-files a { color: var(--action); }
+    .dp-thumb.sm { width: 56px; height: 56px; }
     .dp-audit { margin: 0; color: var(--text-faint); font-size: var(--fs-xs); }
     .dp-foot { display: flex; align-items: center; gap: var(--sp-2); border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
     .dp-spacer { flex: 1; }
@@ -445,10 +596,35 @@ export class DevProyectosComponent implements OnInit {
 
   readonly listening = signal(false);
   readonly dictationError = signal<string | null>(null);
+  /** A qué campo va lo dictado: el objetivo del proyecto o la nota que se está escribiendo. */
+  readonly dictTarget = signal<'objective' | 'note'>('objective');
+
+  readonly noteKindLabel = NOTE_KIND_LABEL;
+  readonly noteKind = signal<'nota' | 'modificacion'>('nota');
+  readonly notesFilter = signal<'' | 'nota' | 'modificacion' | 'cambio'>('');
+  readonly savingNote = signal(false);
+  readonly noteError = signal<string | null>(null);
+  readonly noteFilters = [
+    { value: '' as const, label: 'Todo' },
+    { value: 'nota' as const, label: 'Notas' },
+    { value: 'modificacion' as const, label: 'Modificaciones' },
+    { value: 'cambio' as const, label: 'Cambios' },
+  ];
+  noteDraft = '';
+  private captureForNote = false;
 
   form: ProjectForm = emptyForm();
 
   readonly canManage = computed(() => this.perms.has(Permission.DEV_PROJECTS_GESTIONAR));
+
+  readonly projectPending = computed(() => this.pending().filter((f) => !f.forNote));
+  readonly notePending = computed(() => this.pending().filter((f) => f.forNote));
+
+  readonly visibleNotes = computed(() => {
+    const k = this.notesFilter();
+    const notes = this.current()?.notes ?? [];
+    return k ? notes.filter((n) => n.kind === k) : notes;
+  });
 
   readonly countBy = computed(() => {
     const out: Record<string, number> = {};
@@ -482,6 +658,11 @@ export class DevProyectosComponent implements OnInit {
   ngOnInit(): void {
     this.dictation = new DictationController(this.recognitionFactory, {
       onText: (t) => {
+        if (this.dictTarget() === 'note') {
+          this.noteDraft = t;
+          this.cdr.markForCheck();
+          return;
+        }
         this.form = { ...this.form, objective: t };
         // `form` es un objeto plano (ngModel): con OnPush hay que avisar que cambió.
         this.cdr.markForCheck();
@@ -520,6 +701,7 @@ export class DevProyectosComponent implements OnInit {
   nuevo(): void {
     this.stopDictation();
     this.clearPending();
+    this.resetNoteDraft();
     this.current.set(null);
     this.selectedId.set(null);
     this.form = emptyForm();
@@ -531,6 +713,7 @@ export class DevProyectosComponent implements OnInit {
   async abrir(id: string): Promise<void> {
     this.stopDictation();
     this.clearPending();
+    this.resetNoteDraft();
     this.selectedId.set(id);
     this.formError.set(null);
     this.notice.set(null);
@@ -603,14 +786,15 @@ export class DevProyectosComponent implements OnInit {
   }
 
   // ── Evidencia ────────────────────────────────────────────────────────────────────────────
-  onFiles(ev: Event, source: AttachmentSource): void {
+  onFiles(ev: Event, source: AttachmentSource, forNote = false): void {
     const input = ev.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     input.value = ''; // permite volver a elegir el mismo archivo
-    for (const f of files) this.agregar(f, f.name, source);
+    for (const f of files) this.agregar(f, f.name, source, forNote);
   }
 
-  abrirCaptura(m: CaptureMode): void {
+  abrirCaptura(m: CaptureMode, forNote = false): void {
+    this.captureForNote = forNote;
     this.captureMode.set(m);
   }
 
@@ -620,18 +804,19 @@ export class DevProyectosComponent implements OnInit {
 
   onCaptured(c: CapturedMedia): void {
     this.captureMode.set(null);
-    this.agregar(c.blob, c.fileName, c.source);
+    this.agregar(c.blob, c.fileName, c.source, this.captureForNote);
   }
 
-  agregar(blob: Blob, fileName: string, source: AttachmentSource): void {
+  agregar(blob: Blob, fileName: string, source: AttachmentSource, forNote = false): void {
     const f: PendingFile = {
-      key: `p${++this.seq}`, blob, fileName, source, progress: null, error: null,
+      key: `p${++this.seq}`, blob, fileName, source, forNote, progress: null, error: null,
       previewUrl: blob.type.startsWith('image/') ? URL.createObjectURL(blob) : null,
     };
     this.pending.update((l) => [...l, f]);
-    // Con folio ya asignado no hay razón para esperar al «Guardar»: se sube de inmediato.
+    // Con folio ya asignado no hay razón para esperar al «Guardar»: se sube de inmediato. La
+    // evidencia de una NOTA, en cambio, espera a que la nota exista (no tiene a quién colgarse).
     const cur = this.current();
-    if (cur) void this.subirUno(cur.id, f).then(() => this.refrescarLista());
+    if (cur && !forNote) void this.subirUno(cur.id, f).then(() => this.refrescarLista());
   }
 
   descartar(f: PendingFile): void {
@@ -651,11 +836,73 @@ export class DevProyectosComponent implements OnInit {
     }
   }
 
+  // ── Seguimiento ──────────────────────────────────────────────────────────────────────────
+  /** Agrega la nota (o modificación) y DESPUÉS sus archivos, que necesitan el id de la nota. */
+  async agregarNota(): Promise<void> {
+    const cur = this.current();
+    const body = this.noteDraft.trim();
+    if (!cur || !body || this.savingNote()) return;
+    this.stopDictation();
+    this.savingNote.set(true);
+    this.noteError.set(null);
+    try {
+      const note = await firstValueFrom(this.api.addNote(cur.id, this.noteKind(), body));
+      this.current.set({ ...cur, notes: [note, ...cur.notes], notes_count: cur.notes_count + 1 });
+      this.noteDraft = '';
+      let fallidos = 0;
+      for (const f of [...this.notePending()]) {
+        if (!(await this.subirUno(cur.id, f, note.id))) fallidos += 1;
+      }
+      if (fallidos) this.noteError.set(`La nota se guardó, pero ${fallidos} archivo(s) no se adjuntaron.`);
+      await this.refrescarLista();
+    } catch (e) {
+      this.noteError.set(apiError(e, 'No se pudo agregar la nota.'));
+    } finally {
+      this.savingNote.set(false);
+    }
+  }
+
+  async quitarNota(n: DevProjectNote): Promise<void> {
+    const cur = this.current();
+    if (!cur || n.kind === 'cambio' || !confirm(`¿Quitar esta ${NOTE_KIND_LABEL[n.kind].toLowerCase()} del seguimiento?`)) return;
+    try {
+      await firstValueFrom(this.api.removeNote(cur.id, n.id));
+      this.current.set({ ...cur, notes: cur.notes.filter((x) => x.id !== n.id), notes_count: Math.max(0, cur.notes_count - 1) });
+      await this.refrescarLista();
+    } catch (e) {
+      this.noteError.set(apiError(e, 'No se pudo quitar la nota.'));
+    }
+  }
+
+  noteCount(cur: DevProjectDetail, k: '' | 'nota' | 'modificacion' | 'cambio'): number {
+    return k ? cur.notes.filter((n) => n.kind === k).length : cur.notes.length;
+  }
+
+  noteIcon(kind: string): string {
+    return kind === 'modificacion' ? 'pi pi-pencil' : kind === 'cambio' ? 'pi pi-history' : 'pi pi-comment';
+  }
+
+  private resetNoteDraft(): void {
+    this.noteDraft = '';
+    this.noteKind.set('nota');
+    this.notesFilter.set('');
+    this.noteError.set(null);
+  }
+
   // ── Dictado ──────────────────────────────────────────────────────────────────────────────
-  toggleDictation(): void {
+  dictating(target: 'objective' | 'note'): boolean {
+    return this.listening() && this.dictTarget() === target;
+  }
+
+  toggleDictation(target: 'objective' | 'note' = 'objective'): void {
     this.dictationError.set(null);
-    if (this.listening()) this.stopDictation();
-    else this.dictation?.start(this.form.objective);
+    if (this.listening()) {
+      const same = this.dictTarget() === target;
+      this.stopDictation();
+      if (same) return; // otro destino: se cambia el micrófono de campo
+    }
+    this.dictTarget.set(target);
+    this.dictation?.start(target === 'note' ? this.noteDraft : this.form.objective);
   }
 
   private stopDictation(): void {
@@ -691,19 +938,19 @@ export class DevProyectosComponent implements OnInit {
   /** Sube en serie (un video no compite con otro por el ancho de banda). Devuelve cuántos fallaron. */
   private async subirPendientes(projectId: string): Promise<number> {
     let fallidos = 0;
-    for (const f of [...this.pending()]) {
+    for (const f of [...this.projectPending()]) {
       if (f.progress !== null && !f.error) continue; // ya se está subiendo
       if (!(await this.subirUno(projectId, f))) fallidos += 1;
     }
     return fallidos;
   }
 
-  private async subirUno(projectId: string, f: PendingFile): Promise<boolean> {
+  private async subirUno(projectId: string, f: PendingFile, noteId: string | null = null): Promise<boolean> {
     this.patchPending(f.key, { progress: 0, error: null });
     let uploaded: DevProjectAttachment | null = null;
     try {
       uploaded = await new Promise<DevProjectAttachment>((resolve, reject) => {
-        this.api.upload(projectId, f.blob, f.fileName, f.source).subscribe({
+        this.api.upload(projectId, f.blob, f.fileName, f.source, noteId).subscribe({
           next: (ev) => {
             if (ev.type === HttpEventType.UploadProgress) {
               this.patchPending(f.key, { progress: ev.total ? Math.round((ev.loaded / ev.total) * 100) : 0 });
@@ -724,7 +971,15 @@ export class DevProyectosComponent implements OnInit {
     if (still) this.descartar(still);
     const cur = this.current();
     if (cur && cur.id === projectId) {
-      this.current.set({ ...cur, attachments: [...cur.attachments, uploaded], attachments_count: cur.attachments_count + 1 });
+      if (noteId) {
+        this.current.set({
+          ...cur,
+          notes: cur.notes.map((n) => (n.id === noteId ? { ...n, attachments: [...n.attachments, uploaded!] } : n)),
+          attachments_count: cur.attachments_count + 1,
+        });
+      } else {
+        this.current.set({ ...cur, attachments: [...cur.attachments, uploaded], attachments_count: cur.attachments_count + 1 });
+      }
     }
     return true;
   }

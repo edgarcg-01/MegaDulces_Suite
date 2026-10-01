@@ -27,7 +27,7 @@ function fakeTrx(script: Record<string, TableScript>) {
   const builder = (table: string) => {
     const s = script[table] ?? {};
     const b: any = {};
-    for (const m of ['where', 'whereNull', 'leftJoin', 'orderBy', 'select', 'limit', 'whereILike', 'orWhereILike']) {
+    for (const m of ['where', 'whereNull', 'whereIn', 'leftJoin', 'orderBy', 'select', 'limit', 'whereILike', 'orWhereILike', 'forUpdate']) {
       b[m] = () => b;
     }
     b.first = () => Promise.resolve(s.first);
@@ -171,5 +171,100 @@ describe('[DEV.4] update / remove', () => {
     const up = calls.find((c) => c.op === 'update')!.arg as any;
     expect(up).toHaveProperty('deleted_at');
     expect(up.deleted_by).toBe(MEMBER);
+  });
+});
+
+describe('[DEV.10] seguimiento: el rastro de cada cambio', () => {
+  const BEFORE = {
+    tenant_id: TENANT, title: 'Portal', objective: 'Hacerlo', priority: 'media', status: 'terminado',
+    assignee_user_id: null, due_date: null,
+  };
+
+  it('editar deja un registro «cambio» con el antes y el después, legible', async () => {
+    const { svc, calls } = build({
+      'devtools.dev_team': { first: { user_id: MEMBER } },
+      'devtools.projects': { first: BEFORE, update: 1 },
+      'identity.users as u': { rows: [{ id: MEMBER, name: 'Ángel David Cisneros Salazar' }] },
+    });
+    vi.spyOn(svc, 'detail').mockResolvedValue({ id: PROJECT } as any);
+    await svc.update(PROJECT, { status: 'en_progreso', assignee_user_id: MEMBER });
+    const trail = calls.find((c) => c.table === 'devtools.project_notes' && c.op === 'insert')!.arg as any;
+    expect(trail.kind).toBe('cambio');
+    expect(trail.body).toBe('Estado: Terminado → En progreso · Asignado a: Sin asignar → Ángel David Cisneros Salazar');
+    expect(JSON.parse(trail.changes)).toEqual([
+      { field: 'status', from: 'terminado', to: 'en_progreso' },
+      { field: 'assignee_user_id', from: null, to: MEMBER },
+    ]);
+    expect(trail.created_by_username).toBe('david_cisneros');
+  });
+
+  it('⛔ reenviar los mismos valores no escribe nada: ni UPDATE ni rastro', async () => {
+    const { svc, calls } = build({ 'devtools.projects': { first: BEFORE, update: 1 } });
+    vi.spyOn(svc, 'detail').mockResolvedValue({ id: PROJECT } as any);
+    await svc.update(PROJECT, { status: 'terminado', title: 'Portal' });
+    expect(calls.filter((c) => c.op === 'update' || c.op === 'insert')).toEqual([]);
+  });
+
+  it('⛔ editar un proyecto inexistente es 404 y no deja rastro', async () => {
+    const { svc, calls } = build({ 'devtools.projects': { first: undefined } });
+    await expect(svc.update(PROJECT, { status: 'terminado' })).rejects.toBeInstanceOf(NotFoundException);
+    expect(calls.some((c) => c.table === 'devtools.project_notes')).toBe(false);
+  });
+});
+
+describe('[DEV.10] notas y modificaciones', () => {
+  const NOTE = '22222222-2222-4222-8222-222222222222';
+
+  it('agrega una modificación a un proyecto TERMINADO (no se bloquea por estado)', async () => {
+    const { svc, calls } = build({
+      'devtools.projects': { first: { id: PROJECT }, update: 1 },
+      'devtools.project_notes': { returning: [{ id: 'n1', kind: 'modificacion', body: 'Agregar filtro por zona', created_at: new Date('2026-10-01T17:00:00Z'), created_by_username: 'david_cisneros' }] },
+    });
+    const n = await svc.addNote(PROJECT, { kind: 'modificacion', body: '  Agregar filtro por zona ' });
+    const ins = calls.find((c) => c.table === 'devtools.project_notes' && c.op === 'insert')!.arg as any;
+    expect(ins).toMatchObject({ tenant_id: TENANT, project_id: PROJECT, kind: 'modificacion', body: 'Agregar filtro por zona' });
+    expect(n).toMatchObject({ id: 'n1', kind: 'modificacion', changes: null, attachments: [] });
+  });
+
+  it('⛔ una persona no puede escribir un «cambio» (es el rastro del servidor)', async () => {
+    const { svc } = build({});
+    await expect(svc.addNote(PROJECT, { kind: 'cambio', body: 'x' })).rejects.toThrow(/Tipo inválido/);
+  });
+
+  it('⛔ nota en un proyecto que no existe es 404', async () => {
+    const { svc } = build({ 'devtools.projects': { first: undefined } });
+    await expect(svc.addNote(PROJECT, { body: 'hola' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('⛔ el registro automático no se puede borrar', async () => {
+    const { svc, calls } = build({ 'devtools.project_notes': { first: { kind: 'cambio' } } });
+    await expect(svc.removeNote(PROJECT, 'n1')).rejects.toThrow(/no se puede borrar/);
+    expect(calls.some((c) => c.op === 'update')).toBe(false);
+  });
+
+  it('una nota sí se da de baja (lógica)', async () => {
+    const { svc, calls } = build({ 'devtools.project_notes': { first: { kind: 'nota' }, update: 1 } });
+    await svc.removeNote(PROJECT, 'n1');
+    expect((calls.find((c) => c.op === 'update')!.arg as any).deleted_by).toBe(MEMBER);
+  });
+
+  it('⛔ adjuntar a un «cambio» se rechaza ANTES de subir al bucket', async () => {
+    const { svc, storage } = build({
+      'devtools.projects': { first: { id: PROJECT } },
+      'devtools.project_notes': { first: { kind: 'cambio' } },
+    });
+    await expect(svc.addAttachment(PROJECT, file(), 'archivo', NOTE)).rejects.toThrow(/registro automático/);
+    expect(storage.putBuffer).not.toHaveBeenCalled();
+  });
+
+  it('el adjunto de una nota guarda su note_id', async () => {
+    const { svc, calls } = build({
+      'devtools.projects': { first: { id: PROJECT } },
+      'devtools.project_notes': { first: { kind: 'nota' } },
+      'devtools.project_attachments': { returning: [{ id: 'a1', kind: 'imagen', source: 'camara', file_name: 'x.jpg', mime_type: 'image/jpeg', size_bytes: 4, created_at: 'x', note_id: NOTE }] },
+    });
+    const out = await svc.addAttachment(PROJECT, file(), 'camara', NOTE);
+    expect((calls.find((c) => c.table === 'devtools.project_attachments')!.arg as any).note_id).toBe(NOTE);
+    expect(out.note_id).toBe(NOTE);
   });
 });

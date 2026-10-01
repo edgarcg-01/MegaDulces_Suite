@@ -67,6 +67,31 @@ describe('[DEV.5] DevProjectsService', () => {
     req.flush({});
   });
 
+  it('[DEV.10] una nota viaja con su tipo; quitarla es DELETE sobre su ruta', () => {
+    svc.addNote(ID, 'modificacion', 'Agregar filtro').subscribe();
+    const n = http.expectOne(`${BASE}/${ID}/notes`);
+    expect(n.request.method).toBe('POST');
+    expect(n.request.body).toEqual({ kind: 'modificacion', body: 'Agregar filtro' });
+    n.flush({});
+
+    svc.removeNote(ID, 'n1').subscribe();
+    const d = http.expectOne(`${BASE}/${ID}/notes/n1`);
+    expect(d.request.method).toBe('DELETE');
+    d.flush({ ok: true });
+  });
+
+  it('[DEV.10] el adjunto de una nota manda note_id; el del proyecto NO lo manda', () => {
+    svc.upload(ID, new Blob(['a']), 'a.txt', 'archivo', 'n1').subscribe();
+    const a = http.expectOne(`${BASE}/${ID}/attachments`);
+    expect((a.request.body as FormData).get('note_id')).toBe('n1');
+    a.flush({});
+
+    svc.upload(ID, new Blob(['b']), 'b.txt', 'archivo').subscribe();
+    const b = http.expectOne(`${BASE}/${ID}/attachments`);
+    expect((b.request.body as FormData).has('note_id')).toBe(false);
+    b.flush({});
+  });
+
   it('quitar un adjunto es DELETE sobre su ruta', () => {
     svc.removeAttachment(ID, 'a1').subscribe();
     const req = http.expectOne(`${BASE}/${ID}/attachments/a1`);

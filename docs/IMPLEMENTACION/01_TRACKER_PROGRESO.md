@@ -105,6 +105,14 @@ evidencia (cualquier archivo, **foto** y **video** tomados en pantalla) y un res
   Cámara con `getUserMedia`/`MediaRecorder`. Unitarios **41/41**; suite `view` 1406 ✓.
 - 🧪 **[DEV.9]** smoke HTTP `database/tests/test-newdb-dev-projects.js` **26/26** contra API + bucket local
   (incluye RLS 0/3/0 y la URL firmada devolviendo el mismo archivo).
+- 🧪 **[DEV.10]** seguimiento: *«que a proyectos ya hechos se les agreguen notas o modificaciones»*.
+  Editar ya era posible pero **pisaba** (objetivo, responsable y el porqué se perdían) → mig
+  `20261001130000_devtools_project_notes`: `devtools.project_notes` (`nota` · `modificacion` ·
+  `cambio`) + `project_attachments.note_id`. Cada PATCH deja un `cambio` escrito por el SERVIDOR con
+  el antes/después (`changes` jsonb; el objetivo viejo se conserva ahí, no en el resumen); reenviar
+  los mismos valores no deja rastro. Notas y modificaciones con texto escrito o dictado y sus propios
+  adjuntos; se agregan en **cualquier estado**, incluso terminado. ⛔ El `cambio` no se borra ni se le
+  adjunta nada, y una persona no puede escribir uno. Unitarios api 64 · view 48; smoke HTTP **39/39**.
 - Permisos nuevos `DEV_PROJECTS_VER/_GESTIONAR` — ⚠️ **NO repartidos** a ningún rol: hoy sólo los ve
   el god-mode (los tres del equipo son `superadmin` en local). Si alguien sin god-mode debe usarlo,
   falta la migración de reparto (lección LC.6.2).

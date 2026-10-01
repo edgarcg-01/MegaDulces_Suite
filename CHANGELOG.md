@@ -29,7 +29,9 @@ sucursal 01) y verificado después en la pantalla real, sólo teclado:
 Módulo nuevo `/desarrolladores/proyectos` (espacio «Sistemas, Servicios y Mantenimiento»). Cada
 proyecto se da de alta como una orden `DEV-AAAA-NNNN` con nombre, objetivo escrito o dictado,
 adjuntos de cualquier tipo, foto y video tomados ahí mismo, prioridad, estado, fecha compromiso y
-responsable (uno de los tres del equipo, tabla `devtools.dev_team`). Permisos `DEV_PROJECTS_VER` /
+responsable (uno de los tres del equipo, tabla `devtools.dev_team`). **Seguimiento**: a cualquier
+proyecto —también terminado— se le agregan notas y modificaciones (escritas o dictadas, con
+adjuntos), y cada edición deja un registro automático de qué cambió, de qué a qué. Permisos `DEV_PROJECTS_VER` /
 `DEV_PROJECTS_GESTIONAR` (sin repartir aún). Detalle en el tracker, Fase DEV.
 
 ### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)

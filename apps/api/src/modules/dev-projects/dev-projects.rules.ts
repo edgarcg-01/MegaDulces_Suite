@@ -138,6 +138,87 @@ export function normalizeProjectInput(body: DevProjectInput | null | undefined, 
   return out;
 }
 
+// ── Seguimiento: notas, modificaciones y el rastro de cambios (`[DEV.10]`) ─────────────────────
+
+/** Lo que una PERSONA puede escribir. `cambio` sólo lo escribe el servidor. */
+export const NOTE_KINDS = ['nota', 'modificacion'] as const;
+export type NoteKind = (typeof NOTE_KINDS)[number] | 'cambio';
+export const NOTE_MAX = 10_000;
+
+export function normalizeNoteInput(body: { kind?: unknown; body?: unknown } | null | undefined): { kind: NoteKind; body: string } {
+  const kind = body?.kind ?? 'nota';
+  if (!(NOTE_KINDS as readonly unknown[]).includes(kind)) {
+    throw new BadRequestException(`Tipo inválido. Opciones: ${NOTE_KINDS.join(', ')}.`);
+  }
+  const text = typeof body?.body === 'string' ? body.body.trim() : '';
+  if (!text) throw new BadRequestException('La nota no puede ir vacía.');
+  if (text.length > NOTE_MAX) throw new BadRequestException(`La nota no puede pasar de ${NOTE_MAX} caracteres.`);
+  return { kind: kind as NoteKind, body: text };
+}
+
+export const PRIORITY_LABEL: Record<DevProjectPriority, string> = { baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente' };
+export const STATUS_LABEL: Record<DevProjectStatus, string> = {
+  nuevo: 'Nuevo', en_progreso: 'En progreso', en_pausa: 'En pausa', terminado: 'Terminado', cancelado: 'Cancelado',
+};
+
+export interface ProjectSnapshot {
+  title: string;
+  objective: string | null;
+  priority: DevProjectPriority;
+  status: DevProjectStatus;
+  assignee_user_id: string | null;
+  due_date: string | null;
+}
+
+export interface FieldChange {
+  field: keyof ProjectSnapshot;
+  from: string | null;
+  to: string | null;
+}
+
+const FIELD_LABEL: Record<keyof ProjectSnapshot, string> = {
+  title: 'Nombre', objective: 'Objetivo', priority: 'Prioridad', status: 'Estado',
+  assignee_user_id: 'Asignado a', due_date: 'Fecha compromiso',
+};
+
+/**
+ * Qué cambió entre lo guardado y el parche, en forma estructurada (`changes`) y legible (`summary`).
+ * `null` si el parche no cambia nada — un PATCH que reenvía los mismos valores no deja rastro.
+ *
+ * ⚠️ El objetivo NO se copia entero al resumen: puede tener miles de caracteres. Se dice que cambió
+ * y se guarda el texto anterior en `changes`, que es lo que hace falta para recuperarlo.
+ */
+export function describeChanges(
+  before: ProjectSnapshot,
+  patch: DevProjectPatch,
+  nameOf: (userId: string | null) => string,
+): { changes: FieldChange[]; summary: string } | null {
+  const changes: FieldChange[] = [];
+  for (const field of Object.keys(FIELD_LABEL) as (keyof ProjectSnapshot)[]) {
+    if (!(field in patch)) continue;
+    const to = ((patch as Record<string, unknown>)[field] ?? null) as string | null;
+    const from = (before[field] ?? null) as string | null;
+    if (to !== from) changes.push({ field, from, to });
+  }
+  if (!changes.length) return null;
+
+  const show = (c: FieldChange, v: string | null): string => {
+    if (c.field === 'assignee_user_id') return nameOf(v);
+    if (v === null || v === '') return '—';
+    if (c.field === 'status') return STATUS_LABEL[v as DevProjectStatus] ?? v;
+    if (c.field === 'priority') return PRIORITY_LABEL[v as DevProjectPriority] ?? v;
+    return v;
+  };
+  const summary = changes
+    .map((c) =>
+      c.field === 'objective'
+        ? `${FIELD_LABEL[c.field]}: ${!c.to ? 'se borró' : c.from ? 'se reescribió' : 'se agregó'}`
+        : `${FIELD_LABEL[c.field]}: ${show(c, c.from)} → ${show(c, c.to)}`,
+    )
+    .join(' · ');
+  return { changes, summary };
+}
+
 /** `AAAA-MM-DD` que además existe en el calendario (rechaza `2026-02-30`). */
 export function isIsoDate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

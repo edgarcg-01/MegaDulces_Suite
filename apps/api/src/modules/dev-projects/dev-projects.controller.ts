@@ -62,16 +62,31 @@ export class DevProjectsController {
     return this.svc.remove(id);
   }
 
+  @Post(':id/notes')
+  @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
+  @ApiOperation({ summary: 'Agrega una nota o una modificación al seguimiento (en cualquier estado, incluso terminado).' })
+  addNote(@Param('id', ParseUUIDPipe) id: string, @Body() body: { kind?: string; body?: string }) {
+    return this.svc.addNote(id, body);
+  }
+
+  @Delete(':id/notes/:noteId')
+  @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
+  @ApiOperation({ summary: 'Quita una nota o modificación (baja lógica). El registro automático de cambios no se borra.' })
+  removeNote(@Param('id', ParseUUIDPipe) id: string, @Param('noteId', ParseUUIDPipe) noteId: string) {
+    return this.svc.removeNote(id, noteId);
+  }
+
   @Post(':id/attachments')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_ATTACHMENT_BYTES } }))
-  @ApiOperation({ summary: 'Adjunta un archivo (documento, foto, video, audio). Campo `source`: archivo|camara|grabacion.' })
+  @ApiOperation({ summary: 'Adjunta un archivo (documento, foto, video, audio). Campos: `source` archivo|camara|grabacion; `note_id` opcional (adjunto de una nota).' })
   addAttachment(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: UploadedFileLike,
     @Body('source') source?: string,
+    @Body('note_id') noteId?: string,
   ) {
-    return this.svc.addAttachment(id, file, source);
+    return this.svc.addAttachment(id, file, source, noteId || null);
   }
 
   @Delete(':id/attachments/:attachmentId')

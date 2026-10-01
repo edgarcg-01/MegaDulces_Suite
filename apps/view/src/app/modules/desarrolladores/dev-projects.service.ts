@@ -7,6 +7,7 @@ export type DevProjectPriority = 'baja' | 'media' | 'alta' | 'urgente';
 export type DevProjectStatus = 'nuevo' | 'en_progreso' | 'en_pausa' | 'terminado' | 'cancelado';
 export type AttachmentKind = 'documento' | 'imagen' | 'video' | 'audio';
 export type AttachmentSource = 'archivo' | 'camara' | 'grabacion';
+export type NoteKind = 'nota' | 'modificacion' | 'cambio';
 
 export interface DevTeamMember {
   user_id: string;
@@ -23,7 +24,25 @@ export interface DevProjectAttachment {
   size_bytes: number;
   created_at: string;
   created_by_username: string | null;
+  note_id: string | null;
   url: string | null;
+}
+
+export interface FieldChange {
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+/** Una entrada del seguimiento. `cambio` lo escribe el servidor al editar. */
+export interface DevProjectNote {
+  id: string;
+  kind: NoteKind;
+  body: string;
+  changes: FieldChange[] | null;
+  created_at: string;
+  created_by_username: string | null;
+  attachments: DevProjectAttachment[];
 }
 
 export interface DevProject {
@@ -40,10 +59,12 @@ export interface DevProject {
   created_by_username: string | null;
   updated_at: string;
   attachments_count: number;
+  notes_count: number;
 }
 
 export interface DevProjectDetail extends DevProject {
   attachments: DevProjectAttachment[];
+  notes: DevProjectNote[];
 }
 
 export interface DevProjectInput {
@@ -57,6 +78,9 @@ export interface DevProjectInput {
 
 export const PRIORITY_LABEL: Record<DevProjectPriority, string> = {
   baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente',
+};
+export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
+  nota: 'Nota', modificacion: 'Modificación', cambio: 'Cambio',
 };
 export const STATUS_LABEL: Record<DevProjectStatus, string> = {
   nuevo: 'Nuevo', en_progreso: 'En progreso', en_pausa: 'En pausa', terminado: 'Terminado', cancelado: 'Cancelado',
@@ -95,10 +119,25 @@ export class DevProjectsService {
     return this.http.delete<{ ok: true }>(`${this.base}/${id}`);
   }
 
-  /** Multipart con progreso: un video tarda, y una barra que no se mueve se lee como «se trabó». */
-  upload(id: string, file: Blob, fileName: string, source: AttachmentSource): Observable<HttpEvent<DevProjectAttachment>> {
+  /** `[DEV.10]` Nota o modificación al seguimiento — también sobre proyectos terminados. */
+  addNote(id: string, kind: 'nota' | 'modificacion', body: string): Observable<DevProjectNote> {
+    return this.http.post<DevProjectNote>(`${this.base}/${id}/notes`, { kind, body });
+  }
+
+  removeNote(id: string, noteId: string): Observable<{ ok: true }> {
+    return this.http.delete<{ ok: true }>(`${this.base}/${id}/notes/${noteId}`);
+  }
+
+  /**
+   * Multipart con progreso: un video tarda, y una barra que no se mueve se lee como «se trabó».
+   * Con `noteId` el archivo es evidencia de esa nota del seguimiento, no del proyecto.
+   */
+  upload(
+    id: string, file: Blob, fileName: string, source: AttachmentSource, noteId: string | null = null,
+  ): Observable<HttpEvent<DevProjectAttachment>> {
     const fd = new FormData();
     fd.append('source', source);
+    if (noteId) fd.append('note_id', noteId);
     fd.append('file', file, fileName);
     return this.http.post<DevProjectAttachment>(`${this.base}/${id}/attachments`, fd, {
       reportProgress: true,

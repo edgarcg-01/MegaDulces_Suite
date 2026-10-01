@@ -116,7 +116,43 @@ async function call(method, path, token, body, isForm = false) {
   const d2 = await call('GET', `/dev/projects/${p.id}`, token);
   check(rm.status === 200 && d2.json?.attachments?.length === 1, 'quitar adjunto deja 1');
 
-  console.log('\n[6] Lista y baja lógica');
+  console.log('\n[6] Seguimiento (DEV.10): notas, modificaciones y rastro de cambios');
+  const fin = await call('PATCH', `/dev/projects/${p.id}`, token, { status: 'terminado', assignee_user_id: member?.user_id });
+  const rastro = (fin.json?.notes || []).find((n) => n.kind === 'cambio');
+  check(fin.status === 200 && !!rastro, `editar deja un registro automático (${rastro?.body || 'ninguno'})`);
+  check(/Estado: En progreso → Terminado/.test(rastro?.body || ''), 'el registro dice de qué a qué cambió el estado');
+  const mismo = await call('PATCH', `/dev/projects/${p.id}`, token, { status: 'terminado' });
+  check(mismo.json?.notes?.filter((n) => n.kind === 'cambio').length === (fin.json?.notes || []).filter((n) => n.kind === 'cambio').length,
+    '⛔ reenviar el mismo valor NO agrega otro registro');
+  const mod = await call('POST', `/dev/projects/${p.id}/notes`, token, { kind: 'modificacion', body: 'Falta exportar a Excel' });
+  check(mod.status === 201 && mod.json?.kind === 'modificacion', `modificación sobre un proyecto TERMINADO → ${mod.status}`);
+  const nfd = new FormData();
+  nfd.append('source', 'archivo');
+  nfd.append('note_id', mod.json?.id);
+  nfd.append('file', new Blob([Buffer.from('detalle')], { type: 'text/plain' }), 'detalle.txt');
+  const nup = await call('POST', `/dev/projects/${p.id}/attachments`, token, nfd, true);
+  check(nup.status === 201 && nup.json?.note_id === mod.json?.id, `adjunto colgado de la modificación → ${nup.status}`);
+  const conNotas = await call('GET', `/dev/projects/${p.id}`, token);
+  const enNota = (conNotas.json?.notes || []).find((n) => n.id === mod.json?.id);
+  check(enNota?.attachments?.length === 1, 'el adjunto aparece DENTRO de la modificación');
+  check(!(conNotas.json?.attachments || []).some((a) => a.id === nup.json?.id), 'y NO en la evidencia del proyecto');
+  check(conNotas.json?.notes_count === 1, `notes_count cuenta sólo lo escrito por personas (${conNotas.json?.notes_count})`);
+  const cfd = new FormData();
+  cfd.append('note_id', rastro?.id);
+  cfd.append('file', new Blob([Buffer.from('x')], { type: 'text/plain' }), 'x.txt');
+  const cup = await call('POST', `/dev/projects/${p.id}/attachments`, token, cfd, true);
+  check(cup.status === 400, `⛔ adjuntar al registro automático → ${cup.status}`);
+  const delRastro = await call('DELETE', `/dev/projects/${p.id}/notes/${rastro?.id}`, token);
+  check(delRastro.status === 400, `⛔ borrar el registro automático → ${delRastro.status}`);
+  const fakeKind = await call('POST', `/dev/projects/${p.id}/notes`, token, { kind: 'cambio', body: 'inventado' });
+  check(fakeKind.status === 400, `⛔ una persona escribiendo un «cambio» → ${fakeKind.status}`);
+  const vacia = await call('POST', `/dev/projects/${p.id}/notes`, token, { body: '  ' });
+  check(vacia.status === 400, `⛔ nota vacía → ${vacia.status}`);
+  const delMod = await call('DELETE', `/dev/projects/${p.id}/notes/${mod.json?.id}`, token);
+  const sinMod = await call('GET', `/dev/projects/${p.id}`, token);
+  check(delMod.status === 200 && !(sinMod.json?.notes || []).some((n) => n.id === mod.json?.id), 'quitar la modificación la saca del seguimiento');
+
+  console.log('\n[7] Lista y baja lógica');
   const l = await call('GET', `/dev/projects?search=${encodeURIComponent(title)}`, token);
   check((l.json || []).some((x) => x.id === p.id), 'la búsqueda lo encuentra');
   const del = await call('DELETE', `/dev/projects/${p.id}`, token);

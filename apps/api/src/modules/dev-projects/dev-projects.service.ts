@@ -3,8 +3,10 @@ import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
   MAX_ATTACHMENT_BYTES,
+  describeChanges,
   formatFolio,
   kindFromMime,
+  normalizeNoteInput,
   normalizeProjectInput,
   parseSource,
   sanitizeFileName,
@@ -13,6 +15,9 @@ import {
   type DevProjectInput,
   type DevProjectPriority,
   type DevProjectStatus,
+  type FieldChange,
+  type NoteKind,
+  type ProjectSnapshot,
 } from './dev-projects.rules';
 
 export interface DevTeamMember {
@@ -30,8 +35,21 @@ export interface DevProjectAttachment {
   size_bytes: number;
   created_at: string;
   created_by_username: string | null;
+  /** `null` = evidencia del proyecto; con valor = adjunto de esa nota del seguimiento. */
+  note_id: string | null;
   /** URL prefirmada temporal (10 min). `null` si el almacenamiento no está configurado. */
   url: string | null;
+}
+
+/** `[DEV.10]` Una entrada del seguimiento: nota, modificación pedida o cambio automático. */
+export interface DevProjectNote {
+  id: string;
+  kind: NoteKind;
+  body: string;
+  changes: FieldChange[] | null;
+  created_at: string;
+  created_by_username: string | null;
+  attachments: DevProjectAttachment[];
 }
 
 export interface DevProjectRow {
@@ -48,10 +66,15 @@ export interface DevProjectRow {
   created_by_username: string | null;
   updated_at: string;
   attachments_count: number;
+  /** Notas y modificaciones escritas por personas (sin contar el rastro automático). */
+  notes_count: number;
 }
 
 export interface DevProjectDetail extends DevProjectRow {
+  /** Evidencia del proyecto (los adjuntos que no cuelgan de una nota). */
   attachments: DevProjectAttachment[];
+  /** Seguimiento, de la entrada más reciente a la más vieja. */
+  notes: DevProjectNote[];
 }
 
 export interface UploadedFileLike {
@@ -106,31 +129,38 @@ export class DevProjectsService {
   }
 
   async detail(id: string): Promise<DevProjectDetail> {
-    const { row, attachments } = await this.tk.run(async (trx) => {
+    const { row, attachments, notes } = await this.tk.run(async (trx) => {
       const r = await this.baseQuery(trx).where('p.id', id).whereNull('p.deleted_at').first();
       if (!r) throw new NotFoundException('Proyecto no encontrado.');
       const a = await trx('devtools.project_attachments')
         .where({ project_id: id })
         .whereNull('deleted_at')
         .orderBy('created_at', 'asc')
-        .select('id', 'kind', 'source', 'file_name', 'mime_type', 'size_bytes', 'created_at', 'created_by_username', 'storage_key');
-      return { row: mapRow(r), attachments: a };
+        .select('id', 'kind', 'source', 'file_name', 'mime_type', 'size_bytes', 'created_at', 'created_by_username', 'storage_key', 'note_id');
+      const n = await trx('devtools.project_notes')
+        .where({ project_id: id })
+        .whereNull('deleted_at')
+        .orderBy('created_at', 'desc')
+        .select('id', 'kind', 'body', 'changes', 'created_at', 'created_by_username');
+      return { row: mapRow(r), attachments: a, notes: n };
     });
     // La firma va FUERA de la transacción: es una llamada de red y no debe sostener la conexión.
-    const signed = await Promise.all(
-      attachments.map(async (a: any) => ({
-        id: a.id,
-        kind: a.kind,
-        source: a.source,
-        file_name: a.file_name,
-        mime_type: a.mime_type,
-        size_bytes: Number(a.size_bytes),
-        created_at: a.created_at instanceof Date ? a.created_at.toISOString() : a.created_at,
-        created_by_username: a.created_by_username ?? null,
-        url: (await this.storage.signedUrl(a.storage_key).catch(() => '')) || null,
-      })),
+    const signed: DevProjectAttachment[] = await Promise.all(
+      attachments.map(async (a: any) => mapAttachment(a, (await this.storage.signedUrl(a.storage_key).catch(() => '')) || null)),
     );
-    return { ...row, attachments: signed };
+    return {
+      ...row,
+      attachments: signed.filter((a) => !a.note_id),
+      notes: notes.map((n: any) => ({
+        id: n.id,
+        kind: n.kind,
+        body: n.body,
+        changes: n.changes ?? null,
+        created_at: iso(n.created_at),
+        created_by_username: n.created_by_username ?? null,
+        attachments: signed.filter((a) => a.note_id === n.id),
+      })),
+    };
   }
 
   async create(body: DevProjectInput): Promise<DevProjectDetail> {
@@ -174,11 +204,32 @@ export class DevProjectsService {
     const actor = this.tenantCtx.get();
     await this.tk.run(async (trx) => {
       if (data.assignee_user_id) await this.assertTeamMember(trx, data.assignee_user_id);
-      const n = await trx('devtools.projects')
+      // `FOR UPDATE`: el «antes» del rastro tiene que ser el que este UPDATE pisa, no uno que otra
+      // edición simultánea ya cambió.
+      const before = (await trx('devtools.projects')
         .where({ id })
         .whereNull('deleted_at')
+        .forUpdate()
+        .first(
+          'tenant_id', 'title', 'objective', 'priority', 'status', 'assignee_user_id',
+          trx.raw(`to_char(due_date, 'YYYY-MM-DD') as due_date`),
+        )) as (ProjectSnapshot & { tenant_id: string }) | undefined;
+      if (!before) throw new NotFoundException('Proyecto no encontrado.');
+      const names = await this.teamNames(trx, [before.assignee_user_id, data.assignee_user_id ?? null]);
+      const trail = describeChanges(before, data, (uid) => (uid ? names.get(uid) ?? 'otra persona' : 'Sin asignar'));
+      if (!trail) return; // reenviar los mismos valores no es un cambio: ni UPDATE ni rastro
+      await trx('devtools.projects')
+        .where({ id })
         .update({ ...data, updated_at: trx.fn.now(), updated_by: actor?.userId ?? null });
-      if (!n) throw new NotFoundException('Proyecto no encontrado.');
+      await trx('devtools.project_notes').insert({
+        tenant_id: before.tenant_id,
+        project_id: id,
+        kind: 'cambio',
+        body: trail.summary,
+        changes: JSON.stringify(trail.changes),
+        created_by: actor?.userId ?? null,
+        created_by_username: actor?.username ?? null,
+      });
     });
     return this.detail(id);
   }
@@ -196,7 +247,56 @@ export class DevProjectsService {
     return { ok: true };
   }
 
-  async addAttachment(projectId: string, file: UploadedFileLike | undefined, rawSource: unknown): Promise<DevProjectAttachment> {
+  /** `[DEV.10]` Agrega una nota o una modificación. Se puede en CUALQUIER estado, incluso terminado. */
+  async addNote(projectId: string, body: { kind?: unknown; body?: unknown }): Promise<DevProjectNote> {
+    const note = normalizeNoteInput(body);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const actor = this.tenantCtx.get();
+    const r = await this.tk.run(async (trx) => {
+      const p = await trx('devtools.projects').where({ id: projectId }).whereNull('deleted_at').first('id');
+      if (!p) throw new NotFoundException('Proyecto no encontrado.');
+      const [row] = await trx('devtools.project_notes')
+        .insert({
+          tenant_id: tenantId,
+          project_id: projectId,
+          kind: note.kind,
+          body: note.body,
+          created_by: actor?.userId ?? null,
+          created_by_username: actor?.username ?? null,
+        })
+        .returning(['id', 'kind', 'body', 'created_at', 'created_by_username']);
+      await trx('devtools.projects').where({ id: projectId }).update({ updated_at: trx.fn.now(), updated_by: actor?.userId ?? null });
+      return row;
+    });
+    return {
+      id: r.id, kind: r.kind, body: r.body, changes: null,
+      created_at: iso(r.created_at), created_by_username: r.created_by_username ?? null, attachments: [],
+    };
+  }
+
+  /** Baja lógica de una nota. ⛔ El rastro automático (`cambio`) no se borra: es la historia. */
+  async removeNote(projectId: string, noteId: string): Promise<{ ok: true }> {
+    const actor = this.tenantCtx.get();
+    await this.tk.run(async (trx) => {
+      const n = await trx('devtools.project_notes')
+        .where({ id: noteId, project_id: projectId })
+        .whereNull('deleted_at')
+        .first('kind');
+      if (!n) throw new NotFoundException('Nota no encontrada.');
+      if (n.kind === 'cambio') throw new BadRequestException('El registro automático de cambios no se puede borrar.');
+      await trx('devtools.project_notes')
+        .where({ id: noteId })
+        .update({ deleted_at: trx.fn.now(), deleted_by: actor?.userId ?? null });
+    });
+    return { ok: true };
+  }
+
+  async addAttachment(
+    projectId: string,
+    file: UploadedFileLike | undefined,
+    rawSource: unknown,
+    noteId?: string | null,
+  ): Promise<DevProjectAttachment> {
     if (!file?.buffer?.length) throw new BadRequestException('Archivo requerido.');
     if (file.size > MAX_ATTACHMENT_BYTES) {
       throw new BadRequestException(`El archivo pasa del tope de ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB.`);
@@ -208,10 +308,18 @@ export class DevProjectsService {
     const fallback = source === 'camara' ? 'foto.jpg' : source === 'grabacion' ? 'video.webm' : 'archivo';
     const fileName = sanitizeFileName(file.originalname, fallback);
 
-    // El proyecto se valida ANTES de subir: no dejar binarios huérfanos en el bucket.
+    const note = noteId ? String(noteId) : null;
+    if (note && !UUID_RE.test(note)) throw new BadRequestException('Nota inválida.');
+
+    // El proyecto (y la nota) se validan ANTES de subir: no dejar binarios huérfanos en el bucket.
     await this.tk.run(async (trx) => {
       const p = await trx('devtools.projects').where({ id: projectId }).whereNull('deleted_at').first('id');
       if (!p) throw new NotFoundException('Proyecto no encontrado.');
+      if (note) {
+        const n = await trx('devtools.project_notes').where({ id: note, project_id: projectId }).whereNull('deleted_at').first('kind');
+        if (!n) throw new NotFoundException('Nota no encontrada.');
+        if (n.kind === 'cambio') throw new BadRequestException('Al registro automático no se le adjuntan archivos.');
+      }
     });
 
     const { key } = await this.storage.putBuffer(file.buffer, mime, `devtools/${tenantId}/projects/${projectId}`, fileName);
@@ -229,10 +337,11 @@ export class DevProjectsService {
             mime_type: mime,
             size_bytes: file.size,
             storage_key: key,
+            note_id: note,
             created_by: actor?.userId ?? null,
             created_by_username: actor?.username ?? null,
           })
-          .returning(['id', 'kind', 'source', 'file_name', 'mime_type', 'size_bytes', 'created_at', 'created_by_username']);
+          .returning(['id', 'kind', 'source', 'file_name', 'mime_type', 'size_bytes', 'created_at', 'created_by_username', 'note_id']);
         await trx('devtools.projects').where({ id: projectId }).update({ updated_at: trx.fn.now(), updated_by: actor?.userId ?? null });
         return r;
       });
@@ -241,17 +350,7 @@ export class DevProjectsService {
       await this.storage.remove(key);
       throw e;
     }
-    return {
-      id: row.id,
-      kind: row.kind,
-      source: row.source,
-      file_name: row.file_name,
-      mime_type: row.mime_type,
-      size_bytes: Number(row.size_bytes),
-      created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-      created_by_username: row.created_by_username ?? null,
-      url: (await this.storage.signedUrl(key).catch(() => '')) || null,
-    };
+    return mapAttachment(row, (await this.storage.signedUrl(key).catch(() => '')) || null);
   }
 
   async removeAttachment(projectId: string, attachmentId: string): Promise<{ ok: true }> {
@@ -281,7 +380,22 @@ export class DevProjectsService {
           `(select count(*)::int from devtools.project_attachments a
              where a.project_id = p.id and a.deleted_at is null) as attachments_count`,
         ),
+        trx.raw(
+          `(select count(*)::int from devtools.project_notes n
+             where n.project_id = p.id and n.deleted_at is null and n.kind <> 'cambio') as notes_count`,
+        ),
       );
+  }
+
+  /** Nombre visible de cada responsable: el del equipo si lo es, si no el de su usuario. */
+  private async teamNames(trx: Knex.Transaction, ids: (string | null)[]): Promise<Map<string, string>> {
+    const wanted = ids.filter((x): x is string => !!x);
+    if (!wanted.length) return new Map();
+    const rows = await trx('identity.users as u')
+      .leftJoin('devtools.dev_team as t', 't.user_id', 'u.id')
+      .whereIn('u.id', wanted)
+      .select('u.id', trx.raw('coalesce(t.display_name, u.nombre, u.username) as name'));
+    return new Map(rows.map((r: any) => [r.id as string, r.name as string]));
   }
 
   private async assertTeamMember(trx: Knex.Transaction, userId: string): Promise<void> {
@@ -305,6 +419,28 @@ function mapRow(r: any): DevProjectRow {
     created_by_username: r.created_by_username ?? null,
     updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : r.updated_at,
     attachments_count: Number(r.attachments_count ?? 0),
+    notes_count: Number(r.notes_count ?? 0),
+  };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function iso(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+function mapAttachment(a: any, url: string | null): DevProjectAttachment {
+  return {
+    id: a.id,
+    kind: a.kind,
+    source: a.source,
+    file_name: a.file_name,
+    mime_type: a.mime_type,
+    size_bytes: Number(a.size_bytes),
+    created_at: iso(a.created_at),
+    created_by_username: a.created_by_username ?? null,
+    note_id: a.note_id ?? null,
+    url,
   };
 }
 
