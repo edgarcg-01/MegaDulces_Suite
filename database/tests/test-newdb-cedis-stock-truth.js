@@ -141,6 +141,45 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
     chk(neg.filas === 0,
       'un doctype inexistente (N-A-99) devuelve 0 filas → el bloque 3 caería en NO MEDIDO, no en ✔');
 
+    // ── 4b. LA MAGNITUD CONTRA LOS PARES — la medición que me faltó ────────────────────────
+    // ⭐ El argumento con el que publiqué el CEDIS fue «los 10 SKUs más grandes son el 9.0% del
+    // total, o sea que está repartido entre miles, y un almacén repartido es un almacén». Está
+    // REFUTADO: estar repartido NO distingue un almacén de una tabla sin purgar —una corrida de
+    // residuo también se reparte—. Era una corazonada con forma de medición. La que sí distinguía
+    // estaba a una consulta: **comparar el nodo contra sus hermanos**.
+    //   Esta regla es general y barata, y atrapa justo lo que el análisis interno no ve: cuando la
+    // FÓRMULA está bien y **la TABLA está sucia**. Lleva su propio control negativo: el CEDIS tiene
+    // que seguir disparándola, o el umbral se aflojó hasta volver el candado decorativo.
+    console.log('\n[4b] Magnitud contra los pares — ningún nodo publica un orden de magnitud más');
+    const UMBRAL = 5;
+    const mag = await q(
+      `WITH k AS (
+         SELECT sucursal, sum(GREATEST(c4+c8-c9,0))::numeric u
+           FROM kepler_ods.kdil
+          WHERE sucursal = c1 AND btrim(c3) <> ALL(ARRAY['00001','00002','00022'])
+          GROUP BY 1)
+       SELECT sucursal, u,
+              (SELECT max(o.u) FROM k o WHERE o.sucursal <> k.sucursal) AS max_pares
+         FROM k ORDER BY 1`);
+    const nodo = mag.find((r) => r.sucursal === SUC);
+    const pares = mag.filter((r) => r.sucursal !== SUC);
+    if (!nodo || pares.length < 5) {
+      nm(`sólo ${mag.length} sucursales en kdil — sin pares con qué comparar`);
+    } else {
+      // Control negativo: la regla TIENE que marcar al CEDIS. Si deja de hacerlo, es un no-op.
+      const rCedis = Number(nodo.u) / Number(nodo.max_pares);
+      chk(rCedis > UMBRAL,
+        `control negativo: el CEDIS dispara la regla — ${n(nodo.u)} u = ${rCedis.toFixed(1)}× ` +
+        `la mayor de sus pares (${n(nodo.max_pares)} u), umbral ${UMBRAL}×`);
+      // Y la regla sobre las que SÍ se publican: ninguna puede ser un outlier sin testigo.
+      const fuera = pares.filter((r) => Number(r.u) / Number(r.max_pares) > UMBRAL);
+      chk(fuera.length === 0,
+        fuera.length === 0
+          ? `las ${pares.length} sucursales publicadas están dentro de ${UMBRAL}× de su mayor par`
+          : `⛔ ${fuera.map((r) => `${r.sucursal} (${(Number(r.u)/Number(r.max_pares)).toFixed(1)}×)`)
+               .join(', ')} publica(n) fuera de escala — en disputa hasta tener testigo externo`);
+    }
+
     // ── 5. EL HUECO DECLARADO: kdil vs kdik en TODAS las sucursales ─────────────────────────
     console.log('\n[5] Hueco declarado — Kepler tiene DOS existencias y no coinciden');
     const div = await q(
