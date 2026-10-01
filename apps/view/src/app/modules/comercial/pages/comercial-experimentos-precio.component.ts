@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PRECIOS_TABS } from '../precios-tabs';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
@@ -35,12 +37,14 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 @Component({
   selector: 'app-comercial-experimentos-precio',
   standalone: true,
-  imports: [CommonModule, TableModule, ButtonModule, SkeletonModule, ToastModule, MetricStripComponent],
+  imports: [CommonModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <div class="surf-page xp">
   <p-toast />
+
+  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" variant="liquid" /></div>
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">
@@ -237,6 +241,11 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 </div>
   `,
   styles: [`
+    /* [PR.V2] El selector segmentado va ARRIBA del encabezado de la pagina, como en
+       Almacen y Contabilidad. El padding horizontal ya lo pone .surf-page: aca solo
+       hace falta separarlo del borde superior y del titulo.
+       Y SIN acentos graves: adentro de un template literal lo TERMINAN. Van diez. */
+    .pr-tabs { padding-top: var(--sp-3); margin-bottom: var(--sp-3); }
     /* Escala estricta: sólo var(--fs-*). Elevación por hairline, nunca sombra in-page. */
     .xp { display: flex; flex-direction: column; gap: var(--sp-4); }
 
@@ -315,6 +324,10 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
   `],
 })
 export class ComercialExperimentosPrecioComponent {
+  /** `[PR.V2]` El selector segmentado: el motor y sus experimentos, bajo una sola
+   *  entrada del sidebar. `PageTabs` esconde la barra si el rol sólo alcanza una. */
+  readonly tabs = PRECIOS_TABS;
+
   private readonly api = inject(ExperimentosPrecioService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

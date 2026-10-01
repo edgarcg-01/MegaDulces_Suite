@@ -384,8 +384,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Precios y promociones',
       items: [
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
-        { label: 'Motor de margen',   icon: 'pi pi-sliders-h',    route: '/comercial/motor-margen', permission: Permission.COMMERCIAL_MARGIN_ENGINE_VER },
-        { label: 'Experimentos de precio', icon: 'pi pi-chart-scatter', route: '/comercial/experimentos-precio', permission: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER },
+        // `[PR.V2]` Eran DOS renglones que responden la misma pregunta en dos tiempos: el motor
+        // dice qué precio conviene mover, y el experimento es lo único que puede convertir esa
+        // acción de «efecto no medido» a medida. Ahora es una entrada con selector segmentado.
+        // ⚠️ `anyOf`, no `permission`: `compras`/`finanzas` ven sólo el motor y `telemarketing`
+        //    sólo los experimentos — con un permiso único, alguien perdía la entrada entera.
+        { label: 'Control de margen', icon: 'pi pi-sliders-h',    route: '/comercial/precios',
+          anyOf: [Permission.COMMERCIAL_MARGIN_ENGINE_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
       ],
