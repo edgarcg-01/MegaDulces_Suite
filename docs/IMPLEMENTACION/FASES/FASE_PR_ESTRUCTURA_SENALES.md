@@ -1110,7 +1110,103 @@ entre ellas y **no se va a inventar una**. El hueco se declara.
 
 ---
 
-## 28 · Lo que sigue
+## 28 · `[PR.M5]` · El Cubo: 31 meses de NUESTRA venta — y una advertencia mía que estaba mal
+
+### ⛔⛔ Lo primero: la corrección
+
+`[PR.M2]` publicó, en una columna de la vista y en los motivos de C1/H3/H4, que *«el numerador
+viene inflado por traspasos; la brecha contra `sales_daily` es de $19.5M a $21.6M por mes»*.
+**La brecha existe. La causa estaba mal.**
+
+Medido el 2026-10-01 con **control de cobertura** — comparando **sólo las sucursales que nuestro
+propio fact ya tiene ese mes**:
+
+| | razón ISCAM / nosotros |
+|---|---|
+| todo contra todo | **1.54** |
+| mismas sucursales | **1.105 a 1.371** (mediana ~1.25) |
+| mismas sucursales, jun y jul-2026 | **1.106 y 1.105** |
+
+La diferencia entre 1.54 y 1.11 **no es traspaso**: es que `analytics.sales_daily` **no tenía
+esas sucursales**.
+
+| almacén | nuestro fact arranca |
+|---|---|
+| 01 PH · 02 LPA · 06 CAN | 2025-01 |
+| 03 8ES · 04 YU · 05 DAMASO | 2026-01 |
+| **07 MM · 08 MA** | **2026-09** |
+| 2024 entero | **no existe** |
+
+Y **08 Morelia Abastos es la sucursal más grande del Cubo**: $18.7M al mes, el **34 %** de la
+venta que ISCAM nos publica.
+
+⚠️ Queda un **residuo de ~10 %** sobre sucursales comunes en los meses recientes. Ése sí podría
+ser traspaso, y ahora se declara como lo que es: un 10 %, no un 54 %.
+
+⭐ Se cae también la conclusión derivada que escribí — *«si la distorsión fuera sólo nuestra el
+share sería ~3.80 % y no 5.36 %»*: esa resta descontaba del numerador una inflación que en su
+mayor parte no existe.
+
+### Lo que los Cubos resultaron ser
+
+Los describí como «nuestro dato devuelto con su taxonomía» y los usé sólo para sacar 3,895
+códigos de barras. Son **445,310 registros · 31 meses (ene-2024 → jul-2026) · 11 nombres de
+sucursal · 8,207 presentaciones**, con `Vol` y `Val` por celda, taxonomía de siete niveles
+(Segmento › Categoría › SubCategoría › Fabricante › Marca › SubMarca › Producto), gramaje, y el
+**empaque escrito en el nombre**: `CHICLE MAX AIR DENTYNE ICE BLUE 2S [32 D/100 P] - 2.8 Grs`.
+
+⭐⭐ **$1,281.30M — el 68 % del Cubo — es venta NUESTRA que `analytics.sales_daily` no tiene:**
+
+| | monto | % |
+|---|--:|--:|
+| comparable (ISCAM y libros, misma celda) | $604.14M | 32.0 % |
+| **sólo en ISCAM**, sucursal mapeable | **$489.23M** | 25.9 % |
+| 2024 y ene-2025, plaza agregada sin almacén mapeable | $792.07M | 42.0 % |
+
+De los $489.23M, **$368.84M son Morelia Abastos entera**.
+
+### Las decisiones que se tomaron midiendo
+
+- ⛔ **La llave no es única**: (mes, sucursal, ProductoDetalle) tiene **1,289 colisiones**, y con
+  CodBar todavía **695**. Se usa un **hash de la tupla de dimensiones**, el mismo patrón que la
+  réplica de Wincaja cuando no hay PK natural.
+- ⛔ **Tres nombres no se mapean a propósito.** Hasta ene-2025 ISCAM agregaba en TRES plazas
+  (LA PIEDAD, MORELIA, ZAMORA) y desde feb-2025 desagrega en ocho. Una plaza agregada no es una
+  sucursal nuestra: va con `warehouse_code` NULL **y el motivo escrito**, no con un almacén
+  inventado.
+- ⚠️ **El empaque se guarda CRUDO y no se usa.** Parsea en el **100 %** de las 8,207
+  presentaciones (D de 1 a 360, P de 1 a 2000), y sería un tercer testigo del factor de caja —
+  un tema que este proyecto ya pagó dos veces. Pero que D y P signifiquen *display* y *pieza* es
+  **lo que parece, no lo verificado**: hasta probarlo contra el dinero no se cablea a ningún
+  resolvedor, y el candado **exige que ninguna vista lo consuma**.
+
+### ⭐ El control que encontró el bug, y el bug
+
+El cargador comprueba que **los dos Cubos coincidan** antes de dar por buena la afirmación de que
+da igual cuál se cargue. En la primera corrida uno dio **$1,885.44M** y el otro **$0.00M**.
+
+La causa era mía: copié un lector que busca **todo** en el diccionario de la tabla dinámica.
+Las dimensiones vienen como índice (`<x v="7"/>`), pero `Vol` y `Val` **no tienen diccionario** —
+llegan como número directo (`<n v="123.4"/>`). Un lector que siempre busca en el diccionario
+devuelve `undefined` para las medidas y **las carga como cero, sin fallar**.
+
+Por eso el candado exige que **ningún mes sume cero**: un mes en cero no es un mes malo, es el
+lector roto.
+
+⚠️ Y **sexta vez** que un acento grave dentro de un comentario rompe un literal de plantilla en
+este repo. Lo cazó `node --check` en un segundo.
+
+### El cruce que vale
+
+El Cubo y el SURF son **archivos distintos** de la entrega, armados por ISCAM por caminos
+distintos. El total del Cubo para julio-2026 reproduce el `MedActMayo` del SURF **al peso**:
+**$55.62M contra $55.62M, diferencia $0.00**. Si coincidieran por construcción no probaría nada.
+
+Candado `test-newdb-iscam-cubo.js`: **13 ✓ / 0 ✗ / 0 no medido**.
+
+---
+
+## 29 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
