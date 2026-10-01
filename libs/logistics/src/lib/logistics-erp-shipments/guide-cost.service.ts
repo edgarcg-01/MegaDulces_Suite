@@ -113,6 +113,15 @@ export class GuideCostService {
            LEFT JOIN (
              SELECT dia, sucursal, guia, canal,
                     round(sum(atribuido)::numeric, 2)                      AS costo,
+                    -- ⭐ Las DOS naturalezas, separadas. DIRECTO = el gasto cuyo DEPARTAMENTO
+                    -- es este canal, asi que se sabe de quien es (aunque se reparta entre las
+                    -- guias del dia). PRORRATEADO = el bucket administrativo que NO declara
+                    -- canal y se le asigna por actividad. Sumarlos en una sola cifra esconde
+                    -- cuanto de lo que se le cobra a un viaje es suposicion.
+                    round(sum(atribuido) FILTER (WHERE fuente = 'departamento')::numeric, 2)
+                                                                           AS costo_directo,
+                    round(sum(atribuido) FILTER (WHERE fuente = 'otros_admin')::numeric, 2)
+                                                                           AS costo_prorrateado,
                     count(DISTINCT concepto)::int                          AS conceptos,
                     -- El peor origen manda: si una sola parte del costo es atribuida, el total
                     -- no se puede presentar como directo.
@@ -140,6 +149,8 @@ export class GuideCostService {
         mercancia: r.mercancia === null ? null : Number(r.mercancia),
         // NULL, nunca 0: "no se registro gasto" no es "fue gratis".
         costo: r.costo === null ? null : Number(r.costo),
+        costo_directo: r.costo_directo === null ? null : Number(r.costo_directo),
+        costo_prorrateado: r.costo_prorrateado === null ? null : Number(r.costo_prorrateado),
         costo_por_parada: r.costo === null ? null
           : Number((Number(r.costo) / Number(r.paradas)).toFixed(2)),
         costo_estado: r.costo === null ? 'no_medido' : 'atribuido',
@@ -156,11 +167,15 @@ export class GuideCostService {
         `SELECT count(*)::int                                   AS guias_total,
                 count(c.costo)::int                             AS guias_con_costo,
                 round(sum(c.costo)::numeric, 2)                 AS costo_total,
+                round(sum(c.costo_directo)::numeric, 2)         AS costo_directo,
+                round(sum(c.costo_prorrateado)::numeric, 2)     AS costo_prorrateado,
                 sum(a.paradas)::int                             AS paradas_total,
                 round(sum(a.mercancia)::numeric, 2)             AS mercancia_total
            FROM analytics.v_logistics_activity_daily a
            LEFT JOIN (
-             SELECT dia, sucursal, guia, canal, sum(atribuido) AS costo
+             SELECT dia, sucursal, guia, canal, sum(atribuido) AS costo,
+                    sum(atribuido) FILTER (WHERE fuente = 'departamento') AS costo_directo,
+                    sum(atribuido) FILTER (WHERE fuente = 'otros_admin')  AS costo_prorrateado
                FROM analytics.mv_logistics_guide_cost
               WHERE tenant_id = ?::uuid AND origen <> 'sin_actividad'
               GROUP BY 1,2,3,4
@@ -172,6 +187,8 @@ export class GuideCostService {
       )).rows;
 
       const costoTotal = Number(tot.costo_total || 0);
+      const costoDirecto = Number(tot.costo_directo || 0);
+      const costoProrrateado = Number(tot.costo_prorrateado || 0);
       const mercTotal = Number(tot.mercancia_total || 0);
       return {
         guias,
@@ -180,6 +197,11 @@ export class GuideCostService {
           guias: Number(tot.guias_total), guias_con_costo: Number(tot.guias_con_costo),
           paradas: Number(tot.paradas_total),
           costo: costoTotal, mercancia: mercTotal,
+          // La misma cifra, partida por su NATURALEZA.
+          costo_directo: costoDirecto,
+          costo_prorrateado: costoProrrateado,
+          pct_prorrateado: costoTotal
+            ? Number((100 * costoProrrateado / costoTotal).toFixed(1)) : null,
           costo_por_parada: tot.paradas_total
             ? Number((costoTotal / Number(tot.paradas_total)).toFixed(2)) : null,
           mostradas: guias.length,
@@ -332,6 +354,8 @@ export class GuideCostService {
         if (!porFamilia.has(k)) porFamilia.set(k, { familia: k, total: 0, conceptos: [] as any[] });
         const f = porFamilia.get(k);
         f.total += Number(r.atribuido);
+        f.directo = (f.directo || 0) + Number(r.de_departamento || 0);
+        f.prorrateado = (f.prorrateado || 0) + Number(r.de_prorrateo || 0);
         f.conceptos.push({
           ...r,
           atribuido: Number(r.atribuido),
@@ -345,6 +369,8 @@ export class GuideCostService {
         .map((f) => ({
           ...f,
           total: Number(f.total.toFixed(2)),
+          directo: Number((f.directo || 0).toFixed(2)),
+          prorrateado: Number((f.prorrateado || 0).toFixed(2)),
           pct_del_total: total ? Number((100 * f.total / total).toFixed(1)) : null,
           conceptos: f.conceptos.sort((a: any, b: any) => b.atribuido - a.atribuido),
         }))
