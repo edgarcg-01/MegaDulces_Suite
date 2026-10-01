@@ -292,8 +292,17 @@ interface SelSolicitud {
                        retiraron con la visión: la foto se toma y se manda, y quien firma
                        decide mirándola. -->
 
-                <label class="cap-f"><span>Comentarios (opcional)</span>
-                  <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
+                <!--
+                  [GX.57] El concepto dejó de ser opcional (pedido del usuario). El rótulo lo
+                  dice con una marca visible: un campo obligatorio que se anuncia sólo cuando
+                  el botón se apaga hace teclear a ciegas.
+
+                  ⚠️ ngModel + ngModelChange por separado, NO el banana-in-a-box: el campo es una SEÑAL
+                  y la forma corta no sabe escribirla. Mismo patrón que el dato del pago.
+                -->
+                <label class="cap-f"><span>Concepto <b class="cap-req">obligatorio</b></span>
+                  <textarea pTextarea [ngModel]="comentarios()" (ngModelChange)="comentarios.set($event)"
+                            rows="2" class="w-full" placeholder="En una frase: qué se compró o para qué fue el gasto"></textarea></label>
               }
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
@@ -331,8 +340,16 @@ interface SelSolicitud {
                 </div>
 
               }
+              <!--
+                [GX.57] ⚠️ Éste SIGUE siendo opcional, a propósito. Lo obligatorio es el
+                concepto del ALTA (la pantalla que el usuario señaló); acá el gasto ya tiene
+                su concepto desde que se capturó y esto es una nota para quien valida. Si
+                también debe exigirse, es una línea — pero es otra decisión, y se declara
+                en vez de extenderla sola.
+              -->
               <label class="cap-f"><span>Comentarios (opcional)</span>
-                <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien valida…"></textarea></label>
+                <textarea pTextarea [ngModel]="comentarios()" (ngModelChange)="comentarios.set($event)"
+                          rows="2" class="w-full" placeholder="Nota para quien valida…"></textarea></label>
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
               <button pButton type="button" class="cap-send" [loading]="saving()"
@@ -416,8 +433,8 @@ interface SelSolicitud {
                   @if (names()['cotizacion']; as n) { <span class="cap-prev-ok">✓</span> {{ n }} }
                   @else { <span class="cap-prev-opt">no se adjuntó — es opcional</span> }
                 </dd>
-                <dt>Comentarios</dt>
-                <dd>{{ comentarios.trim() || '—' }}</dd>
+                <dt>Concepto</dt>
+                <dd>{{ comentarios().trim() || '—' }}</dd>
               </dl>
               @if (faltan().length) {
                 <p class="cap-prev-pend"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>
@@ -458,6 +475,9 @@ interface SelSolicitud {
     .cap-f > span { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
       letter-spacing: .06em; color: var(--fg-3); }
     .cap-hint { font-size: var(--fs-xs); color: var(--fg-3); font-style: normal; }
+    /* [GX.57] La marca de campo obligatorio. Se lee ANTES de teclear; el botón apagado
+       recién lo diría después. */
+    .cap-req { color: var(--action); font-weight: var(--fw-bold); letter-spacing: .06em; }
     .w-full { width: 100%; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
@@ -664,7 +684,15 @@ export class FinanzasCapturarGastoComponent {
   fotoTitulo() { return this.names()[this.fotoRol()] ?? 'Foto'; }
   verFoto(role: string) { this.fotoRol.set(role); this.fotoAbierta = true; }
   sel: (SolicitudSug & { label: string }) | string | null = null;
-  comentarios = '';
+  /**
+   * `[GX.57]` El concepto del gasto. **SEÑAL, no campo suelto** — la misma razón que
+   * `formaPagoDetalle` (GX.22): desde ahora lo lee el `computed` de la compuerta, y un
+   * `computed` sólo se recalcula cuando cambia una SEÑAL que leyó. Como propiedad plana,
+   * escribir el concepto no invalidaría nada y el botón quedaría apagado de por vida
+   * diciendo «Falta: El concepto» — es el defecto que `scripts/check-signal-reactivity.js`
+   * vigila, y el mismo que CG.22 encontró en Caja General.
+   */
+  readonly comentarios = signal('');
 
   /** Expediente ya existente para el folio elegido — decide en qué MOMENTO está la captura. */
   readonly existing = signal<ProofByFolio | null>(null);
@@ -752,6 +780,9 @@ export class FinanzasCapturarGastoComponent {
     // El sello viaja por rol: `names` sólo dice que hay archivo, no de dónde salió.
     archivos: Object.keys(this.names()).map((role) => ({ role, live: this.sellos()[role]?.live === true })),
     exige_evidencia: this.llevaEvidencia(),
+    // `[GX.57]` El concepto entra a la compuerta compartida. Es una SEÑAL justamente para
+    // que este `computed` se entere cuando la persona lo escribe.
+    concepto: this.comentarios(),
   }));
 
   puedeEnviar(): boolean {
@@ -765,12 +796,12 @@ export class FinanzasCapturarGastoComponent {
     // «Enviar a aprobación» porque GX.18 también sacó de `enviarTitle()` la rama que lo
     // explicaba. El respaldo ahora es la foto en vivo del vale, y la exige `faltan()`
     // —la misma regla que devuelve el 400 del servidor—, dos líneas más abajo.
-    // GX.14 — la compuerta compartida cubre forma de pago + foto en vivo. El motivo del
-    // no_comprobable NO está ahí a propósito: es una regla de ESTA pantalla (el backend la
-    // valida aparte contra `comentarios`), y meterla en el contrato la haría depender de
-    // un campo que el contrato no ve.
-    if (this.faltan().length) return false;
-    return this.llevaEvidencia() ? true : !!this.comentarios.trim();
+    // `[GX.57]` La compuerta compartida cubre AHORA las tres: forma de pago, archivo y
+    // concepto. Acá colgaba un `return this.llevaEvidencia() ? true : !!comentarios.trim()`
+    // — la regla del concepto escrita por segunda vez, y encima distinta de la del servidor
+    // (acá sólo para el no comprobable, allá igual). Se fue al contrato, que es el único
+    // lugar donde las dos puntas la leen igual.
+    return !this.faltan().length;
   }
   /**
    * [GX.17] Lo que dice el BOTÓN. Mientras falte algo lo nombra; cuando no falta nada,
@@ -798,7 +829,7 @@ export class FinanzasCapturarGastoComponent {
     // resolver primero, y sale de la misma lista que ve la persona en pantalla.
     const f = this.faltan()[0];
     if (f) return `Falta: ${f.label}`;
-    if (!this.llevaEvidencia() && !this.comentarios.trim()) return 'Falta el motivo';
+    // `[GX.57]` El «Falta el motivo» que iba acá ya lo nombra la compuerta («El concepto»).
     return 'Enviar a aprobación';
   }
 
@@ -1011,7 +1042,7 @@ export class FinanzasCapturarGastoComponent {
   }
 
   reset() {
-    this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios = '';
+    this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios.set('');
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
     this.formaPago.set(null); this.formaPagoDetalle.set(''); this.sellos.set({});
     this.existing.set(null); this.checking.set(false);
@@ -1150,7 +1181,6 @@ export class FinanzasCapturarGastoComponent {
   }
 
   private createSolicitud(g: SelSolicitud) {
-    const lleva = this.llevaEvidencia();
     const files = [...ROLES_COMPROBANTE, ...ROLES_COTIZACION]
       .map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
     this.svc.create({
@@ -1160,8 +1190,16 @@ export class FinanzasCapturarGastoComponent {
       clasificacion: this.clasificacion()!,
       forma_pago: this.formaPago() ?? undefined,
       forma_pago_detalle: this.formaPagoDetalle().trim() || undefined,
-      // No comprobable: el motivo ES el comentario (obligatorio). Comprobable: nota opcional.
-      comentarios: this.comentarios || (lleva ? g.concepto || undefined : undefined), files,
+      /**
+       * `[GX.57]` El concepto, siempre el que ESCRIBIÓ la persona.
+       *
+       * ⛔ Acá había un respaldo: `this.comentarios || (lleva ? g.concepto : undefined)` —
+       * si la caja venía vacía se mandaba el concepto que traía el vale de Kepler. O sea
+       * que el expediente guardaba un concepto que nadie tecleó, y el campo decía
+       * «opcional» con razón. Con el concepto obligatorio ese respaldo no puede dispararse
+       * nunca; dejarlo sería una rama muerta que aparenta cubrir algo.
+       */
+      comentarios: this.comentarios().trim(), files,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar.'); },
@@ -1173,7 +1211,7 @@ export class FinanzasCapturarGastoComponent {
     // `[GX.32]` Ya no viajan `monto_ocr`, `subtotal_ocr` ni `receipt_legible`: los llenaba
     // la lectura por visión, que se retiró. El servidor tampoco los recibe.
     this.svc.addEvidence(id, {
-      files, comentarios: this.comentarios || undefined,
+      files, comentarios: this.comentarios().trim() || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Evidencia enviada', detail: `Solicitud ${g.folio} · la revisa quien autoriza` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la evidencia.'); },

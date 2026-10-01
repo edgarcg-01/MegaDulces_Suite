@@ -244,8 +244,15 @@ interface DocDelExpediente {
               <button pButton type="button" class="p-button-text" [disabled]="ocupado()"
                       (click)="rechazar.emit(p)">Rechazar</button>
               @if (acciones().includes('aprobar')) {
+                <!--
+                  [GX.58] «Aprobar» pasó a decir «Revisado» (pedido del usuario, 2026-10-01).
+                  ⚠️ Cambia la PALABRA del botón, no lo que hace: sigue llamando a la misma
+                  acción y el vale sigue quedando en estado aprobada. Los rótulos de estado
+                  («Aprobado · falta ejercer») y el aviso de éxito son otro texto, y se
+                  declaran aparte en vez de tocarlos de arrastre.
+                -->
                 <button pButton type="button" [loading]="ocupado()" (click)="emitirAprobacion(p)">
-                  {{ provisional() ? 'Aprobar como provisional' : 'Aprobar' }}
+                  {{ provisional() ? 'Revisado como provisional' : 'Revisado' }}
                 </button>
               } @else {
                 <button pButton type="button" class="p-button-outlined" [loading]="ocupado()"

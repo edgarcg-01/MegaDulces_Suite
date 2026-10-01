@@ -163,14 +163,12 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_SALES_DOCS_VER, url: '/comercial/documentos' },
   { perm: Permission.COMMERCIAL_CUSTOMERS360_VER, url: '/comercial/customers-360' },
   { perm: Permission.COMMERCIAL_HISTORICAL_VER, url: '/comercial/historical' },
-  { perm: Permission.COMMERCIAL_ERP_PROMOS_VER, url: '/comercial/erp-promos' },
   { perm: Permission.COMMERCIAL_VENDOR_SALES_VER, url: '/comercial/vendor-sales' },
   // `[SN.4]` Medido en prod: `contabilidad` (2 usuarios) entra a Ventas sólo por COMISIONES, y
   // ninguna de las 12 de arriba la cubría → `denied()`.
   { perm: Permission.COMMERCIAL_COMMISSIONS_VER, url: '/comercial/comisiones' },
   { perm: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER, url: '/comercial/analisis' },
   { perm: Permission.COMMERCIAL_CARTERA_VER, url: '/comercial/cartera' },
-  { perm: Permission.COMMERCIAL_PROMOTIONS_VER, url: '/comercial/promotions' },
   { perm: Permission.COMMERCIAL_THOT_VER, url: '/comercial/thot-chat' },
   { perm: Permission.ROUTE_CONTROL_VER, url: '/comercial/route-tickets' },
 ]);
@@ -197,6 +195,15 @@ export const preciosHomeGuard: CanActivateFn = landingRedirectGuard(PRECIOS_LAND
 
 /** Landing de `/comercial`. */
 export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(COMERCIAL_LANDING, '/comercial/command-center');
+
+/** `[MKT.0]` Promociones y Promos ERP salieron de COMERCIAL_LANDING y viven acá. */
+export const MKT_LANDING: LandingCandidate[] = withTreeCandidates('mkt', [
+  { perm: Permission.COMMERCIAL_PROMOTIONS_VER, url: '/mkt/promotions' },
+  { perm: Permission.COMMERCIAL_ERP_PROMOS_VER, url: '/mkt/erp-promos' },
+]);
+
+/** Landing de `/mkt`. */
+export const mktHomeGuard: CanActivateFn = landingRedirectGuard(MKT_LANDING, '/mkt/promotions');
 
 export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen', [
   // El trabajo del almacén empieza en el CENSO, así que Existencia va primera.
@@ -369,6 +376,7 @@ export const adminHomeGuard: CanActivateFn = landingRedirectGuard(ADMIN_LANDING,
 /** Todos los landings dinámicos, por id de proyecto del árbol — para el spec de cobertura. */
 export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> = {
   comercial: COMERCIAL_LANDING,
+  mkt: MKT_LANDING,
   almacen: ALMACEN_LANDING,
   compras: COMPRAS_LANDING,
   logistica: LOGISTICA_LANDING,

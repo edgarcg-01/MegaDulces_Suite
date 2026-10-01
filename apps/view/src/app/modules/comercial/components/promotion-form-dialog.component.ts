@@ -63,39 +63,41 @@ interface BundleItem {
       [header]="header"
       (onHide)="hide.emit()"
       >
-      <!-- STEP 1: Type selector -->
-      @if (wizardStep === 'choose-type') {
-        <p class="step-intro">Elegí el tipo de promoción que querés crear:</p>
-        <div class="type-grid">
-          @for (m of metaList; track m) {
-            <button
-              type="button"
-              class="type-card"
-              (click)="chooseType.emit(m.type)"
-              >
-              <div class="type-icon" [style.background]="m.color">
-                <i [class]="m.icon"></i>
-              </div>
-              <div class="type-body">
-                <div class="type-title">{{ m.label }}</div>
-                <div class="type-desc">{{ m.description }}</div>
-                <div class="type-example"><i class="pi pi-info-circle"></i> {{ m.example }}</div>
-              </div>
-            </button>
-          }
-        </div>
-      }
-    
-      <!-- STEP 2: Configure -->
-      @if (wizardStep === 'configure' && form) {
+      @if (form) {
+        <!--
+          La mecánica se elige ACÁ ADENTRO, no en una antesala. Antes esto era un paso previo
+          con seis tarjetas grandes: al abrir "Nueva promoción" nadie estaba creando nada
+          todavía, y elegir el tipo costaba un clic que no producía trabajo. Ahora el diálogo
+          abre sobre el formulario y el tipo es un control más — cambiarlo conserva lo ya
+          escrito (código, nombre, vigencia) y sólo intercambia los campos de la mecánica.
+          Al EDITAR no se muestra: cambiarle el tipo a una promoción viva invalidaría sus
+          reglas guardadas, así que ahí el tipo es un hecho, no una opción.
+          (Sin acentos graves acá dentro: esto vive en un template literal y es la sexta vez
+          que uno rompe el build de este repo.)
+        -->
         @if (!editing) {
-          <div class="step-header">
-            <button pButton severity="secondary" [text]="true" size="small" (click)="backToChoose.emit()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Cambiar tipo</span></button>
-            <span class="pm-type-chip">
-              <i [class]="meta(selectedType!).icon" aria-hidden="true"></i>
-              {{ meta(selectedType!).label }}
-            </span>
+          <div class="type-pick" role="radiogroup" aria-label="Mecánica de la promoción">
+            @for (m of metaList; track m.type) {
+              <button
+                type="button"
+                class="type-pill"
+                role="radio"
+                [attr.aria-checked]="m.type === selectedType"
+                [class.is-on]="m.type === selectedType"
+                (click)="typeChange.emit(m.type)"
+                >
+                <span class="type-dot" [style.background]="m.color" aria-hidden="true"></span>
+                <i [class]="m.icon" aria-hidden="true"></i>
+                <span>{{ m.shortLabel }}</span>
+              </button>
+            }
           </div>
+          @if (selectedType) {
+            <p class="type-hint">
+              {{ meta(selectedType).description }}
+              <span class="type-example"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ meta(selectedType).example }}</span>
+            </p>
+          }
         }
         <form [formGroup]="form" class="comm-form-grid">
           <!-- Comunes -->
@@ -293,20 +295,14 @@ interface BundleItem {
         }
     
         <ng-template #footer>
-          @if (wizardStep === 'configure') {
-            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
-            <p-button
-             
-              [label]="editing ? 'Guardar' : 'Crear promoción'"
-              icon="pi pi-check"
-              [loading]="saving"
-              [disabled]="!canSave"
-              (click)="save.emit()"
-            ></p-button>
-          }
-          @if (wizardStep === 'choose-type') {
-            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
-          }
+          <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
+          <p-button
+            [label]="editing ? 'Guardar' : 'Crear promoción'"
+            icon="pi pi-check"
+            [loading]="saving"
+            [disabled]="!canSave"
+            (click)="save.emit()"
+          ></p-button>
         </ng-template>
       </p-dialog>
     `,
@@ -337,33 +333,48 @@ interface BundleItem {
       }
       .pm-type-chip i { color: var(--c-text-2); font-size: var(--fs-xs); }
 
-      /* DIALOG: wizard step 1 (type selector cards) */
-      .step-intro { margin: 0 0 1rem; color: var(--c-text-2); font-size: var(--fs-sm); }
-      .type-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .625rem; }
-      .type-card {
-        display: flex;
-        gap: .75rem;
-        padding: .875rem;
+      /* Selector de mecánica, EN LÍNEA dentro del formulario (no un paso aparte).
+         Superficie Operations: denso y sin ceremonia. El color del tipo queda como un punto
+         de 8px —lo justo para distinguirlo— y NUNCA como relleno de un mosaico grande:
+         DESIGN.md manda "color disciplinado", y el acento de marca es sólo del estado activo. */
+      .type-pick { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .5rem; }
+      .type-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .25rem .6rem;
         border: 1px solid var(--c-divider);
-        border-radius: 10px;
+        border-radius: 999px;
         background: var(--c-surface-1);
-        color: var(--c-text-1);
-        cursor: pointer;
-        text-align: left;
-        transition: border-color 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+        color: var(--c-text-2);
         font-family: inherit;
+        font-size: var(--fs-xs);
+        line-height: 1.7;
+        cursor: pointer;
+        transition: border-color 120ms var(--ease-standard), color 120ms var(--ease-standard);
       }
-      .type-card:hover { border-color: var(--c-text-1); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
-      .type-card:active { transform: scale(.99); }
-      .type-icon { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex-shrink: 0; }
-      .type-icon i { font-size: 1.15rem; }
-      .type-body { flex: 1; min-width: 0; }
-      .type-title { font-weight: var(--fw-bold); font-size: var(--fs-sm); margin-bottom: .2rem; color: var(--c-text-1); }
-      .type-desc { font-size: var(--fs-xs); color: var(--c-text-2); margin-bottom: .3rem; line-height: 1.35; }
-      .type-example { font-size: var(--fs-micro); color: var(--c-text-3); font-style: italic; }
-      .type-example i { margin-right: .25rem; }
+      .type-pill:hover { border-color: var(--c-text-2); color: var(--c-text-1); }
+      .type-pill.is-on {
+        border-color: var(--action);
+        color: var(--action);
+        font-weight: var(--fw-bold);
+      }
+      /* El foco visible se conserva: el pill es el control, y con teclado hay que verlo. */
+      .type-pill:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+      .type-pill i { font-size: var(--fs-micro); }
+      .type-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .type-hint {
+        margin: 0 0 .9rem;
+        padding-bottom: .75rem;
+        border-bottom: 1px solid var(--c-divider);
+        font-size: var(--fs-xs);
+        color: var(--c-text-2);
+        line-height: 1.4;
+      }
+      .type-example { color: var(--c-text-3); font-style: italic; }
+      .type-example i { margin: 0 .25rem 0 .35rem; }
 
-      /* DIALOG: wizard step 2 (config form) */
+      /* DIALOG: formulario de configuración */
       .step-header {
         display: flex;
         justify-content: space-between;
@@ -414,7 +425,10 @@ interface BundleItem {
 export class PromotionFormDialogComponent {
   @Input() visible = false;
   @Input() header = '';
-  @Input() wizardStep: 'choose-type' | 'configure' = 'choose-type';
+  /**
+   * El tipo SIEMPRE llega con valor al crear: el diálogo abre sobre el formulario, no sobre
+   * una antesala. Sigue siendo `| null` porque el padre lo limpia al cerrar.
+   */
   @Input() selectedType: PromotionType | null = null;
   @Input() editing: Promotion | null = null;
   @Input() form: FormGroup | null = null;
@@ -428,8 +442,12 @@ export class PromotionFormDialogComponent {
 
   @Output() visibleChange = new EventEmitter<boolean>();
   @Output() hide = new EventEmitter<void>();
-  @Output() chooseType = new EventEmitter<PromotionType>();
-  @Output() backToChoose = new EventEmitter<void>();
+  /**
+   * Cambio de mecánica desde el selector en línea. El padre reconstruye los campos del tipo
+   * **conservando lo ya escrito** — si cambiar de tipo borrara el nombre y la vigencia, esto
+   * sería peor que el paso previo que vino a reemplazar.
+   */
+  @Output() typeChange = new EventEmitter<PromotionType>();
   @Output() cancel = new EventEmitter<void>();
   @Output() save = new EventEmitter<void>();
   @Output() addTier = new EventEmitter<void>();

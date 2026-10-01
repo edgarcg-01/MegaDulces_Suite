@@ -63,7 +63,10 @@ describe('[GX.31] la regla compartida exige la foto SIEMPRE', () => {
   it('un comprobante subido como archivo YA alcanza', () => {
     const faltan = faltaParaMandar({
       forma_pago: 'efectivo', forma_pago_detalle: 'caja chica',
-      archivos: [foto(false)], exige_evidencia: true,
+      // `[GX.57]` El concepto es obligatorio desde 2026-10-01. Va declarado porque esta
+      // prueba mide la FOTO: sin él, el `toEqual([])` fallaría por otra razón y dejaría de
+      // decir lo que dice su nombre.
+      archivos: [foto(false)], exige_evidencia: true, concepto: 'Gasolina de la camioneta',
     });
     expect(faltan).toEqual([]);
   });
@@ -71,7 +74,7 @@ describe('[GX.31] la regla compartida exige la foto SIEMPRE', () => {
   it('con la foto en vivo y la forma de pago, pasa', () => {
     const faltan = faltaParaMandar({
       forma_pago: 'efectivo', forma_pago_detalle: 'caja chica',
-      archivos: [foto(true)], exige_evidencia: true,
+      archivos: [foto(true)], exige_evidencia: true, concepto: 'Gasolina de la camioneta',
     });
     expect(faltan).toEqual([]);
   });

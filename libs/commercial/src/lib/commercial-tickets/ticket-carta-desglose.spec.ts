@@ -83,7 +83,10 @@ describe('[TK.13] hoja carta con desglose por pieza y por partida', () => {
     expect(h).toContain('$72.00');
     expect(h).toContain('-$12.00');
     expect(h).toContain('$51.72');
-    expect(h).toContain('Código 900');
+    // `[TK.15]` El código dejó de tener renglón propio: va pegado al nombre. Lo que esta
+    // línea cuida sigue siendo lo mismo —que el código esté— y su forma la fija
+    // `ticket-carta-codigo-inline.spec.ts`.
+    expect(h).toContain('<span class="p-sku">&middot; 900</span>');
   });
 
   it('la fila de totales y el resumen salen del MISMO desglose y cierran contra el total pagado', () => {

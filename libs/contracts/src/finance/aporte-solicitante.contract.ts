@@ -50,12 +50,24 @@ export interface EstadoAporte {
    * cierra sin foto (con motivo). Lo decide `requiereEvidencia()` en el servicio.
    */
   exige_evidencia: boolean;
+  /**
+   * `[GX.57]` **El concepto que escribe quien captura.** En la pantalla es la caja
+   * «Comentarios»; viaja al backend como `comentarios` y se guarda ahí.
+   *
+   * Pedido del usuario (2026-10-01): *«debe ser obligatorio escribir concepto»*.
+   *
+   * ⚠️ Antes esta regla NO vivía acá: estaba escrita dos veces —`puedeEnviar()` en la
+   * pantalla y un `if` suelto en `create()`— y en las dos sólo se exigía cuando el gasto
+   * **no** llevaba evidencia. Eso es exactamente lo que ADR-056 midió ocho veces: la misma
+   * regla en dos lugares termina siendo dos reglas. Acá se escribe una y la leen los dos.
+   */
+  concepto?: string | null;
 }
 
 /** Cada cosa que falta, con el texto que se le muestra a la persona. */
 // `[GX.36]` `evidencia_en_vivo` se conserva en el tipo: hay expedientes y pruebas que lo
 // nombran, y quitarlo del union rompe a quien lo lea sin agregar nada.
-export type FaltanteId = 'forma_pago' | 'forma_pago_detalle' | 'evidencia' | 'evidencia_en_vivo';
+export type FaltanteId = 'forma_pago' | 'forma_pago_detalle' | 'evidencia' | 'evidencia_en_vivo' | 'concepto';
 
 export interface Faltante {
   id: FaltanteId;
@@ -169,6 +181,29 @@ export function faltaParaMandar(estado: EstadoAporte): Faltante[] {
      * sello de cámara»). Deja de ser una COMPUERTA y pasa a ser un DATO — quien firma ve
      * de dónde salió cada imagen y decide con eso a la vista.
      */
+  }
+
+  /**
+   * `[GX.57]` **El concepto, ahora siempre.** Va último porque es el último campo de la
+   * pantalla: no tiene sentido pedirlo antes que la forma de pago o el archivo.
+   *
+   * ⛔ **Qué cambia, exactamente.** Antes se exigía sólo cuando el gasto NO llevaba
+   * evidencia («un gasto no comprobable exige un motivo»). Para todo lo demás era opcional,
+   * y la captura rellenaba el hueco con el concepto que venía de Kepler — o sea que el campo
+   * decía «opcional» y se guardaba algo que la persona nunca escribió.
+   *
+   * ⚠️ **Lo que esta compuerta NO hace:** exigir que el concepto DIGA algo. Un punto la
+   * pasa. Imponer un largo mínimo es otra decisión (hay precedente en el repo:
+   * `solicitarReapertura` pide 10 caracteres) y no se tomó acá porque el pedido fue
+   * «obligatorio escribir concepto», no «escribir una frase». Se DECLARA en vez de
+   * inventarle un umbral.
+   */
+  if (!String(estado.concepto ?? '').trim()) {
+    faltan.push({
+      id: 'concepto',
+      label: 'El concepto',
+      motivo: 'falta el concepto del gasto: en una frase, qué se compró o para qué fue',
+    });
   }
 
   return faltan;

@@ -76,6 +76,16 @@ const TARJETAS_2026_09_10: readonly TarjetaLegacy[] = [
       Permission.COMMERCIAL_VENDOR_SALES_VER,
     ],
     hideForRoles: ['vendedor'],
+    // `[MKT.0]` (posterior al congelado): Promos del ERP se mudó de `/comercial/erp-promos` al
+    // proyecto propio MKT (`/mkt/erp-promos`), mismo espacio Comercial. La clave sigue abriendo
+    // su pantalla — la única que abría —, ahora bajo la tarjeta MKT en vez de Ventas.
+    movidas: [
+      {
+        perm: Permission.COMMERCIAL_ERP_PROMOS_VER,
+        a: 'mkt',
+        motivo: '[MKT.0] Promos del ERP pasó de /comercial/erp-promos a /mkt/erp-promos',
+      },
+    ],
   },
   {
     card: 'almacen · Almacén',

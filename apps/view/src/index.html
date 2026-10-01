@@ -98,6 +98,25 @@
     <head> y aplican igual al prompt inyectado por PwaInstallService.
   -->
   <style>
+    /*
+      El aviso de instalar es `position: fixed` con `z-index: 9999` sobre el contenido y
+      dura 30 s. En esos 30 s no solo se VE encima: se COME LOS CLICS de lo que quede
+      debajo, y la persona ve un boton que no responde.
+
+      Medido en `/finanzas/gastos` (paso 3): `document.elementFromPoint()` sobre el centro
+      del boton «Subir vale escaneado» devolvia `DIV.pwa-install-prompt` en vez del boton.
+      Tambien tapaba dos botones de envio. Sintoma reportado: "al darle click no me abre
+      nada" -- y es cierto, el clic nunca llegaba.
+
+      La barra deja pasar los clics y solo sus PROPIOS botones los reciben. Se eligio esto
+      y no reservar espacio con `padding-bottom` porque el padding hace SCROLLEABLE lo que
+      esta debajo pero no lo mueve: el boton seguia tapado hasta que alguien scrolleara.
+      Verificado en el navegador con el aviso puesto: el centro del boton pasa a devolver
+      `LABEL.cap-ev-b`, y «Instalar» / «Ahora no» siguen respondiendo.
+    */
+    .pwa-install-prompt { pointer-events: none; }
+    .pwa-install-prompt button { pointer-events: auto; }
+
     .pwa-install-prompt {
       position: fixed;
       bottom: calc(20px + env(safe-area-inset-bottom, 0px));

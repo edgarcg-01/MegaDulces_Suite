@@ -43,9 +43,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_CUSTOMERS_GESTIONAR, url: '/comercial/customers', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_CARTERA_GESTIONAR, url: '/comercial/cartera', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_PRICING_GESTIONAR, url: '/comercial/pricing', motivo: 'manage sin view' },
-  { perm: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR, url: '/comercial/promotions', motivo: 'manage sin view (la ruta /empuje sí lo acepta, pero el árbol apunta a /promotions)' },
   { perm: Permission.COMMERCIAL_THOT_GESTIONAR, url: '/comercial/thot-chat', motivo: 'manage sin view (la ruta /thot-curation sí lo acepta)' },
   { perm: Permission.ROUTE_TICKET_CAPTURE, url: '/comercial/route-tickets', motivo: 'manage sin view: la ruta exige ROUTE_CONTROL_VER' },
+  // mkt
+  { perm: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR, url: '/mkt/promotions', motivo: 'manage sin view (la ruta /comercial/empuje sí lo acepta, pero el árbol apunta a /mkt/promotions)' },
   // almacen
   { perm: Permission.EXISTENCIA_GESTIONAR, url: '/almacen/inventory/existencia', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_INVENTORY_AJUSTAR, url: '/almacen/inventory', motivo: 'manage sin view: la ruta exige INVENTORY_VER' },
