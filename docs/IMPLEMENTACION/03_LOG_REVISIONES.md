@@ -5,6 +5,50 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía
+Edgar: *"wincaja ya sólo existe para históricos; el `.9.95` ya tiene Kepler y toda la información
+de Kepler CEDIS ya es la oficial"*. Se midió antes de registrarlo.
+
+- **`docs/VERDAD_ABSOLUTA.md` declaraba su hueco mayor así: *"Wincaja — 37.6% de la venta de los
+  últimos 30 días — fuera de alcance por decisión"*. Medido hoy: 0.0%** ($230 contra $44.5M).
+  Los 14 almacenes con venta tienen `kepler_code` o son rutas de Kepler. El hueco **no se cerró
+  por arquitectura: la operación migró entera** (`32→07` 08-sep, `30→08` 19-sep, CEDIS 30-sep).
+- ⚠️ **La cifra caducó sin avisar, que es justo lo que ese documento critica en otros.** El
+  arreglo no fue reescribirla: fue ponerle candado. `[SB.2]` en `test-newdb-branch-cutover.js`
+  vigila la afirmación de §8 y se pone rojo si Wincaja vuelve a operar. Umbral 1% y no 0, para
+  que hable cuando pase algo y no cuando un almacén deje cola de días sueltos.
+- Se clasifica por el **cutover** (tener `kepler_code`), **no por el prefijo `MD-%`**: el prefijo
+  es convención de nombre y dos almacenes de la misma tienda pueden convivir en los dos ERP — es
+  exactamente lo que pasó con `MD-32` contra `07` en `[DM.15]`.
+- **Registro actualizado**: §8 reescrita, el hueco de §7 cerrado con su medición, §11 corregida,
+  y dos dimensiones nuevas en la tabla de estado (**destino de un traspaso** ✅ y los dos huecos
+  del CEDIS declarados con nombre y monto).
+
+**Un candado ajeno estaba rojo desde ayer por la migración del CEDIS, y era falso positivo:**
+`test-newdb-branch-cutover.js` exigía que toda sucursal del resolvedor estuviera en
+`mv_sales_blended`, y `[IC.CEDIS.1]` sumó el CEDIS `00` — que **distribuye, no vende al público**
+(medido: el único del resolvedor sin una sola fila en `mv_kepler_sales_daily`). Se le estaba
+exigiendo estar en un fact de VENTAS. Ahora el check pregunta **"¿vende?"** en vez de llevar una
+lista de exclusión, y lo excluido **se declara en pantalla**: si el CEDIS empieza a vender, vuelve
+a entrar solo. **25 OK · 0 FALLAS · 1 NO MEDIDO.**
+
+**Y una corrección mía de ayer:** dije que la sucursal `00` era OFICINAS. **Es el CEDIS
+operando.** Despacha 2.60M u/90 d y las 8 sucursales declaran recibir 3.22M — dos testigos del
+mismo orden. Lo que me confundió fue que sus doctypes más frecuentes son pagos y cobros, y que su
+entrada de compra son **cinco pasos del mismo documento** (`X-A-30→35→37→40→20`), que sumados dan
+23.45M y parecen una acumulación imposible.
+
+**Lecciones:**
+- ⭐⭐ *Un documento que dice "aquí están los huecos" envejece igual que cualquier otro.* El suyo
+  más grande llevaba semanas cerrado. La diferencia entre un registro y un reporte es que el
+  registro tiene candado — y esa fila no lo tenía.
+- ⭐ *Una exclusión correcta tiene que ser una PREGUNTA, no una lista.* "El CEDIS no vende" como
+  excepción hardcodeada se pudre; `WHERE EXISTS (vende en la fuente)` se mantiene solo.
+- ⚠️ *Un ERP cuenta la misma mercancía varias veces a lo largo de su cadena.* Sumar los pasos de
+  la compra de Kepler infló la entrada del CEDIS 5×, y casi publico "recibe 9 veces lo que
+  despacha" como hallazgo de negocio.
+
+---
 ## 2026-09-30 — IC.CEDIS.2: la compuerta del CEDIS mandaba a corregir un documento que estaba bien
 Al investigar el cutover del CEDIS (avisado por Edgar: *"cedis ya es ahora 9.95"*) se corrió
 `check-cedis-cutover.js`, que dio **4 alarmas**. Una era falsa y ya se había propagado.

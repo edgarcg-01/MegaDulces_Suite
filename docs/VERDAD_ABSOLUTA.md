@@ -154,7 +154,9 @@ y aun así publicaba el UxC desde otra columna.
 | **La META de margen** | `kdii.c87/c88/c89` ponderado por el **peldaño vendido**, contra el margen que el negocio reporta | **11.55%** · el testigo independiente dice **~11.5%** | ✅ **sí** — §16.8 |
 | **COGS de Kepler (documento vs kardex)** | el precio de la **entrada real** (`X-A-40`), testigo de transacción | **empate: 57.55% vs 40.39%**, errores medianos 2.66% y 2.48% | ⛔ **declarada, NO arbitrada** — §16.4 |
 | **Los 1,205 renglones con razón 10.000** | el **mecanismo**, no la estadística: el kardex multiplica el costo del peldaño alto por la cantidad base | **$613,646** sobre $99,394 de venta | ✅ **sí, el kardex está mal** — §16.3 |
-| **Wincaja (las tres)** | tiene árbitro propio, sin cablear | fuera de alcance por decisión | ⬜ **no empezado** |
+| **Destino de un traspaso** | `dest_label` — la etiqueta que Kepler escribe en el ENVÍO, independiente del pareo **y** del mapa | **1,561 de 1,562** pares de 180 d coinciden con el almacén que recibió ($66.86M) · el único que contradice es una ruta, y **no** se publica como OK | ✅ **sí, desde 2026-09-30** — `[DM.15]`, candado de 7 bloques |
+| **Wincaja (operación viva)** | — | ⭐⭐ **ya no hay**: la venta de Wincaja es **0.0%** de los últimos 30 d ($230 contra $44.5M). Migró entera a Kepler | ✅ **hueco CERRADO** — §8 |
+| **Wincaja (histórico)** | tiene árbitro propio, sin cablear | sigue sin cablear, y es el único acceso al pasado de cada plaza antes de su corte | ⬜ **no empezado** — §8 |
 
 ---
 
@@ -637,7 +639,9 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **el costo sólo se arbitraba en UNA pantalla** | **$71.74M → $69.49M** (−$2,251,111) | ⭐⭐ **CERRADO (KE.3, 2026-09-10)**: `analytics.v_erp_unit_cost` resuelve el costo por almacén × producto con el testigo del MISMO ERP para los DOS (Kepler `kdik.c16` 98.70% · Wincaja `costo_promedio` **100.00%**). Cinco consumidores cableados, incluido el costo que se **congela** al reconciliar un conteo (salía de `public.products`, la base legacy). Compras queda fuera **a propósito**: valoriza compra, no valuación (§12.3) |
 | ✅ **la clase ABC era un objeto nulo** | **2 A / 56,002 C @ $0 → 5,178 A / 7,367 B** | ⭐⭐ **CERRADO (KE.4)**: la demanda salía de `commercial.orders` (**2 órdenes fulfilled en toda su historia**) contra $154.7M de venta real, y **clase B = 0 en todo el sistema** era el delator. Ahora sale de `inventory_health`, **la misma demanda que usa el punto de reorden**, y la clase es una **vista** porque como tabla **llegaba 26 minutos tarde todos los días**. La pantalla de compra mostraba otra clase que el motor (coincidían **64.0%**); ahora lee la misma. Frenos: medir la fuente antes de borrar + abortar si A o B salen en cero (§12.4) |
 | ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
-| **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
+| ✅ ~~**Wincaja — 37.6% de la venta**~~ | **CERRADO 2026-10-01 · hoy 0.0%** | ⭐⭐ **El hueco más grande de este documento, y no se cerró por arquitectura: la operación migró entera a Kepler.** Medido almacén por almacén (no por prefijo): Kepler $44,552,822 (**100.0%**) · Wincaja **$230 (0.0%)**; los 14 almacenes con venta tienen `kepler_code` o son rutas. Últimas migraciones: `32 → 07` (08-sep), `30 → 08` (19-sep), **CEDIS** (30-sep). ⛔ **No significa que Wincaja se pueda retirar**: es el único acceso al pasado anterior a cada corte. ⚠️ Ni cierra *«el peldaño de Wincaja es un NULL mudo»*, que vale para todo lo ya cargado — §8 |
+| ⛔ **el destino de un traspaso al CEDIS no es verificable por recepción** | **15 envíos / $123,454** (180 d) | `TI000 "CENTRO DE DISTRIBUCIÓN (CEDIS)" → 00`: el almacén **existe y opera**, pero registra sus entradas como **orden de entrada** (`X-A-20`), no como recepción de traspaso (`U-A-50`) — **0 `TrsfRcv` en toda su historia**. El vínculo es plausible y **no comprobable por esa vía**. Se declara en cada corrida del candado `[DM.15]`, con su monto. **No es un dato que falte: es que el CEDIS no recibe por traspaso** |
+| ⛔ **el CEDIS arrastra saldo de origen no establecido** | **5,019 SKUs / 12.18M u** · **421 días de cobertura** | Ajeno a la carga inicial del 30-sep (medido: los 127 SKUs cargados estaban **todos en cero** antes). El almacén **sí opera** —despacha 2.60M u/90 d y las 8 sucursales declaran recibir 3.22M, dos testigos del mismo orden— pero recibe **23.45M u/90 d** por la cadena de compra, que son **pasos del mismo documento** (`X-A-30→35→37→40→20`) y no se pueden sumar. **La cantidad no es absurda; el VALOR no se puede publicar**: valuarlo con `kdik.c16` da $306.9M (5× el inventario de toda la red) y esa columna ya tiene problema de peldaño documentado (§16.5). Por eso `stockMap({ cedis: true })` sigue **apagado** — `[IC.CEDIS.1]` · `[IC.CEDIS.2]` |
 | ⛔ **DEUDA ERP: `ods_repl` no lee las tablas NUEVAS** | toda tabla que Kepler cree nace invisible para la replicación | ⭐ **decisión de Edgar 2026-09-12: NO se cruza la frontera del ERP para arreglarlo.** El `ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` cerraría el goteo de raíz, pero exige `sa`/superusuario en cada POS y se optó por mantener el ERP con acceso de solo-lectura. **Consecuencia aceptada:** cada `kdc2YYMM` nueva (1 de cada mes) no replica hasta que alguien corra un `GRANT` a mano; **vuelve el 2026-10-01** con `kdc22610`. **Mitigado, no resuelto:** los importers leen el POS directo con `platform_ro` (no dependen de la replicación para esto), así que el daño se limita a `kepler_ods.kdc2*`, que **ningún objeto de `analytics.*` consume** (sólo vistas-shim `md.kdc2*`). El candado `test-ods-enrolamiento.js` lo mantiene en rojo. Causa raíz medida en `ERP_KEPLER.md` §4.2b. ✅ **Formalizada como deuda ACEPTADA 2026-09-14:** el impacto es sólo DATO — la tabla vacía SÍ se pre-crea (no hay crash; separado de la bomba de calendario, ya cerrada), sólo no fluye el dato del período nuevo hasta el GRANT. Runbook del fix listo (`ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` por POS) para cuando se autorice tocar el ERP. Reaparece cada 1° de mes; próxima `kdc22610` el 2026-10-01 |
 | ✅ **Canindo (06) sin contabilidad de septiembre** | **0 → 1,353 renglones** (CERRADO 2026-09-12) | era el único daño real del hueco anterior. Se restauró la contraseña de `platform_ro` en su POS (reset de credencial, sin otorgar permisos) y el importer pasó a leer el POS en vez de la réplica vacía. Backfill idempotente aplicado a prod |
 | ⚠️ **el carril del ODS pierde filas sobre su baseline** | **536 huecos / 3 d** contra un baseline de 48–167 (umbral 50) · **14,599 sobrantes** | ⭐ medido en PROD 2026-09-12 (§13.2): `cdc_reconcile` los detecta y **los repone todos**, pero la causa del goteo no está diagnosticada. **Sobrantes caracterizados 2026-09-12** (read-only, réplicas .222:5433 vs Railway): **100% ausentes del origen** (0% falso positivo de ventana), **94% `kdpord`** (cola de surtido CREADO→AUTORIZADO→CHECADO→SURTIDO, purgada al completarse → infla la vista `analytics.erp_shipments` **22–40%** en 01/06) + **6% `kdm2` en `U-D-40` "Pedido"** (docs re-editados, hasta 58 líneas vs 8 en origen). ✅ **La venta NO se afecta**: `mv_kepler_sales_daily` filtra `U-D ∈ {8,10,12}`, excluye `U-D-40` y cancelados. Root = CDC apagado (no propaga DELETE). ✅ **Backlog kdpord LIMPIADO 2026-09-12 (OBS.11): 24,705 fantasma borrados** con `reconcile-ods-window --full --delete-sobrantes` vigilado (canario 04→completo; 07 protegida por réplica vacía; freno 60% ok), re-check final = 0 en las 8 ramas, `erp_shipments` de-inflada al origen (01: 66,059→51,317). ✅ **Durable 2026-09-14 (OBS.11, deployado):** servicio `ods-reconcile-full` (diario 03:00 MX, `--full`, **latido propio `cdc_reconcile_full`** + healthcheck + umbral 25h/30h en db-health) mantiene kdpord limpio solo — el carril continuo NO puede (su ventana 3d es ~61% fantasma → el freno la abortaría). Churn medido ~415/día. Residual chico sin automatizar: kdm2/kdij (6%, money-safe, `U-D-40` fuera de la venta). ⚠️ Anomalía: rama 00 perdió 1,023 filas del ODS por un actor EXTERNO (no la ingesta) entre medición y limpieza |
@@ -654,9 +658,32 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 
 ---
 
-## 8. Wincaja: tiene árbitro propio, y está sin cablear
+## 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01)
 
-Fuera de alcance por decisión explícita de Edgar. Lo que **sí** quedó medido, para cuando se abra:
+> **El hueco más grande de este documento se cerró, y no por arquitectura: la operación migró
+> entera a Kepler.** Declarado por Edgar el 2026-10-01 — *"wincaja ya sólo existe para
+> históricos; el `.9.95` ya tiene Kepler y toda la información de Kepler CEDIS ya es la
+> oficial"* — y **medido** el mismo día, almacén por almacén (no por prefijo del código, para
+> no clasificar mal):
+>
+> | fuente | venta 30 d | % |
+> |---|---|---|
+> | Kepler | $44,552,822 | **100.0%** |
+> | Wincaja | $230 | **0.0%** |
+>
+> Los **14 almacenes con venta** tienen `kepler_code` o son rutas de Kepler. Las dos últimas
+> migraciones de tienda fueron `32 → 07 Morelia Madero` (2026-09-08) y `30 → 08 Morelia
+> Abastos` (2026-09-19); el **CEDIS** cerró el 2026-09-30 (`[IC.CEDIS.1]`).
+>
+> ⛔ **Lo que esto NO significa:** que Wincaja se pueda retirar. **Sigue siendo el único acceso
+> al pasado** de cada plaza antes de su corte — por eso `analytics.v_branch_erp_cutover`
+> conserva `wincaja_source_branch`, que es el puente al histórico. Borrar esas filas no
+> retiraría una fuente vieja: **borraría la historia**.
+>
+> ⚠️ Y **no cierra el hueco de la unidad**: *«el peldaño de Wincaja es un NULL mudo»* (§7) vale
+> para todo lo ya cargado, que sigue siendo la mitad del histórico.
+
+Lo que **sí** quedó medido de su lado, y ahora aplica al histórico:
 
 - ✅ **Su identidad de existencia cuadra al 100.00% en las 21 sucursales**, error mediano 0.0000
   (`existencia_inicial + entrada − salida = existencia`).
@@ -1502,6 +1529,8 @@ el lado que está ganando.
 | `test-newdb-existencia.js` | la pantalla: orden, fuente, totales | **23/23** |
 | `test-newdb-unit-truth.js` | el resolvedor de unidad y su cobertura | **40/40** |
 | `verify-no-transfer-leak.js` | que el traspaso no se cuele a la venta | verde |
+| `test-newdb-transfer-dest-evidence.js` | el DESTINO de un traspaso: que no se le acredite a quien no es, que el almacén exista y reciba, y la identidad del pareo contra la etiqueta del ERP | **6/6 · 2 NO MEDIDOS** (`[DM.15]`) |
+| `test-newdb-branch-cutover.js` | el corte Wincaja→Kepler, y que **la venta viva siga siendo 100% Kepler** — vigila la afirmación de §8 para que no caduque en silencio como caducó el 37.6% | **25/25 · 1 NO MEDIDO** (`[SB.2]`) |
 
 Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_URL`**, no contra el
 `DATABASE_URL_NEW` del `.env`.
@@ -1510,7 +1539,10 @@ Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_U
 
 ## 11. Lo que este documento no cubre
 
-- **Wincaja** (§8) — 37.6% de la venta de los últimos 30 días.
+- **Wincaja HISTÓRICO** (§8). ⚠️ Su operación viva ya **no** es un hueco: desde el 2026-10-01 la
+  venta de Wincaja es **0.0%** de los últimos 30 días y lo vigila `test-newdb-branch-cutover.js`
+  `[SB.2]`. Lo que sigue sin cablear es su **pasado**, que es la mitad del histórico y el único
+  acceso a cada plaza antes de su corte.
 - **El margen.** `analytics.sales_daily.cost` tiene dos escritores y en la mitad Kepler es
   `revenue/(1+markup)`, álgebra ciega al precio. Ver ADR-051 y
   [`FASE_MR_COSTO_Y_UNIDAD`](IMPLEMENTACION/FASES/FASE_MR_COSTO_Y_UNIDAD.md).
