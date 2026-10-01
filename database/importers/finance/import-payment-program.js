@@ -242,15 +242,37 @@ async function reconKepler(db) {
     }
     // términos → suppliers (match por nombre; solo donde resuelve). El DESCUENTO PP NO se escribe
     // aquí: vive en commercial.supplier_discount_policy (evita duplicar la política de descuento).
+    // [RE.30] un plazo CONFIRMADO a mano en /compras/plazos-pago gana sobre el Excel: si
+    // `credit_terms_updated_at` tiene valor, credit_days no se toca (invoice_type sí).
+    const hasConfirm = (await db.query(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema='catalog' AND table_name='suppliers' AND column_name='credit_terms_updated_at'`)).rowCount > 0;
+    const creditExpr = hasConfirm
+      ? `CASE WHEN credit_terms_updated_at IS NULL THEN COALESCE($2,credit_days) ELSE credit_days END`
+      : `COALESCE($2,credit_days)`;
+    // [RE.30] `chk_suppliers_credit_days_range` (0..365, entero): una celda fuera de rango haría
+    // ROLLBACK de TODA la importación. Se omite ese plazo (NULL → COALESCE deja el que había) y se
+    // DECLARA; no se recorta ni se inventa.
     let tset = 0;
+    const plazosOmitidos = [];
     for (const t of terms) {
       const s = resolveSupplier(t.name); if (!s) continue;
-      await db.query(`UPDATE catalog.suppliers SET credit_days=COALESCE($2,credit_days), invoice_type=COALESCE($3,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$4`,
-        [M, t.credit_days, t.invoice_type, s.id]);
+      let days = t.credit_days;
+      if (days != null && !(Number.isInteger(days) && days >= 0 && days <= 365)) {
+        plazosOmitidos.push(`${t.name}=${days}`);
+        days = null;
+      }
+      await db.query(`UPDATE catalog.suppliers SET credit_days=${creditExpr}, invoice_type=COALESCE($3,invoice_type), updated_at=now() WHERE tenant_id=$1 AND id=$4`,
+        [M, days, t.invoice_type, s.id]);
       tset++;
     }
+    if (plazosOmitidos.length) {
+      console.warn(`[WARN] ${plazosOmitidos.length} plazo(s) fuera de 0..365 o no enteros — NO se aplicaron: ${plazosOmitidos.join(', ')}`);
+    }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] payment_program upsert=${up} · términos aplicados a ${tset} proveedores.`);
+    // `tset` cuenta proveedores TOCADOS (invoice_type se aplica aunque el plazo se omita): se separa
+    // para que el total no se lea como "plazos aplicados".
+    console.log(`\n[APPLY] payment_program upsert=${up} · términos aplicados a ${tset} proveedores`
+      + (plazosOmitidos.length ? ` (${plazosOmitidos.length} sin plazo: fuera de rango)` : '') + '.');
   } catch (e) { await db.query('ROLLBACK'); throw e; }
   // NOTA PP.4: NO se auto-deriva kepler_matched — el match per-pago vs Kepler 201 resultó poco
   // confiable (pagos batcheados / monto posteado distinto / cruce de mes → falsos "sin registro",

@@ -102,6 +102,10 @@ mirar rotación** — criterio que sólo ahora se vuelve estructural.
 `nx build api` + `nx build view` OK. ⚠️ **Sin ejercer el gesto**: el API local no está corriendo, así
 que el clic en el selector no se probó contra el cableado real.
 
+### Changed — Guía de Cobranza: Total factura · Abonos/Pagos · Saldo (GT.17, 2026-09-30)
+- Cada factura de la guía imprime su total, lo abonado (pagos y notas de crédito) y el saldo, en vez
+  de Descuento e Importe. Sin cartera el abono sale «—». Las guías archivadas se reimprimen igual que
+  se firmaron.
 ### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
 
 Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
@@ -547,6 +551,34 @@ crecimiento. El primer YoY legítimo de las 8 es **marzo-2027 vs marzo-2026**.
   **que es justo el artefacto**: se calcula por **operación continua**, que los excluye solo. Más:
   en el resolvedor va **`kepler_code`, no `warehouse_code`** (`[IC.CEDIS]` midió el mismo día que
   resuelve 2 de 8).
+### Added — Entrega de compras a Finanzas con folio, y la fecha de recepción real (RE.31–RE.32, 2026-09-29)
+El auxiliar de compras ve lo recibido **por fecha de recepción o de factura**, con brinco por sucursal y
+proveedor A-Z, marca lo que tiene en físico y validado y genera una **entrega `ENT-YYYY-NNNNN`** con quién
+entrega y quién recibe, más su PDF para firmas. La persona de Finanzas la confirma y puede **regresar
+renglón por renglón**.
+
+- **La fecha de recepción ya salía de Kepler, sólo que nadie la leía**: es la captura del vale de entrada
+  (`kdm1.c68`). Verificada contra un árbitro independiente — 417 fotos subidas a `/compras/entradas`, ninguna
+  anterior a esa captura. Y la columna que la vista llamaba `receipt_date` **es la fecha de factura**.
+- Semana del 21 al 27 de septiembre: 244 entradas por entregar, $12.67M, de las 9 sucursales.
+- Una entrada no puede estar en dos entregas vivas: lo garantiza un índice único parcial en la base.
+- **Pendiente:** 2 migraciones más (van con las de RE.30, ver el runbook) + redeploy + re-login + QA visual.
+
+### Added — Plazos de pago por proveedor, primera etapa de Obligaciones = entrega Compras→Finanzas (RE.30, 2026-09-29)
+El vencimiento de lo que Compras entrega a Finanzas depende de dos datos del **proveedor** que no
+existían bien: cuántos días exactos da y si corren **desde la factura o desde la recepción**.
+
+- **Kepler no sirve de fuente**: su condición sale "de contado" en el 68% de las recepciones porque
+  el plazo nunca se capturó allá (2026: 207 proveedores / $94.0M siempre contado, 97 / $234.7M mixtos).
+  Queda al lado, sólo para comparar.
+- **La fecha de recepción física tampoco existe en Kepler**: el 89% de la cadena comparte la fecha de
+  factura, y la columna que la vista llama `receipt_date` **es** la de factura. La captura la zona (RE.31).
+- `catalog.suppliers` gana `credit_term_base` + confirmación + `is_internal` (reusa el `credit_days`
+  de la Fase PP) e historial append-only. Pestaña **"Plazos por proveedor"** en `/compras/obligaciones`:
+  contra prod, 307 proveedores en 12 meses, **285 sin plazo, 46 cubren el 80%**.
+- ⚠️ `COMPRAS_OBLIGACIONES_*` estaban repartidos a **cero roles** (el candado de reparto está rojo en prod por eso). Se reparten, y se separa `COMPRAS_PLAZOS_AUTORIZAR` (lo negocian comprador/dirección) de `_GESTIONAR` (el auxiliar opera y extiende facturas).
+- El bundle inicial de `view` estaba al límite al empezar (1,399.75 / 1,400 kB); con BND.1–3 ya en `main` mide ~1.22 MB.
+- **Pendiente:** aplicar 2 migraciones + redeploy + re-login + QA visual.
 
 ### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
 El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve
