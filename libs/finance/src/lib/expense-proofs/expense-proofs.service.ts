@@ -753,10 +753,10 @@ export class ExpenseProofsService {
     if (llevaEvidencia && !files.some((f) => String(f.role).startsWith('comprobante'))) {
       throw new BadRequestException('falta la evidencia del gasto (el ticket o la factura)');
     }
-    // No comprobable: no se exige foto, pero sí el motivo — si no, el «no» no se audita.
-    if (!llevaEvidencia && !motivo) {
-      throw new BadRequestException('un gasto no comprobable exige un motivo (por qué no lleva evidencia)');
-    }
+    // `[GX.57]` Acá vivía `if (!llevaEvidencia && !motivo) throw …` — el motivo exigido SÓLO
+    // al gasto no comprobable. Se retiró porque la regla se mudó entera a `faltaParaMandar()`,
+    // donde ahora el concepto es obligatorio SIEMPRE (pedido del usuario) y la lee también el
+    // botón de la pantalla. Un `if` suelto acá volvería a ser la segunda copia que se separa.
 
     // [GX.14] LA COMPUERTA. Las dos cosas que quien gastó tiene que aportar y que Kepler no
     // pide: cómo se pagó, y la foto TOMADA EN VIVO. La regla no se escribe acá — vive en
@@ -780,6 +780,11 @@ export class ExpenseProofsService {
       // foto y la del servidor no. Las dos reglas escritas distinto se separan, que es
       // justo lo que esta función existe para evitar.
       exige_evidencia: true,
+      // `[GX.57]` El concepto que escribió la persona. Viaja como `comentarios` en el DTO y
+      // se guarda con ese nombre; para la compuerta es `concepto`, que es como lo llama quien
+      // lo escribe. ⛔ Sin esta línea la regla nueva rebotaría TODO POST: el estado llegaría
+      // sin concepto y el faltante saldría siempre.
+      concepto: motivo,
     } satisfies EstadoAporte);
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 
