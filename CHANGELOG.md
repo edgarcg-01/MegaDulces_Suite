@@ -9,6 +9,46 @@
 ---
 
 ## [Unreleased]
+### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
+
+Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
+hostnames de DB y cifras del negocio). O sea que `main` **nunca** va a tener protección del lado de
+GitHub — no es un pendiente, es el escenario definitivo.
+
+⭐ **Entonces la compuerta se mueve a donde sí somos dueños: el despliegue.** Prod dejó Railway el
+2026-09-22 y hoy la despliega `ops/prod/auto-deploy.sh` desde `md`.
+
+**Added**
+- Job `sellar` en `ci.yml`: cuando pasan `build` + `secret-scan`, mueve la rama marcadora
+  **`ci-green`** al commit probado. Sólo en `push` a `main`; un PR verde no es algo que se despliegue.
+- `ops/prod/compuerta-ci.sh` — 4 veredictos: `SELLADO` (0) · `ESPERANDO` (10) · `FRENADO` (20) ·
+  `NO_MEDIDO` (30). Vive en su propio archivo, como `clasificar-migraciones.awk`, **para poder
+  probarlo**: una compuerta con la lógica embebida sólo se testea duplicándola, y un test que
+  duplica la lógica se pone verde con la lógica equivocada.
+- `ops/prod/test-compuerta-ci.sh` — 6 casos, **2 negativos**, corriendo el mismo archivo que corre
+  en prod. `npm run check:compuerta-ci`.
+- `auto-deploy.sh` llama a la compuerta antes de construir. Escape: `AUTO_DEPLOY_SIN_CI=1`.
+
+**Qué frena y qué no, a propósito:** build roto o secreto filtrado → frena. `verify`
+(lint/tests/estilo) → **no** frena: hoy está rojo por deuda preexistente y exigirlo dejaría a
+producción sin despliegues desde el primer día. Apretarlo exige antes partir `verify` en dos.
+Y "todavía sin sello" no es error: espera y reintenta cada 5 min; recién a los 30 min grita.
+
+**Fixed**
+- ⛔ La cabecera de `auto-deploy.sh` afirmaba *"acá sólo entra lo que pasó por la rama protegida"* —
+  **era falso**, y era la premisa de todo su argumento de seguridad. Hasta hoy desplegaba lo que
+  hubiera en `origin/main`, verde o rojo.
+- `REMOTO` en `auto-deploy.sh` apuntaba al nombre viejo del repo; venía funcionando por cortesía
+  del redirect de GitHub, no por estar bien.
+- ⛔ **El candado encontró un bug en la compuerta antes de que llegara a prod**: `git rev-parse` con
+  una ref inexistente **imprime la ref de vuelta en stdout** y sale con error, así que el chequeo de
+  "vacío" nunca disparaba y un repo *sin* marcador se veía igual que uno con el CI corriendo
+  (`ESPERANDO` en vez de `NO_MEDIDO`). Se arregla con `--verify --quiet`.
+
+**Removed**
+- `scripts/apply-branch-protection.js` y su comando npm. Sin Pro no puede correr nunca, y un script
+  que no puede correr insinúa un pendiente que no existe.
+
 ### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
 - `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
   por folio, clave o nombre. `GET /commercial/tickets/bandeja`.

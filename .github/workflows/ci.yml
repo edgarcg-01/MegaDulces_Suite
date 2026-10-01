@@ -36,20 +36,23 @@ name: CI
 #
 # ─── Qué falta, en orden, y quién lo puede hacer ───────────────────────────────────────────
 #
-#   1. [DEV, hoy]   `npm run hooks:install` en cada máquina. Activa `.githooks/pre-push`:
-#                   bloquea el push directo a `main` y corre los gates baratos sobre TUS
-#                   archivos (~2.5 s, 6 gates en paralelo). Es lo único que hay hoy.
-#   2. [DUEÑO]      Pasar la cuenta `edgarcg-01` a GitHub Pro. Es lo que desbloquea la
-#                   protección real sobre un repo privado. (Volver el repo a público también
-#                   la desbloquea, pero NO se recomienda: los docs traen IPs internas,
-#                   hostnames de DB y cifras del negocio.)
-#   3. [LEAD]       `npm run branch-protection -- --apply` — ya está escrito como código en
-#                   `scripts/apply-branch-protection.js`, con los 3 checks obligatorios y la
-#                   verificación de que sus nombres existan de verdad. Mientras siga el 403,
-#                   el script sale con un mensaje que lo explica.
-#   4. [LEAD]       Secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets → Actions). Sin él el CI
+#   1. [DEV, hoy]   `npm run hooks:install` en cada máquina. Activa `.githooks/pre-push`
+#                   (bloquea el push directo a `main` + 6 gates sobre TUS archivos, ~2.5 s) y
+#                   de paso el `pre-commit` de gitleaks, que llevaba dos meses dormido.
+#                   ⚠️ Es de CLIENTE: se evade con `--no-verify`. Sirve por rapidez, no manda.
+#   2. [LEAD]       Secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets → Actions). Sin él el CI
 #                   corre igual pero sin caché remoto, y el paso "Declarar el caché remoto" lo
 #                   grita como warning en vez de dejarlo pasar callado.
+#
+# ⛔ LO QUE YA NO ESTÁ EN ESTA LISTA, Y NO VA A VOLVER: "pasar la cuenta a GitHub Pro".
+#    Decisión del 2026-09-30: no se paga. Volver el repo a público también desbloquearía la
+#    protección y se descartó (los docs traen IPs internas, hostnames de DB y cifras del
+#    negocio). O sea que `main` **nunca** va a tener protección del lado de GitHub, y el script
+#    `scripts/apply-branch-protection.js` se retiró: un script que no puede correr insinúa un
+#    pendiente que no existe.
+#
+# ⭐ En su lugar está `[CI.SELLO]` (el job `sellar`, al final de este archivo): la compuerta se
+#    mueve al DESPLIEGUE, que sí es nuestro. `main` puede ponerse roja; lo rojo no llega a prod.
 #
 # Flujo de equipo: rama por feature → PR → 1 review (CODEOWNERS) → squash a main (la rama se
 # borra sola). Ver ONBOARDING.md §8.
@@ -383,3 +386,50 @@ jobs:
         run: npx nx affected -t test --parallel=3
         env:
           NX_DAEMON: 'false'
+
+  # ──────────────────────────────────────────────────────────────────────────────────────────
+  # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
+  #
+  # ── Por qué existe ────────────────────────────────────────────────────────────────────────
+  # Porque la protección de rama de GitHub **no se va a comprar** (decisión del 2026-09-30) y en
+  # un repo privado de plan free no existe: `403` a `branches/main/protection` y a `rulesets`.
+  # Sin eso, nada del lado del servidor puede frenar un merge rojo, y la compuerta de push
+  # (`.githooks/pre-push`) es de CLIENTE — se evade con `--no-verify` y no existe en la máquina
+  # de quien no corrió `npm run hooks:install`.
+  #
+  # ⭐ Así que la compuerta se mueve a donde SÍ somos dueños: el despliegue. Prod dejó Railway el
+  # 2026-09-22 y vive en `md`, desplegado por `ops/prod/auto-deploy.sh`. Este job publica un
+  # veredicto que ese script lee, y así lo que protege producción deja de depender de que cada
+  # dev tenga un hook instalado.
+  #
+  # ── Qué sella, y qué NO ───────────────────────────────────────────────────────────────────
+  # `needs: [build, secret-scan]` a propósito, y **no** `verify`:
+  #   · `build`       — si no compila, lo que se despliegue no funciona. Frena.
+  #   · `secret-scan` — un secreto que llega a prod ya se filtró. Frena.
+  #   · `verify`      — mezcla tests reales con compuertas de estilo (tokens CSS, tablas densas),
+  #                     y hoy está rojo por deuda preexistente. Exigirlo frenaría TODOS los
+  #                     despliegues desde el primer día, y una compuerta que bloquea todo se
+  #                     desactiva. Se DECLARA en el CI, no frena el deploy. Apretar esto exige
+  #                     antes partir `verify` en dos (tests / estilo) y medir.
+  #
+  # ⚠️ Sólo sella `main` y sólo en `push`: un PR verde no es algo que se despliegue.
+  # ⚠️ `ci-green` es un MARCADOR, no una rama de trabajo. No se ramifica desde ella ni se mergea.
+  sellar:
+    name: Sellar CI verde (ci-green)
+    needs: [build, secret-scan]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # `--force` porque el marcador AVANZA con cada commit verde; no es una rama que acumule.
+      - name: Mover ci-green a ${{ github.sha }}
+        run: |
+          set -eu
+          git push --force origin "${GITHUB_SHA}:refs/heads/ci-green"
+          echo "ci-green -> ${GITHUB_SHA}"

@@ -17,7 +17,7 @@
     "hooks:install": "git config core.hooksPath .githooks && node -e \"console.log('\\u2713 compuerta de push activada (core.hooksPath=.githooks). Probala con: npm run hooks:check')\"",
     "hooks:uninstall": "git config --unset core.hooksPath",
     "hooks:check": "git config --get core.hooksPath",
-    "branch-protection": "node scripts/apply-branch-protection.js",
+    "check:compuerta-ci": "sh ops/prod/test-compuerta-ci.sh",
     "lint:boundary": "node scripts/lint-boundary-gate.js",
     "lint:changed": "node scripts/lint-changed.js",
     "check:templates": "node scripts/check-template-literals.js",
