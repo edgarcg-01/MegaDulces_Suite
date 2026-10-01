@@ -89,9 +89,25 @@ const UNIVERSO_SQL: Record<ScopeDimension, { sql: string; label: string }> = {
            ORDER BY 1`,
     label: 'Sucursal',
   },
+  /**
+   * `[ZN.6]` ⛔ **`trade.zones` no es un catálogo de zonas: es cuatro catálogos en una tabla.**
+   * De sus 11 filas vivas sólo 3 son zonas (`LA PIEDAD RD`, `ZAMORA`, `MORELIA` — las mismas
+   * tres que declara el ERP en `kepler_ods.kduk`); las otras 8 son 4 sucursales, 2 canales,
+   * OFICINAS y una fila que nació **después** de que `[ZN.0]` clasificara el resto y quedó sin
+   * clasificar.
+   *
+   * Sin este filtro el universo ofrecía las 11, y por ahí entraron los alcances medidos en prod
+   * que filtran por una sucursal o por OFICINAS — que no es un lugar. El `kind` lo escribió
+   * `[ZN.0]` en cada fila con su motivo y **no lo leía ningún consumidor**; éste es el primero.
+   *
+   * ⚠️ `kind = 'zona'` excluye también el NULL, a propósito: una fila sin clasificar no es una
+   * zona *todavía*, y fail-closed es la postura correcta para un eje de alcance. La contrapartida
+   * es que los valores guardados que queden fuera del universo hay que **declararlos** — eso lo
+   * hace `describe()` con `valuesFueraDelUniverso`, no se esconden.
+   */
   zone: {
     sql: `SELECT id::text AS v, name AS label FROM trade.zones
-           WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY orden`,
+           WHERE tenant_id = ? AND deleted_at IS NULL AND kind = 'zona' ORDER BY orden`,
     label: 'Zona',
   },
   route: {
@@ -538,10 +554,41 @@ export class ScopeService {
   ): Promise<{ value: string; label: string }[]> {
     const d = scope.dims[dim];
     if (d.mode === 'none') return [];
-    const { rows } = await this.knex.raw(UNIVERSO_SQL[dim].sql, [scope.tenantId]);
-    const todos = rows.map((r: any) => ({ value: String(r.v), label: r.label ?? String(r.v) }));
+    const todos = await this.universeFor(scope.tenantId, dim);
     if (d.mode === 'all') return todos;
     return todos.filter((o: { value: string }) => d.values.includes(o.value));
+  }
+
+  /**
+   * `[ZN.6]` — **TODO lo que existe en la dimensión**, sin recortar por el alcance de nadie.
+   *
+   * ⛔ Nació porque faltaba, y su ausencia rompía la pantalla que administra el alcance.
+   * `optionsFor()` es un **read-model**: su propio docstring dice que devuelve *«lo que la
+   * persona alcanza a ver, filtrado por su modo»*, y está pensado para el picker de
+   * `GET /users/me/scope` («¿por qué puedo filtrar YO?»). Pero `/admin/personas` lo estaba usando
+   * como **edit-model** — la lista de lo que un admin puede OTORGARLE a otro:
+   *
+   * | modo del sujeto | lo que veía el admin | efecto |
+   * |---|---|---|
+   * | `own`    | 1 opción: la que ya tiene | sólo podía «otorgar» lo que ya tenía |
+   * | `none`   | `[]` | *«el catálogo llegó vacío»* y Guardar apagado |
+   * | `listed` | sólo las que ya tiene | **nunca podía AGREGAR una** |
+   * | `all`    | el universo | el único caso que funcionaba |
+   *
+   * O sea: **la pantalla sólo podía quitar, nunca dar.** Reportado como *«¿por qué en zonas sólo
+   * aparece eso?»*.
+   *
+   * ⚠️ El comentario `[RE.27.B1]` de `describe()` ya había visto la mitad del problema —advierte
+   * que `options` **no** es la selección— y no vio que tampoco es el universo. Son **tres** cosas
+   * distintas y ahora viajan las tres: `universe` (lo que se puede otorgar), `values` (lo que
+   * está guardado) y `options` (lo que la persona alcanza hoy).
+   */
+  async universeFor(
+    tenantId: string,
+    dim: ScopeDimension,
+  ): Promise<{ value: string; label: string }[]> {
+    const { rows } = await this.knex.raw(UNIVERSO_SQL[dim].sql, [tenantId]);
+    return rows.map((r: any) => ({ value: String(r.v), label: r.label ?? String(r.v) }));
   }
 
   /**
@@ -566,6 +613,15 @@ export class ScopeService {
         /** `[ID.26]` `false` = `unknown`, no `none`. Ver `ResolvedDimension.resolvable`. */
         resolvable: boolean;
         options: { value: string; label: string }[];
+        /** `[ZN.6]` Todo lo que se le puede OTORGAR. Es lo que el editor debe ofrecer. */
+        universe: { value: string; label: string }[];
+        /**
+         * `[ZN.6]` Valores guardados que ya **no existen en el universo** de la dimensión —
+         * borrados, o filas que nunca debieron ser elegibles (una sucursal guardada como zona).
+         * Van aparte para que la pantalla los MUESTRE marcados en vez de dejarlos caer: un
+         * selector en blanco se lee como «no tiene», que es una afirmación distinta y falsa.
+         */
+        valuesFueraDelUniverso: string[];
       }
     >
   > {
@@ -582,19 +638,31 @@ export class ScopeService {
     const out: any = {};
     for (const dim of SCOPE_DIMENSIONS) {
       const d = scope.dims[dim];
+      // `[ZN.6]` El universo se pide UNA vez y de ahí salen las opciones, en vez de consultarlo
+      // dos veces por dimensión.
+      const universe = await this.universeFor(scope.tenantId, dim);
+      const enUniverso = new Set(universe.map((o) => o.value));
+      const values = d.values ?? [];
       out[dim] = {
         mode: d.mode,
         modeWrite: d.modeWrite,
         source: d.source,
         nota: d.nota ?? null,
-        values: d.values ?? [],
+        values,
         valuesWrite: d.valuesWrite ?? [],
         supportsOwn: ownOk.get(dim) ?? false,
         // `?? true` a propósito: un scope armado por un caller viejo que no
         // conoce el campo NO se reporta como no-resoluble. Declarar de menos es
         // ruido; declarar de más sería una alarma falsa en 6 dimensiones.
         resolvable: d.resolvable ?? true,
-        options: await this.optionsFor(scope, dim),
+        options:
+          d.mode === 'none'
+            ? []
+            : d.mode === 'all'
+              ? universe
+              : universe.filter((o) => values.includes(o.value)),
+        universe,
+        valuesFueraDelUniverso: values.filter((v) => !enUniverso.has(v)),
       };
     }
     return out;

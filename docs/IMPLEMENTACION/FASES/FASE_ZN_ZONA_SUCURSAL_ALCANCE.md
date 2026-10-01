@@ -1,6 +1,9 @@
 # Fase ZN — Zona, sucursal y ruta: normalizar para que cada quien vea lo suyo
 
-> **Estado:** 🔨 ZN.0 en código (2026-09-23) · resto planeado
+> **Estado:** 🔨 ZN.0 en código (2026-09-23) · **ZN.6 en código (2026-09-30)** · ZN.1–ZN.5 planeados
+>
+> ⚠️ **Las cifras de §2 son del 2026-09-23 y envejecieron.** La re-medición del 2026-09-30 está en
+> §11, y una de ellas **corrige un diagnóstico de este mismo documento**. Leer §11 antes que §2.
 > **Pedido del lead (2026-09-23):** *«hay que normalizar esto, para que se respete que el usuario
 > solo vea lo de su zona o sus sucursales asignadas. Debemos eliminar todo lo que esté hardcodeado
 > y separar por sucursal.»*
@@ -427,3 +430,108 @@ tres sucursales con la misma etiqueta.
 | `trade.zones` tiene filas que dejan de usarse | **no se borran**: se marcan con `kind` y se retiran de los selectores. Borrar exige autorización explícita |
 
 **Orden:** ZN.0 → (medición) → ZN.1 → ZN.2 + ZN.3 por módulo → ZN.4 → ZN.5.
+
+---
+
+## 11. ZN.6 — El motor que lo fabricaba, y el editor que sólo podía quitar ✅ en código (2026-09-30)
+
+Disparado por un reporte sobre una ficha concreta: *«¿por qué en zonas sólo aparece eso? es una
+aberración nuestro funcionamiento de usuarios»*. Re-medido contra **prod real** (`pg-prod` en `md`,
+`system_identifier 7688376744939610156`, lectura sola).
+
+### 11.1 ⛔ Corrección a §2.2 y al ADR: la causa raíz no estaba nombrada
+
+`[ZN.0]` clasificó el catálogo y declaró que **no movía a nadie**. Lo que no se vio es que había
+algo **fabricando el defecto todos los días**: `derivarZona()` derivaba la zona de una persona
+leyendo `commercial.warehouses.zone_id`, y **4 de sus 8 filas pobladas apuntan a una fila-sucursal**
+(`04`→YURECUARO VECINAL, `06`→CANINDO, `07`→MORELIA MADERO, `08`→MORELIA ABASTOS).
+
+O sea que **cada alta en esas cuatro plazas volvía a anclar a alguien a su propia sucursal
+disfrazada de zona**. Limpiar sin cerrar esto era barrer con la canilla abierta — y explica por qué
+la cifra de §2.2 no bajaba sola. El resolvedor correcto (`analytics.v_branch_zone`, creado por el
+propio ZN.0) acierta **9 de 9** y **no lo consumía nadie**.
+
+### 11.2 ⛔ Corrección a una afirmación del código: ruta → zona NO es una función
+
+El docstring de `derivarZona` afirmaba: *«de las 15 rutas con tiendas cargadas, **ninguna cruza de
+zona**. Es una función»*, y por eso tomaba la primera fila con un `.first()` **sin `ORDER BY`**.
+Hoy es falso: **`Ruta Vecinal #1` tiene 742 tiendas en dos zonas** (58 en LA PIEDAD RD, 684 en
+MORELIA MADERO), así que la zona salía **al azar** según el plan de ejecución.
+
+⭐ `database/tests/test-newdb-scope-axis.js` **ya lo venía reportando en rojo**. La afirmación vivía
+en un comentario, que no se pone rojo cuando deja de ser cierta.
+
+### 11.3 El síntoma reportado: `optionsFor()` es un read-model usado como edit-model
+
+`GET /users/:id/scope` → `describe()` → `optionsFor()`, que **recorta el universo por el modo del
+propio sujeto**. Su docstring dice que es para el picker de `GET /users/me/scope` («¿por qué puedo
+filtrar YO?»), y `/admin/personas` lo usaba como la lista de lo que un admin puede **otorgar**:
+
+| modo del sujeto | opciones que veía el admin | efecto |
+|---|---|---|
+| `own` | **1**: la que ya tiene | sólo podía «otorgar» lo que ya tenía |
+| `none` / sin regla | **`[]`** | *«el catálogo llegó vacío»* y Guardar apagado |
+| `listed` | sólo las que ya tiene | **nunca podía AGREGAR** |
+| `all` | el universo | el único caso que funcionaba |
+
+⇒ **La pantalla de alcance sólo podía quitar, nunca dar.**
+
+### 11.4 Cifras al 2026-09-30 (reemplazan las de §2)
+
+| | |
+|---|---|
+| `trade.zones` vivas | **11** — 3 zonas · 4 sucursales · 2 canales · 1 oficina · **1 sin clasificar** (`LA PIEDAD MAYOREO`, nacida **después** de ZN.0) |
+| Personas vivas | 136, de las que 113 tienen zona |
+| …ancladas a una fila que **no** es zona | **54** (29 a una sucursal · 20 a OFICINAS · 5 a un canal) |
+| Personas cuyo filtro **depende** de la zona | 90 |
+| …cuyo filtro es **inválido** | **37** (34 por una fila que no es zona · 3 por zona vacía) |
+| Tiendas | 1,603 — **717 sin zona (44.7 %)** y 228 colgadas de una fila-sucursal |
+| Nadie apunta a la zona **MORELIA** | las 21 personas de Morelia apuntan a las dos filas-sucursal |
+
+⚠️ **Las vecinales siguen sin decidirse** (§9.1) y eso ya cuesta: 5 personas y 1 ruta ancladas a un
+`canal`.
+
+### 11.5 Qué se entregó
+
+**Capa A — cerrar la canilla** (sin efecto visible):
+
+- `derivarZona()` deriva de `analytics.v_branch_zone` y exige **una sola zona real** por ruta; lo
+  ambiguo **se declara**, no se adivina.
+- `setScope` valida `values` contra el universo de la dimensión. ⛔ Antes aceptaba cualquier uuid:
+  por ahí entró el alcance `zone: listed = OFICINAS` que motivó el reporte.
+- `resolveZoneRef` pregunta por **presencia** (`!== undefined`), no por valor: elegir «Ninguna» ya
+  desasigna. El comentario afirmaba que eso funcionaba y `null` es *falsy*.
+- El alta adopta la precedencia de la edición (manda lo explícito). Eran **reglas opuestas** para el
+  mismo campo, y en el alta la derivada pisaba la elección del admin sin aviso.
+
+**Capa B — que el editor pueda dar**:
+
+- `ScopeService.universeFor()` — el primitivo que faltaba. `describe()` ahora viaja con **tres**
+  cosas distintas: `universe` (lo otorgable), `values` (lo guardado) y `options` (lo alcanzable).
+- El universo de `zone` se acota a `kind='zona'`: **primer consumidor de `kind` desde que ZN.0 lo
+  escribió**.
+- Lo guardado que queda fuera del universo **se declara** (`valuesFueraDelUniverso`, y en «Dónde
+  opera» la fila se conserva marcada con su `kind_motivo`). Recortar a secas habría dejado el
+  selector en blanco para 54 personas, y un blanco se lee como «no tiene».
+- `GET /users/zones` filtra `deleted_at` y devuelve `kind`.
+- Los catálogos que no cargan se declaran en pantalla (eran 5 `error: () => set([])` mudos).
+
+**⛔ Lo que el plan decía y la medición desaconsejó:** exigir `USUARIOS_VER` en `GET /users/zones`
+para alinearlo con `/branches` y `/routes`. **115 de 136 personas no tienen ese permiso** (6 de 52
+roles), y el endpoint lo consumen Seguimiento y Reportes: les habría apagado el filtro de zona a
+casi toda la empresa para proteger una lista de tres nombres. Queda autenticado sin permiso, con el
+motivo medido escrito en el controller.
+
+**Candados:** `apps/view/.../zona-opciones.spec.ts` (11 casos, **rojo ejercido**: con el filtro
+desactivado caen 10) y `database/tests/test-newdb-zn6-universo-alcance.js` (read-only contra prod,
+**7 ok / 0 fallos / 1 declarado**, con control negativo — sin el filtro el universo pasa de 3 a 11).
+
+### 11.6 Lo que ZN.6 **no** hace, a propósito
+
+No mueve a nadie de zona ni toca `warehouses.zone_id`: eso es **ZN.1 + ZN.5**, mueve el tablero de
+Dirección de 6 agrupaciones a 3 y necesita su propio antes/después. Las 37 personas quedan **medidas
+y con nombre** en el bloque [6] del candado, que las reporta sin fallar.
+
+**Decisión registrada (2026-09-30):** a la gente de oficina **la zona no le aplica** — su eje ya es
+`red`, así que van a `zona_id = NULL` + regla explícita (`all`/`none`). Medido: **13 de esos 20 ya
+están en `all`**, o sea que quitarles el valor engañoso no les cambia lo que ven.

@@ -129,8 +129,15 @@ export class AdminService {
     );
   }
 
-  zonas(): Observable<Array<{ id: string; value: string; orden: number }>> {
-    return this.http.get<Array<{ id: string; value: string; orden: number }>>(`${this.users}/zones`);
+  /**
+   * `[ZN.6]` `kind` distingue una zona de verdad de las otras 8 filas que viven en la misma tabla
+   * sin serlo (4 sucursales, 2 canales, OFICINAS, y una sin clasificar). Sin él, el selector las
+   * ofrecía todas por igual.
+   */
+  zonas(): Observable<Array<{ id: string; value: string; orden: number; kind: string | null; kind_motivo: string | null }>> {
+    return this.http.get<Array<{ id: string; value: string; orden: number; kind: string | null; kind_motivo: string | null }>>(
+      `${this.users}/zones`,
+    );
   }
 
   /**

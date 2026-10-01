@@ -44,7 +44,12 @@ interface Dimension {
   values: string[];
   supportsOwn: boolean;
   resolvable: boolean;
+  /** Lo que la persona ALCANZA hoy — un read-model. No sirve para editar: ver `universe`. */
   options: Array<{ value: string; label: string }>;
+  /** `[ZN.6]` Todo lo que se le puede otorgar. Es lo que este editor tiene que ofrecer. */
+  universe: Array<{ value: string; label: string }>;
+  /** `[ZN.6]` Lo que tiene guardado y ya no existe en el universo. Se muestra marcado. */
+  valuesFueraDelUniverso: string[];
 }
 
 @Component({
@@ -69,6 +74,17 @@ interface Dimension {
         excepción, y por eso pide motivo.
       </p>
 
+      @if (servidorSinUniverso()) {
+        <div class="pd-error" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>
+            El servidor todavía no manda el catálogo de cada dimensión, así que
+            <strong>«una lista» no se puede armar</strong> y lo que veas acá está incompleto.
+            Falta redesplegar el API. No es que no haya opciones.
+          </span>
+        </div>
+      }
+
       @for (d of lista(); track d.code) {
         <section class="ps-dim" [class.ps-dim-tocada]="tocada(d.code)">
           <header class="ps-dim-head">
@@ -92,17 +108,31 @@ interface Dimension {
                     appendTo="body" [disabled]="!puedeEscribir"
                     [attr.aria-label]="'Modo de ' + etiqueta(d.code)"></p-select>
 
+          <!-- [ZN.6] Las opciones salen de "universe" (todo lo que se le puede OTORGAR), no de
+               "options" (lo que la persona alcanza hoy). Con "options" este editor solo podia
+               QUITAR: en modo "una lista" ofrecia exactamente lo que ya tenia, y en "no ve nada"
+               ofrecia una lista vacia. Reportado como "por que en zonas solo aparece eso".
+               SIN ACENTOS GRAVES: adentro de un template literal rompen el build del repo. -->
           @if (modo(d.code) === 'listed') {
-            <p-multiselect [options]="d.dim.options" [ngModel]="valores(d.code)"
+            <p-multiselect [options]="d.dim.universe" [ngModel]="valores(d.code)"
                            (ngModelChange)="setValores(d.code, $event)" optionLabel="label"
                            optionValue="value" appendTo="body" [filter]="true" display="chip"
                            [disabled]="!puedeEscribir" placeholder="Elegí cuáles"
                            [attr.aria-label]="'Valores de ' + etiqueta(d.code)"></p-multiselect>
-            @if (!d.dim.options.length) {
+            @if (!d.dim.universe.length) {
               <p class="ps-aviso">
                 El catálogo de esta dimensión llegó vacío, así que «una lista» no se puede armar.
               </p>
             }
+          }
+
+          @if (d.dim.valuesFueraDelUniverso.length) {
+            <p class="ps-aviso">
+              Tiene guardado <strong>{{ d.dim.valuesFueraDelUniverso.length }}</strong> valor(es)
+              que ya <strong>no existen</strong> en {{ etiqueta(d.code) | lowercase }}: se borraron,
+              o nunca debieron poder elegirse. Mientras sigan ahí <strong>filtra por algo que no
+              está</strong>, o sea que no ve nada por ese lado. Elegí de nuevo y guardá.
+            </p>
           }
 
           @if (tocada(d.code)) {
@@ -140,6 +170,8 @@ export class PersonaDatosComponent implements OnChanges {
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly guardando = signal<string | null>(null);
+  /** `[ZN.6]` El servidor no mandó `universe` → está corriendo código previo a esta entrega. */
+  readonly servidorSinUniverso = signal(false);
 
   private readonly original = signal<Record<string, Dimension>>({});
   private readonly edicion = signal<Record<string, { mode: Modo | null; values: string[]; nota: string }>>({});
@@ -165,7 +197,25 @@ export class PersonaDatosComponent implements OnChanges {
     this.cargando.set(true);
     this.api.alcanceDe(this.userId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (a) => {
-        this.original.set((a.dimensions ?? {}) as unknown as Record<string, Dimension>);
+        // `[ZN.6]` `universe` nació con esta entrega. Si el `api` todavía no se redesplegó,
+        // llega `undefined` y el `.length` del template reventaría la pestaña entera. Se
+        // normaliza acá — y se DECLARA: caer a `options` restauraría en silencio el defecto que
+        // esta entrega cierra (el editor que sólo puede quitar), y un selector vacío sin
+        // explicación se lee como «no hay nada que elegir», que es otra cosa.
+        const dims = (a.dimensions ?? {}) as unknown as Record<string, Partial<Dimension>>;
+        let faltaUniverso = false;
+        const normalizadas: Record<string, Dimension> = {};
+        for (const [code, d] of Object.entries(dims)) {
+          if (d.universe === undefined) faltaUniverso = true;
+          normalizadas[code] = {
+            ...(d as Dimension),
+            options: d.options ?? [],
+            universe: d.universe ?? [],
+            valuesFueraDelUniverso: d.valuesFueraDelUniverso ?? [],
+          };
+        }
+        this.servidorSinUniverso.set(faltaUniverso);
+        this.original.set(normalizadas);
         this.cargando.set(false);
       },
       error: (e) => {
