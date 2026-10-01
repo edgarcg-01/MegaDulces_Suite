@@ -173,11 +173,26 @@ describe('ValeGastoPeekComponent', () => {
       expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
     });
 
-    it('con «aprobar» ofrece Aprobar y Rechazar', () => {
+    /**
+     * `[GX.58]` El botón dice **«Revisado»** desde el 2026-10-01 (pedido del usuario).
+     *
+     * ⚠️ Cambió la PALABRA, no la acción: sigue emitiendo `aprobar` y el vale sigue
+     * quedando en estado `aprobada`. Esta prueba fija el texto; las de más abajo fijan que
+     * el botón siga haciendo lo mismo.
+     */
+    it('con «aprobar» ofrece Revisado y Rechazar', () => {
       montar(V(), ['aprobar', 'rechazar']);
       const botones = [...fix.nativeElement.querySelectorAll('.vp-act button')]
         .map((b: Element) => b.textContent?.trim());
-      expect(botones).toEqual(['Rechazar', 'Aprobar']);
+      expect(botones).toEqual(['Rechazar', 'Revisado']);
+    });
+
+    /** ⛔ Y la palabra vieja no puede quedar en ningún botón: serían dos nombres para lo mismo. */
+    it('[GX.58] ningún botón dice ya «Aprobar»', () => {
+      montar(V(), ['aprobar', 'rechazar']);
+      const botones = [...fix.nativeElement.querySelectorAll('.vp-act button')]
+        .map((b: Element) => b.textContent?.trim() || '');
+      expect(botones.some((t) => t.startsWith('Aprobar'))).toBe(false);
     });
 
     it('con «comprobar» ofrece Dar por comprobado', () => {
@@ -193,7 +208,7 @@ describe('ValeGastoPeekComponent', () => {
       const emitidos: AprobacionVale[] = [];
       c.aprobar.subscribe((a) => emitidos.push(a));
       const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
-        .find((b: Element) => b.textContent?.trim() === 'Aprobar') as HTMLButtonElement;
+        .find((b: Element) => b.textContent?.trim() === 'Revisado') as HTMLButtonElement;
       btn.click();
       expect(emitidos).toHaveLength(1);
       expect(emitidos[0].vale.id).toBe('v1');
@@ -252,7 +267,7 @@ describe('ValeGastoPeekComponent', () => {
         const emitidos: AprobacionVale[] = [];
         c.aprobar.subscribe((a) => emitidos.push(a));
         const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
-          .find((b: Element) => b.textContent?.trim() === 'Aprobar como provisional') as HTMLButtonElement;
+          .find((b: Element) => b.textContent?.trim() === 'Revisado como provisional') as HTMLButtonElement;
         expect(btn).toBeTruthy();
         btn.click();
         expect(emitidos[0].provisional).toBe(true);
