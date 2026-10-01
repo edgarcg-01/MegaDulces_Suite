@@ -1,6 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { InventoryVarianceService } from './inventory-variance.service';
+import { InventoryVarianceService, ActorExpediente } from './inventory-variance.service';
 import { InventoryCountPlanService } from './inventory-count-plan.service';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
@@ -122,6 +122,28 @@ export class InventoryVarianceController {
       explicacion,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  // ── [EXP.2] El expediente del renglón ───────────────────────────────────────────────
+  @Get('expediente')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Todo lo que la plataforma sabe de UN renglón del descuadre, en un solo viaje: '
+      + 'las líneas del ajuste, la trayectoria del SKU entre conteos, la conciliación de cada '
+      + 'período, los movimientos documento a documento, las órdenes de entrada, la existencia '
+      + 'de hoy y el expediente de Prevención. ⛔ Cada sección DECLARA su permiso cuando está '
+      + 'oculta: un panel a medias se lee como «no hay nada que ver».',
+  })
+  expediente(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('sku') sku: string,
+    @Query('fecha') fecha: string,
+    // ⚠️ `req.user.permissions` lo repone FRESCO `RolesGuard` en cada request (no es el
+    // snapshot del JWT). El god-mode lo resuelve el servicio con los roles de DB.
+    @Req() req: { user?: ActorExpediente },
+  ) {
+    return this.service.expediente(
+      { warehouse_id: warehouseId, sku, fecha }, req?.user);
   }
 
   // ── [EXP.1b] El embudo: cuánto del descuadre cae en cada explicación ─────────────────

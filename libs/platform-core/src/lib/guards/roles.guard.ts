@@ -82,6 +82,19 @@ export class RolesGuard implements CanActivate {
     // comentario de abajo) y de menos (`can('manage','catalogs')` con reglas
     // `['read','create','update','delete']` da false → 403 a todo rol no-admin).
     request.user.permissions = permissions;
+    // `[EXP.2]` Y los ROLES frescos, por el mismo motivo que los permisos: un servicio que
+    // decide QUÉ MOSTRAR dentro de una pantalla ya autorizada necesita saber si el que pide es
+    // admin, y **el god-mode se resuelve por rol, no por el mapa** (ADR-054).
+    //
+    // ⛔ No es teórico: medido en prod el 2026-09-30, `superadmin` —7 personas— **no tiene**
+    // `COMMERCIAL_PREVENTION_VER` en su mapa; entra por god-mode. Un bloque gateado contra el
+    // mapa a secas se le ocultaría a los siete.
+    //
+    // Va acá y no inyectando `PermissionsCacheService` en cada servicio: `AbilityModule` es
+    // `@Global()` pero se registra en `app.module` DESPUÉS de los módulos de negocio, y este
+    // repo ya documenta —con una app que no arrancaba— que con `@Global()` el orden de
+    // registro sigue mandando. Acá el servicio ya está resuelto y el dato llega por el request.
+    request.user.roles_frescos = rolesFrescos;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
     // permiso de negocio (ver `ability/platform-admin.ts`). Se evalúa sobre los roles

@@ -1607,6 +1607,16 @@ export class ComercialService {
     return this.http.get<InventoryVarianceLine[]>(`${this.base}/inventory/variance/detail`, { params: p });
   }
 
+  /** [EXP.2] El expediente de UN renglón: todo lo que la plataforma sabe, en un viaje. */
+  inventoryVarianceExpediente(params: {
+    warehouse_id: string; sku: string; fecha: string;
+  }) {
+    const p = new HttpParams()
+      .set('warehouse_id', params.warehouse_id).set('sku', params.sku).set('fecha', params.fecha);
+    return this.http.get<InventoryVarianceExpediente>(
+      `${this.base}/inventory/variance/expediente`, { params: p });
+  }
+
   /** [EXP.1b] El embudo: cuánto del descuadre cae en cada explicación. */
   inventoryVarianceEmbudo(params: {
     warehouse_id?: string; date_from?: string; date_to?: string;
@@ -3113,6 +3123,45 @@ export interface InventoryVarianceLine {
 export type InventoryVarianceExplicacion =
   | 'costo_de_caja' | 'movimientos_lo_explican' | 'merma_sostenida' | 'sobra_sostenida'
   | 'se_compensa' | 'sin_explicacion' | 'no_medido';
+
+/**
+ * [EXP.2] Un bloque que el perfil del usuario NO alcanza.
+ *
+ * ⛔ Nunca se omite en silencio: un panel al que le faltan tres secciones sin decir por qué se
+ * lee como «no hay nada que ver», que es justo lo contrario de lo que pasa.
+ */
+export interface BloqueOculto {
+  oculto: true;
+  permiso: string;
+  motivo: string;
+}
+
+export const esOculto = (b: unknown): b is BloqueOculto =>
+  !!b && typeof b === 'object' && (b as BloqueOculto).oculto === true;
+
+/** [EXP.2] El expediente del renglón: ocho secciones en un solo viaje. */
+export interface InventoryVarianceExpediente {
+  encontrado: boolean;
+  /** Por qué no hay expediente, cuando no lo hay. */
+  motivo?: string;
+  senal?: InventoryVarianceLine & Record<string, unknown>;
+  /** Las líneas del ajuste en este evento — acá se ven los dos signos del mismo SKU. */
+  lineas?: Record<string, unknown>[];
+  /** ⭐ La trayectoria del SKU entre conteos. Sale de la misma matvista de señales. */
+  eventos?: Record<string, unknown>[];
+  rollforward?: Record<string, unknown>[];
+  movimientos?: {
+    items: Record<string, unknown>[];
+    ventana: { desde: string | null; hasta: string; origen: 'conteo_anterior' | 'noventa_dias' };
+    /** ⛔ El piso del feed POR ALMACÉN: sin esto «ese almacén no alimentaba» se lee igual
+     *  que «no hubo movimientos». De 5 almacenes hasta dic-2025 a 8 desde ene-2026. */
+    feed_desde: string | null;
+    feed_cubre: boolean | null;
+  } | BloqueOculto;
+  entradas?: { items: Record<string, unknown>[] } | BloqueOculto;
+  existencia?: { datos: Record<string, unknown> | null; motivo: string | null } | BloqueOculto;
+  prevencion?: { items: Record<string, unknown>[] } | BloqueOculto;
+}
 
 /** [EXP.1b] Una fila del embudo: (almacén, fecha, explicación). */
 export interface InventoryVarianceEmbudoRow {
