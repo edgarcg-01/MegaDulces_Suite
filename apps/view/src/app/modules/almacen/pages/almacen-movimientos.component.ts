@@ -1,4 +1,7 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import {
+  AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit,
+  effect, inject, signal, viewChild, viewChildren,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -53,11 +56,26 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
         </div>
       </header>
 
-      <p-tabs [value]="activeTab()" (valueChange)="onTab($any($event))" styleClass="dm-tabs">
-        <p-tablist>
-          <p-tab value="diario"><i class="pi pi-book" aria-hidden="true"></i> Diario</p-tab>
-          <p-tab value="cuadre"><i class="pi pi-sitemap" aria-hidden="true"></i> Cuadre de traspasos</p-tab>
-        </p-tablist>
+      <!-- Selector estilo iOS: el blob se desliza bajo la pestaña activa. NO es CSS nuevo —
+           es el primitivo "Liquid Tabs estilo iOS 26" que ya vive en styles.css, cuya propia
+           documentación contempla este caso: conservar los p-tabpanels de PrimeNG y ocultar su
+           tablist nativo con .liquid-tabs-hide-tablist. El ancho y la posición del indicador se
+           MIDEN por JS (no se derivan de 1/N) porque las dos pestañas tienen anchos distintos
+           — "Diario" contra "Cuadre de traspasos". Mismo cableado que /dashboard/reports. -->
+      <div class="modern-tabs-wrapper liquid-tabs-host">
+        <div class="liquid-tabs" role="tablist" #lqContainer>
+          <span class="liquid-tabs-indicator" aria-hidden="true" #lqIndicator></span>
+          <button #lqTab type="button" role="tab" class="liquid-tab"
+                  [class.is-active]="activeTab() === 'diario'"
+                  [attr.aria-selected]="activeTab() === 'diario'"
+                  (click)="onTab('diario')"><i class="pi pi-book" aria-hidden="true"></i> Diario</button>
+          <button #lqTab type="button" role="tab" class="liquid-tab"
+                  [class.is-active]="activeTab() === 'cuadre'"
+                  [attr.aria-selected]="activeTab() === 'cuadre'"
+                  (click)="onTab('cuadre')"><i class="pi pi-sitemap" aria-hidden="true"></i> Cuadre de traspasos</button>
+        </div>
+
+      <p-tabs [value]="activeTab()" (valueChange)="onTab($any($event))" styleClass="liquid-tabs-hide-tablist">
         <p-tabpanels>
         <p-tabpanel value="diario">
 
@@ -514,6 +532,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
         </p-tabpanel>
         </p-tabpanels>
       </p-tabs>
+      </div><!-- /liquid-tabs-host -->
     </div>
 
     <!-- Documento + relación + contraparte -->
@@ -872,7 +891,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     :host ::ng-deep .dm-audit-btn.p-button { background: var(--ok-fg); border-color: var(--ok-fg); }
   `],
 })
-export class AlmacenMovimientosComponent implements OnInit {
+export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   private readonly api = inject(AlmacenMovimientosService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
@@ -1057,6 +1076,51 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.activeTab.set(tab);
     if (tab === 'cuadre' && !this.cuadreLoaded()) this.loadCuadre();
     else this.syncUrl();
+    // El blob NO se mueve acá: en este punto la clase .is-active sigue en la pestaña vieja
+    // (el signal se acaba de escribir y el DOM se actualiza en el ciclo siguiente). Lo mueve
+    // el effect de abajo, que corre después de que Angular haya pintado.
+  }
+
+  // ── Selector iOS: posicionar el blob bajo la pestaña activa ───────────────────────────────
+  private readonly lqContainer = viewChild<ElementRef<HTMLElement>>('lqContainer');
+  private readonly lqIndicator = viewChild<ElementRef<HTMLElement>>('lqIndicator');
+  private readonly lqTabs = viewChildren<ElementRef<HTMLElement>>('lqTab');
+
+  /**
+   * Mide la pestaña activa y mueve el indicador. Se MIDE en vez de calcular `1/N` porque las
+   * dos pestañas tienen anchos muy distintos ("Diario" contra "Cuadre de traspasos"): con el
+   * reparto uniforme el blob quedaría corrido bajo la segunda.
+   *
+   * Se llama en tres momentos, y ninguno sobra: al montar (el ancho no existe antes del
+   * layout), al cambiar de pestaña, y cuando el contenedor cambia de tamaño — en Operations la
+   * barra lateral colapsa y el `ResizeObserver` es lo único que se entera.
+   */
+  private syncLiquid(): void {
+    const ind = this.lqIndicator()?.nativeElement;
+    if (!ind) return;
+    const active = this.lqTabs().map((r) => r.nativeElement).find((el) => el.classList.contains('is-active'));
+    if (!active) { ind.style.width = '0px'; return; }
+    ind.style.transform = `translate3d(${active.offsetLeft}px, 0, 0)`;
+    ind.style.width = `${active.offsetWidth}px`;
+  }
+
+  /** Reposiciona al cambiar de pestaña, una vez que el DOM ya tiene la clase nueva. */
+  private readonly lqEffect = effect(() => {
+    this.activeTab();
+    queueMicrotask(() => this.syncLiquid());
+  });
+
+  ngAfterViewInit(): void {
+    // Dos pasadas: la primera toma el ancho ya calculado; la segunda cubre el caso en que la
+    // fuente del icono todavía no cargó y el botón mide de menos (medir antes de que la fuente
+    // sea usable da un ancho que después cambia, y el blob queda corto).
+    [0, 120].forEach((d) => setTimeout(() => this.syncLiquid(), d));
+    const cont = this.lqContainer()?.nativeElement;
+    if (cont && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => this.syncLiquid());
+      ro.observe(cont);
+      this.destroyRef.onDestroy(() => ro.disconnect());
+    }
   }
 
   /** Carga los 4 lentes del informe (contable + matriz + folios + Wincaja) para el rango propio. */
