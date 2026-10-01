@@ -2057,3 +2057,28 @@ La medición que sí distinguía estaba a una consulta: **comparar la magnitud c
 `c9`, ni `kdik.c6` lo reproducen en los ceros—; (b) **cuánto tiene de verdad el CEDIS** en pesos,
 que sólo sale de transcribir el reporte completo o de contar el almacén; (c) `/compras/existencia`
 **sigue sin CEDIS**, asumido: *ausente y declarado le gana a presente y falso*.
+
+#### §17.8.1 — Un segundo testigo, independiente, cae del mismo lado
+
+La pista de §17.8 dejó de ser una pista. Los **127 SKUs que humanos contaron físicamente** en el
+`N-A-45` del corte (30-sep) traen **127/127 el centinela `c7 = '1800-01-01'`** — exactamente el
+lado donde caen los 94/94 del reporte del ERP:
+
+| grupo | SKUs | con centinela | unidades |
+|---|---:|---:|---:|
+| contados a mano en el `N-A-45` del corte | 127 | **127 (100 %)** | 340,077 |
+| el resto del almacén | 4,892 | 1,633 (33.4 %) | 11,796,729 |
+
+⭐ **Son dos testigos que no se derivan uno del otro**: el reporte lo imprime Kepler desde su propia
+lógica, el conteo lo produjeron personas contando cajas. En §17.5 descarté el conteo como árbitro
+por R5 (*«un árbitro que nunca contradice es un espejo»*) y tenía razón **para juzgar el saldo** —
+el `N-A-30` posteó justo lo contado—; pero para juzgar **cuáles filas de `kdil` son el almacén
+vivo** el conteo sí es independiente, y coincide con el ERP. La regla del centinela queda con
+**recall 2/2 testigos**.
+
+⛔ **Y aun así NO se republica.** El grupo centinela son **1,760 SKUs / 1,802,630 u**, de los cuales
+sólo ~220 tienen testigo: la regla tiene recall probado y **precisión sin probar**, y esto alimenta
+el sugerido de compras. Publicar los 1.8 M sería repetir hoy el error de ayer — *una corazonada con
+forma de medición*, sólo que con mejor corazonada. Lo que la vuelve publicable es barato y sólo lo
+da el ERP: **el reporte completo con «omitir productos en cero = Sí»**, que son ~2 páginas en vez
+de 123 y cierra la precisión de un tirón.
