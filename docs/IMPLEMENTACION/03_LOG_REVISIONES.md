@@ -74,6 +74,99 @@ mencionando que se hizo a otra sucursal, peor aún, que cuadra la información"*
   HEAD..origin/main -- <mis rutas>`.*
 - Detalle: `FASE_TK_TICKETS_VENTA.md` §9.
 
+## 2026-09-30 — EXP.0: el equipo de Prevención no podía abrir su propio módulo
+
+**Disparador:** Edgar, sobre `/almacen/inventory/diferencias` — *"a esta vista le falta
+demasiada información... podemos llegar a saber si tuvo órdenes de entrada, compras, ajustes...
+estás haciendo un trabajo mediocre al solo hacer lo básico. Debemos cazar esta información,
+enlazarla con los demás módulos"*.
+
+### El reproche era correcto, y el diagnóstico salió más preciso de lo esperado
+
+No falta información: **falta la llave**. Diferencias indexa por `(almacén, fecha)`,
+Conciliación por `(almacén, par de conteos)`, las señales de precio por `(sucursal, SKU)` y
+Prevención por `(warehouse_id, product_id)` — y **nadie traduce entre `warehouse_id` y
+`kepler_sucursal` en la capa de UI**. Las cuatro consultas existen y las cuatro llaves tienen el
+SKU adentro.
+
+Dos endpoints están construidos y **sin un solo cliente en el frontend**:
+`GET /commercial/inventory/investigations/timeline` (línea de tiempo del SKU, app + ERP) y
+`POST /investigations/from-kepler` (abre expedientes desde el conteo trimestral). Y existe el
+molde exacto del agregador: `GET /commercial/margin-engine/:sucursal/:sku`, cuyo docstring dice
+literalmente *«lo que el pedido original llamaba "al dar clic se desglosa el análisis"»*.
+
+### El bloqueo que invalidaba todo lo demás
+
+`COMMERCIAL_PREVENTION_VER` **ni siquiera existía** en el mapa de `prevencion` (1 usuario) ni de
+`prevencion_auxiliar` (2). En `almacenista` existía, en **`false`**. El único rol con `true` era
+**`direccion` — 2 personas**.
+
+O sea: el módulo de Prevención —expediente de investigación, timeline del SKU, causa raíz
+tipificada (EC/ER/EA/DC/DP/TR/UB/MR/PNI), monitoreo intensivo— llevaba en prod desde agosto y lo
+abrían dos directores más los `superadmin` por god-mode. **El equipo que le da nombre al rol,
+no.** Y el número que lo delata: **1 expediente en toda la historia**, contra **7,301 renglones
+con diferencia sólo en sep-2026**.
+
+Es `[LC.6.2]` repetido al pie de la letra, con el mismo mecanismo de residuo: `/admin/roles`
+escribe el JSONB **completo** del rol que se guarda, así que toda clave nueva del enum aterriza
+en `false` para ese rol.
+
+🚀 **Aplicado a prod (batch 636, 0.1 s):** `VER` -> `prevencion` + `prevencion_auxiliar`,
+`GESTIONAR` -> sólo `prevencion`. El expediente pasa de **2 a 5 personas**.
+
+⛔ **`almacenista` no se tocó y su `false` no se pisó**: quien cuenta no dictamina la causa de su
+propia diferencia — misma segregación que IC.2 al quitarle `SUPERVISAR`.
+⚠️ **Declarado, no resuelto:** `supervisor` tampoco tiene la clave; quedó fuera del alcance
+aprobado y va en su propia migración con su propio motivo.
+
+### Por qué un candado y no sólo la migración
+
+**El defecto vuelve solo.** Mientras `/admin/roles` escriba el mapa completo, la próxima clave
+del enum volverá a aterrizar en `false`. `test-newdb-prevention-perms.js` (**7 OK / 0 fallas**)
+vigila las dos caras: que el equipo entre, y que `almacenista` **siga sin entrar**. Si algún día
+esa aserción se pusiera verde porque «ya todos tienen todo», el candado dejaría de significar
+algo. Y mide **personas**, no roles: un permiso repartido a un rol sin gente es el defecto
+original con otra cara.
+
+### Dimensionado del valor (medido en prod, sólo lecturas)
+
+El SKU `59086` «...**/24**» del evento `03`/22-sep publica `+4,645 · $248,600`. El ODS ya sabía
+que **la captura lo valúa a $2.23 y el ajuste a $53.52 — razón 24.0, el `/24` del propio
+nombre**, y que **vende 257 unidades en dos meses contra 4,632 contadas** (~18 meses de
+inventario).
+
+A escala, sep-2026: **$8.86 M brutos -> $2.64 M sin explicación contable -> $307,218 en 974
+SKUs** con merma o sobra sostenida. **96.5 % menos ruido.** El 82 % del sobrante tiene señal; las
+dos señales principales **suman** (sólo 14 SKUs de 474 llevan ambas).
+
+### Tres correcciones que la revisión del plan me hizo, todas medidas
+
+1. ⛔ **Mi diseño original estaba mal por GRANO.** Iba a colgar las señales de
+   `mv_erp_physical_count_variance`, que es **por línea de `kdm2`**: 30,975 filas contra
+   **29,492** pares `(almacén, fecha, SKU)` — **1,483 de más**, y en `02`/2025-11-21 son 2,070
+   líneas sobre 1,488 SKUs (**582 repeticiones**). Una señal por SKU ahí se duplica y los
+   `sum(...) filter` cuentan de más **sin que nada se vea roto**. Va en matview nueva con grano
+   por SKU.
+2. ✅ El gate de `GET /commercial/movements/lines` es `COMMERCIAL_MOVEMENTS_VER` o
+   `RECONCILIATION_VER` (**25 usuarios**), no `_GESTIONAR` como yo había puesto. El bloque más
+   rico del expediente alcanza a casi toda la audiencia.
+3. ⚠️ `analytics.stock_movements` es **ventana rodante de 120 días**: para un conteo de nov-2025
+   devolvería vacío, que se lee como «no hubo movimientos». Va con estado `fuera_de_ventana` y
+   piso real, y hay que **quitar el catch mudo** de `buildTimeline()`.
+
+### Lecciones
+
+1. ⛔ **El operador interrogante de JSONB en `knex.raw` se convierte en un binding posicional**
+   — está en `CLAUDE.md` y me lo comí igual en la primera corrida de este candado. Va
+   `permissions -> 'KEY' IS NOT NULL`.
+2. ⚠️ **Séptima vez** que un acento grave dentro de un template literal rompe el build, y la
+   **tercera en esta sesión**. Ya no es mala suerte: amerita una compuerta que falle el build si
+   aparece un acento grave dentro de un `template:` o de un `knex.raw(...)`.
+
+**Plan completo** (etapas 1 y 2: señales + filtro accionable, y el expediente del renglón) en
+`~/.claude/plans/a-esta-vista-le-whimsical-hamster.md`.
+
+---
 ## 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué
 
 **Disparador:** Edgar — *"hay que arreglarlo"*, sobre el hecho de fondo que dejaron IC.12, ABC.6
