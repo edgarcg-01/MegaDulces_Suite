@@ -153,6 +153,20 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 4. **Poblar hallazgos** (una vez): `POST /commercial/purchase-adjustments/sync-findings` (o esperar el `@Cron` 00:30 MX) → **duplicadas** (~$4.3M riesgo) + **descuento no capturado** (~$5.1M oportunidad) aparecen en `/finanzas/hallazgos`. (Requiere el importer de política ya corrido para la parte de fuga.)
 5. **QA visual**: `/compras/descuentos` (4 vistas: Ajustes · Duplicados · **Reconciliación** · **Descuento no capturado**) + `/compras/entradas` → abrir una entrada de un proveedor grande (Mondelez/Canel) → sección **"¿Por qué no cuadra?"** + el tag `discrepancy_kind` en el detalle de la remisión + `/finanzas/hallazgos` reglas `compra_factura_duplicada` / `descuento_no_capturado`.
 
+### RE.30–RE.34 — Obligaciones: la entrega de Compras a Finanzas · 🔨 RE.30–RE.32 EN CÓDIGO 2026-09-29
+
+**El flujo real (Francisco, 2026-09-29):** Compras recibe (requisición → OC → vale → orden → aplicación), arma el expediente y le **entrega a Finanzas** lo recibido con el compromiso de cada documento; Finanzas paga al vencimiento y **regresa** el pagado al archivo del proveedor. Roles: jefe de compras, analista de catálogo, analista de entradas (corporativo, audita costos y expediente virtualmente) y staff de zona en Morelia/Zamora/La Piedad (recibe, valida inventario y envía la documentación física). **El plazo lo negocian el comprador o dirección; cuando una factura llega con plazo adicional, quien la extiende es el auxiliar de compras** → dos llaves: `COMPRAS_PLAZOS_AUTORIZAR` (negociar el plazo del proveedor) ≠ `COMPRAS_OBLIGACIONES_GESTIONAR` (operar y extender una factura).
+
+**Dos fechas por recepción:** factura (Kepler, `c9` — que la vista llama `receipt_date`, **nombre equivocado**) y recepción física (**no existe en Kepler**: medido, el 89% de la cadena comparte una sola fecha → la captura la zona). **Plazo por proveedor** en días exactos + base factura/recepción; Kepler (`c30`/`c18`) queda como comparación porque su "contado" es plazo no capturado.
+
+| Item | Qué | Estado |
+|---|---|---|
+| RE.30 | Plazo por proveedor (días + base + interno) en `catalog.suppliers` + historial; pestaña en `/compras/obligaciones`; reparte `COMPRAS_OBLIGACIONES_*` (estaban en 0 roles) + `COMPRAS_PLAZOS_AUTORIZAR` | 🔨 código, sin migrar |
+| RE.31 | Fecha de recepción = **captura del vale de entrada en Kepler** (`kdm1.c68/c69/c67`), en `analytics.erp_goods_receipts.fecha_recepcion`. Árbitro: 417 fotos de `/compras/entradas`, 0 anteriores a la captura. La captura manual por la zona deja de hacer falta para Kepler (Wincaja pendiente) | 🔨 código, sin migrar |
+| RE.32 | Entrega a Finanzas: pendientes por fecha (recepción/factura) con brinco por sucursal y proveedor A-Z, check del auxiliar (constancia, no bloquea por evidencia), folio `ENT-YYYY-NNNNN`, quién entrega / quién recibe (Finanzas, derivado), PDF con firmas, Finanzas confirma y rechaza **por renglón** | 🔨 código, sin migrar |
+| RE.33 | Al confirmar Finanzas nace la obligación en el Calendario con el vencimiento del plazo (RE.30); regreso: fecha de pago, NC descontadas, días recepción→pago y vs vencimiento (liga EXACTA hacia adelante; lo histórico sigue heurístico RE.8) | ⬜ |
+| RE.34 | Extensión de plazo POR FACTURA: la registra el auxiliar (`negotiated_date` ya existe) con **quién la negoció** (comprador/dirección) + motivo; no cambia el plazo del proveedor | ⬜ |
+
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
 - `finance.goods_receipt_proofs`: `+ discrepancy_kind (CHECK), discrepancy_amount` ✅ mig `20260805160000` (RE.2 — persiste el veredicto del auto-explain). Pendiente aún: `role, credit_note_ref`.

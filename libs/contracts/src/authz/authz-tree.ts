@@ -330,7 +330,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
-          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.COMPRAS_PLAZOS_AUTORIZAR] },
           // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
           // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
           // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.
