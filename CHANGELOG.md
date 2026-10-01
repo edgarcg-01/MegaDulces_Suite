@@ -97,6 +97,48 @@ sin estar declarado en `CAST_JUSTIFICADO`. Medido en prod: `analytics.expense_en
 con la medición. El candado vuelve a **8 ✓ / 0 ✗ / 1 NO MEDIDO** (los bloques con DB se declaran, no
 se dibujan verdes).
 
+### Fixed — el CEDIS se volvió INVISIBLE al declarar su corte, y dos cosas que yo había afirmado estaban mal (IC.CEDIS.6/7, 2026-10-01)
+Reporte de Edgar: *"/compras/existencia no muestra las existencias en CEDIS"*. Mig
+`20261001130000`, **prod batch 647** + candado `test-newdb-cedis-stock-truth.js` (**9 ✓ / 0 ✗ /
+1 NO MEDIDO** contra prod). Detalle completo en [`VERDAD_ABSOLUTA.md` §17](docs/VERDAD_ABSOLUTA.md).
+
+⛔ **Es una regresión que introduje yo, el día anterior.** `v_erp_stock_on_hand` tiene dos piernas y
+el almacén `00` se cayó de **las dos**: la de Kepler lo excluía **a mano** (`w.kepler_code <> '00'`,
+escrito cuando se creía que esa sucursal era OFICINAS) y la de Wincaja sólo acepta
+`kepler_code IS NULL`. La mig del corte (batch 644) le puso `kepler_code='00'` y con eso lo sacó de
+una pierna sin meterlo en la otra. **El nodo que surte a la red estuvo un día entero en blanco**, y
+lo encontró un humano, no un test. ⭐ Una exclusión escrita como literal es una **premisa congelada**:
+cuando caduca, el filtro no avisa — devuelve menos filas, que se lee igual que *"no hay"*.
+
+⛔ **Dos afirmaciones mías, refutadas midiendo:**
+
+1. *«El saldo está 35.82× inflado porque la carga se SUMÓ»* — **falso**, y lo sostuve tres veces. Mi
+   consulta leía el SKU en `kdm2.c3`; el SKU es **`c8`**. Con la columna correcta: los **127 SKUs
+   contados tienen en `kdil` exactamente 340,077 u = lo contado (1.00×)**, 0 contados sin saldo. **La
+   carga cuadra a la unidad y no hay nada que corregir en Kepler.** La compuerta ya lo había medido.
+2. *«La `00` de Kepler es OFICINAS y no mueve mercancía»* — **falso**: recibe 2,000–2,400 documentos
+   y despacha 713–1,603 **cada mes desde abril**, sobre ~2,900 SKUs. El CEDIS de Wincaja no se mudó:
+   **se fusionó con un almacén que ya existía y ya operaba**. Excluirlo era la anomalía.
+
+**Se publica completo, no sólo lo contado**, y la decisión se tomó midiendo: los 10 SKUs más grandes
+son el **9.0%** del total — está repartido entre miles, no concentrado en basura. Verificado tras
+aplicar: las otras 8 sucursales conservan **idéntico conteo de SKUs**, `security_invoker` y los
+GRANT sobrevivieron al `CREATE OR REPLACE` (que no los hereda), y ningún (almacén, SKU) sale por las
+dos piernas a la vez.
+
+⛔ **HUECO DECLARADO, con número:** Kepler tiene **DOS** columnas de existencia y **se contradicen en
+las nueve sucursales** — `kdil` (`c4+c8−c9`, la que publicamos en todos lados) contra `kdik.c6` (que
+no consume nadie): razones de **0.09× a 5.45×** y ~99% de los SKUs distintos en cada rama. ⭐ **Un
+testigo que contradice SIEMPRE no arbitra — es el reverso exacto de R5.** Se reporta **NO MEDIDO**,
+nunca ✔ ni ✖, porque no se puede cerrar sin decidir antes *qué mide* `kdik.c6`. Y conviene decirlo
+en voz alta: **la existencia de las nueve sucursales se publica sin un segundo testigo que la
+respalde**. No es un problema del CEDIS; es del dato de existencia completo.
+
+⚠️ El candado mismo dio un falso rojo primero: preguntaba los GRANT por
+`information_schema.role_table_grants`, que **sólo muestra lo que ve el rol conectado** (1 de 2
+corriendo como `dev_ro`). Se cambió a `has_table_privilege`. *Un candado que falla según quién lo
+corre enseña a ignorarlo.*
+
 ### Changed — el almacén 00 se llama «CEDIS», a secas (IC.CEDIS.5, 2026-10-01)
 Decisión de Edgar: *"antes era CEDIS BIRAPUATO; ahora sólo debe llamarse **CEDIS** para identificar
 el nuevo CEDIS de Kepler"*. Mig `20261001120000`, **prod batch 646**.

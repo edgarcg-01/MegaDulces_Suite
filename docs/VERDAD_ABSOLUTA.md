@@ -1793,3 +1793,99 @@ escritura masiva y una decisión aparte.
 la fila ya no está en el origen. Ésas las resuelve `--delete-sobrantes`, que hoy sólo cubre
 `kdpord`/`kdm2`/`kdij`. Es el mismo defecto que este documento describe en §15.2 como
 `pendiente`/`fantasma`, y queda declarado.
+
+---
+
+## 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01)
+
+Lo disparó un reporte de una línea: *"/compras/existencia no muestra las existencias en CEDIS"*.
+Terminó en tres hallazgos, y el primero fue mío.
+
+### 17.1 ⛔ La regresión: un almacén se volvió invisible al declarar su corte
+
+`analytics.v_erp_stock_on_hand` tiene dos piernas y el almacén `00` se cayó de **las dos**:
+
+| pierna | condición de entrada |
+|---|---|
+| Kepler | `w.kepler_code = k.sucursal` **`AND w.kepler_code <> '00'`** ← exclusión a mano |
+| Wincaja | `w.wincaja_source_branch = v.source_branch` **`AND w.kepler_code IS NULL`** |
+
+El `<> '00'` se escribió cuando se creía que la sucursal Kepler `00` era **OFICINAS**. Mientras el
+CEDIS tenía `kepler_code` en NULL caía por Wincaja y se veía. La mig `20260930140000` le puso
+`kepler_code='00'` para cerrar la compuerta de su feed — y con eso **lo sacó de una pierna sin
+meterlo en la otra**. Estuvo un día entero en blanco el nodo que surte a la red, y lo encontró un
+humano, no un test.
+
+⭐ **La lección, que es general:** una condición de exclusión escrita como literal (`<> '00'`) es una
+premisa **congelada**. Cuando la premisa caduca, el filtro no avisa — devuelve menos filas, que se
+lee igual que "no hay". Las dos piernas de un `UNION ALL` tienen que **particionar**; acá se
+solapaban en su silencio.
+
+### 17.2 ⛔ Dos afirmaciones mías, refutadas con la medición
+
+**(a) «El saldo del CEDIS está 35.82× inflado porque la carga se SUMÓ al saldo viejo».** Falso, y lo
+sostuve tres veces. Mi consulta leía el SKU en `kdm2.c3`; el SKU es **`c8`** (`ERP_KEPLER.md`,
+regla 2). Con la columna correcta, al grano SKU:
+
+| | SKUs | `kdil` | contado | razón |
+|---|---|---|---|---|
+| contado **y** con saldo | **127** | 340,077 | 340,077 | **1.00×** |
+| saldo **sin** conteo | 4,526 | 11,841,613 | — | — |
+| contado **sin** saldo | 0 | — | — | — |
+
+**La carga cuadra a la unidad. No hay nada que corregir en Kepler.** El 35.82× nunca fue inflación:
+era **otra población** en la misma sucursal. (La compuerta `check-cedis-cutover.js` ya lo había
+medido y dejado escrito, señalando que mi migración citó un diagnóstico refutado. Tenía razón.)
+
+**(b) «La `00` de Kepler es OFICINAS y no mueve mercancía».** Falso. Medido sobre `kdm1`⋈`kdm2` de
+`sucursal='00' AND c1='00'`:
+
+| mes | docs de entrada | docs de salida | SKUs |
+|---|---|---|---|
+| 2026-04 | 2,371 | 713 | 2,718 |
+| 2026-06 | 2,092 | 893 | 3,174 |
+| 2026-08 | 2,189 | 1,568 | 2,873 |
+
+Recibe y despacha **todos los meses desde al menos abril**. El CEDIS de Wincaja no «se mudó» a
+Kepler: **se FUSIONÓ con un almacén que ya existía y ya operaba**. Excluirlo era la anomalía.
+
+### 17.3 La decisión: publicarlo completo, no sólo lo contado
+
+Se consideró publicar sólo los 127 SKUs con testigo físico y declarar el resto (ADR-056). **Se
+descartó midiendo:** los **10 SKUs más grandes son el 9.0%** del total — está repartido entre miles,
+no concentrado en basura. Un almacén que recibe 2,000 documentos al mes y cuyo volumen está
+repartido es un almacén. Esconderlo deja al comprador decidiendo a ciegas sobre el nodo que surte a
+la red, que es peor que publicarlo con el hueco declarado.
+
+**Árbitro registrado:** el conteo físico del corte (`N-A-45` del 30-sep, 127 líneas) contra `kdil`,
+SKU por SKU, en `database/tests/test-newdb-cedis-stock-truth.js` (**9 ✓ / 0 ✗ / 1 NO MEDIDO** contra
+prod). ⚠️ **Y su límite va escrito:** desde el corte el conteo deja de ser independiente (la entrada
+`N-A-30` posteó justamente lo contado). Arbitra **la identidad del corte**, no la existencia de hoy.
+Decir que arbitra más sería un espejo (R5).
+
+### 17.4 ⛔ HUECO DECLARADO: Kepler tiene DOS existencias y se contradicen en las OCHO sucursales
+
+`kdil` (`c4+c8−c9`, **la que publicamos en todos lados**) contra `kdik.c6` (**que no consume nadie**),
+mismo ERP, mismo grano (almacén × SKU), medido el 2026-10-01:
+
+| suc | `kdil` | `kdik.c6` | razón | SKUs que difieren |
+|---|---|---|---|---|
+| 00 | 12,181,690 | 2,234,285 | **5.45×** | 4,990 / 5,022 |
+| 01 | 717,316 | 2,524,696 | **0.28×** | 4,437 / 4,491 |
+| 02 | 87,046 | 988,088 | **0.09×** | 4,220 / 4,291 |
+| 03 | 226,567 | 1,936,259 | **0.12×** | 4,625 / 4,656 |
+| 06 | 513,880 | 803,507 | **0.64×** | 3,547 / 3,615 |
+| 08 | 618,776 | 306,972 | **2.02×** | 3,241 / 3,298 |
+
+~99% de los SKUs difieren en **cada** rama, y la razón ni siquiera tiene un sentido consistente.
+⭐ **Un testigo que contradice SIEMPRE no arbitra — es el reverso exacto de R5** («un árbitro que
+nunca contradice es un espejo»). Así que `kdik.c6` **no se usa** para juzgar al CEDIS, y el candado
+lo reporta **NO MEDIDO**, nunca ✔ ni ✖: no es una regresión de esta fase y no se puede cerrar sin
+decidir primero **qué mide `kdik.c6`** (¿snapshot de cierre? ¿otro peldaño de unidad? ¿otro
+almacén?). Está **sin verificar**, y eso es justo lo que la regla 0 de `ERP_KEPLER.md` §5 prohíbe
+dar por supuesto.
+
+⚠️ **Lo que esto implica y conviene decir en voz alta:** la existencia de las **nueve** sucursales se
+publica desde `kdil` sin un segundo testigo que la respalde. No es un problema del CEDIS; es del
+dato de existencia completo. Si `kdil` está mal, está mal para todas — y eso es una fase aparte, no
+un motivo para dejar un almacén en blanco.
