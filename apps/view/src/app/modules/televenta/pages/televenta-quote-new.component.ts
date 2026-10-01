@@ -77,18 +77,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
   template: `
     <p-toast position="top-center"></p-toast>
     <section class="section">
-      <div class="top-bar">
+      <!-- Encabezado de UNA línea (COT.16): la pantalla es un rectángulo apaisado y cada línea
+           vertical cuenta. La migaja reemplaza al link "Volver" + el párrafo de ayuda. -->
+      <header class="page-head">
         <a routerLink="/telemarketing/cotizaciones" class="back">
-          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a cotizaciones
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Cotizaciones
         </a>
-      </div>
-
-      <header class="section-header">
-        <div class="header-content">
-          <h1>Nueva cotización</h1>
-          <p>Cotizador de mayoreo: seleccioná destinatario, sucursal y agregá artículos a la bandeja con precio en vivo.</p>
-        </div>
+        <span class="crumb-sep" aria-hidden="true">/</span>
+        <h1>Nueva cotización</h1>
       </header>
+
+      <!-- Zona de trabajo (izquierda) + riel fijo (derecha: totales, cierre y asistente IA) -->
+      <div class="layout">
+      <div class="work">
 
       <!-- ── BLOQUE 1: Destinatario & Selector de las 8 Sucursales ────────────────────── -->
       <div class="card card-destinatario">
@@ -140,42 +141,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           </div>
         </div>
 
-        <!-- Condiciones comerciales compactas de la sucursal elegida -->
-        @if (cliente() && sucursalTerms(); as t) {
-          <div class="terms-bar">
-            <div class="term-item">
-              <span class="t-k">Descuento cliente:</span>
-              @if (t.discount_1_pct !== null) {
-                <span class="t-v t-accent">{{ +t.discount_1_pct }}%</span>
-              } @else {
-                <span class="t-v t-muted">sin descuento especial</span>
-              }
-            </div>
-            <div class="term-sep" aria-hidden="true"></div>
-            <div class="term-item">
-              <span class="t-k">Límite crédito:</span>
-              <span class="t-v">
-                {{ t.credit_limit !== null ? (+t.credit_limit | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}
-              </span>
-            </div>
-            <div class="term-sep" aria-hidden="true"></div>
-            <div class="term-item">
-              <span class="t-k">Plazo:</span>
-              <span class="t-v">{{ t.payment_days !== null ? t.payment_days + ' días' : '—' }}</span>
-            </div>
-            @if (cliente()!.terms_vary_by_branch) {
-              <div class="term-warn" title="Las condiciones de este cliente varían entre sucursales">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Condiciones cambian por sucursal
-              </div>
-            }
-          </div>
-        } @else if (cliente()) {
-          <div class="terms-bar terms-bar-generic">
-            <span class="t-muted">Condiciones base del ERP para la sucursal {{ sucursal() }} (sin descuento de mayoreo registrado en esta plaza).</span>
-          </div>
-        }
-
         <div class="card-body">
+          <div class="dest-row">
+          <div class="dest-main">
           @if (modo() === 'mayoreo') {
             @if (!cliente()) {
               <div class="search-container">
@@ -187,7 +155,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [(ngModel)]="terminoCliente"
                     (ngModelChange)="onBuscarCliente($event)"
                     (keyup.enter)="onEnterCliente()"
-                    placeholder="Buscar código (ej. C1086) o nombre de cliente de mayoreo..."
+                    placeholder="Buscar cliente de mayoreo: código (C1086), nombre o RFC, palabras en cualquier orden..."
                     aria-label="Buscar cliente de mayoreo"
                     autocapitalize="characters"
                     autocorrect="off"
@@ -218,13 +186,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 }
               </div>
             } @else {
-              <!-- Cliente seleccionado: tarjeta compacta de 1 sola fila -->
+              <!-- Cliente seleccionado: una sola fila, junto al vendedor -->
               <div class="chosen-row">
                 <div class="chosen-details">
                   <span class="chosen-code">{{ cliente()!.customer_code }}</span>
                   <strong class="chosen-name">{{ cliente()!.name }}</strong>
                   @if (cliente()!.state || cliente()!.phone) {
-                    <span class="chosen-meta">({{ cliente()!.state || '' }} {{ cliente()!.phone || '' }})</span>
+                    <span class="chosen-meta">{{ cliente()!.state || '' }}{{ cliente()!.state && cliente()!.phone ? ' · ' : '' }}{{ cliente()!.phone || '' }}</span>
                   }
                 </div>
                 <button
@@ -234,7 +202,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   [disabled]="guardando()"
                   aria-label="Cambiar cliente"
                 >
-                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar cliente
+                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar
                 </button>
               </div>
             }
@@ -275,59 +243,85 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </label>
             </div>
           }
+          </div>
 
-          <!-- VENDEDOR QUE DA SEGUIMIENTO: Justo debajo del nombre del cliente / datos -->
-          <div class="vendedor-box">
-            <div class="vendedor-inner">
-              <label for="vendedorSelect" class="vendedor-label">
-                <i class="pi pi-user" aria-hidden="true"></i> Vendedor de seguimiento:
-              </label>
-              <div class="vendedor-control">
-                <select
-                  id="vendedorSelect"
-                  class="input-select vendedor-select"
-                  [ngModel]="vendedorSeleccionado() || ''"
-                  (ngModelChange)="onVendedorChange($event)"
-                  [disabled]="guardando() || cargandoVendedores()"
-                >
-                  <option value="">-- Seleccionar vendedor que da seguimiento --</option>
-                  @for (v of vendedores(); track v.code) {
-                    <option [value]="v.code">
-                      {{ v.code }} — {{ v.name }}
-                    </option>
-                  }
-                </select>
-                @if (cargandoVendedores()) {
-                  <i class="pi pi-spin pi-spinner v-spinner" aria-hidden="true"></i>
+          <!-- VENDEDOR QUE DA SEGUIMIENTO: en la misma fila que el cliente -->
+          <div class="vendedor-inner">
+            <label for="vendedorSelect" class="vendedor-label">
+              <i class="pi pi-user" aria-hidden="true"></i> Vendedor
+            </label>
+            <div class="vendedor-control">
+              <select
+                id="vendedorSelect"
+                class="input-select vendedor-select"
+                [ngModel]="vendedorSeleccionado() || ''"
+                (ngModelChange)="onVendedorChange($event)"
+                [disabled]="guardando() || cargandoVendedores()"
+                [attr.title]="vendedorSeleccionadoObj() ? 'Asignado: ' + vendedorSeleccionadoObj()!.name + ' (Sucursal ' + sucursal() + ')' : null"
+              >
+                <option value="">-- Seleccionar vendedor que da seguimiento --</option>
+                @for (v of vendedores(); track v.code) {
+                  <option [value]="v.code">
+                    {{ v.code }} — {{ v.name }}
+                  </option>
                 }
-              </div>
-              @if (vendedorSeleccionadoObj(); as vSel) {
-                <span class="vendedor-hint">
-                  Asignado: <strong>{{ vSel.name }}</strong> (Sucursal {{ sucursal() }})
-                </span>
+              </select>
+              @if (cargandoVendedores()) {
+                <i class="pi pi-spin pi-spinner v-spinner" aria-hidden="true"></i>
               }
             </div>
           </div>
+          </div>
         </div>
+
+        <!-- Condiciones comerciales compactas de la sucursal elegida: franja al pie -->
+        @if (cliente() && sucursalTerms(); as t) {
+          <div class="terms-bar">
+            <div class="term-item">
+              <span class="t-k">Descuento cliente:</span>
+              @if (t.discount_1_pct !== null) {
+                <span class="t-v t-accent">{{ +t.discount_1_pct }}%</span>
+              } @else {
+                <span class="t-v t-muted">sin descuento especial</span>
+              }
+            </div>
+            <div class="term-sep" aria-hidden="true"></div>
+            <div class="term-item">
+              <span class="t-k">Límite crédito:</span>
+              <span class="t-v">
+                {{ t.credit_limit !== null ? (+t.credit_limit | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}
+              </span>
+            </div>
+            <div class="term-sep" aria-hidden="true"></div>
+            <div class="term-item">
+              <span class="t-k">Plazo:</span>
+              <span class="t-v">{{ t.payment_days !== null ? t.payment_days + ' días' : '—' }}</span>
+            </div>
+            @if (cliente()!.terms_vary_by_branch) {
+              <div class="term-warn" title="Las condiciones de este cliente varían entre sucursales">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Condiciones cambian por sucursal
+              </div>
+            }
+          </div>
+        } @else if (cliente()) {
+          <div class="terms-bar terms-bar-generic">
+            <span class="t-muted">Condiciones base del ERP para la sucursal {{ sucursal() }} (sin descuento de mayoreo registrado en esta plaza).</span>
+          </div>
+        }
       </div>
 
       <!-- ── BLOQUE 2: Captura Manual de Artículos (Táctil, 16:9) ─────────────────────── -->
       <div class="card mt-card captura-manual-card">
-        <div class="card-head">
+        <!-- El buscador vive en el encabezado de la tarjeta: ahorra la fila de la etiqueta.
+             La sucursal activa ya se ve en el bloque 1; acá queda en el título del campo. -->
+        <div class="card-head card-head-search">
           <div class="card-head-left">
             <span class="step-num">2</span>
-            <h2>Captura manual de artículos</h2>
-            <span class="captura-sub">Sucursal activa: <b>{{ sucursal() }} — {{ branchName(sucursal()) }}</b></span>
+            <h2>Artículo</h2>
           </div>
-        </div>
-
-        <div class="card-body">
-          <!-- Buscador de artículos por código de barras, código interno (SKU) o nombre -->
           <div class="search-step">
-            <label class="f-lbl" for="prodSearchInput">
-              <span>Buscar artículo (Código de barras, código interno SKU o nombre)</span>
-            </label>
-            <div class="search-input-wrap">
+            <label class="sr-only" for="prodSearchInput">Buscar artículo por código de barras, SKU o nombre</label>
+            <div class="search-input-wrap" [attr.title]="'Sucursal activa: ' + sucursal() + ' — ' + branchName(sucursal())">
               <i class="pi pi-search search-ico" aria-hidden="true"></i>
               <input
                 id="prodSearchInput"
@@ -337,7 +331,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 [(ngModel)]="terminoArticulo"
                 (ngModelChange)="onTerminoArticulo($event)"
                 (focus)="onFocoArticulo()"
-                placeholder="Escaneá código de barras o escribí SKU / nombre del producto..."
+                placeholder="Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden)..."
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando()"
@@ -382,38 +376,28 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </p>
             }
           </div>
+        </div>
 
-          <!-- Artículo elegido ("descargado") para configurar precio y cantidad -->
+          <!-- Artículo elegido ("descargado") para configurar precio y cantidad. Sin artículo no
+               se pinta el cuerpo: la tarjeta queda en una sola fila (el buscador). -->
           @if (articuloElegido(); as e) {
-            <div class="descargado-box">
-              <div class="descargado-header">
-                <div class="descargado-tag">
-                  <i class="pi pi-check-circle" aria-hidden="true"></i>
-                  <span>Artículo seleccionado</span>
-                </div>
+            <div class="card-body descargado-box">
+              <!-- Fila 1: nombre + datos + cambiar -->
+              <div class="descargado-info">
+                <strong class="descargado-name">{{ e.name || e.sku }}</strong>
+                <span class="pill-meta">SKU <b>{{ e.sku }}</b></span>
+                @if (e.barcode) { <span class="pill-meta">EAN {{ e.barcode }}</span> }
+                @if (e.content) { <span class="pill-meta">Contenido {{ e.content }}</span> }
+                <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
                 <button type="button" class="btn-change-prod" (click)="limpiarArticulo()" [disabled]="guardando()">
                   <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar artículo
                 </button>
               </div>
 
-              <div class="descargado-info">
-                <strong class="descargado-name">{{ e.name || e.sku }}</strong>
-                <div class="descargado-pills">
-                  <span class="pill-meta">SKU: <b>{{ e.sku }}</b></span>
-                  @if (e.barcode) { <span class="pill-meta">EAN: {{ e.barcode }}</span> }
-                  @if (e.content) { <span class="pill-meta">Contenido: {{ e.content }}</span> }
-                  <span class="pill-meta">Unidad base: <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
-                </div>
-              </div>
-
-              <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza?
-                   Sólo se pintan las unidades que el ERP declara: con una sola, no hay pregunta. -->
-              <div class="pregunta-seccion">
-                @if (unidadesDisponibles(e) > 1) {
-                  <span class="pregunta-lbl">¿El precio es por {{ tieneMayor(e) ? mayor(e).toLowerCase() : 'paquete' }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
-                } @else {
-                  <span class="pregunta-lbl">Unidad de venta</span>
-                }
+              <!-- Fila 2: unidad · cantidad · presets · precio · agregar (una sola franja). Sin
+                   rótulo de pregunta: los botones se explican solos y sólo están los que el ERP
+                   declara (COT.16). -->
+              <div class="config-row">
                 <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
                   <!-- Opción Pieza (o KG) -->
                   <button
@@ -424,8 +408,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [disabled]="guardando()"
                   >
                     <i class="pi pi-tag" aria-hidden="true"></i>
-                    <span class="unit-title">{{ e.sold_by_kg ? 'Kilo (KG)' : 'Pieza' }}</span>
-                    <span class="unit-sub">Unidad individual</span>
+                    <span class="unit-title">{{ e.sold_by_kg ? 'Kilo' : 'Pieza' }}</span>
+                    <span class="unit-sub">· 1 {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pza') }}</span>
                   </button>
 
                   <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara.
@@ -441,17 +425,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     >
                       <i class="pi pi-box" aria-hidden="true"></i>
                       <span class="unit-title">{{ mayor(e) }}</span>
-                      <span class="unit-sub">
-                        @if (e.box_size) {
-                          {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
-                        } @else {
-                          Empaque mayor
-                        }
-                      </span>
-                      @if (rung() === 'box' && previaArticulo()?.volume_tier; as vt) {
-                        <span class="unit-badge-mayoreo">
-                          Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
-                        </span>
+                      @if (e.box_size) {
+                        <span class="unit-sub">· {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }}</span>
                       }
                     </button>
                   }
@@ -467,16 +442,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     >
                       <i class="pi pi-clone" aria-hidden="true"></i>
                       <span class="unit-title">Paquete</span>
-                      <span class="unit-sub">{{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
+                      <span class="unit-sub">· {{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
                     </button>
                   }
                 </div>
-              </div>
 
-              <!-- CONTROL TÁCTIL DE CANTIDAD (MOBILE 16:9 - Sin teclado en pantalla) -->
-              <div class="touch-qty-seccion">
-                <span class="pregunta-lbl">Cantidad de {{ labelUnidadActiva() }}s:</span>
-
+                <!-- CONTROL TÁCTIL DE CANTIDAD (sin teclado en pantalla) -->
                 <div class="touch-stepper">
                   <button
                     type="button"
@@ -513,137 +484,123 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   <button type="button" class="preset-btn" (click)="ajustarCantidad(50)" [disabled]="guardando()">+50</button>
                   <button type="button" class="preset-btn" (click)="ajustarCantidad(100)" [disabled]="guardando()">+100</button>
                 </div>
-              </div>
 
-              <!-- PREVIA DEL PRECIO Y DESCUENTOS POR VOLUMEN EN VIVO -->
-              @if (cotizandoArticulo()) {
-                <div class="previa-loading">
-                  <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando precios y descuentos en ERP...
-                </div>
-              } @else if (previaArticulo(); as p) {
-                <div class="previa-card" [class.previa-card-bad]="p.unit_price === null">
-                  <div class="previa-top">
+                <!-- PREVIA DEL PRECIO EN VIVO: al final de la franja, junto al botón de agregar -->
+                <div class="previa-top">
+                  @if (cotizandoArticulo()) {
+                    <span class="previa-loading"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando precio en ERP...</span>
+                  } @else if (previaArticulo(); as p) {
                     <div class="previa-unit-box">
-                      <span class="previa-label">Precio unitario calculado</span>
+                      <span class="previa-label">Precio unitario</span>
                       @if (p.unit_price !== null) {
                         <div class="previa-price-row">
                           <span class="previa-amount">{{ p.unit_price | currency:'MXN':'symbol-narrow':'1.2-4' }}</span>
                           <span class="previa-unit-sub">/ {{ p.unit_label || labelUnidadActiva() }}</span>
-                          @if (p.unit_factor && p.unit_factor > 1) {
-                            <span class="previa-menor-sub">({{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
-                          }
                         </div>
+                        @if (p.unit_factor && p.unit_factor > 1) {
+                          <span class="previa-menor-sub">{{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        }
                       } @else {
                         <span class="previa-none">Sin precio en Sucursal {{ sucursal() }}</span>
                       }
                     </div>
 
                     <div class="previa-total-box">
-                      <span class="previa-label">Importe del renglón</span>
+                      <span class="previa-label">Importe</span>
                       @if (p.line_total !== null) {
                         <span class="previa-total-amount">{{ p.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                       } @else {
                         <span class="previa-none">—</span>
                       }
                     </div>
+                  }
 
-                    <div class="previa-action-box">
+                  <button
+                    pButton
+                    class="btn-agregar-inline"
+                    [disabled]="!puedeAgregarArticulo() || guardando() || cotizandoArticulo()"
+                    (click)="agregarABandeja()"
+                  >
+                    <span class="p-button-icon p-button-icon-left pi pi-plus-circle" aria-hidden="true"></span>
+                    <span class="p-button-label">Agregar</span>
+                  </button>
+                </div>
+              </div>
+
+              @if (!cotizandoArticulo() && previaArticulo(); as p) {
+                <!-- AVISO DE ESCALÓN DE VOLUMEN (ERP kdpv_prod_util): UNA línea -->
+                @if (p.volume_tier; as vt) {
+                  @if (cantidadArticulo() < vt.min_qty) {
+                    <div class="banner-oportunidad-volumen">
+                      <i class="pi pi-sparkles b-vol-icon" aria-hidden="true"></i>
+                      <span class="b-vol-desc">
+                        Desde <b>{{ vt.min_qty }} {{ labelUnidadActiva() }}s</b> baja de
+                        <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
+                        (ahorro {{ dinero((p.list_price || 0) - vt.price) }} c/u)
+                      </span>
                       <button
-                        pButton
-                        class="btn-agregar-inline"
-                        [disabled]="!puedeAgregarArticulo() || guardando()"
-                        (click)="agregarABandeja()"
+                        type="button"
+                        class="btn-aplicar-volumen"
+                        (click)="setCantidad(vt.min_qty)"
+                        [disabled]="guardando()"
                       >
-                        <span class="p-button-icon p-button-icon-left pi pi-plus-circle" aria-hidden="true"></span>
-                        <span class="p-button-label">Agregar a la bandeja</span>
+                        <i class="pi pi-check" aria-hidden="true"></i> Aplicar {{ vt.min_qty }}
                       </button>
                     </div>
+                  } @else {
+                    <div class="banner-volumen-exito">
+                      <i class="pi pi-check-circle b-vol-icon-ok" aria-hidden="true"></i>
+                      <span class="b-vol-desc">
+                        <b>Precio de mayoreo aplicado:</b>
+                        <span class="strikethrough">{{ dinero(p.list_price) }}</span> → <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
+                        · ahorro total <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidadArticulo()) }}</b>
+                      </span>
+                    </div>
+                  }
+                } @else if (esDescuentoVolumen(p)) {
+                  <div class="banner-volumen">
+                    <i class="pi pi-bolt" aria-hidden="true"></i>
+                    <span><strong>Descuento por volumen activo</strong> para {{ cantidadArticulo() }} {{ labelUnidadActiva() }}s</span>
                   </div>
+                }
 
-                  <!-- AVISO DESTACADO DE ESCALÓN DE VOLUMEN (ERP kdpv_prod_util) -->
-                  @if (p.volume_tier; as vt) {
-                    @if (cantidadArticulo() < vt.min_qty) {
-                      <div class="banner-oportunidad-volumen">
-                        <div class="b-vol-left">
-                          <i class="pi pi-sparkles b-vol-icon" aria-hidden="true"></i>
-                          <div class="b-vol-text">
-                            <strong class="b-vol-title">¡Descuento por volumen disponible en {{ labelUnidadActiva() }}!</strong>
-                            <span class="b-vol-desc">
-                              A partir de <b>{{ vt.min_qty }} {{ labelUnidadActiva() }}s</b> el precio baja de
-                              <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
-                              (Ahorro de <b>{{ dinero((p.list_price || 0) - vt.price) }}</b> por {{ labelUnidadActiva() }}).
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          class="btn-aplicar-volumen"
-                          (click)="setCantidad(vt.min_qty)"
-                          [disabled]="guardando()"
-                        >
-                          <i class="pi pi-check" aria-hidden="true"></i>
-                          Aplicar {{ vt.min_qty }} {{ labelUnidadActiva() }}s con mayoreo
-                        </button>
-                      </div>
-                    } @else {
-                      <div class="banner-volumen-exito">
-                        <div class="b-vol-left">
-                          <i class="pi pi-check-circle b-vol-icon-ok" aria-hidden="true"></i>
-                          <div class="b-vol-text">
-                            <strong class="b-vol-title">✅ PRECIO DE MAYOREO POR VOLUMEN APLICADO</strong>
-                            <span class="b-vol-desc">
-                              Precio lista: <span class="strikethrough">{{ dinero(p.list_price) }}</span> →
-                              Con descuento por volumen: <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
-                              @if (p.unit_factor && p.unit_factor > 1) {
-                                ({{ p.unit_factor }}PZS {{ (p.unit_price! / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})
-                              }
-                              · Ahorro total: <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidadArticulo()) }}</b>
-                            </span>
-                          </div>
-                        </div>
+                @if (p.free_goods) {
+                  <div class="banner-regalo">
+                    <i class="pi pi-gift" aria-hidden="true"></i>
+                    <span>Regalo del ERP: <strong>{{ p.free_goods.quantity }} de {{ p.free_goods.sku }}</strong></span>
+                  </div>
+                }
+
+                @if (p.unpriced_reason) {
+                  <p class="p-why-bad">{{ p.unpriced_reason }}</p>
+                }
+
+                <!-- El desglose ocupa varias líneas: se pliega. Sigue a un clic, no se quitó. -->
+                @if (p.applied.length > 0 || p.not_applied.length > 0) {
+                  <details class="calc-details">
+                    <summary>¿Cómo se calculó?</summary>
+                    @for (s of p.applied; track s.step) {
+                      <div class="p-step-row">
+                        <span class="step-tag">{{ s.step }}</span>
+                        <span class="step-detail">{{ s.detail }}</span>
+                        @if (s.before !== null && s.after !== null && s.before !== s.after) {
+                          <span class="step-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }} → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        }
                       </div>
                     }
-                  } @else if (esDescuentoVolumen(p)) {
-                    <div class="banner-volumen">
-                      <i class="pi pi-bolt" aria-hidden="true"></i>
-                      <span><strong>Descuento por volumen activo</strong> para {{ cantidadArticulo() }} {{ labelUnidadActiva() }}s</span>
-                    </div>
-                  }
-
-                  @for (s of p.applied; track s.step) {
-                    <div class="p-step-row">
-                      <span class="step-tag">{{ s.step }}</span>
-                      <span class="step-detail">{{ s.detail }}</span>
-                      @if (s.before !== null && s.after !== null && s.before !== s.after) {
-                        <span class="step-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }} → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    @for (na of p.not_applied; track na.mechanism) {
+                      @if (na.mechanism !== 'volumen' || !p.volume_tier) {
+                        <div class="p-step-row p-step-hint">
+                          <span class="step-tag step-tag-hint">Escalón</span>
+                          <span class="step-detail">{{ na.reason }}</span>
+                        </div>
                       }
-                    </div>
-                  }
-
-                  @if (p.free_goods) {
-                    <div class="banner-regalo">
-                      <i class="pi pi-gift" aria-hidden="true"></i>
-                      <span>Regalo del ERP: <strong>{{ p.free_goods.quantity }} de {{ p.free_goods.sku }}</strong></span>
-                    </div>
-                  }
-
-                  @for (na of p.not_applied; track na.mechanism) {
-                    @if (na.mechanism !== 'volumen' || !p.volume_tier) {
-                      <div class="p-step-row p-step-hint">
-                        <span class="step-tag step-tag-hint">Escalón</span>
-                        <span class="step-detail">{{ na.reason }}</span>
-                      </div>
                     }
-                  }
-
-                  @if (p.unpriced_reason) {
-                    <p class="p-why-bad">{{ p.unpriced_reason }}</p>
-                  }
-                </div>
+                  </details>
+                }
               }
             </div>
           }
-        </div>
       </div>
 
       <!-- ── BLOQUE 3: La Bandeja donde se van agregando los productos ────────────────── -->
@@ -651,7 +608,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         <div class="card-head">
           <div class="card-head-left">
             <span class="step-num">3</span>
-            <h2>Bandeja de cotización</h2>
+            <h2>Bandeja</h2>
             <span class="badge-count">{{ bandeja().length }} artículo(s)</span>
           </div>
         </div>
@@ -661,7 +618,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <div class="empty-bandeja">
               <i class="pi pi-shopping-cart empty-icon" aria-hidden="true"></i>
               <p class="empty-title">La bandeja está vacía</p>
-              <p class="empty-hint">Buscá productos en el Paso 2 arriba y agregalos uno a uno a esta cotización.</p>
+              <p class="empty-hint">Buscá productos en el paso 2 y agregalos uno a uno.</p>
             </div>
           } @else {
             <div class="table-wrap">
@@ -742,146 +699,169 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </table>
             </div>
 
-            <!-- Resumen financiero de la cotización -->
-            <div class="bandeja-totales">
-              <div class="tot-row">
-                <span>Subtotal lista</span>
-                <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-              @if (descuentoClienteMonto() > 0) {
-                <div class="tot-row tot-dto">
-                  <span>Descuento del cliente ({{ descuentoClientePct() }}%)</span>
-                  <b>− {{ descuentoClienteMonto() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-                </div>
-              }
-              <div class="tot-row tot-final">
-                <span>Total cotización</span>
-                <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-            </div>
           }
         </div>
       </div>
-
-      <!-- ── BLOQUE 4: Cierre & Guardar Cotización ────────────────────────────────────── -->
-      <div class="card mt-card">
-        <div class="card-head">
-          <div class="card-head-left">
-            <span class="step-num">4</span>
-            <h2>Datos de cierre</h2>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="detail-row">
-            <label class="field-item">
-              <span>¿De dónde salió la cotización?</span>
-              <select class="input" [(ngModel)]="origen" [disabled]="guardando()">
-                @for (o of origenes; track o.value) {
-                  <option [value]="o.value">{{ o.label }}</option>
-                }
-              </select>
-            </label>
-            <label class="field-item">
-              <span>Vigencia hasta</span>
-              <input type="date" class="input" [(ngModel)]="vigencia" [min]="hoy" [disabled]="guardando()" />
-            </label>
-          </div>
-
-          <label class="field-item full-width mt-field">
-            <span>Mensaje original o lista del cliente <em>(opcional)</em></span>
-            <textarea
-              class="input textarea"
-              rows="2"
-              [(ngModel)]="listaCruda"
-              placeholder="Pegá acá el correo o WhatsApp recibido. Se guarda como evidencia..."
-              [disabled]="guardando()"
-            ></textarea>
-          </label>
-        </div>
-
-        <div class="card-actions">
-          <button pButton severity="secondary" [outlined]="true" routerLink="/telemarketing/cotizaciones" [disabled]="guardando()">
-            <span class="p-button-label">Cancelar</span>
-          </button>
-          <button
-            pButton
-            severity="success"
-            [outlined]="true"
-            type="button"
-            class="btn-export btn-export-xlsx"
-            [disabled]="bandeja().length === 0 || exportando() || guardando()"
-            (click)="descargarXlsx()"
-            title="Crear y descargar entregable en archivo Excel (.xlsx)"
-          >
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-file-excel]="exportandoTipo() !== 'xlsx'"
-              [class.pi-spin]="exportandoTipo() === 'xlsx'"
-              [class.pi-spinner]="exportandoTipo() === 'xlsx'"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">{{ exportandoTipo() === 'xlsx' ? 'Generando Excel...' : 'Descargar Excel (.xlsx)' }}</span>
-          </button>
-          <button
-            pButton
-            severity="danger"
-            [outlined]="true"
-            type="button"
-            class="btn-export btn-export-pdf"
-            [disabled]="bandeja().length === 0 || exportando() || guardando()"
-            (click)="descargarPdf()"
-            title="Crear y descargar entregable formal en archivo PDF"
-          >
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-file-pdf]="exportandoTipo() !== 'pdf'"
-              [class.pi-spin]="exportandoTipo() === 'pdf'"
-              [class.pi-spinner]="exportandoTipo() === 'pdf'"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">{{ exportandoTipo() === 'pdf' ? 'Generando PDF...' : 'Descargar PDF' }}</span>
-          </button>
-          <button pButton [disabled]="!puedeCrear() || guardando()" (click)="crear()">
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-check]="!guardando()"
-              [class.pi-spin]="guardando()"
-              [class.pi-spinner]="guardando()"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">
-              {{ guardando() ? 'Guardando cotización...' : (bandeja().length > 0 ? 'Crear cotización (' + bandeja().length + ' artículos)' : 'Crear cotización en borrador') }}
-            </span>
-          </button>
-        </div>
       </div>
+      <!-- /work -->
+
+      <!-- ── RIEL DERECHO (fijo al hacer scroll): totales + cierre + acciones + asistente IA ──
+           Antes los totales vivían al pie de la bandeja y el cierre al fondo de la página: con
+           una bandeja larga, el total y el botón Crear quedaban fuera de vista (COT.16). -->
+      <aside class="rail" aria-label="Resumen y cierre de la cotización">
+        <div class="card rail-card">
+          <div class="rail-totales">
+            <div class="tot-row">
+              <span>Subtotal lista ({{ bandeja().length }} artículo{{ bandeja().length === 1 ? '' : 's' }})</span>
+              <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+            </div>
+            @if (descuentoClienteMonto() > 0) {
+              <div class="tot-row tot-dto">
+                <span>Descuento del cliente ({{ descuentoClientePct() }}%)</span>
+                <b>− {{ descuentoClienteMonto() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+              </div>
+            }
+            <div class="tot-row tot-final">
+              <span>Total</span>
+              <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+            </div>
+          </div>
+
+          <div class="rail-cierre">
+            <div class="detail-row">
+              <label class="field-item">
+                <span>Origen</span>
+                <select class="input" [(ngModel)]="origen" [disabled]="guardando()" title="¿De dónde salió la cotización?">
+                  @for (o of origenes; track o.value) {
+                    <option [value]="o.value">{{ o.label }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field-item">
+                <span>Vigencia hasta</span>
+                <input type="date" class="input" [(ngModel)]="vigencia" [min]="hoy" [disabled]="guardando()" />
+              </label>
+            </div>
+
+            <!-- Opcional y de varias líneas: plegado, se abre solo si ya trae texto -->
+            <details class="mensaje-details" [attr.open]="listaCruda ? '' : null">
+              <summary>Mensaje original o lista del cliente <em>(opcional)</em></summary>
+              <textarea
+                class="input textarea"
+                rows="3"
+                [(ngModel)]="listaCruda"
+                placeholder="Pegá acá el correo o WhatsApp recibido. Se guarda como evidencia..."
+                [disabled]="guardando()"
+                aria-label="Mensaje original o lista del cliente"
+              ></textarea>
+            </details>
+          </div>
+
+          <div class="rail-actions">
+            <button pButton class="btn-crear" [disabled]="!puedeCrear() || guardando()" (click)="crear()">
+              <span
+                class="p-button-icon p-button-icon-left pi"
+                [class.pi-check]="!guardando()"
+                [class.pi-spin]="guardando()"
+                [class.pi-spinner]="guardando()"
+                aria-hidden="true"
+              ></span>
+              <span class="p-button-label">
+                {{ guardando() ? 'Guardando cotización...' : (bandeja().length > 0 ? 'Crear cotización (' + bandeja().length + ' artículos)' : 'Crear cotización en borrador') }}
+              </span>
+            </button>
+            <div class="rail-export">
+              <button
+                pButton
+                severity="success"
+                [outlined]="true"
+                type="button"
+                class="btn-export btn-export-xlsx"
+                [disabled]="bandeja().length === 0 || exportando() || guardando()"
+                (click)="descargarXlsx()"
+                title="Crear y descargar entregable en archivo Excel (.xlsx)"
+              >
+                <span
+                  class="p-button-icon p-button-icon-left pi"
+                  [class.pi-file-excel]="exportandoTipo() !== 'xlsx'"
+                  [class.pi-spin]="exportandoTipo() === 'xlsx'"
+                  [class.pi-spinner]="exportandoTipo() === 'xlsx'"
+                  aria-hidden="true"
+                ></span>
+                <span class="p-button-label">{{ exportandoTipo() === 'xlsx' ? 'Generando...' : 'Excel' }}</span>
+              </button>
+              <button
+                pButton
+                severity="danger"
+                [outlined]="true"
+                type="button"
+                class="btn-export btn-export-pdf"
+                [disabled]="bandeja().length === 0 || exportando() || guardando()"
+                (click)="descargarPdf()"
+                title="Crear y descargar entregable formal en archivo PDF"
+              >
+                <span
+                  class="p-button-icon p-button-icon-left pi"
+                  [class.pi-file-pdf]="exportandoTipo() !== 'pdf'"
+                  [class.pi-spin]="exportandoTipo() === 'pdf'"
+                  [class.pi-spinner]="exportandoTipo() === 'pdf'"
+                  aria-hidden="true"
+                ></span>
+                <span class="p-button-label">{{ exportandoTipo() === 'pdf' ? 'Generando...' : 'PDF' }}</span>
+              </button>
+            </div>
+            <a routerLink="/telemarketing/cotizaciones" class="rail-cancel" [class.is-disabled]="guardando()">Cancelar</a>
+          </div>
+        </div>
+
+        <!-- Lugar reservado para el asistente de ventas IA. Declara que todavía no existe: no
+             pinta sugerencias inventadas (ADR-056). -->
+        <div class="ia-placeholder" role="note">
+          <h3><i class="pi pi-sparkles" aria-hidden="true"></i> Asistente de ventas IA</h3>
+          <p>Aquí aparecerán sugerencias para esta cotización: productos que el cliente suele llevar, oportunidades de volumen y qué le falta a su canasta.</p>
+          <span class="ia-tag">Próximamente</span>
+        </div>
+      </aside>
+      </div>
+      <!-- /layout -->
     </section>
   `,
   styles: [
     `
-      .section { padding: 1rem 1.25rem; max-width: 950px; margin: 0 auto; }
-      .top-bar { margin-bottom: 0.5rem; }
-      .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; }
+      /* COT.16: pantalla apaisada. Zona de trabajo + riel fijo a la derecha; cada línea vertical
+         cuenta (maqueta aprobada 2026-10-01). Bajo 1100px el riel baja debajo de la bandeja. */
+      .section { padding: 0.6rem 1rem 1rem; max-width: 1600px; margin: 0 auto; }
+      .page-head { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.5rem; }
+      .page-head h1 { font-size: 1.05rem; font-weight: 700; margin: 0; }
+      .crumb-sep { color: var(--text-faint); }
+      .back { display: inline-flex; gap: 0.3rem; align-items: center; font-size: 0.75rem; color: var(--text-muted); text-decoration: none; }
       .back:hover { color: var(--text-main); }
-      .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.15rem; }
-      .section-header p { color: var(--text-muted); font-size: 0.8125rem; margin: 0 0 0.85rem; }
+
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0.75rem; align-items: start; }
+      .work { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+      .rail { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+        .rail { position: static; }
+      }
 
       .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-      .mt-card { margin-top: 1rem; }
       .card-head {
         display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-        padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap;
+        padding: 0.4rem 0.65rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; min-height: 38px;
         background: var(--surface-ground, #fafafa);
       }
       .card-head-left { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-      .card-head-left h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+      .card-head-left h2 { font-size: 0.875rem; font-weight: 700; margin: 0; white-space: nowrap; }
+      /* El buscador de artículo comparte la fila con el título de la tarjeta */
+      .card-head-search { flex-wrap: nowrap; }
+      .card-head-search .search-step { flex: 1; margin: 0; min-width: 0; }
       .step-num {
-        width: 22px; height: 22px; flex: none; border-radius: 50%;
+        width: 20px; height: 20px; flex: none; border-radius: 50%;
         background: var(--primary-color, var(--action)); color: #fff;
         display: inline-flex; align-items: center; justify-content: center;
         font-size: 0.75rem; font-weight: 700;
       }
-      .captura-sub { font-size: 0.75rem; color: var(--text-muted); }
       .badge-count { font-size: 0.75rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
 
       .pills { display: inline-flex; gap: 0.25rem; background: var(--neutral-100, #f1f5f9); padding: 2px; border-radius: 9999px; }
@@ -902,8 +882,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
       /* Tira compacta de condiciones comerciales */
       .terms-bar {
-        display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.9rem;
-        background: var(--neutral-50, #f8fafc); border-bottom: 1px solid var(--border-color);
+        display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0.65rem;
+        border-top: 1px dashed var(--border-color);
         font-size: 0.75rem; flex-wrap: wrap;
       }
       .terms-bar-generic { color: var(--text-muted); font-style: italic; }
@@ -915,10 +895,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .term-sep { width: 1px; height: 12px; background: var(--border-color); }
       .term-warn { margin-left: auto; color: var(--yellow-700, #a16207); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
 
-      .card-body { padding: 0.75rem 0.9rem; }
+      .card-body { padding: 0.5rem 0.65rem; }
+      .dest-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      .dest-main { flex: 1 1 360px; min-width: 0; }
       .p-0 { padding: 0; }
 
-      .search-container { position: relative; width: 100%; max-width: 600px; }
+      .search-container { position: relative; width: 100%; }
       .search-box { position: relative; display: flex; align-items: center; }
       .search-icon { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
       .search-spinner { position: absolute; right: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; }
@@ -945,9 +927,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .search-empty { font-size: 0.75rem; color: var(--text-muted); margin: 0.35rem 0 0; }
 
       .chosen-row {
-        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-        background: var(--neutral-50, #f8fafc); border: 1px dashed var(--border-color);
-        border-radius: 6px; padding: 0.45rem 0.75rem;
+        display: flex; align-items: center; gap: 0.75rem;
       }
       .chosen-details { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
       .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--primary-color, var(--action)); }
@@ -967,31 +947,24 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .full-width { width: 100%; }
       .mt-field { margin-top: 0.6rem; }
 
-      .vendedor-box {
-        margin-top: 0.65rem; padding: 0.5rem 0.75rem; background: var(--neutral-50, #f8fafc);
-        border: 1px solid var(--border-color); border-radius: 6px;
-      }
-      .vendedor-inner { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      .vendedor-inner { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 300px; }
       .vendedor-label {
         font-size: 0.75rem; font-weight: 700; color: var(--text-muted);
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
       }
       .vendedor-label i { color: var(--primary-color, var(--action)); }
-      .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 420px; }
+      .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1; min-width: 0; }
       .vendedor-select { width: 100%; cursor: pointer; font-weight: 600; min-height: 32px; }
       .v-spinner { position: absolute; right: 0.65rem; font-size: 0.75rem; color: var(--primary-color, var(--action)); }
-      .vendedor-hint { font-size: 0.75rem; color: var(--text-muted); }
-      .vendedor-hint strong { color: var(--text-main); }
 
       .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       @media (max-width: 640px) { .detail-row { grid-template-columns: 1fr; } }
 
       /* Captura manual de artículos */
-      .f-lbl { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-main); }
       .search-step { position: relative; margin-bottom: 0.5rem; }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
-      .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
-      .input.search-prod-input { padding-left: 2.25rem; font-size: 0.875rem; min-height: 40px; border-radius: 6px; width: 100%; }
+      .search-ico { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
+      .input.search-prod-input { padding-left: 2rem; font-size: 0.8125rem; min-height: 32px; border-radius: 6px; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
       .cat-dropdown {
@@ -1021,48 +994,40 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
       /* Tarjeta de producto descargado */
       .descargado-box {
-        background: var(--neutral-50, #f8fafc); border: 1px solid var(--border-color);
-        border-radius: 8px; padding: 0.85rem; margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;
-      }
-      .descargado-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-      .descargado-tag {
-        display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
-        font-weight: 700; color: var(--green-700, #15803d); text-transform: uppercase; letter-spacing: 0.03em;
+        display: flex; flex-direction: column; gap: 0.45rem;
       }
       .btn-change-prod {
         background: none; border: 0; color: var(--primary-color, var(--action)); cursor: pointer; font-size: 0.75rem;
-        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;
+        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: auto; white-space: nowrap;
       }
       .btn-change-prod:hover { text-decoration: underline; }
 
-      .descargado-info { display: flex; flex-direction: column; gap: 0.35rem; }
-      .descargado-name { font-size: 1rem; font-weight: 700; color: var(--text-main); }
-      .descargado-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .descargado-info { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+      .descargado-name { font-size: 0.9375rem; font-weight: 700; color: var(--text-main); }
       .pill-meta { font-size: 0.75rem; color: var(--text-muted); background: var(--card-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border-color); }
       .pill-meta b { color: var(--text-main); }
 
       /* Pregunta: Caja o Pieza */
-      .pregunta-seccion { display: flex; flex-direction: column; gap: 0.35rem; }
-      .pregunta-lbl { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); }
-      .unit-toggle-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      /* Fila de configuración: unidad · cantidad · presets · precio + agregar */
+      .config-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .unit-toggle-group { display: flex; gap: 0.35rem; }
       .unit-toggle-btn {
-        flex: 1 1 120px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 0.55rem 0.7rem; border-radius: 8px; border: 2px solid var(--border-color);
-        background: var(--card-bg); cursor: pointer; min-height: 48px; text-align: center; gap: 0.1rem;
+        flex: none; display: inline-flex; align-items: center; gap: 0.35rem;
+        padding: 0 0.65rem; border-radius: 7px; border: 2px solid var(--border-color);
+        background: var(--card-bg); cursor: pointer; height: 40px; white-space: nowrap;
         transition: border-color 0.15s, background-color 0.15s;
       }
       .unit-toggle-btn i { font-size: 0.95rem; color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--primary-color, var(--action)); }
-      .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: rgba(14, 116, 144, 0.06); }
+      .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: var(--action-soft, rgba(240, 90, 40, 0.06)); }
       .unit-toggle-active i { color: var(--primary-color, var(--action)); }
-      .unit-title { font-weight: 700; font-size: 0.875rem; color: var(--text-main); }
+      .unit-title { font-weight: 700; font-size: 0.8125rem; color: var(--text-main); }
       .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
 
       /* Stepper táctil para móvil 16:9 */
-      .touch-qty-seccion { display: flex; flex-direction: column; gap: 0.35rem; }
-      .touch-stepper { display: flex; align-items: center; gap: 0.5rem; max-width: 300px; }
+      .touch-stepper { display: flex; align-items: center; gap: 0.25rem; }
       .btn-touch-step {
-        width: 44px; height: 44px; flex: none; border-radius: 8px; border: 1px solid var(--border-color);
+        width: 34px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 1.15rem; font-weight: 700; color: var(--text-main);
         cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
         user-select: none;
@@ -1070,96 +1035,90 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .btn-touch-step:active { background: var(--neutral-100, #f1f5f9); transform: scale(0.96); }
       .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
       .touch-qty-readout {
-        flex: 1; height: 44px; border-radius: 8px; border: 1px solid var(--border-color);
+        width: 68px; height: 40px; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
         justify-content: center; font-variant-numeric: tabular-nums;
       }
-      .qty-num { font-size: 1.25rem; font-weight: 800; line-height: 1.1; color: var(--text-main); }
+      .qty-num { font-size: 1.05rem; font-weight: 800; line-height: 1.05; color: var(--text-main); }
       .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
-      .touch-presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.2rem; }
+      .touch-presets { display: flex; gap: 0.25rem; }
       .preset-btn {
-        min-height: 34px; padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-color);
+        height: 30px; min-width: 34px; padding: 0 0.45rem; border-radius: 5px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-muted);
       }
       .preset-btn:hover, .preset-btn:active { background: var(--neutral-100, #f1f5f9); color: var(--text-main); }
       .preset-active { background: var(--primary-color, var(--action)); color: #fff; border-color: var(--primary-color, var(--action)); }
 
       /* Previa del precio y volumen */
-      .previa-loading { font-size: 0.8125rem; color: var(--text-muted); padding: 0.4rem 0; }
-      .previa-card {
-        border-radius: 8px; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color);
-        border-left: 4px solid var(--green-600, #16a34a); background: var(--card-bg);
-      }
-      .previa-card-bad { border-left-color: var(--red-600, #dc2626); }
-      .previa-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+      .previa-loading { font-size: 0.75rem; color: var(--text-muted); }
+      .previa-top { display: flex; align-items: center; gap: 0.9rem; margin-left: auto; }
       .previa-unit-box { flex: 0 1 auto; }
       .previa-total-box { flex: 0 1 auto; }
-      .previa-action-box { margin-left: auto; display: flex; align-items: center; }
       .btn-agregar-inline {
-        min-height: 38px; font-size: 0.8125rem; font-weight: 700; border-radius: 6px;
+        min-height: 36px; font-size: 0.8125rem; font-weight: 700; border-radius: 6px;
         padding: 0.4rem 1.1rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
       @media (max-width: 640px) {
-        .previa-action-box { width: 100%; margin-left: 0; margin-top: 0.35rem; }
+        .previa-top { width: 100%; margin-left: 0; }
         .btn-agregar-inline { width: 100%; justify-content: center; }
       }
       .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
-      .previa-amount { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: 0.75rem; color: var(--text-muted); }
-      .previa-menor-sub { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
-      .previa-total-amount { font-size: 1.2rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
+      .previa-menor-sub { font-size: 0.6875rem; color: var(--text-muted); font-weight: 600; display: block; }
+      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
       .previa-none { font-size: 0.875rem; font-style: italic; color: var(--red-600, #dc2626); }
 
       .banner-oportunidad-volumen {
-        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
-        padding: 0.6rem 0.85rem; background: #eff6ff; border: 1.5px dashed #3b82f6;
-        border-radius: 8px; font-size: 0.8125rem; color: #1e40af; margin: 0.5rem 0; flex-wrap: wrap;
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.3rem 0.4rem 0.3rem 0.6rem; background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+        border: 1px solid var(--ember-border, rgba(240, 90, 40, 0.3));
+        border-radius: 6px; font-size: 0.75rem; color: var(--text-main);
       }
       .b-vol-left { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; }
-      .b-vol-icon { font-size: 1.15rem; color: #2563eb; flex-shrink: 0; }
-      .b-vol-icon-ok { font-size: 1.25rem; color: #059669; flex-shrink: 0; }
+      .b-vol-icon { font-size: 0.875rem; color: var(--action); flex-shrink: 0; }
+      .b-vol-icon-ok { font-size: 0.875rem; color: #059669; flex-shrink: 0; }
       .b-vol-text { display: flex; flex-direction: column; gap: 0.15rem; }
       .b-vol-title { font-weight: 700; color: #1e3a8a; }
-      .b-vol-desc { font-size: 0.75rem; color: #1e40af; }
+      .b-vol-desc { font-size: 0.75rem; flex: 1; }
       .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
       .btn-aplicar-volumen {
-        background: #2563eb; color: #fff; border: 0; border-radius: 6px;
-        padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 700;
+        background: var(--action); color: #fff; border: 0; border-radius: 5px;
+        padding: 0.25rem 0.7rem; font-size: 0.75rem; font-weight: 700;
         cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
         box-shadow: 0 1px 2px rgba(0,0,0,0.08);
       }
-      .btn-aplicar-volumen:hover { background: #1d4ed8; }
+      .btn-aplicar-volumen:hover { background: var(--action-hover); }
 
       .banner-volumen-exito {
-        display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem;
-        background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 8px;
-        font-size: 0.8125rem; color: #065f46; margin: 0.5rem 0;
+        display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.6rem;
+        background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px;
+        font-size: 0.75rem; color: #065f46;
       }
       .banner-volumen-exito .b-vol-title { color: #065f46; }
       .banner-volumen-exito .b-vol-desc { color: #047857; }
 
-      .unit-badge-mayoreo {
-        font-size: 0.6875rem; font-weight: 700; color: #047857; background: #d1fae5;
-        padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 0.2rem;
-      }
 
       .banner-volumen {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
         background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 6px; font-size: 0.75rem; color: var(--green-700, #15803d); margin: 0.4rem 0;
+        border-radius: 6px; font-size: 0.75rem; color: var(--green-700, #15803d);
       }
       .banner-regalo {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
         background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 6px; font-size: 0.75rem; color: #1d4ed8; margin: 0.4rem 0;
+        border-radius: 6px; font-size: 0.75rem; color: #1d4ed8;
       }
       .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; margin-top: 0.2rem; flex-wrap: wrap; }
       .step-tag { font-weight: 700; color: var(--text-main); }
       .step-detail { color: var(--text-muted); }
       .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green-700, #15803d); }
-      .p-why-bad { color: var(--red-600, #dc2626); font-size: 0.75rem; margin: 0.3rem 0 0; }
+      .p-why-bad { color: var(--red-600, #dc2626); font-size: 0.75rem; margin: 0; }
+      .calc-details { font-size: 0.75rem; }
+      .calc-details summary { cursor: pointer; color: var(--text-muted); font-weight: 600; width: fit-content; }
+      .calc-details summary:hover { color: var(--text-main); }
 
       .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
       .p-unit-main { font-weight: 700; }
@@ -1167,25 +1126,25 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .source-tag-volumen { background: #dcfce7 !important; color: #15803d !important; font-weight: 700; }
 
       /* Bandeja de productos agregados */
-      .empty-bandeja { padding: 2rem 1rem; text-align: center; color: var(--text-muted); }
-      .empty-icon { font-size: 2rem; margin-bottom: 0.4rem; opacity: 0.5; }
+      .empty-bandeja { padding: 1rem; text-align: center; color: var(--text-muted); }
+      .empty-icon { font-size: 1.4rem; margin-bottom: 0.25rem; opacity: 0.5; }
       .empty-title { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; color: var(--text-main); }
       .empty-hint { font-size: 0.8125rem; margin: 0; }
 
       .table-wrap { overflow-x: auto; width: 100%; }
       .bandeja-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
       .bandeja-table th {
-        background: var(--neutral-50, #f8fafc); padding: 0.5rem 0.65rem; text-align: left;
+        background: var(--neutral-50, #f8fafc); padding: 0.35rem 0.6rem; text-align: left;
         border-bottom: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted);
         font-weight: 600; white-space: nowrap;
       }
-      .bandeja-table td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+      .bandeja-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
       .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
 
-      .item-name { font-size: 0.875rem; display: block; }
+      .item-name { font-size: 0.8125rem; display: block; }
       .item-sub { font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 0.4rem; margin-top: 0.1rem; }
       .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-top: 0.2rem; font-weight: 600; }
@@ -1209,16 +1168,38 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .btn-quitar:hover { background: rgba(220, 38, 38, 0.1); }
 
       /* Resumen totales bandeja */
-      .bandeja-totales {
-        border-top: 2px solid var(--border-color); padding: 0.75rem 1rem; display: flex;
-        flex-direction: column; gap: 0.25rem; align-items: flex-end; background: var(--neutral-50, #f8fafc);
-      }
-      .tot-row { display: flex; gap: 1.5rem; font-size: 0.8125rem; color: var(--text-muted); }
-      .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; min-width: 7rem; text-align: right; }
+      .rail-card { display: flex; flex-direction: column; }
+      .rail-totales { padding: 0.65rem 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
+      .tot-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8125rem; color: var(--text-muted); }
+      .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; text-align: right; }
       .tot-dto { color: var(--green-700, #15803d); }
       .tot-dto b { color: var(--green-700, #15803d); }
-      .tot-final { font-size: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.15rem; }
-      .tot-final b { font-weight: 800; font-size: 1.15rem; color: var(--primary-color, var(--action)); }
+      .tot-final { font-size: 0.875rem; font-weight: 700; color: var(--text-main); border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.2rem; align-items: baseline; }
+      .tot-final b { font-weight: 800; font-size: 1.3rem; color: var(--primary-color, var(--action)); }
+      .rail-cierre { padding: 0 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+      .mensaje-details { font-size: 0.75rem; }
+      .mensaje-details summary { cursor: pointer; color: var(--text-muted); }
+      .mensaje-details textarea { margin-top: 0.35rem; }
+      .rail-actions { padding: 0.5rem 0.75rem 0.65rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.4rem; }
+      .btn-crear { width: 100%; justify-content: center; font-weight: 700; }
+      .rail-export { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+      .rail-export .btn-export { justify-content: center; }
+      .rail-cancel { text-align: center; font-size: 0.75rem; color: var(--text-muted); }
+      .rail-cancel:hover { color: var(--text-main); }
+      .rail-cancel.is-disabled { pointer-events: none; opacity: 0.5; }
+
+      /* Asistente IA: lugar reservado. Ember = IA (DESIGN.md), borde punteado = "todavía no". */
+      .ia-placeholder {
+        border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.3)); border-radius: 8px; padding: 0.7rem 0.75rem;
+        background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+      }
+      .ia-placeholder h3 { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; }
+      .ia-placeholder h3 i { color: var(--action); }
+      .ia-placeholder p { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+      .ia-tag {
+        display: inline-block; margin-top: 0.45rem; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.05em;
+        text-transform: uppercase; color: var(--action); background: var(--card-bg); border-radius: 9999px; padding: 1px 8px;
+      }
 
       .input {
         width: 100%; padding: 0.35rem 0.6rem; box-sizing: border-box; border: 1px solid var(--border-color);
@@ -1227,10 +1208,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .input:focus-visible { outline: 2px solid var(--primary-color, var(--action)); outline-offset: 1px; }
       .textarea { min-height: 52px; resize: vertical; font-family: inherit; }
 
-      .card-actions {
-        display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 0.6rem; padding: 0.75rem 1rem;
-        border-top: 1px solid var(--border-color);
-      }
       .btn-export { font-weight: 600; }
       .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; }
       .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
