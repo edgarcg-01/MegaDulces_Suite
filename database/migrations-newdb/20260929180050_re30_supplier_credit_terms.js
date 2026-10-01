@@ -100,11 +100,11 @@ async function addCheck(knex, name, expr) {
 }
 
 exports.up = async function up(knex) {
-  const S = knex.schema.withSchema('catalog');
+  const S = () => knex.schema.withSchema('catalog'); // ⛔ FÁBRICA, no instancia: un SchemaBuilder ACUMULA sentencias, y de la 2a `has*()` en adelante devuelve un ARRAY (truthy) en vez de un booleano -- el `if (!...)` se vuelve falso siempre y el DDL se SALTA en silencio. Medido en prod 2026-09-30.
 
   // Guard al inicio (GOTCHAS §3): la migración corre en UNA transacción, así que o quedó todo o
   // nada. Si ya está lo último que crea, no hay nada que hacer.
-  if ((await S.hasColumn('suppliers', 'internal_reason')) && (await S.hasTable(HIST))
+  if ((await S().hasColumn('suppliers', 'internal_reason')) && (await S().hasTable(HIST))
       && (await hasConstraint(knex, 'chk_suppliers_internal_reason'))) {
     return;
   }
@@ -112,7 +112,7 @@ exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '3s'`);
 
   const add = async (col, ddl) => {
-    if (!(await S.hasColumn('suppliers', col))) await knex.raw(`ALTER TABLE ${T} ADD COLUMN ${ddl}`);
+    if (!(await S().hasColumn('suppliers', col))) await knex.raw(`ALTER TABLE ${T} ADD COLUMN ${ddl}`);
   };
   // `credit_days` es de la Fase PP; se garantiza por si un entorno no la tiene.
   await add('credit_days', 'credit_days int');
@@ -136,7 +136,7 @@ exports.up = async function up(knex) {
   await knex.raw(`COMMENT ON COLUMN ${T}.is_internal IS
     'Entidad propia registrada como proveedor en Kepler (CEDIS, sucursal, dueño): sus entradas son traspasos, no deuda. Exige internal_reason. [RE.30]'`);
 
-  if (!(await S.hasTable(HIST))) {
+  if (!(await S().hasTable(HIST))) {
     await knex.raw(`
       CREATE TABLE catalog.${HIST} (
         id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
