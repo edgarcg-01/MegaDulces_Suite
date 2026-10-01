@@ -1994,3 +1994,66 @@ que nunca tuvimos. Corrido por sucursal, arbitra el dataset completo — no sól
 ⭐ **La lección de método, que ya había costado una vez en esta misma fase:** la medición que yo tenía
 (*"está repartido, luego es real"*) no era un árbitro, era una **plausibilidad**. Un árbitro es una
 fuente que puede decir que NO. El reporte del ERP dijo que no en la primera consulta.
+
+### §17.8 — El árbitro llegó, y le da la razón al humano
+
+**Edgar sacó el mismo reporte sin el filtro de línea** (01/10/2026, `Sucursal = CEDIS`,
+`Almacén = ALMACÉN Cedis`, 123 páginas). Ése es el testigo independiente que a este proyecto le
+faltaba, y contesta las dos preguntas abiertas en §17.7.
+
+**1. El CEDIS SÍ tiene existencia — en ~100 SKUs, no en 5,007.** El reporte lista con saldo cosas
+como `08057 NESTLE CARLOS V SUIZO 16P` = 11,200 · `63018 BIMBO BOCADIN /50P` = 25,176 ·
+`95211 CH OKA LOKA` = 24,408 · `59038 FRES KIDD SURT /24` = 24,192 · `97392 CHOC BON-BON GRANEL` =
+16,992 · `44630 GALL MINI MAMUT` = 12,612. Todo lo demás va en **0.00**.
+
+**2. `kdil` NO reproduce ese reporte, y el discriminador es una FECHA.** Medido sobre las 5,019
+filas de `kdil` del almacén `00`, contra 94 SKUs transcritos del reporte:
+
+| grupo según el ERP | SKUs | con `c7 = '1800-01-01'` | unidades que publicábamos |
+|---|---:|---:|---:|
+| **A)** el reporte les da existencia | 94 | **94 (100 %)** | 319,566 |
+| **B)** el reporte los da en cero | 4,925 | 0 de los que probé | 11,817,240 |
+
+⭐ **Está invertido respecto de la intuición**: los SKUs que el ERP declara con saldo son
+exactamente los que **no tienen fecha de movimiento** en `kdil` (centinela `1800-01-01`), y los que
+traen fecha real son los que el ERP pone en cero. La regla tiene **recall 94/94**; su *precisión*
+NO se puede afirmar — las 94 filas son una transcripción parcial de 123 páginas, y hay 1,760 filas
+con centinela. **Queda como PISTA del decode, no como verdad.**
+
+**3. La prueba que decide que esto es del CEDIS y no de la fórmula.** `v_erp_stock_on_hand` usa
+`c4+c8−c9` en las nueve ramas; si estuviera mal, estaría mal en todas. Medido:
+
+| sucursal | SKUs con saldo | unidades publicadas | % en centinela |
+|---|---:|---:|---:|
+| **00 CEDIS** | **4,653** | **12,181,690** | **37.8 %** |
+| 01 | 3,256 | 717,037 | 4.9 % |
+| 02 | 2,825 | 86,831 | 5.9 % |
+| 03 | 2,974 | 226,176 | 3.6 % |
+| 04 | 1,945 | 34,274 | 9.2 % |
+| 05 | 2,352 | 79,426 | 9.1 % |
+| 06 | 2,936 | 512,695 | 11.4 % |
+| 07 | 2,501 | 128,232 | 17.5 % |
+| 08 | 2,818 | 617,287 | 12.4 % |
+
+El CEDIS publica **17× la sucursal más grande** y **~68× la mediana de sus ocho hermanas**, con
+**más del triple** de proporción de filas centinela que cualquiera. Las ocho son mutuamente
+consistentes entre sí. ⭐ **El CEDIS es el outlier, no el patrón** → el retiro de batch 653 es
+correcto y **NO se extiende a las otras ocho**; su cifra no queda tocada por este hallazgo.
+
+**4. Lo que esto le cuesta a mi propio argumento.** En §17.3 publiqué el CEDIS completo con el
+razonamiento *«los 10 SKUs más grandes son el 9.0 % del total, o sea que está repartido entre
+miles, y un almacén repartido es un almacén»*. **Estaba mal**, y no por el dato sino por la forma:
+*estar repartido no distingue un almacén de una tabla sin purgar* — una corrida de residuo también
+se reparte. Era **una corazonada con forma de medición**, exactamente lo que ADR-059 R5 previene.
+La medición que sí distinguía estaba a una consulta: **comparar la magnitud contra las hermanas**.
+
+> ⭐ **Regla que sale de acá, y aplica a cualquier nodo nuevo:** antes de publicar un agregado de un
+> almacén, sucursal o ruta que nunca se publicó, **medirlo contra sus pares**. Un nodo que publica
+> un orden de magnitud más que el mayor de sus hermanos está en disputa hasta que un testigo
+> externo lo confirme. Es más barato que decodificar la fuente y atrapa justo el caso que el
+> análisis interno no ve: cuando la fórmula está bien y **la tabla está sucia**.
+
+**Sigue abierto, con nombre:** (a) **qué publica el reporte de Kepler** —ni `c4+c8−c9`, ni `c8`, ni
+`c9`, ni `kdik.c6` lo reproducen en los ceros—; (b) **cuánto tiene de verdad el CEDIS** en pesos,
+que sólo sale de transcribir el reporte completo o de contar el almacén; (c) `/compras/existencia`
+**sigue sin CEDIS**, asumido: *ausente y declarado le gana a presente y falso*.
