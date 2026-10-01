@@ -23,6 +23,13 @@ export interface PriceChange {
   es_baja: boolean;
   hora: string | null;
 }
+/** `[ETQ-CAMBIOS.6]` Una plaza que la bitácora SÍ puede servir. `ultimo_dia` deja ver de un
+ *  vistazo si alguna se quedó atrás, sin tener que entrar a cada una. */
+export interface PriceChangeBranch {
+  sucursal: string;
+  nombre: string | null;
+  ultimo_dia: string;
+}
 export interface PriceChangesResult {
   items: PriceChange[];
   fecha: string;
@@ -40,6 +47,16 @@ export interface PriceChangesResult {
    * lleva casi todo se lee como "no hubo cambios".
    */
   ocultos_centavo: number;
+  /**
+   * `[ETQ-CAMBIOS.7]` Cuántos PRODUCTOS distintos cambiaron ese día, y el tope. El recorte se mide
+   * en productos porque una etiqueta lleva todos los precios del producto (pieza, paquete, caja):
+   * el producto es la unidad de trabajo, aunque la bitácora escriba una fila por unidad.
+   * Medido 2026-09-30 sobre 90 días: contando renglones el tope ataba el **13.0%** de los
+   * días-plaza; contando productos, **0 de 739**. El peor día (06, 20-ago) tenía 636 renglones y
+   * sólo **115 productos**.
+   */
+  productos_del_dia: number;
+  tope_productos: number;
   freshness: Freshness | null;
 }
 
@@ -95,5 +112,13 @@ export class EtiquetasService {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : '';
     return this.http.get<PriceChangesResult>(
       `${this.base}/price-changes?sucursal=${encodeURIComponent(suc)}&fecha=${encodeURIComponent(fecha)}`);
+  }
+
+  /**
+   * `[ETQ-CAMBIOS.6]` Las plazas que la bitácora puede servir. Sólo la necesita quien NO tiene
+   * tienda propia; quien la tiene queda anclado a la suya y nunca ve este selector.
+   */
+  priceChangeBranches(): Observable<PriceChangeBranch[]> {
+    return this.http.get<PriceChangeBranch[]>(`${this.base}/price-changes/branches`);
   }
 }

@@ -39,7 +39,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       <p-table [value]="nodes()" [loading]="loading()" styleClass="p-datatable-sm cr-table">
         <ng-template #header>
           <tr><th>Almacén</th><th>Rol</th><th>Se surte de</th>
-            <th class="cr-r" title="Cada cuántos días lo surte el CEDIS (Wincaja Irapuato, 2026)">Cadencia surtido</th>
+            <th class="cr-r" title="Cada cuántos días lo surte el CEDIS de Irapuato (2026). ⚠️ Se midió sobre los movimientos de Wincaja, que era su fuente hasta el corte a Kepler del 30-sep: es historia, no cadencia en vivo.">Cadencia surtido</th>
             <th class="cr-r" title="Último surtido registrado">Último</th>
             <th class="cr-r" title="Costo promedio por envío del CEDIS">$/envío</th></tr>
         </ng-template>
@@ -67,7 +67,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         </ng-template>
         <ng-template #emptymessage><tr><td colspan="6" class="cr-empty">Sin almacenes.</td></tr></ng-template>
       </p-table>
-      <p class="cr-foot">Cadencia = frecuencia real con la que el CEDIS (Wincaja Irapuato) surtió a cada sucursal en 2026 (movimientos caja 99). El reorden del CEDIS se recalcula de noche con la demanda agregada de sus sucursales.</p>
+      <p class="cr-foot">Cadencia = frecuencia real con la que el CEDIS de Irapuato surtió a cada sucursal en 2026 (movimientos caja 99). El reorden del CEDIS se recalcula de noche con la demanda agregada de sus sucursales. <strong>⚠️ El CEDIS cortó a Kepler el 30-sep-2026</strong>: esta cadencia se midió sobre Wincaja, que era su fuente hasta ese día, así que es historia y deja de crecer.</p>
     </div>
   `,
   styles: [`

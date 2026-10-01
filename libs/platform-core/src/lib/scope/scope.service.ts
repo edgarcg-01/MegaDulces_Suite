@@ -4,6 +4,8 @@ import { KNEX_CONNECTION } from '../database/database.module';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { isPlatformAdminRole } from '../ability/platform-admin';
 import { parseScopeParam } from './scope-params';
+// `[ZN.8]` La precedencia de área: pura, compartida y probada. Ver `scope-areas.spec.ts`.
+import { elegirRegla } from '@megadulces/contracts/authz/scope-areas';
 import {
   ResolvedDimension,
   ScopeSource,
@@ -12,6 +14,7 @@ import {
   ScopeMode,
   ScopeRuleRow,
   SCOPE_DIMENSIONS,
+  AREA_DEFECTO,
   branchKeySql,
   branchKeyFilterSql,
   esCodigoSucursal,
@@ -89,9 +92,25 @@ const UNIVERSO_SQL: Record<ScopeDimension, { sql: string; label: string }> = {
            ORDER BY 1`,
     label: 'Sucursal',
   },
+  /**
+   * `[ZN.6]` ⛔ **`trade.zones` no es un catálogo de zonas: es cuatro catálogos en una tabla.**
+   * De sus 11 filas vivas sólo 3 son zonas (`LA PIEDAD RD`, `ZAMORA`, `MORELIA` — las mismas
+   * tres que declara el ERP en `kepler_ods.kduk`); las otras 8 son 4 sucursales, 2 canales,
+   * OFICINAS y una fila que nació **después** de que `[ZN.0]` clasificara el resto y quedó sin
+   * clasificar.
+   *
+   * Sin este filtro el universo ofrecía las 11, y por ahí entraron los alcances medidos en prod
+   * que filtran por una sucursal o por OFICINAS — que no es un lugar. El `kind` lo escribió
+   * `[ZN.0]` en cada fila con su motivo y **no lo leía ningún consumidor**; éste es el primero.
+   *
+   * ⚠️ `kind = 'zona'` excluye también el NULL, a propósito: una fila sin clasificar no es una
+   * zona *todavía*, y fail-closed es la postura correcta para un eje de alcance. La contrapartida
+   * es que los valores guardados que queden fuera del universo hay que **declararlos** — eso lo
+   * hace `describe()` con `valuesFueraDelUniverso`, no se esconden.
+   */
   zone: {
     sql: `SELECT id::text AS v, name AS label FROM trade.zones
-           WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY orden`,
+           WHERE tenant_id = ? AND deleted_at IS NULL AND kind = 'zona' ORDER BY orden`,
     label: 'Zona',
   },
   route: {
@@ -157,27 +176,54 @@ export class ScopeService {
 
   // ───────────────────────── resolución ─────────────────────────
 
-  /** Alcance del usuario del request en curso (lee el CLS). */
-  async current(): Promise<ResolvedScope> {
+  /**
+   * Alcance del usuario del request en curso (lee el CLS).
+   *
+   * `[ZN.8]` `area` es el proyecto desde el que se pregunta. **Lo declara el SERVICIO, no la
+   * URL**: cada lib sabe a qué proyecto pertenece y lo pone en una constante de archivo.
+   * Deducirlo de la ruta en el CLS sería implícito — se rompería mudo en los crons (que no
+   * tienen request) y el día que alguien renombre un prefijo de ruta. Sin `area`, resuelve las
+   * reglas `'*'`, que es el comportamiento de siempre.
+   */
+  async current(area?: string): Promise<ResolvedScope> {
     const ctx = this.tenantCtx.get();
     if (!ctx?.tenantId || !ctx.userId) {
       throw new ForbiddenException('Sin contexto de usuario: no se puede resolver el alcance');
     }
-    return this.forUser(ctx.tenantId, ctx.userId, ctx.roleName ?? '');
+    return this.forUser(ctx.tenantId, ctx.userId, ctx.roleName ?? '', area);
   }
 
-  async forUser(tenantId: string, userId: string, roleName?: string): Promise<ResolvedScope> {
-    const key = `${tenantId}:${userId}`;
+  /**
+   * `[ZN.8]` — `area` es el proyecto de `AUTHZ_TREE` desde donde se pregunta (`compras`,
+   * `pdv`, `finanzas`…). Omitirlo resuelve **sólo las reglas `'*'`**, que es exactamente lo
+   * que hacía el resolvedor antes de esta fase: los ~45 puntos que todavía no declaran su área
+   * siguen comportándose igual, sin excepción y sin sorpresa.
+   */
+  async forUser(
+    tenantId: string,
+    userId: string,
+    roleName?: string,
+    area?: string,
+  ): Promise<ResolvedScope> {
+    // ⚠️ El área va en la CLAVE del caché. Sin esto, la primera pantalla que resuelva
+    // le serviría su alcance a las demás durante 30 s — y el síntoma sería intermitente,
+    // o sea el peor de depurar.
+    const key = `${tenantId}:${userId}:${area ?? AREA_DEFECTO}`;
     const now = Date.now();
     const hit = this.cache.get(key);
     if (hit && hit.expiresAt > now) return hit.scope;
 
-    const scope = await this.build(tenantId, userId, roleName);
+    const scope = await this.build(tenantId, userId, roleName, area);
     this.cache.set(key, { scope, expiresAt: now + TTL_MS });
     return scope;
   }
 
-  private async build(tenantId: string, userId: string, roleNameHint?: string): Promise<ResolvedScope> {
+  private async build(
+    tenantId: string,
+    userId: string,
+    roleNameHint?: string,
+    area?: string,
+  ): Promise<ResolvedScope> {
     const user = await this.knex('identity.users')
       .where({ tenant_id: tenantId, id: userId })
       // `route_id` (`[ID.24.1]`) es lo que hace resoluble `route: own`.
@@ -195,30 +241,40 @@ export class ScopeService {
       return { tenantId, userId, roleName, dims };
     }
 
+    // `[ZN.8]` Se piden las reglas del área pedida Y las de `'*'`; la precedencia se decide
+    // abajo. Dos consultas (una por área) costarían el doble de viajes para elegir una.
+    const areas = area && area !== AREA_DEFECTO ? [AREA_DEFECTO, area] : [AREA_DEFECTO];
     const [userRules, roleRules] = await Promise.all([
       this.knex('identity.user_scopes')
         .where({ tenant_id: tenantId, user_id: userId })
-        .select('dimension', 'mode', 'values', 'mode_write', 'nota'),
+        .whereIn('area', areas)
+        .select('dimension', 'mode', 'values', 'mode_write', 'nota', 'area'),
       roleName
         ? this.knex('identity.role_scopes')
             .where({ tenant_id: tenantId })
             .whereRaw('lower(role_name) = ?', [roleName.toLowerCase()])
-            .select('dimension', 'mode', 'values', 'mode_write', 'nota')
+            .whereIn('area', areas)
+            .select('dimension', 'mode', 'values', 'mode_write', 'nota', 'area')
         : Promise.resolve([] as ScopeRuleRow[]),
     ]);
 
-    // Tipado explícito del Map: sin la anotación de tupla, TS infiere
-    // `(ScopeDimension | ScopeRuleRow)[][]` y el `.get()` devuelve `{}`.
-    const indexar = (rows: ScopeRuleRow[]) =>
-      new Map<ScopeDimension, ScopeRuleRow>(
-        rows.map((r) => [r.dimension, r] as [ScopeDimension, ScopeRuleRow]),
-      );
-    const porUsuario = indexar(userRules as ScopeRuleRow[]);
-    const porRol = indexar(roleRules as ScopeRuleRow[]);
+    // `[ZN.8]` La precedencia de área vive en `elegirRegla` (libs/contracts), pura y con
+    // candado: es la pieza que falla EN SILENCIO — si eligiera mal no hay excepción ni log,
+    // sólo alguien viendo de más o de menos, y eso se descubre semanas después.
+    const deUsuario = userRules as ScopeRuleRow[];
+    const deRol = roleRules as ScopeRuleRow[];
 
     for (const dim of SCOPE_DIMENSIONS) {
-      const regla = porUsuario.get(dim) ?? porRol.get(dim);
-      const source: ScopeSource = porUsuario.has(dim) ? 'user' : porRol.has(dim) ? 'role' : 'default';
+      const delUsuario = elegirRegla(deUsuario, dim, area);
+      const delRol = elegirRegla(deRol, dim, area);
+      // Precedencia completa, de lo más específico a lo más general:
+      //   usuario+área → usuario+'*' → rol+área → rol+'*' → fail-closed.
+      // Los dos primeros escalones ya los resolvió `indexar`, y los dos siguientes también.
+      // ⚠️ El usuario gana SIEMPRE al rol, incluso su `'*'` contra un rol con área: una regla
+      // puesta a mano sobre una persona es una decisión sobre ESA persona, y que un default de
+      // rol la pise por ser más específica sería una sorpresa silenciosa.
+      const regla = delUsuario ?? delRol;
+      const source: ScopeSource = delUsuario ? 'user' : delRol ? 'role' : 'default';
       if (!regla) {
         // Fail-closed: sin regla, no ve nada.
         // `none` explícito SÍ es resoluble: se sabe que no ve nada.
@@ -347,8 +403,8 @@ export class ScopeService {
   }
 
   /** 403 explicando la dimensión y el valor — no un "Forbidden" mudo. */
-  async assertCanWrite(dim: ScopeDimension, valor: string): Promise<void> {
-    const scope = await this.current();
+  async assertCanWrite(dim: ScopeDimension, valor: string, area?: string): Promise<void> {
+    const scope = await this.current(area);
     if (!this.canWrite(scope, dim, valor)) {
       throw new ForbiddenException(
         `Tu alcance no incluye ${UNIVERSO_SQL[dim].label.toLowerCase()} "${valor}" para escritura.`,
@@ -372,9 +428,9 @@ export class ScopeService {
    * contestar una pregunta distinta de la que hizo. En una pantalla de inventario
    * eso se lee como «ahí no falta nada», que es peor que un error.
    */
-  async assertCanRead(dim: ScopeDimension, valor: string): Promise<void> {
+  async assertCanRead(dim: ScopeDimension, valor: string, area?: string): Promise<void> {
     const v = String(valor ?? '').trim();
-    const scope = await this.current();
+    const scope = await this.current(area);
     if (!this.canRead(scope, dim, v)) {
       throw new ForbiddenException(
         `Tu alcance no incluye ${UNIVERSO_SQL[dim].label.toLowerCase()} "${v}". ` +
@@ -418,10 +474,11 @@ export class ScopeService {
     query: Record<string, unknown> | undefined,
     dim: ScopeDimension,
     ruta?: string,
+    area?: string,
   ): Promise<string[] | null> {
     const { values } = parseScopeParam(query, dim, ruta);
     const pedido = values ? await this.aLlaveCanonica(dim, values) : null;
-    return this.intersect(await this.current(), dim, pedido);
+    return this.intersect(await this.current(area), dim, pedido);
   }
 
   /**
@@ -497,8 +554,9 @@ export class ScopeService {
   async warehouseIds(
     query: Record<string, unknown> | undefined,
     ruta?: string,
+    area?: string,
   ): Promise<string[] | null> {
-    const codes = await this.readParam(query, 'warehouse', ruta);
+    const codes = await this.readParam(query, 'warehouse', ruta, area);
     if (codes === null) return null;
     if (!codes.length) return [];
 
@@ -538,10 +596,41 @@ export class ScopeService {
   ): Promise<{ value: string; label: string }[]> {
     const d = scope.dims[dim];
     if (d.mode === 'none') return [];
-    const { rows } = await this.knex.raw(UNIVERSO_SQL[dim].sql, [scope.tenantId]);
-    const todos = rows.map((r: any) => ({ value: String(r.v), label: r.label ?? String(r.v) }));
+    const todos = await this.universeFor(scope.tenantId, dim);
     if (d.mode === 'all') return todos;
     return todos.filter((o: { value: string }) => d.values.includes(o.value));
+  }
+
+  /**
+   * `[ZN.6]` — **TODO lo que existe en la dimensión**, sin recortar por el alcance de nadie.
+   *
+   * ⛔ Nació porque faltaba, y su ausencia rompía la pantalla que administra el alcance.
+   * `optionsFor()` es un **read-model**: su propio docstring dice que devuelve *«lo que la
+   * persona alcanza a ver, filtrado por su modo»*, y está pensado para el picker de
+   * `GET /users/me/scope` («¿por qué puedo filtrar YO?»). Pero `/admin/personas` lo estaba usando
+   * como **edit-model** — la lista de lo que un admin puede OTORGARLE a otro:
+   *
+   * | modo del sujeto | lo que veía el admin | efecto |
+   * |---|---|---|
+   * | `own`    | 1 opción: la que ya tiene | sólo podía «otorgar» lo que ya tenía |
+   * | `none`   | `[]` | *«el catálogo llegó vacío»* y Guardar apagado |
+   * | `listed` | sólo las que ya tiene | **nunca podía AGREGAR una** |
+   * | `all`    | el universo | el único caso que funcionaba |
+   *
+   * O sea: **la pantalla sólo podía quitar, nunca dar.** Reportado como *«¿por qué en zonas sólo
+   * aparece eso?»*.
+   *
+   * ⚠️ El comentario `[RE.27.B1]` de `describe()` ya había visto la mitad del problema —advierte
+   * que `options` **no** es la selección— y no vio que tampoco es el universo. Son **tres** cosas
+   * distintas y ahora viajan las tres: `universe` (lo que se puede otorgar), `values` (lo que
+   * está guardado) y `options` (lo que la persona alcanza hoy).
+   */
+  async universeFor(
+    tenantId: string,
+    dim: ScopeDimension,
+  ): Promise<{ value: string; label: string }[]> {
+    const { rows } = await this.knex.raw(UNIVERSO_SQL[dim].sql, [tenantId]);
+    return rows.map((r: any) => ({ value: String(r.v), label: r.label ?? String(r.v) }));
   }
 
   /**
@@ -566,6 +655,15 @@ export class ScopeService {
         /** `[ID.26]` `false` = `unknown`, no `none`. Ver `ResolvedDimension.resolvable`. */
         resolvable: boolean;
         options: { value: string; label: string }[];
+        /** `[ZN.6]` Todo lo que se le puede OTORGAR. Es lo que el editor debe ofrecer. */
+        universe: { value: string; label: string }[];
+        /**
+         * `[ZN.6]` Valores guardados que ya **no existen en el universo** de la dimensión —
+         * borrados, o filas que nunca debieron ser elegibles (una sucursal guardada como zona).
+         * Van aparte para que la pantalla los MUESTRE marcados en vez de dejarlos caer: un
+         * selector en blanco se lee como «no tiene», que es una afirmación distinta y falsa.
+         */
+        valuesFueraDelUniverso: string[];
       }
     >
   > {
@@ -582,19 +680,31 @@ export class ScopeService {
     const out: any = {};
     for (const dim of SCOPE_DIMENSIONS) {
       const d = scope.dims[dim];
+      // `[ZN.6]` El universo se pide UNA vez y de ahí salen las opciones, en vez de consultarlo
+      // dos veces por dimensión.
+      const universe = await this.universeFor(scope.tenantId, dim);
+      const enUniverso = new Set(universe.map((o) => o.value));
+      const values = d.values ?? [];
       out[dim] = {
         mode: d.mode,
         modeWrite: d.modeWrite,
         source: d.source,
         nota: d.nota ?? null,
-        values: d.values ?? [],
+        values,
         valuesWrite: d.valuesWrite ?? [],
         supportsOwn: ownOk.get(dim) ?? false,
         // `?? true` a propósito: un scope armado por un caller viejo que no
         // conoce el campo NO se reporta como no-resoluble. Declarar de menos es
         // ruido; declarar de más sería una alarma falsa en 6 dimensiones.
         resolvable: d.resolvable ?? true,
-        options: await this.optionsFor(scope, dim),
+        options:
+          d.mode === 'none'
+            ? []
+            : d.mode === 'all'
+              ? universe
+              : universe.filter((o) => values.includes(o.value)),
+        universe,
+        valuesFueraDelUniverso: values.filter((v) => !enUniverso.has(v)),
       };
     }
     return out;
@@ -604,9 +714,16 @@ export class ScopeService {
 
   /** Llamar tras editar `user_scopes` de alguien: cambio inmediato, sin re-login. */
   invalidateUser(tenantId: string, userId: string): void {
-    if (this.cache.delete(`${tenantId}:${userId}`)) {
-      this.logger.log(`Alcance invalidado para ${tenantId}:${userId}`);
+    // `[ZN.8]` Desde que la clave lleva el área, una persona tiene UNA entrada por área que se
+    // le haya resuelto. Borrar sólo `tenant:user` dejaba vivas las demás hasta el TTL — o sea
+    // que cambiar su alcance en Compras no se notaba en Compras, que es donde se acababa de
+    // cambiar. Se barren todas las suyas.
+    const prefijo = `${tenantId}:${userId}:`;
+    let n = 0;
+    for (const k of [...this.cache.keys()]) {
+      if (k.startsWith(prefijo)) { this.cache.delete(k); n++; }
     }
+    if (n) this.logger.log(`Alcance invalidado para ${tenantId}:${userId} (${n} área(s))`);
   }
 
   /**

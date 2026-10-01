@@ -396,14 +396,286 @@ ERP cambió y hay que enterarse.
 
 ---
 
-## 12 · Lo que sigue
+## 12 · Capa 4 · **Visual** — la pantalla, y lo que no puede ver
 
-- **Capa 4 · Visual** — la pantalla del triage y el desglose por SKU.
-- ⛔ **Nada de esto es visible todavía**: el bundle desplegado es del 29-sep. Falta **redeploy de
-  `api` + `view`** (sin permisos nuevos → sin re-login).
-- ⛔ **`git push` sin autorizar**: `main` local arrastra commits de otras fases.
-- **D5 · tasa de costo de capital** — sin ella el saldo inmovilizado no se puede ordenar contra
+`/comercial/precios/motor`: el triage de las 86,163 celdas, las 29 señales cableadas en 13
+familias, y **las 15 que faltan declaradas con su motivo** — el registro se publica en pantalla,
+no se esconde.
+
+### ⛔ El permiso se derivó, no se calcó
+
+Lo obvio era reusar `COMMERCIAL_PRICING_VER`. Medido antes de hacerlo: lo tienen **3 usuarios
+`customer_b2b` —clientes— y 35 de campo**. Un motor que publica costo, margen y capital
+inmovilizado por SKU no entra por esa puerta. Nace `COMMERCIAL_MARGIN_ENGINE_VER` (batch 621),
+repartido a **7 roles / 16 usuarios**, con un candado que **falla** si la clave aterriza en un rol
+de cliente o de campo.
+
+### ⚠️ "No me deja verlo" no era ni permiso ni código
+
+El reporte de Edgar llegó mientras el despliegue corría: el de las 15:50 construyó `3d3ece7`, el
+push aterrizó **15:53**, y el de `c1a83e8` terminó **16:06:04**. *Antes de buscar la causa en el
+código, hay que medir qué bundle está sirviendo el servidor.*
+
+---
+
+## 13 · `[PR.X]` · El expediente del SKU — la ventana
+
+> *«Al dar clic que se abra una ventana con la información clara y detallada. Una gráfica en la
+> cual veamos cómo se relaciona su historial de costos con sus ventas y cómo han afectado. Y una
+> línea de cómo podría afectar nuestro cambio de precio en ventas… precios de competencia…
+> necesito que demos más herramientas al usuario.»* — Edgar
+
+La pantalla deja de ser un **informe** y pasa a ser un **instrumento**.
+
+### ⭐⭐ La elasticidad no se predice: se le da vuelta a la pregunta
+
+La elasticidad medida es una región de **[−1.415, −0.045]** — un factor **31×** de ancho; por SKU
+el error estándar es **0.94**. Publicar una curva con eso sería inventar.
+
+`analytics.fn_umbral_equilibrio(precio_actual, costo, precio_nuevo)` responde la pregunta
+**volteada**: *a este precio nuevo, tendrías que perder más del **X %** del volumen para quedar
+peor que como estás.* Es **aritmética, no predicción**, y con eso la decisión ya no necesita la
+elasticidad. Se prueba **aislada**, con 8 valores elegidos, sin datos ni ambiente — incluidos los
+casos degenerados (precio nuevo ≤ costo → `NULL`, nunca un número).
+
+### ⭐⭐ El placebo se disparó, y **ese es el entregable**
+
+El event-study sobre cambios de precio pasados da efecto **−0.0125**… con un placebo de
+**+0.2576**: **20× más grande que el efecto**. Y **empeora con mejores datos** (+0.36 restringido
+a ventanas de 15+ días). La prueba decisiva: una **baja** de precio y un **alza** mueven el
+volumen **en la misma dirección** (DiD −0.20 y −0.35). Ninguna curva de demanda hace eso — es
+**reversión a la media**: los precios se tocan justo después de un pico de ventas.
+
+⭐ Por eso la gráfica dibuja **la pre-tendencia al lado**: si no es plana, la gráfica **se
+autodesmiente**, y eso es información, no un defecto. Es además el argumento para correr el
+experimento A/B, que está construido y tiene **0 filas**.
+
+### Los cuatro filtros de la bitácora de precios
+
+Sin ellos `v_label_price_changes` no es un registro de decisiones:
+
+| filtro | qué saca | cuánto |
+|---|---|---|
+| centinela `> $1` | la oscilación (`CJA 1,734.34 → 0.01 → 1,734.34` el mismo día) | 52,001 |
+| neto del día | ida y vuelta que termina donde empezó | 15,401 |
+| \|Δ\| ≥ 1 % | recosteo, no decisión de precio | 40,140 |
+| dedup por unidad | el mismo cambio contado en `PAQ`, `CJA`, `PZA` y `KG` | — |
+
+### ⛔ Competencia: cero fuentes, y se dice en pantalla
+
+No existe ningún precio de competidor en ninguna base ni en el repo (F1 refutada: PROFECO cubre
+**0 %** del catálogo). **El hueco se declara.** En su lugar va la **demanda perdida** —
+$30.6M atribuibles— **con su vencimiento al lado**: `wincaja.v_lost_demand` se corta **exactamente**
+en el cutover a Kepler de cada plaza (la sucursal 01 termina el 25-jun; su cutover fue el 27-jun).
+
+⚠️ **Hallazgo operativo, más grande que la fase:** desde la migración **nadie registra venta
+perdida**. `commercial.floor_stockouts` tiene **13 filas en 2 plazas**.
+
+### Qué se aplicó
+
+| batch | migración | qué |
+|---|---|---|
+| 632 | `analytics_sku_cost_sales_monthly` | la serie mensual de costo, precio y volumen |
+| 633 | `analytics_sku_price_response` | eventos limpios + event-study **con su placebo en la misma fila** |
+| 634 | `analytics_sku_tools` | `fn_umbral_equilibrio` + demanda perdida |
+| 635 | `mv_sku_price_history` | matvistas: 3,166 → **3 ms** · 6,925 → **1 ms** |
+
+**Candado:** `test-newdb-price-expediente.js` **19 ✓ / 0 ✗** contra prod, con la prueba negativa
+de la dedup y la de la unidad sin línea base — la que infló **+4.67 pp** un DiD anterior.
+
+⛔ **El simulador no escribe nada.** Calcula; la captura sigue siendo en Kepler (ADR-040).
+
+---
+
+## 14 · ⛔ El defecto de método de este incremento
+
+Un comentario HTML con acentos graves **adentro** del `template:` lo terminó antes de tiempo y
+rompió el build. Es la **novena** vez en este repo, y la primera que llega a un commit.
+
+**El acento grave no es el defecto.** El defecto es que cambié el template **después** del último
+build y commiteé sin volver a construir, habiendo corrido `check-primeng-api.js` —que lee el
+archivo como texto y **no lo compila**— y dándolo por suficiente.
+
+⭐⭐ Y la compuerta **ya existía**: `scripts/check-template-literals.js`, cableada en
+`scripts/check-all.js`, cuyo caso #1 es exactamente este. Verificado con **prueba negativa** sobre
+una copia rota a propósito (`❌ 1 componente(s) con el comentario roto`) y verde sobre los
+archivos reales. *El gate no tenía hueco: no lo corrí.* Lo que corresponde antes de commitear es
+`node scripts/check-all.js`, no una sub-compuerta suelta.
+
+⚠️ **Lo que salvó a producción no fue mi disciplina**: el `auto-deploy` estaba **frenado** desde
+las 18:15 por 4 migraciones ajenas sin aplicar, así que el commit roto nunca llegó a compilarse.
+
+---
+
+## 15 · `[PR.S3]` · H1 · Margen por canal — aplicarlo lo refutó
+
+Al preguntar *«qué variables no estamos abarcando»*, el canal era la candidata obvia: 6 valores en
+`sales_daily.channel`, costo poblado al **98-100 %** en los seis, y el **84.2 % de la venta** en
+celdas (almacén, SKU) que venden por dos canales o más. Dimensión masiva, dato limpio, cero
+fuentes nuevas. Se midió antes de construirla, y la medición la mató.
+
+### ⛔⛔ El margen por canal no se puede leer — y no por culpa del canal
+
+| canal | celdas con precio distinto entre almacenes | margen **congelado** |
+|---|---:|---:|
+| `tienda` | 1,800 | **100.0 %** |
+| `mayoreo` | 204 | **100.0 %** |
+| `credito` | 1,255 | **100.0 %** |
+| `wincaja_ruta` | 27 | **0.0 %** |
+
+En los tres canales de Kepler —el **84.8 % de la venta**— el **100.0 %** de las celdas donde el
+precio difiere más de 5 % entre almacenes tiene spread de margen **menor a 0.01 pp**. El margen no
+se mueve aunque el precio se mueva: está **congelado por construcción**, porque `sales_daily.cost`
+del lado Kepler sale de `revenue / (1 + markup_pct)`.
+
+⭐⭐ **El control negativo es la mitad que da validez a la medición.** `wincaja_ruta`, cuyo costo es
+el `ValorCosto` real del POS, da **0.0 %** congelado. Sin ese contraste, el 100.0 % de Kepler se
+podía leer como *«los precios están bien alineados»* en vez de *«el número no puede variar»*.
+
+### ⛔ El espejismo que esto desarma
+
+Antes de mirar el control, la dispersión de margen entre canales daba **0.59 pp** contra un placebo
+de partición al azar de **0.15 pp** — 4× el ruido, con pinta de señal — y en dinero **$846,040 en
+90 días** sobre 1,821 celdas: **2.7× la acción más grande que el motor publica hoy**. Ese dinero es
+el **método de costeo**, no el canal. Publicarlo habría repetido lo de MR.5 al pie de la letra.
+
+### Lo que sí quedó en pie, y por qué igual no es una acción
+
+- El spread de **precio** por canal es real y **observado**: **86.2 %** de la venta se cobra distinto
+  según el canal, mediana **8 %** en la banda principal. Pero **es la política del negocio**.
+- La **inversión** (mayoreo más caro que tienda, mismo almacén, SKU y peldaño) es el único defecto
+  inequívoco: **60 celdas, $11,574**. Demasiado chico para una acción propia.
+- ⛔ Deuda de datos encontrada de paso: **158 celdas / $3.47 M** con spread de precio de mediana
+  **847 %** — peldaño mezclado dentro de un mismo `unit_kind` (ADR-057). Se arregla en la unidad.
+
+### ⭐ La lección, que vale más que la señal
+
+**Agregar variables de MARGEN no sirve mientras el costo del 84.8 % de la venta sea algebraico.**
+De las cuatro candidatas que se propusieron (canal, IEPS, canibalización, plazo), **tres dividen
+margen** y las tres medirían la tabla de markup. La excepción es el **plazo**, que no toca el costo.
+
+**Aplicada a prod 2026-10-01 (batch 648)**, identidad verificada, 0.1 s. Registro: **29 cableadas /
+15 no_existe / 3 refutadas** (A5, F1, H1).
+
+### Dos variables medidas que el registro todavía no tiene
+
+- ⭐⭐ **Impuesto.** El **85.7 % de la venta** paga IEPS al 8 %, y **416 SKUs / $33.04 M (29.3 %)**
+  tienen IEPS de compra distinto al de venta — 37 de ellos lo **pagan y no lo cobran**. Cero
+  señales de impuesto en las 46.
+- ⭐⭐ **Plazo y costo del dinero.** Plazo pactado promedio **5.2 días**, cartera **$67.58 M**,
+  **90.7 % de los documentos vencidos**, y **890 clientes marcados «contado» con $37.31 M de
+  saldo**. `dias_pago` viene **null**: nadie mide cuánto tardan de verdad.
+
+---
+
+## 16 · `[PR.S4]` · H2 · Prima por plazo — refutada por el **control de confusión**
+
+Tras H1, el plazo era la única candidata que **no toca el costo**. Y arrancaba fuerte: cartera
+**$67.58 M**, **90.7 %** de documentos vencidos, **890 clientes marcados «contado» con $37.31 M de
+saldo**.
+
+### La primera lectura parecía un hallazgo grande
+
+Mismo SKU, misma unidad, 45 días:
+
+| medición | promedio | mediana | p10 | p90 |
+|---|---:|---:|---:|---:|
+| **REAL** (crédito vs contado) | **−4.80 %** | −4.69 % | −8.16 | −0.94 |
+| **PLACEBO** (mitad al azar) | +0.06 % | 0.00 % | −2.45 | +2.79 |
+
+El placebo centrado en cero: no era ruido. El cliente a crédito pagaba **4.80 % menos** en el
+**93.1 %** de los 608 SKU comparables. Leído así: se lo financia **y** se le descuenta.
+
+### ⛔⛔ El control de volumen lo desarmó
+
+La línea a crédito tiene **cantidad mediana 12.00** contra **2.00** la de contado — compran **6×
+más por renglón**. Dentro de tramos de cantidad comparable:
+
+| tramo | SKUs | dif. precio |
+|---|---:|---:|
+| 1 | 7 | −1.01 % |
+| 2-3 | 21 | −2.44 % |
+| 4-10 | 108 | **−0.00 %** |
+| 11-30 | 61 | **+0.23 %** |
+| 30+ | 34 | −0.46 % |
+
+Ponderado por venta: **−0.14 %** sobre $3.56 M. **El −4.80 % era el descuento por volumen.** El
+precio **sí** está bien puesto para el plazo pactado.
+
+⭐ **Dos controles distintos en la misma sesión, y ninguno sustituye al otro.** A H1 la mató un
+control **negativo** (un caso donde el efecto debía desaparecer, y desapareció). A H2 la mató un
+control de **confusión** (una tercera variable que explica el efecto entero).
+
+### Lo que queda, y es de cobranza, no de precio
+
+Pactado **5.1 días** contra **21.2 reales** (4×), y las facturas marcadas **«0 contado» se cobran a
+14.3 días** (mediana 11, p90 30). ⚠️ Medido sobre el **14.9 %** de las facturas (788 de 5,276 en 180
+días), el único subconjunto con `dias_pago` poblado — **no se extrapola**.
+
+### E5 · La ausencia que el registro nunca declaró
+
+Convertir «16 días de financiamiento no cobrado» en pesos exige una **tasa de costo de capital**, y
+⛔ **no existía en el registro, en ninguna familia**. La acción `liberar_capital` publica
+**$60.46 M** de saldo que por eso no se puede ordenar contra los flujos. Ahora es **E5**, en
+`inventario`, estado `no_existe`: es una **decisión de dirección financiera**, no un dato derivable.
+
+**Aplicadas a prod 2026-10-01 (batch 652)**, identidad verificada. Registro: **29 cableadas /
+16 no_existe / 4 refutadas**.
+
+---
+
+## 17 · `[PR.V2]` · El motor y los experimentos, bajo una sola entrada
+
+Eran dos renglones hermanos del sidebar que responden la misma pregunta en dos tiempos: el motor
+dice **qué precio conviene mover**, y el experimento es **lo único que puede convertir esa acción
+de «efecto no medido» a medida**. Ahora son **Control de margen** — una entrada, con selector
+segmentado estilo iOS.
+
+- **Rutas:** `/comercial/precios/motor` y `/comercial/precios/experimentos`. Las dos viejas
+  quedan como **redirect** (hay marcadores y enlaces en estos docs), mismo criterio que `[CAT.1]`.
+- **Selector:** `PageTabsComponent` con `variant="liquid"` — **ya existía**, ya navega por ruta y
+  ya filtra por permiso. No se construyó uno nuevo.
+
+### ⚠️ Por qué la entrada NO puede tener un permiso único
+
+Medido en prod antes de juntarlas: **5 roles ven las dos** (direccion, gerente_compras,
+jefe_marketing, marketing, superadmin), pero **2 ven sólo el motor** (`compras`, `finanzas`) y
+**1 sólo los experimentos** (`telemarketing`). Con un permiso único, alguien perdía la entrada
+entera; y un `redirectTo` fijo a `motor` **rebotaba a `telemarketing`** contra su propio guard.
+Por eso: `anyOf` en el sidebar, `anyPermissionGuard` en la ruta, y **`preciosHomeGuard`** eligiendo
+la primera pestaña que esa persona sí puede abrir.
+
+### ⭐ Dos cosas que el código existente enseñó, y una que rompí
+
+- **No hay componente shell.** Almacén tiene uno porque monta la barra para ~19 páginas; acá son
+  dos. Y un padre anidado **rompe el parser de `landing-guards.spec`**, que sólo lee rutas hijas
+  a un nivel: los tres candidatos salían como «la ruta no existe». Almacén ya resolvía esto
+  **no indentando** las hijas de su shell. Las rutas quedaron **planas, con el prefijo adentro**.
+- **La compuerta atrapó el rebote antes de que existiera.** `landing-guards.spec` falló en el
+  primer intento y por eso se midió el reparto de permisos.
+- ⛔⛔ **Décima vez con el acento grave**, y esta vez en un comentario **CSS** dentro de
+  `styles:` — escrito horas después de documentar el caso en §14. El gate lo marcó en el acto.
+
+**Verificado:** `nx build view` · `landing-guards.spec` **24/24** · `nx test view` **1,380** ·
+`contracts` **245** · lint 0 errores. **Validación visual pendiente.**
+
+---
+
+## 18 · Lo que sigue
+
+- ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
+  `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
+  desde las 18:15** por **4 migraciones ajenas sin aplicar** (`re30_supplier_credit_terms`,
+  `re30_grant_compras_obligaciones`, `re31_goods_receipts_fecha_recepcion`,
+  `re32_purchase_deliveries`, de Fase RE). En cuanto se apliquen, el despliegue arrastra esto solo
+  — sin permisos nuevos pendientes, el de la capa 4 ya está repartido.
+- **Validación visual de la ventana** — lo único que no puedo hacer yo, y donde aparecieron los
+  tres defectos de la capa 3.
+- ⚠️ **Ya está en `origin/main`**: otra sesión empujó `main` y se llevó estos commits con ella (índice de git compartido). No queda push pendiente de esta fase.
+- **E5 · tasa de costo de capital** — sin ella el saldo inmovilizado no se puede ordenar contra
   los flujos. Bloquea priorizar `liberar_capital`.
+  ⚠️ **Corrección:** esto decía **D5**, y `D5` es «Frecuencia de cambio» y está **cableada**.
+  La tasa de capital no tenía clave en el registro; se le dio **E5** el 2026-10-01.
 - **G4 · intocables y contratos** — los 24 precios atípicos esperan esa marca.
 - **D2 · el piso de margen** — sin él el motor sólo puede subir.
 - **El experimento A/B** — es lo único que puede convertir `subir_precio` de `efecto_no_medido` a

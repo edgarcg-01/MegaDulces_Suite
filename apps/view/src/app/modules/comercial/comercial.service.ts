@@ -1597,12 +1597,36 @@ export class ComercialService {
   }
 
   inventoryVarianceDetail(params: {
-    warehouse_id: string; fecha: string; signo?: 'sobrante' | 'faltante'; limit?: number;
+    warehouse_id: string; fecha: string; signo?: 'sobrante' | 'faltante';
+    explicacion?: string; limit?: number;
   }) {
     let p = new HttpParams().set('warehouse_id', params.warehouse_id).set('fecha', params.fecha);
     if (params.signo) p = p.set('signo', params.signo);
+    if (params.explicacion) p = p.set('explicacion', params.explicacion);
     if (params.limit != null) p = p.set('limit', String(params.limit));
     return this.http.get<InventoryVarianceLine[]>(`${this.base}/inventory/variance/detail`, { params: p });
+  }
+
+  /** [EXP.2] El expediente de UN renglón: todo lo que la plataforma sabe, en un viaje. */
+  inventoryVarianceExpediente(params: {
+    warehouse_id: string; sku: string; fecha: string;
+  }) {
+    const p = new HttpParams()
+      .set('warehouse_id', params.warehouse_id).set('sku', params.sku).set('fecha', params.fecha);
+    return this.http.get<InventoryVarianceExpediente>(
+      `${this.base}/inventory/variance/expediente`, { params: p });
+  }
+
+  /** [EXP.1b] El embudo: cuánto del descuadre cae en cada explicación. */
+  inventoryVarianceEmbudo(params: {
+    warehouse_id?: string; date_from?: string; date_to?: string;
+  } = {}) {
+    let p = new HttpParams();
+    if (params.warehouse_id) p = p.set('warehouse_id', params.warehouse_id);
+    if (params.date_from) p = p.set('date_from', params.date_from);
+    if (params.date_to) p = p.set('date_to', params.date_to);
+    return this.http.get<{ items: InventoryVarianceEmbudoRow[]; freshness: RollforwardFreshness }>(
+      `${this.base}/inventory/variance/embudo`, { params: p });
   }
 
   inventoryVarianceCoverage(warehouse_id: string, fecha: string) {
@@ -3057,6 +3081,104 @@ export interface InventoryVarianceLine {
   ficha_costo_base?: number | null;
   ficha_costo_caja?: number | null;
   ficha_factor_caja?: number | null;
+
+  // ── [EXP.1b] Las señales, por SKU ──────────────────────────────────────────────────
+  /** La partición de causas. ⛔ `no_medido` NO es «no hay causa»: es que falta un testigo. */
+  explicacion?: InventoryVarianceExplicacion | null;
+  /** Qué testigo faltó, cuando faltó. Vacío ⟺ se consultaron todos. */
+  testigos_faltantes?: string[] | null;
+  /** El mismo SKU ajustado como sobrante Y faltante el mismo día. 504 pares en el histórico,
+   *  todos en el almacén 02 entre nov-2025 y ene-2026, con $4,376,696 que se cancelan solos. */
+  signos_mezclados?: boolean | null;
+  /** Cuántas líneas del ajuste trae este SKU en este evento. */
+  lineas?: number | null;
+  /** Con signo (la variación real del SKU) y sin signo (cuadra con la tabla por línea). */
+  importe_neto?: number | null;
+  importe_bruto?: number | null;
+  rf_veredicto?: 'cuadra' | 'merma' | 'sobrante' | 'no_recontado' | null;
+  rf_no_explicado?: number | null;
+  rf_importe_no_explicado?: number | null;
+  veces_contado?: number | null;
+  veces_descuadro?: number | null;
+  /** |neto| / bruto del histórico: separa el error de captura de la merma. */
+  retencion?: number | null;
+  patron?: 'merma' | 'sobra' | 'se_compensa' | 'mixto' | 'sin_dinero' | null;
+  demanda_diaria?: number | null;
+  /** Por qué no hay días de venta, cuando no los hay. Nunca se rellena con cero. */
+  demanda_motivo?: 'medida' | 'sin_demanda_registrada' | 'conteo_anterior_a_la_ventana'
+    | 'sin_venta_en_90d' | null;
+  dias_de_venta?: number | null;
+  /** ⚠️ PISTA, no explicación: su placebo dispara en el 10.1% de los faltantes, donde no
+   *  explica nada. Sirve para ORDENAR la pila accionable, no para vaciarla. */
+  excede_la_venta?: boolean | null;
+  oe_fecha?: string | null;
+  oe_folio?: string | null;
+  oe_unidad?: string | null;
+  oe_costo_unitario?: number | null;
+  oe_cantidad?: number | null;
+  /** El ajuste declara una unidad y la compra otra: sospechoso por construcción. */
+  oe_unidad_discrepa?: boolean | null;
+}
+
+export type InventoryVarianceExplicacion =
+  | 'costo_de_caja' | 'movimientos_lo_explican' | 'merma_sostenida' | 'sobra_sostenida'
+  | 'se_compensa' | 'sin_explicacion' | 'no_medido'
+  // [EXP.3] Documentos de Kepler que el motor de conciliación no sumaba, arbitrados uno
+  // por uno contra el cuadre del roll-forward.
+  | 'salida_de_almacen' | 'devolucion_de_cliente' | 'devolucion_de_compra';
+
+/**
+ * [EXP.2] Un bloque que el perfil del usuario NO alcanza.
+ *
+ * ⛔ Nunca se omite en silencio: un panel al que le faltan tres secciones sin decir por qué se
+ * lee como «no hay nada que ver», que es justo lo contrario de lo que pasa.
+ */
+export interface BloqueOculto {
+  oculto: true;
+  permiso: string;
+  motivo: string;
+}
+
+export const esOculto = (b: unknown): b is BloqueOculto =>
+  !!b && typeof b === 'object' && (b as BloqueOculto).oculto === true;
+
+/** [EXP.2] El expediente del renglón: ocho secciones en un solo viaje. */
+export interface InventoryVarianceExpediente {
+  encontrado: boolean;
+  /** Por qué no hay expediente, cuando no lo hay. */
+  motivo?: string;
+  senal?: InventoryVarianceLine & Record<string, unknown>;
+  /** Las líneas del ajuste en este evento — acá se ven los dos signos del mismo SKU. */
+  lineas?: Record<string, unknown>[];
+  /** ⭐ La trayectoria del SKU entre conteos. Sale de la misma matvista de señales. */
+  eventos?: Record<string, unknown>[];
+  rollforward?: Record<string, unknown>[];
+  movimientos?: {
+    items: Record<string, unknown>[];
+    ventana: { desde: string | null; hasta: string; origen: 'conteo_anterior' | 'noventa_dias' };
+    /** ⛔ El piso del feed POR ALMACÉN: sin esto «ese almacén no alimentaba» se lee igual
+     *  que «no hubo movimientos». De 5 almacenes hasta dic-2025 a 8 desde ene-2026. */
+    feed_desde: string | null;
+    feed_cubre: boolean | null;
+  } | BloqueOculto;
+  entradas?: { items: Record<string, unknown>[] } | BloqueOculto;
+  existencia?: { datos: Record<string, unknown> | null; motivo: string | null } | BloqueOculto;
+  prevencion?: { items: Record<string, unknown>[] } | BloqueOculto;
+}
+
+/** [EXP.1b] Una fila del embudo: (almacén, fecha, explicación). */
+export interface InventoryVarianceEmbudoRow {
+  warehouse_id: string;
+  warehouse_code: string;
+  fecha: string;
+  explicacion: InventoryVarianceExplicacion;
+  skus: number;
+  /** Se agrega sobre el NETO por SKU, no sobre el bruto por línea. */
+  pesos_abs: number;
+  pesos_sobrante: number;
+  pesos_faltante: number;
+  con_pista: number;
+  signos_mezclados: number;
 }
 
 export interface InventoryVarianceCoverage {

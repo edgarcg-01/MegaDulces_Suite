@@ -342,7 +342,13 @@ async function main() {
       UPDATE analytics.transfer_dest_map dm
         SET warehouse_id=b.rcv_wh, updated_at=now()
       FROM best b
+      -- [DM.15] w.deleted_at IS NULL: un almacen RETIRADO no puede ser destino. Es la puerta por
+      -- la que entro TI009 -> MD-32 (el almacen Wincaja de Morelia Madero, borrado y con cero
+      -- recepciones en toda su historia) mientras quien recibe es el Kepler 07. El detector de
+      -- [DM.11e] no podia verlo: los dos almacenes se llaman igual porque son la misma tienda en
+      -- dos ERP, asi que la pregunta no era como se llama sino si sigue vivo.
       JOIN commercial.warehouses w ON w.id=b.rcv_wh AND w.tenant_id=$1 AND w.code NOT ILIKE 'RUTA%'
+                                  AND w.deleted_at IS NULL
       WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL
         -- [DM.11e] UMBRAL DE EVIDENCIA. Antes bastaba con ganar el conteo: DISTINCT ON ...
         -- ORDER BY n DESC, sin minimo ni dominancia. Y los folios son secuencia POR SUCURSAL, asi

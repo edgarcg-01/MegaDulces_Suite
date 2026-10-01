@@ -1,0 +1,81 @@
+# ═══ POLLER DE TICKETS DE TIENDA ═══  [K3S.11]  — @25 s, el más rápido de todos
+#
+# Tres cosas lo distinguen de los cuatro carriles del ODS, y las tres son del secreto y del
+# nombre, no del contenedor:
+#
+# 1. Usa el OTRO secreto: `feeds.env`, no `ingest.env`. Son 19 claves distintas, y entre ellas
+#    `FLEET_DB_URL` — que es el handle de prod que `health-lane.sh` necesita, porque
+#    `ODS_HB_URL` NO existe en ese archivo (ver la cabecera del script y GOTCHAS §17:
+#    `DATABASE_URL_NEW` significa tres cosas distintas según el carril).
+#
+# 2. ⭐ Postea a `http://api:10000/...`, que es OTRO nombre de la red de Docker. Se puentea igual
+#    que los Postgres: `Service` sin selector + `Endpoints` al host, en `11-api-externo.yaml`.
+#    Verificado desde dentro del clúster antes de migrar: devuelve `{"status":"ok",...}`.
+#
+# 3. Su sonda es `health-lane.sh`, no `health.js`. Ese script está bien hecho —sale **1** si no
+#    puede resolver el destino, en vez del `exit 0` que dejó decorativa a la sonda de
+#    `[K3S.7]`—. Probado con este mismo secreto en un pod desechable ANTES de migrar: detectó
+#    correctamente que el contenedor de Compose seguía siendo el dueño del carril.
+#
+# ⚠️ El `while` de reintento se conserva tal cual. En K8s lo natural sería dejar caer el pod y
+# que el kubelet lo reinicie, pero eso entra en `CrashLoopBackOff` con esperas crecientes — para
+# un carril de 25 s es peor. Se migra tal como funciona; cambiar el patrón es otro commit.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: store-poller
+  namespace: ingesta
+  labels:
+    carril: store-poller
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: store-poller
+  template:
+    metadata:
+      labels:
+        carril: store-poller
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: poller
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - 'while :; do node database/importers/kepler/live-tickets-poller.js; echo "[$(date "+%F %T %Z")] poller cayo, reintento en 10s"; sleep 10; done'
+          envFrom:
+            - secretRef:
+                name: feeds-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            - name: STORE_INGEST_URL
+              value: http://api:10000/api/store/live/ingest
+            - name: POLL_SECONDS
+              value: "25"
+            - name: WINDOW_MINUTES
+              value: "5"
+            - name: ODS_HB_KEY
+              value: store_poller
+            - name: ODS_HB_MAX_MIN
+              value: "10"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+          livenessProbe:
+            exec:
+              command: ["/app/ops/ingest/health-lane.sh"]
+            initialDelaySeconds: 180      # = start_period del compose
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }

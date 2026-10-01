@@ -9,6 +9,328 @@
 ---
 
 ## [Unreleased]
+### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)
+Pedido: *"ya CEDIS usa el 9.95, hay que integrar la nueva información, borrar las referencias
+BIRAPUATO y funcionar históricos"*.
+
+⛔⛔ **Lo urgente no era la integración.** `import-cedis-stock-wincaja.js` hace un MERGE **con
+DELETE**, y lo frenaban dos puertas: **A) cutover** (`kepler_code`, en NULL) y **B) frescura** (la
+fuente llevaba 10 días muerta). Medido hoy: **la puerta B dejó de frenar** — el último movimiento de
+Wincaja `00` pasó a ser del **2026-09-28 (2 días, tope 3)** porque los carriles PM2 de la réplica,
+parados desde el 22-sep, **se reiniciaron en esta misma sesión**. La única contención era
+circunstancial y se evaporó sola.
+
+**Declarado el corte, en las dos tablas que el guard consulta** (porque discrepaban):
+`commercial.warehouses.00.kepler_code = '00'` + `wincaja.branches.00.kepler_cutover_date =
+2026-09-30`. Verificado en prod: el guard ahora devuelve `ok:false · reason:'cutover_done'` — **por
+diseño, no por accidente**. La fecha sale del hecho: la carga inicial es `N-A-45`/`N-A-30` folio
+`0000001` del 30-sep (127 líneas · $8,655,455 · 340,077 u).
+
+⛔ **"Borrar las referencias BIRAPUATO" habría roto los históricos que el mismo pedido quiere
+conservar.** `wincaja_source_branch = '00'` **es** el puente al pasado: el resolvedor de corte lo usa
+para decidir *antes del 30-sep → Wincaja · desde → Kepler*. Se conserva. Lo que sí salió es el
+**rótulo**: `CEDIS BPIRAPUATO` → `CEDIS Irapuato` (nombraba el archivo `.mdb`, no el almacén).
+
+⚠️ **Y "ya usa el 9.95" es cierto para el inventario, no para la venta.** Kepler `00` **ya vendía
+desde antes** (79–143 docs/día hasta el 20-sep y más atrás): es OFICINAS/facturación centralizada. Y
+**`00` no aparece en `wincaja.v_sales_lines`** — sólo `30` y `32`. El CEDIS **nunca vendió al menudeo
+en Wincaja**; su papel ahí era existencia. Por eso el sell-out nunca lo tuvo.
+
+⛔ **NO se apuntó la existencia a Kepler, a propósito.** El mecanismo existe (`stockMap({cedis:true})`)
+y queda APAGADO: `kdil` de la `00` trae **12,181,690 u** sin pseudo-SKUs contra **340,077** capturadas
+= **35.82×**. La carga parece haberse SUMADO al saldo viejo de OFICINAS. Encenderlo hoy inflaría el
+CEDIS 35 veces en la pantalla de almacén y en el sugerido de compras. **Consecuencia declarada:**
+`commercial.stock` del CEDIS queda **congelado en la foto del 2026-09-28** — congelado y declarado le
+gana a 35× y mudo, pero es un hueco con nombre.
+
+⭐ **Radio medido antes de aplicar, no después:** declarar el corte mete la `00` al resolvedor y la
+pierna Kepler del sell-out filtra por ahí. Lo que entraría en el próximo refresh es **$0.00** (sólo 2
+documentos con almacén `00`, importe cero: los millones son doctypes fuera de `(8,10,12)`).
+
+**Las otras 3 alarmas de `check-cedis-cutover.js`, para el negocio:** la carga cubre **127 líneas
+contra 196 SKUs con existencia (65%)** — el patrón de Padre Hidalgo, *cargó una ruta y no el
+almacén*; el saldo parece **sumado y no reemplazado**; y **104 SKUs / $516,534 (6.3%)** no llegaron.
+Más **2 documentos fechados 2026-10-08**, ocho días en el futuro, por $1,200,000.
+
+También corregido: el bloque final de la compuerta moría con `bind message supplies 2 parameters` —
+comparaba `m.c1=$1` (el **almacén** contra la **sucursal**) y le faltaba un parámetro, así que la
+lista de SKUs faltantes nunca se imprimía.
+
+### Fixed — el sensor del CEDIS vigilaba un feed que nosotros apagamos; ahora vigila lo que lo destraba (IC.CEDIS.2, 2026-09-30)
+Cierra el paso que quedaba de IC.CEDIS.1: el sensor de `db-health`, que **no necesitaba un rótulo
+nuevo sino una fuente nueva**.
+
+⛔ **`stock_cedis_00` iba a ponerse ROJO el 2026-10-02 ~12:07 y quedarse rojo para siempre**, diciendo
+*"el feed se cayó"*, que es **falso**: el feed lo retiramos nosotros al declarar el corte, y
+`import-cedis-stock-wincaja.js` era su único escritor. Última escritura real medida en prod: **29/09
+12:07, 196 SKUs** — con `warnH: 30` ya estaba en warn a las **31.1 h**. Un rojo permanente por una
+decisión propia no es una alarma: es ruido que enseña a ignorar el tablero. **Sonda RETIRADA** con su
+fecha y su motivo. ⭐ Y no queda ciega: el mecanismo de `retiredOn` la pasa a `warn` si la tabla
+vuelve a recibir datos posteriores al corte — o sea que **la retirada se auto-denuncia el día que
+deja de ser cierta**, que es justo el día que se encienda `stockMap({cedis:true})`.
+
+⭐ **El relevo mide la CONDICIÓN que destraba el hueco**, no un proceso: `cedis_kepler_saldo` compara
+el saldo de arranque de `kepler_ods.kdil` (sucursal 00, sin pseudo-SKUs) contra lo que se contó en la
+captura `N-A-45` **más reciente**. Mientras no cuadre, la existencia del CEDIS sigue sirviendo la foto
+del 28-sep; cuando cuadre, el sensor se pone verde y **ése es el día de encender `cedis:true`**. El
+umbral **1.5× está copiado de `check-cedis-cutover.js`**, no inventado acá — dos umbrales para el
+mismo hecho serían dos verdades.
+
+⚠️ **Nace rojo y es correcto que nazca rojo:** 12,181,690 u contra 340,077 u = **35.82×**. Lo corrige
+quien cargó el inventario, **en Kepler** (ADR-040). ⚠️ Se toma la captura **más reciente** y no la suma
+del histórico: hoy hay una sola (30-sep, 127 líneas), así que no cambia la cifra — cambia qué pasa el
+día que vuelvan a cargar, que es justo lo que queremos que pase.
+
+**Los tres estados, probados contra prod con el SQL extraído del archivo** (no con una copia a mano):
+hoy → `35.82x` + *"corregir EN KEPLER"*; con el saldo escalado a ×0.027 → `0.97x` + *"se puede
+encender stockMap cedis:true"*; sin captura `N-A-45` → **`NO MEDIDO`**, y cae en crítico, nunca en
+verde (ADR-056). Costo: **16 ms**.
+
+⚠️ **El comentario que decía *"el CEDIS real es BPIRAPUATO y vive en WINCAJA, no en Kepler"* dejó de
+ser cierto hoy** — se deja escrito, fechado y tachado en vez de borrarlo, porque explica la sonda. La
+línea que de verdad se evalúa es el `retiredOn`: un comentario no avisa cuando caduca.
+
+**Hallazgo colateral — el candado `test-db-health-tz-bias.js` estaba ROJO desde antes** (verificado
+reproduciendo su predicado contra `HEAD`, no asumiéndolo): `expense_log_date` casteaba `::timestamp`
+sin estar declarado en `CAST_JUSTIFICADO`. Medido en prod: `analytics.expense_entries.fecha` es
+**`date` (OID 1082)** → cast **redundante, no sesgado**, mismo caso que `sales_daily_date`. Declarado
+con la medición. El candado vuelve a **8 ✓ / 0 ✗ / 1 NO MEDIDO** (los bloques con DB se declaran, no
+se dibujan verdes).
+
+### Fixed — el CEDIS se volvió INVISIBLE al declarar su corte, y dos cosas que yo había afirmado estaban mal (IC.CEDIS.6/7, 2026-10-01)
+Reporte de Edgar: *"/compras/existencia no muestra las existencias en CEDIS"*. Mig
+`20261001130000`, **prod batch 647** + candado `test-newdb-cedis-stock-truth.js` (**9 ✓ / 0 ✗ /
+1 NO MEDIDO** contra prod). Detalle completo en [`VERDAD_ABSOLUTA.md` §17](docs/VERDAD_ABSOLUTA.md).
+
+⛔ **Es una regresión que introduje yo, el día anterior.** `v_erp_stock_on_hand` tiene dos piernas y
+el almacén `00` se cayó de **las dos**: la de Kepler lo excluía **a mano** (`w.kepler_code <> '00'`,
+escrito cuando se creía que esa sucursal era OFICINAS) y la de Wincaja sólo acepta
+`kepler_code IS NULL`. La mig del corte (batch 644) le puso `kepler_code='00'` y con eso lo sacó de
+una pierna sin meterlo en la otra. **El nodo que surte a la red estuvo un día entero en blanco**, y
+lo encontró un humano, no un test. ⭐ Una exclusión escrita como literal es una **premisa congelada**:
+cuando caduca, el filtro no avisa — devuelve menos filas, que se lee igual que *"no hay"*.
+
+⛔ **Dos afirmaciones mías, refutadas midiendo:**
+
+1. *«El saldo está 35.82× inflado porque la carga se SUMÓ»* — **falso**, y lo sostuve tres veces. Mi
+   consulta leía el SKU en `kdm2.c3`; el SKU es **`c8`**. Con la columna correcta: los **127 SKUs
+   contados tienen en `kdil` exactamente 340,077 u = lo contado (1.00×)**, 0 contados sin saldo. **La
+   carga cuadra a la unidad y no hay nada que corregir en Kepler.** La compuerta ya lo había medido.
+2. *«La `00` de Kepler es OFICINAS y no mueve mercancía»* — **falso**: recibe 2,000–2,400 documentos
+   y despacha 713–1,603 **cada mes desde abril**, sobre ~2,900 SKUs. El CEDIS de Wincaja no se mudó:
+   **se fusionó con un almacén que ya existía y ya operaba**. Excluirlo era la anomalía.
+
+**Se publica completo, no sólo lo contado**, y la decisión se tomó midiendo: los 10 SKUs más grandes
+son el **9.0%** del total — está repartido entre miles, no concentrado en basura. Verificado tras
+aplicar: las otras 8 sucursales conservan **idéntico conteo de SKUs**, `security_invoker` y los
+GRANT sobrevivieron al `CREATE OR REPLACE` (que no los hereda), y ningún (almacén, SKU) sale por las
+dos piernas a la vez.
+
+⛔ **HUECO DECLARADO, con número:** Kepler tiene **DOS** columnas de existencia y **se contradicen en
+las nueve sucursales** — `kdil` (`c4+c8−c9`, la que publicamos en todos lados) contra `kdik.c6` (que
+no consume nadie): razones de **0.09× a 5.45×** y ~99% de los SKUs distintos en cada rama. ⭐ **Un
+testigo que contradice SIEMPRE no arbitra — es el reverso exacto de R5.** Se reporta **NO MEDIDO**,
+nunca ✔ ni ✖, porque no se puede cerrar sin decidir antes *qué mide* `kdik.c6`. Y conviene decirlo
+en voz alta: **la existencia de las nueve sucursales se publica sin un segundo testigo que la
+respalde**. No es un problema del CEDIS; es del dato de existencia completo.
+
+⚠️ El candado mismo dio un falso rojo primero: preguntaba los GRANT por
+`information_schema.role_table_grants`, que **sólo muestra lo que ve el rol conectado** (1 de 2
+corriendo como `dev_ro`). Se cambió a `has_table_privilege`. *Un candado que falla según quién lo
+corre enseña a ignorarlo.*
+
+### Changed — el almacén 00 se llama «CEDIS», a secas (IC.CEDIS.5, 2026-10-01)
+Decisión de Edgar: *"antes era CEDIS BIRAPUATO; ahora sólo debe llamarse **CEDIS** para identificar
+el nuevo CEDIS de Kepler"*. Mig `20261001120000`, **prod batch 646**.
+
+La cadena completa, para que nadie la reconstruya mal: `Cedis Oficinas` (nombraba la sucursal
+**Kepler**, que era OFICINAS) → `CEDIS BPIRAPUATO` (nombraba el **archivo `.mdb`** de Wincaja) →
+`CEDIS Irapuato` (nombraba la **plaza**) → **`CEDIS`**. Los tres primeros nombraban la FUENTE o el
+lugar; ninguno nombraba la cosa.
+
+⭐ El criterio: los otros tres hubs de compra llevan el nombre de su plaza (`01 Padre Hidalgo`,
+`08 Morelia Abastos`, `06 Canindo`) porque son **sucursales que además consolidan**. El `00` no es
+una plaza que consolida: **es el CEDIS**, el único corporativo — y `mainCedis()` de `/compras/pedido`
+lo elige justamente por eso. Agregarle la ciudad sugiere que puede haber otro CEDIS en otra ciudad.
+
+**Seguro porque se midió antes:** ningún predicado del repo compara contra el nombre literal (todas
+las coincidencias son rótulos, comentarios o texto de ayuda); la identidad son `code`, `kepler_code`
+y `wincaja_source_branch`, que no se tocan. Y se condicionó a los dos nombres conocidos en vez de
+pisar a ciegas, por si otra sesión lo hubiera renombrado.
+
+⭐ **El rename se propagó solo**, que es la prueba de que el modelo deriva en vez de copiar: un
+barrido de **todas** las columnas de texto de 5 schemas de prod buscando «IRAPUATO» dejó de
+encontrarlo en `analytics.v_branch_zone.branch_name` sin tocar esa vista. Lo único que queda son
+**11 registros de `db_health_alerts` de agosto** con el rótulo viejo de la sonda retirada: son
+historia y **no se reescriben** — una alerta que pasó, pasó con el nombre que tenía ese día.
+
+### Fixed — «en /compras/pedido aún se menciona CEDIS BPIRAPUATO»: el rótulo ya estaba, lo que quedaba eran AFIRMACIONES falsas (IC.CEDIS.4, 2026-10-01)
+Reporte de Edgar. **Primero la corrección al reporte, medida:** en `/compras/pedido` el nombre ya
+sale bien. Se replicó contra prod la consulta exacta que alimenta ese selector (`filters`, lee
+`w.name` en vivo, sin caché ni copia denormalizada) y devuelve **`00 · CEDIS Irapuato`**; la única
+fila con «Irapuato» en `commercial.warehouses` —incluidas las borradas— es ésa, renombrada el 30-sep
+18:58. Dev local apunta a **la misma DB de prod** (`192.168.0.222:5434`), así que no es un tema de
+ambiente: si todavía se ve el nombre viejo es una pestaña abierta desde antes de esa hora.
+
+⭐ **Pero el barrido encontró lo que sí importa, y no son rótulos.** `BPIRAPUATO` nombraba el `.mdb`
+de Wincaja, y lo que quedó regado por el repo no es el nombre sino la **afirmación de que el CEDIS se
+alimenta de Wincaja**, que es falsa desde el corte:
+
+- ⛔ **`THOT_BUSINESS_CONTEXT`** — el contexto que se le pasa al LLM del chat de Thot — le decía
+  literalmente *"00 CEDIS BPIRAPUATO … su existencia sale de WINCAJA; la sucursal 00 DE KEPLER es
+  OFICINAS y no vende"*. Las tres partes envejecieron el mismo día. Ahora declara el corte, **y
+  declara el hueco**: que la existencia del CEDIS está congelada en la foto del 28-sep porque Kepler
+  trae el saldo 35.82× inflado, con la instrucción de decirlo en vez de publicar la cifra como si
+  estuviera al día. De paso, los códigos de Morelia estaban **pre-migración** (`MD-30`/`MD-32`): hoy
+  son `08` y `07`, con los viejos como alias — un código stale ahí hace que el chat resuelva el
+  almacén equivocado.
+- ⚠️ **`/compras/red`**, dos textos **visibles** (encabezado y pie) afirmaban *"el CEDIS (Wincaja
+  Irapuato)"*. La cadencia de surtido sigue siendo correcta pero es **historia que deja de crecer**:
+  se midió sobre Wincaja. La pantalla ahora lo dice.
+- Más 5 comentarios en `/compras/pedido`, el contrato de orden de almacenes, Existencia y el sensor
+  retirado. Se **fechan y tachan** en vez de borrarse (patrón de la casa): *"decía X, dejó de ser
+  cierto el 30-sep"*. Un comentario borrado no explica la sonda; uno sin fecha vuelve a engañar.
+
+Sin cambios de datos ni de cálculo. `nx test contracts` **233/233**; el candado `tz-bias` sigue en
+**8 ✓ / 0 ✗ / 1 NO MEDIDO**.
+
+### Fixed — el tope de la lista de cambios contaba renglones, no etiquetas (ETQ-CAMBIOS.7, 2026-09-30)
+Continuación del audit de `/tienda/etiquetas/cambios`. **Dos correcciones a lo que yo mismo
+reporté**, las dos por medir mal:
+
+⛔ **Dije que el tope era 200 y que truncaba el 30% de los días. Los dos números eran míos, no del
+sistema.** `TOPE_CAMBIOS` vale **300**, y yo había pasado `201` como parámetro en mi sonda
+asumiendo 200. Con el tope real: **13.0%** de los días-plaza truncan (96 de 739 en 90 días).
+
+⭐ **Y el arreglo no era subir el tope: era dejar de contar dos veces.** `LabelModel` es por
+PRODUCTO y lleva todos los precios en una sola etiqueta (pieza, paquete, caja), mientras la bitácora
+escribe una fila **por unidad**. Marcar dos renglones del mismo SKU mandaba **una sola** etiqueta a
+la cola (el `resolve` deduplica por `new Set`), así que la lista sobre-representaba el trabajo y el
+tope recortaba etiquetas que sí cabían.
+
+Medido sobre 90 días (739 días-plaza):
+
+```
+                      máx   prom   días que truncan (tope 300)
+contando renglones    636    161     96   (13.0%)
+contando productos    245     69      0   (0%)
+```
+
+El peor día lo dice todo: sucursal **06, 20-ago → 636 renglones pero sólo 115 productos** (5.5
+unidades por producto). El tope ataba justo donde la duplicación era máxima: la encargada veía 300
+de 636 renglones. Ahora ve **sus 115 productos completos**, en 33 ms.
+
+El tope ahora cuenta productos y `truncado` sale de la consulta (`productos_del_dia`) en vez de
+deducirse del largo de la lista — deducirlo diría "truncado" en días completos, porque un producto
+trae varias filas. La pantalla dice **cuántos productos cambiaron y cuántos se muestran**, no
+cuántos renglones.
+
+Además, las filas del mismo SKU ahora salen **juntas y ordenadas entre sí**. Antes el orden era el
+delta de cada renglón, así que la pieza y la caja del mismo producto podían quedar a 80 filas de
+distancia y se leían como dos productos distintos.
+
+⭐ Y esto **disuelve el tercer hallazgo del audit** sin escribir nada: el orden por `|delta|` en
+pesos sin mirar rotación sólo importaba porque el tope ataba. Con 0 días truncados en 90, el orden
+ya no decide qué se ve. No hacía falta un orden por rotación; hacía falta dejar de duplicar.
+
+⚠️ **Séptima vez que un backtick rompe algo acá**: esta vez `` `[ETQ-CAMBIOS.7]` `` dentro del
+template literal de la SQL, que cortó la cadena y tiró 13 errores de compilación.
+
+`nx build api` OK. ⚠️ `nx build view` queda **rojo por archivos de otra sesión** en este árbol
+compartido (`persona-datos.component.ts` 13 errores, `persona-detalle.component.ts`; ambos con ` M`
+sin commitear). Ninguno de mis archivos aparece en la lista de errores. Sin ejercer el gesto: el API
+local no corre.
+
+### Fixed — 13 de 33 personas abrían /etiquetas/cambios en un callejón sin salida (ETQ-CAMBIOS.6, 2026-09-30)
+Auditoría de `/tienda/etiquetas/cambios`. **La pantalla está bien construida** —verificado contra la
+base y la plantilla, no contra sus comentarios—: cobertura de las 9 sucursales Kepler frescas hasta
+hoy, consulta en **5–15 ms**, y declara de verdad el truncamiento, el ruido de centavo (27.1% de los
+movimientos), la fecha de la fuente y la frescura en **tres** estados, `unknown` incluido.
+
+⛔ **El hallazgo:** la plaza sale del `warehouse_code` del propio usuario, y **13 de las 33 personas
+con `STORE_LABELS_VER` no tienen ninguna** (`superadmin` 6, `auxiliar_compras` 4, `direccion` 2,
+`supervisor` 1 — el 39%). El vacío que veían era honesto pero sin salida: Compras, Dirección y
+Supervisión **no tienen "su tienda"**, y son justo quienes miran varias.
+
+Ahora eligen. Quien SÍ tiene tienda **queda anclado a la suya** y no ve el selector: esto no es una
+puerta para espiar otra plaza. Cambiar de plaza limpia la selección por la misma razón que cambiar
+de día — lo marcado para 8 Esquinas no es lo que se imprime en Canindo, y ahí el error no se ve: la
+etiqueta sale con el precio de la otra tienda.
+
+⭐ **La lista se DERIVA de `analytics.v_label_price_changes`, no de una constante.** Dos razones
+medidas: así el selector no puede ofrecer una plaza que devuelva vacío, y `STORE_BRANCHES` del
+frontend rotula la `00` como «CEDIS» cuando la sucursal `00` de la bitácora de Kepler es
+**OFICINAS** — copiarla habría propagado el rótulo equivocado.
+
+⚠️ **Cota de 60 días, declarada:** sin ella el `max(fecha)` recorre la bitácora entera y tarda
+**3,738 ms** contra **173 ms**. El precio es que una plaza sin movimiento en 61 días desaparecería
+del selector; medido hoy, las 9 tienen movimiento **hasta hoy**.
+
+También cerrado, y era una trampa armada: el front daba por buena cualquier `warehouse_code` no
+vacía y el backend sólo acepta `\d{2}`. Una plaza con otra forma (`RUTA-21`) pasaba el `@if`, el
+backend la rechazaba y salía una **tabla vacía** — «no cambió nada» en vez de «tu plaza no sirve
+acá». Medido: **cero** usuarios así hoy. Validar del mismo lado que el backend la desarma.
+
+**Declarado, NO arreglado** (fuera del alcance de esta pantalla): `var(--text-color-secondary)`
+tiene **cero definiciones** en `libs/design-tokens/tokens.css` y sobreviven **23 usos reales de CSS
+en 3 archivos** (`commercial-map.component.css`, `styles.css`). El encabezado de esta misma pantalla
+afirma que `[UIM.1]` los renombró todos: hoy eso es falso, y es literalmente la lección que ese
+comentario enseña.
+
+**Sigue abierto del audit:** el **30% de los días-plaza no cabe** en el tope de 200 (82 de 274 en 30
+días, picos de 509). En esos días hay 332 renglones / 151 productos y se ven **120: se caen 31
+(21%)**. Y trunca justo los días de recotización masiva (02-sep y 22-sep pegaron en *todas* las
+plazas). Lo agrava que el **82.9%** de los (plaza, día, SKU) trae más de una unidad, así que 200
+renglones nunca fueron 200 productos. El orden que sobrevive al tope es **|delta| en pesos, sin
+mirar rotación** — criterio que sólo ahora se vuelve estructural.
+
+`nx build api` + `nx build view` OK. ⚠️ **Sin ejercer el gesto**: el API local no está corriendo, así
+que el clic en el selector no se probó contra el cableado real.
+
+### Changed — Guía de Cobranza: Total factura · Abonos/Pagos · Saldo (GT.17, 2026-09-30)
+- Cada factura de la guía imprime su total, lo abonado (pagos y notas de crédito) y el saldo, en vez
+  de Descuento e Importe. Sin cartera el abono sale «—». Las guías archivadas se reimprimen igual que
+  se firmaron.
+### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
+
+Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
+hostnames de DB y cifras del negocio). O sea que `main` **nunca** va a tener protección del lado de
+GitHub — no es un pendiente, es el escenario definitivo.
+
+⭐ **Entonces la compuerta se mueve a donde sí somos dueños: el despliegue.** Prod dejó Railway el
+2026-09-22 y hoy la despliega `ops/prod/auto-deploy.sh` desde `md`.
+
+**Added**
+- Job `sellar` en `ci.yml`: cuando pasan `build` + `secret-scan`, mueve la rama marcadora
+  **`ci-green`** al commit probado. Sólo en `push` a `main`; un PR verde no es algo que se despliegue.
+- `ops/prod/compuerta-ci.sh` — 4 veredictos: `SELLADO` (0) · `ESPERANDO` (10) · `FRENADO` (20) ·
+  `NO_MEDIDO` (30). Vive en su propio archivo, como `clasificar-migraciones.awk`, **para poder
+  probarlo**: una compuerta con la lógica embebida sólo se testea duplicándola, y un test que
+  duplica la lógica se pone verde con la lógica equivocada.
+- `ops/prod/test-compuerta-ci.sh` — 6 casos, **2 negativos**, corriendo el mismo archivo que corre
+  en prod. `npm run check:compuerta-ci`.
+- `auto-deploy.sh` llama a la compuerta antes de construir. Escape: `AUTO_DEPLOY_SIN_CI=1`.
+
+**Qué frena y qué no, a propósito:** build roto o secreto filtrado → frena. `verify`
+(lint/tests/estilo) → **no** frena: hoy está rojo por deuda preexistente y exigirlo dejaría a
+producción sin despliegues desde el primer día. Apretarlo exige antes partir `verify` en dos.
+Y "todavía sin sello" no es error: espera y reintenta cada 5 min; recién a los 30 min grita.
+
+**Fixed**
+- ⛔ La cabecera de `auto-deploy.sh` afirmaba *"acá sólo entra lo que pasó por la rama protegida"* —
+  **era falso**, y era la premisa de todo su argumento de seguridad. Hasta hoy desplegaba lo que
+  hubiera en `origin/main`, verde o rojo.
+- `REMOTO` en `auto-deploy.sh` apuntaba al nombre viejo del repo; venía funcionando por cortesía
+  del redirect de GitHub, no por estar bien.
+- ⛔ **El candado encontró un bug en la compuerta antes de que llegara a prod**: `git rev-parse` con
+  una ref inexistente **imprime la ref de vuelta en stdout** y sale con error, así que el chequeo de
+  "vacío" nunca disparaba y un repo *sin* marcador se veía igual que uno con el CI corriendo
+  (`ESPERANDO` en vez de `NO_MEDIDO`). Se arregla con `--verify --quiet`.
+
+**Removed**
+- `scripts/apply-branch-protection.js` y su comando npm. Sin Pro no puede correr nunca, y un script
+  que no puede correr insinúa un pendiente que no existe.
+
 ### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
 - `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
   por folio, clave o nombre. `GET /commercial/tickets/bandeja`.
@@ -414,6 +736,34 @@ crecimiento. El primer YoY legítimo de las 8 es **marzo-2027 vs marzo-2026**.
   **que es justo el artefacto**: se calcula por **operación continua**, que los excluye solo. Más:
   en el resolvedor va **`kepler_code`, no `warehouse_code`** (`[IC.CEDIS]` midió el mismo día que
   resuelve 2 de 8).
+### Added — Entrega de compras a Finanzas con folio, y la fecha de recepción real (RE.31–RE.32, 2026-09-29)
+El auxiliar de compras ve lo recibido **por fecha de recepción o de factura**, con brinco por sucursal y
+proveedor A-Z, marca lo que tiene en físico y validado y genera una **entrega `ENT-YYYY-NNNNN`** con quién
+entrega y quién recibe, más su PDF para firmas. La persona de Finanzas la confirma y puede **regresar
+renglón por renglón**.
+
+- **La fecha de recepción ya salía de Kepler, sólo que nadie la leía**: es la captura del vale de entrada
+  (`kdm1.c68`). Verificada contra un árbitro independiente — 417 fotos subidas a `/compras/entradas`, ninguna
+  anterior a esa captura. Y la columna que la vista llamaba `receipt_date` **es la fecha de factura**.
+- Semana del 21 al 27 de septiembre: 244 entradas por entregar, $12.67M, de las 9 sucursales.
+- Una entrada no puede estar en dos entregas vivas: lo garantiza un índice único parcial en la base.
+- **Pendiente:** 2 migraciones más (van con las de RE.30, ver el runbook) + redeploy + re-login + QA visual.
+
+### Added — Plazos de pago por proveedor, primera etapa de Obligaciones = entrega Compras→Finanzas (RE.30, 2026-09-29)
+El vencimiento de lo que Compras entrega a Finanzas depende de dos datos del **proveedor** que no
+existían bien: cuántos días exactos da y si corren **desde la factura o desde la recepción**.
+
+- **Kepler no sirve de fuente**: su condición sale "de contado" en el 68% de las recepciones porque
+  el plazo nunca se capturó allá (2026: 207 proveedores / $94.0M siempre contado, 97 / $234.7M mixtos).
+  Queda al lado, sólo para comparar.
+- **La fecha de recepción física tampoco existe en Kepler**: el 89% de la cadena comparte la fecha de
+  factura, y la columna que la vista llama `receipt_date` **es** la de factura. La captura la zona (RE.31).
+- `catalog.suppliers` gana `credit_term_base` + confirmación + `is_internal` (reusa el `credit_days`
+  de la Fase PP) e historial append-only. Pestaña **"Plazos por proveedor"** en `/compras/obligaciones`:
+  contra prod, 307 proveedores en 12 meses, **285 sin plazo, 46 cubren el 80%**.
+- ⚠️ `COMPRAS_OBLIGACIONES_*` estaban repartidos a **cero roles** (el candado de reparto está rojo en prod por eso). Se reparten, y se separa `COMPRAS_PLAZOS_AUTORIZAR` (lo negocian comprador/dirección) de `_GESTIONAR` (el auxiliar opera y extiende facturas).
+- El bundle inicial de `view` estaba al límite al empezar (1,399.75 / 1,400 kB); con BND.1–3 ya en `main` mide ~1.22 MB.
+- **Pendiente:** aplicar 2 migraciones + redeploy + re-login + QA visual.
 
 ### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
 El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve

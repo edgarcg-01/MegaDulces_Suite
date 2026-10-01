@@ -1120,7 +1120,21 @@ export class LogisticaService {
   // ⚠️ `costo` puede venir `null` y eso NO es cero: significa que no se registró gasto para ese
   // canal en esa ventana. La pantalla tiene que pintarlo como "sin medir", porque un 0 dice
   // "ese viaje fue gratis" — y de ahí sale un ROI infinito.
-  guideCosts(opts: { from?: string; to?: string; canal?: string; sucursal?: string; limit?: number } = {})
+  /** El catálogo de TODO el filtro en un viaje: tipos de gasto, sucursales y unidades. */
+  guideCostFiltros(opts: { from?: string; to?: string; canal?: string } = {})
+    : Observable<GuideCostFiltros> {
+    let p = new HttpParams();
+    Object.entries(opts).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    });
+    return this.http.get<GuideCostFiltros>(
+      `${this.base}/erp-shipments/costs/filtros`, { params: p });
+  }
+  guideCosts(opts: {
+    from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string;
+    unidad?: string; guia?: string; min_costo?: number; solo_sin_costo?: boolean;
+    orden?: string; limit?: number;
+  } = {})
     : Observable<GuideCostList> {
     let p = new HttpParams();
     Object.entries(opts).forEach(([k, v]) => {
@@ -1691,6 +1705,10 @@ export interface GuideCostRow {
   paradas: number;
   mercancia: number | null;
   costo: number | null;
+  /** El gasto cuyo DEPARTAMENTO es este canal: se sabe de quién es. */
+  costo_directo: number | null;
+  /** El bucket administrativo que no declara canal y se asigna por actividad. */
+  costo_prorrateado: number | null;
   costo_por_parada: number | null;
   costo_estado: 'atribuido' | 'no_medido';
   costo_motivo: string | null;
@@ -1707,19 +1725,69 @@ export interface MargenDeclarado {
   disponible: false;
   motivo: string;
   requiere: string;
+  en_su_lugar?: string;
+}
+
+/** Una opción de filtro. `guias` es la población: un filtro que ofrece y devuelve cero hace
+    perder el tiempo, así que el conteo va a la vista antes del clic. */
+export interface GuideCostFiltroOpcion {
+  valor: string;
+  detalle?: string;
+  guias: number;
+  paradas?: number;
+  total?: number;
+}
+
+export interface GuideCostFiltros {
+  conceptos: GuideCostFiltroOpcion[];
+  sucursales: GuideCostFiltroOpcion[];
+  unidades: GuideCostFiltroOpcion[];
+}
+
+/** Totales del SERVIDOR sobre el rango completo — NO se suman en el cliente. */
+export interface GuideCostTotales {
+  guias: number; guias_con_costo: number; paradas: number;
+  costo: number; mercancia: number; costo_por_parada: number | null;
+  /** La misma cifra partida por NATURALEZA: lo que se sabe vs lo que se reparte. */
+  costo_directo: number; costo_prorrateado: number; pct_prorrateado: number | null;
+  mostradas: number;
+  /** true = la lista está paginada y sumarla daría menos que `costo`. */
+  truncado: boolean;
+}
+
+export interface GuideCostRetorno {
+  /** costo logístico / mercancía movida. NO es margen. */
+  erosion_pct: number | null;
+  pesos_movidos_por_peso_gastado: number | null;
+  nota: string;
+}
+
+/** La mercancía va en su propio bloque: es lo que VALE lo movido, no lo que cuesta moverlo. */
+export interface GuideCostMercancia {
+  valor: number;
+  naturaleza: string;
+  nota: string;
 }
 
 export interface GuideCostList {
   guias: GuideCostRow[];
+  totales: GuideCostTotales;
+  mercancia: GuideCostMercancia;
+  retorno: GuideCostRetorno;
   cobertura: { measured: boolean; pct: number | null; note: string };
   margen_declarado: MargenDeclarado;
 }
 
 export interface GuideCostConcepto {
   concepto: string;
-  cuenta_mayor: string;
-  fuente: 'departamento' | 'otros_admin';
-  ventana: 'diario' | 'mes';
+  familia_costo: string;
+  /** Las cuentas contables donde vive ese concepto (puede ser más de una). */
+  cuentas: string;
+  ventanas: string;
+  /** Las dos vías por las que llega el gasto, separadas en vez de partir el renglón. */
+  de_departamento: number;
+  de_prorrateo: number;
+  renglones: number;
   origen: 'directo' | 'atribuido';
   paradas_guia: number;
   paradas_bucket: number;
@@ -1731,10 +1799,22 @@ export interface GuideCostConcepto {
   dia: string;
 }
 
+/** Una familia de costo con sus conceptos adentro — el agrupador que hace encontrable el gasto. */
+export interface GuideCostFamilia {
+  familia: string;
+  total: number;
+  directo: number;
+  prorrateado: number;
+  pct_del_total: number | null;
+  conceptos: GuideCostConcepto[];
+}
+
 export interface GuideCostBreakdown {
   sucursal: string;
   guia: string;
   total: number;
+  familias: GuideCostFamilia[];
+  /** La lista plana se conserva: el drill a pólizas trabaja sobre el concepto. */
   conceptos: GuideCostConcepto[];
   margen_declarado: MargenDeclarado;
 }

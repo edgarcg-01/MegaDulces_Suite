@@ -150,8 +150,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },
-          { id: 'price-experiments', label: 'Experimentos de precio', route: '/comercial/experimentos-precio', view: [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER], manage: [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
-          { id: 'margin-engine', label: 'Motor de margen', route: '/comercial/motor-margen', view: [Permission.COMMERCIAL_MARGIN_ENGINE_VER], manage: [] },
+          { id: 'price-experiments', label: 'Experimentos de precio', route: '/comercial/precios/experimentos', view: [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER], manage: [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
+          { id: 'margin-engine', label: 'Motor de margen', route: '/comercial/precios/motor', view: [Permission.COMMERCIAL_MARGIN_ENGINE_VER], manage: [] },
           // Promociones y Promos del ERP se mudaron a su PROYECTO propio `mkt` (/mkt) — ver el nodo abajo.
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
@@ -348,7 +348,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
-          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.COMPRAS_PLAZOS_AUTORIZAR] },
           // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
           // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
           // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.

@@ -21,7 +21,14 @@
 # Y eso lo hace MÁS seguro que el despliegue a mano de hoy, no menos: `ops/prod/deploy.sh`
 # archiva el HEAD de quien lo corre, así que puede subir a producción código que nadie revisó y
 # que no está en el remoto — medido el 2026-09-23, prod corrió durante horas un commit que no
-# estaba en `origin/main`. Acá sólo entra lo que pasó por la rama protegida.
+# estaba en `origin/main`. Acá sólo entra lo que está en el remoto.
+#
+# ⛔ ESTA LÍNEA DECÍA "lo que pasó por la rama protegida" Y ERA FALSO. Medido el 2026-09-30:
+# `main` **no tiene ninguna protección** — el repo es privado en plan free y GitHub responde 403
+# tanto a `branches/main/protection` como a `rulesets`, y la cuenta no va a pasar a Pro. O sea
+# que hasta hoy esto desplegaba lo que hubiera en `origin/main`, verde o rojo, sin que nada lo
+# mirara. La compuerta que esa frase daba por hecha es `[CI.SELLO]`, más abajo: exige que el
+# commit esté sellado por el CI (`build` + `secret-scan`) antes de construir.
 #
 # ── ⛔ AUTO-REVERSIÓN ───────────────────────────────────────────────────────
 # Si el humo del login falla, vuelve SOLO a la imagen anterior. No es exceso de celo: pasó ayer
@@ -36,7 +43,9 @@
 set -u
 
 REPO_DIR="${AUTO_DEPLOY_REPO:-$HOME/auto-deploy/repo}"
-REMOTO="git@github.com:edgarcg-01/Trade_marketing.git"
+# ⚠️ El repo se RENOMBRÓ a `MegaDulces_Suite` (medido el 2026-09-30). GitHub redirige el nombre
+#    viejo, así que esto venía funcionando por cortesía del redirect, no por estar bien.
+REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
 RAMA="${AUTO_DEPLOY_BRANCH:-main}"
 LLAVE="${AUTO_DEPLOY_KEY:-$HOME/.ssh/deploy_md}"
 # `[VL.20.4]` `SERVICIOS` YA NO SE FIJA ACÁ: se calcula más abajo, cuando ya se sabe contra qué
@@ -59,7 +68,7 @@ di() { echo "[$(date '+%F %T %Z')] $*"; }
 # `prod-vendor` (el compose los nombra así; `pg-prod` y `pg-rag` NO siguen el patrón, pero este
 # carril no los toca).
 img_de()  { case "$1" in api) echo trade-prod-api ;; worker) echo trade-prod-worker ;; portal) echo trade-prod-portal ;; vendor) echo trade-prod-vendor ;; *) echo '' ;; esac; }
-cont_de() { case "$1" in api) echo prod-api ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
+cont_de() { case "$1" in api) echo prod-api ;; api2) echo prod-api-2 ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
 
 # ── El diario se recorta solo ────────────────────────────────────────────────
 # `md` no tiene `logrotate` a mano para un usuario sin sudo, y una pasada cada 5 minutos escribe
@@ -167,7 +176,7 @@ fi
 # correr acá. Entonces se hace CONSERVADORA — ante cualquier cambio compartido (o ante la duda,
 # o si no se puede comparar) entran las cuatro. Equivocarse de más cuesta minutos de CPU;
 # equivocarse de menos deja producción atrás sin avisar, que es el defecto que esto cierra.
-SERVICIOS="api worker"
+SERVICIOS="api api2 worker"
 _extra=''
 if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
   _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)
@@ -244,6 +253,66 @@ if [ -n "$PEND" ]; then
   exit 1
 fi
 di "migraciones: prod al día"
+
+# ── `[CI.SELLO]` La compuerta de CI, ANTES de construir ─────────────────────
+# Sólo se despliega un commit que el CI haya SELLADO (job `sellar` en ci.yml, que mueve la rama
+# marcadora `ci-green` cuando `build` y `secret-scan` pasan).
+#
+# ── Por qué acá y no en GitHub ──────────────────────────────────────────────
+# Porque la protección de rama no se va a comprar (decisión del 2026-09-30) y en un repo privado
+# de plan free no existe. La cabecera de este archivo decía "acá sólo entra lo que pasó por la
+# rama protegida" — **era falso**: `main` no tiene ninguna protección, así que hasta hoy este
+# script desplegaba lo que hubiera en `origin/main`, verde o rojo. Ésta es la compuerta que esa
+# frase daba por hecha.
+#
+# ⭐ Y es la única que NO se evade: `.githooks/pre-push` vive en la máquina de cada dev, se salta
+# con `--no-verify` y no existe para quien no corrió `npm run hooks:install`. Esto corre en `md`.
+#
+# ── Qué frena y qué no, a propósito ─────────────────────────────────────────
+#   · build roto o secreto filtrado → FRENA. Lo primero no funciona; lo segundo ya se filtró.
+#   · lint/tests/estilo (`verify`)  → NO frena. Hoy está rojo por deuda preexistente y exigirlo
+#     dejaría a producción sin despliegues desde el primer día. Se declara en el CI.
+#
+# ⚠️ "Todavía sin sello" NO es un error: el CI tarda ~4 min y la agenda dispara cada 5, así que
+#    la pasada que sigue a un push normalmente llega antes que el sello. Eso late `ok` y espera.
+#    Recién a los 30 min se vuelve error — para entonces no es que falte, es que falló.
+# ⚠️ Si `ci-green` no se puede traer, esto NO frena: no haber medido no es motivo para bloquear
+#    un despliegue (ADR-056, mismo criterio que la auto-reversión con la red caída).
+# ⚠️ La lógica NO vive acá: vive en `compuerta-ci.sh`, por lo mismo que `clasificar-migraciones.awk`
+#    — para que `test-compuerta-ci.sh` pueda correr EL MISMO archivo que corre en producción.
+COMPUERTA_CI="$HOME/ops/prod/compuerta-ci.sh"
+AVISO_CI=""   # se llena sólo si se desplegó sin compuerta; viaja hasta el latido final
+if [ "${AUTO_DEPLOY_SIN_CI:-0}" = "1" ]; then
+  di "compuerta CI: SALTEADA a mano (AUTO_DEPLOY_SIN_CI=1)"
+elif [ ! -f "$COMPUERTA_CI" ]; then
+  # ⛔ NO se frena por esto, y la primera versión SÍ lo hacía — habría parado TODOS los despliegues
+  #    desde el commit que la introdujo hasta que alguien hiciera el `scp`. Los archivos de
+  #    `ops/prod/` llegan a `md` a mano (igual que `clasificar-migraciones.awk`), así que "todavía
+  #    no está copiada" es el estado NORMAL el día que esto se publica, no una avería.
+  # ⚠️ Pero tampoco se finge verde: late `ok` con la nota que lo dice, así se ve en Salud BD que la
+  #    compuerta NO está puesta. Un gate ausente que no se declara es indistinguible de uno que
+  #    pasa — que es exactamente cómo este repo llegó a desplegar rojo sin que nadie lo notara.
+  di "compuerta CI: NO INSTALADA — falta $COMPUERTA_CI en md. Se sigue, pero NADIE está mirando el CI."
+  di "  Instalarla:  scp ops/prod/compuerta-ci.sh superoot@192.168.0.222:~/ops/prod/"
+  # ⚠️ El aviso viaja hasta el latido FINAL, no se late acá: el `latir ok` del cierre pisaría a
+  #    éste y en Salud BD no quedaría rastro de que se desplegó a ciegas.
+  AVISO_CI=" · ⚠️ SIN compuerta de CI (falta compuerta-ci.sh en md)"
+else
+  VEREDICTO=$(sh "$COMPUERTA_CI" "$REPO_DIR" HEAD 2>&1); RC=$?
+  case "$RC" in
+    0)  di "compuerta CI: $VEREDICTO" ;;
+    10) di "compuerta CI: $VEREDICTO"
+        di "  El CI tarda ~4 min y esta agenda dispara cada 5; la pasada que viene lo agarra."
+        latir ok "esperando el sello del CI para $DESEADO"
+        exit 0 ;;
+    30) di "compuerta CI: $VEREDICTO — se sigue, no se frena por no haber medido (ADR-056)." ;;
+    *)  di "FRENADO: $VEREDICTO"
+        di "  O falló build/secret-scan, o el job 'sellar' no corrió. Mirá: gh run list --branch $RAMA --limit 3"
+        di "  Escape de emergencia: AUTO_DEPLOY_SIN_CI=1 sh \$HOME/ops/prod/auto-deploy.sh"
+        latir error "$DESEADO sin sello del CI — despliegue frenado"
+        exit 1 ;;
+  esac
+fi
 
 # ── Construir y recrear ─────────────────────────────────────────────────────
 # ⚠️ Las funciones se DEFINEN antes de usarlas: en `sh` no hay izado. Estaba declarada 50
@@ -395,6 +464,31 @@ if [ -z "$vivo_ahora" ] || { [ "$vivo_ahora" != "$DESEADO" ] && [ "$DESEADO" != 
   revertir; latir error "commit no coincide tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
 fi
 
+# ── `[VL.15.D2]` Y AHORA CADA RÉPLICA, no "una cualquiera por el balanceador" ───────────────
+# El chequeo de arriba hace UN `curl` al 8080, que es Caddy, que balancea entre `api` y `api2`
+# con `lb_policy cookie`: la respuesta viene de UNA de las dos, y cuál es azar.
+#
+# ⛔ MEDIDO EL 2026-10-01, y por eso existe esto: `prod-api` servía `13a2379` y `prod-api-2`
+# servía `477319f`. **Ocho horas sirviendo DOS versiones a la vez**, repartidas por cookie — y
+# este chequeo daba verde todas las veces, porque le tocaba la buena. La causa era que
+# `SERVICIOS` decía `"api worker"` y nunca recreaba la segunda réplica: la que `[INFRA.2]` puso
+# para que el despliegue no cortara servicio era, justamente, la que se quedaba vieja.
+#
+# ⚠️ `api2` NO se reconstruye —comparte `trade-prod-api:latest` con `api`, y el bucle de build
+# recorre una lista fija que no la incluye— pero sí tiene que RECREARSE. Por eso entró a
+# `SERVICIOS`; esto es el candado que comprueba que de verdad entró.
+# ⚠️ Se le pregunta a cada contenedor DIRECTO (`docker exec`), no por el 8080: preguntarle al
+# balanceador es exactamente lo que no distingue una réplica de la otra.
+# ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
+for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); do
+  _k=$(docker exec "$_c" node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
+  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
+    di "FALLO: la réplica $_c sirve '${_k:-nada}' y se levantó '$DESEADO'."
+    revertir; latir error "réplica $_c desfasada tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+  fi
+  di "réplica $_c sirve $_k"
+done
+
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
   -X POST http://127.0.0.1:8080/api/auth-mt/login \
   -H 'Content-Type: application/json' -d '{"username":"zz_humo_auto","password":"zz"}' 2>/dev/null || echo 000)
@@ -407,7 +501,7 @@ case "$codigo" in
 esac
 
 di "DESPLEGADO $DESEADO (venía de $ANTERIOR)"
-latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS"
+latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
 
 # ── [VL.20.5] LA PODA, DESPUÉS DE DESPLEGAR ─────────────────────────────────────────────────
 # ⛔ Acá estaba el agujero: `podar_imagenes()` existía en `deploy.sh` y funcionaba, pero el

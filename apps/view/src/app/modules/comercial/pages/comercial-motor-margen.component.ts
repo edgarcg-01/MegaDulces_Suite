@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PRECIOS_TABS } from '../precios-tabs';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
@@ -8,6 +10,9 @@ import {
   MotorMargenService, type ResumenMotor, type ColaRow, type DetalleMotor,
   type RegistroSenales, type AccionResumen,
 } from '../motor-margen.service';
+import {
+  ComercialMotorMargenExpedienteComponent,
+} from './comercial-motor-margen-expediente.component';
 
 /**
  * `[PR.V1]` — **Motor de margen.** Operations: tabla densa + maestro-detalle.
@@ -42,10 +47,13 @@ import {
 @Component({
   selector: 'app-comercial-motor-margen',
   standalone: true,
-  imports: [CommonModule, TableModule, ButtonModule, SkeletonModule],
+  imports: [CommonModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule,
+    ComercialMotorMargenExpedienteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <div class="surf-page mm">
+
+  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" variant="liquid" /></div>
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">
@@ -137,7 +145,13 @@ import {
           }
         </div>
 
-        <p-table [value]="cola()" styleClass="p-datatable-sm surf-table surf-table--sticky"
+        <!-- ⚠️ Atributo class y NO styleClass: el gate check-primeng-api.js marca styleClass
+             en p-table como retirado en v22. No se puede resolver leyendo el codigo -el propio
+             CSS de styles.css lo documenta al reves- asi que se usa el atributo DOM, que
+             aterriza en el host pase lo que pase. Los selectores son descendentes e igual
+             funcionan. (Y este comentario NO lleva acentos graves: adentro de un template
+             literal lo TERMINAN. Van nueve veces en este repo.) -->
+        <p-table [value]="cola()" class="p-datatable-sm surf-table surf-table--sticky"
                  [rowHover]="true" selectionMode="single"
                  [(selection)]="seleccion" (selectionChange)="abrir($event)" dataKey="sku">
           <ng-template #header>
@@ -199,85 +213,20 @@ import {
         </p-table>
       </section>
 
-      <!-- ══ EL PLAN DE MARGEN DEL SKU ════════════════════════════════════════════════════ -->
-      @if (det(); as d) {
-        <aside class="mm-det" aria-label="Plan de margen del producto">
-          <div class="mm-det-head">
-            <div>
-              <h2>{{ d.accion.nombre }}</h2>
-              <p class="mm-det-sub">{{ d.accion.sucursal }} &middot; SKU {{ d.accion.sku }}</p>
-            </div>
-            <button type="button" pButton class="p-button-text p-button-sm" icon="pi pi-times"
-                    aria-label="Cerrar" (click)="cerrar()"></button>
-          </div>
-
-          <!-- ⭐ LA TIRA DE COBERTURA: con cuánta evidencia se está opinando de este SKU. -->
-          <div class="mm-tira" role="img"
-               [attr.aria-label]="'Evidencia: ' + d.accion.familias_con_evidencia + ' de ' + d.accion.familias_totales + ' familias'">
-            @for (f of d.familias; track f.n) {
-              <span class="mm-seg" [attr.data-c]="f.cobertura" [title]="f.nombre + ' — ' + (f.cobertura || 'sin dato')"></span>
-            }
-          </div>
-          <p class="mm-tira-l">
-            <strong>{{ d.accion.familias_con_evidencia }}</strong> de
-            {{ d.accion.familias_totales }} familias con evidencia
-          </p>
-
-          <h3 class="mm-det-h3">Qué hacer</h3>
-          <p class="mm-det-acc">
-            <span class="mm-acc-tag">{{ etiqueta(d.accion.accion) }}</span>
-            <span class="mm-cert" [attr.data-c]="d.accion.certeza">{{ certezaTxt(d.accion.certeza) }}</span>
-          </p>
-          @if (d.accion.monto_motivo) { <p class="mm-nota">{{ d.accion.monto_motivo }}</p> }
-          @if (d.accion.bloqueos?.length) {
-            <p class="mm-nota mm-warn">Bloqueado por: {{ bloqueosTxt(d.accion.bloqueos) }}</p>
-          }
-
-          <!-- ⭐⭐ R7: las tres señales que más pesaron, MEDIDAS EN PESOS. -->
-          <h3 class="mm-det-h3">Lo que más pesó, en pesos</h3>
-          @if (d.accion.s1_senal) {
-            <table class="mm-ap">
-              <tbody>
-                @for (a of aportes(d); track a.senal) {
-                  <tr>
-                    <td>{{ senalTxt(a.senal) }}</td>
-                    <td class="comm-num" [class.is-neg]="(+a.mxn) < 0">
-                      {{ a.mxn | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-            <p class="mm-nota">
-              El orden lo da el <strong>dinero</strong>, no un coeficiente: no hay pesos
-              inventados en este motor.
-            </p>
-          } @else {
-            <p class="mm-nota">
-              <span class="mm-nd">n/d</span> &mdash; ninguna señal de este SKU se pudo expresar
-              en pesos sobre la venta de 30 días.
-            </p>
-          }
-
-          <h3 class="mm-det-h3">Las 13 familias de señales</h3>
-          <ul class="mm-fam">
-            @for (f of d.familias; track f.n) {
-              <li [attr.data-c]="f.cobertura">
-                <div class="mm-fam-h">
-                  <span class="mm-fam-n">{{ f.nombre }}</span>
-                  <span class="mm-fam-v">{{ f.veredicto || 'n/d' }}</span>
-                </div>
-                @if (f.motivo) { <p class="mm-fam-m">{{ f.motivo }}</p> }
-              </li>
-            }
-          </ul>
-        </aside>
-      }
     </div>
+
+    <!-- ══ ⭐ LA VENTANA · el expediente del SKU ═══════════════════════════════════════ -->
+    <app-motor-margen-expediente
+      [sucursal]="expSuc()" [sku]="expSku()" (cerrado)="cerrar()" />
   }
 </div>
   `,
   styles: [`
+    /* [PR.V2] El selector segmentado va ARRIBA del encabezado de la pagina, como en
+       Almacen y Contabilidad. El padding horizontal ya lo pone .surf-page: aca solo
+       hace falta separarlo del borde superior y del titulo.
+       Y SIN acentos graves: adentro de un template literal lo TERMINAN. Van diez. */
+    .pr-tabs { padding-top: var(--sp-3); margin-bottom: var(--sp-3); }
     .mm { display: flex; flex-direction: column; gap: var(--sp-4); }
 
     .mm-err {
@@ -436,6 +385,10 @@ import {
   `],
 })
 export class ComercialMotorMargenComponent {
+  /** `[PR.V2]` El selector segmentado: el motor y sus experimentos, bajo una sola
+   *  entrada del sidebar. `PageTabs` esconde la barra si el rol sólo alcanza una. */
+  readonly tabs = PRECIOS_TABS;
+
   private readonly api = inject(MotorMargenService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -443,6 +396,9 @@ export class ComercialMotorMargenComponent {
   readonly reg = signal<RegistroSenales | null>(null);
   readonly cola = signal<ColaRow[]>([]);
   readonly det = signal<DetalleMotor | null>(null);
+  /** `[PR.X5]` El par que la ventana esta mostrando. Null en cualquiera de los dos = cerrada. */
+  readonly expSuc = signal<string | null>(null);
+  readonly expSku = signal<string | null>(null);
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   readonly filtroAccion = signal<string | null>(null);

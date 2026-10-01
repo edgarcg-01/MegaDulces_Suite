@@ -14,7 +14,10 @@ import {
   type CodigoQueFalla, type ConsultaFaltante, type Faltante, type MotivoUi,
   type ReportarResultado, type StockoutDecision, type StockoutKind,
 } from '../faltantes.service';
-import { VerificadorService, type SucursalVerificador } from '../verificador.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { VerificadorService } from '../verificador.service';
+import { DataScopeService } from '../../../core/services/data-scope.service';
+import { SucursalPickerComponent, unCodigo } from '../../../shared/components/sucursal-picker/sucursal-picker.component';
 
 type Pestana = 'reportar' | 'nocat' | 'fallan';
 type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: string } | null;
@@ -75,7 +78,7 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
 @Component({
   selector: 'app-tienda-faltantes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, SucursalPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fl-page">
@@ -87,12 +90,11 @@ type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: 
           <p>Lo que el cliente pidió y no había. Llega a Compras.</p>
         </div>
         <div class="fl-head-right">
-          <p-select
-            [options]="sucursales()" [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
-            optionLabel="nombre" optionValue="codigo" placeholder="Sucursal"
-            styleClass="fl-sel" [filter]="sucursales().length > 8" appendTo="body"
-            ariaLabel="Sucursal donde se reporta">
-          </p-select>
+          <!-- [ZN.7] Las sucursales salen del ALCANCE, no del catalogo PUBLICO del verificador.
+               El de antes ofrecia las nueve a cualquiera, asi que una cajera de La Piedad podia
+               reportar un faltante a nombre de Morelia. El endpoint ya acotaba; el selector no. -->
+          <app-sucursal-picker [valor]="sucursal()" (valorChange)="cambiarSucursal(unCodigo($event))"
+                               placeholder="Sucursal" etiqueta="Sucursal donde se reporta" />
         </div>
       </header>
 
@@ -544,6 +546,10 @@ export class TiendaFaltantesComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  /** `[ZN.7]` El alcance de sucursales de quien mira: alimenta el selector y valida la preselección. */
+  private readonly scope = inject(DataScopeService);
+  /** El template sólo alcanza miembros de la clase; la función vive en el picker. */
+  readonly unCodigo = unCodigo;
 
   @ViewChild('captura') capturaRef?: ElementRef<HTMLInputElement>;
 
@@ -558,7 +564,6 @@ export class TiendaFaltantesComponent implements OnInit {
   readonly MOTIVOS = MOTIVOS;
 
   readonly pestana = signal<Pestana>('reportar');
-  readonly sucursales = signal<SucursalVerificador[]>([]);
   readonly sucursal = signal<string | null>(null);
 
   /** El término de la caja única: código escaneado, clave tecleada o nombre. */
@@ -622,14 +627,17 @@ export class TiendaFaltantesComponent implements OnInit {
   private debounce?: ReturnType<typeof setTimeout>;
 
   ngOnInit(): void {
-    this.verificador.sucursales().subscribe({
-      next: (s) => {
-        this.sucursales.set(s ?? []);
+    // `[ZN.7]` La preselección se valida contra el ALCANCE, no contra el catálogo público del
+    // verificador. Antes bastaba con que la sucursal EXISTIERA, así que un `?sucursal=NN` en la
+    // URL preseleccionaba cualquiera de las nueve — y el POST lo rechazaba después, cuando la
+    // persona ya había escrito el faltante. Ahora el selector y el endpoint dicen lo mismo.
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
         // Precedencia: `?sucursal=NN` (la máquina del mostrador sin cuenta de esa tienda) →
         // la sucursal de la ficha → nada, y entonces se pide. Nunca se adivina.
         const q = this.route.snapshot.queryParamMap.get('sucursal');
         const propia = this.auth.user()?.warehouse_code ?? null;
-        const elegida = [q, propia].find((c) => c && (s ?? []).some((x) => x.codigo === c)) ?? null;
+        const elegida = [q, propia].find((c) => c && ops.some((o) => o.value === c)) ?? null;
         if (elegida) this.cambiarSucursal(elegida);
 
         // `[FLT.16]` Viene del verificador con el código que NO encontró. Se resuelve solo, para
@@ -637,7 +645,6 @@ export class TiendaFaltantesComponent implements OnInit {
         const code = this.route.snapshot.queryParamMap.get('codigo');
         if (code && elegida) { this.termino.set(code); this.resolver(); }
       },
-      error: () => this.sucursales.set([]),
     });
 
     this.destroyRef.onDestroy(() => { if (this.debounce) clearTimeout(this.debounce); });

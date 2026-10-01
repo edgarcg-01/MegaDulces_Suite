@@ -13,7 +13,11 @@
  */
 export const KEPLER_BRANCH_NAMES: Readonly<Record<string, string>> = Object.freeze({
   // Kepler
-  '00': 'CEDIS Irapuato',
+  // ⚠️ El `00` de Kepler cambió de SIGNIFICADO, no sólo de nombre: era **OFICINAS** (facturación
+  // centralizada, 79-143 docs/día) y desde el corte del 2026-09-30 es además el **CEDIS**. Este
+  // rótulo es el de HOY; para un documento anterior a esa fecha, `00` era Oficinas.
+  // El nombre canónico vive en `commercial.warehouses.name` (mig 20261001120000); esto es fallback.
+  '00': 'CEDIS',
   '01': 'Padre Hidalgo',
   '02': 'La Piedad Abastos',
   '03': '8 Esquinas',

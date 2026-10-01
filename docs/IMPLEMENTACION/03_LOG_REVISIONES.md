@@ -5,6 +5,370 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía
+Edgar: *"wincaja ya sólo existe para históricos; el `.9.95` ya tiene Kepler y toda la información
+de Kepler CEDIS ya es la oficial"*. Se midió antes de registrarlo.
+
+- **`docs/VERDAD_ABSOLUTA.md` declaraba su hueco mayor así: *"Wincaja — 37.6% de la venta de los
+  últimos 30 días — fuera de alcance por decisión"*. Medido hoy: 0.0%** ($230 contra $44.5M).
+  Los 14 almacenes con venta tienen `kepler_code` o son rutas de Kepler. El hueco **no se cerró
+  por arquitectura: la operación migró entera** (`32→07` 08-sep, `30→08` 19-sep, CEDIS 30-sep).
+- ⚠️ **La cifra caducó sin avisar, que es justo lo que ese documento critica en otros.** El
+  arreglo no fue reescribirla: fue ponerle candado. `[SB.2]` en `test-newdb-branch-cutover.js`
+  vigila la afirmación de §8 y se pone rojo si Wincaja vuelve a operar. Umbral 1% y no 0, para
+  que hable cuando pase algo y no cuando un almacén deje cola de días sueltos.
+- Se clasifica por el **cutover** (tener `kepler_code`), **no por el prefijo `MD-%`**: el prefijo
+  es convención de nombre y dos almacenes de la misma tienda pueden convivir en los dos ERP — es
+  exactamente lo que pasó con `MD-32` contra `07` en `[DM.15]`.
+- **Registro actualizado**: §8 reescrita, el hueco de §7 cerrado con su medición, §11 corregida,
+  y dos dimensiones nuevas en la tabla de estado (**destino de un traspaso** ✅ y los dos huecos
+  del CEDIS declarados con nombre y monto).
+
+**Un candado ajeno estaba rojo desde ayer por la migración del CEDIS, y era falso positivo:**
+`test-newdb-branch-cutover.js` exigía que toda sucursal del resolvedor estuviera en
+`mv_sales_blended`, y `[IC.CEDIS.1]` sumó el CEDIS `00` — que **distribuye, no vende al público**
+(medido: el único del resolvedor sin una sola fila en `mv_kepler_sales_daily`). Se le estaba
+exigiendo estar en un fact de VENTAS. Ahora el check pregunta **"¿vende?"** en vez de llevar una
+lista de exclusión, y lo excluido **se declara en pantalla**: si el CEDIS empieza a vender, vuelve
+a entrar solo. **25 OK · 0 FALLAS · 1 NO MEDIDO.**
+
+**Y una corrección mía de ayer:** dije que la sucursal `00` era OFICINAS. **Es el CEDIS
+operando.** Despacha 2.60M u/90 d y las 8 sucursales declaran recibir 3.22M — dos testigos del
+mismo orden. Lo que me confundió fue que sus doctypes más frecuentes son pagos y cobros, y que su
+entrada de compra son **cinco pasos del mismo documento** (`X-A-30→35→37→40→20`), que sumados dan
+23.45M y parecen una acumulación imposible.
+
+**Lecciones:**
+- ⭐⭐ *Un documento que dice "aquí están los huecos" envejece igual que cualquier otro.* El suyo
+  más grande llevaba semanas cerrado. La diferencia entre un registro y un reporte es que el
+  registro tiene candado — y esa fila no lo tenía.
+- ⭐ *Una exclusión correcta tiene que ser una PREGUNTA, no una lista.* "El CEDIS no vende" como
+  excepción hardcodeada se pudre; `WHERE EXISTS (vende en la fuente)` se mantiene solo.
+- ⚠️ *Un ERP cuenta la misma mercancía varias veces a lo largo de su cadena.* Sumar los pasos de
+  la compra de Kepler infló la entrada del CEDIS 5×, y casi publico "recibe 9 veces lo que
+  despacha" como hallazgo de negocio.
+
+---
+## 2026-09-30 — IC.CEDIS.2: la compuerta del CEDIS mandaba a corregir un documento que estaba bien
+Al investigar el cutover del CEDIS (avisado por Edgar: *"cedis ya es ahora 9.95"*) se corrió
+`check-cedis-cutover.js`, que dio **4 alarmas**. Una era falsa y ya se había propagado.
+
+- **La alarma 2 decía "la carga se SUMÓ al saldo previo → corregirlo en Kepler".** Su prueba es
+  una razón por orden de magnitud: saldo del almacén (12.18M u) contra lo capturado (340,077 u)
+  = **35.82×**. Medido SKU por SKU, **los 127 SKUs de la carga estaban TODOS en cero antes de la
+  entrada**: la carga no se sumó a nada y el documento está bien.
+- **Esa razón no puede distinguir dos cosas que piden acciones opuestas**: (a) la carga se sumó
+  encima de SKUs que ya tenían saldo → se corrige el documento; (b) el almacén ya traía saldo de
+  OTROS SKUs → se investiga el saldo. Un almacén que ya opera dispara la razón **siempre**: dar
+  de alta 127 SKUs nuevos en uno que arrastra 5,019 no es sumar, es dar de alta.
+- La compuerta ahora emite **las dos por separado**: (a) prueba directa SKU por SKU, (b) la señal
+  por orden de magnitud, con su recomendación propia (no apuntar la existencia del almacén a
+  Kepler mientras no se establezca de dónde sale el arrastre). Alarmas 4 → 3.
+- ⚠️ **El diagnóstico falso ya se había citado**: la migración `[IC.CEDIS.1]` (`a9bbf1e8a`, de
+  otra sesión, aplicada a prod hoy) lo toma como fundamento en su bloque "lo que esta migración
+  no hace". **Su decisión operativa —dejar apagada la existencia del CEDIS— es correcta**, pero
+  por el motivo (b), no por el (a). No se editó esa migración: está commiteada y es de otra
+  sesión; queda corregido acá.
+- `--csv` nuevo: la lista COMPLETA de faltantes (el informe cortaba en 40 y decía "y N más", que
+  sirve para leer en pantalla y no para ir a cargarlos). Hoy: **104 SKUs / $516,534**.
+
+**Lo que quedó medido y NO se pudo cerrar:**
+- La sucursal `00` arrastra **5,019 SKUs / 12.18M u** ajenos a la carga, con movimiento real
+  (3,594 activos en 90 días) y despachos de traspaso desde abril-2026. Valuarlo con `kdik.c16`
+  da **$306.9M**, que sería 5× el inventario de TODA la red ($59.1M, Fase MR) — pero esa cifra
+  **no sirve de árbitro**: la Fase CE ya documentó que `c16` tiene problema de peldaño. Así que
+  el arrastre está **declarado, no explicado**, y la existencia del CEDIS sigue apagada.
+
+**Lecciones:**
+- ⭐⭐ *Una razón entre un agregado y una parte no distingue "se sumó" de "ya había".* Las dos
+  inflan el cociente y piden lo contrario. La prueba que discrimina es por FILA — acá, SKU por
+  SKU, y existía la columna para hacerla.
+- ⭐ *Una heurística que grita en falso no se queda quieta: se cita.* Esta llegó a ser el
+  fundamento escrito de una migración aplicada a producción el mismo día.
+- ⚠️ `kdm2` guarda el SKU en `c8` y `kdil` en `c3`. Adivinarlo dio "1 SKU con 340,077 unidades",
+  un absurdo que obligó a verificar en vez de publicar. Verificar la columna contra el consumidor
+  que ya la usa cuesta menos que la retractación.
+
+---
+## 2026-10-01 — EXP.3: los doctypes que el motor no contaba, arbitrados
+
+Disparador: *"¿en la interfaz ya consideramos todas las variables externas?"*. La respuesta era
+**no**, y medirlo cambió dos veces de forma.
+
+### Lo que resultó ser señuelo
+
+Seis doctypes aparecían con volumen alto y **ninguno mueve mercancía**: `X-A-30` requisición,
+`X-A-35` orden de compra, `X-A-37` vale, `X-A-40` orden de entrada y `U-D-40` **pedido** son
+INTENCIONES — sólo `X-A-20` asienta. `N-A-44` es la pre-captura del propio conteo.
+
+### ⭐ El arbitraje, con el procedimiento de IC.10
+
+Agregar uno por uno y quedarse sólo con los que **suben** el cuadre del roll-forward. Sobre los
+18,310 renglones juzgables:
+
+| doctype | qué es | SKUs que toca | cuadre sin → con |
+|---|---|---:|---|
+| `N-D-5` | Salida de almacén | 589 | **2.04% → 28.01%** |
+| `U-A-21/25` | Devolución de cliente | 970 | **6.49% → 23.51%** |
+| `X-D-40` | Devolución de compra | 25 | **0.00% → 20.00%** |
+| ⛔ `U-D-8/12` | Factura Telemarketing / Contado No Fiscal | 2,951 | **27.25% → 3.15%** |
+
+Global: **46.570% → 48.356%** (8,527 → 8,854 SKUs). Con el rechazado: **44.200%**.
+
+⛔ **`U-D-8/12` se midió y se rechazó.** El catálogo las llama facturas y mi lectura decía que
+eran venta sin contar; restarlas **derrumba el cuadre 9 veces** porque esa mercancía ya está en
+`U-D-10`. Son re-facturación, igual que `U-D-5` y `U-D-6`. Queda en el candado para que nadie
+las agregue leyendo el catálogo.
+
+### ⛔ Y una corrección de lo que yo mismo había dicho
+
+En el análisis previo publiqué que *"182 de 818 SKUs por $119,569 — el 48% del dinero de la
+pila — tienen un movimiento que el motor no mira"*. Eso medía **presencia** del documento, no
+**poder explicativo**. Medido de verdad: de los **402 SKUs** cuyo hueco cierran estos flujos,
+**sólo el 6.7% tiene ajuste de Kepler**.
+
+El motivo es estructural y lo entendí tarde: `N-D-5`, `U-A-21/25` y `X-D-40` son **documentos
+REALES de Kepler**, así que su propio libro ya los movió y nunca emitió un ajuste por ellos. Lo
+que arreglan no es el ajuste: es **nuestra reconstrucción**.
+
+⭐ **Entonces el valor está donde yo lo había descartado:** el roll-forward atribuye mal **402
+SKUs por $216,658**, de los cuales **$157,565 los llama MERMA** teniendo documento que los
+explica — y esa misma cifra viaja a la familia `F9 · Merma` de `v_price_signals`. En la pila de
+ajustes el efecto es de **27 renglones** ($4,278).
+
+### Lo entregado, y lo que falta
+
+✅ `mv_erp_count_line_signals` recreada (batch **649**, 49.9 s) con los tres flujos, su residuo
+y el veredicto por fila. **1,062 renglones** muestran ahora su flujo en el expediente — que es
+exactamente el contexto que el pedido original pedía.
+
+⛔ **El arreglo que vale NO se hizo**, y el motivo es de alcance: de `mv_erp_count_rollforward`
+cuelga una cascada de **cinco objetos** que llega al motor de precios
+(`v_price_signals` → `mv_price_signals`, **223 MB** → `v_price_action`). Recrearla tumba
+`/comercial/rentabilidad` entre 8 y 13 minutos. Es una operación con su propia ventana y su
+propia autorización.
+
+⚠️ **`flujo_explica` es por FILA, no en bloque.** Aplicarlo en bloque gana 402 y **rompe 75**
+(que valen **$0**: son SKUs sin costo). Con la condición por fila gana los 402 y no rompe
+ninguno. Y **645 renglones más acercan** el residuo sin cerrarlo: se publica igual.
+
+⚠️ Dato operativo: el catálogo ofrece **cinco motivos de salida** (`N-D-5-1..5`) y la operación
+**usa sólo el genérico** — 596 documentos desde nov-2025, todos serie 1. El ERP registra que la
+mercancía salió y **no puede decir por qué**.
+
+Candado `test-newdb-variance-senales.js`: **24 ✓ / 0 ✗ / 1 no medido** — re-corre el arbitraje
+completo en vez de mirar su resultado.
+
+---
+
+## 2026-09-30 — EXP.2: el expediente del renglón (el renglón deja de ser un callejón)
+
+Etapa 2 del plan. `[EXP.1b]` construyó la llave por SKU; esto la usa: al hacer clic en un
+renglón se abre un `app-side-peek` con **ocho secciones en un solo viaje** — las líneas del
+ajuste, la trayectoria del SKU entre conteos, la conciliación de cada período, los movimientos
+documento a documento, las órdenes de entrada, la existencia de hoy y el expediente de
+Prevención. Ocho llamadas serían ocho estados de carga en la misma ventana.
+
+### ⛔ Cada sección declara su permiso. Ninguna se omite en silencio
+
+Un panel al que le faltan tres bloques sin decir por qué se lee como *"no hay nada que ver"*.
+Cada sección devuelve `{ datos }` o `{ oculto: true, permiso, motivo }`.
+
+### ⭐ El gate por el mapa habría estado MAL, y la medición lo atrapó antes
+
+ADR-054 dice que el god-mode se resuelve **por nombre de rol**, no por el mapa de permisos — y
+el guard corta *antes* de mirarlo. Medido en prod: **`superadmin` (7 personas) NO tiene
+`COMMERCIAL_PREVENTION_VER` en su mapa**. Gatear sólo contra el mapa le habría ocultado la
+sección de Prevención a los siete.
+
+Y los roles se piden **frescos de DB**, no del `role_name` del token: degradar a un admin tiene
+que surtir efecto al instante, no en 12 h (`[AUTHZ-HARD.2]`).
+
+⛔ **Dónde se resuelve, y por qué ahí.** La opción obvia era inyectar
+`PermissionsCacheService` en el servicio: `AbilityModule` es `@Global()`. Pero se registra en
+`app.module` en la línea **422** y los módulos de negocio en la **192**, y este repo ya
+documenta —con una app que no arrancaba— que **con `@Global()` el orden de registro sigue
+mandando**. Habría compilado y reventado al bootear. En su lugar, `RolesGuard` deja
+`roles_frescos` en el request, dos líneas al lado de donde ya deja `permissions`.
+
+### ⛔ Dos afirmaciones de mi propio plan que la medición refutó
+
+1. **`analytics.stock_movements` NO es ventana rodante de 120 días.** Son **3,755,805 filas
+   desde 2020-03-20** (2,385 días). El `fuera_de_ventana` que el plan pedía no correspondía.
+2. **Pero sí hay un piso, y es POR ALMACÉN — peor de lo supuesto.** Medido:
+
+   | almacén | el diario arranca |
+   |---|---|
+   | 02 | 2020-07-16 |
+   | 01 | 2020-07-25 |
+   | 06 | 2020-10-28 |
+   | **03** | **2026-01-01** |
+   | **04** | **2026-01-02** |
+   | **05** | **2026-01-02** |
+
+   Para los conteos de **marzo-2026 de esas tres plazas** la ventana empieza antes de que el
+   feed existiera. *"No hubo movimientos"* y *"ese almacén todavía no alimentaba"* se ven
+   idénticos si no se dice cuál — por eso la sección publica `feed_desde` y `feed_cubre`.
+
+### ⚠️ Un hueco que se declara, no se arregla de contrabando
+
+`prevencion` tiene **`COMPRAS_ENTRADAS_VER` en `false`**: el equipo que investiga la diferencia
+**no ve las compras que explicarían un sobrante**. Queda declarado con su nombre — misma
+disciplina que `[EXP.0]` con `supervisor`. Repartirlo es una decisión de alcance, no un
+detalle de implementación.
+
+### Candado (`test-newdb-variance-expediente.js`): **10 ✓ / 0 ✗ / 1 no medido**
+
+Re-mide la premisa del god-mode (si algún día `superadmin` gana la clave, lo dice — no para
+romperse, para que nadie borre la rama por los motivos equivocados), fija la refutación de la
+ventana, vigila el hueco de Prevención y comprueba que la ventana use el conteo anterior.
+
+**Declara lo que no puede:** el endpoint por HTTP, que el guard deje `roles_frescos`, y el clic.
+En vivo falta confirmar **una** cosa que desde la base no se ve: que un `superadmin` **no**
+reciba el bloque de Prevención como oculto.
+
+**Pendiente:** redeploy api+view + validación visual. Sin permisos nuevos → sin re-login.
+
+---
+
+## 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba)
+
+Etapa 1 del plan aprobado tras el reproche de Edgar sobre `/almacen/inventory/diferencias`:
+*"a esta vista le falta demasiada información... debemos cazar esta información, enlazarla con
+los demás módulos"*.
+
+### El diagnóstico no cambió: no faltan datos, falta la llave
+
+El roll-forward, el historial de descuadre, la demanda y las órdenes de entrada **ya existían**,
+indexados por `(almacén, fecha)` o por `(almacén, par de conteos)` — **nunca por SKU**. Esta etapa
+construye esa llave: `analytics.mv_erp_count_line_signals`, grano
+`(tenant_id, warehouse_id, fecha, sku)`.
+
+### El embudo, medido en prod sobre sep-2026
+
+De **$8,859,397** brutos:
+
+| explicación | SKUs | $ |
+|---|---:|---:|
+| `costo_de_caja` (IC.12) | 107 | $4,365,322 |
+| `merma_sostenida` | 945 | $259,566 |
+| `se_compensa` | 655 | $232,133 |
+| `sobra_sostenida` | 554 | $230,232 |
+| `movimientos_lo_explican` | 42 | $4,128 |
+| **`sin_explicacion`** | **818** | **$248,436** |
+| `no_medido` | 4,180 | $3,519,579 |
+
+**La pila que hay que caminar son 818 SKUs y $248,436** — 97.2 % menos ruido. Y los $3.52 M que
+no se pueden juzgar van **declarados, no disfrazados de "sin causa"**: el testigo que falta es
+estructural (un almacén contado UNA vez no tiene conteo previo del cual rodar ni segunda
+observación con la cual llamar a algo reincidente — `01` y `06` están en ese caso).
+
+### ⭐ El hallazgo que apareció al bajar al grano del SKU
+
+`cantidad` e `importe` vienen **sin signo**; la dirección va en la columna `signo`. Al agrupar por
+SKU resulta que **504 pares traen los DOS signos el mismo día en el mismo almacén** — el mismo SKU
+ajustado como sobrante y como faltante a la vez, hasta en **6 folios** distintos:
+
+    bruto (suma de magnitudes) .... $5,081,362
+    neto  (suma con signo) ........ $  704,666
+    se cancela solo ............... $4,376,696
+
+Está **entero en La Piedad (`02`), entre nov-2025 y ene-2026** — en **enero son el 54.3 % del
+descuadre del mes**. Cero en sep-2026. ⛔ El `importe` de Kepler **no se corrige** (ADR-040): se
+publican los dos y `signos_mezclados` dice cuándo difieren. El veredicto se calcula sobre el NETO.
+
+### Tres refutaciones medidas, y las tres estaban en mi propio plan
+
+1. ⛔ **La entrada duplicada NO aplica.** Las **1,001** recepciones marcadas en
+   `erp_goods_receipt_dedup` son **todas de la sucursal `00`**, y el universo contado son las
+   sucursales `01` a `06`. Intersección vacía. El plan la listaba como señal con "4,565 pares".
+2. ⛔ **`erp_goods_receipt_lines` es una VISTA sin índices**, no una tabla con `ix_erpgrl_sku` como
+   yo había escrito. Unirla por fila la re-evalúa: la consulta pasaba de **1.2 s a más de 120 s**.
+   Va en un CTE `MATERIALIZED`. *Lo caro no era el dato: era mi lateral.*
+3. ⛔ **La demanda no explica nada, y por eso tampoco puede bloquear nada.** Su placebo falla:
+   "la diferencia supera 90 días de venta" dispara en el **16.9 % de los sobrantes** y en el
+   **10.1 % de los faltantes**, donde no explica absolutamente nada — razón **1.67×**, y la razón
+   se queda entre 1.5× y 1.75× en **todos** los umbrales probados (30/90/180/365 días). No hay
+   corte que la vuelva discriminante (compárese con el peldaño del costo: **0 de 8,643** cargas
+   iniciales). Sale como **PISTA**, no como explicación.
+
+   ⭐ **Y mi primera versión la ponía a bloquear.** Mientras figuraba en `testigos_faltantes`,
+   **2,040 SKUs y $2.04 M** caían en `no_medido` sin motivo — todo conteo anterior a 90 días era
+   injuzgable por un testigo que no participa en ningún veredicto. *Un testigo que no puede
+   explicar tampoco puede impedir.*
+
+### Una definición, dos lectores
+
+`[EXP.1a]` baja el `patron` de reincidencia (umbrales medidos 0.2 / 0.8) de TypeScript a SQL, en
+`v_sku_count_variance_history`. La matvista necesitaba el mismo veredicto y copiarlo habría creado
+la segunda definición — el error exacto que ABC.6 cometió con `clase_motivo` esta misma semana.
+La migración **envuelve la definición vigente** en vez de reescribirla, para no hacer la tercera
+copia del anti-réplica. Los 0.2/0.8 que el servicio sigue publicando en la leyenda quedan como
+**espejo vigilado**: el candado los compara contra los bordes que la vista produce de verdad.
+
+### Lo que el candado protege (`test-newdb-variance-senales.js`)
+
+El grano (22,332 líneas sobre 20,849 pares = **1,483 de más**), el abanico del roll-forward
+(verificado **1:1** por `hasta = fecha`), la frontera entre `sin_explicacion` y `no_medido`, el
+espejo de los umbrales, la refutación de la entrada duplicada — y, lo que más importa, **re-mide
+el placebo de la pista en vez de mirar sólo la salida**: un candado que comprueba el resultado
+deja pasar un cambio de premisa.
+
+### Costos medidos
+
+Poblado de la matvista **~50 s** (nocturno, umbral propio `analytics_refresh_count_signals` en
+`CRON_JOBS` — sin umbral el sensor da verde incondicional). `deps` declara las dos matvistas de
+las que lee: **ordenar no es depender**; sin eso, si el roll-forward falla ésta se materializa
+igual con `rf_veredicto` en NULL y la pantalla diría "falta un testigo" en vez de "el refresco se
+cayó".
+
+**Pendiente:** aplicar las 2 migraciones a prod + redeploy. Sin permisos nuevos → sin re-login.
+
+---
+
+## 2026-09-30 — DM.15: el traspaso que decía haberse hecho a otra sucursal
+Reporte de Edgar sobre `/almacen/movimientos`: *"nos estamos inventando traspasos a sucursal,
+mencionando que se hizo a otra sucursal, peor aún, que cuadra la información"*.
+
+- **Mi primera hipótesis era falsa, y la medición la descartó antes de tocar código.** Acusé al
+  desempate del pareo (`ORDER BY abs(qty_enviada − qty_recibida)`: elige el candidato que mejor
+  cuadra y después declara que cuadra). Medido: de los 52 sospechosos, **0** tenían disponible el
+  candidato correcto, y **49 de 52 tenían un solo candidato** — no hubo desempate que sesgar.
+- **Y el árbitro con el que los acusé era el que mentía.** Usé `transfer_dest_map`, que lo puebla
+  el mismo pareo: verificar la vista contra sí misma. Con un testigo de verdad independiente
+  —`dest_label`, el texto que Kepler escribe en el envío— **1,561 de 1,562 pares de 180 días
+  coinciden** con el almacén que recibió ($66.86M). El único que contradice es una **ruta** de
+  Canindo acreditada a 8ESQ ($15,566), y ni ése se publica como OK.
+- **La máquina de inventar era el mapa**: `TI009 "SUCURSAL MORELIA MADERO" → MD-32`, el almacén
+  **Wincaja** de esa tienda — `deleted_at` puesto y **cero recepciones en toda su historia** —
+  mientras quien recibe es el Kepler `07`. En pantalla, los envíos sin recepción salían hacia una
+  sucursal que ya no existe, y **la misma ruta física aparecía partida en dos filas de la matriz**
+  (`00→07` por pareo, `01→MD-32` por mapa): sus totales no cuadraban ni contra sí mismos.
+- **El dato se corrigió sin escribir el valor a mano**: se soltó `TI009` a NULL y se le devolvió la
+  decisión al auto-ligado, que lo resolvió a `07 Morelia Madero` con **91.2% de evidencia** (52 de
+  57 envíos) contra 1.8% de los candidatos de ruido.
+- Candado `[DM.11e]` extendido de 3 a 7 bloques. **ANTES 5 OK / 2 FALLAS · DESPUÉS 6 OK / 0 FALLAS**
+  contra prod.
+
+**Lecciones:**
+- ⭐⭐ *Un árbitro que sale de la misma máquina que juzga no arbitra: refleja.* `transfer_dest_map`
+  lo escribe el pareo, así que usarlo para auditar el pareo era verificar la vista contra sí misma
+  — y me hizo acusar al componente sano durante tres mediciones. El testigo bueno (`dest_label`)
+  **ya estaba en la tabla**, viene del ERP y nadie lo usaba.
+- ⭐ *Dos ausencias distintas no se reportan igual.* Un almacén **retirado** que nunca recibió es un
+  vínculo falso; uno que **opera** y no registra recepciones (el CEDIS) puede ser el destino
+  correcto y simplemente no es verificable por esta vía. Mezclarlos convierte un hueco de la fuente
+  en un error del mapa, o peor, al revés.
+- ⭐ *Un detector que sólo se prueba contra la basura viva se vuelve utilería el día que la basura
+  se limpia.* Al corregir el mapa, el bloque de prueba negativa se quedó sin casos y tuvo que
+  declararse NO MEDIDO; se reescribió contra **casos fabricados**, como ya hacía el bloque 2.
+- ⚠️ *El nombre no distingue dos almacenes de la misma tienda en dos ERP.* El candado anterior
+  preguntaba "¿hablan del mismo lugar?" y daba verde con razón. Faltaba la otra pregunta: **¿sigue
+  vivo, y alguna vez recibió algo?**
+- ⚠️ Un archivo copiado a un contenedor con `docker cp` es **efímero**: `prod-api` se reinició a
+  mitad de sesión y el test volvió a su versión de imagen, mostrando sólo 3 de 7 bloques sin avisar.
+
+---
 ## 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test`
 - **TK.14**: se quitó «fiscal / no fiscal» de la carta PDF, reporte por cliente, anexo (AX), guía de
   cobranza y del tipo de documento («Factura Cont No Fiscal» → «Factura de contado»).
@@ -31,6 +395,99 @@
   HEAD..origin/main -- <mis rutas>`.*
 - Detalle: `FASE_TK_TICKETS_VENTA.md` §9.
 
+## 2026-09-30 — EXP.0: el equipo de Prevención no podía abrir su propio módulo
+
+**Disparador:** Edgar, sobre `/almacen/inventory/diferencias` — *"a esta vista le falta
+demasiada información... podemos llegar a saber si tuvo órdenes de entrada, compras, ajustes...
+estás haciendo un trabajo mediocre al solo hacer lo básico. Debemos cazar esta información,
+enlazarla con los demás módulos"*.
+
+### El reproche era correcto, y el diagnóstico salió más preciso de lo esperado
+
+No falta información: **falta la llave**. Diferencias indexa por `(almacén, fecha)`,
+Conciliación por `(almacén, par de conteos)`, las señales de precio por `(sucursal, SKU)` y
+Prevención por `(warehouse_id, product_id)` — y **nadie traduce entre `warehouse_id` y
+`kepler_sucursal` en la capa de UI**. Las cuatro consultas existen y las cuatro llaves tienen el
+SKU adentro.
+
+Dos endpoints están construidos y **sin un solo cliente en el frontend**:
+`GET /commercial/inventory/investigations/timeline` (línea de tiempo del SKU, app + ERP) y
+`POST /investigations/from-kepler` (abre expedientes desde el conteo trimestral). Y existe el
+molde exacto del agregador: `GET /commercial/margin-engine/:sucursal/:sku`, cuyo docstring dice
+literalmente *«lo que el pedido original llamaba "al dar clic se desglosa el análisis"»*.
+
+### El bloqueo que invalidaba todo lo demás
+
+`COMMERCIAL_PREVENTION_VER` **ni siquiera existía** en el mapa de `prevencion` (1 usuario) ni de
+`prevencion_auxiliar` (2). En `almacenista` existía, en **`false`**. El único rol con `true` era
+**`direccion` — 2 personas**.
+
+O sea: el módulo de Prevención —expediente de investigación, timeline del SKU, causa raíz
+tipificada (EC/ER/EA/DC/DP/TR/UB/MR/PNI), monitoreo intensivo— llevaba en prod desde agosto y lo
+abrían dos directores más los `superadmin` por god-mode. **El equipo que le da nombre al rol,
+no.** Y el número que lo delata: **1 expediente en toda la historia**, contra **7,301 renglones
+con diferencia sólo en sep-2026**.
+
+Es `[LC.6.2]` repetido al pie de la letra, con el mismo mecanismo de residuo: `/admin/roles`
+escribe el JSONB **completo** del rol que se guarda, así que toda clave nueva del enum aterriza
+en `false` para ese rol.
+
+🚀 **Aplicado a prod (batch 636, 0.1 s):** `VER` -> `prevencion` + `prevencion_auxiliar`,
+`GESTIONAR` -> sólo `prevencion`. El expediente pasa de **2 a 5 personas**.
+
+⛔ **`almacenista` no se tocó y su `false` no se pisó**: quien cuenta no dictamina la causa de su
+propia diferencia — misma segregación que IC.2 al quitarle `SUPERVISAR`.
+⚠️ **Declarado, no resuelto:** `supervisor` tampoco tiene la clave; quedó fuera del alcance
+aprobado y va en su propia migración con su propio motivo.
+
+### Por qué un candado y no sólo la migración
+
+**El defecto vuelve solo.** Mientras `/admin/roles` escriba el mapa completo, la próxima clave
+del enum volverá a aterrizar en `false`. `test-newdb-prevention-perms.js` (**7 OK / 0 fallas**)
+vigila las dos caras: que el equipo entre, y que `almacenista` **siga sin entrar**. Si algún día
+esa aserción se pusiera verde porque «ya todos tienen todo», el candado dejaría de significar
+algo. Y mide **personas**, no roles: un permiso repartido a un rol sin gente es el defecto
+original con otra cara.
+
+### Dimensionado del valor (medido en prod, sólo lecturas)
+
+El SKU `59086` «...**/24**» del evento `03`/22-sep publica `+4,645 · $248,600`. El ODS ya sabía
+que **la captura lo valúa a $2.23 y el ajuste a $53.52 — razón 24.0, el `/24` del propio
+nombre**, y que **vende 257 unidades en dos meses contra 4,632 contadas** (~18 meses de
+inventario).
+
+A escala, sep-2026: **$8.86 M brutos -> $2.64 M sin explicación contable -> $307,218 en 974
+SKUs** con merma o sobra sostenida. **96.5 % menos ruido.** El 82 % del sobrante tiene señal; las
+dos señales principales **suman** (sólo 14 SKUs de 474 llevan ambas).
+
+### Tres correcciones que la revisión del plan me hizo, todas medidas
+
+1. ⛔ **Mi diseño original estaba mal por GRANO.** Iba a colgar las señales de
+   `mv_erp_physical_count_variance`, que es **por línea de `kdm2`**: 30,975 filas contra
+   **29,492** pares `(almacén, fecha, SKU)` — **1,483 de más**, y en `02`/2025-11-21 son 2,070
+   líneas sobre 1,488 SKUs (**582 repeticiones**). Una señal por SKU ahí se duplica y los
+   `sum(...) filter` cuentan de más **sin que nada se vea roto**. Va en matview nueva con grano
+   por SKU.
+2. ✅ El gate de `GET /commercial/movements/lines` es `COMMERCIAL_MOVEMENTS_VER` o
+   `RECONCILIATION_VER` (**25 usuarios**), no `_GESTIONAR` como yo había puesto. El bloque más
+   rico del expediente alcanza a casi toda la audiencia.
+3. ⚠️ `analytics.stock_movements` es **ventana rodante de 120 días**: para un conteo de nov-2025
+   devolvería vacío, que se lee como «no hubo movimientos». Va con estado `fuera_de_ventana` y
+   piso real, y hay que **quitar el catch mudo** de `buildTimeline()`.
+
+### Lecciones
+
+1. ⛔ **El operador interrogante de JSONB en `knex.raw` se convierte en un binding posicional**
+   — está en `CLAUDE.md` y me lo comí igual en la primera corrida de este candado. Va
+   `permissions -> 'KEY' IS NOT NULL`.
+2. ⚠️ **Séptima vez** que un acento grave dentro de un template literal rompe el build, y la
+   **tercera en esta sesión**. Ya no es mala suerte: amerita una compuerta que falle el build si
+   aparece un acento grave dentro de un `template:` o de un `knex.raw(...)`.
+
+**Plan completo** (etapas 1 y 2: señales + filtro accionable, y el expediente del renglón) en
+`~/.claude/plans/a-esta-vista-le-whimsical-hamster.md`.
+
+---
 ## 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué
 
 **Disparador:** Edgar — *"hay que arreglarlo"*, sobre el hecho de fondo que dejaron IC.12, ABC.6

@@ -38,6 +38,8 @@ import {
 import { AdminService, EventoDePersona, OpcionCatalogo } from '../admin.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+// `[ZN.6]` La regla de qué zonas se pueden ofrecer vive aparte para poder probarla sin TestBed.
+import { opcionesDeZona, zonaGuardadaQueNoEsZona } from './zona-opciones';
 
 /**
  * `[AU.2]` — La ficha de una persona, por las cinco preguntas que se le hacen:
@@ -378,6 +380,24 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                     (ngModelChange)="fZona.set($event)" optionLabel="label" optionValue="value"
                     [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
                     placeholder="Ninguna"></p-select>
+
+          <!-- [ZN.6] Lo guardado no es una zona: se dice, con el motivo que trae la propia fila. -->
+          @if (zonaGuardadaNoEsZona(); as mala) {
+            <p class="pd-falta" role="status">
+              <strong>{{ mala.nombre }}</strong> no es una zona.
+              @if (mala.motivo) { {{ mala.motivo }} }
+              Mientras siga ahí, todo lo que se filtre por su zona le va a salir mal.
+            </p>
+          }
+
+          <!-- [ZN.6] Un catálogo que no cargó se declara: un selector vacío se lee como
+               "no hay de dónde elegir", que es otra cosa. -->
+          @if (catalogosCaidos().length) {
+            <p class="pd-falta" role="alert">
+              No se pudieron cargar: {{ catalogosCaidos().join(', ') }}. Lo que ves en esos
+              selectores está incompleto — no es que no haya opciones.
+            </p>
+          }
         </section>
 
         @if (!persona) {
@@ -565,7 +585,12 @@ export class PersonaDetalleComponent implements OnChanges {
   >([]);
   private readonly branches = signal<Array<{ code: string; name: string }>>([]);
   private readonly routes = signal<Array<{ id: string; name: string }>>([]);
-  private readonly zones = signal<Array<{ id: string; value: string }>>([]);
+  private readonly zones = signal<Array<{ id: string; value: string; kind?: string | null; kind_motivo?: string | null }>>([]);
+  /**
+   * `[ZN.6]` Qué catálogos no se pudieron cargar. Los cinco `subscribe` de abajo se tragaban el
+   * error en un `set([])`, y un selector vacío es indistinguible de «no hay nada que elegir».
+   */
+  readonly catalogosCaidos = signal<string[]>([]);
 
   nuevaResp: string | null = null;
   nuevaNota = '';
@@ -653,10 +678,27 @@ export class PersonaDetalleComponent implements OnChanges {
     ...this.routes().map((r) => ({ label: r.name, value: r.id as string | null })),
   ]);
 
-  readonly zonaOpts = computed(() => [
-    { label: 'Ninguna', value: null as string | null },
-    ...this.zones().map((z) => ({ label: z.value, value: z.id as string | null })),
-  ]);
+  /**
+   * `[ZN.6]` — Sólo las filas de `trade.zones` que **son** una zona.
+   *
+   * ⛔ Ofrecía las 11 filas de la tabla, y sólo 3 son zonas: las otras 8 son 4 sucursales, 2
+   * canales, OFICINAS y una sin clasificar. Por eso «MORELIA ABASTOS» —que es la sucursal 08—
+   * era elegible como zona, y por eso hay 34 personas cuyo filtro de zona no filtra por ninguna.
+   *
+   * ⚠️ Pero recortar a secas dejaría el selector **en blanco** para las 54 personas que ya tienen
+   * guardada una de las otras 8, y un blanco se lee como «no tiene zona» — que es falso y además
+   * esconde justo lo que hay que arreglar. Así que la fila guardada se conserva en la lista,
+   * **marcada**, hasta que alguien la cambie. Declarar, no disfrazar.
+   */
+  readonly zonaOpts = computed(() => opcionesDeZona(this.zones(), this.fZona()));
+
+  /**
+   * `[ZN.6]` El motivo que la propia fila trae escrito (`trade.zones.kind_motivo`), para poder
+   * decir POR QUÉ lo que tiene guardado no es una zona en vez de sólo marcarlo.
+   */
+  readonly zonaGuardadaNoEsZona = computed(() =>
+    zonaGuardadaQueNoEsZona(this.zones(), this.fZona()),
+  );
 
   readonly respOpts = computed(() =>
     this.catalogoResp().map((r) => ({ label: r.label, value: r.key })),
@@ -845,24 +887,31 @@ export class PersonaDetalleComponent implements OnChanges {
     if (!this.branches().length) {
       this.api.sucursales().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (b) => this.branches.set(b),
-        error: () => this.branches.set([]),
+        error: () => this.catalogoCayo('sucursales'),
       });
     }
     if (!this.routes().length) {
       this.api.rutas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => this.routes.set(r),
-        error: () => this.routes.set([]),
+        error: () => this.catalogoCayo('rutas'),
       });
     }
     if (!this.zones().length) {
       this.api.zonas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (z) => this.zones.set(z),
-        error: () => this.zones.set([]),
+        error: () => this.catalogoCayo('zonas'),
       });
     }
 
     if (this.fPuesto()) this.cargarPropuesta();
     if (this.persona) this.cargarLoDeLaPersona(this.persona.id);
+  }
+
+  /** `[ZN.6]` Deja asentado que un catálogo no cargó, sin repetirlo. */
+  private catalogoCayo(cual: string): void {
+    if (!this.catalogosCaidos().includes(cual)) {
+      this.catalogosCaidos.set([...this.catalogosCaidos(), cual]);
+    }
   }
 
   private cargarLoDeLaPersona(id: string): void {

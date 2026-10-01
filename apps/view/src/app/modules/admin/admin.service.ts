@@ -129,8 +129,15 @@ export class AdminService {
     );
   }
 
-  zonas(): Observable<Array<{ id: string; value: string; orden: number }>> {
-    return this.http.get<Array<{ id: string; value: string; orden: number }>>(`${this.users}/zones`);
+  /**
+   * `[ZN.6]` `kind` distingue una zona de verdad de las otras 8 filas que viven en la misma tabla
+   * sin serlo (4 sucursales, 2 canales, OFICINAS, y una sin clasificar). Sin él, el selector las
+   * ofrecía todas por igual.
+   */
+  zonas(): Observable<Array<{ id: string; value: string; orden: number; kind: string | null; kind_motivo: string | null }>> {
+    return this.http.get<Array<{ id: string; value: string; orden: number; kind: string | null; kind_motivo: string | null }>>(
+      `${this.users}/zones`,
+    );
   }
 
   /**
@@ -217,7 +224,12 @@ export class AdminService {
   setAlcance(
     id: string,
     dimension: string,
-    body: { mode: string | null; values?: string[]; mode_write?: string | null; nota?: string },
+    /**
+     * `[ZN.8]` `area` = el proyecto donde aplica. Omitirlo toca la regla GENERAL (`'*'`), que es
+     * lo de siempre. Con `mode: null` + `area`, se retira sólo esa excepción y la persona vuelve
+     * a lo que diga su regla general — que no es lo mismo que volver al rol.
+     */
+    body: { mode: string | null; values?: string[]; mode_write?: string | null; nota?: string; area?: string },
   ): Observable<unknown> {
     return this.http.put(`${this.users}/${id}/scope/${dimension}`, body);
   }

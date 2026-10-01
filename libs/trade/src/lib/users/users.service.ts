@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
@@ -23,6 +24,8 @@ import {
   TenantContextService,
   PermissionsCacheService,
   ScopeService,
+  // `[ZN.6]` El tipo de la dimensión, para validar `values` contra su universo en `setScope`.
+  ScopeDimension,
   Permission,
   branchKeySql,
   branchKeyFilterSql,
@@ -35,6 +38,8 @@ import {
   isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
+// `[ZN.8]` Las áreas se DERIVAN de AUTHZ_TREE: copiarlas acá las haría divergir (ADR-056).
+import { AREAS_DE_ALCANCE, AREA_TODAS, esAreaDeAlcance } from '@megadulces/contracts/authz/scope-areas';
 
 interface RequesterContext {
   sub: string;
@@ -299,56 +304,92 @@ export class UsersService {
    *
    * Devuelve `undefined` cuando NINGUNO vino, para poder distinguir en el
    * update "no lo mandes" de "ponelo en null" (desasignar zona).
+   *
+   * ⛔ `[ZN.6]` **Eso último era mentira y lo decía este mismo comentario.** Las dos primeras
+   * guardas preguntaban por el valor (`if (dto.zone_id)`) y no por su presencia, así que un
+   * `zone_id: null` —que es exactamente lo que manda la pantalla cuando elegís «Ninguna»— es
+   * *falsy*, se caía por los tres `if` y salía `undefined` = «no toques nada». **La zona no se
+   * podía desasignar desde la UI**, mientras que sus dos campos hermanos (`warehouse_code` y
+   * `route_id`) sí se limpian porque viajan en el `...rest`. Tres campos que se ven iguales en
+   * pantalla y uno se comportaba distinto, en silencio.
+   *
+   * Ahora se pregunta por **presencia** (`!== undefined`) y el valor se normaliza: `null` y `''`
+   * son los dos «desasignar».
    */
   private async resolveZoneRef(dto: {
-    zone_id?: string;
-    zona_id?: string;
-    zona?: string;
+    zone_id?: string | null;
+    zona_id?: string | null;
+    zona?: string | null;
   }): Promise<string | null | undefined> {
-    if (dto.zone_id) return dto.zone_id;
-    if (dto.zona_id) return dto.zona_id;
-    if (dto.zona !== undefined) return this.resolveZonaId(dto.zona);
+    if (dto.zone_id !== undefined) return dto.zone_id || null;
+    if (dto.zona_id !== undefined) return dto.zona_id || null;
+    if (dto.zona !== undefined) return this.resolveZonaId(dto.zona ?? undefined);
     return undefined;
   }
 
   /**
    * `[ID.24]` — La zona se DERIVA, no se pregunta.
    *
-   * Las dos derivaciones están verificadas contra la data, no supuestas:
-   *   - **ruta → zona**: de las 15 rutas con tiendas cargadas, **ninguna cruza
-   *     de zona**. Es una función.
-   *   - **sucursal → zona**: `commercial.warehouses.zone_id` (`[ID.23]`).
+   * ── `[ZN.6]` ⛔ Dos correcciones, las dos medidas contra prod ────────────────────────────────
    *
-   * Precedencia: la ruta gana. Para el vendedor de ruta vecinal parado en la
-   * sucursal 02, su zona es su territorio (`LA PIEDAD VECINAL`), no la plaza de
-   * la tienda donde está — y ese es justo el caso que se perdía al derivar de la
-   * sucursal.
+   * **1 · La sucursal se resolvía con la columna equivocada.** Esto leía
+   * `commercial.warehouses.zone_id`, y de sus 8 filas pobladas **4 apuntan a una fila de
+   * `trade.zones` que NO es una zona sino una sucursal** (`04`→YURECUARO VECINAL, `06`→CANINDO,
+   * `07`→MORELIA MADERO, `08`→MORELIA ABASTOS). O sea que cada alta en esas cuatro plazas volvía
+   * a anclar a alguien a su propia sucursal disfrazada de zona — **es el motor que fabricó las 34
+   * personas cuyo filtro de zona no filtra por una zona**.
    *
-   * Devuelve `undefined` cuando NO se puede derivar (ruta sin tiendas cargadas,
-   * sucursal sin plaza, persona de oficinas). `undefined` significa **no toques
-   * lo que ya tiene**: una zona en blanco es peor que una zona vieja, porque
-   * `zone: own` la usa para filtrar y dejaría a la persona sin ver nada.
+   * El resolvedor correcto ya existía y no lo consumía nadie: `analytics.v_branch_zone`
+   * (`[ZN.0]`), que deriva de `purchase_zone` y une por `code` contra `kind='zona'`. Acierta
+   * **9 de 9**. El CEDIS resuelve `zona_id NULL` con `es_corporativo` — y eso es correcto: no
+   * cuelga de ninguna plaza, así que no hay zona que derivar.
+   *
+   * **2 · Ruta → zona NO es una función.** El comentario que estaba acá afirmaba que *«de las 15
+   * rutas con tiendas cargadas, ninguna cruza de zona»*. Hoy es falso: `Ruta Vecinal #1` tiene
+   * **742 tiendas repartidas en dos** (58 en LA PIEDAD RD y 684 en MORELIA MADERO), y el
+   * `.first()` sin `ORDER BY` elegía **una al azar** según el plan de ejecución. Ahora se piden
+   * las zonas DISTINTAS y sólo se deriva cuando hay exactamente una.
+   *
+   * ⚠️ Y se exige `kind='zona'`: 5 rutas tienen todas sus tiendas colgadas de una fila-sucursal
+   * (`Ruta mayoreo 01` y `RUTA 321`→MORELIA MADERO, `Ruta 501`/`502`→CANINDO, `RVDAM01`→ZAMORA
+   * VECINAL). Antes eso se propagaba a la persona; ahora cae al camino de la sucursal, que sí
+   * resuelve bien.
+   *
+   * Precedencia: la ruta gana. Para el vendedor de ruta vecinal parado en la sucursal 02, su
+   * zona es su territorio, no la plaza de la tienda donde está.
+   *
+   * Devuelve `undefined` cuando NO se puede derivar (ruta ambigua o sin tiendas en una zona real,
+   * sucursal sin plaza, CEDIS, persona de oficinas). `undefined` significa **no toques lo que ya
+   * tiene**. Lo que no se puede derivar se DECLARA —la ficha lo muestra como «no resoluble»
+   * (`[ID.26]`)— en vez de inventar una zona plausible: ese disfraz es justo lo que costó 34
+   * personas mal ancladas.
    */
   private async derivarZona(
     routeId?: string | null,
     warehouseCode?: string | null,
   ): Promise<string | undefined> {
     if (routeId) {
-      const r = await this.knex('trade.stores')
-        .where({ tenant_id: this.tenantId, ruta_id: routeId })
-        .whereNull('deleted_at')
+      const zonas = await this.knex('trade.stores as s')
+        .join('trade.zones as z', 'z.id', 's.zona_id')
+        .where({ 's.tenant_id': this.tenantId, 's.ruta_id': routeId })
+        .whereNull('s.deleted_at')
+        .whereNull('z.deleted_at')
+        .where('z.kind', 'zona')
+        .distinct('z.id as zona_id');
+      if (zonas.length === 1) return zonas[0].zona_id;
+      if (zonas.length > 1) {
+        this.logger.warn(
+          `[ZN.6] la ruta ${routeId} tiene tiendas en ${zonas.length} zonas distintas: no se deriva, se declara`,
+        );
+      }
+    }
+    if (warehouseCode) {
+      const w = await this.knex('analytics.v_branch_zone')
+        .where({ tenant_id: this.tenantId, branch_code: warehouseCode })
         .whereNotNull('zona_id')
         .select('zona_id')
         .first();
-      if (r?.zona_id) return r.zona_id;
-    }
-    if (warehouseCode) {
-      const w = await this.knex('commercial.warehouses')
-        .where({ tenant_id: this.tenantId, code: warehouseCode })
-        .whereNull('deleted_at')
-        .select('zone_id')
-        .first();
-      if (w?.zone_id) return w.zone_id;
+      if (w?.zona_id) return w.zona_id;
     }
     return undefined;
   }
@@ -785,14 +826,28 @@ export class UsersService {
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    // `[ID.24]` La zona se deriva de la ruta o de la sucursal. Sólo se respeta la
-    // que venga explícita cuando no hay de dónde derivarla — así el alta deja de
-    // preguntar lo mismo dos veces y la zona no puede quedar en desacuerdo con
-    // el lugar donde la persona trabaja.
-    const zona_id =
-      (await this.derivarZona(createUserDto.route_id, createUserDto.warehouse_code)) ??
-      (await this.resolveZoneRef(createUserDto)) ??
-      null;
+    // `[ID.24]` La zona se deriva de la ruta o de la sucursal.
+    //
+    // `[ZN.6]` ⛔ Acá el alta y la edicion usaban reglas OPUESTAS para el mismo hecho: en el alta
+    // la derivada PISABA lo que el admin habia elegido, sin aviso ni rastro; en la edicion mandaba
+    // lo explicito. Un campo que se comporta distinto segun si la persona ya existe es un campo en
+    // el que no se puede confiar. Se unifica en la regla de `update`: manda quien lo escribio.
+    //
+    // La coherencia no se pierde: `[ZN.6.B2]` deja el selector ofreciendo solo `kind='zona'`, asi
+    // que ya no se puede elegir una sucursal disfrazada. Y si lo elegido contradice lo derivable,
+    // queda ASENTADO en el log en vez de resolverse a escondidas. Lo que lo cierra de raiz es
+    // dejar de capturar la zona (`[ZN.4]`), que es otra entrega.
+    const zoneRef = await this.resolveZoneRef(createUserDto);
+    const derivada = await this.derivarZona(
+      createUserDto.route_id,
+      createUserDto.warehouse_code,
+    );
+    if (zoneRef && derivada && zoneRef !== derivada) {
+      this.logger.warn(
+        `[ZN.6] alta de ${createUserDto.username}: la zona elegida (${zoneRef}) no es la que sale de su lugar de trabajo (${derivada}). Se respeta la elegida.`,
+      );
+    }
+    const zona_id = zoneRef !== undefined ? zoneRef : derivada ?? null;
     const normalizedRoleName = role_name.toLowerCase();
 
     const [user] = await this.knex('users')
@@ -1642,11 +1697,33 @@ export class UsersService {
       .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name');
   }
 
+  /**
+   * `[ZN.6]` — El catálogo de zonas, con lo que cada fila **es**.
+   *
+   * ⛔ Dos cosas que faltaban, y las dos se veían igual de bien en pantalla:
+   *
+   * 1. **No filtraba `deleted_at`**, así que una zona borrada seguía siendo elegible. Es el mismo
+   *    mecanismo que dejó a 4 personas ancladas a la sucursal `32` después de que se la borrara
+   *    (`[ZN.2.0]`): el valor se guarda, no falla nada, y la persona termina filtrando por algo
+   *    que ya no existe.
+   * 2. **No decía el `kind`.** `trade.zones` tiene 11 filas vivas y sólo 3 son zonas; las otras 8
+   *    son 4 sucursales, 2 canales, OFICINAS y una sin clasificar. Sin `kind` el selector las
+   *    ofrecía todas como si fueran lo mismo — por eso hay 34 personas cuyo «zona» es en realidad
+   *    su propia sucursal. La columna la escribió `[ZN.0]` hace una semana y **ninguna pantalla la
+   *    había leído**.
+   *
+   * ⚠️ Se devuelven **todas** las filas vivas, no sólo `kind='zona'`: quien elige (el alta) tiene
+   * que ofrecer sólo zonas, pero quien MUESTRA una ficha ya guardada necesita poder nombrar la
+   * fila que esa persona tiene, aunque no sea una zona. Recortar acá dejaría el selector en blanco
+   * para 54 personas, y un blanco se lee como «no tiene» — que es otra afirmación, y falsa.
+   * Filtrar es responsabilidad de quien ofrece; declarar, de quien muestra.
+   */
   async getZones() {
     return this.knex('zones')
       .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
       .orderBy('orden', 'asc')
-      .select('id', 'name as value', 'orden');
+      .select('id', 'name as value', 'orden', 'kind', 'kind_motivo');
   }
 
   /**
@@ -2022,11 +2099,22 @@ export class UsersService {
   async setScope(
     id: string,
     dimension: string,
-    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null; area?: string | null },
     requester: RequesterContext,
   ) {
     const dim = await this.knex('identity.scope_dimensions').where({ code: dimension }).first('code', 'supports_own');
     if (!dim) throw new BadRequestException(`La dimensión de alcance "${dimension}" no existe.`);
+
+    // `[ZN.8]` El área se valida contra `AUTHZ_TREE`, que es donde viven los proyectos. Sin esto
+    // un typo (`"compra"`) se guardaría feliz y crearía una excepción que **no aplica a ninguna
+    // pantalla** — invisible, porque el resolvedor simplemente nunca la encuentra y cae al `'*'`.
+    const area = (dto.area ?? AREA_TODAS).trim() || AREA_TODAS;
+    if (!esAreaDeAlcance(area)) {
+      throw new BadRequestException(
+        `El área "${area}" no es un proyecto conocido. Las válidas son: ` +
+          `${AREA_TODAS} (todas) y ${AREAS_DE_ALCANCE.map((a) => a.id).join(', ')}.`,
+      );
+    }
 
     const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
     if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
@@ -2064,17 +2152,20 @@ export class UsersService {
     }
 
     const previo = await this.knex('identity.user_scopes')
-      .where({ tenant_id: this.tenantId, user_id: id, dimension })
+      .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
       .first('mode', 'values', 'mode_write');
 
     // Heredar del rol = borrar la fila propia.
     if (dto.mode == null) {
+      // `[ZN.8]` Borrar la regla de un ÁREA la devuelve a lo que diga su `'*'` (y si no hay, al
+      // rol). Borrar la de `'*'` la devuelve al rol sin tocar las excepciones por área: son
+      // decisiones distintas y se retiran por separado.
       await this.knex('identity.user_scopes')
-        .where({ tenant_id: this.tenantId, user_id: id, dimension })
+        .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
         .del();
-      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
       this.scopeService?.invalidateUser?.(this.tenantId, id);
-      return { dimension, hereda_del_rol: true };
+      return { dimension, area, hereda_del_rol: true };
     }
 
     if (dto.mode === 'own' && !dim.supports_own) {
@@ -2088,10 +2179,38 @@ export class UsersService {
       throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elegí valores o usá "none".');
     }
 
+    // `[ZN.6]` ⛔ **Nada contrastaba `values` contra la realidad.** El endpoint recibe `@Body()`
+    // crudo y esto hacía `.map(String).filter(Boolean)` y a la base. O sea que se podía guardar
+    // cualquier uuid: el de otra tabla, el de una fila borrada, o —lo que efectivamente pasó en
+    // prod— el de `OFICINAS`, que no es una zona sino una actividad. El resultado no es un error:
+    // es una persona que filtra por algo que no existe y ve **cero filas**, sin que nada lo diga.
+    //
+    // Es el mismo defecto que `assertOrgCodes` ya había cerrado para `warehouse_code` en el alta,
+    // y que acá seguía abierto. Se valida contra `universeFor()`, que es la MISMA fuente que
+    // alimenta el selector — así el formulario no puede ofrecer algo que el endpoint rechace, ni
+    // al revés.
+    if (values?.length) {
+      if (!this.scopeService) {
+        throw new ServiceUnavailableException(
+          'No se puede validar el alcance en este momento. Se rechaza en vez de guardar valores sin comprobar.',
+        );
+      }
+      const universo = await this.scopeService.universeFor(this.tenantId, dimension as ScopeDimension);
+      const conocidos = new Set(universo.map((o) => o.value));
+      const desconocidos = values.filter((v) => !conocidos.has(v));
+      if (desconocidos.length) {
+        throw new BadRequestException(
+          `Estos valores no existen en "${dimension}": ${desconocidos.join(', ')}. ` +
+            `Guardarlos dejaría a ${user.username} filtrando por algo que no existe, o sea sin ver nada.`,
+        );
+      }
+    }
+
     const fila = {
       tenant_id: this.tenantId,
       user_id: id,
       dimension,
+      area,
       mode: dto.mode,
       values,
       mode_write: dto.mode_write ?? null,
@@ -2101,12 +2220,34 @@ export class UsersService {
     };
     await this.knex('identity.user_scopes')
       .insert({ ...fila, created_by: requester.sub })
-      .onConflict(['tenant_id', 'user_id', 'dimension'])
+      .onConflict(['tenant_id', 'user_id', 'dimension', 'area'])
       .merge(fila);
 
-    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
     this.scopeService?.invalidateUser?.(this.tenantId, id);
-    return { dimension, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+    return { dimension, area, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+  }
+
+  /**
+   * `[ZN.8]` — Las excepciones por ÁREA de una persona, para que la ficha las pueda mostrar.
+   *
+   * `describe()` resuelve UN área a la vez (la que pregunta la pantalla), así que por sí solo no
+   * puede decir «en Compras ve las 9 y en Tienda sólo Morelia»: eso exige ver las reglas, no el
+   * resultado. Devuelve sólo las que NO son `'*'`; la regla general ya viaja en `dimensions`.
+   *
+   * ⚠️ Van con `label` resuelto desde `AUTHZ_TREE`. Mandar el id pelado obligaría al front a
+   * tener su propia tabla de nombres de proyecto — la copia a mano que esta fase evita.
+   */
+  async scopeAreaOverrides(id: string) {
+    const rows = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .whereNot('area', AREA_TODAS)
+      .orderBy(['area', 'dimension'])
+      .select('dimension', 'area', 'mode', 'values', 'mode_write', 'nota');
+    return rows.map((r: Record<string, unknown>) => ({
+      ...r,
+      area_label: AREAS_DE_ALCANCE.find((a) => a.id === r['area'])?.label ?? String(r['area']),
+    }));
   }
 
   /**

@@ -155,8 +155,8 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_ORDERS_VER, url: '/comercial/orders' },
   { perm: Permission.COMMERCIAL_CUSTOMERS_VER, url: '/comercial/customers' },
   { perm: Permission.COMMERCIAL_PRICING_VER, url: '/comercial/pricing' },
-  { perm: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, url: '/comercial/experimentos-precio' },
-  { perm: Permission.COMMERCIAL_MARGIN_ENGINE_VER, url: '/comercial/motor-margen' },
+  { perm: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, url: '/comercial/precios/experimentos' },
+  { perm: Permission.COMMERCIAL_MARGIN_ENGINE_VER, url: '/comercial/precios/motor' },
   { perm: Permission.COMMERCIAL_SELLOUT_VER, url: '/comercial/sell-out' },
   { perm: Permission.COMMERCIAL_SALIDAS_VER, url: '/comercial/salidas' },
   { perm: Permission.COMMERCIAL_ROUTE_SALES_VER, url: '/comercial/ventas-por-ruta' },
@@ -172,6 +172,26 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_THOT_VER, url: '/comercial/thot-chat' },
   { perm: Permission.ROUTE_CONTROL_VER, url: '/comercial/route-tickets' },
 ]);
+
+/**
+ * `[PR.V2]` Landing de `/comercial/precios` — Control de margen.
+ *
+ * ⚠️ **El destino NO puede ser fijo.** Medido en prod: 5 roles ven las dos pestañas, pero
+ * `compras` y `finanzas` ven **sólo el motor** y `telemarketing` ve **sólo los experimentos**.
+ * Un `redirectTo: 'motor'` rebotaría a `telemarketing` contra su propio guard — que es
+ * exactamente `[AUTHZ.6]`, el rebote que `landing-guards.spec` existe para impedir.
+ *
+ * `GESTIONAR` va como candidato propio: hay roles con GESTIONAR y sin VER, y sin esta fila
+ * caerían al fallback.
+ */
+export const PRECIOS_LANDING: LandingCandidate[] = [
+  { perm: Permission.COMMERCIAL_MARGIN_ENGINE_VER, url: '/comercial/precios/motor' },
+  { perm: Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, url: '/comercial/precios/experimentos' },
+  { perm: Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR, url: '/comercial/precios/experimentos' },
+];
+
+/** Landing de `/comercial/precios`. */
+export const preciosHomeGuard: CanActivateFn = landingRedirectGuard(PRECIOS_LANDING, '/comercial/precios/motor');
 
 /** Landing de `/comercial`. */
 export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(COMERCIAL_LANDING, '/comercial/command-center');

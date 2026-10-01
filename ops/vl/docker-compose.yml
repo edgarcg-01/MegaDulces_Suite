@@ -130,6 +130,8 @@ services:
 
   # ═══ CARRIL CALIENTE ═══ venta, movimientos y catálogos. @15 s.
   ods-live-hot:
+    # [K3S.10] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-live-hot
     environment:
@@ -156,19 +158,37 @@ services:
       #     filas) y las entrega el ESPEJO (`ods-live-mirror`, KP_ODS_TABLES="*"), verificado:
       #     llegan a las 9 sucursales. Sacarlas de acá no cambia una sola fila.
       #
-      # ⛔ Lo que NO se tocó, y es el hallazgo grande: esta lista vive COPIADA A MANO en cuatro
-      # lugares (acá, el espejo de abajo, el default de `replicate-ods-live.js:53` y
-      # `RUNBOOK_REPLICACION_LOGICA.md`). Es la misma bomba de `[ODS.1]` —la lista de sucursales
-      # copiada que dejó al reconciliador nocturno sin ver Morelia Madero y Abastos por meses,
-      # sin una sola señal— y aquella SÍ se desactivó con un catálogo canónico. Ésta no. Tocar
-      # el reparto de los cuatro archivos a la vez sin una prueba que compare el conjunto
-      # embarcado antes y después es exactamente cómo se pierde una sucursal en silencio.
+      # ⭐ [INFRA.3 + INFRA.4 2026-09-30] EL HALLAZGO GRANDE, DESACTIVADO. Acá decía que esta
+      # lista vivía COPIADA A MANO en cuatro lugares y que tocarlas sin una prueba era como se
+      # pierde una sucursal en silencio — la misma bomba de `[ODS.1]`. Medido al desactivarlo,
+      # las copias YA DIVERGÍAN: el default de `replicate-ods-live.js` traía `kdib` (retirada el
+      # 2026-09-24 porque su destino no existe) y le FALTABAN seis familias que sí se embarcan
+      # (`kdco`, `kdc3`, `kdpv_folio_caja`, `kdxd`, `kdxe`, `kdc2*`). Nadie lo notaba porque los
+      # contenedores fijan la variable: ese default sólo salía a escena corriendo el script A
+      # MANO —depuración, puesta al día, recuperación—, que es justo cuando menos se mira lo
+      # que se embarcó.
+      #
+      #   · [INFRA.3] el default se RETIRÓ: sin `KP_ODS_TABLES` el script sale con código 1 en
+      #     vez de shipear un conjunto plausible. Un default equivocado es peor que ninguno.
+      #   · [INFRA.4] las dos que QUEDAN —ésta y el `ODS_EXCLUDE_TABLES` del espejo, las que de
+      #     verdad embarcan— las candadea `database/tests/test-ods-lane-partition.js`: sin
+      #     traslape (si una tabla cae en los dos carriles se pisan `ods.ctl`, que llavea sólo
+      #     `(table_name)`, y las filas del medio no se vuelven a mirar), huecos DECLARADOS con
+      #     su motivo, y `ODS_HASH_TABLES ⊆ KP_ODS_TABLES` para que no vuelva el bug de `[CT.3]`.
+      #     Importa el matcher de globs de producción en vez de reimplementar `kdc2*`.
+      #
+      # ⚠️ Quedan DOS copias más, pero son de DOCUMENTACIÓN y describen un launcher que ya no
+      # existe (`run-ods-live-loop.cmd`, muerto desde que `[VL.4]` movió los 13 carriles acá):
+      # `RUNBOOK_REPLICACION_LOGICA.md` y `FASE_CV`. Las dos traen `kdib`. No embarcan nada —
+      # el riesgo es que alguien las siga durante una recuperación.
       KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
       ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
 
   # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
   ods-live-mirror:
+    # [K3S.9] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-live-mirror
     depends_on: [ods-live-hot]
@@ -198,6 +218,8 @@ services:
   # "el contenedor está roto": reiniciarlo no repone ni una fila. Por eso
   # ODS_HB_IGNORE_ERROR=1 y el healthcheck juzga sólo la antigüedad del latido.
   ods-reconcile:
+    # [K3S.8] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-reconcile
     depends_on: [ods-live-hot]
@@ -250,6 +272,15 @@ services:
   # (kdpv_prod_util 222, kdii 26, …). Propagar ese DELETE es una decisión con evidencia aparte, no
   # un efecto colateral de encender un carril.
   ods-reconcile-chicas:
+    # ⛔ [K3S.6 2026-10-01] MIGRADO A K3s — primer carril que se fue. El perfil lo deja declarado
+    # pero NO lo arranca: `docker compose up -d` sin nombrarlo lo ignora. Si corriera a la vez que
+    # el Deployment `ingesta/ods-reconcile-chicas`, los dos escribirían el renglón
+    # `cdc_reconcile_chicas` de `analytics.cron_runs` y se lo pisarían. Un carril = un dueño.
+    # Verificado al migrar: el latido pasó de `host=9da95f2080de` (este contenedor) a
+    # `host=ods-reconcile-chicas-f6d56b558-k674k` (el pod), status ok, primera pasada en 10 s.
+    # Volver atrás: `docker compose --profile retirado-k3s up -d ods-reconcile-chicas` y borrar
+    # el Deployment. No se pierde una fila: el carril es idempotente y su tope de latido es 90 min.
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-reconcile-chicas
     depends_on: [ods-live-hot]
@@ -266,6 +297,9 @@ services:
       # Se descubrió porque `cdc_reconcile_chicas` no existía en `cron_runs` — la llave estaba
       # registrada en `CRON_JOBS` y eso la delató.
       ODS_RECONCILE_HB_KEY: cdc_reconcile_chicas
+      # [K3S.7] health.js lee ODS_HB_KEY, no ODS_RECONCILE_HB_KEY: sin ella el chequeo
+      # imprime "no se evalua" y SALE 0 -- healthy pase lo que pase. Venia asi.
+      ODS_HB_KEY: cdc_reconcile_chicas
       ODS_HB_MAX_MIN: "90"
       ODS_HB_IGNORE_ERROR: "1"
       ODS_DELETE_SOBRANTES: "0"
@@ -345,6 +379,8 @@ services:
   # ops/vl/crontab.feeds. `crond -f -d 8` = primer plano y log a stdout, para que
   # `docker compose logs feeds-cron` muestre lo que hizo cada carril.
   feeds-cron:
+    # [K3S.13] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: feeds-cron
     restart: unless-stopped
@@ -389,6 +425,8 @@ services:
   # Sub-minuto: el cron no llega. Loop propio, como el `run-livefast-loop.cmd` que
   # reemplaza (sales-fact → sales_daily + cash-sessions, ventana de 2 días).
   feeds-livefast:
+    # [K3S.11/12] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: feeds-livefast
     restart: unless-stopped
@@ -419,6 +457,8 @@ services:
   # `C:\KeplerPush\store-poller.cmd`, que además era uno de los 2 únicos que corrían
   # como SYSTEM (los otros 17 dependían de una sesión de usuario abierta).
   store-poller:
+    # [K3S.11/12] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: store-poller
     restart: unless-stopped

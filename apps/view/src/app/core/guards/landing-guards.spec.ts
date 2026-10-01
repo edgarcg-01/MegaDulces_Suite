@@ -74,6 +74,9 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMPRAS_PEDIDO_GESTIONAR, url: '/compras/pedido', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_RED_GESTIONAR, url: '/compras/red', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_OBLIGACIONES_GESTIONAR, url: '/compras/obligaciones', motivo: 'manage sin view: la ruta y los GET del backend exigen OBLIGACIONES_VER (abrirla con GESTIONAR daría una página sin datos)' },
+  // [RE.30] Fijar el plazo pactado es una facultad de firma, no una puerta: la migración 20260929180100
+  // se la da sólo a roles que también reciben OBLIGACIONES_VER (gerente_compras, compras, direccion).
+  { perm: Permission.COMPRAS_PLAZOS_AUTORIZAR, url: '/compras/obligaciones', motivo: 'facultad de firma: la ruta exige OBLIGACIONES_VER' },
   { perm: Permission.COMPRAS_REQUISICIONES_GESTIONAR, url: '/compras/requisiciones', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ORDENES_GESTIONAR, url: '/compras/ordenes', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ENTRADAS_VALIDAR, url: '/compras/entradas', motivo: 'la bandeja exige GESTIONAR; VALIDAR solo no abre nada' },

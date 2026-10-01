@@ -151,9 +151,21 @@ export class UsersController {
     return this.usersService.findBySupervisor(id);
   }
 
+  /**
+   * `[ZN.6]` — Catálogo de zonas, con su `kind`.
+   *
+   * **Sin `@RequirePermissions`, y eso es deliberado** — a diferencia de sus dos hermanos de
+   * abajo. Se evaluó alinearlo con ellos y **la medición lo desaconsejó**: lo consumen
+   * `seguimiento` y `reports`, que son tableros operativos, y **115 de las 136 personas vivas no
+   * tienen `USUARIOS_VER`** (sólo 6 de 52 roles lo conceden). Exigirlo les apagaría el filtro de
+   * zona a casi toda la empresa para proteger una lista de tres nombres.
+   *
+   * No queda abierto: el `JwtAuthGuard` global exige sesión. Lo que sí cambió es que la respuesta
+   * trae `kind`, para que quien la use pueda distinguir una zona de las otras 8 filas que viven
+   * en la misma tabla sin serlo.
+   */
   @Get('zones')
-  // Sin @RequirePermissions: consumido por seguimiento, daily-assignments, stores.
-  @ApiOperation({ summary: 'Obtener zonas únicas de usuarios activos' })
+  @ApiOperation({ summary: 'Catálogo de zonas con su kind (zona | sucursal | canal | oficina)' })
   getZones() {
     return this.usersService.getZones();
   }
@@ -358,6 +370,9 @@ export class UsersController {
       user_id: scope.userId,
       role_name: scope.roleName,
       dimensions: await this.scope.describe(scope),
+      // `[ZN.8]` Las excepciones por área. `dimensions` responde «qué ve en general»; esto
+      // responde «y dónde ve distinto», que es la pregunta que el alcance no podía contestar.
+      excepciones: await this.usersService.scopeAreaOverrides(id),
     };
   }
 

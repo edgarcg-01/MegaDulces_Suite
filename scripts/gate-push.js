@@ -35,8 +35,16 @@
  *   · No corre build, typecheck ni tests — eso es del CI (minutos, no segundos).
  *     Acá sólo viven los escaneos estáticos que cuestan ~10 s en total.
  *   · No protege contra `--no-verify`, ni contra un force-push hecho desde otra
- *     máquina o desde la web de GitHub. Es una compuerta de CLIENTE. La de
- *     servidor la desbloquea el plan de GitHub (ver `scripts/apply-branch-protection.js`).
+ *     máquina o desde la web de GitHub, ni existe para quien no corrió
+ *     `npm run hooks:install`. Es una compuerta de CLIENTE: sirve por RAPIDEZ
+ *     —te dice en 2.5 s lo que el CI te diría en 5 min— no por autoridad.
+ *
+ *     ⭐ La que manda es `[CI.SELLO]`, del lado del servidor: el job `sellar` de
+ *     `ci.yml` mueve la rama marcadora `ci-green` cuando pasan `build` y
+ *     `secret-scan`, y `ops/prod/auto-deploy.sh` se niega a desplegar un commit
+ *     que `ci-green` no haya bendecido. Esa no se evade.
+ *     ⛔ La protección de rama de GitHub NO es una opción: el repo es privado en
+ *     plan free y la cuenta no pasa a Pro (decisión del 2026-09-30).
  *   · No mide si tu cambio MEJORA la deuda; sólo que no la empeore en tus archivos.
  *
  * Uso: lo invoca `.githooks/pre-push` (ver `npm run hooks:install`).
@@ -48,6 +56,7 @@
 
 const { execFileSync, execFile } = require('child_process');
 const path = require('path');
+const { DEL_PUSH } = require('./compuertas');
 
 const RAIZ = path.resolve(__dirname, '..');
 
@@ -55,18 +64,22 @@ const RAIZ = path.resolve(__dirname, '..');
 const RAMAS_PROTEGIDAS = new Set(['main', 'master', 'production']);
 
 /**
- * Gates que corren acá. Criterio de admisión: escaneo estático, sin red, sin DB,
- * y medido por debajo de ~3 s. Los tiempos son de la corrida del 2026-09-30 en
- * la máquina de trabajo — si alguno se pasa de 5 s, sacalo de acá y dejalo en CI.
+ * ⭐ Gates que corren acá: los que `scripts/compuertas.js` marca `push: true`.
+ *
+ * **Estaban declarados DOS veces** —acá y en `check-all.js`, con forma distinta— y las dos
+ * listas ya habían divergido: medido el 2026-10-01, `check-dense-tables` y `check-css-tokens`
+ * corrían en este push y **no** en `npm run check`, cuyo encabezado dice "corre todas las que
+ * existen". Con un solo registro eso no se puede escribir.
+ *
+ * El criterio de admisión no cambia y vive en el registro, junto al campo `push`: escaneo
+ * estático, sin red, sin DB, medido por debajo de ~3 s.
+ *
+ * 🔸 **Cambia una cosa, cosmética y declarada:** el rótulo que se imprime ahora es el corto del
+ * registro (`templates`, `primeng`, `teclado`…) y no el largo que vivía sólo acá (`literales de
+ * template`, `API retirada de PrimeNG`…). Es el mismo que imprime `npm run check`, así que las
+ * dos salidas por fin nombran igual a la misma compuerta.
  */
-const GATES = [
-  { nombre: 'tokens CSS', script: 'check-css-tokens.js', ms: 1318 },
-  { nombre: 'tablas densas', script: 'check-dense-tables.js', ms: 1146 },
-  { nombre: 'colisión de migraciones', script: 'check-migration-collisions.js', ms: 1362 },
-  { nombre: 'API retirada de PrimeNG', script: 'check-primeng-api.js', ms: 2084 },
-  { nombre: 'reactividad de señales', script: 'check-signal-reactivity.js', ms: 1801 },
-  { nombre: 'literales de template', script: 'check-template-literals.js', ms: 2521 },
-];
+const GATES = DEL_PUSH;
 
 /** Un sha de puros ceros = la ref se está borrando. */
 const SHA_CERO = /^0+$/;

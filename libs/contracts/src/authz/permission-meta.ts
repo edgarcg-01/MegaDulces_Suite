@@ -245,6 +245,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMPRAS_CATEGORIAS_GESTIONAR]: { label: 'Gestionar Categorías', description: 'Fusionar, renombrar y auto-deduplicar categorías de compra.', category: 'Compras' },
   [Permission.COMPRAS_OBLIGACIONES_VER]: { label: 'Ver Obligaciones a proveedor', description: 'Módulo Obligaciones: cuentas por pagar a proveedores de mercancía (saldo pendiente, vencimiento, negociación) que alimentan el Calendario de Pagos de Finanzas.', category: 'Compras' },
   [Permission.COMPRAS_OBLIGACIONES_GESTIONAR]: { label: 'Gestionar Obligaciones a proveedor', description: 'Capturar y autorizar obligaciones a proveedor, y marcar un proveedor como crítico (con motivo).', category: 'Compras' },
+  [Permission.COMPRAS_PLAZOS_AUTORIZAR]: { label: 'Autorizar plazos de pago a proveedor', description: 'Fijar el plazo pactado con el proveedor: días de crédito y si corren desde la factura o desde la recepción. Lo negocian el comprador o dirección; no lo tiene Gestionar Obligaciones.', category: 'Compras' },
 
   // ── Permisos que faltaban en el editor de permisos ────────────────────
   [Permission.SUPERVISOR_AI_VER]: { label: 'Ver Supervisor AI', description: 'Consultar el supervisor de ejecución AI (parte diario, auditoría de fotos, hallazgos de ruta).', category: 'Seguimiento' },

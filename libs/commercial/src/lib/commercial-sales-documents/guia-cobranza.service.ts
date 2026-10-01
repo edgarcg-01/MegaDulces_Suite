@@ -24,6 +24,11 @@ import { CommercialSalesDocumentsService, FacturaGuiaRow } from './commercial-sa
  * reimpresión desde la cartera de hoy haría que el papel archivado y su copia dijeran cosas
  * distintas del mismo folio.
  *
+ * GT.17 — cada renglón lleva **Total factura · Abonos/Pagos · Saldo** (antes Descuento ·
+ * Importe). `abonos` es `cobrado` de la vista (= total − saldo de `kdue`): todo lo que bajó el
+ * saldo, pagos y notas de crédito aplicadas. Si el documento no está en la cartera no hay
+ * abono medido: se imprime `—`, nunca `0.00` (ADR-056).
+ *
  * Render por el navegador COMPARTIDO de `AnexoVentaService` (mismo lib, un solo Chromium).
  */
 
@@ -46,6 +51,9 @@ export interface SnapshotGuia {
   sello: string;
   derivados: number;
   nota: string;
+  /** 2 = columnas Total factura/Abonos/Saldo (GT.17). Ausente = guía archivada antes: se
+   *  reimprime con sus columnas de entonces (Descuento/Importe), que es lo que se firmó. */
+  formato?: 2;
   clientes: ClienteImpreso[];
 }
 
@@ -66,10 +74,19 @@ export interface ExpedienteGuia {
   snapshot: SnapshotGuia;
 }
 
-interface MovImpreso { folio: string; fecha: string; descuento: number; importe: number; derivado: boolean }
+/** `importe` = saldo a cobrar (o el total, si `derivado`). `descuento` sólo lo usan las guías
+ *  archivadas antes de GT.17; `total_factura`/`abonos` sólo las de formato 2. */
+interface MovImpreso {
+  folio: string; fecha: string; descuento: number; importe: number; derivado: boolean;
+  total_factura?: number;
+  /** `null` = sin cartera: no se sabe cuánto se ha abonado. */
+  abonos?: number | null;
+}
 interface ClienteImpreso {
   cliente_id: string; nombre: string; direccion: string;
   descuento: number; total: number; derivado: boolean; movimientos: MovImpreso[];
+  total_factura?: number;
+  abonos?: number;
 }
 
 @Injectable()
@@ -173,6 +190,7 @@ export class GuiaCobranzaService {
         fecha: s.fecha,
         total: Number(exp.total) || 0,
         vendedor: exp.vendedor_nombre,
+        formato: s.formato,
         documentos: exp.documentos,
         derivados: s.derivados,
         responsable: exp.responsable || '',
@@ -197,6 +215,7 @@ export class GuiaCobranzaService {
       sello: this.sello(d.ahora, 'dmyhm'),
       derivados: d.derivados,
       nota: d.nota,
+      formato: 2,
       clientes: d.clientes,
     };
     return this.tk.run(async (trx) => {
@@ -285,6 +304,7 @@ export class GuiaCobranzaService {
           nombre: String(r.cliente_nombre ?? '').trim() || 'Sin nombre',
           direccion: this.direccion(r),
           descuento: 0, total: 0, derivado: false, movimientos: [],
+          total_factura: 0, abonos: 0,
         };
         mapa.set(code, c);
       }
@@ -292,13 +312,19 @@ export class GuiaCobranzaService {
       const derivado = r.estatus_cobro === 'sin_cartera' || r.saldo === null;
       const importe = derivado ? Number(r.total) || 0 : Number(r.saldo) || 0;
       const desc = Number(r.descuento_efectivo) || 0;
+      const totalFactura = Number(r.total) || 0;
+      // Abonado = lo que bajó el saldo (`cobrado` de la vista). Sin cartera no hay medición.
+      const abonos = derivado ? null : Number(r.cobrado ?? totalFactura - importe) || 0;
       c.movimientos.push({
         folio: String(r.folio ?? '').trim(),
         fecha: this.fechaCorta(r.fecha),
         descuento: desc, importe, derivado,
+        total_factura: totalFactura, abonos,
       });
       c.descuento += desc;
       c.total += importe;
+      c.total_factura = (c.total_factura ?? 0) + totalFactura;
+      c.abonos = (c.abonos ?? 0) + (abonos ?? 0);
       c.derivado = c.derivado || derivado;
     }
     return [...mapa.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -346,16 +372,34 @@ export class GuiaCobranzaService {
   // ── documento ──────────────────────────────────────────────────────────
   private html(clientes: ClienteImpreso[], h: {
     empresa: string; folio: string; numero: string; fecha: string; total: number;
-    vendedor: string | null;
+    vendedor: string | null; formato?: 2;
     documentos: number; derivados: number; responsable: string; nota: string;
   }): string {
+    const v2 = h.formato === 2;
     const bloques = clientes.map((c) => {
-      const movs = c.movimientos.map((mv) => `<tr>
+      const saldo = (mv: MovImpreso) => `${this.m(mv.importe)}${mv.derivado ? '<i class="mk">~</i>' : ''}`;
+      const movs = c.movimientos.map((mv) => v2 ? `<tr>
+        <td class="mono">${this.esc(mv.folio)}</td>
+        <td class="mono">${this.esc(mv.fecha)}</td>
+        <td class="r mono">${this.m(mv.total_factura)}</td>
+        <td class="r mono">${mv.abonos == null ? '<span class="nd">—</span>' : this.m(mv.abonos)}</td>
+        <td class="r mono">${saldo(mv)}</td>
+      </tr>` : `<tr>
         <td class="mono">${this.esc(mv.folio)}</td>
         <td class="mono">${this.esc(mv.fecha)}</td>
         <td class="r mono">${this.m(mv.descuento)}</td>
-        <td class="r mono">${this.m(mv.importe)}${mv.derivado ? '<i class="mk">~</i>' : ''}</td>
+        <td class="r mono">${saldo(mv)}</td>
       </tr>`).join('\n');
+      const cabeza = v2
+        ? '<th>Folio</th><th>Fecha</th><th class="r">Total factura</th><th class="r">Abonos/Pagos</th><th class="r">Saldo</th>'
+        : '<th>Folio</th><th>Fecha</th><th class="r">Descuento</th><th class="r">Importe</th>';
+      const pie = v2
+        ? `<td colspan="2" class="r">Total del cliente${c.derivado ? ' ~' : ''}</td>
+            <td class="r mono">${this.m(c.total_factura)}</td>
+            <td class="r mono">${this.m(c.abonos)}</td>
+            <td class="r mono tot">${this.m(c.total)}</td>`
+        : `<td colspan="3" class="r">Total del cliente${c.derivado ? ' ~' : ''}</td>
+            <td class="r mono tot">${this.m(c.total)}</td>`;
       return `<section class="cli">
         <div class="cli-head">
           <div class="cli-id">
@@ -366,23 +410,26 @@ export class GuiaCobranzaService {
           <div class="cli-res">
             <span><b>Concepto</b> Mercancía</span>
             <span><b>Tipo</b> Cobranza</span>
-            <span><b>Descuento</b> ${this.m(c.descuento)}</span>
+            ${v2
+              ? `<span><b>Abonos/Pagos</b> ${this.m(c.abonos)}</span>`
+              : `<span><b>Descuento</b> ${this.m(c.descuento)}</span>`}
           </div>
         </div>
         <table class="movs">
-          <thead><tr><th>Folio</th><th>Fecha</th><th class="r">Descuento</th><th class="r">Importe</th></tr></thead>
+          <thead><tr>${cabeza}</tr></thead>
           <tbody>${movs}</tbody>
           <tfoot><tr>
-            <td colspan="3" class="r">Total del cliente${c.derivado ? ' ~' : ''}</td>
-            <td class="r mono tot">${this.m(c.total)}</td>
+            ${pie}
           </tr></tfoot>
         </table>
       </section>`;
     }).join('\n');
 
     const notaSaldo = h.derivados > 0
-      ? `~ ${h.derivados} documento${h.derivados === 1 ? '' : 's'} no ${h.derivados === 1 ? 'aparece' : 'aparecen'} en la cartera del ERP: no se puede saber cuánto ${h.derivados === 1 ? 'debe' : 'deben'} y se imprime el total de la factura. El resto es el saldo pendiente al momento de imprimir.`
-      : 'El importe es el saldo pendiente en la cartera al momento de imprimir.';
+      ? `~ ${h.derivados} documento${h.derivados === 1 ? '' : 's'} no ${h.derivados === 1 ? 'aparece' : 'aparecen'} en la cartera del ERP: no se puede saber cuánto ${h.derivados === 1 ? 'debe' : 'deben'} y se imprime el total de la factura${v2 ? ' (sin abonos medidos: —)' : ''}. El resto es el saldo pendiente al momento de imprimir.`
+      : v2
+        ? 'El saldo es lo pendiente en la cartera al momento de imprimir. Abonos/Pagos = total de la factura − saldo (pagos y notas de crédito aplicadas).'
+        : 'El importe es el saldo pendiente en la cartera al momento de imprimir.';
 
     return `<meta charset="utf-8"><title>Guía de Cobranza</title>
 <style>
@@ -421,6 +468,7 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
 .movs tfoot td{border-bottom:0;border-top:1px solid var(--line);font-weight:700;padding-top:4px}
 .movs .tot{font-size:10.5pt}
 .mk{font-style:normal;color:var(--accent);margin-left:2px}
+.nd{color:var(--muted)}
 .nota{font-size:8pt;color:var(--muted);margin:6px 0 0}
 .legal{margin-top:14px;border-top:1px solid var(--line);padding-top:8px;
   font-size:7.5pt;line-height:1.35;color:#3d3d3d;text-align:justify}

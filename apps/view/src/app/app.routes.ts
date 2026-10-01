@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -290,27 +290,52 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
       },
       {
-        // [PR.D2] El experimento de aterrizaje psicológico del precio: la lista para capturar
-        // en Kepler (que es read-only por decisión, ADR-040) y el veredicto de no-inferioridad.
-        path: 'experimentos-precio',
-        loadComponent: () => import('./modules/comercial/pages/comercial-experimentos-precio.component').then(m => m.ComercialExperimentosPrecioComponent),
-        // ⭐ anyPermissionGuard, no permissionGuard: `landing-guards.spec` lo atrapó. Un rol con
-        // sólo GESTIONAR y sin VER rebotaría en el índice del proyecto. La migración de reparto
-        // garantiza que GESTIONAR ⊆ VER, pero el guard NO debe depender de que los datos se
-        // mantengan así — la puerta se defiende sola.
-        canActivate: [anyPermissionGuard(
-          Permission.COMMERCIAL_PRICE_EXPERIMENT_VER,
-          Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR,
-        )]
+        // `[PR.V2]` **Control de margen** — la puerta única del sidebar. No tiene pantalla
+        // propia: `preciosHomeGuard` manda a la primera pestaña que esa persona SÍ puede abrir.
+        //
+        // ⛔ Un `redirectTo` fijo NO sirve. Medido en prod: 5 roles ven las dos pestañas, pero
+        //    `compras`/`finanzas` ven **sólo el motor** y `telemarketing` **sólo los
+        //    experimentos** — mandarlo a `motor` lo rebota contra su propio guard, que es
+        //    exactamente `[AUTHZ.6]`, lo que `landing-guards.spec` existe para impedir.
+        path: 'precios',
+        pathMatch: 'full',
+        canActivate: [preciosHomeGuard],
+        // El loadComponent nunca corre: el guard siempre devuelve un UrlTree. Mismo patrón que
+        // el landing de `/comercial`.
+        loadComponent: () => import('./modules/comercial/pages/comercial-motor-margen.component').then(m => m.ComercialMotorMargenComponent),
       },
       {
         // [PR.V1] El motor de margen: el triage de precio por SKU y plaza, con lo que el motor
         // NO puede ver declarado al lado. Un solo permiso y de lectura — no hay GESTIONAR
         // porque Kepler es read-only (ADR-040) y el precio lo captura una persona allá.
-        path: 'motor-margen',
+        //
+        // ⚠️ Ruta PLANA con el prefijo adentro (`precios/motor`), no una hija anidada. El parser
+        //    de `landing-guards.spec` sólo lee hijas a 8 espacios y con un padre anidado
+        //    reconstruye mal la URL: todo candidato de esta pantalla saldría como «la ruta no
+        //    existe». Es la misma convención que Almacén, que tampoco indenta las hijas del shell.
+        path: 'precios/motor',
         loadComponent: () => import('./modules/comercial/pages/comercial-motor-margen.component').then(m => m.ComercialMotorMargenComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
       },
+      {
+        // [PR.D2] El experimento de aterrizaje psicológico del precio: la lista para capturar
+        // en Kepler (que es read-only por decisión, ADR-040) y el veredicto de no-inferioridad.
+        //
+        // ⭐ anyPermissionGuard, no permissionGuard: `landing-guards.spec` lo atrapó. Un rol con
+        // sólo GESTIONAR y sin VER rebotaría en el índice del proyecto. La migración de reparto
+        // garantiza que GESTIONAR ⊆ VER, pero el guard NO debe depender de que los datos se
+        // mantengan así — la puerta se defiende sola.
+        path: 'precios/experimentos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-experimentos-precio.component').then(m => m.ComercialExperimentosPrecioComponent),
+        canActivate: [anyPermissionGuard(
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_VER,
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR,
+        )]
+      },
+      // `[PR.V2]` Las dos URLs viejas siguen valiendo: hay marcadores del equipo y enlaces en los
+      // docs de fase apuntando ahí. Mismo criterio que `[CAT.1]` cuando el catálogo se mudó.
+      { path: 'motor-margen', redirectTo: 'precios/motor', pathMatch: 'full' },
+      { path: 'experimentos-precio', redirectTo: 'precios/experimentos', pathMatch: 'full' },
       {
         // [CAT.1] El catálogo se mudó a Compras (/compras/catalogo). Se deja el redirect porque hay
         // enlaces internos y marcadores del equipo apuntando a esta ruta.
@@ -880,7 +905,8 @@ export const routes: Routes = [
         // Pagos. La página y el backend existían desde TP; faltaba la ruta.
         path: 'obligaciones',
         loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+        // [RE.32] Finanzas entra a confirmar lo que Compras le entregó (sólo ve la pestaña Entregas).
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)]
       },
       {
         // TP.7 — cuentas bancarias de pago a proveedor (alta/cambio por solicitud). Mismo permiso.

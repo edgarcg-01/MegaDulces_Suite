@@ -1,6 +1,9 @@
 # Fase ZN — Zona, sucursal y ruta: normalizar para que cada quien vea lo suyo
 
-> **Estado:** 🔨 ZN.0 en código (2026-09-23) · resto planeado
+> **Estado:** 🔨 ZN.0 en código (2026-09-23) · **ZN.6 en código (2026-09-30)** · ZN.1–ZN.5 planeados
+>
+> ⚠️ **Las cifras de §2 son del 2026-09-23 y envejecieron.** La re-medición del 2026-09-30 está en
+> §11, y una de ellas **corrige un diagnóstico de este mismo documento**. Leer §11 antes que §2.
 > **Pedido del lead (2026-09-23):** *«hay que normalizar esto, para que se respete que el usuario
 > solo vea lo de su zona o sus sucursales asignadas. Debemos eliminar todo lo que esté hardcodeado
 > y separar por sucursal.»*
@@ -427,3 +430,278 @@ tres sucursales con la misma etiqueta.
 | `trade.zones` tiene filas que dejan de usarse | **no se borran**: se marcan con `kind` y se retiran de los selectores. Borrar exige autorización explícita |
 
 **Orden:** ZN.0 → (medición) → ZN.1 → ZN.2 + ZN.3 por módulo → ZN.4 → ZN.5.
+
+---
+
+## 11. ZN.6 — El motor que lo fabricaba, y el editor que sólo podía quitar ✅ en código (2026-09-30)
+
+Disparado por un reporte sobre una ficha concreta: *«¿por qué en zonas sólo aparece eso? es una
+aberración nuestro funcionamiento de usuarios»*. Re-medido contra **prod real** (`pg-prod` en `md`,
+`system_identifier 7688376744939610156`, lectura sola).
+
+### 11.1 ⛔ Corrección a §2.2 y al ADR: la causa raíz no estaba nombrada
+
+`[ZN.0]` clasificó el catálogo y declaró que **no movía a nadie**. Lo que no se vio es que había
+algo **fabricando el defecto todos los días**: `derivarZona()` derivaba la zona de una persona
+leyendo `commercial.warehouses.zone_id`, y **4 de sus 8 filas pobladas apuntan a una fila-sucursal**
+(`04`→YURECUARO VECINAL, `06`→CANINDO, `07`→MORELIA MADERO, `08`→MORELIA ABASTOS).
+
+O sea que **cada alta en esas cuatro plazas volvía a anclar a alguien a su propia sucursal
+disfrazada de zona**. Limpiar sin cerrar esto era barrer con la canilla abierta — y explica por qué
+la cifra de §2.2 no bajaba sola. El resolvedor correcto (`analytics.v_branch_zone`, creado por el
+propio ZN.0) acierta **9 de 9** y **no lo consumía nadie**.
+
+### 11.2 ⛔ Corrección a una afirmación del código: ruta → zona NO es una función
+
+El docstring de `derivarZona` afirmaba: *«de las 15 rutas con tiendas cargadas, **ninguna cruza de
+zona**. Es una función»*, y por eso tomaba la primera fila con un `.first()` **sin `ORDER BY`**.
+Hoy es falso: **`Ruta Vecinal #1` tiene 742 tiendas en dos zonas** (58 en LA PIEDAD RD, 684 en
+MORELIA MADERO), así que la zona salía **al azar** según el plan de ejecución.
+
+⭐ `database/tests/test-newdb-scope-axis.js` **ya lo venía reportando en rojo**. La afirmación vivía
+en un comentario, que no se pone rojo cuando deja de ser cierta.
+
+### 11.3 El síntoma reportado: `optionsFor()` es un read-model usado como edit-model
+
+`GET /users/:id/scope` → `describe()` → `optionsFor()`, que **recorta el universo por el modo del
+propio sujeto**. Su docstring dice que es para el picker de `GET /users/me/scope` («¿por qué puedo
+filtrar YO?»), y `/admin/personas` lo usaba como la lista de lo que un admin puede **otorgar**:
+
+| modo del sujeto | opciones que veía el admin | efecto |
+|---|---|---|
+| `own` | **1**: la que ya tiene | sólo podía «otorgar» lo que ya tenía |
+| `none` / sin regla | **`[]`** | *«el catálogo llegó vacío»* y Guardar apagado |
+| `listed` | sólo las que ya tiene | **nunca podía AGREGAR** |
+| `all` | el universo | el único caso que funcionaba |
+
+⇒ **La pantalla de alcance sólo podía quitar, nunca dar.**
+
+### 11.4 Cifras al 2026-09-30 (reemplazan las de §2)
+
+| | |
+|---|---|
+| `trade.zones` vivas | **11** — 3 zonas · 4 sucursales · 2 canales · 1 oficina · **1 sin clasificar** (`LA PIEDAD MAYOREO`, nacida **después** de ZN.0) |
+| Personas vivas | 136, de las que 113 tienen zona |
+| …ancladas a una fila que **no** es zona | **54** (29 a una sucursal · 20 a OFICINAS · 5 a un canal) |
+| Personas cuyo filtro **depende** de la zona | 90 |
+| …cuyo filtro es **inválido** | **37** (34 por una fila que no es zona · 3 por zona vacía) |
+| Tiendas | 1,603 — **717 sin zona (44.7 %)** y 228 colgadas de una fila-sucursal |
+| Nadie apunta a la zona **MORELIA** | las 21 personas de Morelia apuntan a las dos filas-sucursal |
+
+⚠️ **Las vecinales siguen sin decidirse** (§9.1) y eso ya cuesta: 5 personas y 1 ruta ancladas a un
+`canal`.
+
+### 11.5 Qué se entregó
+
+**Capa A — cerrar la canilla** (sin efecto visible):
+
+- `derivarZona()` deriva de `analytics.v_branch_zone` y exige **una sola zona real** por ruta; lo
+  ambiguo **se declara**, no se adivina.
+- `setScope` valida `values` contra el universo de la dimensión. ⛔ Antes aceptaba cualquier uuid:
+  por ahí entró el alcance `zone: listed = OFICINAS` que motivó el reporte.
+- `resolveZoneRef` pregunta por **presencia** (`!== undefined`), no por valor: elegir «Ninguna» ya
+  desasigna. El comentario afirmaba que eso funcionaba y `null` es *falsy*.
+- El alta adopta la precedencia de la edición (manda lo explícito). Eran **reglas opuestas** para el
+  mismo campo, y en el alta la derivada pisaba la elección del admin sin aviso.
+
+**Capa B — que el editor pueda dar**:
+
+- `ScopeService.universeFor()` — el primitivo que faltaba. `describe()` ahora viaja con **tres**
+  cosas distintas: `universe` (lo otorgable), `values` (lo guardado) y `options` (lo alcanzable).
+- El universo de `zone` se acota a `kind='zona'`: **primer consumidor de `kind` desde que ZN.0 lo
+  escribió**.
+- Lo guardado que queda fuera del universo **se declara** (`valuesFueraDelUniverso`, y en «Dónde
+  opera» la fila se conserva marcada con su `kind_motivo`). Recortar a secas habría dejado el
+  selector en blanco para 54 personas, y un blanco se lee como «no tiene».
+- `GET /users/zones` filtra `deleted_at` y devuelve `kind`.
+- Los catálogos que no cargan se declaran en pantalla (eran 5 `error: () => set([])` mudos).
+
+**⛔ Lo que el plan decía y la medición desaconsejó:** exigir `USUARIOS_VER` en `GET /users/zones`
+para alinearlo con `/branches` y `/routes`. **115 de 136 personas no tienen ese permiso** (6 de 52
+roles), y el endpoint lo consumen Seguimiento y Reportes: les habría apagado el filtro de zona a
+casi toda la empresa para proteger una lista de tres nombres. Queda autenticado sin permiso, con el
+motivo medido escrito en el controller.
+
+**Candados:** `apps/view/.../zona-opciones.spec.ts` (11 casos, **rojo ejercido**: con el filtro
+desactivado caen 10) y `database/tests/test-newdb-zn6-universo-alcance.js` (read-only contra prod,
+**7 ok / 0 fallos / 1 declarado**, con control negativo — sin el filtro el universo pasa de 3 a 11).
+
+### 11.6 Lo que ZN.6 **no** hace, a propósito
+
+No mueve a nadie de zona ni toca `warehouses.zone_id`: eso es **ZN.1 + ZN.5**, mueve el tablero de
+Dirección de 6 agrupaciones a 3 y necesita su propio antes/después. Las 37 personas quedan **medidas
+y con nombre** en el bloque [6] del candado, que las reporta sin fallar.
+
+**Decisión registrada (2026-09-30):** a la gente de oficina **la zona no le aplica** — su eje ya es
+`red`, así que van a `zona_id = NULL` + regla explícita (`all`/`none`). Medido: **13 de esos 20 ya
+están en `all`**, o sea que quitarles el valor engañoso no les cambia lo que ven.
+
+---
+
+## 12. ZN.7 — El selector de sucursal, una sola vez 🔨 en código (2026-10-01)
+
+Pedido: *«todo lo que involucre ver una o más sucursales: hay que dar las opciones en el frontend,
+para que hagamos dinámicos esos permisos»*.
+
+### 12.1 ⛔ La regla que apareció midiendo, y que reordena el trabajo
+
+**El selector y el endpoint tienen que ir juntos.** Un selector que respeta el alcance sobre un
+endpoint que no lo respeta **no es medio arreglo: es una mentira nueva** — le recorta a la persona
+lo que puede *pedir* mientras le sigue mostrando *todo*, y a quien no tiene regla le dice «Sin
+sucursal asignada» encima de una tabla con las nueve.
+
+Se descubrió al migrar `logistica/erp-trips-panel` y **se revirtió esa migración**: su controlador
+(`erp-shipments.controller.ts`) toma `sucursal` crudo, sin `ScopeService`.
+
+⇒ Sólo se migra una pantalla cuando **su endpoint ya aplica alcance**. El resto no es trabajo de
+frontend: es ZN.3.
+
+### 12.2 El censo (16 pantallas, 6 fuentes distintas)
+
+| de dónde salen las opciones | pantallas | ¿respeta alcance? |
+|---|---|---|
+| `DataScopeService.misSucursales()` | `comercial-tickets` · `tienda-arqueo` · `compras-entradas{,-pendientes,-revision}` · `comercial-documentos` | ✅ |
+| **`/api/sucursales` (PÚBLICO, del verificador)** | `tienda-verificador` · `tienda-etiquetas` · **`tienda-faltantes`** · **`tienda-retiros`** | ❌ |
+| endpoint GX `analytics/expenses/sucursales` | `comercial-egresos` · `comercial-egreso-detalle` · `finanzas-solicitudes` | ❌ (su controller tiene **0** usos de scope) |
+| **arreglo escrito a mano en el componente** | `logistica/erp-trips-panel` | ❌ y **viejo** |
+| `STORE_BRANCHES` del bundle | `televenta-quote-new` | ❌ |
+| endpoint propio | `anden` · `tienda-caducidades-expediente` · `compras-catalogo-reporte` | sin medir |
+
+⚠️ **Corrección a §2.5 de este documento:** decía *«`store-branches.ts` importado por 14
+componentes → todos ofrecen las 9 sucursales a cualquiera»*. Hoy es falso: **14 de los 16 sólo
+importan `branchName()`**, que es una etiqueta, no una fuente de opciones. ZN.2 ya los había
+migrado; lo que queda de ese archivo en ellos es la deuda `branchName` de §5.5.
+
+⛔ El arreglo a mano de Logística lista **00–06**: desde esa pantalla **Morelia (07 y 08) no se
+puede filtrar**, y dos opciones se llaman `"04"` y `"05"` a secas.
+
+### 12.3 Antes de cerrar nada, a quién le cambia
+
+| situación | personas |
+|---|---|
+| `own` **con** sucursal en su ficha → ve 1 | 47 |
+| `all` → ve las 9 | 46 |
+| `listed` → su lista | 32 |
+| **sin regla → el selector queda vacío** | **6** |
+| `none` a propósito → vacío | 4 |
+| **`own` sin sucursal → vacío** | **1** |
+
+Los **7** que quedarían con el selector vacío **ya no ven filas**: sin regla, `build()` resuelve
+`none` y el `WHERE` sale en `false`. El picker no les quita nada — **deja de mentirles**.
+
+Y en las dos pantallas migradas, **cero bloqueados**: los 31 de mostrador (`cajero` 18,
+`encargado_tienda` 7, `auxiliar_tienda` 4, `verificador_precios` 2) tienen todos `warehouse_code`,
+y `superadmin` resuelve por god-mode antes de consultar reglas.
+
+### 12.4 Lo entregado
+
+- **`shared/components/sucursal-picker`** — el primitivo. El idiom no se inventó: estaba bien
+  resuelto en `comercial-tickets` y se subió tal cual, con sus **cuatro** estados (`null` ≠ `[]`,
+  y *una sola sucursal es un hecho de la sesión, no un desplegable de una opción*). Más `unCodigo()`,
+  que estrecha el valor a un código **en un solo lugar** en vez de un ternario por pantalla.
+- **`tienda-faltantes`** y **`tienda-retiros`** migradas: sus endpoints **sí** aplican alcance
+  (`floor-stockouts`, y `pos-line-voids` que directamente **responde 403** a una sucursal ajena).
+  Antes ofrecían las nueve desde el catálogo **público**, así que una cajera de La Piedad podía
+  reportar un faltante a nombre de Morelia, o pedir un retiro y comerse el 403 después del clic.
+  La **preselección** (`?sucursal=NN` → la sucursal de la ficha) también se valida ahora contra el
+  alcance: que la sucursal exista no alcanza.
+- Candado `sucursal-picker.component.spec.ts` (8 casos, **rojo ejercido**: colapsando `null` en
+  `[]` cae el primero, que es justo el contra-ejemplo).
+
+### 12.5 Declarado, NO construido
+
+| pantalla | qué falta primero |
+|---|---|
+| `logistica/erp-trips-panel` | alcance en `erp-shipments.controller` (hoy 0 usos). **Su lista a mano queda viva y vieja** |
+| `comercial-egresos` · `egreso-detalle` · `finanzas-solicitudes` | alcance en `commercial-analytics.controller` — el dominio VG+GX entero lo ignora |
+| `televenta-quote-new` | ningún `ScopeService` en televenta; su rol es `own` con 3 personas |
+| `tienda-verificador` · `tienda-etiquetas` | **a propósito**: son kiosco de mostrador y el catálogo público es su fuente correcta — la sucursal ahí es la de la máquina, no la de la persona |
+| `anden` · `caducidades-expediente` · `catalogo-reporte` | sin medir si su endpoint acota |
+
+---
+
+## 13. ZN.8 — El alcance puede variar por ÁREA 🚀 en prod (2026-10-01)
+
+Pedido: *«Aide hace el pedido de TODAS las sucursales, ve reportes de ALGUNAS, y en otras sólo
+quiere ver la zona Morelia. Es por eso que quiero darle ese dinamismo»*.
+
+### 13.1 El modelo no lo expresaba — y la bitácora lo prueba
+
+`identity.user_scopes` tenía PK `(tenant, user, dimension)`: **un valor por persona y dimensión,
+igual en toda la app**. La única forma de ver más en un lado y menos en otro era mover esa
+palanca. Su bitácora, medida:
+
+| fecha | de | a |
+|---|---|---|
+| 09-15 | `all` | `listed ['30','07']` |
+| 09-21 | `listed ['07','08']` | `all` |
+| 09-30 17:27 | `all` | `own` |
+| 09-30 18:49 | `own` | `listed ['07','08']` (`[ZN.6.1]`) |
+
+**Cuatro cambios en quince días, cada uno arreglando una pantalla y rompiendo otra.** No era
+descuido: faltaba un eje.
+
+### 13.2 La decisión que se consultó: techo o vista
+
+Son dos capas que se parecen y no son lo mismo —el **techo** (qué filas *puede* ver: seguridad,
+fail-closed) y la **vista** (qué *mira* por default: comodidad)—. Se ofreció resolverlo con la
+vista, que es mucho más barato. **El usuario eligió el techo: «no debe poder».** Esto es el techo.
+
+### 13.3 Lo entregado
+
+- `area varchar(40) NOT NULL DEFAULT '*'` en `user_scopes` y `role_scopes`, **dentro de la PK**.
+  ⭐ **Aditiva:** las 46 reglas de usuario y 294 de rol quedaron en `'*'` — cero cambio de
+  comportamiento hasta que alguien cree una excepción a propósito.
+- Precedencia de cuatro escalones: `usuario+área` → `usuario+'*'` → `rol+área` → `rol+'*'` →
+  fail-closed. ⚠️ **El usuario gana siempre al rol**, incluso su `'*'` contra un rol con área.
+- `elegirRegla()` en `libs/contracts`, **pura y con candado** (12 casos): es la pieza que falla
+  **en silencio** — si elige mal no hay excepción ni log, sólo alguien viendo de más o de menos.
+- **El área la declara el SERVICIO** (una constante por archivo), no la URL. Deducirla del
+  request en el CLS se rompe mudo en los crons y al renombrar un prefijo de ruta.
+- Las áreas se **derivan** de `AUTHZ_TREE` (13 proyectos). Por módulo **no**: son 60+ y nadie
+  mantiene una matriz de 129 personas × 6 dimensiones × 60 módulos.
+- **La pantalla** (`persona-datos`): por dimensión, la regla general y debajo, subordinadas, las
+  **excepciones por área** — agregar, ver con su motivo, y quitar. Es lo que convierte esto en
+  algo que se configura desde `/admin/personas` en vez de por migración.
+
+### 13.4 Lo que midió y corrigió el candado
+
+⭐ **Me corrigió a mí:** escribí `'tienda'` como ejemplo de área dando por hecho que el id del
+proyecto era su prefijo de ruta. Es **`pdv`** («Punto de Venta»); `/tienda` es la **ruta**. Ese
+typo se habría guardado feliz y habría creado una excepción que **no aplica a ninguna pantalla**
+— invisible, porque el resolvedor nunca la encuentra y cae al `'*'`. Por eso `setScope` valida
+contra el árbol.
+
+⚠️ **Dos trampas medidas:**
+
+1. **El DDL no acepta parámetros ligados.** `ADD COLUMN … DEFAULT ?` revienta con *«bind message
+   supplies 1 parameters, but prepared statement requires 0»* — misma familia que el `SET` que
+   necesita `set_config` (GOTCHAS §67). El primer intento falló y rollbackeó limpio.
+2. **El área va en la CLAVE del caché.** Sin eso, la primera pantalla que resuelva le sirve su
+   alcance a las demás durante 30 s — síntoma intermitente, el peor de depurar. Y
+   `invalidateUser` ahora barre **todas** las áreas: borrar sólo `tenant:user` dejaba vivas las
+   demás, o sea que cambiar el alcance en Compras no se notaba **en Compras**.
+
+### 13.5 En prod
+
+Migraciones **650** y **651**. `[ZN.8.1]` es la primera excepción real y es la del pedido:
+
+| Aide, dimensión `warehouse` | |
+|---|---|
+| en `compras` | `all` |
+| en el resto (`'*'`) | `listed ['07','08']` |
+
+⚠️ **Ensancha** lo que ve en Compras, así que no se infirió: sale de lo que el usuario describió
+como su trabajo. Reversible con `down()`.
+
+Candado `test-newdb-zn8-alcance-por-area.js` contra prod: **7 ok · 0 fallos · 1 declarado** (el
+bloque que compara contra el árbol no corre dentro de `prod-api`, que no lleva el fuente TS).
+
+### 13.6 Declarado, NO construido
+
+- **El subconjunto de sucursales para los REPORTES** — el usuario lo iba a confirmar. Inventarlo
+  sería dibujar una regla que nadie pidió, y una regla de alcance equivocada **no se ve**.
+- **Las otras 22 clases** que consumen `warehouse` no declaran área, o sea resuelven `'*'`:
+  idéntico a antes. Se migran cuando haga falta, no antes.
+- **La capa de vista** (preferencia por pantalla, que sigue a la persona entre dispositivos). Hoy
+  13 pantallas guardan filtros en `localStorage`, que es por navegador.

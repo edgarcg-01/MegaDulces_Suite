@@ -1,0 +1,87 @@
+# ═══ EL CARRIL PILOTO ═══  [K3S.5]
+#
+# Se migra PRIMERO éste, y la elección no es al azar: es el carril cuyo fallo cuesta menos.
+#   · no propaga DELETE (`ODS_DELETE_SOBRANTES: "0"`);
+#   · su tope de latido es 90 min, así que una pasada perdida no dispara nada;
+#   · `ODS_HB_IGNORE_ERROR: "1"` — su `error` es alarma de DATO, no de proceso.
+# Si algo sale mal, se apaga acá y se vuelve a levantar en Compose. No se pierde una fila.
+#
+# ⛔ EL VEREDICTO NO ES QUE EL POD DIGA `Running`. Es que su renglón en `analytics.cron_runs`
+# (`cdc_reconcile_chicas`) siga latiendo fresco. Un pod `Running` con el latido viejo es el
+# mismo falso verde que `[VL.6.1]` midió en Compose y que yo mismo produje el 2026-10-01 al
+# pisar un `error` con un `ok`. El rótulo del orquestador nunca fue la prueba.
+#
+# ⚠️ ANTES DE APLICAR ESTO hay que apagar el de Compose:
+#       docker compose -f ~/ops/vl/docker-compose.yml stop ods-reconcile-chicas
+#   Si corren los dos a la vez comparten `ODS_RECONCILE_HB_KEY` y se pisan el renglón — que es
+#   justo la falla que la guarda de dueño de `health.js` detecta, pero habiéndola causado a
+#   propósito. Un carril = un dueño.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ods-reconcile-chicas
+  namespace: ingesta
+  labels:
+    carril: ods-reconcile-chicas
+    singleton: "true"
+    migracion: migrado            # migrado = ya NO lo corre Compose · preparado = todavia si
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate        # ⛔ ver 20-ods-live-hot: RollingUpdate solapa dos y pisa ods.ctl
+  selector:
+    matchLabels:
+      carril: ods-reconcile-chicas
+  template:
+    metadata:
+      labels:
+        carril: ods-reconcile-chicas
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: reconciliador
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent     # ⛔ la imagen vive en dockerd; hay que IMPORTARLA
+                                            #    al containerd de k3s o el pod queda en ErrImagePull
+          command:
+            - node
+            - database/importers/kepler/reconcile-ods-window.js
+            - --chicas
+            - --apply                       # ⛔ sin él no late ([OBS.13])
+            - --watch=1800
+            - --tables=kdfe4imp,kdfedir,kdfe33docprv,kdxe,kdpv_folio_caja,kdpv_prod_util,kdm_m2,kdud,kdudent,kdug,kdm_rutas2,kdxg,kdfe33relprd,kdii,kdm_rutas,kdpv_prov_prod
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: ODS_RECONCILE_HB_KEY
+              value: cdc_reconcile_chicas    # ⛔ propia: sin ella pisa el renglón de otro carril
+            # ⛔ [K3S.7] SIN ESTO LA SONDA ES DECORATIVA. `health.js` lee ODS_HB_KEY, NO
+            # ODS_RECONCILE_HB_KEY (que sólo usa el reconciliador para SU renglón). Sin ella
+            # imprime «sin ODS_HB_URL/ODS_HB_KEY — no se evalúa» y **sale 0**: healthy pase lo
+            # que pase. Medido al forzar la verificación en vez de esperarla, y es un defecto
+            # PREEXISTENTE: en Compose este carril venía reportando healthy sin comprobar nada.
+            # Verificado con la llave puesta: «cdc_reconcile_chicas ok (0.8 min)», y con una
+            # llave inventada sale con código 1. Las dos direcciones.
+            - name: ODS_HB_KEY
+              value: cdc_reconcile_chicas
+            - name: ODS_HB_MAX_MIN
+              value: "90"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+            - name: ODS_DELETE_SOBRANTES
+              value: "0"
+          # El MISMO `health.js` del HEALTHCHECK de Compose, sin tocar una línea. Acá es el brazo:
+          # cuando falla, reinicia el kubelet. Eso es lo que hace innecesario a `ods-autoheal`.
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 1200       # = start_period 20m del compose
+            periodSeconds: 120              # = interval 120s
+            timeoutSeconds: 30              # = timeout 30s
+            failureThreshold: 3             # = retries 3
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }

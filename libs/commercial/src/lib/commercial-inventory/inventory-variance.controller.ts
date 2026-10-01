@@ -1,6 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { InventoryVarianceService } from './inventory-variance.service';
+import { InventoryVarianceService, ActorExpediente } from './inventory-variance.service';
 import { InventoryCountPlanService } from './inventory-count-plan.service';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
@@ -112,13 +112,58 @@ export class InventoryVarianceController {
     @Query('warehouse_id') warehouseId: string,
     @Query('fecha') fecha: string,
     @Query('signo') signo?: 'sobrante' | 'faltante',
+    @Query('explicacion') explicacion?: string,
     @Query('limit') limit?: string,
   ) {
     return this.service.detail({
       warehouse_id: warehouseId,
       fecha,
       signo,
+      explicacion,
       limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  // ── [EXP.2] El expediente del renglón ───────────────────────────────────────────────
+  @Get('expediente')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Todo lo que la plataforma sabe de UN renglón del descuadre, en un solo viaje: '
+      + 'las líneas del ajuste, la trayectoria del SKU entre conteos, la conciliación de cada '
+      + 'período, los movimientos documento a documento, las órdenes de entrada, la existencia '
+      + 'de hoy y el expediente de Prevención. ⛔ Cada sección DECLARA su permiso cuando está '
+      + 'oculta: un panel a medias se lee como «no hay nada que ver».',
+  })
+  expediente(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('sku') sku: string,
+    @Query('fecha') fecha: string,
+    // ⚠️ `req.user.permissions` lo repone FRESCO `RolesGuard` en cada request (no es el
+    // snapshot del JWT). El god-mode lo resuelve el servicio con los roles de DB.
+    @Req() req: { user?: ActorExpediente },
+  ) {
+    return this.service.expediente(
+      { warehouse_id: warehouseId, sku, fecha }, req?.user);
+  }
+
+  // ── [EXP.1b] El embudo: cuánto del descuadre cae en cada explicación ─────────────────
+  @Get('embudo')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: 'Cuánto del descuadre explica cada causa, por evento. Es lo que convierte la '
+      + 'pantalla en una decisión: medido en sep-2026, de $8.86M brutos la pila sin_explicacion '
+      + 'son 818 SKUs y $248,436. ⛔ no_medido NO es "sin causa": es que falta un testigo, y se '
+      + 'cuenta aparte. Agrega sobre el NETO por SKU, no sobre el bruto por línea.',
+  })
+  embudo(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('date_from') dateFrom?: string,
+    @Query('date_to') dateTo?: string,
+  ) {
+    return this.service.embudo({
+      warehouse_id: warehouseId,
+      date_from: dateFrom,
+      date_to: dateTo,
     });
   }
 
@@ -133,11 +178,13 @@ export class InventoryVarianceController {
   reincidencia(
     @Query('warehouse_id') warehouseId?: string,
     @Query('patron') patron?: string,
+    @Query('sku') sku?: string,
     @Query('limit') limit?: string,
   ) {
     return this.service.reincidencia({
       warehouse_id: warehouseId,
       patron,
+      sku,
       limit: limit ? Number(limit) : undefined,
     });
   }
@@ -166,6 +213,7 @@ export class InventoryVarianceController {
     @Query('desde') desde: string,
     @Query('hasta') hasta: string,
     @Query('veredicto') veredicto?: string,
+    @Query('sku') sku?: string,
     @Query('limit') limit?: string,
   ) {
     return this.service.rollforward({
@@ -173,6 +221,7 @@ export class InventoryVarianceController {
       desde,
       hasta,
       veredicto,
+      sku,
       limit: limit ? Number(limit) : undefined,
     });
   }

@@ -249,15 +249,36 @@ Lo que eso costó, medido sobre los 30 días previos:
 El CI **no está roto** — corre y atrapa defectos reales. El problema es que corre *después* del
 merge, sobre la rama de la que se deploya.
 
-**Qué hay en su lugar, en orden de quién manda:**
+⛔ **Y no va a haber protección de GitHub: la cuenta no pasa a Pro** (decisión del 2026-09-30).
+Esto no es un pendiente, es el escenario definitivo. Volver el repo a público también la
+desbloquearía, y se descartó: los docs traen IPs internas, hostnames de DB y cifras del negocio.
 
-1. **La compuerta de push (§8.0)** — es de *cliente*. Bloquea el push directo a `main` y los gates
-   baratos sobre **tus** archivos (no te frena la deuda ajena del repo). Se puede evadir con
-   `--no-verify`, y no protege de un force-push desde la web. Es lo que hay hoy.
-2. **El reviewer** — mirá el CI antes de aprobar. Hoy es responsabilidad de la persona, no del servidor.
-3. **`scripts/apply-branch-protection.js`** — la protección real, ya escrita como código. El día que
-   la cuenta pase a GitHub Pro es un comando (`npm run branch-protection -- --apply`) y no un
-   recuerdo de qué casillas palomear. Hasta entonces sale `403` y te lo dice.
+**Entonces la compuerta se mueve a donde SÍ somos dueños — hay dos, y sólo una manda:**
+
+| | Dónde vive | Fuerza |
+| --- | --- | --- |
+| **`.githooks/pre-push`** (§8.0) | tu máquina | **Débil.** Se evade con `--no-verify` y no existe para quien no corrió `npm run hooks:install`. Sirve por rapidez: te dice en 2.5 s lo que el CI te diría en 5 min. |
+| **`[CI.SELLO]`** | el servidor `md` | ⭐ **Fuerte.** Nadie la evade. |
+
+⭐ **Cómo funciona `[CI.SELLO]`**: producción dejó Railway el 2026-09-22 y hoy la despliega
+`ops/prod/auto-deploy.sh` desde `md`. Cuando el CI pasa `build` + `secret-scan`, el job `sellar`
+mueve la rama marcadora **`ci-green`** al commit probado. El auto-deploy **se niega a desplegar un
+commit que `ci-green` no haya bendecido**.
+
+O sea: **`main` puede ponerse roja, pero lo rojo no llega a producción.** El merge no está
+protegido; el despliegue sí. Es menos de lo que daría Pro, y es lo que se puede tener gratis.
+
+- Qué frena: build roto (el código no compila) · secreto filtrado. Nada más.
+- Qué **no** frena, a propósito: lint, tests y compuertas de estilo (`verify`). Hoy están rojos por
+  deuda preexistente, y exigirlos dejaría a producción sin despliegues desde el primer día. Se
+  declaran en el CI. Apretar esto exige antes partir `verify` en dos y medir.
+- Si el CI todavía no terminó, el deploy **espera** (reintenta cada 5 min); recién a los 30 min lo
+  considera falla y grita en Salud BD.
+- Escape de emergencia, en `md`: `AUTO_DEPLOY_SIN_CI=1 sh ~/ops/prod/auto-deploy.sh`.
+- El candado tiene su propia prueba, con dos casos negativos: `npm run check:compuerta-ci`.
+
+**Y sigue habiendo una cosa que sólo hace una persona:** mirar el CI antes de aprobar un PR.
+`ci-green` cuida producción, no la calidad de lo que entra a `main`.
 
 ---
 

@@ -232,6 +232,23 @@ export class AnalyticsRefreshService {
       // parada no vacía la pantalla: la deja publicando el descuadre del trimestre anterior.
       ['analytics.mv_erp_physical_count_variance', 'analytics_refresh_count_variance',
         'Refresh MV descuadre de conteos (nightly)', []],
+      // [EXP.1b] Las señales del descuadre por SKU — la LLAVE que une Diferencias con el
+      // roll-forward, el historial, la demanda y las órdenes de entrada.
+      //
+      // ⭐ `deps` NO está vacío, y es la única entrada de este bloque donde importa: esta MV LEE
+      // las dos de arriba. Van antes en el array, pero **ordenar no es depender** (ADR-056): sin
+      // declararlo, si el roll-forward falla esta MV se materializa igual, con `rf_veredicto` en
+      // NULL para todo — y un NULL en ese campo se clasifica como `no_medido`, o sea que la
+      // pantalla diría «falta un testigo» en vez de «el refresco se cayó». Exactamente el fallo
+      // que VP.1 midió en el sell-out.
+      //
+      // Poblado medido contra prod: ~50 s sobre 20,849 pares. Nocturno por la misma razón que
+      // las dos de arriba: Kepler cuenta cada tres meses.
+      //
+      // ⚠️ Su umbral está en `CRON_JOBS` (`analytics_refresh_count_signals`).
+      ['analytics.mv_erp_count_line_signals', 'analytics_refresh_count_signals',
+        'Refresh MV señales del descuadre (nightly)',
+        ['analytics.mv_erp_physical_count_variance', 'analytics.mv_erp_count_rollforward']],
       // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
       // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
       // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo
@@ -327,6 +344,23 @@ export class AnalyticsRefreshService {
        * `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Acá eso sería el motor
        * proponiendo precios con el costo, el inventario y la fuga de hace semanas.
        */
+      /**
+       * `[PR.X4]` La historia de precio del expediente del SKU: los cambios limpios y el
+       * event-study. Se materializan por un costo MEDIDO -- filtradas por un par tardaban
+       * 3,166 ms y 6,925 ms porque el predicado no baja y los CTE barren la bitacora entera
+       * (573,262 filas) y la serie de ventas (836,703). Con la matvista son 3 ms y 1 ms.
+       *
+       * ⭐ Son hechos PASADOS: un cambio de precio de julio no cambia durante el dia. Por eso
+       * el nocturno alcanza y materializarlas no congela nada que importe.
+       *
+       * ⚠️ Sus umbrales viven en `CRON_JOBS` o el sensor cae en `cfg ? classify : 'ok'` y una MV
+       * parada se ve VERDE (OBS.1) -- y aca eso seria la ventana contando una historia que se
+       * detuvo, sin decirlo.
+       */
+      ['analytics.mv_sku_price_events', 'analytics_refresh_sku_price_events',
+        'Refresh MV cambios de precio por SKU (nightly)', []],
+      ['analytics.mv_sku_price_response', 'analytics_refresh_sku_price_response',
+        'Refresh MV event-study de precio (nightly)', ['analytics.mv_sku_price_events']],
       ['analytics.mv_price_signals', 'analytics_refresh_price_signals',
         'Refresh MV señales de precio (nightly)',
         ['analytics.mv_price_waterfall_sku', 'analytics.mv_erp_count_rollforward',

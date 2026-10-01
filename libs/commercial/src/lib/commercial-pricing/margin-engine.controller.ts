@@ -53,7 +53,35 @@ export class MarginEngineController {
     });
   }
 
-  // ⚠️ Va DESPUÉS de las rutas fijas: si fuera antes, `/resumen` entraría como `:sucursal`.
+  /**
+   * ⭐⭐ El EXPEDIENTE: historia de costo y venta, los cambios de precio, qué pasó las veces
+   * anteriores, el SKU en las 9 plazas y la demanda perdida. Un solo viaje — cinco llamadas
+   * serían cinco estados de carga en la misma ventana.
+   */
+  @Get(':sucursal/:sku/expediente')
+  @RequirePermissions(Permission.COMMERCIAL_MARGIN_ENGINE_VER)
+  @ApiOperation({ summary: 'El expediente completo del SKU: historia, eventos, plazas y faltantes' })
+  expediente(@Param('sucursal') sucursal: string, @Param('sku') sku: string) {
+    return this.svc.expediente(sucursal, sku);
+  }
+
+  /**
+   * ⭐ El simulador. ⛔ **No escribe nada**: calcula el margen, el aterrizaje y el umbral de
+   * equilibrio. Por eso sigue bastando `_VER` y no hace falta un `_GESTIONAR`.
+   */
+  @Get(':sucursal/:sku/simular')
+  @RequirePermissions(Permission.COMMERCIAL_MARGIN_ENGINE_VER)
+  @ApiOperation({ summary: 'Simula un precio: margen, aterrizaje y umbral de equilibrio' })
+  simular(
+    @Param('sucursal') sucursal: string,
+    @Param('sku') sku: string,
+    @Query('precio') precio: string,
+  ) {
+    return this.svc.simular(sucursal, sku, Number(precio));
+  }
+
+  // ⚠️ Va DESPUÉS de las rutas fijas Y de las de dos segmentos: si fuera antes, `/expediente`
+  //    entraría como un `:sku` y `/resumen` como un `:sucursal`.
   @Get(':sucursal/:sku')
   @RequirePermissions(Permission.COMMERCIAL_MARGIN_ENGINE_VER)
   @ApiOperation({ summary: 'El plan de margen de un SKU: las 13 familias con su cobertura' })

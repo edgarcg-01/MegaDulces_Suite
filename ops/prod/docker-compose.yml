@@ -259,6 +259,55 @@ services:
       retries: 5
       start_period: 30s
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # [INFRA.1] REDIS — la pieza que faltaba para que el API pueda correr en más
+  # de una réplica.
+  #
+  # ⭐ El código para usarlo YA ESTABA ESCRITO Y NUNCA SE ENCENDIÓ. `main.ts`
+  # (líneas 355-357) instala un `ReportsIoAdapter` que, si hay `REDIS_URL`,
+  # registra `@socket.io/redis-adapter`; sin ella avisa y sigue en memoria. Los
+  # 13 gateways son NAMESPACES del mismo servidor io (`/alerts`, `/store`,
+  # `/caja`, `/bancos`…), así que un solo adapter los cubre a todos.
+  #
+  # Sin esto, dos réplicas del API son una REGRESIÓN, no una mejora: un `emit`
+  # en la réplica A no llega a los sockets conectados a la B, y el tiempo real
+  # se vuelve una lotería según a quién te tocó el balanceador.
+  #
+  # ⚠️ `REDIS_URL` enciende TRES subsistemas a la vez, no uno. Los tres tienen
+  # degradación elegante y los tres son el modo de producción previsto:
+  #   1. socket.io  → broadcast entre instancias (el objetivo);
+  #   2. CacheModule → Keyv sobre Redis en vez de en memoria. OJO: hoy el API y
+  #      el worker tienen cachés SEPARADAS; a partir de acá la COMPARTEN. El
+  #      acceso tenant-aware va por `TenantCacheService` — una clave que no esté
+  #      scopeada por tenant deja de ser un problema de un proceso y pasa a
+  #      serlo de todos (`app.module.ts` ya lo advierte para `CacheInterceptor`);
+  #   3. WhatsAppQueueService → BullMQ en vez de in-process. Hoy está dormido
+  #      (Fase F sin desplegar), pero el módulo carga igual.
+  #
+  # ⛔ `maxmemory-policy noeviction` NO es negociable: BullMQ corrompe colas con
+  # cualquier política que desaloje claves. Y por eso tampoco se usa este Redis
+  # como caché "de usar y tirar" con LRU — el caché convive, acotado por el tope
+  # de memoria y por el TTL de 60 s que fija `CacheModule`.
+  #
+  # AOF encendido y volumen propio: cuesta poco (este Redis guarda kilobytes) y
+  # evita la trampa de que, cuando llegue la Fase F, una cola de mensajes
+  # desaparezca en un reinicio sin que nadie lo relacione con esta línea.
+  redis:
+    <<: *app
+    image: redis:7-alpine
+    container_name: prod-redis
+    command: ["redis-server", "--appendonly", "yes",
+              "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["redis-data:/data"]
+    # Sin `ports:` a propósito: sólo lo alcanzan los contenedores de esta red.
+    # Un Redis sin contraseña expuesto a la LAN es un agujero, no una comodidad.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ═══════════════════════════════════════════════════════════════════════════
   # LAS APPS
   # ═══════════════════════════════════════════════════════════════════════════
@@ -271,10 +320,17 @@ services:
     container_name: prod-api
     depends_on:
       pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
     ports: ["8080:10000"]
-    environment:
+    # ⚓ Anclado para que `api2` use EXACTAMENTE este bloque. Copiarlo a mano garantiza que
+    # un día diverjan y que la mitad del tráfico corra con otra configuración.
+    environment: &api-env
       TZ: America/Mexico_City
       NODE_ENV: production
+      # [INFRA.1] Enciende el adapter de socket.io entre instancias (y con él, el caché
+      # compartido). Ver el bloque del servicio `redis` para los TRES subsistemas que
+      # despierta esta sola variable.
+      REDIS_URL: redis://redis:6379
       PORT: "10000"
       API_PORT: "3333"
       API_PREFIX: api
@@ -321,7 +377,7 @@ services:
       # sobre un esquema que ya las tiene. El restore trae el esquema completo; no hay nada
       # que migrar. Se corren a mano, una por una, cuando toque.
       RUN_MIGRATIONS_ON_BOOT: "0"
-    healthcheck:
+    healthcheck: &api-health
       # Mide que el API CONTESTE, no que el proceso exista. `start.sh` ya supervisa a los
       # dos hijos, pero un nginx vivo sirviendo 502 se ve "arriba" desde afuera.
       test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
@@ -329,6 +385,51 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # [INFRA.2] LA SEGUNDA RÉPLICA DEL API — para poder desplegar sin tirar el servicio.
+  #
+  # Hoy `prod-api` es UNA sola y cada despliegue la recreaba: con dinero real corriendo,
+  # eso es una caída programada por cada cambio. Con dos, se recrea una, se verifica, y
+  # recién entonces la otra.
+  #
+  # ⛔ POR QUÉ UN SERVICIO APARTE Y NO `--scale api=2`, que sería lo elegante:
+  # el `container_name: prod-api` lo IMPIDE. Medido con una corrida en seco el 2026-09-30:
+  #
+  #     WARNING: The "api" service is using the custom container name "prod-api".
+  #     Docker requires each container to have a unique name. Remove the custom name to
+  #     scale the service
+  #
+  # Y ese nombre está incrustado en **43 referencias de 11 archivos**, incluidos
+  # `restaurar.sh`, `auto-deploy.sh` y `apply-one-migration-prod.js` — o sea el camino por
+  # el que TODA migración llega a prod. Quitarlo es un refactor propio, con su medición;
+  # hacerlo de paso acá sería arriesgar la capacidad de migrar producción para ahorrarse
+  # ocho líneas de YAML.
+  #
+  # ── LAS CUATRO COSAS QUE SE VERIFICARON ANTES DE DUPLICAR EL PROCESO ──────
+  # Duplicar un proceso sólo es seguro si no duplica trabajo. Medido en el contenedor vivo:
+  #   1. `DISABLE_CRONS=true` → "los 51 @Cron están inertes en este proceso" (lo dice el
+  #      log). Los corre el worker. Además `SchedulerOwnershipService` es un segundo cinturón.
+  #   2. `RUN_MIGRATIONS_ON_BOOT=0` → "Migraciones delegadas a preDeployCommand — skip en
+  #      boot". Dos réplicas no compiten por el esquema.
+  #   3. El adapter de socket.io está ACTIVO sobre Redis (`[INFRA.1]`), así que un `emit` en
+  #      una réplica alcanza a los sockets de la otra. SIN eso, esta línea sería una
+  #      REGRESIÓN, no una mejora.
+  #   4. Los clientes usan `transports: ['websocket', 'polling']` — websocket PRIMERO, que no
+  #      necesita afinidad. El `polling` de respaldo sí, y por eso Caddy balancea con cookie.
+  #
+  # Sin `ports:` a propósito: al exterior se llega por Caddy. El `8080` del host lo sigue
+  # publicando `api`, que es a quien apuntan los runbooks.
+  api2:
+    <<: *app
+    image: trade-prod-api:latest
+    container_name: prod-api-2
+    depends_on:
+      pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
+    environment:
+      <<: *api-env
+    healthcheck: *api-health
 
   # Mismo binario, modo worker (WORKER=true → `bootstrapWorker`, sin HTTP/WS).
   # Acá SÍ viven los 51 @Cron y los consumidores de la cola pg-boss.
@@ -338,9 +439,28 @@ services:
     container_name: prod-worker
     depends_on:
       pg-prod: { condition: service_healthy }
+      redis:   { condition: service_healthy }
     environment:
       TZ: America/Mexico_City
       NODE_ENV: production
+      # [INFRA.1] Acá `REDIS_URL` da CACHÉ COMPARTIDA con el API y deja lista la cola de
+      # BullMQ. Nada más — y conviene decir qué NO da, porque la primera versión de este
+      # comentario afirmaba que cerraba el hueco de tiempo real del worker, y es falso:
+      #
+      # ⛔ EL WORKER NO TIENE SERVIDOR io. `main.ts` lo arranca con
+      # `createApplicationContext` (sin HTTP ni WS), así que no hay servidor al que
+      # enganchar el adapter — el log del worker, a diferencia del de `api`, no imprime
+      # ninguna línea de `SocketIOAdapter`. Y los gateways empiezan con
+      # `if (!this.server) return;`, o sea que un `emit` nacido en un cron del worker es
+      # un **no-op silencioso**: no llega a nadie y no falla nada.
+      #
+      # `finance-jobs.service.ts` dice "hace falta REDIS_URL para que el emit del worker
+      # llegue a los sockets del API". Es cierto y es INSUFICIENTE: falta además
+      # `@socket.io/redis-emitter` (NO instalado — verificado), que es justamente la pieza
+      # que publica a estos mismos canales desde un proceso sin servidor io.
+      #
+      # DECLARADO, con nombre: el tiempo real originado en el worker sigue sin llegar.
+      REDIS_URL: redis://redis:6379
       WORKER: "true"
       ENABLE_WORKER_QUEUE: "true"
       # [VL.11.C] Sin `GIT_COMMIT_SHA`: lo hornea la imagen. Mismo motivo que en `api` —
@@ -593,3 +713,6 @@ volumes:
     # `sudo`, que en `md` pide contraseña interactiva. Queda declarado:
     #   [VL.9.x] LV dedicado para `pg-prod-data` sobre los ~450 G sin asignar del VG.
   pg-rag-data:
+  # [INFRA.1] Kilobytes: pub/sub de socket.io + caché con TTL de 60 s. El volumen existe por
+  # la cola de BullMQ que llegará con la Fase F, no por tamaño.
+  redis-data:

@@ -18,6 +18,7 @@ import {
   QuoteCatalogRow,
   PricedLine,
   Rung,
+  nombreUnidadMayor,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -404,10 +405,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 </div>
               </div>
 
-              <!-- PREGUNTA: ¿El precio es por caja o por pieza? -->
+              <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza? -->
               <div class="pregunta-seccion">
-                <span class="pregunta-lbl">¿El precio es por caja o por pieza?</span>
-                <div class="unit-toggle-group" role="group" aria-label="Seleccionar si el precio es por caja o pieza">
+                <span class="pregunta-lbl">¿El precio es por {{ mayor(e).toLowerCase() }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
+                <div class="unit-toggle-group" role="group" [attr.aria-label]="'Seleccionar si el precio es por ' + mayor(e).toLowerCase() + ' o por unidad'">
                   <!-- Opción Pieza (o KG) -->
                   <button
                     type="button"
@@ -421,7 +422,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <span class="unit-sub">Unidad individual</span>
                   </button>
 
-                  <!-- Opción Caja -->
+                  <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara -->
                   <button
                     type="button"
                     class="unit-toggle-btn"
@@ -430,17 +431,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [disabled]="guardando()"
                   >
                     <i class="pi pi-box" aria-hidden="true"></i>
-                    <span class="unit-title">Caja</span>
+                    <span class="unit-title">{{ mayor(e) }}</span>
                     <span class="unit-sub">
                       @if (e.box_size) {
-                        {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / caja
+                        {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
                       } @else {
                         Empaque mayor
                       }
                     </span>
                     @if (rung() === 'box' && previaArticulo()?.volume_tier; as vt) {
                       <span class="unit-badge-mayoreo">
-                        Mayoreo: {{ dinero(vt.price) }} ({{ vt.min_qty }}+ cjas)
+                        Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
                       </span>
                     }
                   </button>
@@ -1569,10 +1570,15 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.previa$.next();
   }
 
+  /** Nombre de la unidad mayor del artículo: Caja, Bulto o Cubeta, según lo declara el ERP. */
+  mayor(e: QuoteCatalogRow | null): string {
+    return nombreUnidadMayor(e?.box_label);
+  }
+
   labelUnidadActiva(): string {
     const r = this.rung();
     const e = this.articuloElegido();
-    if (r === 'box') return 'Caja';
+    if (r === 'box') return this.mayor(e);
     if (r === 'pack') return 'Paquete';
     return e?.sold_by_kg ? 'KG' : 'Pieza';
   }

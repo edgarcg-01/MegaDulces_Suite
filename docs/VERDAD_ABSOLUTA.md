@@ -154,7 +154,9 @@ y aun así publicaba el UxC desde otra columna.
 | **La META de margen** | `kdii.c87/c88/c89` ponderado por el **peldaño vendido**, contra el margen que el negocio reporta | **11.55%** · el testigo independiente dice **~11.5%** | ✅ **sí** — §16.8 |
 | **COGS de Kepler (documento vs kardex)** | el precio de la **entrada real** (`X-A-40`), testigo de transacción | **empate: 57.55% vs 40.39%**, errores medianos 2.66% y 2.48% | ⛔ **declarada, NO arbitrada** — §16.4 |
 | **Los 1,205 renglones con razón 10.000** | el **mecanismo**, no la estadística: el kardex multiplica el costo del peldaño alto por la cantidad base | **$613,646** sobre $99,394 de venta | ✅ **sí, el kardex está mal** — §16.3 |
-| **Wincaja (las tres)** | tiene árbitro propio, sin cablear | fuera de alcance por decisión | ⬜ **no empezado** |
+| **Destino de un traspaso** | `dest_label` — la etiqueta que Kepler escribe en el ENVÍO, independiente del pareo **y** del mapa | **1,561 de 1,562** pares de 180 d coinciden con el almacén que recibió ($66.86M) · el único que contradice es una ruta, y **no** se publica como OK | ✅ **sí, desde 2026-09-30** — `[DM.15]`, candado de 7 bloques |
+| **Wincaja (operación viva)** | — | ⭐⭐ **ya no hay**: la venta de Wincaja es **0.0%** de los últimos 30 d ($230 contra $44.5M). Migró entera a Kepler | ✅ **hueco CERRADO** — §8 |
+| **Wincaja (histórico)** | tiene árbitro propio, sin cablear | sigue sin cablear, y es el único acceso al pasado de cada plaza antes de su corte | ⬜ **no empezado** — §8 |
 
 ---
 
@@ -442,7 +444,7 @@ divergir.
 
 | necesitás | leé | nunca |
 |---|---|---|
-| ⭐⭐ **la unidad que KEPLER usó** (su escalera `PZA→PAQ→CJA`) | `analytics.mv_kepler_unit_ladder` | deducirla de `c84`, de la etiquetera o del override: Kepler la **declara** por renglón y calcula con ella (`c9 = c56 × c58`, 99.99%). ADR-063 · §14 |
+| ⭐⭐ **la unidad que KEPLER usó** (su escalera `PZA→PAQ→CJA` — ⚠️ la unidad mayor NO siempre es `CJA`: en granel es `BTO` y en cubeta `CUB`, 170 SKUs sin caja, medido 2026-09-30) | `analytics.mv_kepler_unit_ladder` | deducirla de `c84`, de la etiquetera o del override: Kepler la **declara** por renglón y calcula con ella (`c9 = c56 × c58`, 99.99%). ADR-063 · §14 |
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
 | ⭐ **clase ABC que fija el nivel de servicio** | `analytics.v_abc_class` | `commercial.abc_classification` desde el reabasto (llega tarde) · recalcular el Pareto (§12.4) |
 | ⭐ **costo unitario para VALUAR** (los dos ERPs) | `analytics.v_erp_unit_cost` | `catalog.products.cost_base` / `cost_with_tax` (§12) |
@@ -637,7 +639,9 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **el costo sólo se arbitraba en UNA pantalla** | **$71.74M → $69.49M** (−$2,251,111) | ⭐⭐ **CERRADO (KE.3, 2026-09-10)**: `analytics.v_erp_unit_cost` resuelve el costo por almacén × producto con el testigo del MISMO ERP para los DOS (Kepler `kdik.c16` 98.70% · Wincaja `costo_promedio` **100.00%**). Cinco consumidores cableados, incluido el costo que se **congela** al reconciliar un conteo (salía de `public.products`, la base legacy). Compras queda fuera **a propósito**: valoriza compra, no valuación (§12.3) |
 | ✅ **la clase ABC era un objeto nulo** | **2 A / 56,002 C @ $0 → 5,178 A / 7,367 B** | ⭐⭐ **CERRADO (KE.4)**: la demanda salía de `commercial.orders` (**2 órdenes fulfilled en toda su historia**) contra $154.7M de venta real, y **clase B = 0 en todo el sistema** era el delator. Ahora sale de `inventory_health`, **la misma demanda que usa el punto de reorden**, y la clase es una **vista** porque como tabla **llegaba 26 minutos tarde todos los días**. La pantalla de compra mostraba otra clase que el motor (coincidían **64.0%**); ahora lee la misma. Frenos: medir la fuente antes de borrar + abortar si A o B salen en cero (§12.4) |
 | ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
-| **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
+| ✅ ~~**Wincaja — 37.6% de la venta**~~ | **CERRADO 2026-10-01 · hoy 0.0%** | ⭐⭐ **El hueco más grande de este documento, y no se cerró por arquitectura: la operación migró entera a Kepler.** Medido almacén por almacén (no por prefijo): Kepler $44,552,822 (**100.0%**) · Wincaja **$230 (0.0%)**; los 14 almacenes con venta tienen `kepler_code` o son rutas. Últimas migraciones: `32 → 07` (08-sep), `30 → 08` (19-sep), **CEDIS** (30-sep). ⛔ **No significa que Wincaja se pueda retirar**: es el único acceso al pasado anterior a cada corte. ⚠️ Ni cierra *«el peldaño de Wincaja es un NULL mudo»*, que vale para todo lo ya cargado — §8 |
+| ⛔ **el destino de un traspaso al CEDIS no es verificable por recepción** | **15 envíos / $123,454** (180 d) | `TI000 "CENTRO DE DISTRIBUCIÓN (CEDIS)" → 00`: el almacén **existe y opera**, pero registra sus entradas como **orden de entrada** (`X-A-20`), no como recepción de traspaso (`U-A-50`) — **0 `TrsfRcv` en toda su historia**. El vínculo es plausible y **no comprobable por esa vía**. Se declara en cada corrida del candado `[DM.15]`, con su monto. **No es un dato que falte: es que el CEDIS no recibe por traspaso** |
+| ⛔ **el CEDIS arrastra saldo de origen no establecido** | **5,019 SKUs / 12.18M u** · **421 días de cobertura** | Ajeno a la carga inicial del 30-sep (medido: los 127 SKUs cargados estaban **todos en cero** antes). El almacén **sí opera** —despacha 2.60M u/90 d y las 8 sucursales declaran recibir 3.22M, dos testigos del mismo orden— pero recibe **23.45M u/90 d** por la cadena de compra, que son **pasos del mismo documento** (`X-A-30→35→37→40→20`) y no se pueden sumar. **La cantidad no es absurda; el VALOR no se puede publicar**: valuarlo con `kdik.c16` da $306.9M (5× el inventario de toda la red) y esa columna ya tiene problema de peldaño documentado (§16.5). Por eso `stockMap({ cedis: true })` sigue **apagado** — `[IC.CEDIS.1]` · `[IC.CEDIS.2]` |
 | ⛔ **DEUDA ERP: `ods_repl` no lee las tablas NUEVAS** | toda tabla que Kepler cree nace invisible para la replicación | ⭐ **decisión de Edgar 2026-09-12: NO se cruza la frontera del ERP para arreglarlo.** El `ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` cerraría el goteo de raíz, pero exige `sa`/superusuario en cada POS y se optó por mantener el ERP con acceso de solo-lectura. **Consecuencia aceptada:** cada `kdc2YYMM` nueva (1 de cada mes) no replica hasta que alguien corra un `GRANT` a mano; **vuelve el 2026-10-01** con `kdc22610`. **Mitigado, no resuelto:** los importers leen el POS directo con `platform_ro` (no dependen de la replicación para esto), así que el daño se limita a `kepler_ods.kdc2*`, que **ningún objeto de `analytics.*` consume** (sólo vistas-shim `md.kdc2*`). El candado `test-ods-enrolamiento.js` lo mantiene en rojo. Causa raíz medida en `ERP_KEPLER.md` §4.2b. ✅ **Formalizada como deuda ACEPTADA 2026-09-14:** el impacto es sólo DATO — la tabla vacía SÍ se pre-crea (no hay crash; separado de la bomba de calendario, ya cerrada), sólo no fluye el dato del período nuevo hasta el GRANT. Runbook del fix listo (`ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` por POS) para cuando se autorice tocar el ERP. Reaparece cada 1° de mes; próxima `kdc22610` el 2026-10-01 |
 | ✅ **Canindo (06) sin contabilidad de septiembre** | **0 → 1,353 renglones** (CERRADO 2026-09-12) | era el único daño real del hueco anterior. Se restauró la contraseña de `platform_ro` en su POS (reset de credencial, sin otorgar permisos) y el importer pasó a leer el POS en vez de la réplica vacía. Backfill idempotente aplicado a prod |
 | ⚠️ **el carril del ODS pierde filas sobre su baseline** | **536 huecos / 3 d** contra un baseline de 48–167 (umbral 50) · **14,599 sobrantes** | ⭐ medido en PROD 2026-09-12 (§13.2): `cdc_reconcile` los detecta y **los repone todos**, pero la causa del goteo no está diagnosticada. **Sobrantes caracterizados 2026-09-12** (read-only, réplicas .222:5433 vs Railway): **100% ausentes del origen** (0% falso positivo de ventana), **94% `kdpord`** (cola de surtido CREADO→AUTORIZADO→CHECADO→SURTIDO, purgada al completarse → infla la vista `analytics.erp_shipments` **22–40%** en 01/06) + **6% `kdm2` en `U-D-40` "Pedido"** (docs re-editados, hasta 58 líneas vs 8 en origen). ✅ **La venta NO se afecta**: `mv_kepler_sales_daily` filtra `U-D ∈ {8,10,12}`, excluye `U-D-40` y cancelados. Root = CDC apagado (no propaga DELETE). ✅ **Backlog kdpord LIMPIADO 2026-09-12 (OBS.11): 24,705 fantasma borrados** con `reconcile-ods-window --full --delete-sobrantes` vigilado (canario 04→completo; 07 protegida por réplica vacía; freno 60% ok), re-check final = 0 en las 8 ramas, `erp_shipments` de-inflada al origen (01: 66,059→51,317). ✅ **Durable 2026-09-14 (OBS.11, deployado):** servicio `ods-reconcile-full` (diario 03:00 MX, `--full`, **latido propio `cdc_reconcile_full`** + healthcheck + umbral 25h/30h en db-health) mantiene kdpord limpio solo — el carril continuo NO puede (su ventana 3d es ~61% fantasma → el freno la abortaría). Churn medido ~415/día. Residual chico sin automatizar: kdm2/kdij (6%, money-safe, `U-D-40` fuera de la venta). ⚠️ Anomalía: rama 00 perdió 1,023 filas del ODS por un actor EXTERNO (no la ingesta) entre medición y limpieza |
@@ -654,9 +658,32 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 
 ---
 
-## 8. Wincaja: tiene árbitro propio, y está sin cablear
+## 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01)
 
-Fuera de alcance por decisión explícita de Edgar. Lo que **sí** quedó medido, para cuando se abra:
+> **El hueco más grande de este documento se cerró, y no por arquitectura: la operación migró
+> entera a Kepler.** Declarado por Edgar el 2026-10-01 — *"wincaja ya sólo existe para
+> históricos; el `.9.95` ya tiene Kepler y toda la información de Kepler CEDIS ya es la
+> oficial"* — y **medido** el mismo día, almacén por almacén (no por prefijo del código, para
+> no clasificar mal):
+>
+> | fuente | venta 30 d | % |
+> |---|---|---|
+> | Kepler | $44,552,822 | **100.0%** |
+> | Wincaja | $230 | **0.0%** |
+>
+> Los **14 almacenes con venta** tienen `kepler_code` o son rutas de Kepler. Las dos últimas
+> migraciones de tienda fueron `32 → 07 Morelia Madero` (2026-09-08) y `30 → 08 Morelia
+> Abastos` (2026-09-19); el **CEDIS** cerró el 2026-09-30 (`[IC.CEDIS.1]`).
+>
+> ⛔ **Lo que esto NO significa:** que Wincaja se pueda retirar. **Sigue siendo el único acceso
+> al pasado** de cada plaza antes de su corte — por eso `analytics.v_branch_erp_cutover`
+> conserva `wincaja_source_branch`, que es el puente al histórico. Borrar esas filas no
+> retiraría una fuente vieja: **borraría la historia**.
+>
+> ⚠️ Y **no cierra el hueco de la unidad**: *«el peldaño de Wincaja es un NULL mudo»* (§7) vale
+> para todo lo ya cargado, que sigue siendo la mitad del histórico.
+
+Lo que **sí** quedó medido de su lado, y ahora aplica al histórico:
 
 - ✅ **Su identidad de existencia cuadra al 100.00% en las 21 sucursales**, error mediano 0.0000
   (`existencia_inicial + entrada − salida = existencia`).
@@ -1502,6 +1529,8 @@ el lado que está ganando.
 | `test-newdb-existencia.js` | la pantalla: orden, fuente, totales | **23/23** |
 | `test-newdb-unit-truth.js` | el resolvedor de unidad y su cobertura | **40/40** |
 | `verify-no-transfer-leak.js` | que el traspaso no se cuele a la venta | verde |
+| `test-newdb-transfer-dest-evidence.js` | el DESTINO de un traspaso: que no se le acredite a quien no es, que el almacén exista y reciba, y la identidad del pareo contra la etiqueta del ERP | **6/6 · 2 NO MEDIDOS** (`[DM.15]`) |
+| `test-newdb-branch-cutover.js` | el corte Wincaja→Kepler, y que **la venta viva siga siendo 100% Kepler** — vigila la afirmación de §8 para que no caduque en silencio como caducó el 37.6% | **25/25 · 1 NO MEDIDO** (`[SB.2]`) |
 
 Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_URL`**, no contra el
 `DATABASE_URL_NEW` del `.env`.
@@ -1510,7 +1539,10 @@ Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_U
 
 ## 11. Lo que este documento no cubre
 
-- **Wincaja** (§8) — 37.6% de la venta de los últimos 30 días.
+- **Wincaja HISTÓRICO** (§8). ⚠️ Su operación viva ya **no** es un hueco: desde el 2026-10-01 la
+  venta de Wincaja es **0.0%** de los últimos 30 días y lo vigila `test-newdb-branch-cutover.js`
+  `[SB.2]`. Lo que sigue sin cablear es su **pasado**, que es la mitad del histórico y el único
+  acceso a cada plaza antes de su corte.
 - **El margen.** `analytics.sales_daily.cost` tiene dos escritores y en la mitad Kepler es
   `revenue/(1+markup)`, álgebra ciega al precio. Ver ADR-051 y
   [`FASE_MR_COSTO_Y_UNIDAD`](IMPLEMENTACION/FASES/FASE_MR_COSTO_Y_UNIDAD.md).
@@ -1761,3 +1793,292 @@ escritura masiva y una decisión aparte.
 la fila ya no está en el origen. Ésas las resuelve `--delete-sobrantes`, que hoy sólo cubre
 `kdpord`/`kdm2`/`kdij`. Es el mismo defecto que este documento describe en §15.2 como
 `pendiente`/`fantasma`, y queda declarado.
+
+---
+
+## 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01)
+
+Lo disparó un reporte de una línea: *"/compras/existencia no muestra las existencias en CEDIS"*.
+Terminó en tres hallazgos, y el primero fue mío.
+
+### 17.1 ⛔ La regresión: un almacén se volvió invisible al declarar su corte
+
+`analytics.v_erp_stock_on_hand` tiene dos piernas y el almacén `00` se cayó de **las dos**:
+
+| pierna | condición de entrada |
+|---|---|
+| Kepler | `w.kepler_code = k.sucursal` **`AND w.kepler_code <> '00'`** ← exclusión a mano |
+| Wincaja | `w.wincaja_source_branch = v.source_branch` **`AND w.kepler_code IS NULL`** |
+
+El `<> '00'` se escribió cuando se creía que la sucursal Kepler `00` era **OFICINAS**. Mientras el
+CEDIS tenía `kepler_code` en NULL caía por Wincaja y se veía. La mig `20260930140000` le puso
+`kepler_code='00'` para cerrar la compuerta de su feed — y con eso **lo sacó de una pierna sin
+meterlo en la otra**. Estuvo un día entero en blanco el nodo que surte a la red, y lo encontró un
+humano, no un test.
+
+⭐ **La lección, que es general:** una condición de exclusión escrita como literal (`<> '00'`) es una
+premisa **congelada**. Cuando la premisa caduca, el filtro no avisa — devuelve menos filas, que se
+lee igual que "no hay". Las dos piernas de un `UNION ALL` tienen que **particionar**; acá se
+solapaban en su silencio.
+
+### 17.2 ⛔ Dos afirmaciones mías, refutadas con la medición
+
+**(a) «El saldo del CEDIS está 35.82× inflado porque la carga se SUMÓ al saldo viejo».** Falso, y lo
+sostuve tres veces. Mi consulta leía el SKU en `kdm2.c3`; el SKU es **`c8`** (`ERP_KEPLER.md`,
+regla 2). Con la columna correcta, al grano SKU:
+
+| | SKUs | `kdil` | contado | razón |
+|---|---|---|---|---|
+| contado **y** con saldo | **127** | 340,077 | 340,077 | **1.00×** |
+| saldo **sin** conteo | 4,526 | 11,841,613 | — | — |
+| contado **sin** saldo | 0 | — | — | — |
+
+**La carga cuadra a la unidad. No hay nada que corregir en Kepler.** El 35.82× nunca fue inflación:
+era **otra población** en la misma sucursal. (La compuerta `check-cedis-cutover.js` ya lo había
+medido y dejado escrito, señalando que mi migración citó un diagnóstico refutado. Tenía razón.)
+
+**(b) «La `00` de Kepler es OFICINAS y no mueve mercancía».** Falso. Medido sobre `kdm1`⋈`kdm2` de
+`sucursal='00' AND c1='00'`:
+
+| mes | docs de entrada | docs de salida | SKUs |
+|---|---|---|---|
+| 2026-04 | 2,371 | 713 | 2,718 |
+| 2026-06 | 2,092 | 893 | 3,174 |
+| 2026-08 | 2,189 | 1,568 | 2,873 |
+
+Recibe y despacha **todos los meses desde al menos abril**. El CEDIS de Wincaja no «se mudó» a
+Kepler: **se FUSIONÓ con un almacén que ya existía y ya operaba**. Excluirlo era la anomalía.
+
+### 17.3 La decisión: publicarlo completo, no sólo lo contado
+
+Se consideró publicar sólo los 127 SKUs con testigo físico y declarar el resto (ADR-056). **Se
+descartó midiendo:** los **10 SKUs más grandes son el 9.0%** del total — está repartido entre miles,
+no concentrado en basura. Un almacén que recibe 2,000 documentos al mes y cuyo volumen está
+repartido es un almacén. Esconderlo deja al comprador decidiendo a ciegas sobre el nodo que surte a
+la red, que es peor que publicarlo con el hueco declarado.
+
+**Árbitro registrado:** el conteo físico del corte (`N-A-45` del 30-sep, 127 líneas) contra `kdil`,
+SKU por SKU, en `database/tests/test-newdb-cedis-stock-truth.js` (**9 ✓ / 0 ✗ / 1 NO MEDIDO** contra
+prod). ⚠️ **Y su límite va escrito:** desde el corte el conteo deja de ser independiente (la entrada
+`N-A-30` posteó justamente lo contado). Arbitra **la identidad del corte**, no la existencia de hoy.
+Decir que arbitra más sería un espejo (R5).
+
+### 17.4 ⛔ HUECO DECLARADO: Kepler tiene DOS existencias y se contradicen en las OCHO sucursales
+
+`kdil` (`c4+c8−c9`, **la que publicamos en todos lados**) contra `kdik.c6` (**que no consume nadie**),
+mismo ERP, mismo grano (almacén × SKU), medido el 2026-10-01:
+
+| suc | `kdil` | `kdik.c6` | razón | SKUs que difieren |
+|---|---|---|---|---|
+| 00 | 12,181,690 | 2,234,285 | **5.45×** | 4,990 / 5,022 |
+| 01 | 717,316 | 2,524,696 | **0.28×** | 4,437 / 4,491 |
+| 02 | 87,046 | 988,088 | **0.09×** | 4,220 / 4,291 |
+| 03 | 226,567 | 1,936,259 | **0.12×** | 4,625 / 4,656 |
+| 06 | 513,880 | 803,507 | **0.64×** | 3,547 / 3,615 |
+| 08 | 618,776 | 306,972 | **2.02×** | 3,241 / 3,298 |
+
+~99% de los SKUs difieren en **cada** rama, y la razón ni siquiera tiene un sentido consistente.
+⭐ **Un testigo que contradice SIEMPRE no arbitra — es el reverso exacto de R5** («un árbitro que
+nunca contradice es un espejo»). Así que `kdik.c6` **no se usa** para juzgar al CEDIS, y el candado
+lo reporta **NO MEDIDO**, nunca ✔ ni ✖: no es una regresión de esta fase y no se puede cerrar sin
+decidir primero **qué mide `kdik.c6`** (¿snapshot de cierre? ¿otro peldaño de unidad? ¿otro
+almacén?). Está **sin verificar**, y eso es justo lo que la regla 0 de `ERP_KEPLER.md` §5 prohíbe
+dar por supuesto.
+
+⚠️ **Lo que esto implica y conviene decir en voz alta:** la existencia de las **nueve** sucursales se
+publica desde `kdil` sin un segundo testigo que la respalde. No es un problema del CEDIS; es del
+dato de existencia completo. Si `kdil` está mal, está mal para todas — y eso es una fase aparte, no
+un motivo para dejar un almacén en blanco.
+
+### 17.5 ⛔ La cobertura REAL del árbitro: 2.8% nominal, **0% independiente**
+
+Medido el 2026-10-01 sobre `v_erp_stock_on_hand` del almacén `00`:
+
+| | SKUs | unidades | valor |
+|---|---|---|---|
+| con testigo físico (conteo del corte) | 126 · **2.5%** | 340,067 · **2.8%** | $8,651,065 · **2.8%** |
+| **sin testigo** | 4,881 · 97.5% | 11,840,389 · 97.2% | **$298,236,133** · 97.2% |
+
+⚠️ Y ese 2.8% **tampoco es un árbitro: es un espejo**. El conteo dio **1.00× en 127 de 127** y no
+podía dar otra cosa — la entrada `N-A-30` posteó exactamente lo contado. Prueba que *el documento se
+capturó bien*, no que *lo contado sea lo que hay*. **La existencia del CEDIS verificada contra una
+medición independiente es 0%.** (Y el ancla ya decae: 24 h después eran 126 SKUs / 340,067 u.)
+
+**Por qué, y no es técnico:**
+
+| sucursal | conteos físicos en toda su historia Kepler |
+|---|---|
+| **00 CEDIS** | **1** — el del corte, 2026-09-30 |
+| 02 | 217 · 05 | 6 · 03 | 4 · 04 | 3 |
+| 01 · 07 · 08 | 1 |
+
+**El CEDIS nunca se contó.** Es el nodo menos contado de la red, el que surte a todos, y el que
+publica $298M. En nuestro propio módulo de conteo tenía **cero folios**.
+
+### 17.6 ⭐ Y estaba fuera del programa de conteo por la MISMA exclusión
+
+La cadena es `v_erp_stock_on_hand` → `analytics.inventory_health` (nocturno 03:30) → `v_abc_class` →
+`commercial.abc_classification` → `v_count_priority_score` → el plan de olas. Todo cuelga de la
+vista. O sea que **nadie sacó al CEDIS del conteo a propósito**: lo sacó el mismo `<> '00'` de §17.1,
+tres saltos más abajo. Arreglada la raíz, entra solo en la próxima corrida nocturna.
+
+Se verificó eslabón por eslabón, en seco (09:27 de un jueves: ⛔ nada de escrituras pesadas a prod en
+horario hábil):
+
+1. `v_erp_stock_on_hand` → CEDIS con 5,007 SKUs, `qty > 0` ✅
+2. `v_abc_class` **no filtra** por demanda: pasa todo con su `clase_motivo` ✅
+3. `score_salvedad = 'sin_datos'` exige que las **tres** señales sean cero
+   (`annual_value` **y** `avg_daily_units` **y** `on_hand`). El CEDIS tiene `on_hand > 0` → cae en
+   **`sin_historia_de_conteo`**, y el plan filtra `IS DISTINCT FROM 'sin_datos'` → **es contable** ✅
+
+⚠️ **Una hipótesis mía quedó refutada en el camino:** supuse que el CEDIS sería `sin_datos` porque no
+vende (tiene **cero filas** en `sales_daily`, ni siquiera de traspaso — el importer excluye
+`channel='mayoreo'` por ser traspaso interno, no demanda). Falso: la regla pide las tres en cero, no
+una. El comentario de `20260929120000` ya describía este caso exacto —*"no hay con qué juzgarlo, y es
+el único que NUNCA se contó"*— y por eso `sin_historia_de_conteo` existe como estado aparte.
+
+⚠️ **Efecto colateral declarado:** la misma corrida nocturna le va a dar `reorder_policy` al CEDIS
+(hoy tiene 0 filas), así que **el sugerido de compras va a cambiar**. Es el comportamiento que
+RA-PRO.6 diseñó (demanda dependiente, `media_red = Σavg(suc) + propio`), pero nadie lo pidió hoy y se
+anota para que el cambio no sorprenda.
+
+El bloque 7 de `test-newdb-cedis-stock-truth.js` lo vigila, y **distingue dos cosas que se ven igual
+y piden lo contrario**: si el nocturno aún no corrió desde el arreglo reporta **NO MEDIDO**; si corrió
+**después** y el CEDIS igual no está, **FALLA**. Sin esa distinción el candado daría rojo el mismo día
+del arreglo, que es como se enseña a ignorarlo.
+
+### 17.7 ⛔⛔ EL REPORTE DEL PROPIO KEPLER TUMBA LA CIFRA — y no es un tema del CEDIS
+
+**Lo trajo un humano, el mismo día.** Edgar sacó del ERP el *"Reporte de existencia por productos"*
+(01/10/2026 09:38) con filtros `Sucursal = CEDIS`, `Almacén = ALMACÉN Cedis`, `Línea 036`. Las ~140
+filas dan **0.00 en las tres unidades**. Contra lo que esta plataforma publicaba:
+
+| SKU | descripción | publicado | Kepler |
+|---|---|---|---|
+| 65000 | PELON PELONAZO 4P | **3,288** | **0.00** |
+| 65001 | PELON PELO RICO TAM EXH 10P | **24,192** | 0.00 |
+| 65002 | PELON PELO RICO TAM BLS 12+2 | **21,600** | 0.00 |
+| 95757 | HERSHEYS CHISPAS SEMI-AMARGO 2.5KG | 36 | 0.00 |
+
+⛔ **No se puede echar la culpa al entorno.** Verificado uno por uno: la rama `00` replica
+**192.168.9.95 / `md_00`** —la máquina que el CEDIS usa hoy—, la sucursal tiene **un solo almacén**
+(`c1='00'`, 126,475 documentos) y la réplica está **fresca** (8 documentos de hoy).
+
+⚠️ **Y la aritmética tampoco falla.** La reconstrucción desde documentos DA LA RAZÓN a la fórmula:
+para el `65000`, `X-A-20` (aplica orden de entrada) suma **3,384** y `U-D-40` (embarque) **96** →
+3,288 = exactamente `c4+c8−c9`. O sea que `c8`/`c9` son los acumulados que la doc describe. **Dos
+fuentes del MISMO Kepler no coinciden, y no sabemos cuál publica el reporte.**
+
+⭐⭐ **Lo que esto significa, y es más grande que el CEDIS:** `v_erp_stock_on_hand` usa esta misma
+fórmula para las **nueve** sucursales. Si está mal, está mal en todas. Y encaja con §17.4: `kdik.c6`
+—que discrepa de `kdil` en las nueve— vale **96** para el `65000`, que es exactamente `c9`. Hay al
+menos **tres** lecturas posibles de la existencia en Kepler y nunca se arbitraron contra el ERP.
+
+**Decisión: se RETIRA el CEDIS de la existencia publicada** (mig `20261001170000`, batch 653), el
+mismo día que se publicó. Dos razones, las dos explícitas:
+
+1. ⛔ **El argumento de ayer queda refutado.** Se publicó diciendo que el volumen «está repartido
+   entre miles de SKUs, así que es un almacén y no un artefacto». **Estar repartido no lo hace
+   real** — eso era una corazonada con forma de medición. El ERP dice cero.
+2. Esa cifra ($298M) alimentaba esa misma noche `inventory_health` → ABC → `reorder_policy` → el
+   **sugerido de compras**. ADR-056: lo que no se puede medir se DECLARA, no se dibuja.
+
+⚠️ **Esto reabre el reporte original** (*"/compras/existencia no muestra el CEDIS"*) y se asume a
+conciencia: **ausente y declarado le gana a presente y falso**, sobre todo alimentando compras.
+
+⭐ **Lo que lo destraba, y es la pieza que a este documento le falta para las NUEVE ramas:** el mismo
+reporte del ERP **sin el filtro de línea** y con *omitir productos en cero = Sí*. Eso contesta "qué
+tiene de verdad el almacén" **según el propio Kepler**, que es el árbitro independiente de existencia
+que nunca tuvimos. Corrido por sucursal, arbitra el dataset completo — no sólo el CEDIS.
+
+⭐ **La lección de método, que ya había costado una vez en esta misma fase:** la medición que yo tenía
+(*"está repartido, luego es real"*) no era un árbitro, era una **plausibilidad**. Un árbitro es una
+fuente que puede decir que NO. El reporte del ERP dijo que no en la primera consulta.
+
+### §17.8 — El árbitro llegó, y le da la razón al humano
+
+**Edgar sacó el mismo reporte sin el filtro de línea** (01/10/2026, `Sucursal = CEDIS`,
+`Almacén = ALMACÉN Cedis`, 123 páginas). Ése es el testigo independiente que a este proyecto le
+faltaba, y contesta las dos preguntas abiertas en §17.7.
+
+**1. El CEDIS SÍ tiene existencia — en ~100 SKUs, no en 5,007.** El reporte lista con saldo cosas
+como `08057 NESTLE CARLOS V SUIZO 16P` = 11,200 · `63018 BIMBO BOCADIN /50P` = 25,176 ·
+`95211 CH OKA LOKA` = 24,408 · `59038 FRES KIDD SURT /24` = 24,192 · `97392 CHOC BON-BON GRANEL` =
+16,992 · `44630 GALL MINI MAMUT` = 12,612. Todo lo demás va en **0.00**.
+
+**2. `kdil` NO reproduce ese reporte, y el discriminador es una FECHA.** Medido sobre las 5,019
+filas de `kdil` del almacén `00`, contra 94 SKUs transcritos del reporte:
+
+| grupo según el ERP | SKUs | con `c7 = '1800-01-01'` | unidades que publicábamos |
+|---|---:|---:|---:|
+| **A)** el reporte les da existencia | 94 | **94 (100 %)** | 319,566 |
+| **B)** el reporte los da en cero | 4,925 | 0 de los que probé | 11,817,240 |
+
+⭐ **Está invertido respecto de la intuición**: los SKUs que el ERP declara con saldo son
+exactamente los que **no tienen fecha de movimiento** en `kdil` (centinela `1800-01-01`), y los que
+traen fecha real son los que el ERP pone en cero. La regla tiene **recall 94/94**; su *precisión*
+NO se puede afirmar — las 94 filas son una transcripción parcial de 123 páginas, y hay 1,760 filas
+con centinela. **Queda como PISTA del decode, no como verdad.**
+
+**3. La prueba que decide que esto es del CEDIS y no de la fórmula.** `v_erp_stock_on_hand` usa
+`c4+c8−c9` en las nueve ramas; si estuviera mal, estaría mal en todas. Medido:
+
+| sucursal | SKUs con saldo | unidades publicadas | % en centinela |
+|---|---:|---:|---:|
+| **00 CEDIS** | **4,653** | **12,181,690** | **37.8 %** |
+| 01 | 3,256 | 717,037 | 4.9 % |
+| 02 | 2,825 | 86,831 | 5.9 % |
+| 03 | 2,974 | 226,176 | 3.6 % |
+| 04 | 1,945 | 34,274 | 9.2 % |
+| 05 | 2,352 | 79,426 | 9.1 % |
+| 06 | 2,936 | 512,695 | 11.4 % |
+| 07 | 2,501 | 128,232 | 17.5 % |
+| 08 | 2,818 | 617,287 | 12.4 % |
+
+El CEDIS publica **17× la sucursal más grande** y **~68× la mediana de sus ocho hermanas**, con
+**más del triple** de proporción de filas centinela que cualquiera. Las ocho son mutuamente
+consistentes entre sí. ⭐ **El CEDIS es el outlier, no el patrón** → el retiro de batch 653 es
+correcto y **NO se extiende a las otras ocho**; su cifra no queda tocada por este hallazgo.
+
+**4. Lo que esto le cuesta a mi propio argumento.** En §17.3 publiqué el CEDIS completo con el
+razonamiento *«los 10 SKUs más grandes son el 9.0 % del total, o sea que está repartido entre
+miles, y un almacén repartido es un almacén»*. **Estaba mal**, y no por el dato sino por la forma:
+*estar repartido no distingue un almacén de una tabla sin purgar* — una corrida de residuo también
+se reparte. Era **una corazonada con forma de medición**, exactamente lo que ADR-059 R5 previene.
+La medición que sí distinguía estaba a una consulta: **comparar la magnitud contra las hermanas**.
+
+> ⭐ **Regla que sale de acá, y aplica a cualquier nodo nuevo:** antes de publicar un agregado de un
+> almacén, sucursal o ruta que nunca se publicó, **medirlo contra sus pares**. Un nodo que publica
+> un orden de magnitud más que el mayor de sus hermanos está en disputa hasta que un testigo
+> externo lo confirme. Es más barato que decodificar la fuente y atrapa justo el caso que el
+> análisis interno no ve: cuando la fórmula está bien y **la tabla está sucia**.
+
+**Sigue abierto, con nombre:** (a) **qué publica el reporte de Kepler** —ni `c4+c8−c9`, ni `c8`, ni
+`c9`, ni `kdik.c6` lo reproducen en los ceros—; (b) **cuánto tiene de verdad el CEDIS** en pesos,
+que sólo sale de transcribir el reporte completo o de contar el almacén; (c) `/compras/existencia`
+**sigue sin CEDIS**, asumido: *ausente y declarado le gana a presente y falso*.
+
+#### §17.8.1 — Un segundo testigo, independiente, cae del mismo lado
+
+La pista de §17.8 dejó de ser una pista. Los **127 SKUs que humanos contaron físicamente** en el
+`N-A-45` del corte (30-sep) traen **127/127 el centinela `c7 = '1800-01-01'`** — exactamente el
+lado donde caen los 94/94 del reporte del ERP:
+
+| grupo | SKUs | con centinela | unidades |
+|---|---:|---:|---:|
+| contados a mano en el `N-A-45` del corte | 127 | **127 (100 %)** | 340,077 |
+| el resto del almacén | 4,892 | 1,633 (33.4 %) | 11,796,729 |
+
+⭐ **Son dos testigos que no se derivan uno del otro**: el reporte lo imprime Kepler desde su propia
+lógica, el conteo lo produjeron personas contando cajas. En §17.5 descarté el conteo como árbitro
+por R5 (*«un árbitro que nunca contradice es un espejo»*) y tenía razón **para juzgar el saldo** —
+el `N-A-30` posteó justo lo contado—; pero para juzgar **cuáles filas de `kdil` son el almacén
+vivo** el conteo sí es independiente, y coincide con el ERP. La regla del centinela queda con
+**recall 2/2 testigos**.
+
+⛔ **Y aun así NO se republica.** El grupo centinela son **1,760 SKUs / 1,802,630 u**, de los cuales
+sólo ~220 tienen testigo: la regla tiene recall probado y **precisión sin probar**, y esto alimenta
+el sugerido de compras. Publicar los 1.8 M sería repetir hoy el error de ayer — *una corazonada con
+forma de medición*, sólo que con mejor corazonada. Lo que la vuelve publicable es barato y sólo lo
+da el ERP: **el reporte completo con «omitir productos en cero = Sí»**, que son ~2 páginas en vez
+de 123 y cierra la precisión de un tirón.
