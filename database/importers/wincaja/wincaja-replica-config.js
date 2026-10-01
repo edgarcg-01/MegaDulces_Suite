@@ -41,7 +41,34 @@ const BRANCHES = [
   //
   // ⚠️ El HISTÓRICO se queda: los schemas `w30` y `w32` de la réplica son la única copia de lo
   // que esas sucursales vendieron en Wincaja. Esto saca el carril CONTINUO, no el dato.
-  { code: '00', schema: 'w00', name: 'CEDIS Irapuato', mdb: `${MDB_BASE}/0 BPIRAPUATO MOV.MDB` },
+  //
+  // ═══ [WR.7 2026-10-01] Y SALIÓ LA ÚLTIMA: `00` CEDIS Irapuato ═══════════════════════════
+  // Mismo criterio, misma evidencia. El CEDIS migró su PdV a Kepler el 2026-09-30 y con él se
+  // fue la última sucursal que quedaba viva en Wincaja: **ya no opera ninguna**.
+  //
+  // Medido antes de sacarla, con el mismo control que se usó para 30 y 32 —los dos carriles PM2
+  // llevaban 36 h online con 0 reinicios, así que "no llega nada nuevo" es una medición y no un
+  // carril muerto—:
+  //   w00 CEDIS — último movimiento 2026-09-29; el corte declarado es el 09-30 y la réplica
+  //               corrió el 09-30 15:04, DESPUÉS del último dato. Cero traslape, cero hueco.
+  //   el carril `inc`  escribía 0 cada 2 min (133 pasadas seguidas revisadas, todas en 0);
+  //   el carril `hash` leía **188,456 filas en 123 s** por ciclo para escribir **0**.
+  // Girar en vacío contra un archivo que ya nadie escribe, cada minuto, para siempre.
+  //
+  // Y el otro lado del cutover está verificado, no supuesto: Kepler `00` lleva 126,062
+  // documentos desde 2025-08-29 y 4,653 SKUs con saldo propio; de los 196 SKUs con existencia
+  // en Wincaja `00` que están en el catálogo de Kepler, **185 ya tienen saldo allá**
+  // (`check-cedis-cutover.js`, bloque 3).
+  //
+  // ⚠️ LA LISTA QUEDA VACÍA A PROPÓSITO, y eso APAGA el carril: `access-replicate.js` lanza si
+  // no hay ramas, en vez de dar una pasada en cero por buena. Los procesos PM2 `wincaja-inc`,
+  // `wincaja-hash` y `wincaja-live-tickets` se retiraron el mismo día (`pm2 delete` + `pm2 save`,
+  // para que un `resurrect` no los reviva). Reactivar una rama = volver a ponerla en este array
+  // y `pm2 start ecosystem.wincaja.config.js`.
+  //
+  // ⛔ NO BORRAR los schemas `w00`/`w30`/`w32` de la réplica: son la única copia de lo que esas
+  // sucursales vendieron en Wincaja, y el sell-out los lee para el período anterior a cada corte
+  // a través de `analytics.v_branch_erp_cutover`.
 ];
 
 /**

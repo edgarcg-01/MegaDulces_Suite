@@ -279,6 +279,22 @@ function run(cfg, argv = process.argv) {
 
   async function cycle() {
     const list = branchArg ? cfg.BRANCHES.filter((b) => b.code === branchArg) : cfg.BRANCHES;
+    // ⛔ [WR.7 2026-10-01] UNA LISTA VACÍA NO ES UNA PASADA EXITOSA. Sin este freno el `for` no
+    // itera, `fallas` queda en 0, no se lanza nada y el ciclo termina **bien** habiendo entregado
+    // CERO — el mismo modo de falla que `[INFRA.3]` cerró en el shipper del ODS el mismo día.
+    // Peor acá: en watch el heartbeat marcaría `ok`, así que el tablero diría que el carril
+    // entrega cuando no tiene a quién.
+    // Se llega por dos caminos que conviene NO confundir, y por eso el mensaje es distinto:
+    //   · la lista quedó vacía      → todas las ramas migraron; el carril continuo está retirado;
+    //   · `--branch=` no casó nada  → dedo en la línea de comandos.
+    if (!list.length) {
+      throw new Error(cfg.BRANCHES.length === 0
+        ? 'SIN RAMAS configuradas: el carril continuo quedó RETIRADO (todas migraron a Kepler). '
+          + 'El histórico sigue en la réplica, pero esto no es una pasada exitosa: si este proceso '
+          + 'está corriendo, sobra.'
+        : `--branch=${branchArg} no casa con ninguna rama configurada `
+          + `(hay: ${cfg.BRANCHES.map((b) => b.code).join(', ') || 'ninguna'}).`);
+    }
     preflightSource();
     const c = new Client({ connectionString: cfg.REPLICA_URL, statement_timeout: 120000 });
     await c.connect();

@@ -123,7 +123,7 @@ documentado: si sólo mirás `Get-ScheduledTask` concluís que la máquina ya no
 | App PM2 | Qué hace | Estado, medido el **2026-09-22** |
 |---|---|---|
 | `caja-general-replica` · `caja-general-ship` | `.mdb` de Caja General → espejo `:5433/caja_general` → `caja_general_ods` | 🟢 **ONLINE — y este README no los listaba.** ⛔ Son ahora **el único bloqueo real de «todo en Linux»**: Jet 32-bit sobre `Z:` (`\192.168.0.245\D`), igual que Wincaja. ⚠️ Su `CAJA_GENERAL_REPLICA_URL` dice `localhost:5433`, pero el `:5433` de `.249` está jubilado (§3.2) — llega a **`md`** por el reenvío `netsh` de §3.2.1. Funciona, y la configuración no lo dice. ⛔ **`[VL.14]` 2026-09-23: su `DATABASE_URL_NEW` apuntaba a RAILWAY** — o sea que el ship escribía la Caja General a la producción VIEJA. Repuntado a `192.168.0.222:5434` y **`pm2 save`**; el primer ciclo contra `md` escribió **+19 doctos / +10 arqueos** que a prod le faltaban (contra Railway venía escribiendo `0`). Dato, no hipótesis |
-| ~~`wincaja-inc` · `wincaja-hash`~~ | Réplica cruda Access → `:5433/wincaja` | ⏹️ **DETENIDOS 2026-09-22** (`pm2 stop` + `pm2 save`, reversible). Medido antes de tocarlos: `inc` daba `read 0 · wrote 0` en cada ciclo, y `hash` leía **186,255 filas para escribir CERO** en **873 s por pasada**. ⭐ **`[VL.14]` 2026-09-23 — ahora se sabe POR QUÉ leían cero: Wincaja se apagó el 2026-09-19.** El corte, día por día: `09-18` Wincaja 30/32 = **4,334** líneas / Kepler 07/08 = 565 docs → `09-19` Wincaja = **0** / Kepler = **1,336**, y de ahí CERO todos los días. El CEDIS paró el 09-18. La decisión de detenerlos fue correcta; lo que faltaba era **retirar sus sondas** (se hizo) |
+| ~~`wincaja-inc` · `wincaja-hash`~~ | Réplica cruda Access → `:5433/wincaja` | ⛔ **RETIRADOS 2026-10-01** (`pm2 delete` + `pm2 save`). Ver `[WR.7]` abajo — y leer la corrección, porque este renglón decía dos cosas falsas |
 | ~~`wincaja-live-tickets`~~ | Tickets w30/w32/w00 → `/tienda/live` | ⏹️ **DETENIDO 2026-09-22.** Fallaba cada minuto (`timeout expired`, `ECONNRESET`) contra `.245/platform_test` —la base de **desarrollo**, no prod— y PM2 lo mostraba `online` |
 | ~~`contpaqi-cfdis-inc` · `contpaqi-cfdis-full`~~ | CFDIs del ADD → `fiscal.cfdis` | ⏹️ **DETENIDOS 2026-09-22.** ⛔ Este README los daba por mudados el 12-sep y *en `pm2 stop`*, y estaban **ONLINE**: `PM2 Resurrect` los revivió tras un reinicio de Windows, porque el `pm2 save` los tenía como activos. El `inc` corría **duplicado** con el contenedor de `md` **y mudo** — su latido fallaba con `timeout expired`, así que el renglón lo escribía el otro y el duplicado era invisible |
 
@@ -131,6 +131,55 @@ documentado: si sólo mirás `Get-ScheduledTask` concluís que la máquina ya no
 su primera pasada en `md`. Es lo mismo que pasó con `feed_nightly` tras VL.4: hasta la primera
 corrida, el renglón conserva el host viejo. Si el **jueves** sigue diciendo `SISTEMAS`, **ahí sí**
 es un problema.
+
+### 3.1.1 ⛔ `[WR.7]` Wincaja se retiró de verdad (2026-10-01) — y de paso, dos correcciones
+
+El CEDIS migró su PdV a Kepler el **2026-09-30**. Con él se fue **la última sucursal viva en
+Wincaja**: ya no opera ninguna. Los tres procesos (`wincaja-inc`, `wincaja-hash`,
+`wincaja-live-tickets`) se retiraron con **`pm2 delete` + `pm2 save`**, y la lista de ramas de
+`wincaja-replica-config.js` quedó **vacía a propósito**.
+
+**Antes de tocarlos, medido:**
+
+| | |
+|---|---|
+| último movimiento en `w00` | **2026-09-29** |
+| corte declarado (`v_branch_erp_cutover`) | **2026-09-30** |
+| última corrida de la réplica | **2026-09-30 15:04** — *después* del último dato |
+| último write del `.mdb` fuente | **2026-09-30 09:05** — *antes* de esa corrida |
+| qué entregaban | `inc` **0 filas** cada 2 min (133 pasadas seguidas); `hash` **188,456 filas leídas en 123 s para escribir 0** |
+
+Cero traslape y cero hueco, igual que en `30` y `32`. Lo que se retira es el **carril continuo**;
+⛔ **los schemas `w00`/`w30`/`w32` NO se tocan**: son la única copia de lo que esas sucursales
+vendieron en Wincaja, y el sell-out los lee para el período anterior a cada corte.
+
+#### Corrección 1 — `pm2 stop` + `pm2 save` **no retira nada**
+
+Este README daba `wincaja-inc`/`wincaja-hash` por «DETENIDOS 2026-09-22». El 2026-10-01 estaban
+**online con 36 h de uptime**: un `PM2 Resurrect` tras un reinicio de Windows los revivió, igual
+que había pasado con los `contpaqi-*` (renglón de arriba, misma causa, mismo README). Un proceso
+*detenido* sigue en el `dump.pm2` y vuelve. **Retirar es `pm2 delete` + `pm2 save`** — verificado:
+el dump pasó de 5 apps a 2, sin ningún `wincaja`.
+
+#### Corrección 2 — ⛔ «El CEDIS paró el 09-18» era falso, y esa frase casi cuesta 11 días de datos
+
+El renglón viejo justificaba la detención del 09-22 con que «Wincaja se apagó el 2026-09-19». Para
+`30` y `32` es cierto. **Para el CEDIS no**: `w00` tuvo movimiento todos los días hábiles hasta el
+**29-sep** —`09-19` 11 · `09-21` 10 · `09-22` 16 · `09-23` 4 · `09-24` 33 · `09-25` 15 · `09-26` 40
+· `09-28` 22 · `09-29` 17—, o sea que los carriles se detuvieron **mientras el CEDIS seguía
+operando**. Si hubieran quedado detenidos, a la réplica le faltarían del **09-23 al 09-29**: la
+ventana inmediatamente anterior al cutover, que es justo la que sirve de línea base de la
+migración. **Los salvó el resurrect accidental de la Corrección 1.**
+
+⭐ La lección no es «qué suerte»: es que la detención del 09-22 se apoyó en una medición de **otras
+sucursales** aplicada al CEDIS sin volver a medirla. Lo que hace válido el retiro de hoy es haber
+comprobado *para esta rama* que el último dato (09-29) precede al corte y que la réplica corrió
+después.
+
+⚠️ **Y la máquina no es `.249`.** Es la misma caja (hostname `SISTEMAS`), pero hoy responde en
+**`192.168.0.243`**; `.249` no contesta ping ni aparece en ARP. No pude establecer si la
+renumeraron o si el dato siempre estuvo mal — **queda declarado, no corregido a ciegas** en el
+resto del documento.
 
 ### 3.2 ✅ El `:5433` de `.249` está JUBILADO (2026-09-12) → [runbook](vl/RUNBOOK-jubilar-5433-249.md)
 
