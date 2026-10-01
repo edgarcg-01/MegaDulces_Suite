@@ -591,7 +591,7 @@ const APP_SOURCES: SourceCfg[] = [
     // como medianoche MX = exactamente la semántica que este sensor quiere medir. Quitarlo haría
     // envejecer el dato 6 h de más — el error en el sentido contrario.
     sql: `SELECT max(fecha)::timestamp AS last_update,
-                 'BPIRAPUATO · último mov. ' ||
+                 'CEDIS Irapuato en Wincaja (fuente retirada) · último mov. ' ||
                  COALESCE(to_char(max(fecha), 'DD/MM'), '—') || ' · ' ||
                  count(*) FILTER (WHERE fecha >= current_date - 7)::text || ' movs 7d' AS note_extra
             FROM wincaja.maestro_mov_almacen
