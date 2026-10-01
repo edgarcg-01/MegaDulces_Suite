@@ -18,7 +18,10 @@ import {
   QuoteCatalogRow,
   PricedLine,
   Rung,
-  nombreUnidadMayor,
+  nombreUnidadBase,
+  abrevUnidadBase,
+  opcionesUnidad,
+  type OpcionUnidad,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -51,6 +54,10 @@ export interface ItemBandeja {
   line_total: number;
   price_source: string;
   free_goods?: { sku: string; quantity: number } | null;
+  /** Abreviatura de la unidad base (PAQ, KG, PZA…) para el desglose "12 PAQ $41.82". */
+  base_unit: string | null;
+  /** Lo que el cliente pidió y no se encontró (renglón sin casar, sin SKU ni precio). */
+  requested_text?: string | null;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -331,7 +338,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 [(ngModel)]="terminoArticulo"
                 (ngModelChange)="onTerminoArticulo($event)"
                 (focus)="onFocoArticulo()"
-                placeholder="Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden)..."
+                (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
+                (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
+                (keydown.enter)="$event.preventDefault(); elegirResaltado()"
+                placeholder="Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir"
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando()"
@@ -341,16 +351,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               }
             </div>
 
-            <!-- Desplegable ordenado por orden alfabético del nombre del producto -->
+            <!-- Desplegable: primero los aciertos exactos y después lo MÁS VENDIDO en la sucursal
+                 (el servidor ordena). ↑↓ mueven el resaltado y Enter elige, sin mouse. -->
             @if (catalogoAbierto() && resultadosArticulos().length > 0) {
-              <ul class="cat-dropdown" role="listbox" aria-label="Catálogo ordenado alfabéticamente">
-                @for (p of resultadosArticulos(); track p.sku) {
+              <ul class="cat-dropdown" role="listbox" aria-label="Artículos encontrados, los más vendidos primero">
+                @for (p of resultadosArticulos(); track p.sku; let i = $index) {
                   <li>
                     <button
                       type="button"
                       class="cat-row"
                       role="option"
-                      [class.cat-row-active]="articuloElegido()?.sku === p.sku"
+                      [attr.aria-selected]="i === resaltado()"
+                      [class.cat-row-active]="i === resaltado()"
+                      (mouseenter)="resaltado.set(i)"
                       (click)="elegirArticulo(p)"
                     >
                       <div class="cat-col-nom">
@@ -371,9 +384,14 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 }
               </ul>
             } @else if (catalogoAbierto() && terminoArticulo.trim().length > 0 && !buscandoArticulo()) {
-              <p class="search-hint">
-                Ningún artículo en Sucursal {{ sucursal() }} coincide con <strong>"{{ terminoArticulo }}"</strong>.
-              </p>
+              <!-- Lo que no manejamos NO se pierde: queda en la bandeja como renglón sin casar
+                   (requested_text) y viaja con la cotización como demanda (COT.16). -->
+              <div class="search-hint">
+                <span>Ningún artículo en Sucursal {{ sucursal() }} coincide con <strong>"{{ terminoArticulo }}"</strong>.</span>
+                <button type="button" class="btn-no-casado" (click)="agregarNoManejado()" [disabled]="guardando()">
+                  <i class="pi pi-plus" aria-hidden="true"></i> Anotar como no manejado
+                </button>
+              </div>
             }
           </div>
         </div>
@@ -398,56 +416,27 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                    rótulo de pregunta: los botones se explican solos y sólo están los que el ERP
                    declara (COT.16). -->
               <div class="config-row">
+                <!-- Unidades de MENOR a MAYOR (izq → der): KINDER DELICE = Pieza 1 · Paquete 10 ·
+                     Caja 140. Sólo las que el ERP declara; el nombre de la base es el real
+                     (Paquete, Kilo, Pieza…), no "Pieza" fijo (COT.16). -->
                 <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
-                  <!-- Opción Pieza (o KG) -->
-                  <button
-                    type="button"
-                    class="unit-toggle-btn"
-                    [class.unit-toggle-active]="rung() === 'base'"
-                    (click)="setRung('base')"
-                    [disabled]="guardando()"
-                  >
-                    <i class="pi pi-tag" aria-hidden="true"></i>
-                    <span class="unit-title">{{ e.sold_by_kg ? 'Kilo' : 'Pieza' }}</span>
-                    <span class="unit-sub">· 1 {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pza') }}</span>
-                  </button>
-
-                  <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara.
-                       Si el ERP no declara unidad mayor, el botón NO se pinta: antes salía y al
-                       tocarlo decía "sin precio", que es ofrecer algo que no existe. -->
-                  @if (tieneMayor(e)) {
+                  @for (o of opcionesUnidad(e); track o.rung) {
                     <button
                       type="button"
                       class="unit-toggle-btn"
-                      [class.unit-toggle-active]="rung() === 'box'"
-                      (click)="setRung('box')"
+                      [class.unit-toggle-active]="rung() === o.rung"
+                      (click)="setRung(o.rung)"
                       [disabled]="guardando()"
                     >
-                      <i class="pi pi-box" aria-hidden="true"></i>
-                      <span class="unit-title">{{ mayor(e) }}</span>
-                      @if (e.box_size) {
-                        <span class="unit-sub">· {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }}</span>
-                      }
-                    </button>
-                  }
-
-                  <!-- Opción Paquete si aplica -->
-                  @if (tienePaquete(e)) {
-                    <button
-                      type="button"
-                      class="unit-toggle-btn"
-                      [class.unit-toggle-active]="rung() === 'pack'"
-                      (click)="setRung('pack')"
-                      [disabled]="guardando()"
-                    >
-                      <i class="pi pi-clone" aria-hidden="true"></i>
-                      <span class="unit-title">Paquete</span>
-                      <span class="unit-sub">· {{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
+                      <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                      <span class="unit-title">{{ o.titulo }}</span>
+                      <span class="unit-sub">· {{ o.detalle }}</span>
                     </button>
                   }
                 </div>
 
-                <!-- CONTROL TÁCTIL DE CANTIDAD (sin teclado en pantalla) -->
+                <!-- CANTIDAD: se TECLEA (dictado: "48 cajas" = 2 teclas, antes 8 clics) y Enter
+                     agrega; los botones + / − / presets siguen para captura táctil (COT.16). -->
                 <div class="touch-stepper">
                   <button
                     type="button"
@@ -459,10 +448,21 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <i class="pi pi-minus" aria-hidden="true"></i>
                   </button>
 
-                  <div class="touch-qty-readout" aria-live="polite">
-                    <span class="qty-num">{{ cantidadArticulo() }}</span>
-                    <span class="qty-lbl">{{ labelUnidadActiva() }}{{ cantidadArticulo() > 1 ? (rung() === 'box' ? 's' : (rung() === 'base' && e.sold_by_kg ? '' : 's')) : '' }}</span>
-                  </div>
+                  <label class="touch-qty-readout">
+                    <input
+                      #cantidadInput
+                      type="text"
+                      inputmode="numeric"
+                      class="qty-num"
+                      [value]="cantidadArticulo()"
+                      (input)="onCantidadTecleada($any($event.target).value)"
+                      (keydown.enter)="$event.preventDefault(); agregarABandeja()"
+                      (focus)="$any($event.target).select()"
+                      [disabled]="guardando()"
+                      [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
+                    />
+                    <span class="qty-lbl">{{ labelUnidadActiva() }}</span>
+                  </label>
 
                   <button
                     type="button"
@@ -498,7 +498,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                           <span class="previa-unit-sub">/ {{ p.unit_label || labelUnidadActiva() }}</span>
                         </div>
                         @if (p.unit_factor && p.unit_factor > 1) {
-                          <span class="previa-menor-sub">{{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                          <span class="previa-menor-sub">{{ p.unit_factor }} {{ abrevBase(e) }} {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                         }
                       } @else {
                         <span class="previa-none">Sin precio en Sucursal {{ sucursal() }}</span>
@@ -636,50 +636,70 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   </tr>
                 </thead>
                 <tbody>
+                  <!-- UNA línea por renglón (COT.16): con 15 partidas cabían 7 sin scroll porque
+                       cada renglón ocupaba dos (SKU abajo y el desglose abajo del precio). -->
                   @for (item of bandeja(); track item.id; let idx = $index) {
-                    <tr>
+                    <tr [class.row-no-casado]="!item.sku">
                       <td class="num mono">{{ idx + 1 }}</td>
-                      <td>
-                        <strong class="item-name">{{ item.name }}</strong>
-                        <div class="item-sub">
+                      <td class="item-cell" [attr.title]="item.barcode ? 'EAN ' + item.barcode : null">
+                        @if (item.sku) {
+                          <strong class="item-name">{{ item.name }}</strong>
                           <span class="item-sku">{{ item.sku }}</span>
-                          @if (item.barcode) { <span>EAN: {{ item.barcode }}</span> }
-                        </div>
+                        } @else {
+                          <span class="tag-no-casado">No manejado</span>
+                          <strong class="item-name">{{ item.requested_text }}</strong>
+                        }
                         @if (item.free_goods) {
                           <span class="gift-tag"><i class="pi pi-gift"></i> Regalo: {{ item.free_goods.quantity }} de {{ item.free_goods.sku }}</span>
                         }
                       </td>
                       <td>
-                        <span class="pres-badge">{{ item.unit_label }}</span>
-                        @if (item.factor && item.factor > 1) {
-                          <span class="pres-factor">x{{ item.factor }}</span>
+                        @if (item.sku) {
+                          <span class="pres-badge">{{ item.unit_label }}</span>
+                          @if (item.factor && item.factor > 1) {
+                            <span class="pres-factor">x{{ item.factor }}</span>
+                          }
+                        } @else {
+                          <span class="pres-factor">—</span>
                         }
                       </td>
                       <td class="num">
                         <div class="table-qty-control">
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()">−</button>
-                          <span class="table-qty-val">{{ item.quantity }}</span>
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, 1)" [disabled]="guardando()">+</button>
+                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()" aria-label="Restar uno">−</button>
+                          <input
+                            type="text"
+                            inputmode="numeric"
+                            class="table-qty-val"
+                            [value]="item.quantity"
+                            (change)="fijarCantidadBandeja(item, $any($event.target).value)"
+                            (keydown.enter)="$any($event.target).blur()"
+                            (focus)="$any($event.target).select()"
+                            [disabled]="guardando()"
+                            aria-label="Cantidad del renglón"
+                          />
+                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, 1)" [disabled]="guardando()" aria-label="Sumar uno">+</button>
                         </div>
                       </td>
                       <td class="num font-num">
-                        <div class="p-unit-cell">
-                          <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
-                          @if (item.factor && item.factor > 1 && item.unit_price !== null) {
-                            <span class="p-unit-sub-breakdown">({{ item.factor }}PZS {{ (item.unit_price / item.factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
-                          }
-                        </div>
+                        <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
+                        @if (item.factor && item.factor > 1 && item.unit_price !== null) {
+                          <span class="p-unit-sub-breakdown">{{ (item.unit_price / item.factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ item.base_unit || 'PZA' }}</span>
+                        }
                       </td>
                       <td>
-                        <span class="source-tag" [class.source-tag-volumen]="item.price_source === 'volume_qty'">
-                          @if (item.price_source === 'volume_qty') {
-                            <i class="pi pi-bolt" aria-hidden="true"></i>
-                          }
-                          {{ fuenteLabel(item.price_source) }}
-                        </span>
+                        @if (item.sku) {
+                          <span class="source-tag" [class.source-tag-volumen]="item.price_source === 'volume_qty'">
+                            @if (item.price_source === 'volume_qty') {
+                              <i class="pi pi-bolt" aria-hidden="true"></i>
+                            }
+                            {{ fuenteLabel(item.price_source) }}
+                          </span>
+                        } @else {
+                          <span class="source-tag">Sin precio</span>
+                        }
                       </td>
                       <td class="num font-num bold-num">
-                        {{ item.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                        {{ item.sku ? (item.line_total | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}
                       </td>
                       <td class="num">
                         <button
@@ -990,7 +1010,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
-      .search-hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0.5rem 0 0; }
+      .search-hint {
+        position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        font-size: 0.8125rem; color: var(--text-muted); background: var(--card-bg);
+        border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      }
+      .btn-no-casado {
+        border: 1px dashed var(--border-color); background: var(--card-bg); color: var(--text-main);
+        border-radius: 6px; padding: 0.25rem 0.6rem; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+      }
+      .btn-no-casado:hover { border-color: var(--action); color: var(--action); }
 
       /* Tarjeta de producto descargado */
       .descargado-box {
@@ -1039,7 +1071,14 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
         justify-content: center; font-variant-numeric: tabular-nums;
       }
-      .qty-num { font-size: 1.05rem; font-weight: 800; line-height: 1.05; color: var(--text-main); }
+      /* La cantidad es un campo: se teclea (dictado) y Enter agrega */
+      .qty-num {
+        width: 100%; border: 0; background: transparent; text-align: center; padding: 0;
+        font: inherit; font-size: 1.05rem; font-weight: 800; line-height: 1.05; color: var(--text-main);
+        font-variant-numeric: tabular-nums;
+      }
+      .qty-num:focus { outline: none; }
+      .touch-qty-readout:focus-within { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring, rgba(240, 90, 40, 0.3)); }
       .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.25rem; }
@@ -1120,9 +1159,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .calc-details summary { cursor: pointer; color: var(--text-muted); font-weight: 600; width: fit-content; }
       .calc-details summary:hover { color: var(--text-main); }
 
-      .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
       .p-unit-main { font-weight: 700; }
-      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; }
+      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; margin-left: 0.35rem; }
       .source-tag-volumen { background: #dcfce7 !important; color: #15803d !important; font-weight: 700; }
 
       /* Bandeja de productos agregados */
@@ -1144,10 +1182,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
       .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
 
-      .item-name { font-size: 0.8125rem; display: block; }
-      .item-sub { font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 0.4rem; margin-top: 0.1rem; }
-      .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
-      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-top: 0.2rem; font-weight: 600; }
+      /* Bandeja de UNA línea por renglón: nombre y SKU juntos; el EAN va en el title */
+      .item-cell { white-space: nowrap; max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+      .item-name { font-size: 0.8125rem; }
+      .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
+      .tag-no-casado {
+        font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+        color: #a16207; background: #fef3c7; border-radius: 4px; padding: 1px 5px; margin-right: 0.4rem;
+      }
+      .row-no-casado td { background: #fffbeb; }
+      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-left: 0.4rem; font-weight: 600; }
 
       .pres-badge { font-weight: 700; background: var(--neutral-100, #f1f5f9); padding: 1px 5px; border-radius: 4px; font-size: 0.75rem; }
       .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
@@ -1158,7 +1202,11 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem;
       }
       .btn-table-step:hover { background: var(--neutral-100, #f1f5f9); border-radius: 4px; }
-      .table-qty-val { min-width: 24px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .table-qty-val {
+        width: 3rem; border: 0; background: transparent; text-align: center; padding: 0;
+        font: inherit; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main);
+      }
+      .table-qty-val:focus { outline: 2px solid var(--action-ring, rgba(240, 90, 40, 0.3)); border-radius: 3px; }
 
       .source-tag { font-size: 0.7rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 4px; color: var(--text-muted); white-space: nowrap; }
       .btn-quitar {
@@ -1220,6 +1268,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 export class TeleventaQuoteNewComponent implements OnInit {
   private readonly svc = inject(QuotesService);
   private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
 
@@ -1272,6 +1321,16 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
   private focoSinAbrirCatalogo = false;
+  /** El campo de cantidad de la franja: recibe el cursor al elegir artículo (dictado sin mouse). */
+  private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
+  /** Renglón resaltado de la lista de artículos (↑/↓ + Enter). */
+  readonly resaltado = signal(0);
+  /** Término con el que se pidió la lista que hoy se ve: Enter no elige de una lista vieja. */
+  private terminoDeResultados = '';
+  /** Enter se presionó antes de que llegara la lista del término actual: elegir al llegar. */
+  private elegirAlLlegarResultados = false;
+  /** Agregar se pidió antes de que llegara el precio de la cantidad/unidad actual. */
+  private agregarAlLlegarPrecio = false;
 
   // ── La Bandeja de productos de la cotización ───────────────────────────────
   bandeja = signal<ItemBandeja[]>([]);
@@ -1355,8 +1414,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
         debounceTime(250),
         switchMap(() => {
           const suc = this.sucursal() || '01';
+          const termino = this.terminoArticulo.trim();
           this.buscandoArticulo.set(true);
-          return this.svc.searchCatalog(suc, this.terminoArticulo.trim(), 50).pipe(
+          return this.svc.searchCatalog(suc, termino, 50).pipe(
             catchError((err) => {
               this.toast.add({
                 severity: err?.status === 403 ? 'warn' : 'error',
@@ -1365,24 +1425,35 @@ export class TeleventaQuoteNewComponent implements OnInit {
               });
               return of([] as QuoteCatalogRow[]);
             }),
+            map((rows) => ({ termino, rows })),
           );
         }),
       )
-      .subscribe((rows) => {
-        // Orden alfabético por nombre del producto tal como solicita el PM
-        const ordenados = [...rows].sort((a, b) => {
-          const nomA = (a.name || a.sku).trim();
-          const nomB = (b.name || b.sku).trim();
-          return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
-        });
+      .subscribe(({ termino, rows }) => {
+        // El ORDEN lo pone el servidor: aciertos exactos y después lo más vendido en la sucursal
+        // (COT.16, aprobado 2026-10-01). Antes aquí se re-ordenaba alfabético (pedido del PM) y
+        // el producto buscado quedaba en el lugar 4–8, o 23 de 50 con "cimarron".
+        const ordenados = rows;
+        this.terminoDeResultados = termino;
         this.resultadosArticulos.set(ordenados);
+        this.resaltado.set(0);
         this.buscandoArticulo.set(false);
-        this.catalogoAbierto.set(true);
+        // Con un artículo ya elegido la lista NO se reabre: una respuesta que llega tarde la
+        // abría encima de la franja de cantidad y tapaba el campo donde se está tecleando.
+        this.catalogoAbierto.set(!this.articuloElegido());
 
         // Si es escaneo exacto de código de barras o SKU
         const t = this.terminoArticulo.trim();
         if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
+          this.elegirAlLlegarResultados = false;
           this.elegirArticulo(ordenados[0]);
+          return;
+        }
+        // Enter se presionó antes de que llegara esta lista: se elige ahora su primer renglón,
+        // sólo si la lista es la del término que está escrito (si siguió tecleando, se espera).
+        if (this.elegirAlLlegarResultados && termino === t) {
+          this.elegirAlLlegarResultados = false;
+          if (ordenados.length) this.elegirArticulo(ordenados[0]);
         }
       });
 
@@ -1417,6 +1488,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
       .subscribe((p) => {
         this.previaArticulo.set(p);
         this.cotizandoArticulo.set(false);
+        // Se presionó Enter / Agregar antes de que llegara el precio de la cantidad tecleada.
+        // Sólo se agrega cuando llega la previa de lo que HOY está en la franja: si llega una
+        // vieja (la de la cantidad anterior) se sigue esperando — antes se apagaba la espera con
+        // esa previa vieja y el artículo nunca entraba (COT.16, visto en la prueba de dictado).
+        if (this.agregarAlLlegarPrecio) {
+          if (!p) {
+            this.agregarAlLlegarPrecio = false; // el motor no respondió: no se agrega a ciegas
+          } else if (this.previaCorresponde()) {
+            this.agregarAlLlegarPrecio = false;
+            this.agregarABandeja();
+          }
+        }
       });
 
     // 4. Carga reactiva de vendedores de la sucursal activa
@@ -1443,6 +1526,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   elegirCliente(c: WholesaleCustomer): void {
+    // Elegido el cliente, el cursor pasa al buscador de artículo: en los 3 pedidos dictados de
+    // la simulación había que dar un clic extra antes de la primera partida (COT.16).
+    this.volverAlBuscador();
     this.cliente.set(c);
     this.resultadosClientes.set([]);
     this.terminoCliente = '';
@@ -1521,6 +1607,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   // ── Acciones de Captura Manual ──────────────────────────────────────────────
   onTerminoArticulo(_v: string): void {
+    // Una búsqueda nueva cancela lo que estaba pendiente del artículo anterior: si quedara
+    // vivo, se aplicaría al SIGUIENTE artículo (se vio: un gansito de 1 que nadie pidió).
+    this.agregarAlLlegarPrecio = false;
+    this.elegirAlLlegarResultados = false;
+    // Lo que se ve ya no es la lista de lo tecleado: Enter espera la nueva. Sin esto, repetir la
+    // MISMA búsqueda ("gansito mini" dos veces) dejaba a Enter frente a una lista vacía.
+    this.terminoDeResultados = '';
     this.articuloElegido.set(null);
     this.previaArticulo.set(null);
     this.busquedaArticulo$.next();
@@ -1535,17 +1628,51 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   elegirArticulo(p: QuoteCatalogRow): void {
+    this.agregarAlLlegarPrecio = false; // lo pendiente era del artículo anterior
     this.articuloElegido.set(p);
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
     this.previa$.next();
+    // Dictado sin mouse (COT.16): elegido el artículo, el cursor pasa a la CANTIDAD (con el 1
+    // seleccionado para sobrescribirlo). Enter ahí agrega y regresa al buscador.
+    afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
   }
 
   limpiarArticulo(): void {
+    this.agregarAlLlegarPrecio = false;
     this.articuloElegido.set(null);
     this.previaArticulo.set(null);
     this.catalogoAbierto.set(true);
+  }
+
+  /** ↑/↓ en el buscador: mueve el resaltado de la lista sin soltar el teclado. */
+  moverResaltado(delta: number): void {
+    const n = this.resultadosArticulos().length;
+    if (!n) return;
+    this.catalogoAbierto.set(true);
+    this.resaltado.set(Math.min(n - 1, Math.max(0, this.resaltado() + delta)));
+    afterNextRender(
+      () => this.host.nativeElement.querySelector('.cat-row-active')?.scrollIntoView({ block: 'nearest' }),
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * Enter en el buscador: elige el resaltado. Si la lista todavía es la de una búsqueda ANTERIOR
+   * (se tecleó y se presionó Enter antes de que respondiera el servidor), espera la nueva y
+   * elige su primer renglón — elegir de la lista vieja metería otro producto en el pedido.
+   */
+  elegirResaltado(): void {
+    const t = this.terminoArticulo.trim();
+    if (!t) return;
+    if (this.buscandoArticulo() || this.terminoDeResultados !== t) {
+      this.elegirAlLlegarResultados = true;
+      return;
+    }
+    const r = this.resultadosArticulos();
+    if (!r.length) return;
+    this.elegirArticulo(r[this.resaltado()] ?? r[0]);
   }
 
   setRung(r: Rung): void {
@@ -1564,31 +1691,29 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.previa$.next();
   }
 
-  /** Nombre de la unidad mayor del artículo: Caja, Bulto o Cubeta, según lo declara el ERP. */
-  mayor(e: QuoteCatalogRow | null): string {
-    return nombreUnidadMayor(e?.box_label);
+  /** Cantidad tecleada en la franja. Vacío o no numérico = se conserva la anterior. */
+  onCantidadTecleada(valor: string): void {
+    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    if (n === this.cantidadArticulo()) return;
+    this.cantidadArticulo.set(n);
+    this.previa$.next();
   }
 
-  /** El ERP declara unidad mayor (caja, bulto o cubeta) para este artículo en la sucursal. */
-  tieneMayor(e: QuoteCatalogRow | null): boolean {
-    return !!(e && (e.box_size || e.box_label));
+  /** Unidades del artículo de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
+  opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
+    return opcionesUnidad(e);
   }
 
-  tienePaquete(e: QuoteCatalogRow | null): boolean {
-    return !!(e && e.pack_size && e.pack_size > 1);
-  }
-
-  /** Cuántos botones de unidad se pintan: la base siempre, más los peldaños que existan. */
-  unidadesDisponibles(e: QuoteCatalogRow | null): number {
-    return 1 + (this.tieneMayor(e) ? 1 : 0) + (this.tienePaquete(e) ? 1 : 0);
+  /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
+  abrevBase(e: QuoteCatalogRow | null): string {
+    return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
   }
 
   labelUnidadActiva(): string {
-    const r = this.rung();
     const e = this.articuloElegido();
-    if (r === 'box') return this.mayor(e);
-    if (r === 'pack') return 'Paquete';
-    return e?.sold_by_kg ? 'KG' : 'Pieza';
+    if (!e) return 'Pieza';
+    return opcionesUnidad(e).find((o) => o.rung === this.rung())?.titulo ?? nombreUnidadBase(e.unit_base, e.sold_by_kg);
   }
 
   esDescuentoVolumen(p: PricedLine): boolean {
@@ -1604,37 +1729,76 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   // ── Bandeja de Cotización ───────────────────────────────────────────────────
-  agregarABandeja(): void {
+  /**
+   * Agrega el artículo con la cantidad y unidad de la franja.
+   *
+   * ⚠️ Sólo con un precio que CORRESPONDA a esa cantidad y unidad: con Enter se puede agregar
+   * antes de que llegue la previa de la cantidad recién tecleada, y entonces se guardaría el
+   * precio (o la cantidad) anterior. En ese caso se espera la previa y se agrega al llegar.
+   *
+   * Si el mismo artículo en la misma unidad YA está en la bandeja, se SUMA a ese renglón en vez
+   * de crear otro: "2 cajas de gansito" + "otras 2" eran dos renglones a $501.80 cuando 4 cajas
+   * ya tienen precio de mayoreo de $494.99 — el cliente pagaba de más sin que nadie lo viera.
+   */
+  /** La previa que se ve corresponde al artículo, la cantidad y la unidad que HOY están en la franja. */
+  private previaCorresponde(): boolean {
     const art = this.articuloElegido();
     const prev = this.previaArticulo();
-    if (!art || !prev || prev.unit_price === null) return;
+    return (
+      !!art && !!prev && !this.cotizandoArticulo() &&
+      prev.sku === art.sku && Number(prev.quantity) === this.cantidadArticulo() && prev.rung === this.rung()
+    );
+  }
 
+  agregarABandeja(): void {
+    const art = this.articuloElegido();
+    if (!art) return;
     const qty = this.cantidadArticulo();
-    const factorNum = this.rung() === 'box' ? (art.box_size || null) : (this.rung() === 'pack' ? (art.pack_size || null) : null);
+    const rung = this.rung();
+    if (!this.previaCorresponde()) {
+      // Se agrega en cuanto llegue la previa de ESTA cantidad/unidad (ver la suscripción).
+      this.agregarAlLlegarPrecio = true;
+      this.previa$.next();
+      return;
+    }
+    const prev = this.previaArticulo();
+    if (prev!.unit_price === null) return;
 
-    const item: ItemBandeja = {
-      id: `${art.sku}_${this.rung()}_${Date.now()}`,
-      sku: art.sku,
-      name: art.name || art.sku,
-      barcode: art.barcode,
-      content: art.content,
-      rung: this.rung(),
-      unit_label: prev.unit_label || this.labelUnidadActiva(),
-      factor: factorNum,
-      quantity: qty,
-      unit_price: prev.unit_price,
-      line_total: prev.line_total ?? (prev.unit_price * qty),
-      price_source: prev.price_source,
-      free_goods: prev.free_goods ? { sku: prev.free_goods.sku, quantity: prev.free_goods.quantity } : null,
-    };
-
-    this.bandeja.update((items) => [...items, item]);
-
-    this.toast.add({
-      severity: 'success',
-      summary: 'Agregado a la bandeja',
-      detail: `${qty} ${item.unit_label}${qty > 1 ? 's' : ''} de ${item.name}`,
-    });
+    const existente = this.bandeja().find((it) => it.sku === art.sku && it.rung === rung);
+    if (existente) {
+      const total = existente.quantity + qty;
+      this.cambiarCantidadBandeja(existente.id, total);
+      const n = this.bandeja().indexOf(existente) + 1;
+      this.toast.add({
+        severity: 'info',
+        summary: 'Sumado a una partida que ya estaba',
+        detail: `${art.name || art.sku}: renglón ${n} ahora con ${total} ${prev!.unit_label || this.labelUnidadActiva()} (se recalcula el precio).`,
+      });
+    } else {
+      const factorNum = rung === 'box' ? (art.box_size || null) : (rung === 'pack' ? (art.pack_size || null) : null);
+      const item: ItemBandeja = {
+        id: `${art.sku}_${rung}_${Date.now()}`,
+        sku: art.sku,
+        name: art.name || art.sku,
+        barcode: art.barcode,
+        content: art.content,
+        rung,
+        unit_label: prev!.unit_label || this.labelUnidadActiva(),
+        base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
+        factor: factorNum,
+        quantity: qty,
+        unit_price: prev!.unit_price,
+        line_total: prev!.line_total ?? (prev!.unit_price! * qty),
+        price_source: prev!.price_source,
+        free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
+      };
+      this.bandeja.update((items) => [...items, item]);
+      this.toast.add({
+        severity: 'success',
+        summary: 'Agregado a la bandeja',
+        detail: `${qty} ${item.unit_label} de ${item.name}`,
+      });
+    }
 
     // Limpia para agregar el siguiente artículo fluidamente
     this.articuloElegido.set(null);
@@ -1644,10 +1808,47 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
+    this.volverAlBuscador();
+  }
 
-    // El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse.
-    // Sin abrir la lista: el foco programático no es "quiero ver el catálogo", y la lista
-    // taparía la bandeja recién actualizada. Al teclear se abre sola (búsqueda).
+  /**
+   * Lo que el cliente pide y no manejamos (o no se encontró): renglón SIN casar, sin precio. Viaja
+   * con la cotización como demanda (`requested_text`) en vez de perderse (COT.16).
+   */
+  agregarNoManejado(): void {
+    const texto = this.terminoArticulo.trim();
+    if (!texto) return;
+    const item: ItemBandeja = {
+      id: `nc_${Date.now()}`,
+      sku: '',
+      name: texto,
+      requested_text: texto,
+      barcode: null,
+      content: null,
+      rung: 'base',
+      unit_label: '',
+      base_unit: null,
+      factor: null,
+      quantity: 1,
+      unit_price: null,
+      line_total: 0,
+      price_source: 'unknown',
+      free_goods: null,
+    };
+    this.bandeja.update((items) => [...items, item]);
+    this.toast.add({ severity: 'info', summary: 'Anotado como no manejado', detail: `"${texto}" queda en la cotización sin precio.` });
+    this.terminoArticulo = '';
+    this.resultadosArticulos.set([]);
+    this.catalogoAbierto.set(false);
+    this.volverAlBuscador();
+  }
+
+  /**
+   * El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse. Sin
+   * abrir la lista: el foco programático no es "quiero ver el catálogo", y la lista taparía la
+   * bandeja recién actualizada. Al teclear se abre sola (búsqueda).
+   */
+  private volverAlBuscador(): void {
     this.focoSinAbrirCatalogo = true;
     afterNextRender(
       () => {
@@ -1659,20 +1860,50 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   ajustarCantidadBandeja(item: ItemBandeja, delta: number): void {
-    const nuevaQty = Math.max(1, item.quantity + delta);
-    if (nuevaQty === item.quantity) return;
+    // Se parte de la cantidad ACTUAL del renglón, no de la que tenía cuando se pintó el botón:
+    // con clics rápidos, 4 × "+" sobre 8 dejaban 9 (cada clic veía el 8) — COT.16.
+    const actual = this.bandeja().find((it) => it.id === item.id);
+    if (!actual) return;
+    this.cambiarCantidadBandeja(item.id, actual.quantity + delta);
+  }
 
-    // Recalcula precio preview para la nueva cantidad y actualiza la bandeja
+  /** Cantidad tecleada en la bandeja ("mejor que sean 12"). */
+  fijarCantidadBandeja(item: ItemBandeja, valor: string): void {
+    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1) {
+      // Vacío o inválido: se vuelve a pintar la cantidad que sí tiene el renglón.
+      this.bandeja.update((items) => items.map((it) => (it.id === item.id ? { ...it } : it)));
+      return;
+    }
+    this.cambiarCantidadBandeja(item.id, n);
+  }
+
+  /**
+   * Cambia la cantidad de un renglón y lo vuelve a preciar (el volumen puede cambiar el precio).
+   * La cantidad se aplica AL MOMENTO; la respuesta del precio sólo se aplica si el renglón
+   * sigue con esa cantidad — si llegan fuera de orden, la de un clic anterior no pisa la última.
+   */
+  private cambiarCantidadBandeja(id: string, cantidad: number): void {
+    const nuevaQty = Math.max(1, Math.floor(cantidad));
+    const actual = this.bandeja().find((it) => it.id === id);
+    if (!actual || nuevaQty === actual.quantity) return;
+
+    this.bandeja.update((items) =>
+      items.map((it) =>
+        it.id === id ? { ...it, quantity: nuevaQty, line_total: it.unit_price !== null ? it.unit_price * nuevaQty : 0 } : it,
+      ),
+    );
+    if (!actual.sku) return; // renglón no manejado: no hay precio que recalcular
+
     this.svc
-      .pricePreview({ branch: this.sucursal() || '01', sku: item.sku, quantity: nuevaQty, rung: item.rung })
+      .pricePreview({ branch: this.sucursal() || '01', sku: actual.sku, quantity: nuevaQty, rung: actual.rung })
       .subscribe({
         next: (p) => {
           this.bandeja.update((items) =>
             items.map((it) => {
-              if (it.id !== item.id) return it;
+              if (it.id !== id || it.quantity !== nuevaQty) return it;
               return {
                 ...it,
-                quantity: nuevaQty,
                 unit_price: p.unit_price,
                 line_total: p.line_total ?? ((p.unit_price || 0) * nuevaQty),
                 price_source: p.price_source,
@@ -1682,10 +1913,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           );
         },
         error: () => {
-          // Si falla preview de red, al menos ajusta la cantidad con el unit price actual
-          this.bandeja.update((items) =>
-            items.map((it) => (it.id === item.id ? { ...it, quantity: nuevaQty, line_total: (it.unit_price || 0) * nuevaQty } : it)),
-          );
+          // Sin respuesta del motor: la cantidad ya quedó; el precio unitario es el anterior.
         },
       });
   }
@@ -1770,11 +1998,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
           // 2. Agrega secuencialmente los renglones de la bandeja
           return from(items).pipe(
             concatMap((item) =>
-              this.svc.addLine(q.id, {
-                sku: item.sku,
-                quantity: item.quantity,
-                rung: item.rung,
-              }),
+              item.sku
+                ? this.svc.addLine(q.id, { sku: item.sku, quantity: item.quantity, rung: item.rung })
+                : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
+                  this.svc.addLine(q.id, { requested_text: item.requested_text || item.name, quantity: item.quantity }),
             ),
             toArray(),
             map((results) => ({ quote: q, linesAdded: results.length })),
@@ -1854,13 +2081,14 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const branchName = sucursalObj?.name || `Sucursal ${sucursalCod}`;
 
     const items = this.bandeja().map((it) => ({
-      sku: it.sku,
-      name: it.name,
+      sku: it.sku || '—',
+      name: it.sku ? it.name : `NO MANEJADO: ${it.requested_text || it.name}`,
       barcode: it.barcode,
       content: it.content,
-      unit_label: it.unit_label,
+      unit_label: it.unit_label || '—',
       rung: it.rung,
       factor: it.factor,
+      base_unit: it.base_unit,
       quantity: it.quantity,
       unit_price: it.unit_price,
       line_total: it.line_total,

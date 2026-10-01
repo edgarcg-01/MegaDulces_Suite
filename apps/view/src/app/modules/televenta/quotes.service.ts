@@ -116,19 +116,8 @@ export interface QuoteCatalogRow {
   sold_by_kg: boolean;
 }
 
-/**
- * Nombre para mostrar de la unidad mayor (el peldaño `box`). No siempre es "Caja": el granel se
- * vende por bulto y algunos productos por cubeta, y el ERP lo declara así (`kdii.c83`/`c80`).
- */
-export function nombreUnidadMayor(label: string | null | undefined): string {
-  const l = (label || '').trim().toUpperCase();
-  if (l === 'BTO' || l === 'BULTO') return 'Bulto';
-  if (l === 'CUB' || l === 'CUBETA') return 'Cubeta';
-  if (l === 'CJA' || l === 'CAJA' || l === '') return 'Caja';
-  // Un rótulo que no conocemos se muestra TAL CUAL, con la palabra del ERP: decirle "Caja" a algo
-  // que el ERP llama de otra forma es inventar la unidad (hay `SER` de factor 50 en el catálogo).
-  return l;
-}
+// Las funciones de unidades viven en `quote-units.ts` (sin Angular, se prueban solas).
+export * from './quote-units';
 
 export interface PricedLine {
   sku: string;
@@ -177,6 +166,9 @@ export interface QuoteLine {
   product_sku: string | null;
   product_content: string | null;
   product_barcode: string | null;
+  /** Unidad BASE del producto en la sucursal de la cotización (rotula el desglose "12 PAQ"). */
+  product_unit_base?: string | null;
+  product_sold_by_kg?: boolean | null;
   requested_text: string | null;
   quantity: number | string;
   unit_price: number | string | null;
