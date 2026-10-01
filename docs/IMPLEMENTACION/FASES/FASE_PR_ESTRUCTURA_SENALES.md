@@ -396,12 +396,128 @@ ERP cambió y hay que enterarse.
 
 ---
 
-## 12 · Lo que sigue
+## 12 · Capa 4 · **Visual** — la pantalla, y lo que no puede ver
 
-- **Capa 4 · Visual** — la pantalla del triage y el desglose por SKU.
-- ⛔ **Nada de esto es visible todavía**: el bundle desplegado es del 29-sep. Falta **redeploy de
-  `api` + `view`** (sin permisos nuevos → sin re-login).
-- ⛔ **`git push` sin autorizar**: `main` local arrastra commits de otras fases.
+`/comercial/motor-margen`: el triage de las 86,163 celdas, las 29 señales cableadas en 13
+familias, y **las 15 que faltan declaradas con su motivo** — el registro se publica en pantalla,
+no se esconde.
+
+### ⛔ El permiso se derivó, no se calcó
+
+Lo obvio era reusar `COMMERCIAL_PRICING_VER`. Medido antes de hacerlo: lo tienen **3 usuarios
+`customer_b2b` —clientes— y 35 de campo**. Un motor que publica costo, margen y capital
+inmovilizado por SKU no entra por esa puerta. Nace `COMMERCIAL_MARGIN_ENGINE_VER` (batch 621),
+repartido a **7 roles / 16 usuarios**, con un candado que **falla** si la clave aterriza en un rol
+de cliente o de campo.
+
+### ⚠️ "No me deja verlo" no era ni permiso ni código
+
+El reporte de Edgar llegó mientras el despliegue corría: el de las 15:50 construyó `3d3ece7`, el
+push aterrizó **15:53**, y el de `c1a83e8` terminó **16:06:04**. *Antes de buscar la causa en el
+código, hay que medir qué bundle está sirviendo el servidor.*
+
+---
+
+## 13 · `[PR.X]` · El expediente del SKU — la ventana
+
+> *«Al dar clic que se abra una ventana con la información clara y detallada. Una gráfica en la
+> cual veamos cómo se relaciona su historial de costos con sus ventas y cómo han afectado. Y una
+> línea de cómo podría afectar nuestro cambio de precio en ventas… precios de competencia…
+> necesito que demos más herramientas al usuario.»* — Edgar
+
+La pantalla deja de ser un **informe** y pasa a ser un **instrumento**.
+
+### ⭐⭐ La elasticidad no se predice: se le da vuelta a la pregunta
+
+La elasticidad medida es una región de **[−1.415, −0.045]** — un factor **31×** de ancho; por SKU
+el error estándar es **0.94**. Publicar una curva con eso sería inventar.
+
+`analytics.fn_umbral_equilibrio(precio_actual, costo, precio_nuevo)` responde la pregunta
+**volteada**: *a este precio nuevo, tendrías que perder más del **X %** del volumen para quedar
+peor que como estás.* Es **aritmética, no predicción**, y con eso la decisión ya no necesita la
+elasticidad. Se prueba **aislada**, con 8 valores elegidos, sin datos ni ambiente — incluidos los
+casos degenerados (precio nuevo ≤ costo → `NULL`, nunca un número).
+
+### ⭐⭐ El placebo se disparó, y **ese es el entregable**
+
+El event-study sobre cambios de precio pasados da efecto **−0.0125**… con un placebo de
+**+0.2576**: **20× más grande que el efecto**. Y **empeora con mejores datos** (+0.36 restringido
+a ventanas de 15+ días). La prueba decisiva: una **baja** de precio y un **alza** mueven el
+volumen **en la misma dirección** (DiD −0.20 y −0.35). Ninguna curva de demanda hace eso — es
+**reversión a la media**: los precios se tocan justo después de un pico de ventas.
+
+⭐ Por eso la gráfica dibuja **la pre-tendencia al lado**: si no es plana, la gráfica **se
+autodesmiente**, y eso es información, no un defecto. Es además el argumento para correr el
+experimento A/B, que está construido y tiene **0 filas**.
+
+### Los cuatro filtros de la bitácora de precios
+
+Sin ellos `v_label_price_changes` no es un registro de decisiones:
+
+| filtro | qué saca | cuánto |
+|---|---|---|
+| centinela `> $1` | la oscilación (`CJA 1,734.34 → 0.01 → 1,734.34` el mismo día) | 52,001 |
+| neto del día | ida y vuelta que termina donde empezó | 15,401 |
+| \|Δ\| ≥ 1 % | recosteo, no decisión de precio | 40,140 |
+| dedup por unidad | el mismo cambio contado en `PAQ`, `CJA`, `PZA` y `KG` | — |
+
+### ⛔ Competencia: cero fuentes, y se dice en pantalla
+
+No existe ningún precio de competidor en ninguna base ni en el repo (F1 refutada: PROFECO cubre
+**0 %** del catálogo). **El hueco se declara.** En su lugar va la **demanda perdida** —
+$30.6M atribuibles— **con su vencimiento al lado**: `wincaja.v_lost_demand` se corta **exactamente**
+en el cutover a Kepler de cada plaza (la sucursal 01 termina el 25-jun; su cutover fue el 27-jun).
+
+⚠️ **Hallazgo operativo, más grande que la fase:** desde la migración **nadie registra venta
+perdida**. `commercial.floor_stockouts` tiene **13 filas en 2 plazas**.
+
+### Qué se aplicó
+
+| batch | migración | qué |
+|---|---|---|
+| 632 | `analytics_sku_cost_sales_monthly` | la serie mensual de costo, precio y volumen |
+| 633 | `analytics_sku_price_response` | eventos limpios + event-study **con su placebo en la misma fila** |
+| 634 | `analytics_sku_tools` | `fn_umbral_equilibrio` + demanda perdida |
+| 635 | `mv_sku_price_history` | matvistas: 3,166 → **3 ms** · 6,925 → **1 ms** |
+
+**Candado:** `test-newdb-price-expediente.js` **19 ✓ / 0 ✗** contra prod, con la prueba negativa
+de la dedup y la de la unidad sin línea base — la que infló **+4.67 pp** un DiD anterior.
+
+⛔ **El simulador no escribe nada.** Calcula; la captura sigue siendo en Kepler (ADR-040).
+
+---
+
+## 14 · ⛔ El defecto de método de este incremento
+
+Un comentario HTML con acentos graves **adentro** del `template:` lo terminó antes de tiempo y
+rompió el build. Es la **novena** vez en este repo, y la primera que llega a un commit.
+
+**El acento grave no es el defecto.** El defecto es que cambié el template **después** del último
+build y commiteé sin volver a construir, habiendo corrido `check-primeng-api.js` —que lee el
+archivo como texto y **no lo compila**— y dándolo por suficiente.
+
+⭐⭐ Y la compuerta **ya existía**: `scripts/check-template-literals.js`, cableada en
+`scripts/check-all.js`, cuyo caso #1 es exactamente este. Verificado con **prueba negativa** sobre
+una copia rota a propósito (`❌ 1 componente(s) con el comentario roto`) y verde sobre los
+archivos reales. *El gate no tenía hueco: no lo corrí.* Lo que corresponde antes de commitear es
+`node scripts/check-all.js`, no una sub-compuerta suelta.
+
+⚠️ **Lo que salvó a producción no fue mi disciplina**: el `auto-deploy` estaba **frenado** desde
+las 18:15 por 4 migraciones ajenas sin aplicar, así que el commit roto nunca llegó a compilarse.
+
+---
+
+## 15 · Lo que sigue
+
+- ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
+  `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
+  desde las 18:15** por **4 migraciones ajenas sin aplicar** (`re30_supplier_credit_terms`,
+  `re30_grant_compras_obligaciones`, `re31_goods_receipts_fecha_recepcion`,
+  `re32_purchase_deliveries`, de Fase RE). En cuanto se apliquen, el despliegue arrastra esto solo
+  — sin permisos nuevos pendientes, el de la capa 4 ya está repartido.
+- **Validación visual de la ventana** — lo único que no puedo hacer yo, y donde aparecieron los
+  tres defectos de la capa 3.
+- ⚠️ **Ya está en `origin/main`**: otra sesión empujó `main` y se llevó estos commits con ella (índice de git compartido). No queda push pendiente de esta fase.
 - **D5 · tasa de costo de capital** — sin ella el saldo inmovilizado no se puede ordenar contra
   los flujos. Bloquea priorizar `liberar_capital`.
 - **G4 · intocables y contratos** — los 24 precios atípicos esperan esa marca.
