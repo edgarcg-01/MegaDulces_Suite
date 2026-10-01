@@ -99,6 +99,7 @@ const MAX_DELETE_FRAC = Math.min(1, Math.max(0.05, Number(process.env.ODS_DELETE
 // Latido: el carril continuo late como 'cdc_reconcile'; el barrido agendado (ods-reconcile-full)
 // setea ODS_RECONCILE_HB_KEY para NO pisar ese latido (un carril = un dueño del renglón de cron_runs).
 const HB_KEY = (process.env.ODS_RECONCILE_HB_KEY || 'cdc_reconcile').replace(/[^a-z0-9_]/gi, '') || 'cdc_reconcile';
+let avisoSeco = 0; // [OBS.13] para avisar UNA vez en el lazo continuo, no cada pasada
 
 // ⛔ UN MODO DISTINTO NO PUEDE HEREDAR EL LATIDO DEL CARRIL BASE.
 //
@@ -626,9 +627,25 @@ async function latir(destUrl, r, ms) {
       ? (APPLY ? ` · BORRADAS: ${r.borrados}` : ` · borrarían: ${r.borrarian}`) + (r.abortados ? ` · ABORTADOS: ${r.abortados} (fracción > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%)` : '')
       : ' — sólo se reportan (usá --delete-sobrantes para propagar el DELETE)'}`);
     // OBS.11 — el barrido agendado (ods-reconcile-full) DECLARA su entrega con latido propio
-    // (ODS_RECONCILE_HB_KEY=cdc_reconcile_full). Las corridas manuales no lo setean → no laten,
-    // así no pisan el latido del carril continuo. Un job de limpieza sin latido es mudo.
-    if (process.env.ODS_RECONCILE_HB_KEY) await latir(destUrl, r, Date.now() - t0);
+    // (ODS_RECONCILE_HB_KEY=cdc_reconcile_full). Un job de limpieza sin latido es mudo.
+    //
+    // ⛔ [OBS.13 2026-10-01] Y ADEMÁS EXIGE `--apply`, porque la guarda de arriba NO alcanzaba.
+    // Decía que «las corridas manuales no setean la variable → no laten», y eso vale sólo si se
+    // corre DESDE AFUERA. Un `docker exec <contenedor> node reconcile-ods-window.js …` hereda el
+    // entorno del contenedor —`ODS_RECONCILE_HB_KEY` incluida— y late igual.
+    //
+    // Pasó hoy, y lo hice yo: investigando por qué el nocturno de las 02:10 había terminado en
+    // `error`, corrí una pasada EN SECO con `docker exec`. Esa pasada no borró nada, no abortó
+    // nada… y **escribió `ok` encima del `error` real**. El tablero quedó verde sobre un carril
+    // que había fallado seis horas antes: el falso verde exacto que este archivo combate.
+    //
+    // `--apply` es el discriminador correcto y no inventa nada: las CUATRO invocaciones agendadas
+    // lo llevan (`--days=3 --apply`, `--chicas --apply`, y las dos del crontab de `--full`). Una
+    // corrida en seco no entrega, así que no puede declarar entrega — corra donde corra.
+    if (process.env.ODS_RECONCILE_HB_KEY && APPLY) await latir(destUrl, r, Date.now() - t0);
+    else if (process.env.ODS_RECONCILE_HB_KEY) {
+      console.log('(dry-run: NO se escribe el latido — una pasada que no entrega no declara entrega)');
+    }
     process.exit(0);
   }
 
@@ -650,7 +667,12 @@ async function latir(destUrl, r, ms) {
       const r = resumen(out);
       if (r.huecos || r.errores) console.table(out.filter((x) => x.faltan || x.error || x.skip));
       console.log(`[${new Date().toISOString()}] huecos ${r.huecos} · repuestas ${r.repuestas} · errores ${r.errores} · ${Math.round((Date.now() - t0) / 1000)}s`);
-      await latir(destUrl, r, Date.now() - t0);
+      // [OBS.13] Misma regla que en la pasada única: en seco NO se late. Las tres invocaciones
+      // continuas llevan `--apply` (verificado: 0 agendadas sin él), así que esto no les cambia
+      // nada — cierra el caso de alguien dejando un `--watch` sin `--apply` «para mirar», que
+      // mantendría el renglón verde sin reponer una sola fila.
+      if (APPLY) await latir(destUrl, r, Date.now() - t0);
+      else if (!avisoSeco++) console.log('  (dry-run en continuo: NO se late — mirar no es entregar)');
     } catch (e) {
       console.error(`[${new Date().toISOString()}] pasada falló: ${e.message}`);
     }
