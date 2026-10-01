@@ -423,6 +423,8 @@ services:
   # Sub-minuto: el cron no llega. Loop propio, como el `run-livefast-loop.cmd` que
   # reemplaza (sales-fact → sales_daily + cash-sessions, ventana de 2 días).
   feeds-livefast:
+    # [K3S.11/12] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: feeds-livefast
     restart: unless-stopped
@@ -453,6 +455,8 @@ services:
   # `C:\KeplerPush\store-poller.cmd`, que además era uno de los 2 únicos que corrían
   # como SYSTEM (los otros 17 dependían de una sesión de usuario abierta).
   store-poller:
+    # [K3S.11/12] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     image: trade-ingest:latest
     container_name: store-poller
     restart: unless-stopped

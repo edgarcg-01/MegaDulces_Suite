@@ -1,0 +1,69 @@
+# ═══ FEEDS SUB-MINUTO ═══  [K3S.12]  — pasada `livefast` cada 60 s
+#
+# Mismo secreto y misma sonda que `store-poller` (ver `24-store-poller` para el porqué de los
+# dos secretos y de `FLEET_DB_URL`). Lo propio de éste:
+#
+# ⛔ Lleva `--apply`, y no es decorativo: `run-prod-feeds.js` compara con `argv.includes('--apply')`,
+# comparación EXACTA. Un `--apply` con un retorno de carro pegado —lo que pasó en `[VL.4]` cuando
+# el `crontab` viajó con CRLF— no matchea, y entonces los carriles corren EN SECO imprimiendo
+# `ok`. El latido tampoco se escribe, así que el tablero conserva la marca vieja **en vez de
+# ponerse rojo**. Acá el argumento va en un arreglo YAML, no en una línea que pase por `git
+# archive`, así que ese camino concreto no existe — pero la lección es por qué se escribe así.
+#
+# ⚠️ `status=error` con pasos fallados es POSIBLE por diseño: `run-prod-feeds.js` marca `error`
+# sólo si fallan TODOS los pasos. Un `ok` de este carril no prueba que los 53 pasos pasaron.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feeds-livefast
+  namespace: ingesta
+  labels:
+    carril: feeds-livefast
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: feeds-livefast
+  template:
+    metadata:
+      labels:
+        carril: feeds-livefast
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: feeds
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - 'while :; do node database/importers/kepler/run-prod-feeds.js livefast --apply; echo "[$(date "+%F %T %Z")] pasada livefast lista, siguiente en 60s"; sleep 60; done'
+          envFrom:
+            - secretRef:
+                name: feeds-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            - name: SALES_FACT_DAYS
+              value: "2"
+            - name: ODS_HB_KEY
+              value: feed_livefast
+            - name: ODS_HB_MAX_MIN
+              value: "10"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+          livenessProbe:
+            exec:
+              command: ["/app/ops/ingest/health-lane.sh"]
+            initialDelaySeconds: 180
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "128Mi", cpu: "100m" }
+            limits:   { memory: "1Gi" }
