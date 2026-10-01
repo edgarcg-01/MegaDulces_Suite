@@ -2385,3 +2385,98 @@ Plan y mediciones en [`FASE_VL_VPS_LOCAL.md`](FASES/FASE_VL_VPS_LOCAL.md) y en [
 **Hereda:** ADR-056 (un primitivo no cierra la fase hasta vivir en un lugar compartido; un gate sin prueba negativa es una intención; lo que no se pudo medir se **declara**) · ADR-061 y `[SN.30]` (la landing es `/projects`, no se multiplica).
 
 Plan y mediciones en [`FASE_MT_MULTITAREA.md`](FASES/FASE_MT_MULTITAREA.md).
+
+---
+
+## ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no.
+
+**Fecha:** 2026-09-30 · **Estado:** ✅ Aceptado
+
+**Contexto.** Salió la pregunta de si migrar a Kubernetes o a Podman. La primera respuesta fue
+defensiva —«nada se ha roto»— y el usuario la corrigió con razón: *«no quiero que sólo veamos
+nuestras fallas; si K8s o Podman es mejor para el camino que llevamos, debemos integrarlo»*.
+Este ADR contesta desde el camino, no desde los incidentes.
+
+### Lo que exige el camino, medido el 2026-09-30
+
+El destino declarado es **plataforma B2B multi-tenant** (ADR-010) con la Fase I llamada
+literalmente «ML credit risk + **WS scaling**», y ya hay dinero real corriendo (CV.13, Mercado
+Pago, LM en efectivo). Contra eso, el estado del sustrato:
+
+| lo que el camino va a pedir | estado medido |
+|---|---|
+| Deploy sin caída | **1 réplica** de `prod-api`; el deploy la recrea → **hay caída en cada deploy** |
+| Escalar WebSockets (Fase I) | **no había Redis** — sin adapter, la 2ª réplica no ve las salas de la 1ª |
+| HA real | **1 nodo**. Un corte de luz = caída total (pasó el 24-sep) |
+| Más tenants | shared-DB + RLS: más carga sobre los mismos procesos, no más procesos |
+
+Y el fierro: **8 hilos (Ryzen 5 3400G), 28 GB, load 2.17/2.62/2.48 (~30 %), 21 contenedores,
+un nodo.** El reparto de memoria es la respuesta entera: `pg-prod` **10.2 GB** + `pgvector-md`
+**4.5 GB**, y **todo lo demás junto —API, portal, vendor, worker y los 10 carriles— menos de
+1 GB** (`prod-api` 542 MB; los carriles, 3–40 MB). La máquina son dos Postgres y un margen de
+error: **no hay qué orquestar**.
+
+### Decisión
+
+1. **Se queda Docker Compose declarado en el repo** (hereda ADR-060) mientras haya un solo nodo.
+2. **Gatillo explícito: segundo nodo → K3s.** No Swarm (efectivamente en mantenimiento), no K8s
+   completo (control plane pesado para 2–3 máquinas).
+3. **Podman se rechaza**, y no por costumbre: es un movimiento **lateral en el eje del runtime**
+   —resuelve *cómo corre un contenedor en un host*— y no avanza ninguna de las cuatro líneas de
+   la tabla. Si el camino termina en K3s, abajo corre containerd, así que migrar ahora es trabajo
+   que después se tira. Su único beneficio sustantivo (rootless) se obtiene con Docker rootless
+   sin cambiar de herramienta, y la exposición de verdad es otra: `ods-autoheal` —imagen de
+   terceros— monta `/var/run/docker.sock`, que **equivale a root en el host** (montarlo `:ro` no
+   cambia nada: un socket de sólo lectura sigue aceptando llamadas a la API).
+
+### Por qué K8s hoy sería peor, no mejor
+
+- **Un nodo con K8s tiene peor disponibilidad que con Compose**: mismo punto único de falla, más
+  piezas que romper, y el control plane compite por RAM con Postgres.
+- ⛔ **La mayoría de los carriles tienen PROHIBIDO replicarse.** `ods.ctl`/`ods.shadow` no tienen
+  dimensión de destino: dos shippers se pisan el watermark y **pierden filas en silencio**. Lo
+  principal que K8s vende —programar réplicas libremente— acá es un defecto.
+- ⭐ **No habría evitado ninguno de los incidentes de este mes.** El del 30-sep —un healthcheck
+  que mataba al proceso que producía justo lo que exigía (`[OBS.4.3]`)— **es el footgun canónico
+  de las liveness probes**, y `CronJob` + `activeDeadlineSeconds` tiene la trampa idéntica. El
+  mismo error de diseño, en otro YAML.
+- `dockerd` en `md`: **`NRestarts=0`, cero muertes en 30 días de journal**. El demonio no es el
+  problema. La única falla real de motor fue **Docker Desktop en Windows `.249`**, que es
+  justamente lo que la Fase VL ya resolvió mudándose a Linux.
+
+### Los seis pasos que hacen barata la integración futura
+
+Ninguno es trabajo desperdiciado si el clúster nunca llega; todos son prerequisito si llega.
+
+1. ✅ **Redis + adapter de socket.io** (`[INFRA.1]`, hecho el 2026-09-30). El adapter **ya estaba
+   escrito y nunca encendido** (`main.ts:355-357`): sólo faltaba `REDIS_URL`. Verificado en prod:
+   «adapter cross-instance ACTIVO», 42 canales pub/sub y 14 patrones con los 13 namespaces.
+2. ⬜ **`prod-api` a 2 réplicas detrás de Caddy.** Da deploy sin caída *hoy* y obliga a que el API
+   sea stateless de verdad — mejor descubrir que duele con 2 contenedores que con un clúster.
+   ⚠️ Socket.IO con transporte de sondeo exige **afinidad de sesión**: Caddy necesita
+   `lb_policy cookie`, o forzar transporte websocket. Se mide y se decide; no se improvisa.
+3. ⬜ **Declarar la restricción de los carriles singleton.** Hoy vive en un comentario del compose;
+   en K8s hace falta `replicas=1` explícito o leader election.
+4. ⬜ **Sacar `docker.sock` de `ods-autoheal`.** Es la **única pieza atada a Docker en concreto**;
+   en K8s la reemplazan las liveness probes nativas. Desata el amarre y cierra el agujero de root.
+5. ⬜ **Secretos fuera de archivos** (`/secrets/feeds.env`, más las credenciales embebidas en
+   `import-contpaqi-cfdis.js`).
+6. ⬜ **VL.5 (Wincaja / Jet 32-bit).** Es lo único que **nunca** va a orquestarse; mientras siga,
+   «todo en el clúster» es imposible por definición. Es decisión de negocio, no de infraestructura.
+
+### Declarado, no resuelto
+
+El **tiempo real originado en el worker sigue sin llegar a nadie**. `main.ts:435` arranca el
+worker con `createApplicationContext` —sin servidor HTTP ni WS—, los gateways hacen
+`if (!this.server) return;` y el `emit` es un **no-op silencioso**. `REDIS_URL` es necesaria y
+**no suficiente**: falta `@socket.io/redis-emitter` (verificado: no instalado). Antes de
+instalarlo hay que **contar cuántos emits se pierden hoy**; ese número decide si es urgente.
+
+**Hereda:** ADR-060 (la agenda y los servicios viven declarados en el repo; migrado = latido
+verde, no «el contenedor arrancó») · ADR-053 (el latido mide **entrega**, y la alarma sale por un
+canal distinto del que vigila).
+
+**Se rechaza además:** adoptar un orquestador «para estar listos». Con 4 personas y un nodo es un
+segundo sistema a operar a tiempo completo, y la disponibilidad que compraría es cero. El
+movimiento de mayor retorno para HA sigue siendo **VL.8 (UPS, red, respaldo)**: el riesgo medido
+es la corriente, y eso no lo arregla ningún scheduler.
