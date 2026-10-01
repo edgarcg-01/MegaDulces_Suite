@@ -407,6 +407,30 @@ for s in api worker portal vendor; do
   fi
 done
 
+# ═══ [K3S.24] AL REGISTRY, EN CADA DESPLIEGUE ══════════════════════════════════════════════
+#
+# Este es el camino que despliega ~7 veces al día; `ops/prod/deploy.sh` casi no se usa. Una
+# política escrita sólo en el carril que nadie corre es una política que no existe — medido con
+# la poda de imágenes, que vivía ahí y dejó 80 GB de caché sin tope ([VL.20.5]).
+#
+# Se publica aunque hoy NINGÚN pod de prod consuma estas imágenes: las cuatro apps siguen en
+# Compose. El camino tiene que existir antes del corte, no inventarse el día del corte.
+#
+# ⚠️ No frena el despliegue si falla: nada en producción depende todavía del registry.
+# ⛔ EL DÍA QUE UNA APP MIGRE A K3s ESTO TIENE QUE FRENAR — si no, el pod se queda con la
+#    imagen vieja y el carril reporta DESPLEGADO igual. Es exactamente el defecto del
+#    2026-10-01, y la única razón de que hoy sea un aviso es que nadie lo consume.
+for s in $SERVICIOS; do
+  img=$(img_de "$s"); [ -n "$img" ] || continue
+  docker image inspect "$img:$DESEADO" >/dev/null 2>&1 || continue
+  docker tag "$img:$DESEADO" "localhost:5000/$img:$DESEADO" 2>/dev/null
+  if docker push "localhost:5000/$img:$DESEADO" >/dev/null 2>&1; then
+    di "publicada localhost:5000/$img:$DESEADO"
+  else
+    di "⚠️ no se pudo publicar $img:$DESEADO (no frena: hoy ningun pod de prod lo consume)"
+  fi
+done
+
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
 docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1

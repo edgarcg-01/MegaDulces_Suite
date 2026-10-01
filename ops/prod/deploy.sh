@@ -462,8 +462,43 @@ construir() {
         echo 'FALLÓ'; tail -25 /tmp/build-\$img.log | sed 's/^/      /'; exit 1
       fi
     done"
+  publicar_prod
   subir_compose
   podar_imagenes
+}
+
+# ═══ [K3S.24] LAS IMÁGENES DE PROD VAN AL REGISTRY, SIEMPRE ═════════════════════════════════
+#
+# Se publican aunque HOY ningún pod las consuma: las cuatro apps siguen en Compose, marcadas
+# `preparado`. Publicar de más cuesta segundos; publicar de menos es exactamente cómo los pods
+# del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
+#
+# ⭐ El camino tiene que existir ANTES de que alguien lo necesite, no el día que lo necesita.
+# Si el día del corte hay que inventar el despliegue, el corte se hace a mano — y lo que se
+# hace a mano se olvida.
+#
+# ⭐ El tag es el COMMIT. `latest` con `imagePullPolicy: IfNotPresent` es la combinación que
+# hace que el kubelet no vuelva a jalar NUNCA.
+#
+# ⚠️ Hoy un fallo al publicar AVISA y sigue: nada en producción depende todavía del registry,
+# y abortar un despliegue de Compose porque falló un paso que nadie consume sería frenar el
+# camino feliz por una dependencia futura. ⛔ EL DÍA QUE UNA APP MIGRE A K3s, ESTO TIENE QUE
+# ABORTAR — si no, el pod se queda con la imagen vieja y el despliegue reporta éxito.
+publicar_prod() {
+  echo "── Publicando al registry local (localhost:5000) ──"
+  ssh_md "fallos=0
+    for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor; do
+      if ! docker image inspect \"\$i:$commit\" >/dev/null 2>&1; then
+        printf '   %-22s —  no se construyó en esta corrida, se saltea\n' \"\$i\"; continue
+      fi
+      docker tag \"\$i:$commit\" \"localhost:5000/\$i:$commit\"
+      if docker push \"localhost:5000/\$i:$commit\" >/dev/null 2>&1; then
+        printf '   %-22s ok  →  localhost:5000/%s:%s\n' \"\$i\" \"\$i\" '$commit'
+      else
+        printf '   %-22s ⛔ FALLÓ al publicar\n' \"\$i\"; fallos=\$((fallos+1))
+      fi
+    done
+    [ \"\$fallos\" -eq 0 ] || echo '   ⚠️ el registry no recibió todo. ¿Está arriba?  docker ps | grep prod-registry'"
 }
 
 # ── [VL.20.5] LA PODA VIVE EN UN SCRIPT, NO EN UNA FUNCIÓN DE ACÁ ──────────────────
